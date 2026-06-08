@@ -7,14 +7,22 @@
  *
  * QUERY:
  *   status     — return current phase + evidence list + phase history
+ *                (reads the retained `ivtr_state` column via `getIvtrState`)
  *
- * MUTATE:
- *   start      — begin Implement phase (returns resolved prompt)
- *   next       — advance from current phase to next (validates evidence; returns prompt)
- *   release    — FINAL gate: requires I+V+T evidence, marks task done
- *   loop-back  — rewind to specified phase with failure evidence attached
+ * MUTATE (DEPRECATED — T11896 · T11764 state-machine collapse):
+ *   start / next / release / loop-back — the hand-rolled per-step phase walk
+ *   (`startIvtr`/`advanceIvtr`/`releaseIvtr`/`loopBackIvtr`) has been collapsed
+ *   into the cantbook runtime (the survivor state machine). There is no per-step
+ *   primitive on the runtime to map these 1:1 onto — `executePlaybook` /
+ *   `resumePlaybook` drive an ENTIRE run, not a single phase advance — so each
+ *   mutate op now returns a typed {@link E_DEPRECATED_USE_PLAYBOOK} error with
+ *   an ADR-086 migration-hint envelope (`fix` + `details.migration` +
+ *   `alternatives`) instead of silently breaking. The autonomous IVTR loop is
+ *   `cleo go` (T11896 — defaults to `executePlaybook(ivtr.cantbook)`); a manual
+ *   run is `cleo playbook run ivtr --context '{"taskId":"T###"}'`.
  *
- * All state is persisted via the `ivtr_state` JSON column on `tasks`.
+ * The `status` query stays intact — it backs `cleo show --ivtr-history` and the
+ * strict `E_IVTR_INCOMPLETE` completion gate keeps reading the same column.
  *
  * Type-safe dispatch via `TypedDomainHandler<IvtrOps>` per ADR-058.
  * Param extraction inferred via `OpsFromCore<typeof ivtrCoreOps>`.
@@ -23,25 +31,13 @@
  * @epic T810
  * @task T811
  * @task T1539 — OpsFromCore migration per ADR-058
+ * @task T11896 — mutate ops redirected onto the cantbook runtime (collapse)
  */
 
 import type { EngineResult } from '@cleocode/core';
 import type { IvtrPhase, IvtrPhaseEntry } from '@cleocode/core/internal';
-import {
-  advanceIvtr,
-  autoRunGatesAndRecord,
-  E_IVTR_MAX_RETRIES,
-  extractTypedGates,
-  getIvtrState,
-  getLogger,
-  getProjectRoot,
-  getTask,
-  loopBackIvtr,
-  releaseIvtr,
-  resolvePhasePrompt,
-  startIvtr,
-} from '@cleocode/core/internal';
-import { engineError, engineSuccess, releaseIvtrAutoSuggest } from '@cleocode/runtime/gateway';
+import { getIvtrState, getLogger, getProjectRoot } from '@cleocode/core/internal';
+import { engineSuccess } from '@cleocode/runtime/gateway';
 import {
   defineTypedHandler,
   lafsError,
@@ -54,6 +50,20 @@ import { handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 
 const log = getLogger('domain:ivtr');
+
+/**
+ * Error code returned by every deprecated IVTR mutate op (`start`/`next`/
+ * `release`/`loop-back`) after the T11764 state-machine collapse.
+ *
+ * The hand-rolled per-step phase walk was folded into the cantbook runtime
+ * (the survivor state machine). Because the runtime exposes whole-run
+ * primitives (`executePlaybook`/`resumePlaybook`) rather than per-phase steps,
+ * the manual ops have no 1:1 redirect target and instead surface this typed
+ * error with an ADR-086 migration-hint envelope. Read ops are unaffected.
+ *
+ * @task T11896
+ */
+export const E_DEPRECATED_USE_PLAYBOOK = 'E_DEPRECATED_USE_PLAYBOOK' as const;
 
 // ---------------------------------------------------------------------------
 // Local param types for OpsFromCore wrapper functions
@@ -88,26 +98,107 @@ interface IvtrLoopBackParams {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers (extracted from handler cases for reuse)
+// Deprecation envelope (T11896 · collapse)
 // ---------------------------------------------------------------------------
 
-/** Validate that a string is a legal IvtrPhase (excluding 'released'). */
-function isLoopBackTarget(phase: string): phase is Exclude<IvtrPhase, 'released'> {
-  return phase === 'implement' || phase === 'validate' || phase === 'test';
+/**
+ * Structured `details` payload attached to the {@link E_DEPRECATED_USE_PLAYBOOK}
+ * envelope so machine consumers (and `cleo show --human`) can route on the
+ * migration metadata rather than parsing prose. Conforms to the ADR-086
+ * `DispatchError.details` contract.
+ *
+ * @task T11896
+ */
+interface IvtrMigrationDetails {
+  /** Always `'T11764-state-machine-collapse'` — the supersession source. */
+  deprecatedBy: 'T11764-state-machine-collapse';
+  /** The IVTR mutate op the caller invoked (`start`/`next`/`release`/`loop-back`). */
+  deprecatedOp: string;
+  /** Task the caller was driving, when supplied. */
+  taskId?: string;
+  /** The survivor state machine the loop now runs on. */
+  survivor: 'cantbook-runtime (ivtr.cantbook)';
+  /** Autonomous replacement command (default path). */
+  autonomous: string;
+  /** Manual single-run replacement command. */
+  manual: string;
 }
 
-/** Extract an evidence array from raw value (accepts string[] or comma-separated string). */
-function extractEvidenceFromRaw(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.map(String);
-  if (typeof raw === 'string' && raw.length > 0) return raw.split(',').map((s) => s.trim());
-  return [];
+/**
+ * Build the typed {@link E_DEPRECATED_USE_PLAYBOOK} LAFS error envelope for a
+ * deprecated IVTR mutate op.
+ *
+ * Carries an ADR-086 migration-hint payload: a copy-paste `fix`, a structured
+ * `details.migration` object, and `alternatives` so no behaviour is orphaned
+ * silently — the caller is told exactly which command replaces the manual walk.
+ *
+ * @param op - The deprecated mutate op name (`start`/`next`/`release`/`loop-back`).
+ * @param taskId - Task the caller was driving (for the migration command), or
+ *   `undefined` when the caller omitted it.
+ * @returns A `LafsError` envelope with `code`, `message`, `fix`, and `details`.
+ * @task T11896
+ */
+function deprecatedMutateEnvelope(op: string, taskId: string | undefined) {
+  const id = taskId ?? 'T####';
+  const manual = `cleo playbook run ivtr --context '{"taskId":"${id}"}'`;
+  const autonomous = 'cleo go';
+  const migration: IvtrMigrationDetails = {
+    deprecatedBy: 'T11764-state-machine-collapse',
+    deprecatedOp: op,
+    survivor: 'cantbook-runtime (ivtr.cantbook)',
+    autonomous,
+    manual,
+    ...(taskId !== undefined ? { taskId } : {}),
+  };
+  return lafsError(
+    E_DEPRECATED_USE_PLAYBOOK,
+    `'cleo orchestrate ivtr --${op}' is deprecated. The hand-rolled IVTR phase ` +
+      `walk was collapsed into the cantbook runtime (T11764). Drive IVTR through ` +
+      `the playbook runtime instead: '${autonomous}' (autonomous, default) or ` +
+      `'${manual}' (single manual run).`,
+    op,
+    manual,
+    {
+      migration: migration as unknown as Record<string, unknown>,
+      alternatives: [
+        { action: 'Autonomous IVTR loop (default)', command: autonomous },
+        { action: 'Manual single IVTR run', command: manual },
+      ],
+    },
+  );
+}
+
+/** A single ADR-086 `DispatchError.alternatives` entry. */
+interface AlternativeAction {
+  action: string;
+  command: string;
+}
+
+/**
+ * Type guard for an {@link AlternativeAction} list — used to narrow the
+ * `details.alternatives` value lifted off the deprecation envelope before it is
+ * forwarded onto the typed `DispatchError.alternatives` field (zero `any`).
+ *
+ * @task T11896
+ */
+function isAlternativesList(value: unknown): value is AlternativeAction[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (v): v is AlternativeAction =>
+        typeof v === 'object' &&
+        v !== null &&
+        typeof (v as { action?: unknown }).action === 'string' &&
+        typeof (v as { command?: unknown }).command === 'string',
+    )
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Core op wrappers — single-param functions for OpsFromCore inference
 //
-// All stateful logic lives in these wrappers (matching the pipeline.ts pattern).
-// The typed handler cases become single-line wrapCoreResult calls.
+// `status` reads the retained `ivtr_state` column; the four mutate ops are
+// DEPRECATED stubs (T11896) whose typed handler returns the migration envelope.
 // ---------------------------------------------------------------------------
 
 interface IvtrStatusResult {
@@ -131,7 +222,10 @@ async function ivtrStatusOp(params: IvtrStatusParams): Promise<EngineResult<Ivtr
       started: false,
       currentPhase: null,
       phaseHistory: [] as IvtrPhaseEntry[],
-      message: `Task ${params.taskId} has no active IVTR loop. Run --start to begin.`,
+      message:
+        `Task ${params.taskId} has no IVTR state. The IVTR loop now runs on the ` +
+        `cantbook runtime (T11764) — drive it with 'cleo go' (autonomous) or ` +
+        `'cleo playbook run ivtr --context '{"taskId":"${params.taskId}"}''.`,
     });
   }
 
@@ -154,226 +248,59 @@ async function ivtrStatusOp(params: IvtrStatusParams): Promise<EngineResult<Ivtr
   });
 }
 
-async function ivtrStartOp(params: IvtrStartParams) {
-  const cwd = getProjectRoot();
-  const task = await getTask(params.taskId, cwd);
-  if (!task) {
-    return engineError('E_NOT_FOUND', `Task ${params.taskId} not found`);
-  }
+/**
+ * Result shape shared by the four deprecated mutate stubs.
+ *
+ * The stubs exist purely to carry the `OpsFromCore` param typing for the typed
+ * handler — the actual deprecation envelope is built in {@link _ivtrTypedHandler}
+ * via {@link deprecatedMutateEnvelope}, so the stub bodies are never invoked on
+ * the success path. They return a frozen {@link E_DEPRECATED_USE_PLAYBOOK}
+ * failure so a stray direct call (e.g. a test) still fails closed rather than
+ * resolving an empty success.
+ *
+ * @task T11896
+ */
+type IvtrDeprecatedResult = EngineResult<never>;
 
-  const state = await startIvtr(params.taskId, { cwd, agentIdentity: params.agentIdentity });
-  const prompt = resolvePhasePrompt(
-    params.taskId,
-    state,
-    task.title,
-    task.description ?? '(no description)',
-  );
+/** Frozen failure result returned by the four deprecated mutate stubs. */
+const DEPRECATED_OP_RESULT: IvtrDeprecatedResult = {
+  success: false,
+  error: { code: E_DEPRECATED_USE_PLAYBOOK, message: 'IVTR mutate ops are deprecated (T11764).' },
+};
 
-  return engineSuccess({
-    taskId: params.taskId,
-    currentPhase: state.currentPhase,
-    startedAt: state.startedAt,
-    resolvedPrompt: prompt,
-    message: `IVTR loop started. Implement phase is now active for task ${params.taskId}.`,
-  });
+/**
+ * `start` op — DEPRECATED. The IVTR loop now runs on the cantbook runtime
+ * (T11764). Param typing is retained for `OpsFromCore` inference; the handler
+ * returns the {@link E_DEPRECATED_USE_PLAYBOOK} migration envelope.
+ *
+ * @task T11896
+ */
+function ivtrStartOp(_params: IvtrStartParams): Promise<IvtrDeprecatedResult> {
+  return Promise.resolve(DEPRECATED_OP_RESULT);
 }
 
-async function ivtrNextOp(params: IvtrNextParams) {
-  const cwd = getProjectRoot();
-  const task = await getTask(params.taskId, cwd);
-  if (!task) {
-    return engineError('E_NOT_FOUND', `Task ${params.taskId} not found`);
-  }
-
-  const evidence = extractEvidenceFromRaw(params.evidence);
-  const autoRunTests = params.autoRunTests === true;
-
-  const state = await advanceIvtr(params.taskId, evidence, {
-    cwd,
-    agentIdentity: params.agentIdentity,
-  });
-
-  // --auto-run-tests: when the new phase is 'test', invoke runGates atomically.
-  let autoRunResult: Awaited<ReturnType<typeof autoRunGatesAndRecord>> | undefined;
-  if (autoRunTests && state.currentPhase === 'test') {
-    const acceptanceItems = (task.acceptance ?? []) as (string | object)[];
-    const typedGateEntries = extractTypedGates(
-      acceptanceItems as Parameters<typeof extractTypedGates>[0],
-    );
-    const gates = typedGateEntries.map((e) => e.gate);
-    autoRunResult = await autoRunGatesAndRecord(params.taskId, gates, params.agentIdentity, cwd);
-  }
-
-  const acceptanceItems = (task.acceptance ?? []) as (string | object)[];
-  const typedGates =
-    state.currentPhase === 'test'
-      ? extractTypedGates(acceptanceItems as Parameters<typeof extractTypedGates>[0]).map(
-          (e) => e.gate,
-        )
-      : undefined;
-
-  const prompt = resolvePhasePrompt(
-    params.taskId,
-    state,
-    task.title,
-    task.description ?? '(no description)',
-    typedGates,
-    [],
-  );
-
-  return engineSuccess({
-    taskId: params.taskId,
-    previousPhase: state.phaseHistory[state.phaseHistory.length - 2]?.phase ?? null,
-    currentPhase: state.currentPhase,
-    evidenceRecorded: evidence.length,
-    resolvedPrompt: prompt,
-    ...(autoRunResult
-      ? {
-          autoRunTests: {
-            attachmentSha256: autoRunResult.attachmentSha256,
-            testsPassed: autoRunResult.testsPassed,
-            testsFailed: autoRunResult.testsFailed,
-            exitCode: autoRunResult.exitCode,
-            evidenceRecord: autoRunResult.evidenceRecord,
-          },
-        }
-      : {}),
-    message: `Phase advanced to '${state.currentPhase}' for task ${params.taskId}.${autoRunResult ? ` Auto-run gates: ${autoRunResult.testsPassed} passed, ${autoRunResult.testsFailed} failed.` : ''}`,
-  });
+/**
+ * `next` op — DEPRECATED (see {@link ivtrStartOp}).
+ * @task T11896
+ */
+function ivtrNextOp(_params: IvtrNextParams): Promise<IvtrDeprecatedResult> {
+  return Promise.resolve(DEPRECATED_OP_RESULT);
 }
 
-async function ivtrReleaseOp(params: IvtrReleaseParams) {
-  const cwd = getProjectRoot();
-  const result = await releaseIvtr(params.taskId, { cwd });
-
-  if (!result.released) {
-    return {
-      success: false,
-      error: {
-        code: 'E_IVTR_GATE_FAILED',
-        message: `Release gate failed for task ${params.taskId}: ${result.failures?.join('; ')}`,
-        details: { failures: result.failures },
-      },
-    };
-  }
-
-  // T820 RELEASE-07: Check sibling task release status for auto-suggestion.
-  let autoSuggest: {
-    epicId: string | null;
-    epicFullyReleased: boolean;
-    suggestedCommand: string | null;
-    message: string;
-  } | null = null;
-
-  try {
-    const suggestResult = await releaseIvtrAutoSuggest(params.taskId, cwd);
-    if (suggestResult.success && suggestResult.data) {
-      const d = suggestResult.data as {
-        epicId: string | null;
-        epicFullyReleased: boolean;
-        suggestedCommand: string | null;
-        message: string;
-      };
-      autoSuggest = {
-        epicId: d.epicId,
-        epicFullyReleased: d.epicFullyReleased,
-        suggestedCommand: d.suggestedCommand,
-        message: d.message,
-      };
-    }
-  } catch {
-    // Auto-suggest is best-effort; never block the release on its failure.
-  }
-
-  return {
-    success: true,
-    data: {
-      taskId: params.taskId,
-      released: true,
-      message: `Task ${params.taskId} has been released. All IVTR phases passed. Status set to done.`,
-      ...(autoSuggest ? { autoSuggest } : {}),
-    },
-  };
+/**
+ * `release` op — DEPRECATED (see {@link ivtrStartOp}).
+ * @task T11896
+ */
+function ivtrReleaseOp(_params: IvtrReleaseParams): Promise<IvtrDeprecatedResult> {
+  return Promise.resolve(DEPRECATED_OP_RESULT);
 }
 
-async function ivtrLoopBackOp(params: IvtrLoopBackParams) {
-  const cwd = getProjectRoot();
-
-  if (!isLoopBackTarget(params.phase)) {
-    return {
-      success: false,
-      error: {
-        code: 'E_INVALID_INPUT',
-        message: `--phase must be one of: implement, validate, test. Got: '${params.phase}'`,
-      },
-    };
-  }
-  if (!params.reason) {
-    return {
-      success: false,
-      error: { code: 'E_INVALID_INPUT', message: '--reason is required for loop-back' },
-    };
-  }
-
-  const task = await getTask(params.taskId, cwd);
-  if (!task) {
-    return engineError('E_NOT_FOUND', `Task ${params.taskId} not found`);
-  }
-
-  const evidence = extractEvidenceFromRaw(params.evidence);
-
-  let state: Awaited<ReturnType<typeof loopBackIvtr>>;
-  try {
-    state = await loopBackIvtr(params.taskId, params.phase, params.reason, evidence, {
-      cwd,
-      agentIdentity: params.agentIdentity,
-    });
-  } catch (loopBackErr) {
-    const msg = loopBackErr instanceof Error ? loopBackErr.message : String(loopBackErr);
-    if (msg.startsWith(E_IVTR_MAX_RETRIES)) {
-      log.warn({ taskId: params.taskId, phase: params.phase }, 'IVTR max retries reached');
-      return {
-        success: false,
-        error: {
-          code: E_IVTR_MAX_RETRIES,
-          message: msg,
-          details: {
-            taskId: params.taskId,
-            phase: params.phase,
-            hitlEscalation: true,
-            escalationNote:
-              'Maximum loop-backs reached. A human must inspect the loop-back history and resolve the root cause before the IVTR loop can continue.',
-          },
-        },
-      };
-    }
-    throw loopBackErr;
-  }
-
-  const prompt = resolvePhasePrompt(
-    params.taskId,
-    state,
-    task.title,
-    task.description ?? '(no description)',
-  );
-
-  return {
-    success: true,
-    data: {
-      taskId: params.taskId,
-      loopedBackTo: params.phase,
-      reason: params.reason,
-      currentPhase: state.currentPhase,
-      loopBackCount: state.loopBackCount ?? {
-        implement: 0,
-        validate: 0,
-        test: 0,
-        released: 0,
-      },
-      resolvedPrompt: prompt,
-      message: `IVTR loop-back recorded. Phase rewound to '${params.phase}' for task ${params.taskId}.`,
-    },
-  };
+/**
+ * `loop-back` op — DEPRECATED (see {@link ivtrStartOp}).
+ * @task T11896
+ */
+function ivtrLoopBackOp(_params: IvtrLoopBackParams): Promise<IvtrDeprecatedResult> {
+  return Promise.resolve(DEPRECATED_OP_RESULT);
 }
 
 // ---------------------------------------------------------------------------
@@ -423,37 +350,15 @@ const _ivtrTypedHandler = defineTypedHandler<IvtrOps>('ivtr', {
       : lafsError(result.error?.code ?? 'E_INTERNAL', result.error?.message ?? '', 'status');
   },
 
-  start: async (params) => {
-    if (!params.taskId) return lafsError('E_INVALID_INPUT', 'taskId is required', 'start');
-    const result = await ivtrCoreOps.start(params);
-    return result.success
-      ? lafsSuccess(result.data, 'start')
-      : lafsError(result.error?.code ?? 'E_INTERNAL', result.error?.message ?? '', 'start');
-  },
-
-  next: async (params) => {
-    if (!params.taskId) return lafsError('E_INVALID_INPUT', 'taskId is required', 'next');
-    const result = await ivtrCoreOps.next(params);
-    return result.success
-      ? lafsSuccess(result.data, 'next')
-      : lafsError(result.error?.code ?? 'E_INTERNAL', result.error?.message ?? '', 'next');
-  },
-
-  release: async (params) => {
-    if (!params.taskId) return lafsError('E_INVALID_INPUT', 'taskId is required', 'release');
-    const result = await ivtrCoreOps.release(params);
-    return result.success
-      ? lafsSuccess(result.data, 'release')
-      : lafsError(result.error?.code ?? 'E_INTERNAL', result.error?.message ?? '', 'release');
-  },
-
-  'loop-back': async (params) => {
-    if (!params.taskId) return lafsError('E_INVALID_INPUT', 'taskId is required', 'loop-back');
-    const result = await ivtrCoreOps['loop-back'](params);
-    return result.success
-      ? lafsSuccess(result.data, 'loop-back')
-      : lafsError(result.error?.code ?? 'E_INTERNAL', result.error?.message ?? '', 'loop-back');
-  },
+  // ── DEPRECATED mutate ops (T11896 · T11764 collapse) ────────────────────
+  // The per-step phase walk has no 1:1 mapping onto the whole-run cantbook
+  // primitives (`executePlaybook`/`resumePlaybook`), so each op returns the
+  // typed E_DEPRECATED_USE_PLAYBOOK migration envelope (ADR-086) rather than
+  // silently breaking. `params.taskId` is woven into the migration command.
+  start: async (params) => deprecatedMutateEnvelope('start', params.taskId),
+  next: async (params) => deprecatedMutateEnvelope('next', params.taskId),
+  release: async (params) => deprecatedMutateEnvelope('release', params.taskId),
+  'loop-back': async (params) => deprecatedMutateEnvelope('loop-back', params.taskId),
 });
 
 // ---------------------------------------------------------------------------
@@ -532,13 +437,14 @@ export class IvtrHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   /**
-   * Handle state-modifying IVTR mutations.
+   * Handle state-modifying IVTR mutations — all DEPRECATED (T11896).
    *
-   * Supported operations:
-   * - `start`     — begin Implement phase, return resolved prompt
-   * - `next`      — advance from current phase to next, return prompt for next phase
-   * - `release`   — run final gate, mark task done
-   * - `loop-back` — rewind to specified phase with failure evidence
+   * `start`/`next`/`release`/`loop-back` are no longer driven by the hand-rolled
+   * phase walk; each returns the typed {@link E_DEPRECATED_USE_PLAYBOOK}
+   * migration envelope (carrying `fix`, `details.migration`, and `alternatives`
+   * per ADR-086) so the caller is routed onto the cantbook runtime. The full
+   * migration-hint payload is forwarded onto the `DispatchResponse.error` —
+   * nothing is orphaned silently.
    */
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
@@ -550,33 +456,39 @@ export class IvtrHandler implements DomainHandler {
     }
 
     try {
-      // Validate taskId before dispatching — gives correct E_INVALID_INPUT error code.
-      if (!params?.['taskId']) {
-        return {
-          meta: dispatchMeta('mutate', 'ivtr', operation, startTime),
-          success: false,
-          error: { code: 'E_INVALID_INPUT', message: 'taskId is required' },
-        };
-      }
-
+      // NOTE (T11896): unlike the pre-collapse handler, taskId is NOT required
+      // up front — the deprecation migration envelope is returned regardless so
+      // even a malformed `cleo orchestrate ivtr --next` surfaces the migration
+      // hint rather than a generic E_INVALID_INPUT.
       const envelope = await typedDispatch(
         _ivtrTypedHandler,
         operation as keyof IvtrOps & string,
         params ?? {},
       );
 
+      if (envelope.success) {
+        return {
+          meta: dispatchMeta('mutate', 'ivtr', operation, startTime),
+          success: true,
+          data: envelope.data as unknown,
+        };
+      }
+
+      // Forward the full ADR-086 migration-hint payload (fix + details +
+      // alternatives) onto the dispatch error so the CLI renderer surfaces it.
+      const err = envelope.error;
+      const error: NonNullable<DispatchResponse['error']> = {
+        code: err?.code !== undefined ? String(err.code) : 'E_INTERNAL',
+        message: err?.message ?? 'Unknown error',
+      };
+      if (err?.fix !== undefined) error.fix = err.fix;
+      if (err?.details !== undefined) error.details = err.details;
+      const alternatives = err?.details?.['alternatives'];
+      if (isAlternativesList(alternatives)) error.alternatives = alternatives;
       return {
         meta: dispatchMeta('mutate', 'ivtr', operation, startTime),
-        success: envelope.success,
-        ...(envelope.success
-          ? { data: envelope.data as unknown }
-          : {
-              error: {
-                code:
-                  envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
-                message: envelope.error?.message ?? 'Unknown error',
-              },
-            }),
+        success: false,
+        error,
       };
     } catch (err) {
       log.error({ err, operation }, 'IvtrHandler mutate error');

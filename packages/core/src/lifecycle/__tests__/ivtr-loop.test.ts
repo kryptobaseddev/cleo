@@ -1,35 +1,29 @@
 /**
- * Tests for IVTR orchestration loop state machine.
+ * Tests for the IVTR `ivtr_state` read + cantbook-mirror surface.
  *
- * Covers:
- * - Happy path: start → implement → validate → test → release
- * - Loop-back: test fails → rewind to implement → continue
- * - Max retries: third loop-back to same phase rejects with E_IVTR_MAX_RETRIES
- * - Prompt enrichment: loop-back context injected into Implement prompt
- * - Edge cases: double-start idempotency, advance past released
+ * The hand-rolled phase-walk functions (`startIvtr`/`advanceIvtr`/
+ * `loopBackIvtr`/`releaseIvtr`) and the per-phase prompt/auto-gate helpers were
+ * deleted in T11896 when the IVTR loop was collapsed onto the cantbook runtime.
+ * This file now covers the RETAINED surface:
+ *
+ * - `seedIvtrForPlaybook` — the `cleo go` seam seeds `ivtr_state` at implement.
+ * - `finalizeIvtrFromPlaybook` — mirrors the cantbook run's terminal status
+ *   back into `ivtr_state` so the strict `E_IVTR_INCOMPLETE` gate stays
+ *   load-bearing (a `completed` run drives the column to `released`).
+ * - `getIvtrState` — the read path backing the completion gate +
+ *   `cleo show --ivtr-history`.
  *
  * @epic T810
  * @task T811
- * @task T814
+ * @task T11805 — cantbook seam (seed + finalize mirror)
+ * @task T11896 — phase-walk functions deleted; this is the read/mirror surface
  */
 
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  advanceIvtr,
-  E_IVTR_MAX_RETRIES,
-  finalizeIvtrFromPlaybook,
-  getIvtrState,
-  type ImplEvidenceSummary,
-  loopBackIvtr,
-  MAX_LOOP_BACKS_PER_PHASE,
-  releaseIvtr,
-  resolvePhasePrompt,
-  seedIvtrForPlaybook,
-  startIvtr,
-} from '../ivtr-loop.js';
+import { finalizeIvtrFromPlaybook, getIvtrState, seedIvtrForPlaybook } from '../ivtr-loop.js';
 
 // ---------------------------------------------------------------------------
 // Test setup
@@ -74,39 +68,19 @@ afterEach(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Happy path: start → implement → validate → test → release
+// seedIvtrForPlaybook — the cantbook seam seeds ivtr_state at implement
 // ---------------------------------------------------------------------------
 
-describe('IVTR happy path', () => {
-  it('startIvtr creates state with implement phase', async () => {
-    const state = await startIvtr('T999', { cwd: testDir });
-
-    expect(state.taskId).toBe('T999');
-    expect(state.currentPhase).toBe('implement');
-    expect(state.phaseHistory).toHaveLength(1);
-    expect(state.phaseHistory[0]?.phase).toBe('implement');
-    expect(state.phaseHistory[0]?.passed).toBeNull();
-    expect(state.phaseHistory[0]?.completedAt).toBeNull();
-    expect(state.startedAt).toBeDefined();
-  });
-
-  it('startIvtr is idempotent — second call returns existing state', async () => {
-    const first = await startIvtr('T999', { cwd: testDir });
-    const second = await startIvtr('T999', { cwd: testDir });
-
-    expect(second.startedAt).toBe(first.startedAt);
-    expect(second.phaseHistory).toHaveLength(1);
-  });
-
-  it('getIvtrState returns null before start', async () => {
+describe('seedIvtrForPlaybook (T11805 cantbook seam)', () => {
+  it('getIvtrState returns null before any seed', async () => {
     const state = await getIvtrState('T999', { cwd: testDir });
     expect(state).toBeNull();
   });
 
-  // T11805 — the `cleo go` seam seeds ivtr_state via seedIvtrForPlaybook (NOT
-  // startIvtr) so the strict E_IVTR_INCOMPLETE completion gate stays
-  // load-bearing for cantbook-driven runs (collapse-plan §3 item 4).
-  it('seedIvtrForPlaybook produces the same implement-phase state as startIvtr', async () => {
+  // T11805 — the `cleo go` seam seeds ivtr_state via seedIvtrForPlaybook so the
+  // strict E_IVTR_INCOMPLETE completion gate stays load-bearing for
+  // cantbook-driven runs (collapse-plan §3 item 4).
+  it('seeds a fresh schema-v2 implement-phase state', async () => {
     const seeded = await seedIvtrForPlaybook('T999', { cwd: testDir });
 
     expect(seeded.taskId).toBe('T999');
@@ -130,813 +104,126 @@ describe('IVTR happy path', () => {
     expect(readBack?.currentPhase).toBe('implement');
   });
 
-  it('seedIvtrForPlaybook is idempotent — second call returns existing state', async () => {
+  it('is idempotent — second call returns existing state', async () => {
     const first = await seedIvtrForPlaybook('T999', { cwd: testDir });
     const second = await seedIvtrForPlaybook('T999', { cwd: testDir });
 
     expect(second.startedAt).toBe(first.startedAt);
     expect(second.phaseHistory).toHaveLength(1);
   });
+});
 
-  // T11805 — terminal-mirror: the `cleo go` cantbook seam mirrors the playbook
-  // run's TERMINAL status back into ivtr_state so the strict E_IVTR_INCOMPLETE
-  // gate reflects an autonomous run (collapse-plan §3 item 4 + Risk #2).
-  describe('finalizeIvtrFromPlaybook (T11805 terminal mirror)', () => {
-    it("on 'completed' advances seeded implement state to released with passing phase history", async () => {
-      // Seam seeds at implement (passed: null) — this is the frozen state the
-      // bug left behind. finalize must drive it to released.
-      const seeded = await seedIvtrForPlaybook('T999', { cwd: testDir });
-      expect(seeded.currentPhase).toBe('implement');
-      expect(seeded.phaseHistory[0]?.passed).toBeNull();
+// ---------------------------------------------------------------------------
+// finalizeIvtrFromPlaybook — terminal-status mirror back into ivtr_state
+// ---------------------------------------------------------------------------
 
-      const result = await finalizeIvtrFromPlaybook('T999', 'completed', {
-        cwd: testDir,
-        runId: 'pbr_999',
-        finalContext: { taskId: 'T999', testsPassed: true, __lastError: 'should-be-stripped' },
-      });
+// T11805 — terminal-mirror: the `cleo go` cantbook seam mirrors the playbook
+// run's TERMINAL status back into ivtr_state so the strict E_IVTR_INCOMPLETE
+// gate reflects an autonomous run (collapse-plan §3 item 4 + Risk #2).
+describe('finalizeIvtrFromPlaybook (T11805 terminal mirror)', () => {
+  it("on 'completed' advances seeded implement state to released with passing phase history", async () => {
+    // Seam seeds at implement (passed: null) — this is the frozen state the
+    // bug left behind. finalize must drive it to released.
+    const seeded = await seedIvtrForPlaybook('T999', { cwd: testDir });
+    expect(seeded.currentPhase).toBe('implement');
+    expect(seeded.phaseHistory[0]?.passed).toBeNull();
 
-      expect(result.state?.currentPhase).toBe('released');
-      // implement/validate/audit/test all have a passing entry → gate passes.
-      for (const phase of ['implement', 'validate', 'audit', 'test'] as const) {
-        const hasPassed = result.state?.phaseHistory.some(
-          (e) => e.phase === phase && e.passed === true,
-        );
-        expect(hasPassed).toBe(true);
-      }
-      // No in-progress entry remains (gate's active-entry check passes).
-      expect(result.state?.phaseHistory.every((e) => e.completedAt !== null)).toBe(true);
-
-      // Persisted: read back as released.
-      const readBack = await getIvtrState('T999', { cwd: testDir });
-      expect(readBack?.currentPhase).toBe('released');
+    const result = await finalizeIvtrFromPlaybook('T999', 'completed', {
+      cwd: testDir,
+      runId: 'pbr_999',
+      finalContext: { taskId: 'T999', testsPassed: true, __lastError: 'should-be-stripped' },
     });
 
-    it("on 'completed' reproduces the attachment-store evidence write (sha256 recorded)", async () => {
-      await seedIvtrForPlaybook('T999', { cwd: testDir });
-      const result = await finalizeIvtrFromPlaybook('T999', 'completed', {
-        cwd: testDir,
-        runId: 'pbr_evidence',
-        finalContext: { taskId: 'T999', diff: 'abc' },
-      });
+    expect(result.state?.currentPhase).toBe('released');
+    // implement/validate/audit/test all have a passing entry → gate passes.
+    for (const phase of ['implement', 'validate', 'audit', 'test'] as const) {
+      const hasPassed = result.state?.phaseHistory.some(
+        (e) => e.phase === phase && e.passed === true,
+      );
+      expect(hasPassed).toBe(true);
+    }
+    // No in-progress entry remains (gate's active-entry check passes).
+    expect(result.state?.phaseHistory.every((e) => e.completedAt !== null)).toBe(true);
 
-      // A provenance evidence ref (sha256) is produced and recorded.
-      expect(result.evidenceRef).toMatch(/^[0-9a-f]{64}$/);
-      const allRefs = result.state?.phaseHistory.flatMap((e) => e.evidenceRefs) ?? [];
-      expect(allRefs).toContain(result.evidenceRef);
-    });
-
-    it("on 'failed' marks the active phase failed and leaves currentPhase un-advanced (gate blocks)", async () => {
-      await seedIvtrForPlaybook('T999', { cwd: testDir });
-      const result = await finalizeIvtrFromPlaybook('T999', 'failed', {
-        cwd: testDir,
-        runId: 'pbr_fail',
-        error: 'implement node exceeded retries',
-      });
-
-      expect(result.state?.currentPhase).toBe('implement'); // NOT released
-      const implEntry = result.state?.phaseHistory.find((e) => e.phase === 'implement');
-      expect(implEntry?.passed).toBe(false);
-      expect(implEntry?.reason).toMatch(/Playbook failed/);
-
-      // The strict gate (currentPhase !== 'released') would still block complete.
-      const readBack = await getIvtrState('T999', { cwd: testDir });
-      expect(readBack?.currentPhase).not.toBe('released');
-    });
-
-    it("on 'exceeded_iteration_cap' marks failed and does not release", async () => {
-      await seedIvtrForPlaybook('T999', { cwd: testDir });
-      const result = await finalizeIvtrFromPlaybook('T999', 'exceeded_iteration_cap', {
-        cwd: testDir,
-      });
-      expect(result.state?.currentPhase).toBe('implement');
-      const implEntry = result.state?.phaseHistory.find((e) => e.phase === 'implement');
-      expect(implEntry?.passed).toBe(false);
-    });
-
-    it("on 'pending_approval' is a no-op (run awaits HITL; later resume finalizes)", async () => {
-      await seedIvtrForPlaybook('T999', { cwd: testDir });
-      const result = await finalizeIvtrFromPlaybook('T999', 'pending_approval', { cwd: testDir });
-      expect(result.state?.currentPhase).toBe('implement');
-      // Seed entry stays in-progress (passed: null) — nothing was finalized.
-      expect(result.state?.phaseHistory[0]?.passed).toBeNull();
-    });
-
-    it('returns null state when no ivtr_state was seeded (defensive no-op)', async () => {
-      const result = await finalizeIvtrFromPlaybook('T999', 'completed', { cwd: testDir });
-      expect(result.state).toBeNull();
-    });
-
-    it('is idempotent when already released', async () => {
-      await seedIvtrForPlaybook('T999', { cwd: testDir });
-      await finalizeIvtrFromPlaybook('T999', 'completed', { cwd: testDir, runId: 'r1' });
-      const second = await finalizeIvtrFromPlaybook('T999', 'completed', {
-        cwd: testDir,
-        runId: 'r2',
-      });
-      expect(second.state?.currentPhase).toBe('released');
-    });
-
-    it('end-to-end: seed → finalize(completed) yields a state the strict gate accepts', async () => {
-      // Mirror the gate's own check (complete.ts:1400): ivtrState !== null &&
-      // currentPhase !== 'released' → reject. After finalize, this must pass.
-      await seedIvtrForPlaybook('T999', { cwd: testDir });
-      await finalizeIvtrFromPlaybook('T999', 'completed', { cwd: testDir, runId: 'pbr_gate' });
-
-      const state = await getIvtrState('T999', { cwd: testDir });
-      expect(state).not.toBeNull();
-      const gateWouldBlock = state !== null && state.currentPhase !== 'released';
-      expect(gateWouldBlock).toBe(false);
-    });
+    // Persisted: read back as released.
+    const readBack = await getIvtrState('T999', { cwd: testDir });
+    expect(readBack?.currentPhase).toBe('released');
   });
 
-  it('advanceIvtr transitions implement → validate', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    const evidence = ['abc123'];
-    const state = await advanceIvtr('T999', evidence, { cwd: testDir });
+  it("on 'completed' reproduces the attachment-store evidence write (sha256 recorded)", async () => {
+    await seedIvtrForPlaybook('T999', { cwd: testDir });
+    const result = await finalizeIvtrFromPlaybook('T999', 'completed', {
+      cwd: testDir,
+      runId: 'pbr_evidence',
+      finalContext: { taskId: 'T999', diff: 'abc' },
+    });
 
-    expect(state.currentPhase).toBe('validate');
-    expect(state.phaseHistory).toHaveLength(2);
-
-    const implEntry = state.phaseHistory[0]!;
-    expect(implEntry.phase).toBe('implement');
-    expect(implEntry.passed).toBe(true);
-    expect(implEntry.evidenceRefs).toContain('abc123');
-    expect(implEntry.completedAt).toBeDefined();
-
-    const valEntry = state.phaseHistory[1]!;
-    expect(valEntry.phase).toBe('validate');
-    expect(valEntry.passed).toBeNull();
-    expect(valEntry.completedAt).toBeNull();
+    // A provenance evidence ref (sha256) is produced and recorded.
+    expect(result.evidenceRef).toMatch(/^[0-9a-f]{64}$/);
+    const allRefs = result.state?.phaseHistory.flatMap((e) => e.evidenceRefs) ?? [];
+    expect(allRefs).toContain(result.evidenceRef);
   });
 
-  it('advanceIvtr transitions validate → audit (T9216: audit phase added)', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['impl-sha'], { cwd: testDir });
-    const state = await advanceIvtr('T999', ['val-sha'], { cwd: testDir });
+  it("on 'failed' marks the active phase failed and leaves currentPhase un-advanced (gate blocks)", async () => {
+    await seedIvtrForPlaybook('T999', { cwd: testDir });
+    const result = await finalizeIvtrFromPlaybook('T999', 'failed', {
+      cwd: testDir,
+      runId: 'pbr_fail',
+      error: 'implement node exceeded retries',
+    });
 
-    expect(state.currentPhase).toBe('audit');
-    expect(state.phaseHistory).toHaveLength(3);
-    expect(state.phaseHistory[2]?.phase).toBe('audit');
+    expect(result.state?.currentPhase).toBe('implement'); // NOT released
+    const implEntry = result.state?.phaseHistory.find((e) => e.phase === 'implement');
+    expect(implEntry?.passed).toBe(false);
+    expect(implEntry?.reason).toMatch(/Playbook failed/);
+
+    // The strict gate (currentPhase !== 'released') would still block complete.
+    const readBack = await getIvtrState('T999', { cwd: testDir });
+    expect(readBack?.currentPhase).not.toBe('released');
   });
 
-  it('full happy path: implement → validate → audit → test → release (T9216)', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['impl-sha'], { cwd: testDir });
-    await advanceIvtr('T999', ['val-sha'], { cwd: testDir });
-    await advanceIvtr('T999', ['audit-sha'], { cwd: testDir }); // T9216: audit phase
-    await advanceIvtr('T999', ['test-sha'], { cwd: testDir });
+  it("on 'exceeded_iteration_cap' marks failed and does not release", async () => {
+    await seedIvtrForPlaybook('T999', { cwd: testDir });
+    const result = await finalizeIvtrFromPlaybook('T999', 'exceeded_iteration_cap', {
+      cwd: testDir,
+    });
+    expect(result.state?.currentPhase).toBe('implement');
+    const implEntry = result.state?.phaseHistory.find((e) => e.phase === 'implement');
+    expect(implEntry?.passed).toBe(false);
+  });
 
-    const result = await releaseIvtr('T999', { cwd: testDir });
-    expect(result.released).toBe(true);
-    expect(result.failures).toBeUndefined();
+  it("on 'pending_approval' is a no-op (run awaits HITL; later resume finalizes)", async () => {
+    await seedIvtrForPlaybook('T999', { cwd: testDir });
+    const result = await finalizeIvtrFromPlaybook('T999', 'pending_approval', { cwd: testDir });
+    expect(result.state?.currentPhase).toBe('implement');
+    // Seed entry stays in-progress (passed: null) — nothing was finalized.
+    expect(result.state?.phaseHistory[0]?.passed).toBeNull();
+  });
+
+  it('returns null state when no ivtr_state was seeded (defensive no-op)', async () => {
+    const result = await finalizeIvtrFromPlaybook('T999', 'completed', { cwd: testDir });
+    expect(result.state).toBeNull();
+  });
+
+  it('is idempotent when already released', async () => {
+    await seedIvtrForPlaybook('T999', { cwd: testDir });
+    await finalizeIvtrFromPlaybook('T999', 'completed', { cwd: testDir, runId: 'r1' });
+    const second = await finalizeIvtrFromPlaybook('T999', 'completed', {
+      cwd: testDir,
+      runId: 'r2',
+    });
+    expect(second.state?.currentPhase).toBe('released');
+  });
+
+  it('end-to-end: seed → finalize(completed) yields a state the strict gate accepts', async () => {
+    // Mirror the gate's own check (complete.ts:1400): ivtrState !== null &&
+    // currentPhase !== 'released' → reject. After finalize, this must pass.
+    await seedIvtrForPlaybook('T999', { cwd: testDir });
+    await finalizeIvtrFromPlaybook('T999', 'completed', { cwd: testDir, runId: 'pbr_gate' });
 
     const state = await getIvtrState('T999', { cwd: testDir });
-    expect(state?.currentPhase).toBe('released');
-  });
-
-  it('releaseIvtr is idempotent when already released', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['i'], { cwd: testDir });
-    await advanceIvtr('T999', ['v'], { cwd: testDir });
-    await advanceIvtr('T999', ['a'], { cwd: testDir }); // T9216: audit phase
-    await advanceIvtr('T999', ['t'], { cwd: testDir });
-    await releaseIvtr('T999', { cwd: testDir });
-
-    const second = await releaseIvtr('T999', { cwd: testDir });
-    expect(second.released).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Loop-back: phase failure → rewind
-// ---------------------------------------------------------------------------
-
-describe('IVTR loop-back', () => {
-  it('loopBackIvtr from audit to implement records failure (T9216)', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['impl-sha'], { cwd: testDir });
-    await advanceIvtr('T999', ['val-sha'], { cwd: testDir });
-    // Now in audit phase (T9216)
-
-    const state = await loopBackIvtr(
-      'T999',
-      'implement',
-      'Audit failed: evidence atom re-validation E_EVIDENCE_STALE',
-      [],
-      { cwd: testDir },
-    );
-
-    expect(state.currentPhase).toBe('implement');
-    // History: implement(pass) + validate(pass) + audit(fail) + implement(new)
-    expect(state.phaseHistory).toHaveLength(4);
-
-    const failedAudit = state.phaseHistory[2]!;
-    expect(failedAudit.phase).toBe('audit');
-    expect(failedAudit.passed).toBe(false);
-    expect(failedAudit.reason).toBe('Audit failed: evidence atom re-validation E_EVIDENCE_STALE');
-
-    const newImpl = state.phaseHistory[3]!;
-    expect(newImpl.phase).toBe('implement');
-    expect(newImpl.passed).toBeNull();
-    expect(newImpl.reason).toMatch(/Loop-back from audit/);
-  });
-
-  it('after loop-back, advance resumes from implement again', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['i1'], { cwd: testDir });
-    await advanceIvtr('T999', ['v1'], { cwd: testDir });
-    await loopBackIvtr('T999', 'implement', 'fix needed', [], { cwd: testDir });
-
-    // Advance implement → validate → audit → test (T9216: audit phase added)
-    await advanceIvtr('T999', ['i2'], { cwd: testDir });
-    await advanceIvtr('T999', ['v2'], { cwd: testDir });
-    await advanceIvtr('T999', ['a2'], { cwd: testDir }); // T9216: audit
-    await advanceIvtr('T999', ['t2'], { cwd: testDir });
-
-    const result = await releaseIvtr('T999', { cwd: testDir });
-    expect(result.released).toBe(true);
-  });
-
-  it('loopBackIvtr rejects target of released', async () => {
-    await startIvtr('T999', { cwd: testDir });
-
-    await expect(
-      loopBackIvtr('T999', 'released' as never, 'bad', [], { cwd: testDir }),
-    ).rejects.toThrow("Cannot loop back to 'released'");
-  });
-
-  it('loopBackIvtr rejects when no IVTR state exists', async () => {
-    await expect(loopBackIvtr('T999', 'implement', 'bad', [], { cwd: testDir })).rejects.toThrow(
-      'No IVTR state',
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Release gate failures
-// ---------------------------------------------------------------------------
-
-describe('releaseIvtr gate failures', () => {
-  it('fails when implement phase has no passing entry', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    const result = await releaseIvtr('T999', { cwd: testDir });
-
-    expect(result.released).toBe(false);
-    expect(result.failures).toContain("Phase 'implement' has no passing entry");
-    expect(result.failures).toContain("Phase 'validate' has no passing entry");
-    expect(result.failures).toContain("Phase 'audit' has no passing entry"); // T9216
-    expect(result.failures).toContain("Phase 'test' has no passing entry");
-  });
-
-  it('fails when only implement has passed', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['i'], { cwd: testDir });
-    const result = await releaseIvtr('T999', { cwd: testDir });
-
-    expect(result.released).toBe(false);
-    expect(result.failures).not.toContain("Phase 'implement' has no passing entry");
-    expect(result.failures).toContain("Phase 'validate' has no passing entry");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Edge cases
-// ---------------------------------------------------------------------------
-
-describe('IVTR edge cases', () => {
-  it('advanceIvtr throws when no state exists', async () => {
-    await expect(advanceIvtr('T999', [], { cwd: testDir })).rejects.toThrow('No IVTR state');
-  });
-
-  it('advanceIvtr throws when already released', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['i'], { cwd: testDir });
-    await advanceIvtr('T999', ['v'], { cwd: testDir });
-    await advanceIvtr('T999', ['a'], { cwd: testDir }); // T9216: audit phase
-    await advanceIvtr('T999', ['t'], { cwd: testDir });
-    await releaseIvtr('T999', { cwd: testDir });
-
-    await expect(advanceIvtr('T999', [], { cwd: testDir })).rejects.toThrow('already released');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// resolvePhasePrompt
-// ---------------------------------------------------------------------------
-
-describe('resolvePhasePrompt', () => {
-  it('generates implement prompt with correct phase header', async () => {
-    const state = await startIvtr('T999', { cwd: testDir });
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Do the thing');
-
-    expect(prompt).toContain('Phase: **IMPLEMENT**');
-    expect(prompt).toContain('T999: My Task');
-    expect(prompt).toContain('Do the thing');
-    expect(prompt).toContain('Implementation agent');
-    expect(prompt).toContain('Prior Phase Evidence\n(none — first phase)');
-  });
-
-  it('generates validate prompt with prior evidence (raw sha256 fallback)', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    const state = await advanceIvtr('T999', ['sha-abc'], { cwd: testDir });
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Do the thing');
-
-    expect(prompt).toContain('Phase: **VALIDATE**');
-    // impl-diff sha256 surfaces in the evidence bundle fallback
-    expect(prompt).toContain('sha-abc');
-    // T812: Validate agent (not "Validation agent")
-    expect(prompt).toContain('Validate agent');
-    // T812: spec↔code alignment check instruction
-    expect(prompt).toContain('spec↔code alignment');
-    // T812: validate-spec-check kind
-    expect(prompt).toContain('validate-spec-check');
-    // T812: REJECT criteria
-    expect(prompt).toContain('REJECT criteria');
-  });
-
-  it('injects Blast-Radius Test Scope into validate prompt when infrastructure files changed (T9842)', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    const state = await advanceIvtr('T999', ['sha-impl'], { cwd: testDir });
-    const evidenceBundle: ImplEvidenceSummary[] = [
-      {
-        attachmentSha256: 'a'.repeat(64),
-        kind: 'impl-diff',
-        filesChanged: [
-          // Mirrors the T9814 precedent: a transaction primitive in core/store.
-          'packages/core/src/store/sqlite-data-accessor.ts',
-        ],
-        linesAdded: 12,
-        linesRemoved: 4,
-        durationMs: 1500,
-      },
-    ];
-    const prompt = resolvePhasePrompt(
-      'T999',
-      state,
-      'My Task',
-      'Refactor DataAccessor.transaction()',
-      undefined,
-      evidenceBundle,
-    );
-
-    // The synthetic infrastructure change with targeted-test-only Lead review
-    // would be caught by the updated protocol (AC3).
-    expect(prompt).toContain('Blast-Radius Test Scope');
-    expect(prompt).toContain('T9842');
-    // T9814 precedent must be cited in the Lead-spawn prompt (AC4).
-    expect(prompt).toContain('T9814');
-    expect(prompt).toContain('agent-resolver');
-    // Lead is instructed to run the full per-package vitest, not targeted-only.
-    expect(prompt).toContain('pnpm --filter @cleocode/core run test');
-    // New REJECT criterion is wired up.
-    expect(prompt).toContain('Infra-test-scope violation');
-    expect(prompt).toContain('infra-test-scope-violation');
-  });
-
-  it('does NOT inject Blast-Radius Test Scope when impl-diff is non-infrastructure (T9842)', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    const state = await advanceIvtr('T999', ['sha-impl'], { cwd: testDir });
-    const evidenceBundle: ImplEvidenceSummary[] = [
-      {
-        attachmentSha256: 'b'.repeat(64),
-        kind: 'impl-diff',
-        filesChanged: [
-          'packages/cleo/src/cli/commands/show.ts',
-          'docs/release/branch-protection-setup.md',
-        ],
-      },
-    ];
-    const prompt = resolvePhasePrompt(
-      'T999',
-      state,
-      'My Task',
-      'CLI show polish',
-      undefined,
-      evidenceBundle,
-    );
-
-    expect(prompt).not.toContain('Blast-Radius Test Scope');
-    expect(prompt).not.toContain('infra-test-scope-violation');
-  });
-
-  it('aggregates filesChanged across multiple impl evidence entries (T9842)', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    const state = await advanceIvtr('T999', ['sha-impl'], { cwd: testDir });
-    const evidenceBundle: ImplEvidenceSummary[] = [
-      {
-        attachmentSha256: 'a'.repeat(64),
-        kind: 'impl-diff',
-        filesChanged: ['packages/cleo/src/cli/commands/show.ts'],
-      },
-      {
-        attachmentSha256: 'c'.repeat(64),
-        kind: 'impl-diff',
-        filesChanged: ['packages/contracts/src/envelope.ts'],
-      },
-    ];
-    const prompt = resolvePhasePrompt(
-      'T999',
-      state,
-      'My Task',
-      'Mixed change',
-      undefined,
-      evidenceBundle,
-    );
-
-    expect(prompt).toContain('Blast-Radius Test Scope');
-    expect(prompt).toContain('pnpm --filter @cleocode/contracts run test');
-  });
-
-  it('generates audit prompt after validate (T9216: audit phase added)', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['sha-i'], { cwd: testDir });
-    const state = await advanceIvtr('T999', ['sha-v'], { cwd: testDir });
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Do the thing');
-
-    expect(prompt).toContain('Phase: **AUDIT**');
-    // Audit phase: references ADR-051 evidence-atom re-validation (T9337)
-    expect(prompt).toContain('Auditor agent');
-    expect(prompt).toContain('cleo verify');
-    expect(prompt).toContain('ADR-051');
-  });
-
-  it('generates test prompt with prior evidence', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['sha-i'], { cwd: testDir });
-    await advanceIvtr('T999', ['sha-v'], { cwd: testDir }); // → audit (T9216)
-    const state = await advanceIvtr('T999', ['sha-a'], { cwd: testDir }); // audit → test
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Do the thing');
-
-    expect(prompt).toContain('Phase: **TEST**');
-    expect(prompt).toContain('Testing agent');
-    // T813 test-phase prompt: uses `cleo verify <id> --run` as canonical driver
-    // when typed gates are present; `pnpm run test` appears inside a gate's
-    // command field when provided. Accept either marker.
-    expect(prompt).toMatch(/cleo verify.*--run|pnpm run test/);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Max retries: loop-back count enforcement (T814)
-// ---------------------------------------------------------------------------
-
-describe('IVTR loop-back max retries', () => {
-  it('first loop-back (count=1) succeeds — loopBackCount increments', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['impl-sha'], { cwd: testDir }); // → validate
-    await advanceIvtr('T999', ['val-sha'], { cwd: testDir }); // → audit (T9216)
-
-    const state = await loopBackIvtr('T999', 'implement', 'Audit failed round 1', [], {
-      cwd: testDir,
-    });
-
-    expect(state.loopBackCount.implement).toBe(1);
-    expect(state.currentPhase).toBe('implement');
-  });
-
-  it('second loop-back (count=2) succeeds — loopBackCount reaches MAX', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['i1'], { cwd: testDir });
-    await advanceIvtr('T999', ['v1'], { cwd: testDir }); // → audit (T9216)
-    await loopBackIvtr('T999', 'implement', 'Round 1 failure', [], { cwd: testDir });
-
-    // Resume: advance back through validate → audit (T9216)
-    await advanceIvtr('T999', ['i2'], { cwd: testDir });
-    await advanceIvtr('T999', ['v2'], { cwd: testDir }); // → audit
-
-    const state = await loopBackIvtr('T999', 'implement', 'Round 2 failure', [], {
-      cwd: testDir,
-    });
-
-    expect(state.loopBackCount.implement).toBe(2);
-    expect(state.currentPhase).toBe('implement');
-  });
-
-  it('third loop-back (count=3) rejects with E_IVTR_MAX_RETRIES', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    // Pass 1: implement → validate → audit → loop-back 1 (T9216: from audit)
-    await advanceIvtr('T999', ['i1'], { cwd: testDir });
-    await advanceIvtr('T999', ['v1'], { cwd: testDir }); // → audit
-    await loopBackIvtr('T999', 'implement', 'Failure 1', [], { cwd: testDir });
-
-    // Pass 2: implement → validate → audit → loop-back 2
-    await advanceIvtr('T999', ['i2'], { cwd: testDir });
-    await advanceIvtr('T999', ['v2'], { cwd: testDir }); // → audit
-    await loopBackIvtr('T999', 'implement', 'Failure 2', [], { cwd: testDir });
-
-    // Pass 3: implement → validate → audit → loop-back 3 (should FAIL)
-    await advanceIvtr('T999', ['i3'], { cwd: testDir });
-    await advanceIvtr('T999', ['v3'], { cwd: testDir }); // → audit
-
-    await expect(
-      loopBackIvtr('T999', 'implement', 'Failure 3', [], { cwd: testDir }),
-    ).rejects.toThrow(E_IVTR_MAX_RETRIES);
-  });
-
-  it('state is NOT mutated when max retries throws', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['i1'], { cwd: testDir });
-    await advanceIvtr('T999', ['v1'], { cwd: testDir }); // → audit (T9216)
-    await loopBackIvtr('T999', 'implement', 'Failure 1', [], { cwd: testDir });
-
-    await advanceIvtr('T999', ['i2'], { cwd: testDir });
-    await advanceIvtr('T999', ['v2'], { cwd: testDir }); // → audit
-    await loopBackIvtr('T999', 'implement', 'Failure 2', [], { cwd: testDir });
-
-    await advanceIvtr('T999', ['i3'], { cwd: testDir });
-    await advanceIvtr('T999', ['v3'], { cwd: testDir }); // → audit
-
-    // Attempt the rejected 3rd loop-back
-    await expect(
-      loopBackIvtr('T999', 'implement', 'Failure 3', [], { cwd: testDir }),
-    ).rejects.toThrow(E_IVTR_MAX_RETRIES);
-
-    // Phase must still be 'audit' (T9216: the in-progress phase before the rejected loop-back)
-    const state = await getIvtrState('T999', { cwd: testDir });
-    expect(state?.currentPhase).toBe('audit');
-    expect(state?.loopBackCount.implement).toBe(MAX_LOOP_BACKS_PER_PHASE);
-  });
-
-  it('loopBackCount initialises to 0 on startIvtr', async () => {
-    const state = await startIvtr('T999', { cwd: testDir });
-    expect(state.loopBackCount).toEqual({
-      implement: 0,
-      validate: 0,
-      audit: 0,
-      test: 0,
-      released: 0,
-    }); // T9216: audit added
-  });
-
-  it('backward-compat: legacy state without loopBackCount still works', async () => {
-    // Start the IVTR loop and manually strip loopBackCount from the persisted JSON
-    // to simulate a pre-T814 state row already in the DB.
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['i'], { cwd: testDir });
-    await advanceIvtr('T999', ['v'], { cwd: testDir });
-
-    // Inject a legacy state (no loopBackCount) directly.
-    const { getDb } = await import('../../store/sqlite.js');
-    const { eq } = await import('drizzle-orm');
-    const { tasks } = await import('../../store/tasks-schema.js');
-    const db = await getDb(testDir);
-    const rawRows = await db
-      .select({ ivtrState: tasks.ivtrState })
-      .from(tasks)
-      .where(eq(tasks.id, 'T999'))
-      .all();
-    const parsed = JSON.parse(rawRows[0]!.ivtrState!) as Record<string, unknown>;
-    delete parsed['loopBackCount'];
-    await db
-      .update(tasks)
-      .set({ ivtrState: JSON.stringify(parsed) })
-      .where(eq(tasks.id, 'T999'))
-      .run();
-
-    // Now loop-back should succeed — loopBackCount initialised to 0 on-the-fly.
-    const state = await loopBackIvtr('T999', 'implement', 'Legacy compat failure', [], {
-      cwd: testDir,
-    });
-    expect(state.loopBackCount.implement).toBe(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Prompt enrichment: loop-back context section (T814)
-// ---------------------------------------------------------------------------
-
-describe('resolvePhasePrompt loop-back context injection', () => {
-  it('no loop-back section when implement is first-attempt (no failures)', async () => {
-    const state = await startIvtr('T999', { cwd: testDir });
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Spec here');
-
-    expect(prompt).not.toContain('LOOP-BACK CONTEXT');
-    expect(prompt).not.toContain('CRITICAL INSTRUCTION');
-    expect(prompt).toContain('Phase: **IMPLEMENT**');
-  });
-
-  it('loop-back section included after validate failure triggers implement re-spawn', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['impl-sha'], { cwd: testDir }); // → validate
-
-    // Validate fails → loop-back to implement
-    const state = await loopBackIvtr(
-      'T999',
-      'implement',
-      'Missing acceptance criterion X',
-      ['validate-failure-sha'],
-      { cwd: testDir },
-    );
-
-    expect(state.currentPhase).toBe('implement');
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Spec here');
-
-    expect(prompt).toContain('LOOP-BACK CONTEXT');
-    expect(prompt).toContain('VALIDATE');
-    expect(prompt).toContain('Missing acceptance criterion X');
-    expect(prompt).toContain('validate-failure-sha');
-    expect(prompt).toContain('CRITICAL INSTRUCTION');
-    expect(prompt).toContain('Fix the ROOT CAUSE');
-    expect(prompt).toContain('Loop-back History');
-  });
-
-  it('loop-back section included after audit failure triggers implement re-spawn (T9216)', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['i1'], { cwd: testDir });
-    await advanceIvtr('T999', ['v1'], { cwd: testDir }); // → audit (T9216)
-
-    // Audit fails → loop-back to implement
-    const state = await loopBackIvtr(
-      'T999',
-      'implement',
-      'Verifier exit 1: AC check failed',
-      ['audit-output-sha'],
-      { cwd: testDir },
-    );
-
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Spec here');
-
-    expect(prompt).toContain('LOOP-BACK CONTEXT');
-    expect(prompt).toContain('AUDIT');
-    expect(prompt).toContain('Verifier exit 1: AC check failed');
-    expect(prompt).toContain('audit-output-sha');
-    expect(prompt).toContain('Loop-back History (all prior failures for this task)');
-    // History must list the failed audit entry
-    expect(prompt).toContain('1. Phase: AUDIT');
-  });
-
-  it('multi-failure: loop-back history lists ALL prior failures (T9216: from audit)', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['i1'], { cwd: testDir });
-    await advanceIvtr('T999', ['v1'], { cwd: testDir }); // → audit (T9216)
-
-    // First loop-back from audit
-    await loopBackIvtr('T999', 'implement', 'First audit failure', ['sha-fail-1'], {
-      cwd: testDir,
-    });
-
-    // Advance again and fail a second time
-    await advanceIvtr('T999', ['i2'], { cwd: testDir });
-    await advanceIvtr('T999', ['v2'], { cwd: testDir }); // → audit
-    const state = await loopBackIvtr('T999', 'implement', 'Second audit failure', ['sha-fail-2'], {
-      cwd: testDir,
-    });
-
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Spec here');
-
-    // Both failures must appear in loop-back history (T9216: phase is now AUDIT)
-    expect(prompt).toContain('1. Phase: AUDIT');
-    expect(prompt).toContain('2. Phase: AUDIT');
-    expect(prompt).toContain('First audit failure');
-    expect(prompt).toContain('Second audit failure');
-  });
-
-  it('no loop-back section on validate prompt even when prior implement passed', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    const state = await advanceIvtr('T999', ['impl-sha'], { cwd: testDir });
-
-    // Must be 'validate' now, no failed entries
-    expect(state.currentPhase).toBe('validate');
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Spec here');
-
-    expect(prompt).not.toContain('LOOP-BACK CONTEXT');
-    expect(prompt).toContain('Phase: **VALIDATE**');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// T812: Validate-phase prompt enrichment (evidence bundle + REJECT criteria)
-// ---------------------------------------------------------------------------
-
-describe('resolvePhasePrompt validate-phase enrichment (T812)', () => {
-  it('validate prompt contains Validate agent header and validate-spec-check guidance', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    // Advance implement → validate with impl-diff evidence ref
-    const state = await advanceIvtr('T999', ['impl-diff-sha256abc'], { cwd: testDir });
-
-    expect(state.currentPhase).toBe('validate');
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Spec including REQ-001');
-
-    // Section 1: task spec
-    expect(prompt).toContain('## Task Specification');
-    expect(prompt).toContain('Spec including REQ-001');
-
-    // Section 2: impl evidence bundle fallback (raw sha256 refs)
-    expect(prompt).toContain('Implement-Phase Evidence Bundle');
-    expect(prompt).toContain('impl-diff-sha256abc');
-
-    // Section 3: Validate agent instructions
-    expect(prompt).toContain('Validate agent');
-    expect(prompt).toContain('validate-spec-check');
-    expect(prompt).toContain('reqIdsChecked');
-    expect(prompt).toContain(`cleo orchestrate ivtr T999 --next --evidence`);
-    expect(prompt).toContain(`cleo orchestrate ivtr T999 --loop-back --phase implement`);
-
-    // Section 4: REJECT criteria
-    expect(prompt).toContain('REJECT criteria');
-    expect(prompt).toContain('Spec-code mismatch');
-    expect(prompt).toContain('Missing test');
-    expect(prompt).toContain('Undocumented deviation');
-    expect(prompt).toContain('Quality gate not run');
-  });
-
-  it('validate prompt with enriched evidence bundle renders table', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    const state = await advanceIvtr('T999', ['abc123deadbeef00'.repeat(4)], { cwd: testDir });
-
-    const bundle: ImplEvidenceSummary[] = [
-      {
-        attachmentSha256: 'a'.repeat(64),
-        kind: 'impl-diff',
-        filesChanged: ['src/foo.ts', 'src/bar.ts'],
-        linesAdded: 42,
-        linesRemoved: 5,
-        durationMs: 1200,
-      },
-    ];
-
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Spec', undefined, bundle);
-
-    // Table header
-    expect(prompt).toContain(
-      '| sha256 (prefix) | kind | filesChanged | linesAdded/Removed | duration |',
-    );
-    // Table row with the enriched data
-    expect(prompt).toContain('impl-diff');
-    expect(prompt).toContain('src/foo.ts, src/bar.ts');
-    expect(prompt).toContain('+42');
-    expect(prompt).toContain('-5');
-    expect(prompt).toContain('1200ms');
-    // Retrieve hint
-    expect(prompt).toContain('cleo docs show <sha256>');
-  });
-
-  it('validate prompt shows REJECT criteria even without evidence bundle', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    const state = await advanceIvtr('T999', [], { cwd: testDir });
-
-    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Spec');
-
-    expect(prompt).toContain('REJECT criteria');
-    expect(prompt).toContain('Spec-code mismatch');
-    expect(prompt).toContain('Missing test');
-    expect(prompt).toContain('Quality gate not run');
-    expect(prompt).toContain('Undocumented deviation');
-  });
-
-  it('validate prompt includes HITL escalation note after 2 loop-backs to validate', async () => {
-    await startIvtr('T999', { cwd: testDir });
-    await advanceIvtr('T999', ['i1'], { cwd: testDir }); // → validate
-
-    // Loop-back from validate to implement (count=1)
-    await loopBackIvtr('T999', 'implement', 'val fail 1', [], { cwd: testDir });
-    await advanceIvtr('T999', ['i2'], { cwd: testDir }); // → validate again (count still 0 for validate)
-
-    // Loop-back again from validate (count=1 → now 1 validate loop-back)
-    await loopBackIvtr('T999', 'validate', 'implement-fail-re-validate-1', [], { cwd: testDir });
-    await advanceIvtr('T999', ['v2'], { cwd: testDir }); // → test... wait, validate loop-back re-opens validate
-
-    // Actually: loop-back to validate opens a new validate entry, then we advance that to test
-    // Re-check: the escalation note appears when loopBackCount.validate >= 2
-    // Let's do 2 loop-backs targeting 'validate'
-    await loopBackIvtr('T999', 'validate', 'implement-fail-re-validate-2', [], { cwd: testDir });
-
-    const state2 = await advanceIvtr('T999', ['v3'], { cwd: testDir });
-    // state2 is now test phase (not validate)... the prompt won't show escalation
-    // Actually we need the state at the validate phase to see the warning.
-    // Let's just verify the loopBackCount drives the escalation note.
-    // We'll call resolvePhasePrompt with a synthetic state.
-    const syntheticState = await startIvtr('T998' as never, { cwd: testDir }).catch(() => null);
-    void syntheticState; // unused — use the manual approach below
-
-    // Build a minimal IvtrState manually for the escalation test
-    const fakeState = {
-      taskId: 'T999',
-      currentPhase: 'validate' as const,
-      phaseHistory: [
-        {
-          phase: 'implement' as const,
-          agentIdentity: null,
-          startedAt: new Date().toISOString(),
-          completedAt: new Date().toISOString(),
-          passed: true,
-          evidenceRefs: ['impl-sha'],
-        },
-        {
-          phase: 'validate' as const,
-          agentIdentity: null,
-          startedAt: new Date().toISOString(),
-          completedAt: null,
-          passed: null,
-          evidenceRefs: [],
-        },
-      ],
-      startedAt: new Date().toISOString(),
-      loopBackCount: { implement: 0, validate: 2, audit: 0, test: 0, released: 0 }, // T9216: audit added
-    };
-
-    const promptWithEscalation = resolvePhasePrompt('T999', fakeState, 'My Task', 'Spec');
-    expect(promptWithEscalation).toContain('HITL escalation');
-    expect(promptWithEscalation).toContain('WARNING');
+    expect(state).not.toBeNull();
+    const gateWouldBlock = state !== null && state.currentPhase !== 'released';
+    expect(gateWouldBlock).toBe(false);
   });
 });
