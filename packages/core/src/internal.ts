@@ -2604,7 +2604,7 @@ export {
 export { ConduitClient } from './conduit/conduit-client.js';
 export { createConduit } from './conduit/factory.js';
 export { HttpTransport } from './conduit/http-transport.js';
-export { decrypt, encrypt } from './crypto/credentials.js';
+export { decrypt, decryptGlobal, encrypt, encryptGlobal } from './crypto/credentials.js';
 export { getOutputContract, OUTPUT_CONTRACTS } from './dispatch/contracts/output-contracts.js';
 // T11692 (DHQ-057) — SDK describeOperation + OUTPUT contract accessor.
 // Re-exported from the internal barrel so the CLI dispatch adapter

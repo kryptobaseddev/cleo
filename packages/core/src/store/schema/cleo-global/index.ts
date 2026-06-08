@@ -93,6 +93,7 @@
  */
 
 export * from '../cleo-shared/index.js';
+export * from './accounts.js';
 export * from './agent-registry.js';
 export * from './nexus.js';
 export * from './session-manifest.js';
