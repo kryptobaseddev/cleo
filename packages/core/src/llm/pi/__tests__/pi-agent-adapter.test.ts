@@ -44,6 +44,9 @@ function fakeTools(): GuardedToolSurface {
     async executeShell() {
       return { stdout: '', stderr: '', code: 0 };
     },
+    async executePty() {
+      return { stdout: '', stderr: '', code: 0, mode: 'spawn' as const, ptyFellBack: false };
+    },
     async runGit() {
       return { stdout: '', stderr: '', code: 0 };
     },

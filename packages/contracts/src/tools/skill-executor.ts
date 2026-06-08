@@ -44,6 +44,7 @@
  * @see ./atomic.js — the tool I/O shapes this seam composes over
  */
 
+import type { RunShellInput, RunShellResult } from './agent-tools.js';
 import type {
   ExecuteShellInput,
   ExecuteShellResult,
@@ -86,6 +87,12 @@ export interface GuardedToolSurface {
   pathExists(input: PathExistsInput): Promise<PathExistsResult>;
   /** Run a command with explicit cwd/env/timeout through the guard. */
   executeShell(input: ExecuteShellInput): Promise<ExecuteShellResult>;
+  /**
+   * Run a command under a pseudo-terminal (PTY) through the guard, falling back
+   * to a non-PTY spawn when a PTY backend is unavailable. Subject to the same
+   * deny-first command policy + env scrubbing as {@link GuardedToolSurface.executeShell}.
+   */
+  executePty(input: RunShellInput): Promise<RunShellResult>;
   /** Run a git subcommand through the guard. */
   runGit(input: RunGitInput): Promise<ExecuteShellResult>;
 }
