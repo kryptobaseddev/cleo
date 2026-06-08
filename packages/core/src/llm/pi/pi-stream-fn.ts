@@ -15,6 +15,17 @@
  * `withEnvApiKey` is NEVER reached for the loop — the registry env-fallback
  * cannot fire (foundation §5.1, the single most important suppression lever).
  *
+ * ## Detached-producer teardown (T11898)
+ *
+ * The returned `StreamFn` MUST return its stream synchronously, so the async
+ * producer is detached (`void produce(...)`). To stop that producer outliving
+ * the call that started it, `ctx.signal` (the `wrapPiCall`-managed loop abort
+ * signal) is threaded into the per-call `SendOptions.signal` AND the producer's
+ * consumption loop bails on `signal.aborted` and explicitly returns the
+ * iterator. Teardown therefore holds even against a transport that ignores the
+ * signal option — closing the residual exit-escape window the daemon exit-guard
+ * (`installDaemonExitGuard`) backstops.
+ *
  * ## Gate-13 cleanliness (verified)
  *
  * This file CALLS `resolveLLMForSystem` + `ModelRunner.build` only. It constructs
@@ -164,7 +175,8 @@ export function createPiStreamFn(ctx: PiAgentRunContext): StreamFn {
  * @param context - The Pi request context (system prompt + messages + tools).
  * @param _options - Pi stream options (reserved; thinking/temperature flow via
  *   the resolved descriptor's capabilities in a later subtask).
- * @param ctx - The Pi run context (system-of-use label).
+ * @param ctx - The Pi run context (system-of-use label + loop abort `signal`
+ *   threaded into the per-call `SendOptions` and the producer teardown).
  */
 async function produce(
   out: AssistantMessageEventStream,
@@ -200,11 +212,40 @@ async function produce(
   let text = '';
   let stop: StopReason = 'stop';
   let started = false;
+  // Thread the run's abort signal into the per-call SendOptions so the session
+  // can observe it. The signal is the SAME `wrapPiCall`-managed signal handed to
+  // the loop — when the loop aborts (or `wrapPiCall` settles/tears down), this
+  // detached producer is told to stop. CRUCIALLY, abort teardown does NOT rely on
+  // the transport honouring the signal: the `for await` below also bails on
+  // `signal.aborted` and explicitly returns the iterator, so the producer cannot
+  // outlive the call even against a transport that ignores the option (T11898).
+  const signal = ctx.signal;
+  if (signal?.aborted) {
+    emitAborted(out, model);
+    return;
+  }
+  const stream = built.session.stream(messages, signal ? { signal } : undefined);
+  const iterator = stream[Symbol.asyncIterator]();
+  // Proactive teardown: the instant the signal aborts — even mid-`next()` await —
+  // call the iterator's `return()` so a transport that ignores `SendOptions.signal`
+  // still has its underlying stream torn down. The per-iteration `signal.aborted`
+  // check below is the cooperative second line that emits the terminal event.
+  const onAbort = (): void => {
+    void closeIterator(iterator);
+  };
+  if (signal) signal.addEventListener('abort', onAbort, { once: true });
   try {
-    // Abort is enforced at the loop level by `runAgentLoop`'s signal +
-    // `wrapPiCall` containment; `SendOptions` carries no per-call signal, so the
-    // stream is driven to completion or until the loop tears it down.
-    for await (const delta of built.session.stream(messages)) {
+    while (true) {
+      if (signal?.aborted) {
+        // Loop aborted (or wrapPiCall settled) — tear the iterator down so the
+        // detached producer stops streaming, then emit a terminal aborted event.
+        await closeIterator(iterator);
+        emitAborted(out, model);
+        return;
+      }
+      const next = await iterator.next();
+      if (next.done) break;
+      const delta = next.value;
       if (delta.text) {
         if (!started) {
           started = true;
@@ -219,9 +260,18 @@ async function produce(
       }
     }
   } catch (err) {
-    // A mid-stream transport failure → terminal error event (never thrown).
+    // An abort surfacing as a thrown error → terminal aborted event; any other
+    // mid-stream transport failure → terminal error event (never thrown).
+    await closeIterator(iterator);
+    if (signal?.aborted || isAbortError(err)) {
+      emitAborted(out, model);
+      return;
+    }
     emitError(out, model, wrapPiError(err).message);
     return;
+  } finally {
+    // Always detach the abort listener — every early `return` above runs this.
+    if (signal) signal.removeEventListener('abort', onAbort);
   }
 
   if (started) {
@@ -397,4 +447,66 @@ function emitError(
   };
   out.push({ type: 'error', reason: 'error', error: errMsg });
   out.end(errMsg);
+}
+
+/**
+ * Emit a terminal aborted `error` event + `end` on a Pi stream.
+ *
+ * Distinct from {@link emitError}: an abort is an intentional teardown (loop
+ * cancelled / `wrapPiCall` settled), so the terminal message carries
+ * `stopReason: 'aborted'` rather than `'error'`. The daemon survives either way;
+ * this just gives the loop the precise terminal reason.
+ *
+ * @param out - The Pi event stream.
+ * @param piModel - The Pi model descriptor (for the aborted AssistantMessage shape).
+ */
+function emitAborted(out: AssistantMessageEventStream, piModel: Model<string>): void {
+  const abortedMsg: AssistantMessage = {
+    role: 'assistant',
+    content: [],
+    api: piModel.api,
+    provider: piModel.provider,
+    model: piModel.id,
+    usage: zeroUsage(),
+    stopReason: 'aborted',
+    errorMessage: 'pi stream aborted',
+    timestamp: Date.now(),
+  };
+  out.push({ type: 'error', reason: 'error', error: abortedMsg });
+  out.end(abortedMsg);
+}
+
+/**
+ * Tear down a stream iterator on abort/failure so the detached producer cannot
+ * keep the underlying transport stream open after the call has ended.
+ *
+ * Calls the iterator's optional `return()` (the async-iterator cancellation
+ * hook) and swallows any error it raises — teardown is best-effort and MUST NOT
+ * throw past the never-throw producer boundary.
+ *
+ * @param iterator - The async iterator driving the transport stream.
+ */
+async function closeIterator(iterator: AsyncIterator<unknown>): Promise<void> {
+  try {
+    await iterator.return?.();
+  } catch {
+    // Best-effort teardown — a transport that throws on early return must not
+    // escape the producer (Pi's StreamFn never throws).
+  }
+}
+
+/**
+ * Whether a thrown value represents an abort (a `DOMException`/`Error` whose
+ * `name` is `AbortError`).
+ *
+ * @param err - The thrown value.
+ * @returns `true` when `err` is an abort error.
+ */
+function isAbortError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'name' in err &&
+    (err as { name?: unknown }).name === 'AbortError'
+  );
 }

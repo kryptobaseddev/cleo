@@ -173,6 +173,18 @@ export interface SendOptions {
    * Transports MUST ignore flags they do not recognise.
    */
   readonly providerFlags?: Readonly<Record<string, unknown>>;
+  /**
+   * Cancellation signal for this call.
+   *
+   * When supplied, a streaming consumer MUST stop iterating and tear the
+   * underlying iterator down once the signal aborts — even when the wire-level
+   * transport does not itself observe the signal. This is the per-call hook the
+   * in-process Pi embed threads its loop-abort through so a detached stream
+   * producer cannot outlive the call that started it (T11898). Transports that
+   * do not consume it MUST ignore it (matching the {@link providerFlags}
+   * "ignore-unknown" contract).
+   */
+  readonly signal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------

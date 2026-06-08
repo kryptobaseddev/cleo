@@ -207,10 +207,23 @@ function maybeRestoreExitTrap(): void {
 export function installDaemonExitGuard(): () => void {
   daemonExitTrapPinned = true;
   ensureExitTrapInstalled();
-  return () => {
-    daemonExitTrapPinned = false;
-    maybeRestoreExitTrap();
-  };
+  return releaseDaemonExitGuard;
+}
+
+/**
+ * Un-pin the daemon-lifetime `process.exit` trap (idempotent).
+ *
+ * Identical to the closure returned by {@link installDaemonExitGuard}, but
+ * callable WITHOUT that handle — for code paths that must reach the real
+ * `process.exit` yet do not hold the closure (e.g. a daemon bootstrap-failure
+ * handler in a different module). After un-pinning, the trap is restored once no
+ * {@link wrapPiCall} scope is active. A no-op if the guard was never pinned.
+ *
+ * Idempotent: safe to call multiple times and from multiple paths.
+ */
+export function releaseDaemonExitGuard(): void {
+  daemonExitTrapPinned = false;
+  maybeRestoreExitTrap();
 }
 
 /**

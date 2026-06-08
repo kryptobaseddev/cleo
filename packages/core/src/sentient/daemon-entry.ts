@@ -15,6 +15,7 @@
  */
 
 import { cwd } from 'node:process';
+import { releaseDaemonExitGuard } from '../llm/pi/pi-errors.js';
 import { bootstrapDaemon } from './daemon.js';
 
 const projectRoot = process.argv[2] ?? cwd();
@@ -26,5 +27,9 @@ const scopeEpicId = process.env['CLEO_SENTIENT_EPIC'] || undefined;
 bootstrapDaemon(projectRoot, { scopeSagaId, scopeEpicId }).catch((err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);
   process.stderr.write(`[CLEO SENTIENT] Fatal daemon error: ${message}\n`);
+  // If bootstrap pinned the Pi exit guard before throwing, un-pin it so this
+  // fatal exit reaches the REAL process.exit (the trap would otherwise convert
+  // it into a thrown PiContainmentError and the process would hang). Idempotent.
+  releaseDaemonExitGuard();
   process.exit(1);
 });
