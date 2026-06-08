@@ -27,6 +27,7 @@ import { z } from 'zod';
 import type { AgentToolRegistry, AvailabilityCheck } from './agent-registry.js';
 import { ALWAYS_AVAILABLE } from './agent-registry.js';
 import { registerAgentToolFamilies } from './agent-tool-families.js';
+import { registerWebAgentTools } from './web-agent-tools.js';
 
 /** Available only when the named binary is known on PATH (AC5 example). */
 function binaryAvailable(name: string): AvailabilityCheck {
@@ -137,14 +138,23 @@ export function registerBuiltinAgentTools(registry: AgentToolRegistry): void {
     },
   });
 
-  // Note: `web` (net) and `media` (notebook) primitives are NOT yet implemented
-  // in `core/src/tools/*` (only their contracts exist in atomic.ts). Those
-  // toolsets are intentionally empty until S3+ ships their primitives; the
-  // registry already supports them (AC4) so registration is a one-liner then.
+  // Note: the `media` (notebook) primitives are NOT yet implemented in
+  // `core/src/tools/*` (only their contracts exist in atomic.ts). That toolset is
+  // intentionally empty until a later stage ships its primitives; the registry
+  // already supports it (AC4) so registration is a one-liner then.
 
   // The richer agent-facing tool families (T1741): terminal `run_shell` (PTY +
   // spawn), paginated `read_file_paged`, atomic `write_file_atomic`, fuzzy
   // `apply_patch`, ripgrep `search_files`, and the git family
   // (status/diff/log/commit). All route through the same guarded surface.
   registerAgentToolFamilies(registry);
+
+  // The web + browser family (T1742): `web` toolset — `web_search` (pluggable,
+  // keyless backends), `web_extract` (HTML→markdown), and the Playwright-driven
+  // `browser_*` tools. Playwright is an OPTIONAL, lazily-loaded dependency: the
+  // browser tools register but their availability predicate hides them (with an
+  // install hint) until a context advertises the playwright capability, so core
+  // builds + runs with playwright NOT installed. The web tools' network egress +
+  // the `browser_vision` AI call (via resolveLLMForSystem) use no raw bypass.
+  registerWebAgentTools(registry);
 }
