@@ -415,6 +415,8 @@
     "@cleocode/paths": "workspace:*",
     "@cleocode/skills": "workspace:*",
     "@cleocode/worktree": "workspace:*",
+    "@earendil-works/pi-agent-core": "0.78.1",
+    "@earendil-works/pi-ai": "0.78.1",
     "@google/generative-ai": "^0.21.0",
     "@huggingface/transformers": "^4.0.1",
     "ai": "^6.0.162",
