@@ -670,13 +670,6 @@ export { updateTask } from './tasks/update.js';
 // can import them without violating lint-core-first RULE-3 (which bans
 // `@cleocode/core/internal` from CLI command files).
 
-// T9918 (Saga T9855 / E7.5) — OperationInputContract registry seed
-// T9917 (Saga T9855 / E7.4) — extended with tasks.add + tasks.update via contracts package
-export { getInputContract, INPUT_CONTRACTS } from './dispatch/contracts/input-contracts.js';
-// T11692 (DHQ-057 / EP-DHQ-CORE-FIXES T11679) — per-operation OUTPUT contract
-// registry + the SDK describeOperation() introspection surface behind
-// `cleo <op> --describe`. OUTPUT-side mirror of getInputContract.
-export { getOutputContract, OUTPUT_CONTRACTS } from './dispatch/contracts/output-contracts.js';
 // T11762 (T11901 ST-1b · Lane A) — bodied accessors over the cantbook
 // ensures.schema Zod registry (registry DATA lives in @cleocode/contracts ST-1).
 // The playbook runtime resolves a schema name → validator via these instead of
@@ -687,6 +680,13 @@ export {
   getEnsuresSchema,
   listEnsuresSchemaNames,
 } from './dispatch/contracts/ensures-schema.js';
+// T9918 (Saga T9855 / E7.5) — OperationInputContract registry seed
+// T9917 (Saga T9855 / E7.4) — extended with tasks.add + tasks.update via contracts package
+export { getInputContract, INPUT_CONTRACTS } from './dispatch/contracts/input-contracts.js';
+// T11692 (DHQ-057 / EP-DHQ-CORE-FIXES T11679) — per-operation OUTPUT contract
+// registry + the SDK describeOperation() introspection surface behind
+// `cleo <op> --describe`. OUTPUT-side mirror of getInputContract.
+export { getOutputContract, OUTPUT_CONTRACTS } from './dispatch/contracts/output-contracts.js';
 export {
   describeOperation,
   type OperationDescriptor,
