@@ -82,6 +82,23 @@ export { scaffoldProject } from '../scaffold/scaffold-project.js';
 export * from '../sdk/index.js';
 // TaskTools (Category B) — pure-functional task graph SDK tools (T10068 / T9835)
 export * from '../task-tools/index.js';
+// Agent-facing tool registry (T1739 · E-TOOLS · epic T11456) — the Hermes
+// `tools/registry.py` analogue. Self-discovering, OpenAI-format schema-emitting,
+// toolset-grouped, availability-gated, frozen-after-init registry. Side effects
+// always route through the guarded surface; auto-discovery is an EXPLICIT init()
+// (NOT at module import — AC7).
+export {
+  AGENT_TOOL_REGISTER_FN,
+  type AgentToolDescriptor,
+  type AgentToolDiscoveryOptions,
+  type AgentToolExecutable,
+  AgentToolRegistry,
+  ALWAYS_AVAILABLE,
+  type AvailabilityCheck,
+  createAgentToolRegistry,
+  type ToolAvailabilityContext,
+} from './agent-registry.js';
+export { registerBuiltinAgentTools } from './builtin-agent-tools.js';
 // Subprocess env scrubbing (T11897 · security) — the chokepoint builds a minimal,
 // allowlisted child env so daemon secrets never leak and a Pi-controlled loader
 // hook / PATH can never reach a spawned process.
@@ -103,6 +120,7 @@ export {
   type ToolGuard,
   type ToolGuardPolicy,
 } from './guard.js';
+export { type ZodSchemaTool, zodSchemaToOpenAITool } from './schema-gen.js';
 // Injectable shell executor (E3 · T11406) — threaded into the guard's
 // executeShell/runGit; substitutes the subprocess layer in tests/sandboxes.
 export { defaultShellExecutor, type ShellExecutor } from './shell.js';

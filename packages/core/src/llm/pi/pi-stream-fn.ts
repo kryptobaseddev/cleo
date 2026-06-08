@@ -35,22 +35,37 @@
  * Gate-13 allowlist). The descriptor's `model` comes from the resolver
  * (registry / role-config), never a literal here.
  *
+ * ## Tool wire-through (T1739 — registry consumability)
+ *
+ * The Pi loop carries its tools (the agent registry's `toOpenAITools()` output) on
+ * `Context.tools`. {@link toTransportTools} projects them onto the per-call
+ * `SendOptions.tools`, which `ConcreteSession._buildRequest` forwards onto
+ * `TransportRequest.tools` — so the wire-level transport advertises them to the
+ * model. This closes the streamFn → transport tool link: registry tools given to
+ * the loop are reachable by the model. (Tool-CALL *execution* — binding Pi's
+ * `ExecutionEnv` onto the guarded surface — is a later subtask; only the schema
+ * advertisement flows here.)
+ *
  * ## Zod ↔ TypeBox quarantine (Gate 10)
  *
  * Pi tool schemas are TypeBox, but `pi-ai`'s `validateToolArguments` also accepts
  * plain JSON-schema tools. Cleo tool definitions are Zod (live in `core/src/llm/`).
  * {@link zodToolToTransportTool} converts a Zod schema → JSON Schema via Zod v4's
  * native `z.toJSONSchema` (NO `zod-to-json-schema` dep, NO typebox value-import),
- * so the cleo↔Pi tool boundary carries ZERO typebox. typebox remains a transitive
- * dep used only INSIDE `pi-agent-core`; it never appears in cleo source and never
- * reaches `packages/contracts/`.
+ * so the cleo↔Pi tool boundary carries ZERO typebox. {@link toTransportTools}
+ * passes the loop's Pi `Tool.parameters` (a TypeBox `TSchema` that is structurally
+ * a JSON Schema object) through verbatim — also WITHOUT a typebox value-import.
+ * typebox remains a transitive dep used only INSIDE `pi-agent-core`; it never
+ * appears in cleo source and never reaches `packages/contracts/`.
  *
  * @epic T10403
  * @task T11761
  * @task T11898
+ * @task T1739
  */
 
 import type { ResolvedLLMDescriptor } from '@cleocode/contracts';
+import type { SendOptions } from '@cleocode/contracts/llm/interfaces.js';
 import type {
   TransportMessage,
   TransportTool,
@@ -69,6 +84,7 @@ import type {
   SimpleStreamOptions,
   StopReason,
   TextContent,
+  Tool,
 } from '@earendil-works/pi-ai';
 // VALUE import: the FACTORY that builds the stream Pi's `StreamFn` MUST return.
 // `AssistantMessageEventStream` itself collides in the `pi-ai` barrel (re-exported
@@ -80,8 +96,9 @@ import type {
 // registry is never CONSULTED — populated-but-unused, the accepted inert side
 // effect, not a leak.
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { getLogger } from '../../logger.js';
+import { zodSchemaToOpenAITool } from '../../tools/schema-gen.js';
 import { ModelRunner } from '../model-runner.js';
 import { resolveLLMForSystem } from '../system-resolver.js';
 import { wrapPiError } from './pi-errors.js';
@@ -108,23 +125,18 @@ export interface PiZodTool {
 /**
  * Convert a Cleo Zod-schema tool into a JSON-schema {@link TransportTool}.
  *
- * Uses Zod v4's native `z.toJSONSchema` — no `zod-to-json-schema` dependency and,
- * crucially, NO typebox value-import. The resulting `inputSchema` is a plain JSON
- * Schema object the transport passes through verbatim.
+ * Thin wrapper over the SINGLE shared generator
+ * {@link zodSchemaToOpenAITool} (`core/src/tools/schema-gen.ts`) so the Pi bridge
+ * and the agent registry (T1739 · AC3) share ONE conversion doctrine and cannot
+ * drift (DRY). Uses Zod v4's native `z.toJSONSchema` — no `zod-to-json-schema`
+ * dependency and, crucially, NO typebox value-import. The resulting `inputSchema`
+ * is a plain JSON Schema object the transport passes through verbatim.
  *
  * @param tool - The Cleo Zod tool.
  * @returns The transport-shaped JSON-schema tool.
  */
 export function zodToolToTransportTool(tool: PiZodTool): TransportTool {
-  // Zod v4's native `z.toJSONSchema` renders a plain JSON Schema object — NO
-  // `zod-to-json-schema` dep and NO typebox value-import at this boundary, so
-  // the cleo↔Pi tool surface carries zero typebox (Gate 10).
-  const inputSchema = z.toJSONSchema(tool.parameters) as Record<string, unknown>;
-  return {
-    name: tool.name,
-    description: tool.description,
-    inputSchema,
-  };
+  return zodSchemaToOpenAITool(tool);
 }
 
 const logger = getLogger('pi-stream-fn');
@@ -172,7 +184,10 @@ export function createPiStreamFn(ctx: PiAgentRunContext): StreamFn {
  * @param model - Pi's model descriptor for this call (id/provider/api carried for
  *   the terminal `AssistantMessage` shape; resolution is by `ctx.system`, NOT by
  *   this model id — the resolver/registry is the SSoT).
- * @param context - The Pi request context (system prompt + messages + tools).
+ * @param context - The Pi request context (system prompt + messages + tools). The
+ *   `tools` (the agent registry's `toOpenAITools()` output, set on `Context.tools`
+ *   by the loop) are projected onto the per-call `SendOptions.tools` →
+ *   `TransportRequest.tools`, so the wire-level transport advertises them.
  * @param _options - Pi stream options (reserved; thinking/temperature flow via
  *   the resolved descriptor's capabilities in a later subtask).
  * @param ctx - The Pi run context (system-of-use label + loop abort `signal`
@@ -226,7 +241,21 @@ async function produce(
     emitAborted(out, model);
     return;
   }
-  const stream = built.session.stream(messages, signal ? { signal } : undefined);
+  // Thread the loop's tools (the agent registry's `toOpenAITools()` output, set on
+  // `Context.tools` by the loop) onto the per-call `SendOptions` so the wire-level
+  // transport advertises them to the model. This is the streamFn → session.stream
+  // → `TransportRequest.tools` link that makes registry tools reachable by the
+  // model. Omitted when the loop carries no tools (a tool-free call).
+  const tools = toTransportTools(context);
+  const sendOpts: SendOptions =
+    signal && tools.length > 0
+      ? { signal, tools }
+      : signal
+        ? { signal }
+        : tools.length > 0
+          ? { tools }
+          : {};
+  const stream = built.session.stream(messages, sendOpts);
   const iterator = stream[Symbol.asyncIterator]();
   // Proactive teardown: the instant the signal aborts — even mid-`next()` await —
   // call the iterator's `return()` so a transport that ignores `SendOptions.signal`
@@ -352,6 +381,33 @@ function toTransportMessages(context: Context): TransportMessage[] {
     }
     return msg;
   });
+}
+
+/**
+ * Project the Pi {@link Context}'s tools onto OpenAI-format {@link TransportTool}[]
+ * for the wire request.
+ *
+ * The agent registry (T1739) emits OpenAI-format tools via `toOpenAITools()`; the
+ * Pi loop carries tools on `Context.tools` as Pi `Tool`s whose `parameters` is a
+ * TypeBox `TSchema` — which IS a plain JSON Schema object at runtime. We map it
+ * straight onto `inputSchema` WITHOUT importing typebox's `Value` (Gate-10 / Zod↔
+ * TypeBox quarantine): the schema object is passed through structurally. This is
+ * the `streamFn → SendOptions.tools → TransportRequest.tools` link that makes the
+ * registry's tools reachable by the model.
+ *
+ * @param context - The Pi request context.
+ * @returns OpenAI-format transport tools (empty when the context carries none).
+ */
+function toTransportTools(context: Context): readonly TransportTool[] {
+  const tools = (context as { tools?: readonly Tool[] }).tools;
+  if (!tools || tools.length === 0) return [];
+  return tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    // `t.parameters` is a TypeBox `TSchema`, structurally a JSON Schema object.
+    // Structural pass-through — no typebox value-import crosses the boundary.
+    inputSchema: t.parameters as unknown as Record<string, unknown>,
+  }));
 }
 
 /**

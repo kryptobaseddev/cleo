@@ -174,6 +174,17 @@ export interface SendOptions {
    */
   readonly providerFlags?: Readonly<Record<string, unknown>>;
   /**
+   * Tools the model may call on this call (OpenAI-format {@link TransportTool}[]).
+   *
+   * When supplied, the session forwards them onto the {@link TransportRequest.tools}
+   * surface so the wire-level transport advertises them to the model. This is the
+   * per-call hook the in-process Pi embed threads its `Context.tools` through — the
+   * registry's `toOpenAITools()` output reaches the model via `streamFn` →
+   * `SendOptions.tools` → `TransportRequest.tools`. Omit (or pass empty) for a
+   * tool-free call. Transports that do not support tools MUST ignore it.
+   */
+  readonly tools?: readonly TransportTool[];
+  /**
    * Cancellation signal for this call.
    *
    * When supplied, a streaming consumer MUST stop iterating and tear the
