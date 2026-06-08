@@ -670,6 +670,16 @@ export { updateTask } from './tasks/update.js';
 // can import them without violating lint-core-first RULE-3 (which bans
 // `@cleocode/core/internal` from CLI command files).
 
+// T11762 (T11901 ST-1b · Lane A) — bodied accessors over the cantbook
+// ensures.schema Zod registry (registry DATA lives in @cleocode/contracts ST-1).
+// The playbook runtime resolves a schema name → validator via these instead of
+// hardcoding `if (schema === 'task_tree') … else if (=== 'evidence')`.
+export {
+  defineEnsuresSchema,
+  type EnsuresSchemaSpec,
+  getEnsuresSchema,
+  listEnsuresSchemaNames,
+} from './dispatch/contracts/ensures-schema.js';
 // T9918 (Saga T9855 / E7.5) — OperationInputContract registry seed
 // T9917 (Saga T9855 / E7.4) — extended with tasks.add + tasks.update via contracts package
 export { getInputContract, INPUT_CONTRACTS } from './dispatch/contracts/input-contracts.js';

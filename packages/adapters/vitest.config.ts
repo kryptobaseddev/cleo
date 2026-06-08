@@ -24,6 +24,31 @@ export default defineConfig({
     ],
     exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**', '**/*.integration.test.ts', '**/*-integration.test.ts'],
     alias: {
+      // T11762 (T11900): the harness-interop test resolves @cleocode/playbooks to
+      // source, and the ST-2 runtime now imports @cleocode/core, which drags the
+      // store/schema layer (tasks.ts / provenance/commits.ts / memory-schema.ts)
+      // into this test's module graph. Those schema files deep-import
+      // @cleocode/contracts/{enums,jobs,provenance,memory/observe}. These subpath
+      // aliases MUST appear BEFORE the bare `@cleocode/contracts` alias so vitest
+      // matches the longer prefix first; otherwise the broader alias rewrites the
+      // path to `index.ts/<subpath>` and Node errors with ENOTDIR. Mirrors the
+      // identical ordering in the root, core, and cleo vitest configs (T9955).
+      '@cleocode/contracts/enums': new URL(
+        '../../packages/contracts/src/enums.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/contracts/jobs': new URL(
+        '../../packages/contracts/src/jobs.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/contracts/provenance': new URL(
+        '../../packages/contracts/src/provenance.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/contracts/memory/observe': new URL(
+        '../../packages/contracts/src/memory/observe.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/contracts': new URL('../../packages/contracts/src/index.ts', import.meta.url)
         .pathname,
       '@cleocode/adapters': new URL('./src/index.ts', import.meta.url).pathname,

@@ -1095,6 +1095,20 @@ export {
   type DocsLifecycleStatus,
   type DocsUpdateParams,
 } from './operations/docs.js';
+// === Ensures-schema Zod registry (T11762 ST-1 / T11900 — cantbook ensures.schema SSoT) ===
+// Named Zod validators for cantbook `ensures.schema` shapes (task_tree, evidence)
+// + the registry DATA. Bodied accessors live in @cleocode/core (ST-1b) to keep
+// contracts Gate-10-pure. The runtime resolves a schema name → validator here
+// instead of hardcoding `if (schema === 'task_tree') … else if (=== 'evidence')`.
+export type { EnsuresSchemaSpec } from './operations/ensures-schema-registry.js';
+export {
+  ENSURES_SCHEMA_REGISTRY,
+  evidenceSchema,
+  LEGACY_PASSTHROUGH_SCHEMA_NAMES,
+  passthroughSchema,
+  taskTreeEntrySchema,
+  taskTreeSchema,
+} from './operations/ensures-schema-registry.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
 // === Operation Input Contracts (T9914 / Saga T9855 / E7) ===
