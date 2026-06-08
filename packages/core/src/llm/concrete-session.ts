@@ -457,6 +457,10 @@ export class ConcreteSession implements LlmSession {
       maxTokens,
       cacheStrategy: opts?.cacheStrategy ?? null,
       ...(opts?.systemSuffix != null ? { system: opts.systemSuffix } : {}),
+      // Forward call-level tools onto the wire request so the transport advertises
+      // them to the model. Only set when non-empty — a tool-free call MUST omit the
+      // field so providers that reject an empty `tools` array are unaffected.
+      ...(opts?.tools && opts.tools.length > 0 ? { tools: [...opts.tools] } : {}),
     };
 
     // Auto-inject thinking budget when the provider supports it and the caller

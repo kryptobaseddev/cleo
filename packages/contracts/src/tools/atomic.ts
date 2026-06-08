@@ -37,6 +37,27 @@ export const TOOL_CLASSES = ['fs', 'shell', 'search', 'net', 'notebook'] as cons
 export type ToolClass = (typeof TOOL_CLASSES)[number];
 
 /**
+ * Agent-facing **toolset** groups (T1739 · AC4 · epic T11456).
+ *
+ * Where {@link TOOL_CLASSES} groups primitives by their SIDE-EFFECT surface (and
+ * therefore by guardrail policy), a {@link Toolset} groups tools by the
+ * AGENT-FACING CAPABILITY a model selects when reasoning — the dimension Hermes'
+ * `tools/registry.py` exposes to the loop. The two axes are orthogonal: an `fs`
+ * class primitive belongs to the `file` toolset, a `shell` class primitive to the
+ * `terminal` toolset, a `net` class primitive to the `web` toolset, etc.
+ *
+ * - `terminal` — shell / process execution (`executeShell`, `runGit`).
+ * - `file` — filesystem read/write/search (`readFileText`, `writeFileAtomic`, …).
+ * - `web` — outbound network / fetch (`fetch`).
+ * - `agent` — sub-agent / delegation / task orchestration tools.
+ * - `media` — image / audio / notebook authoring (`notebookEdit`, …).
+ */
+export const AGENT_TOOLSETS = ['terminal', 'file', 'web', 'agent', 'media'] as const;
+
+/** One of the canonical {@link AGENT_TOOLSETS}. */
+export type Toolset = (typeof AGENT_TOOLSETS)[number];
+
+/**
  * Descriptor for a single registered tool primitive. The registry of these is
  * the SoT for "what atomic tools exist", consumed by the guardrail chokepoint
  * and (optionally) by the MCP adapter's tool catalog (T11411).

@@ -183,6 +183,44 @@ describe('ConcreteSession', () => {
     expect(session.history()).toHaveLength(0);
   });
 
+  it('forwards SendOptions.tools onto TransportRequest.tools (T1739)', async () => {
+    const transport = makeMockTransport();
+    const session = new ConcreteSession({
+      transport,
+      model: 'claude-haiku-4-5-20251001',
+      credential: makeCredential(),
+      retryPolicy: NO_RETRY,
+    });
+
+    const tools = [
+      {
+        name: 'read_file',
+        description: 'Read a file',
+        inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+      },
+    ];
+    await session.send([{ role: 'user', content: 'Hi' }], { tools });
+
+    expect(transport.calls[0]?.request.tools).toEqual(tools);
+  });
+
+  it('omits TransportRequest.tools when no tools are supplied (T1739)', async () => {
+    const transport = makeMockTransport();
+    const session = new ConcreteSession({
+      transport,
+      model: 'claude-haiku-4-5-20251001',
+      credential: makeCredential(),
+      retryPolicy: NO_RETRY,
+    });
+
+    await session.send([{ role: 'user', content: 'Hi' }]);
+    expect(transport.calls[0]?.request.tools).toBeUndefined();
+
+    // An empty tools array is also omitted (providers reject an empty list).
+    await session.send([{ role: 'user', content: 'Hi' }], { tools: [] });
+    expect(transport.calls[1]?.request.tools).toBeUndefined();
+  });
+
   it('does NOT refresh api_key credentials before send', async () => {
     const session = new ConcreteSession({
       transport: makeMockTransport(),
