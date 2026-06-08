@@ -40,6 +40,7 @@ import type {
   ResolveLLMForRoleOptions,
   RoleName,
   SealedCredential,
+  SystemBinding,
 } from '@cleocode/contracts';
 import type { OpenAI } from 'openai';
 import { resolveOrCwd } from '../paths.js';
@@ -49,6 +50,7 @@ import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
 import { IMPLICIT_FALLBACK_MODEL } from './fallback-model.js';
 import { makeSealedCredential, tokenPreview } from './sealed-credential.js';
+import { getRegisteredSystemDefault } from './system-of-use-registry.js';
 import { buildAnthropicClient } from './transports/anthropic-client-factory.js';
 import type { ModelTransport } from './types-config.js';
 
@@ -243,27 +245,141 @@ function resolveNamedProfile(
 }
 
 /**
+ * Resolve a `llm.systems[systemKey]` {@link SystemBinding} into a
+ * {@link SelectedProviderModel}, or `undefined` when `systemKey` is unset, the
+ * key is absent, or the entry is structurally incomplete (neither a resolvable
+ * `profile` nor a complete inline `provider`+`model` tuple).
+ *
+ * A binding referencing a named profile wins over its inline tuple — mirroring
+ * {@link LlmRoleConfig.profile} precedence. The resolved profile keeps
+ * `source: 'system'` (not `'profile'`) so diagnostics attribute the resolution
+ * to the per-system override tier, while the profile's `credentialLabel` is
+ * preserved unless the binding pins its own.
+ *
+ * @param llm       - The LLM config block (may be undefined).
+ * @param systemKey - Encoded system-of-use key (may be undefined).
+ * @task T11748
+ */
+function resolveSystemBinding(
+  llm: LlmConfig | undefined,
+  systemKey: string | undefined,
+): SelectedProviderModel | undefined {
+  if (!systemKey) return undefined;
+  const binding: SystemBinding | undefined = llm?.systems?.[systemKey];
+  if (!binding) return undefined;
+
+  // 1. Binding pinned to a named profile (wins over the inline tuple).
+  const bindingProfile = resolveNamedProfile(llm, binding.profile, 'system');
+  if (bindingProfile) {
+    // The binding may override the profile's credential label.
+    return {
+      ...bindingProfile,
+      credentialLabel: binding.credentialLabel ?? bindingProfile.credentialLabel,
+    };
+  }
+
+  // 2. Inline provider/model tuple on the binding.
+  if (binding.provider && binding.model) {
+    return {
+      provider: binding.provider as ModelTransport,
+      model: binding.model,
+      credentialLabel: binding.credentialLabel,
+      source: 'system',
+    };
+  }
+
+  // Structurally incomplete — fall through to the next tier.
+  return undefined;
+}
+
+/**
+ * Resolve the runtime-registered default for `systemKey` (registerSystemOfUse —
+ * T11751) into a {@link SelectedProviderModel}, or `undefined` when no system is
+ * registered under that key (or its default is structurally incomplete).
+ *
+ * Consulted ONLY after every user-config tier in {@link selectProviderModel} is
+ * exhausted — so a `registerSystemOfUse` default can NEVER override user config
+ * (`systems[key]` / `default` / `defaultProfile`). A registered binding that
+ * names a `profile` resolves it against `llm.profiles` (the profile wins over an
+ * inline tuple); the resolution is stamped `source: 'registered-default'` for
+ * diagnostics.
+ *
+ * @param llm       - The LLM config block (may be undefined).
+ * @param systemKey - Encoded system-of-use key (may be undefined).
+ * @task T11751
+ */
+function resolveRegisteredSystemDefault(
+  llm: LlmConfig | undefined,
+  systemKey: string | undefined,
+): SelectedProviderModel | undefined {
+  const defaults = getRegisteredSystemDefault(systemKey);
+  if (!defaults) return undefined;
+
+  // 1. Default pinned to a named profile (wins over the inline tuple).
+  const profile = resolveNamedProfile(llm, defaults.profile, 'registered-default');
+  if (profile) {
+    return {
+      ...profile,
+      credentialLabel: defaults.credentialLabel ?? profile.credentialLabel,
+    };
+  }
+
+  // 2. Inline provider/model tuple on the default.
+  if (defaults.provider && defaults.model) {
+    return {
+      provider: defaults.provider as ModelTransport,
+      model: defaults.model,
+      credentialLabel: defaults.credentialLabel,
+      source: 'registered-default',
+    };
+  }
+
+  // Structurally incomplete (getRegisteredSystemDefault already filters these,
+  // but stay defensive) — fall through to implicit fallback.
+  return undefined;
+}
+
+/**
  * Pick provider/model/credentialLabel from the highest-priority configured
  * tier. Always returns a value because the implicit fallback is unconditional.
  *
  * Resolution order:
  *   1. `roles[role].profile` → named profile (`source: 'profile'`)
  *   2. `roles[role]` inline `{provider, model}` (`source: 'role'`)
- *   3. `default` (`source: 'default'`)
- *   4. `defaultProfile` → named profile (`source: 'default-profile'`)
- *   5. implicit fallback (`source: 'implicit-fallback'`)
+ *   3. `systems[systemKey]` → per-system override (`source: 'system'`) — only
+ *      consulted when `systemKey` is set (threaded by `resolveLLMForSystem`).
+ *   4. `default` (`source: 'default'`)
+ *   5. `defaultProfile` → named profile (`source: 'default-profile'`)
+ *   6. `registerSystemOfUse` default (`source: 'registered-default'`) — runtime
+ *      registration, consulted strictly BELOW all user config (T11751).
+ *   7. implicit fallback (`source: 'implicit-fallback'`)
  *
- * The configurable `defaultProfile` is what lets background roles resolve to a
- * user-selectable provider WITHOUT hardcoding the provider in code.
+ * Tiers 1–2 are the *explicit-arg* lane (per-role config / role override);
+ * tier 3 is the hermes *granular override* — consulted after the explicit
+ * choice but before the global base (`default` / `defaultProfile`), matching
+ * the E9 priority `explicit-arg → llm.systems[key] → llm.defaultProfile →
+ * registered-default → implicit fallback` (T11748 · T11751). The configurable
+ * `defaultProfile` is what lets background roles resolve to a user-selectable
+ * provider WITHOUT hardcoding the provider in code.
+ *
+ * @param llm       - The LLM config block (may be undefined).
+ * @param role      - The role used for `roles[role]` lookup.
+ * @param systemKey - Optional encoded system-of-use key activating tiers 3 + 6.
+ * @task T11748 (`systems[systemKey]` tier)
+ * @task T11751 (`registered-default` tier)
  */
-function selectProviderModel(llm: LlmConfig | undefined, role: RoleName): SelectedProviderModel {
+function selectProviderModel(
+  llm: LlmConfig | undefined,
+  role: RoleName,
+  systemKey?: string,
+): SelectedProviderModel {
   const roleEntry: LlmRoleConfig | undefined = llm?.roles?.[role];
 
-  // 1. Role pinned to a named profile.
+  // 1. Role pinned to a named profile (explicit-arg lane).
   const roleProfile = resolveNamedProfile(llm, roleEntry?.profile, 'profile');
   if (roleProfile) return roleProfile;
 
-  // 2. Role with an inline provider/model tuple (existing behaviour).
+  // 2. Role with an inline provider/model tuple (explicit-arg lane).
   if (roleEntry?.provider && roleEntry.model) {
     return {
       provider: roleEntry.provider as ModelTransport,
@@ -273,7 +389,11 @@ function selectProviderModel(llm: LlmConfig | undefined, role: RoleName): Select
     };
   }
 
-  // 3. Canonical default tuple.
+  // 3. Per-system override (hermes granular override) — beats the global base.
+  const systemBinding = resolveSystemBinding(llm, systemKey);
+  if (systemBinding) return systemBinding;
+
+  // 4. Canonical default tuple.
   const defaultEntry: LlmDefaultConfig | undefined = llm?.default;
   if (defaultEntry?.provider && defaultEntry.model) {
     return {
@@ -284,11 +404,17 @@ function selectProviderModel(llm: LlmConfig | undefined, role: RoleName): Select
     };
   }
 
-  // 4. Configurable default profile binding (user-selectable; not hardcoded).
+  // 5. Configurable default profile binding (user-selectable; not hardcoded).
   const defaultProfile = resolveNamedProfile(llm, llm?.defaultProfile, 'default-profile');
   if (defaultProfile) return defaultProfile;
 
-  // 5. Implicit fallback (last resort).
+  // 6. Runtime-registered default (registerSystemOfUse — T11751) — consulted
+  // strictly BELOW every user-config tier above, so the user ALWAYS wins. A
+  // plugin/extension default only binds when the user configured nothing.
+  const registeredDefault = resolveRegisteredSystemDefault(llm, systemKey);
+  if (registeredDefault) return registeredDefault;
+
+  // 7. Implicit fallback (last resort).
   return {
     provider: IMPLICIT_FALLBACK_PROVIDER,
     model: IMPLICIT_FALLBACK_MODEL,
@@ -434,8 +560,15 @@ export async function resolveLLMForRole(
   }
 
   // Step 2 — pick provider/model/credentialLabel from the highest-priority tier.
+  // `opts.systemKey` (threaded by `resolveLLMForSystem`) activates the
+  // `llm.systems[key]` granular-override tier; role callers leave it unset and
+  // that tier is skipped — role resolution is unchanged (T11748).
   const llmBlock = readLlmBlock(config);
-  const { provider, model, credentialLabel, source } = selectProviderModel(llmBlock, role);
+  const { provider, model, credentialLabel, source } = selectProviderModel(
+    llmBlock,
+    role,
+    opts?.systemKey,
+  );
 
   // Step 3 — resolve credential.
   const { credential, usedLabel } = await resolveCredentialForRole(

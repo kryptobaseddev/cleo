@@ -337,8 +337,9 @@ async function resolveOpenAiCompatibleBaseUrl(provider: string): Promise<string 
 }
 
 /**
- * Attempt to resolve an extraction backend via the unified role/profile resolver
- * (`resolveLLMForRole('extraction')`) — the T11757 convergence point.
+ * Attempt to resolve an extraction backend via the E9 resolution chokepoint
+ * (`resolveLLMForSystem({ kind: 'role', id: 'extraction' })`) — the T11757
+ * convergence point, folded onto the single chokepoint by T11750.
  *
  * This is consulted BEFORE the legacy warm/cold chain so a pinned `extraction`
  * profile (or the unscoped default) drives the sentient loop with the same
@@ -356,17 +357,32 @@ async function resolveOpenAiCompatibleBaseUrl(provider: string): Promise<string 
  *  - no credential is reachable for the resolved provider, OR
  *  - the provider is not one we can wire here (e.g. a transport-only provider).
  *
+ * ## Why the chokepoint, not a bare `resolveLLMForRole` (T11750 · AC2)
+ *
+ * Routing through `resolveLLMForSystem` (rather than calling `resolveLLMForRole`
+ * directly) folds the Ollama→transformers→Anthropic fallback chain BEHIND the
+ * one E9 chokepoint: the legacy local-backend chain below is now strictly the
+ * *fall-through* path when the chokepoint yields no usable cloud credential, and
+ * the role/profile/credential resolution itself happens in exactly ONE place.
+ * `skipCatalogDefault: true` is passed because this path only consults the
+ * resolved `provider` + `sealedCredential` — it builds its own AI-SDK model and
+ * does not need the chokepoint's provider-registry default-model upgrade.
+ *
  * NOTE: codex's ChatGPT-backend transport is intentionally NOT handled here
  * (tracked separately as T11767). A codex/openai profile resolves through the
  * openai-compatible path; if its client cannot authenticate it falls through to
  * the warm chain rather than crashing.
  *
  * @task T11757
+ * @task T11750
  */
 async function tryUnifiedResolver(): Promise<ResolvedBackend | null> {
   try {
-    const { resolveLLMForRole } = await import('../llm/role-resolver.js');
-    const resolved = await resolveLLMForRole('extraction');
+    const { resolveLLMForSystem } = await import('../llm/system-resolver.js');
+    const resolved = await resolveLLMForSystem(
+      { kind: 'role', id: 'extraction' },
+      { skipCatalogDefault: true },
+    );
 
     // No credential reachable → let the legacy chain try local backends.
     // E10 (T11753): materialize the plaintext from the sealed handle ONLY here,

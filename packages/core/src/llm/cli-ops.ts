@@ -29,6 +29,8 @@ import type {
   LlmRemoveParams,
   LlmRemoveResult,
   LlmStoredCredentialView,
+  LlmSystemsOfUseParams,
+  LlmSystemsOfUseResult,
   LlmTestParams,
   LlmTestResult,
   LlmUseParams,
@@ -39,7 +41,12 @@ import type {
   ModelTransport,
   StoredAuthTypeWire,
 } from '@cleocode/contracts';
-import { type EngineResult, engineError, engineSuccess } from '@cleocode/contracts';
+import {
+  type EngineResult,
+  engineError,
+  engineSuccess,
+  WHOAMI_ROLE_IDS,
+} from '@cleocode/contracts';
 import { setConfigValue } from '../config.js';
 // S-13 (CWE-209): wrap any user-facing error string in the project-wide
 // `redactContent` helper so a stack trace or fetch error that incidentally
@@ -62,6 +69,7 @@ import {
 } from './credentials-store.js';
 import { IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } from './role-resolver.js';
 import { tokenPreview } from './sealed-credential.js';
+import { listSystemsOfUse } from './system-of-use-registry.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -69,13 +77,18 @@ import { tokenPreview } from './sealed-credential.js';
 
 /**
  * Logical roles enumerated by `whoami` when no explicit `role` filter is
- * supplied. Mirrors `RoleName` in `@cleocode/contracts`; duplicated here as a
- * runtime tuple so the `for (const role of ALL_ROLES)` loop survives a
- * downstream rename of the type alias without losing the iteration set.
+ * supplied (and the valid-role allowlist for `llm profile`).
+ *
+ * Sourced from the contracts SSoT {@link WHOAMI_ROLE_IDS} (T11750 · AC3) — the
+ * one place the enumerable background-role set is defined and kept locked to
+ * `RoleName` via a compile-time `satisfies`. The previous inline duplicate
+ * `['extraction', …]` tuple is gone: there is now ONE source of truth, so the
+ * whoami/profile role list can never silently drift from the config vocabulary.
  *
  * @task T9258
+ * @task T11750
  */
-const ALL_ROLES = ['extraction', 'consolidation', 'derivation', 'hygiene', 'judgement'] as const;
+const ALL_ROLES = WHOAMI_ROLE_IDS;
 
 // ---------------------------------------------------------------------------
 // Redaction helpers
@@ -485,6 +498,29 @@ export async function llmWhoami(params: LlmWhoamiParams): Promise<EngineResult<L
     return engineSuccess({ entries });
   } catch (err) {
     return engineError('E_WHOAMI_FAILED', safeErrMessage(err));
+  }
+}
+
+/**
+ * `llm.systems-of-use` — enumerate every system-of-use for the TUI / Studio
+ * profile picker (T11751 · AC2).
+ *
+ * Returns the merged surface: the static {@link BUILTIN_SYSTEMS_OF_USE} table
+ * plus every runtime-registered system (`registerSystemOfUse`). This is the ONE
+ * enumeration op the picker reads — it never re-derives the system list itself,
+ * so a newly-registered system appears in the picker without a UI edit.
+ *
+ * @task T11751
+ * @epic T11745
+ */
+export async function llmSystemsOfUse(
+  params: LlmSystemsOfUseParams,
+): Promise<EngineResult<LlmSystemsOfUseResult>> {
+  try {
+    const entries = listSystemsOfUse(params.kind);
+    return engineSuccess({ entries });
+  } catch (err) {
+    return engineError('E_INTERNAL', safeErrMessage(err));
   }
 }
 

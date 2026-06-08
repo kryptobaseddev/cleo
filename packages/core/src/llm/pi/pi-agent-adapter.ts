@@ -67,7 +67,7 @@ export function isPiRunnerEnabled(): boolean {
  */
 export interface PiAgentAdapterDeps {
   /**
-   * The {@link SystemOfUse} label this adapter resolves its LLM through (E9).
+   * The {@link SystemOfUseLabel} this adapter resolves its LLM through (E9).
    * Defaults to `'task-executor'` when the SkillRunner closure builds the ctx.
    */
   readonly system?: PiAgentRunContext['system'];

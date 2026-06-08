@@ -13,7 +13,7 @@
  * @task T11898
  */
 
-import type { SystemOfUse } from '@cleocode/contracts';
+import type { SystemOfUseLabel } from '@cleocode/contracts';
 
 /**
  * Run context handed to the Pi adapter + streamFn for a single agent run.
@@ -29,7 +29,7 @@ export interface PiAgentRunContext {
    * {@link import('../system-resolver.js').resolveLLMForSystem} chokepoint
    * (e.g. `'task-executor'`).
    */
-  readonly system: SystemOfUse;
+  readonly system: SystemOfUseLabel;
   /** Daemon-stamped session identity (read from `CLEO_SESSION_ID`, NEVER minted). */
   readonly sessionId: string;
   /** Daemon-stamped agent id (`CLEO_AGENT_ID`), or `null` when un-stamped. */
