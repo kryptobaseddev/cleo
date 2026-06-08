@@ -303,7 +303,8 @@ describe('resolveLLMForRole — named profile + defaultProfile binding (T11617)'
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
     expect(llm.source).toBe('profile');
     expect(llm.credentialLabel).toBe('pinned-label');
-    expect(llm.credential?.apiKey).toBe('sk-ant-pinned');
+    // E10 (T11753): plaintext is reachable ONLY via the sealed handle's fetch().
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-ant-pinned');
   });
 });
 
@@ -320,6 +321,8 @@ describe('resolveLLMForRole — credential resolution', () => {
     // No env, no cred-file, no claude-creds, no global / project config key.
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
     expect(llm.credential).toBeNull();
+    // E10 (T11753): no credential → null sealed handle, paired with null metadata.
+    expect(llm.sealedCredential).toBeNull();
     expect(llm.client).toBeNull();
   });
 
@@ -330,7 +333,7 @@ describe('resolveLLMForRole — credential resolution', () => {
     });
     process.env['ANTHROPIC_API_KEY'] = 'sk-ant-env';
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
-    expect(llm.credential?.apiKey).toBe('sk-ant-env');
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-ant-env');
     expect(llm.credential?.source).toBe('env');
     expect(llm.client).not.toBeNull();
   });
@@ -350,7 +353,7 @@ describe('resolveLLMForRole — credential resolution', () => {
       priority: 1,
     });
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
-    expect(llm.credential?.apiKey).toBe('sk-ant-credfile');
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-ant-credfile');
     expect(llm.credential?.source).toBe('cred-file');
     expect(llm.credentialLabel).toBe('workspace-default');
   });
@@ -382,7 +385,7 @@ describe('resolveLLMForRole — credential resolution', () => {
     });
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
     expect(llm.credentialLabel).toBe('work');
-    expect(llm.credential?.apiKey).toBe('sk-work');
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-work');
     expect(llm.credential?.source).toBe('cred-file');
   });
 
@@ -408,7 +411,7 @@ describe('resolveLLMForRole — credential resolution', () => {
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
     // Label did not match — picker is bypassed; tier 2 (env) wins.
     expect(llm.credentialLabel).toBeUndefined();
-    expect(llm.credential?.apiKey).toBe('sk-env-rescue');
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-env-rescue');
     expect(llm.credential?.source).toBe('env');
   });
 
@@ -433,11 +436,12 @@ describe('resolveLLMForRole — credential resolution', () => {
       priority: 1,
     });
     const llm = await resolveLLMForRole('extraction', { projectRoot });
-    expect(llm.credential?.apiKey).toBe('sk-ant-default-pinned');
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-ant-default-pinned');
     expect(llm.credential?.source).toBe('cred-file');
     expect(llm.credentialLabel).toBe('default');
-    // The key assertion for the T9360 AC: hasCredential equivalence.
-    expect(!!llm.credential?.apiKey).toBe(true);
+    // The key assertion for the T9360 AC: hasCredential equivalence — now the
+    // sealed-handle presence is the post-E10 hasCredential signal (T11753).
+    expect(!!llm.sealedCredential).toBe(true);
   });
 
   it('hasCredential is true when no credentialLabel but default-labelled credential exists (T9360)', async () => {
@@ -460,10 +464,10 @@ describe('resolveLLMForRole — credential resolution', () => {
       priority: 1,
     });
     const llm = await resolveLLMForRole('extraction', { projectRoot });
-    expect(llm.credential?.apiKey).toBe('sk-ant-no-label-default');
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-ant-no-label-default');
     expect(llm.credential?.source).toBe('cred-file');
     expect(llm.credentialLabel).toBe('default');
-    expect(!!llm.credential?.apiKey).toBe(true);
+    expect(!!llm.sealedCredential).toBe(true);
   });
 });
 

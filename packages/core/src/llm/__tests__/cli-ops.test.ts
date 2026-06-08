@@ -370,11 +370,16 @@ describe('llm cli-ops — redaction + envelope shape', () => {
       provider: 'anthropic',
       model: 'claude-haiku-4-5-20251001',
       client: null,
+      // E10 (T11753): non-secret metadata + sealed handle (drives hasCredential).
       credential: {
         provider: 'anthropic',
-        apiKey: 'tok',
         source: 'env',
         authType: 'api_key',
+      },
+      sealedCredential: {
+        provider: 'anthropic',
+        account: 'default',
+        fetch: async () => ({ __decryptedToken: 'DecryptedToken' as const, value: 'tok' }),
       },
       source: 'implicit-fallback',
       credentialLabel: undefined,
@@ -399,6 +404,7 @@ describe('llm cli-ops — redaction + envelope shape', () => {
       model: 'claude-haiku-4-5-20251001',
       client: null,
       credential: null,
+      sealedCredential: null,
       source: 'implicit-fallback',
       credentialLabel: undefined,
     });

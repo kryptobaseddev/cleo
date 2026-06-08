@@ -165,7 +165,7 @@ describe('resolveLLMForRole — full-stack for every RoleName', () => {
       expect(llm.provider).toBe('anthropic');
       expect(llm.model).toBe('integration-default-model');
       expect(llm.credential?.source).toBe('env');
-      expect(llm.credential?.apiKey).toBe('sk-ant-integration-env');
+      expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-ant-integration-env');
       expect(llm.client).not.toBeNull();
     }
   });
@@ -190,7 +190,7 @@ describe('resolveLLMForRole — full-stack for every RoleName', () => {
       const llm = await resolveLLMForRole(role, { projectRoot });
       expect(llm.source).toBe('role');
       expect(llm.model).toBe(`model-${role}`);
-      expect(llm.credential?.apiKey).toBe('sk-ant-shared');
+      expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-ant-shared');
     }
   });
 });
@@ -212,7 +212,7 @@ describe('resolveLLMForRole — credential tier precedence (full chain)', () => 
 
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
     expect(llm.credential?.source).toBe('env');
-    expect(llm.credential?.apiKey).toBe('sk-env-wins');
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-env-wins');
   });
 
   it('cred-file (tier 3) beats claude-creds (tier 4)', async () => {
@@ -230,7 +230,7 @@ describe('resolveLLMForRole — credential tier precedence (full chain)', () => 
 
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
     expect(llm.credential?.source).toBe('cred-file');
-    expect(llm.credential?.apiKey).toBe('sk-ant-oat-credfile-wins');
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-ant-oat-credfile-wins');
   });
 
   it('claude-creds via pool seeder beats global-config (T9413 — pool tier replaces tier 4)', async () => {
@@ -275,7 +275,7 @@ describe('resolveLLMForRole — credential tier precedence (full chain)', () => 
 
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
     expect(llm.credential?.source).toBe('cred-file');
-    expect(llm.credential?.apiKey).toBe('sk-ant-oat-claude-wins');
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-ant-oat-claude-wins');
   });
 
   it('global-config (tier 4a) beats project-config (tier 5)', async () => {
@@ -290,7 +290,7 @@ describe('resolveLLMForRole — credential tier precedence (full chain)', () => 
 
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
     expect(llm.credential?.source).toBe('global-config');
-    expect(llm.credential?.apiKey).toBe('sk-global-wins');
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-global-wins');
   });
 
   it('project-config (tier 5) is REJECTED — never resolves even as floor (T9413)', async () => {
@@ -348,12 +348,12 @@ describe('resolveLLMForRole — per-role credentialLabel isolation', () => {
 
     const ext = await resolveLLMForRole('extraction', { projectRoot });
     expect(ext.credentialLabel).toBe('extract-key');
-    expect(ext.credential?.apiKey).toBe('sk-for-extraction');
+    expect((await ext.sealedCredential?.fetch())?.value).toBe('sk-for-extraction');
     expect(ext.model).toBe('extract-model');
 
     const jud = await resolveLLMForRole('judgement', { projectRoot });
     expect(jud.credentialLabel).toBe('judge-key');
-    expect(jud.credential?.apiKey).toBe('sk-for-judgement');
+    expect((await jud.sealedCredential?.fetch())?.value).toBe('sk-for-judgement');
     expect(jud.model).toBe('judge-model');
   });
 });

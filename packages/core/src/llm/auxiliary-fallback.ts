@@ -371,7 +371,7 @@ async function _defaultAuxiliaryProvider(
   // Fall back to the role-resolved provider if the chain provider matches.
   const targetProvider = entry.provider;
 
-  if (targetProvider === resolved.provider && resolved.credential?.apiKey) {
+  if (targetProvider === resolved.provider && resolved.sealedCredential) {
     const session = await factory.createForRole('hygiene');
     return session.send(messages, opts);
   }
