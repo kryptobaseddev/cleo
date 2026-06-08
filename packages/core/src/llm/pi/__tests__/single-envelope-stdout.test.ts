@@ -29,34 +29,67 @@ import { describe, expect, it } from 'vitest';
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Resolve the `tsx` cli entry. Prefer `import.meta.resolve` (works in the test
- * runtime), fall back to the package-local `node_modules/.bin/tsx`.
+ * Resolve the `tsx` ESM loader entry so a `.ts` fixture can be executed with the
+ * SAME node binary that is running this test (`process.execPath`) and the SAME
+ * module resolution as the test runtime.
+ *
+ * This is CI-portable on purpose. The earlier implementation spawned a bare
+ * `tsx` command (or `import.meta.resolve('tsx/dist/cli.mjs')`, a subpath that
+ * tsx 4.x does NOT export), which only worked when a global `tsx` happened to be
+ * on `PATH`. On CI runners `tsx` is hoisted into the workspace `node_modules`
+ * and is NOT on `PATH`, so `spawnSync('tsx', …)` failed with ENOENT — the child
+ * never ran (status `null`, empty stdout), which is exactly the
+ * "expected null to be 0" / "got zero envelope lines" failure this test hit.
+ *
+ * We resolve the loader through the package `exports` map (`tsx` → the loader,
+ * `tsx/cli` → the CLI) — both are stable, exported subpaths — and register it
+ * via `node --import <loader>`, which needs nothing on `PATH`.
  */
-function resolveTsx(): string {
-  try {
-    return fileURLToPath(import.meta.resolve('tsx/dist/cli.mjs'));
-  } catch {
-    // Walk up from HERE to the package root and use the .bin symlink.
-    const binTsx = join(HERE, '..', '..', '..', '..', 'node_modules', '.bin', 'tsx');
-    if (existsSync(binTsx)) return binTsx;
-    return 'tsx';
+function resolveTsxLoader(): string {
+  // `tsx` (bare) and `tsx/cli` are both exported by tsx 4.x and both register
+  // the TypeScript loader when passed to `node --import`.
+  for (const specifier of ['tsx', 'tsx/cli'] as const) {
+    try {
+      return fileURLToPath(import.meta.resolve(specifier));
+    } catch {
+      // try the next exported entry
+    }
   }
+  // Last resort: the package-local `.bin/tsx` symlink (hoisted to a workspace
+  // `node_modules` on the resolution path). Walk up to the package root.
+  const binTsx = join(HERE, '..', '..', '..', '..', '..', '..', 'node_modules', '.bin', 'tsx');
+  if (existsSync(binTsx)) return binTsx;
+  throw new Error('Unable to resolve the tsx loader for the Pi single-envelope subprocess tests');
 }
 
-const TSX = resolveTsx();
+const TSX_LOADER = resolveTsxLoader();
 
-/** Run a fixture script with tsx, capturing stdout/stderr separately. */
+/**
+ * Run a fixture `.ts` script in a child process, capturing stdout/stderr
+ * separately. The child is the SAME node binary running this test
+ * (`process.execPath`) with the tsx loader registered via `--import`, so it is
+ * independent of whatever is (or is not) on `PATH` under CI.
+ */
 function runFixture(name: string): { stdout: string; stderr: string; status: number | null } {
   const script = join(HERE, 'fixtures', name);
-  // The .bin/tsx shim is directly executable; the resolved cli.mjs is run via node.
-  const isBinShim = TSX.endsWith(`.bin${'/'}tsx`) || TSX === 'tsx';
-  const cmd = isBinShim ? TSX : 'node';
-  const argv = isBinShim ? [script] : [TSX, script];
+  // A resolved `.bin/tsx` shim is directly executable; the resolved loader entry
+  // is registered with the test's own node binary via `--import`.
+  const isBinShim = TSX_LOADER.endsWith(`.bin${'/'}tsx`);
+  const cmd = isBinShim ? TSX_LOADER : process.execPath;
+  const argv = isBinShim ? [script] : ['--import', TSX_LOADER, script];
   const res = spawnSync(cmd, argv, {
     encoding: 'utf-8',
     timeout: 60_000,
     env: { ...process.env, CLEO_SESSION_ID: 'fixture-session-1' },
   });
+  // Surface a hard spawn failure (e.g. ENOENT) instead of silently returning an
+  // empty stdout + null status — that masked the real CI bug this test had.
+  if (res.error) {
+    throw new Error(
+      `Failed to spawn fixture ${name} via ${cmd}: ${res.error.message}\n` +
+        `stderr: ${res.stderr ?? ''}`,
+    );
+  }
   return { stdout: res.stdout ?? '', stderr: res.stderr ?? '', status: res.status };
 }
 
