@@ -218,6 +218,41 @@ export const ROLE_SYSTEM_IDS = [
 ] as const satisfies readonly RoleName[];
 
 /**
+ * Value-level SSoT for the user-facing, *enumerable* background {@link RoleName}s
+ * — the set `cleo llm whoami` reports and `cleo llm profile` accepts.
+ *
+ * This is the proper subset of {@link ROLE_SYSTEM_IDS} that excludes the two
+ * internal sandbox/utility roles (`plugin`, `compression`): they are resolved
+ * by code paths (plugin-scoped single-turn calls, context compression) rather
+ * than configured per-call by users, so they are intentionally NOT enumerated
+ * by the `whoami` / `profile` CLI surface.
+ *
+ * Sourcing the `cli-ops.ts` role list from THIS one tuple (instead of a
+ * duplicated inline array) is the AC3 "ALL_ROLES from one SSoT" requirement
+ * (T11750): the type-checker's `satisfies readonly RoleName[]` keeps every id
+ * locked to {@link RoleName}, so the enumerable set can never silently drift
+ * from the config vocabulary.
+ *
+ * @task T11750
+ * @epic T11745
+ */
+export const WHOAMI_ROLE_IDS = [
+  'extraction',
+  'consolidation',
+  'derivation',
+  'hygiene',
+  'judgement',
+] as const satisfies readonly RoleName[];
+
+/**
+ * The id of a `whoami`-enumerable role — the element type of
+ * {@link WHOAMI_ROLE_IDS}.
+ *
+ * @task T11750
+ */
+export type WhoamiRoleId = (typeof WHOAMI_ROLE_IDS)[number];
+
+/**
  * Value-level SSoT for the four orchestration capability tiers. Mirrors the
  * {@link ProviderTier} type, most→least capable.
  *

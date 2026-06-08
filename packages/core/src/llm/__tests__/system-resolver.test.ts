@@ -20,7 +20,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { clearAnthropicKeyCache } from '../credentials.js';
 import { _resetPermsWarningForTests, _resetRoundRobinForTests } from '../credentials-store.js';
 import { _resetGlobalConfigMigrationLatch } from '../global-config-migration.js';
-import { IMPLICIT_FALLBACK_MODEL, IMPLICIT_FALLBACK_PROVIDER } from '../role-resolver.js';
+import {
+  IMPLICIT_FALLBACK_MODEL,
+  IMPLICIT_FALLBACK_PROVIDER,
+  resolveLLMForRole,
+} from '../role-resolver.js';
 import { resolveLLMForSystem } from '../system-resolver.js';
 
 // ---------------------------------------------------------------------------
@@ -329,5 +333,95 @@ describe('resolveLLMForSystem — result envelope shape', () => {
       expect(result).toHaveProperty('model');
       expect(result).toHaveProperty('source');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC1 (T11750): { kind: 'role', id } descriptor ≡ resolveLLMForRole(id)
+// ---------------------------------------------------------------------------
+
+describe('resolveLLMForSystem — RoleSystem descriptor equivalence (T11750 · AC1)', () => {
+  /** The seven config-vocabulary roles, exercised through the descriptor form. */
+  const ROLES = [
+    'extraction',
+    'consolidation',
+    'derivation',
+    'hygiene',
+    'judgement',
+    'plugin',
+    'compression',
+  ] as const;
+
+  it('accepts the { kind: "role", id } descriptor and stamps system + resolvedRole', async () => {
+    const { projectRoot } = isolate();
+    seedProjectConfig(projectRoot, {
+      roles: { consolidation: { provider: 'anthropic', model: 'role-descriptor-model' } },
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-role-descriptor';
+    const result = await resolveLLMForSystem(
+      { kind: 'role', id: 'consolidation' },
+      { projectRoot, skipCatalogDefault: true },
+    );
+    expect(result.resolvedRole).toBe('consolidation');
+    expect(result.system).toEqual({ kind: 'role', id: 'consolidation' });
+    expect(result.source).toBe('role');
+    expect(result.model).toBe('role-descriptor-model');
+  });
+
+  it('resolveLLMForSystem({ kind: "role", id }) matches resolveLLMForRole(id) for every resolution field', async () => {
+    const { projectRoot } = isolate();
+    // Seed a distinct model per role so the equivalence is non-trivial.
+    seedProjectConfig(projectRoot, {
+      default: { provider: 'anthropic', model: 'never-picked' },
+      roles: {
+        extraction: { provider: 'anthropic', model: 'm-extraction' },
+        consolidation: { provider: 'anthropic', model: 'm-consolidation' },
+        derivation: { provider: 'anthropic', model: 'm-derivation' },
+        hygiene: { provider: 'anthropic', model: 'm-hygiene' },
+        judgement: { provider: 'anthropic', model: 'm-judgement' },
+        plugin: { provider: 'anthropic', model: 'm-plugin' },
+        compression: { provider: 'anthropic', model: 'm-compression' },
+      },
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-equivalence';
+
+    for (const id of ROLES) {
+      const viaRole = await resolveLLMForRole(id, { projectRoot });
+      const viaSystem = await resolveLLMForSystem(
+        { kind: 'role', id },
+        { projectRoot, skipCatalogDefault: true },
+      );
+      // Every resolution-relevant field is identical — only the additive
+      // `system` + `resolvedRole` envelope fields differ.
+      expect(viaSystem.provider).toBe(viaRole.provider);
+      expect(viaSystem.model).toBe(viaRole.model);
+      expect(viaSystem.source).toBe(viaRole.source);
+      expect(viaSystem.apiMode).toBe(viaRole.apiMode);
+      expect(viaSystem.authType).toBe(viaRole.authType);
+      expect(viaSystem.credential?.provider).toBe(viaRole.credential?.provider);
+      expect(viaSystem.credential?.source).toBe(viaRole.credential?.source);
+      // The additive envelope fields the descriptor form carries.
+      expect(viaSystem.resolvedRole).toBe(id);
+      expect(viaSystem.system).toEqual({ kind: 'role', id });
+    }
+  });
+
+  it('descriptor form does NOT consult the llm.systems[key] override tier', async () => {
+    const { projectRoot } = isolate();
+    // A systems[...] entry keyed by a label MUST NOT leak into a descriptor
+    // resolution — the descriptor walks the same tier chain as resolveLLMForRole.
+    seedProjectConfig(projectRoot, {
+      default: { provider: 'anthropic', model: 'base-default' },
+      systems: { extraction: { provider: 'anthropic', model: 'system-override-model' } },
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-no-system-tier';
+    const viaSystem = await resolveLLMForSystem(
+      { kind: 'role', id: 'extraction' },
+      { projectRoot, skipCatalogDefault: true },
+    );
+    // It lands on `default` (base-default), NOT the systems[...] override —
+    // proving no systemKey was threaded for the descriptor form.
+    expect(viaSystem.source).toBe('default');
+    expect(viaSystem.model).toBe('base-default');
   });
 });

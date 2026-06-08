@@ -861,6 +861,7 @@ export type {
   SystemOfUse,
   SystemOfUseKind,
   ToolSystem,
+  WhoamiRoleId,
 } from './llm/system-of-use.js';
 export {
   AUX_SYSTEM_IDS,
@@ -871,11 +872,13 @@ export {
   OPEN_SYSTEM_KEY_PREFIXES,
   ORCHESTRATION_TIER_IDS,
   ROLE_SYSTEM_IDS,
+  WHOAMI_ROLE_IDS,
 } from './llm/system-of-use.js';
 // === E9 System-of-Use chokepoint contract (T11749) ===
 export type {
   ResolveLLMForSystemOptions,
   SystemOfUseLabel,
+  SystemResolverInput,
 } from './llm/system-resolver.js';
 export { SYSTEM_ROLE_MAP } from './llm/system-resolver.js';
 // === Logger contract (T9766 — centralized from @cleocode/core) ===

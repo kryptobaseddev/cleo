@@ -23,6 +23,7 @@
  */
 
 import type { RoleName } from '../config.js';
+import type { RoleSystem } from './system-of-use.js';
 
 /**
  * Flat, ergonomic label for a CLEO background subsystem that requests an LLM
@@ -80,6 +81,28 @@ export const SYSTEM_ROLE_MAP: Readonly<Record<SystemOfUseLabel, RoleName | null>
   /** `null` means "use the global LLM default, no per-role config". */
   default: null,
 } as const;
+
+/**
+ * Input accepted by `resolveLLMForSystem()`.
+ *
+ * The chokepoint accepts EITHER:
+ *
+ *  - the flat, ergonomic {@link SystemOfUseLabel} for the role-mapped background
+ *    subsystems (`'sentient'`, `'memory'`, … — the original locked vocabulary), OR
+ *  - a structured {@link RoleSystem} descriptor (`{ kind: 'role', id: RoleName }`)
+ *    for a *direct* role resolution.
+ *
+ * The descriptor form makes the E9 equivalence
+ * `resolveLLMForRole(role) ≡ resolveLLMForSystem({ kind: 'role', id: role })`
+ * (T11750 · AC1) directly expressible at the chokepoint, so role callers can
+ * collapse onto the same single resolution path with ZERO duplicate resolution
+ * logic. Both forms funnel through the SAME `resolveLLMForRole` core inside
+ * `@cleocode/core`.
+ *
+ * @task T11750
+ * @epic T11745
+ */
+export type SystemResolverInput = SystemOfUseLabel | RoleSystem;
 
 /**
  * Options accepted by `resolveLLMForSystem()`.
