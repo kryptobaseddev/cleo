@@ -38,14 +38,45 @@ import {
   type TuiInstance,
 } from '../pi-tui-loader.js';
 import {
+  buildConductorLane,
+  clampTier,
+  dispatchWorker,
+  renderConductorLane,
+  type SpawnTier,
+} from './dispatch.js';
+import {
   buildKanbanBoard,
   type KanbanBoard,
+  type KanbanCard,
+  type KanbanLaneColumn,
   renderKanbanBoardText,
   type TuiTaskRow,
 } from './kanban-board.js';
+import { type SseSubscription, subscribeOrchestrateEvents } from './sse-client.js';
+import {
+  applyWorkerStreamFrame,
+  emptyWorkerStreamView,
+  renderWorkerStreamPanel,
+  type WorkerStreamView,
+} from './worker-stream.js';
 
 /** The default loopback gateway base URL (`cleo daemon serve` listener). */
 export const DEFAULT_TUI_BASE_URL = 'http://127.0.0.1:7777';
+
+/**
+ * The dispatch function the cockpit calls to spawn a worker. Defaults to the
+ * real {@link dispatchWorker} (SDK → gateway); overridable by unit tests so the
+ * dispatch action is exercisable without a daemon. Mirrors the
+ * {@link import('./dispatch.js').dispatchWorker} signature.
+ */
+export type DispatchFn = typeof dispatchWorker;
+
+/**
+ * The SSE subscribe function the cockpit calls to tail a Running card's worker
+ * stream. Defaults to the real {@link subscribeOrchestrateEvents}; overridable
+ * by unit tests so the stream wiring is exercisable without a socket.
+ */
+export type SubscribeFn = typeof subscribeOrchestrateEvents;
 
 /** Options for {@link runCockpit}. */
 export interface CockpitOptions {
@@ -57,6 +88,16 @@ export interface CockpitOptions {
    * command is testable and CI-safe). Defaults to `false`.
    */
   readonly once?: boolean;
+  /**
+   * Override the worker-dispatch function (test seam). Defaults to the real
+   * SDK-backed {@link dispatchWorker}.
+   */
+  readonly dispatch?: DispatchFn;
+  /**
+   * Override the SSE subscribe function (test seam). Defaults to the real
+   * {@link subscribeOrchestrateEvents}.
+   */
+  readonly subscribe?: SubscribeFn;
 }
 
 /** A line-emitting sink (defaults to stdout) — injectable for tests. */
@@ -107,54 +148,287 @@ async function fetchTaskRows(baseUrl: string): Promise<TuiTaskRow[] | null> {
   }
 }
 
+/** Lanes a card may be DISPATCHED from (`d`/Enter spawns a worker). */
+const DISPATCHABLE_LANES: ReadonlySet<string> = new Set(['backlog', 'ready']);
+
 /**
  * A pi-tui {@link import('../pi-tui-loader.js').Component} that renders the
- * Kanban board's plain-text body and reports which lane currently has keyboard
- * focus. The render output is the SAME body the fallback prints, so the two
- * paths can never diverge.
+ * Kanban board's plain-text body, tracks lane AND card keyboard focus, owns the
+ * confirm-gated dispatch action (T11935), and renders the live worker stream
+ * panel for a focused Running card (T11936).
+ *
+ * The board-body render is the SAME body the fallback prints (so the two paths
+ * can never diverge); the focus indicator, status line, conductor lane, and
+ * worker panel are appended below it. ALL dispatch + SSE go through injected
+ * functions ({@link DispatchFn} / {@link SubscribeFn}) — the component never
+ * imports a core domain or shells out (T11935 · AC3).
  */
 class KanbanBoardComponent {
   /** Index of the lane that currently holds keyboard focus. */
   private focusedLane = 0;
+  /** Index of the focused card WITHIN the focused lane. */
+  private focusedCard = 0;
+  /** Two-step confirm latch — set on the first dispatch key, cleared on action/move. */
+  private confirming = false;
+  /** Spawn tier for the next dispatch (cycled with `t`). */
+  private tier: SpawnTier = 1;
+  /** A transient single-line status message (dispatch result / hint). */
+  private status = '';
+  /** The folded worker-stream view for the focused Running card, or null. */
+  private workerView: WorkerStreamView | null = null;
+  /** The task id the worker panel is currently bound to. */
+  private workerTaskId: string | null = null;
+  /** The live SSE subscription for the worker panel, or null. */
+  private workerSub: SseSubscription | null = null;
 
-  constructor(private board: KanbanBoard) {}
+  constructor(
+    private board: KanbanBoard,
+    private readonly deps: {
+      readonly baseUrl: string;
+      readonly dispatch: DispatchFn;
+      readonly subscribe: SubscribeFn;
+      /** Ask the loop to re-render (set by the loop after construction). */
+      requestRender?: () => void;
+      /** Ask the loop to re-fetch + rebuild the board (set by the loop). */
+      refresh?: () => Promise<void>;
+    },
+  ) {}
 
-  /** Replace the board model (e.g. after a refresh) and reset cached render. */
+  /** Wire the render/refresh callbacks the loop owns. */
+  bind(requestRender: () => void, refresh: () => Promise<void>): void {
+    this.deps.requestRender = requestRender;
+    this.deps.refresh = refresh;
+  }
+
+  /** Replace the board model (e.g. after a refresh) and clamp focus. */
   setBoard(board: KanbanBoard): void {
     this.board = board;
     if (this.focusedLane >= board.columns.length) this.focusedLane = 0;
+    this.clampCardFocus();
+    // If the focused card moved off the Running lane, drop the worker stream.
+    this.reconcileWorkerPanel();
   }
 
-  /** Move keyboard focus one lane right (wraps). */
+  /** The currently-focused lane column, or undefined. */
+  private currentLane(): KanbanLaneColumn | undefined {
+    return this.board.columns[this.focusedLane];
+  }
+
+  /** The currently-focused card, or undefined. */
+  focusedCardModel(): KanbanCard | undefined {
+    return this.currentLane()?.cards[this.focusedCard];
+  }
+
+  /** Keep {@link focusedCard} within the focused lane's card range. */
+  private clampCardFocus(): void {
+    const count = this.currentLane()?.cards.length ?? 0;
+    if (count === 0) {
+      this.focusedCard = 0;
+      return;
+    }
+    if (this.focusedCard >= count) this.focusedCard = count - 1;
+    if (this.focusedCard < 0) this.focusedCard = 0;
+  }
+
+  /** Move keyboard focus one lane right (wraps), resetting card focus. */
   focusNextLane(): void {
     const n = this.board.columns.length || 1;
     this.focusedLane = (this.focusedLane + 1) % n;
+    this.focusedCard = 0;
+    this.confirming = false;
+    this.clampCardFocus();
+    this.reconcileWorkerPanel();
   }
 
-  /** Move keyboard focus one lane left (wraps). */
+  /** Move keyboard focus one lane left (wraps), resetting card focus. */
   focusPrevLane(): void {
     const n = this.board.columns.length || 1;
     this.focusedLane = (this.focusedLane - 1 + n) % n;
+    this.focusedCard = 0;
+    this.confirming = false;
+    this.clampCardFocus();
+    this.reconcileWorkerPanel();
+  }
+
+  /** Move card focus down within the lane (wraps). */
+  focusNextCard(): void {
+    const count = this.currentLane()?.cards.length ?? 0;
+    if (count === 0) return;
+    this.focusedCard = (this.focusedCard + 1) % count;
+    this.confirming = false;
+    this.reconcileWorkerPanel();
+  }
+
+  /** Move card focus up within the lane (wraps). */
+  focusPrevCard(): void {
+    const count = this.currentLane()?.cards.length ?? 0;
+    if (count === 0) return;
+    this.focusedCard = (this.focusedCard - 1 + count) % count;
+    this.confirming = false;
+    this.reconcileWorkerPanel();
   }
 
   /** The id of the currently-focused lane (for the status bar / tests). */
   focusedLaneId(): string {
-    return this.board.columns[this.focusedLane]?.lane ?? '';
+    return this.currentLane()?.lane ?? '';
+  }
+
+  /** Cycle the spawn tier 1 → 2 → 0 → 1 (for the next dispatch). */
+  cycleTier(): void {
+    this.tier = clampTier((this.tier + 1) % 3);
+  }
+
+  /** The current spawn tier (for tests / status). */
+  currentTier(): SpawnTier {
+    return this.tier;
+  }
+
+  /** The current transient status line (for tests). */
+  statusLine(): string {
+    return this.status;
+  }
+
+  /** Whether the component is awaiting a dispatch confirm (for tests). */
+  isConfirming(): boolean {
+    return this.confirming;
+  }
+
+  /**
+   * Handle the dispatch key (`d` / Enter) on the focused card.
+   *
+   * Two-step confirm — spawning is real + expensive. The first press latches
+   * `confirming` and shows the confirm prompt; the second press performs the
+   * spawn via the injected dispatch fn (SDK → gateway), surfaces the result
+   * inline, and (on success) re-fetches so the worker lands in the Running lane.
+   * NEVER throws — a failed dispatch sets the status line, never crashes.
+   */
+  async requestDispatch(): Promise<void> {
+    const lane = this.focusedLaneId();
+    const card = this.focusedCardModel();
+    if (card === undefined) {
+      this.status = 'No card focused to dispatch.';
+      this.deps.requestRender?.();
+      return;
+    }
+    if (!DISPATCHABLE_LANES.has(lane)) {
+      this.status = `Dispatch is only available on Backlog/Ready cards (focused: ${lane}).`;
+      this.confirming = false;
+      this.deps.requestRender?.();
+      return;
+    }
+    if (!this.confirming) {
+      this.confirming = true;
+      this.status = `Spawn a real worker for ${card.id} (tier ${this.tier})? Press [d] again to confirm, [Esc] to cancel.`;
+      this.deps.requestRender?.();
+      return;
+    }
+
+    // Second press — perform the spawn.
+    this.confirming = false;
+    this.status = `Dispatching ${card.id} (tier ${this.tier})…`;
+    this.deps.requestRender?.();
+
+    const result = await this.deps.dispatch(this.deps.baseUrl, card.id, this.tier);
+    if (result.ok) {
+      this.status = `Dispatched ${result.taskId} → Running (tier ${result.tier}).`;
+      // Re-fetch so the spawned worker surfaces in the Running lane.
+      await this.deps.refresh?.();
+    } else {
+      this.status = `Dispatch failed for ${result.taskId}: ${result.code} — ${result.message}`;
+    }
+    this.deps.requestRender?.();
+  }
+
+  /** Clear the confirm latch (Esc) without dispatching. */
+  cancelConfirm(): void {
+    if (this.confirming) {
+      this.confirming = false;
+      this.status = 'Dispatch cancelled.';
+      this.deps.requestRender?.();
+    }
+  }
+
+  /**
+   * Bind / rebind the live worker stream to the focused card when (and only
+   * when) it is a Running card, tearing down any prior subscription. Idempotent
+   * for the same task — re-focusing the same Running card does not churn the
+   * socket.
+   */
+  private reconcileWorkerPanel(): void {
+    const lane = this.focusedLaneId();
+    const card = this.focusedCardModel();
+    const targetId = lane === 'running' && card !== undefined ? card.id : null;
+
+    if (targetId === this.workerTaskId) return; // No change — keep the stream.
+
+    // Detach the previous stream first (clean unsubscribe on blur).
+    this.teardownWorkerPanel();
+
+    if (targetId === null) return; // Focused card is not a Running worker.
+
+    this.workerTaskId = targetId;
+    this.workerView = emptyWorkerStreamView();
+    this.workerSub = this.deps.subscribe(
+      { baseUrl: this.deps.baseUrl, taskId: targetId },
+      {
+        onFrame: (frame) => {
+          // Drop late frames for a card we've since blurred away from.
+          if (this.workerTaskId !== targetId || this.workerView === null) return;
+          this.workerView = applyWorkerStreamFrame(this.workerView, frame);
+          this.deps.requestRender?.();
+        },
+        onError: (reason) => {
+          if (this.workerTaskId !== targetId) return;
+          this.status = `Worker stream for ${targetId} unavailable: ${reason}`;
+          this.deps.requestRender?.();
+        },
+      },
+    );
+  }
+
+  /** Tear down the active worker subscription + panel state (leak-free). */
+  teardownWorkerPanel(): void {
+    if (this.workerSub !== null) {
+      this.workerSub.unsubscribe();
+      this.workerSub = null;
+    }
+    this.workerView = null;
+    this.workerTaskId = null;
   }
 
   /** No cached state to clear — render is pure over the current board. */
   invalidate(): void {}
 
-  /** Render the board body plus a focus indicator + key legend. */
+  /** Render the board body plus the focus indicator, dispatch affordances,
+   * conductor lane, status line, and (on a Running card) the worker panel. */
   render(_width: number): string[] {
     const lines = renderKanbanBoardText(this.board);
-    const focused = this.board.columns[this.focusedLane];
+    const lane = this.currentLane();
+    const card = this.focusedCardModel();
+
+    // Focus indicator — lane + the specific focused card.
+    const focusCard = card !== undefined ? `${card.id}` : '—';
+    lines.push(`Focus: ${lane?.label ?? '—'} › ${focusCard}   (tier ${this.tier})`);
+
+    // Conductor role lane for a dispatchable focused card.
+    if (card !== undefined && DISPATCHABLE_LANES.has(lane?.lane ?? '')) {
+      lines.push(renderConductorLane(buildConductorLane(card.id, card.assignee)));
+    }
+
+    // Live worker stream panel for a focused Running card (T11936).
+    if (this.workerView !== null && this.workerTaskId !== null) {
+      for (const l of renderWorkerStreamPanel(this.workerTaskId, this.workerView)) {
+        lines.push(l);
+      }
+    }
+
+    // Transient status line (dispatch result / confirm prompt / hint).
+    if (this.status.length > 0) lines.push(this.status);
+
     lines.push(
-      `Focus: ${focused?.label ?? '—'}   ` +
-        `[←/→ or h/l] move lane   [Tab] cycle   [r] refresh   [q] quit`,
+      '[←/→ h/l] lane   [↑/↓ j/k] card   [Tab] cycle lane   [d/Enter] dispatch   ' +
+        '[t] tier   [Esc] cancel   [r] refresh   [q] quit',
     );
-    // TODO(T11935): dispatch via orchestrate.spawn — Enter on a focused card in
-    // the Ready lane will transition + spawn a worker. Read-only home view for now.
     return lines;
   }
 }
@@ -177,14 +451,27 @@ function runInteractiveLoop(
     const tui: TuiInstance = new piTui.TUI(terminal);
     tui.addChild(component);
 
+    // Wire the component's render + refresh callbacks. Async dispatch results,
+    // SSE frames, and the post-dispatch re-fetch all drive a re-render through
+    // these, so the component never references the loop directly.
+    component.bind(
+      () => tui.requestRender(),
+      async () => {
+        await refresh();
+        tui.requestRender(true);
+      },
+    );
+
     const dispose = tui.addInputListener((data: string) => {
-      // Minimal keyboard-navigation skeleton (arrow keys + vim h/l + Tab).
+      // Quit — tear the worker stream down first so no socket leaks.
       if (data === 'q' || data === '' /* Ctrl-C */) {
+        component.teardownWorkerPanel();
         dispose();
         tui.stop();
         resolve();
         return { consume: true };
       }
+      // Lane navigation (arrow keys + vim h/l + Tab).
       if (data === '[C' || data === 'l' || data === '\t') {
         component.focusNextLane();
         tui.requestRender();
@@ -192,6 +479,35 @@ function runInteractiveLoop(
       }
       if (data === '[D' || data === 'h') {
         component.focusPrevLane();
+        tui.requestRender();
+        return { consume: true };
+      }
+      // Card navigation within the focused lane (arrow keys + vim j/k).
+      if (data === '[B' || data === 'j') {
+        component.focusNextCard();
+        tui.requestRender();
+        return { consume: true };
+      }
+      if (data === '[A' || data === 'k') {
+        component.focusPrevCard();
+        tui.requestRender();
+        return { consume: true };
+      }
+      // Dispatch (confirm-gated) — `d` or Enter (CR/LF). requestDispatch drives
+      // its own re-renders via the bound callback (it awaits the async SDK spawn).
+      if (data === 'd' || data === '\r' || data === '\n') {
+        void component.requestDispatch();
+        return { consume: true };
+      }
+      // Cycle the spawn tier for the next dispatch.
+      if (data === 't') {
+        component.cycleTier();
+        tui.requestRender();
+        return { consume: true };
+      }
+      // Cancel a pending dispatch confirm (Esc).
+      if (data === '') {
+        component.cancelConfirm();
         tui.requestRender();
         return { consume: true };
       }
@@ -221,6 +537,10 @@ export async function runCockpit(
   sink: LineSink = (line) => process.stdout.write(`${line}\n`), // stdout-write-allowed: interactive TUI / plain-text board + degrade render (T11933) // stdout-discipline-allowed: interactive TUI / plain-text board + degrade render (T11933)
 ): Promise<CockpitResult> {
   const baseUrl = options.baseUrl ?? DEFAULT_TUI_BASE_URL;
+  // Dispatch + SSE go through these (test-overridable; default to the real
+  // SDK-backed implementations — NO core domain import, NO CLI shell-out).
+  const dispatch: DispatchFn = options.dispatch ?? dispatchWorker;
+  const subscribe: SubscribeFn = options.subscribe ?? subscribeOrchestrateEvents;
 
   // 1. Fetch home data through the SDK. null ⇒ daemon unreachable.
   const rows = await fetchTaskRows(baseUrl);
@@ -258,7 +578,7 @@ export async function runCockpit(
     return { outcome: 'degraded-pi', baseUrl, piTui: false };
   }
 
-  const component = new KanbanBoardComponent(board);
+  const component = new KanbanBoardComponent(board, { baseUrl, dispatch, subscribe });
   const refresh = async (): Promise<void> => {
     const fresh = await fetchTaskRows(baseUrl);
     if (fresh !== null) component.setBoard(buildKanbanBoard(fresh));
