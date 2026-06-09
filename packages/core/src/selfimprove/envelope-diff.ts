@@ -4,14 +4,28 @@
  * The self-improvement loop replays a scenario (see {@link "./replay.js"}) and
  * diffs each captured envelope against the golden expected envelope. This module:
  *
- *   1. {@link normalizeEnvelope} — strips the VOLATILE `meta` fields
- *      (`timestamp`, `requestId`, `duration_ms` / `durationMs`) so only
- *      deterministic structure is compared. (The runtime field is `meta` with
- *      snake_case `duration_ms`; the spec wording uses `_meta`/`durationMs`, so
- *      both spellings and both container keys are stripped defensively.)
+ *   1. {@link normalizeEnvelope} — strips the VOLATILE `meta` fields so only
+ *      deterministic structure is compared. Two classes are stripped:
+ *      timing/trace fields (`timestamp`, `requestId`, `duration_ms` /
+ *      `durationMs`) AND the per-run session-lineage UUIDs (`sessionId`,
+ *      `originSessionId`, `executionSessionId`). The latter are non-deterministic:
+ *      the live `Dispatcher` defaults `executionSessionId`/`originSessionId` to a
+ *      fresh `randomUUID()` per request
+ *      (`ensureRequestSessionLineage`), then stamps all three onto `response.meta`
+ *      — so a real envelope carries UUIDs the hand-authored golden cannot know.
+ *      Stripping them prevents a permanent phantom DHQ that self-fires on every
+ *      clean run. (The runtime field is `meta` with snake_case `duration_ms`; the
+ *      spec wording uses `_meta`/`durationMs`, so both spellings and both
+ *      container keys are stripped defensively.)
  *   2. {@link diffEnvelopes} — structurally compares the normalized envelope set
  *      against the golden, producing `{ regressions: DiffEntry[] }`. Zero
- *      regressions on a golden match; N on injected divergence.
+ *      regressions on a golden match; N on injected divergence. The `meta`
+ *      container is compared as a SUBSET (only golden-declared meta keys are
+ *      asserted) so deterministic-but-golden-absent infra keys
+ *      (`specVersion`, `schemaVersion`, `transport`, `mvi`, `contextVersion`,
+ *      `strict`, `x-cleo-transport`, …) stamped by the runtime are NOT phantom
+ *      regressions. The semantic payload (`data`/`error`) is still compared by
+ *      full key-union — a missing or extra payload key IS a regression.
  *   3. {@link computeQuestionHash} — sha256 of the normalized regression
  *      signature (op coordinates + diff path set) so the SAME regression maps to
  *      the SAME open DHQ row (the idempotency partial-UNIQUE index in T11889-A).
@@ -35,19 +49,51 @@ import type { GoldenEntry, ScenarioOp } from './scenario.js';
 /**
  * Volatile envelope-meta field names stripped before diffing.
  *
- * The runtime canonical name is `duration_ms` (snake_case); `durationMs` (the
- * spec wording) is also stripped so a golden authored either way normalizes
- * identically.
+ * Two classes, both non-deterministic per run:
+ *
+ *   - Timing / trace: `timestamp`, `requestId`, `duration_ms` (the runtime
+ *     canonical, snake_case) and `durationMs` (the spec wording — stripped so a
+ *     golden authored either way normalizes identically).
+ *   - Session lineage: `sessionId`, `originSessionId`, `executionSessionId`. The
+ *     live `Dispatcher` stamps these onto `response.meta`
+ *     after defaulting `executionSessionId`/`originSessionId` to a fresh
+ *     `randomUUID()` per request (`ensureRequestSessionLineage`). They are
+ *     per-run UUIDs the hand-authored golden cannot encode; leaving them in would
+ *     make every clean replay emit a phantom regression at
+ *     `meta/executionSessionId` and `meta/originSessionId`, and because the
+ *     regression signature hashes only `opCoord@path` (constant), the resulting
+ *     `question_hash` would be STABLE — a permanent self-firing DHQ. Stripping
+ *     them keeps an identical-but-for-lineage envelope a non-regression.
  */
-const VOLATILE_META_FIELDS = ['timestamp', 'requestId', 'duration_ms', 'durationMs'] as const;
+const VOLATILE_META_FIELDS = [
+  'timestamp',
+  'requestId',
+  'duration_ms',
+  'durationMs',
+  'sessionId',
+  'originSessionId',
+  'executionSessionId',
+] as const;
 
 /**
- * Meta container keys whose volatile fields are stripped.
+ * Meta container keys whose volatile fields are stripped, and whose remaining
+ * keys are compared as a SUBSET (see {@link diffEnvelopes}).
  *
  * Runtime envelopes use `meta`; `_meta` is stripped too for defensive parity with
  * the gateway envelope shape.
  */
 const META_CONTAINER_KEYS = ['meta', '_meta'] as const;
+
+/**
+ * Top-level envelope keys whose value is a meta container.
+ *
+ * The structural diff treats these containers as a SUBSET compare (golden-declared
+ * keys only) so deterministic-but-golden-absent infra keys the runtime stamps
+ * (`specVersion`, `schemaVersion`, `transport`, `mvi`, `contextVersion`, `strict`,
+ * `x-cleo-transport`, …) are not phantom regressions. Everything else (`data`,
+ * `error`, …) keeps a full key-union compare.
+ */
+const SUBSET_COMPARE_KEYS = new Set<string>(META_CONTAINER_KEYS);
 
 /**
  * A normalized envelope: the replayed envelope with volatile `meta` fields removed.
@@ -96,10 +142,16 @@ function jsonClone<T>(value: T): T {
 /**
  * Strip the volatile `meta`/`_meta` fields from an envelope.
  *
- * Returns a NEW object; the input is not mutated. Only the volatile timing/trace
- * fields are removed — the stable meta remnant (`gateway`, `domain`, `operation`,
- * `source`, …) is preserved so structural identity (which operation produced the
- * envelope) still compares.
+ * Returns a NEW object; the input is not mutated. The volatile timing/trace fields
+ * AND the per-run session-lineage UUIDs (`sessionId`, `originSessionId`,
+ * `executionSessionId`) are removed — see {@link VOLATILE_META_FIELDS}. The stable
+ * meta remnant (`gateway`, `domain`, `operation`, `source`, …) is preserved so
+ * structural identity (which operation produced the envelope) still compares.
+ *
+ * Note: deterministic-but-golden-absent infra meta keys (`specVersion`,
+ * `transport`, …) are NOT stripped here — they are tolerated by the SUBSET compare
+ * in {@link diffEnvelopes} instead, so the strip set stays exactly the volatile
+ * fields and nothing semantic.
  *
  * @param envelope - The replayed envelope to normalize.
  * @returns The normalized envelope with volatile meta fields removed.
@@ -107,7 +159,7 @@ function jsonClone<T>(value: T): T {
  * @example
  * ```ts
  * const norm = normalizeEnvelope(envelope);
- * // norm.meta has no timestamp / requestId / duration_ms
+ * // norm.meta has no timestamp / requestId / duration_ms / *SessionId
  * ```
  */
 export function normalizeEnvelope(envelope: ReplayEnvelope): NormalizedEnvelope {
@@ -131,16 +183,31 @@ export function normalizeEnvelope(envelope: ReplayEnvelope): NormalizedEnvelope 
  * leaf-level divergence. Object key sets and array lengths are compared; the path
  * uses `/`-delimited segments.
  *
+ * Key-set semantics depend on the container:
+ *   - **Subset** (`subset === true`): only the EXPECTED (golden) object's keys are
+ *     compared. Extra keys present in `actual` but absent from the golden are
+ *     ignored. Applied to the `meta` container (see {@link SUBSET_COMPARE_KEYS}) so
+ *     deterministic infra meta keys the runtime stamps but the golden omits are not
+ *     phantom regressions.
+ *   - **Full union** (`subset === false`, the default): keys from BOTH objects are
+ *     compared, so an extra OR missing key is a regression. Applied to the semantic
+ *     payload (`data`/`error`).
+ *
+ * A child whose top-level key is in {@link SUBSET_COMPARE_KEYS} (i.e. `meta`)
+ * switches its subtree into subset mode.
+ *
  * @param actual - The actual (normalized replay) value.
  * @param expected - The expected (golden) value.
  * @param path - Accumulated path prefix.
  * @param out - Mutable accumulator of `{ path, actual, expected }` tuples.
+ * @param subset - When `true`, compare only the golden-declared keys at this node.
  */
 function collectStructuralDiffs(
   actual: unknown,
   expected: unknown,
   path: string,
   out: { path: string; actual: unknown; expected: unknown }[],
+  subset = false,
 ): void {
   if (actual === expected) return;
 
@@ -158,10 +225,18 @@ function collectStructuralDiffs(
 
   const actualRec = actual as Record<string, unknown>;
   const expectedRec = expected as Record<string, unknown>;
-  const keys = new Set<string>([...Object.keys(actualRec), ...Object.keys(expectedRec)]);
+  // Subset mode (meta container): compare ONLY the golden's keys, so extra
+  // deterministic runtime meta keys are not regressions. Full mode: union both
+  // key sets, so an extra OR missing payload key IS a regression.
+  const keys = subset
+    ? new Set<string>(Object.keys(expectedRec))
+    : new Set<string>([...Object.keys(actualRec), ...Object.keys(expectedRec)]);
   for (const key of keys) {
     const childPath = path === '' ? key : `${path}/${key}`;
-    collectStructuralDiffs(actualRec[key], expectedRec[key], childPath, out);
+    // A `meta`/`_meta` container's subtree is compared as a subset; never widen
+    // back to full-union once inside a subset container.
+    const childSubset = subset || SUBSET_COMPARE_KEYS.has(key);
+    collectStructuralDiffs(actualRec[key], expectedRec[key], childPath, out, childSubset);
   }
 }
 
@@ -174,6 +249,14 @@ function collectStructuralDiffs(
  * arrays (`ops.length === replayed.length === golden.length`); the function
  * diffs up to the shortest length and reports an extra regression for any length
  * mismatch.
+ *
+ * The `meta` container is compared as a SUBSET (only golden-declared meta keys are
+ * asserted) so deterministic-but-golden-absent infra keys the runtime stamps
+ * (`specVersion`, `transport`, …) are not phantom regressions; the semantic
+ * payload (`data`/`error`) keeps a full key-union compare where an extra or
+ * missing key IS a regression. Together with the volatile-lineage strip in
+ * {@link normalizeEnvelope}, a real live envelope that matches the golden body
+ * yields ZERO regressions.
  *
  * @param ops - The scenario ops (for op-coordinate labelling).
  * @param replayed - The captured envelopes, one per op (replay order).

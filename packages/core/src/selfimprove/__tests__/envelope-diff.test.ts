@@ -38,6 +38,44 @@ function replayed(taskId: string): DispatchResponse {
   };
 }
 
+/**
+ * A LIVE-shaped envelope as the real `Dispatcher` stamps it — carries the
+ * per-run session-lineage UUIDs AND the deterministic-but-golden-absent infra
+ * meta keys. This is the wiring-time shape the hand-trimmed mock omits; the
+ * normalizer + subset compare MUST treat it as a non-regression vs the golden.
+ *
+ * @param taskId - The task id in the envelope body.
+ * @param sid - The (per-run, non-deterministic) session-lineage UUID seed.
+ */
+function liveEnvelope(taskId: string, sid: string): DispatchResponse {
+  return {
+    meta: {
+      gateway: 'query',
+      domain: 'tasks',
+      operation: 'find',
+      // Volatile timing/trace.
+      timestamp: '2026-06-08T00:00:00.000Z',
+      duration_ms: 42,
+      requestId: `req-${sid}`,
+      source: 'rpc',
+      // Per-run session lineage (randomUUID() in the real Dispatcher).
+      sessionId: `sess-${sid}`,
+      originSessionId: `origin-${sid}`,
+      executionSessionId: `exec-${sid}`,
+      // Deterministic-but-golden-absent infra keys (createGatewayMeta / legacy).
+      specVersion: '1.2.3',
+      schemaVersion: '2026.2.1',
+      transport: 'sdk',
+      strict: true,
+      mvi: 'minimal',
+      contextVersion: 1,
+      'x-cleo-transport': 'stdio',
+    } as DispatchResponse['meta'],
+    success: true,
+    data: { tasks: [{ id: taskId, title: 'T' }], count: 1 },
+  };
+}
+
 /** The golden — already normalized (no volatile meta fields). */
 function goldenEntry(taskId: string): GoldenEntry {
   return {
@@ -64,6 +102,23 @@ describe('normalizeEnvelope', () => {
     normalizeEnvelope(env);
     expect(env.meta.timestamp).toBe('2026-06-08T00:00:00.000Z');
     expect(env.meta.duration_ms).toBe(42);
+  });
+
+  it('strips the per-run session-lineage UUIDs (sessionId/originSessionId/executionSessionId)', () => {
+    const norm = normalizeEnvelope(liveEnvelope('T1', 'aaa'));
+    const meta = norm.meta as Record<string, unknown>;
+    expect(meta.sessionId).toBeUndefined();
+    expect(meta.originSessionId).toBeUndefined();
+    expect(meta.executionSessionId).toBeUndefined();
+  });
+
+  it('preserves deterministic infra meta keys (not stripped — tolerated by subset compare)', () => {
+    const norm = normalizeEnvelope(liveEnvelope('T1', 'aaa'));
+    const meta = norm.meta as Record<string, unknown>;
+    // The strip set is exactly the volatile fields — nothing semantic/stable.
+    expect(meta.specVersion).toBe('1.2.3');
+    expect(meta.transport).toBe('sdk');
+    expect(meta.gateway).toBe('query');
   });
 });
 
@@ -97,6 +152,30 @@ describe('diffEnvelopes', () => {
     const result = diffEnvelopes(ops, [replayed('T1'), replayed('T1')], [goldenEntry('T1')]);
     expect(result.regressions.some((r) => r.path === 'envelopes/length')).toBe(true);
   });
+
+  it('treats a LIVE envelope (lineage UUIDs + infra meta) as NOT a regression', () => {
+    // The real Dispatcher stamps non-deterministic *SessionId UUIDs and stable
+    // infra meta keys the hand-authored golden never declares. Without the
+    // lineage strip + subset meta compare this would be a permanent phantom DHQ.
+    const result = diffEnvelopes(ops, [liveEnvelope('T1', 'run-1')], [goldenEntry('T1')]);
+    expect(result.regressions).toEqual([]);
+  });
+
+  it('two live envelopes with DIFFERENT lineage UUIDs both match the golden', () => {
+    const a = diffEnvelopes(ops, [liveEnvelope('T1', 'run-aaa')], [goldenEntry('T1')]);
+    const b = diffEnvelopes(ops, [liveEnvelope('T1', 'run-zzz')], [goldenEntry('T1')]);
+    expect(a.regressions).toEqual([]);
+    expect(b.regressions).toEqual([]);
+  });
+
+  it('still flags a real meta divergence on a golden-DECLARED key', () => {
+    // Subset compare ignores EXTRA actual keys, but a golden-declared key that
+    // diverges IS a regression (the `source` here flips rpc → cli).
+    const live = liveEnvelope('T1', 'run-1');
+    (live.meta as Record<string, unknown>).source = 'cli';
+    const result = diffEnvelopes(ops, [live], [goldenEntry('T1')]);
+    expect(result.regressions.some((r) => r.path === 'meta/source')).toBe(true);
+  });
 });
 
 describe('computeQuestionHash', () => {
@@ -118,6 +197,15 @@ describe('computeQuestionHash', () => {
     const green = diffEnvelopes(ops, [replayed('T1')], [goldenEntry('T1')]);
     const red = diffEnvelopes(ops, [replayed('T2')], [goldenEntry('T1')]);
     expect(computeQuestionHash(green)).not.toBe(computeQuestionHash(red));
+  });
+
+  it('a clean LIVE replay hashes to the green signature — no permanent phantom DHQ', () => {
+    // Regression guard for the wiring-time false positive: a live envelope (per-run
+    // UUIDs + infra meta) matching the golden body must hash identically to the
+    // trimmed-mock green, NOT to a stable red.
+    const liveGreen = diffEnvelopes(ops, [liveEnvelope('T1', 'run-1')], [goldenEntry('T1')]);
+    const mockGreen = diffEnvelopes(ops, [replayed('T1')], [goldenEntry('T1')]);
+    expect(computeQuestionHash(liveGreen)).toBe(computeQuestionHash(mockGreen));
   });
 });
 
