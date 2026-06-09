@@ -26,6 +26,7 @@
     { href: '/brain/overview', label: 'Memory', description: 'BRAIN dashboard (decisions, observations, quality)', exact: false },
     { href: '/code', label: 'Code', description: 'Code intelligence', exact: false },
     { href: '/tasks', label: 'Tasks', description: 'Task management', exact: false },
+    { href: '/tasks/kanban', label: 'Board', description: 'Agent-lifecycle dispatcher board (read-only)', exact: false },
     { href: '/projects', label: 'Admin', description: 'Project registry — scan, index, and manage projects', exact: false },
   ];
 </script>
