@@ -49,4 +49,12 @@ export {
   type SseFrame,
   type SseSource,
 } from './sse.js';
+export {
+  type GatewayStreamSource,
+  registerStreamSource,
+  resolveStreamSource,
+  type StreamSourceContext,
+  type StreamSourceTeardown,
+  tickStreamSource,
+} from './stream-sources.js';
 export type { HttpUnaryRequest, HttpUnaryResult } from './types.js';

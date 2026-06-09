@@ -63,18 +63,24 @@ export {
   createSseStream,
   encodeSseFrame,
   encodeStreamEvent,
+  type GatewayStreamSource,
   type HttpServerHandle,
   type HttpServerOptions,
   type HttpUnaryRequest,
   type HttpUnaryResult,
   parseHttpRoute,
+  registerStreamSource,
+  resolveStreamSource,
   routeUnary,
   SSE_HEADERS,
   type SseEmitter,
   type SseFrame,
   type SseSource,
+  type StreamSourceContext,
+  type StreamSourceTeardown,
   startHttpServer,
   statusForResponse,
+  tickStreamSource,
 } from './http/index.js';
 export { getJobManager, setJobManager } from './job-manager-accessor.js';
 // MCP transport adapter (R3-T4 · T11448) — thin stdio JSON-RPC over the
@@ -117,6 +123,8 @@ export {
   inferGateway,
   OPERATIONS,
   resolve,
+  resolveStreamRoute,
+  type StreamResolution,
   validateRequiredParams,
 } from './registry.js';
 // CLI-RPC transport adapter (R3-T5 · T11449) — thin NDJSON-over-unix-socket

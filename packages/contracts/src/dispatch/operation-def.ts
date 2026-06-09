@@ -96,6 +96,27 @@ export interface OperationDef {
   mcpExposed?: boolean;
 
   /**
+   * Whether this operation is a **streaming** operation served over the gateway
+   * HTTP/SSE transport as `GET /v1/<domain>/<operation>` (T11921).
+   *
+   * **Default-deny**: absent / `false` means the operation is unary only — it is
+   * dispatched via the POST path and returns a single LAFS envelope. When
+   * `streaming: true`, the `/v1` HTTP listener routes a `GET` to the same
+   * `(domain, operation)` pair through {@link createSseStream}, emitting a
+   * sequence of `GatewayStreamEvent` frames (`data` … terminated by `done` or
+   * `error`) over a `text/event-stream` body. This is the realtime transport the
+   * Studio Kanban (T11929) and Pi-TUI (T11936) consume.
+   *
+   * A streaming op is still a normal registry entry (it has a `gateway`, a
+   * `domain`, an `operation`, a `tier`), so it co-exists with the unary POST
+   * routes and is discoverable by every existing registry helper — only the wire
+   * framing (a long-lived SSE body vs a single JSON response) differs.
+   *
+   * @task T11921 — gateway SSE streaming on `/v1`
+   */
+  streaming?: boolean;
+
+  /**
    * Schema-first INPUT contract for this operation (DHQ-033 / T11692).
    *
    * Declares the accepted request payload shape as a JSON Schema draft-07

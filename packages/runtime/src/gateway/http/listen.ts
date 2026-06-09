@@ -30,12 +30,15 @@
  * @saga T11243 SG-RUNTIME-UNIFICATION
  */
 
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import type { DispatchResponse, Gateway } from '@cleocode/contracts/gateway';
+import type { DispatchResponse, Gateway, GatewayStreamEvent } from '@cleocode/contracts/gateway';
 import { getLogger } from '@cleocode/core';
 import type { GatewayHandler } from '../index.js';
-import { inferGateway } from '../registry.js';
+import { inferGateway, resolveStreamRoute } from '../registry.js';
 import { routeUnary } from './server.js';
+import { createSseStream, encodeStreamEvent, SSE_HEADERS } from './sse.js';
+import { resolveStreamSource, type StreamSourceContext } from './stream-sources.js';
 import type { HttpUnaryRequest } from './types.js';
 
 /** The two CQRS gateways a path segment may name. */
@@ -96,6 +99,7 @@ export interface HttpServerHandle {
  */
 type ParsedRoute =
   | { ok: true; kind: 'unary'; gateway: Gateway; domain: string; operation: string }
+  | { ok: true; kind: 'stream'; gateway: Gateway; domain: string; operation: string }
   | { ok: true; kind: 'health' }
   | { ok: false; status: number; code: string; message: string };
 
@@ -113,16 +117,20 @@ type ParsedRoute =
  *     client names the gateway segment explicitly (validated against the two
  *     CQRS gateways so a client cannot smuggle an arbitrary value).
  *
- * `GET /v1/health` is recognized as a liveness probe (any other GET is a `405`).
+ * Two GET routing vocabularies are accepted:
+ *
+ *   - `GET /v1/health` — the liveness probe.
+ *   - `GET /v1/<domain>/<operation>` — the **SSE streaming** endpoint (T11921),
+ *     recognized only when the `(domain, operation)` pair is registered AND
+ *     flagged `streaming: true` in {@link OPERATIONS} (resolved via
+ *     {@link resolveStreamRoute}). The SAME pair is dispatched UNARY over POST,
+ *     so the streaming GET co-exists with the unary POST route. A GET to a
+ *     unary-only op is a `405` (method-not-allowed), distinguishing "route
+ *     exists, this method is unsupported" from "no such route" (`404`).
+ *
  * A non-POST/GET method is rejected at the edge (`405`); a path that resolves to
  * neither vocabulary is a `404`. The injected {@link GatewayHandler} is never
  * invoked with a malformed request.
- *
- * The `/v1` listener is shaped so a future streaming route (SSE — T11921, WS —
- * T11922) slots in as an additional recognized `GET /v1/<domain>/<operation>`
- * branch without disturbing the unary path: this parser deliberately rejects
- * unknown GETs as `405` (not `404`) so the streaming seam can later distinguish
- * "method not yet supported on this route" from "no such route".
  *
  * @param method - The HTTP request method.
  * @param url - The HTTP request URL (path + query).
@@ -133,19 +141,29 @@ export function parseHttpRoute(method: string | undefined, url: string | undefin
   const pathname = new URL(url ?? '/', 'http://localhost').pathname;
   const segments = pathname.split('/').filter((s) => s.length > 0);
 
-  // GET /v1/health — liveness probe. The only non-POST route the gateway serves.
+  // GET routes: the liveness probe and the SSE streaming endpoint.
   if (method === 'GET') {
     if (segments.length === 2 && segments[0] === V1_PREFIX && segments[1] === 'health') {
       return { ok: true, kind: 'health' };
     }
-    // Streaming seam (T11921/T11922): a future GET /v1/<domain>/<operation>
-    // streaming branch lands here. Until then an unrecognized GET is a 405 so
-    // the caller can tell "route exists, method unsupported" from "no route".
+    // GET /v1/<domain>/<operation> — SSE streaming endpoint (T11921). Only a
+    // `(domain, operation)` pair registered AND flagged `streaming: true` opens
+    // a `text/event-stream`; this co-exists with the unary POST routes (the
+    // SAME pair is dispatched unary over POST). A GET to a unary-only op falls
+    // through to a 405 so the caller can tell "route exists, method unsupported"
+    // from "no such route" (404).
+    if (segments.length === 3 && segments[0] === V1_PREFIX) {
+      const [, domain, operation] = segments;
+      const stream = resolveStreamRoute(domain, operation);
+      if (stream !== undefined) {
+        return { ok: true, kind: 'stream', gateway: stream.gateway, domain, operation };
+      }
+    }
     return {
       ok: false,
       status: 405,
       code: 'E_HTTP_METHOD_NOT_ALLOWED',
-      message: `method GET not allowed for '${pathname}'; only GET /v1/health is served`,
+      message: `method GET not allowed for '${pathname}'; only GET /v1/health and registered streaming ops are served`,
     };
   }
 
@@ -278,6 +296,136 @@ function writeHealth(res: ServerResponse): void {
 }
 
 /**
+ * Decode the query string of a streaming `GET` into a params object.
+ *
+ * Numeric-looking values (e.g. `?ticks=3`) are coerced to numbers so a declared
+ * `number` param (`ticks`) arrives typed; everything else stays a string. This
+ * mirrors how the unary path receives an already-decoded JSON body, but for the
+ * GET-with-query-string streaming shape.
+ *
+ * @param url - The raw request URL (path + query).
+ * @returns The decoded params object (empty when there is no query string).
+ */
+function parseStreamParams(url: string | undefined): Record<string, unknown> {
+  const parsed = new URL(url ?? '/', 'http://localhost');
+  const params: Record<string, unknown> = {};
+  for (const [key, value] of parsed.searchParams.entries()) {
+    const asNumber = Number(value);
+    params[key] = value !== '' && Number.isFinite(asNumber) ? asNumber : value;
+  }
+  return params;
+}
+
+/**
+ * Write a single terminal SSE `error` frame and close the response.
+ *
+ * Used when a streaming route is recognized but has no registered source — the
+ * client gets one well-formed `data: {kind:'error',…}` frame on the
+ * `text/event-stream` body (not a JSON error envelope, which a streaming client
+ * is not parsing for), then a clean close.
+ *
+ * @param res - The server response.
+ * @param domain - The streaming route domain (for the error message).
+ * @param operation - The streaming route operation (for the error message).
+ * @param requestId - The request id stamped on the frame.
+ */
+function writeStreamError(
+  res: ServerResponse,
+  domain: string,
+  operation: string,
+  requestId: string,
+): void {
+  const frame: GatewayStreamEvent = {
+    kind: 'error',
+    seq: 0,
+    error: {
+      code: 'E_HTTP_NO_STREAM_SOURCE',
+      message: `no streaming source registered for '${domain}/${operation}'`,
+    },
+    requestId,
+  };
+  res.writeHead(200, { ...SSE_HEADERS });
+  res.end(encodeStreamEvent(frame));
+}
+
+/**
+ * Handle a `GET /v1/<domain>/<operation>` streaming request: resolve the
+ * registered {@link GatewayStreamSource}, open a `text/event-stream`, and pipe
+ * its {@link GatewayStreamEvent} frames through the abort-safe
+ * {@link createSseStream} builder until the source completes or the client
+ * disconnects.
+ *
+ * The request's `close` is bridged to an {@link AbortController} so a client
+ * disconnect closes the stream leak-free (the source's teardown runs exactly
+ * once). The web {@link ReadableStream} the builder produces is adapted onto the
+ * `node:http` response via {@link Readable.fromWeb}. Secrets never touch the
+ * wire — the source resolves any credential server-side before emitting.
+ *
+ * @param req - The inbound request.
+ * @param res - The outbound response.
+ * @param domain - The resolved streaming-route domain.
+ * @param operation - The resolved streaming-route operation.
+ * @param log - The adapter's pino logger.
+ */
+async function handleStreamRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  domain: string,
+  operation: string,
+  log: ReturnType<typeof getLogger>,
+): Promise<void> {
+  const requestId = randomUUID();
+  const source = resolveStreamSource(domain, operation);
+  if (source === undefined) {
+    writeStreamError(res, domain, operation, requestId);
+    log.warn({ domain, operation }, 'sse stream has no registered source');
+    return;
+  }
+
+  // Bridge client disconnect → abort so createSseStream tears the source down.
+  const controller = new AbortController();
+  const onClose = (): void => controller.abort();
+  req.once('close', onClose);
+
+  const context: StreamSourceContext = {
+    domain,
+    operation,
+    params: parseStreamParams(req.url),
+    requestId,
+  };
+
+  res.writeHead(200, { ...SSE_HEADERS });
+
+  const webStream = createSseStream((emitter) => source(emitter, context), controller.signal);
+
+  // Drain the web ReadableStream's reader directly onto the node response. We do
+  // NOT use `Readable.fromWeb` here: its DOM-typed `ReadableStream<any>` clashes
+  // with the global web-streams `ReadableStream<Uint8Array>` over ArrayBuffer
+  // variance under `tsup --dts`. Reading the reader manually keeps the types
+  // exact and gives us a single place to honor backpressure + abort.
+  const reader = webStream.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (res.writableEnded) break;
+      // Honor backpressure: if the kernel buffer is full, wait for `drain`.
+      if (!res.write(value)) {
+        await new Promise<void>((resolve) => res.once('drain', resolve));
+      }
+    }
+  } catch (err) {
+    log.warn({ err, domain, operation }, 'sse stream pipe failed');
+  } finally {
+    reader.releaseLock();
+    req.removeListener('close', onClose);
+    if (!controller.signal.aborted) controller.abort();
+    if (!res.writableEnded) res.end();
+    log.debug({ domain, operation, requestId }, 'sse stream closed');
+  }
+}
+
+/**
  * Handle a single inbound HTTP request: parse the route, read + JSON-parse the
  * body, route it through the gateway handler, and serialize the LAFS response.
  *
@@ -305,6 +453,10 @@ async function handleHttpRequest(
   if (route.kind === 'health') {
     writeHealth(res);
     log.debug({ route: 'health' }, 'http health probe served');
+    return;
+  }
+  if (route.kind === 'stream') {
+    await handleStreamRequest(req, res, route.domain, route.operation, log);
     return;
   }
 

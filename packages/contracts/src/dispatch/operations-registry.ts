@@ -790,6 +790,32 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [],
   },
+  // T11921 — gateway SSE streaming on /v1. The agent/worker/board event stream
+  // the Studio Kanban (T11929) + Pi-TUI (T11936) consume as a realtime
+  // transport. Served as `GET /v1/orchestrate/events` → a `text/event-stream`
+  // body of `GatewayStreamEvent` frames terminated by a `done` frame, NOT as a
+  // unary POST. Secrets never touch the wire — the source resolves server-side.
+  {
+    gateway: 'query',
+    domain: 'orchestrate',
+    operation: 'events',
+    description:
+      'orchestrate.events (query, streaming) — SSE stream of agent/worker/board lifecycle events',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    streaming: true,
+    requiredParams: [],
+    params: [
+      {
+        name: 'ticks',
+        type: 'number',
+        required: false,
+        description:
+          'Maximum number of event frames to emit before the terminal `done` frame (default: open-ended until client disconnect)',
+      },
+    ] satisfies ParamDef[],
+  },
   // T811 — IVTR multi-agent enforcement
   {
     gateway: 'query',
