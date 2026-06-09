@@ -48,24 +48,27 @@ export type ReplayEnvelope = DispatchResponse;
  * in `core` while the dispatcher binding lives in `cleo` (CORE-first, no
  * package-boundary inversion).
  */
-export interface ReplayDispatch {
-  /**
-   * Dispatch a single op and return its captured envelope.
-   *
-   * @param op - The dispatch coordinate (gateway, domain, operation, params).
-   * @returns The captured {@link ReplayEnvelope}.
-   */
-  (op: {
-    /** CQRS gateway. */
-    gateway: ScenarioOp['gateway'];
-    /** Registered domain handler key (plural, e.g. `'tasks'`). */
-    domain: string;
-    /** Operation name within the domain. */
-    operation: string;
-    /** Optional operation parameters. */
-    params?: Record<string, unknown>;
-  }): Promise<ReplayEnvelope>;
+/**
+ * The dispatch coordinate handed to a {@link ReplayDispatch} port for one op.
+ */
+export interface ReplayDispatchOp {
+  /** CQRS gateway. */
+  gateway: ScenarioOp['gateway'];
+  /** Registered domain handler key (plural, e.g. `'tasks'`). */
+  domain: string;
+  /** Operation name within the domain. */
+  operation: string;
+  /** Optional operation parameters. */
+  params?: Record<string, unknown>;
 }
+
+/**
+ * Dispatch a single op and return its captured envelope.
+ *
+ * @param op - The dispatch coordinate (gateway, domain, operation, params).
+ * @returns The captured {@link ReplayEnvelope}.
+ */
+export type ReplayDispatch = (op: ReplayDispatchOp) => Promise<ReplayEnvelope>;
 
 /** Options controlling a replay run. */
 export interface ReplayOptions {
