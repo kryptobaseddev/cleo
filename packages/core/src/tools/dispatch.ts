@@ -81,7 +81,9 @@ const log = getLogger('tool-dispatch');
  *  - `guard-denied`   — the tool is unavailable for this context, or the
  *                       per-call budget was exhausted before it ran.
  *  - `execution-error`— the tool ran but threw (incl. a `GuardDeniedError`
- *                       from the deny-first surface during the side effect).
+ *                       from the deny-first surface during the side effect), OR
+ *                       the call was cancelled via its abort signal before it
+ *                       completed (the run was cancelled out from under it).
  *  - `timeout`        — the tool exceeded the per-call wall-time ceiling.
  */
 export type ToolDispatchErrorKind =
@@ -358,13 +360,27 @@ export class ToolDispatchEngine {
    * The full pipeline — lookup → validate → availability → budget admit →
    * (timed) execute → charge → format — runs here. It NEVER throws: a thrown
    * executable (incl. a deny-first `GuardDeniedError` during the side effect)
-   * becomes an `execution-error`, a slow executable a `timeout`, an unknown name
-   * a `tool-not-found`, bad args an `invalid-args`, and an unavailable tool /
-   * exhausted budget a `guard-denied`. A `signal` (when supplied) aborts the
-   * underlying call cooperatively.
+   * becomes an `execution-error`, a slow executable a `timeout`, a cancelled call
+   * an `execution-error`, an unknown name a `tool-not-found`, bad args an
+   * `invalid-args`, and an unavailable tool / exhausted budget a `guard-denied`.
+   *
+   * ## Abort handling (honest contract)
+   *
+   * A `signal` (when supplied) is honoured REGARDLESS of whether a per-call
+   * timeout is configured — including the default no-budget production path: an
+   * already-aborted signal short-circuits before the executable is awaited, and
+   * an abort RACED in flight rejects with an `execution-error`. BUT this is
+   * abandon-the-promise cancellation, NOT preemptive kill: the frozen
+   * {@link AgentToolExecutable}/{@link GuardedToolSurface} contracts expose no
+   * signal channel, so a tool that already spawned an OS process keeps that
+   * process running until the tool's own internal bound fires. The engine
+   * returns promptly; the side effect may still be settling. See
+   * {@link ToolDispatchEngine.#runWithTimeout} for the full rationale.
    *
    * @param call - The model-emitted tool call (`{ id, name, arguments }`).
-   * @param signal - Optional abort signal threaded into the per-call race.
+   * @param signal - Optional abort signal honoured on every path (timeout or
+   *   not); aborting yields an `execution-error` but cannot preemptively kill an
+   *   in-flight OS process (frozen-contract limitation).
    * @returns The terminal {@link ToolDispatchResult}.
    */
   async dispatch(call: ToolCall, signal?: AbortSignal): Promise<ToolDispatchResult> {
@@ -422,6 +438,12 @@ export class ToolDispatchEngine {
       if (err instanceof ToolTimeoutError) {
         return this.#fail(call.name, 'timeout', err.message);
       }
+      if (err instanceof ToolAbortError) {
+        // Cancellation is an execution-error (the call did not complete). The
+        // engine-authored abort message carries no secret, so it is safe verbatim.
+        log.debug({ tool: call.name, kind: 'execution-error' }, 'tool dispatch aborted');
+        return this.#fail(call.name, 'execution-error', err.message);
+      }
       // Any thrown executable error (incl. a deny-first GuardDeniedError raised
       // DURING the side effect) is an execution-error. The message is REDACTED
       // (AC3) — no raw secret/stack reaches the model-facing result.
@@ -432,13 +454,38 @@ export class ToolDispatchEngine {
   }
 
   /**
-   * Run the executable, racing it against the per-call timeout when one is set.
+   * Run the executable, racing it against the per-call timeout AND the abort
+   * signal whenever EITHER is present.
    *
    * Both a synchronous return value and a `Promise` are handled: `await`ing a
    * non-thenable normalizes it to a resolved value, and a synchronous throw is
    * caught by {@link dispatch}'s surrounding `try` exactly like a rejection
    * (AC2). The timeout rejects with a {@link ToolTimeoutError} the caller maps
-   * to a `timeout` result.
+   * to a `timeout` result; an abort rejects with a {@link ToolAbortError} the
+   * caller maps to an `execution-error` (the call was cancelled, not slow).
+   *
+   * ## Fast path
+   *
+   * When NO timeout is configured AND no `signal` is supplied there is nothing
+   * to race, so the executable promise is returned directly — the engine adds no
+   * overhead to the common bounded-by-the-loop case.
+   *
+   * ## Cancellation is cooperative-or-abandon, NOT preemptive
+   *
+   * Winning the race (timeout or abort) only ABANDONS the executable promise —
+   * it does NOT cancel the running tool. The frozen {@link AgentToolExecutable}
+   * signature (`(args, tools) => Promise<unknown>`) and the frozen
+   * {@link GuardedToolSurface} (whose `executeShell`/`executePty`/`runGit` carry
+   * no `AbortSignal` parameter) expose NO cancellation channel, so a tool that
+   * spawned a real OS process keeps that process running in the background until
+   * the tool's OWN internal bound (its per-call `timeoutMs`, when the model
+   * supplied one) fires. The engine therefore returns a `timeout`/`execution-error`
+   * result to the model PROMPTLY while the underlying side effect may still be
+   * settling. This is the honest contract: the dispatch-level cap bounds how long
+   * the LOOP waits, not how long the OS process lives. Wiring a real signal
+   * through to the surface requires evolving the frozen registry +
+   * `GuardedToolSurface` contracts (out of T1740's scope — tracked for the
+   * contract owner of #1013).
    */
   async #runWithTimeout(
     descriptor: AgentToolDescriptor,
@@ -449,36 +496,45 @@ export class ToolDispatchEngine {
     // `Promise.resolve(...)` normalizes a synchronous (non-thenable) return into
     // a resolved promise; a synchronous throw inside `execute` rejects it.
     const run = Promise.resolve(descriptor.execute(args, this.#tools));
-    if (timeoutMs === undefined) return run;
+    // Fast path: nothing to race against → return the executable directly.
+    if (timeoutMs === undefined && signal === undefined) return run;
+
+    // A pre-aborted signal short-circuits BEFORE awaiting the run — the abort was
+    // already requested, so the engine must not wait for (nor charge a full
+    // timeout for) the in-flight call. This is the default-production path the
+    // no-budget config exercises: the signal is honoured even with no timeout.
+    if (signal?.aborted) {
+      throw new ToolAbortError(`tool "${descriptor.name}" call aborted`);
+    }
 
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
-        () =>
-          reject(
-            new ToolTimeoutError(
-              `tool "${descriptor.name}" exceeded the per-call timeout of ${timeoutMs}ms`,
+    let onAbort: (() => void) | undefined;
+    const interrupt = new Promise<never>((_resolve, reject) => {
+      // Wire the per-call timeout only when one is configured.
+      if (timeoutMs !== undefined) {
+        timer = setTimeout(
+          () =>
+            reject(
+              new ToolTimeoutError(
+                `tool "${descriptor.name}" exceeded the per-call timeout of ${timeoutMs}ms`,
+              ),
             ),
-          ),
-        timeoutMs,
-      );
-      // Abort short-circuits the race the same as a timeout would — but as an
-      // execution-error (the call was cancelled, not slow). A pre-aborted signal
-      // rejects immediately.
+          timeoutMs,
+        );
+      }
+      // Wire the abort listener whenever a (not-yet-aborted) signal is present —
+      // independent of whether a timeout is set, so the default no-budget path
+      // still honours containment-managed cancellation.
       if (signal) {
-        if (signal.aborted) {
-          reject(new Error('tool call aborted'));
-        } else {
-          signal.addEventListener('abort', () => reject(new Error('tool call aborted')), {
-            once: true,
-          });
-        }
+        onAbort = () => reject(new ToolAbortError(`tool "${descriptor.name}" call aborted`));
+        signal.addEventListener('abort', onAbort, { once: true });
       }
     });
     try {
-      return await Promise.race([run, timeout]);
+      return await Promise.race([run, interrupt]);
     } finally {
       if (timer) clearTimeout(timer);
+      if (signal && onAbort) signal.removeEventListener('abort', onAbort);
     }
   }
 
@@ -507,6 +563,27 @@ export class ToolTimeoutError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ToolTimeoutError';
+  }
+}
+
+/**
+ * Thrown internally when a tool call is cancelled via its {@link AbortSignal}
+ * (containment-managed run cancel / OOM-guard / budget kill). Distinct from
+ * {@link ToolTimeoutError}: a timeout means "the call was too slow", an abort
+ * means "the run was cancelled out from under the call". The engine maps it to a
+ * typed `execution-error` result (the call did not complete).
+ *
+ * @remarks Winning the abort race only ABANDONS the executable promise — it does
+ *   NOT preemptively kill a tool that already spawned an OS process, because the
+ *   frozen {@link AgentToolExecutable}/{@link GuardedToolSurface} contracts carry
+ *   no signal channel (see {@link ToolDispatchEngine.dispatch}).
+ */
+export class ToolAbortError extends Error {
+  /** Machine-readable code. */
+  readonly code = 'E_TOOL_ABORTED';
+  constructor(message: string) {
+    super(message);
+    this.name = 'ToolAbortError';
   }
 }
 

@@ -270,6 +270,91 @@ describe('ToolCallBudget — call-count + timeout caps (AC5)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Abort handling — signal honoured on EVERY path, incl. the default no-budget
+// production config (regression: the listener used to be wired only inside the
+// timeout-only branch, so an abort was silently ignored when no per-call
+// timeout was set — i.e. always, by default).
+// ---------------------------------------------------------------------------
+
+describe('ToolDispatchEngine.dispatch — abort signal', () => {
+  it('short-circuits a PRE-ABORTED signal with NO budget (default production path)', async () => {
+    const registry = await buildRegistry();
+    // No budget → perCallTimeoutMs is undefined: this is the default path where
+    // the abort was previously ignored entirely.
+    const engine = buildEngine(registry);
+    const controller = new AbortController();
+    controller.abort();
+
+    const startedAt = Date.now();
+    const result = await engine.dispatch(
+      { id: 'a', name: 'slow', arguments: { ms: 200 } },
+      controller.signal,
+    );
+    const elapsed = Date.now() - startedAt;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected abort failure');
+    // Cancellation classifies as execution-error (the call did not complete).
+    expect(result.kind).toBe('execution-error');
+    expect(result.message).toMatch(/aborted/i);
+    // It must NOT have waited the full 200ms sleep — the abort short-circuited.
+    expect(elapsed).toBeLessThan(150);
+  });
+
+  it('honours an IN-FLIGHT abort with NO per-call timeout configured', async () => {
+    const registry = await buildRegistry();
+    const engine = buildEngine(registry); // no budget → no per-call timeout
+    const controller = new AbortController();
+    // Fire the abort shortly after dispatch starts, while `slow` is still sleeping.
+    setTimeout(() => controller.abort(), 20);
+
+    const startedAt = Date.now();
+    const result = await engine.dispatch(
+      { id: 'a', name: 'slow', arguments: { ms: 500 } },
+      controller.signal,
+    );
+    const elapsed = Date.now() - startedAt;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected abort failure');
+    expect(result.kind).toBe('execution-error');
+    expect(result.message).toMatch(/aborted/i);
+    expect(elapsed).toBeLessThan(450); // returned well before the 500ms sleep
+  });
+
+  it('still completes normally when the signal is never aborted (no regression on the fast path)', async () => {
+    const registry = await buildRegistry();
+    const engine = buildEngine(registry);
+    const controller = new AbortController(); // never aborted
+    const result = await engine.dispatch(
+      { id: 'a', name: 'echo_sync', arguments: { message: 'ok' } },
+      controller.signal,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected success');
+    expect(result.display).toContain('ok');
+  });
+
+  it('honours an abort even WITH a per-call timeout set (abort wins the race as execution-error)', async () => {
+    const registry = await buildRegistry();
+    const budget = new ToolCallBudget({ perCallTimeoutMs: 10_000 }); // long enough not to fire
+    const engine = buildEngine(registry, budget);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 20);
+
+    const result = await engine.dispatch(
+      { id: 'a', name: 'slow', arguments: { ms: 500 } },
+      controller.signal,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected abort failure');
+    // Abort, not timeout — the call was cancelled, not slow.
+    expect(result.kind).toBe('execution-error');
+    expect(result.message).toMatch(/aborted/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC4 — result formatting + AC3 redaction helpers
 // ---------------------------------------------------------------------------
 
