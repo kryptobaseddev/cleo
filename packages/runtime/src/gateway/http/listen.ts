@@ -40,6 +40,7 @@ import { routeUnary } from './server.js';
 import { createSseStream, encodeStreamEvent, SSE_HEADERS } from './sse.js';
 import { resolveStreamSource, type StreamSourceContext } from './stream-sources.js';
 import type { HttpUnaryRequest } from './types.js';
+import { attachWsPtyEndpoint, type WsPtyOptions } from './ws-pty.js';
 
 /** The two CQRS gateways a path segment may name. */
 const GATEWAYS: ReadonlySet<string> = new Set<Gateway>(['query', 'mutate']);
@@ -73,6 +74,18 @@ export interface HttpServerOptions {
    * explicit caller decision.
    */
   host?: string;
+  /**
+   * WebSocket terminal/PTY endpoint configuration (T11922 · M5 WS half). When
+   * provided, a WS upgrade handler for {@link WS_PTY_PATH} (`/v1/terminal/pty`)
+   * is attached to this server's `'upgrade'` event — gated at the edge (loopback
+   * + optional token/origin) and bridging a PTY bidirectionally over WS frames.
+   * When OMITTED, no upgrade handler is attached and the server stays a pure
+   * unary+SSE HTTP listener (the capability is opt-in — the daemon enables it
+   * explicitly). The optional `node-pty` backend is loaded dynamically; if it is
+   * absent, the endpoint still upgrades and reports a clean "PTY backend
+   * unavailable" close rather than crashing.
+   */
+  wsPty?: WsPtyOptions;
 }
 
 /**
@@ -536,13 +549,21 @@ export function startHttpServer(
     });
   });
 
+  // Attach the WS terminal/PTY endpoint (T11922) to the SAME server's `'upgrade'`
+  // event when configured — the WS capability lives on the existing listener
+  // (AC1), gated at the edge (AC4) and torn down with the server (AC3).
+  const wsPty = opts.wsPty !== undefined ? attachWsPtyEndpoint(server, opts.wsPty) : undefined;
+
   return new Promise<HttpServerHandle>((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port, host, () => {
       server.removeListener('error', reject);
       const address = server.address();
       const boundPort = typeof address === 'object' && address !== null ? address.port : opts.port;
-      log.info({ host, port: boundPort }, 'http gateway server listening');
+      log.info(
+        { host, port: boundPort, wsPty: wsPty !== undefined },
+        'http gateway server listening',
+      );
 
       let closed = false;
       const handle: HttpServerHandle = {
@@ -552,6 +573,10 @@ export function startHttpServer(
         close(): Promise<void> {
           if (closed) return Promise.resolve();
           closed = true;
+          // Tear down every live WS-PTY session + detach the upgrade listener
+          // BEFORE closing the HTTP server, so a hung terminal cannot block
+          // shutdown (deterministic teardown — AC3).
+          wsPty?.close();
           return new Promise<void>((res) => {
             server.close(() => res());
             // Drop keep-alive connections so close() resolves promptly.
