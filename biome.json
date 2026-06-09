@@ -72,7 +72,8 @@
       "packages/*/src/**/*.ts",
       "packages/*/__tests__/**/*.ts",
       "scripts/**/*.mjs",
-      "scripts/**/*.ts"
+      "scripts/**/*.ts",
+      "!packages/core/src/gateway-client/generated"
     ]
   },
   "overrides": [
