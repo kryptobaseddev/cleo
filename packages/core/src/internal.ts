@@ -2636,6 +2636,24 @@ export {
   type HealthFlag,
   type HealthFlagStatus,
 } from './memory/brain-health-dashboard.js';
+export type {
+  ReplayDispatch,
+  ReplayDispatchOp,
+  ReplayEnvelope,
+} from './selfimprove/replay.js';
+// ---------------------------------------------------------------------------
+// Self-improvement loop engine (T11889 · T11889-D)
+// ---------------------------------------------------------------------------
+// `runSelfImprove` is the CORE engine the thin `cleo selfimprove run` CLI verb
+// delegates to (Gate-6 — engine in core, handler thin). The cleo dispatch
+// handler supplies the concrete `ReplayDispatch` port (dependency inversion;
+// `core` never imports the cleo-resident dispatcher — P5 spec §B.0.1).
+export type {
+  RunOutcome,
+  RunSelfImproveOptions,
+  SelfImproveResult,
+} from './selfimprove/run-loop.js';
+export { runSelfImprove } from './selfimprove/run-loop.js';
 // assertBriefingContract — BriefingFieldContract assertion (T1905 / BBTT-W1-3)
 export { assertBriefingContract } from './sessions/briefing.js';
 export type {

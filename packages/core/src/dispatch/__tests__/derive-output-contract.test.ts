@@ -200,7 +200,7 @@ describe('deriveOutputContract — per-op output contract derivation (T11762 ST-
         if (deriveOutputContract(key) !== null) resolved += 1;
       }
       const ratio = resolved / OPERATIONS.length;
-      // The derived path must cover the large majority of the 411-op registry.
+      // The derived path must cover the large majority of the 412-op registry.
       expect(ratio).toBeGreaterThan(0.9);
     });
   });
