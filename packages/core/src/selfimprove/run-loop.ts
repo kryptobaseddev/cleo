@@ -44,6 +44,7 @@
 
 import type { Logger } from 'pino';
 import { type ExecutionEnvBackend, resolveExecutionEnv } from '../llm/pi/resolve-execution-env.js';
+import { resolveOrCwd } from '../paths.js';
 import { LeaseUnavailableError } from '../store/writer-lease.js';
 import { createToolGuard, type ToolGuard } from '../tools/guard.js';
 import {
@@ -205,7 +206,7 @@ export async function runSelfImprove(opts: RunSelfImproveOptions): Promise<SelfI
   }
 
   const guard = opts.guard ?? createToolGuard({ mode: 'enforce' });
-  const workspaceRoot = opts.cwd ?? process.cwd();
+  const workspaceRoot = resolveOrCwd(opts.cwd);
   const env = await resolveExecutionEnv({
     backend,
     guard,
