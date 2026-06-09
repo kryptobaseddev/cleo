@@ -123,6 +123,27 @@ export {
 // the populated singleton without an explicit second import.
 import './credential-seeders/register.js';
 
+// L1 complexity classifier — tier proposer that feeds resolveLLMForSystem (T11906)
+export type {
+  Classification,
+  ComplexityTier,
+  PromptFeatures,
+} from './complexity-classifier.js';
+export {
+  classify,
+  classifyComplexity,
+  complexityTierToRole,
+  escalateTier,
+  extractFeatures,
+  proposeRoleForPrompt,
+  THRESHOLD_HIGH,
+  THRESHOLD_MID,
+  WEIGHT_DOMAIN_SPECIFICITY,
+  WEIGHT_REASONING_DEPTH,
+  WEIGHT_SYNTACTIC_COMPLEXITY,
+  WEIGHT_TOKEN_COUNT,
+  WEIGHT_TOUCHES_FILES_COUNT,
+} from './complexity-classifier.js';
 // Unified credential pool — seed/pick/list singleton (E-CONFIG-AUTH-UNIFY E2a / T9412)
 export type {
   PoolSeedResult,
