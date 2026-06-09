@@ -33,7 +33,12 @@ import type {
   SkillExecuteInput,
   SkillExecuteResult,
 } from '@cleocode/contracts/tools/skill-executor';
-import type { AgentEvent, AgentLoopConfig, AgentMessage } from '@earendil-works/pi-agent-core';
+import type {
+  AgentContext,
+  AgentEvent,
+  AgentLoopConfig,
+  AgentMessage,
+} from '@earendil-works/pi-agent-core';
 import { InMemorySessionRepo, runAgentLoop } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 import { getLogger } from '../../logger.js';
@@ -44,8 +49,11 @@ import {
 } from '../../sessions/session-id.js';
 import type { SkillRunner } from '../../skills/skill-executor-adapter.js';
 import type { Skill } from '../../skills/types.js';
+import type { AgentToolRegistry } from '../../tools/agent-registry.js';
+import { type ToolBudgetLimits, ToolCallBudget, ToolDispatchEngine } from '../../tools/dispatch.js';
 import { PiContainmentError, wrapPiCall } from './pi-errors.js';
 import { createPiStreamFn } from './pi-stream-fn.js';
+import { buildPiAgentTools } from './pi-tool-bridge.js';
 import type { PiAgentResult, PiAgentRunContext } from './pi-types.js';
 
 const logger = getLogger('pi-agent-adapter');
@@ -76,6 +84,21 @@ export interface PiAgentAdapterDeps {
    * `process.cwd()` inside `resolveLLMForSystem`.
    */
   readonly projectRoot?: string;
+  /**
+   * The frozen {@link AgentToolRegistry} whose tools the loop may CALL (T1740 ·
+   * AC6). When supplied, {@link run} builds a {@link ToolDispatchEngine} over it
+   * + the injected guarded surface and projects executable `AgentTool`s onto the
+   * loop, so a model tool-call actually runs through the dispatch engine. When
+   * omitted the loop is text-only (no tools offered for execution) — the prior
+   * behaviour, preserved so existing callers are unchanged.
+   */
+  readonly registry?: AgentToolRegistry;
+  /**
+   * Optional per-run tool-call budget limits (T1740 · AC5) applied to the
+   * dispatch engine: max call count, per-call timeout, total time. Omitted →
+   * unbounded.
+   */
+  readonly budget?: ToolBudgetLimits;
 }
 
 /**
@@ -126,10 +149,6 @@ export class PiAgentAdapter {
     tools: GuardedToolSurface,
     ctx: PiAgentRunContext,
   ): Promise<PiAgentResult> {
-    // `tools` is threaded for S3+ ExecutionEnv wiring; on the v0 read/stream path
-    // the binding is asserted so the seam is real (no ambient tool access).
-    void tools;
-
     // Merge construction defaults UNDER the per-call ctx — a field the caller
     // supplied on `ctx` always wins; deps fill the `projectRoot` gap.
     const runCtx: PiAgentRunContext =
@@ -160,9 +179,17 @@ export class PiAgentAdapter {
         const emit = (event: AgentEvent): void => {
           events.push(event);
         };
+        // AC6 — close the tool-call loop. When a registry is wired, build the
+        // T1740 dispatch engine over it + the injected guarded surface, project
+        // executable `AgentTool`s onto the loop context, and (separately) advertise
+        // the same schemas to the model on the wire (Context.tools is read by the
+        // streamFn). When NO registry is supplied the loop is text-only — the
+        // guarded surface is still asserted so the seam is never ambient.
+        void tools;
+        const agentContext = this.#buildAgentContext(tools);
         const result = await runAgentLoop(
           [userMessage(prompt)],
-          { systemPrompt: '', messages: [] },
+          agentContext,
           config,
           emit,
           signal,
@@ -199,6 +226,42 @@ export class PiAgentAdapter {
       convertToLlm: (messages: AgentMessage[]) => messages as never,
     };
   }
+
+  /**
+   * Build the loop's {@link AgentContext}, wiring the executable tools when a
+   * registry is configured (T1740 · AC6).
+   *
+   * With a registry: a {@link ToolDispatchEngine} is constructed over it + the
+   * injected guarded surface + the optional run-scoped budget, and {@link
+   * buildPiAgentTools} projects executable `AgentTool`s onto `context.tools`. The
+   * loop reads those `execute` bodies when the model emits a tool-call, so the
+   * call runs through the dispatch engine (lookup → validate → availability →
+   * budget → guarded side effect → formatted result) and the result is fed back.
+   * Without a registry the context is text-only — the prior behaviour.
+   *
+   * @param tools - The injected guarded tool surface every executable runs through.
+   * @returns The loop context (`systemPrompt` + empty transcript + optional tools).
+   */
+  #buildAgentContext(tools: GuardedToolSurface): AgentContext {
+    if (!this.#deps.registry) {
+      return { systemPrompt: '', messages: [] };
+    }
+    const engine = new ToolDispatchEngine({
+      registry: this.#deps.registry,
+      tools,
+      ...(this.#deps.budget !== undefined ? { budget: new ToolCallBudget(this.#deps.budget) } : {}),
+    });
+    const agentTools = buildPiAgentTools(engine, this.#deps.registry);
+    // `buildPiAgentTools` returns the structural `AgentTool` subset the loop
+    // reads (name/description/parameters/label/execute); the cast bridges to
+    // `pi-agent-core`'s generic `AgentTool<TSchema, TDetails>` without importing
+    // its TypeBox-parameterized type into the bridge (Gate-10 quarantine).
+    return {
+      systemPrompt: '',
+      messages: [],
+      tools: agentTools as unknown as AgentContext['tools'],
+    };
+  }
 }
 
 /**
@@ -222,6 +285,8 @@ export class PiAgentAdapter {
  * @returns A `SkillRunner` that runs the Pi loop in-process.
  */
 export function createPiSkillRunner(deps: PiAgentAdapterDeps = {}): SkillRunner {
+  // The adapter receives the full deps (incl. the optional tool registry + budget
+  // for AC6 tool-call dispatch).
   const adapter = new PiAgentAdapter(deps);
   return async (skill, input): Promise<SkillExecuteResult> => {
     const sessionId = resolveSessionIdFromEnv();
