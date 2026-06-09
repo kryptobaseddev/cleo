@@ -85,6 +85,27 @@ export function resolve(
 }
 
 /**
+ * Infer the CQRS {@link Gateway} for a `(domain, operation)` pair from the
+ * registry, without the caller naming `query`/`mutate` up front.
+ *
+ * This backs the versioned `/v1/<domain>/<operation>` REST facade (T11919),
+ * where — unlike the legacy `/<gateway>/<domain>/<operation>` form — the client
+ * does not spell the gateway segment: the registry is the single source of truth
+ * for whether an operation is a read (`query`) or a write (`mutate`). Each
+ * `(domain, operation)` pair maps to exactly one gateway in {@link OPERATIONS},
+ * so the inference is unambiguous.
+ *
+ * @param domain - The canonical domain segment (e.g. `'tasks'`).
+ * @param operation - The operation segment (e.g. `'show'`).
+ * @returns The owning gateway, or `undefined` when no registered operation
+ *   matches the pair (the wire edge then renders a `404`).
+ */
+export function inferGateway(domain: string, operation: string): Gateway | undefined {
+  const def = OPERATIONS.find((o) => o.domain === domain && o.operation === operation);
+  return def?.gateway;
+}
+
+/**
  * Validates that all required parameters are present in the request.
  * Returns an array of missing parameter keys.
  */

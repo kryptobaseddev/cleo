@@ -34,6 +34,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { DispatchResponse, Gateway } from '@cleocode/contracts/gateway';
 import { getLogger } from '@cleocode/core';
 import type { GatewayHandler } from '../index.js';
+import { inferGateway } from '../registry.js';
 import { routeUnary } from './server.js';
 import type { HttpUnaryRequest } from './types.js';
 
@@ -42,6 +43,13 @@ const GATEWAYS: ReadonlySet<string> = new Set<Gateway>(['query', 'mutate']);
 
 /** Maximum accepted request-body size (1 MiB) — a crude DoS guard at the edge. */
 const MAX_BODY_BYTES = 1_048_576;
+
+/**
+ * The versioned REST facade prefix (T11919). `/v1/<domain>/<operation>` infers
+ * the gateway from the registry; `/v1/health` is the liveness probe. The legacy
+ * `/<gateway>/<domain>/<operation>` form is retained for backward compatibility.
+ */
+const V1_PREFIX = 'v1';
 
 /**
  * Options for {@link startHttpServer}.
@@ -83,26 +91,64 @@ export interface HttpServerHandle {
 }
 
 /**
- * The result of parsing a request line into routing coordinates: either a
- * resolved unary triple or a rejection reason for the wire edge.
+ * The result of parsing a request line into routing coordinates: a resolved
+ * unary triple, a recognized health probe, or a rejection for the wire edge.
  */
 type ParsedRoute =
-  | { ok: true; gateway: Gateway; domain: string; operation: string }
+  | { ok: true; kind: 'unary'; gateway: Gateway; domain: string; operation: string }
+  | { ok: true; kind: 'health' }
   | { ok: false; status: number; code: string; message: string };
 
 /**
- * Parse `POST /<gateway>/<domain>/<operation>` into a routing triple.
+ * Parse a gateway request line into a routing decision.
  *
- * Rejects a non-POST method (`405`) and any path that does not resolve to a
- * known `(gateway, domain, operation)` triple (`404`). The gateway segment is
- * validated against the two CQRS gateways so a client cannot smuggle an
- * arbitrary value into the dispatch request.
+ * Two POST routing vocabularies are accepted (the wire payload is identical to
+ * every other transport — only the framing differs):
+ *
+ *   - `POST /v1/<domain>/<operation>` — the **versioned REST facade** (T11919).
+ *     The gateway (`query` | `mutate`) is INFERRED from the registry, so the
+ *     client need not name it. An unregistered `(domain, operation)` pair is a
+ *     `404`.
+ *   - `POST /<gateway>/<domain>/<operation>` — the **legacy** form, where the
+ *     client names the gateway segment explicitly (validated against the two
+ *     CQRS gateways so a client cannot smuggle an arbitrary value).
+ *
+ * `GET /v1/health` is recognized as a liveness probe (any other GET is a `405`).
+ * A non-POST/GET method is rejected at the edge (`405`); a path that resolves to
+ * neither vocabulary is a `404`. The injected {@link GatewayHandler} is never
+ * invoked with a malformed request.
+ *
+ * The `/v1` listener is shaped so a future streaming route (SSE — T11921, WS —
+ * T11922) slots in as an additional recognized `GET /v1/<domain>/<operation>`
+ * branch without disturbing the unary path: this parser deliberately rejects
+ * unknown GETs as `405` (not `404`) so the streaming seam can later distinguish
+ * "method not yet supported on this route" from "no such route".
  *
  * @param method - The HTTP request method.
  * @param url - The HTTP request URL (path + query).
  * @returns The parsed route, or a typed rejection for the wire edge.
  */
 export function parseHttpRoute(method: string | undefined, url: string | undefined): ParsedRoute {
+  // Parse against a dummy origin so only the path is consumed (query ignored).
+  const pathname = new URL(url ?? '/', 'http://localhost').pathname;
+  const segments = pathname.split('/').filter((s) => s.length > 0);
+
+  // GET /v1/health — liveness probe. The only non-POST route the gateway serves.
+  if (method === 'GET') {
+    if (segments.length === 2 && segments[0] === V1_PREFIX && segments[1] === 'health') {
+      return { ok: true, kind: 'health' };
+    }
+    // Streaming seam (T11921/T11922): a future GET /v1/<domain>/<operation>
+    // streaming branch lands here. Until then an unrecognized GET is a 405 so
+    // the caller can tell "route exists, method unsupported" from "no route".
+    return {
+      ok: false,
+      status: 405,
+      code: 'E_HTTP_METHOD_NOT_ALLOWED',
+      message: `method GET not allowed for '${pathname}'; only GET /v1/health is served`,
+    };
+  }
+
   if (method !== 'POST') {
     return {
       ok: false,
@@ -111,15 +157,29 @@ export function parseHttpRoute(method: string | undefined, url: string | undefin
       message: `method ${method ?? '<none>'} not allowed; gateway accepts POST`,
     };
   }
-  // Parse against a dummy origin so only the path is consumed (query ignored).
-  const pathname = new URL(url ?? '/', 'http://localhost').pathname;
-  const segments = pathname.split('/').filter((s) => s.length > 0);
+
+  // POST /v1/<domain>/<operation> — versioned facade; gateway inferred.
+  if (segments.length === 3 && segments[0] === V1_PREFIX) {
+    const [, domain, operation] = segments;
+    const gateway = inferGateway(domain, operation);
+    if (gateway === undefined) {
+      return {
+        ok: false,
+        status: 404,
+        code: 'E_HTTP_NOT_FOUND',
+        message: `unknown operation '${domain}/${operation}'; no registered query/mutate matches`,
+      };
+    }
+    return { ok: true, kind: 'unary', gateway, domain, operation };
+  }
+
+  // POST /<gateway>/<domain>/<operation> — legacy explicit-gateway form.
   if (segments.length !== 3) {
     return {
       ok: false,
       status: 404,
       code: 'E_HTTP_NOT_FOUND',
-      message: `expected POST /<gateway>/<domain>/<operation>, got '${pathname}'`,
+      message: `expected POST /v1/<domain>/<operation> or /<gateway>/<domain>/<operation>, got '${pathname}'`,
     };
   }
   const [gateway, domain, operation] = segments;
@@ -131,7 +191,7 @@ export function parseHttpRoute(method: string | undefined, url: string | undefin
       message: `unknown gateway '${gateway}'; expected one of query, mutate`,
     };
   }
-  return { ok: true, gateway: gateway as Gateway, domain, operation };
+  return { ok: true, kind: 'unary', gateway: gateway as Gateway, domain, operation };
 }
 
 /**
@@ -191,6 +251,33 @@ function writeEdgeError(res: ServerResponse, status: number, code: string, messa
 }
 
 /**
+ * Write a LAFS-shaped success envelope for the `GET /v1/health` liveness probe.
+ *
+ * The probe never touches the {@link GatewayHandler} (it is a pure wire-edge
+ * liveness signal), so it returns a self-contained `200` envelope reporting the
+ * server is up and the wire version it serves.
+ *
+ * @param res - The server response.
+ */
+function writeHealth(res: ServerResponse): void {
+  const body: DispatchResponse = {
+    meta: {
+      gateway: 'query',
+      domain: 'gateway',
+      operation: 'health',
+      timestamp: new Date().toISOString(),
+      duration_ms: 0,
+      source: 'http',
+      requestId: '',
+    },
+    success: true,
+    data: { status: 'ok', version: V1_PREFIX },
+  };
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+/**
  * Handle a single inbound HTTP request: parse the route, read + JSON-parse the
  * body, route it through the gateway handler, and serialize the LAFS response.
  *
@@ -213,6 +300,11 @@ async function handleHttpRequest(
   const route = parseHttpRoute(req.method, req.url);
   if (!route.ok) {
     writeEdgeError(res, route.status, route.code, route.message);
+    return;
+  }
+  if (route.kind === 'health') {
+    writeHealth(res);
+    log.debug({ route: 'health' }, 'http health probe served');
     return;
   }
 
