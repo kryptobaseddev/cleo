@@ -22,8 +22,8 @@
  * @adr 076
  */
 
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import {
   CLEO_CONFIG_MANIFEST,
   CONFIG_MANIFEST_ENTRIES,
@@ -338,6 +338,117 @@ export async function getConfigValue<T = unknown>(
   const scope = opts.scope ?? 'merged';
   const resolved = await resolveCleoConfig({ scope, projectRoot: opts.projectRoot });
   return getNestedValue(resolved, key) as T | undefined;
+}
+
+/**
+ * Flatten a resolved config object into its dot-notation leaf keys.
+ *
+ * Recurses into plain objects; arrays and primitives are treated as leaf
+ * values. Used by `config.list` to surface a discoverable, copy-pasteable key
+ * list alongside the full resolved object.
+ *
+ * @param obj - A resolved config object (e.g. from {@link resolveCleoConfig}).
+ * @returns Sorted dot-notation key paths to every leaf value.
+ *
+ * @example
+ * ```typescript
+ * flattenConfigKeys({ a: { b: 1 }, c: [2] }); // → ['a.b', 'c']
+ * ```
+ *
+ * @public
+ */
+export function flattenConfigKeys(obj: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const walk = (node: Record<string, unknown>, prefix: string): void => {
+    for (const [key, value] of Object.entries(node)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (isPlainObject(value) && Object.keys(value).length > 0) {
+        walk(value, path);
+      } else {
+        out.push(path);
+      }
+    }
+  };
+  walk(obj, '');
+  return out.sort();
+}
+
+/**
+ * Result of {@link unsetConfigValue}.
+ *
+ * @public
+ */
+export interface UnsetResult {
+  /** The dot-notation key that was targeted. */
+  key: string;
+  /** Scope the key was removed from. */
+  scope: 'project' | 'global';
+  /** `true` IFF a value was actually deleted (idempotent: `false` when absent). */
+  removed: boolean;
+}
+
+/**
+ * Remove a single `.`-separated key from a scoped config file and persist the
+ * result. Pure JSON file IO — does NOT open SQLite (ADR-068 preserved).
+ *
+ * Idempotent: when the key is already absent the file is left untouched and
+ * `{ removed: false }` is returned. When the key exists it is deleted (pruning
+ * the now-empty parent objects is intentionally NOT done — operators may rely on
+ * a present-but-empty namespace), the file is rewritten, and `{ removed: true }`
+ * is returned.
+ *
+ * @param key - Dot-separated key to remove (e.g. `'release.branchModel'`).
+ * @param opts.projectRoot - Absolute path to the project root.
+ * @param opts.global - When `true`, target the global `~/.cleo/config.json`
+ *   instead of the project file.
+ * @returns The {@link UnsetResult} describing the outcome.
+ * @throws When the present file contains malformed JSON.
+ *
+ * @public
+ */
+export async function unsetConfigValue(
+  key: string,
+  opts: { projectRoot: string; global?: boolean },
+): Promise<UnsetResult> {
+  const scope: 'project' | 'global' = opts.global ? 'global' : 'project';
+  const configPath = opts.global
+    ? resolveGlobalConfigPath()
+    : resolveProjectFilePath(opts.projectRoot, CLEO_CONFIG_MANIFEST.path.replace(/^\.cleo\//, ''));
+
+  const existing = await readJsonOrNull(configPath);
+  if (existing === null) {
+    return { key, scope, removed: false };
+  }
+
+  const removed = deleteNestedValue(existing, key);
+  if (!removed) {
+    return { key, scope, removed: false };
+  }
+
+  await mkdir(dirname(configPath), { recursive: true });
+  await writeFile(configPath, `${JSON.stringify(existing, null, 2)}\n`, 'utf8');
+  return { key, scope, removed: true };
+}
+
+/**
+ * Delete a `.`-separated key from a plain object in place.
+ *
+ * Returns `true` IFF the key existed and was deleted. Traverses only through
+ * plain-object segments — a non-object intermediate means the key is absent.
+ */
+function deleteNestedValue(obj: Record<string, unknown>, key: string): boolean {
+  const segments = key.split('.');
+  const lastSegment = segments.pop();
+  if (lastSegment === undefined) return false;
+  let cursor: Record<string, unknown> = obj;
+  for (const seg of segments) {
+    const next = cursor[seg];
+    if (!isPlainObject(next)) return false;
+    cursor = next;
+  }
+  if (!(lastSegment in cursor)) return false;
+  delete cursor[lastSegment];
+  return true;
 }
 
 /**

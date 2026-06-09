@@ -335,6 +335,133 @@ const tasksCompleteOutputContract: OperationOutputContract = {
 };
 
 // ---------------------------------------------------------------------------
+// admin.config.* — config-as-domain (T11917 · M5/AC3 · ConfigManifest cascade)
+// ---------------------------------------------------------------------------
+
+/**
+ * OUTPUT contract for `admin.config.get`.
+ *
+ * Grounded in `AdminConfigGetResult`: `{ key, scope, value, found }`. The
+ * resolved value lives at `/data/value`; `found` disambiguates a present `null`
+ * value from an absent key.
+ */
+const adminConfigGetOutputContract: OperationOutputContract = {
+  operation: 'admin.config.get',
+  shapeNote:
+    'The resolved value is at /data/value (may be null). /data/found is false when the key is absent.',
+  dataSchema: {
+    type: 'object',
+    required: ['key', 'scope', 'value', 'found'],
+    additionalProperties: true,
+    properties: {
+      key: { type: 'string', description: 'The dot-notation key that was resolved.' },
+      scope: {
+        type: 'string',
+        description: 'Cascade slice the value was resolved against.',
+        enum: ['global', 'project', 'merged'],
+      },
+      value: { description: 'Resolved value, or null when the key is absent.' },
+      found: { type: 'boolean', description: 'True IFF the key resolved to a defined value.' },
+    },
+  },
+  fieldPointers: ['/data/key', '/data/scope', '/data/value', '/data/found'],
+};
+
+/**
+ * OUTPUT contract for `admin.config.list`.
+ *
+ * Grounded in `AdminConfigListResult`: `{ scope, config, keys }`. The full
+ * resolved config object is at `/data/config`; flattened keys are at
+ * `/data/keys`.
+ */
+const adminConfigListOutputContract: OperationOutputContract = {
+  operation: 'admin.config.list',
+  shapeNote:
+    'The full resolved config is at /data/config (an object); flattened dot-notation keys are at /data/keys (an array).',
+  dataSchema: {
+    type: 'object',
+    required: ['scope', 'config', 'keys'],
+    additionalProperties: true,
+    properties: {
+      scope: {
+        type: 'string',
+        description: 'Cascade slice the config was resolved against.',
+        enum: ['global', 'project', 'merged'],
+      },
+      config: {
+        type: 'object',
+        description: 'Full resolved config object for the slice.',
+        additionalProperties: true,
+      },
+      keys: {
+        type: 'array',
+        description: 'Flattened dot-notation keys present in the resolved config.',
+        items: { type: 'string' },
+      },
+    },
+  },
+  fieldPointers: ['/data/scope', '/data/keys/0', '/data/keys'],
+};
+
+/**
+ * OUTPUT contract for `admin.config.validate`.
+ *
+ * Grounded in `AdminConfigValidateResult`: `{ scope, ok, issues }`. `ok` is the
+ * pass/fail verdict; `issues` carries human-readable rejection reasons.
+ */
+const adminConfigValidateOutputContract: OperationOutputContract = {
+  operation: 'admin.config.validate',
+  shapeNote:
+    'The pass/fail verdict is at /data/ok; rejection reasons are at /data/issues (empty when ok=true).',
+  dataSchema: {
+    type: 'object',
+    required: ['scope', 'ok', 'issues'],
+    additionalProperties: true,
+    properties: {
+      scope: {
+        type: 'string',
+        description: 'Scope that was validated.',
+        enum: ['global', 'project'],
+      },
+      ok: { type: 'boolean', description: 'True IFF every gate passed.' },
+      issues: {
+        type: 'array',
+        description: 'Human-readable schema issues. Empty when ok=true.',
+        items: { type: 'string' },
+      },
+    },
+  },
+  fieldPointers: ['/data/scope', '/data/ok', '/data/issues/0', '/data/issues'],
+};
+
+/**
+ * OUTPUT contract for `admin.config.unset`.
+ *
+ * Grounded in `AdminConfigUnsetResult`: `{ key, scope, removed }`. `removed` is
+ * `true` IFF the key existed and was deleted (idempotent: `false` when absent).
+ */
+const adminConfigUnsetOutputContract: OperationOutputContract = {
+  operation: 'admin.config.unset',
+  shapeNote:
+    '/data/removed is true IFF a value was deleted; false when the key was already absent (idempotent).',
+  dataSchema: {
+    type: 'object',
+    required: ['key', 'scope', 'removed'],
+    additionalProperties: true,
+    properties: {
+      key: { type: 'string', description: 'The dot-notation key that was targeted.' },
+      scope: {
+        type: 'string',
+        description: 'Scope the key was removed from.',
+        enum: ['project', 'global'],
+      },
+      removed: { type: 'boolean', description: 'True IFF a value was actually deleted.' },
+    },
+  },
+  fieldPointers: ['/data/key', '/data/scope', '/data/removed'],
+};
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -353,4 +480,8 @@ export const OUTPUT_CONTRACTS: OperationOutputContractRegistry = {
   'tasks.add-batch': tasksAddBatchOutputContract,
   'tasks.update': tasksUpdateOutputContract,
   'tasks.complete': tasksCompleteOutputContract,
+  'admin.config.get': adminConfigGetOutputContract,
+  'admin.config.list': adminConfigListOutputContract,
+  'admin.config.validate': adminConfigValidateOutputContract,
+  'admin.config.unset': adminConfigUnsetOutputContract,
 };

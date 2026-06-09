@@ -670,6 +670,16 @@ export { updateTask } from './tasks/update.js';
 // can import them without violating lint-core-first RULE-3 (which bans
 // `@cleocode/core/internal` from CLI command files).
 
+// T11917 (M5/AC3 · EP-API-STANDARD-FOUNDATION T11769) — config-as-domain handler
+// routing config.{get,list,validate,unset} to the ConfigManifest cascade resolver.
+export {
+  ConfigDomainHandler,
+  type ConfigGetResult,
+  type ConfigListResult,
+  type ConfigUnsetResult,
+  type ConfigValidateResult,
+  configDomainHandler,
+} from './dispatch/config-domain-handler.js';
 // T11762 (T11901 ST-1b · Lane A) — bodied accessors over the cantbook
 // ensures.schema Zod registry (registry DATA lives in @cleocode/contracts ST-1).
 // The playbook runtime resolves a schema name → validator via these instead of

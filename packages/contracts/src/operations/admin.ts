@@ -380,6 +380,9 @@ export type AdminOp =
   | 'admin.health'
   | 'admin.config.show'
   | 'admin.config.presets'
+  | 'admin.config.get'
+  | 'admin.config.list'
+  | 'admin.config.validate'
   | 'admin.stats'
   | 'admin.context'
   | 'admin.context.pull'
@@ -406,6 +409,7 @@ export type AdminOp =
   | 'admin.health.mutate'
   | 'admin.config.set'
   | 'admin.config.set-preset'
+  | 'admin.config.unset'
   | 'admin.backup.mutate'
   | 'admin.migrate'
   | 'admin.cleanup'
@@ -511,6 +515,109 @@ export type AdminConfigPresetsParams = Record<string, never>;
 export interface AdminConfigPresetsResult {
   /** Available strictness presets with their settings. */
   presets: AdminPresetDefinition[];
+}
+
+// ---------------------------------------------------------------------------
+// admin.config.get (T11917 — config-as-domain, ConfigManifest cascade)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cascade slice selector for the config-as-domain query ops.
+ *
+ * - `'global'`  — read ONLY `~/.cleo/config.json` (precedence 10)
+ * - `'project'` — read ONLY `<project>/.cleo/config.json` (precedence 20)
+ * - `'merged'`  — read the deep-merge `{ ...global, ...project }` (default)
+ *
+ * Mirrors the `ResolveScope` of the `resolveCleoConfig` cascade resolver.
+ *
+ * @task T11917
+ */
+export type AdminConfigScope = 'global' | 'project' | 'merged';
+
+/** Parameters for `admin.config.get`. */
+export interface AdminConfigGetParams {
+  /** Dot-notation config key to read a single value (required). */
+  key: string;
+  /** Cascade slice to read from. Defaults to `'merged'`. */
+  scope?: AdminConfigScope;
+}
+
+/**
+ * Result of `admin.config.get`.
+ *
+ * Returns the resolved value for `key`, or `null` when the key is absent in the
+ * selected cascade slice. `found` disambiguates a present `null` value from an
+ * absent key.
+ *
+ * @task T11917
+ */
+export interface AdminConfigGetResult {
+  /** The dot-notation key that was resolved. */
+  key: string;
+  /** Cascade slice the value was resolved against. */
+  scope: AdminConfigScope;
+  /** Resolved value, or `null` when the key is absent. */
+  value: unknown;
+  /** `true` IFF the key resolved to a defined value in the cascade. */
+  found: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// admin.config.list (T11917 — full resolved cascade)
+// ---------------------------------------------------------------------------
+
+/** Parameters for `admin.config.list`. */
+export interface AdminConfigListParams {
+  /** Cascade slice to project. Defaults to `'merged'`. */
+  scope?: AdminConfigScope;
+}
+
+/**
+ * Result of `admin.config.list`.
+ *
+ * Returns the full resolved config object for the selected cascade slice plus
+ * the flattened dot-notation key list for discovery.
+ *
+ * @task T11917
+ */
+export interface AdminConfigListResult {
+  /** Cascade slice the config was resolved against. */
+  scope: AdminConfigScope;
+  /** Full resolved config object for the slice. */
+  config: Record<string, unknown>;
+  /** Flattened dot-notation keys present in the resolved config. */
+  keys: string[];
+}
+
+// ---------------------------------------------------------------------------
+// admin.config.validate (T11917 — schema-validate the cascade entry)
+// ---------------------------------------------------------------------------
+
+/** Parameters for `admin.config.validate`. */
+export interface AdminConfigValidateParams {
+  /**
+   * Scope to validate. Only the cascade-participating scopes are valid —
+   * `'merged'` is rejected because validation runs against a single file's
+   * manifest entry schema. Defaults to `'project'`.
+   */
+  scope?: 'global' | 'project';
+}
+
+/**
+ * Result of `admin.config.validate`.
+ *
+ * `ok` is `true` IFF the file passed its manifest entry's schema gate (or no
+ * schema was configured). `issues` carries human-readable rejection reasons.
+ *
+ * @task T11917
+ */
+export interface AdminConfigValidateResult {
+  /** Scope that was validated. */
+  scope: 'global' | 'project';
+  /** `true` IFF every gate passed. */
+  ok: boolean;
+  /** Human-readable schema issues. Empty when `ok === true`. */
+  issues: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1467,6 +1574,35 @@ export interface AdminConfigSetResult {
 }
 
 // ---------------------------------------------------------------------------
+// admin.config.unset (T11917 — remove a key from a scoped config file)
+// ---------------------------------------------------------------------------
+
+/** Parameters for `admin.config.unset`. */
+export interface AdminConfigUnsetParams {
+  /** Dot-notation config key to remove (required). */
+  key: string;
+  /** Remove from the global file instead of the project file. */
+  global?: boolean;
+}
+
+/**
+ * Result of `admin.config.unset`.
+ *
+ * `removed` is `true` IFF the key existed and was deleted; `false` when the key
+ * was already absent (idempotent no-op).
+ *
+ * @task T11917
+ */
+export interface AdminConfigUnsetResult {
+  /** Config key that was targeted. */
+  key: string;
+  /** Scope the key was removed from. */
+  scope: 'project' | 'global';
+  /** `true` IFF a value was actually deleted. */
+  removed: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // admin.config.set-preset
 // ---------------------------------------------------------------------------
 
@@ -1996,6 +2132,13 @@ export type AdminOps =
       params: AdminConfigPresetsParams;
       result: AdminConfigPresetsResult;
     }
+  | { op: 'admin.config.get'; params: AdminConfigGetParams; result: AdminConfigGetResult }
+  | { op: 'admin.config.list'; params: AdminConfigListParams; result: AdminConfigListResult }
+  | {
+      op: 'admin.config.validate';
+      params: AdminConfigValidateParams;
+      result: AdminConfigValidateResult;
+    }
   | { op: 'admin.stats'; params: AdminStatsParams; result: AdminStatsResult }
   | { op: 'admin.context'; params: AdminContextParams; result: AdminContextResult }
   | { op: 'admin.context.pull'; params: AdminContextPullParams; result: AdminContextPullResult }
@@ -2046,6 +2189,7 @@ export type AdminOps =
       params: AdminConfigSetPresetParams;
       result: AdminConfigSetPresetResult;
     }
+  | { op: 'admin.config.unset'; params: AdminConfigUnsetParams; result: AdminConfigUnsetResult }
   | {
       op: 'admin.backup.mutate';
       params: AdminBackupMutateParams;

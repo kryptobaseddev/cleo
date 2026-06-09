@@ -1787,6 +1787,73 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
+    operation: 'config.get',
+    description:
+      'admin.config.get (query) — resolve a single config value via the ConfigManifest cascade (T11917)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['key'],
+    params: [
+      {
+        name: 'key',
+        type: 'string',
+        required: true,
+        description: 'Dot-notation config key to read (e.g. "release.branchModel")',
+        cli: { positional: true },
+      },
+      {
+        name: 'scope',
+        type: 'string',
+        required: false,
+        description: 'Cascade slice to read from. Defaults to merged.',
+        enum: ['global', 'project', 'merged'],
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'query',
+    domain: 'admin',
+    operation: 'config.list',
+    description:
+      'admin.config.list (query) — resolve the full config cascade and its flattened keys (T11917)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'scope',
+        type: 'string',
+        required: false,
+        description: 'Cascade slice to project. Defaults to merged.',
+        enum: ['global', 'project', 'merged'],
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'query',
+    domain: 'admin',
+    operation: 'config.validate',
+    description:
+      'admin.config.validate (query) — schema-validate a scoped config file via its manifest entry (T11917)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'scope',
+        type: 'string',
+        required: false,
+        description: 'Scope to validate (global or project). Defaults to project.',
+        enum: ['global', 'project'],
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'query',
+    domain: 'admin',
     operation: 'stats',
     description: 'admin.stats (query)',
     tier: 1,
@@ -4456,6 +4523,32 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Preset name: strict | standard | minimal',
       },
     ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'admin',
+    operation: 'config.unset',
+    description:
+      'admin.config.unset (mutate) — remove a key from a scoped config file (idempotent) (T11917)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['key'],
+    params: [
+      {
+        name: 'key',
+        type: 'string',
+        required: true,
+        description: 'Dot-notation config key to remove',
+        cli: { positional: true },
+      },
+      {
+        name: 'global',
+        type: 'boolean',
+        required: false,
+        description: 'Remove from the global file instead of the project file',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
