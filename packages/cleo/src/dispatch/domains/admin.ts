@@ -25,6 +25,7 @@ import {
   cleanupSystem,
   clearTokenUsage,
   computeHelp,
+  configDomainHandler,
   coreDoctorReport,
   deleteTokenUsage,
   ensureCleoOsHub,
@@ -374,6 +375,37 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
       );
     }
     return lafsSuccess(result.data ?? { presets: [] }, 'config.presets');
+  },
+
+  // T11917 — config-as-domain. Delegate to the CORE ConfigDomainHandler, which
+  // routes through the ConfigManifest cascade resolver (resolveCleoConfig /
+  // getConfigValue / validateConfig). The CLI handler only wraps the
+  // EngineResult into the LAFS envelope.
+  'config.get': async (params) => {
+    const projectRoot = getProjectRoot();
+    const result = await configDomainHandler.get(projectRoot, params.key, params.scope);
+    if (!result.success) {
+      return lafsError(result.error.code, result.error.message, 'config.get');
+    }
+    return lafsSuccess(result.data, 'config.get');
+  },
+
+  'config.list': async (params) => {
+    const projectRoot = getProjectRoot();
+    const result = await configDomainHandler.list(projectRoot, params.scope);
+    if (!result.success) {
+      return lafsError(result.error.code, result.error.message, 'config.list');
+    }
+    return lafsSuccess(result.data, 'config.list');
+  },
+
+  'config.validate': async (params) => {
+    const projectRoot = getProjectRoot();
+    const result = await configDomainHandler.validate(projectRoot, params.scope);
+    if (!result.success) {
+      return lafsError(result.error.code, result.error.message, 'config.validate');
+    }
+    return lafsSuccess(result.data, 'config.validate');
   },
 
   stats: async (params) => {
@@ -914,6 +946,18 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     return lafsSuccess(result.data, 'config.set-preset');
   },
 
+  // T11917 — config-as-domain. Remove a key via the CORE ConfigDomainHandler
+  // (ConfigManifest cascade writeback). Idempotent: removing an absent key
+  // succeeds with removed=false.
+  'config.unset': async (params) => {
+    const projectRoot = getProjectRoot();
+    const result = await configDomainHandler.unset(projectRoot, params.key, params.global);
+    if (!result.success) {
+      return lafsError(result.error.code, result.error.message, 'config.unset');
+    }
+    return lafsSuccess(result.data, 'config.unset');
+  },
+
   'backup.mutate': async (params) => {
     const projectRoot = getProjectRoot();
     const action = params.action;
@@ -1209,6 +1253,9 @@ const QUERY_OPS = new Set<string>([
   'health',
   'config.show',
   'config.presets',
+  'config.get',
+  'config.list',
+  'config.validate',
   'stats',
   'context',
   'context.pull',
@@ -1237,6 +1284,7 @@ const MUTATE_OPS = new Set<string>([
   'health',
   'config.set',
   'config.set-preset',
+  'config.unset',
   'backup',
   'migrate',
   'cleanup',
@@ -1425,6 +1473,9 @@ export class AdminHandler implements DomainHandler {
         'health',
         'config.show',
         'config.presets',
+        'config.get',
+        'config.list',
+        'config.validate',
         'stats',
         'context',
         'context.pull',
@@ -1451,6 +1502,7 @@ export class AdminHandler implements DomainHandler {
         'scaffold-hub',
         'config.set',
         'config.set-preset',
+        'config.unset',
         'backup',
         'migrate',
         'cleanup',

@@ -2616,6 +2616,18 @@ export { ConduitClient } from './conduit/conduit-client.js';
 export { createConduit } from './conduit/factory.js';
 export { HttpTransport } from './conduit/http-transport.js';
 export { decrypt, decryptGlobal, encrypt, encryptGlobal } from './crypto/credentials.js';
+// T11917 (M5/AC3) — config-as-domain handler. Re-exported from the internal
+// barrel so the CLI admin DomainHandler (which imports from
+// @cleocode/core/internal) can delegate config.{get,list,validate,unset} to the
+// ConfigManifest cascade resolver.
+export {
+  ConfigDomainHandler,
+  type ConfigGetResult,
+  type ConfigListResult,
+  type ConfigUnsetResult,
+  type ConfigValidateResult,
+  configDomainHandler,
+} from './dispatch/config-domain-handler.js';
 export { getOutputContract, OUTPUT_CONTRACTS } from './dispatch/contracts/output-contracts.js';
 // T11692 (DHQ-057) — SDK describeOperation + OUTPUT contract accessor.
 // Re-exported from the internal barrel so the CLI dispatch adapter

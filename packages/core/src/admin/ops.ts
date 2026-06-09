@@ -32,6 +32,9 @@ export declare const adminCoreOps: {
   readonly health: AdminCoreOperation<'admin.health'>;
   readonly 'config.show': AdminCoreOperation<'admin.config.show'>;
   readonly 'config.presets': AdminCoreOperation<'admin.config.presets'>;
+  readonly 'config.get': AdminCoreOperation<'admin.config.get'>;
+  readonly 'config.list': AdminCoreOperation<'admin.config.list'>;
+  readonly 'config.validate': AdminCoreOperation<'admin.config.validate'>;
   readonly stats: AdminCoreOperation<'admin.stats'>;
   readonly context: AdminCoreOperation<'admin.context'>;
   readonly 'context.pull': AdminCoreOperation<'admin.context.pull'>;
@@ -57,6 +60,7 @@ export declare const adminCoreOps: {
   readonly 'health.mutate': AdminCoreOperation<'admin.health.mutate'>;
   readonly 'config.set': AdminCoreOperation<'admin.config.set'>;
   readonly 'config.set-preset': AdminCoreOperation<'admin.config.set-preset'>;
+  readonly 'config.unset': AdminCoreOperation<'admin.config.unset'>;
   readonly 'backup.mutate': AdminCoreOperation<'admin.backup.mutate'>;
   readonly migrate: AdminCoreOperation<'admin.migrate'>;
   readonly cleanup: AdminCoreOperation<'admin.cleanup'>;
