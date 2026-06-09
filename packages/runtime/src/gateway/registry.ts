@@ -106,6 +106,45 @@ export function inferGateway(domain: string, operation: string): Gateway | undef
 }
 
 /**
+ * The result of resolving a streaming route: the owning gateway plus the matched
+ * {@link OperationDef} (so the caller has the op's tier/params on hand without a
+ * second lookup).
+ */
+export interface StreamResolution {
+  /** The CQRS gateway the streaming op is registered under. */
+  gateway: Gateway;
+  /** The matched streaming operation definition. */
+  def: OperationDef;
+}
+
+/**
+ * Resolve a `(domain, operation)` pair to a registered **streaming** operation.
+ *
+ * Backs the `GET /v1/<domain>/<operation>` SSE route (T11921): the listener only
+ * opens a `text/event-stream` for a `(domain, operation)` pair that is BOTH
+ * registered AND explicitly flagged `streaming: true` in {@link OPERATIONS}. A
+ * unary-only op (or an unknown pair) resolves to `undefined`, so the listener
+ * never streams an operation that was not declared streamable — a GET to a
+ * unary op stays a `405` (method-not-allowed) rather than silently opening a
+ * never-ending stream.
+ *
+ * @param domain - The canonical domain segment (e.g. `'orchestrate'`).
+ * @param operation - The operation segment (e.g. `'events'`).
+ * @returns The streaming resolution, or `undefined` when no registered op
+ *   matches the pair OR the matched op is not flagged `streaming: true`.
+ */
+export function resolveStreamRoute(
+  domain: string,
+  operation: string,
+): StreamResolution | undefined {
+  const def = OPERATIONS.find(
+    (o) => o.domain === domain && o.operation === operation && o.streaming === true,
+  );
+  if (def === undefined) return undefined;
+  return { gateway: def.gateway, def };
+}
+
+/**
  * Validates that all required parameters are present in the request.
  * Returns an array of missing parameter keys.
  */

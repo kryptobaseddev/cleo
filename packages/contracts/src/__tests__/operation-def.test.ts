@@ -68,6 +68,8 @@ type _OperationDefShape = {
   requiredParams: string[];
   params?: ParamDef[];
   mcpExposed?: boolean;
+  // T11921 — opt-in streaming marker for the gateway HTTP/SSE transport.
+  streaming?: boolean;
   // T11692 (DHQ-033 / DHQ-057) — optional schema-first input/output contracts.
   inputSchema?: OperationInputContract<unknown>;
   outputSchema?: OperationOutputContract;

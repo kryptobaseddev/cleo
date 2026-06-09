@@ -723,7 +723,13 @@ describe('Registry-Handler Parity (T5671)', () => {
     describe(`${domain} domain (${ops.length} ops)`, () => {
       for (const op of ops) {
         const opKey = `${op.domain}.${op.operation}`;
-        const testFn = SLOW_OPS_SKIP_LIST.has(opKey) ? it.skip : it;
+        // Streaming ops (T11921, e.g. orchestrate.events) are served exclusively
+        // over the gateway HTTP/SSE transport (`GET /v1/<domain>/<operation>`),
+        // NOT through the unary domain-handler switch — they have no
+        // query()/mutate() case by design (the SSE source produces frames). The
+        // handler-presence parity invariant therefore does not apply to them;
+        // their wire contract is covered by the gateway SSE tests.
+        const testFn = SLOW_OPS_SKIP_LIST.has(opKey) || op.streaming === true ? it.skip : it;
         testFn(`${op.gateway} ${domain}.${op.operation}`, async () => {
           const handler = handlers.get(domain);
           expect(handler, `No handler registered for domain: ${domain}`).toBeDefined();
