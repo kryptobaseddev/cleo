@@ -1,0 +1,32 @@
+{
+  "name": "dhq-replay-find",
+  "envelopes": [
+    {
+      "success": true,
+      "meta": {
+        "gateway": "query",
+        "domain": "tasks",
+        "operation": "find",
+        "source": "rpc"
+      },
+      "data": {
+        "tasks": [
+          { "id": "T11889", "title": "Self-improvement loop foundation", "status": "active" }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "success": true,
+      "meta": {
+        "gateway": "query",
+        "domain": "tasks",
+        "operation": "show",
+        "source": "rpc"
+      },
+      "data": {
+        "task": { "id": "T11889", "title": "Self-improvement loop foundation", "status": "active" }
+      }
+    }
+  ]
+}

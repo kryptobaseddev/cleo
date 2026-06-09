@@ -1,0 +1,18 @@
+{
+  "name": "dhq-replay-find",
+  "description": "Canonical read-only dogfood discovery sequence: find then show. The golden is the known-good normalized envelope set; any structural deviation is a regression.",
+  "ops": [
+    {
+      "gateway": "query",
+      "domain": "tasks",
+      "operation": "find",
+      "params": { "query": "selfimprove" }
+    },
+    {
+      "gateway": "query",
+      "domain": "tasks",
+      "operation": "show",
+      "params": { "id": "T11889" }
+    }
+  ]
+}
