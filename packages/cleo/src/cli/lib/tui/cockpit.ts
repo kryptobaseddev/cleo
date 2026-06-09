@@ -218,7 +218,7 @@ function runInteractiveLoop(
  */
 export async function runCockpit(
   options: CockpitOptions = {},
-  sink: LineSink = (line) => process.stdout.write(`${line}\n`),
+  sink: LineSink = (line) => process.stdout.write(`${line}\n`), // stdout-write-allowed: interactive TUI / plain-text board + degrade render (T11933) // stdout-discipline-allowed: interactive TUI / plain-text board + degrade render (T11933)
 ): Promise<CockpitResult> {
   const baseUrl = options.baseUrl ?? DEFAULT_TUI_BASE_URL;
 
