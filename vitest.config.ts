@@ -209,6 +209,15 @@ export default defineConfig({
         './packages/core/src/tasks/index.ts',
         import.meta.url,
       ).pathname,
+      // T11933: the generated gateway SDK client subpath. The `exports` map
+      // points at dist/, so source-tree resolution under vitest needs this
+      // alias (same rationale as the /tasks alias above) — otherwise the
+      // `cleo tui` cockpit's `@cleocode/core/gateway-client` import fails to
+      // resolve in tests.
+      '@cleocode/core/gateway-client': new URL(
+        './packages/core/src/gateway-client/index.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core/lifecycle': new URL(
         './packages/core/src/lifecycle/index.ts',
         import.meta.url,

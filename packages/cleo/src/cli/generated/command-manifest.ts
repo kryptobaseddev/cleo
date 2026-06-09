@@ -989,6 +989,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/transcript.js')).transcriptCommand as CommandDef,
   },
   {
+    exportName: 'tuiCommand',
+    name: 'tui',
+    description:
+      'Launch the Pi-powered terminal cockpit (keyboard-first Kanban over the daemon /v1 gateway)',
+    load: async () => (await import('../commands/tui.js')).tuiCommand as CommandDef,
+  },
+  {
     exportName: 'updateCommand',
     name: 'update',
     description:
