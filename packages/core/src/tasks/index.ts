@@ -57,6 +57,15 @@ export {
   tasksAddBatchOp,
 } from './add-batch.js';
 export {
+  AGENT_LIFECYCLE_LANE_HINTS,
+  AGENT_LIFECYCLE_LANE_LABELS,
+  AGENT_LIFECYCLE_LANES,
+  type AgentLifecycleLane,
+  type AgentLifecycleSignal,
+  type LaneGatesSnapshot,
+  resolveAgentLifecycleLane,
+} from './agent-lifecycle-lane.js';
+export {
   type ArchiveTasksOptions,
   type ArchiveTasksResult,
   archiveTasks,

@@ -146,6 +146,14 @@ export default defineConfig({
         '../../packages/core/src/tasks/index.ts',
         import.meta.url,
       ).pathname,
+      // T11933: gateway SDK client subpath — `exports` points at dist/, so
+      // vitest source-tree resolution needs this alias for the `cleo tui`
+      // cockpit's `@cleocode/core/gateway-client` import (same rationale as
+      // the /tasks alias above).
+      '@cleocode/core/gateway-client': new URL(
+        '../../packages/core/src/gateway-client/index.ts',
+        import.meta.url,
+      ).pathname,
       // T10124 / Saga T10113 — sagas core module hosts the pure-business
       // saga ops (create/add/list/members/rollup) used by the dispatch layer.
       '@cleocode/core/sagas': new URL(
