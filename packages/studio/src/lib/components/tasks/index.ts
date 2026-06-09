@@ -14,6 +14,15 @@
  * @epic T949
  */
 
+export {
+  AGENT_LIFECYCLE_LANE_HINTS,
+  AGENT_LIFECYCLE_LANE_LABELS,
+  AGENT_LIFECYCLE_LANES,
+  type AgentLifecycleLane,
+  type AgentLifecycleSignal,
+  type LaneGatesSnapshot,
+  resolveAgentLifecycleLane,
+} from './agent-lifecycle-lane.js';
 export type { DependencyLink, ParentChainEntry } from './DetailDrawer.svelte';
 export { default as DetailDrawer } from './DetailDrawer.svelte';
 export type { EpicProgressRow } from './EpicProgressCard.svelte';
@@ -32,6 +41,10 @@ export {
 export { default as GraphTab } from './GraphTab.svelte';
 export { default as HierarchyTab } from './HierarchyTab.svelte';
 export { default as KanbanTab } from './KanbanTab.svelte';
+// NOTE: KanbanView.svelte is NOT re-exported here. It depends on SvelteKit
+// route runtime (`$app/navigation`) which is unavailable in the vitest node
+// environment that imports this barrel for smoke tests. The `/tasks/kanban`
+// route imports it directly via its path. (T11925)
 export {
   applyKanbanFilters,
   bucketKanbanTasks,
