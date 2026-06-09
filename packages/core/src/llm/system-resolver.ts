@@ -42,6 +42,7 @@ import type {
 } from '@cleocode/contracts';
 import { SYSTEM_ROLE_MAP } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
+import { proposeRoleForPrompt } from './complexity-classifier.js';
 import {
   IMPLICIT_FALLBACK_PROVIDER,
   type ResolvedLLM,
@@ -104,10 +105,16 @@ function isRoleSystem(input: SystemResolverInput): input is RoleSystem {
  *   1. `opts.roleOverride` — explicit caller override (both input forms).
  *   2. Structured {@link RoleSystem} descriptor → its `id` IS the role (T11750).
  *   3. {@link SYSTEM_ROLE_MAP} — static default for the flat system label.
+ *   4. L1 complexity proposer (T11906) — when the label maps to NO role AND a
+ *      `complexityPrompt` was supplied, classify it and propose a role from the
+ *      resulting tier. This is the "derive a tier from prompt complexity when no
+ *      explicit tier/role is given" wiring (AC2): it COMPLEMENTS the resolver,
+ *      only filling in a role the input left blank. The classifier returns a
+ *      tier and constructs no LLM client.
  *
- * Returns `null` when a flat label maps to the global default (no role entry).
- * The descriptor form always carries a concrete {@link RoleName}, so it never
- * returns `null`.
+ * Returns `null` when a flat label maps to the global default (no role entry)
+ * and no `complexityPrompt` was supplied. The descriptor form always carries a
+ * concrete {@link RoleName}, so it never returns `null`.
  */
 function deriveRole(
   input: SystemResolverInput,
@@ -115,7 +122,19 @@ function deriveRole(
 ): RoleName | null {
   if (opts?.roleOverride) return opts.roleOverride;
   if (isRoleSystem(input)) return input.id;
-  return SYSTEM_ROLE_MAP[input] ?? null;
+  const mapped = SYSTEM_ROLE_MAP[input] ?? null;
+  if (mapped !== null) return mapped;
+  // No role from the label (e.g. flat `'default'`). If the caller handed us a
+  // prompt, let the L1 complexity classifier propose a tier → role.
+  if (opts?.complexityPrompt !== undefined) {
+    const proposed = proposeRoleForPrompt(opts.complexityPrompt);
+    logger.debug(
+      { system: input, proposedRole: proposed },
+      'system-resolver: derived role from L1 complexity classifier (no explicit tier/role)',
+    );
+    return proposed;
+  }
+  return null;
 }
 
 /**

@@ -223,6 +223,93 @@ describe('resolveLLMForSystem — system-to-role mapping', () => {
 });
 
 // ---------------------------------------------------------------------------
+// L1 complexity classifier wiring (T11906 · AC2)
+// ---------------------------------------------------------------------------
+
+describe('resolveLLMForSystem — L1 complexity proposer wiring (T11906 · AC2)', () => {
+  it('derives a role from complexityPrompt when the label maps to no role', async () => {
+    const { projectRoot } = isolate();
+    // 'default' maps to no role; a trivial prompt → low tier → hygiene role.
+    seedProjectConfig(projectRoot, {
+      roles: { hygiene: { provider: 'anthropic', model: 'cheap-model' } },
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-complexity-low';
+    const result = await resolveLLMForSystem('default', {
+      projectRoot,
+      complexityPrompt: 'hi',
+      skipCatalogDefault: true,
+    });
+    expect(result.resolvedRole).toBe('hygiene');
+    expect(result.source).toBe('role');
+    expect(result.model).toBe('cheap-model');
+  });
+
+  it('derives the most-capable role for a maximally-complex prompt', async () => {
+    const { projectRoot } = isolate();
+    seedProjectConfig(projectRoot, {
+      roles: { judgement: { provider: 'anthropic', model: 'capable-model' } },
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-complexity-high';
+    const brackets = '((((( deeply nested )))))';
+    const reasoning =
+      'why should we analyze evaluate consider compare decide explain the tradeoff and trade-off';
+    const identifiers = Array.from({ length: 12 }, (_, i) => `ModelSelection${i}`).join(' ');
+    const files = Array.from({ length: 25 }, (_, i) => `src/mod${i}.ts`).join(' ');
+    const filler = 'word '.repeat(1200);
+    const result = await resolveLLMForSystem('default', {
+      projectRoot,
+      complexityPrompt: `${brackets} ${reasoning} ${identifiers} ${files} ${filler}`,
+      skipCatalogDefault: true,
+    });
+    expect(result.resolvedRole).toBe('judgement');
+    expect(result.model).toBe('capable-model');
+  });
+
+  it('does NOT use complexityPrompt when an explicit roleOverride is given', async () => {
+    const { projectRoot } = isolate();
+    seedProjectConfig(projectRoot, {
+      roles: { extraction: { provider: 'anthropic', model: 'explicit-role-model' } },
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-explicit-over-complexity';
+    const result = await resolveLLMForSystem('default', {
+      projectRoot,
+      roleOverride: 'extraction',
+      complexityPrompt: 'hi', // would propose hygiene — must be ignored
+      skipCatalogDefault: true,
+    });
+    expect(result.resolvedRole).toBe('extraction');
+    expect(result.model).toBe('explicit-role-model');
+  });
+
+  it('does NOT use complexityPrompt when the label already maps to a role', async () => {
+    const { projectRoot } = isolate();
+    seedProjectConfig(projectRoot, {
+      roles: { extraction: { provider: 'anthropic', model: 'memory-role-model' } },
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-label-wins';
+    // 'memory' → extraction role; complexityPrompt must be ignored.
+    const result = await resolveLLMForSystem('memory', {
+      projectRoot,
+      complexityPrompt: 'hi',
+      skipCatalogDefault: true,
+    });
+    expect(result.resolvedRole).toBe('extraction');
+    expect(result.model).toBe('memory-role-model');
+  });
+
+  it("falls back to null role (default path) for 'default' with no complexityPrompt", async () => {
+    const { projectRoot } = isolate();
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-no-prompt';
+    const result = await resolveLLMForSystem('default', {
+      projectRoot,
+      skipCatalogDefault: true,
+    });
+    expect(result.resolvedRole).toBeNull();
+    expect(result.source).toBe('implicit-fallback');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Missing profile error path
 // ---------------------------------------------------------------------------
 

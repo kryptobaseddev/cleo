@@ -135,4 +135,20 @@ export interface ResolveLLMForSystemOptions {
    * @internal
    */
   skipCatalogDefault?: boolean;
+
+  /**
+   * Raw prompt used to derive a role from complexity when neither an explicit
+   * tier/role nor a role-mapped system label is available (L1 proposer · T11906).
+   *
+   * When the `system` argument is the flat `'default'` label (which maps to NO
+   * role) and `roleOverride` is unset, the resolver runs the L1 complexity
+   * classifier over this prompt and proposes a {@link RoleName} from the
+   * resulting tier (`low → hygiene`, `mid → consolidation`, `high → judgement`).
+   * This is a COMPLEMENT to the resolver — it only supplies a role when one is
+   * otherwise absent; an explicit label, descriptor, or `roleOverride` always
+   * wins. The classifier returns a TIER only and constructs no LLM client.
+   *
+   * Ignored when the role is already determined by the input or `roleOverride`.
+   */
+  complexityPrompt?: string;
 }
