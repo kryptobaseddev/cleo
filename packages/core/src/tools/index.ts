@@ -126,6 +126,33 @@ export {
   type PlaywrightLoader,
 } from './browser-driver.js';
 export { registerBuiltinAgentTools } from './builtin-agent-tools.js';
+// Agent tool-call dispatch engine (T1740 · epic T11456) — the SDK chokepoint that
+// turns a model-emitted tool-call into an executed, LLM-safe result: registry
+// lookup → Zod-validate → availability → run-scoped budget → guarded execution →
+// classified result + LLM-facing formatting. Pure dispatch; defines NO new tool
+// primitive (Gate-11) and makes NO LLM call (Gate-13). The Pi adapter binds the
+// loop's tool execution to this engine (AC6 — see core/src/llm/pi/pi-tool-bridge).
+export {
+  flattenZodIssues,
+  formatToolResultForLlm,
+  formatToolValueForLlm,
+  MAX_TOOL_RESULT_CHARS,
+  redactErrorMessage,
+  TOOL_DISPATCH_ERROR_CODE,
+  type ToolArgIssue,
+  type ToolBudgetLimits,
+  type ToolBudgetSnapshot,
+  type ToolCall,
+  ToolCallBudget,
+  ToolDispatchEngine,
+  type ToolDispatchEngineDeps,
+  type ToolDispatchErrorKind,
+  type ToolDispatchFailure,
+  type ToolDispatchResult,
+  type ToolDispatchSuccess,
+  type ToolResultPayload,
+  ToolTimeoutError,
+} from './dispatch.js';
 // Subprocess env scrubbing (T11897 · security) — the chokepoint builds a minimal,
 // allowlisted child env so daemon secrets never leak and a Pi-controlled loader
 // hook / PATH can never reach a spawned process.

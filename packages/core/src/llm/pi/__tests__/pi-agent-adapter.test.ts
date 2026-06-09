@@ -19,6 +19,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SkillExecutorAdapter } from '../../../skills/skill-executor-adapter.js';
 import type { Skill } from '../../../skills/types.js';
+import { createAgentToolRegistry } from '../../../tools/agent-registry.js';
 import { createPiSkillRunner, isPiRunnerEnabled, PiAgentAdapter } from '../pi-agent-adapter.js';
 
 // ---------------------------------------------------------------------------
@@ -167,6 +168,29 @@ describe('PiAgentAdapter.run — never throws, contained', () => {
     });
     expect(['success', 'failure']).toContain(result.status);
     // Whatever the outcome, output is an object and it did not throw.
+    expect(typeof result.output).toBe('object');
+  });
+
+  it('accepts a tool registry (AC6) and still returns a contained result, never a throw', async () => {
+    // With a registry wired, the adapter builds the dispatch engine + projects
+    // executable AgentTools onto the loop context. With no credential resolvable
+    // the loop still terminates as a contained result (the tool path is reachable
+    // but the model never gets to emit a call). This proves the registry wiring
+    // does not break the never-throws contract.
+    process.env['CLEO_SESSION_ID'] = 'sess-tools-1';
+    const registry = await createAgentToolRegistry();
+    const adapter = new PiAgentAdapter({
+      system: 'task-executor',
+      registry,
+      budget: { maxCalls: 10, perCallTimeoutMs: 5_000 },
+    });
+    const result = await adapter.run('List the files', fakeTools(), {
+      system: 'task-executor',
+      sessionId: 'sess-tools-1',
+      agentId: null,
+      parentSessionId: null,
+    });
+    expect(['success', 'failure']).toContain(result.status);
     expect(typeof result.output).toBe('object');
   });
 
