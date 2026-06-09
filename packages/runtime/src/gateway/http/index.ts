@@ -58,3 +58,19 @@ export {
   tickStreamSource,
 } from './stream-sources.js';
 export type { HttpUnaryRequest, HttpUnaryResult } from './types.js';
+export {
+  attachWsPtyEndpoint,
+  authorizeUpgrade,
+  computeAcceptKey,
+  decodeWsFrame,
+  encodeWsFrame,
+  type GateDecision,
+  isWsPtyPath,
+  loadNodePty,
+  NODE_PTY_INSTALL_HINT,
+  scrubPtyEnv,
+  type UpgradableServer,
+  WS_PTY_PATH,
+  type WsPtyEndpointHandle,
+  type WsPtyOptions,
+} from './ws-pty.js';
