@@ -153,15 +153,23 @@ describe('AgentToolRegistry — toolset grouping (AC4)', () => {
     expect(fileNames).toEqual(expect.arrayContaining(['path_exists', 'read_file', 'write_file']));
     const terminalNames = grouped.terminal.map((t) => t.name);
     expect(terminalNames).toEqual(expect.arrayContaining(['run_command', 'run_git']));
-    // No net/notebook primitives implemented yet — empty but present.
-    expect(grouped.web).toEqual([]);
+    // The web toolset (T1742): web_search/web_extract + the browser_* family.
+    // Superset check so adding tools doesn't break this assertion.
+    const webNames = grouped.web.map((t) => t.name);
+    expect(webNames).toEqual(
+      expect.arrayContaining(['web_search', 'web_extract', 'browser_navigate']),
+    );
+    // No notebook primitives implemented yet — empty but present.
     expect(grouped.media).toEqual([]);
   });
 
   it('byToolset(toolset) filters to a single group', async () => {
     const r = await createAgentToolRegistry();
     expect(r.byToolset('file').every((t) => t.toolset === 'file')).toBe(true);
-    expect(r.byToolset('web')).toEqual([]);
+    // The web toolset is now populated (T1742); every member reports toolset 'web'.
+    const web = r.byToolset('web');
+    expect(web.length).toBeGreaterThan(0);
+    expect(web.every((t) => t.toolset === 'web')).toBe(true);
   });
 });
 
