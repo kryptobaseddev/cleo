@@ -628,7 +628,23 @@ export async function validateGateVerify(
 
     const satisfiesBindingRows = buildSatisfiesAcBindingRows(taskId, evidenceStored);
     await accessor.transaction(async (tx) => {
-      await tx.upsertSingleTask(task);
+      // T11907: Persist ONLY the verification + updatedAt columns rather than a
+      // full-column upsert. A full upsert re-writes `parent_id` and `type` into
+      // the ON CONFLICT DO UPDATE SET clause (even when unchanged), which fires
+      // the `tasks_tasks_parent_type_matrix_update` SQLite trigger (BEFORE UPDATE
+      // OF parent_id, type). On a task that ALREADY violates the parent-type
+      // matrix (e.g. a task parented directly under a saga), that trigger ABORTs
+      // with E_TASK_PARENT_TYPE_MATRIX and blocks recording an otherwise-valid
+      // evidence gate. Gate-recording must be DECOUPLED from the structural
+      // hierarchy invariant: the matrix is a structural-repair concern surfaced
+      // via `cleo doctor` / structural checks, NOT a `verify` precondition.
+      // Writing a partial SET (verificationJson, updatedAt) keeps parent_id/type
+      // out of the UPDATE OF columns so the matrix trigger never fires here,
+      // while genuine parent_id/type mutations elsewhere remain fully guarded.
+      await tx.updateTaskFields(taskId, {
+        verificationJson: task.verification ? JSON.stringify(task.verification) : null,
+        updatedAt: now,
+      });
       await tx.insertAcBindings(satisfiesBindingRows);
     });
 
