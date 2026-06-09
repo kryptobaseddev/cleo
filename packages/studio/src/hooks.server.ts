@@ -24,11 +24,24 @@ import {
   resolveProjectContext,
 } from '$lib/server/project-context.js';
 
-/** Paths whose mutation verbs must pass the same-origin guard. */
-const GUARDED_PATH_PREFIX = '/api/project';
+/**
+ * Path prefixes whose mutation verbs must pass the same-origin guard.
+ *
+ * `/api/project` — admin project mutations (T990).
+ * `/api/tasks`   — interactive dispatcher writes: drag→transition (T11928) and
+ *                  dispatch→spawn (T11930). Spawning provisions a worktree, so
+ *                  these state-changing endpoints get the same loopback / CSRF
+ *                  belt-and-braces as the admin surface.
+ */
+const GUARDED_PATH_PREFIXES = ['/api/project', '/api/tasks'];
 
 /** HTTP verbs treated as state-changing by the guard. */
 const GUARDED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/** Does this pathname fall under a guarded mutation prefix? */
+function isGuardedPath(pathname: string): boolean {
+  return GUARDED_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
 
 export const handle: Handle = async ({ event, resolve }) => {
   // --- project context resolution --------------------------------------
@@ -41,7 +54,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   // --- same-origin guard for admin mutations ---------------------------
   if (
-    event.url.pathname.startsWith(GUARDED_PATH_PREFIX) &&
+    isGuardedPath(event.url.pathname) &&
     GUARDED_METHODS.has(event.request.method.toUpperCase())
   ) {
     if (!isSameOriginRequest(event.request)) {
