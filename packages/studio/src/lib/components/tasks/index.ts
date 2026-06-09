@@ -23,6 +23,7 @@ export {
   type LaneGatesSnapshot,
   resolveAgentLifecycleLane,
 } from './agent-lifecycle-lane.js';
+export { default as ConductorBar } from './ConductorBar.svelte';
 export type { DependencyLink, ParentChainEntry } from './DetailDrawer.svelte';
 export { default as DetailDrawer } from './DetailDrawer.svelte';
 export type { EpicProgressRow } from './EpicProgressCard.svelte';
@@ -61,9 +62,31 @@ export {
   taskMatchesKanbanFilter,
 } from './kanban-bucketing.js';
 export { default as LabelsFilter } from './LabelsFilter.svelte';
+export {
+  type DraggableTargetStatus,
+  isDraggableTargetLane,
+  type LaneTransitionPlan,
+  type LaneTransitionRejection,
+  type LaneTransitionResult,
+  planLaneTransition,
+} from './lane-transition.js';
 export { default as PriorityBadge } from './PriorityBadge.svelte';
 export type { RecentTaskRow } from './RecentActivityFeed.svelte';
 export { default as RecentActivityFeed } from './RecentActivityFeed.svelte';
 export { default as StatusBadge } from './StatusBadge.svelte';
 export { default as TaskCard } from './TaskCard.svelte';
 export { default as TaskSearchBox } from './TaskSearchBox.svelte';
+export { default as WorkerStreamPanel } from './WorkerStreamPanel.svelte';
+export {
+  applyWorkerStreamFrame,
+  DEFAULT_OUTPUT_TAIL,
+  emptyWorkerStreamView,
+  formatUsageMeter,
+  isStreamStalled,
+  type WorkerCheckpoint,
+  type WorkerCheckpointKind,
+  type WorkerStreamFrame,
+  type WorkerStreamStatus,
+  type WorkerStreamView,
+  type WorkerUsageSnapshot,
+} from './worker-stream.js';

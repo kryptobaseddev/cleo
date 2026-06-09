@@ -35,9 +35,56 @@
     laneResolver: (card: BoardCard) => string;
     /** Called when a card is clicked / activated via keyboard. */
     onSelect?: (cardId: string) => void;
+    /**
+     * Called when a card is DRAGGED from one lane to another (T11928). When
+     * omitted the board stays read-only (no drag affordance). The handler owns
+     * the optimistic move + persistence + revert; the board only reports the
+     * gesture (`cardId`, `fromLane`, `toLane`).
+     */
+    onMove?: (cardId: string, fromLane: string, toLane: string) => void;
   }
 
-  let { lanes, cards, laneResolver, onSelect }: Props = $props();
+  let { lanes, cards, laneResolver, onSelect, onMove }: Props = $props();
+
+  /** Whether drag→transition is wired (enables the draggable affordance). */
+  const dragEnabled = $derived(onMove !== undefined);
+
+  // ---- Drag→transition (T11928) ----
+  /** The card id currently being dragged, or null. */
+  let draggingId = $state<string | null>(null);
+  /** The lane id currently hovered as a drop target, or null. */
+  let dragOverLane = $state<string | null>(null);
+
+  function handleDragStart(e: DragEvent, cardId: string): void {
+    if (!dragEnabled) return;
+    draggingId = cardId;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', cardId);
+    }
+  }
+
+  function handleDragEnd(): void {
+    draggingId = null;
+    dragOverLane = null;
+  }
+
+  function handleLaneDragOver(e: DragEvent, laneId: string): void {
+    if (!dragEnabled || draggingId === null) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    dragOverLane = laneId;
+  }
+
+  function handleLaneDrop(e: DragEvent, laneId: string): void {
+    if (!dragEnabled || draggingId === null) return;
+    e.preventDefault();
+    const cardId = draggingId;
+    const fromLane = laneResolver(cards.find((c) => c.id === cardId) as BoardCard);
+    draggingId = null;
+    dragOverLane = null;
+    if (fromLane !== laneId) onMove?.(cardId, fromLane, laneId);
+  }
 
   /** Bucket cards into lane columns (pure helper) whenever inputs change. */
   const columns = $derived(bucketBoardCards(cards, lanes, laneResolver));
@@ -110,9 +157,13 @@
       <div
         class="lane"
         class:is-focused={ci === focusedCol}
+        class:is-drop-target={dragOverLane === column.lane.id}
         data-lane={column.lane.id}
         role="row"
+        tabindex={-1}
         aria-label={`${column.lane.label} — ${column.count} tasks`}
+        ondragover={(e) => handleLaneDragOver(e, column.lane.id)}
+        ondrop={(e) => handleLaneDrop(e, column.lane.id)}
       >
         <header class="lane-head">
           <span class="head-label">{column.lane.label}</span>
@@ -130,7 +181,13 @@
                 class="card-wrap"
                 class:worker-active={card.workerActive}
                 class:is-focused={ci === focusedCol && ri === focusedRow}
+                class:is-dragging={draggingId === card.id}
+                class:draggable={dragEnabled}
                 role="gridcell"
+                tabindex={-1}
+                draggable={dragEnabled}
+                ondragstart={(e) => handleDragStart(e, card.id)}
+                ondragend={handleDragEnd}
               >
                 {#if card.workerActive}
                   <span class="worker-dot" aria-label="Worker active" title="Worker active"></span>
@@ -189,6 +246,13 @@
     box-shadow: 0 0 0 1px var(--accent-soft);
   }
 
+  /* Drop-target affordance while a card is dragged over this lane (T11928). */
+  .lane.is-drop-target {
+    border-color: var(--accent);
+    border-style: dashed;
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev-1));
+  }
+
   .lane-head {
     display: flex;
     align-items: center;
@@ -242,6 +306,18 @@
 
   .card-wrap {
     position: relative;
+  }
+
+  /* Drag affordance (T11928) — a grab cursor when the board is interactive. */
+  .card-wrap.draggable {
+    cursor: grab;
+  }
+  .card-wrap.is-dragging {
+    opacity: 0.45;
+    cursor: grabbing;
+  }
+  .card-wrap.is-dragging :global(.task-card) {
+    border-style: dashed;
   }
 
   /* Subtle running-worker affordance — an accent left rail + pulsing dot. */

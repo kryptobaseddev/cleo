@@ -80,3 +80,11 @@ export {
   trackSpawnComplete,
   trackSpawnOutput,
 } from './token-estimation.js';
+// Token service — usage recording + aggregation (T11929 surfaces summary for
+// the Studio per-task worker usage meter).
+export type {
+  SummarizeTokenUsageParams,
+  TokenUsageFilters,
+  TokenUsageSummary,
+} from './token-service.js';
+export { summarizeTokenUsage } from './token-service.js';
