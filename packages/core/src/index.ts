@@ -751,6 +751,20 @@ export {
   classifyReadiness,
   classifyTask,
 } from './orchestration/index.js';
+// T11918 (M5 / E-API-STANDARD-FOUNDATION T11769) — zod→OpenAPI 3.1 bridge:
+// projects the OPERATIONS registry into an OpenAPI 3.1 document (POST
+// /v1/<domain>/<operation>) for `cleo gateway openapi` + the generated SDK client.
+export {
+  type GenerateOpenApiOptions,
+  generateOpenApi,
+  type OpenApiDocument,
+  type OpenApiInfo,
+  type OpenApiMediaType,
+  type OpenApiOperation,
+  type OpenApiPathItem,
+  type OpenApiRequestBody,
+  type OpenApiResponse,
+} from './runtime/openapi/index.js';
 // Setup wizard `--config-json` merger
 export { mergeConfigJson, WIZARD_SECTION_IDS } from './setup/config-json-merge.js';
 // Backup bundle inspect primitives (tar parser, encryption detect, byte fmt)
