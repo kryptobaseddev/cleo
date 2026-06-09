@@ -8786,4 +8786,55 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+
+  // ── selfimprove mutate: run (T11889 / T11889-D — the self-dogfooding loop) ──
+  // Boots ONE sandbox → replays the named canned scenario → diffs result
+  // envelopes vs the golden → on a regression emits ONE leased `selfimprove_dhq`
+  // row and opens ONE DRAFT PR. The walking skeleton's default scenario is
+  // query-only so the in-process replay never mutates. DEFAULT OFF: without
+  // `execute` the loop runs DRY-RUN (replay + diff + report; NO DB write, NO PR).
+  // The CORE engine (`runSelfImprove`) owns boot/replay/diff/persist/egress +
+  // the budget + circuit-breaker; the dispatch handler is a thin delegate that
+  // supplies the in-process `ReplayDispatch` port (Gate-6). `sessionRequired`
+  // links each run to its origin session for provenance.
+  {
+    gateway: 'mutate',
+    domain: 'selfimprove',
+    operation: 'run',
+    description:
+      'selfimprove.run (mutate) — boot ONE sandbox, replay a canned dogfood scenario, diff vs golden; on regression emit ONE leased selfimprove_dhq row + ONE DRAFT PR. Default OFF — requires --execute (else DRY-RUN). Budget-capped + circuit-broken (T11889 / T11889-D).',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: true,
+    requiredParams: ['scenario'],
+    params: [
+      {
+        name: 'scenario',
+        type: 'string',
+        required: true,
+        description: 'Canned dogfood scenario name to replay (e.g. dhq-replay-find)',
+      },
+      {
+        name: 'execute',
+        type: 'boolean',
+        required: false,
+        description:
+          'Permit mutation (leased DHQ UPSERT) + egress (draft PR). DEFAULT false ⇒ DRY-RUN (replay + diff + report only — no DB write, no PR).',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description:
+          'Force DRY-RUN explicitly (no DB write, no PR). Equivalent to omitting --execute; the loop is default-OFF.',
+      },
+      {
+        name: 'backend',
+        type: 'string',
+        required: false,
+        description:
+          "Confinement backend preference: 'gondolin' (micro-VM; degrades to the in-process guarded env when VM infra is absent — the CI path) | 'guarded'. Default: gondolin.",
+      },
+    ] satisfies ParamDef[],
+  },
 ];
