@@ -90,6 +90,11 @@ const SUBPATH_DIRS = [
   // T11514 (E4-T3) — @cleocode/core/db subpath for dual-scope DB chokepoint
   // (openDualScopeDb + idempotent helpers, SG-DB-SUBSTRATE-V2 · T11247).
   'db',
+  // T11920 (M5/AC2) — @cleocode/core/gateway-client subpath for the single
+  // generated SDK client over the /v1 REST gateway (E-API-STANDARD-FOUNDATION
+  // T11769). `index.ts` bundles the hand-written `createCleoClient` wrapper plus
+  // the transitively-imported generated client under `gateway-client/generated/`.
+  'gateway-client',
 ];
 
 

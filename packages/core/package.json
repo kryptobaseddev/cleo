@@ -1,7 +1,7 @@
 {
   "name": "@cleocode/core",
   "version": "2026.5.126",
-  "description": "CLEO core business logic kernel \u2014 tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
+  "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,6 +15,11 @@
       "types": "./dist/cleo.d.ts",
       "import": "./dist/cleo.js",
       "require": "./dist/cleo.js"
+    },
+    "./gateway-client": {
+      "types": "./dist/gateway-client/index.d.ts",
+      "import": "./dist/gateway-client/index.js",
+      "require": "./dist/gateway-client/index.js"
     },
     "./formatters": {
       "types": "./dist/formatters/index.d.ts",
@@ -397,6 +402,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "cd ../.. && vitest run --config packages/core/vitest.integration.config.ts",
+    "gen:sdk": "node scripts/generate-sdk-client.mjs",
+    "gen:sdk:check": "node scripts/generate-sdk-client.mjs --check",
     "postinstall": "node scripts/install-supervisor-binary.mjs"
   },
   "dependencies": {
@@ -469,6 +476,7 @@
   ],
   "devDependencies": {
     "@cleocode/utils": "workspace:*",
+    "@hey-api/openapi-ts": "0.98.2",
     "@types/node-cron": "^3.0.11",
     "@types/proper-lockfile": "^4.1.4",
     "@types/tar": "^6.1.13",
