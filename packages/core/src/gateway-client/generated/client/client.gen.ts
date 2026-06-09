@@ -229,7 +229,7 @@ export const createClient = (config: Config = {}): Client => {
     const { opts, url } = await beforeRequest(options);
     return createSseClient({
       ...opts,
-      body: opts.body as BodyInit | null | undefined,
+      body: opts.body as RequestInit['body'] | null | undefined,
       method,
       onRequest: async (url, init) => {
         let request = new Request(url, init);
@@ -240,7 +240,7 @@ export const createClient = (config: Config = {}): Client => {
         }
         return request;
       },
-      serializedBody: getValidRequestBody(opts) as BodyInit | null | undefined,
+      serializedBody: getValidRequestBody(opts) as RequestInit['body'] | null | undefined,
       url,
     });
   };

@@ -103,6 +103,30 @@ async function runHeyApi(specPath, outDir) {
       { name: '@hey-api/sdk' },
     ],
   });
+  patchFetchTypes(outDir);
+}
+
+/**
+ * Post-process the generated fetch client to remove its dependency on the DOM
+ * `BodyInit` global.
+ *
+ * `@hey-api/client-fetch` emits two `as BodyInit` casts on the SSE path.
+ * `BodyInit` is a DOM-lib type; `@cleocode/core`'s tsconfig targets `ES2025`
+ * WITHOUT the `DOM` lib (it runs on Node 24, whose `fetch` globals come from
+ * `@types/node`), so `BodyInit` is unresolved under a clean `tsc -b`. We rewrite
+ * the casts to `RequestInit['body']` — the equivalent type that `@types/node`
+ * ALWAYS provides — so the generated client compiles with no ambient shim and no
+ * `DOM` lib. Idempotent: a second run finds nothing to replace.
+ */
+function patchFetchTypes(outDir) {
+  const target = join(outDir, 'client', 'client.gen.ts');
+  if (!fileExists(target)) return;
+  const before = readFileSync(target, 'utf8');
+  const after = before.replaceAll(
+    'as BodyInit | null | undefined',
+    "as RequestInit['body'] | null | undefined",
+  );
+  if (after !== before) writeFileSync(target, after, 'utf8');
 }
 
 /**
