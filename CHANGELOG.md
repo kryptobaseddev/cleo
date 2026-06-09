@@ -1,5 +1,29 @@
 # Changelog
 
+## [2026.6.13] (2026-06-09)
+
+> **Pi-harness foundation release** — the in-process agentic runner spine, the authority layer that makes autonomous multi-agent execution safe, and the first walking-skeleton of the self-improvement loop. All new runtime behaviour ships **default-OFF** behind explicit flags; the released CLI is behaviourally identical to v2026.6.12 until those flags are set. 28 PRs (#995–#1019), 120 commits, all CI-green through the PR gate.
+
+### Added
+
+- **Pi 0.78.1 in-process runner body (the keystone).** `@earendil-works/pi-*@0.78.1` is embedded as the in-process `SkillExecutor` runner body via a `PiAgentAdapter` — Pi's agent loop runs **in-process with ZERO authority** (it is a client of the daemon, never the DB writer/session issuer/LLM broker). Lands as three sealed stages: S1 a deny-first `ToolGuard` + typed exit-trap containment surface (`pi-execution-env`/`pi-errors`), S2 the adapter body + streaming through the model-runner chokepoint, and S3 `CleoSessionStorage` persisting over `cleo.db` through the DB-writer lease. Default-OFF. _(T11761 / T11897 / T11898 / T11899; #1005–#1007)_
+- **Per-op output-schema enforcement — closes DHQ-057.** A Cleo-native Zod output-schema registry in `@cleocode/contracts` plus a generic `deriveOutputContract` backfill gives every operation a validated output contract (419-op catalog; 411 previously lacked one). This is the constrained-output guarantee GenKit would have provided — shipped natively, so `--field <jsonpointer>` resolves against a known shape. _(T11762 / T11900 / T11903; #1008/#1009)_
+- **DB-writer lease (sole-writer authority) + live T5158 heal.** A supervisor-arbitrated `DbWriterLease` makes the daemon the sole `cleo.db` writer (ends multi-agent write contention — the T5158 data-loss vector — and heals it live with the daemon off), with supervisor-IPC v1.1 (accept-loop router + `LeaseAcquire` handler + TS lease-ipc-client). _(T11627 / T11894 / T11626; #998/#1000/#1003)_
+- **Daemon-issued identity + session manifest.** `session_manifest` table in global `cleo.db` (+ `parentSessionId`), daemon connection-scoped session registry (`getActiveSession` demoted to an `@internal` fallback), and supervisor session-stamp/`ChildRegistry` — the daemon now issues WHO an agent is. _(T11638 / T11639 / T11640 / T11629; #995/#996/#1001)_
+- **Sealed-credential handle (E10) + single LLM resolver chokepoint (E9) + vault foundation.** Credentials decrypt only at the wire — resolvers return a `SealedCredential{fetch()}` so agents never see keys; one `resolveLLMForSystem` chokepoint with a `SystemOfUse` contract + `BUILTIN_SYSTEMS_OF_USE` registry; `accounts` table (hermes `PooledCredential` surface) + global-salt KDF in `crypto/credentials.ts`. _(T11746/T11752/T11753/T11754, T11745/T11747/T11748/T11750/T11751, T11709/T11710; #1010–#1012)_
+- **Agent tool registry + 18 guarded tools + closed dispatch loop.** An `AgentToolRegistry` extends the core tools engine with an agent-facing registry; 18 guarded tools land across terminal/file/search/git and web-search/extract/browser; the core tool-dispatch loop is extended with agent tool handlers — Pi-callable end-to-end. _(T1739/T1740/T1741/T1742; #1013–#1016)_
+- **Gondolin micro-VM execution environment (optional-dep sandbox).** `@earendil-works/gondolin` wired as an optional dependency with an availability probe (mirroring the Playwright-optional pattern) — the sandboxed `ExecutionEnv` for untrusted code execution, kept out of the default install surface. _(T11888 / T11908; #1018)_
+- **Self-improvement DHQ loop — walking skeleton.** `cleo selfimprove run`: a leased dual-scope `selfimprove_dhq` table (+ byte-identical migration + Gate-3 accessor) feeding an engine run-loop with a DHQ adapter (writer-lease-gated), draft-PR-only egress, and budget + circuit-breaker governors. **Default-OFF, draft-PR-only** — the first dogfooding skeleton, not yet autonomous. _(T11889 / T11911 / T11913; #1017/#1019)_
+
+### Changed
+
+- **4→1 state-machine collapse — the cantbook is THE machine.** The four competing execution state machines collapse to one: `cleo go` autopilot now routes to `executePlaybook` (default ON), `IvtrHandler` is redirected onto the playbook runtime, and the deprecated machines (Tessera/WarpChain + the `ivtr-loop` dead code) are deleted. _(T11764 / T11896 / T11805 / T11807; #1002/#1004)_
+- **GenKit demoted to the optional layer above Pi.** With Pi as the runner body, GenKit/Dotprompt is no longer the substrate — it is reframed as the optional output-schema/eval layer above the loop (and the output-schema half is already shipped natively via the Zod registry above). _(decision D11133)_
+
+### Fixed
+
+- **T5158 multi-agent write-contention vector — structurally closed** by the DB-writer lease (sole-writer authority); the lease heals an already-diverged journal live with the daemon off. _(T11627; #998/#1000)_
+
 ## [2026.6.12] (2026-06-07)
 
 ### Fixed
