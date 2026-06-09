@@ -39,9 +39,38 @@ import {
   getSentientDaemonStatus,
 } from '@cleocode/core/sentient';
 import { resolveLegacyCleoDir } from '@cleocode/paths';
+import { type ServeGatewayHandle, serveGateway } from '@cleocode/runtime/gateway';
 import { defineCommand } from 'citty';
+import { createCliGatewayHandler } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { cliError, cliOutput } from '../renderers/index.js';
+
+/**
+ * Default loopback TCP port for the `cleo daemon serve` HTTP gateway.
+ *
+ * Bound to `127.0.0.1` by default (loopback only) — the gateway is
+ * local-process-facing and secrets are never serialized onto the wire
+ * (sealed-handle resolution stays server-side). Exposing it on a public
+ * interface is an explicit `--host` decision.
+ */
+const DEFAULT_GATEWAY_HTTP_PORT = 7777;
+
+/**
+ * Block until the process receives a termination signal, then close the gateway
+ * listener. Resolves once the listener is torn down so the caller can exit
+ * cleanly. The HTTP adapter never calls `process.exit` — lifecycle stays here.
+ *
+ * @param handle - The live gateway server handle to close on shutdown.
+ */
+async function blockUntilSignal(handle: ServeGatewayHandle): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const onSignal = (): void => {
+      void handle.close().finally(resolve);
+    };
+    process.once('SIGTERM', onSignal);
+    process.once('SIGINT', onSignal);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -452,6 +481,95 @@ const uninstallCommand = defineCommand({
   },
 });
 
+/**
+ * cleo daemon serve — start the HTTP gateway listener in the foreground.
+ *
+ * Wires the existing HTTP gateway adapter (`startHttpServer` /
+ * `defineGatewaySubsystem`, T11254) into a runnable call-site (T11919 AC5): it
+ * assembles the in-process CLI gateway handler (full middleware chain) and
+ * starts the HTTP transport over it, serving the versioned `/v1/<domain>/<op>`
+ * REST facade plus `GET /v1/health`.
+ *
+ * Loopback-only by default (`127.0.0.1:7777`) — secrets are never serialized
+ * onto the wire (sealed-handle resolution stays server-side). Per North-Star the
+ * daemon stays OFF by default; this only provides the serve call-site so it CAN
+ * serve when explicitly invoked. The NDJSON IPC / RPC transport is unaffected
+ * and co-listens when separately configured (AC3).
+ *
+ * Runs in the foreground and blocks until SIGTERM/SIGINT, then closes the
+ * listener cleanly. The streaming routes (SSE — T11921, WS — T11922) extend the
+ * same listener; this command owns only the unary HTTP serve call-site.
+ *
+ * @task T11919 (M5 · AC5)
+ */
+const serveCommand = defineCommand({
+  meta: {
+    name: 'serve',
+    description: 'Start the HTTP gateway listener (versioned /v1 REST facade, loopback by default)',
+  },
+  args: {
+    port: {
+      type: 'string',
+      description: `TCP port to bind (default ${DEFAULT_GATEWAY_HTTP_PORT}; 0 = ephemeral)`,
+    },
+    host: {
+      type: 'string',
+      description: 'Host/interface to bind (default 127.0.0.1 — loopback only)',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON',
+    },
+  },
+  async run({ args }) {
+    try {
+      const portArg = args.port as string | undefined;
+      const port =
+        portArg !== undefined && portArg.length > 0
+          ? Number.parseInt(portArg, 10)
+          : DEFAULT_GATEWAY_HTTP_PORT;
+      if (Number.isNaN(port) || port < 0 || port > 65535) {
+        cliError(
+          `Invalid --port '${portArg}'; expected an integer in [0, 65535]`,
+          'E_INVALID_INPUT',
+          { name: 'E_INVALID_INPUT' },
+          { operation: 'daemon.serve' },
+        );
+        process.exit(2);
+      }
+      const host = (args.host as string | undefined) ?? '127.0.0.1';
+
+      const handle = await serveGateway({ handler: createCliGatewayHandler(), port, host });
+      cliOutput(
+        {
+          pid: process.pid,
+          host: handle.host,
+          port: handle.port,
+          scope: handle.scope,
+          facade: '/v1',
+          message: `HTTP gateway listening on http://${handle.host}:${handle.port}/v1`,
+        },
+        {
+          command: 'daemon',
+          operation: 'daemon.serve',
+          message: `HTTP gateway listening on http://${handle.host}:${handle.port}/v1 (PID ${process.pid})`,
+        },
+      );
+      // Foreground: block until a termination signal, then close cleanly.
+      await blockUntilSignal(handle);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(
+        `Error starting HTTP gateway: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        { operation: 'daemon.serve' },
+      );
+      process.exit(1);
+    }
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Root command group
 // ---------------------------------------------------------------------------
@@ -482,6 +600,7 @@ export const daemonCommand = defineCommand({
     start: startCommand,
     stop: stopCommand,
     status: statusCommand,
+    serve: serveCommand,
     install: installCommand,
     uninstall: uninstallCommand,
   },

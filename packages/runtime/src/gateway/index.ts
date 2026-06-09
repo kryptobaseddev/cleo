@@ -114,6 +114,7 @@ export {
   getByTier,
   getCounts,
   getGatewayDomains,
+  inferGateway,
   OPERATIONS,
   resolve,
   validateRequiredParams,
@@ -132,6 +133,9 @@ export {
   routeFrame,
   startRpcServer,
 } from './rpc/index.js';
+// Daemon-side gateway server bootstrap (T11919) — the call-site `cleo daemon
+// serve` drives to start the HTTP transport over an injected handler.
+export { type ServeGatewayHandle, type ServeGatewayOptions, serveGateway } from './serve.js';
 
 /**
  * Transport-agnostic gateway entrypoint. Wraps a configured {@link Dispatcher}

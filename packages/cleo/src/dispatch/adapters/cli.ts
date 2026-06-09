@@ -21,6 +21,7 @@ import {
   getProjectRoot,
   hooks,
 } from '@cleocode/core/internal';
+import type { GatewayHandler } from '@cleocode/runtime/gateway';
 import { createDispatchSpinner } from '../../cli/animation-bridge.js';
 import { isDescribeMode } from '../../cli/describe-context.js';
 import { getIdempotencyKeyContext } from '../../cli/idempotency-context.js';
@@ -36,7 +37,7 @@ import { createMviRecordProjection } from '../middleware/mvi-record-projection.j
 import { createSanitizer } from '../middleware/sanitizer.js';
 import { createSessionResolver } from '../middleware/session-resolver.js';
 import { createTelemetry } from '../middleware/telemetry.js';
-import type { DispatchResponse, Gateway } from '../types.js';
+import type { DispatchRequest, DispatchResponse, Gateway } from '../types.js';
 
 // Reverse mapping from string error codes to numeric exit codes.
 // Used when dispatch handlers return string error codes without exitCode.
@@ -136,6 +137,32 @@ export function getCliDispatcher(): Dispatcher {
     _dispatcher = createCliDispatcher();
   }
   return _dispatcher;
+}
+
+/**
+ * Build a transport-neutral {@link GatewayHandler} backed by the singleton CLI
+ * dispatcher — the in-process assembly the daemon's HTTP/RPC listeners route
+ * through.
+ *
+ * `cleo daemon serve` (T11919) needs a `GatewayHandler` (the `handle()` surface
+ * `startHttpServer` / `defineGatewaySubsystem` expect) rather than the raw
+ * {@link Dispatcher}. Wrapping the SAME singleton dispatcher reuses the full
+ * configured middleware chain (session-resolver, sanitizer, audit, MVI
+ * projection, …) and the domain-handler map — so an operation routed over the
+ * `/v1` HTTP facade traverses byte-for-byte the same pipeline as the CLI, with
+ * only the request `source` differing (forced to `'http'`/`'rpc'` by the
+ * transport adapter). Secrets are never serialized onto the wire: sealed-handle
+ * resolution happens server-side inside the dispatched handler, exactly as it
+ * does for an in-process CLI call.
+ *
+ * @returns A `GatewayHandler` whose `handle()` dispatches through the CLI pipeline.
+ * @task T11919
+ */
+export function createCliGatewayHandler(): GatewayHandler {
+  const dispatcher = getCliDispatcher();
+  return {
+    handle: (req: DispatchRequest): Promise<DispatchResponse> => dispatcher.dispatch(req),
+  };
 }
 
 /**
