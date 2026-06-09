@@ -479,6 +479,19 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/focus.js')).focusCommand as CommandDef,
   },
   {
+    exportName: 'gatewayOpenapiSubCommand',
+    name: 'openapi',
+    description: 'Emit the OpenAPI 3.1 spec projected from the OPERATIONS registry',
+    load: async () =>
+      (await import('../commands/gateway.js')).gatewayOpenapiSubCommand as CommandDef,
+  },
+  {
+    exportName: 'gatewayCommand',
+    name: 'gateway',
+    description: 'REST gateway introspection (openapi spec projection)',
+    load: async () => (await import('../commands/gateway.js')).gatewayCommand as CommandDef,
+  },
+  {
     exportName: 'gcCommand',
     name: 'gc',
     description: 'Transcript garbage collection: manual trigger and status',
