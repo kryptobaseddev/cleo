@@ -113,6 +113,18 @@ export {
   parseRipgrepOutput,
   registerAgentToolFamilies,
 } from './agent-tool-families.js';
+// Web + browser agent tools (T1742 · epic T11456) — the `web` toolset:
+// `web_search` (pluggable keyless backends), `web_extract` (HTML→markdown), and
+// the Playwright-driven `browser_*` family. Playwright is OPTIONAL + lazily
+// loaded; the browser tools register but report unavailable (with an install
+// hint) when it is absent. The `browser_vision` AI call routes through the E9
+// `resolveLLMForSystem` chokepoint + sealed credential — no raw provider call.
+export {
+  BrowserSession,
+  isPlaywrightAvailable,
+  PLAYWRIGHT_INSTALL_HINT,
+  type PlaywrightLoader,
+} from './browser-driver.js';
 export { registerBuiltinAgentTools } from './builtin-agent-tools.js';
 // Subprocess env scrubbing (T11897 · security) — the chokepoint builds a minimal,
 // allowlisted child env so daemon secrets never leak and a Pi-controlled loader
@@ -142,3 +154,18 @@ export { type ZodSchemaTool, zodSchemaToOpenAITool } from './schema-gen.js';
 // Injectable shell executor (E3 · T11406) — threaded into the guard's
 // executeShell/runGit; substitutes the subprocess layer in tests/sandboxes.
 export { defaultShellExecutor, type ShellExecutor } from './shell.js';
+export { registerWebAgentTools, type WebAgentToolOptions } from './web-agent-tools.js';
+export {
+  defaultHttpFetch,
+  duckDuckGoBackend,
+  extractTitle,
+  fetchAndExtract,
+  type HttpFetch,
+  htmlToMarkdown,
+  makeSearxngBackend,
+  parseDuckDuckGoHtml,
+  parseSearxngJson,
+  resolveSearchBackends,
+  runSearch,
+  type WebSearchBackend,
+} from './web-search-backends.js';

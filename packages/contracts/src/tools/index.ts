@@ -65,3 +65,25 @@ export type {
   ScoreTaskInput,
   ScoreTaskResult,
 } from './score-task-priority.js';
+// === Web + browser agent tools (T1742 / T11456) ===
+export type {
+  AccessibilityNode,
+  BrowserActionResult,
+  BrowserClickInput,
+  BrowserNavigateInput,
+  BrowserPageState,
+  BrowserPressInput,
+  BrowserScrollDirection,
+  BrowserScrollInput,
+  BrowserScrollResult,
+  BrowserSnapshotResult,
+  BrowserTypeInput,
+  BrowserVisionInput,
+  BrowserVisionResult,
+  WebExtractInput,
+  WebExtractResult,
+  WebSearchBackendId,
+  WebSearchHit,
+  WebSearchInput,
+  WebSearchResult,
+} from './web-tools.js';
