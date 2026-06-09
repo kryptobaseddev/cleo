@@ -99,6 +99,11 @@ export const CANONICAL_DOMAINS = [
   // T11373: 'cleo attention add|show|list' (alias 'jot') — Tier-2 scope-keyed
   // working-memory buffer (Epic T11288 · Saga T11283).
   'attention',
+  // T11889 (T11889-D): 'cleo selfimprove run' — the self-dogfooding loop verb.
+  // Boots ONE sandbox → replays a canned scenario → diffs vs golden → on a
+  // regression emits ONE leased `selfimprove_dhq` row + ONE DRAFT PR. Default
+  // OFF (requires --execute); the engine lives in CORE (P5 self-improvement spec).
+  'selfimprove',
 ] as const;
 
 /**

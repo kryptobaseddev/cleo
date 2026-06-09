@@ -1207,6 +1207,12 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "validate-changelog",
     ],
   },
+  "selfimprove": {
+    "mutate": [
+      "run",
+    ],
+    "query": [],
+  },
   "sentient": {
     "mutate": [
       "propose.accept",
@@ -1380,4 +1386,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `411`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `412`;

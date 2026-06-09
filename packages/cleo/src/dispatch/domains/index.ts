@@ -25,6 +25,7 @@ import { PipelineHandler } from './pipeline.js';
 import { PlaybookHandler } from './playbook.js';
 import { ProvenanceHandler } from './provenance.js';
 import { ReleaseHandler } from './release.js';
+import { SelfimproveHandler } from './selfimprove.js';
 import { SentientHandler } from './sentient.js';
 import { SessionHandler } from './session.js';
 import { StickyHandler } from './sticky.js';
@@ -50,6 +51,7 @@ export {
   PlaybookHandler,
   ProvenanceHandler,
   ReleaseHandler,
+  SelfimproveHandler,
   SentientHandler,
   SessionHandler,
   StickyHandler,
@@ -95,6 +97,9 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   // T9528: provenance domain — backfill the 11 provenance tables for historical
   // releases. Verify + repair verbs land in T9529+.
   handlers.set('provenance', new ProvenanceHandler());
+  // T11889 (T11889-D): selfimprove domain — the self-dogfooding loop verb
+  // (`cleo selfimprove run`). Thin delegate to the CORE `runSelfImprove` engine.
+  handlers.set('selfimprove', new SelfimproveHandler());
   // T9258: `cleo llm` CLI surface — credential pool + role-aware resolver + config writer.
   handlers.set('llm', new LlmHandler());
   // T9546: `cleo worktree` CLI surface — structured worktree enumeration with status classification

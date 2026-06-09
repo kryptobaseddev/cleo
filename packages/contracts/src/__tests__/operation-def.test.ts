@@ -102,7 +102,8 @@ describe('dispatch/operation-def contracts', () => {
     expect(CANONICAL_DOMAINS.length).toBeGreaterThan(0);
     // T9954 — snapshot the current count so accidental additions/removals
     // trip this test and force an explicit human review.
-    expect(CANONICAL_DOMAINS.length).toBe(23);
+    // T11889-D — +1 for the new 'selfimprove' domain (self-dogfooding loop verb).
+    expect(CANONICAL_DOMAINS.length).toBe(24);
   });
 
   it('CANONICAL_DOMAINS contains the four sentinel newly-promoted domains', () => {

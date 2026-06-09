@@ -845,6 +845,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/self-update.js')).selfUpdateCommand as CommandDef,
   },
   {
+    exportName: 'selfimproveCommand',
+    name: 'selfimprove',
+    description:
+      'Self-improvement loop — replay a canned dogfood scenario, diff vs golden, and surface ',
+    load: async () => (await import('../commands/selfimprove.js')).selfimproveCommand as CommandDef,
+  },
+  {
     exportName: 'sentientCommand',
     name: 'sentient',
     description: 'Manage the Tier-1 sentient autonomous loop daemon and Tier-2 proposals',
