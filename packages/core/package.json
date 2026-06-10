@@ -398,7 +398,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-selfimprove-fixtures.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "cd ../.. && vitest run --config packages/core/vitest.integration.config.ts",

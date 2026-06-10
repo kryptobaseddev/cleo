@@ -810,6 +810,18 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   });
   console.log('  -> packages/core/dist/*.d.ts');
 
+  // Copy the self-improvement scenario fixtures into dist (T11974). These are
+  // non-TS assets the `cleo selfimprove run` loop reads at runtime from
+  // `dist/selfimprove/scenarios/<name>/{scenario,golden}.json`; neither the
+  // esbuild entry-point scan nor `tsc` emits them, so without this copy a
+  // published install trips the loop's circuit-breaker (DHQ-078).
+  await cp(
+    resolve(__dirname, 'packages/core/src/selfimprove/scenarios'),
+    resolve(__dirname, 'packages/core/dist/selfimprove/scenarios'),
+    { recursive: true },
+  );
+  console.log('  -> packages/core/dist/selfimprove/scenarios/** (fixtures)');
+
   // ---------------------------------------------------------------------------
   // Wave 6: runtime + adapters (both dep core — independent of each other)
   // ---------------------------------------------------------------------------
