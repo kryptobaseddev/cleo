@@ -484,6 +484,22 @@ function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
 }
 
 /**
+ * Terminal `'error'` sink installed by a session's teardown.
+ *
+ * Teardown removes the live `onError` listener (it routes back into teardown)
+ * but the socket still has a close frame + FIN in flight; an abrupt peer RST
+ * surfaces that write failure asynchronously. Without a listener Node turns
+ * the `ECONNRESET`/`EPIPE` into an uncaught exception — fatal for the daemon.
+ * The session is already dead at this point, so the error is intentionally
+ * dropped.
+ *
+ * @task T11961
+ */
+function swallowLateSocketError(): void {
+  // intentionally empty — late socket errors on a torn-down session are noise
+}
+
+/**
  * Complete the RFC 6455 handshake on a gated upgrade socket, then spawn + bridge
  * a PTY bidirectionally. Returns a {@link WsPtySession} whose `teardown()` is the
  * single idempotent close path (AC3). When `node-pty` is absent, the socket is
@@ -554,6 +570,13 @@ async function bridgePty(
     socket.removeListener('data', onData);
     socket.removeListener('error', onError);
     socket.removeListener('close', onSocketClose);
+    // The socket outlives teardown: the close frame + FIN below are still in
+    // flight, and a peer that destroyed abruptly (RST) surfaces the write
+    // failure ASYNCHRONOUSLY as a socket 'error' AFTER the listeners above are
+    // removed. The try/catch only covers synchronous throws — without a sink
+    // the late ECONNRESET/EPIPE becomes an uncaught exception that kills the
+    // daemon (T11961; also the macOS CI shard killer in ws-pty.test.ts).
+    socket.on('error', swallowLateSocketError);
     if (!socket.writableEnded) {
       try {
         socket.write(encodeCloseFrame(code, reason.slice(0, 120)));
