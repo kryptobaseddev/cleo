@@ -727,6 +727,14 @@ export { updateTask } from './tasks/update.js';
 // can import them without violating lint-core-first RULE-3 (which bans
 // `@cleocode/core/internal` from CLI command files).
 
+// T1944 (M4 cantbook done-gate) — canonical mustache `{{var}}` resolver
+// (T1238 SSoT). Re-exported from the main entrypoint so the playbook runtime
+// can resolve `PlaybookAgenticNode.inputs` templates at the dispatch boundary
+// without reaching into `@cleocode/core/internal` (lint-core-first RULE-3).
+export {
+  DefaultVariableResolver,
+  defaultResolver as defaultVariableResolver,
+} from './agents/variable-substitution.js';
 // T11917 (M5/AC3 · EP-API-STANDARD-FOUNDATION T11769) — config-as-domain handler
 // routing config.{get,list,validate,unset} to the ConfigManifest cascade resolver.
 export {
