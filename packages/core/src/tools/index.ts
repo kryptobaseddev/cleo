@@ -162,6 +162,21 @@ export {
   scrubSubprocessEnv,
   TRUSTED_PATH,
 } from './env-scrub.js';
+// `execute_code` agent tool (T11946 · M7) — the `agent` toolset's guarded
+// code-execution capability. Routes every run through the existing
+// `resolveExecutionEnv` selector (Gondolin micro-VM when available, in-process
+// guarded `ExecutionEnv` otherwise — gondolin is OPTIONAL, so core builds with it
+// ABSENT). Registered always; available() hides it unless `capabilities.codeExec`.
+export {
+  buildExecCommand,
+  codeExecAvailable,
+  EXEC_CODE_LANGUAGES,
+  type ExecCodeAgentToolOptions,
+  type ExecCodeLanguage,
+  type ExecCodeResult,
+  type ExecutionEnvResolver,
+  registerExecCodeAgentTool,
+} from './exec-code-agent-tool.js';
 // Atomic-tool guard chokepoint (E3 · T11407 · T11474) — the ONLY public route to
 // the fs/shell primitives. Raw primitives are intentionally not re-exported.
 export {

@@ -27,6 +27,7 @@ import { z } from 'zod';
 import type { AgentToolRegistry, AvailabilityCheck } from './agent-registry.js';
 import { ALWAYS_AVAILABLE } from './agent-registry.js';
 import { registerAgentToolFamilies } from './agent-tool-families.js';
+import { registerExecCodeAgentTool } from './exec-code-agent-tool.js';
 import { registerWebAgentTools } from './web-agent-tools.js';
 
 /** Available only when the named binary is known on PATH (AC5 example). */
@@ -157,4 +158,14 @@ export function registerBuiltinAgentTools(registry: AgentToolRegistry): void {
   // builds + runs with playwright NOT installed. The web tools' network egress +
   // the `browser_vision` AI call (via resolveLLMForSystem) use no raw bypass.
   registerWebAgentTools(registry);
+
+  // The `execute_code` tool (T11946 · M7 first catalog increment): the `agent`
+  // toolset's guarded code-execution capability. It routes EVERY run through the
+  // existing `resolveExecutionEnv` selector (Gondolin micro-VM when present, the
+  // in-process guarded `ExecutionEnv` otherwise — gondolin is an OPTIONAL dep, so
+  // core builds + runs with it ABSENT). The tool is ALWAYS registered but its
+  // availability predicate hides it unless the run advertises
+  // `capabilities.codeExec === true` (mirrors the playwright-gated browser tools),
+  // so a loop that never enables code execution cannot run arbitrary code.
+  registerExecCodeAgentTool(registry);
 }
