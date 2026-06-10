@@ -37,14 +37,15 @@
  * @epic T-LLM-CRED-CENTRALIZATION
  */
 
+import type { OnboardingResult } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/index.js';
 import { costCommand } from './llm-cost.js';
-import { runLlmLogin } from './llm-login.js';
 import { runLlmRefreshCatalog } from './llm-refresh-catalog.js';
 import { streamCommand } from './llm-stream.js';
+import { emitLoginResult, LOGIN_ARGS, runLoginFrontDoor } from './login.js';
 
 // Lazy import — avoids circular deps and keeps startup fast.
 // Resolved on first call to `cleo llm list-providers`.
@@ -605,83 +606,47 @@ const contextEnginesCommand = defineCommand({
 // ---------------------------------------------------------------------------
 
 /**
- * cleo llm login <provider> — authenticate a provider via OAuth.
+ * cleo llm login <provider> — onboarding front door (alias of `cleo login`).
  *
- * Routes by the provider's registered OAuth mode:
- *   - PKCE (anthropic, openai/codex): opens the browser (or prints the URL),
- *     captures the redirect on a local loopback callback, exchanges the code,
- *     and stores the OAuth credential in the pool.
- *   - device-code (kimi-code): prints the user code + verification URI and
- *     polls the token endpoint until the user approves.
+ * Dispatches to the SAME shared handler ({@link runLoginFrontDoor}) and the
+ * SAME core engine as `cleo login` / `cleo auth login` (T11725 · AC2). The
+ * front-door orchestrator picks a provider + auth method (browser OAuth or API
+ * key), runs the OAuth dance when needed, then connect → select → bind →
+ * validate so the result is a usable, validated Profile binding — not just a
+ * stored credential.
  *
- * Providers without an OAuth profile return E_NOT_IMPLEMENTED with the live
- * registry-derived list of OAuth-capable providers; use
- * `cleo llm add <provider> --api-key-stdin` for API-key auth instead.
+ * Prior to T11725 this command only stored an OAuth credential. The flow is now
+ * unified; `cleo llm add <provider> --api-key-stdin` remains the bare
+ * credential-only path for non-OAuth providers.
  *
  * @task T9266
  * @task T11669
+ * @task T11725
  */
 const loginCommand = defineCommand({
   meta: {
     name: 'login',
     description:
-      'Authenticate an LLM provider via OAuth. PKCE (browser): anthropic, openai/codex. ' +
-      'Device-code: kimi-code. Example: `cleo llm login openai`. ' +
-      'For any other provider use `cleo llm add <provider> --api-key-stdin`. ' +
+      'Log in to an LLM provider and bind a usable profile (alias of `cleo login`). ' +
+      'Picks a provider + auth method (browser OAuth: anthropic, openai/codex; device-code: kimi-code; ' +
+      'or API key), selects a model, binds it, and validates the binding. ' +
       'Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped/--json.',
   },
-  args: {
-    provider: {
-      type: 'positional',
-      description: 'Provider to authenticate: anthropic | openai | codex | kimi-code',
-      required: true,
-    },
-    label: {
-      type: 'string',
-      description:
-        "Human-readable label for the stored credential (default: 'oauth-login'). " +
-        'Must be unique within the provider. Use distinct labels when storing multiple OAuth sessions.',
-    },
-    json: {
-      type: 'boolean',
-      description: 'Output result as JSON',
-    },
-  },
+  args: LOGIN_ARGS,
   async run({ args }) {
-    const a = args as Record<string, unknown>;
-    const provider = String(a['provider'] ?? '');
-    const label = typeof a['label'] === 'string' && a['label'] ? a['label'] : undefined;
-
-    const result = await runLlmLogin(provider, { label });
-
-    if (result.success && result.data) {
-      // T11672 interactive-output class: a friendly one-liner on a human
-      // terminal; the canonical LAFS envelope when piped or under --json so
-      // automation/agents can parse the result. (The global format context set
-      // by startCli's interactive lever decides which — `--json` always wins.)
-      if (isHumanOutput()) {
-        humanLine(
-          `Logged in to ${result.data.provider} as '${result.data.label}'` +
-            (result.data.expiresIn != null
-              ? ` (expires in ${Math.round(result.data.expiresIn / 60)} min)`
-              : ''),
-        );
-      } else {
-        cliOutput(result.data, { command: 'llm-login', operation: 'llm.login' });
-      }
-      return;
-    }
-
-    if (result.error) {
-      // T9772: surface login failure through LAFS envelope (no raw stderr).
+    let result: OnboardingResult;
+    try {
+      result = await runLoginFrontDoor(args as Record<string, unknown>);
+    } catch (err) {
       cliError(
-        result.error.message,
-        result.error.code || 1,
-        { name: result.error.codeName },
+        err instanceof Error ? err.message : String(err),
+        1,
+        { name: 'E_LOGIN_FAILED' },
         { operation: 'llm.login' },
       );
       process.exit(1);
     }
+    emitLoginResult(result, 'llm.login');
   },
 });
 

@@ -109,7 +109,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'authCommand',
     name: 'auth',
     description:
-      'Unified credential view across all seeded sources (cleo llm list is the LLM-scoped sister command).',
+      'Unified credential surface: auth login (front-door provider login, alias of cleo login), auth list, auth remove, auth consent. (cleo llm list is the LLM-scoped sister command.)',
     load: async () => (await import('../commands/auth.js')).authCommand as CommandDef,
   },
   {
@@ -622,6 +622,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     name: 'log',
     description: 'View audit log entries (operations, timestamps, changes)',
     load: async () => (await import('../commands/log.js')).logCommand as CommandDef,
+  },
+  {
+    exportName: 'loginCommand',
+    name: 'login',
+    description:
+      'Log in to an LLM provider and bind a usable profile in one step. Picks a provider + auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
+    load: async () => (await import('../commands/login.js')).loginCommand as CommandDef,
   },
   {
     exportName: 'manifestCommand',

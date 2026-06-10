@@ -96,6 +96,7 @@ export class WizardFatalError extends Error {
  */
 export type WizardSection =
   | 'llm'
+  | 'models-roles'
   | 'identity'
   | 'harness'
   | 'sentient'
@@ -236,6 +237,22 @@ export interface WizardOptions {
    * Persisted to `auth.poolSeedingConsent` in the global config.
    */
   poolSeedingConsent?: boolean;
+
+  /**
+   * `models-roles` section (T11726): default model id for the global binding
+   * (`cleo llm use` equivalent). Persisted to `llm.default.model` in the global
+   * config. The provider for the default binding comes from
+   * {@link WizardOptions.provider} (or an existing `llm.default.provider`).
+   */
+  defaultModel?: string;
+
+  /**
+   * `models-roles` section (T11726): per-role provider/model pins
+   * (`cleo llm profile` equivalent), keyed by role name (a member of
+   * `WHOAMI_ROLE_IDS`). Each binding is persisted to `llm.roles.<role>` in the
+   * global config. Roles absent from the map are left untouched.
+   */
+  roleBindings?: Record<string, { provider: string; model?: string; credentialLabel?: string }>;
 
   /**
    * `project-conventions` section: enforcement mode for tasks that

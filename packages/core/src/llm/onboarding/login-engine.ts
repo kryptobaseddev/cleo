@@ -107,6 +107,17 @@ export interface OnboardingLoginOptions {
   role?: RoleName;
   /** Project root passed through to the resolver during the validate step. */
   projectRoot?: string;
+  /**
+   * Skip the connect-step credential write because an interactive OAuth flow
+   * (e.g. `cleo llm login`'s PKCE / device-code dance) has ALREADY landed the
+   * credential in the pool. The connect step still resolves the provider and
+   * records an `ok` trace, but does NOT call {@link addCredential} a second
+   * time. Used by the shared front-door orchestrator (T11725) so the OAuth
+   * token is stored exactly once.
+   *
+   * When `true`, {@link OnboardingLoginOptions.token} is NOT required.
+   */
+  credentialAlreadyStored?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,8 +172,18 @@ export interface OnboardingDeps {
   ) => { valid: boolean; reason: string };
   /** Write a global config value (the `llm.default` / `llm.roles[role]` binding). */
   setConfigValue: (key: string, value: unknown) => Promise<unknown>;
-  /** Round-trip resolve the binding for the validate step. */
-  resolve: (provider: ModelTransport, projectRoot?: string) => Promise<OnboardingResolution>;
+  /**
+   * Round-trip resolve the binding for the validate step.
+   *
+   * `role` is the role the bind step just wrote (`llm.roles[role]`), so the
+   * validate resolution MUST target that role — resolving a different role
+   * would validate an unrelated binding (T11725 takeover review).
+   */
+  resolve: (
+    provider: ModelTransport,
+    projectRoot?: string,
+    role?: RoleName,
+  ) => Promise<OnboardingResolution>;
 }
 
 /**
@@ -178,9 +199,9 @@ function defaultDeps(): OnboardingDeps {
     resolveProviderDefaultModel: (catalogKey) => resolveProviderDefaultModel(catalogKey),
     validateModelForProvider: (model, catalogKey) => validateModelForProvider(model, catalogKey),
     setConfigValue: (key, value) => setConfigValue(key, value, undefined, { global: true }),
-    resolve: async (_provider, projectRoot) => {
+    resolve: async (_provider, projectRoot, role) => {
       const resolved = await resolveLLMForSystem(
-        { kind: 'role', id: 'consolidation' },
+        { kind: 'role', id: role ?? 'consolidation' },
         projectRoot !== undefined ? { projectRoot } : undefined,
       );
       // Map the full resolver envelope down to the structural subset the
@@ -283,28 +304,36 @@ export async function runOnboardingLogin(
     }
     canonicalProvider = profile.name as ModelTransport;
 
-    if (!opts.token) {
-      const step = fail(
-        'connect',
-        'E_ONBOARDING_NO_CREDENTIAL',
-        `No credential supplied for '${canonicalProvider}'. ` +
-          `Complete \`cleo llm login ${canonicalProvider}\` (OAuth) or pass an API key.`,
-      );
-      return envelope(withSkips(done, step), canonicalProvider, label, null, null, null, false);
-    }
-
     // OAuth when the provider profile advertises an OAuth config; else API key (AC4).
     authMode = opts.authMode ?? (profile.oauth ? 'oauth' : 'api_key');
-    const storedAuthType: StoredAuthType = authMode === 'oauth' ? 'oauth' : 'api_key';
 
-    await deps.addCredential({
-      provider: canonicalProvider,
-      label,
-      authType: storedAuthType,
-      accessToken: opts.token,
-      source: 'onboarding-login',
-    });
-    done.push(ok('connect', `account '${label}' connected (${authMode})`));
+    if (opts.credentialAlreadyStored) {
+      // An interactive OAuth flow already landed the credential in the pool
+      // (front-door orchestrator path — T11725). Resolve + record connect as
+      // ok WITHOUT a second write so the token is stored exactly once.
+      done.push(ok('connect', `account '${label}' connected (${authMode}, pre-stored)`));
+    } else {
+      if (!opts.token) {
+        const step = fail(
+          'connect',
+          'E_ONBOARDING_NO_CREDENTIAL',
+          `No credential supplied for '${canonicalProvider}'. ` +
+            `Complete \`cleo llm login ${canonicalProvider}\` (OAuth) or pass an API key.`,
+        );
+        return envelope(withSkips(done, step), canonicalProvider, label, null, null, null, false);
+      }
+
+      const storedAuthType: StoredAuthType = authMode === 'oauth' ? 'oauth' : 'api_key';
+
+      await deps.addCredential({
+        provider: canonicalProvider,
+        label,
+        authType: storedAuthType,
+        accessToken: opts.token,
+        source: 'onboarding-login',
+      });
+      done.push(ok('connect', `account '${label}' connected (${authMode})`));
+    }
   } catch (err) {
     const step = fail('connect', 'E_ONBOARDING_CONNECT_FAILED', errMsg(err));
     return envelope(withSkips(done, step), provider, label, null, null, null, false);
@@ -408,7 +437,7 @@ export async function runOnboardingLogin(
 
   // --- Step 4: validate ---------------------------------------------------
   try {
-    const resolved = await deps.resolve(canonicalProvider, opts.projectRoot);
+    const resolved = await deps.resolve(canonicalProvider, opts.projectRoot, opts.role);
     const providerMatch = resolved.provider === canonicalProvider;
     const modelMatch = resolved.model === modelId;
     const hasHandle = resolved.sealedCredential !== null;

@@ -19,7 +19,8 @@ import { createBrainSection } from './sections/brain.js';
 import { createHarnessSection } from './sections/harness.js';
 import { createIdentitySection } from './sections/identity.js';
 import { createIntegrationsSection } from './sections/integrations.js';
-import { createLlmSection } from './sections/llm.js';
+import { createLlmSection, type LlmSectionDeps } from './sections/llm.js';
+import { createModelsRolesSection } from './sections/models-roles.js';
 import { createProjectConventionsSection } from './sections/project-conventions.js';
 import { createSentientSection } from './sections/sentient.js';
 import { createTelemetrySection } from './sections/telemetry.js';
@@ -32,7 +33,8 @@ export { createBrainSection } from './sections/brain.js';
 export { createHarnessSection } from './sections/harness.js';
 export { createIdentitySection } from './sections/identity.js';
 export { createIntegrationsSection } from './sections/integrations.js';
-export { createLlmSection } from './sections/llm.js';
+export { createLlmSection, type LlmSectionDeps } from './sections/llm.js';
+export { createModelsRolesSection } from './sections/models-roles.js';
 export { createProjectConventionsSection } from './sections/project-conventions.js';
 export { createSentientSection } from './sections/sentient.js';
 export { createTelemetrySection } from './sections/telemetry.js';
@@ -59,25 +61,33 @@ export {
  * Order matters: `cleo setup` walks the list verbatim. The current
  * order is:
  *   1. `llm`                 — credentials are the prerequisite for everything else
- *   2. `identity`            — agent name / SOUL.md before any agent dispatch
- *   3. `sentient`            — daemon enablement after credentials exist
- *   4. `project-conventions` — strictness preset before harness/brain layering
- *   5. `harness`             — operator selects Pi vs Claude Code (T9425)
- *   6. `brain`               — BRAIN memory bridge mode (T9425)
- *   7. `integrations`        — SignalDock + Studio + Conduit (T9608)
- *   8. `telemetry`           — anonymous skills-usage telemetry (T9673)
- *   9. `verification`        — read-only health checks (T9594)
+ *   2. `models-roles`        — default model + per-role profiles (T11726)
+ *   3. `identity`            — agent name / SOUL.md before any agent dispatch
+ *   4. `sentient`            — daemon enablement after credentials exist
+ *   5. `project-conventions` — strictness preset before harness/brain layering
+ *   6. `harness`             — operator selects Pi vs Claude Code (T9425)
+ *   7. `brain`               — BRAIN memory bridge mode (T9425)
+ *   8. `integrations`        — SignalDock + Studio + Conduit (T9608)
+ *   9. `telemetry`           — anonymous skills-usage telemetry (T9673)
+ *  10. `verification`        — read-only health checks (T9594)
  *
+ * @param llmDeps - Optional dependencies forwarded to the `llm` section — most
+ *   notably the interactive OAuth token acquirer (T11727). The CLI surface
+ *   passes the real acquirer so the wizard OAuth path runs the inline engine;
+ *   programmatic callers omit it (OAuth path points the user at `cleo login`).
  * @returns Fresh array of section runner instances.
  * @task T9420
  * @task T9425
  * @task T9594
  * @task T9608
  * @task T9673
+ * @task T11726
+ * @task T11727
  */
-export function createBuiltinSections(): WizardSectionRunner[] {
+export function createBuiltinSections(llmDeps: LlmSectionDeps = {}): WizardSectionRunner[] {
   return [
-    createLlmSection(),
+    createLlmSection(llmDeps),
+    createModelsRolesSection(),
     createIdentitySection(),
     createSentientSection(),
     createProjectConventionsSection(),
@@ -92,9 +102,12 @@ export function createBuiltinSections(): WizardSectionRunner[] {
 /**
  * Construct a {@link WizardRunner} pre-wired with the built-in sections.
  *
+ * @param llmDeps - Optional `llm` section dependencies (see
+ *   {@link createBuiltinSections}); forwards the interactive OAuth acquirer.
  * @returns A ready-to-run wizard runner.
  * @task T9420
+ * @task T11727
  */
-export function createDefaultWizardRunner(): WizardRunner {
-  return new WizardRunner(createBuiltinSections());
+export function createDefaultWizardRunner(llmDeps: LlmSectionDeps = {}): WizardRunner {
+  return new WizardRunner(createBuiltinSections(llmDeps));
 }

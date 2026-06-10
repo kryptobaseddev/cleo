@@ -30,12 +30,14 @@ import type { WizardOptions } from './wizard.js';
  */
 export const WIZARD_SECTION_IDS: ReadonlySet<string> = new Set<string>([
   'llm',
+  'models-roles',
   'identity',
   'harness',
   'sentient',
   'project-conventions',
   'brain',
   'integrations',
+  'telemetry',
   'verification',
 ]);
 
@@ -181,6 +183,18 @@ export function mergeConfigJson(
     if ('sessionAutoStart' in sectionOpts && out.sessionAutoStart === undefined) {
       if (typeof sectionOpts['sessionAutoStart'] === 'boolean') {
         out.sessionAutoStart = sectionOpts['sessionAutoStart'];
+      }
+    }
+    // models-roles section (T11726)
+    if ('defaultModel' in sectionOpts && out.defaultModel === undefined) {
+      if (typeof sectionOpts['defaultModel'] === 'string' && sectionOpts['defaultModel'] !== '') {
+        out.defaultModel = sectionOpts['defaultModel'] as string;
+      }
+    }
+    if ('roleBindings' in sectionOpts && out.roleBindings === undefined) {
+      const rb = sectionOpts['roleBindings'];
+      if (rb !== null && typeof rb === 'object' && !Array.isArray(rb)) {
+        out.roleBindings = rb as WizardOptions['roleBindings'];
       }
     }
   }

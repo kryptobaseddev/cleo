@@ -18,6 +18,7 @@ import { defineCommand, showUsage } from 'citty';
 import {
   authConsentCommand,
   authListCommand,
+  authLoginCommand,
   authMigrateProjectSecretsCommand,
   authRemoveCommand,
 } from './auth/index.js';
@@ -31,12 +32,15 @@ import {
 export const authCommand = defineCommand({
   meta: {
     name: 'auth',
+    // ONE quoted literal, no backticks — see login.ts meta for the generator
+    // DESC_RE constraint.
     description:
-      'Unified credential view across all seeded sources (cleo llm list is the LLM-scoped sister command).',
+      'Unified credential surface: auth login (front-door provider login, alias of cleo login), auth list, auth remove, auth consent. (cleo llm list is the LLM-scoped sister command.)',
   },
   subCommands: {
     consent: authConsentCommand,
     list: authListCommand,
+    login: authLoginCommand,
     remove: authRemoveCommand,
     'migrate-project-secrets': authMigrateProjectSecretsCommand,
   },

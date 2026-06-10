@@ -36,9 +36,12 @@ import {
   scaffoldWorkflows,
   type WorkflowName,
 } from '@cleocode/core';
+import { getCredentialPool } from '@cleocode/core/llm/credential-pool.js';
 import { getTemplatesByKind } from '@cleocode/core/templates/registry';
 import { defineCommand } from 'citty';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { ReadlineWizardIO } from '../lib/readline-wizard-io.js';
+import { cliError, cliOutput, isHumanOutput } from '../renderers/index.js';
+import { runLoginFrontDoor } from './login.js';
 
 /**
  * Load the gitignore template from the package's templates/ directory.
@@ -204,6 +207,17 @@ export const initCommand = defineCommand({
 
       const result = await initProject(initOpts);
 
+      // T11727 — first-run credential nudge. When the credential pool is empty
+      // after init, emit a LAFS nextStep pointing at the onboarding front door.
+      // On an interactive terminal this becomes an opt-in 'Configure now?'
+      // prompt that launches the wizard inline; non-TTY / --json paths only
+      // surface the nextStep and never prompt.
+      const nextSteps = [...(result.nextSteps ?? [])];
+      // The nudge is fully contained: a declined, failed, or interrupted login
+      // must never fail a SUCCESSFUL init — the init envelope below is always
+      // emitted and the exit code stays 0 (T11725 takeover review).
+      await maybeNudgeFirstRunLogin(nextSteps);
+
       cliOutput(
         {
           initialized: result.initialized,
@@ -214,9 +228,7 @@ export const initCommand = defineCommand({
           ...(result.updateDocsOnly ? { updateDocsOnly: true } : {}),
           // Phase 5 — greenfield/brownfield classification + LAFS nextSteps
           ...(result.classification ? { classification: result.classification } : {}),
-          ...(result.nextSteps && result.nextSteps.length > 0
-            ? { nextSteps: result.nextSteps }
-            : {}),
+          ...(nextSteps.length > 0 ? { nextSteps } : {}),
         },
         { command: 'init' },
       );
@@ -229,6 +241,103 @@ export const initCommand = defineCommand({
     }
   },
 });
+
+/**
+ * The first-run credential nextStep appended when the pool is empty (T11727).
+ *
+ * @internal
+ */
+export const FIRST_RUN_LOGIN_NEXT_STEP = {
+  action: 'Add an LLM credential to start using CLEO',
+  command: 'cleo login',
+} as const;
+
+/**
+ * Returns `true` when the credential pool has no entries. Defensive: any read
+ * error is treated as "not empty" so a transient pool failure never blocks init
+ * or fires a spurious prompt.
+ *
+ * @internal
+ */
+export async function isCredentialPoolEmpty(): Promise<boolean> {
+  try {
+    const pool = getCredentialPool();
+    const entries = await pool.list();
+    return entries.length === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * First-run credential nudge (T11727 · AC2/AC3).
+ *
+ * When the credential pool is empty:
+ *   - Always appends {@link FIRST_RUN_LOGIN_NEXT_STEP} to `nextSteps` (mutated
+ *     in place) so the LAFS envelope surfaces it (AC2).
+ *   - On an interactive terminal (`isHumanOutput()` + TTY), prompts
+ *     'Configure now? [Y/n]'. On 'yes' it launches the onboarding front door
+ *     inline and returns `true` so the caller skips the init envelope (AC3).
+ *   - Never prompts on non-TTY / --json paths — only the nextStep is emitted.
+ *
+ * @param nextSteps - The init result's nextSteps array, mutated in place.
+ * Fully contained: never throws and never exits the process — a declined,
+ * failed, or Ctrl-C'd login is rendered as a non-fatal stderr note so the
+ * caller's init envelope (and exit 0) always survive (T11725 takeover review:
+ * `io.confirm` throws WizardInterruptError on Ctrl-C, the OAuth acquirer
+ * propagates flow errors, and `emitLoginResult`'s failure path process.exits —
+ * none of which may abort a SUCCESSFUL init).
+ *
+ * @task T11727
+ */
+export async function maybeNudgeFirstRunLogin(
+  nextSteps: Array<{ action: string; command: string }>,
+): Promise<void> {
+  if (!(await isCredentialPoolEmpty())) return;
+
+  // Always surface the nextStep (data path — AC2).
+  nextSteps.push({ ...FIRST_RUN_LOGIN_NEXT_STEP });
+
+  // Only prompt on a human-facing interactive terminal (AC3). The JSON/agent
+  // path and any piped invocation get the nextStep and nothing else.
+  if (!isHumanOutput() || process.stdin.isTTY !== true) return;
+
+  try {
+    // Prompts go to stderr — stdout is reserved for the init envelope.
+    const io = new ReadlineWizardIO(process.stdin, process.stderr);
+    let configureNow: boolean;
+    try {
+      configureNow = await io.confirm('No LLM credential found. Configure now?', true);
+    } finally {
+      io.close();
+    }
+    if (!configureNow) return;
+
+    // Launch the shared onboarding front door inline, rendering its outcome
+    // as non-fatal stderr lines (NOT emitLoginResult — its failure path
+    // process.exits, which would discard the init result).
+    const result = await runLoginFrontDoor({});
+    // Interactive TTY-gated nudge UX — stdout is reserved for the init
+    // envelope, so these notes go to stderr (single-line statements keep the
+    // hygiene-lint opt-out marker on the offending line through formatting).
+    let note: string;
+    if (result.validated) {
+      note =
+        `  Logged in to ${result.provider} as '${result.accountLabel}' — ` +
+        `bound ${result.profileName ?? 'default'} → ${result.provider}/${result.modelId}.\n`;
+    } else {
+      const failed = result.steps.find((st) => st.status === 'failed');
+      note =
+        `  Login did not complete${failed?.detail ? `: ${failed.detail}` : '.'} ` +
+        `Run 'cleo login' to retry.\n`;
+    }
+    process.stderr.write(note); // json-stream-hygiene-allowed: TTY-gated nudge UX
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const note = `  Login skipped (${msg}). Run 'cleo login' to retry.\n`;
+    process.stderr.write(note); // json-stream-hygiene-allowed: TTY-gated nudge UX
+  }
+}
 
 /**
  * Type-guard: narrow a registry id string to a {@link WorkflowName}.

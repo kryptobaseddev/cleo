@@ -26,10 +26,46 @@
  * @see docs/plans/E-CLEO-SETUP-V2.md §4.3
  */
 
+import type { OnboardingResult } from '@cleocode/contracts';
 import { setConfigValue } from '../../config.js';
 import { getCredentialPool } from '../../llm/credential-pool.js';
 import { addCredential } from '../../llm/credentials-store.js';
+import {
+  type FrontDoorLoginOptions,
+  type OAuthTokenAcquirer,
+  runFrontDoorLogin,
+} from '../../llm/onboarding/front-door.js';
 import type { WizardIO, WizardOptions, WizardSectionRunner } from '../wizard.js';
+
+/**
+ * Injectable dependencies for the `llm` wizard section.
+ *
+ * The OAuth path runs the inline onboarding engine ({@link runFrontDoorLogin}),
+ * but the interactive browser / device-code dance lives in the CLI (so core
+ * stays headless). The CLI surface (`cleo setup`) supplies an
+ * {@link OAuthTokenAcquirer}; when absent (programmatic / Studio callers that
+ * have not wired a browser), the OAuth path short-circuits with a pointer to
+ * `cleo login` rather than printing a dead "deferred" message.
+ *
+ * @task T11727
+ */
+export interface LlmSectionDeps {
+  /**
+   * Interactive OAuth token acquirer wired by the CLI. When provided, the
+   * wizard OAuth path runs the full inline onboarding engine.
+   */
+  oauthAcquirer?: OAuthTokenAcquirer;
+  /**
+   * Override for the front-door orchestrator (tests inject a stub so the OAuth
+   * path is exercised without the real engine). Defaults to
+   * {@link runFrontDoorLogin}.
+   */
+  runFrontDoorLogin?: (
+    provider: string,
+    opts?: FrontDoorLoginOptions,
+    acquireOAuth?: OAuthTokenAcquirer,
+  ) => Promise<OnboardingResult>;
+}
 
 /**
  * Provider ids the interactive wizard offers from the menu.
@@ -90,7 +126,8 @@ function stripBracketedPaste(input: string): string {
  * @task T9420
  * @task T9610
  */
-export function createLlmSection(): WizardSectionRunner {
+export function createLlmSection(deps: LlmSectionDeps = {}): WizardSectionRunner {
+  const frontDoor = deps.runFrontDoorLogin ?? runFrontDoorLogin;
   return {
     section: 'llm',
     title: 'LLM provider + API key',
@@ -177,13 +214,34 @@ export function createLlmSection(): WizardSectionRunner {
       );
 
       if (authMode === 'oauth_login') {
-        io.info(
-          `OAuth login deferred to 'cleo llm login ${provider}' — run that command after setup.`,
-        );
-        return {
-          changed: false,
-          summary: `oauth login deferred for ${provider}`,
-        };
+        // T11727 — run the inline onboarding engine for the OAuth path instead
+        // of deferring to a separate command. The interactive browser dance is
+        // supplied by the CLI-wired acquirer; when no acquirer is available
+        // (headless / programmatic caller) point the user at `cleo login`.
+        if (!deps.oauthAcquirer) {
+          io.info(
+            `OAuth login for '${provider}' needs an interactive terminal. ` +
+              `Run \`cleo login ${provider}\` (or \`cleo llm login ${provider}\`) to complete it.`,
+          );
+          return {
+            changed: false,
+            summary: `oauth login pending for ${provider} (run cleo login)`,
+          };
+        }
+        const result = await frontDoor(provider, { authMode: 'oauth' }, deps.oauthAcquirer);
+        if (result.validated) {
+          io.info(
+            `Logged in to ${result.provider} — bound ${result.profileName ?? 'default'} → ` +
+              `${result.provider}/${result.modelId}.`,
+          );
+          return {
+            changed: true,
+            summary: `oauth login complete for ${result.provider} (${result.modelId})`,
+          };
+        }
+        const failed = result.steps.find((s) => s.status === 'failed');
+        io.warn(`OAuth login did not complete: ${failed?.detail ?? 'unknown error'}`);
+        return { changed: false, summary: `oauth login failed for ${provider}` };
       }
 
       // 4. Interactive API-key entry.

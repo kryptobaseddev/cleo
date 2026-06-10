@@ -14,6 +14,7 @@ export type { ConsentGate, ConsentStatusResult, ConsentToggleResult } from './co
 export { authConsentCommand } from './consent.js';
 export type { AuthListEntry } from './list.js';
 export { authListCommand } from './list.js';
+export { authLoginCommand } from './login.js';
 export type {
   AuthMigrateProjectSecretsResult,
   MigratedSecret,
