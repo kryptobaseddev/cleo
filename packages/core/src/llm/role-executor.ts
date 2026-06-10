@@ -30,7 +30,7 @@
  * @see ADR-072 §Type lock-in
  */
 
-import type { RoleName } from '@cleocode/contracts';
+import type { QueuePriorityClass, RoleName } from '@cleocode/contracts';
 import type {
   NormalizedUsage,
   TransportRequest,
@@ -39,6 +39,7 @@ import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-creden
 import { deriveApiWire } from './api-mode.js';
 import { CredentialPool } from './credential-pool.js';
 import { classifyError } from './error-classifier.js';
+import { llmQueueAdmit } from './llm-queue-admit.js';
 import { ModelRunner } from './model-runner.js';
 import { isKimiCodeApiKey } from './provider-registry/builtin/kimi-code.js';
 import { resolveLLMForRole } from './role-resolver.js';
@@ -67,6 +68,32 @@ function warnOnceForRole(key: string, message: string): void {
   if (WARNED_ROLE_FAILURES.has(key)) return;
   WARNED_ROLE_FAILURES.add(key);
   console.warn(message);
+}
+
+/**
+ * Map the calling agent's advertised role (`CLEO_AGENT_ROLE`) to an LLM-queue
+ * priority class (T11630 · AC1).
+ *
+ * The role-executor drives the brain's dream/compression layer, so its calls
+ * default to `background` — yielding to any interactive lead/worker LLM traffic.
+ * An orchestrator/lead agent advertising itself via `CLEO_AGENT_ROLE` is mapped
+ * to `lead` so its calls are never starved behind a background consolidation; a
+ * `worker` maps to `worker`.
+ *
+ * @returns The {@link QueuePriorityClass} for the current process.
+ * @task T11630
+ */
+function resolveQueuePriorityClass(): QueuePriorityClass {
+  switch (process.env.CLEO_AGENT_ROLE) {
+    case 'lead':
+    case 'orchestrator':
+      return 'lead';
+    case 'worker':
+    case 'subagent':
+      return 'worker';
+    default:
+      return 'background';
+  }
 }
 
 /**
@@ -219,6 +246,23 @@ export async function executeForRole(
       resolvedCredential,
       wire.apiMode,
     );
+
+    // LLM-queue admit gate (T11630 · AC1-AC4). Ask the supervisor's priority
+    // scheduler + per-provider rate governor for admission BEFORE the call hits
+    // the wire. With the daemon OFF (the default, mode `off`) this is a no-op
+    // pass-through (`admitted:true, via:'direct'`) — every call works with no
+    // supervisor. In `supervisor` mode an over-budget call is deferred with a
+    // structured back-off + re-request inside `llmQueueAdmit`, never dropped; an
+    // absent/dead arbiter degrades to direct execution. The role-executor drives
+    // the brain's dream/compression layer, so these calls are `background`
+    // priority unless the agent advertises a higher class via CLEO_AGENT_ROLE.
+    await llmQueueAdmit(
+      llm.provider,
+      resolveQueuePriorityClass(),
+      opts.maxTokens ?? DEFAULT_MAX_TOKENS,
+      `role:${role}:pid-${process.pid}`,
+    );
+
     const resp = await transport.complete(request);
     return {
       content: resp.content ?? '',

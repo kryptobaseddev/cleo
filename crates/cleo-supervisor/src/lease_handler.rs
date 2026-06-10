@@ -47,9 +47,11 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::lease_ipc::{
-    ChildKilled, DbScope, LeaseAcquireReq, LeaseGranted, LeaseLane, LeaseRenewReq, LeaseReleaseReq,
-    LeaseRequest, LeaseResponse,
+    ChildKilled, DbScope, LeaseAcquireReq, LeaseGranted, LeaseLane, LeaseReleaseReq, LeaseRenewReq,
+    LeaseRequest, LeaseResponse, QueueAdmitDisposition, QueueAdmitReq, QueueAdmitResult,
+    QueuePriorityClass,
 };
+use crate::llm_queue::{AdmitDecision, LlmQueue, PriorityClass};
 
 /// Error code returned for a request kind that is declared in the frozen v1.1
 /// union but whose handler is deferred (`rate_check` / `tool_grant`).
@@ -97,6 +99,7 @@ pub fn request_kind(req: &LeaseRequest) -> &'static str {
         LeaseRequest::LeaseRenew(_) => "lease_renew",
         LeaseRequest::RateCheck(_) => "rate_check",
         LeaseRequest::ToolGrant(_) => "tool_grant",
+        LeaseRequest::QueueAdmit(_) => "queue_admit",
     }
 }
 
@@ -177,13 +180,37 @@ struct ActiveRow {
 #[derive(Clone)]
 pub struct LeaseArbiter {
     resolver: ScopeDbResolver,
+    /// The in-memory LLM-queue priority scheduler + per-provider rate governor
+    /// (T11630). Shared across all clients (the contended counters are process-
+    /// global, like a real provider quota). Cheap to clone (`Arc` bump).
+    llm_queue: LlmQueue,
 }
 
 impl LeaseArbiter {
-    /// Build an arbiter from a scope→db-path resolver.
+    /// Build an arbiter from a scope→db-path resolver, with a fresh LLM queue.
     #[must_use]
     pub fn new(resolver: ScopeDbResolver) -> Self {
-        Self { resolver }
+        Self {
+            resolver,
+            llm_queue: LlmQueue::new(),
+        }
+    }
+
+    /// Build an arbiter from a resolver AND a pre-seeded [`LlmQueue`] (the
+    /// supervisor wires one queue, possibly with provider quotas configured).
+    #[must_use]
+    pub fn with_llm_queue(resolver: ScopeDbResolver, llm_queue: LlmQueue) -> Self {
+        Self {
+            resolver,
+            llm_queue,
+        }
+    }
+
+    /// The shared LLM queue (so the watchdog T11628 can read in-flight state and
+    /// the supervisor can configure provider quotas).
+    #[must_use]
+    pub fn llm_queue(&self) -> &LlmQueue {
+        &self.llm_queue
     }
 
     /// Dispatch a single parsed [`LeaseRequest`], returning the correlated
@@ -210,7 +237,45 @@ impl LeaseArbiter {
             // second version bump; handlers deferred to a follow-up task.
             LeaseRequest::RateCheck(_) => Self::unimplemented("rate_check"),
             LeaseRequest::ToolGrant(_) => Self::unimplemented("tool_grant"),
+            // The LLM-queue admit verb is WIRED (T11630) — backed by the
+            // in-memory priority scheduler + per-provider rate governor.
+            LeaseRequest::QueueAdmit(req) => self.handle_queue_admit(&req),
         }
+    }
+
+    /// `queue_admit` — run the LLM-call admission decision through the priority
+    /// scheduler + per-provider rate governor (T11630 · AC1-AC4). The whole
+    /// decision is one atomic read-modify-write inside [`LlmQueue::admit`]; an
+    /// over-budget or starved request gets a structured `deferred` result with a
+    /// `retry_after_ms` back-off — never a silent drop (AC4).
+    fn handle_queue_admit(&self, req: &QueueAdmitReq) -> LeaseResponse {
+        let priority = match req.priority_class {
+            QueuePriorityClass::Lead => PriorityClass::Lead,
+            QueuePriorityClass::Worker => PriorityClass::Worker,
+            QueuePriorityClass::Background => PriorityClass::Background,
+        };
+        let decision = self
+            .llm_queue
+            .admit(&req.provider, priority, req.est_tokens, &req.child_id);
+        let result = match decision {
+            AdmitDecision::Admitted { tokens_remaining } => QueueAdmitResult {
+                disposition: QueueAdmitDisposition::Admitted,
+                retry_after_ms: 0,
+                tokens_remaining,
+                queue_position: 0,
+            },
+            AdmitDecision::Deferred {
+                retry_after_ms,
+                tokens_remaining,
+                queue_position,
+            } => QueueAdmitResult {
+                disposition: QueueAdmitDisposition::Deferred,
+                retry_after_ms,
+                tokens_remaining,
+                queue_position,
+            },
+        };
+        LeaseResponse::QueueAdmitResult(result)
     }
 
     /// The deferred-handler error response (`E_LEASE_UNIMPLEMENTED`).
@@ -367,8 +432,7 @@ impl LeaseArbiter {
                     } else {
                         // Live holder — enqueue this waiter (idempotent) and report
                         // queue position. busy_timeout already backstopped the lock.
-                        let (ticket, ahead) =
-                            Self::enqueue_waiter(conn, scope, lane, req, now)?;
+                        let (ticket, ahead) = Self::enqueue_waiter(conn, scope, lane, req, now)?;
                         Ok(ClaimOutcome::Queued { ticket, ahead })
                     }
                 }
@@ -459,7 +523,10 @@ impl LeaseArbiter {
                    AND (q.priority < ?3 OR (q.priority = ?3 AND q.ticket < ?4))"
             ),
             rusqlite::params![scope, lane, i64::from(req.priority), ticket],
-            |r| r.get::<_, i64>(0).map(|n| u32::try_from(n).unwrap_or(u32::MAX)),
+            |r| {
+                r.get::<_, i64>(0)
+                    .map(|n| u32::try_from(n).unwrap_or(u32::MAX))
+            },
         )?;
         Ok((ticket, ahead))
     }
@@ -632,7 +699,7 @@ impl LeaseArbiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lease_ipc::{LeaseAcquireReq, LeaseRenewReq, LeaseReleaseReq, LeaseRequest};
+    use crate::lease_ipc::{LeaseAcquireReq, LeaseReleaseReq, LeaseRenewReq, LeaseRequest};
     use std::sync::Arc;
 
     /// The lease-table bootstrap DDL — byte-equivalent (modulo `IF NOT EXISTS`) to
@@ -783,6 +850,55 @@ mod tests {
         }
     }
 
+    /// T11630: the `queue_admit` verb is WIRED through the LLM queue — an admit
+    /// within budget returns `admitted`; an over-budget admit returns `deferred`
+    /// with a `retry_after_ms` back-off (AC4 — never a silent drop / unimplemented).
+    #[test]
+    fn queue_admit_is_wired_and_admits_then_defers() {
+        let (arb, _dir, _p) = fixture();
+        // Seed a tiny provider budget so the second admit is forced to defer.
+        arb.llm_queue()
+            .configure_provider("anthropic", 100, 10, 60_000);
+
+        // First admit (lead, 80 tokens) fits → admitted.
+        let first = arb.handle(LeaseRequest::QueueAdmit(QueueAdmitReq {
+            provider: "anthropic".into(),
+            priority_class: QueuePriorityClass::Lead,
+            est_tokens: 80,
+            child_id: "lead-1".into(),
+        }));
+        match first {
+            LeaseResponse::QueueAdmitResult(r) => {
+                assert_eq!(r.disposition, QueueAdmitDisposition::Admitted);
+                assert_eq!(r.retry_after_ms, 0);
+                assert_eq!(r.tokens_remaining, 20);
+                assert!(
+                    arb.llm_queue().has_in_flight_call("lead-1"),
+                    "admit records the in-flight bit (watchdog seam)"
+                );
+            }
+            other => panic!("expected admitted queue_admit_result, got {other:?}"),
+        }
+
+        // Second admit (50 tokens) exceeds the remaining 20 → deferred.
+        let second = arb.handle(LeaseRequest::QueueAdmit(QueueAdmitReq {
+            provider: "anthropic".into(),
+            priority_class: QueuePriorityClass::Worker,
+            est_tokens: 50,
+            child_id: "worker-1".into(),
+        }));
+        match second {
+            LeaseResponse::QueueAdmitResult(r) => {
+                assert_eq!(r.disposition, QueueAdmitDisposition::Deferred);
+                assert!(
+                    r.retry_after_ms >= 1,
+                    "a deferral carries a positive back-off"
+                );
+            }
+            other => panic!("expected deferred queue_admit_result, got {other:?}"),
+        }
+    }
+
     #[test]
     fn stale_dead_pid_holder_is_reclaimed_and_killed() {
         let (arb, _dir, db_path) = fixture();
@@ -799,7 +915,11 @@ mod tests {
         )
         .expect("seed stale row");
         let killed = arb.reclaim_or_kill(DbScope::Project);
-        assert_eq!(killed.len(), 1, "the stale dead-pid holder must be reclaimed");
+        assert_eq!(
+            killed.len(),
+            1,
+            "the stale dead-pid holder must be reclaimed"
+        );
         assert_eq!(killed[0].holder_id, "dead-holder");
         assert!(killed[0].reason.contains("unresponsive"));
         // The next acquire should now grant (the stale row was reclaimed).
@@ -823,6 +943,9 @@ mod tests {
         )
         .expect("seed past-ttl-but-live row");
         let killed = arb.reclaim_or_kill(DbScope::Project);
-        assert!(killed.is_empty(), "a live holder must never be killed (risk #4)");
+        assert!(
+            killed.is_empty(),
+            "a live holder must never be killed (risk #4)"
+        );
     }
 }

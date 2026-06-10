@@ -89,6 +89,9 @@ pub enum LeaseRequest {
     RateCheck(RateCheckReq),
     /// Request a tool-use grant. `[declared; handler deferred]`
     ToolGrant(ToolGrantReq),
+    /// Admit (or defer) an outbound LLM call through the priority scheduler +
+    /// per-provider rate governor (T11630 · AC1-AC4). `[wired]`
+    QueueAdmit(QueueAdmitReq),
 }
 
 /// An arbiter → client lease response or unsolicited event.
@@ -111,6 +114,8 @@ pub enum LeaseResponse {
     LeaseRevoked(LeaseRevoked),
     /// Unsolicited event: a lease holder was killed for being unresponsive.
     ChildKilledUnresponsive(ChildKilled),
+    /// Reply to a `queue_admit`: the LLM call was admitted or deferred (T11630).
+    QueueAdmitResult(QueueAdmitResult),
     /// An error response correlated to a request id. Reuses the v1.0
     /// [`crate::ipc::ErrorResult`] shape so error framing is shared across both
     /// protocol versions.
@@ -263,6 +268,36 @@ pub struct ToolGrantReq {
     pub holder_id: String,
 }
 
+/// The priority class of a `queue_admit` request.
+///
+/// Mirrors the TS `QueuePriorityClass` enum and
+/// `cleo_supervisor::llm_queue::PriorityClass`. `lead > worker > background` — a
+/// lead is never starved by background work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueuePriorityClass {
+    /// A lead/orchestrator agent — highest priority.
+    Lead,
+    /// A worker agent — normal priority.
+    Worker,
+    /// Background consolidation / dreaming — lowest priority.
+    Background,
+}
+
+/// Admit (or defer) an outbound LLM call through the priority scheduler +
+/// per-provider rate governor (T11630 · AC1-AC4). Mirrors `QueueAdmitReq`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueueAdmitReq {
+    /// The LLM provider id the call targets (rate budget is per-provider).
+    pub provider: String,
+    /// The caller's priority class (lead > worker > background).
+    pub priority_class: QueuePriorityClass,
+    /// The caller's estimate of the request's token cost (debited on admit).
+    pub est_tokens: u64,
+    /// The child the call belongs to (in-flight tracking — the watchdog seam).
+    pub child_id: String,
+}
+
 // ─── Response payloads ──────────────────────────────────────────────────────
 
 /// The lease was granted to the caller. Mirrors `LeaseGranted`.
@@ -329,6 +364,33 @@ pub struct ToolGranted {
     pub holder_id: String,
 }
 
+/// The disposition of a `queue_admit` request (T11630).
+///
+/// Mirrors `QueueAdmitDisposition` in TS — `admitted` (execute now) or
+/// `deferred` (back off `retry_after_ms` and re-request; AC4 — never a silent
+/// drop).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueAdmitDisposition {
+    /// The call is admitted — execute it now.
+    Admitted,
+    /// The call is deferred — wait `retry_after_ms` and re-request.
+    Deferred,
+}
+
+/// Reply to a `queue_admit`. Mirrors `QueueAdmitResult` (T11630).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueueAdmitResult {
+    /// Whether the LLM call was admitted or deferred.
+    pub disposition: QueueAdmitDisposition,
+    /// Back-off in ms before re-requesting (0 when admitted).
+    pub retry_after_ms: u64,
+    /// Remaining provider token budget after this decision.
+    pub tokens_remaining: u64,
+    /// Number of higher/equal-priority waiters ahead (0 when admitted).
+    pub queue_position: u32,
+}
+
 /// Unsolicited event: a held lease was revoked. Mirrors `LeaseRevoked`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeaseRevoked {
@@ -363,16 +425,17 @@ mod tests {
     /// The FROZEN v1.1 request `kind` values, in declaration order. The
     /// schema-drift guard pins this tuple; any addition/removal is a
     /// contract-breaking change requiring a coordinated dual edit.
-    const LEASE_REQUEST_KINDS: [&str; 5] = [
+    const LEASE_REQUEST_KINDS: [&str; 6] = [
         "lease_acquire",
         "lease_release",
         "lease_renew",
         "rate_check",
         "tool_grant",
+        "queue_admit",
     ];
 
     /// The FROZEN v1.1 response `kind` values, in declaration order.
-    const LEASE_RESPONSE_KINDS: [&str; 8] = [
+    const LEASE_RESPONSE_KINDS: [&str; 9] = [
         "lease_granted",
         "lease_queued",
         "lease_denied",
@@ -380,6 +443,7 @@ mod tests {
         "tool_granted",
         "lease_revoked",
         "child_killed_unresponsive",
+        "queue_admit_result",
         "error",
     ];
 
@@ -413,6 +477,12 @@ mod tests {
             LeaseRequest::ToolGrant(ToolGrantReq {
                 tool: "browser".into(),
                 holder_id: "pid-42:tasks".into(),
+            }),
+            LeaseRequest::QueueAdmit(QueueAdmitReq {
+                provider: "anthropic".into(),
+                priority_class: QueuePriorityClass::Lead,
+                est_tokens: 1024,
+                child_id: "worker-1".into(),
             }),
         ]
     }
@@ -459,6 +529,12 @@ mod tests {
                 holder_id: "pid-42:tasks".into(),
                 scope: DbScope::Project,
                 reason: "unresponsive past ttl".into(),
+            }),
+            LeaseResponse::QueueAdmitResult(QueueAdmitResult {
+                disposition: QueueAdmitDisposition::Deferred,
+                retry_after_ms: 250,
+                tokens_remaining: 0,
+                queue_position: 2,
             }),
             LeaseResponse::Error(crate::ipc::ErrorResult {
                 code: "E_LEASE_BAD_VERSION".into(),

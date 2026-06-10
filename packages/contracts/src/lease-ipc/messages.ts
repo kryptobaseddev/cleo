@@ -170,6 +170,41 @@ export const ToolGrantRequestSchema = z
 export type ToolGrantRequest = z.infer<typeof ToolGrantRequestSchema>;
 
 /**
+ * The priority class of a `queue_admit` request (T11630). Mirrors the Rust
+ * `QueuePriorityClass` enum and `cleo_supervisor::llm_queue::PriorityClass`.
+ *
+ * `lead > worker > background` — a lead/orchestrator agent is never starved by a
+ * background consolidation (AC1).
+ */
+export const QueuePriorityClassSchema = z.enum(['lead', 'worker', 'background']);
+
+/** A `queue_admit` priority class (inferred from {@link QueuePriorityClassSchema}). */
+export type QueuePriorityClass = z.infer<typeof QueuePriorityClassSchema>;
+
+/**
+ * Admit (or defer) an outbound LLM call through the supervisor's priority
+ * scheduler + per-provider rate governor (T11630 · AC1-AC4). Mirrors
+ * `QueueAdmitReq`. `[wired]`
+ */
+export const QueueAdmitRequestSchema = z
+  .object({
+    /** Tag discriminating this request variant. */
+    kind: z.literal('queue_admit'),
+    /** The LLM provider id the call targets (rate budget is per-provider). */
+    provider: z.string().min(1),
+    /** The caller's priority class (lead > worker > background). */
+    priority_class: QueuePriorityClassSchema,
+    /** The caller's estimate of the request's token cost (debited on admit). */
+    est_tokens: z.number().int().nonnegative(),
+    /** The child the call belongs to (in-flight tracking — the watchdog seam). */
+    child_id: z.string().min(1),
+  })
+  .strict();
+
+/** Queue-admit request payload (inferred from {@link QueueAdmitRequestSchema}). */
+export type QueueAdmitRequest = z.infer<typeof QueueAdmitRequestSchema>;
+
+/**
  * The discriminated union of all client → arbiter lease requests. The `kind`
  * field selects the variant, matching the serde `#[serde(tag = "kind")]`
  * tagging on the Rust `LeaseRequest` enum.
@@ -180,6 +215,7 @@ export const LeaseIpcRequestSchema = z.discriminatedUnion('kind', [
   LeaseRenewRequestSchema,
   RateCheckRequestSchema,
   ToolGrantRequestSchema,
+  QueueAdmitRequestSchema,
 ]);
 
 /** Any lease IPC request (inferred from {@link LeaseIpcRequestSchema}). */
@@ -335,6 +371,38 @@ export const ChildKilledUnresponsiveResponseSchema = z
 export type ChildKilledUnresponsiveResponse = z.infer<typeof ChildKilledUnresponsiveResponseSchema>;
 
 /**
+ * The disposition of a `queue_admit` request (T11630). Mirrors
+ * `QueueAdmitDisposition` in Rust — `admitted` (execute now) or `deferred`
+ * (back off `retry_after_ms` and re-request; AC4 — never a silent drop).
+ */
+export const QueueAdmitDispositionSchema = z.enum(['admitted', 'deferred']);
+
+/** A `queue_admit` disposition (inferred from {@link QueueAdmitDispositionSchema}). */
+export type QueueAdmitDisposition = z.infer<typeof QueueAdmitDispositionSchema>;
+
+/**
+ * Reply to a `queue_admit`: the LLM call was admitted or deferred (T11630).
+ * Mirrors `QueueAdmitResult`.
+ */
+export const QueueAdmitResultResponseSchema = z
+  .object({
+    /** Tag discriminating this response variant. */
+    kind: z.literal('queue_admit_result'),
+    /** Whether the LLM call was admitted or deferred. */
+    disposition: QueueAdmitDispositionSchema,
+    /** Back-off in ms before re-requesting (0 when admitted). */
+    retry_after_ms: z.number().int().nonnegative(),
+    /** Remaining provider token budget after this decision. */
+    tokens_remaining: z.number().int().nonnegative(),
+    /** Number of higher/equal-priority waiters ahead (0 when admitted). */
+    queue_position: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/** Queue-admit result payload (inferred from {@link QueueAdmitResultResponseSchema}). */
+export type QueueAdmitResultResponse = z.infer<typeof QueueAdmitResultResponseSchema>;
+
+/**
  * An error response correlated to a request. Mirrors the v1.0
  * `crate::ipc::ErrorResult` shape reused by the Rust `LeaseResponse::Error`
  * variant — error framing is shared across protocol versions.
@@ -366,6 +434,7 @@ export const LeaseIpcResponseSchema = z.discriminatedUnion('kind', [
   ToolGrantedResponseSchema,
   LeaseRevokedResponseSchema,
   ChildKilledUnresponsiveResponseSchema,
+  QueueAdmitResultResponseSchema,
   LeaseErrorResponseSchema,
 ]);
 
@@ -444,6 +513,7 @@ export const LEASE_IPC_REQUEST_KINDS = [
   'lease_renew',
   'rate_check',
   'tool_grant',
+  'queue_admit',
 ] as const;
 
 /**
@@ -458,6 +528,7 @@ export const LEASE_IPC_RESPONSE_KINDS = [
   'tool_granted',
   'lease_revoked',
   'child_killed_unresponsive',
+  'queue_admit_result',
   'error',
 ] as const;
 
