@@ -41,7 +41,7 @@ import { getTemplatesByKind } from '@cleocode/core/templates/registry';
 import { defineCommand } from 'citty';
 import { ReadlineWizardIO } from '../lib/readline-wizard-io.js';
 import { cliError, cliOutput, isHumanOutput } from '../renderers/index.js';
-import { emitLoginResult, runLoginFrontDoor } from './login.js';
+import { runLoginFrontDoor } from './login.js';
 
 /**
  * Load the gitignore template from the package's templates/ directory.
@@ -213,11 +213,10 @@ export const initCommand = defineCommand({
       // prompt that launches the wizard inline; non-TTY / --json paths only
       // surface the nextStep and never prompt.
       const nextSteps = [...(result.nextSteps ?? [])];
-      const launchedFrontDoor = await maybeNudgeFirstRunLogin(nextSteps);
-
-      // Front-door already rendered its own result envelope/human line — avoid
-      // double-emitting the init envelope on top of it.
-      if (launchedFrontDoor) return;
+      // The nudge is fully contained: a declined, failed, or interrupted login
+      // must never fail a SUCCESSFUL init — the init envelope below is always
+      // emitted and the exit code stays 0 (T11725 takeover review).
+      await maybeNudgeFirstRunLogin(nextSteps);
 
       cliOutput(
         {
@@ -282,36 +281,58 @@ export async function isCredentialPoolEmpty(): Promise<boolean> {
  *   - Never prompts on non-TTY / --json paths — only the nextStep is emitted.
  *
  * @param nextSteps - The init result's nextSteps array, mutated in place.
- * @returns `true` when the front-door wizard was launched (and rendered its own
- *   output), else `false`.
+ * Fully contained: never throws and never exits the process — a declined,
+ * failed, or Ctrl-C'd login is rendered as a non-fatal stderr note so the
+ * caller's init envelope (and exit 0) always survive (T11725 takeover review:
+ * `io.confirm` throws WizardInterruptError on Ctrl-C, the OAuth acquirer
+ * propagates flow errors, and `emitLoginResult`'s failure path process.exits —
+ * none of which may abort a SUCCESSFUL init).
+ *
  * @task T11727
  */
 export async function maybeNudgeFirstRunLogin(
   nextSteps: Array<{ action: string; command: string }>,
-): Promise<boolean> {
-  if (!(await isCredentialPoolEmpty())) return false;
+): Promise<void> {
+  if (!(await isCredentialPoolEmpty())) return;
 
   // Always surface the nextStep (data path — AC2).
   nextSteps.push({ ...FIRST_RUN_LOGIN_NEXT_STEP });
 
   // Only prompt on a human-facing interactive terminal (AC3). The JSON/agent
   // path and any piped invocation get the nextStep and nothing else.
-  if (!isHumanOutput() || process.stdin.isTTY !== true) return false;
+  if (!isHumanOutput() || process.stdin.isTTY !== true) return;
 
-  const io = new ReadlineWizardIO();
-  let configureNow: boolean;
   try {
-    configureNow = await io.confirm('No LLM credential found. Configure now?', true);
-  } finally {
-    io.close();
-  }
-  if (!configureNow) return false;
+    // Prompts go to stderr — stdout is reserved for the init envelope.
+    const io = new ReadlineWizardIO(process.stdin, process.stderr);
+    let configureNow: boolean;
+    try {
+      configureNow = await io.confirm('No LLM credential found. Configure now?', true);
+    } finally {
+      io.close();
+    }
+    if (!configureNow) return;
 
-  // Launch the shared onboarding front door inline. It owns its own prompts +
-  // result rendering, so the init handler must not also emit an envelope.
-  const result = await runLoginFrontDoor({});
-  emitLoginResult(result, 'init.login');
-  return true;
+    // Launch the shared onboarding front door inline, rendering its outcome
+    // as non-fatal stderr lines (NOT emitLoginResult — its failure path
+    // process.exits, which would discard the init result).
+    const result = await runLoginFrontDoor({});
+    if (result.validated) {
+      process.stderr.write(
+        `  Logged in to ${result.provider} as '${result.accountLabel}' — ` +
+          `bound ${result.profileName ?? 'default'} → ${result.provider}/${result.modelId}.\n`,
+      );
+    } else {
+      const failed = result.steps.find((st) => st.status === 'failed');
+      process.stderr.write(
+        `  Login did not complete${failed?.detail ? `: ${failed.detail}` : '.'} ` +
+          `Run 'cleo login' to retry.\n`,
+      );
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`  Login skipped (${msg}). Run 'cleo login' to retry.\n`);
+  }
 }
 
 /**

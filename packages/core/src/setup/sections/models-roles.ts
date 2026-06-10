@@ -130,11 +130,29 @@ export function createModelsRolesSection(): WizardSectionRunner {
           }
           changes.push(`default model → ${options.defaultModel}`);
         }
-        // Per-role bindings.
+        // Per-role bindings. A provider-only entry is completed with the
+        // provider's catalog-default model: the role resolver's tier-2 check
+        // requires BOTH provider AND model (`role-resolver.ts` tier 2), so a
+        // model-less binding would be dead config that the resolver silently
+        // falls through — while isConfigured() starts skipping the section
+        // (T11725 takeover review).
         for (const [role, binding] of Object.entries(options.roleBindings ?? {})) {
           if (!isWhoamiRole(role)) continue;
-          await writeRoleBinding(role, binding);
-          changes.push(`${role} → ${binding.provider}/${binding.model ?? '(default)'}`);
+          let model = binding.model;
+          if (!model) {
+            model =
+              resolveProviderDefaultModel(catalogKeyForProvider(binding.provider)) ?? undefined;
+          }
+          if (!model) {
+            io.warn(
+              `Skipping role binding ${role} → ${binding.provider}: no model supplied and ` +
+                `no catalog default found for '${binding.provider}'. ` +
+                `Re-run with {"${role}": {"provider": "${binding.provider}", "model": "<id>"}}.`,
+            );
+            continue;
+          }
+          await writeRoleBinding(role, { ...binding, model });
+          changes.push(`${role} → ${binding.provider}/${model}`);
         }
         if (changes.length === 0) {
           return {

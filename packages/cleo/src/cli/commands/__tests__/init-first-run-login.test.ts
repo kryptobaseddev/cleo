@@ -22,7 +22,14 @@ vi.mock('@cleocode/core/llm/credential-pool.js', () => ({
 }));
 
 // The front-door is mocked so the prompt-accept branch never runs a real login.
-const mockRunFrontDoor = vi.fn(async () => ({ validated: true, steps: [], provider: 'anthropic' }));
+const mockRunFrontDoor = vi.fn(async () => ({
+  validated: true,
+  steps: [],
+  provider: 'anthropic',
+  accountLabel: 'oauth-login',
+  profileName: 'default',
+  modelId: 'claude-haiku-4-5-20251001',
+}));
 vi.mock('../login.js', () => ({
   runLoginFrontDoor: (...a: unknown[]) => mockRunFrontDoor(...(a as [])),
   emitLoginResult: vi.fn(),
@@ -75,17 +82,16 @@ describe('cleo init — first-run credential nudge (T11727)', () => {
 
   it('AC2 — empty pool appends the cleo login nextStep (non-TTY: no prompt)', async () => {
     const nextSteps: Array<{ action: string; command: string }> = [];
-    const launched = await maybeNudgeFirstRunLogin(nextSteps);
-    expect(launched).toBe(false);
+    await maybeNudgeFirstRunLogin(nextSteps);
     expect(nextSteps.some((s) => s.command === 'cleo login')).toBe(true);
     expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockRunFrontDoor).not.toHaveBeenCalled();
   });
 
   it('AC3 — populated pool yields NO nextStep and NO prompt', async () => {
     mockPoolList.mockResolvedValue([{ provider: 'anthropic', label: 'x' }]);
     const nextSteps: Array<{ action: string; command: string }> = [];
-    const launched = await maybeNudgeFirstRunLogin(nextSteps);
-    expect(launched).toBe(false);
+    await maybeNudgeFirstRunLogin(nextSteps);
     expect(nextSteps).toHaveLength(0);
     expect(mockConfirm).not.toHaveBeenCalled();
   });
@@ -96,11 +102,12 @@ describe('cleo init — first-run credential nudge (T11727)', () => {
     mockConfirm.mockResolvedValue(true);
 
     const nextSteps: Array<{ action: string; command: string }> = [];
-    const launched = await maybeNudgeFirstRunLogin(nextSteps);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await maybeNudgeFirstRunLogin(nextSteps);
+    stderrSpy.mockRestore();
 
     expect(mockConfirm).toHaveBeenCalledTimes(1);
     expect(mockRunFrontDoor).toHaveBeenCalledTimes(1);
-    expect(launched).toBe(true);
     // nextStep still surfaced (data path) even though we launched.
     expect(nextSteps.some((s) => s.command === 'cleo login')).toBe(true);
   });
@@ -111,10 +118,62 @@ describe('cleo init — first-run credential nudge (T11727)', () => {
     mockConfirm.mockResolvedValue(false);
 
     const nextSteps: Array<{ action: string; command: string }> = [];
-    const launched = await maybeNudgeFirstRunLogin(nextSteps);
+    await maybeNudgeFirstRunLogin(nextSteps);
 
     expect(mockConfirm).toHaveBeenCalledTimes(1);
     expect(mockRunFrontDoor).not.toHaveBeenCalled();
-    expect(launched).toBe(false);
+  });
+
+  // T11725 takeover review — containment: a failed/interrupted login must
+  // never throw out of the nudge (a successful init would otherwise exit
+  // non-zero and lose its envelope).
+  it('containment — a front-door THROW is swallowed and rendered as a stderr note', async () => {
+    mockIsHumanOutput.mockReturnValue(true);
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    mockConfirm.mockResolvedValue(true);
+    mockRunFrontDoor.mockRejectedValueOnce(new Error('OAuth flow aborted'));
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const nextSteps: Array<{ action: string; command: string }> = [];
+    await expect(maybeNudgeFirstRunLogin(nextSteps)).resolves.toBeUndefined();
+    const wrote = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    stderrSpy.mockRestore();
+
+    expect(wrote).toContain('OAuth flow aborted');
+    expect(wrote).toContain('cleo login');
+  });
+
+  it('containment — a Ctrl-C at the confirm prompt is swallowed', async () => {
+    mockIsHumanOutput.mockReturnValue(true);
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    mockConfirm.mockRejectedValueOnce(new Error('Interrupted (Ctrl-C)'));
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await expect(maybeNudgeFirstRunLogin([])).resolves.toBeUndefined();
+    stderrSpy.mockRestore();
+    expect(mockRunFrontDoor).not.toHaveBeenCalled();
+  });
+
+  it('containment — a non-validated login result renders a non-fatal retry note (no process.exit)', async () => {
+    mockIsHumanOutput.mockReturnValue(true);
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    mockConfirm.mockResolvedValue(true);
+    mockRunFrontDoor.mockResolvedValueOnce({
+      validated: false,
+      steps: [{ step: 'validate', status: 'failed', detail: 'model mismatch' }],
+      provider: 'anthropic',
+    } as never);
+
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await expect(maybeNudgeFirstRunLogin([])).resolves.toBeUndefined();
+    const wrote = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    stderrSpy.mockRestore();
+    exitSpy.mockRestore();
+
+    expect(wrote).toContain('model mismatch');
+    expect(wrote).toContain('cleo login');
   });
 });

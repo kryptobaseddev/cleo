@@ -114,6 +114,49 @@ describe('models-roles wizard section (T11726)', () => {
     );
   });
 
+  it('T11725 review: provider-only role binding is completed with the catalog default model', async () => {
+    // The role resolver requires BOTH provider AND model (tier 2) — a
+    // provider-only binding would be dead config the resolver silently skips,
+    // while isConfigured() starts hiding the section. The section must write a
+    // COMPLETE binding using the provider's catalog default.
+    mockResolveDefault.mockReturnValue('m-newest');
+    const section = createModelsRolesSection();
+    const io = new StubWizardIO();
+    const result = await section.run(io, {
+      nonInteractive: true,
+      provider: 'anthropic',
+      roleBindings: { extraction: { provider: 'anthropic' } },
+    });
+
+    expect(result.changed).toBe(true);
+    expect(mockSetConfigValue).toHaveBeenCalledWith(
+      'llm.roles.extraction.model',
+      'm-newest',
+      undefined,
+      { global: true },
+    );
+    expect(result.summary).toContain('extraction → anthropic/m-newest');
+  });
+
+  it('T11725 review: provider-only binding with NO catalog default is skipped with a warning (never half-written)', async () => {
+    mockResolveDefault.mockReturnValue(null as never);
+    const section = createModelsRolesSection();
+    const io = new StubWizardIO();
+    const result = await section.run(io, {
+      nonInteractive: true,
+      provider: 'anthropic',
+      roleBindings: { extraction: { provider: 'mystery-provider' } },
+    });
+
+    expect(result.changed).toBe(false);
+    expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+      'llm.roles.extraction.provider',
+      expect.anything(),
+      undefined,
+      expect.anything(),
+    );
+  });
+
   it('AC3 — non-interactive short-circuits cleanly when no inputs supplied', async () => {
     const section = createModelsRolesSection();
     const io = new StubWizardIO();

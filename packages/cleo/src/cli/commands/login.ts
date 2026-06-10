@@ -39,7 +39,6 @@ import type {
   AcquiredOAuthToken,
   OAuthTokenAcquirer,
 } from '@cleocode/core/llm/onboarding/front-door.js';
-import { runFrontDoorLogin } from '@cleocode/core/llm/onboarding/front-door.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { ReadlineWizardIO } from '../lib/readline-wizard-io.js';
 import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/index.js';
@@ -159,6 +158,13 @@ function parseRole(raw: unknown): RoleName | undefined {
  * @task T11725
  */
 export async function runLoginFrontDoor(args: Record<string, unknown>): Promise<OnboardingResult> {
+  // Lazy: front-door.ts statically imports the provider-registry + login-engine
+  // graph; a static import here would defeat providerRegistry()'s lazy-loading
+  // and pull the heavy graph into every command that mounts login (init, auth,
+  // llm) at module-load time.
+  const { runFrontDoorLogin } = await import(
+    /* webpackIgnore: true */ '@cleocode/core/llm/onboarding/front-door.js'
+  );
   const flags = await resolveFlags(args);
 
   // The OAuth acquirer is only invoked when the resolved auth method is oauth.
@@ -193,7 +199,9 @@ async function resolveFlags(args: Record<string, unknown>): Promise<ParsedLoginF
   out.role = parseRole(args['role']);
 
   const registry = await providerRegistry();
-  const io = new ReadlineWizardIO();
+  // Prompts MUST go to stderr: stdout carries exactly one LAFS envelope when
+  // piped / --json (ADR-086), and the command meta promises stderr prompts.
+  const io = new ReadlineWizardIO(process.stdin, process.stderr);
   try {
     out.provider = await resolveProvider(args, registry, io);
     out.authMode = await resolveAuthMethod(args, out.provider, registry, io);
@@ -411,12 +419,11 @@ export const LOGIN_ARGS = {
 export const loginCommand = defineCommand({
   meta: {
     name: 'login',
+    // ONE quoted literal, no backticks: the manifest generator's DESC_RE
+    // captures only the first plain string literal (concatenations + backticks
+    // truncate the `cleo --help` text mid-sentence).
     description:
-      'Log in to an LLM provider and bind a usable profile in one step — the discoverable ' +
-      'front door over `cleo llm login`. Picks a provider + auth method (browser OAuth or API key), ' +
-      'selects a model, binds it, and validates the binding. `cleo auth login` and `cleo llm login` ' +
-      'resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal ' +
-      'or a JSON envelope when piped / --json.',
+      'Log in to an LLM provider and bind a usable profile in one step. Picks a provider + auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
   },
   args: LOGIN_ARGS,
   async run({ args }) {

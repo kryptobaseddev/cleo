@@ -172,8 +172,18 @@ export interface OnboardingDeps {
   ) => { valid: boolean; reason: string };
   /** Write a global config value (the `llm.default` / `llm.roles[role]` binding). */
   setConfigValue: (key: string, value: unknown) => Promise<unknown>;
-  /** Round-trip resolve the binding for the validate step. */
-  resolve: (provider: ModelTransport, projectRoot?: string) => Promise<OnboardingResolution>;
+  /**
+   * Round-trip resolve the binding for the validate step.
+   *
+   * `role` is the role the bind step just wrote (`llm.roles[role]`), so the
+   * validate resolution MUST target that role — resolving a different role
+   * would validate an unrelated binding (T11725 takeover review).
+   */
+  resolve: (
+    provider: ModelTransport,
+    projectRoot?: string,
+    role?: RoleName,
+  ) => Promise<OnboardingResolution>;
 }
 
 /**
@@ -189,9 +199,9 @@ function defaultDeps(): OnboardingDeps {
     resolveProviderDefaultModel: (catalogKey) => resolveProviderDefaultModel(catalogKey),
     validateModelForProvider: (model, catalogKey) => validateModelForProvider(model, catalogKey),
     setConfigValue: (key, value) => setConfigValue(key, value, undefined, { global: true }),
-    resolve: async (_provider, projectRoot) => {
+    resolve: async (_provider, projectRoot, role) => {
       const resolved = await resolveLLMForSystem(
-        { kind: 'role', id: 'consolidation' },
+        { kind: 'role', id: role ?? 'consolidation' },
         projectRoot !== undefined ? { projectRoot } : undefined,
       );
       // Map the full resolver envelope down to the structural subset the
@@ -427,7 +437,7 @@ export async function runOnboardingLogin(
 
   // --- Step 4: validate ---------------------------------------------------
   try {
-    const resolved = await deps.resolve(canonicalProvider, opts.projectRoot);
+    const resolved = await deps.resolve(canonicalProvider, opts.projectRoot, opts.role);
     const providerMatch = resolved.provider === canonicalProvider;
     const modelMatch = resolved.model === modelId;
     const hasHandle = resolved.sealedCredential !== null;
