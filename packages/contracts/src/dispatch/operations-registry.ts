@@ -8956,4 +8956,141 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+
+  // ── service domain: universal service-vault OAuth flow (T11939 · epic T11765) ──
+  // Four verbs driving the declarative SERVICE_PROVIDERS registry: auth-url (query
+  // — build a PKCE authorization URL), exchange (mutate — persist encrypted tokens
+  // from an auth code), refresh (mutate — renew an access token honoring the
+  // per-provider RefreshConfig), self-heal (mutate — resolve + transparently
+  // refresh a past-expiry connection). The flow lives in CORE (store/service-oauth.ts).
+  {
+    gateway: 'query',
+    domain: 'service',
+    operation: 'auth-url',
+    description:
+      'service.auth-url (query) — build a PKCE OAuth authorization URL for a service provider; returns the URL + the code verifier + state to round-trip into service.exchange.',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['provider'],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description:
+          'Service provider key (e.g. github, google, notion) — must be in SERVICE_PROVIDERS.',
+      },
+      {
+        name: 'state',
+        type: 'string',
+        required: false,
+        description: 'Opaque CSRF state to embed; a random value is generated when omitted.',
+      },
+      {
+        name: 'scope',
+        type: 'string',
+        required: false,
+        description: 'Scope override (e.g. a BYOC custom scope). Defaults to the provider scope.',
+      },
+      {
+        name: 'redirectUri',
+        type: 'string',
+        required: false,
+        description: 'Redirect URI override. Defaults to the provider loopback redirect.',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'service',
+    operation: 'exchange',
+    description:
+      'service.exchange (mutate) — exchange an OAuth authorization code (+ PKCE verifier) for tokens and PERSIST them encryptGlobal-encrypted into service_connections. Returns the non-secret connection identity.',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['provider', 'code', 'codeVerifier', 'redirectUri'],
+    params: [
+      { name: 'provider', type: 'string', required: true, description: 'Service provider key.' },
+      {
+        name: 'code',
+        type: 'string',
+        required: true,
+        description: 'Authorization code from the redirect callback.',
+      },
+      {
+        name: 'codeVerifier',
+        type: 'string',
+        required: true,
+        description: 'PKCE code verifier from service.auth-url (round-tripped).',
+      },
+      {
+        name: 'redirectUri',
+        type: 'string',
+        required: true,
+        description: 'Redirect URI used in service.auth-url (must match).',
+      },
+      {
+        name: 'label',
+        type: 'string',
+        required: false,
+        description: 'Connection label, unique within the provider. Defaults to "default".',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'service',
+    operation: 'refresh',
+    description:
+      'service.refresh (mutate) — refresh a service connection access token honoring the per-provider RefreshConfig (Form/Json × Body/BasicAuth, plus github-app / service-account-jwt / client-credentials variants); re-encrypts + persists the new blob.',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['agentId', 'provider', 'label'],
+    params: [
+      {
+        name: 'agentId',
+        type: 'string',
+        required: true,
+        description: 'Agent requesting the refresh (trust-gated).',
+      },
+      { name: 'provider', type: 'string', required: true, description: 'Service provider key.' },
+      { name: 'label', type: 'string', required: true, description: 'Connection label.' },
+      {
+        name: 'approved',
+        type: 'boolean',
+        required: false,
+        description: 'Out-of-band manual-approval flag forwarded to the trust gate.',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'service',
+    operation: 'self-heal',
+    description:
+      'service.self-heal (mutate) — resolve a service connection and, when its expires_at is past, transparently refresh + re-encrypt + persist; returns a fresh sealed-credential reference (agents never see a stale token).',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['agentId', 'provider', 'label'],
+    params: [
+      {
+        name: 'agentId',
+        type: 'string',
+        required: true,
+        description: 'Agent requesting the connection (trust-gated).',
+      },
+      { name: 'provider', type: 'string', required: true, description: 'Service provider key.' },
+      { name: 'label', type: 'string', required: true, description: 'Connection label.' },
+      {
+        name: 'approved',
+        type: 'boolean',
+        required: false,
+        description: 'Out-of-band manual-approval flag forwarded to the trust gate.',
+      },
+    ] satisfies ParamDef[],
+  },
 ];

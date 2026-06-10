@@ -27,6 +27,7 @@ import { ProvenanceHandler } from './provenance.js';
 import { ReleaseHandler } from './release.js';
 import { SelfimproveHandler } from './selfimprove.js';
 import { SentientHandler } from './sentient.js';
+import { ServiceHandler } from './service.js';
 import { SessionHandler } from './session.js';
 import { StickyHandler } from './sticky.js';
 import { TasksHandler } from './tasks.js';
@@ -53,6 +54,7 @@ export {
   ReleaseHandler,
   SelfimproveHandler,
   SentientHandler,
+  ServiceHandler,
   SessionHandler,
   StickyHandler,
   TasksHandler,
@@ -100,6 +102,10 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   // T11889 (T11889-D): selfimprove domain — the self-dogfooding loop verb
   // (`cleo selfimprove run`). Thin delegate to the CORE `runSelfImprove` engine.
   handlers.set('selfimprove', new SelfimproveHandler());
+  // T11939 (epic T11765): service domain — universal service-vault OAuth flow
+  // (`cleo service auth-url|exchange|refresh|self-heal`). Thin delegate to the
+  // CORE `store/service-oauth.ts` functions, driven by SERVICE_PROVIDERS.
+  handlers.set('service', new ServiceHandler());
   // T9258: `cleo llm` CLI surface — credential pool + role-aware resolver + config writer.
   handlers.set('llm', new LlmHandler());
   // T9546: `cleo worktree` CLI surface — structured worktree enumeration with status classification

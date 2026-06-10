@@ -1239,6 +1239,16 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "allowlist.list",
     ],
   },
+  "service": {
+    "mutate": [
+      "exchange",
+      "refresh",
+      "self-heal",
+    ],
+    "query": [
+      "auth-url",
+    ],
+  },
   "session": {
     "mutate": [
       "start",
@@ -1395,4 +1405,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `417`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `421`;

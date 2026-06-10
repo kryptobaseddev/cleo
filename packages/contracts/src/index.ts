@@ -2402,12 +2402,24 @@ export {
   validatorRejectionSchema,
   validatorVerdictSchema,
 } from './validator/index.js';
-// === Universal Service Vault — declarative service-provider registry (T11937, epic T11765) ===
+// === Universal Service Vault — declarative service-provider registry (T11937 seed + T11938 breadth, epic T11765) ===
 export type {
+  CredentialHeaderRule,
+  HostAuthStrategy,
+  MetadataHeaderRule,
+  RefreshBodyFormat,
+  RefreshClientAuth,
+  RefreshConfig,
+  RefreshKind,
   ServiceAuthKind,
+  ServiceHostRule,
   ServiceProviderDef,
 } from './vault/service-provider.js';
-export { SERVICE_AUTH_KINDS, SERVICE_PROVIDERS } from './vault/service-provider.js';
+export {
+  REFRESH_KINDS,
+  SERVICE_AUTH_KINDS,
+  SERVICE_PROVIDERS,
+} from './vault/service-provider.js';
 export type {
   TasksFrontierParamsInput,
   TasksRollupParamsInput,

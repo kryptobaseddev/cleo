@@ -232,6 +232,114 @@ export async function connectService(
   return row.id;
 }
 
+/**
+ * UPDATE a connection's encrypted token blob + expiry in place (OAuth refresh
+ * persistence seam — T11939).
+ *
+ * The self-heal path ({@link import('./service-oauth.js').selfHealConnection})
+ * calls this after a refresh: the new `{accessToken, refreshToken}` blob is
+ * {@link encryptGlobal}-encrypted under the SAME `id = service:${provider}:${label}`
+ * and written back, with `expires_at` bumped and `status` kept `active`. Only the
+ * ciphertext is persisted — exactly like {@link connectService}.
+ *
+ * @returns `true` if a row was updated, `false` when no such `(provider, label)`.
+ * @task T11939
+ */
+export async function updateConnectionTokens(
+  params: {
+    readonly provider: string;
+    readonly label: string;
+    readonly tokens: ServiceTokenBlob;
+    readonly expiresAt?: string | null;
+  },
+  deps?: ServiceVaultDeps,
+): Promise<boolean> {
+  const db = await resolveDb(deps);
+  const encrypt = deps?.encrypt ?? encryptGlobal;
+  const id = credentialId(params.provider, params.label);
+  const credentialsEnc = await encrypt(JSON.stringify(params.tokens), id);
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const updated = await db
+    .update(serviceConnections)
+    .set({
+      credentialsEnc,
+      ...(params.expiresAt !== undefined ? { expiresAt: params.expiresAt } : {}),
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(serviceConnections.provider, params.provider),
+        eq(serviceConnections.label, params.label),
+      ),
+    )
+    .returning({ id: serviceConnections.id });
+  return updated.length > 0;
+}
+
+/** The decrypted token blob + expiry returned by {@link loadDecryptedTokenBlob}. */
+export interface DecryptedConnection {
+  /** The connection id. */
+  readonly id: number;
+  /** The decrypted `{accessToken, refreshToken}` blob (SECRET — never log/serialize). */
+  readonly blob: ServiceTokenBlob;
+  /** ISO-8601 access-token expiry, or `null` when non-expiring/unknown. */
+  readonly expiresAt: string | null;
+}
+
+/**
+ * RESOLVE a connection's DECRYPTED token blob — **policy-before-decrypt** (T11939).
+ *
+ * The self-heal seam: the OAuth flow needs the REFRESH token (inside the encrypted
+ * blob) plus `expires_at` to decide whether to refresh. Like
+ * {@link resolveSealedConnection}, the trust gate runs FIRST and `decryptGlobal`
+ * is invoked ONLY on allow — a denied agent gets `null` with NO decrypt. Unlike
+ * the sealed resolve, this returns the plaintext blob inline (the caller is the
+ * refresh machinery, which re-encrypts immediately) so it MUST NOT cross a
+ * logging/serialization boundary.
+ *
+ * @returns The decrypted blob + expiry on allow; `null` when denied / missing /
+ *   not `active` / no stored credential.
+ * @task T11939
+ */
+export async function loadDecryptedTokenBlob(
+  params: ResolveServiceParams,
+  deps?: ServiceVaultDeps,
+): Promise<DecryptedConnection | null> {
+  const db = await resolveDb(deps);
+  const decrypt = deps?.decrypt ?? decryptGlobal;
+
+  const rows = await db
+    .select()
+    .from(serviceConnections)
+    .where(
+      and(
+        eq(serviceConnections.provider, params.provider),
+        eq(serviceConnections.label, params.label),
+      ),
+    )
+    .limit(1);
+  const conn = rows[0];
+  if (conn === undefined || conn.status !== 'active' || conn.credentialsEnc === null) {
+    return null;
+  }
+
+  // POLICY BEFORE DECRYPT — no crypto has run yet.
+  const grants = await loadAgentGrants(db, params.agentId);
+  const decision = evaluateServiceAccess(grants, {
+    agentId: params.agentId,
+    serviceConnectionId: conn.id,
+    approved: params.approved,
+  });
+  if (!decision.allowed) {
+    return null;
+  }
+
+  const id = credentialId(params.provider, params.label);
+  const plaintext = await decrypt(conn.credentialsEnc, id);
+  const blob = JSON.parse(plaintext) as ServiceTokenBlob;
+  return { id: conn.id, blob, expiresAt: conn.expiresAt };
+}
+
 /** Map a raw connection row to a non-secret {@link ServiceConnectionView}. */
 function toView(row: typeof serviceConnections.$inferSelect): ServiceConnectionView {
   let scopes: string[] = [];
