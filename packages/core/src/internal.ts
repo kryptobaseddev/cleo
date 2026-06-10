@@ -33,6 +33,20 @@
 
 import './lib/suppress-sqlite-warning.js';
 
+// Cantbook stage LLM-profile resolution — the seam the production cantbook
+// dispatchers call to resolve a node's `profile:` / `model:` / `provider:` pin
+// through the E9 chokepoint (T11759 · M4). Exported here (ahead of the index
+// superset, mirroring the Pi-runner wiring above) so the live binding is set
+// before the flat re-export cycle.
+export type {
+  CantbookProfilePin,
+  ResolveCantbookNodeProfileInput,
+} from './playbooks/cantbook-profile.js';
+export {
+  cantbookNodeSystemKey,
+  hasCantbookProfilePin,
+  resolveCantbookNodeProfile,
+} from './playbooks/cantbook-profile.js';
 // Pi in-process runner wiring — default-OFF, lazy-imported Pi `SkillRunner` the
 // production cantbook dispatchers pass into `runSkillNodeOrSpawn`'s `runner` slot
 // (T11945 · M4). Exported BEFORE the `export * from './index.js'` superset so the

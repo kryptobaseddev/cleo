@@ -349,6 +349,21 @@ export interface ResolveLLMForRoleOptions {
    * @task T11748
    */
   systemKey?: string;
+  /**
+   * Optional named profile (a key of `llm.profiles`) that pins this resolution
+   * to a specific provider/model/credential, winning over the role tier
+   * (T11759 · M4).
+   *
+   * When set and the profile resolves, it is the HIGHEST-priority tier of
+   * {@link selectProviderModel} — above `roles[role]` and the `systems[key]`
+   * override — so an explicit caller pin (e.g. a `.cantbook` stage's
+   * `profile:`) cannot be silently overridden by background role config. When
+   * the named profile is absent or structurally incomplete, resolution falls
+   * through to the normal chain unchanged. Direct role callers leave it unset.
+   *
+   * @task T11759
+   */
+  profileOverride?: string;
 }
 
 // ============================================================================

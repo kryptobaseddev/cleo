@@ -58,6 +58,33 @@ export interface PlaybookAgenticNode extends PlaybookNodeBase {
    * Enforced at spawn time by composeSpawnPayload (T1261 PSYCHE E4).
    */
   context_files?: string[];
+  /**
+   * Pin this stage's LLM to a named profile from `llm.profiles` (T11759 · M4).
+   *
+   * When present, the dispatcher resolves the stage's LLM through the E9
+   * chokepoint (`resolveLLMForSystem`) keyed by the cantbook node identity
+   * (`cantbook:<playbook>#<nodeId>`) with this profile name threaded as the
+   * pin — so the named profile's provider/model/credential win over the
+   * background role default. Additive: a node without `profile`/`model`/
+   * `provider` resolves exactly as before.
+   */
+  profile?: string;
+  /**
+   * Pin this stage's LLM to an explicit model id (T11759 · M4).
+   *
+   * A lower-precedence escape hatch than {@link profile}: when no `profile` is
+   * declared the dispatcher threads this model id as the resolution hint. The
+   * runtime never constructs a transport from it — it is a resolution hint
+   * consumed by the Pi runner / model-runner downstream (Gate-13).
+   */
+  model?: string;
+  /**
+   * Pin this stage's LLM to an explicit provider transport (T11759 · M4).
+   *
+   * Paired with {@link model} as the inline escape hatch when no {@link profile}
+   * is declared. A resolution hint only — never used to build a client here.
+   */
+  provider?: string;
 }
 
 export interface PlaybookDeterministicNode extends PlaybookNodeBase {

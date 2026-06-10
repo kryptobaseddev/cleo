@@ -331,8 +331,14 @@ async function acquireDb(): Promise<_DatabaseSyncType> {
 async function buildDefaultDispatcher(): Promise<AgentDispatcher> {
   if (__playbookRuntimeOverrides.dispatcher) return __playbookRuntimeOverrides.dispatcher;
   const { orchestrateSpawnExecute } = await import('@cleocode/runtime/gateway');
-  const { getProjectRoot, createToolGuard, runSkillNodeOrSpawn, maybeCreatePiRunner } =
-    await import('@cleocode/core/internal');
+  const {
+    getProjectRoot,
+    createToolGuard,
+    runSkillNodeOrSpawn,
+    maybeCreatePiRunner,
+    resolveCantbookNodeProfile,
+    hasCantbookProfilePin,
+  } = await import('@cleocode/core/internal');
   const projectRoot = getProjectRoot();
   // In-process skill nodes execute over a deny-first guarded tool surface scoped
   // to the project root (T11477 · AC4). Isolation/agent nodes keep spawning.
@@ -341,6 +347,45 @@ async function buildDefaultDispatcher(): Promise<AgentDispatcher> {
   // nodes THROUGH the Pi agent loop. Default-OFF → `undefined` → defaultSkillRunner
   // (zero behaviour change). The helper lazy-imports the Pi barrel only when enabled.
   const runner = await maybeCreatePiRunner({ system: 'task-executor', projectRoot });
+
+  /**
+   * T11759 (M4): when a cantbook stage pins its LLM (`profile:` / `model:` /
+   * `provider:`), resolve it through the E9 chokepoint keyed by the cantbook node
+   * identity (`cantbook:<playbook>#<nodeId>`). Gate-13: this resolves METADATA
+   * only — `resolveCantbookNodeProfile` constructs NO transport/client; the
+   * resolved provider/model is surfaced into the node output as a hint the Pi
+   * runner / model-runner consumes. Returns `undefined` for an un-pinned node so
+   * the dispatch path is unchanged.
+   */
+  const resolveStageProfile = async (
+    input: AgentDispatchInput,
+  ): Promise<Record<string, unknown> | undefined> => {
+    if (
+      !hasCantbookProfilePin({
+        profile: input.profile,
+        model: input.model,
+        provider: input.provider,
+      })
+    ) {
+      return undefined;
+    }
+    const resolved = await resolveCantbookNodeProfile({
+      playbookName: input.playbookName ?? 'cantbook',
+      nodeId: input.nodeId,
+      pin: { profile: input.profile, model: input.model, provider: input.provider },
+      projectRoot,
+    });
+    // Resolution hint only (NOT a transport): provider/model + the resolved
+    // background source so downstream can attribute the pin.
+    return {
+      [`${input.nodeId}_llm`]: {
+        provider: resolved.provider,
+        model: resolved.model,
+        source: resolved.source,
+        profile: input.profile ?? null,
+      },
+    };
+  };
 
   /** Subprocess-spawn fallback — retained for isolation/agent nodes (AC3). */
   const spawn = async (input: AgentDispatchInput): Promise<AgentDispatchResult> => {
@@ -372,11 +417,15 @@ async function buildDefaultDispatcher(): Promise<AgentDispatcher> {
   return {
     async dispatch(input: AgentDispatchInput): Promise<AgentDispatchResult> {
       try {
+        // T11759 (M4): resolve a declared per-stage LLM profile through E9 BEFORE
+        // dispatch so the resolved model/provider hint is merged into the node
+        // output. No-op (undefined) for un-pinned nodes — path unchanged.
+        const llmHint = await resolveStageProfile(input);
         // In-process ct-* skill node → SkillExecutorAdapter (replaces spawn for
         // those nodes, AC2); everything else → subprocess spawn (AC3). With the
         // Pi runner wired (T11945) the in-process node runs through the Pi loop;
         // `runner: undefined` (default-OFF) keeps the defaultSkillRunner path.
-        return await runSkillNodeOrSpawn(
+        const result = await runSkillNodeOrSpawn(
           { nodeId: input.nodeId, agentId: input.agentId, context: input.context },
           {
             tools,
@@ -385,6 +434,10 @@ async function buildDefaultDispatcher(): Promise<AgentDispatcher> {
             ...(runner !== undefined ? { runner } : {}),
           },
         );
+        if (llmHint !== undefined && result.status === 'success') {
+          return { ...result, output: { ...result.output, ...llmHint } };
+        }
+        return result;
       } catch (err) {
         return {
           status: 'failure',

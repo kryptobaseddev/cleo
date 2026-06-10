@@ -372,8 +372,16 @@ function selectProviderModel(
   llm: LlmConfig | undefined,
   role: RoleName,
   systemKey?: string,
+  profileOverride?: string,
 ): SelectedProviderModel {
   const roleEntry: LlmRoleConfig | undefined = llm?.roles?.[role];
+
+  // 0. Explicit profile pin (T11759 · M4) — HIGHEST priority. A caller that
+  // pins a named profile (e.g. a `.cantbook` stage's `profile:`) cannot be
+  // silently overridden by background role config. Falls through unchanged when
+  // the name is unknown / structurally incomplete.
+  const pinnedProfile = resolveNamedProfile(llm, profileOverride, 'profile');
+  if (pinnedProfile) return pinnedProfile;
 
   // 1. Role pinned to a named profile (explicit-arg lane).
   const roleProfile = resolveNamedProfile(llm, roleEntry?.profile, 'profile');
@@ -568,6 +576,7 @@ export async function resolveLLMForRole(
     llmBlock,
     role,
     opts?.systemKey,
+    opts?.profileOverride,
   );
 
   // Step 3 — resolve credential.

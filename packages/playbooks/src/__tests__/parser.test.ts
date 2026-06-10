@@ -340,6 +340,86 @@ nodes:
     });
   });
 
+  describe('T11759: agentic node LLM profile pin', () => {
+    it('AC1: parses profile/model/provider on an agentic node', () => {
+      const yaml = `
+version: "1.0"
+name: pinned
+nodes:
+  - id: review
+    type: agentic
+    skill: ct-validator
+    profile: frontier-review
+    model: claude-opus-4-8
+    provider: anthropic
+`;
+      const { definition } = parsePlaybook(yaml);
+      expect(definition.nodes[0]).toMatchObject({
+        id: 'review',
+        type: 'agentic',
+        profile: 'frontier-review',
+        model: 'claude-opus-4-8',
+        provider: 'anthropic',
+      });
+    });
+
+    it('AC1: omits profile/model/provider when not declared (additive)', () => {
+      const yaml = `
+version: "1.0"
+name: unpinned
+nodes:
+  - id: plain
+    type: agentic
+    skill: ct-research-agent
+`;
+      const node = parsePlaybook(yaml).definition.nodes[0];
+      expect(node).not.toHaveProperty('profile');
+      expect(node).not.toHaveProperty('model');
+      expect(node).not.toHaveProperty('provider');
+    });
+
+    it('AC1: a profile-only pin is valid', () => {
+      const yaml = `
+version: "1.0"
+name: profile-only
+nodes:
+  - id: stage
+    type: agentic
+    skill: ct-task-executor
+    profile: fast-lane
+`;
+      const node = parsePlaybook(yaml).definition.nodes[0];
+      expect(node).toMatchObject({ profile: 'fast-lane' });
+      expect(node).not.toHaveProperty('model');
+    });
+
+    it('AC1: rejects an empty-string profile', () => {
+      const yaml = `
+version: "1.0"
+name: bad-profile
+nodes:
+  - id: stage
+    type: agentic
+    skill: ct-task-executor
+    profile: ""
+`;
+      expect(() => parsePlaybook(yaml)).toThrow(/profile must be a non-empty string/);
+    });
+
+    it('AC1: rejects a non-string model', () => {
+      const yaml = `
+version: "1.0"
+name: bad-model
+nodes:
+  - id: stage
+    type: agentic
+    skill: ct-task-executor
+    model: 42
+`;
+      expect(() => parsePlaybook(yaml)).toThrow(/model must be a non-empty string/);
+    });
+  });
+
   describe('bounds checks', () => {
     it('rejects max_iterations > 10', () => {
       const yaml = `

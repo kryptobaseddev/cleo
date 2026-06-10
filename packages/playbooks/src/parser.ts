@@ -337,6 +337,13 @@ function parseAgenticNode(
 
   const context_files = parseStringArray(raw.context_files, `nodes[${index}].context_files`);
 
+  // T11759 (M4): per-stage LLM pin. Each is an optional non-empty string — the
+  // dispatcher resolves them through the E9 chokepoint at dispatch time. Absent
+  // fields leave resolution unchanged (additive).
+  const profile = parseOptionalNonEmptyString(raw.profile, `nodes[${index}].profile`);
+  const model = parseOptionalNonEmptyString(raw.model, `nodes[${index}].model`);
+  const provider = parseOptionalNonEmptyString(raw.provider, `nodes[${index}].provider`);
+
   return {
     ...base,
     type: 'agentic',
@@ -345,6 +352,9 @@ function parseAgenticNode(
     role,
     inputs,
     ...(context_files !== undefined ? { context_files } : {}),
+    ...(profile !== undefined ? { profile } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(provider !== undefined ? { provider } : {}),
   };
 }
 
@@ -766,6 +776,23 @@ function parseStringArray(raw: unknown, field: string): string[] | undefined {
     }
     return v;
   });
+}
+
+/**
+ * Parse an optional scalar string field that, when present, MUST be a non-empty
+ * string (T11759 — the per-stage LLM pins `profile` / `model` / `provider`).
+ *
+ * @param raw - Raw YAML value.
+ * @param field - Field path for diagnostics.
+ * @returns The trimmed-as-authored string, or `undefined` when absent.
+ * @throws {PlaybookParseError} When present but not a non-empty string.
+ */
+function parseOptionalNonEmptyString(raw: unknown, field: string): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new PlaybookParseError(`${field} must be a non-empty string`, field, raw);
+  }
+  return raw;
 }
 
 /**
