@@ -10,14 +10,15 @@
  *     uses). No new table, no new schema.
  *   - **`todo_list`** — list tasks, DELEGATING to `tasksListOp` (the same path
  *     `cleo list` uses).
- *   - **`cron_schedule`** — register a recurring schedule. The schedule DOMAIN
- *     has no persisted store yet (there is no `schedules` table; `node-cron` is
- *     used only by the in-process daemon GC/sentient timers), so per AC3 this tool
- *     does NOT invent schema. It is REGISTERED (so the catalog is stable) but its
+ *   - **`cron_schedule`** — register a recurring schedule. The schedule store now
+ *     exists (the `schedules` table + leased Gate-3 accessor `store/schedule-store.ts`,
+ *     T11962 under T11679), so this tool DELEGATES to {@link ScheduleStore.add} and
+ *     persists a row daemon-OFF (a future daemon scheduler consumes the SAME table
+ *     as a separate reader). It stays REGISTERED-but-capability-gated: its
  *     {@link AvailabilityCheck} hides it until a host advertises a schedule store
- *     (`capabilities.scheduleStore === true`), and invoking it without the store
- *     returns a typed `E_SCHEDULE_STORE_UNAVAILABLE` failure pointing at the
- *     follow-up that adds the store (T11962, under T11679). `todo_*` are always
+ *     (`capabilities.scheduleStore === true`) so a host that has opted out of the
+ *     schedule domain does not surface it; invoking it without the store still
+ *     returns a typed `E_SCHEDULE_STORE_UNAVAILABLE` failure. `todo_*` are always
  *     available daemon-OFF.
  *
  * ## Why a seam, not a hardcoded import (testing + Gate-11)
@@ -82,26 +83,47 @@ export interface TaskOps {
 }
 
 /**
- * The result `cron_schedule` returns when no schedule store backs it — a typed,
- * non-throwing failure pointing at the follow-up that adds the store. The tool is
- * registered (catalog-stable) but gated unavailable until the store ships.
+ * The result `cron_schedule` returns: on success the minted `scheduleId` of the
+ * persisted row; on failure a typed, non-throwing error (e.g. when no schedule
+ * store backs the host). The tool is registered (catalog-stable) and gated on the
+ * `scheduleStore` host capability.
  */
 export interface CronScheduleResult {
   /** Whether a schedule row was registered. */
   readonly ok: boolean;
-  /** The registered schedule's ID (present on success — once a store backs it). */
+  /** The registered schedule's ID (present on success). */
   readonly scheduleId?: string;
-  /** A stable code + message for why scheduling is unavailable (present on failure). */
+  /** A stable code + message for why scheduling failed (present on failure). */
   readonly error?: { readonly code: string; readonly message: string };
 }
 
 /**
+ * The schedule-store operation the `cron_schedule` tool delegates to. Injectable
+ * so the unit test can supply a fake store; defaults to the real Gate-3 accessor
+ * (`store/schedule-store.ts`) opened through the {@link openDualScopeDb} chokepoint.
+ */
+export interface ScheduleStore {
+  /**
+   * Register a recurring schedule and return its minted opaque handle.
+   *
+   * @param projectRoot - The project root whose `cleo.db` the schedule persists in.
+   * @param params - The cron expression + task template (title / description).
+   * @returns The minted `sched-<token>` handle.
+   */
+  readonly add: (
+    projectRoot: string,
+    params: { cron: string; title: string; description?: string },
+  ) => Promise<string>;
+}
+
+/**
  * Available only when the host advertises a schedule store
- * (`capabilities.scheduleStore === true`). The schedule domain has no persisted
- * store yet (T11962, under T11679), so `cron_schedule` is registered-but-hidden
- * — mirroring the playwright-gated browser tools — until the store ships. This is
- * a host POLICY/capability switch, not a daemon probe: registration of a schedule
- * row is meant to persist WITHOUT a live daemon once the store exists.
+ * (`capabilities.scheduleStore === true`). The schedule store now EXISTS (the
+ * `schedules` table + leased Gate-3 accessor, T11962 under T11679), so the gate is
+ * a host POLICY/capability switch — a host that has opted out of the schedule
+ * domain does not surface `cron_schedule`. Registration of a schedule row persists
+ * WITHOUT a live daemon (the chokepoint serializes the single in-process writer);
+ * a future daemon scheduler consumes the same table as a separate reader.
  */
 export const scheduleStoreAvailable: AvailabilityCheck = (ctx) =>
   ctx.capabilities?.scheduleStore === true;
@@ -110,6 +132,12 @@ export const scheduleStoreAvailable: AvailabilityCheck = (ctx) =>
 export interface ScheduleAgentToolOptions {
   /** The task ops seam. Defaults to the real `tasksAddOp` / `tasksListOp`. */
   readonly tasks?: TaskOps;
+  /**
+   * The schedule-store seam `cron_schedule` delegates to. Defaults to the real
+   * Gate-3 accessor (`store/schedule-store.ts`). Injected in tests with a fake
+   * store so registration is asserted WITHOUT opening a real `cleo.db`.
+   */
+  readonly schedule?: ScheduleStore;
   /**
    * The project root threaded into every op (defaults to the resolved project
    * root via {@link resolveOrCwd} — never a bare `process.cwd()` in core, T9584).
@@ -129,6 +157,29 @@ async function realTaskOps(): Promise<TaskOps> {
   return {
     add: (root, params) => tasksAddOp(root, params),
     list: (root, params) => tasksListOp(root, params),
+  };
+}
+
+/**
+ * Build the real schedule-store seam by lazily importing the Gate-3 accessor.
+ * Lazy so this tool module stays import-time side-effect-free; the import (and the
+ * `cleo.db` open) happens only when `cron_schedule` first fires. The accessor
+ * routes through {@link openDualScopeDb} (the dual-scope chokepoint) — it NEVER
+ * opens a raw handle.
+ *
+ * @returns The production {@link ScheduleStore}.
+ */
+async function realScheduleStore(): Promise<ScheduleStore> {
+  const { getScheduleNativeDb, addSchedule } = await import('../store/schedule-store.js');
+  return {
+    add: async (root, params) => {
+      const native = await getScheduleNativeDb(root);
+      return addSchedule(native, {
+        cronExpr: params.cron,
+        title: params.title,
+        description: params.description,
+      });
+    },
   };
 }
 
@@ -235,15 +286,15 @@ export function registerScheduleAgentTools(
     },
   });
 
-  // --- cron_schedule (gated unavailable until a schedule store ships) ------
+  // --- cron_schedule (persists a row through the leased Gate-3 store) -------
   registry.register({
     name: 'cron_schedule',
-    // 'fs' — registering a schedule is meant to persist a store row (once the store exists).
+    // 'fs' — registering a schedule persists a store row.
     class: 'fs',
     description:
-      'Register a recurring schedule (cron expression → task template). The schedule store is ' +
-      'not yet implemented (follow-up T11962 under T11679); this tool is hidden until a host ' +
-      'advertises a schedule store and returns a typed unavailable result otherwise.',
+      'Register a recurring schedule (cron expression → task template). Persists a row to the ' +
+      'project schedule store and returns its schedule ID. Gated on the host advertising a ' +
+      'schedule store; persists daemon-OFF (a daemon scheduler consumes the table separately).',
     toolset: 'agent',
     stateless: false,
     available: scheduleStoreAvailable,
@@ -255,20 +306,29 @@ export function registerScheduleAgentTools(
         .optional()
         .describe('A description for the task created on each fire.'),
     }),
-    execute: async (): Promise<CronScheduleResult> => {
-      // The schedule domain has no persisted store yet (AC3 — do not invent
-      // schema). Return a typed, non-throwing unavailable result pointing at the
-      // follow-up that adds the store. Once T11962 lands, this tool's `execute`
-      // writes a schedule row through the new accessor and its availability gates
-      // on the real store rather than this placeholder.
-      return {
-        ok: false,
-        error: {
-          code: 'E_SCHEDULE_STORE_UNAVAILABLE',
-          message:
-            'the cron/schedule store is not yet implemented — tracked in T11962 (under T11679)',
-        },
-      };
+    execute: async (rawArgs): Promise<CronScheduleResult> => {
+      // Delegate to the schedule-store seam (the real Gate-3 accessor, or an
+      // injected fake in tests). The accessor routes through openDualScopeDb — no
+      // raw db open here. A store/IO failure is returned as a typed, non-throwing
+      // result so the agent loop sees a structured failure rather than an
+      // exception.
+      const cron = String(rawArgs.cron);
+      const title = String(rawArgs.title);
+      const description =
+        rawArgs.description === undefined ? undefined : String(rawArgs.description);
+      try {
+        const schedule = options.schedule ?? (await realScheduleStore());
+        const scheduleId = await schedule.add(projectRoot, { cron, title, description });
+        return { ok: true, scheduleId };
+      } catch (err) {
+        return {
+          ok: false,
+          error: {
+            code: 'E_SCHEDULE_STORE_UNAVAILABLE',
+            message: `failed to register schedule: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        };
+      }
     },
   });
 }

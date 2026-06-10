@@ -27,6 +27,7 @@ import { createToolGuard } from '../guard.js';
 import {
   type CronScheduleResult,
   registerScheduleAgentTools,
+  type ScheduleStore,
   type TaskOps,
 } from '../schedule-agent-tools.js';
 
@@ -35,11 +36,12 @@ const noopSurface = {} as GuardedToolSurface;
 interface FakeCalls {
   add: Array<Record<string, unknown>>;
   list: Array<Record<string, unknown>>;
+  schedule: Array<Record<string, unknown>>;
 }
 
 /** A fake {@link TaskOps} store that records every call. */
 function fakeTasks(): { tasks: TaskOps; calls: FakeCalls } {
-  const calls: FakeCalls = { add: [], list: [] };
+  const calls: FakeCalls = { add: [], list: [], schedule: [] };
   const tasks: TaskOps = {
     add: async (_root, params) => {
       calls.add.push(params);
@@ -51,6 +53,21 @@ function fakeTasks(): { tasks: TaskOps; calls: FakeCalls } {
     },
   };
   return { tasks, calls };
+}
+
+/**
+ * A fake {@link ScheduleStore} that records every `add` and returns a deterministic
+ * handle — no real `cleo.db` is opened. `failWith`, when set, makes `add` throw so
+ * the typed-failure path can be exercised.
+ */
+function fakeSchedule(calls: FakeCalls, failWith?: Error): ScheduleStore {
+  return {
+    add: async (_root, params) => {
+      calls.schedule.push(params);
+      if (failWith) throw failWith;
+      return 'sched-deadbeefdeadbeefdeadbeef';
+    },
+  };
 }
 
 // ===========================================================================
@@ -104,10 +121,15 @@ describe('schedule-agent-tools — availability (AC2)', () => {
 // ===========================================================================
 
 describe('schedule-agent-tools — delegation (AC2/AC3)', () => {
-  async function registryWith(): Promise<{ registry: AgentToolRegistry; calls: FakeCalls }> {
+  async function registryWith(
+    scheduleFailWith?: Error,
+  ): Promise<{ registry: AgentToolRegistry; calls: FakeCalls }> {
     const { tasks, calls } = fakeTasks();
     const registry = new AgentToolRegistry();
-    registerScheduleAgentTools(registry, { tasks });
+    registerScheduleAgentTools(registry, {
+      tasks,
+      schedule: fakeSchedule(calls, scheduleFailWith),
+    });
     await registry.init({ skipBuiltins: true });
     return { registry, calls };
   }
@@ -134,14 +156,31 @@ describe('schedule-agent-tools — delegation (AC2/AC3)', () => {
     expect(calls.list[0]).toMatchObject({ parent: 'T100', limit: 10 });
   });
 
-  it('cron_schedule returns a typed unavailable result (no schema invented; no daemon block)', async () => {
-    const { registry } = await registryWith();
+  it('cron_schedule delegates to the schedule store and returns the minted id', async () => {
+    const { registry, calls } = await registryWith();
+    const out = (await registry.getExecutable('cron_schedule')?.(
+      { cron: '0 9 * * 1', title: 'weekly', description: 'do the weekly thing' },
+      noopSurface,
+    )) as CronScheduleResult;
+    expect(out.ok).toBe(true);
+    expect(out.scheduleId).toBe('sched-deadbeefdeadbeefdeadbeef');
+    expect(calls.schedule).toHaveLength(1);
+    expect(calls.schedule[0]).toMatchObject({
+      cron: '0 9 * * 1',
+      title: 'weekly',
+      description: 'do the weekly thing',
+    });
+  });
+
+  it('cron_schedule returns a typed failure (no throw) when the store errors', async () => {
+    const { registry } = await registryWith(new Error('disk full'));
     const out = (await registry.getExecutable('cron_schedule')?.(
       { cron: '0 9 * * 1', title: 'weekly' },
       noopSurface,
     )) as CronScheduleResult;
     expect(out.ok).toBe(false);
     expect(out.error?.code).toBe('E_SCHEDULE_STORE_UNAVAILABLE');
+    expect(out.error?.message).toContain('disk full');
   });
 });
 

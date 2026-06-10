@@ -2505,6 +2505,8 @@ export {
 export type {
   CredentialHeaderRule,
   HostAuthStrategy,
+  InjectionRule,
+  InjectionValueSource,
   MetadataHeaderRule,
   RefreshBodyFormat,
   RefreshClientAuth,
