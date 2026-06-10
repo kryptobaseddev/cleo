@@ -32,6 +32,7 @@ import {
   connectService,
   getConnection,
   grantAgentAccess,
+  listAllGrants,
   listConnections,
   openServiceVaultAtPath,
   resolveSealedConnection,
@@ -161,6 +162,50 @@ describe('service-vault store CRUD round-trip (real crypto)', () => {
     // Materialize at the wire — real encrypt→decrypt round-trip yields the token.
     const decrypted = await sealed?.fetch();
     expect(decrypted?.value).toBe(tokens.accessToken);
+  }, 30_000);
+});
+
+describe('service-vault listAllGrants — redacted dashboard read (T11943)', () => {
+  const tokens: ServiceTokenBlob = { accessToken: 'tok_dashboard_secret_ZZZ' };
+
+  it('lists every grant joined to its connection identity, with NO token material', async () => {
+    const deps: ServiceVaultDeps = { db };
+    const ghId = await connectService(
+      { provider: 'github', label: 'work', tokens, scopes: ['repo'] },
+      deps,
+    );
+    const googleId = await connectService({ provider: 'google', label: 'mail', tokens }, deps);
+    await grantAgentAccess('agent-a', ghId, { mode: 'allow' }, deps);
+    await grantAgentAccess('agent-b', ghId, { mode: 'block' }, deps);
+    await grantAgentAccess('agent-a', googleId, { mode: 'allow', manualApproval: true }, deps);
+
+    const grants = await listAllGrants(undefined, deps);
+    expect(grants).toHaveLength(3);
+
+    // Provider/label are joined from the connection; the token never appears.
+    const serialized = JSON.stringify(grants);
+    expect(serialized).not.toContain(tokens.accessToken);
+
+    const ghAllow = grants.find((g) => g.agentId === 'agent-a' && g.provider === 'github');
+    expect(ghAllow).toMatchObject({ label: 'work', mode: 'allow', manualApproval: false });
+
+    const ghBlock = grants.find((g) => g.agentId === 'agent-b' && g.provider === 'github');
+    expect(ghBlock?.mode).toBe('block');
+
+    const googleManual = grants.find((g) => g.agentId === 'agent-a' && g.provider === 'google');
+    expect(googleManual).toMatchObject({ label: 'mail', mode: 'allow', manualApproval: true });
+  }, 30_000);
+
+  it('filters to one agent when an agentId is supplied', async () => {
+    const deps: ServiceVaultDeps = { db };
+    const connId = await connectService({ provider: 'github', label: 'solo', tokens }, deps);
+    await grantAgentAccess('only-me', connId, { mode: 'allow' }, deps);
+    await grantAgentAccess('someone-else', connId, { mode: 'allow' }, deps);
+
+    const mine = await listAllGrants('only-me', deps);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.agentId).toBe('only-me');
+    expect(mine[0]?.provider).toBe('github');
   }, 30_000);
 });
 
