@@ -48,6 +48,7 @@ import {
   WHOAMI_ROLE_IDS,
 } from '@cleocode/contracts';
 import { setConfigValue } from '../config.js';
+import { getLogger } from '../logger.js';
 // S-13 (CWE-209): wrap any user-facing error string in the project-wide
 // `redactContent` helper so a stack trace or fetch error that incidentally
 // contains a credential substring is automatically scrubbed before it
@@ -71,6 +72,8 @@ import { IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } from './role-resolver.js';
 import { tokenPreview } from './sealed-credential.js';
 import { listSystemsOfUse } from './system-of-use-registry.js';
 
+const logger = getLogger('llm-cli-ops');
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -93,6 +96,26 @@ const ALL_ROLES = WHOAMI_ROLE_IDS;
 // ---------------------------------------------------------------------------
 // Redaction helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Redact every occurrence of a secret in free text (S-11).
+ *
+ * Used before DEBUG-logging a provider error body: Anthropic 4xx payloads can
+ * reflect request headers (including the bearer token) back in human-readable
+ * form, so the body must never reach a log stream with the live secret in it.
+ * Replaces each occurrence with the standard last-4 preview. Empty/short
+ * secrets (< 8 chars) redact nothing — they cannot meaningfully leak and a
+ * short needle would shred unrelated text.
+ *
+ * @param text   - Raw text that may contain the secret.
+ * @param secret - The live credential to scrub.
+ * @returns The text with every occurrence of the secret replaced.
+ * @task T11968
+ */
+export function redactSecret(text: string, secret: string | null): string {
+  if (!secret || secret.length < 8 || !text) return text;
+  return text.split(secret).join(`…${secret.slice(-4)}`);
+}
 
 /**
  * Return a redacted preview of a token tagged by auth scheme (S-11).
@@ -432,16 +455,24 @@ export async function llmTest(params: LlmTestParams): Promise<EngineResult<LlmTe
   try {
     const response = await fetch(url, { method: 'POST', headers, body });
     if (!response.ok) {
-      // S-11: NEVER echo the response body in the error envelope. Some
+      // S-11: NEVER echo the response body in the error ENVELOPE. Some
       // provider 4xx responses include reflected request headers (e.g.
       // Anthropic's error payload can carry `x-api-key` substring matches
       // back in human-readable form), and a sloppy log pipeline could
-      // surface that to an audit log. Surface only the HTTP status —
-      // operators who need the body can re-run with `CLEO_LOG_LEVEL=debug`
-      // and inspect the underlying fetch trace.
+      // surface that to an audit log. Surface only the HTTP status in the
+      // envelope — and emit the body to the DEBUG log with the in-scope
+      // credential redacted, so the failure is actually diagnosable
+      // (T11958/DHQ-075 repro follow-through: the previous message promised
+      // a "raw fetch trace" that did not exist).
+      const bodyText = await response.text().catch(() => '');
+      logger.debug(
+        { provider, status: response.status, body: redactSecret(bodyText, token).slice(0, 1024) },
+        'llm.test provider ping failed',
+      );
       return engineError(
         'E_PROVIDER_PING_FAILED',
-        `${provider} returned HTTP ${response.status} (body suppressed for credential safety; rerun with CLEO_LOG_LEVEL=debug to inspect via raw fetch trace)`,
+        `${provider} returned HTTP ${response.status} (body suppressed for credential safety; ` +
+          `rerun with CLEO_LOG_LEVEL=debug to log the redacted response body)`,
       );
     }
     const parsed = (await response.json()) as { id?: string };
