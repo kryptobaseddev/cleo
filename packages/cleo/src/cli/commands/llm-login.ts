@@ -206,7 +206,7 @@ async function _runPkceLogin(
   //    callback server on THAT exact pre-registered port.
   //
   // 3. Non-headless + provider redirectUri is NOT a loopback URL (e.g. Anthropic's
-  //    https://console.anthropic.com/oauth/code/callback): the provider only
+  //    https://platform.claude.com/oauth/code/callback): the provider only
   //    accepts its registered paste-back URI. The local HTTP server would receive
   //    no redirect and the authorize / token endpoints would return HTTP 400
   //    (redirect_uri_mismatch). Force paste-back mode — use the configured URI and
@@ -239,7 +239,20 @@ async function _runPkceLogin(
   let code: string;
 
   if (effectiveHeadless) {
-    code = await _headlessPkceFlow(provider, authUrl);
+    try {
+      code = await _headlessPkceFlow(provider, authUrl, state);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        error: {
+          code: 'E_PKCE_INVALID_CALLBACK',
+          codeName: 'E_PKCE_INVALID_CALLBACK',
+          message: msg,
+        },
+        meta,
+      };
+    }
   } else {
     const result = await _localCallbackPkceFlow(provider, authUrl, state, port);
     if ('error' in result) {
@@ -258,6 +271,8 @@ async function _runPkceLogin(
       codeVerifier,
       redirectUri,
       tokenEndpoint: oauthCfg.tokenEndpoint,
+      state,
+      bodyFormat: oauthCfg.tokenBodyFormat,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -345,7 +360,7 @@ function _parseFixedLoopbackPort(redirectUri?: string): number | null {
  * Return `true` when `redirectUri` is a loopback (`localhost` / `127.0.0.1`)
  * URL that can host a local HTTP callback server, `false` otherwise.
  *
- * Non-loopback URIs (e.g. `https://console.anthropic.com/oauth/code/callback`)
+ * Non-loopback URIs (e.g. `https://platform.claude.com/oauth/code/callback`)
  * are provider-hosted paste-back pages — the browser is redirected there and
  * the user manually copies the authorization code back to the CLI. These cannot
  * receive an HTTP callback and MUST use the paste-back (headless) code path.
@@ -363,22 +378,72 @@ function _isLoopbackUri(redirectUri?: string): boolean {
 }
 
 /**
- * Headless PKCE flow: print URL to stderr, read redirect URL from stdin.
+ * Parse the user's pasted authorization response into `{ code, state }`.
  *
- * The user opens the URL in a browser, approves access, and pastes the
- * full redirect URL (containing `?code=…&state=…`) back into the terminal.
+ * Accepts every form a provider's callback page can hand the user
+ * (mirrors pi-ai's `parseAuthorizationInput`):
+ * - a full redirect URL — `https://…/callback?code=…&state=…`
+ * - the `code#state` pair Anthropic's hosted callback page displays
+ * - a bare query string — `code=…&state=…`
+ * - a bare authorization code
  *
- * @returns Authorization code extracted from the pasted redirect URL.
- * @throws {Error} When the user input is missing a `code` parameter.
+ * Exported for unit tests.
+ *
+ * @task T11958
  * @internal
  */
-async function _headlessPkceFlow(provider: string, authUrl: string): Promise<string> {
+export function _parseAuthorizationInput(input: string): { code?: string; state?: string } {
+  const value = input.trim();
+  if (!value) return {};
+  try {
+    const url = new URL(value);
+    return {
+      code: url.searchParams.get('code') ?? undefined,
+      state: url.searchParams.get('state') ?? undefined,
+    };
+  } catch {
+    // not a URL — fall through to the bare forms
+  }
+  if (value.includes('#')) {
+    const [code, state] = value.split('#', 2);
+    return { code: code || undefined, state: state || undefined };
+  }
+  if (value.includes('code=')) {
+    const params = new URLSearchParams(value);
+    return {
+      code: params.get('code') ?? undefined,
+      state: params.get('state') ?? undefined,
+    };
+  }
+  return { code: value };
+}
+
+/**
+ * Headless PKCE flow: print URL to stderr, read the authorization response
+ * from stdin.
+ *
+ * The user opens the URL in a browser, approves access, and pastes back
+ * either the full redirect URL, the `code#state` pair shown on the hosted
+ * callback page, or the bare authorization code.
+ *
+ * When the pasted input carries a `state`, it is validated against the
+ * `state` sent on the authorization request (CSRF check, RFC 6749 §10.12).
+ *
+ * @returns Authorization code extracted from the pasted input.
+ * @throws {Error} When the input has no `code` or the state does not match.
+ * @internal
+ */
+async function _headlessPkceFlow(
+  provider: string,
+  authUrl: string,
+  expectedState: string,
+): Promise<string> {
   process.stderr.write('\n');
   process.stderr.write(`  Provider: ${provider}\n`);
   process.stderr.write(`  Open this URL in your browser to authorize:\n\n`);
   process.stderr.write(`  ${authUrl}\n\n`);
   process.stderr.write(
-    `  After approving, paste the full redirect URL (http://localhost?code=…&state=…):\n  `,
+    `  After approving, paste the full redirect URL (…?code=…&state=…) or the code shown:\n  `,
   );
 
   return new Promise<string>((resolve, reject) => {
@@ -386,17 +451,16 @@ async function _headlessPkceFlow(provider: string, authUrl: string): Promise<str
     process.stdin.setEncoding('utf8');
     process.stdin.once('data', (chunk) => {
       buf += String(chunk).trim();
-      try {
-        const url = new URL(buf);
-        const code = url.searchParams.get('code');
-        if (!code) {
-          reject(new Error('Redirect URL is missing the "code" parameter'));
-          return;
-        }
-        resolve(code);
-      } catch {
-        reject(new Error(`Invalid redirect URL: ${buf}`));
+      const parsed = _parseAuthorizationInput(buf);
+      if (!parsed.code) {
+        reject(new Error('Pasted input is missing the authorization "code" parameter'));
+        return;
       }
+      if (parsed.state && parsed.state !== expectedState) {
+        reject(new Error('OAuth state mismatch — pasted redirect does not match this login'));
+        return;
+      }
+      resolve(parsed.code);
     });
   });
 }

@@ -39,6 +39,8 @@
  * @epic E-CONFIG-AUTH-UNIFY (E2a)
  */
 
+import { extractOAuthErrorDetail } from './pkce.js';
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -184,7 +186,7 @@ export async function refreshGoogleAccessToken(
   });
 
   if (!resp.ok) {
-    const detail = await extractErrorDetail(resp);
+    const detail = await extractOAuthErrorDetail(resp);
     throw new Error(`Google OAuth refresh failed: HTTP ${resp.status}${detail}`);
   }
 
@@ -214,20 +216,3 @@ export async function refreshGoogleAccessToken(
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Best-effort extraction of a human-readable error detail from a non-OK
- * token-endpoint response. Mirrors the helper in `oauth/pkce.ts` so the
- * error-message shape stays consistent across the LLM layer.
- *
- * @internal
- */
-async function extractErrorDetail(resp: Response): Promise<string> {
-  try {
-    const body = (await resp.json()) as Record<string, unknown>;
-    const desc = body['error_description'] ?? body['error'];
-    return desc ? ` — ${String(desc)}` : '';
-  } catch {
-    return '';
-  }
-}

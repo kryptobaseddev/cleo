@@ -491,7 +491,12 @@ export class CredentialPool {
     const oauthCfg = profile?.oauth;
 
     if (oauthCfg?.mode === 'pkce') {
-      await this._refreshViaPkce(existing, oauthCfg.tokenEndpoint, oauthCfg.clientId);
+      await this._refreshViaPkce(
+        existing,
+        oauthCfg.tokenEndpoint,
+        oauthCfg.clientId,
+        oauthCfg.tokenBodyFormat,
+      );
     } else if (this.provider === 'kimi-code') {
       const cfg = getKimiCodeDeviceCodeConfig();
       await this._refreshTokenViaEndpoint(existing, cfg.tokenUrl, cfg.clientId);
@@ -507,12 +512,15 @@ export class CredentialPool {
    * @param existing      - Credential entry to refresh.
    * @param tokenEndpoint - Provider token endpoint URL.
    * @param clientId      - OAuth client ID.
+   * @param bodyFormat    - Token request body encoding (`'json'` for Anthropic).
    * @task T9302
+   * @task T11958
    */
   private async _refreshViaPkce(
     existing: StoredCredential,
     tokenEndpoint: string,
     clientId: string,
+    bodyFormat?: 'form' | 'json',
   ): Promise<void> {
     if (!existing.refreshToken) return;
 
@@ -523,6 +531,7 @@ export class CredentialPool {
         clientId,
         refreshToken: existing.refreshToken,
         tokenEndpoint,
+        bodyFormat,
       });
     } catch {
       return;

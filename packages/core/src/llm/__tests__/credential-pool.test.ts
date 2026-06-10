@@ -566,11 +566,14 @@ describe('CredentialPool.proactiveRefresh() — OAuth credential threshold', () 
     await pool.proactiveRefresh('anthropic-pkce');
 
     // Verify it called the Anthropic token endpoint with refresh_token grant.
+    // T11958: the endpoint is platform.claude.com and the body is the JSON
+    // shape Anthropic's non-RFC token endpoint expects.
     expect(fetchSpy).toHaveBeenCalledOnce();
     const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('anthropic.com');
-    expect(String(init.body)).toContain('grant_type=refresh_token');
-    expect(String(init.body)).toContain('refresh_token=ant-pkce-refresh-tok');
+    expect(url).toBe('https://platform.claude.com/v1/oauth/token');
+    const refreshBody = JSON.parse(String(init.body)) as Record<string, string>;
+    expect(refreshBody['grant_type']).toBe('refresh_token');
+    expect(refreshBody['refresh_token']).toBe('ant-pkce-refresh-tok');
 
     const entries = await pool.listEntries();
     const entry = entries.find((e) => e.label === 'anthropic-pkce');

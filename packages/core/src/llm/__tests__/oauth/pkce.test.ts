@@ -142,7 +142,7 @@ describe('exchangePkceCode', () => {
     code: 'auth-code-xyz',
     codeVerifier: 'verifier-abc',
     redirectUri: 'http://localhost:9999/callback',
-    tokenEndpoint: 'https://console.anthropic.com/v1/oauth/token',
+    tokenEndpoint: 'https://platform.claude.com/v1/oauth/token',
   };
 
   it('returns normalized OAuthTokens on success', async () => {
@@ -230,6 +230,72 @@ describe('exchangePkceCode', () => {
     expect((err as Error).message).toContain('bad redirect_uri');
   });
 
+  it('T11958: surfaces the nested-object error body Anthropic actually returns (never [object Object])', async () => {
+    // Anthropic's token endpoint nests the detail:
+    //   {"type":"error","error":{"type":"invalid_grant","message":"..."}}
+    // String(object) on that `error` field produced the undebuggable
+    // "[object Object]" of DHQ-075.
+    fetchSpy.mockResolvedValue(
+      makeResponse(400, {
+        type: 'error',
+        error: { type: 'invalid_grant', message: 'redirect_uri does not match the code binding' },
+      }),
+    );
+
+    const err = await exchangePkceCode(BASE_PARAMS).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('HTTP 400');
+    expect((err as Error).message).not.toContain('[object Object]');
+    expect((err as Error).message).toContain('invalid_grant');
+    expect((err as Error).message).toContain('redirect_uri does not match the code binding');
+  });
+
+  it('T11958: nested-object error without a message field is JSON-stringified', async () => {
+    fetchSpy.mockResolvedValue(makeResponse(400, { error: { code: 42, reason: 'opaque' } }));
+
+    const err = await exchangePkceCode(BASE_PARAMS).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toContain('[object Object]');
+    expect((err as Error).message).toContain('"reason":"opaque"');
+  });
+
+  it("T11958: bodyFormat 'json' POSTs an application/json body including state", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      makeResponse(200, { access_token: 'tok', token_type: 'bearer' }),
+    );
+
+    await exchangePkceCode({
+      ...BASE_PARAMS,
+      tokenEndpoint: 'https://platform.claude.com/v1/oauth/token',
+      state: 'authorize-state-123',
+      bodyFormat: 'json',
+    });
+
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://platform.claude.com/v1/oauth/token');
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+    const body = JSON.parse(String(init.body)) as Record<string, string>;
+    expect(body['grant_type']).toBe('authorization_code');
+    expect(body['code']).toBe('auth-code-xyz');
+    expect(body['code_verifier']).toBe('verifier-abc');
+    expect(body['client_id']).toBe('test-client-id');
+    expect(body['state']).toBe('authorize-state-123');
+  });
+
+  it("T11958: default 'form' format omits state (not defined on RFC token requests)", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      makeResponse(200, { access_token: 'tok', token_type: 'bearer' }),
+    );
+
+    await exchangePkceCode({ ...BASE_PARAMS, state: 'authorize-state-123' });
+
+    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe(
+      'application/x-www-form-urlencoded',
+    );
+    expect(String(init.body)).not.toContain('state=');
+  });
+
   it('throws when access_token is missing from 200 response', async () => {
     fetchSpy.mockResolvedValueOnce(
       makeResponse(200, { token_type: 'bearer' /* no access_token */ }),
@@ -262,7 +328,7 @@ describe('refreshPkceToken', () => {
     provider: 'anthropic',
     clientId: 'test-client-id',
     refreshToken: 'sk-ant-oat-refresh-xyz',
-    tokenEndpoint: 'https://console.anthropic.com/v1/oauth/token',
+    tokenEndpoint: 'https://platform.claude.com/v1/oauth/token',
   };
 
   it('returns normalized OAuthTokens on success', async () => {
@@ -327,5 +393,39 @@ describe('refreshPkceToken', () => {
 
     const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect((init.headers as Record<string, string>)['anthropic-beta']).toBe('oauth-2025-04-20');
+  });
+
+  it("T11958: bodyFormat 'json' POSTs an application/json refresh body", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      makeResponse(200, { access_token: 'tok', token_type: 'bearer' }),
+    );
+
+    await refreshPkceToken({
+      ...BASE_PARAMS,
+      tokenEndpoint: 'https://platform.claude.com/v1/oauth/token',
+      bodyFormat: 'json',
+    });
+
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://platform.claude.com/v1/oauth/token');
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+    const body = JSON.parse(String(init.body)) as Record<string, string>;
+    expect(body['grant_type']).toBe('refresh_token');
+    expect(body['refresh_token']).toBe('sk-ant-oat-refresh-xyz');
+    expect(body['client_id']).toBe('test-client-id');
+  });
+
+  it('T11958: refresh error with nested-object body is never [object Object]', async () => {
+    fetchSpy.mockResolvedValue(
+      makeResponse(400, {
+        type: 'error',
+        error: { type: 'invalid_grant', message: 'refresh token revoked' },
+      }),
+    );
+
+    const err = await refreshPkceToken(BASE_PARAMS).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toContain('[object Object]');
+    expect((err as Error).message).toContain('invalid_grant: refresh token revoked');
   });
 });

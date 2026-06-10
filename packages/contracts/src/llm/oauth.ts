@@ -154,8 +154,22 @@ export interface ProviderOAuthConfig {
    * `code_challenge`/`code_challenge_method`/`state`).
    *
    * Used by OpenAI/Codex (`id_token_add_organizations=true`,
-   * `codex_cli_simplified_flow=true`, `originator=codex_cli_rs`). Anthropic and
-   * Kimi Code leave this unset.
+   * `codex_cli_simplified_flow=true`, `originator=codex_cli_rs`) and Anthropic
+   * (`code=true` — makes the hosted callback page display the authorization
+   * code for manual paste-back). Kimi Code leaves this unset.
    */
   extraAuthParams?: Readonly<Record<string, string>>;
+  /**
+   * Encoding of the token-endpoint request body (code exchange + refresh).
+   *
+   * - `'form'` (default) — RFC 6749 §4.1.3 `application/x-www-form-urlencoded`.
+   *   Used by OpenAI/Codex and every spec-compliant authorization server.
+   * - `'json'` — non-standard `application/json` body. Anthropic's token
+   *   endpoint (`platform.claude.com/v1/oauth/token`) expects JSON and
+   *   additionally requires the authorize-time `state` echoed in the exchange
+   *   body (the same wire shape pi-ai, OpenCode, and Claude Code use).
+   *
+   * @default 'form'
+   */
+  tokenBodyFormat?: 'form' | 'json';
 }

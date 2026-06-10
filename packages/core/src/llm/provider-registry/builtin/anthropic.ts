@@ -43,28 +43,41 @@ function resolveAnthropicClientId(): string {
 /**
  * Anthropic OAuth PKCE configuration.
  *
- * Anthropic uses RFC 7636 PKCE (not device-code). Endpoints and redirect
- * URI mirror the Hermes Agent reference implementation
- * (`agent/anthropic_adapter.py` `_OAUTH_*` constants):
+ * Anthropic uses RFC 7636 PKCE (not device-code). Endpoints mirror the
+ * embedded Pi framework reference implementation
+ * (`@earendil-works/pi-ai` `dist/utils/oauth/anthropic.js`, also what
+ * OpenCode and Claude Code use):
  *   - authorizationEndpoint: https://claude.ai/oauth/authorize
- *   - tokenEndpoint:         https://console.anthropic.com/v1/oauth/token
- *   - redirectUri:           https://console.anthropic.com/oauth/code/callback
+ *   - tokenEndpoint:         https://platform.claude.com/v1/oauth/token
+ *   - redirectUri:           https://platform.claude.com/oauth/code/callback
+ *
+ * The `console.anthropic.com` endpoints were retired in the Anthropic →
+ * claude.com domain migration: the authorize server redirects to
+ * `platform.claude.com/oauth/code/callback` regardless of the requested
+ * redirect_uri, so exchanging against the old host fails with HTTP 400
+ * (T11958 / DHQ-075).
+ *
+ * Anthropic's token endpoint is non-RFC in two ways (mirrored from pi-ai):
+ *   - it expects an `application/json` body (`tokenBodyFormat: 'json'`), and
+ *   - it requires the authorize-time `state` echoed in the exchange body.
  *
  * The Anthropic-hosted redirect URI displays the authorization code on the
- * post-redirect page so the user can paste it back into the CLI prompt
- * (the same headless paste-back flow Hermes and Claude Code use). No local
- * HTTP listener is required.
+ * post-redirect page (`code=true` opts into that display) so the user can
+ * paste it back into the CLI prompt. No local HTTP listener is required.
  *
  * @task T9302
  * @task T9344
+ * @task T11958
  */
 const ANTHROPIC_OAUTH: ProviderOAuthConfig = {
   mode: 'pkce',
   clientId: resolveAnthropicClientId(),
   authorizationEndpoint: 'https://claude.ai/oauth/authorize',
-  tokenEndpoint: 'https://console.anthropic.com/v1/oauth/token',
+  tokenEndpoint: 'https://platform.claude.com/v1/oauth/token',
   scope: 'org:create_api_key user:profile user:inference',
-  redirectUri: 'https://console.anthropic.com/oauth/code/callback',
+  redirectUri: 'https://platform.claude.com/oauth/code/callback',
+  extraAuthParams: { code: 'true' },
+  tokenBodyFormat: 'json',
 };
 
 /**

@@ -18,6 +18,8 @@
  * @epic T9261 T-LLM-CRED-CENTRALIZATION
  */
 
+import { extractOAuthErrorDetail } from './pkce.js';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -262,13 +264,7 @@ export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<Device
   });
 
   if (!resp.ok) {
-    let detail = '';
-    try {
-      const errBody = (await resp.json()) as Record<string, unknown>;
-      detail = ` — ${String(errBody['error_description'] ?? errBody['error'] ?? '')}`;
-    } catch {
-      /* ignore — non-JSON body */
-    }
+    const detail = await extractOAuthErrorDetail(resp);
     throw new Error(
       `Device code request failed for provider '${cfg.provider}': HTTP ${resp.status}${detail}`,
     );
