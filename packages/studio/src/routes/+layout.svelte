@@ -21,14 +21,22 @@
   }
   let { data, children }: Props = $props();
 
-  const navItems = [
+  // The operator-console (saga workgraph + live board) is project-scoped, so
+  // its nav target is the active project's saga picker when one is selected.
+  const consoleHref = $derived(
+    data.activeProjectId ? `/studio/${data.activeProjectId}` : '/projects',
+  );
+
+  const navItems = $derived([
     { href: '/brain', label: 'Brain', description: '5-substrate living canvas', exact: true },
     { href: '/brain/overview', label: 'Memory', description: 'BRAIN dashboard (decisions, observations, quality)', exact: false },
     { href: '/code', label: 'Code', description: 'Code intelligence', exact: false },
     { href: '/tasks', label: 'Tasks', description: 'Task management', exact: false },
     { href: '/tasks/kanban', label: 'Board', description: 'Agent-lifecycle dispatcher board (read-only)', exact: false },
+    { href: consoleHref, label: 'Console', description: 'Saga operator console — workgraph + live dispatcher board', exact: false },
+    { href: '/settings/vault', label: 'Vault', description: 'Service vault — connected services + agent grants (read-only)', exact: false },
     { href: '/projects', label: 'Admin', description: 'Project registry — scan, index, and manage projects', exact: false },
-  ];
+  ]);
 </script>
 
 <a class="skip-link" href="#main">Skip to content</a>

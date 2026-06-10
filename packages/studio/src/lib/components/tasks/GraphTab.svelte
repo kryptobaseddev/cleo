@@ -280,9 +280,17 @@
     filters: GraphFiltersHandle;
     /** Distinct labels across the bundle (drives the labels chip group). */
     labels?: string[];
+    /**
+     * The active project id (from the root layout data) — when present, the
+     * tab offers an "open in operator console" deep link to the saga-scoped
+     * workgraph shell (T11558). Passed as a prop (NOT read from `$app/stores`)
+     * so this module stays import-safe in the vitest node environment that
+     * exercises its pure exports.
+     */
+    activeProjectId?: string | null;
   }
 
-  let { tasks, deps, filters, labels = [] }: Props = $props();
+  let { tasks, deps, filters, labels = [], activeProjectId = null }: Props = $props();
 
   // ---------------------------------------------------------------------------
   // Derive the visible task set (post-filter) once; the adapter then
@@ -376,6 +384,24 @@
     clickNode(filters, n.id);
   }
 
+  // ---------------------------------------------------------------------------
+  // Operator-console deep link (T11558 · E3-WORKGRAPH-VIEW).
+  //
+  // The full-bundle relationship graph here is the cross-saga view; the
+  // saga-SCOPED workgraph + live board live in the operator-console shell
+  // (`/studio/[projectId]/[sagaId]`). When an epic/saga scope is active, link
+  // straight to that scope's shell; otherwise link to the project's saga
+  // picker. `activeProjectId` is a prop fed from the root layout data.
+  // ---------------------------------------------------------------------------
+
+  const workgraphHref = $derived.by<string | null>(() => {
+    if (!activeProjectId) return null;
+    const scope = filters.state.epic;
+    return scope
+      ? `/studio/${activeProjectId}/${scope}`
+      : `/studio/${activeProjectId}`;
+  });
+
   function onDrawerClose(): void {
     filters.setSelected(null);
   }
@@ -403,6 +429,11 @@
         Showing <strong>{graph.nodes.length}</strong> of <strong>{tasks.length}</strong>
         tasks
       </span>
+      {#if workgraphHref}
+        <a class="workgraph-link" href={workgraphHref}>
+          Open in operator console →
+        </a>
+      {/if}
     </div>
   </div>
 
@@ -488,6 +519,24 @@
   .visible-count strong {
     color: var(--text);
     font-variant-numeric: tabular-nums;
+  }
+
+  .workgraph-link {
+    margin-left: auto;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .workgraph-link:hover {
+    text-decoration: underline;
+  }
+
+  .workgraph-link:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+    border-radius: var(--radius-sm);
   }
 
   .graph-body {
