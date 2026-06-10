@@ -226,6 +226,32 @@ export interface ComposeSpawnPayloadOptions {
    * @task T9226
    */
   spawnCloneExclude?: readonly string[];
+  /**
+   * Per-step skill allowlist from a cantbook `agentic` node's `allowed_skills`
+   * (T1947 · M4 cantbook done-gate).
+   *
+   * When present, the composer intersects the resolved agent's skill baseline
+   * (Tier-0/1/2 — see {@link ResolvedAgent.skills}) with this list and surfaces
+   * the result on {@link SpawnPayload.effectiveSkills}. The allowlist can only
+   * RESTRICT the baseline, never expand it — a skill named here that the agent
+   * does not already carry is NOT added. When `undefined` the baseline passes
+   * through unchanged (additive).
+   *
+   * @task T1947
+   */
+  allowedSkills?: readonly string[];
+  /**
+   * Per-step tool allowlist from a cantbook `agentic` node's `allowed_tools`
+   * (T1947 · M4 cantbook done-gate).
+   *
+   * When present, the composer intersects the spawn's tool baseline (the
+   * {@link tools} list, AFTER the thin-agent guard has run) with this list and
+   * surfaces the result on {@link SpawnPayload.effectiveTools}. Restrict-only,
+   * never expand — identical semantics to {@link allowedSkills}.
+   *
+   * @task T1947
+   */
+  allowedTools?: readonly string[];
 }
 
 /**
@@ -270,6 +296,29 @@ export interface SpawnPayload {
    * @task T1260 PSYCHE E3
    */
   retrievalBundle?: import('@cleocode/contracts').RetrievalBundle;
+  /**
+   * The agent's EFFECTIVE skill set for this spawn (T1947 · M4).
+   *
+   * Equals {@link ResolvedAgent.skills} (the Tier-0/1/2 baseline) when the node
+   * declared no `allowed_skills`; otherwise the INTERSECTION of that baseline
+   * with {@link ComposeSpawnPayloadOptions.allowedSkills} (restrict-only). The
+   * downstream skill executor loads exactly these skills — enforcement, not
+   * prose. Always present so consumers never branch on `undefined`.
+   *
+   * @task T1947
+   */
+  effectiveSkills: readonly string[];
+  /**
+   * The spawn's EFFECTIVE tool set for this spawn (T1947 · M4), or `undefined`
+   * when the caller supplied no tool baseline (`options.tools`).
+   *
+   * When a tool baseline was supplied, equals it (post thin-agent guard) when
+   * the node declared no `allowed_tools`; otherwise the INTERSECTION of the
+   * baseline with {@link ComposeSpawnPayloadOptions.allowedTools} (restrict-only).
+   *
+   * @task T1947
+   */
+  effectiveTools?: readonly string[];
   /** Traceability / accounting metadata. */
   meta: SpawnPayloadMeta;
 }
@@ -332,6 +381,15 @@ export interface SpawnPayloadMeta {
    * @task T931 Thin-agent runtime enforcer
    */
   thinAgent?: SpawnPayloadThinAgentMeta;
+  /**
+   * Per-step skill/tool allowlist enforcement summary (T1947). Present only
+   * when the node declared `allowed_skills` and/or `allowed_tools` (i.e. the
+   * composer was given {@link ComposeSpawnPayloadOptions.allowedSkills} /
+   * `allowedTools`).
+   *
+   * @task T1947
+   */
+  allowlist?: SpawnPayloadAllowlistMeta;
 }
 
 /**
@@ -356,9 +414,79 @@ export interface SpawnPayloadThinAgentMeta {
   readonly bypassed: boolean;
 }
 
+/**
+ * Summary of the T1947 per-step allowlist intersection for a given spawn.
+ * Attached to {@link SpawnPayloadMeta.allowlist} when the node declared an
+ * `allowed_skills` and/or `allowed_tools` list.
+ *
+ * @task T1947
+ */
+export interface SpawnPayloadAllowlistMeta {
+  /**
+   * Skill slugs dropped because they were in the baseline but absent from the
+   * node's `allowed_skills`. Empty when no skill allowlist was declared.
+   */
+  readonly removedSkills: readonly string[];
+  /**
+   * Tool names dropped because they were in the baseline but absent from the
+   * node's `allowed_tools`. Empty when no tool allowlist was declared (or no
+   * tool baseline was supplied).
+   */
+  readonly removedTools: readonly string[];
+  /**
+   * `true` when a declared skill allowlist intersected the baseline down to the
+   * empty set — surfaced so callers can warn. The spawn still proceeds with no
+   * skills (matches the T1947 AC2 "empty set → warning + proceed" contract).
+   */
+  readonly skillsEmptiedByAllowlist: boolean;
+  /**
+   * `true` when a declared tool allowlist intersected the tool baseline down to
+   * the empty set.
+   */
+  readonly toolsEmptiedByAllowlist: boolean;
+}
+
 // ============================================================================
 // Internal helpers
 // ============================================================================
+
+/**
+ * Restrict a `baseline` list to only the entries also present in `allowlist`
+ * (set intersection, baseline order preserved, deduped). This is the core
+ * T1947 enforcement primitive: the allowlist can only REMOVE entries from the
+ * baseline, never add — an allowlist entry absent from the baseline is ignored.
+ *
+ * When `allowlist` is `undefined`, the baseline passes through unchanged (a
+ * node that declares no allowlist is unaffected — additive).
+ *
+ * @param baseline  - The Tier-0/1/2 baseline list (skills or tools).
+ * @param allowlist - The node's per-step allowlist, or `undefined` for no restriction.
+ * @returns `{ effective, removed }` — the intersected list plus the baseline
+ *          entries that were dropped (empty when no allowlist was applied).
+ * @task T1947
+ */
+function applyAllowlist(
+  baseline: readonly string[],
+  allowlist: readonly string[] | undefined,
+): { effective: readonly string[]; removed: readonly string[]; applied: boolean } {
+  if (allowlist === undefined) {
+    return { effective: baseline, removed: [], applied: false };
+  }
+  const allow = new Set(allowlist);
+  const effective: string[] = [];
+  const removed: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of baseline) {
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    if (allow.has(entry)) {
+      effective.push(entry);
+    } else {
+      removed.push(entry);
+    }
+  }
+  return { effective, removed, applied: true };
+}
 
 /**
  * Map an `orchLevel` (0/1/2) to the canonical {@link AgentSpawnCapability}.
@@ -519,6 +647,9 @@ export async function composeSpawnPayload(
   //     does not (yet) emit one, so legacy call sites remain unchanged.
   const thinAgentMode: ThinAgentEnforcementMode = options.thinAgentEnforcement ?? 'strict';
   let thinAgentMeta: SpawnPayloadThinAgentMeta | undefined;
+  // Tool baseline after the thin-agent guard (post-strip in `'strip'` mode).
+  // `undefined` when the caller supplied no tool list at all.
+  let toolBaseline: readonly string[] | undefined;
   if (options.tools !== undefined) {
     const thinAgentResult: ThinAgentResult = enforceThinAgent(role, options.tools, thinAgentMode);
     if (!thinAgentResult.ok) {
@@ -532,6 +663,33 @@ export async function composeSpawnPayload(
       mode: thinAgentMode,
       stripped: thinAgentResult.stripped,
       bypassed: thinAgentResult.bypassed,
+    };
+    toolBaseline = thinAgentResult.tools;
+  }
+
+  // 6b-bis. Per-step skill/tool allowlist enforcement (T1947 · M4).
+  //
+  //   The Tier-0/1/2 selection above (role → tier) determines the BASELINE skill
+  //   set (`resolvedAgent.skills`) and — when the caller supplied one — the tool
+  //   baseline (post thin-agent guard). A cantbook node's `allowed_skills` /
+  //   `allowed_tools` then FURTHER RESTRICTS that baseline via set intersection:
+  //   the allowlist can only REMOVE entries, never add one (AC2/AC3/AC4). When a
+  //   node declares no allowlist the baseline passes through unchanged (additive).
+  const skillResult = applyAllowlist(resolvedAgent.skills, options.allowedSkills);
+  const effectiveSkills = skillResult.effective;
+  const toolResult =
+    toolBaseline !== undefined
+      ? applyAllowlist(toolBaseline, options.allowedTools)
+      : { effective: undefined, removed: [], applied: false };
+  const effectiveTools = toolResult.effective;
+
+  let allowlistMeta: SpawnPayloadAllowlistMeta | undefined;
+  if (skillResult.applied || toolResult.applied) {
+    allowlistMeta = {
+      removedSkills: skillResult.removed,
+      removedTools: toolResult.removed,
+      skillsEmptiedByAllowlist: skillResult.applied && effectiveSkills.length === 0,
+      toolsEmptiedByAllowlist: toolResult.applied && (effectiveTools?.length ?? 0) === 0,
     };
   }
 
@@ -692,6 +850,9 @@ export async function composeSpawnPayload(
   if (thinAgentMeta !== undefined) {
     meta.thinAgent = thinAgentMeta;
   }
+  if (allowlistMeta !== undefined) {
+    meta.allowlist = allowlistMeta;
+  }
 
   return {
     taskId: task.id,
@@ -703,6 +864,8 @@ export async function composeSpawnPayload(
     atomicity,
     prompt: promptResult.prompt,
     ...(retrievalBundle !== undefined ? { retrievalBundle } : {}),
+    effectiveSkills,
+    ...(effectiveTools !== undefined ? { effectiveTools } : {}),
     meta,
   };
 }

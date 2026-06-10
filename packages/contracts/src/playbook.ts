@@ -85,6 +85,35 @@ export interface PlaybookAgenticNode extends PlaybookNodeBase {
    * is declared. A resolution hint only — never used to build a client here.
    */
   provider?: string;
+  /**
+   * Per-step skill allowlist enforced at spawn time (T1947 · M4 cantbook
+   * done-gate, Gap E/F).
+   *
+   * When present, the spawned agent's effective skill set is the INTERSECTION
+   * of the agent's resolved skills (the Tier-0/1/2 baseline) and this list — a
+   * skill not in both is dropped. The allowlist can only RESTRICT the baseline,
+   * never expand it: a skill named here that the agent does not already carry is
+   * NOT added. Additive: a node without `allowed_skills` spawns with its full
+   * baseline skill set, exactly as before.
+   *
+   * Enforced by `composeSpawnPayload` (it intersects `resolvedAgent.skills` with
+   * this list). An empty set after intersection is logged as a warning and the
+   * spawn proceeds with no skills.
+   */
+  allowed_skills?: string[];
+  /**
+   * Per-step tool allowlist enforced at spawn time (T1947 · M4 cantbook
+   * done-gate, Gap E/F).
+   *
+   * When present, the spawned agent's effective tool set is the INTERSECTION of
+   * the agent's resolved tool baseline and this list — a tool not in both is
+   * dropped. Like {@link allowed_skills}, this can only RESTRICT the baseline,
+   * never expand it. Additive: a node without `allowed_tools` is unaffected.
+   *
+   * Enforced by `composeSpawnPayload` AFTER the thin-agent guard, so a worker
+   * still cannot acquire a spawn-capable tool it was never granted.
+   */
+  allowed_tools?: string[];
 }
 
 export interface PlaybookDeterministicNode extends PlaybookNodeBase {

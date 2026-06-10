@@ -132,6 +132,25 @@ export interface AgentDispatchInput {
   model?: string;
   /** Inline provider pin forwarded from {@link PlaybookAgenticNode.provider} (T11759). */
   provider?: string;
+  /**
+   * Per-step skill allowlist lifted verbatim from
+   * {@link PlaybookAgenticNode.allowed_skills} (T1947 · M4).
+   *
+   * Additive + optional. When present the dispatcher passes it to
+   * `composeSpawnPayload`, which intersects it with the resolved agent's skill
+   * baseline (Tier-0/1/2) — the allowlist can only RESTRICT, never expand. When
+   * absent the spawn carries its full baseline skill set. The runtime NEVER acts
+   * on this itself — it only forwards it.
+   */
+  allowedSkills?: string[];
+  /**
+   * Per-step tool allowlist lifted verbatim from
+   * {@link PlaybookAgenticNode.allowed_tools} (T1947 · M4).
+   *
+   * Same restrict-only intersection semantics as {@link allowedSkills}, applied
+   * to the spawn's tool baseline.
+   */
+  allowedTools?: string[];
 }
 
 /**
@@ -659,6 +678,11 @@ async function executeAgenticNode(
       ...(node.profile !== undefined ? { profile: node.profile } : {}),
       ...(node.model !== undefined ? { model: node.model } : {}),
       ...(node.provider !== undefined ? { provider: node.provider } : {}),
+      // T1947 (M4): forward the per-step skill/tool allowlists so the dispatcher
+      // can intersect them against the Tier-0/1/2 baseline at spawn time. Omitted
+      // when the node declares no allowlist (additive — baseline unchanged).
+      ...(node.allowed_skills !== undefined ? { allowedSkills: node.allowed_skills } : {}),
+      ...(node.allowed_tools !== undefined ? { allowedTools: node.allowed_tools } : {}),
     });
     if (result.status === 'success') {
       return { kind: 'success', output: result.output };

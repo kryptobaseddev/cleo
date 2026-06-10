@@ -624,3 +624,226 @@ describe('composeSpawnPayload — thin-agent runtime enforcer (T931)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// T1947 — per-step skill/tool allowlist enforcement (M4 cantbook done-gate)
+// ---------------------------------------------------------------------------
+
+// Worker fixture whose resolved skill BASELINE is [ct-cleo, ct-research-agent,
+// ct-task-executor] — three skills so the intersection has something to drop.
+const FIXTURE_ALLOWLIST_WORKER_CANT = `---
+kind: agent
+version: 1
+---
+
+agent fixture-allowlist-worker:
+  role: worker
+  parent: cleo-prime
+  description: "Allowlist worker fixture."
+  prompt: "You are fixture-allowlist-worker."
+  skills: ["ct-cleo", "ct-research-agent", "ct-task-executor"]
+`;
+
+/**
+ * Seed the extra skill-catalog rows the multi-skill fixture binds to. The shared
+ * `makeTmpEnv` only seeds `ct-cleo`; the `agent_registry_skills` FK requires a
+ * catalog row per bound skill before {@link installAgentFromCant} writes the
+ * junction. Idempotent (`INSERT OR IGNORE`).
+ */
+function seedAllowlistSkills(dbPath: string): void {
+  const seedDb = new DatabaseSync(dbPath);
+  seedDb.exec('PRAGMA foreign_keys = ON');
+  const nowIso = new Date().toISOString();
+  const stmt = seedDb.prepare(
+    `INSERT OR IGNORE INTO agent_registry_skills (id, slug, name, description, category, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  stmt.run(
+    'skill-ct-research-agent',
+    'ct-research-agent',
+    'CT Research',
+    'research',
+    'core',
+    nowIso,
+  );
+  stmt.run('skill-ct-task-executor', 'ct-task-executor', 'CT Executor', 'execute', 'core', nowIso);
+  seedDb.close();
+}
+
+describe('composeSpawnPayload — per-step skill/tool allowlist (T1947)', () => {
+  let env: TmpEnv;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    env = await makeTmpEnv(Math.random().toString(36).slice(2));
+    seedAllowlistSkills(env.dbPath);
+  });
+
+  afterEach(() => {
+    env.cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('AC4: no allowlist → effectiveSkills equals the Tier-0/1/2 baseline unchanged', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-allowlist-worker.cant', FIXTURE_ALLOWLIST_WORKER_CANT);
+      const payload = await composeSpawnPayload(
+        db,
+        { ...BASE_TASK, files: ['src/a.ts'] },
+        {
+          agentId: 'fixture-allowlist-worker',
+          role: 'worker',
+          tier: 0,
+          harnessHint: 'generic',
+          projectRoot: env.projectRoot,
+        },
+      );
+      // Baseline is the agent's resolved skill set — no restriction applied.
+      expect([...payload.effectiveSkills].sort()).toEqual([
+        'ct-cleo',
+        'ct-research-agent',
+        'ct-task-executor',
+      ]);
+      expect([...payload.effectiveSkills].sort()).toEqual([...payload.resolvedAgent.skills].sort());
+      // No allowlist declared → no allowlist meta.
+      expect(payload.meta.allowlist).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('AC2/AC6: allowed_skills:[ct-cleo] over baseline [ct-cleo, ct-research-agent, ...] → only ct-cleo', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-allowlist-worker.cant', FIXTURE_ALLOWLIST_WORKER_CANT);
+      const payload = await composeSpawnPayload(
+        db,
+        { ...BASE_TASK, files: ['src/a.ts'] },
+        {
+          agentId: 'fixture-allowlist-worker',
+          role: 'worker',
+          tier: 0,
+          harnessHint: 'generic',
+          projectRoot: env.projectRoot,
+          // Restrict to one of the three baseline skills.
+          allowedSkills: ['ct-cleo'],
+        },
+      );
+      expect(payload.effectiveSkills).toEqual(['ct-cleo']);
+      expect(payload.meta.allowlist?.removedSkills.sort()).toEqual([
+        'ct-research-agent',
+        'ct-task-executor',
+      ]);
+      expect(payload.meta.allowlist?.skillsEmptiedByAllowlist).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('AC2/AC4: intersection NOT union — an allowlisted skill absent from the baseline is NOT added', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-allowlist-worker.cant', FIXTURE_ALLOWLIST_WORKER_CANT);
+      const payload = await composeSpawnPayload(
+        db,
+        { ...BASE_TASK, files: ['src/a.ts'] },
+        {
+          agentId: 'fixture-allowlist-worker',
+          role: 'worker',
+          tier: 0,
+          harnessHint: 'generic',
+          projectRoot: env.projectRoot,
+          // 'ct-cleo' is in the baseline; 'ct-not-in-baseline' is NOT — it must be ignored.
+          allowedSkills: ['ct-cleo', 'ct-not-in-baseline'],
+        },
+      );
+      // Only the intersection survives — the foreign allowlist entry is never injected.
+      expect(payload.effectiveSkills).toEqual(['ct-cleo']);
+      expect(payload.effectiveSkills).not.toContain('ct-not-in-baseline');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('AC2: empty intersection → empty skill set + skillsEmptiedByAllowlist warning, spawn still proceeds', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-allowlist-worker.cant', FIXTURE_ALLOWLIST_WORKER_CANT);
+      const payload = await composeSpawnPayload(
+        db,
+        { ...BASE_TASK, files: ['src/a.ts'] },
+        {
+          agentId: 'fixture-allowlist-worker',
+          role: 'worker',
+          tier: 0,
+          harnessHint: 'generic',
+          projectRoot: env.projectRoot,
+          // No overlap with the baseline at all.
+          allowedSkills: ['ct-nonexistent'],
+        },
+      );
+      expect(payload.effectiveSkills).toEqual([]);
+      expect(payload.meta.allowlist?.skillsEmptiedByAllowlist).toBe(true);
+      // Spawn proceeds — the prompt is still produced.
+      expect(payload.prompt).toContain('T9101');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('AC3/AC7: allowed_tools restricts the tool baseline by intersection (enforcement, not prose)', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-allowlist-worker.cant', FIXTURE_ALLOWLIST_WORKER_CANT);
+      const payload = await composeSpawnPayload(
+        db,
+        { ...BASE_TASK, files: ['src/a.ts'] },
+        {
+          agentId: 'fixture-allowlist-worker',
+          role: 'worker',
+          tier: 0,
+          harnessHint: 'generic',
+          projectRoot: env.projectRoot,
+          // Tool baseline = [Read, Edit, Grep]; restrict to [Read, Grep] + a foreign entry.
+          tools: ['Read', 'Edit', 'Grep'],
+          allowedTools: ['Read', 'Grep', 'Bash'],
+        },
+      );
+      // Edit dropped (not allowlisted); Bash never added (not in baseline).
+      expect(payload.effectiveTools).toEqual(['Read', 'Grep']);
+      expect(payload.meta.allowlist?.removedTools).toEqual(['Edit']);
+      expect(payload.meta.allowlist?.toolsEmptiedByAllowlist).toBe(false);
+      // The tier prose (skill excerpts/guidance) is unaffected — enforcement is on
+      // the structured effectiveTools list, not the prompt text.
+      expect(payload.prompt).toContain('T9101');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('AC3: no allowed_tools → effectiveTools equals the post-thin-agent baseline', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-allowlist-worker.cant', FIXTURE_ALLOWLIST_WORKER_CANT);
+      const payload = await composeSpawnPayload(
+        db,
+        { ...BASE_TASK, files: ['src/a.ts'] },
+        {
+          agentId: 'fixture-allowlist-worker',
+          role: 'worker',
+          tier: 0,
+          harnessHint: 'generic',
+          projectRoot: env.projectRoot,
+          tools: ['Read', 'Edit'],
+        },
+      );
+      expect(payload.effectiveTools).toEqual(['Read', 'Edit']);
+      // Only a skill-side allowlist? none here — but tools baseline present means
+      // the allowlist meta stays undefined when NEITHER list is declared.
+      expect(payload.meta.allowlist).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+});
