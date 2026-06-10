@@ -66,7 +66,7 @@ where
         self.clients.lock().await.len()
     }
 
-    /// Broadcast one envelope as an NDJSON line to every connected client.
+    /// Broadcast one v1.0 envelope as an NDJSON line to every connected client.
     ///
     /// Clients whose write fails (disconnected) are dropped from the registry.
     /// Returns the number of clients the line was successfully delivered to.
@@ -75,15 +75,44 @@ where
     ///
     /// Returns a `serde_json` error if the envelope cannot be serialized.
     pub async fn broadcast(&self, envelope: &IpcEnvelope) -> Result<usize, serde_json::Error> {
-        let mut line = envelope.to_ndjson()?;
-        line.push('\n');
-        let bytes = line.into_bytes();
+        let line = {
+            let mut l = envelope.to_ndjson()?;
+            l.push('\n');
+            l
+        };
+        Ok(self.broadcast_line(&line).await)
+    }
 
+    /// Broadcast one v1.1 [`crate::lease_ipc::LeaseEnvelope`] as an NDJSON line to
+    /// every connected client — the unsolicited-event path the watchdog's
+    /// `child_killed_unresponsive` event takes (T11628). Identical framing to
+    /// [`Self::broadcast`]; only the union differs.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `serde_json` error if the envelope cannot be serialized.
+    pub async fn broadcast_lease(
+        &self,
+        envelope: &crate::lease_ipc::LeaseEnvelope,
+    ) -> Result<usize, serde_json::Error> {
+        let line = {
+            let mut l = envelope.to_ndjson()?;
+            l.push('\n');
+            l
+        };
+        Ok(self.broadcast_line(&line).await)
+    }
+
+    /// Write one pre-serialized NDJSON line to every connected client, dropping
+    /// any whose write fails. Returns the delivered count. Shared by the v1.0 and
+    /// v1.1 broadcast paths so the dead-client reaping is identical.
+    async fn broadcast_line(&self, line: &str) -> usize {
+        let bytes = line.as_bytes();
         let mut guard = self.clients.lock().await;
         let mut delivered = 0usize;
         let mut alive: Vec<W> = Vec::with_capacity(guard.len());
         for mut client in guard.drain(..) {
-            match client.write_all(&bytes).await {
+            match client.write_all(bytes).await {
                 Ok(()) => {
                     let _ = client.flush().await;
                     delivered += 1;
@@ -95,7 +124,7 @@ where
             }
         }
         *guard = alive;
-        Ok(delivered)
+        delivered
     }
 }
 

@@ -100,6 +100,7 @@ pub fn request_kind(req: &LeaseRequest) -> &'static str {
         LeaseRequest::RateCheck(_) => "rate_check",
         LeaseRequest::ToolGrant(_) => "tool_grant",
         LeaseRequest::QueueAdmit(_) => "queue_admit",
+        LeaseRequest::WorkerHeartbeat(_) => "worker_heartbeat",
     }
 }
 
@@ -184,6 +185,12 @@ pub struct LeaseArbiter {
     /// (T11630). Shared across all clients (the contended counters are process-
     /// global, like a real provider quota). Cheap to clone (`Arc` bump).
     llm_queue: LlmQueue,
+    /// The shared watchdog heartbeat ledger (T11628). When wired, an inbound
+    /// `worker_heartbeat` resets the child's deadline clock here where the
+    /// watchdog sweep reads it. `None` when the watchdog is not enabled — a
+    /// `worker_heartbeat` then still acks (the worker degrades gracefully), it
+    /// just records nothing.
+    heartbeat_sink: Option<crate::watchdog::HeartbeatSink>,
 }
 
 impl LeaseArbiter {
@@ -193,6 +200,7 @@ impl LeaseArbiter {
         Self {
             resolver,
             llm_queue: LlmQueue::new(),
+            heartbeat_sink: None,
         }
     }
 
@@ -203,7 +211,18 @@ impl LeaseArbiter {
         Self {
             resolver,
             llm_queue,
+            heartbeat_sink: None,
         }
+    }
+
+    /// Attach the watchdog's shared heartbeat ledger so an inbound
+    /// `worker_heartbeat` resets the child's deadline (T11628). Returns `self`
+    /// for builder chaining. When the watchdog is enabled the supervisor wires
+    /// the SAME sink it gives the sweep task.
+    #[must_use]
+    pub fn with_heartbeat_sink(mut self, sink: crate::watchdog::HeartbeatSink) -> Self {
+        self.heartbeat_sink = Some(sink);
+        self
     }
 
     /// The shared LLM queue (so the watchdog T11628 can read in-flight state and
@@ -240,7 +259,24 @@ impl LeaseArbiter {
             // The LLM-queue admit verb is WIRED (T11630) — backed by the
             // in-memory priority scheduler + per-provider rate governor.
             LeaseRequest::QueueAdmit(req) => self.handle_queue_admit(&req),
+            // The watchdog heartbeat verb is WIRED (T11628) — resets the child's
+            // deadline clock in the shared ledger the sweep task reads.
+            LeaseRequest::WorkerHeartbeat(req) => self.handle_worker_heartbeat(&req),
         }
+    }
+
+    /// `worker_heartbeat` — record the worker's liveness beat into the shared
+    /// watchdog ledger (T11628 · AC1) and ack. The beat carries the worker's own
+    /// view of whether it is inside an LLM call (`in_flight_llm`), which the
+    /// watchdog ORs with the queue's view to tier the deadline (AC2). When no
+    /// watchdog sink is wired the beat is dropped but still acked, so a worker
+    /// heartbeating at a supervisor without the watchdog enabled degrades
+    /// gracefully rather than erroring.
+    fn handle_worker_heartbeat(&self, req: &crate::lease_ipc::WorkerHeartbeatReq) -> LeaseResponse {
+        if let Some(sink) = &self.heartbeat_sink {
+            crate::watchdog::record_heartbeat(sink, &req.child_id, req.in_flight_llm);
+        }
+        LeaseResponse::HeartbeatAck(crate::lease_ipc::HeartbeatAck {})
     }
 
     /// `queue_admit` — run the LLM-call admission decision through the priority

@@ -92,6 +92,12 @@ pub enum LeaseRequest {
     /// Admit (or defer) an outbound LLM call through the priority scheduler +
     /// per-provider rate governor (T11630 · AC1-AC4). `[wired]`
     QueueAdmit(QueueAdmitReq),
+    /// Liveness heartbeat from a managed worker — refreshes the watchdog's
+    /// deadline for `child_id`. Carries the worker's own knowledge of whether it
+    /// is currently inside an LLM call so the watchdog can tier the deadline even
+    /// for callers that bypass the `queue_admit` seam (T11628 · AC1/AC2).
+    /// `[wired]`
+    WorkerHeartbeat(WorkerHeartbeatReq),
 }
 
 /// An arbiter → client lease response or unsolicited event.
@@ -116,6 +122,9 @@ pub enum LeaseResponse {
     ChildKilledUnresponsive(ChildKilled),
     /// Reply to a `queue_admit`: the LLM call was admitted or deferred (T11630).
     QueueAdmitResult(QueueAdmitResult),
+    /// Acknowledge a `worker_heartbeat`: the watchdog recorded the beat and reset
+    /// the child's deadline (T11628). Carries nothing — its presence IS the ack.
+    HeartbeatAck(HeartbeatAck),
     /// An error response correlated to a request id. Reuses the v1.0
     /// [`crate::ipc::ErrorResult`] shape so error framing is shared across both
     /// protocol versions.
@@ -298,6 +307,23 @@ pub struct QueueAdmitReq {
     pub child_id: String,
 }
 
+/// A liveness heartbeat from a managed worker (T11628). Mirrors
+/// `WorkerHeartbeatReq`.
+///
+/// The worker sends this periodically (well inside the watchdog's NORMAL
+/// deadline) so the supervisor knows it is alive. `in_flight_llm` is the
+/// worker's OWN view of whether it is currently waiting on an LLM call: when
+/// true the watchdog grants the EXTENDED deadline even if the call never went
+/// through the `queue_admit` seam, so a slow-but-healthy long call is never
+/// false-killed (AC2 · RISK-7).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerHeartbeatReq {
+    /// The logical id of the heartbeating child (matches the registry key).
+    pub child_id: String,
+    /// The worker's own view of whether it is currently inside an LLM call.
+    pub in_flight_llm: bool,
+}
+
 // ─── Response payloads ──────────────────────────────────────────────────────
 
 /// The lease was granted to the caller. Mirrors `LeaseGranted`.
@@ -391,6 +417,15 @@ pub struct QueueAdmitResult {
     pub queue_position: u32,
 }
 
+/// Acknowledge a `worker_heartbeat` (T11628). Mirrors `HeartbeatAck`.
+///
+/// Deliberately empty — the ack's presence (correlated by id) is the signal
+/// that the watchdog recorded the beat and reset the child's deadline. A unit
+/// struct keeps the wire shape `{ "kind": "heartbeat_ack" }`, matching the Zod
+/// `{ kind: 'heartbeat_ack' }` object.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeartbeatAck {}
+
 /// Unsolicited event: a held lease was revoked. Mirrors `LeaseRevoked`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeaseRevoked {
@@ -425,17 +460,18 @@ mod tests {
     /// The FROZEN v1.1 request `kind` values, in declaration order. The
     /// schema-drift guard pins this tuple; any addition/removal is a
     /// contract-breaking change requiring a coordinated dual edit.
-    const LEASE_REQUEST_KINDS: [&str; 6] = [
+    const LEASE_REQUEST_KINDS: [&str; 7] = [
         "lease_acquire",
         "lease_release",
         "lease_renew",
         "rate_check",
         "tool_grant",
         "queue_admit",
+        "worker_heartbeat",
     ];
 
     /// The FROZEN v1.1 response `kind` values, in declaration order.
-    const LEASE_RESPONSE_KINDS: [&str; 9] = [
+    const LEASE_RESPONSE_KINDS: [&str; 10] = [
         "lease_granted",
         "lease_queued",
         "lease_denied",
@@ -444,6 +480,7 @@ mod tests {
         "lease_revoked",
         "child_killed_unresponsive",
         "queue_admit_result",
+        "heartbeat_ack",
         "error",
     ];
 
@@ -483,6 +520,10 @@ mod tests {
                 priority_class: QueuePriorityClass::Lead,
                 est_tokens: 1024,
                 child_id: "worker-1".into(),
+            }),
+            LeaseRequest::WorkerHeartbeat(WorkerHeartbeatReq {
+                child_id: "worker-1".into(),
+                in_flight_llm: true,
             }),
         ]
     }
@@ -536,6 +577,7 @@ mod tests {
                 tokens_remaining: 0,
                 queue_position: 2,
             }),
+            LeaseResponse::HeartbeatAck(HeartbeatAck {}),
             LeaseResponse::Error(crate::ipc::ErrorResult {
                 code: "E_LEASE_BAD_VERSION".into(),
                 message: "unsupported protocol".into(),

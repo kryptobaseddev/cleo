@@ -100,6 +100,36 @@ describe('LeaseIpcClient NDJSON codec (T11894 ST-5)', () => {
     expect(env.response.kind).toBe('child_killed_unresponsive');
   });
 
+  it('encodes a worker_heartbeat request as a versioned, correlated NDJSON line (T11628)', () => {
+    const client = createLeaseIpcClient();
+    const { id, line } = client.encodeRequest({
+      kind: 'worker_heartbeat',
+      child_id: 'worker-7',
+      in_flight_llm: true,
+    });
+    expect(line.endsWith('\n')).toBe(true);
+    const parsed = JSON.parse(line.trimEnd());
+    expect(parsed.protocol_version).toBe(LEASE_IPC_PROTOCOL_VERSION);
+    expect(parsed.direction).toBe('request');
+    expect(parsed.id).toBe(id);
+    expect(parsed.request.kind).toBe('worker_heartbeat');
+    expect(parsed.request.child_id).toBe('worker-7');
+    expect(parsed.request.in_flight_llm).toBe(true);
+  });
+
+  it('decodes a heartbeat_ack response envelope (T11628)', () => {
+    const client = createLeaseIpcClient();
+    const wire = JSON.stringify({
+      protocol_version: '1.1.0',
+      id: 'hb-1',
+      direction: 'response',
+      response: { kind: 'heartbeat_ack' },
+    });
+    const env = client.decodeResponseLine(wire);
+    expect(env.direction).toBe('response');
+    expect(env.response.kind).toBe('heartbeat_ack');
+  });
+
   it('decodes a deferred-handler E_LEASE_UNIMPLEMENTED error', () => {
     const client = createLeaseIpcClient();
     const wire = JSON.stringify({

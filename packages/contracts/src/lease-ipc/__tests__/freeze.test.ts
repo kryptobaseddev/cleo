@@ -45,6 +45,7 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'rate_check',
       'tool_grant',
       'queue_admit',
+      'worker_heartbeat',
     ]);
   });
 
@@ -58,6 +59,7 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'lease_revoked',
       'child_killed_unresponsive',
       'queue_admit_result',
+      'heartbeat_ack',
       'error',
     ]);
   });
@@ -84,6 +86,7 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'rate_check',
       'tool_grant',
       'queue_admit',
+      'worker_heartbeat',
       'lease_granted',
       'lease_queued',
       'lease_denied',
@@ -92,6 +95,7 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'lease_revoked',
       'child_killed_unresponsive',
       'queue_admit_result',
+      'heartbeat_ack',
       'error',
     ]);
   });
@@ -202,6 +206,38 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
     expect(LeaseIpcEnvelopeSchema.safeParse(wire).success).toBe(true);
   });
 
+  it('parses the exact JSON a Rust worker_heartbeat request envelope serializes (T11628)', () => {
+    const wire = {
+      protocol_version: '1.1.0',
+      id: 'hb-1',
+      direction: 'request',
+      request: {
+        kind: 'worker_heartbeat',
+        child_id: 'worker-7',
+        in_flight_llm: true,
+      },
+    };
+    const parsed = LeaseIpcEnvelopeSchema.safeParse(wire);
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.direction === 'request') {
+      expect(parsed.data.request.kind).toBe('worker_heartbeat');
+    }
+  });
+
+  it('parses the exact JSON a Rust heartbeat_ack response envelope serializes (T11628)', () => {
+    const wire = {
+      protocol_version: '1.1.0',
+      id: 'hb-1',
+      direction: 'response',
+      response: { kind: 'heartbeat_ack' },
+    };
+    const parsed = LeaseIpcEnvelopeSchema.safeParse(wire);
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.direction === 'response') {
+      expect(parsed.data.response.kind).toBe('heartbeat_ack');
+    }
+  });
+
   it('rejects an unknown message kind (proves the union is closed)', () => {
     const wire = {
       protocol_version: '1.1.0',
@@ -260,6 +296,8 @@ function sampleRequestFor(kind: (typeof LEASE_IPC_REQUEST_KINDS)[number]): unkno
         est_tokens: 1024,
         child_id: 'worker-1',
       };
+    case 'worker_heartbeat':
+      return { kind, child_id: 'worker-1', in_flight_llm: true };
   }
 }
 
@@ -296,6 +334,8 @@ function sampleResponseFor(kind: (typeof LEASE_IPC_RESPONSE_KINDS)[number]): unk
         tokens_remaining: 0,
         queue_position: 2,
       };
+    case 'heartbeat_ack':
+      return { kind };
     case 'error':
       return { kind, code: 'E_X', message: 'x' };
   }
