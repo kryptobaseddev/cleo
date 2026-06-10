@@ -219,7 +219,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 0
   },
   {
     "costHint": "minimal",
-    "description": "tasks.update (mutate)",
+    "description": "tasks.update (mutate) — partial update; only supplied fields are mutated",
     "domain": "tasks",
     "gateway": "mutate",
     "operation": "update",
@@ -754,6 +754,9 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "restore",
       "reparent",
       "reorder",
+      "reorder-rank",
+      "bulk-move",
+      "assignee",
       "relates.add",
       "relates.add-batch",
       "relates.remove",
@@ -844,7 +847,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `305`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `308`;
 
 exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — domain-grouped operations snapshot > tier-2-groupedOperations 1`] = `
 {
@@ -1350,6 +1353,9 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "restore",
       "reparent",
       "reorder",
+      "reorder-rank",
+      "bulk-move",
+      "assignee",
       "relates.add",
       "relates.add-batch",
       "relates.remove",
@@ -1373,6 +1379,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "rollup",
       "frontier",
       "workgraph.audit",
+      "subscribe",
       "list",
       "find",
       "tree",
@@ -1458,4 +1465,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `437`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `441`;
