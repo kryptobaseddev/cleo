@@ -65,7 +65,7 @@ import { index, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-co
 export const modelsCatalog = sqliteTable(
   'models_catalog',
   {
-    /** Model id — the catalog key (e.g. `claude-haiku-4-5-20251001`). Natural PK. */
+    /** Model id — the catalog key (a models.dev id, e.g. `openai/gpt-5.5`). Natural PK. */
     id: text('id').primaryKey(),
     /** Provider key (models.dev id, e.g. `anthropic` | `openai` | `google`). */
     providerId: text('provider_id').notNull(),
