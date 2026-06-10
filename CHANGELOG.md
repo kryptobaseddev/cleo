@@ -1,5 +1,28 @@
 # Changelog
 
+## [2026.6.14] (2026-06-10)
+
+> **Gateway-write + agent-tool + Studio interactivity release** — the gateway grows the task write-path (streaming subscribe + reorder/bulk-move/assignee), the agent harness gains a real M7 tool catalog (memory/MCP/skills/cron/media) and service-credential injection, Studio becomes an interactive Kanban dispatcher with workgraph + vault views and a multi-theme reskin, and the self-improvement loop becomes runnable from a released install. New harness/tool behaviour remains **default-OFF / opt-in**; the released CLI is behaviourally compatible with v2026.6.13. 11 PRs (#1049, #1053–#1063), all CI-green through the merge-bar gate.
+
+### Added
+
+- **Gateway task write-path — streaming subscribe + mutation ops.** `tasks.subscribe` (SSE streaming source) plus `tasks.reorder-rank`, `tasks.bulk-move`, and `tasks.assignee` ops with handlers, and a corresponding SDK regen — the gateway can now drive live task boards over HTTP/SSE. _(T11556 / T11785 / T11786; #1053)_
+- **M7 agent-tool catalog.** The agent harness gains the first real tool suite — `memory`, `mcp-client`, `run_skill`, `cron`/`todo`, and `media` tools — plus a `cron_schedule` table + accessor and an ungated `cron_schedule` tool. _(T11947–T11951, T11962; #1054/#1061)_
+- **Channels: Local-TUI `ChannelAdapter`.** The first channel adapter implementation, wiring the Local-TUI surface into the channels layer. _(T11952; #1055)_
+- **PSYCHE schema tier (daemon-OFF subset).** Bitemporal `expired_at` + `network` columns and deriver backoff land as a schema tier — the storage substrate for the PSYCHE loop, shipped inert (daemon-OFF). _(T10405; #1060)_
+- **Studio interactive Kanban dispatcher.** Studio becomes interactive: a gateway write-path (CORE-First, routed through the gateway SDK), a saga-board rune store, drag-transition dispatch, a Conductor, and SSE live updates — the dispatcher board. _(T11557 / T11559; #1059)_
+- **Studio workgraph view + reskin + vault dashboard.** A saga-scoped `WorkGraphView` with a `DetailDrawer`, a multi-theme reskin shell (5 themes via theme-token rune + `/studio/[projectId]/[sagaId]` shell), and a read-only vault dashboard over core service facades. _(T11558 / T11561 / T11943; #1062)_
+- **Vault: service-credential injection at the tool HTTP boundary.** Service credentials are injected at the tool HTTP boundary as sealed handles — agent tools reach external services without ever seeing raw keys. _(T11940; #1061)_
+
+### Changed
+
+- **Self-improvement loop runnable from a released install.** The `selfimprove` scenario fixtures now ship in the `@cleocode/core` dist, so the dogfood loop runs from a released install rather than only from a source checkout. _(T11974; #1063)_
+
+### DevEx
+
+- **Merge-bar aggregate gate + `cleo check pr`.** A single merge-bar aggregate CI gate plus a `cleo check pr` verb consolidates the PR-readiness signal. _(T11955 / T11956; #1049)_
+- **DHQ burn — CI/test resilience.** Apt-resilient ripgrep install, a `gen:tier-snapshot` drift gate (auto-regen), a vitest-workspace-resolver fix, and a depends-gate `--waive-depends` escape hatch (DHQ-077/074/070/071). _(T11966 / T11957 / T11953 / T11954; #1057)_
+
 ## [2026.6.13] (2026-06-09)
 
 > **Pi-harness foundation release** — the in-process agentic runner spine, the authority layer that makes autonomous multi-agent execution safe, and the first walking-skeleton of the self-improvement loop. All new runtime behaviour ships **default-OFF** behind explicit flags; the released CLI is behaviourally identical to v2026.6.12 until those flags are set. 28 PRs (#995–#1019), 120 commits, all CI-green through the PR gate.
