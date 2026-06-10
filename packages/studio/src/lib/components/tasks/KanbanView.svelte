@@ -24,21 +24,29 @@
      {@link import('./WorkerStreamPanel.svelte').default}, which tails the
      per-task SSE stream (output + usage meter + checkpoints).
 
-  Live refresh: subscribes to the existing `/api/tasks/events` SSE stream and
-  invalidates the page data on `task-updated`, so the board reflects new
-  spawns / completions / transitions within the poll window.
+  Live refresh (T11789 · E2): the INTERACTIVE board is now backed by the
+  `saga-board` Svelte-5 RUNE STORE. The store hydrates once through the gateway
+  data layer (`GET /api/tasks`) and is kept live by ONE `EventSource` to the
+  `tasks.subscribe` delegate (`/api/tasks/subscribe`) — REPLACING the prior 2 s
+  `/api/tasks/events` poll + page `invalidateAll`. The server-load `columns` are
+  the SSR first-paint; the store takes over on the client and every drag /
+  dispatch / live event reconciles against the gateway through the command seam.
 
   @task T11925
   @task T11928
   @task T11929
   @task T11930
+  @task T11789
   @epic T11559
 -->
 <script lang="ts">
-  import { invalidateAll } from '$app/navigation';
   import { Board, type BoardCard, type BoardLane } from '$lib/components/board';
   import { DetailDrawer } from '$lib/components/tasks';
   import HeroHeader from '$lib/components/shell/HeroHeader.svelte';
+  import {
+    createSagaBoard,
+    type SagaBoardCard,
+  } from '$lib/stores/saga-board.svelte.js';
   import { Button } from '$lib/ui';
   import type { Task } from '@cleocode/contracts';
   import {
@@ -57,9 +65,9 @@
   }
 
   interface Props {
-    /** Lane columns from `+page.server.ts` (already resolved + bucketed). */
+    /** Lane columns from `+page.server.ts` (the SSR first paint). */
     columns: LaneColumn[];
-    /** Total tasks across all lanes. */
+    /** Total tasks across all lanes (SSR). */
     total: number;
     /** Set when the project's tasks.db could not be read. */
     error?: string;
@@ -67,43 +75,55 @@
 
   let { columns, total, error }: Props = $props();
 
-  /** Lane definitions in board order, derived from the server columns. */
-  const lanes = $derived<BoardLane[]>(columns.map((c) => c.lane));
+  // ---- Saga-board rune store (T11789) — the live, gateway-backed data layer ----
+  const board = createSagaBoard();
+  /** True once the store has completed its first hydration (takes over from SSR). */
+  let hydrated = $state(false);
 
-  /**
-   * Optimistic lane OVERRIDES, keyed by card id → lane id. A drag stamps the
-   * target lane here immediately; a successful persist keeps it (until the next
-   * server load reconciles), a failure deletes it (revert). Cleared whenever the
-   * server columns change (a fresh load is authoritative).
-   */
-  let laneOverride = $state<Record<string, AgentLifecycleLane>>({});
-  // Reset overrides when authoritative server data arrives.
   $effect(() => {
-    // Touch `columns` so this re-runs on every fresh load.
-    void columns;
-    laneOverride = {};
+    // Hydrate once + open the SINGLE live subscription; tear it down on unmount.
+    void board.hydrate().then(() => {
+      hydrated = true;
+    });
+    board.connect();
+    return () => board.disconnect();
   });
 
   /**
-   * Flat card list with the resolved lane id stamped on each card. The lane is
-   * the optimistic override when present, else the server-resolved lane.
+   * SSR columns mapped to the store's `SagaBoardCard` shape for the first paint,
+   * so the board renders instantly before the client store hydrates.
    */
+  const ssrColumns = $derived<Array<{ lane: BoardLane; cards: SagaBoardCard[]; count: number }>>(
+    columns.map((col) => ({
+      lane: col.lane,
+      count: col.count,
+      cards: col.cards.map((card) => ({ ...card, lane: col.lane.id as AgentLifecycleLane })),
+    })),
+  );
+
+  /** The authoritative columns: the live store once hydrated, else the SSR paint. */
+  const boardColumns = $derived(hydrated ? board.columns : ssrColumns);
+
+  /** Lane definitions in board order. */
+  const lanes = $derived<BoardLane[]>(boardColumns.map((c) => c.lane));
+
+  /** Flat card list with each card's resolved lane stamped on (`__lane`). */
   const flatCards = $derived<Array<BoardCard & { __lane: string }>>(
-    columns.flatMap((col) =>
-      col.cards.map((card) => ({
-        ...card,
-        __lane: laneOverride[card.id] ?? (col.lane.id as AgentLifecycleLane),
-      })),
+    boardColumns.flatMap((col) =>
+      col.cards.map((card) => ({ ...card, __lane: card.lane })),
     ),
   );
 
-  /** Identity resolver — reads the (possibly overridden) lane id off each card. */
+  /** Identity resolver — reads the resolved lane id off each card. */
   function laneResolver(card: BoardCard): string {
     return (card as BoardCard & { __lane?: string }).__lane ?? 'backlog';
   }
 
-  /** Count of cards flagged with an active worker — surfaced in the meta line. */
-  const runningCount = $derived(flatCards.filter((c) => c.workerActive).length);
+  /** Live counts — the store's once hydrated, else the SSR snapshot. */
+  const liveTotal = $derived(hydrated ? board.total : total);
+  const runningCount = $derived(
+    hydrated ? board.runningCount : flatCards.filter((c) => c.workerActive).length,
+  );
 
   // ---- Selection → drawer / conductor / stream ----
   let selectedId = $state<string | null>(null);
@@ -159,28 +179,14 @@
     }, 4200);
   }
 
-  // ---- Drag→transition (T11928) ----
+  // ---- Drag→transition (T11928 → store-backed, T11789) ----
   let dispatchBusy = $state(false);
 
-  /** Parse a `{ success, data, error }` LAFS envelope from a fetch Response. */
-  async function readEnvelope(
-    res: Response,
-  ): Promise<{ ok: boolean; message: string; data?: unknown }> {
-    try {
-      const body = (await res.json()) as {
-        success?: boolean;
-        error?: { message?: string };
-        data?: unknown;
-      };
-      if (res.ok && body.success !== false) {
-        return { ok: true, message: 'ok', data: body.data };
-      }
-      return { ok: false, message: body.error?.message ?? `Request failed (${res.status})` };
-    } catch {
-      return { ok: false, message: `Request failed (${res.status})` };
-    }
-  }
-
+  /**
+   * Drag a card to a new lane. The client-side {@link planLaneTransition} gate
+   * rejects invalid moves before any request; the store owns the optimistic
+   * override + the gateway persist + the revert-on-failure.
+   */
   async function handleMove(cardId: string, fromLaneRaw: string, toLaneRaw: string): Promise<void> {
     const fromLane = fromLaneRaw as AgentLifecycleLane;
     const toLane = toLaneRaw as AgentLifecycleLane;
@@ -192,85 +198,36 @@
       return;
     }
 
-    // Optimistic move.
-    laneOverride = { ...laneOverride, [cardId]: toLane };
-
-    try {
-      const res = await fetch(`/api/tasks/${cardId}/transition`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fromLane, toLane }),
-      });
-      const out = await readEnvelope(res);
-      if (!out.ok) {
-        // Revert the optimistic move.
-        const next = { ...laneOverride };
-        delete next[cardId];
-        laneOverride = next;
-        showToast('err', out.message);
-        return;
-      }
-      showToast('ok', planned.plan.summary);
-      // Reconcile against the authoritative store.
-      void invalidateAll();
-    } catch (e) {
-      const next = { ...laneOverride };
-      delete next[cardId];
-      laneOverride = next;
-      showToast('err', e instanceof Error ? e.message : 'Transition failed');
+    const result = await board.move(cardId, fromLane, toLane);
+    if (!result.ok) {
+      showToast('err', result.message);
+      return;
     }
+    showToast('ok', planned.plan.summary);
   }
 
-  // ---- Dispatch→spawn (T11930) ----
+  // ---- Dispatch→spawn (T11930 → store-backed, T11789) ----
   async function handleDispatch(tier: 0 | 1 | 2): Promise<void> {
     if (!selectedCard) return;
     const cardId = selectedCard.id;
     dispatchBusy = true;
     try {
-      const res = await fetch(`/api/tasks/${cardId}/dispatch`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tier }),
-      });
-      const out = await readEnvelope(res);
-      if (!out.ok) {
-        showToast('err', out.message);
+      const result = await board.dispatch(cardId, tier);
+      if (!result.ok) {
+        showToast('err', result.message);
         return;
       }
-      // Optimistically surface the worker in the Running lane + open its stream.
-      laneOverride = { ...laneOverride, [cardId]: 'running' };
       showToast('ok', `Dispatched ${cardId} → worker spawning`);
-      void invalidateAll();
-    } catch (e) {
-      showToast('err', e instanceof Error ? e.message : 'Dispatch failed');
     } finally {
       dispatchBusy = false;
     }
   }
 
-  // ---- Live SSE refresh (board-level) ----
-  let liveConnected = $state(false);
-
-  $effect(() => {
-    const src = new EventSource('/api/tasks/events');
-    src.addEventListener('connected', () => {
-      liveConnected = true;
-    });
-    src.addEventListener('task-updated', () => {
-      liveConnected = true;
-      void invalidateAll();
-    });
-    src.addEventListener('heartbeat', () => {
-      liveConnected = true;
-    });
-    src.onerror = () => {
-      liveConnected = false;
-    };
-    return () => src.close();
-  });
+  // ---- Live indicator (driven by the store's ONE subscription) ----
+  const liveConnected = $derived(hydrated && board.connected);
 
   const metaLine = $derived(
-    `${total} tasks · ${columns.length} lanes${runningCount > 0 ? ` · ${runningCount} running` : ''}${
+    `${liveTotal} tasks · ${lanes.length} lanes${runningCount > 0 ? ` · ${runningCount} running` : ''}${
       liveConnected ? ' · live' : ''
     }`,
   );
