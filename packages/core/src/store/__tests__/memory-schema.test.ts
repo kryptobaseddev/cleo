@@ -192,4 +192,116 @@ describe('brain.db schema', () => {
     expect(() => resetBrainDbState()).not.toThrow();
     expect(() => resetBrainDbState()).not.toThrow();
   });
+
+  // T10405 (SG-PSYCHE-FOUNDATION · Tier 5): bitemporal + four-network columns.
+
+  /** Return the set of column names for a table via PRAGMA table_info. */
+  async function columnNames(table: string): Promise<Set<string>> {
+    const {
+      getBrainDb,
+      getBrainNativeDb,
+      closeBrainDb: close,
+    } = await import('../memory-sqlite.js');
+    close();
+    await getBrainDb();
+    const nativeDb = getBrainNativeDb();
+    expect(nativeDb).toBeTruthy();
+    const cols = nativeDb!.prepare(`PRAGMA table_info("${table}")`).all() as Array<{
+      name: string;
+    }>;
+    return new Set(cols.map((c) => c.name));
+  }
+
+  const BITEMPORAL_NETWORK_TABLES = [
+    'brain_decisions',
+    'brain_patterns',
+    'brain_learnings',
+    'brain_observations',
+  ] as const;
+
+  for (const table of BITEMPORAL_NETWORK_TABLES) {
+    it(`adds expired_at + network columns to ${table}`, async () => {
+      const cols = await columnNames(table);
+      // The full 4-timestamp bitemporal set: a creation timestamp + valid_at +
+      // invalid_at shipped earlier; expired_at is the T10405 4th timestamp.
+      // brain_patterns names its creation timestamp `extracted_at`; the other
+      // three use `created_at`.
+      const creationCol = table === 'brain_patterns' ? 'extracted_at' : 'created_at';
+      expect(cols.has(creationCol)).toBe(true);
+      expect(cols.has('valid_at')).toBe(true);
+      expect(cols.has('invalid_at')).toBe(true);
+      expect(cols.has('expired_at')).toBe(true);
+      // Four-network classification column.
+      expect(cols.has('network')).toBe(true);
+    });
+  }
+
+  it('adds next_attempt_at backoff column to deriver_queue', async () => {
+    const cols = await columnNames('deriver_queue');
+    expect(cols.has('next_attempt_at')).toBe(true);
+  });
+
+  it('creates the T10405 bitemporal + network indexes', async () => {
+    const {
+      getBrainDb,
+      getBrainNativeDb,
+      closeBrainDb: close,
+    } = await import('../memory-sqlite.js');
+    close();
+    await getBrainDb();
+    const nativeDb = getBrainNativeDb();
+    expect(nativeDb).toBeTruthy();
+
+    const indexNames = new Set(
+      (
+        nativeDb!
+          .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
+          .all() as Array<{ name: string }>
+      ).map((i) => i.name),
+    );
+
+    for (const table of BITEMPORAL_NETWORK_TABLES) {
+      expect(indexNames.has(`idx_${table}_expired_at`)).toBe(true);
+      expect(indexNames.has(`idx_${table}_network`)).toBe(true);
+    }
+  });
+
+  it('defaults network per cognitive role and accepts an explicit four-network value', async () => {
+    const {
+      getBrainDb,
+      getBrainNativeDb,
+      closeBrainDb: close,
+    } = await import('../memory-sqlite.js');
+    close();
+    await getBrainDb();
+    const nativeDb = getBrainNativeDb();
+    expect(nativeDb).toBeTruthy();
+
+    // Insert a decision row WITHOUT network → DEFAULT 'bank'; verify expired_at NULL.
+    nativeDb!
+      .prepare(
+        `INSERT INTO brain_decisions (id, type, decision, rationale, confidence)
+         VALUES (?, 'architecture', 'd', 'r', 'high')`,
+      )
+      .run('dec-t10405-default');
+    const defaulted = nativeDb!
+      .prepare('SELECT network, expired_at FROM brain_decisions WHERE id = ?')
+      .get('dec-t10405-default') as { network: string | null; expired_at: string | null };
+    expect(defaulted.network).toBe('bank');
+    expect(defaulted.expired_at).toBeNull();
+
+    // Insert an observation with an EXPLICIT four-network value + expired_at.
+    const expiry = new Date().toISOString();
+    nativeDb!
+      .prepare(
+        `INSERT INTO brain_observations (id, type, title, network, expired_at)
+         VALUES (?, 'discovery', 't', 'world', ?)`,
+      )
+      .run('obs-t10405-explicit', expiry);
+    const explicit = nativeDb!
+      .prepare('SELECT network, expired_at FROM brain_observations WHERE id = ?')
+      .get('obs-t10405-explicit') as { network: string | null; expired_at: string | null };
+    expect(explicit.network).toBe('world');
+    expect(explicit.expired_at).toBe(expiry);
+  });
 });

@@ -15,8 +15,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { enqueueDerivation, enqueueObservationBatch } from '../enqueue.js';
 import {
+  BACKOFF_BASE_SECONDS,
+  BACKOFF_MAX_SECONDS,
   claimNextItem,
   completeItem,
+  computeBackoffSeconds,
   failItem,
   MAX_RETRY_COUNT,
   recoverStaleItems,
@@ -44,10 +47,11 @@ function setupDb(): DatabaseSync {
       error_msg     TEXT,
       retry_count   INTEGER NOT NULL DEFAULT 0,
       created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-      completed_at  TEXT
+      completed_at  TEXT,
+      next_attempt_at TEXT
     );
     CREATE INDEX idx_deriver_queue_status_priority
-      ON deriver_queue(status, priority DESC, created_at ASC);
+      ON deriver_queue(status, priority DESC, created_at ASC, next_attempt_at);
     CREATE INDEX idx_deriver_queue_item
       ON deriver_queue(item_type, item_id);
     CREATE INDEX idx_deriver_queue_claimed_at
@@ -219,6 +223,107 @@ describe('failItem', () => {
       .prepare<{ status: string }, [string]>('SELECT status FROM deriver_queue WHERE id=?')
       .get(existingRow.id)!;
     expect(row.status).toBe('failed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Exponential-backoff tests (T10405 · SG-PSYCHE-FOUNDATION Tier 6)
+// ---------------------------------------------------------------------------
+
+describe('computeBackoffSeconds', () => {
+  it('grows geometrically from the base delay', () => {
+    expect(computeBackoffSeconds(1)).toBe(BACKOFF_BASE_SECONDS);
+    expect(computeBackoffSeconds(2)).toBe(BACKOFF_BASE_SECONDS * 2);
+    expect(computeBackoffSeconds(3)).toBe(BACKOFF_BASE_SECONDS * 4);
+  });
+
+  it('clamps a zero/negative attempt to the base delay', () => {
+    expect(computeBackoffSeconds(0)).toBe(BACKOFF_BASE_SECONDS);
+    expect(computeBackoffSeconds(-3)).toBe(BACKOFF_BASE_SECONDS);
+  });
+
+  it('caps at BACKOFF_MAX_SECONDS for large attempts', () => {
+    expect(computeBackoffSeconds(100)).toBe(BACKOFF_MAX_SECONDS);
+  });
+});
+
+describe('failItem backoff gating', () => {
+  it('sets a future next_attempt_at on re-queue and blocks immediate re-claim', () => {
+    enqueueDerivation('observation', 'obs-bo', { db });
+    const item = claimNextItem({ db, workerId: 'w1' })!;
+    failItem(item.id, 'transient', { db });
+
+    const row = db
+      .prepare<{ status: string; next_attempt_at: string | null }, [string]>(
+        'SELECT status, next_attempt_at FROM deriver_queue WHERE id=?',
+      )
+      .get(item.id)!;
+    expect(row.status).toBe('pending');
+    // Backoff is in the future → not yet claimable.
+    expect(row.next_attempt_at).not.toBeNull();
+    expect(new Date(row.next_attempt_at as string).getTime()).toBeGreaterThan(Date.now());
+
+    // The claim query must skip the backed-off item.
+    expect(claimNextItem({ db, workerId: 'w2' })).toBeNull();
+  });
+
+  it('re-claims once the backoff window has elapsed', () => {
+    enqueueDerivation('observation', 'obs-bo2', { db });
+    const item = claimNextItem({ db, workerId: 'w1' })!;
+    failItem(item.id, 'transient', { db });
+
+    // Backdate next_attempt_at into the past to simulate elapsed backoff.
+    db.prepare('UPDATE deriver_queue SET next_attempt_at=? WHERE id=?').run(
+      new Date(Date.now() - 1000).toISOString(),
+      item.id,
+    );
+
+    const reclaimed = claimNextItem({ db, workerId: 'w2' });
+    expect(reclaimed).not.toBeNull();
+    expect(reclaimed?.id).toBe(item.id);
+    expect(reclaimed?.retryCount).toBe(1);
+  });
+
+  it('clears next_attempt_at when the item is permanently failed', () => {
+    enqueueDerivation('observation', 'obs-bo3', { db });
+    db.prepare('UPDATE deriver_queue SET retry_count=?, status=? WHERE item_id=?').run(
+      MAX_RETRY_COUNT - 1,
+      'in_progress',
+      'obs-bo3',
+    );
+    const existingRow = db
+      .prepare<{ id: string }, []>('SELECT id FROM deriver_queue LIMIT 1')
+      .get()!;
+    failItem(existingRow.id, 'final', { db });
+
+    const row = db
+      .prepare<{ status: string; next_attempt_at: string | null }, [string]>(
+        'SELECT status, next_attempt_at FROM deriver_queue WHERE id=?',
+      )
+      .get(existingRow.id)!;
+    expect(row.status).toBe('failed');
+    expect(row.next_attempt_at).toBeNull();
+  });
+});
+
+describe('recoverStaleItems backoff gating', () => {
+  it('sets a backoff gate on re-queued stale items', () => {
+    enqueueDerivation('observation', 'obs-stale-bo', { db });
+    claimNextItem({ db, workerId: 'w1' });
+    const staleTime = new Date(Date.now() - (STALE_CLAIM_MINUTES + 5) * 60_000).toISOString();
+    db.prepare("UPDATE deriver_queue SET claimed_at=? WHERE item_id='obs-stale-bo'").run(staleTime);
+
+    const result = recoverStaleItems({ db });
+    expect(result.requeued).toBe(1);
+
+    const row = db
+      .prepare<{ status: string; next_attempt_at: string | null }, []>(
+        'SELECT status, next_attempt_at FROM deriver_queue LIMIT 1',
+      )
+      .get()!;
+    expect(row.status).toBe('pending');
+    expect(row.next_attempt_at).not.toBeNull();
+    expect(new Date(row.next_attempt_at as string).getTime()).toBeGreaterThan(Date.now());
   });
 });
 
