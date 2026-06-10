@@ -317,21 +317,25 @@ export async function maybeNudgeFirstRunLogin(
     // as non-fatal stderr lines (NOT emitLoginResult — its failure path
     // process.exits, which would discard the init result).
     const result = await runLoginFrontDoor({});
+    // Interactive TTY-gated nudge UX — stdout is reserved for the init
+    // envelope, so these notes go to stderr (single-line statements keep the
+    // hygiene-lint opt-out marker on the offending line through formatting).
+    let note: string;
     if (result.validated) {
-      process.stderr.write(
+      note =
         `  Logged in to ${result.provider} as '${result.accountLabel}' — ` +
-          `bound ${result.profileName ?? 'default'} → ${result.provider}/${result.modelId}.\n`,
-      );
+        `bound ${result.profileName ?? 'default'} → ${result.provider}/${result.modelId}.\n`;
     } else {
       const failed = result.steps.find((st) => st.status === 'failed');
-      process.stderr.write(
+      note =
         `  Login did not complete${failed?.detail ? `: ${failed.detail}` : '.'} ` +
-          `Run 'cleo login' to retry.\n`,
-      );
+        `Run 'cleo login' to retry.\n`;
     }
+    process.stderr.write(note); // json-stream-hygiene-allowed: TTY-gated nudge UX
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`  Login skipped (${msg}). Run 'cleo login' to retry.\n`);
+    const note = `  Login skipped (${msg}). Run 'cleo login' to retry.\n`;
+    process.stderr.write(note); // json-stream-hygiene-allowed: TTY-gated nudge UX
   }
 }
 
