@@ -1715,20 +1715,29 @@ jobs:
       - validate-json
       - install-test
       - worktree-napi-gate
-      # forge-ts-check is deliberately NOT in this gate: it is advisory
-      # (continue-on-error: true), but a job that hits its timeout concludes
-      # `cancelled`, which continue-on-error does not mask — so including it
-      # here hard-failed unrelated PRs whenever forge-ts tipped over its
-      # budget (T11967).
+      - forge-ts-check
     steps:
       - name: Verify every required job passed (or was skipped)
         env:
           RESULTS: ${{ join(needs.*.result, ',') }}
+          # forge-ts-check is ADVISORY (continue-on-error: true). It stays in
+          # `needs` (the merge-bar lint requires every sibling to gate), but
+          # its result is carved out below: a job that hits its timeout
+          # concludes `cancelled`, which continue-on-error does NOT mask, and
+          # that repeatedly hard-failed unrelated PRs (T11967).
+          ADVISORY_RESULT: ${{ needs.forge-ts-check.result }}
         run: |
           echo "Upstream job results: ${RESULTS}"
-          # Fail the gate if ANY upstream job failed or was cancelled.
-          # 'skipped' (path-filtered) and 'success' are acceptable.
-          if printf '%s' "${RESULTS}" | tr ',' '\n' | grep -qE '^(failure|cancelled)$'; then
+          echo "Advisory forge-ts-check result: ${ADVISORY_RESULT}"
+          # Count upstream failures/cancellations; 'skipped' (path-filtered)
+          # and 'success' are acceptable.
+          bad=$(printf '%s' "${RESULTS}" | tr ',' '\n' | grep -cE '^(failure|cancelled)$' || true)
+          # Carve out the advisory job: its failure/timeout never gates.
+          if printf '%s' "${ADVISORY_RESULT}" | grep -qE '^(failure|cancelled)$'; then
+            echo "::warning::Advisory job forge-ts-check concluded '${ADVISORY_RESULT}' — not gating (T11967)."
+            bad=$((bad - 1))
+          fi
+          if [ "${bad}" -gt 0 ]; then
             echo "::error::One or more required CI jobs failed or were cancelled — see the upstream job results above."
             exit 1
           fi
