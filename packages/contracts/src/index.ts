@@ -799,6 +799,29 @@ export {
   ToolGrantedResponseSchema,
   ToolGrantRequestSchema,
 } from './lease-ipc/index.js';
+export type {
+  CatalogAuthType,
+  CatalogModelEntry,
+  CatalogModelStatus,
+  CatalogProvider,
+  CuratedCatalog,
+  ModelsCatalogRowInsert,
+  ModelsCatalogRowSelect,
+} from './llm/catalog-schema.js';
+// === E8 Curated Models Catalog (T11731 · offline-first catalog SSoT) ===
+export {
+  CATALOG_AUTH_TYPES,
+  CATALOG_MODEL_STATUSES,
+  catalogCostSchema,
+  catalogLimitSchema,
+  catalogModalitiesSchema,
+  catalogModelEntrySchema,
+  catalogModelProviderSchema,
+  catalogProviderSchema,
+  curatedCatalogSchema,
+  modelsCatalogRowInsertSchema,
+  modelsCatalogRowSelectSchema,
+} from './llm/catalog-schema.js';
 // === LLM Error Taxonomy (T9270 — Hermes FailoverReason port) ===
 export type { ClassifiedError, FailoverReason } from './llm/failover-reason.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Session + Executor interfaces ===

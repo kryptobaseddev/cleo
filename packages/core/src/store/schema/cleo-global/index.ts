@@ -95,6 +95,8 @@
 export * from '../cleo-shared/index.js';
 export * from './accounts.js';
 export * from './agent-registry.js';
+// E8-CATALOG-CURATION (T11733) — the models.dev catalog SSoT (`models_catalog`).
+export * from './models-catalog.js';
 export * from './nexus.js';
 export * from './services.js';
 export * from './session-manifest.js';
