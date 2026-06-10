@@ -1200,6 +1200,35 @@ export {
   taskTreeEntrySchema,
   taskTreeSchema,
 } from './operations/ensures-schema-registry.js';
+// 5-entity provider-experience op contracts (T11700 · epic T11666) — INPUT
+// contracts consumed by core's INPUT_CONTRACTS registry; OUTPUT contracts already
+// register into OUTPUT_CONTRACTS above.
+export {
+  accountAddInputContract,
+  accountAddOutputContract,
+  accountListInputContract,
+  accountListOutputContract,
+  accountRemoveInputContract,
+  accountRemoveOutputContract,
+  modelQueryInputContract,
+  modelQueryOutputContract,
+  modelShowInputContract,
+  modelShowOutputContract,
+  profileCreateInputContract,
+  profileCreateOutputContract,
+  profileListInputContract,
+  profileListOutputContract,
+  profilePinInputContract,
+  profilePinOutputContract,
+  profileUseInputContract,
+  profileUseOutputContract,
+  providerConnectInputContract,
+  providerConnectOutputContract,
+  providerListInputContract,
+  providerListOutputContract,
+  providerShowInputContract,
+  providerShowOutputContract,
+} from './operations/entities.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
 // === Operation Input Contracts (T9914 / Saga T9855 / E7) ===

@@ -130,8 +130,9 @@ describe('getGatewayDomains', () => {
 
   it('returns canonical domains for mutate (excluding query-only domains)', () => {
     const domains = getGatewayDomains('mutate');
-    // intelligence is query-only — it has no mutate operations
-    const queryOnlyDomains = ['intelligence'];
+    // intelligence is query-only — it has no mutate operations.
+    // model (T11700) is query-only too — it only reads the models.dev catalog.
+    const queryOnlyDomains = ['intelligence', 'model'];
     const expectedMutateDomains = CANONICAL_DOMAINS.filter((d) => !queryOnlyDomains.includes(d));
     expect(domains).toHaveLength(expectedMutateDomains.length);
     for (const d of expectedMutateDomains) {
