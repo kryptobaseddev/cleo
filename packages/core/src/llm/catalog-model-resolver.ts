@@ -149,6 +149,47 @@ export function validateModelForProvider(
 }
 
 /**
+ * List the catalog model ids for a provider, newest first.
+ *
+ * Sorts by `release_date` descending so the latest models surface at the top of
+ * an interactive picker (e.g. the models/roles wizard section — T11726). Entries
+ * without a `release_date` are appended after the dated ones, in catalog order.
+ * Returns an empty array when the catalog is unavailable or the provider has no
+ * entries, so callers can fall back to a free-text prompt.
+ *
+ * @param providerCatalogKey - The models.dev provider key (e.g. `"openai"`).
+ * @param limit - Maximum number of model ids to return (default `12`). Use a
+ *   small cap so an interactive menu stays scannable.
+ * @param catalogOverride - Optional catalog for testing; defaults to the disk
+ *   snapshot loaded by {@link getDiskCatalog}.
+ * @returns Model ids newest-first, capped at `limit`.
+ *
+ * @task T11726
+ */
+export function listProviderModels(
+  providerCatalogKey: string,
+  limit = 12,
+  catalogOverride?: ModelsCatalogFile,
+): string[] {
+  const catalog = catalogOverride ?? getDiskCatalog();
+  if (!catalog) return [];
+
+  const provider = catalog[providerCatalogKey];
+  if (!provider?.models) return [];
+
+  const entries = Object.entries(provider.models) as [string, ModelsCatalogEntry][];
+  const sorted = [...entries].sort(([, a], [, b]) => {
+    const da = a.release_date ?? '';
+    const db = b.release_date ?? '';
+    if (da === db) return 0;
+    // Dated entries sort newest-first; undated (`''`) sink to the bottom.
+    return db.localeCompare(da);
+  });
+
+  return sorted.slice(0, Math.max(0, limit)).map(([id]) => id);
+}
+
+/**
  * Return the models.dev catalog key for a given CLEO provider name.
  *
  * CLEO provider names (e.g. `"openai"`, `"anthropic"`) usually match their

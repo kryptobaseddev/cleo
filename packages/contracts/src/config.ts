@@ -638,9 +638,10 @@ export interface LlmConfig {
    * role that does NOT pin its own provider/model/profile. This is the
    * user-selectable default binding for background roles — it is NEVER a
    * hardcoded provider in code; the owner re-selects it with
-   * `cleo llm bind --default <profileName>`.
+   * `cleo config set llm.defaultProfile <profileName>`.
    *
    * @task T11617
+   * @task T11723
    */
   defaultProfile?: string;
   /**

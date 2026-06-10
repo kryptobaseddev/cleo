@@ -406,6 +406,12 @@ async function _headlessPkceFlow(
       }
       resolve(parsed.code);
     });
+    // A readline interface that ran earlier in the command (e.g. the login
+    // front-door's provider picker) leaves stdin EXPLICITLY paused on close;
+    // attaching a 'data' listener does not un-pause an explicitly-paused
+    // stream, so without this the paste-back read hangs forever (T11725
+    // takeover review, blocker).
+    process.stdin.resume();
   });
 }
 

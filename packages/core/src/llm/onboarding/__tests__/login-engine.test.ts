@@ -287,6 +287,30 @@ describe('runOnboardingLogin — validate step', () => {
     expect(result.validated).toBe(false);
     expect(result.steps.find((s) => s.step === 'validate')?.status).toBe('failed');
   });
+
+  it('T11725 review: validate resolves the BOUND role, not a hardcoded one', async () => {
+    // Binding --role extraction must validate by resolving 'extraction' —
+    // resolving any other role would validate an unrelated binding and falsely
+    // fail every role except the hardcoded default.
+    const seenRoles: Array<string | undefined> = [];
+    const { deps } = makeDeps({
+      resolve: async (provider, _projectRoot, role) => {
+        seenRoles.push(role);
+        return {
+          provider,
+          model: CATALOG_MODEL,
+          sealedCredential: { tokenPreview: 'oat-…zzz' },
+        };
+      },
+    });
+    const result = await runOnboardingLogin(
+      'anthropic',
+      { token: FAKE_TOKEN, role: 'extraction' },
+      deps,
+    );
+    expect(result.validated).toBe(true);
+    expect(seenRoles).toEqual(['extraction']);
+  });
 });
 
 // ---------------------------------------------------------------------------

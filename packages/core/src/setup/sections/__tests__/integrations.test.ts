@@ -378,21 +378,23 @@ describe('integrations section — isConfigured()', () => {
 // createBuiltinSections() registration
 // ---------------------------------------------------------------------------
 
-describe('createBuiltinSections() — integrations at position 7', () => {
-  it('includes integrations as the 7th section (index 6)', () => {
+describe('createBuiltinSections() — integrations placement', () => {
+  // T11726 inserted `models-roles` after `llm`, shifting later sections +1.
+  it('includes integrations as the 8th section (index 7)', () => {
     const sections = createBuiltinSections();
-    expect(sections[6]?.section).toBe('integrations');
+    expect(sections[7]?.section).toBe('integrations');
   });
 
-  it('has 9 built-in sections after T9572 (telemetry added between integrations and verification)', () => {
+  it('has 10 built-in sections after T11726 (models-roles added after llm)', () => {
     const sections = createBuiltinSections();
-    expect(sections).toHaveLength(9);
+    expect(sections).toHaveLength(10);
   });
 
   it('section ids are in the expected canonical order', () => {
     const sections = createBuiltinSections();
     expect(sections.map((s) => s.section)).toEqual([
       'llm',
+      'models-roles',
       'identity',
       'sentient',
       'project-conventions',
