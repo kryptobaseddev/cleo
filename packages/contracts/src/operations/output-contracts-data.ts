@@ -24,6 +24,20 @@
  * @task T11692 — DHQ-057: per-operation output schema SSoT
  */
 
+import {
+  accountAddOutputContract,
+  accountListOutputContract,
+  accountRemoveOutputContract,
+  modelQueryOutputContract,
+  modelShowOutputContract,
+  profileCreateOutputContract,
+  profileListOutputContract,
+  profilePinOutputContract,
+  profileUseOutputContract,
+  providerConnectOutputContract,
+  providerListOutputContract,
+  providerShowOutputContract,
+} from './entities.js';
 import type {
   OperationOutputContract,
   OperationOutputContractRegistry,
@@ -495,4 +509,17 @@ export const OUTPUT_CONTRACTS: OperationOutputContractRegistry = {
   'service.list': serviceListOutputContract,
   'service.revoke': serviceRevokeOutputContract,
   'service.status': serviceStatusOutputContract,
+  // 5-entity provider-experience ops (T11700 · epic T11666)
+  'account.add': accountAddOutputContract,
+  'account.list': accountListOutputContract,
+  'account.remove': accountRemoveOutputContract,
+  'provider.list': providerListOutputContract,
+  'provider.show': providerShowOutputContract,
+  'provider.connect': providerConnectOutputContract,
+  'model.query': modelQueryOutputContract,
+  'model.show': modelShowOutputContract,
+  'profile.create': profileCreateOutputContract,
+  'profile.list': profileListOutputContract,
+  'profile.pin': profilePinOutputContract,
+  'profile.use': profileUseOutputContract,
 };

@@ -110,6 +110,20 @@ export const CANONICAL_DOMAINS = [
   // per-provider RefreshConfig. The flow lives in CORE (store/service-oauth.ts),
   // driven by the declarative SERVICE_PROVIDERS registry (contracts).
   'service',
+  // T11700 (epic T11666 · M3 · North-Star §2): the 5-entity provider experience —
+  // the addressable Provider / Alias / Account / Model / Profile surface.
+  //   'account'  — 'cleo account add|list|remove' (the credential pool; add is
+  //                secret-bearing/cli-only, MCP-default-denied).
+  //   'provider' — 'cleo provider list|show|connect' (the declarative providers
+  //                table #1039 + alias resolution; connect is secret-bearing).
+  //   'model'    — 'cleo model query|show' (the models_catalog table #1037; QUERY-ONLY).
+  //   'profile'  — 'cleo profile create|list|pin|use' (the named account+model
+  //                binding persisted into llm.profiles[name], the resolver SSoT).
+  // Each dispatches to the CORE entity-ops layer (llm/entity-ops.ts).
+  'account',
+  'provider',
+  'model',
+  'profile',
 ] as const;
 
 /**

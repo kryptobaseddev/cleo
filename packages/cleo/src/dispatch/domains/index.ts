@@ -15,6 +15,7 @@ import { CheckHandler } from './check.js';
 import { ConduitHandler } from './conduit.js';
 import { DiagnosticsHandler } from './diagnostics.js';
 import { DocsHandler } from './docs.js';
+import { AccountHandler, ModelHandler, ProfileHandler, ProviderHandler } from './entities.js';
 import { FocusHandler } from './focus.js';
 import { IntelligenceHandler } from './intelligence.js';
 import { LlmHandler } from './llm/index.js';
@@ -36,6 +37,7 @@ import { UpgradeHandler } from './upgrade.js';
 import { WorktreeHandler } from './worktree.js';
 
 export {
+  AccountHandler,
   AdminHandler,
   AttentionHandler,
   CheckHandler,
@@ -46,11 +48,14 @@ export {
   IntelligenceHandler,
   LlmHandler,
   MemoryHandler,
+  ModelHandler,
   NexusHandler,
   OrchestrateHandler,
   PipelineHandler,
   PlaybookHandler,
+  ProfileHandler,
   ProvenanceHandler,
+  ProviderHandler,
   ReleaseHandler,
   SelfimproveHandler,
   SentientHandler,
@@ -108,6 +113,15 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('service', new ServiceHandler());
   // T9258: `cleo llm` CLI surface — credential pool + role-aware resolver + config writer.
   handlers.set('llm', new LlmHandler());
+  // T11700 (epic T11666 · M3): the 5-entity provider experience (North-Star §2).
+  // `cleo account|provider|model|profile` — thin delegates to the CORE entity-ops
+  // layer (llm/entity-ops.ts) over the merged credential-pool / providers-table /
+  // models_catalog / llm.profiles accessors. account.add + provider.connect are
+  // secret-bearing (MCP-default-denied); model.* is query-only.
+  handlers.set('account', new AccountHandler());
+  handlers.set('provider', new ProviderHandler());
+  handlers.set('model', new ModelHandler());
+  handlers.set('profile', new ProfileHandler());
   // T9546: `cleo worktree` CLI surface — structured worktree enumeration with status classification
   // (T9515 worktree-lifecycle bug fix epic, 2 of 5).
   handlers.set('worktree', new WorktreeHandler());

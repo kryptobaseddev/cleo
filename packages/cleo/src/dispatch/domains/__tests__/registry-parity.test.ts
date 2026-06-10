@@ -691,6 +691,15 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     gate: { epicId: 'T001' },
     'ivtr-suggest': { taskId: 'T001' },
   },
+  // T11700 — the 5-entity provider experience. We deliberately OMIT secrets (and
+  // some required params) here: the parity test only asserts the handler
+  // RECOGNIZES the op (no E_INVALID_OPERATION). The secret-bearing ops then bail
+  // at E_INVALID_INPUT BEFORE any credential write — no real DB side effect — the
+  // same convention the `llm` domain uses. Actual binding + redaction is covered
+  // by the dedicated entity-ops dispatch test.
+  model: {
+    show: { model: 'claude-3-5-haiku-latest' },
+  },
 };
 
 // ===========================================================================
@@ -775,6 +784,11 @@ describe('Registry-Handler Parity (T5671)', () => {
       // T1726: sentient and release promoted to canonical domains (SDK surface parity)
       'sentient',
       'release',
+      // T11700: the 5-entity provider experience (North-Star §2).
+      'account',
+      'provider',
+      'model',
+      'profile',
     ];
     for (const domain of expectedDomains) {
       expect(handlers.has(domain), `Missing handler for domain: ${domain}`).toBe(true);

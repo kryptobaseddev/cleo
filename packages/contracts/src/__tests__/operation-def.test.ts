@@ -106,7 +106,9 @@ describe('dispatch/operation-def contracts', () => {
     // trip this test and force an explicit human review.
     // T11889-D — +1 for the new 'selfimprove' domain (self-dogfooding loop verb).
     // T11939 — +1 for the new 'service' domain (universal service-vault OAuth flow).
-    expect(CANONICAL_DOMAINS.length).toBe(25);
+    // T11700 — +4 for the 5-entity provider experience: 'account', 'provider',
+    //          'model', 'profile' (North-Star §2 addressable provider surface).
+    expect(CANONICAL_DOMAINS.length).toBe(29);
   });
 
   it('CANONICAL_DOMAINS contains the four sentinel newly-promoted domains', () => {

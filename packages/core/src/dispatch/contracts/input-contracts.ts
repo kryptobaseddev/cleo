@@ -28,8 +28,20 @@
  */
 
 import {
+  accountAddInputContract,
+  accountListInputContract,
+  accountRemoveInputContract,
+  modelQueryInputContract,
+  modelShowInputContract,
   type OperationInputContract,
   type OperationInputContractRegistry,
+  profileCreateInputContract,
+  profileListInputContract,
+  profilePinInputContract,
+  profileUseInputContract,
+  providerConnectInputContract,
+  providerListInputContract,
+  providerShowInputContract,
   serviceConnectInputContract,
   serviceListInputContract,
   serviceRevokeInputContract,
@@ -67,6 +79,19 @@ export const INPUT_CONTRACTS: OperationInputContractRegistry = {
   'service.list': serviceListInputContract,
   'service.revoke': serviceRevokeInputContract,
   'service.status': serviceStatusInputContract,
+  // 5-entity provider-experience ops (T11700 · epic T11666)
+  'account.add': accountAddInputContract,
+  'account.list': accountListInputContract,
+  'account.remove': accountRemoveInputContract,
+  'provider.list': providerListInputContract,
+  'provider.show': providerShowInputContract,
+  'provider.connect': providerConnectInputContract,
+  'model.query': modelQueryInputContract,
+  'model.show': modelShowInputContract,
+  'profile.create': profileCreateInputContract,
+  'profile.list': profileListInputContract,
+  'profile.pin': profilePinInputContract,
+  'profile.use': profileUseInputContract,
 };
 
 /**

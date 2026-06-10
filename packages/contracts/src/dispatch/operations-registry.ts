@@ -9219,4 +9219,338 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+
+  // ── 5-entity provider experience (T11700 · epic T11666 · North-Star §2) ──
+  // The addressable Provider / Alias / Account / Model / Profile surface. Each op
+  // dispatches to the CORE entity-ops layer (llm/entity-ops.ts), which is a thin
+  // composition over the ALREADY-MERGED accessors: the credential pool
+  // (account.* — secret-bearing, redacted to tokenPreview), the declarative
+  // `providers` table (#1039), the `models_catalog` table (#1037), and the
+  // resolver-consumed `llm.profiles[name]` config (profile.*). The secret-bearing
+  // ops carry NO `mcpExposed` flag → they are MCP-default-denied (AC5/AC7); read
+  // ops are also unary CLI/RPC/HTTP (no `mcpExposed`), keeping the MCP surface
+  // curated. INPUT + OUTPUT contracts live in contracts/operations/entities.ts.
+
+  // account.* — the credential pool (the rename/successor of the secret-bearing
+  // `llm` pool ops). `account.add` is SECRET-BEARING (cli-only; MCP-denied).
+  {
+    gateway: 'mutate',
+    domain: 'account',
+    operation: 'add',
+    description:
+      'account.add (mutate) — store a pooled provider credential. SECRET-BEARING (cli-only): accepts an API key / OAuth token and persists it encrypted; returns the NON-SECRET redacted view (tokenPreview last-4 ONLY — never the raw secret).',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['provider', 'token'],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description: 'LLM provider transport key (e.g. anthropic, openai).',
+        cli: { positional: true },
+      },
+      {
+        name: 'token',
+        type: 'string',
+        required: true,
+        description: 'API key or OAuth bearer token to persist. SECRET — never echoed.',
+      },
+      {
+        name: 'label',
+        type: 'string',
+        required: false,
+        description: "Account label, unique within the provider (default: 'default').",
+      },
+      {
+        name: 'baseUrl',
+        type: 'string',
+        required: false,
+        description: 'Optional override for the provider base URL.',
+      },
+      {
+        name: 'authType',
+        type: 'string',
+        required: false,
+        description: "Explicit auth-type override ('api_key' | 'oauth' | 'aws_sdk').",
+      },
+      {
+        name: 'priority',
+        type: 'number',
+        required: false,
+        description: 'Optional priority override (lower wins).',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'query',
+    domain: 'account',
+    operation: 'list',
+    description:
+      'account.list (query) — list pooled accounts as NON-SECRET redacted views (provider/label/authType/tokenPreview). The decrypted secret is NEVER surfaced.',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: false,
+        description: 'Optional provider filter; lists all providers when omitted.',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'account',
+    operation: 'remove',
+    description:
+      'account.remove (mutate) — delete a (provider, label) account from the pool. Returns the {count, deleted} envelope (count=0 when absent — idempotent).',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['provider', 'label'],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description: 'LLM provider transport key.',
+        cli: { positional: true },
+      },
+      {
+        name: 'label',
+        type: 'string',
+        required: true,
+        description: 'Account label to remove.',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // provider.* — the declarative `providers` table (#1039) + alias resolution.
+  {
+    gateway: 'query',
+    domain: 'provider',
+    operation: 'list',
+    description:
+      'provider.list (query) — list every declarative provider as a NON-SECRET view (id/displayName/aliases/authMethods/modelsDevId) from the providers table.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [] satisfies ParamDef[],
+  },
+  {
+    gateway: 'query',
+    domain: 'provider',
+    operation: 'show',
+    description:
+      'provider.show (query) — resolve ONE provider by id OR case-insensitive alias against the declarative alias index; returns the provider view + the id/alias matched.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['provider'],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description: 'Provider id OR a case-insensitive alias.',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'provider',
+    operation: 'connect',
+    description:
+      'provider.connect (mutate) — connect a provider by storing a token as one of its accounts (token-direct). SECRET-BEARING (cli-only): resolves the provider (id/alias) then delegates to the secret-bearing account write; returns the NON-SECRET account identity (never the raw token). OAuth flows route through `cleo service`.',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['provider'],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description: 'Provider id or alias to connect.',
+        cli: { positional: true },
+      },
+      {
+        name: 'token',
+        type: 'string',
+        required: false,
+        description: 'Direct API key / bearer token to store (token-direct mode). SECRET.',
+      },
+      {
+        name: 'label',
+        type: 'string',
+        required: false,
+        description: "Account label to create (default: 'default').",
+      },
+      {
+        name: 'authType',
+        type: 'string',
+        required: false,
+        description: "Explicit auth-type override ('api_key' | 'oauth' | 'aws_sdk').",
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // model.* — the models.dev catalog (`models_catalog` table, #1037). QUERY-ONLY.
+  {
+    gateway: 'query',
+    domain: 'model',
+    operation: 'query',
+    description:
+      'model.query (query) — read the models.dev catalog (models_catalog table) newest-first by release date; optionally filtered by provider (models.dev id) and capped by --limit. Returns NON-SECRET catalog views.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: false,
+        description:
+          'Optional provider filter (models.dev id); queries all providers when omitted.',
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Optional cap on the number of rows returned (newest-first).',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'query',
+    domain: 'model',
+    operation: 'show',
+    description:
+      'model.show (query) — resolve ONE catalog model by id; returns {found, model} (found=false when the id is absent — not an error).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['model'],
+    params: [
+      {
+        name: 'model',
+        type: 'string',
+        required: true,
+        description: 'Model id (catalog key) to resolve.',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // profile.* — the named binding account+model[+params+role], persisted into
+  // `llm.profiles[name]` (the resolver-consumed config SSoT).
+  {
+    gateway: 'mutate',
+    domain: 'profile',
+    operation: 'create',
+    description:
+      'profile.create (mutate) — bind an account + model into a named, addressable profile. Validates the binding (the pinned account must exist; the model must be in the catalog) then persists into llm.profiles[name]. Returns {count, created, profile}.',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['name', 'provider', 'model'],
+    params: [
+      {
+        name: 'name',
+        type: 'string',
+        required: true,
+        description: 'Profile name (the addressable handle).',
+        cli: { positional: true },
+      },
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description: 'Provider transport the bound account belongs to.',
+      },
+      {
+        name: 'model',
+        type: 'string',
+        required: true,
+        description: 'Model id to bind (validated against the catalog).',
+      },
+      {
+        name: 'label',
+        type: 'string',
+        required: false,
+        description: 'Account label to pin (the credential binding). Validated to exist.',
+      },
+      {
+        name: 'role',
+        type: 'string',
+        required: false,
+        description: 'Optional role this profile occupies (extraction | consolidation | …).',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'query',
+    domain: 'profile',
+    operation: 'list',
+    description:
+      'profile.list (query) — list every named profile from llm.profiles (name + provider + model + optional credentialLabel).',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'profile',
+    operation: 'pin',
+    description:
+      'profile.pin (mutate) — pin a role to a named profile (llm.roles[role].profile). The role must be a valid background role and the profile must already exist.',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['name', 'role'],
+    params: [
+      {
+        name: 'name',
+        type: 'string',
+        required: true,
+        description: 'Profile name to pin (must exist).',
+        cli: { positional: true },
+      },
+      {
+        name: 'role',
+        type: 'string',
+        required: true,
+        description: 'Role to pin to this profile (extraction | consolidation | derivation | …).',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'profile',
+    operation: 'use',
+    description:
+      'profile.use (mutate) — set a named profile as the global default binding (llm.defaultProfile). The profile must already exist.',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['name'],
+    params: [
+      {
+        name: 'name',
+        type: 'string',
+        required: true,
+        description: 'Profile name to mark as default (must exist).',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
+  },
 ];

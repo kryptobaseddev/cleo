@@ -2296,6 +2296,36 @@ export {
   pickCredentialForProvider,
   removeCredential,
 } from './llm/credentials-store.js';
+// 5-entity provider-experience engine ops (T11700 · epic T11666) — the CORE
+// composition layer behind `cleo provider|account|model|profile`. Thin delegates
+// to the merged credential-store / providers-table / models_catalog / config
+// accessors. NO raw secret EVER leaves these ops (account views are tokenPreview-only).
+export {
+  type AccountAddParams,
+  type AccountListParams,
+  type AccountRemoveParams,
+  accountAdd,
+  accountList,
+  accountRemove,
+  type ModelQueryParams,
+  type ModelShowParams,
+  modelQuery,
+  modelShow,
+  type ProfileCreateParams,
+  type ProfileListParams,
+  type ProfilePinParams,
+  type ProfileUseParams,
+  type ProviderConnectParams,
+  type ProviderListParams,
+  type ProviderShowParams,
+  profileCreate,
+  profileList,
+  profilePin,
+  profileUse,
+  providerConnect,
+  providerList,
+  providerShow,
+} from './llm/entity-ops.js';
 export type { ResolvedLLM } from './llm/role-resolver.js';
 export {
   IMPLICIT_FALLBACK_MODEL,
