@@ -136,6 +136,22 @@ export {
   suppressionStatePath,
   writeSuppressionFile,
 } from './credential-removal.js';
+// M3 Provider SSoT (T11702/T11703/T11704 · epic T11667) — declarative providers
+export type { ProviderAliasIndex } from './provider-registry/provider-alias.js';
+export {
+  buildAliasIndex,
+  resolveProviderId,
+} from './provider-registry/provider-alias.js';
+export {
+  builtinProviderDefs,
+  toProviderDef,
+} from './provider-registry/provider-defs.js';
+export type { SeedProvidersDeps, SeedProvidersResult } from './provider-registry/provider-seed.js';
+export {
+  openProviderSeederAtPath,
+  providerDefToRow,
+  seedProviders,
+} from './provider-registry/provider-seed.js';
 // Credential seeders — unified pool foundation (E-CONFIG-AUTH-UNIFY E2a / T9408)
 // T9409 adds the concrete `EnvSeeder` and the `./register.js` barrel that
 // populates `BUILTIN_SEEDERS` at module load. Importing this `llm/index.js`

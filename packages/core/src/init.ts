@@ -1209,6 +1209,20 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     );
   }
 
+  // M3 (T11703): seed the `providers` declarative-provider SSoT from the builtin
+  // ProviderDef set (derived from the in-process ProviderProfile builtins). Idempotent
+  // (upsert on `id`) + plugin-safe (never touches user provider rows) — no network.
+  // Non-fatal: a fresh install still resolves providers from the in-process registry.
+  try {
+    const { seedProviders } = await import('./llm/provider-registry/provider-seed.js');
+    const seedResult = await seedProviders();
+    if (seedResult.seeded) {
+      created.push(`providers: seeded ${seedResult.rowCount} builtin providers`);
+    }
+  } catch (err) {
+    warnings.push(`providers seed failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // Context anchoring: when brownfield and --map-codebase was NOT already run,
   // surface a hint so the operator knows they can anchor the baseline in BRAIN.
   // (We do NOT auto-run mapCodebase here — it's opt-in to avoid blocking init.)
