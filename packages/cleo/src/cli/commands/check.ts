@@ -9,10 +9,51 @@
  * @task T1136 — provenance subcommand: audit git log for untagged commits
  */
 
+import { type PrGateSummary, runPrGate } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
 import { cliError } from '../renderers/index.js';
+
+/**
+ * Render a {@link PrGateSummary} as a LAFS envelope on stdout plus a
+ * human-readable summary on stderr. Kept module-local (not a CLI-command
+ * helper) and under the boundary threshold; the gate LOGIC lives in
+ * `@cleocode/core` per the Package-Boundary Check.
+ *
+ * @param summary the aggregate result of a `cleo check pr` run
+ * @task T11956
+ */
+function emitPrGateSummary(summary: PrGateSummary): void {
+  const envelope = {
+    success: summary.passed,
+    data: {
+      passed: summary.passed,
+      summary: summary.summary,
+      gates: summary.gates,
+      repoRoot: summary.repoRoot,
+    },
+    meta: { operation: 'check.pr', timestamp: new Date().toISOString() },
+  };
+  process.stdout.write(`${JSON.stringify(envelope)}\n`);
+
+  process.stderr.write(`\nPre-PR Gate (cleo check pr) — T11956\n`);
+  process.stderr.write(`${'─'.repeat(52)}\n`);
+  for (const g of summary.gates) {
+    const icon = g.status === 'pass' ? 'PASS' : g.status === 'fail' ? 'FAIL' : 'SKIP';
+    const dur = g.status === 'skipped' ? '' : ` (${(g.durationMs / 1000).toFixed(1)}s)`;
+    process.stderr.write(`  [${icon}] ${g.label}${dur}\n`);
+    if (g.status === 'fail' && g.outputTail) {
+      for (const line of g.outputTail.split('\n').slice(-6)) {
+        process.stderr.write(`         ${line}\n`);
+      }
+    }
+  }
+  process.stderr.write(`${'─'.repeat(52)}\n`);
+  process.stderr.write(
+    `  Result: ${summary.summary.pass} passed, ${summary.summary.fail} failed, ${summary.summary.skipped} skipped\n\n`,
+  );
+}
 
 /**
  * The 12 supported protocol types — must stay in sync with
@@ -622,6 +663,65 @@ const checkArchCommand = defineCommand({
 });
 
 /**
+ * cleo check pr — unified local pre-PR gate (T11956 · DHQ-073).
+ *
+ * Runs the SAME gates CI runs (biome, lockfile, `cleo check arch`, canon-drift,
+ * full typecheck, build, tests, and — with `--full` — the complete standalone
+ * lint surface) locally in one command, reporting a single pass/fail summary so
+ * an agent can self-verify BEFORE opening a PR. Heavy gates are cgroup-capped
+ * on Linux.
+ *
+ * The gate registry + runner live in `@cleocode/core` (see
+ * `packages/core/src/check/pr-gate.ts`); this handler is a thin dispatch.
+ *
+ * Exit codes: 0 — all selected gates passed; 1 — one or more failed.
+ *
+ * @task T11956
+ * @epic T11679
+ */
+const checkPrCommand = defineCommand({
+  meta: {
+    name: 'pr',
+    description: 'Run the CI required-gates locally and report one pass/fail summary (T11956)',
+  },
+  args: {
+    full: {
+      type: 'boolean',
+      description: 'Also run the complete standalone-lint surface (slower, exhaustive)',
+    },
+    only: {
+      type: 'string',
+      description: 'Comma-separated gate ids to run (e.g. "biome,typecheck,test")',
+    },
+    'memory-max': {
+      type: 'string',
+      description: 'MemoryMax for cgroup-capped heavy gates on Linux (default: 16G)',
+    },
+    'no-keep-going': {
+      type: 'boolean',
+      description: 'Stop at the first failing gate instead of running them all',
+    },
+  },
+  async run({ args }) {
+    const onlyRaw = args.only as string | undefined;
+    const summary = runPrGate({
+      full: Boolean(args.full),
+      only: onlyRaw
+        ? onlyRaw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined,
+      memoryMax: args['memory-max'] as string | undefined,
+      keepGoing: !args['no-keep-going'],
+      onProgress: (line) => process.stderr.write(`${line}\n`),
+    });
+    emitPrGateSummary(summary);
+    if (!summary.passed) process.exit(1);
+  },
+});
+
+/**
  * Root check command group — validation and compliance checks.
  *
  * Dispatches to the check domain. Supports schema validation, coherence,
@@ -639,6 +739,7 @@ export const checkCommand = defineCommand({
     protocol: checkProtocolCommand,
     provenance: checkProvenanceCommand,
     arch: checkArchCommand,
+    pr: checkPrCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

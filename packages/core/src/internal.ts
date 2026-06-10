@@ -131,6 +131,18 @@ export {
   renderChangesetMarkdown,
   writeChangesetEntry,
 } from './changesets/index.js';
+// T11956 — unified local pre-PR gate runner (cleo check pr)
+export {
+  buildGateArgv,
+  PR_GATES,
+  type PrGateDef,
+  type PrGateRunResult,
+  type PrGateSummary,
+  type RunPrGateOptions,
+  resolveWorkingTree,
+  runPrGate,
+  selectPrGates,
+} from './check/index.js';
 export type { ViolationLogEntry } from './compliance/protocol-enforcement.js';
 // Compliance
 export { ProtocolEnforcer, protocolEnforcer } from './compliance/protocol-enforcement.js';
