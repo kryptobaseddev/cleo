@@ -79,6 +79,8 @@ export {
   executePlaybook,
   type PlaybookTerminalStatus,
   type ResumePlaybookOptions,
+  // T1944 (M4): per-step `node.inputs` → dispatch-boundary binding resolver.
+  resolveStepBindings,
   resumePlaybook,
 } from './runtime.js';
 // W4-8: state layer CRUD for playbook_runs + playbook_approvals

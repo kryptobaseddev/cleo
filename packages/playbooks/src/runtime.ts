@@ -48,13 +48,17 @@ import type {
   PlaybookNode,
   PlaybookRun,
   PlaybookRunStatus,
+  SubstitutionContext,
 } from '@cleocode/contracts';
 // T11762 ST-2: registry-driven ensures.schema resolution. The bodied accessors
 // live in `@cleocode/core` (Gate-10 contracts-purity forbids them in the
 // contracts leaf); core does NOT depend on playbooks, so this import direction
 // is cycle-free (mirrors the existing `@cleocode/core/store/schema` import in
 // `./schema.ts`).
-import { getEnsuresSchema, listEnsuresSchemaNames } from '@cleocode/core';
+// T1944 (M4): `defaultVariableResolver` is the canonical T1238 mustache engine,
+// re-used here (DRY) to resolve `PlaybookAgenticNode.inputs` `{{path}}`
+// templates at the dispatch boundary rather than re-implementing substitution.
+import { defaultVariableResolver, getEnsuresSchema, listEnsuresSchemaNames } from '@cleocode/core';
 import { createApprovalGate, getPlaybookSecret } from './approval.js';
 import {
   createPlaybookApproval,
@@ -84,6 +88,24 @@ export interface AgentDispatchInput {
   taskId: string;
   /** Snapshot of the accumulated bindings at dispatch time. */
   context: Record<string, unknown>;
+  /**
+   * Per-step resolved bindings for this node (T1944 · M4 cantbook done-gate).
+   *
+   * Additive field. Built by {@link resolveStepBindings} from
+   * {@link PlaybookAgenticNode.inputs} — each declared input is a mustache
+   * `{{path}}` template resolved against the accumulated run `context` (via the
+   * canonical T1238 {@link DefaultVariableResolver}), then layered ON TOP of
+   * that context so a step input SHADOWS a same-named context key.
+   *
+   * The runtime always populates this when dispatching an agentic node (it is a
+   * shallow copy of `context` when the node declares no `inputs`). It is typed
+   * optional only to keep the change strictly additive for any out-of-tree
+   * dispatcher that constructs an {@link AgentDispatchInput} directly.
+   *
+   * Resolver precedence (highest → lowest):
+   * `step bindings ⊳ playbook bindings (run context) ⊳ session ⊳ project-context ⊳ env ⊳ default`.
+   */
+  bindings?: Record<string, unknown>;
   /** 1-based iteration counter for this specific node (retry-aware). */
   iteration: number;
 }
@@ -501,6 +523,75 @@ function resolveNode(nodeId: string, idx: NodeIndex): PlaybookNode {
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve a {@link PlaybookAgenticNode}'s declared `inputs` into the per-step
+ * binding map handed to the dispatcher (T1944 · M4 cantbook done-gate).
+ *
+ * Each `inputs` value is a mustache `{{path}}` template. Templates are resolved
+ * against the accumulated run `context` using the canonical T1238
+ * {@link DefaultVariableResolver} (no second substitution engine — DRY) and the
+ * resolved key/value pairs are then layered ON TOP of the run context. The
+ * result is the dispatch-time binding map.
+ *
+ * ## Canonical resolver precedence (highest → lowest)
+ *
+ * 1. **step bindings** — the resolved `node.inputs` themselves. They are merged
+ *    LAST over the run context, so a step input always SHADOWS a same-named
+ *    context key (AC3 / AC6).
+ * 2. **playbook bindings** — the accumulated run `context` (seeded from the
+ *    playbook's declared inputs + every prior node's merged output).
+ * 3. **session / project-context / env / default** — supplied to the underlying
+ *    {@link DefaultVariableResolver} via the {@link SubstitutionContext} below.
+ *
+ * The run `context` is exposed to the resolver through BOTH the `projectContext`
+ * tier (which supports dot-notation, so `{{inputs.epicId}}` and `{{context.foo}}`
+ * resolve into nested objects) and `process.env` (the `env` tier). The
+ * resolver runs in lenient mode.
+ *
+ * ## Missing-key rule
+ *
+ * Lenient. When a `{{path}}` template references a value that resolves through
+ * NO tier, the literal placeholder text is left intact in the bound value (e.g.
+ * `{{missing}}` stays `"{{missing}}"`). This mirrors the canonical T1238
+ * lenient posture — a missing input never aborts the dispatch; the agent
+ * receives the literal placeholder and can fail loudly downstream if required.
+ *
+ * @param node - The agentic node whose `inputs` are resolved.
+ * @param context - The accumulated run bindings at dispatch time.
+ * @returns A new binding map = `{ ...context, ...resolvedStepInputs }`. When the
+ *   node declares no `inputs`, this is a shallow copy of `context`.
+ */
+export function resolveStepBindings(
+  node: PlaybookAgenticNode,
+  context: Record<string, unknown>,
+): Record<string, unknown> {
+  // No declared inputs — bindings are just a snapshot of the run context.
+  if (node.inputs === undefined || Object.keys(node.inputs).length === 0) {
+    return { ...context };
+  }
+
+  // Expose the run context to the canonical resolver. `projectContext` is the
+  // dot-notation-capable tier, so `{{inputs.epicId}}` / `{{context.foo.bar}}`
+  // walk into nested objects; flat keys (`{{epicId}}`) resolve via a
+  // single-segment walk on the same tier.
+  const substitutionContext: SubstitutionContext = {
+    projectContext: context,
+    env: process.env,
+  };
+
+  const resolvedInputs: Record<string, unknown> = {};
+  for (const [key, template] of Object.entries(node.inputs)) {
+    // Lenient resolve — missing placeholders are left literal (see TSDoc).
+    const result = defaultVariableResolver.resolve(template, substitutionContext, {
+      strict: false,
+    });
+    resolvedInputs[key] = result.text;
+  }
+
+  // Step bindings shadow the run context for same-named keys (AC3 / AC6).
+  return { ...context, ...resolvedInputs };
+}
+
+/**
  * Execute a single `agentic` node via the injected {@link AgentDispatcher}.
  * The dispatcher receives the current context and must return a success /
  * failure envelope — any thrown exception is normalized into a failure.
@@ -523,6 +614,10 @@ async function executeAgenticNode(
   const taskIdRaw = context['taskId'];
   const taskId = typeof taskIdRaw === 'string' && taskIdRaw.length > 0 ? taskIdRaw : runId;
 
+  // T1944 (M4): resolve `node.inputs` `{{path}}` templates against the run
+  // context and layer them on top so step inputs shadow context (AC1/AC2/AC3).
+  const bindings = resolveStepBindings(node, context);
+
   try {
     const result = await dispatcher.dispatch({
       runId,
@@ -530,6 +625,7 @@ async function executeAgenticNode(
       agentId,
       taskId,
       context: { ...context },
+      bindings,
       iteration,
     });
     if (result.status === 'success') {
