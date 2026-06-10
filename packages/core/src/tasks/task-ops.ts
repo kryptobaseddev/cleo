@@ -23,7 +23,10 @@
 export {
   coreTaskCancel,
   taskAnalyze,
+  // T11786 (epic T11556) — bulk task mutate ops Studio's Kanban binds to.
+  taskAssignee,
   taskBlockers,
+  taskBulkMove,
   taskCancel,
   taskDeps,
   taskImpact,
@@ -36,6 +39,7 @@ export {
   taskRelatesRemove,
   taskReopen,
   taskReorder,
+  taskReorderRank,
   taskReparent,
   taskRestore,
   taskTree,

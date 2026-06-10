@@ -1078,6 +1078,113 @@ export interface TasksReorderDispatchResult {
   totalSiblings: number;
 }
 
+// ---------------------------------------------------------------------------
+// tasks.reorder-rank / tasks.bulk-move / tasks.assignee
+// (T11786 · epic T11556 · E1-GATEWAY-CRUD — bulk task mutate ops Studio's
+// interactive Kanban binds to)
+// ---------------------------------------------------------------------------
+
+/**
+ * Params for `tasks.reorder-rank` — explicit within-column positional ordering.
+ *
+ * Unlike `tasks.reorder` (which moves ONE task to a 1-based index and recomputes
+ * every sibling), this op takes the FULL desired ordering of a sibling/column
+ * scope as a task-ID array and writes each task's `position` to its index in the
+ * array. This is the Kanban "drag a card and the whole column re-ranks" shape:
+ * the client sends the new column order, the op persists it in one pass.
+ *
+ * @task T11786
+ */
+export interface TasksReorderRankParams {
+  /**
+   * Ordered task IDs describing the desired top-to-bottom column order. Each
+   * task's `position` is set to its (1-based) index in this array. All IDs
+   * SHOULD share a sibling scope (same `parentId`); IDs not found are reported
+   * in {@link TasksReorderRankResult.skipped} rather than failing the batch.
+   */
+  orderedIds: string[];
+}
+/**
+ * Result of `tasks.reorder-rank` — within-column rank confirmation.
+ *
+ * @task T11786
+ */
+export interface TasksReorderRankResult {
+  /** Task IDs whose `position` was written, in the new top-to-bottom order. */
+  ranked: string[];
+  /** Task IDs from the request that did not resolve to a task (no-op for these). */
+  skipped: string[];
+  /** Number of tasks re-ranked (= `ranked.length`). */
+  count: number;
+}
+
+/**
+ * Params for `tasks.bulk-move` — atomic status/stage transition for N tasks.
+ *
+ * Moves a set of tasks to a new `status` (and optionally `pipelineStage`) inside
+ * a SINGLE DB transaction — the Kanban "select N cards, drop them in a new
+ * column" shape. Either `status` or `pipelineStage` (or both) MUST be supplied;
+ * an empty target is rejected. All-or-nothing: any failure rolls back every move.
+ *
+ * @task T11786
+ */
+export interface TasksBulkMoveParams {
+  /** Task IDs to move. Non-empty. */
+  taskIds: string[];
+  /** Target lifecycle status applied to every task. */
+  status?: string;
+  /** Target pipeline stage applied to every task (forward-only validation). */
+  pipelineStage?: string;
+}
+/**
+ * Result of `tasks.bulk-move` — atomic multi-move confirmation.
+ *
+ * @task T11786
+ */
+export interface TasksBulkMoveResult {
+  /** Task IDs successfully moved (all-or-nothing — empty only when count is 0). */
+  moved: string[];
+  /** The status applied, when supplied. */
+  status?: string;
+  /** The pipeline stage applied, when supplied. */
+  pipelineStage?: string;
+  /** Number of tasks moved (= `moved.length`). */
+  count: number;
+}
+
+/**
+ * Params for `tasks.assignee` — set/clear a task's first-class assignee.
+ *
+ * A first-class human/owner assignee surface, DISTINCT from the agent
+ * claim/unclaim lock (`tasks.claim` does a conditional atomic claim with
+ * agent-lock semantics; `tasks.assignee` is a direct unconditional set/clear an
+ * operator or Studio board uses). Pass `assignee: null` (or omit it) to clear.
+ *
+ * @task T11786
+ */
+export interface TasksAssigneeParams {
+  /** Task ID whose assignee is being set or cleared. */
+  taskId: string;
+  /**
+   * The assignee to set. `null` / empty / omitted CLEARS the assignee. A
+   * non-empty string assigns the task to that owner.
+   */
+  assignee?: string | null;
+}
+/**
+ * Result of `tasks.assignee` — assignee set/clear confirmation.
+ *
+ * @task T11786
+ */
+export interface TasksAssigneeResult {
+  /** The task ID whose assignee changed. */
+  taskId: string;
+  /** The new assignee value (null when cleared). */
+  assignee: string | null;
+  /** True when an assignee was set; false when it was cleared. */
+  assigned: boolean;
+}
+
 // tasks.relates.add — relatedId is canonical; targetId kept for backward compat (T5149)
 export interface TasksRelatesAddParams {
   taskId: string;
@@ -2004,6 +2111,10 @@ export type TasksOps = {
   readonly restore: readonly [TasksRestoreParams, TasksRestoreResult];
   readonly reparent: readonly [TasksReparentQueryParams, TasksReparentDispatchResult];
   readonly reorder: readonly [TasksReorderQueryParams, TasksReorderDispatchResult];
+  // T11786 (epic T11556) — bulk task mutate ops Studio's interactive Kanban binds to.
+  readonly 'reorder-rank': readonly [TasksReorderRankParams, TasksReorderRankResult];
+  readonly 'bulk-move': readonly [TasksBulkMoveParams, TasksBulkMoveResult];
+  readonly assignee: readonly [TasksAssigneeParams, TasksAssigneeResult];
   readonly 'relates.add': readonly [TasksRelatesAddParams, TasksRelatesAddResult];
   readonly 'relates.add-batch': readonly [TasksRelatesAddBatchParams, TasksRelatesAddBatchResult];
   readonly 'relates.remove': readonly [TasksRelatesRemoveParams, TasksRelatesRemoveResult];

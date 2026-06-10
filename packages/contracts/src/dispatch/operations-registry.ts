@@ -10,6 +10,8 @@
  */
 
 import { DOCS_LIFECYCLE_STATUSES } from '../operations/docs.js';
+import { OUTPUT_CONTRACTS } from '../operations/output-contracts-data.js';
+import { tasksUpdateInputContract } from '../operations/tasks.js';
 import type { CanonicalDomain, Gateway, OperationDef, ParamDef, Tier } from './operation-def.js';
 
 export type { CanonicalDomain, Gateway, OperationDef, ParamDef, Tier };
@@ -238,6 +240,41 @@ export const OPERATIONS: OperationDef[] = [
         type: 'number',
         required: false,
         description: 'Maximum nodes to return in paginated audit projections',
+      },
+    ] satisfies ParamDef[],
+  },
+  // T11785 (epic T11556 · E1-GATEWAY-CRUD) — the FIRST streaming task op. Served
+  // as `GET /v1/tasks/subscribe` → a `text/event-stream` body of
+  // `GatewayStreamEvent` frames (task/board created/updated/deleted lifecycle
+  // events), scoped to an optional saga/parent root. Studio's interactive Kanban
+  // (T11929) and the Pi-TUI board consume it for live updates. The default
+  // source ships a bounded heartbeat producer (stream-sources.ts); the daemon
+  // injects its real origin-tailing source via `registerStreamSource`.
+  {
+    gateway: 'query',
+    domain: 'tasks',
+    operation: 'subscribe',
+    description:
+      'tasks.subscribe (query, streaming) — SSE stream of task/board lifecycle events (created/updated/deleted), optionally scoped to a saga/parent root',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    streaming: true,
+    requiredParams: [],
+    params: [
+      {
+        name: 'root',
+        type: 'string',
+        required: false,
+        description:
+          'Optional saga/parent task ID to scope the event stream to (omit for the whole board)',
+      },
+      {
+        name: 'ticks',
+        type: 'number',
+        required: false,
+        description:
+          'Maximum number of event frames to emit before the terminal `done` frame (default: open-ended until client disconnect)',
       },
     ] satisfies ParamDef[],
   },
@@ -2532,10 +2569,18 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
   {
+    // T11784 (epic T11556 · E1-GATEWAY-CRUD) — the OperationDef.params used to
+    // declare ONLY `taskId`, so every other mutable field a Studio form binds
+    // to was invisible to dispatch introspection (`cleo update --describe`, the
+    // SDK `describeOperation`) and silently dropped at the dispatch boundary.
+    // The full mutable-field set is now enumerated here, grounded in
+    // {@link TasksUpdateQueryParams} / {@link TASKS_UPDATE_INPUT_SCHEMA}; a
+    // regression test (operations-registry tasks-update parity) asserts the
+    // param names stay in sync with the schema's `properties`.
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'update',
-    description: 'tasks.update (mutate)',
+    description: 'tasks.update (mutate) — partial update; only supplied fields are mutated',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -2545,10 +2590,183 @@ export const OPERATIONS: OperationDef[] = [
         name: 'taskId',
         type: 'string',
         required: true,
-        description: 'taskId parameter',
+        description: 'Task ID to update',
         cli: { positional: true },
       },
+      { name: 'title', type: 'string', required: false, description: 'New title (3–500 chars)' },
+      {
+        name: 'description',
+        type: 'string',
+        required: false,
+        description: 'New description',
+        cli: { flag: 'description', short: '-d' },
+      },
+      {
+        name: 'status',
+        type: 'string',
+        required: false,
+        description: 'New status',
+        enum: ['pending', 'active', 'blocked', 'done', 'cancelled'] as const,
+        cli: { flag: 'status', short: '-s' },
+      },
+      {
+        name: 'priority',
+        type: 'string',
+        required: false,
+        description: 'New priority (orthogonal to severity)',
+        enum: ['low', 'medium', 'high', 'critical'] as const,
+        cli: { flag: 'priority', short: '-p' },
+      },
+      { name: 'notes', type: 'string', required: false, description: 'Append a note entry' },
+      {
+        name: 'labels',
+        type: 'array',
+        required: false,
+        description: 'Replace labels (comma-separated)',
+        cli: { flag: 'labels', short: '-l' },
+      },
+      {
+        name: 'addLabels',
+        type: 'array',
+        required: false,
+        description: 'Add labels incrementally',
+      },
+      {
+        name: 'removeLabels',
+        type: 'array',
+        required: false,
+        description: 'Remove labels incrementally',
+      },
+      {
+        name: 'depends',
+        type: 'array',
+        required: false,
+        description: 'Replace dependency task IDs',
+        cli: { flag: 'depends', short: '-D' },
+      },
+      {
+        name: 'addDepends',
+        type: 'array',
+        required: false,
+        description: 'Add dependency task IDs incrementally',
+      },
+      {
+        name: 'removeDepends',
+        type: 'array',
+        required: false,
+        description: 'Remove dependency task IDs incrementally',
+      },
+      {
+        name: 'acceptance',
+        type: 'array',
+        required: false,
+        description: 'Replace acceptance criteria (pipe-separated)',
+      },
+      {
+        name: 'parent',
+        type: 'string',
+        required: false,
+        description: 'Set parent task ID (null/empty promotes to root)',
+      },
+      {
+        name: 'type',
+        type: 'string',
+        required: false,
+        description: 'New hierarchy type',
+        enum: ['saga', 'epic', 'task', 'subtask'] as const,
+        cli: { flag: 'type', short: '-t' },
+      },
+      {
+        name: 'size',
+        type: 'string',
+        required: false,
+        description: 'New scope-size estimate',
+        enum: ['small', 'medium', 'large'] as const,
+      },
+      {
+        name: 'files',
+        type: 'array',
+        required: false,
+        description: 'Replace associated file paths',
+      },
+      {
+        name: 'addFiles',
+        type: 'array',
+        required: false,
+        description: 'Add file paths incrementally',
+      },
+      {
+        name: 'removeFiles',
+        type: 'array',
+        required: false,
+        description: 'Remove file paths incrementally',
+      },
+      {
+        name: 'pipelineStage',
+        type: 'string',
+        required: false,
+        description: 'Set pipeline stage (forward-only)',
+      },
+      {
+        name: 'kind',
+        type: 'string',
+        required: false,
+        description: 'Task kind / intent axis (orthogonal to type)',
+        enum: ['work', 'research', 'experiment', 'bug', 'spike', 'release'] as const,
+      },
+      {
+        name: 'scope',
+        type: 'string',
+        required: false,
+        description: 'Task scope / granularity axis',
+        enum: ['project', 'feature', 'unit'] as const,
+      },
+      {
+        name: 'severity',
+        type: 'string',
+        required: false,
+        description: 'Severity level (orthogonal to priority)',
+        enum: ['P0', 'P1', 'P2', 'P3'] as const,
+      },
+      {
+        name: 'reason',
+        type: 'string',
+        required: false,
+        description: 'Operator override reason for the AC-immutability guard',
+      },
+      {
+        name: 'dependsWaiver',
+        type: 'string',
+        required: false,
+        description: 'Justification to waive the critical-priority --depends requirement',
+      },
+      {
+        name: 'clearBlockedBy',
+        type: 'boolean',
+        required: false,
+        description: 'Clear the free-text blockedBy reason',
+      },
+      {
+        name: 'relates',
+        type: 'array',
+        required: false,
+        description: 'Replace related-task edges ({taskId, type, reason?})',
+      },
+      {
+        name: 'addRelates',
+        type: 'array',
+        required: false,
+        description: 'Add related-task edges without overwriting existing',
+      },
+      {
+        name: 'removeRelates',
+        type: 'array',
+        required: false,
+        description: 'Remove related-task edges by taskId',
+      },
     ] satisfies ParamDef[],
+    inputSchema: tasksUpdateInputContract,
+    outputSchema: OUTPUT_CONTRACTS['tasks.update'],
   },
   {
     gateway: 'mutate',
@@ -2692,6 +2910,98 @@ export const OPERATIONS: OperationDef[] = [
         description: 'position parameter',
       },
     ] satisfies ParamDef[],
+  },
+  // T11786 (epic T11556 · E1-GATEWAY-CRUD) — bulk task mutate ops the Studio
+  // interactive Kanban (M6) binds to: within-column re-rank, atomic multi-move,
+  // and first-class assignee (distinct from the agent claim lock).
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'reorder-rank',
+    description:
+      'tasks.reorder-rank (mutate) — within-column positional re-rank from an explicit top-to-bottom task-ID order (Kanban drag-reorder)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['orderedIds'],
+    params: [
+      {
+        name: 'orderedIds',
+        type: 'array',
+        required: true,
+        description:
+          'Ordered task IDs describing the desired top-to-bottom column order; each task position is set to its 1-based index',
+      },
+    ] satisfies ParamDef[],
+    outputSchema: OUTPUT_CONTRACTS['tasks.reorder-rank'],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'bulk-move',
+    description:
+      'tasks.bulk-move (mutate) — atomically move N tasks to a new status and/or pipeline stage in a single transaction (Kanban multi-card column move)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['taskIds'],
+    params: [
+      {
+        name: 'taskIds',
+        type: 'array',
+        required: true,
+        description: 'Task IDs to move (all-or-nothing; any failure rolls back every move)',
+      },
+      {
+        name: 'status',
+        type: 'string',
+        required: false,
+        description: 'Target lifecycle status applied to every task',
+        enum: [
+          'pending',
+          'active',
+          'blocked',
+          'done',
+          'cancelled',
+          'archived',
+          'proposed',
+        ] as const,
+      },
+      {
+        name: 'pipelineStage',
+        type: 'string',
+        required: false,
+        description: 'Target pipeline stage applied to every task (forward-only)',
+      },
+    ] satisfies ParamDef[],
+    outputSchema: OUTPUT_CONTRACTS['tasks.bulk-move'],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'assignee',
+    description:
+      'tasks.assignee (mutate) — set/clear a first-class human assignee (DISTINCT from the agent claim/unclaim lock; pass assignee:null to clear)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Task ID whose assignee is being set or cleared',
+        cli: { positional: true },
+      },
+      {
+        name: 'assignee',
+        type: 'string',
+        required: false,
+        description: 'Assignee to set; omit / empty / null clears the assignee',
+      },
+    ] satisfies ParamDef[],
+    outputSchema: OUTPUT_CONTRACTS['tasks.assignee'],
   },
   {
     gateway: 'mutate',

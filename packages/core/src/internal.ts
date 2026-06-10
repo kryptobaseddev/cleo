@@ -2083,8 +2083,11 @@ export { taskSyncLinks, taskSyncLinksRemove, taskSyncReconcile } from './tasks/s
 export {
   coreTaskStats,
   taskAnalyze,
+  // T11786 (epic T11556) — bulk task mutate ops Studio's Kanban binds to.
+  taskAssignee,
   taskBatchValidate,
   taskBlockers,
+  taskBulkMove,
   taskCancel,
   taskClaim,
   taskComplexityEstimate,
@@ -2108,6 +2111,7 @@ export {
   taskRelatesRemove,
   taskReopen,
   taskReorder,
+  taskReorderRank,
   taskReparent,
   taskRestore,
   taskSlice,

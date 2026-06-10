@@ -355,6 +355,97 @@ const tasksCompleteOutputContract: OperationOutputContract = {
 };
 
 // ---------------------------------------------------------------------------
+// tasks.reorder-rank / tasks.bulk-move / tasks.assignee — bulk Kanban mutate
+// ops (T11786 · epic T11556). These ops have NO MUTATE_PROJECTION_PLANS entry,
+// so their raw core result is returned under `envelope.data` unchanged.
+// ---------------------------------------------------------------------------
+
+/**
+ * OUTPUT contract for `tasks.reorder-rank`.
+ *
+ * Grounded in `TasksReorderRankResult`: `{ ranked, skipped, count }`. `ranked`
+ * is the new top-to-bottom order; `skipped` lists request IDs that did not
+ * resolve to a task.
+ */
+const tasksReorderRankOutputContract: OperationOutputContract = {
+  operation: 'tasks.reorder-rank',
+  shapeNote:
+    'Re-ranked IDs (new order) at /data/ranked; unresolved request IDs at /data/skipped; count at /data/count.',
+  dataSchema: {
+    type: 'object',
+    required: ['ranked', 'skipped', 'count'],
+    additionalProperties: true,
+    properties: {
+      ranked: {
+        type: 'array',
+        description: 'Task IDs whose position was written, in the new top-to-bottom order.',
+        items: { type: 'string' },
+      },
+      skipped: {
+        type: 'array',
+        description: 'Request IDs that did not resolve to a task (no-op for these).',
+        items: { type: 'string' },
+      },
+      count: { type: 'number', description: 'Number of tasks re-ranked.' },
+    },
+  },
+  fieldPointers: ['/data/ranked/0', '/data/skipped/0', '/data/count'],
+};
+
+/**
+ * OUTPUT contract for `tasks.bulk-move`.
+ *
+ * Grounded in `TasksBulkMoveResult`: `{ moved, status?, pipelineStage?, count }`.
+ */
+const tasksBulkMoveOutputContract: OperationOutputContract = {
+  operation: 'tasks.bulk-move',
+  shapeNote:
+    'Moved task IDs at /data/moved (all-or-nothing); applied status/stage at /data/status and /data/pipelineStage; count at /data/count.',
+  dataSchema: {
+    type: 'object',
+    required: ['moved', 'count'],
+    additionalProperties: true,
+    properties: {
+      moved: {
+        type: 'array',
+        description: 'Task IDs successfully moved (atomic — empty only when count is 0).',
+        items: { type: 'string' },
+      },
+      status: { type: 'string', description: 'The status applied, when supplied.' },
+      pipelineStage: { type: 'string', description: 'The pipeline stage applied, when supplied.' },
+      count: { type: 'number', description: 'Number of tasks moved.' },
+    },
+  },
+  fieldPointers: ['/data/moved/0', '/data/status', '/data/pipelineStage', '/data/count'],
+};
+
+/**
+ * OUTPUT contract for `tasks.assignee`.
+ *
+ * Grounded in `TasksAssigneeResult`: `{ taskId, assignee, assigned }`. `assignee`
+ * is null when cleared; `assigned` is the boolean verb result.
+ */
+const tasksAssigneeOutputContract: OperationOutputContract = {
+  operation: 'tasks.assignee',
+  shapeNote:
+    'The new assignee is at /data/assignee (null when cleared); /data/assigned is true on set, false on clear.',
+  dataSchema: {
+    type: 'object',
+    required: ['taskId', 'assignee', 'assigned'],
+    additionalProperties: true,
+    properties: {
+      taskId: { type: 'string', description: 'The task ID whose assignee changed.' },
+      assignee: {
+        type: ['string', 'null'],
+        description: 'The new assignee value (null when cleared).',
+      },
+      assigned: { type: 'boolean', description: 'True when an assignee was set; false on clear.' },
+    },
+  },
+  fieldPointers: ['/data/taskId', '/data/assignee', '/data/assigned'],
+};
+
+// ---------------------------------------------------------------------------
 // admin.config.* — config-as-domain (T11917 · M5/AC3 · ConfigManifest cascade)
 // ---------------------------------------------------------------------------
 
@@ -500,6 +591,10 @@ export const OUTPUT_CONTRACTS: OperationOutputContractRegistry = {
   'tasks.add-batch': tasksAddBatchOutputContract,
   'tasks.update': tasksUpdateOutputContract,
   'tasks.complete': tasksCompleteOutputContract,
+  // T11786 (epic T11556) — bulk Kanban mutate ops.
+  'tasks.reorder-rank': tasksReorderRankOutputContract,
+  'tasks.bulk-move': tasksBulkMoveOutputContract,
+  'tasks.assignee': tasksAssigneeOutputContract,
   'admin.config.get': adminConfigGetOutputContract,
   'admin.config.list': adminConfigListOutputContract,
   'admin.config.validate': adminConfigValidateOutputContract,

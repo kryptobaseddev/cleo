@@ -465,6 +465,10 @@ export declare const tasksCoreOps: {
   readonly restore: TaskCoreOperation<'restore'>;
   readonly reparent: TaskCoreOperation<'reparent'>;
   readonly reorder: TaskCoreOperation<'reorder'>;
+  // T11786 (epic T11556) — bulk task mutate ops Studio's Kanban binds to.
+  readonly 'reorder-rank': TaskCoreOperation<'reorder-rank'>;
+  readonly 'bulk-move': TaskCoreOperation<'bulk-move'>;
+  readonly assignee: TaskCoreOperation<'assignee'>;
   readonly 'relates.add': TaskCoreOperation<'relates.add'>;
   readonly 'relates.add-batch': TaskCoreOperation<'relates.add-batch'>;
   readonly 'relates.remove': TaskCoreOperation<'relates.remove'>;

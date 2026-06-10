@@ -121,6 +121,18 @@ describe('T11921 parseHttpRoute — SSE streaming route (AC2)', () => {
     expect(route.ok).toBe(true);
     if (route.ok && route.kind === 'unary') expect(route.gateway).toBe('query');
   });
+
+  // T11785 (epic T11556) — the first streaming TASK op.
+  it('routes GET /v1/tasks/subscribe to a stream kind (registered streaming task op)', () => {
+    const route = parseHttpRoute('GET', '/v1/tasks/subscribe');
+    expect(route).toEqual({
+      ok: true,
+      kind: 'stream',
+      gateway: 'query',
+      domain: 'tasks',
+      operation: 'subscribe',
+    });
+  });
 });
 
 describe('T11921 in-process SSE round-trip (AC3+AC4)', () => {
@@ -242,6 +254,35 @@ describe('T11921 in-process SSE round-trip (AC3+AC4)', () => {
     });
     const frames = parseSseBody(body).map((r) => r.data as GatewayStreamEvent);
     expect(frames.some((f) => f.kind === 'data')).toBe(true);
+    expect(frames[frames.length - 1].kind).toBe('done');
+  });
+
+  // T11785 (epic T11556) — the tasks.subscribe board stream emits ≥1 board event
+  // frame (scoped to the requested root) terminated by a done frame.
+  it('streams tasks.subscribe board events scoped to a root, terminated by done', async () => {
+    const server = await startHttpServer(fakeHandler(), { port: 0 });
+    closers.push(() => server.close());
+
+    const res = await openSse(server.port, '/v1/tasks/subscribe?root=T11556&ticks=2');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('text/event-stream');
+
+    const body = await new Promise<string>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      res.on('error', reject);
+    });
+
+    const frames = parseSseBody(body).map((r) => r.data as GatewayStreamEvent);
+    const dataFrames = frames.filter((f) => f.kind === 'data');
+    expect(dataFrames.length).toBeGreaterThanOrEqual(1);
+    // Each board frame carries the requested root scope (secrets never on wire).
+    for (const f of dataFrames) {
+      const payload = f.data as { scope?: string; root?: string };
+      expect(payload.scope).toBe('tasks.board');
+      expect(payload.root).toBe('T11556');
+    }
     expect(frames[frames.length - 1].kind).toBe('done');
   });
 });
