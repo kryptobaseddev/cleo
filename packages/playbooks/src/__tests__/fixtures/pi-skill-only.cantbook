@@ -1,0 +1,26 @@
+version: "1.0"
+name: pi-skill-only
+description: >
+  T11945 (M4) deterministic e2e fixture — a single skill-only agentic node. The
+  node names a real `ct-*` skill so the production dispatcher's
+  `runSkillNodeOrSpawn` takes the IN-PROCESS skill path (findSkill resolves it)
+  and, when a Pi runner is injected, routes the node THROUGH the PiAgentAdapter.
+  No `requires`/`ensures` contracts so schema enforcement never interferes with
+  the dispatch-path assertion. With no LLM credential resolvable in CI the Pi
+  loop terminates with the cleo-owned no-credential failure — proving the call
+  reached the Pi streamFn (the E9 chokepoint), not a live round-trip.
+
+inputs:
+  - name: taskId
+    required: true
+    description: Task id being executed (seeds the run context).
+
+nodes:
+  - id: execute
+    type: agentic
+    skill: ct-task-executor
+    description: >
+      Single skill-only node — routes in-process through the SkillExecutorAdapter,
+      and through the PiAgentAdapter when the Pi runner is wired (T11945).
+
+edges: []

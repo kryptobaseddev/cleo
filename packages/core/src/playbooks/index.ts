@@ -23,7 +23,11 @@ export {
 } from './agent-dispatcher.js';
 
 export type { playbookCoreOps } from './ops.js';
-
+// Pi in-process runner wiring — default-OFF, lazy-imported Pi `SkillRunner` the
+// production cantbook dispatchers pass into `runSkillNodeOrSpawn`'s `runner`
+// slot (T11945 · M4). Exported here (the eager core graph) so its live binding
+// is initialised before `internal.ts` re-exports it.
+export { type MaybePiRunnerDeps, maybeCreatePiRunner } from './pi-runner-wiring.js';
 export {
   listPlaybooks,
   PlaybookNotFoundError,
@@ -32,7 +36,6 @@ export {
   type ResolvePlaybookOptions,
   resolvePlaybook,
 } from './playbook-resolver.js';
-
 // Skill-node executor — injects the in-process SkillExecutorAdapter as the
 // dispatcher's executor while retaining subprocess-spawn for isolation nodes
 // (T11477 · epic T11391).

@@ -33,6 +33,14 @@
 
 import './lib/suppress-sqlite-warning.js';
 
+// Pi in-process runner wiring — default-OFF, lazy-imported Pi `SkillRunner` the
+// production cantbook dispatchers pass into `runSkillNodeOrSpawn`'s `runner` slot
+// (T11945 · M4). Exported BEFORE the `export * from './index.js'` superset so the
+// live binding is established ahead of the index re-export cycle (vitest source
+// resolution otherwise leaves a late flat re-export of a fresh leaf undefined).
+export type { MaybePiRunnerDeps } from './playbooks/pi-runner-wiring.js';
+export { maybeCreatePiRunner } from './playbooks/pi-runner-wiring.js';
+
 // ---------------------------------------------------------------------------
 // Re-export the entire public API (superset)
 // ---------------------------------------------------------------------------
