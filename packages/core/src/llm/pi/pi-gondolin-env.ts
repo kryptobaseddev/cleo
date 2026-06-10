@@ -112,7 +112,7 @@ function execErr(code: string, message: string): PiResult<never, PiExecutionErro
  * two-token forms `git push` / `git remote` so a `git`-rooted egress is caught
  * even though `git`'s OWN basename is allowed (for `git diff` etc.).
  */
-const DENIED_EXEC_PREFIXES: readonly string[] = [
+export const DENIED_EXEC_PREFIXES: readonly string[] = [
   'gh',
   'npm publish',
   'cleo',
@@ -130,7 +130,7 @@ const DENIED_EXEC_PREFIXES: readonly string[] = [
  * @param command - The string command or argv array the env received.
  * @returns The matched denied prefix, or `null` when the command is allowed.
  */
-function deniedEgressVerb(command: string | readonly string[]): string | null {
+export function deniedEgressVerb(command: string | readonly string[]): string | null {
   const tokens = Array.isArray(command)
     ? [...command]
     : String(command)
