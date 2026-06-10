@@ -1622,7 +1622,10 @@ jobs:
     needs: [biome, changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Runtime is ~4-5 min on a warm runner; the previous 5-minute budget was
+    # routinely hit on slower runners, and a TIMEOUT concludes the job as
+    # `cancelled` — which `continue-on-error` does NOT mask (T11967).
+    timeout-minutes: 10
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -1712,7 +1715,11 @@ jobs:
       - validate-json
       - install-test
       - worktree-napi-gate
-      - forge-ts-check
+      # forge-ts-check is deliberately NOT in this gate: it is advisory
+      # (continue-on-error: true), but a job that hits its timeout concludes
+      # `cancelled`, which continue-on-error does not mask — so including it
+      # here hard-failed unrelated PRs whenever forge-ts tipped over its
+      # budget (T11967).
     steps:
       - name: Verify every required job passed (or was skipped)
         env:
