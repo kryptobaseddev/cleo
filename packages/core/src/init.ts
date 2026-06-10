@@ -1193,6 +1193,22 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     );
   }
 
+  // E8 (T11734): seed the models_catalog SSoT from the shipped OFFLINE seed
+  // (`curated-catalog.json`). Idempotent + version-skipped — no network. Catalog
+  // becomes the resolver-default source (T11944), killing the hardcoded model.
+  // Non-fatal: a fresh/offline install still resolves from the shipped seed floor.
+  try {
+    const { seedModelsCatalog } = await import('./llm/catalog-seeder.js');
+    const seedResult = await seedModelsCatalog();
+    if (seedResult.seeded) {
+      created.push(`models-catalog: seeded ${seedResult.rowCount} models (v${seedResult.version})`);
+    }
+  } catch (err) {
+    warnings.push(
+      `models_catalog seed failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Context anchoring: when brownfield and --map-codebase was NOT already run,
   // surface a hint so the operator knows they can anchor the baseline in BRAIN.
   // (We do NOT auto-run mapCodebase here — it's opt-in to avoid blocking init.)

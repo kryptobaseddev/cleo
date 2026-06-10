@@ -59,6 +59,26 @@ export {
   resolveProviderDefaultModel,
   validateModelForProvider,
 } from './catalog-model-resolver.js';
+// Table-first catalog read chokepoint — models_catalog SSoT → disk → seed (T11737 · E8)
+export type {
+  CatalogResolutionSource,
+  CatalogResolverDeps,
+  ResolvedCatalogEntry,
+} from './catalog-resolver.js';
+export {
+  _resetCatalogResolverCache,
+  loadShippedSeed,
+  openCatalogAtPath,
+  resolveCatalogEntry,
+} from './catalog-resolver.js';
+// Catalog seeder — populates models_catalog from the shipped offline seed (T11734 · E8)
+export type { SeedCatalogDeps, SeedCatalogResult } from './catalog-seeder.js';
+export {
+  flattenCatalogToRows,
+  loadAndValidateSeed,
+  openSeederAtPath,
+  seedModelsCatalog,
+} from './catalog-seeder.js';
 // `cleo llm` CLI / dispatch engine ops (T9258 — T-LLM-CRED Phase 2 / T-llm-4)
 export {
   llmAdd,

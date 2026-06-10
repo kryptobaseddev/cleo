@@ -138,16 +138,30 @@ function deriveRole(
 }
 
 /**
- * When `resolveLLMForRole` returns `source === 'implicit-fallback'`, the
- * model is the hardcoded `IMPLICIT_FALLBACK_MODEL` literal. This function
- * replaces it with the SSoT `defaultModel` from the provider registry so
- * the resolved model tracks catalog updates rather than a frozen constant.
+ * When `resolveLLMForRole` returns `source === 'implicit-fallback'`, the model is
+ * the hardcoded `IMPLICIT_FALLBACK_MODEL` literal. This function derives the
+ * default from the **`models_catalog` SSoT** (latest `release_date` for the
+ * provider) so the resolved model tracks the catalog rather than a frozen
+ * constant — the "catalog-driven models, NO hardcoded" North Star (E8 · T11944).
  *
- * On any lookup error the original `resolved` envelope is returned unchanged
- * so the caller is never blocked — graceful degradation is preserved.
+ * ## Resolution order (offline-first degrade — T11944 AC1/AC2)
+ *
+ *   1. **`models_catalog` table** (via the {@link resolveCatalogEntry} table-first
+ *      chokepoint — T11737): newest `release_date` row for the provider. When the
+ *      table is seeded this WINS and the static builtin literal is never reached.
+ *   2. **provider-registry `defaultModel`** (the static builtin
+ *      `ProviderDef.defaultModel`) — reached ONLY when the catalog (table + disk
+ *      cache + shipped seed) yields nothing for the provider.
+ *   3. **the existing `IMPLICIT_FALLBACK_MODEL` literal** already on `resolved` —
+ *      the absolute offline floor, preserved for a fresh/offline install with no
+ *      catalog AND no provider profile (degrade does NOT break — AC2).
+ *
+ * NO network is issued at resolve time (table-or-cache only — AC4). On any lookup
+ * error the original `resolved` envelope is returned unchanged so the caller is
+ * never blocked.
  *
  * @param resolved - The envelope returned by `resolveLLMForRole`.
- * @returns The same envelope, possibly with `model` replaced from the registry.
+ * @returns The same envelope, possibly with `model` replaced from the catalog SSoT.
  */
 async function upgradeCatalogDefault(resolved: ResolvedLLM): Promise<ResolvedLLM> {
   if (resolved.source !== 'implicit-fallback') {
@@ -156,22 +170,40 @@ async function upgradeCatalogDefault(resolved: ResolvedLLM): Promise<ResolvedLLM
   }
 
   try {
-    // Lazy import to avoid pulling the full registry chain at module-init time.
+    // Lazy imports to avoid pulling the full registry/catalog chain at module-init.
+    const { resolveCatalogEntry } = await import('./catalog-resolver.js');
+    const { catalogKeyForProvider } = await import('./catalog-model-resolver.js');
+
+    // 1. Table-first catalog SSoT (release_date DESC) — the canonical default.
+    const catalogKey = catalogKeyForProvider(resolved.provider);
+    const entry = await resolveCatalogEntry(catalogKey);
+    if (entry?.id && entry.id !== resolved.model) {
+      logger.debug(
+        { provider: resolved.provider, from: resolved.model, to: entry.id, source: entry.source },
+        'system-resolver: upgrading implicit-fallback model to models_catalog default',
+      );
+      return { ...resolved, model: entry.id };
+    }
+    if (entry?.id) {
+      // Catalog already agrees with the resolved model — no mutation needed.
+      return resolved;
+    }
+
+    // 2. OFFLINE FLOOR: catalog empty/unseeded (fresh/offline install). Fall back to
+    //    the static builtin provider-registry default so degrade never breaks.
     const { getProviderProfile } = await import('./provider-registry/index.js');
     const profile = await getProviderProfile(resolved.provider);
-    if (!profile?.defaultModel) {
-      // Registry has no default for this provider — fall back to the existing model.
-      return resolved;
+    if (profile?.defaultModel && profile.defaultModel !== resolved.model) {
+      logger.debug(
+        { provider: resolved.provider, from: resolved.model, to: profile.defaultModel },
+        'system-resolver: catalog empty — degrading to static builtin defaultModel floor',
+      );
+      return { ...resolved, model: profile.defaultModel };
     }
-    if (profile.defaultModel === resolved.model) {
-      // Already the same — no mutation needed.
-      return resolved;
-    }
-    logger.debug(
-      { provider: resolved.provider, from: resolved.model, to: profile.defaultModel },
-      'system-resolver: upgrading implicit-fallback model to catalog default',
-    );
-    return { ...resolved, model: profile.defaultModel };
+
+    // 3. Neither catalog nor profile yielded a model — keep the existing
+    //    IMPLICIT_FALLBACK_MODEL literal already on `resolved` (the last floor).
+    return resolved;
   } catch (err) {
     logger.warn(
       { err: err instanceof Error ? err.message : String(err) },

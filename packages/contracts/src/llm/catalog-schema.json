@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleocode.dev/schemas/llm/curated-catalog.json",
+  "title": "Curated Models Catalog",
+  "description": "The shipped, offline-first provider+model catalog seed (E8 · T11731). One self-contained snapshot of the models.dev wire shape that seeds the global `models_catalog` table and backs offline/degraded reads. NO network access is implied by this file — it is the build-time committed mirror.",
+  "type": "object",
+  "required": ["version", "lastUpdated", "providers", "models"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semver version of this catalog snapshot. Bumped on every regeneration; drives the seeder skip/re-seed decision."
+    },
+    "lastUpdated": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "ISO date (YYYY-MM-DD) the snapshot was generated."
+    },
+    "providers": {
+      "type": "object",
+      "description": "Provider records keyed by models.dev provider id (e.g. `anthropic`, `openai`, `google`).",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["id", "endpoint", "authTypes"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "Provider id (matches the map key)." },
+          "endpoint": {
+            "type": "string",
+            "description": "Provider API base URL (e.g. `https://api.anthropic.com`)."
+          },
+          "authTypes": {
+            "type": "array",
+            "description": "Supported auth mechanisms keyed by provider id.",
+            "items": { "type": "string", "enum": ["api_key", "oauth", "bedrock", "vertex"] },
+            "minItems": 1
+          },
+          "npm": {
+            "type": "string",
+            "description": "Provider SDK npm package, when applicable (e.g. `@anthropic-ai/sdk`)."
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "description": "Model entries keyed by provider id; each value is a map of model-id → model entry.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/modelEntry"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "modelEntry": {
+      "type": "object",
+      "description": "Full models.dev wire capability set for a single model.",
+      "required": [
+        "id",
+        "name",
+        "family",
+        "attachment",
+        "reasoning",
+        "temperature",
+        "interleaved",
+        "tool_call",
+        "modalities",
+        "cost",
+        "limit",
+        "status",
+        "release_date",
+        "provider"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Model identifier (e.g. `claude-haiku-4-5`)." },
+        "name": { "type": "string", "description": "Human-readable display name." },
+        "family": { "type": "string", "description": "Model family (e.g. `claude`, `gpt`, `gemini`)." },
+        "attachment": { "type": "boolean", "description": "Supports file/image attachments." },
+        "reasoning": { "type": "boolean", "description": "Supports extended reasoning / thinking." },
+        "temperature": { "type": "boolean", "description": "Honours a temperature parameter." },
+        "interleaved": { "type": "boolean", "description": "Supports interleaved thinking blocks." },
+        "tool_call": { "type": "boolean", "description": "Supports tool/function calling." },
+        "modalities": {
+          "type": "object",
+          "required": ["input", "output"],
+          "additionalProperties": false,
+          "properties": {
+            "input": { "type": "array", "items": { "type": "string" } },
+            "output": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "cost": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "input": { "type": "number" },
+            "output": { "type": "number" },
+            "cache_read": { "type": "number" },
+            "cache_write": { "type": "number" },
+            "context_over_200k": { "type": "number" }
+          }
+        },
+        "limit": {
+          "type": "object",
+          "required": ["context", "output"],
+          "additionalProperties": false,
+          "properties": {
+            "context": { "type": "number", "description": "Max context window (tokens)." },
+            "output": { "type": "number", "description": "Max output tokens." }
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["stable", "beta", "preview", "deprecated", "retired"],
+          "description": "Availability lifecycle of the model."
+        },
+        "release_date": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "ISO release date (YYYY-MM-DD). The SSoT sort key — latest wins."
+        },
+        "provider": {
+          "type": "object",
+          "required": ["npm", "api"],
+          "additionalProperties": false,
+          "properties": {
+            "npm": { "type": "string" },
+            "api": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
