@@ -857,6 +857,14 @@ export type {
 } from './llm/normalized-response.js';
 // === OAuth types — SSoT shared between core and cleo (T9302) ===
 export type { OAuthMode, OAuthTokens, PkceFlowConfig, ProviderOAuthConfig } from './llm/oauth.js';
+// === Onboarding login engine result envelope (T11724 · M3) ===
+export type {
+  OnboardingAuthMode,
+  OnboardingResult,
+  OnboardingStepName,
+  OnboardingStepResult,
+  OnboardingStepStatus,
+} from './llm/onboarding.js';
 // === Phase 4/5 Plugin LLM facade types (T9305 / T9313) ===
 export type { PluginLlmComplete, PluginLlmContext } from './llm/plugin-llm.js';
 export {
