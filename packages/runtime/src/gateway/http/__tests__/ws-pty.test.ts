@@ -26,6 +26,7 @@
  * @saga T10400
  */
 
+import { EventEmitter } from 'node:events';
 import { connect, type Socket } from 'node:net';
 import type { DispatchRequest, DispatchResponse } from '@cleocode/contracts/gateway';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -33,6 +34,7 @@ import type { GatewayHandler } from '../../index.js';
 import { startHttpServer } from '../listen.js';
 import {
   __setWsPtyTestHooks,
+  attachWsPtyEndpoint,
   authorizeUpgrade,
   computeAcceptKey,
   decodeWsFrame,
@@ -40,6 +42,7 @@ import {
   type GateDecision,
   isWsPtyPath,
   scrubPtyEnv,
+  type UpgradableServer,
   WS_PTY_PATH,
 } from '../ws-pty.js';
 
@@ -436,5 +439,55 @@ describe('T11922 in-process WS-PTY round-trip (AC1/AC2/AC3)', () => {
     // the registry is clean.
     await new Promise((r) => setTimeout(r, 50));
     await server.close();
+  });
+
+  it('T11961: teardown leaves an error sink on the socket (late ECONNRESET is swallowed)', async () => {
+    // Regression for the teardown race (the macOS CI shard killer): teardown
+    // removes the live 'error' listener and THEN writes the close frame + FIN.
+    // A peer that destroyed abruptly (RST) surfaces that write failure
+    // ASYNCHRONOUSLY — on a listener-less socket Node escalates it to an
+    // uncaught exception, killing the daemon. The invariant under test: after
+    // teardown the socket still has an 'error' listener, and emitting a late
+    // socket error does not throw. A scripted fake socket makes the sequence
+    // deterministic (the real-socket race only fires under macOS CI timing).
+    installEchoPtyStub();
+
+    class FakeSocket extends EventEmitter {
+      writableEnded = false;
+      destroyed = false;
+      write(_chunk: unknown): boolean {
+        return true;
+      }
+      end(): void {
+        this.writableEnded = true;
+      }
+      destroy(): void {
+        this.destroyed = true;
+      }
+    }
+    const fakeServer = new EventEmitter();
+    const handle = attachWsPtyEndpoint(fakeServer as unknown as UpgradableServer);
+    closers.push(async () => handle.close());
+
+    const socket = new FakeSocket();
+    const req = {
+      url: WS_PTY_PATH,
+      headers: { 'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==' },
+      socket: { remoteAddress: '127.0.0.1' },
+    };
+    fakeServer.emit('upgrade', req, socket, Buffer.alloc(0));
+    // Let the async bridge (PTY stub load + spawn) settle.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(handle.sessionCount).toBe(1);
+
+    // Client close frame → server teardown (removes the live listeners, then
+    // writes the close frame + FIN — the window where the race lived).
+    socket.emit('data', encodeClientFrame(0x8, Buffer.alloc(0)));
+    await new Promise((r) => setTimeout(r, 10));
+
+    // The fix's invariant: an error sink remains, and a late async socket
+    // error (the in-flight write failing against a peer RST) is swallowed.
+    expect(socket.listenerCount('error')).toBeGreaterThan(0);
+    expect(() => socket.emit('error', new Error('read ECONNRESET'))).not.toThrow();
   });
 });

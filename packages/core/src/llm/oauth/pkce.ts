@@ -147,6 +147,53 @@ export function buildAuthorizationUrl(params: BuildAuthorizationUrlParams): stri
 }
 
 // ---------------------------------------------------------------------------
+// Authorization-response input parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a user-pasted authorization response into `{ code, state }`.
+ *
+ * Accepts every form a provider's callback page can hand the user
+ * (mirrors pi-ai's `parseAuthorizationInput`):
+ * - a full redirect URL — `https://…/callback?code=…&state=…`
+ * - the `code#state` pair Anthropic's hosted callback page displays
+ * - a bare query string — `code=…&state=…`
+ * - a bare authorization code
+ *
+ * Callers MUST validate a returned `state` against the authorize-time state
+ * (CSRF check, RFC 6749 §10.12) before exchanging the code.
+ *
+ * @param input - Raw pasted text from the user.
+ * @returns Extracted `code` and `state` (either may be `undefined`).
+ * @task T11958
+ */
+export function parseAuthorizationInput(input: string): { code?: string; state?: string } {
+  const value = input.trim();
+  if (!value) return {};
+  try {
+    const url = new URL(value);
+    return {
+      code: url.searchParams.get('code') ?? undefined,
+      state: url.searchParams.get('state') ?? undefined,
+    };
+  } catch {
+    // not a URL — fall through to the bare forms
+  }
+  if (value.includes('#')) {
+    const [code, state] = value.split('#', 2);
+    return { code: code || undefined, state: state || undefined };
+  }
+  if (value.includes('code=')) {
+    const params = new URLSearchParams(value);
+    return {
+      code: params.get('code') ?? undefined,
+      state: params.get('state') ?? undefined,
+    };
+  }
+  return { code: value };
+}
+
+// ---------------------------------------------------------------------------
 // Code exchange
 // ---------------------------------------------------------------------------
 
@@ -170,6 +217,22 @@ export interface ExchangePkceCodeParams {
   tokenEndpoint: string;
   /** Extra headers (e.g. provider-specific beta flags). */
   extraHeaders?: Readonly<Record<string, string>>;
+  /**
+   * The `state` value from the original authorization request.
+   *
+   * Only sent when `bodyFormat` is `'json'` — Anthropic's token endpoint
+   * validates the (code, state) pair bound at authorize time and rejects the
+   * exchange without it. RFC-compliant form-encoded endpoints do not define
+   * `state` on the token request, so it is omitted there.
+   */
+  state?: string;
+  /**
+   * Token request body encoding. `'form'` (RFC 6749 default) or `'json'`
+   * (Anthropic). See `ProviderOAuthConfig.tokenBodyFormat`.
+   *
+   * @default 'form'
+   */
+  bodyFormat?: 'form' | 'json';
 }
 
 /**
@@ -184,26 +247,23 @@ export interface ExchangePkceCodeParams {
  * @task T9302
  */
 export async function exchangePkceCode(params: ExchangePkceCodeParams): Promise<OAuthTokens> {
-  const body = new URLSearchParams({
+  const fields: Record<string, string> = {
     grant_type: 'authorization_code',
     client_id: params.clientId,
     code: params.code,
     code_verifier: params.codeVerifier,
     redirect_uri: params.redirectUri,
-  });
+  };
+  // Anthropic (json) requires the authorize-time state echoed in the exchange;
+  // form-encoded RFC endpoints do not define it on the token request.
+  if (params.bodyFormat === 'json' && params.state) {
+    fields['state'] = params.state;
+  }
 
-  const resp = await globalThis.fetch(params.tokenEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-      ...params.extraHeaders,
-    },
-    body: body.toString(),
-  });
+  const resp = await postTokenRequest(params.tokenEndpoint, fields, params);
 
   if (!resp.ok) {
-    const detail = await extractErrorDetail(resp);
+    const detail = await extractOAuthErrorDetail(resp);
     throw new Error(
       `PKCE code exchange failed for provider '${params.provider}': HTTP ${resp.status}${detail}`,
     );
@@ -232,6 +292,13 @@ export interface RefreshPkceTokenParams {
   tokenEndpoint: string;
   /** Extra headers (e.g. provider-specific beta flags). */
   extraHeaders?: Readonly<Record<string, string>>;
+  /**
+   * Token request body encoding. `'form'` (RFC 6749 default) or `'json'`
+   * (Anthropic). See `ProviderOAuthConfig.tokenBodyFormat`.
+   *
+   * @default 'form'
+   */
+  bodyFormat?: 'form' | 'json';
 }
 
 /**
@@ -247,24 +314,16 @@ export interface RefreshPkceTokenParams {
  * @task T9302
  */
 export async function refreshPkceToken(params: RefreshPkceTokenParams): Promise<OAuthTokens> {
-  const body = new URLSearchParams({
+  const fields: Record<string, string> = {
     grant_type: 'refresh_token',
     client_id: params.clientId,
     refresh_token: params.refreshToken,
-  });
+  };
 
-  const resp = await globalThis.fetch(params.tokenEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-      ...params.extraHeaders,
-    },
-    body: body.toString(),
-  });
+  const resp = await postTokenRequest(params.tokenEndpoint, fields, params);
 
   if (!resp.ok) {
-    const detail = await extractErrorDetail(resp);
+    const detail = await extractOAuthErrorDetail(resp);
     throw new Error(
       `PKCE token refresh failed for provider '${params.provider}': HTTP ${resp.status}${detail}`,
     );
@@ -276,6 +335,35 @@ export async function refreshPkceToken(params: RefreshPkceTokenParams): Promise<
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * POST a token-endpoint request (code exchange or refresh grant).
+ *
+ * Single home for the body-encoding split shared by {@link exchangePkceCode}
+ * and {@link refreshPkceToken}: `'form'` (RFC 6749 default,
+ * `application/x-www-form-urlencoded`) vs `'json'` (Anthropic's non-RFC
+ * `application/json` token endpoint). See
+ * `ProviderOAuthConfig.tokenBodyFormat`.
+ *
+ * @internal
+ */
+function postTokenRequest(
+  tokenEndpoint: string,
+  fields: Record<string, string>,
+  opts: Pick<ExchangePkceCodeParams, 'bodyFormat' | 'extraHeaders'>,
+): Promise<Response> {
+  return globalThis.fetch(tokenEndpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type':
+        opts.bodyFormat === 'json' ? 'application/json' : 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+      ...opts.extraHeaders,
+    },
+    body:
+      opts.bodyFormat === 'json' ? JSON.stringify(fields) : new URLSearchParams(fields).toString(),
+  });
+}
 
 /**
  * base64url-encode a byte array (RFC 4648 §5, no padding).
@@ -316,12 +404,20 @@ function parseTokenResponse(provider: string, data: unknown): OAuthTokens {
 }
 
 /**
- * Extract a human-readable error detail string from a non-OK HTTP response.
+ * Extract a human-readable error detail string from a non-OK OAuth HTTP
+ * response.
+ *
+ * The single shared extractor for every OAuth surface in the LLM layer
+ * (`pkce.ts`, `google-pkce.ts`, `device-code.ts`) — local copies drifted and
+ * re-introduced the `[object Object]` masking of DHQ-075 (T11958).
  *
  * Strategy:
  * 1. Clone the response so the body stream is not consumed by the primary
  *    error path (callers may need the body for further inspection).
  * 2. Parse as JSON; use `error_description` or `error` fields (RFC 6749 §5.2).
+ *    When the field is an object (Anthropic nests
+ *    `{"error": {"type", "message"}}`), extract `message`/`type` — never
+ *    `String(object)`.
  * 3. Fall back to the raw text body when JSON parsing fails (e.g. HTML pages
  *    returned by a WAF or a misconfigured reverse proxy). Truncate at 512 chars
  *    so a multi-kilobyte HTML page does not flood the error message.
@@ -330,15 +426,25 @@ function parseTokenResponse(provider: string, data: unknown): OAuthTokens {
  * This ensures the caller never sees `[object Object]` in the thrown message
  * and always surfaces the actual HTTP response body for debugging.
  *
- * @internal
+ * @task T11958
  */
-async function extractErrorDetail(resp: Response): Promise<string> {
+export async function extractOAuthErrorDetail(resp: Response): Promise<string> {
   // Clone before reading so the caller's Response is not drained.
   const clone = resp.clone();
   try {
     const body = (await clone.json()) as Record<string, unknown>;
     const desc = body['error_description'] ?? body['error'];
-    if (desc) return ` — ${String(desc)}`;
+    if (typeof desc === 'string' && desc) return ` — ${desc}`;
+    // Anthropic nests the detail: {"error": {"type": "...", "message": "..."}}.
+    // `String(object)` here is what produced the undebuggable
+    // "[object Object]" of DHQ-075 — extract message/type, else stringify.
+    if (desc !== null && typeof desc === 'object') {
+      const d = desc as Record<string, unknown>;
+      const message = typeof d['message'] === 'string' ? d['message'] : undefined;
+      const type = typeof d['type'] === 'string' ? d['type'] : undefined;
+      if (message) return ` — ${type ? `${type}: ` : ''}${message}`;
+      return ` — ${JSON.stringify(desc).slice(0, 512)}`;
+    }
     // JSON parsed but had no recognized field: fall through to raw-text path.
     const text = JSON.stringify(body);
     return ` — ${text.slice(0, 512)}`;

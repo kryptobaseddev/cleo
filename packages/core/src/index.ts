@@ -36,6 +36,9 @@ export * as adrs from './adrs/index.js';
 export * as agents from './agents/index.js';
 export * as caamp from './caamp/index.js';
 export * as changesets from './changesets/index.js';
+// T11956 — local CI-gate runners (cleo check pr). Namespaced `checkGates` to
+// avoid colliding with the `check` validation-module alias below (line ~120).
+export * as checkGates from './check/index.js';
 export * as code from './code/index.js';
 export * as codebaseMap from './codebase-map/index.js';
 export * as compliance from './compliance/index.js';

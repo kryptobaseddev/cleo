@@ -32,7 +32,7 @@ packages/cleo/src/cli/commands/llm-login.ts *
 packages/cleo/src/cli/commands/auth/migrate-project-secrets.ts 1
 packages/cleo/src/cli/commands/auth/remove.ts 2
 packages/cleo/src/cli/commands/backup.ts 8
-packages/cleo/src/cli/commands/check.ts 10
+packages/cleo/src/cli/commands/check.ts 12
 packages/cleo/src/cli/commands/session.ts 3
 packages/cleo/src/cli/commands/setup.ts 2
 packages/cleo/src/cli/commands/web.ts 5

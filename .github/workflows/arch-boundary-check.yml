@@ -327,3 +327,93 @@ jobs:
           node-version: '24'
       - name: Lint no NET-NEW bare getActiveSession callsites (baseline mode)
         run: node scripts/lint-no-bare-get-active-session.mjs --check
+
+  merge-bar-aggregate:
+    # T11955 · DHQ-072 · Epic T11679 (DHQ burn-down)
+    #
+    # Regression-locks the merge-bar coverage itself: every PR-gating multi-job
+    # workflow MUST keep a complete all-green aggregate gate (this very job's
+    # `arch-boundary-check` sibling, plus ci.yml's `ci` job). The lint fails if
+    # an aggregate omits a sibling from `needs:`, drops `if: always()`, or stops
+    # inspecting `needs.*.result` — so a future job added to either workflow
+    # cannot silently fall outside the merge bar.
+    #
+    # Pure static analysis of checked-in workflow YAML — no untrusted input.
+    name: Merge-Bar Aggregate Gate Lint (T11955)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Lint merge-bar aggregate gates
+        run: node scripts/lint-merge-bar-aggregate.mjs
+
+  arch-boundary-check:
+    # T11955 · DHQ-072 · Epic T11679 (DHQ burn-down)
+    #
+    # Merge-bar aggregate gate. Every lint job in this workflow is an
+    # INDEPENDENT top-level status check; before this gate existed only
+    # `CI` (from ci.yml), `Lockfile Check`, and `Contracts Dep Lint` were in
+    # the branch-protection required-checks contract. A failure in any
+    # arch-boundary lint (e.g. the `LLM Chokepoint Guard` / no-hardcoded-models
+    # rule that tripped #1037 and landed on main green-looking) was NOT a
+    # required check and admin-merge bypassed it entirely.
+    #
+    # This single job `needs:` EVERY sibling lint and fails if ANY of them
+    # failed or was cancelled — so one required context (`Arch Boundary Check`)
+    # now covers all 12 arch gates. `if: always()` ensures the gate runs even
+    # when an upstream job fails (otherwise GitHub would skip it and report it
+    # as not-run, which branch protection treats as missing). Per-line
+    # `skipped` is tolerated (path-filtered jobs) but `failure`/`cancelled`
+    # fail the gate.
+    #
+    # The completeness of this `needs:` list (every sibling present, none
+    # missing) is itself regression-locked by
+    # scripts/lint-merge-bar-aggregate.mjs (Merge-Bar Aggregate Gate Lint).
+    name: Arch Boundary Check
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    needs:
+      - db-open-guard
+      - define-command-ssot
+      - stdout-discipline
+      - stdout-write-allowlist
+      - publish-surface
+      - contracts-purity
+      - tools-skills-boundary
+      - crate-publish-guard
+      - contract-literal-enums
+      - llm-chokepoint-guard
+      - output-contract-coverage
+      - no-bare-get-active-session
+      - merge-bar-aggregate
+    steps:
+      - name: Verify every arch-boundary job passed (or was skipped)
+        env:
+          RESULTS: ${{ join(needs.*.result, ',') }}
+        run: |
+          echo "Upstream job results: ${RESULTS}"
+          # Fail the gate if ANY upstream job failed or was cancelled.
+          # 'skipped' (path-filtered) and 'success' are acceptable.
+          if printf '%s' "${RESULTS}" | tr ',' '\n' | grep -qE '^(failure|cancelled)$'; then
+            echo "::error::One or more arch-boundary lint jobs failed or were cancelled — see the upstream job results above."
+            exit 1
+          fi
+          echo "All arch-boundary lint jobs succeeded or were skipped."
