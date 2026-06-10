@@ -131,9 +131,11 @@ fn run() -> anyhow::Result<()> {
 /// arbiter (so workers can send `worker_heartbeat`) and a background sweep task
 /// that SIGTERM→SIGKILLs a worker that stops heartbeating past its tiered
 /// deadline.
+#[cfg(unix)]
 const WATCHDOG_ENV_KEY: &str = "CLEO_SUPERVISOR_WATCHDOG";
 
 /// Whether the watchdog is enabled via [`WATCHDOG_ENV_KEY`] (`1` / `true`).
+#[cfg(unix)]
 fn watchdog_enabled() -> bool {
     std::env::var(WATCHDOG_ENV_KEY)
         .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
@@ -161,6 +163,11 @@ async fn serve_until_shutdown(socket_path: &std::path::Path) -> anyhow::Result<(
     let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
     let registry = ChildRegistry::new(event_tx);
 
+    // The watchdog wiring rides the Unix accept loop (the only IPC transport
+    // implemented in this crate today). On Windows the named-pipe transport — and
+    // with it the watchdog — lands with the Windows IPC epic; the registry holds
+    // a non-`Send` Job-Object handle there, so the sweep task is Unix-only.
+    #[cfg(unix)]
     if watchdog_enabled() {
         return serve_with_watchdog(socket_path, registry, event_rx).await;
     }
@@ -186,6 +193,12 @@ async fn serve_until_shutdown(socket_path: &std::path::Path) -> anyhow::Result<(
 /// background sweep task, and serves with the lease-event channel so kill events
 /// reach clients. Races the accept loop against the watchdog task and the
 /// shutdown signal.
+///
+/// Unix-only: the sweep task `tokio::spawn`s a future capturing the
+/// [`ChildRegistry`], whose per-child [`JobObject`](cleo_supervisor::jobobject)
+/// handle is non-`Send` on Windows. The Windows watchdog lands with the
+/// named-pipe IPC transport in the Windows IPC epic.
+#[cfg(unix)]
 async fn serve_with_watchdog(
     socket_path: &std::path::Path,
     registry: cleo_supervisor::supervisor::ChildRegistry,
