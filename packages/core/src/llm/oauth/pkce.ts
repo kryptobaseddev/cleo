@@ -147,6 +147,53 @@ export function buildAuthorizationUrl(params: BuildAuthorizationUrlParams): stri
 }
 
 // ---------------------------------------------------------------------------
+// Authorization-response input parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a user-pasted authorization response into `{ code, state }`.
+ *
+ * Accepts every form a provider's callback page can hand the user
+ * (mirrors pi-ai's `parseAuthorizationInput`):
+ * - a full redirect URL — `https://…/callback?code=…&state=…`
+ * - the `code#state` pair Anthropic's hosted callback page displays
+ * - a bare query string — `code=…&state=…`
+ * - a bare authorization code
+ *
+ * Callers MUST validate a returned `state` against the authorize-time state
+ * (CSRF check, RFC 6749 §10.12) before exchanging the code.
+ *
+ * @param input - Raw pasted text from the user.
+ * @returns Extracted `code` and `state` (either may be `undefined`).
+ * @task T11958
+ */
+export function parseAuthorizationInput(input: string): { code?: string; state?: string } {
+  const value = input.trim();
+  if (!value) return {};
+  try {
+    const url = new URL(value);
+    return {
+      code: url.searchParams.get('code') ?? undefined,
+      state: url.searchParams.get('state') ?? undefined,
+    };
+  } catch {
+    // not a URL — fall through to the bare forms
+  }
+  if (value.includes('#')) {
+    const [code, state] = value.split('#', 2);
+    return { code: code || undefined, state: state || undefined };
+  }
+  if (value.includes('code=')) {
+    const params = new URLSearchParams(value);
+    return {
+      code: params.get('code') ?? undefined,
+      state: params.get('state') ?? undefined,
+    };
+  }
+  return { code: value };
+}
+
+// ---------------------------------------------------------------------------
 // Code exchange
 // ---------------------------------------------------------------------------
 

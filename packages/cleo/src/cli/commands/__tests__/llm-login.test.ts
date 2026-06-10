@@ -83,19 +83,24 @@ vi.mock('@cleocode/core/llm/provider-registry/index.js', () => ({
   getProviderProfile: m.getProviderProfile,
 }));
 
-vi.mock('@cleocode/core/llm/oauth/pkce.js', () => ({
-  generatePkcePair: m.generatePkcePair,
-  buildAuthorizationUrl: m.buildAuthorizationUrl,
-  exchangePkceCode: m.exchangePkceCode,
-  refreshPkceToken: m.refreshPkceToken,
-}));
+vi.mock('@cleocode/core/llm/oauth/pkce.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/core/llm/oauth/pkce.js')>();
+  return {
+    // Real parser — pure function, the flow tests exercise it for real.
+    parseAuthorizationInput: actual.parseAuthorizationInput,
+    generatePkcePair: m.generatePkcePair,
+    buildAuthorizationUrl: m.buildAuthorizationUrl,
+    exchangePkceCode: m.exchangePkceCode,
+    refreshPkceToken: m.refreshPkceToken,
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Import under test (after mocks)
 // ---------------------------------------------------------------------------
 
 import { spawn } from 'node:child_process';
-import { _parseAuthorizationInput, runLlmLogin } from '../llm-login.js';
+import { runLlmLogin } from '../llm-login.js';
 
 // Typed reference to the mocked spawn for assertions.
 const spawnMock = spawn as ReturnType<typeof vi.fn>;
@@ -768,35 +773,6 @@ describe('runLlmLogin — T9579 regression: no real browser spawn', () => {
 // ---------------------------------------------------------------------------
 // T11958 / DHQ-075 — Anthropic exchange wire shape + paste-back input forms
 // ---------------------------------------------------------------------------
-
-describe('_parseAuthorizationInput (T11958)', () => {
-  it('parses a full redirect URL', () => {
-    expect(
-      _parseAuthorizationInput(
-        'https://platform.claude.com/oauth/code/callback?code=abc123&state=st-9',
-      ),
-    ).toEqual({ code: 'abc123', state: 'st-9' });
-  });
-
-  it('parses the code#state pair shown on the hosted callback page', () => {
-    expect(_parseAuthorizationInput('abc123#st-9')).toEqual({ code: 'abc123', state: 'st-9' });
-  });
-
-  it('parses a bare query string', () => {
-    expect(_parseAuthorizationInput('code=abc123&state=st-9')).toEqual({
-      code: 'abc123',
-      state: 'st-9',
-    });
-  });
-
-  it('treats anything else as a bare authorization code', () => {
-    expect(_parseAuthorizationInput('  abc123  ')).toEqual({ code: 'abc123' });
-  });
-
-  it('returns empty for empty input', () => {
-    expect(_parseAuthorizationInput('   ')).toEqual({});
-  });
-});
 
 describe('runLlmLogin — T11958: Anthropic exchange wire shape', () => {
   it('passes the authorize-time state and the profile tokenBodyFormat to exchangePkceCode', async () => {

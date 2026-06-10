@@ -52,6 +52,7 @@ import {
   buildAuthorizationUrl,
   exchangePkceCode,
   generatePkcePair,
+  parseAuthorizationInput,
   refreshPkceToken,
 } from '@cleocode/core/llm/oauth/pkce.js';
 import { getKimiCodeMshHeaders } from '@cleocode/core/llm/provider-registry/builtin/kimi-code.js';
@@ -89,6 +90,18 @@ interface LlmLoginResult {
     operation: string;
     timestamp: string;
   };
+}
+
+/**
+ * Build a LAFS-shaped error result envelope.
+ *
+ * Single home for the `{ success: false, error: { code, codeName, message } }`
+ * shape this module previously re-declared at every failure site.
+ *
+ * @internal
+ */
+function _errorResult(code: string, message: string, meta: LlmLoginResult['meta']): LlmLoginResult {
+  return { success: false, error: { code, codeName: code, message }, meta };
 }
 
 // ---------------------------------------------------------------------------
@@ -129,18 +142,13 @@ export async function runLlmLogin(
     return _runPkceLogin(profile!.name, profile!.oauth!, opts, meta);
   }
 
-  return {
-    success: false,
-    error: {
-      code: 'E_NOT_IMPLEMENTED',
-      codeName: 'E_NOT_IMPLEMENTED',
-      message:
-        `OAuth login for '${provider}' is not yet wired. ` +
-        `${await _supportedOauthProvidersHint()} ` +
-        `For any other provider, add an API key with 'cleo llm add <provider> --api-key-stdin'.`,
-    },
+  return _errorResult(
+    'E_NOT_IMPLEMENTED',
+    `OAuth login for '${provider}' is not yet wired. ` +
+      `${await _supportedOauthProvidersHint()} ` +
+      `For any other provider, add an API key with 'cleo llm add <provider> --api-key-stdin'.`,
     meta,
-  };
+  );
 }
 
 /**
@@ -243,15 +251,7 @@ async function _runPkceLogin(
       code = await _headlessPkceFlow(provider, authUrl, state);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      return {
-        success: false,
-        error: {
-          code: 'E_PKCE_INVALID_CALLBACK',
-          codeName: 'E_PKCE_INVALID_CALLBACK',
-          message: msg,
-        },
-        meta,
-      };
+      return _errorResult('E_PKCE_INVALID_CALLBACK', msg, meta);
     }
   } else {
     const result = await _localCallbackPkceFlow(provider, authUrl, state, port);
@@ -276,15 +276,7 @@ async function _runPkceLogin(
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    return {
-      success: false,
-      error: {
-        code: 'E_PKCE_EXCHANGE_FAILED',
-        codeName: 'E_PKCE_EXCHANGE_FAILED',
-        message: `PKCE code exchange failed: ${msg}`,
-      },
-      meta,
-    };
+    return _errorResult('E_PKCE_EXCHANGE_FAILED', `PKCE code exchange failed: ${msg}`, meta);
   }
 
   process.stderr.write('\r  Authorization approved.              \n\n');
@@ -314,15 +306,11 @@ async function _runPkceLogin(
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    return {
-      success: false,
-      error: {
-        code: 'E_CREDENTIAL_STORE_FAILED',
-        codeName: 'E_CREDENTIAL_STORE_FAILED',
-        message: `Failed to store credential in pool: ${msg}`,
-      },
+    return _errorResult(
+      'E_CREDENTIAL_STORE_FAILED',
+      `Failed to store credential in pool: ${msg}`,
       meta,
-    };
+    );
   }
 
   return {
@@ -378,53 +366,13 @@ function _isLoopbackUri(redirectUri?: string): boolean {
 }
 
 /**
- * Parse the user's pasted authorization response into `{ code, state }`.
- *
- * Accepts every form a provider's callback page can hand the user
- * (mirrors pi-ai's `parseAuthorizationInput`):
- * - a full redirect URL — `https://…/callback?code=…&state=…`
- * - the `code#state` pair Anthropic's hosted callback page displays
- * - a bare query string — `code=…&state=…`
- * - a bare authorization code
- *
- * Exported for unit tests.
- *
- * @task T11958
- * @internal
- */
-export function _parseAuthorizationInput(input: string): { code?: string; state?: string } {
-  const value = input.trim();
-  if (!value) return {};
-  try {
-    const url = new URL(value);
-    return {
-      code: url.searchParams.get('code') ?? undefined,
-      state: url.searchParams.get('state') ?? undefined,
-    };
-  } catch {
-    // not a URL — fall through to the bare forms
-  }
-  if (value.includes('#')) {
-    const [code, state] = value.split('#', 2);
-    return { code: code || undefined, state: state || undefined };
-  }
-  if (value.includes('code=')) {
-    const params = new URLSearchParams(value);
-    return {
-      code: params.get('code') ?? undefined,
-      state: params.get('state') ?? undefined,
-    };
-  }
-  return { code: value };
-}
-
-/**
  * Headless PKCE flow: print URL to stderr, read the authorization response
  * from stdin.
  *
  * The user opens the URL in a browser, approves access, and pastes back
  * either the full redirect URL, the `code#state` pair shown on the hosted
- * callback page, or the bare authorization code.
+ * callback page, or the bare authorization code (parsed by
+ * `parseAuthorizationInput` from `@cleocode/core/llm/oauth/pkce.js`).
  *
  * When the pasted input carries a `state`, it is validated against the
  * `state` sent on the authorization request (CSRF check, RFC 6749 §10.12).
@@ -438,20 +386,16 @@ async function _headlessPkceFlow(
   authUrl: string,
   expectedState: string,
 ): Promise<string> {
-  process.stderr.write('\n');
-  process.stderr.write(`  Provider: ${provider}\n`);
-  process.stderr.write(`  Open this URL in your browser to authorize:\n\n`);
-  process.stderr.write(`  ${authUrl}\n\n`);
   process.stderr.write(
-    `  After approving, paste the full redirect URL (…?code=…&state=…) or the code shown:\n  `,
+    `\n  Provider: ${provider}\n  Open this URL in your browser to authorize:\n\n` +
+      `  ${authUrl}\n\n` +
+      `  After approving, paste the full redirect URL (…?code=…&state=…) or the code shown:\n  `,
   );
 
   return new Promise<string>((resolve, reject) => {
-    let buf = '';
     process.stdin.setEncoding('utf8');
     process.stdin.once('data', (chunk) => {
-      buf += String(chunk).trim();
-      const parsed = _parseAuthorizationInput(buf);
+      const parsed = parseAuthorizationInput(String(chunk));
       if (!parsed.code) {
         reject(new Error('Pasted input is missing the authorization "code" parameter'));
         return;
@@ -558,15 +502,11 @@ async function _runKimiCodeLogin(
     startResp = await startDeviceCodeFlow(cfg);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    return {
-      success: false,
-      error: {
-        code: 'E_DEVICE_CODE_START_FAILED',
-        codeName: 'E_DEVICE_CODE_START_FAILED',
-        message: `Failed to initiate Kimi Code device-code OAuth flow: ${msg}`,
-      },
+    return _errorResult(
+      'E_DEVICE_CODE_START_FAILED',
+      `Failed to initiate Kimi Code device-code OAuth flow: ${msg}`,
       meta,
-    };
+    );
   }
 
   process.stderr.write('\n');
@@ -590,37 +530,17 @@ async function _runKimiCodeLogin(
     process.stderr.write('\n');
 
     if (err instanceof DeviceCodeTimeoutError) {
-      return {
-        success: false,
-        error: {
-          code: 'E_DEVICE_CODE_TIMEOUT',
-          codeName: 'E_DEVICE_CODE_TIMEOUT',
-          message: err.message,
-        },
-        meta,
-      };
+      return _errorResult('E_DEVICE_CODE_TIMEOUT', err.message, meta);
     }
     if (err instanceof DeviceCodeAuthError) {
-      return {
-        success: false,
-        error: {
-          code: 'E_DEVICE_CODE_AUTH_FAILED',
-          codeName: 'E_DEVICE_CODE_AUTH_FAILED',
-          message: err.message,
-        },
-        meta,
-      };
+      return _errorResult('E_DEVICE_CODE_AUTH_FAILED', err.message, meta);
     }
     const msg = err instanceof Error ? err.message : String(err);
-    return {
-      success: false,
-      error: {
-        code: 'E_DEVICE_CODE_POLL_FAILED',
-        codeName: 'E_DEVICE_CODE_POLL_FAILED',
-        message: `Polling for Kimi Code device-code token failed: ${msg}`,
-      },
+    return _errorResult(
+      'E_DEVICE_CODE_POLL_FAILED',
+      `Polling for Kimi Code device-code token failed: ${msg}`,
       meta,
-    };
+    );
   }
 
   process.stderr.write('\r  Kimi Code authorization approved.              \n\n');
@@ -645,15 +565,11 @@ async function _runKimiCodeLogin(
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    return {
-      success: false,
-      error: {
-        code: 'E_CREDENTIAL_STORE_FAILED',
-        codeName: 'E_CREDENTIAL_STORE_FAILED',
-        message: `Failed to store Kimi Code credential in pool: ${msg}`,
-      },
+    return _errorResult(
+      'E_CREDENTIAL_STORE_FAILED',
+      `Failed to store Kimi Code credential in pool: ${msg}`,
       meta,
-    };
+    );
   }
 
   return {

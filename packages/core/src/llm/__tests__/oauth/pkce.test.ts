@@ -13,6 +13,7 @@ import {
   buildAuthorizationUrl,
   exchangePkceCode,
   generatePkcePair,
+  parseAuthorizationInput,
   refreshPkceToken,
 } from '../../oauth/pkce.js';
 
@@ -427,5 +428,38 @@ describe('refreshPkceToken', () => {
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).not.toContain('[object Object]');
     expect((err as Error).message).toContain('invalid_grant: refresh token revoked');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseAuthorizationInput (T11958)
+// ---------------------------------------------------------------------------
+
+describe('parseAuthorizationInput', () => {
+  it('parses a full redirect URL', () => {
+    expect(
+      parseAuthorizationInput(
+        'https://platform.claude.com/oauth/code/callback?code=abc123&state=st-9',
+      ),
+    ).toEqual({ code: 'abc123', state: 'st-9' });
+  });
+
+  it('parses the code#state pair shown on the hosted callback page', () => {
+    expect(parseAuthorizationInput('abc123#st-9')).toEqual({ code: 'abc123', state: 'st-9' });
+  });
+
+  it('parses a bare query string', () => {
+    expect(parseAuthorizationInput('code=abc123&state=st-9')).toEqual({
+      code: 'abc123',
+      state: 'st-9',
+    });
+  });
+
+  it('treats anything else as a bare authorization code', () => {
+    expect(parseAuthorizationInput('  abc123  ')).toEqual({ code: 'abc123' });
+  });
+
+  it('returns empty for empty input', () => {
+    expect(parseAuthorizationInput('   ')).toEqual({});
   });
 });
