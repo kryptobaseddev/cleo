@@ -865,6 +865,23 @@ export {
   PluginModelGateError,
   PluginRateLimitedError,
 } from './llm/plugin-llm.js';
+export type {
+  AiSdkEndpoint,
+  AnthropicMessagesEndpoint,
+  OAuthFlowDef,
+  OpenAICompletionsEndpoint,
+  OpenAIResponsesEndpoint,
+  ProviderDef,
+  ProviderEndpoint,
+  ProviderTransport,
+  RequestQuirk,
+  RequestQuirkKind,
+} from './llm/provider-def.js';
+// === M3 Provider SSoT (T11702 · epic T11667) — declarative ProviderDef ===
+export {
+  PROVIDER_TRANSPORTS,
+  REQUEST_QUIRK_KINDS,
+} from './llm/provider-def.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Provider identity ===
 export type { ApiMode, BuiltinProviderId, ProviderId } from './llm/provider-id.js';
 // === Provider Profile + Plugin Contracts (T9262 — Phase 3 T-LLM-CRED) ===
