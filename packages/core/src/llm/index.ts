@@ -136,6 +136,13 @@ export {
   suppressionStatePath,
   writeSuppressionFile,
 } from './credential-removal.js';
+// 3-step onboarding login engine — connect → select → bind → validate (T11724 · M3)
+export type {
+  OnboardingDeps,
+  OnboardingLoginOptions,
+  OnboardingResolution,
+} from './onboarding/login-engine.js';
+export { runOnboardingLogin } from './onboarding/login-engine.js';
 // M3 Provider SSoT (T11702/T11703/T11704 · epic T11667) — declarative providers
 export type { ProviderAliasIndex } from './provider-registry/provider-alias.js';
 export {
