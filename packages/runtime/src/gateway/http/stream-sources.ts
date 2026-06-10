@@ -163,16 +163,89 @@ export const tickStreamSource: GatewayStreamSource = (emitter, context) => {
 };
 
 /**
+ * The default `tasks.subscribe` source: a bounded board-event heartbeat producer
+ * (T11785 · epic T11556).
+ *
+ * Emits `data` {@link GatewayStreamEvent} frames standing in for task/board
+ * lifecycle events (`created`/`updated`/`deleted`) until the `ticks` budget is
+ * exhausted, then a terminal `done` frame; a client disconnect tears the timer
+ * down before then. Each frame carries the optional `root` scope (a saga/parent
+ * task ID) so a consumer can correlate the stream to the board slice it
+ * subscribed to. Like {@link tickStreamSource} it carries NO DB handle and NO
+ * secret — it proves the SSE pipe end-to-end without reaching across the runtime
+ * package boundary, and the daemon injects its real store-tailing source via
+ * {@link registerStreamSource} at boot.
+ *
+ * @param emitter - The SSE emitter for this stream.
+ * @param context - The resolved streaming-route context (carries `params.root`).
+ * @returns A teardown that clears the heartbeat timer.
+ */
+export const taskBoardStreamSource: GatewayStreamSource = (emitter, context) => {
+  const budget = resolveTickBudget(context.params.ticks);
+  const root = typeof context.params.root === 'string' ? context.params.root : null;
+  let seq = 0;
+
+  /** Emit one board-event `data` frame; dropped after close (never throws). */
+  const emitData = (): void => {
+    const frame: GatewayStreamEvent = {
+      kind: 'data',
+      seq,
+      data: { scope: 'tasks.board', root, event: 'heartbeat', ts: new Date().toISOString() },
+      requestId: context.requestId,
+    };
+    emitter.sendStreamEvent(frame);
+    seq += 1;
+  };
+
+  /** Emit the terminal `done` frame and close the stream. */
+  const emitDone = (): void => {
+    const frame: GatewayStreamEvent = {
+      kind: 'done',
+      seq,
+      data: { scope: 'tasks.board', root, frames: seq, ts: new Date().toISOString() },
+      requestId: context.requestId,
+    };
+    emitter.sendStreamEvent(frame);
+    emitter.close();
+  };
+
+  if (budget <= 0) {
+    emitDone();
+    return undefined;
+  }
+  // Emit the first frame synchronously so a consumer sees a frame immediately.
+  emitData();
+
+  const interval = setInterval(() => {
+    if (emitter.closed) {
+      clearInterval(interval);
+      return;
+    }
+    if (seq >= budget) {
+      clearInterval(interval);
+      emitDone();
+      return;
+    }
+    emitData();
+  }, DEFAULT_TICK_INTERVAL_MS);
+
+  return () => clearInterval(interval);
+};
+
+/**
  * The registry of streaming-operation sources, keyed by `<domain>.<operation>`.
  *
  * The listener resolves a source from this map when a `GET /v1/<domain>/<operation>`
  * matches a registered streaming op. An embedder MAY override an entry (or add a
  * domain-specific origin-tailing source) via {@link registerStreamSource} before
- * starting the server; until then `orchestrate.events` is served by the default
- * {@link tickStreamSource} so the pipe is exercisable with zero injection.
+ * starting the server; until then `orchestrate.events` (and `tasks.subscribe`)
+ * are served by their default tick sources so the pipe is exercisable with zero
+ * injection.
  */
 const STREAM_SOURCES = new Map<string, GatewayStreamSource>([
   ['orchestrate.events', tickStreamSource],
+  // T11785 (epic T11556) — the FIRST streaming task op; default board heartbeat.
+  ['tasks.subscribe', taskBoardStreamSource],
 ]);
 
 /**

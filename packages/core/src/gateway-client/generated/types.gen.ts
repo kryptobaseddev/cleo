@@ -376,6 +376,43 @@ export type QueryTasksWorkgraphAuditResponses = {
 
 export type QueryTasksWorkgraphAuditResponse = QueryTasksWorkgraphAuditResponses[keyof QueryTasksWorkgraphAuditResponses];
 
+export type QueryTasksSubscribeData = {
+    body?: {
+        /**
+         * Optional saga/parent task ID to scope the event stream to (omit for the whole board)
+         */
+        root?: string;
+        /**
+         * Maximum number of event frames to emit before the terminal `done` frame (default: open-ended until client disconnect)
+         */
+        ticks?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/subscribe';
+};
+
+export type QueryTasksSubscribeResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryTasksSubscribeResponse = QueryTasksSubscribeResponses[keyof QueryTasksSubscribeResponses];
+
 export type QueryTasksListData = {
     body?: {
         /**
@@ -1427,6 +1464,39 @@ export type QueryOrchestrateStatusResponses = {
 };
 
 export type QueryOrchestrateStatusResponse = QueryOrchestrateStatusResponses[keyof QueryOrchestrateStatusResponses];
+
+export type QueryOrchestrateEventsData = {
+    body?: {
+        /**
+         * Maximum number of event frames to emit before the terminal `done` frame (default: open-ended until client disconnect)
+         */
+        ticks?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/orchestrate/events';
+};
+
+export type QueryOrchestrateEventsResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryOrchestrateEventsResponse = QueryOrchestrateEventsResponses[keyof QueryOrchestrateEventsResponses];
 
 export type QueryOrchestrateIvtrStatusData = {
     body: {
@@ -3256,6 +3326,151 @@ export type QueryAdminConfigPresetsResponses = {
 
 export type QueryAdminConfigPresetsResponse = QueryAdminConfigPresetsResponses[keyof QueryAdminConfigPresetsResponses];
 
+export type QueryAdminConfigGetData = {
+    body: {
+        /**
+         * Dot-notation config key to read (e.g. "release.branchModel")
+         */
+        key: string;
+        /**
+         * Cascade slice to read from. Defaults to merged.
+         */
+        scope?: 'global' | 'project' | 'merged';
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/admin/config.get';
+};
+
+export type QueryAdminConfigGetResponses = {
+    /**
+     * The resolved value is at /data/value (may be null). /data/found is false when the key is absent.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * The dot-notation key that was resolved.
+             */
+            key: string;
+            /**
+             * Cascade slice the value was resolved against.
+             */
+            scope: 'global' | 'project' | 'merged';
+            /**
+             * Resolved value, or null when the key is absent.
+             */
+            value: unknown;
+            /**
+             * True IFF the key resolved to a defined value.
+             */
+            found: boolean;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryAdminConfigGetResponse = QueryAdminConfigGetResponses[keyof QueryAdminConfigGetResponses];
+
+export type QueryAdminConfigListData = {
+    body?: {
+        /**
+         * Cascade slice to project. Defaults to merged.
+         */
+        scope?: 'global' | 'project' | 'merged';
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/admin/config.list';
+};
+
+export type QueryAdminConfigListResponses = {
+    /**
+     * The full resolved config is at /data/config (an object); flattened dot-notation keys are at /data/keys (an array).
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * Cascade slice the config was resolved against.
+             */
+            scope: 'global' | 'project' | 'merged';
+            /**
+             * Full resolved config object for the slice.
+             */
+            config: {
+                [key: string]: unknown;
+            };
+            /**
+             * Flattened dot-notation keys present in the resolved config.
+             */
+            keys: Array<string>;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryAdminConfigListResponse = QueryAdminConfigListResponses[keyof QueryAdminConfigListResponses];
+
+export type QueryAdminConfigValidateData = {
+    body?: {
+        /**
+         * Scope to validate (global or project). Defaults to project.
+         */
+        scope?: 'global' | 'project';
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/admin/config.validate';
+};
+
+export type QueryAdminConfigValidateResponses = {
+    /**
+     * The pass/fail verdict is at /data/ok; rejection reasons are at /data/issues (empty when ok=true).
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * Scope that was validated.
+             */
+            scope: 'global' | 'project';
+            /**
+             * True IFF every gate passed.
+             */
+            ok: boolean;
+            /**
+             * Human-readable schema issues. Empty when ok=true.
+             */
+            issues: Array<string>;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryAdminConfigValidateResponse = QueryAdminConfigValidateResponses[keyof QueryAdminConfigValidateResponses];
+
 export type QueryAdminStatsData = {
     body?: never;
     path?: never;
@@ -4816,6 +5031,157 @@ export type MutateTasksReorderResponses = {
 };
 
 export type MutateTasksReorderResponse = MutateTasksReorderResponses[keyof MutateTasksReorderResponses];
+
+export type MutateTasksReorderRankData = {
+    body: {
+        /**
+         * Ordered task IDs describing the desired top-to-bottom column order; each task position is set to its 1-based index
+         */
+        orderedIds: Array<string>;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/reorder-rank';
+};
+
+export type MutateTasksReorderRankResponses = {
+    /**
+     * Re-ranked IDs (new order) at /data/ranked; unresolved request IDs at /data/skipped; count at /data/count.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * Task IDs whose position was written, in the new top-to-bottom order.
+             */
+            ranked: Array<string>;
+            /**
+             * Request IDs that did not resolve to a task (no-op for these).
+             */
+            skipped: Array<string>;
+            /**
+             * Number of tasks re-ranked.
+             */
+            count: number;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateTasksReorderRankResponse = MutateTasksReorderRankResponses[keyof MutateTasksReorderRankResponses];
+
+export type MutateTasksBulkMoveData = {
+    body: {
+        /**
+         * Task IDs to move (all-or-nothing; any failure rolls back every move)
+         */
+        taskIds: Array<string>;
+        /**
+         * Target lifecycle status applied to every task
+         */
+        status?: 'pending' | 'active' | 'blocked' | 'done' | 'cancelled' | 'archived' | 'proposed';
+        /**
+         * Target pipeline stage applied to every task (forward-only)
+         */
+        pipelineStage?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/bulk-move';
+};
+
+export type MutateTasksBulkMoveResponses = {
+    /**
+     * Moved task IDs at /data/moved (all-or-nothing); applied status/stage at /data/status and /data/pipelineStage; count at /data/count.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * Task IDs successfully moved (atomic — empty only when count is 0).
+             */
+            moved: Array<string>;
+            /**
+             * The status applied, when supplied.
+             */
+            status?: string;
+            /**
+             * The pipeline stage applied, when supplied.
+             */
+            pipelineStage?: string;
+            /**
+             * Number of tasks moved.
+             */
+            count: number;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateTasksBulkMoveResponse = MutateTasksBulkMoveResponses[keyof MutateTasksBulkMoveResponses];
+
+export type MutateTasksAssigneeData = {
+    body: {
+        /**
+         * Task ID whose assignee is being set or cleared
+         */
+        taskId: string;
+        /**
+         * Assignee to set; omit / empty / null clears the assignee
+         */
+        assignee?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/assignee';
+};
+
+export type MutateTasksAssigneeResponses = {
+    /**
+     * The new assignee is at /data/assignee (null when cleared); /data/assigned is true on set, false on clear.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * The task ID whose assignee changed.
+             */
+            taskId: string;
+            /**
+             * The new assignee value (null when cleared).
+             */
+            assignee: string | null;
+            /**
+             * True when an assignee was set; false on clear.
+             */
+            assigned: boolean;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateTasksAssigneeResponse = MutateTasksAssigneeResponses[keyof MutateTasksAssigneeResponses];
 
 export type MutateTasksRelatesAddData = {
     body: {
@@ -7919,6 +8285,55 @@ export type MutateAdminConfigSetPresetResponses = {
 };
 
 export type MutateAdminConfigSetPresetResponse = MutateAdminConfigSetPresetResponses[keyof MutateAdminConfigSetPresetResponses];
+
+export type MutateAdminConfigUnsetData = {
+    body: {
+        /**
+         * Dot-notation config key to remove
+         */
+        key: string;
+        /**
+         * Remove from the global file instead of the project file
+         */
+        global?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/admin/config.unset';
+};
+
+export type MutateAdminConfigUnsetResponses = {
+    /**
+     * /data/removed is true IFF a value was deleted; false when the key was already absent (idempotent).
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * The dot-notation key that was targeted.
+             */
+            key: string;
+            /**
+             * Scope the key was removed from.
+             */
+            scope: 'project' | 'global';
+            /**
+             * True IFF a value was actually deleted.
+             */
+            removed: boolean;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateAdminConfigUnsetResponse = MutateAdminConfigUnsetResponses[keyof MutateAdminConfigUnsetResponses];
 
 export type QueryAdminBackupData = {
     body?: never;
@@ -14479,3 +14894,1112 @@ export type MutateSelfimproveRunResponses = {
 };
 
 export type MutateSelfimproveRunResponse = MutateSelfimproveRunResponses[keyof MutateSelfimproveRunResponses];
+
+export type QueryServiceAuthUrlData = {
+    body: {
+        /**
+         * Service provider key (e.g. github, google, notion) — must be in SERVICE_PROVIDERS.
+         */
+        provider: string;
+        /**
+         * Opaque CSRF state to embed; a random value is generated when omitted.
+         */
+        state?: string;
+        /**
+         * Scope override (e.g. a BYOC custom scope). Defaults to the provider scope.
+         */
+        scope?: string;
+        /**
+         * Redirect URI override. Defaults to the provider loopback redirect.
+         */
+        redirectUri?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/service/auth-url';
+};
+
+export type QueryServiceAuthUrlResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryServiceAuthUrlResponse = QueryServiceAuthUrlResponses[keyof QueryServiceAuthUrlResponses];
+
+export type MutateServiceExchangeData = {
+    body: {
+        /**
+         * Service provider key.
+         */
+        provider: string;
+        /**
+         * Authorization code from the redirect callback.
+         */
+        code: string;
+        /**
+         * PKCE code verifier from service.auth-url (round-tripped).
+         */
+        codeVerifier: string;
+        /**
+         * Redirect URI used in service.auth-url (must match).
+         */
+        redirectUri: string;
+        /**
+         * Connection label, unique within the provider. Defaults to "default".
+         */
+        label?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/service/exchange';
+};
+
+export type MutateServiceExchangeResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateServiceExchangeResponse = MutateServiceExchangeResponses[keyof MutateServiceExchangeResponses];
+
+export type MutateServiceRefreshData = {
+    body: {
+        /**
+         * Agent requesting the refresh (trust-gated).
+         */
+        agentId: string;
+        /**
+         * Service provider key.
+         */
+        provider: string;
+        /**
+         * Connection label.
+         */
+        label: string;
+        /**
+         * Out-of-band manual-approval flag forwarded to the trust gate.
+         */
+        approved?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/service/refresh';
+};
+
+export type MutateServiceRefreshResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateServiceRefreshResponse = MutateServiceRefreshResponses[keyof MutateServiceRefreshResponses];
+
+export type MutateServiceSelfHealData = {
+    body: {
+        /**
+         * Agent requesting the connection (trust-gated).
+         */
+        agentId: string;
+        /**
+         * Service provider key.
+         */
+        provider: string;
+        /**
+         * Connection label.
+         */
+        label: string;
+        /**
+         * Out-of-band manual-approval flag forwarded to the trust gate.
+         */
+        approved?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/service/self-heal';
+};
+
+export type MutateServiceSelfHealResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateServiceSelfHealResponse = MutateServiceSelfHealResponses[keyof MutateServiceSelfHealResponses];
+
+export type MutateServiceConnectData = {
+    body: {
+        /**
+         * Service provider key (e.g. github, google, notion).
+         */
+        provider: string;
+        /**
+         * Connection label, unique within the provider (default: 'default').
+         */
+        label?: string;
+        /**
+         * Direct access token to store (token-direct mode). SECRET — never logged/echoed.
+         */
+        token?: string;
+        /**
+         * Optional refresh token paired with --token. SECRET.
+         */
+        refreshToken?: string;
+        /**
+         * ISO-8601 access-token expiry (token-direct mode).
+         */
+        expiresAt?: string;
+        /**
+         * Granted scope list (non-secret).
+         */
+        scopes?: Array<string>;
+        /**
+         * OAuth authorization code from the redirect callback (paste-code mode).
+         */
+        code?: string;
+        /**
+         * PKCE code verifier from service.auth-url, round-tripped (paste-code mode).
+         */
+        codeVerifier?: string;
+        /**
+         * Redirect URI used in service.auth-url; must match (paste-code mode).
+         */
+        redirectUri?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/service/connect';
+};
+
+export type MutateServiceConnectResponses = {
+    /**
+     * Mutate envelope: count=1, created=[connectionId]. `connection` carries the NON-SECRET identity (provider/label/expiresAt). No token is ever returned.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * Number of connections created/updated (1).
+             */
+            count: number;
+            /**
+             * The connection id(s) created/updated, as strings.
+             */
+            created: Array<string>;
+            /**
+             * Non-secret connection identity.
+             */
+            connection?: {
+                connectionId?: number;
+                provider?: string;
+                label?: string;
+                expiresAt?: string | null;
+            };
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateServiceConnectResponse = MutateServiceConnectResponses[keyof MutateServiceConnectResponses];
+
+export type QueryServiceListData = {
+    body?: {
+        /**
+         * Optional provider filter; lists all providers when omitted.
+         */
+        provider?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/service/list';
+};
+
+export type QueryServiceListResponses = {
+    /**
+     * connections[] are NON-SECRET views — provider/label/status/scopes/expiresAt/hasCredentials only. The decrypted token is NEVER present in any field.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * Redacted connection views.
+             */
+            connections: Array<{
+                id?: number;
+                provider: string;
+                label: string;
+                status: 'active' | 'expired' | 'revoked';
+                scopes: Array<string>;
+                expiresAt?: string | null;
+                connectedAt?: string;
+                updatedAt?: string;
+                /**
+                 * Whether a credential blob is present — NEVER the token itself.
+                 */
+                hasCredentials: boolean;
+                [key: string]: unknown;
+            }>;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryServiceListResponse = QueryServiceListResponses[keyof QueryServiceListResponses];
+
+export type MutateServiceRevokeData = {
+    body: {
+        /**
+         * Service provider key.
+         */
+        provider: string;
+        /**
+         * Connection label to revoke.
+         */
+        label: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/service/revoke';
+};
+
+export type MutateServiceRevokeResponses = {
+    /**
+     * Mutate envelope: count=1 + deleted=[provider:label] on success (0 + [] when no such connection). `grantsRemoved` counts the cascaded agent_service_grants rows.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * 1 when a connection was deleted, else 0.
+             */
+            count: number;
+            /**
+             * The `provider:label` identifier(s) deleted.
+             */
+            deleted: Array<string>;
+            /**
+             * How many agent_service_grants rows were cascaded-deleted.
+             */
+            grantsRemoved?: number;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateServiceRevokeResponse = MutateServiceRevokeResponses[keyof MutateServiceRevokeResponses];
+
+export type QueryServiceStatusData = {
+    body?: {
+        /**
+         * Optional provider filter; reports all connections when omitted.
+         */
+        provider?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/service/status';
+};
+
+export type QueryServiceStatusResponses = {
+    /**
+     * connections[] are NON-SECRET health views: each adds `expired` + `needsRefresh` booleans computed from expiresAt. No token is ever present.
+     */
+    200: {
+        success: true;
+        data: {
+            connections: Array<{
+                provider: string;
+                label: string;
+                status: 'active' | 'expired' | 'revoked';
+                expiresAt?: string | null;
+                /**
+                 * True when expiresAt is in the past (or status=expired).
+                 */
+                expired: boolean;
+                /**
+                 * True when the connection is expired and has stored credentials.
+                 */
+                needsRefresh: boolean;
+                hasCredentials?: boolean;
+                [key: string]: unknown;
+            }>;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryServiceStatusResponse = QueryServiceStatusResponses[keyof QueryServiceStatusResponses];
+
+export type MutateAccountAddData = {
+    body: {
+        /**
+         * LLM provider transport key (e.g. anthropic, openai).
+         */
+        provider: string;
+        /**
+         * API key or OAuth bearer token to persist. SECRET — never logged/echoed.
+         */
+        token: string;
+        /**
+         * Account label, unique within the provider (default: 'default').
+         */
+        label?: string;
+        /**
+         * Optional override for the provider base URL.
+         */
+        baseUrl?: string;
+        /**
+         * Explicit auth-type override; auto-detected from the token prefix when omitted.
+         */
+        authType?: 'api_key' | 'oauth' | 'aws_sdk';
+        /**
+         * Optional priority override (lower wins).
+         */
+        priority?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/account/add';
+};
+
+export type MutateAccountAddResponses = {
+    /**
+     * `account` is the redacted NON-SECRET view (tokenPreview = last-4 ONLY). The raw secret is NEVER returned. `detectedAuthType` records the resolved scheme.
+     */
+    200: {
+        success: true;
+        data: {
+            account: {
+                /**
+                 * LLM provider transport key.
+                 */
+                provider: string;
+                /**
+                 * Account label, unique within the provider.
+                 */
+                label: string;
+                /**
+                 * Storage auth scheme (api_key | oauth | aws_sdk).
+                 */
+                authType: string;
+                /**
+                 * Redacted token preview (last-4 chars) — NEVER the raw secret.
+                 */
+                tokenPreview: string;
+                hasRefreshToken?: boolean;
+                expiresAt?: number | null;
+                priority?: number;
+                source?: string | null;
+                baseUrl?: string | null;
+                disabled?: boolean;
+                [key: string]: unknown;
+            };
+            /**
+             * Resolved auth scheme (api_key | oauth).
+             */
+            detectedAuthType: string;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateAccountAddResponse = MutateAccountAddResponses[keyof MutateAccountAddResponses];
+
+export type QueryAccountListData = {
+    body?: {
+        /**
+         * Optional provider filter; lists all providers when omitted.
+         */
+        provider?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/account/list';
+};
+
+export type QueryAccountListResponses = {
+    /**
+     * accounts[] are NON-SECRET views — provider/label/authType/tokenPreview only. No decrypted secret is present in ANY field.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * Redacted account views.
+             */
+            accounts: Array<{
+                /**
+                 * LLM provider transport key.
+                 */
+                provider: string;
+                /**
+                 * Account label, unique within the provider.
+                 */
+                label: string;
+                /**
+                 * Storage auth scheme (api_key | oauth | aws_sdk).
+                 */
+                authType: string;
+                /**
+                 * Redacted token preview (last-4 chars) — NEVER the raw secret.
+                 */
+                tokenPreview: string;
+                hasRefreshToken?: boolean;
+                expiresAt?: number | null;
+                priority?: number;
+                source?: string | null;
+                baseUrl?: string | null;
+                disabled?: boolean;
+                [key: string]: unknown;
+            }>;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryAccountListResponse = QueryAccountListResponses[keyof QueryAccountListResponses];
+
+export type MutateAccountRemoveData = {
+    body: {
+        /**
+         * LLM provider transport key.
+         */
+        provider: string;
+        /**
+         * Account label to remove.
+         */
+        label: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/account/remove';
+};
+
+export type MutateAccountRemoveResponses = {
+    /**
+     * Mutate envelope: count=1 + deleted=[provider:label] when an account was removed; count=0 + [] when absent (idempotent).
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * 1 when an account was deleted, else 0.
+             */
+            count: number;
+            /**
+             * The `provider:label` identifier(s) deleted.
+             */
+            deleted: Array<string>;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateAccountRemoveResponse = MutateAccountRemoveResponses[keyof MutateAccountRemoveResponses];
+
+export type QueryProviderListData = {
+    body?: {
+        [key: string]: never;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/provider/list';
+};
+
+export type QueryProviderListResponses = {
+    /**
+     * providers[] are declarative NON-SECRET views (id/displayName/aliases/authMethods).
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * Provider views.
+             */
+            providers: Array<{
+                /**
+                 * Canonical provider key (e.g. anthropic).
+                 */
+                id: string;
+                displayName: string;
+                /**
+                 * Case-insensitive aliases.
+                 */
+                aliases: Array<string>;
+                /**
+                 * Supported auth methods (api_key | oauth | aws_sdk).
+                 */
+                authMethods: Array<string>;
+                /**
+                 * models.dev catalog provider key.
+                 */
+                modelsDevId?: string;
+                /**
+                 * Provenance (seed | plugin | import).
+                 */
+                source?: string;
+                [key: string]: unknown;
+            }>;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryProviderListResponse = QueryProviderListResponses[keyof QueryProviderListResponses];
+
+export type QueryProviderShowData = {
+    body: {
+        /**
+         * Provider id OR a case-insensitive alias (resolved against the alias index).
+         */
+        provider: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/provider/show';
+};
+
+export type QueryProviderShowResponses = {
+    /**
+     * `provider` is the resolved declarative view; `resolvedFrom` echoes the alias/id the lookup matched.
+     */
+    200: {
+        success: true;
+        data: {
+            provider: {
+                /**
+                 * Canonical provider key (e.g. anthropic).
+                 */
+                id: string;
+                displayName: string;
+                /**
+                 * Case-insensitive aliases.
+                 */
+                aliases: Array<string>;
+                /**
+                 * Supported auth methods (api_key | oauth | aws_sdk).
+                 */
+                authMethods: Array<string>;
+                /**
+                 * models.dev catalog provider key.
+                 */
+                modelsDevId?: string;
+                /**
+                 * Provenance (seed | plugin | import).
+                 */
+                source?: string;
+                [key: string]: unknown;
+            };
+            /**
+             * The id/alias the lookup matched.
+             */
+            resolvedFrom: string;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryProviderShowResponse = QueryProviderShowResponses[keyof QueryProviderShowResponses];
+
+export type MutateProviderConnectData = {
+    body: {
+        /**
+         * Provider id or alias to connect.
+         */
+        provider: string;
+        /**
+         * Direct API key / bearer token to store (token-direct mode). SECRET.
+         */
+        token?: string;
+        /**
+         * Account label to create (default: 'default').
+         */
+        label?: string;
+        /**
+         * Explicit auth-type override.
+         */
+        authType?: 'api_key' | 'oauth' | 'aws_sdk';
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/provider/connect';
+};
+
+export type MutateProviderConnectResponses = {
+    /**
+     * Mutate envelope: count=1 + created=[provider:label]. `account` carries the redacted NON-SECRET view. The raw token is NEVER returned.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * Number of accounts created/updated (1).
+             */
+            count: number;
+            /**
+             * The provider:label id(s).
+             */
+            created: Array<string>;
+            account?: {
+                /**
+                 * LLM provider transport key.
+                 */
+                provider: string;
+                /**
+                 * Account label, unique within the provider.
+                 */
+                label: string;
+                /**
+                 * Storage auth scheme (api_key | oauth | aws_sdk).
+                 */
+                authType: string;
+                /**
+                 * Redacted token preview (last-4 chars) — NEVER the raw secret.
+                 */
+                tokenPreview: string;
+                hasRefreshToken?: boolean;
+                expiresAt?: number | null;
+                priority?: number;
+                source?: string | null;
+                baseUrl?: string | null;
+                disabled?: boolean;
+                [key: string]: unknown;
+            };
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateProviderConnectResponse = MutateProviderConnectResponses[keyof MutateProviderConnectResponses];
+
+export type QueryModelQueryData = {
+    body?: {
+        /**
+         * Optional provider filter (models.dev id); queries all providers when omitted.
+         */
+        provider?: string;
+        /**
+         * Optional cap on the number of rows returned (newest-first).
+         */
+        limit?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/model/query';
+};
+
+export type QueryModelQueryResponses = {
+    /**
+     * models[] are catalog views ordered newest-first by release_date. `count` is the number returned.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * Catalog model views.
+             */
+            models: Array<{
+                /**
+                 * Model id (catalog key).
+                 */
+                id: string;
+                /**
+                 * Provider key (models.dev id).
+                 */
+                providerId: string;
+                /**
+                 * Human-readable display name.
+                 */
+                name: string;
+                family?: string;
+                /**
+                 * ISO release date YYYY-MM-DD.
+                 */
+                releaseDate: string;
+                contextLimit?: number | null;
+                outputLimit?: number | null;
+                /**
+                 * Lifecycle (stable | beta | preview | …).
+                 */
+                status?: string;
+                [key: string]: unknown;
+            }>;
+            /**
+             * Number of models returned.
+             */
+            count: number;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryModelQueryResponse = QueryModelQueryResponses[keyof QueryModelQueryResponses];
+
+export type QueryModelShowData = {
+    body: {
+        /**
+         * Model id (catalog key) to resolve.
+         */
+        model: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/model/show';
+};
+
+export type QueryModelShowResponses = {
+    /**
+     * `model` is the resolved catalog view; `found` is false when the id is absent.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * True IFF the model id resolved to a catalog row.
+             */
+            found: boolean;
+            model?: {
+                /**
+                 * Model id (catalog key).
+                 */
+                id: string;
+                /**
+                 * Provider key (models.dev id).
+                 */
+                providerId: string;
+                /**
+                 * Human-readable display name.
+                 */
+                name: string;
+                family?: string;
+                /**
+                 * ISO release date YYYY-MM-DD.
+                 */
+                releaseDate: string;
+                contextLimit?: number | null;
+                outputLimit?: number | null;
+                /**
+                 * Lifecycle (stable | beta | preview | …).
+                 */
+                status?: string;
+                [key: string]: unknown;
+            } | null;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryModelShowResponse = QueryModelShowResponses[keyof QueryModelShowResponses];
+
+export type MutateProfileCreateData = {
+    body: {
+        /**
+         * Profile name (the addressable handle).
+         */
+        name: string;
+        /**
+         * Provider transport the bound account belongs to.
+         */
+        provider: string;
+        /**
+         * Model id to bind (validated vs catalog).
+         */
+        model: string;
+        /**
+         * Account label to pin (the credential binding). Validated to exist.
+         */
+        label?: string;
+        /**
+         * Optional role this profile occupies (extraction | consolidation | …).
+         */
+        role?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/profile/create';
+};
+
+export type MutateProfileCreateResponses = {
+    /**
+     * Mutate envelope: count=1 + created=[name]. `profile` echoes the persisted binding {name, provider, model, credentialLabel?, role?}.
+     */
+    200: {
+        success: true;
+        data: {
+            count: number;
+            created: Array<string>;
+            profile?: {
+                name?: string;
+                provider?: string;
+                model?: string;
+                credentialLabel?: string | null;
+                role?: string | null;
+                [key: string]: unknown;
+            };
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateProfileCreateResponse = MutateProfileCreateResponses[keyof MutateProfileCreateResponses];
+
+export type QueryProfileListData = {
+    body?: {
+        [key: string]: never;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/profile/list';
+};
+
+export type QueryProfileListResponses = {
+    /**
+     * profiles[] are the named bindings from llm.profiles (name + provider + model + optional credentialLabel/role).
+     */
+    200: {
+        success: true;
+        data: {
+            profiles: Array<{
+                name: string;
+                provider: string;
+                model: string;
+                credentialLabel?: string | null;
+                [key: string]: unknown;
+            }>;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryProfileListResponse = QueryProfileListResponses[keyof QueryProfileListResponses];
+
+export type MutateProfilePinData = {
+    body: {
+        /**
+         * Profile name to pin (must exist).
+         */
+        name: string;
+        /**
+         * Role to pin to this profile (extraction | consolidation | derivation | …).
+         */
+        role: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/profile/pin';
+};
+
+export type MutateProfilePinResponses = {
+    /**
+     * Mutate envelope: count=1 + updated=[role]. `role` + `profile` echo the binding.
+     */
+    200: {
+        success: true;
+        data: {
+            count: number;
+            updated: Array<string>;
+            role?: string;
+            profile?: string;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateProfilePinResponse = MutateProfilePinResponses[keyof MutateProfilePinResponses];
+
+export type MutateProfileUseData = {
+    body: {
+        /**
+         * Profile name to mark as default (must exist).
+         */
+        name: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/profile/use';
+};
+
+export type MutateProfileUseResponses = {
+    /**
+     * Mutate envelope: count=1 + updated=[defaultProfile]. `profile` echoes the new default.
+     */
+    200: {
+        success: true;
+        data: {
+            count: number;
+            updated: Array<string>;
+            /**
+             * The profile name set as default.
+             */
+            profile?: string;
+            scope?: 'global';
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateProfileUseResponse = MutateProfileUseResponses[keyof MutateProfileUseResponses];

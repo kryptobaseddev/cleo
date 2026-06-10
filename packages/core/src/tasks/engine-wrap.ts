@@ -25,9 +25,12 @@ import {
 } from './task-import.js';
 import { coreTaskNext } from './task-next.js';
 import {
+  coreTaskAssignee,
+  coreTaskBulkMove,
   coreTaskPromote,
   coreTaskReopen,
   coreTaskReorder,
+  coreTaskReorderRank,
   coreTaskReparent,
   coreTaskRestore,
   coreTaskUnarchive,
@@ -54,7 +57,9 @@ export {
 // Re-export core functions so consumers can import directly
 export {
   coreTaskAnalyze,
+  coreTaskAssignee,
   coreTaskBlockers,
+  coreTaskBulkMove,
   coreTaskDeps,
   coreTaskNext,
   coreTaskPromote,
@@ -63,6 +68,7 @@ export {
   coreTaskRelatesRemove,
   coreTaskReopen,
   coreTaskReorder,
+  coreTaskReorderRank,
   coreTaskReparent,
   coreTaskRestore,
   coreTaskTree,
@@ -612,6 +618,61 @@ export async function taskReorder(
     return engineSuccess(result);
   } catch (err: unknown) {
     return nonCrudEngineError(err, 'Failed to reorder task');
+  }
+}
+
+/**
+ * Re-rank a column/sibling scope from an explicit top-to-bottom ID order.
+ * @task T11786
+ * @epic T11556
+ */
+export async function taskReorderRank(
+  projectRoot: string,
+  orderedIds: string[],
+): Promise<EngineResult<{ ranked: string[]; skipped: string[]; count: number }>> {
+  try {
+    const result = await coreTaskReorderRank(projectRoot, orderedIds);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to re-rank tasks');
+  }
+}
+
+/**
+ * Atomically move N tasks to a new status and/or pipeline stage.
+ * @task T11786
+ * @epic T11556
+ */
+export async function taskBulkMove(
+  projectRoot: string,
+  taskIds: string[],
+  target: { status?: string; pipelineStage?: string },
+): Promise<
+  EngineResult<{ moved: string[]; status?: string; pipelineStage?: string; count: number }>
+> {
+  try {
+    const result = await coreTaskBulkMove(projectRoot, taskIds, target);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to bulk-move tasks');
+  }
+}
+
+/**
+ * Set or clear a task's first-class assignee (distinct from agent claim).
+ * @task T11786
+ * @epic T11556
+ */
+export async function taskAssignee(
+  projectRoot: string,
+  taskId: string,
+  assignee: string | null | undefined,
+): Promise<EngineResult<{ taskId: string; assignee: string | null; assigned: boolean }>> {
+  try {
+    const result = await coreTaskAssignee(projectRoot, taskId, assignee);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to set task assignee');
   }
 }
 

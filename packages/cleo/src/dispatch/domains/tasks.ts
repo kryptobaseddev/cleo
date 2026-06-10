@@ -44,7 +44,10 @@ import {
   completeTaskStrict,
   taskAnalyze,
   taskArchive,
+  // T11786 (epic T11556) — bulk task mutate ops Studio's Kanban binds to.
+  taskAssignee,
   taskBlockers,
+  taskBulkMove,
   taskCancel,
   taskClaim,
   taskComplexityEstimate,
@@ -69,6 +72,7 @@ import {
   taskRelatesRemove,
   taskReopen,
   taskReorder,
+  taskReorderRank,
   taskReparent,
   taskRestore,
   taskShowOperation,
@@ -533,6 +537,36 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     );
   },
 
+  // T11786 (epic T11556) — within-column re-rank from an explicit ID order.
+  'reorder-rank': async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(
+      await taskReorderRank(projectRoot, params.orderedIds ?? []),
+      'reorder-rank',
+    );
+  },
+
+  // T11786 (epic T11556) — atomic multi-task status/stage move.
+  'bulk-move': async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(
+      await taskBulkMove(projectRoot, params.taskIds ?? [], {
+        status: params.status,
+        pipelineStage: params.pipelineStage,
+      }),
+      'bulk-move',
+    );
+  },
+
+  // T11786 (epic T11556) — first-class assignee set/clear (distinct from claim).
+  assignee: async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(
+      await taskAssignee(projectRoot, params.taskId, params.assignee),
+      'assignee',
+    );
+  },
+
   'relates.add': async (params) => {
     const projectRoot = getProjectRoot();
     // SSoT-EXEMPT: targetId is a backward-compat alias for relatedId (T5149); both fields exist in the relates.add params type by design
@@ -617,6 +651,12 @@ const QUERY_OPS = new Set<string>([
   'tree',
   'blockers',
   'depends',
+  // T11787 (epic T11556 · CRUD-parity audit) — `slice` and `context` had
+  // typed handlers but were ABSENT from this gate, so dispatch rejected them
+  // with E_UNSUPPORTED_OPERATION before reaching the handler (registered +
+  // implemented but not reachable). Adding them closes the parity gap.
+  'slice',
+  'context',
   'deps.validate',
   'deps.tree',
   'analyze',
@@ -646,6 +686,10 @@ const MUTATE_OPS = new Set<string>([
   'restore',
   'reparent',
   'reorder',
+  // T11786 (epic T11556) — bulk task mutate ops Studio's interactive Kanban binds to.
+  'reorder-rank',
+  'bulk-move',
+  'assignee',
   'relates.add',
   // T11575 — without this entry the domain mutate() gate rejects the op with
   // E_INVALID_OPERATION even though the handler exists below. Mirrors the
@@ -1044,6 +1088,9 @@ export class TasksHandler implements DomainHandler {
         'tree',
         'blockers',
         'depends',
+        // T11787 (epic T11556) — slice/context: registered + implemented; now gated-in.
+        'slice',
+        'context',
         'deps.validate',
         'deps.tree',
         'analyze',
@@ -1071,6 +1118,10 @@ export class TasksHandler implements DomainHandler {
         'restore',
         'reparent',
         'reorder',
+        // T11786 (epic T11556) — bulk task mutate ops Studio's Kanban binds to.
+        'reorder-rank',
+        'bulk-move',
+        'assignee',
         'relates.add',
         'relates.remove',
         'start',

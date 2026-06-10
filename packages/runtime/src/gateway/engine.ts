@@ -228,8 +228,12 @@ export {
   systemHooksMatrix,
   taskAnalyze,
   taskArchive,
+  // T11786 (epic T11556) — first-class assignee set/clear (distinct from claim).
+  taskAssignee,
   taskBatchValidate,
   taskBlockers,
+  // T11786 (epic T11556) — atomic multi-task status/stage move.
+  taskBulkMove,
   taskCancel,
   taskClaim,
   taskComplete,
@@ -262,6 +266,8 @@ export {
   taskRelatesRemove,
   taskReopen,
   taskReorder,
+  // T11786 (epic T11556) — explicit within-column re-rank from an ID order.
+  taskReorderRank,
   taskReparent,
   taskRestore,
   taskShow,

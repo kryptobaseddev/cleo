@@ -501,6 +501,200 @@ export async function coreTaskReorder(
 }
 
 /**
+ * Re-rank a column/sibling scope from an explicit top-to-bottom task-ID order.
+ *
+ * Unlike {@link coreTaskReorder} (which moves ONE task to a 1-based index and
+ * recomputes every sibling), this persists a FULL desired ordering in one pass:
+ * each task's `position` is set to its 1-based index in `orderedIds` and its
+ * `positionVersion` is bumped for optimistic concurrency. This is the Kanban
+ * "drag a card and the whole column re-ranks" shape — the client sends the new
+ * column order and the op writes it. IDs that do not resolve to a task are
+ * collected in `skipped` rather than failing the batch.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory.
+ * @param orderedIds - Task IDs in the desired top-to-bottom order.
+ * @returns The re-ranked IDs (new order), any skipped IDs, and the rank count.
+ *
+ * @example
+ * ```typescript
+ * await coreTaskReorderRank('/project', ['T3', 'T1', 'T2']);
+ * // T3.position=1, T1.position=2, T2.position=3
+ * ```
+ *
+ * @task T11786
+ * @epic T11556
+ */
+export async function coreTaskReorderRank(
+  projectRoot: string,
+  orderedIds: string[],
+): Promise<{ ranked: string[]; skipped: string[]; count: number }> {
+  const accessor = await getTaskAccessor(projectRoot);
+  const now = new Date().toISOString();
+
+  // Resolve each ID to a task up front (the transaction accessor has no read
+  // path); unknown IDs are skipped rather than aborting the whole re-rank.
+  const resolved: TaskRecord[] = [];
+  const skipped: string[] = [];
+  for (const id of orderedIds) {
+    const task = await accessor.loadSingleTask(id);
+    if (task) resolved.push(task);
+    else skipped.push(id);
+  }
+
+  const ranked: string[] = [];
+  await accessor.transaction(async (tx) => {
+    for (let i = 0; i < resolved.length; i++) {
+      const task = resolved[i]!;
+      const newPosition = i + 1;
+      const newVersion = ((task.positionVersion as number | undefined) ?? 0) + 1;
+      await tx.updateTaskFields(task.id, {
+        position: newPosition,
+        positionVersion: newVersion,
+        updatedAt: now,
+      });
+      ranked.push(task.id);
+    }
+  });
+
+  return { ranked, skipped, count: ranked.length };
+}
+
+/**
+ * Atomically move N tasks to a new status and/or pipeline stage.
+ *
+ * The Kanban "select N cards, drop them in a new column" shape. Every move runs
+ * inside a SINGLE DB transaction, so any failure rolls back ALL moves
+ * (all-or-nothing). At least one of `status` / `pipelineStage` MUST be supplied,
+ * and `status` (when present) MUST be a valid {@link TaskStatus}.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory.
+ * @param taskIds - The task IDs to move (non-empty).
+ * @param target - The new `status` and/or `pipelineStage` to apply.
+ * @returns The moved IDs plus the applied status/stage and the move count.
+ * @throws Error when no target is supplied, `status` is invalid, or any task ID
+ *   does not resolve (the whole transaction is then rolled back).
+ *
+ * @example
+ * ```typescript
+ * await coreTaskBulkMove('/project', ['T1', 'T2'], { status: 'active' });
+ * ```
+ *
+ * @task T11786
+ * @epic T11556
+ */
+export async function coreTaskBulkMove(
+  projectRoot: string,
+  taskIds: string[],
+  target: { status?: string; pipelineStage?: string },
+): Promise<{ moved: string[]; status?: string; pipelineStage?: string; count: number }> {
+  if (taskIds.length === 0) {
+    throw new Error('tasks.bulk-move requires at least one task ID');
+  }
+  const status = target.status;
+  const pipelineStage = target.pipelineStage;
+  if (!status && !pipelineStage) {
+    throw new Error('tasks.bulk-move requires a target status and/or pipelineStage');
+  }
+  if (status && !(TASK_STATUSES as readonly string[]).includes(status)) {
+    throw new Error(
+      `Invalid status '${status}'. Must be one of: ${(TASK_STATUSES as readonly string[]).join(', ')}`,
+    );
+  }
+
+  const accessor = await getTaskAccessor(projectRoot);
+
+  // Resolve every task BEFORE opening the transaction (the tx accessor has no
+  // read path). A missing ID fails the whole move — bulk-move is atomic.
+  const resolved: TaskRecord[] = [];
+  for (const id of taskIds) {
+    const task = await accessor.loadSingleTask(id);
+    if (!task) {
+      throw new Error(`Task '${id}' not found — bulk-move aborted (no tasks moved)`);
+    }
+    resolved.push(task);
+  }
+
+  const now = new Date().toISOString();
+  const fields: { status?: TaskStatus; pipelineStage?: string; updatedAt: string } = {
+    updatedAt: now,
+  };
+  if (status) fields.status = status as TaskStatus;
+  if (pipelineStage) fields.pipelineStage = pipelineStage;
+
+  const moved: string[] = [];
+  await accessor.transaction(async (tx) => {
+    for (const task of resolved) {
+      await tx.updateTaskFields(task.id, fields);
+      await tx.appendLog({
+        id: taskLogId(),
+        timestamp: now,
+        action: 'task_bulk_moved',
+        taskId: task.id,
+        actor: 'system',
+        details: { status, pipelineStage },
+        before: { status: task.status, pipelineStage: task.pipelineStage ?? null },
+        after: {
+          status: status ?? task.status,
+          pipelineStage: pipelineStage ?? task.pipelineStage,
+        },
+      });
+      moved.push(task.id);
+    }
+  });
+
+  return {
+    moved,
+    ...(status ? { status } : {}),
+    ...(pipelineStage ? { pipelineStage } : {}),
+    count: moved.length,
+  };
+}
+
+/**
+ * Set or clear a task's first-class assignee.
+ *
+ * A first-class owner/assignee surface DISTINCT from the agent claim lock:
+ * {@link coreTaskReorder} aside, agent claim/unclaim performs a CONDITIONAL
+ * atomic claim (`WHERE assignee IS NULL OR assignee = agentId`) with lock
+ * semantics, whereas this op is a DIRECT unconditional set/clear an operator or
+ * Studio board drives. Pass `assignee = null`/empty to clear.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory.
+ * @param taskId - The task ID whose assignee is set or cleared.
+ * @param assignee - The assignee to set, or `null`/empty to clear.
+ * @returns The task ID, the new assignee value, and whether one was set.
+ * @throws Error when the task does not exist.
+ *
+ * @example
+ * ```typescript
+ * await coreTaskAssignee('/project', 'T1', 'alice');   // set
+ * await coreTaskAssignee('/project', 'T1', null);      // clear
+ * ```
+ *
+ * @task T11786
+ * @epic T11556
+ */
+export async function coreTaskAssignee(
+  projectRoot: string,
+  taskId: string,
+  assignee: string | null | undefined,
+): Promise<{ taskId: string; assignee: string | null; assigned: boolean }> {
+  const accessor = await getTaskAccessor(projectRoot);
+  const task = await accessor.loadSingleTask(taskId);
+  if (!task) {
+    throw new Error(`Task '${taskId}' not found`);
+  }
+
+  // Normalize: empty string / undefined → clear (null).
+  const next = typeof assignee === 'string' && assignee.length > 0 ? assignee : null;
+  const now = new Date().toISOString();
+
+  await accessor.updateTaskFields(taskId, { assignee: next, updatedAt: now });
+
+  return { taskId, assignee: next, assigned: next !== null };
+}
+
+/**
  * Restore a cancelled task back to pending.
  *
  * @param projectRoot - Absolute path to the CLEO project root directory
