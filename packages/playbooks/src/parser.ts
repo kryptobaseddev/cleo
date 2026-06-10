@@ -344,6 +344,12 @@ function parseAgenticNode(
   const model = parseOptionalNonEmptyString(raw.model, `nodes[${index}].model`);
   const provider = parseOptionalNonEmptyString(raw.provider, `nodes[${index}].provider`);
 
+  // T1947 (M4): per-step skill/tool allowlists. Each is an optional string[] —
+  // enforced at spawn time by composeSpawnPayload as an INTERSECTION against the
+  // Tier-0/1/2 baseline (restrict-only, never expand). Absent → no restriction.
+  const allowed_skills = parseStringArray(raw.allowed_skills, `nodes[${index}].allowed_skills`);
+  const allowed_tools = parseStringArray(raw.allowed_tools, `nodes[${index}].allowed_tools`);
+
   return {
     ...base,
     type: 'agentic',
@@ -355,6 +361,8 @@ function parseAgenticNode(
     ...(profile !== undefined ? { profile } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(provider !== undefined ? { provider } : {}),
+    ...(allowed_skills !== undefined ? { allowed_skills } : {}),
+    ...(allowed_tools !== undefined ? { allowed_tools } : {}),
   };
 }
 
