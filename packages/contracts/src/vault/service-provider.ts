@@ -178,6 +178,79 @@ export interface ServiceHostRule {
 }
 
 /**
+ * One declarative injection action applied to an outbound request when a resolved
+ * service credential is injected at the harness tool boundary (T11940 · M2-W3).
+ *
+ * A discriminated union over the action `kind`. The injector
+ * ({@link import('@cleocode/core').injectServiceCredentials}) materializes the
+ * sealed credential's plaintext ONLY at the wire (inside the action's value
+ * resolver) and applies these mutations to a request descriptor — there is NO MITM
+ * proxy (the seam is the in-process tool boundary, T11940 AC4):
+ *
+ *  - `set-header` — set `name` to the materialized value (overwriting any existing).
+ *  - `replace-header` — set `name` to the value ONLY if the header is already
+ *    present (a no-op when absent — used to swap a placeholder the tool emitted).
+ *  - `remove-header` — delete `name` (e.g. strip a stale `Authorization` before
+ *    re-injecting the vault credential).
+ *  - `set-param` — set the query-string parameter `name` to the materialized value.
+ *
+ * The `valueSource` discriminates WHERE the injected value comes from:
+ * `'token'` (the decrypted access token), `'credential-field'` (a named field of
+ * the credential blob, e.g. an AWS access-key id), or `'metadata'` (a non-secret
+ * connection-metadata key, e.g. a Google project id). `remove-header` carries no
+ * `valueSource` (it injects nothing).
+ *
+ * @task T11940
+ */
+export type InjectionRule =
+  | {
+      /** Set a header to the injected value (overwrites any existing). */
+      readonly kind: 'set-header';
+      /** The header name to set. */
+      readonly name: string;
+      /** Where the injected value comes from. */
+      readonly valueSource: InjectionValueSource;
+      /** For `bearer`/`basic-x-access-token` token framing — how to wrap the value. */
+      readonly framing?: HostAuthStrategy;
+    }
+  | {
+      /** Set a header ONLY when it is already present (swap a placeholder). */
+      readonly kind: 'replace-header';
+      /** The header name to replace. */
+      readonly name: string;
+      /** Where the injected value comes from. */
+      readonly valueSource: InjectionValueSource;
+      /** For `bearer`/`basic-x-access-token` token framing — how to wrap the value. */
+      readonly framing?: HostAuthStrategy;
+    }
+  | {
+      /** Remove a header (injects no value). */
+      readonly kind: 'remove-header';
+      /** The header name to remove. */
+      readonly name: string;
+    }
+  | {
+      /** Set a query-string parameter to the injected value. */
+      readonly kind: 'set-param';
+      /** The query-parameter name to set. */
+      readonly name: string;
+      /** Where the injected value comes from. */
+      readonly valueSource: InjectionValueSource;
+    };
+
+/**
+ * Where an {@link InjectionRule}'s injected value is sourced from.
+ *
+ *  - `token` — the decrypted access token (the secret materialized at the wire).
+ *  - `credential-field` — a named field of the credential blob (paired with the
+ *    rule's `name` resolution via {@link ServiceProviderDef.credentialHeaders}).
+ *  - `metadata` — a non-secret connection-metadata key.
+ *
+ * @task T11940
+ */
+export type InjectionValueSource = 'token' | 'credential-field' | 'metadata';
+
+/**
  * Inject an HTTP header from a credential-blob field (e.g. a regional API key →
  * `DD-API-KEY`). Declarative metadata; the injecting proxy is a later epic.
  *

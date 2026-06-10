@@ -255,6 +255,20 @@ export {
   updateConnectionTokens,
 } from './store/service-connections-accessor.js';
 export {
+  matchServiceHost,
+  matchServiceUrl,
+  type ServiceHostMatch,
+} from './store/service-host-matcher.js';
+export {
+  type InjectedRequest,
+  type InjectionDiagnostic,
+  type InjectionResult,
+  type InjectServiceCredentialsParams,
+  injectionRulesForStrategy,
+  injectServiceCredentials,
+  type OutboundRequest,
+} from './store/service-injection.js';
+export {
   type BuildAuthUrlOptions,
   type BuildAuthUrlResult,
   buildAuthUrl,
