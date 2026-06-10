@@ -28,6 +28,12 @@ import type {
   OperationOutputContract,
   OperationOutputContractRegistry,
 } from './output-contract.js';
+import {
+  serviceConnectOutputContract,
+  serviceListOutputContract,
+  serviceRevokeOutputContract,
+  serviceStatusOutputContract,
+} from './service.js';
 
 // ---------------------------------------------------------------------------
 // tasks.show — the operation that bit us (DHQ-057 reproduction)
@@ -484,4 +490,9 @@ export const OUTPUT_CONTRACTS: OperationOutputContractRegistry = {
   'admin.config.list': adminConfigListOutputContract,
   'admin.config.validate': adminConfigValidateOutputContract,
   'admin.config.unset': adminConfigUnsetOutputContract,
+  // service-vault CLI verbs (T11941 · epic T11765 · M2-W4)
+  'service.connect': serviceConnectOutputContract,
+  'service.list': serviceListOutputContract,
+  'service.revoke': serviceRevokeOutputContract,
+  'service.status': serviceStatusOutputContract,
 };

@@ -1490,6 +1490,19 @@ export type {
   ProposeRunResult,
   SentientOps,
 } from './operations/sentient.js';
+// Service-vault CLI op contracts (T11941 · epic T11765 · M2-W4) — INPUT contracts
+// consumed by core's INPUT_CONTRACTS registry; OUTPUT contracts already register
+// into OUTPUT_CONTRACTS above.
+export {
+  serviceConnectInputContract,
+  serviceConnectOutputContract,
+  serviceListInputContract,
+  serviceListOutputContract,
+  serviceRevokeInputContract,
+  serviceRevokeOutputContract,
+  serviceStatusInputContract,
+  serviceStatusOutputContract,
+} from './operations/service.js';
 // Session operation param/result types — re-exported at top level for typed-dispatch consumers
 // (T975 Wave D · ADR-051 migration)
 export type {
