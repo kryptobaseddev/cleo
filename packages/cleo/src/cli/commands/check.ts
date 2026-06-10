@@ -35,24 +35,25 @@ function emitPrGateSummary(summary: PrGateSummary): void {
     },
     meta: { operation: 'check.pr', timestamp: new Date().toISOString() },
   };
+  // Single stdout write — the canonical LAFS envelope (CLI Output Contract).
   process.stdout.write(`${JSON.stringify(envelope)}\n`);
 
-  process.stderr.write(`\nPre-PR Gate (cleo check pr) — T11956\n`);
-  process.stderr.write(`${'─'.repeat(52)}\n`);
+  // Build the human summary in-memory, then a single stderr write.
+  const lines: string[] = ['', 'Pre-PR Gate (cleo check pr) — T11956', '─'.repeat(52)];
   for (const g of summary.gates) {
     const icon = g.status === 'pass' ? 'PASS' : g.status === 'fail' ? 'FAIL' : 'SKIP';
     const dur = g.status === 'skipped' ? '' : ` (${(g.durationMs / 1000).toFixed(1)}s)`;
-    process.stderr.write(`  [${icon}] ${g.label}${dur}\n`);
+    lines.push(`  [${icon}] ${g.label}${dur}`);
     if (g.status === 'fail' && g.outputTail) {
-      for (const line of g.outputTail.split('\n').slice(-6)) {
-        process.stderr.write(`         ${line}\n`);
-      }
+      for (const tail of g.outputTail.split('\n').slice(-6)) lines.push(`         ${tail}`);
     }
   }
-  process.stderr.write(`${'─'.repeat(52)}\n`);
-  process.stderr.write(
-    `  Result: ${summary.summary.pass} passed, ${summary.summary.fail} failed, ${summary.summary.skipped} skipped\n\n`,
+  lines.push('─'.repeat(52));
+  lines.push(
+    `  Result: ${summary.summary.pass} passed, ${summary.summary.fail} failed, ${summary.summary.skipped} skipped`,
+    '',
   );
+  process.stderr.write(`${lines.join('\n')}\n`);
 }
 
 /**
