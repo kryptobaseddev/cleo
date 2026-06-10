@@ -235,9 +235,11 @@ export type { NewSkillRow, SkillRow, SkillSourceType } from './store/schema/skil
 export {
   type ConnectServiceParams,
   connectService,
+  type DecryptedConnection,
   getConnection,
   grantAgentAccess,
   listConnections,
+  loadDecryptedTokenBlob,
   openServiceVaultAtPath,
   type ResolveServiceParams,
   resolveSealedConnection,
@@ -245,7 +247,26 @@ export {
   type ServiceConnectionView,
   type ServiceTokenBlob,
   type ServiceVaultDeps,
+  updateConnectionTokens,
 } from './store/service-connections-accessor.js';
+export {
+  type BuildAuthUrlOptions,
+  type BuildAuthUrlResult,
+  buildAuthUrl,
+  type ExchangeCodeOptions,
+  type ExchangeCodeResult,
+  exchangeCode,
+  type FetchLike,
+  type RefreshAccessTokenOptions,
+  type RefreshClientCredentials,
+  type RefreshVariantSecrets,
+  refreshAccessToken,
+  resolveProviderDef,
+  type SelfHealOptions,
+  type SelfHealResult,
+  type ServiceOAuthDeps,
+  selfHealConnection,
+} from './store/service-oauth.js';
 export {
   evaluateServiceAccess,
   parseSessionPolicy,

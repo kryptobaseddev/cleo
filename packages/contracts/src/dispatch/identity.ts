@@ -104,6 +104,12 @@ export const CANONICAL_DOMAINS = [
   // regression emits ONE leased `selfimprove_dhq` row + ONE DRAFT PR. Default
   // OFF (requires --execute); the engine lives in CORE (P5 self-improvement spec).
   'selfimprove',
+  // T11939 (epic T11765 · M2): 'cleo service auth-url|exchange|refresh|self-heal'
+  // — the universal service-vault OAuth flow. auth-url builds a PKCE auth URL;
+  // exchange persists encrypted tokens; refresh/self-heal renew them honoring the
+  // per-provider RefreshConfig. The flow lives in CORE (store/service-oauth.ts),
+  // driven by the declarative SERVICE_PROVIDERS registry (contracts).
+  'service',
 ] as const;
 
 /**
