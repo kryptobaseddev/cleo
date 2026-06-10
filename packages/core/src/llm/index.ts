@@ -136,6 +136,15 @@ export {
   suppressionStatePath,
   writeSuppressionFile,
 } from './credential-removal.js';
+// Shared onboarding front-door orchestrator — the single function every
+// front-door entry point (login / auth login / llm login) dispatches to (T11725 · M3)
+export type {
+  AcquiredOAuthToken,
+  FrontDoorDeps,
+  FrontDoorLoginOptions,
+  OAuthTokenAcquirer,
+} from './onboarding/front-door.js';
+export { resolveAuthMode, runFrontDoorLogin } from './onboarding/front-door.js';
 // 3-step onboarding login engine — connect → select → bind → validate (T11724 · M3)
 export type {
   OnboardingDeps,

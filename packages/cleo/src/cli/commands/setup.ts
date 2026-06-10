@@ -52,6 +52,7 @@ import {
 import { defineCommand } from 'citty';
 import { ReadlineWizardIO, StdinClosedError } from '../lib/readline-wizard-io.js';
 import { cliError, cliOutput } from '../renderers/index.js';
+import { makeOAuthAcquirer } from './login.js';
 
 // ---------------------------------------------------------------------------
 // Public types — exported so the Studio `/setup` route (T-E3-8) can reuse
@@ -231,6 +232,24 @@ export function buildWizardOptions(args: Record<string, unknown>): WizardOptions
     out.studioEnabled = false;
   }
 
+  // models-roles section flags (T11726)
+  if (typeof args['default-model'] === 'string' && args['default-model'] !== '') {
+    out.defaultModel = args['default-model'] as string;
+  } else if (typeof args['defaultModel'] === 'string' && (args['defaultModel'] as string) !== '') {
+    out.defaultModel = args['defaultModel'] as string;
+  }
+  const roleBindingsRaw = args['role-bindings'] ?? args['roleBindings'];
+  if (typeof roleBindingsRaw === 'string' && roleBindingsRaw !== '') {
+    try {
+      const parsed = JSON.parse(roleBindingsRaw);
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        out.roleBindings = parsed as WizardOptions['roleBindings'];
+      }
+    } catch {
+      // Malformed JSON — leave roleBindings unset; the section short-circuits.
+    }
+  }
+
   return out;
 }
 
@@ -274,7 +293,9 @@ export async function runSetup(
   io: WizardIO,
 ): Promise<CleoSetupResult> {
   const options = buildWizardOptions(args);
-  const runner = createDefaultWizardRunner();
+  // Wire the interactive OAuth acquirer so the `llm` section's OAuth path runs
+  // the inline onboarding engine (T11727) — the acquirer wraps `cleo llm login`.
+  const runner = createDefaultWizardRunner({ oauthAcquirer: makeOAuthAcquirer(options.label) });
 
   // --section <name> path
   const sectionArg = typeof args['section'] === 'string' ? (args['section'] as string) : null;
@@ -319,7 +340,7 @@ export const setupCommand = defineCommand({
     section: {
       type: 'string',
       description:
-        'Run only one named section. Valid: identity | llm | sentient | harness | brain | project-conventions | integrations | verification',
+        'Run only one named section. Valid: llm | models-roles | identity | sentient | harness | brain | project-conventions | integrations | verification',
     },
     'non-interactive': {
       type: 'boolean',
@@ -400,6 +421,18 @@ export const setupCommand = defineCommand({
       type: 'boolean',
       description:
         'Enable (true) or disable (false) the Studio web UI. Used by the integrations section.',
+    },
+    'default-model': {
+      type: 'string',
+      description:
+        'Default model id for the global binding (models-roles section, --non-interactive). Equivalent to `cleo llm use --model`.',
+    },
+    'role-bindings': {
+      type: 'string',
+      description:
+        'JSON map of per-role profile pins for the models-roles section (--non-interactive). ' +
+        'Keys are role names (extraction|consolidation|derivation|hygiene|judgement); values are ' +
+        '{provider, model?, credentialLabel?}. Example: \'{"extraction":{"provider":"anthropic","model":"claude-..."}}\'.',
     },
   },
   async run({ args }) {

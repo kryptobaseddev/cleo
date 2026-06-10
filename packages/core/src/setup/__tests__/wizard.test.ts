@@ -112,6 +112,7 @@ describe('WizardRunner — registration + dispatch', () => {
     const runner = new WizardRunner(sections);
     expect(runner.list().map((s) => s.section)).toEqual([
       'llm',
+      'models-roles',
       'identity',
       'sentient',
       'project-conventions',

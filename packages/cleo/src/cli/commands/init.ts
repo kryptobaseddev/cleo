@@ -36,9 +36,12 @@ import {
   scaffoldWorkflows,
   type WorkflowName,
 } from '@cleocode/core';
+import { getCredentialPool } from '@cleocode/core/llm/credential-pool.js';
 import { getTemplatesByKind } from '@cleocode/core/templates/registry';
 import { defineCommand } from 'citty';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { ReadlineWizardIO } from '../lib/readline-wizard-io.js';
+import { cliError, cliOutput, isHumanOutput } from '../renderers/index.js';
+import { emitLoginResult, runLoginFrontDoor } from './login.js';
 
 /**
  * Load the gitignore template from the package's templates/ directory.
@@ -204,6 +207,18 @@ export const initCommand = defineCommand({
 
       const result = await initProject(initOpts);
 
+      // T11727 — first-run credential nudge. When the credential pool is empty
+      // after init, emit a LAFS nextStep pointing at the onboarding front door.
+      // On an interactive terminal this becomes an opt-in 'Configure now?'
+      // prompt that launches the wizard inline; non-TTY / --json paths only
+      // surface the nextStep and never prompt.
+      const nextSteps = [...(result.nextSteps ?? [])];
+      const launchedFrontDoor = await maybeNudgeFirstRunLogin(nextSteps);
+
+      // Front-door already rendered its own result envelope/human line — avoid
+      // double-emitting the init envelope on top of it.
+      if (launchedFrontDoor) return;
+
       cliOutput(
         {
           initialized: result.initialized,
@@ -214,9 +229,7 @@ export const initCommand = defineCommand({
           ...(result.updateDocsOnly ? { updateDocsOnly: true } : {}),
           // Phase 5 — greenfield/brownfield classification + LAFS nextSteps
           ...(result.classification ? { classification: result.classification } : {}),
-          ...(result.nextSteps && result.nextSteps.length > 0
-            ? { nextSteps: result.nextSteps }
-            : {}),
+          ...(nextSteps.length > 0 ? { nextSteps } : {}),
         },
         { command: 'init' },
       );
@@ -229,6 +242,77 @@ export const initCommand = defineCommand({
     }
   },
 });
+
+/**
+ * The first-run credential nextStep appended when the pool is empty (T11727).
+ *
+ * @internal
+ */
+export const FIRST_RUN_LOGIN_NEXT_STEP = {
+  action: 'Add an LLM credential to start using CLEO',
+  command: 'cleo login',
+} as const;
+
+/**
+ * Returns `true` when the credential pool has no entries. Defensive: any read
+ * error is treated as "not empty" so a transient pool failure never blocks init
+ * or fires a spurious prompt.
+ *
+ * @internal
+ */
+export async function isCredentialPoolEmpty(): Promise<boolean> {
+  try {
+    const pool = getCredentialPool();
+    const entries = await pool.list();
+    return entries.length === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * First-run credential nudge (T11727 · AC2/AC3).
+ *
+ * When the credential pool is empty:
+ *   - Always appends {@link FIRST_RUN_LOGIN_NEXT_STEP} to `nextSteps` (mutated
+ *     in place) so the LAFS envelope surfaces it (AC2).
+ *   - On an interactive terminal (`isHumanOutput()` + TTY), prompts
+ *     'Configure now? [Y/n]'. On 'yes' it launches the onboarding front door
+ *     inline and returns `true` so the caller skips the init envelope (AC3).
+ *   - Never prompts on non-TTY / --json paths — only the nextStep is emitted.
+ *
+ * @param nextSteps - The init result's nextSteps array, mutated in place.
+ * @returns `true` when the front-door wizard was launched (and rendered its own
+ *   output), else `false`.
+ * @task T11727
+ */
+export async function maybeNudgeFirstRunLogin(
+  nextSteps: Array<{ action: string; command: string }>,
+): Promise<boolean> {
+  if (!(await isCredentialPoolEmpty())) return false;
+
+  // Always surface the nextStep (data path — AC2).
+  nextSteps.push({ ...FIRST_RUN_LOGIN_NEXT_STEP });
+
+  // Only prompt on a human-facing interactive terminal (AC3). The JSON/agent
+  // path and any piped invocation get the nextStep and nothing else.
+  if (!isHumanOutput() || process.stdin.isTTY !== true) return false;
+
+  const io = new ReadlineWizardIO();
+  let configureNow: boolean;
+  try {
+    configureNow = await io.confirm('No LLM credential found. Configure now?', true);
+  } finally {
+    io.close();
+  }
+  if (!configureNow) return false;
+
+  // Launch the shared onboarding front door inline. It owns its own prompts +
+  // result rendering, so the init handler must not also emit an envelope.
+  const result = await runLoginFrontDoor({});
+  emitLoginResult(result, 'init.login');
+  return true;
+}
 
 /**
  * Type-guard: narrow a registry id string to a {@link WorkflowName}.

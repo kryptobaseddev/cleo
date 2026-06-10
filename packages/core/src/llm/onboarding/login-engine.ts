@@ -107,6 +107,17 @@ export interface OnboardingLoginOptions {
   role?: RoleName;
   /** Project root passed through to the resolver during the validate step. */
   projectRoot?: string;
+  /**
+   * Skip the connect-step credential write because an interactive OAuth flow
+   * (e.g. `cleo llm login`'s PKCE / device-code dance) has ALREADY landed the
+   * credential in the pool. The connect step still resolves the provider and
+   * records an `ok` trace, but does NOT call {@link addCredential} a second
+   * time. Used by the shared front-door orchestrator (T11725) so the OAuth
+   * token is stored exactly once.
+   *
+   * When `true`, {@link OnboardingLoginOptions.token} is NOT required.
+   */
+  credentialAlreadyStored?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,28 +294,36 @@ export async function runOnboardingLogin(
     }
     canonicalProvider = profile.name as ModelTransport;
 
-    if (!opts.token) {
-      const step = fail(
-        'connect',
-        'E_ONBOARDING_NO_CREDENTIAL',
-        `No credential supplied for '${canonicalProvider}'. ` +
-          `Complete \`cleo llm login ${canonicalProvider}\` (OAuth) or pass an API key.`,
-      );
-      return envelope(withSkips(done, step), canonicalProvider, label, null, null, null, false);
-    }
-
     // OAuth when the provider profile advertises an OAuth config; else API key (AC4).
     authMode = opts.authMode ?? (profile.oauth ? 'oauth' : 'api_key');
-    const storedAuthType: StoredAuthType = authMode === 'oauth' ? 'oauth' : 'api_key';
 
-    await deps.addCredential({
-      provider: canonicalProvider,
-      label,
-      authType: storedAuthType,
-      accessToken: opts.token,
-      source: 'onboarding-login',
-    });
-    done.push(ok('connect', `account '${label}' connected (${authMode})`));
+    if (opts.credentialAlreadyStored) {
+      // An interactive OAuth flow already landed the credential in the pool
+      // (front-door orchestrator path — T11725). Resolve + record connect as
+      // ok WITHOUT a second write so the token is stored exactly once.
+      done.push(ok('connect', `account '${label}' connected (${authMode}, pre-stored)`));
+    } else {
+      if (!opts.token) {
+        const step = fail(
+          'connect',
+          'E_ONBOARDING_NO_CREDENTIAL',
+          `No credential supplied for '${canonicalProvider}'. ` +
+            `Complete \`cleo llm login ${canonicalProvider}\` (OAuth) or pass an API key.`,
+        );
+        return envelope(withSkips(done, step), canonicalProvider, label, null, null, null, false);
+      }
+
+      const storedAuthType: StoredAuthType = authMode === 'oauth' ? 'oauth' : 'api_key';
+
+      await deps.addCredential({
+        provider: canonicalProvider,
+        label,
+        authType: storedAuthType,
+        accessToken: opts.token,
+        source: 'onboarding-login',
+      });
+      done.push(ok('connect', `account '${label}' connected (${authMode})`));
+    }
   } catch (err) {
     const step = fail('connect', 'E_ONBOARDING_CONNECT_FAILED', errMsg(err));
     return envelope(withSkips(done, step), provider, label, null, null, null, false);

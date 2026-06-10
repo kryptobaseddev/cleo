@@ -302,6 +302,16 @@ export default defineConfig({
         '../../packages/core/src/llm/credentials-store.ts',
         import.meta.url,
       ).pathname,
+      // T11725: onboarding front-door orchestrator subpath used by the
+      // `cleo login` / `auth login` / `llm login` handlers.
+      '@cleocode/core/llm/onboarding/front-door.js': new URL(
+        '../../packages/core/src/llm/onboarding/front-door.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/llm/catalog-model-resolver.js': new URL(
+        '../../packages/core/src/llm/catalog-model-resolver.ts',
+        import.meta.url,
+      ).pathname,
       // T9598: config subpath import used by `cleo auth consent`
       '@cleocode/core/config.js': new URL(
         '../../packages/core/src/config.ts',
