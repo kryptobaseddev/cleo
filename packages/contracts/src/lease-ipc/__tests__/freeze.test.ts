@@ -44,6 +44,7 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'lease_renew',
       'rate_check',
       'tool_grant',
+      'queue_admit',
     ]);
   });
 
@@ -56,6 +57,7 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'tool_granted',
       'lease_revoked',
       'child_killed_unresponsive',
+      'queue_admit_result',
       'error',
     ]);
   });
@@ -81,6 +83,7 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'lease_renew',
       'rate_check',
       'tool_grant',
+      'queue_admit',
       'lease_granted',
       'lease_queued',
       'lease_denied',
@@ -88,6 +91,7 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'tool_granted',
       'lease_revoked',
       'child_killed_unresponsive',
+      'queue_admit_result',
       'error',
     ]);
   });
@@ -162,6 +166,42 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
     expect(LeaseIpcEnvelopeSchema.safeParse(wire).success).toBe(true);
   });
 
+  it('parses the exact JSON a Rust queue_admit request envelope serializes (T11630)', () => {
+    const wire = {
+      protocol_version: '1.1.0',
+      id: 'qa-1',
+      direction: 'request',
+      request: {
+        kind: 'queue_admit',
+        provider: 'anthropic',
+        priority_class: 'lead',
+        est_tokens: 1024,
+        child_id: 'worker-1',
+      },
+    };
+    const parsed = LeaseIpcEnvelopeSchema.safeParse(wire);
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.direction === 'request') {
+      expect(parsed.data.request.kind).toBe('queue_admit');
+    }
+  });
+
+  it('parses the exact JSON a Rust queue_admit_result response envelope serializes (T11630)', () => {
+    const wire = {
+      protocol_version: '1.1.0',
+      id: 'qa-1',
+      direction: 'response',
+      response: {
+        kind: 'queue_admit_result',
+        disposition: 'deferred',
+        retry_after_ms: 250,
+        tokens_remaining: 0,
+        queue_position: 2,
+      },
+    };
+    expect(LeaseIpcEnvelopeSchema.safeParse(wire).success).toBe(true);
+  });
+
   it('rejects an unknown message kind (proves the union is closed)', () => {
     const wire = {
       protocol_version: '1.1.0',
@@ -212,6 +252,14 @@ function sampleRequestFor(kind: (typeof LEASE_IPC_REQUEST_KINDS)[number]): unkno
       return { kind, scope: 'global', lane: 'bulk', est_bytes: 4096 };
     case 'tool_grant':
       return { kind, tool: 'browser', holder_id: 'h' };
+    case 'queue_admit':
+      return {
+        kind,
+        provider: 'anthropic',
+        priority_class: 'lead',
+        est_tokens: 1024,
+        child_id: 'worker-1',
+      };
   }
 }
 
@@ -240,6 +288,14 @@ function sampleResponseFor(kind: (typeof LEASE_IPC_RESPONSE_KINDS)[number]): unk
       return { kind, scope: 'project', lane: 'tasks', holder_id: 'h', reason: 'ttl expired' };
     case 'child_killed_unresponsive':
       return { kind, child_id: 'w1', holder_id: 'h', scope: 'project', reason: 'unresponsive' };
+    case 'queue_admit_result':
+      return {
+        kind,
+        disposition: 'deferred',
+        retry_after_ms: 250,
+        tokens_remaining: 0,
+        queue_position: 2,
+      };
     case 'error':
       return { kind, code: 'E_X', message: 'x' };
   }

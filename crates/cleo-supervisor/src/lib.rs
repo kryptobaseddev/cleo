@@ -18,6 +18,7 @@
 //!   * [`ipc`]        — FROZEN v1.0 supervisor-ipc contract (mirror of the Zod schemas).
 //!   * [`ipc_transport`] — Unix-socket / Windows-pipe NDJSON fan-out.
 //!   * [`ipc_server`] — bind + accept loop + request dispatch into the registry (R2).
+//!   * [`llm_queue`]  — LLM-queue priority scheduler + per-provider rate governor (T11630).
 //!
 //! The binary ([`main`](../main.rs)) is distributed as a standalone executable via
 //! the worktree-napi-style cross-compile + GitHub-Release packaging (T11340),
@@ -35,6 +36,7 @@ pub mod ipc_transport;
 pub mod jobobject;
 pub mod lease_handler;
 pub mod lease_ipc;
+pub mod llm_queue;
 pub mod logging;
 pub mod paths;
 pub mod pidfile;
@@ -123,8 +125,11 @@ mod tests {
     fn platform_triple_is_known_on_supported_targets() {
         // On the supported CI targets this must never be "unknown".
         let t = platform_triple();
-        if cfg!(any(target_os = "linux", target_os = "macos", target_os = "windows"))
-            && cfg!(any(target_arch = "x86_64", target_arch = "aarch64"))
+        if cfg!(any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows"
+        )) && cfg!(any(target_arch = "x86_64", target_arch = "aarch64"))
         {
             assert_ne!(t, "unknown", "supported target should map to a triple");
         }
