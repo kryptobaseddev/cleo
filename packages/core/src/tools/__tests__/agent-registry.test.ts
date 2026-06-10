@@ -159,8 +159,12 @@ describe('AgentToolRegistry — toolset grouping (AC4)', () => {
     expect(webNames).toEqual(
       expect.arrayContaining(['web_search', 'web_extract', 'browser_navigate']),
     );
-    // No notebook primitives implemented yet — empty but present.
-    expect(grouped.media).toEqual([]);
+    // The media toolset (T11951): vision_analyze/image_generate/text_to_speech are
+    // its first occupants. Superset check so adding tools doesn't break this.
+    const mediaNames = grouped.media.map((t) => t.name);
+    expect(mediaNames).toEqual(
+      expect.arrayContaining(['vision_analyze', 'image_generate', 'text_to_speech']),
+    );
   });
 
   it('byToolset(toolset) filters to a single group', async () => {

@@ -189,13 +189,55 @@ export {
   type ToolGuard,
   type ToolGuardPolicy,
 } from './guard.js';
+export {
+  buildMcpProxyTool,
+  connectMcpServer,
+  MCP_TRANSPORT_KINDS,
+  type McpAgentToolOptions,
+  type McpConnection,
+  type McpRemoteTool,
+  type McpToolCallResult,
+  type McpTransport,
+  type McpTransportKind,
+  mcpToolName,
+  registerMcpAgentTools,
+  registerMcpConnectionTools,
+} from './mcp-agent-tool.js';
+// M7 agent-tool catalog (T11947–T11951) — memory / mcp / run_skill / cron-todo /
+// vision-media families. Each DEFINED here under `packages/core/src/tools`
+// (Gate-11) and CONSUMES an existing subsystem (BRAIN / skills / task store / E9
+// chokepoint) — no new store, no new loader, no raw provider client (Gate-13).
+export {
+  type MediaAgentToolOptions,
+  type MediaModelResult,
+  multimodalAvailable,
+  registerMediaAgentTools,
+} from './media-agent-tools.js';
+export {
+  type MemoryAgentToolOptions,
+  type MemoryOps,
+  registerMemoryAgentTools,
+} from './memory-agent-tools.js';
 // PTY shell runner (T1741) — the terminal toolset's execution backend; lazily +
 // optionally loads `node-pty`, transparently degrading to non-PTY `spawn`.
 export { runPty } from './pty.js';
+export {
+  type CronScheduleResult,
+  registerScheduleAgentTools,
+  type ScheduleAgentToolOptions,
+  scheduleStoreAvailable,
+  type TaskOps,
+} from './schedule-agent-tools.js';
 export { type ZodSchemaTool, zodSchemaToOpenAITool } from './schema-gen.js';
 // Injectable shell executor (E3 · T11406) — threaded into the guard's
 // executeShell/runGit; substitutes the subprocess layer in tests/sandboxes.
 export { defaultShellExecutor, type ShellExecutor } from './shell.js';
+export {
+  type RunSkillResult,
+  registerSkillAgentTool,
+  type SkillAgentToolOptions,
+  type SkillResolver,
+} from './skill-agent-tool.js';
 export { registerWebAgentTools, type WebAgentToolOptions } from './web-agent-tools.js';
 export {
   defaultHttpFetch,

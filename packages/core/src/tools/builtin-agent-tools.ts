@@ -28,6 +28,11 @@ import type { AgentToolRegistry, AvailabilityCheck } from './agent-registry.js';
 import { ALWAYS_AVAILABLE } from './agent-registry.js';
 import { registerAgentToolFamilies } from './agent-tool-families.js';
 import { registerExecCodeAgentTool } from './exec-code-agent-tool.js';
+import { registerMcpAgentTools } from './mcp-agent-tool.js';
+import { registerMediaAgentTools } from './media-agent-tools.js';
+import { registerMemoryAgentTools } from './memory-agent-tools.js';
+import { registerScheduleAgentTools } from './schedule-agent-tools.js';
+import { registerSkillAgentTool } from './skill-agent-tool.js';
 import { registerWebAgentTools } from './web-agent-tools.js';
 
 /** Available only when the named binary is known on PATH (AC5 example). */
@@ -168,4 +173,35 @@ export function registerBuiltinAgentTools(registry: AgentToolRegistry): void {
   // `capabilities.codeExec === true` (mirrors the playwright-gated browser tools),
   // so a loop that never enables code execution cannot run arbitrary code.
   registerExecCodeAgentTool(registry);
+
+  // The memory (BRAIN) family (T11947 · M7): `memory_search` / `memory_observe` /
+  // `memory_fetch` / `memory_timeline`. Each DELEGATES to the existing BRAIN
+  // memory ops (`memory/engine-compat.ts`) — no new store, no new SQL. Always
+  // available daemon-OFF (a local SQLite op through the store chokepoint).
+  registerMemoryAgentTools(registry);
+
+  // The `run_skill` tool (T11949 · M7): bridges the EXISTING SKILL.md loader
+  // (`skills/discovery.ts#findSkill`) + dispatch path to the loop. Surfaces only
+  // invocable skills; rejects non-invocable ones. No new loader/parser. Always
+  // available daemon-OFF (a local fs scan).
+  registerSkillAgentTool(registry);
+
+  // The cron/todo family (T11950 · M7): `todo_add` / `todo_list` DELEGATE to the
+  // existing task store ops (`tasks/ops.ts`); `cron_schedule` is registered but
+  // gated unavailable until a schedule store ships (follow-up T11962 under
+  // T11679) — no schema invented here.
+  registerScheduleAgentTools(registry);
+
+  // The vision/media family (T11951 · M7): `vision_analyze` / `image_generate` /
+  // `text_to_speech` — the FIRST occupants of the `media` toolset. EVERY model
+  // call routes through the E9 chokepoint (resolveLLMForSystem / ModelRunner) like
+  // `browser_vision` — no raw provider client (Gate-13). Hidden unless egress is
+  // allowed AND the host advertises a multimodal model.
+  registerMediaAgentTools(registry);
+
+  // The native MCP client fan-IN (T11948 · M7): with NO MCP connections supplied
+  // this is a no-op (core runs MCP-OFF). A host connects external MCP servers via
+  // `connectMcpServer` BEFORE the registry is frozen, then fans each server's
+  // remote tools in as live-only proxy tools.
+  registerMcpAgentTools(registry);
 }
