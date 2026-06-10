@@ -86,7 +86,7 @@ async function getLlmLoginSub(): Promise<CommandDef> {
     typeof llmCommand.subCommands === 'function'
       ? await llmCommand.subCommands()
       : llmCommand.subCommands;
-  const sub = (resolved ?? {})['login'];
+  const sub = resolved?.['login'];
   if (!sub) throw new Error('cleo llm login subcommand not found');
   return sub as CommandDef;
 }
