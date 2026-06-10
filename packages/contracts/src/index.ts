@@ -140,12 +140,14 @@ export type {
 export type {
   BoundaryEntry,
   CanonicalHome,
+  ChannelBoundaryEntry,
+  ChannelTrustPosture,
   PerfBudget,
   SafetyBudget,
   ThroughputThreshold,
   WorkloadIntent,
 } from './boundary.js';
-export { BOUNDARY_REGISTRY } from './boundary.js';
+export { BOUNDARY_REGISTRY, CHANNEL_BOUNDARY_REGISTRY } from './boundary.js';
 // === Brain/Memory Types ===
 export type {
   BackupRecoverBrainResult,
@@ -213,6 +215,11 @@ export type {
 } from './code-symbol.js';
 // === Conduit Protocol (agent-to-agent communication) ===
 export type {
+  ChannelAdapter,
+  ChannelConfig,
+  ChannelHealth,
+  ChannelHealthStatus,
+  ChannelSession,
   Conduit,
   ConduitConfig,
   ConduitMessage,
@@ -223,6 +230,8 @@ export type {
   ConduitTopicPublishOptions,
   ConduitTopicSubscribeOptions,
   ConduitUnsubscribe,
+  InboundMsg,
+  OutboundReply,
 } from './conduit.js';
 // === Config Manifest (T9876 / Saga T9855) ===
 export type {
