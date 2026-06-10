@@ -11,7 +11,13 @@
 
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildGateArgv, PR_GATES, runPrGate, selectPrGates } from '../pr-gate.js';
+import {
+  buildGateArgv,
+  formatPrGateSummary,
+  PR_GATES,
+  runPrGate,
+  selectPrGates,
+} from '../pr-gate.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -120,5 +126,16 @@ describe('runPrGate', () => {
       onProgress: (l) => lines.push(l),
     });
     expect(lines.some((l) => l.includes('Merge-Bar Aggregate'))).toBe(true);
+  });
+});
+
+describe('formatPrGateSummary', () => {
+  it('renders a human report with status icons and a result tally', () => {
+    const summary = runPrGate({ only: ['merge-bar-aggregate'], cwd: REPO_ROOT });
+    const report = formatPrGateSummary(summary);
+    expect(report).toContain('Pre-PR Gate (cleo check pr)');
+    expect(report).toContain('[PASS] Merge-Bar Aggregate Gate Lint');
+    expect(report).toContain('[SKIP]');
+    expect(report).toMatch(/Result: \d+ passed, \d+ failed, \d+ skipped/);
   });
 });

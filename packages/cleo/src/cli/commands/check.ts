@@ -9,7 +9,7 @@
  * @task T1136 — provenance subcommand: audit git log for untagged commits
  */
 
-import { type PrGateSummary, runPrGate } from '@cleocode/core/internal';
+import { formatPrGateSummary, type PrGateSummary, runPrGate } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
@@ -37,23 +37,8 @@ function emitPrGateSummary(summary: PrGateSummary): void {
   };
   // Single stdout write — the canonical LAFS envelope (CLI Output Contract).
   process.stdout.write(`${JSON.stringify(envelope)}\n`);
-
-  // Build the human summary in-memory, then a single stderr write.
-  const lines: string[] = ['', 'Pre-PR Gate (cleo check pr) — T11956', '─'.repeat(52)];
-  for (const g of summary.gates) {
-    const icon = g.status === 'pass' ? 'PASS' : g.status === 'fail' ? 'FAIL' : 'SKIP';
-    const dur = g.status === 'skipped' ? '' : ` (${(g.durationMs / 1000).toFixed(1)}s)`;
-    lines.push(`  [${icon}] ${g.label}${dur}`);
-    if (g.status === 'fail' && g.outputTail) {
-      for (const tail of g.outputTail.split('\n').slice(-6)) lines.push(`         ${tail}`);
-    }
-  }
-  lines.push('─'.repeat(52));
-  lines.push(
-    `  Result: ${summary.summary.pass} passed, ${summary.summary.fail} failed, ${summary.summary.skipped} skipped`,
-    '',
-  );
-  process.stderr.write(`${lines.join('\n')}\n`);
+  // Human report is formatted in core; single stderr write keeps the CLI thin.
+  process.stderr.write(`${formatPrGateSummary(summary)}\n`);
 }
 
 /**

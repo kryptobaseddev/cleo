@@ -11,6 +11,7 @@
 
 export {
   buildGateArgv,
+  formatPrGateSummary,
   PR_GATES,
   type PrGateDef,
   type PrGateRunResult,

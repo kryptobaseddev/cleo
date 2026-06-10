@@ -446,3 +446,28 @@ export function runPrGate(opts: RunPrGateOptions = {}): PrGateSummary {
     summary: { pass, fail, skipped: skip },
   };
 }
+
+/**
+ * Render a {@link PrGateSummary} as a human-readable, multi-line report
+ * (no trailing newline). The CLI writes this to stderr while the LAFS envelope
+ * goes to stdout — keeping presentation logic in core so the CLI stays a thin
+ * dispatch (AGENTS.md Package-Boundary Check).
+ *
+ * @param summary the aggregate result of a `cleo check pr` run
+ * @returns the formatted human report
+ */
+export function formatPrGateSummary(summary: PrGateSummary): string {
+  const rule = '─'.repeat(52);
+  const lines: string[] = ['', 'Pre-PR Gate (cleo check pr) — T11956', rule];
+  for (const g of summary.gates) {
+    const icon = g.status === 'pass' ? 'PASS' : g.status === 'fail' ? 'FAIL' : 'SKIP';
+    const dur = g.status === 'skipped' ? '' : ` (${(g.durationMs / 1000).toFixed(1)}s)`;
+    lines.push(`  [${icon}] ${g.label}${dur}`);
+    if (g.status === 'fail' && g.outputTail) {
+      for (const tail of g.outputTail.split('\n').slice(-6)) lines.push(`         ${tail}`);
+    }
+  }
+  const { pass, fail, skipped } = summary.summary;
+  lines.push(rule, `  Result: ${pass} passed, ${fail} failed, ${skipped} skipped`, '');
+  return lines.join('\n');
+}

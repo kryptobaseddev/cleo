@@ -134,6 +134,7 @@ export {
 // T11956 — unified local pre-PR gate runner (cleo check pr)
 export {
   buildGateArgv,
+  formatPrGateSummary,
   PR_GATES,
   type PrGateDef,
   type PrGateRunResult,
