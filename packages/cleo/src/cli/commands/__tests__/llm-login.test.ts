@@ -83,12 +83,17 @@ vi.mock('@cleocode/core/llm/provider-registry/index.js', () => ({
   getProviderProfile: m.getProviderProfile,
 }));
 
-vi.mock('@cleocode/core/llm/oauth/pkce.js', () => ({
-  generatePkcePair: m.generatePkcePair,
-  buildAuthorizationUrl: m.buildAuthorizationUrl,
-  exchangePkceCode: m.exchangePkceCode,
-  refreshPkceToken: m.refreshPkceToken,
-}));
+vi.mock('@cleocode/core/llm/oauth/pkce.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/core/llm/oauth/pkce.js')>();
+  return {
+    // Real parser — pure function, the flow tests exercise it for real.
+    parseAuthorizationInput: actual.parseAuthorizationInput,
+    generatePkcePair: m.generatePkcePair,
+    buildAuthorizationUrl: m.buildAuthorizationUrl,
+    exchangePkceCode: m.exchangePkceCode,
+    refreshPkceToken: m.refreshPkceToken,
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Import under test (after mocks)
@@ -153,11 +158,14 @@ const ANTHROPIC_PROFILE = {
     mode: 'pkce' as const,
     clientId: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
     authorizationEndpoint: 'https://claude.ai/oauth/authorize',
-    tokenEndpoint: 'https://console.anthropic.com/v1/oauth/token',
+    tokenEndpoint: 'https://platform.claude.com/v1/oauth/token',
     scope: 'org:create_api_key user:profile user:inference',
     // Canonical Anthropic paste-back redirect URI — NOT a loopback URL.
-    // This is the only registered redirect for Anthropic's OAuth app.
-    redirectUri: 'https://console.anthropic.com/oauth/code/callback',
+    // This is the only registered redirect for Anthropic's OAuth app
+    // (post claude.com domain migration — T11958).
+    redirectUri: 'https://platform.claude.com/oauth/code/callback',
+    extraAuthParams: { code: 'true' },
+    tokenBodyFormat: 'json' as const,
   },
 };
 
@@ -479,8 +487,8 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
     expect(urlCallArgs.state).toBeTruthy();
     // T11774: redirect_uri passed to buildAuthorizationUrl must be the paste-back
     // URI (not a random localhost port) because Anthropic only accepts its
-    // registered console.anthropic.com redirect.
-    expect(urlCallArgs.redirectUri).toBe('https://console.anthropic.com/oauth/code/callback');
+    // registered platform.claude.com redirect.
+    expect(urlCallArgs.redirectUri).toBe('https://platform.claude.com/oauth/code/callback');
 
     // Regression guard (T9579): headless path must NOT spawn a browser process.
     expect(spawnMock).not.toHaveBeenCalled();
@@ -606,8 +614,7 @@ describe('runLlmLogin — T11774: redirect_uri consistency (Anthropic paste-back
       .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
         if (event === 'data') {
           setTimeout(
-            () =>
-              listener('https://console.anthropic.com/oauth/code/callback?code=test-code&state='),
+            () => listener('https://platform.claude.com/oauth/code/callback?code=test-code&state='),
             0,
           );
         }
@@ -634,8 +641,8 @@ describe('runLlmLogin — T11774: redirect_uri consistency (Anthropic paste-back
     const exchangeArgs = m.exchangePkceCode.mock.calls[0]![0] as Record<string, string>;
 
     // Both must use the SAME redirect URI — the Anthropic paste-back URL.
-    expect(authorizeArgs.redirectUri).toBe('https://console.anthropic.com/oauth/code/callback');
-    expect(exchangeArgs.redirectUri).toBe('https://console.anthropic.com/oauth/code/callback');
+    expect(authorizeArgs.redirectUri).toBe('https://platform.claude.com/oauth/code/callback');
+    expect(exchangeArgs.redirectUri).toBe('https://platform.claude.com/oauth/code/callback');
     expect(authorizeArgs.redirectUri).toBe(exchangeArgs.redirectUri);
   });
 
@@ -646,7 +653,7 @@ describe('runLlmLogin — T11774: redirect_uri consistency (Anthropic paste-back
         if (event === 'data') {
           setTimeout(
             () =>
-              listener('https://console.anthropic.com/oauth/code/callback?code=auto-paste&state='),
+              listener('https://platform.claude.com/oauth/code/callback?code=auto-paste&state='),
             0,
           );
         }
@@ -760,5 +767,97 @@ describe('runLlmLogin — T9579 regression: no real browser spawn', () => {
     expect(spawnMock).not.toHaveBeenCalled();
 
     stdinSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11958 / DHQ-075 — Anthropic exchange wire shape + paste-back input forms
+// ---------------------------------------------------------------------------
+
+describe('runLlmLogin — T11958: Anthropic exchange wire shape', () => {
+  it('passes the authorize-time state and the profile tokenBodyFormat to exchangePkceCode', async () => {
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(
+            () => listener('https://platform.claude.com/oauth/code/callback?code=wire-code&state='),
+            0,
+          );
+        }
+        return process.stdin;
+      });
+
+    m.exchangePkceCode.mockResolvedValue({
+      accessToken: 'sk-ant-oat-wire',
+      expiresIn: 3600,
+      tokenType: 'bearer',
+    });
+    m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
+
+    await runLlmLogin('anthropic', { headless: true });
+    stdinSpy.mockRestore();
+
+    const authorizeArgs = m.buildAuthorizationUrl.mock.calls[0]![0] as Record<string, string>;
+    const exchangeArgs = m.exchangePkceCode.mock.calls[0]![0] as Record<string, string>;
+
+    // Anthropic's token endpoint validates the (code, state) pair bound at
+    // authorize time — the exchange MUST echo the same state.
+    expect(exchangeArgs.state).toBe(authorizeArgs.state);
+    expect(exchangeArgs.state).toBeTruthy();
+    // The profile opts into the non-RFC JSON body Anthropic expects.
+    expect(exchangeArgs.bodyFormat).toBe('json');
+  });
+
+  it('accepts the code#state paste form and validates the state', async () => {
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(() => {
+            const authorizeArgs = m.buildAuthorizationUrl.mock.calls[0]![0] as Record<
+              string,
+              string
+            >;
+            listener(`pasted-code#${authorizeArgs.state}`);
+          }, 0);
+        }
+        return process.stdin;
+      });
+
+    m.exchangePkceCode.mockResolvedValue({
+      accessToken: 'sk-ant-oat-hash-form',
+      expiresIn: 3600,
+      tokenType: 'bearer',
+    });
+    m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
+
+    const result = await runLlmLogin('anthropic', { headless: true });
+    stdinSpy.mockRestore();
+
+    expect(result.success).toBe(true);
+    const exchangeArgs = m.exchangePkceCode.mock.calls[0]![0] as Record<string, string>;
+    expect(exchangeArgs.code).toBe('pasted-code');
+  });
+
+  it('rejects a pasted redirect whose state does not match (CSRF guard)', async () => {
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(
+            () => listener('https://platform.claude.com/oauth/code/callback?code=x&state=WRONG'),
+            0,
+          );
+        }
+        return process.stdin;
+      });
+
+    const result = await runLlmLogin('anthropic', { headless: true });
+    stdinSpy.mockRestore();
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_PKCE_INVALID_CALLBACK');
+    expect(m.exchangePkceCode).not.toHaveBeenCalled();
   });
 });

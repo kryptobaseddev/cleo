@@ -172,20 +172,16 @@ export interface StoredCredential {
 }
 
 /**
- * S-07 (CWE-256 plaintext storage of dead secret): `refreshToken` is
- * intentionally NOT a field on `StoredCredential` in Phase 2. Phase 1
- * stored a refresh token alongside the access token, but no code ever
- * consumed it — the refresh-flow implementation was deferred. Carrying
- * the dead secret on disk increased blast radius for zero benefit, so
- * the field was removed in security review pass 1.
+ * S-07 (CWE-256) — resolution history: Phase 2 removed `refreshToken`
+ * because no code consumed it (dead secret on disk = blast radius for zero
+ * benefit). Phase 3 reintroduced it together with the refresh flow that
+ * consumes it (`credential-pool.ts` `_refreshViaPkce` / `proactiveRefresh`
+ * and the kimi-code device-code refresh), which is why the field exists on
+ * {@link StoredCredential} above and is persisted by `addCredential`. The
+ * 0600 file permission protecting `accessToken` covers it.
  *
- * Phase 3 (T9260) will reintroduce `refreshToken` together with the
- * actual refresh implementation that consumes it. Until then the read
- * path tolerates a leftover `refreshToken` key on disk (parser is
- * additive — extra keys are dropped silently by the type narrower) but
- * the writer never re-emits it.
- *
- * @task T9257 — security review S-07
+ * @task T9257 — security review S-07 (Phase-2 removal)
+ * @task T9260 — Phase-3 reintroduction with the refresh flow
  */
 
 /**

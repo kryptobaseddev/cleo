@@ -95,12 +95,36 @@ describe('anthropicProfile.oauth.clientId — default (no env var)', () => {
   });
 });
 
-describe('anthropicProfile.oauth.redirectUri', () => {
-  it('points at the Anthropic-hosted paste-back callback (matches Hermes)', async () => {
+describe('anthropicProfile.oauth endpoints (T11958 / DHQ-075 regression)', () => {
+  it('points the redirect at the platform.claude.com paste-back callback (matches pi-ai)', async () => {
     delete process.env[ENV_KEY];
     const { anthropicProfile } = await loadAnthropicModule();
     expect(anthropicProfile.oauth?.redirectUri).toBe(
-      'https://console.anthropic.com/oauth/code/callback',
+      'https://platform.claude.com/oauth/code/callback',
     );
+  });
+
+  it('exchanges tokens against platform.claude.com — console.anthropic.com is retired', async () => {
+    delete process.env[ENV_KEY];
+    const { anthropicProfile } = await loadAnthropicModule();
+    expect(anthropicProfile.oauth?.tokenEndpoint).toBe(
+      'https://platform.claude.com/v1/oauth/token',
+    );
+    // The pre-migration host 400s the exchange (redirect_uri binding mismatch).
+    expect(anthropicProfile.oauth?.tokenEndpoint).not.toContain('console.anthropic.com');
+    expect(anthropicProfile.oauth?.redirectUri).not.toContain('console.anthropic.com');
+  });
+
+  it('authorizes at claude.ai with code=true so the hosted page displays the code', async () => {
+    delete process.env[ENV_KEY];
+    const { anthropicProfile } = await loadAnthropicModule();
+    expect(anthropicProfile.oauth?.authorizationEndpoint).toBe('https://claude.ai/oauth/authorize');
+    expect(anthropicProfile.oauth?.extraAuthParams).toEqual({ code: 'true' });
+  });
+
+  it('uses the JSON token-body format (Anthropic token endpoint is non-RFC)', async () => {
+    delete process.env[ENV_KEY];
+    const { anthropicProfile } = await loadAnthropicModule();
+    expect(anthropicProfile.oauth?.tokenBodyFormat).toBe('json');
   });
 });
