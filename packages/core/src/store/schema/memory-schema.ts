@@ -101,6 +101,44 @@ export const BRAIN_DECISION_TYPES = [
  */
 export const BRAIN_DECISION_CATEGORIES = ['architectural', 'agent_dispatch', 'other'] as const;
 
+/**
+ * Four-network memory classification (T10405 · SG-PSYCHE-FOUNDATION Tier 5).
+ *
+ * Every BRAIN row is tagged with one of four cognitive networks. The taxonomy
+ * mirrors the masterplan §16.D Mem0-V3 envelope classification and lets the
+ * retrieval layer reason about *what kind* of fact a row holds — not just its
+ * cognitive type (semantic/episodic/procedural) or memory tier.
+ *
+ * - `world`       — Objective, externally-verifiable facts about the project /
+ *                   environment ("the release pipeline is PR-gated", "Node 24
+ *                   ships node:sqlite"). Highest trust; rarely contradicted.
+ * - `bank`        — Durable account-of-record entries: decisions, commitments,
+ *                   ledgered outcomes ("we adopted ADR-065", "release v2026.6.12
+ *                   shipped"). Append-mostly; superseded via links, not deletes.
+ * - `opinion`     — Subjective / evaluative beliefs that carry `confidence` and
+ *                   update on new evidence ("agent X is unreliable on task Y").
+ *                   The mutable network — opinion rows are expected to flip.
+ * - `observation` — Raw episodic event records ("ran the build", "saw 12 test
+ *                   failures"). The default network; the substrate the other
+ *                   three are distilled from.
+ *
+ * NULL semantics: legacy rows carry no network. Writers default new rows to
+ * `'observation'`; the consolidator/deriver re-classifies into world/bank/opinion
+ * as facts are distilled. Stored as a plain TEXT column (no SQLite CHECK — the
+ * enum is enforced in-app per the project's Lesson-3 convention).
+ *
+ * @task T10405
+ * @epic T10405
+ * @saga T10405
+ */
+export const BRAIN_NETWORK_TYPES = ['world', 'bank', 'opinion', 'observation'] as const;
+
+/**
+ * Union of the four-network classification values (T10405).
+ * @see BRAIN_NETWORK_TYPES
+ */
+export type BrainNetwork = (typeof BRAIN_NETWORK_TYPES)[number];
+
 /** Confidence levels for decisions. */
 export const BRAIN_CONFIDENCE_LEVELS = ['low', 'medium', 'high'] as const;
 
@@ -253,6 +291,24 @@ export const brainDecisions = sqliteTable(
      * (ADR-009); this column is a convenience gate for bulk eviction queries.
      */
     invalidAt: text('invalid_at'),
+
+    /**
+     * Bitemporal (T10405 · Graphiti 4-timestamp): TRANSACTION-time end —
+     * when this row was retracted from the active store (ISO 8601 text).
+     *
+     * Distinct from `invalidAt` (VALID-time end = when the fact stopped being
+     * true in the world). A row can be valid-in-the-world (`invalid_at IS NULL`)
+     * yet expired-in-the-store (`expired_at` set) when superseded by a newer
+     * write of the same fact — and vice versa. NULL = currently active.
+     * Point-in-time `as-of` queries gate on `expired_at` for store state.
+     */
+    expiredAt: text('expired_at'),
+
+    /**
+     * Four-network classification (T10405 · {@link BRAIN_NETWORK_TYPES}).
+     * Decisions are durable account-of-record entries → default `'bank'`.
+     */
+    network: text('network', { enum: BRAIN_NETWORK_TYPES }).default('bank'),
 
     /**
      * Source reliability level — separate from content quality_score (T549 §3.1.5).
@@ -441,6 +497,9 @@ export const brainDecisions = sqliteTable(
     index('idx_brain_decisions_mem_type').on(table.memoryType),
     index('idx_brain_decisions_verified').on(table.verified),
     index('idx_brain_decisions_valid_at').on(table.validAt),
+    // T10405: bitemporal expired_at + four-network indexes
+    index('idx_brain_decisions_expired_at').on(table.expiredAt),
+    index('idx_brain_decisions_network').on(table.network),
     index('idx_brain_decisions_source_conf').on(table.sourceConfidence),
     // T726 indexes
     index('idx_brain_decisions_tier_promoted_at').on(table.tierPromotedAt),
@@ -510,6 +569,20 @@ export const brainPatterns = sqliteTable(
      * NULL = currently valid. Set by consolidator when frequency+successRate drops below threshold.
      */
     invalidAt: text('invalid_at'),
+
+    /**
+     * Bitemporal (T10405 · Graphiti 4-timestamp): TRANSACTION-time end —
+     * when this pattern row was retracted from the active store (ISO 8601 text).
+     * Distinct from `invalidAt` (VALID-time end). NULL = currently active.
+     * @see brainDecisions.expiredAt for the full bitemporal contract.
+     */
+    expiredAt: text('expired_at'),
+
+    /**
+     * Four-network classification (T10405 · {@link BRAIN_NETWORK_TYPES}).
+     * Patterns are objective recurring behaviours of the project → default `'world'`.
+     */
+    network: text('network', { enum: BRAIN_NETWORK_TYPES }).default('world'),
 
     /**
      * Source reliability level — separate from content quality_score (T549 §3.1.5).
@@ -597,6 +670,9 @@ export const brainPatterns = sqliteTable(
     index('idx_brain_patterns_mem_type').on(table.memoryType),
     index('idx_brain_patterns_verified').on(table.verified),
     index('idx_brain_patterns_valid_at').on(table.validAt),
+    // T10405: bitemporal expired_at + four-network indexes
+    index('idx_brain_patterns_expired_at').on(table.expiredAt),
+    index('idx_brain_patterns_network').on(table.network),
     index('idx_brain_patterns_source_conf').on(table.sourceConfidence),
     // T726 indexes
     index('idx_brain_patterns_tier_promoted_at').on(table.tierPromotedAt),
@@ -656,6 +732,20 @@ export const brainLearnings = sqliteTable(
      * NULL = currently valid. Set by consolidator on contradiction detection or TTL decay.
      */
     invalidAt: text('invalid_at'),
+
+    /**
+     * Bitemporal (T10405 · Graphiti 4-timestamp): TRANSACTION-time end —
+     * when this learning row was retracted from the active store (ISO 8601 text).
+     * Distinct from `invalidAt` (VALID-time end). NULL = currently active.
+     * @see brainDecisions.expiredAt for the full bitemporal contract.
+     */
+    expiredAt: text('expired_at'),
+
+    /**
+     * Four-network classification (T10405 · {@link BRAIN_NETWORK_TYPES}).
+     * Learnings are evaluative beliefs that update on new evidence → default `'opinion'`.
+     */
+    network: text('network', { enum: BRAIN_NETWORK_TYPES }).default('opinion'),
 
     /**
      * Source reliability level — separate from content quality_score (T549 §3.1.5).
@@ -726,6 +816,9 @@ export const brainLearnings = sqliteTable(
     index('idx_brain_learnings_verified').on(table.verified),
     index('idx_brain_learnings_valid_at').on(table.validAt),
     index('idx_brain_learnings_invalid').on(table.invalidAt),
+    // T10405: bitemporal expired_at + four-network indexes
+    index('idx_brain_learnings_expired_at').on(table.expiredAt),
+    index('idx_brain_learnings_network').on(table.network),
     index('idx_brain_learnings_source_conf').on(table.sourceConfidence),
     // T726 indexes
     index('idx_brain_learnings_tier_promoted_at').on(table.tierPromotedAt),
@@ -796,6 +889,21 @@ export const brainObservations = sqliteTable(
      * Temporal query pattern: WHERE valid_at <= :t AND (invalid_at IS NULL OR invalid_at > :t)
      */
     invalidAt: text('invalid_at'),
+
+    /**
+     * Bitemporal (T10405 · Graphiti 4-timestamp): TRANSACTION-time end —
+     * when this observation row was retracted from the active store (ISO 8601 text).
+     * Distinct from `invalidAt` (VALID-time end). NULL = currently active.
+     * Point-in-time `as-of` queries gate on `expired_at` for store state.
+     * @see brainDecisions.expiredAt for the full bitemporal contract.
+     */
+    expiredAt: text('expired_at'),
+
+    /**
+     * Four-network classification (T10405 · {@link BRAIN_NETWORK_TYPES}).
+     * Observations are raw episodic event records → default `'observation'`.
+     */
+    network: text('network', { enum: BRAIN_NETWORK_TYPES }).default('observation'),
 
     /**
      * Source reliability level — separate from content quality_score (T549 §3.1.5).
@@ -969,6 +1077,9 @@ export const brainObservations = sqliteTable(
     index('idx_brain_observations_verified').on(table.verified),
     index('idx_brain_observations_valid_at').on(table.validAt),
     index('idx_brain_observations_invalid').on(table.invalidAt),
+    // T10405: bitemporal expired_at + four-network indexes
+    index('idx_brain_observations_expired_at').on(table.expiredAt),
+    index('idx_brain_observations_network').on(table.network),
     index('idx_brain_observations_source_conf').on(table.sourceConfidence),
     // T726 indexes
     index('idx_brain_observations_tier_promoted_at').on(table.tierPromotedAt),
@@ -2301,10 +2412,29 @@ export const deriverQueue = sqliteTable(
 
     /** ISO 8601 timestamp when the item was successfully completed. Null until done. */
     completedAt: text('completed_at'),
+
+    /**
+     * Exponential-backoff gate (T10405 · SG-PSYCHE-FOUNDATION Tier 6).
+     *
+     * ISO 8601 timestamp before which a re-queued (`pending`) item MUST NOT be
+     * re-claimed. Set by `failItem` / `recoverStaleItems` to
+     * `now + base * 2^retryCount` (capped). A NULL value means "claimable now"
+     * (the default for freshly-enqueued items).
+     *
+     * The claim query gates on `(next_attempt_at IS NULL OR next_attempt_at <= now)`
+     * so a transiently-failing item backs off instead of hot-looping the worker.
+     */
+    nextAttemptAt: text('next_attempt_at'),
   },
   (table) => [
-    // Primary claim query: pending items ordered by priority desc, created_at asc
-    index('idx_deriver_queue_status_priority').on(table.status, table.priority, table.createdAt),
+    // Primary claim query: pending items ordered by priority desc, created_at asc.
+    // T10405: extended with next_attempt_at so the backoff gate is index-covered.
+    index('idx_deriver_queue_status_priority').on(
+      table.status,
+      table.priority,
+      table.createdAt,
+      table.nextAttemptAt,
+    ),
     // Dedup check: one pending/in_progress item per (itemType, itemId)
     index('idx_deriver_queue_item').on(table.itemType, table.itemId),
     // Stale-claim recovery: find in_progress items with old claimed_at
