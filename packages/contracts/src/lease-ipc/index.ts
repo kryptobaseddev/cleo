@@ -14,6 +14,7 @@
 
 export type {
   ChildKilledUnresponsiveResponse,
+  HeartbeatAckResponse,
   LeaseAcquireRequest,
   LeaseDeniedResponse,
   LeaseErrorResponse,
@@ -37,10 +38,12 @@ export type {
   RateResultResponse,
   ToolGrantedResponse,
   ToolGrantRequest,
+  WorkerHeartbeatRequest,
 } from './messages.js';
 
 export {
   ChildKilledUnresponsiveResponseSchema,
+  HeartbeatAckResponseSchema,
   LEASE_IPC_MESSAGE_KINDS,
   LEASE_IPC_REQUEST_KINDS,
   LEASE_IPC_RESPONSE_KINDS,
@@ -67,5 +70,6 @@ export {
   RateResultResponseSchema,
   ToolGrantedResponseSchema,
   ToolGrantRequestSchema,
+  WorkerHeartbeatRequestSchema,
 } from './messages.js';
 export { isFrozenLeaseIpcVersion, LEASE_IPC_PROTOCOL_VERSION } from './version.js';

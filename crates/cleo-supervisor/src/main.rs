@@ -124,9 +124,37 @@ fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Environment opt-in for the heartbeat-deadline watchdog (T11628). The watchdog
+/// is a SUPERVISOR capability that only runs when the supervisor is up; it stays
+/// OFF by default (the daemon-off posture) and is enabled by setting this var to
+/// a truthy value (`1` / `true`). When enabled the accept loop wires a lease
+/// arbiter (so workers can send `worker_heartbeat`) and a background sweep task
+/// that SIGTERM→SIGKILLs a worker that stops heartbeating past its tiered
+/// deadline.
+#[cfg(unix)]
+const WATCHDOG_ENV_KEY: &str = "CLEO_SUPERVISOR_WATCHDOG";
+
+/// Whether the watchdog is enabled via [`WATCHDOG_ENV_KEY`] (`1` / `true`).
+#[cfg(unix)]
+fn watchdog_enabled() -> bool {
+    std::env::var(WATCHDOG_ENV_KEY)
+        .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
 /// Bind the IPC listener + accept loop and run it concurrently with the
 /// shutdown-signal loop, returning when a shutdown signal is received (or the
 /// accept loop fails irrecoverably).
+///
+/// When the watchdog is enabled ([`watchdog_enabled`]) this wires the full
+/// heartbeat path (T11628 step 4): a [`LeaseArbiter`] with the shared watchdog
+/// heartbeat sink (so `worker_heartbeat` frames reset deadlines), a background
+/// [`watchdog::run_watchdog`] sweep task (which SIGTERM→SIGKILLs unresponsive
+/// workers), and the lease-event channel that broadcasts each
+/// `child_killed_unresponsive` event to connected clients. The watchdog shares
+/// the SAME [`LlmQueue`] the arbiter's `queue_admit` path writes, so an in-flight
+/// LLM call extends the deadline (AC2). When disabled, the loop is the unchanged
+/// v1.0-only `serve` path.
 async fn serve_until_shutdown(socket_path: &std::path::Path) -> anyhow::Result<()> {
     use cleo_supervisor::ipc_server;
     use cleo_supervisor::supervisor::ChildRegistry;
@@ -134,6 +162,15 @@ async fn serve_until_shutdown(socket_path: &std::path::Path) -> anyhow::Result<(
     // Lifecycle events flow registry -> IPC fan-out over this channel.
     let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
     let registry = ChildRegistry::new(event_tx);
+
+    // The watchdog wiring rides the Unix accept loop (the only IPC transport
+    // implemented in this crate today). On Windows the named-pipe transport — and
+    // with it the watchdog — lands with the Windows IPC epic; the registry holds
+    // a non-`Send` Job-Object handle there, so the sweep task is Unix-only.
+    #[cfg(unix)]
+    if watchdog_enabled() {
+        return serve_with_watchdog(socket_path, registry, event_rx).await;
+    }
 
     tokio::select! {
         // The accept loop only returns on an unrecoverable transport error;
@@ -147,6 +184,74 @@ async fn serve_until_shutdown(socket_path: &std::path::Path) -> anyhow::Result<(
         }
     }
     Ok(())
+}
+
+/// The watchdog-enabled accept loop (T11628 step 4 — the production wiring).
+///
+/// Constructs the shared [`LlmQueue`] + [`Watchdog`], a [`LeaseArbiter`] whose
+/// `worker_heartbeat` handler writes the watchdog's heartbeat sink, spawns the
+/// background sweep task, and serves with the lease-event channel so kill events
+/// reach clients. Races the accept loop against the watchdog task and the
+/// shutdown signal.
+///
+/// Unix-only: the sweep task `tokio::spawn`s a future capturing the
+/// [`ChildRegistry`], whose per-child [`JobObject`](cleo_supervisor::jobobject)
+/// handle is non-`Send` on Windows. The Windows watchdog lands with the
+/// named-pipe IPC transport in the Windows IPC epic.
+#[cfg(unix)]
+async fn serve_with_watchdog(
+    socket_path: &std::path::Path,
+    registry: cleo_supervisor::supervisor::ChildRegistry,
+    event_rx: tokio::sync::mpsc::UnboundedReceiver<cleo_supervisor::ipc::LifecycleEvent>,
+) -> anyhow::Result<()> {
+    use cleo_supervisor::ipc_server;
+    use cleo_supervisor::lease_handler::LeaseArbiter;
+    use cleo_supervisor::lease_ipc::DbScope;
+    use cleo_supervisor::llm_queue::LlmQueue;
+    use cleo_supervisor::watchdog::{self, Watchdog};
+
+    // One shared LLM queue: the arbiter's `queue_admit` path WRITES the in-flight
+    // ledger, the watchdog READS it to tier the deadline (AC2).
+    let llm_queue = LlmQueue::new();
+    let watchdog = Watchdog::new(llm_queue.clone());
+
+    // The lease arbiter's scope→cleo.db resolver. The watchdog flow never sends a
+    // lease verb (only `worker_heartbeat`), but the arbiter is the dispatch home
+    // for `worker_heartbeat`; point its resolver at the canonical cleo.db so an
+    // incidental lease verb still resolves rather than panicking.
+    let cleo_db = cleo_supervisor::paths::cleo_home()?.join("cleo.db");
+    let resolver: cleo_supervisor::lease_handler::ScopeDbResolver = {
+        let cleo_db = cleo_db.clone();
+        std::sync::Arc::new(move |_scope: DbScope| Ok(cleo_db.clone()))
+    };
+    let arbiter = LeaseArbiter::with_llm_queue(resolver, llm_queue)
+        .with_heartbeat_sink(watchdog.sink());
+
+    // The channel the watchdog sweep task emits `child_killed_unresponsive`
+    // events on; the accept loop broadcasts them to every connected client.
+    let (kill_tx, kill_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    // Spawn the background sweep task. It owns clones of the watchdog + registry.
+    let sweep = tokio::spawn(watchdog::run_watchdog(
+        watchdog,
+        registry.clone(),
+        cleo_supervisor::supervisor::DEFAULT_STOP_GRACE,
+        watchdog::DEFAULT_SWEEP_INTERVAL,
+        kill_tx,
+    ));
+
+    tracing::info!("supervisor watchdog enabled (T11628)");
+
+    let result = tokio::select! {
+        res = ipc_server::serve_with_lease_events(
+            socket_path, registry, event_rx, Some(arbiter), Some(kill_rx),
+        ) => {
+            res.map_err(|e| anyhow::anyhow!("supervisor IPC serve loop failed: {e}"))
+        }
+        res = signal_loop() => res,
+    };
+    sweep.abort();
+    result
 }
 
 /// Wait for a shutdown signal (SIGTERM/SIGINT on Unix, Ctrl-C on Windows).

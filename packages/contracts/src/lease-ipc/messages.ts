@@ -205,6 +205,31 @@ export const QueueAdmitRequestSchema = z
 export type QueueAdmitRequest = z.infer<typeof QueueAdmitRequestSchema>;
 
 /**
+ * A liveness heartbeat from a managed worker (T11628). Mirrors
+ * `WorkerHeartbeatReq`. `[wired]`
+ *
+ * The worker sends this periodically (well inside the watchdog's NORMAL
+ * deadline) so the supervisor knows it is alive. `in_flight_llm` is the worker's
+ * OWN view of whether it is currently waiting on an LLM call: when true the
+ * watchdog grants the EXTENDED deadline even if the call never went through the
+ * `queue_admit` seam, so a slow-but-healthy long call is never false-killed
+ * (AC2 · RISK-7).
+ */
+export const WorkerHeartbeatRequestSchema = z
+  .object({
+    /** Tag discriminating this request variant. */
+    kind: z.literal('worker_heartbeat'),
+    /** The logical id of the heartbeating child (matches the registry key). */
+    child_id: z.string().min(1),
+    /** The worker's own view of whether it is currently inside an LLM call. */
+    in_flight_llm: z.boolean(),
+  })
+  .strict();
+
+/** Worker-heartbeat request payload (inferred from {@link WorkerHeartbeatRequestSchema}). */
+export type WorkerHeartbeatRequest = z.infer<typeof WorkerHeartbeatRequestSchema>;
+
+/**
  * The discriminated union of all client → arbiter lease requests. The `kind`
  * field selects the variant, matching the serde `#[serde(tag = "kind")]`
  * tagging on the Rust `LeaseRequest` enum.
@@ -216,6 +241,7 @@ export const LeaseIpcRequestSchema = z.discriminatedUnion('kind', [
   RateCheckRequestSchema,
   ToolGrantRequestSchema,
   QueueAdmitRequestSchema,
+  WorkerHeartbeatRequestSchema,
 ]);
 
 /** Any lease IPC request (inferred from {@link LeaseIpcRequestSchema}). */
@@ -403,6 +429,23 @@ export const QueueAdmitResultResponseSchema = z
 export type QueueAdmitResultResponse = z.infer<typeof QueueAdmitResultResponseSchema>;
 
 /**
+ * Acknowledge a `worker_heartbeat` (T11628). Mirrors `HeartbeatAck`.
+ *
+ * Deliberately carries only its `kind` — the ack's presence (correlated by id)
+ * is the signal that the watchdog recorded the beat and reset the child's
+ * deadline. Matches the Rust unit-struct wire shape `{ "kind": "heartbeat_ack" }`.
+ */
+export const HeartbeatAckResponseSchema = z
+  .object({
+    /** Tag discriminating this response variant. */
+    kind: z.literal('heartbeat_ack'),
+  })
+  .strict();
+
+/** Heartbeat-ack response payload (inferred from {@link HeartbeatAckResponseSchema}). */
+export type HeartbeatAckResponse = z.infer<typeof HeartbeatAckResponseSchema>;
+
+/**
  * An error response correlated to a request. Mirrors the v1.0
  * `crate::ipc::ErrorResult` shape reused by the Rust `LeaseResponse::Error`
  * variant — error framing is shared across protocol versions.
@@ -435,6 +478,7 @@ export const LeaseIpcResponseSchema = z.discriminatedUnion('kind', [
   LeaseRevokedResponseSchema,
   ChildKilledUnresponsiveResponseSchema,
   QueueAdmitResultResponseSchema,
+  HeartbeatAckResponseSchema,
   LeaseErrorResponseSchema,
 ]);
 
@@ -514,6 +558,7 @@ export const LEASE_IPC_REQUEST_KINDS = [
   'rate_check',
   'tool_grant',
   'queue_admit',
+  'worker_heartbeat',
 ] as const;
 
 /**
@@ -529,6 +574,7 @@ export const LEASE_IPC_RESPONSE_KINDS = [
   'lease_revoked',
   'child_killed_unresponsive',
   'queue_admit_result',
+  'heartbeat_ack',
   'error',
 ] as const;
 

@@ -799,6 +799,124 @@ impl ChildRegistry {
         self.started_at.elapsed().as_secs()
     }
 
+    /// The logical ids of all currently-registered children (running or
+    /// restarting). Used by the watchdog sweep to scope its stale-candidate set
+    /// to children that actually exist right now (T11628).
+    pub async fn child_ids(&self) -> Vec<String> {
+        self.children.lock().await.keys().cloned().collect()
+    }
+
+    /// Kill ONE unresponsive child with the canonical SIGTERM→grace→SIGKILL
+    /// cascade, isolated to that child's pid (T11628 · AC1/AC2).
+    ///
+    /// Resolves the child's live pid + `generation` under the book lock, captures
+    /// `holder_id` from its spawn env for the event, then signals ONLY that pid —
+    /// never a process group, never `-1`, so a sibling worker and the supervisor
+    /// itself are untouched (kill isolation). After the grace window the child is
+    /// force-killed via [`process::force_kill`]; the child's own monitor task
+    /// observes the exit and updates the book (we do not race it here).
+    ///
+    /// The `generation` captured at the start is re-checked before the SIGKILL:
+    /// if a concurrent `restart` bumped it (a fresh incarnation now owns the
+    /// book) the kill is aborted and `None` returned, so the watchdog never
+    /// clobbers a just-restarted healthy child (T11626 incarnation guard).
+    ///
+    /// Returns the [`ChildKilled`] event to broadcast, or `None` when the child
+    /// was already gone (no live pid) or was superseded by a restart mid-kill.
+    pub async fn kill_unresponsive(
+        &self,
+        child_id: &str,
+        grace: Duration,
+        reason: &str,
+    ) -> Option<crate::lease_ipc::ChildKilled> {
+        // ── Resolve pid + incarnation + holder identity under the lock ───────
+        let (pid, generation, book, holder_id) = {
+            let children = self.children.lock().await;
+            let managed = children.get(child_id)?;
+            let holder_id = holder_id_of(&managed.spec);
+            let guard = managed.book.lock().await;
+            // A non-running incarnation (pid 0 / Stopped / Restarting) has nothing
+            // to kill — leave it to the normal exit/restart machinery.
+            if guard.pid == 0 || !matches!(guard.state, ChildState::Running) {
+                return None;
+            }
+            (
+                guard.pid,
+                guard.generation,
+                Arc::clone(&managed.book),
+                holder_id,
+            )
+        };
+
+        tracing::warn!(
+            child_id = %child_id,
+            pid,
+            generation,
+            reason,
+            "watchdog killing unresponsive child"
+        );
+
+        // ── Phase 1: graceful SIGTERM against ONLY this pid ──────────────────
+        let _ = process::request_terminate(pid);
+
+        // ── Phase 2: wait the grace window for a clean exit (poll the book) ──
+        let exited = Self::await_exit_within(&book, generation, grace).await;
+        if !exited {
+            // ── Phase 3: grace expired — re-check the incarnation, then SIGKILL.
+            // If a restart bumped the generation we must NOT kill the fresh pid.
+            let still_current = {
+                let guard = book.lock().await;
+                guard.generation == generation && guard.pid == pid
+            };
+            if still_current {
+                tracing::warn!(pid, "watchdog grace expired; sending SIGKILL");
+                let _ = process::force_kill(pid);
+            } else {
+                tracing::debug!(
+                    child_id = %child_id,
+                    "watchdog kill aborted: child was restarted mid-grace (incarnation changed)"
+                );
+                return None;
+            }
+        }
+
+        Some(crate::lease_ipc::ChildKilled {
+            child_id: child_id.to_string(),
+            holder_id,
+            scope: crate::lease_ipc::DbScope::Project,
+            reason: reason.to_string(),
+        })
+    }
+
+    /// Poll the child's book for up to `grace`, returning `true` if the child's
+    /// incarnation (`generation`) left the `Running` state (clean exit) within
+    /// the window. The child's OWN monitor task owns the `child.wait()`; we only
+    /// observe the book it updates, so we never contend with tokio's reaper.
+    async fn await_exit_within(
+        book: &Arc<Mutex<ChildBook>>,
+        generation: u64,
+        grace: Duration,
+    ) -> bool {
+        let deadline = tokio::time::Instant::now() + grace;
+        loop {
+            {
+                let guard = book.lock().await;
+                // A different generation = restarted (treat as "moved on"); a
+                // non-Running state for the same generation = exited.
+                if guard.generation != generation
+                    || !matches!(guard.state, ChildState::Running)
+                    || guard.pid == 0
+                {
+                    return true;
+                }
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
     /// Build the platform-configured [`Command`] and spawn it, assigning the
     /// child to the containment [`JobObject`] (Windows) where applicable.
     fn spawn_process(spec: &ChildSpec, job: &JobObject) -> anyhow::Result<Child> {
@@ -894,6 +1012,19 @@ impl ChildRegistry {
             }
         });
     }
+}
+
+/// Derive the lease holder identity for a child from its spawn spec, for the
+/// `child_killed_unresponsive` event's `holder_id` field. Prefers an explicit
+/// `CLEO_HOLDER_ID` env override if the spawn request set one; otherwise falls
+/// back to the child's logical id (the watchdog kill is keyed on the worker, not
+/// a specific lease lane).
+fn holder_id_of(spec: &ChildSpec) -> String {
+    spec.env
+        .iter()
+        .find(|(k, _)| k == "CLEO_HOLDER_ID")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_else(|| spec.child_id.clone())
 }
 
 /// Snapshot a single managed child into its wire [`ChildStatus`].
@@ -1234,6 +1365,96 @@ mod tests {
         let w = registry.spawn(&spawn_req_sleep("h", 30)).await.expect("spawn");
         assert_eq!(registry.child_count().await, 1);
         let _ = process::force_kill(w.pid);
+    }
+
+    // ── Watchdog kill cascade (T11628) ──────────────────────────────────────
+
+    /// AC1: `kill_unresponsive` runs the SIGTERM→grace→SIGKILL cascade against
+    /// ONLY the targeted child's pid and returns its `child_killed_unresponsive`
+    /// event. The child process is dead afterwards.
+    #[tokio::test]
+    async fn registry_kill_unresponsive_terminates_and_returns_event() {
+        let (tx, _rx) = unbounded_channel();
+        let registry = ChildRegistry::new(tx);
+        let spawned = registry
+            .spawn(&spawn_req_sleep("stuck", 60))
+            .await
+            .expect("spawn");
+        assert!(process::is_alive(spawned.pid));
+
+        let event = registry
+            .kill_unresponsive("stuck", Duration::from_secs(2), "test: unresponsive")
+            .await
+            .expect("kill returns an event");
+        assert_eq!(event.child_id, "stuck");
+        assert_eq!(event.reason, "test: unresponsive");
+        // The targeted pid is dead (SIGTERM honoured by /bin/sh sleep).
+        for _ in 0..100 {
+            if !process::is_alive(spawned.pid) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(
+            !process::is_alive(spawned.pid),
+            "the unresponsive child must be dead after the cascade"
+        );
+    }
+
+    /// AC2 (kill isolation): killing one unresponsive child does NOT touch a
+    /// sibling worker — the sibling's pid stays alive and Running.
+    #[tokio::test]
+    async fn registry_kill_unresponsive_isolates_to_one_child() {
+        let (tx, _rx) = unbounded_channel();
+        let registry = ChildRegistry::new(tx);
+        let victim = registry
+            .spawn(&spawn_req_sleep("victim", 60))
+            .await
+            .expect("spawn victim");
+        let sibling = registry
+            .spawn(&spawn_req_sleep("sibling", 60))
+            .await
+            .expect("spawn sibling");
+
+        let event = registry
+            .kill_unresponsive("victim", Duration::from_secs(2), "test")
+            .await
+            .expect("victim killed");
+        assert_eq!(event.child_id, "victim");
+
+        // Victim dead.
+        for _ in 0..100 {
+            if !process::is_alive(victim.pid) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(!process::is_alive(victim.pid), "victim must be dead");
+
+        // Sibling untouched — still alive and still Running in the registry.
+        assert!(
+            process::is_alive(sibling.pid),
+            "the sibling worker must NOT be killed (isolation)"
+        );
+        let snap = registry.monitor(Some("sibling")).await.expect("monitor");
+        assert_eq!(snap.children[0].state, ChildState::Running);
+        assert_eq!(snap.children[0].pid, sibling.pid);
+
+        let _ = process::force_kill(sibling.pid);
+    }
+
+    /// `kill_unresponsive` of an unknown child returns `None` (nothing to kill) —
+    /// the supervisor itself is never affected.
+    #[tokio::test]
+    async fn registry_kill_unresponsive_unknown_child_is_noop() {
+        let (tx, _rx) = unbounded_channel();
+        let registry = ChildRegistry::new(tx);
+        let result = registry
+            .kill_unresponsive("ghost", Duration::from_secs(1), "test")
+            .await;
+        assert!(result.is_none(), "killing an unknown child is a no-op");
+        // The supervisor process is, trivially, still alive.
+        assert!(process::is_alive(process::current_pid()));
     }
 
     // ── Session-env stamping + verbatim passthrough (T11629) ────────────────

@@ -19,6 +19,7 @@
 //!   * [`ipc_transport`] — Unix-socket / Windows-pipe NDJSON fan-out.
 //!   * [`ipc_server`] — bind + accept loop + request dispatch into the registry (R2).
 //!   * [`llm_queue`]  — LLM-queue priority scheduler + per-provider rate governor (T11630).
+//!   * [`watchdog`]   — heartbeat-deadline kill, tiered by LLM in-flight state (T11628).
 //!
 //! The binary ([`main`](../main.rs)) is distributed as a standalone executable via
 //! the worktree-napi-style cross-compile + GitHub-Release packaging (T11340),
@@ -42,6 +43,7 @@ pub mod paths;
 pub mod pidfile;
 pub mod process;
 pub mod supervisor;
+pub mod watchdog;
 
 /// Crate version, sourced from `Cargo.toml` at build time.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

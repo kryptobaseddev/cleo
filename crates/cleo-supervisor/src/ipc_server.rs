@@ -39,7 +39,7 @@ use crate::ipc::{
 use crate::ipc_transport::Fanout;
 use crate::lease_handler::{LeaseArbiter, request_kind};
 use crate::lease_ipc::{
-    LEASE_IPC_PROTOCOL_VERSION, LeaseEnvelope, LeasePayload, LeaseResponse,
+    ChildKilled, LEASE_IPC_PROTOCOL_VERSION, LeaseEnvelope, LeasePayload, LeaseResponse,
 };
 use crate::process;
 use crate::supervisor::{ChildRegistry, RegistryError};
@@ -411,6 +411,30 @@ where
     }
 }
 
+/// Drain the watchdog's [`ChildKilled`] event channel, broadcasting each as an
+/// unsolicited v1.1 `child_killed_unresponsive` [`LeaseEnvelope`] to every
+/// connected client via the shared [`Fanout`] (T11628). Runs until the sender
+/// (held by the watchdog sweep task) is dropped.
+async fn lease_event_pump<W>(mut events: UnboundedReceiver<ChildKilled>, fanout: Fanout<W>)
+where
+    W: AsyncWriteExt + Unpin + Send,
+{
+    while let Some(killed) = events.recv().await {
+        let envelope = LeaseEnvelope::response(
+            format!("event-{}", killed.child_id),
+            LeaseResponse::ChildKilledUnresponsive(killed),
+        );
+        match fanout.broadcast_lease(&envelope).await {
+            Ok(delivered) => {
+                tracing::trace!(delivered, "broadcast child_killed_unresponsive event");
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "failed to serialize child_killed event");
+            }
+        }
+    }
+}
+
 #[cfg(unix)]
 mod unix_serve {
     use super::*;
@@ -418,17 +442,25 @@ mod unix_serve {
 
     /// Accept loop body for a Unix-domain listener.
     ///
-    /// Spawns the event pump once, then accepts clients forever; per connection
-    /// it registers the write half into the broadcast [`Fanout`] and spawns the
-    /// per-client read loop. Returns only on an unrecoverable accept error.
+    /// Spawns the lifecycle event pump (and, when wired, the watchdog
+    /// `child_killed_unresponsive` lease-event pump) once, then accepts clients
+    /// forever; per connection it registers the write half into the broadcast
+    /// [`Fanout`] and spawns the per-client read loop. Returns only on an
+    /// unrecoverable accept error.
     pub async fn run(
         listener: UnixListener,
         registry: ChildRegistry,
         events: UnboundedReceiver<LifecycleEvent>,
         lease: Option<LeaseArbiter>,
+        lease_events: Option<UnboundedReceiver<ChildKilled>>,
     ) -> std::io::Result<()> {
         let fanout: Fanout<SharedWriter<tokio::net::unix::OwnedWriteHalf>> = Fanout::new();
         tokio::spawn(event_pump(events, fanout.clone()));
+        // The watchdog's kill events (T11628) ride the SAME fanout as the v1.0
+        // lifecycle events, only framed as v1.1 lease envelopes.
+        if let Some(lease_events) = lease_events {
+            tokio::spawn(lease_event_pump(lease_events, fanout.clone()));
+        }
 
         loop {
             let (stream, _addr) = listener.accept().await?;
@@ -487,6 +519,27 @@ pub async fn serve_with_lease(
     events: UnboundedReceiver<LifecycleEvent>,
     lease: Option<LeaseArbiter>,
 ) -> std::io::Result<()> {
+    serve_with_lease_events(socket_path, registry, events, lease, None).await
+}
+
+/// [`serve_with_lease`] plus an OPTIONAL watchdog kill-event channel (T11628).
+///
+/// When `lease_events` is `Some`, the watchdog sweep task's
+/// `child_killed_unresponsive` events are broadcast to every connected client as
+/// unsolicited v1.1 lease envelopes over the same fanout. When `None` this is
+/// byte-identical to [`serve_with_lease`] — the watchdog is opt-in.
+///
+/// # Errors
+///
+/// Returns an I/O error if the socket cannot be bound or the accept loop fails.
+#[cfg(unix)]
+pub async fn serve_with_lease_events(
+    socket_path: &std::path::Path,
+    registry: ChildRegistry,
+    events: UnboundedReceiver<LifecycleEvent>,
+    lease: Option<LeaseArbiter>,
+    lease_events: Option<UnboundedReceiver<ChildKilled>>,
+) -> std::io::Result<()> {
     use tokio::net::UnixListener;
 
     if let Some(parent) = socket_path.parent() {
@@ -502,7 +555,7 @@ pub async fn serve_with_lease(
     }
     let listener = UnixListener::bind(socket_path)?;
     tracing::info!(socket = %socket_path.display(), "supervisor IPC listening");
-    unix_serve::run(listener, registry, events, lease).await
+    unix_serve::run(listener, registry, events, lease, lease_events).await
 }
 
 /// Windows IPC is not yet implemented in this crate (named-pipe server lands
@@ -536,6 +589,27 @@ pub async fn serve_with_lease(
     _registry: ChildRegistry,
     _events: UnboundedReceiver<LifecycleEvent>,
     _lease: Option<LeaseArbiter>,
+) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "named-pipe IPC transport is not yet implemented for Windows in cleo-supervisor",
+    ))
+}
+
+/// Windows variant of [`serve_with_lease_events`]. The named-pipe transport is
+/// not yet implemented in this crate, so this returns an error (matching
+/// [`serve`]).
+///
+/// # Errors
+///
+/// Always returns `ErrorKind::Unsupported` on Windows.
+#[cfg(not(unix))]
+pub async fn serve_with_lease_events(
+    _socket_path: &std::path::Path,
+    _registry: ChildRegistry,
+    _events: UnboundedReceiver<LifecycleEvent>,
+    _lease: Option<LeaseArbiter>,
+    _lease_events: Option<UnboundedReceiver<ChildKilled>>,
 ) -> std::io::Result<()> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,

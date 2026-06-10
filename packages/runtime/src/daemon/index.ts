@@ -40,6 +40,8 @@ export type {
 } from '@cleocode/contracts';
 
 export { defineSubsystem } from './define-subsystem.js';
+export type { HeartbeatSender, WriteLine } from './heartbeat-sender.js';
+export { createHeartbeatSender } from './heartbeat-sender.js';
 export type { LeaseIpcClient } from './lease-ipc-client.js';
 export { createLeaseIpcClient, MalformedLeaseIpcFrameError } from './lease-ipc-client.js';
 export type { SubsystemLogFields, SubsystemLogger } from './logger.js';
