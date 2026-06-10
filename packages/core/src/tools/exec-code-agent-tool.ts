@@ -64,6 +64,7 @@ import {
   resolveExecutionEnv as realResolveExecutionEnv,
 } from '../llm/pi/resolve-execution-env.js';
 import { getLogger } from '../logger.js';
+import { resolveOrCwd } from '../paths.js';
 import { createToolGuard, type ToolGuard } from '../tools/guard.js';
 import type { AgentToolRegistry, AvailabilityCheck } from './agent-registry.js';
 
@@ -151,7 +152,8 @@ export interface ExecCodeAgentToolOptions {
   readonly guard?: ToolGuard;
   /**
    * The absolute workspace root the in-process fallback confines fs paths under.
-   * Defaults to `process.cwd()`. The VM backend confines to its own `/workspace`.
+   * Defaults to the resolved project root (`resolveOrCwd(undefined)`, T9584 — never
+   * a bare `process.cwd()`). The VM backend confines to its own `/workspace`.
    */
   readonly workspaceRoot?: string;
   /**
@@ -280,7 +282,9 @@ export function registerExecCodeAgentTool(
       // in-process guarded env). The selector owns the optional-dep degradation —
       // this call works with gondolin ABSENT.
       const guard = options.guard ?? createToolGuard({ mode: 'enforce' });
-      const workspaceRoot = options.workspaceRoot ?? process.cwd();
+      // `resolveOrCwd` resolves to the supplied root, else the project root (T9584
+      // — never a bare `process.cwd()` in core).
+      const workspaceRoot = resolveOrCwd(options.workspaceRoot);
       const env = await resolveEnv({
         backend,
         guard,
