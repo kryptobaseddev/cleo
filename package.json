@@ -60,6 +60,8 @@
     "gen:llm-catalog": "node scripts/generate-llm-catalog.mjs",
     "gateway:sdk": "pnpm --filter @cleocode/core run build && pnpm --filter @cleocode/core run gen:sdk",
     "gateway:sdk:check": "pnpm --filter @cleocode/core run gen:sdk:check",
+    "gen:tier-snapshot": "pnpm --filter @cleocode/core run gen:tier-snapshot",
+    "gen:tier-snapshot:check": "pnpm --filter @cleocode/core run gen:tier-snapshot:check",
     "render:invariants": "pnpm --filter @cleocode/contracts run build:ts && node packages/contracts/scripts/render-invariants-docs.mjs",
     "render:invariants:check": "pnpm --filter @cleocode/contracts run build:ts && node packages/contracts/scripts/render-invariants-docs.mjs --check",
     "hooks:install": "simple-git-hooks"

@@ -1,6 +1,7 @@
 import { cpus, totalmem } from 'node:os';
 import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
+import { withWorkspaceSubpathAliases } from './vitest-workspace-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Memory-safe fork concurrency (session-crash fix · T11839).
@@ -128,7 +129,13 @@ export default defineConfig({
     ],
     // Path aliases matching tsconfig — resolve workspace packages to source
     // TypeScript so Vitest can import them without a build step.
-    alias: {
+    //
+    // T11953 / DHQ-070: `withWorkspaceSubpathAliases` PREPENDS a single generic
+    // `@cleocode/<pkg>/<subpath>` → source resolver, so ANY subpath resolves in
+    // a fresh (un-built) worktree without per-PR ad-hoc alias additions. The
+    // explicit entries below are retained for clarity/precedence but are now
+    // largely redundant with the generic resolver.
+    alias: withWorkspaceSubpathAliases({
       // SvelteKit $lib alias for studio package tests (run from root with --shard).
       // The Svelte plugin (above) handles .svelte/.svelte.ts compilation; this
       // alias is still required so vitest resolves $lib/server/* imports correctly.
@@ -306,7 +313,7 @@ export default defineConfig({
       // from src/code/index.ts and src/internal.ts, which caused orchestrate-engine
       // tests to fail with "Failed to resolve entry for package @cleocode/nexus".
       '@cleocode/nexus': new URL('./packages/nexus/src/index.ts', import.meta.url).pathname,
-    },
+    }),
     server: {
       deps: {
         // Svelte runes-in-TS modules (.svelte.ts) must be inlined so the

@@ -445,6 +445,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       waiveReason: params.waiveReason,
       // T10538 — cancelled-child waiver (PM-Core V2 agent-trust)
       cancelledChildWaiverReason: params.cancelledChildWaiverReason,
+      // T11954 (DHQ-071) — depends-edge waiver for stale/over-specified deps
+      waiveDependsReason: params.waiveDependsReason,
     });
     // T994: Track memory usage on task completion (fire-and-forget; must not block).
     // SSoT-EXEMPT: fire-and-forget side-effect that must not block the complete flow

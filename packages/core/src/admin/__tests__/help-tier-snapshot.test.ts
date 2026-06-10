@@ -21,17 +21,35 @@
  *   3. Verbose-mode operation list at Tier 0 (cost-hint surface)
  *
  * Any accidental tier reassignment, op rename, or guidance-string drift
- * will trip this snapshot. To intentionally update:
- *   pnpm exec vitest --filter @cleocode/core run -u help-tier-snapshot
+ * will trip this snapshot. To intentionally update, use the discoverable
+ * regen verb (T11957 / DHQ-074):
+ *   pnpm --filter @cleocode/core run gen:tier-snapshot
+ * (equivalently `pnpm run gen:tier-snapshot` from the repo root). The
+ * companion `gen:tier-snapshot:check` runs this test read-only and prints the
+ * fix command on drift, so adding an operation no longer silently breaks CI
+ * with a cryptic "obsolete snapshot" message.
  *
  * @task T9845
  * @epic T9866
  * @saga T9862
  */
 
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { OPERATIONS } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import { computeHelp, type HelpOperationDef } from '../help.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+/** Repo-root-relative path to the core package manifest. */
+const CORE_PKG_JSON = resolve(__dirname, '..', '..', '..', 'package.json');
+/** Repo-root-relative path to the root workspace manifest. */
+const ROOT_PKG_JSON = resolve(__dirname, '..', '..', '..', '..', '..', 'package.json');
+
+/** One-shot regen command surfaced to devs/agents when the snapshot drifts. */
+const REGEN_HINT =
+  'tier snapshot drifted — regenerate with `pnpm --filter @cleocode/core run gen:tier-snapshot`';
 
 // The OPERATIONS array is structurally compatible with HelpOperationDef
 // (it has an additional `idempotent`/`sessionRequired`/`requiredParams`
@@ -100,5 +118,55 @@ describe('cleo ops — real-registry tier-filter regression lock (T9845)', () =>
     for (const op of REAL_OPS) {
       expect([0, 1, 2]).toContain(op.tier);
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Self-healing / discoverability regression lock (T11957 · DHQ-074).
+  //
+  // The snapshots above are the SAFETY NET; these tests guard the ESCAPE HATCH.
+  // Adding an operation to the registry legitimately re-tiers the counts above,
+  // and historically agents discovered the resulting break only in CI and then
+  // had to reverse-engineer the regen incantation. We now ship a discoverable
+  // `gen:tier-snapshot` verb (mirroring `gen:sdk`); these tests fail loudly —
+  // with the regen hint baked into the assertion message — if that verb (and
+  // its CI `:check` gate) ever silently disappears, which would re-open the
+  // exact stall point DHQ-074 describes.
+  // ---------------------------------------------------------------------------
+  describe('tier-snapshot self-healing path is wired (T11957)', () => {
+    it('@cleocode/core exposes gen:tier-snapshot + gen:tier-snapshot:check verbs', () => {
+      const pkg = JSON.parse(readFileSync(CORE_PKG_JSON, 'utf8')) as {
+        scripts?: Record<string, string>;
+      };
+      const scripts = pkg.scripts ?? {};
+      expect(
+        scripts['gen:tier-snapshot'],
+        `core package.json must define a gen:tier-snapshot regen verb — ${REGEN_HINT}`,
+      ).toBeDefined();
+      expect(
+        scripts['gen:tier-snapshot:check'],
+        'core package.json must define a gen:tier-snapshot:check CI drift gate',
+      ).toBeDefined();
+      // The check verb must run the SAME generator in --check mode.
+      expect(scripts['gen:tier-snapshot:check']).toContain('--check');
+    });
+
+    it('root workspace re-exports the gen:tier-snapshot verbs (discoverable from repo root)', () => {
+      const pkg = JSON.parse(readFileSync(ROOT_PKG_JSON, 'utf8')) as {
+        scripts?: Record<string, string>;
+      };
+      const scripts = pkg.scripts ?? {};
+      expect(scripts['gen:tier-snapshot']).toBeDefined();
+      expect(scripts['gen:tier-snapshot:check']).toBeDefined();
+      expect(scripts['gen:tier-snapshot']).toContain('@cleocode/core');
+    });
+
+    it('the regen generator script exists on disk', () => {
+      const genScript = join(dirname(CORE_PKG_JSON), 'scripts', 'gen-tier-snapshot.mjs');
+      // readFileSync throws ENOENT if the script was removed — that is the
+      // regression we want to catch (the verb pointing at a missing file).
+      const source = readFileSync(genScript, 'utf8');
+      expect(source).toContain('--check');
+      expect(source).toContain('help-tier-snapshot.test.ts');
+    });
   });
 });

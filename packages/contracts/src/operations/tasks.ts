@@ -1576,6 +1576,14 @@ export interface TasksCompleteQueryParams {
    * @saga T10538 (PM-Core V2 agent-trust)
    */
   cancelledChildWaiverReason?: string;
+  /**
+   * Reason for waiving the `E_CLEO_DEPENDENCY` gate when this task's own work
+   * is done but its `depends` edges point at not-yet-terminal tasks (a stale or
+   * over-specified dependency). Recorded to `.cleo/audit/depends-waiver.jsonl`.
+   *
+   * @task T11954 (DHQ-071)
+   */
+  waiveDependsReason?: string;
 }
 /**
  * Result of `tasks.complete` — completion confirmation with unblocked tasks.

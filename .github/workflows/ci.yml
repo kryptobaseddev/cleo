@@ -386,6 +386,39 @@ jobs:
       - name: Verify docs/registry/INVARIANTS.md matches registry SSoT
         run: node packages/contracts/scripts/render-invariants-docs.mjs --check
 
+  tier-snapshot-drift:
+    # T11957 / DHQ-074 — the `cleo ops` tier-SSoT snapshot (T9845) is a
+    # regression lock over the live OPERATIONS registry. Adding an operation
+    # legitimately re-tiers its counts, which used to break CI cryptically.
+    # This dedicated gate runs the snapshot read-only and, on drift, prints the
+    # exact one-shot regen command (`pnpm run gen:tier-snapshot`) so the failure
+    # is actionable instead of a stall point. Pure static check — no untrusted
+    # input.
+    name: Tier Snapshot Drift (T11957)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Verify tier snapshot is in sync with the OPERATIONS registry
+        run: pnpm --filter @cleocode/core run gen:tier-snapshot:check
+
   raw-git-worktree-lint:
     # T9984 / E7-CORE-LAYERING — enforce `@cleocode/worktree` as the sole
     # source of `git worktree` shell-outs in the workspace. Strict gate: any
@@ -1683,6 +1716,7 @@ jobs:
       - saga-label-anti-pattern-lint
       - invariant-registry-lint
       - invariants-docs-render-drift
+      - tier-snapshot-drift
       - raw-git-worktree-lint
       - saga-symbol-leakage-lint
       - json-stream-hygiene-lint
