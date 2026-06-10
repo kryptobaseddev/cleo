@@ -158,9 +158,13 @@ const runIvtrPlaybookTurn: go.IvtrRunner = async (taskId, options) => {
  */
 const buildGoDispatcher = async (projectRoot: string): Promise<AgentDispatcher> => {
   const { orchestrateSpawnExecute } = await import('@cleocode/runtime/gateway');
-  const { createToolGuard, runSkillNodeOrSpawn, maybeCreatePiRunner } = await import(
-    '@cleocode/core/internal'
-  );
+  const {
+    createToolGuard,
+    runSkillNodeOrSpawn,
+    maybeCreatePiRunner,
+    resolveCantbookNodeProfile,
+    hasCantbookProfilePin,
+  } = await import('@cleocode/core/internal');
 
   // In-process skill nodes execute over a deny-first guarded tool surface scoped
   // to the project root (mirrors playbook.ts AC4). Isolation/agent nodes spawn.
@@ -169,6 +173,39 @@ const buildGoDispatcher = async (projectRoot: string): Promise<AgentDispatcher> 
   // nodes THROUGH the Pi agent loop. Default-OFF → `undefined` → defaultSkillRunner
   // (zero behaviour change). The helper lazy-imports the Pi barrel only when enabled.
   const runner = await maybeCreatePiRunner({ system: 'task-executor', projectRoot });
+
+  /**
+   * T11759 (M4): resolve a cantbook stage's pinned LLM through the E9 chokepoint
+   * (mirrors playbook.ts `resolveStageProfile`). Gate-13: metadata only — no
+   * transport/client built here. Returns `undefined` for an un-pinned node.
+   */
+  const resolveStageProfile = async (
+    input: AgentDispatchInput,
+  ): Promise<Record<string, unknown> | undefined> => {
+    if (
+      !hasCantbookProfilePin({
+        profile: input.profile,
+        model: input.model,
+        provider: input.provider,
+      })
+    ) {
+      return undefined;
+    }
+    const resolved = await resolveCantbookNodeProfile({
+      playbookName: input.playbookName ?? 'cantbook',
+      nodeId: input.nodeId,
+      pin: { profile: input.profile, model: input.model, provider: input.provider },
+      projectRoot,
+    });
+    return {
+      [`${input.nodeId}_llm`]: {
+        provider: resolved.provider,
+        model: resolved.model,
+        source: resolved.source,
+        profile: input.profile ?? null,
+      },
+    };
+  };
 
   /** Subprocess-spawn fallback — retained for isolation/agent nodes. */
   const spawn = async (input: AgentDispatchInput): Promise<AgentDispatchResult> => {
@@ -200,9 +237,12 @@ const buildGoDispatcher = async (projectRoot: string): Promise<AgentDispatcher> 
   return {
     async dispatch(input: AgentDispatchInput): Promise<AgentDispatchResult> {
       try {
+        // T11759 (M4): resolve a declared per-stage LLM profile through E9 before
+        // dispatch; no-op for un-pinned nodes (path unchanged).
+        const llmHint = await resolveStageProfile(input);
         // With the Pi runner wired (T11945) the in-process node runs through the
         // Pi loop; `runner: undefined` (default-OFF) keeps the defaultSkillRunner path.
-        return await runSkillNodeOrSpawn(
+        const result = await runSkillNodeOrSpawn(
           { nodeId: input.nodeId, agentId: input.agentId, context: input.context },
           {
             tools,
@@ -211,6 +251,10 @@ const buildGoDispatcher = async (projectRoot: string): Promise<AgentDispatcher> 
             ...(runner !== undefined ? { runner } : {}),
           },
         );
+        if (llmHint !== undefined && result.status === 'success') {
+          return { ...result, output: { ...result.output, ...llmHint } };
+        }
+        return result;
       } catch (err) {
         return {
           status: 'failure',

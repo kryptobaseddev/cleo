@@ -108,6 +108,30 @@ export interface AgentDispatchInput {
   bindings?: Record<string, unknown>;
   /** 1-based iteration counter for this specific node (retry-aware). */
   iteration: number;
+  /**
+   * Name of the running playbook (`.cantbook`) — the first segment of the
+   * cantbook node identity `cantbook:<playbook>#<nodeId>` (T11759 · M4).
+   *
+   * Additive. The runtime always populates it for agentic nodes; the dispatcher
+   * uses it (with {@link nodeId}) to resolve a declared per-stage LLM profile
+   * through the E9 chokepoint. Optional only so an out-of-tree dispatcher that
+   * constructs an {@link AgentDispatchInput} directly remains source-compatible.
+   */
+  playbookName?: string;
+  /**
+   * The node's declared per-stage LLM pin (T11759 · M4) — lifted verbatim from
+   * {@link PlaybookAgenticNode.profile} / `.model` / `.provider`.
+   *
+   * Additive + all-optional. When any field is set the dispatcher resolves the
+   * stage's LLM through `resolveLLMForSystem` keyed by the cantbook node
+   * identity, honoring the profile pin; when all are unset resolution is
+   * unchanged. The runtime NEVER acts on these itself — it only forwards them.
+   */
+  profile?: string;
+  /** Inline model-id pin forwarded from {@link PlaybookAgenticNode.model} (T11759). */
+  model?: string;
+  /** Inline provider pin forwarded from {@link PlaybookAgenticNode.provider} (T11759). */
+  provider?: string;
 }
 
 /**
@@ -602,6 +626,7 @@ async function executeAgenticNode(
   context: Record<string, unknown>,
   iteration: number,
   dispatcher: AgentDispatcher,
+  playbookName: string,
 ): Promise<NodeOutcome> {
   const agentId = node.agent ?? node.skill;
   if (agentId === undefined) {
@@ -627,6 +652,13 @@ async function executeAgenticNode(
       context: { ...context },
       bindings,
       iteration,
+      // T11759 (M4): forward the playbook name + the node's per-stage LLM pin so
+      // the dispatcher can resolve a declared `profile:` through the E9
+      // chokepoint. All-additive; omitted when the node declares no pin.
+      playbookName,
+      ...(node.profile !== undefined ? { profile: node.profile } : {}),
+      ...(node.model !== undefined ? { model: node.model } : {}),
+      ...(node.provider !== undefined ? { provider: node.provider } : {}),
     });
     if (result.status === 'success') {
       return { kind: 'success', output: result.output };
@@ -942,7 +974,14 @@ async function runFromNode(args: {
 
     let outcome: NodeOutcome;
     if (node.type === 'agentic') {
-      outcome = await executeAgenticNode(node, run.runId, context, attempt, dispatcher);
+      outcome = await executeAgenticNode(
+        node,
+        run.runId,
+        context,
+        attempt,
+        dispatcher,
+        playbook.name,
+      );
     } else if (node.type === 'deterministic') {
       outcome = await executeDeterministicNode(
         node,

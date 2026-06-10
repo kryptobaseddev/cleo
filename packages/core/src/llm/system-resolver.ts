@@ -287,13 +287,22 @@ export async function resolveLLMForSystem(
   // T11748). The structured `{ kind: 'role', id }` descriptor carries NO label
   // to key that tier on, so it omits `systemKey` and walks the same tier chain
   // a bare `resolveLLMForRole(id)` call walks — preserving the AC1 equivalence.
-  const systemKey: string | undefined = isRoleSystem(system) ? undefined : system;
+  //
+  // T11759 (M4): an explicit `opts.systemKey` OVERRIDES the label-derived key.
+  // This lets an OPEN-axis caller (a `.cantbook` node keyed
+  // `cantbook:<playbook>#<nodeId>`) drive the `llm.systems[key]` granular tier +
+  // audit identity while passing a resolvable background label as `system`.
+  const systemKey: string | undefined =
+    opts?.systemKey ?? (isRoleSystem(system) ? undefined : system);
 
   let base: ResolvedLLM;
   try {
     base = await resolveLLMForRole(roleForResolution, {
       projectRoot: opts?.projectRoot,
       systemKey,
+      // T11759: pin a named profile (e.g. a `.cantbook` stage's `profile:`) as
+      // the highest-priority resolution tier. Absent/incomplete → falls through.
+      ...(opts?.profile !== undefined ? { profileOverride: opts.profile } : {}),
     });
   } catch (err) {
     // Mirror role-resolver's never-throw contract: return a null-credential

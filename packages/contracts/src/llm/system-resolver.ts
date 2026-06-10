@@ -151,4 +151,33 @@ export interface ResolveLLMForSystemOptions {
    * Ignored when the role is already determined by the input or `roleOverride`.
    */
   complexityPrompt?: string;
+
+  /**
+   * Explicit encoded system-of-use key for the `llm.systems[key]` granular
+   * override tier (T11759 · M4).
+   *
+   * The flat-label input form derives this key from `system` itself; this option
+   * lets a caller resolving an OPEN-axis system (whose identity is NOT a flat
+   * {@link SystemOfUseLabel}) — e.g. a `.cantbook` node keyed
+   * `cantbook:<playbook>#<nodeId>` — supply that identity as the granular
+   * override + audit key while passing a resolvable background label as
+   * `system`. When set, it OVERRIDES the label-derived key. Omit it and the
+   * pre-T11759 derivation is unchanged.
+   *
+   * @task T11759
+   */
+  systemKey?: string;
+
+  /**
+   * Optional named profile (a key of `llm.profiles`) that pins the resolution to
+   * a specific provider/model/credential, winning over the role tier (T11759 ·
+   * M4).
+   *
+   * Threaded down to `ResolveLLMForRoleOptions.profileOverride`. A `.cantbook`
+   * stage's `profile:` flows through here. When the named profile is
+   * absent/incomplete, resolution falls through the normal chain unchanged.
+   *
+   * @task T11759
+   */
+  profile?: string;
 }

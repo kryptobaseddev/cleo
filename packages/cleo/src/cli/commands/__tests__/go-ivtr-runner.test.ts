@@ -30,6 +30,8 @@ const mockGetNativeDb = vi.fn();
 const mockCreateToolGuard = vi.fn();
 const mockRunSkillNodeOrSpawn = vi.fn();
 const mockMaybeCreatePiRunner = vi.fn();
+const mockResolveCantbookNodeProfile = vi.fn();
+const mockHasCantbookProfilePin = vi.fn();
 const mockOrchestrateSpawnExecute = vi.fn();
 
 // `resolvePlaybook` is re-exported from `@cleocode/core` (static import).
@@ -54,6 +56,10 @@ vi.mock('@cleocode/core/internal', () => ({
   // T11945 (M4): default-OFF Pi runner wiring — returns undefined unless the flag
   // is set, so the dispatcher keeps the defaultSkillRunner path (zero change).
   maybeCreatePiRunner: (...args: unknown[]) => mockMaybeCreatePiRunner(...args),
+  // T11759 (M4): cantbook stage LLM-profile resolution seam. Un-pinned nodes
+  // skip it (`hasCantbookProfilePin` → false), so it is never called here.
+  resolveCantbookNodeProfile: (...args: unknown[]) => mockResolveCantbookNodeProfile(...args),
+  hasCantbookProfilePin: (...args: unknown[]) => mockHasCantbookProfilePin(...args),
 }));
 
 // Subprocess spawn gateway (dynamic import inside the dispatcher builder).

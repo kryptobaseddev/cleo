@@ -22,6 +22,17 @@ export {
   resolveMetaAgent,
 } from './agent-dispatcher.js';
 
+// Cantbook stage LLM-profile resolution — the seam the production cantbook
+// dispatchers call to resolve a node's `profile:` / `model:` / `provider:` pin
+// through the E9 chokepoint (`resolveLLMForSystem`). Gate-13: resolves metadata
+// only, never constructs a transport (T11759 · M4).
+export {
+  type CantbookProfilePin,
+  cantbookNodeSystemKey,
+  hasCantbookProfilePin,
+  type ResolveCantbookNodeProfileInput,
+  resolveCantbookNodeProfile,
+} from './cantbook-profile.js';
 export type { playbookCoreOps } from './ops.js';
 // Pi in-process runner wiring — default-OFF, lazy-imported Pi `SkillRunner` the
 // production cantbook dispatchers pass into `runSkillNodeOrSpawn`'s `runner`
