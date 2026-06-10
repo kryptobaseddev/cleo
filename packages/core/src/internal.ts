@@ -1010,6 +1010,18 @@ export {
 export { listPhases, showPhase } from './pipeline/index.js';
 // Platform (additional)
 export { getNodeUpgradeInstructions, getNodeVersionInfo } from './platform.js';
+// Guarded deterministic runner — routes every `deterministic` (shell) node
+// dispatch in executePlaybook through the guard.ts deny-first chokepoint (T11802).
+export type {
+  GuardedDeterministicInput,
+  GuardedDeterministicResult,
+  GuardedDeterministicRunner,
+  GuardedDeterministicRunnerOptions,
+} from './playbooks/guarded-deterministic-runner.js';
+export {
+  createGuardedDeterministicRunner,
+  DEFAULT_DETERMINISTIC_DENIED_COMMANDS,
+} from './playbooks/guarded-deterministic-runner.js';
 // Skill-node routing — in-process skill execution + retained subprocess spawn (T11477).
 export type { SkillNodeDispatchInput } from './playbooks/skill-node-executor.js';
 export { ISOLATION_CONTEXT_KEY, runSkillNodeOrSpawn } from './playbooks/skill-node-executor.js';

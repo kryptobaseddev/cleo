@@ -50,6 +50,7 @@ import {
   type AgentDispatcher,
   type AgentDispatchInput,
   type AgentDispatchResult,
+  type DeterministicRunner,
   E_PLAYBOOK_RESUME_BLOCKED,
   E_PLAYBOOK_RUNTIME_INVALID,
   type ExecutePlaybookResult,
@@ -93,6 +94,12 @@ export interface PlaybookRuntimeOverrides {
   db?: _DatabaseSyncType;
   /** Dispatcher to invoke for `agentic` nodes. */
   dispatcher?: AgentDispatcher;
+  /**
+   * Runner to invoke for `deterministic` (shell/tool) nodes. When tests override
+   * this they bypass {@link buildDefaultDeterministicRunner} entirely. Production
+   * callers leave it unset and get the guard-routed runner (T11802).
+   */
+  deterministicRunner?: DeterministicRunner;
   /**
    * Directory resolver for starter playbooks. Defaults to
    * `packages/playbooks/starter` but tests can point to a fixture dir.
@@ -338,11 +345,19 @@ async function buildDefaultDispatcher(): Promise<AgentDispatcher> {
     maybeCreatePiRunner,
     resolveCantbookNodeProfile,
     hasCantbookProfilePin,
+    DEFAULT_DETERMINISTIC_DENIED_COMMANDS,
   } = await import('@cleocode/core/internal');
   const projectRoot = getProjectRoot();
-  // In-process skill nodes execute over a deny-first guarded tool surface scoped
-  // to the project root (T11477 · AC4). Isolation/agent nodes keep spawning.
-  const tools = createToolGuard({ allowedRoots: [projectRoot] });
+  // In-process skill nodes (and, via buildDefaultDeterministicRunner, every
+  // `deterministic` shell step) execute over the SAME deny-first guarded tool
+  // surface scoped to the project root (T11477 · AC4 + T11802 · AC1). The shell
+  // denylist + `enforce` mode make a denied command reject BEFORE any process is
+  // spawned (T11802 · AC3). Isolation/agent nodes keep spawning subagents.
+  const tools = createToolGuard({
+    allowedRoots: [projectRoot],
+    deniedCommands: DEFAULT_DETERMINISTIC_DENIED_COMMANDS,
+    mode: 'enforce',
+  });
   // M4 keystone (T11945): when CLEO_PI_RUNNER_ENABLED=1, route in-process skill
   // nodes THROUGH the Pi agent loop. Default-OFF → `undefined` → defaultSkillRunner
   // (zero behaviour change). The helper lazy-imports the Pi barrel only when enabled.
@@ -447,6 +462,46 @@ async function buildDefaultDispatcher(): Promise<AgentDispatcher> {
       }
     },
   };
+}
+
+/**
+ * Build the default {@link DeterministicRunner} for `deterministic` (shell/tool)
+ * nodes (T11802). Every command is routed through the guard.ts deny-first
+ * chokepoint — the SAME guard (`allowedRoots` + `deniedCommands` + `enforce`)
+ * the skill executor uses — so NO `.cantbook` shell step can bypass the policy
+ * point (AC1) and a denied command is rejected before any spawn (AC3).
+ *
+ * Returns `undefined` (the runtime then applies its own fallback) in two cases:
+ *  - a test sets {@link PlaybookRuntimeOverrides.dispatcher} but not
+ *    `deterministicRunner` — the test wants a fully hermetic run, so the
+ *    production guard (which would call `getProjectRoot()`) is NOT constructed;
+ *    the runtime's deterministic→agentic fallback keeps existing tests
+ *    behaviour-identical.
+ *
+ * @internal
+ */
+async function buildDefaultDeterministicRunner(): Promise<DeterministicRunner | undefined> {
+  if (__playbookRuntimeOverrides.deterministicRunner) {
+    return __playbookRuntimeOverrides.deterministicRunner;
+  }
+  // Hermetic-test mode: a dispatcher override with no deterministic runner means
+  // the caller wants no production side effects — defer to the runtime fallback.
+  if (__playbookRuntimeOverrides.dispatcher) {
+    return undefined;
+  }
+  const {
+    getProjectRoot,
+    createToolGuard,
+    createGuardedDeterministicRunner,
+    DEFAULT_DETERMINISTIC_DENIED_COMMANDS,
+  } = await import('@cleocode/core/internal');
+  const projectRoot = getProjectRoot();
+  const tools = createToolGuard({
+    allowedRoots: [projectRoot],
+    deniedCommands: DEFAULT_DETERMINISTIC_DENIED_COMMANDS,
+    mode: 'enforce',
+  });
+  return createGuardedDeterministicRunner({ tools });
 }
 
 /**
@@ -683,6 +738,9 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
 
     const db = await acquireDb();
     const dispatcher = await buildDefaultDispatcher();
+    // T11802: route every `deterministic` (shell) node through the guard.ts
+    // deny-first chokepoint — no .cantbook shell step bypasses the policy point.
+    const deterministicRunner = await buildDefaultDeterministicRunner();
     let result: ExecutePlaybookResult;
     try {
       const { getProjectRoot } = await import('@cleocode/core/internal');
@@ -694,6 +752,7 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
         dispatcher,
         projectRoot: getProjectRoot(),
       };
+      if (deterministicRunner !== undefined) opts.deterministicRunner = deterministicRunner;
       if (__playbookRuntimeOverrides.approvalSecret !== undefined) {
         opts.approvalSecret = __playbookRuntimeOverrides.approvalSecret;
       }
@@ -793,6 +852,7 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
     }
 
     const dispatcher = await buildDefaultDispatcher();
+    const deterministicRunner = await buildDefaultDeterministicRunner();
     try {
       const opts: Parameters<typeof resumePlaybook>[0] = {
         db,
@@ -800,6 +860,7 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
         approvalToken: latest.token,
         dispatcher,
       };
+      if (deterministicRunner !== undefined) opts.deterministicRunner = deterministicRunner;
       if (__playbookRuntimeOverrides.approvalSecret !== undefined) {
         opts.approvalSecret = __playbookRuntimeOverrides.approvalSecret;
       }
