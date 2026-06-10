@@ -220,8 +220,42 @@ export {
   type CleoDbSnapshotOptions,
   openCleoDbSnapshot,
 } from './store/open-cleo-db.js';
+// Universal service-vault — store-level CRUD + policy-before-decrypt egress (T11937, epic T11765).
+export type {
+  AgentServiceGrantRow,
+  NewAgentServiceGrantRow,
+  NewServiceConfigRow,
+  NewServiceConnectionRow,
+  ServiceConfigRow,
+  ServiceConnectionRow,
+  ServiceConnectionStatus,
+} from './store/schema/cleo-global/services.js';
 // Skills DB chokepoint helpers — exposed for cleo dispatch (T9657 adopt-orphans wiring)
 export type { NewSkillRow, SkillRow, SkillSourceType } from './store/schema/skills-schema.js';
+export {
+  type ConnectServiceParams,
+  connectService,
+  getConnection,
+  grantAgentAccess,
+  listConnections,
+  openServiceVaultAtPath,
+  type ResolveServiceParams,
+  resolveSealedConnection,
+  revokeConnection,
+  type ServiceConnectionView,
+  type ServiceTokenBlob,
+  type ServiceVaultDeps,
+} from './store/service-connections-accessor.js';
+export {
+  evaluateServiceAccess,
+  parseSessionPolicy,
+  type ServiceGrant,
+  type SessionPolicy,
+  type SessionRateLimit,
+  type TrustDecision,
+  type TrustDenyReason,
+  type TrustEvalContext,
+} from './store/service-trust-gate.js';
 export {
   getSkillRow,
   listSkillsBySource,

@@ -2394,6 +2394,12 @@ export {
   validatorRejectionSchema,
   validatorVerdictSchema,
 } from './validator/index.js';
+// === Universal Service Vault — declarative service-provider registry (T11937, epic T11765) ===
+export type {
+  ServiceAuthKind,
+  ServiceProviderDef,
+} from './vault/service-provider.js';
+export { SERVICE_AUTH_KINDS, SERVICE_PROVIDERS } from './vault/service-provider.js';
 export type {
   TasksFrontierParamsInput,
   TasksRollupParamsInput,
