@@ -192,7 +192,7 @@ describe('updateTask', () => {
 
     await expect(
       updateTask({ taskId: 'T002', status: 'done' }, env.tempDir, accessor),
-    ).rejects.toThrow('incomplete dependencies');
+    ).rejects.toThrow('unresolved dependencies');
   });
 
   it('rejects mixed status=done updates with other fields', async () => {

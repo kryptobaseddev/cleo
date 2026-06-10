@@ -404,6 +404,8 @@
     "test:integration": "cd ../.. && vitest run --config packages/core/vitest.integration.config.ts",
     "gen:sdk": "node scripts/generate-sdk-client.mjs",
     "gen:sdk:check": "node scripts/generate-sdk-client.mjs --check",
+    "gen:tier-snapshot": "node scripts/gen-tier-snapshot.mjs",
+    "gen:tier-snapshot:check": "node scripts/gen-tier-snapshot.mjs --check",
     "postinstall": "node scripts/install-supervisor-binary.mjs"
   },
   "dependencies": {

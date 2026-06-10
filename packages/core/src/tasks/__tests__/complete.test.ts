@@ -102,7 +102,7 @@ describe('completeTask', () => {
     ]);
 
     await expect(completeTask({ taskId: 'T002' }, env.tempDir, accessor)).rejects.toThrow(
-      'incomplete dependencies',
+      'unresolved dependencies',
     );
   });
 
@@ -175,7 +175,7 @@ describe('completeTask', () => {
     ]);
 
     await expect(completeTask({ taskId: 'T002' }, env.tempDir, accessor)).rejects.toThrow(
-      'incomplete dependencies',
+      'unresolved dependencies',
     );
   });
 

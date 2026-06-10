@@ -82,6 +82,12 @@ export const completeCommand = defineCommand({
       description:
         'Reason for completing a parent that has cancelled children. Cancelled work does not silently satisfy completion; the reason is audited to .cleo/audit/cancelled-child-waiver.jsonl.',
     },
+    // T11954 (DHQ-071) — depends-edge waiver for stale/over-specified deps
+    'waive-depends': {
+      type: 'string',
+      description:
+        'Reason for completing a task whose own work is done but whose depends edges point at not-yet-terminal tasks (stale/over-specified). Audited to .cleo/audit/depends-waiver.jsonl.',
+    },
   },
   async run({ args }) {
     // T11692 (DHQ-057) — `cleo complete --describe` prints the op's I/O schema
@@ -100,6 +106,8 @@ export const completeCommand = defineCommand({
       waiveReason: args['waive-reason'] as string | undefined,
       // T10538 — cancelled-child waiver (PM-Core V2 agent-trust)
       cancelledChildWaiverReason: args['waive-cancelled-children'] as string | undefined,
+      // T11954 (DHQ-071) — depends-edge waiver for stale/over-specified deps
+      waiveDependsReason: args['waive-depends'] as string | undefined,
     });
 
     if (!response.success) {
