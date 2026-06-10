@@ -16,9 +16,11 @@
  * (`GET /v1/tasks/subscribe`, T11785). When `cleo daemon serve` is up this route
  * PROXIES that stream byte-for-byte (the daemon owns the real store-tailing
  * source). When the daemon is unreachable — Studio dev without a daemon — it
- * falls back to a Studio-local board-change detector (the same
- * `MAX(updated_at)` + `COUNT(*)` probe `/api/tasks/events` uses) emitted as
- * canonical `GatewayStreamEvent` frames, so the board stays live either way.
+ * falls back to a Studio-local board-change detector that routes through the
+ * `@cleocode/core` `listTasks` FACADE (CORE-first — NO raw SQL: the change
+ * signal is `max(updatedAt)` + active count derived from the core projection,
+ * the same surface `/api/tasks` GET reads), emitted as canonical
+ * `GatewayStreamEvent` frames so the board stays live either way.
  *
  * Secrets never cross the wire: the proxy forwards only the public stream body,
  * and the local fallback emits only the public board-change signal.
@@ -30,8 +32,9 @@
  */
 
 import type { GatewayStreamEvent } from '@cleocode/contracts/gateway';
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
+import { listTasks } from '@cleocode/core/tasks/list';
 import { createSseStream, encodeStreamEvent, SSE_HEADERS } from '@cleocode/runtime/gateway/http';
-import { getTasksDb } from '$lib/server/db/connections.js';
 import { resolveGatewayBaseUrl } from '../_dispatch.js';
 import type { RequestHandler } from './$types';
 
@@ -101,12 +104,16 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
   }
 
   // 2) Studio-local fallback — emit canonical GatewayStreamEvent frames from a
-  //    board-change probe so the board stays live without a running daemon.
+  //    CORE-first board-change probe (listTasks facade, NO raw SQL) so the board
+  //    stays live without a running daemon.
   const requestId = `studio-${Date.now().toString(36)}`;
+  const projectPath = ctx.projectPath;
   const stream = createSseStream((emitter) => {
     let seq = 0;
     let lastUpdated = '';
     let lastCount = -1;
+    /** Guards against overlapping ticks when a probe outlives its interval. */
+    let probing = false;
 
     /** Emit one canonical board-event `data` frame (dropped after close). */
     function emit(event: 'connected' | 'updated' | 'heartbeat'): void {
@@ -120,6 +127,22 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
       seq += 1;
     }
 
+    /**
+     * Derive the board-change signal through the `@cleocode/core` facade: the
+     * latest `updatedAt` + the non-archived task count. CORE-first — the same
+     * projection `/api/tasks` GET reads, never raw SQL.
+     */
+    async function probe(): Promise<{ latest: string; count: number }> {
+      const accessor = await getTaskAccessor(projectPath);
+      const result = await listTasks({ excludeArchived: true, limit: 1000 }, projectPath, accessor);
+      let latest = '';
+      for (const t of result.tasks) {
+        const u = t.updatedAt ?? t.createdAt;
+        if (typeof u === 'string' && u > latest) latest = u;
+      }
+      return { latest, count: result.tasks.length };
+    }
+
     // Initial connected frame so the store flips `connected` immediately.
     emit('connected');
 
@@ -128,33 +151,32 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
         clearInterval(interval);
         return;
       }
-      try {
-        const db = getTasksDb(ctx);
-        if (!db) return;
-        const row = db
-          .prepare(
-            `SELECT MAX(updated_at) as latest, COUNT(*) as cnt FROM tasks WHERE status != 'archived'`,
-          )
-          .get() as { latest: string | null; cnt: number };
-        const latest = row?.latest ?? '';
-        const cnt = row?.cnt ?? 0;
-        // First probe seeds the baseline (no spurious initial 'updated').
-        if (lastCount === -1) {
-          lastUpdated = latest;
-          lastCount = cnt;
-          emit('heartbeat');
-          return;
-        }
-        if (latest !== lastUpdated || cnt !== lastCount) {
-          lastUpdated = latest;
-          lastCount = cnt;
-          emit('updated');
-        } else {
-          emit('heartbeat');
-        }
-      } catch {
-        // Transient DB read error — keep the stream alive; next tick retries.
-      }
+      if (probing) return;
+      probing = true;
+      void probe()
+        .then(({ latest, count }) => {
+          if (emitter.closed) return;
+          // First probe seeds the baseline (no spurious initial 'updated').
+          if (lastCount === -1) {
+            lastUpdated = latest;
+            lastCount = count;
+            emit('heartbeat');
+            return;
+          }
+          if (latest !== lastUpdated || count !== lastCount) {
+            lastUpdated = latest;
+            lastCount = count;
+            emit('updated');
+          } else {
+            emit('heartbeat');
+          }
+        })
+        .catch(() => {
+          // Transient read error — keep the stream alive; next tick retries.
+        })
+        .finally(() => {
+          probing = false;
+        });
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
