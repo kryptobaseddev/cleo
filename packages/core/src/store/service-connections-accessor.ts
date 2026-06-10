@@ -436,6 +436,54 @@ export async function revokeConnection(
   return updated.length > 0;
 }
 
+/** The non-secret result of {@link deleteConnectionCascade}. */
+export interface DeleteConnectionResult {
+  /** Whether a `service_connections` row was deleted (`false` ⇒ no such connection). */
+  readonly deleted: boolean;
+  /** The deleted connection id, or `null` when no row matched. */
+  readonly connectionId: number | null;
+  /** How many `agent_service_grants` rows were cascaded-deleted alongside it. */
+  readonly grantsRemoved: number;
+}
+
+/**
+ * DELETE a connection and CASCADE its agent grants (the hard `service revoke`).
+ *
+ * Unlike {@link revokeConnection} (a soft status flip that keeps the row), this
+ * REMOVES the `service_connections` row entirely and first deletes every
+ * `agent_service_grants` row that references it. The cascade is performed
+ * EXPLICITLY in application code — the in-file FK on `service_connection_id` is
+ * declared without `ON DELETE CASCADE`, and `foreign_keys` is not assumed ON —
+ * so grants are deleted FIRST, then the connection, leaving no dangling grant.
+ *
+ * @returns A {@link DeleteConnectionResult} reporting the cascade outcome.
+ * @task T11941
+ */
+export async function deleteConnectionCascade(
+  provider: string,
+  label: string,
+  deps?: ServiceVaultDeps,
+): Promise<DeleteConnectionResult> {
+  const db = await resolveDb(deps);
+  const rows = await db
+    .select({ id: serviceConnections.id })
+    .from(serviceConnections)
+    .where(and(eq(serviceConnections.provider, provider), eq(serviceConnections.label, label)))
+    .limit(1);
+  const row = rows[0];
+  if (row === undefined) {
+    return { deleted: false, connectionId: null, grantsRemoved: 0 };
+  }
+  const connectionId = row.id;
+  // Cascade grants FIRST (no ON DELETE CASCADE on the FK), then the connection.
+  const removedGrants = await db
+    .delete(agentServiceGrants)
+    .where(eq(agentServiceGrants.serviceConnectionId, connectionId))
+    .returning({ agentId: agentServiceGrants.agentId });
+  await db.delete(serviceConnections).where(eq(serviceConnections.id, connectionId));
+  return { deleted: true, connectionId, grantsRemoved: removedGrants.length };
+}
+
 /**
  * GRANT an agent access to a connection with a session policy.
  *

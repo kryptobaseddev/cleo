@@ -30,6 +30,10 @@
 import {
   type OperationInputContract,
   type OperationInputContractRegistry,
+  serviceConnectInputContract,
+  serviceListInputContract,
+  serviceRevokeInputContract,
+  serviceStatusInputContract,
   tasksAddBatchInputContract,
   tasksAddInputContract,
   tasksUpdateInputContract,
@@ -58,6 +62,11 @@ export const INPUT_CONTRACTS: OperationInputContractRegistry = {
   'tasks.add': tasksAddInputContract,
   'tasks.add-batch': tasksAddBatchInputContract,
   'tasks.update': tasksUpdateInputContract,
+  // service-vault CLI verbs (T11941 · epic T11765 · M2-W4)
+  'service.connect': serviceConnectInputContract,
+  'service.list': serviceListInputContract,
+  'service.revoke': serviceRevokeInputContract,
+  'service.status': serviceStatusInputContract,
 };
 
 /**

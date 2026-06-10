@@ -9093,4 +9093,130 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+
+  // ── service domain: user-facing service-vault CLI verbs (T11941 · M2-W4) ──
+  // Four verbs making the universal vault USABLE from the CLI: connect (mutate —
+  // store a credential via token-direct or paste-code OAuth exchange), list
+  // (query — redacted connection views, NEVER the token), revoke (mutate — hard
+  // delete + cascade agent grants), status (query — connection health: expired?
+  // needsRefresh?). Thin handlers delegate to CORE accessor + service-oauth.
+  {
+    gateway: 'mutate',
+    domain: 'service',
+    operation: 'connect',
+    description:
+      'service.connect (mutate) — connect a service credential: store an already-obtained token (--token) OR exchange an OAuth authorization code (--paste-code + --code-verifier + --redirect-uri). Persists the token blob encryptGlobal-encrypted; returns the NON-SECRET connection identity (never the token).',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['provider'],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description: 'Service provider key (e.g. github, google, notion).',
+      },
+      {
+        name: 'label',
+        type: 'string',
+        required: false,
+        description: "Connection label, unique within the provider. Defaults to 'default'.",
+      },
+      {
+        name: 'token',
+        type: 'string',
+        required: false,
+        description: 'Direct access token to store (token-direct mode). SECRET — never echoed.',
+      },
+      {
+        name: 'refreshToken',
+        type: 'string',
+        required: false,
+        description: 'Optional refresh token paired with --token. SECRET.',
+      },
+      {
+        name: 'expiresAt',
+        type: 'string',
+        required: false,
+        description: 'ISO-8601 access-token expiry (token-direct mode).',
+      },
+      {
+        name: 'code',
+        type: 'string',
+        required: false,
+        description: 'OAuth authorization code from the redirect callback (paste-code mode).',
+      },
+      {
+        name: 'codeVerifier',
+        type: 'string',
+        required: false,
+        description: 'PKCE code verifier from service.auth-url, round-tripped (paste-code mode).',
+      },
+      {
+        name: 'redirectUri',
+        type: 'string',
+        required: false,
+        description: 'Redirect URI used in service.auth-url; must match (paste-code mode).',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'query',
+    domain: 'service',
+    operation: 'list',
+    description:
+      'service.list (query) — list service connections as NON-SECRET views (provider/label/status/scopes/expiresAt/hasCredentials). The decrypted token is NEVER surfaced.',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: false,
+        description: 'Optional provider filter; lists all providers when omitted.',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'service',
+    operation: 'revoke',
+    description:
+      'service.revoke (mutate) — DELETE a service connection and CASCADE its agent_service_grants. Returns the {count, deleted, grantsRemoved} envelope (count=0 when no such connection).',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['provider', 'label'],
+    params: [
+      { name: 'provider', type: 'string', required: true, description: 'Service provider key.' },
+      {
+        name: 'label',
+        type: 'string',
+        required: true,
+        description: 'Connection label to revoke.',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'query',
+    domain: 'service',
+    operation: 'status',
+    description:
+      'service.status (query) — report connection health: each connection adds `expired` + `needsRefresh` booleans computed from expires_at. NON-SECRET; never surfaces a token.',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: false,
+        description: 'Optional provider filter; reports all connections when omitted.',
+      },
+    ] satisfies ParamDef[],
+  },
 ];

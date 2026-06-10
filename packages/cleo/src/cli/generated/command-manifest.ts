@@ -877,6 +877,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/sequence.js')).sequenceCommand as CommandDef,
   },
   {
+    exportName: 'serviceCommand',
+    name: 'service',
+    description: 'Connect, list, revoke, and inspect service-vault credentials (github, google, …)',
+    load: async () => (await import('../commands/service.js')).serviceCommand as CommandDef,
+  },
+  {
     exportName: 'sessionCommand',
     name: 'session',
     description: 'Manage work sessions',

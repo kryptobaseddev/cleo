@@ -27,6 +27,13 @@
  */
 
 import {
+  type ConnectServiceParams,
+  connectService,
+  deleteConnectionCascade,
+  listConnections,
+  type ServiceConnectionView,
+} from '@cleocode/core';
+import {
   type BuildAuthUrlOptions,
   buildAuthUrl,
   type ExchangeCodeOptions,
@@ -93,8 +100,54 @@ export class ServiceHandler implements DomainHandler {
           );
         }
       }
+      case 'list':
+        return this.list(params, startTime);
+      case 'status':
+        return this.status(params, startTime);
       default:
         return unsupportedOp('query', 'service', operation, startTime);
+    }
+  }
+
+  /** Delegate `service.list` to CORE `listConnections` — redacted views only. */
+  private async list(
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    const provider = typeof params?.provider === 'string' ? params.provider : undefined;
+    try {
+      const connections = await listConnections(provider);
+      // `ServiceConnectionView` is secret-free by construction (no token field).
+      return wrapResult(
+        { success: true, data: { connections } },
+        'query',
+        'service',
+        'list',
+        startTime,
+      );
+    } catch (err) {
+      return errorResult('query', 'service', 'list', 'E_INTERNAL', messageOf(err), startTime);
+    }
+  }
+
+  /** Delegate `service.status` to CORE `listConnections` + map to health views. */
+  private async status(
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    const provider = typeof params?.provider === 'string' ? params.provider : undefined;
+    try {
+      const views = await listConnections(provider);
+      const connections = views.map((v) => toHealthView(v));
+      return wrapResult(
+        { success: true, data: { connections } },
+        'query',
+        'service',
+        'status',
+        startTime,
+      );
+    } catch (err) {
+      return errorResult('query', 'service', 'status', 'E_INTERNAL', messageOf(err), startTime);
     }
   }
 
@@ -108,14 +161,138 @@ export class ServiceHandler implements DomainHandler {
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
     switch (operation) {
+      case 'connect':
+        return this.connect(params, startTime);
       case 'exchange':
         return this.exchange(params, startTime);
       case 'refresh':
         return this.refresh(params, startTime);
+      case 'revoke':
+        return this.revoke(params, startTime);
       case 'self-heal':
         return this.selfHeal(params, startTime);
       default:
         return unsupportedOp('mutate', 'service', operation, startTime);
+    }
+  }
+
+  /**
+   * Delegate `service.connect` — store a credential. Two modes:
+   *   - token-direct: `token` (+ optional refreshToken/expiresAt/scopes) →
+   *     CORE `connectService` encrypts + persists the blob.
+   *   - paste-code: `code` + `codeVerifier` + `redirectUri` → CORE `exchangeCode`
+   *     runs the OAuth dance. The plaintext token NEVER crosses this boundary.
+   */
+  private async connect(
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    const provider = typeof params?.provider === 'string' ? params.provider : undefined;
+    if (!provider) {
+      return errorResult(
+        'mutate',
+        'service',
+        'connect',
+        'E_INVALID_INPUT',
+        'provider is required',
+        startTime,
+      );
+    }
+    const label = typeof params?.label === 'string' ? params.label : 'default';
+    const token = typeof params?.token === 'string' ? params.token : undefined;
+    const code = typeof params?.code === 'string' ? params.code : undefined;
+    try {
+      if (token !== undefined) {
+        const connectionId = await connectService(
+          buildConnectParams(provider, label, params, token),
+        );
+        return wrapResult(
+          {
+            success: true,
+            data: {
+              count: 1,
+              created: [String(connectionId)],
+              connection: { connectionId, provider, label, expiresAt: expiryOf(params) },
+            },
+          },
+          'mutate',
+          'service',
+          'connect',
+          startTime,
+        );
+      }
+      if (code !== undefined) {
+        const opts = buildExchangeOpts(params, code, label);
+        if (opts === null) {
+          return errorResult(
+            'mutate',
+            'service',
+            'connect',
+            'E_INVALID_INPUT',
+            'paste-code mode requires --code, --code-verifier, and --redirect-uri',
+            startTime,
+          );
+        }
+        const result = await exchangeCode(provider, opts);
+        return wrapResult(
+          {
+            success: true,
+            data: { count: 1, created: [String(result.connectionId)], connection: result },
+          },
+          'mutate',
+          'service',
+          'connect',
+          startTime,
+        );
+      }
+      return errorResult(
+        'mutate',
+        'service',
+        'connect',
+        'E_INVALID_INPUT',
+        'connect requires either --token (token-direct) or --code + --code-verifier + --redirect-uri (paste-code)',
+        startTime,
+      );
+    } catch (err) {
+      return errorResult('mutate', 'service', 'connect', 'E_INTERNAL', messageOf(err), startTime);
+    }
+  }
+
+  /** Delegate `service.revoke` to CORE `deleteConnectionCascade` (hard delete + cascade). */
+  private async revoke(
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    const provider = typeof params?.provider === 'string' ? params.provider : undefined;
+    const label = typeof params?.label === 'string' ? params.label : undefined;
+    if (!provider || !label) {
+      return errorResult(
+        'mutate',
+        'service',
+        'revoke',
+        'E_INVALID_INPUT',
+        'provider and label are required',
+        startTime,
+      );
+    }
+    try {
+      const result = await deleteConnectionCascade(provider, label);
+      return wrapResult(
+        {
+          success: true,
+          data: {
+            count: result.deleted ? 1 : 0,
+            deleted: result.deleted ? [`${provider}:${label}`] : [],
+            grantsRemoved: result.grantsRemoved,
+          },
+        },
+        'mutate',
+        'service',
+        'revoke',
+        startTime,
+      );
+    } catch (err) {
+      return errorResult('mutate', 'service', 'revoke', 'E_INTERNAL', messageOf(err), startTime);
     }
   }
 
@@ -269,8 +446,8 @@ export class ServiceHandler implements DomainHandler {
   /** Return declared operations for introspection and registry validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['auth-url'],
-      mutate: ['exchange', 'refresh', 'self-heal'],
+      query: ['auth-url', 'list', 'status'],
+      mutate: ['connect', 'exchange', 'refresh', 'revoke', 'self-heal'],
     };
   }
 }
@@ -278,4 +455,67 @@ export class ServiceHandler implements DomainHandler {
 /** Extract a human-readable message from a thrown value. */
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Read the ISO-8601 `expiresAt` param when present (token-direct connect). */
+function expiryOf(params: Record<string, unknown> | undefined): string | null {
+  return typeof params?.expiresAt === 'string' ? params.expiresAt : null;
+}
+
+/** Build {@link ConnectServiceParams} for token-direct `service.connect`. */
+function buildConnectParams(
+  provider: string,
+  label: string,
+  params: Record<string, unknown> | undefined,
+  token: string,
+): ConnectServiceParams {
+  const refreshToken = typeof params?.refreshToken === 'string' ? params.refreshToken : undefined;
+  const scopes = Array.isArray(params?.scopes)
+    ? params.scopes.filter((s): s is string => typeof s === 'string')
+    : undefined;
+  return {
+    provider,
+    label,
+    tokens: { accessToken: token, ...(refreshToken !== undefined ? { refreshToken } : {}) },
+    ...(scopes !== undefined ? { scopes } : {}),
+    ...(typeof params?.expiresAt === 'string' ? { expiresAt: params.expiresAt } : {}),
+  };
+}
+
+/** Build {@link ExchangeCodeOptions} for paste-code `service.connect`; null when incomplete. */
+function buildExchangeOpts(
+  params: Record<string, unknown> | undefined,
+  code: string,
+  label: string,
+): ExchangeCodeOptions | null {
+  const codeVerifier = typeof params?.codeVerifier === 'string' ? params.codeVerifier : undefined;
+  const redirectUri = typeof params?.redirectUri === 'string' ? params.redirectUri : undefined;
+  if (codeVerifier === undefined || redirectUri === undefined) return null;
+  return { code, codeVerifier, redirectUri, label };
+}
+
+/** Map a redacted {@link ServiceConnectionView} to a health view (expired? needsRefresh?). */
+function toHealthView(v: ServiceConnectionView): {
+  provider: string;
+  label: string;
+  status: ServiceConnectionView['status'];
+  expiresAt: string | null;
+  expired: boolean;
+  needsRefresh: boolean;
+  hasCredentials: boolean;
+} {
+  const expired =
+    v.status === 'expired' ||
+    (v.expiresAt !== null &&
+      Number.isFinite(Date.parse(v.expiresAt)) &&
+      Date.parse(v.expiresAt) <= Date.now());
+  return {
+    provider: v.provider,
+    label: v.label,
+    status: v.status,
+    expiresAt: v.expiresAt,
+    expired,
+    needsRefresh: expired && v.hasCredentials,
+    hasCredentials: v.hasCredentials,
+  };
 }

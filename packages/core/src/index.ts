@@ -236,6 +236,8 @@ export {
   type ConnectServiceParams,
   connectService,
   type DecryptedConnection,
+  type DeleteConnectionResult,
+  deleteConnectionCascade,
   getConnection,
   grantAgentAccess,
   listConnections,
