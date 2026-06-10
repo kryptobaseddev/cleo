@@ -29,6 +29,7 @@ const mockGetDb = vi.fn();
 const mockGetNativeDb = vi.fn();
 const mockCreateToolGuard = vi.fn();
 const mockRunSkillNodeOrSpawn = vi.fn();
+const mockMaybeCreatePiRunner = vi.fn();
 const mockOrchestrateSpawnExecute = vi.fn();
 
 // `resolvePlaybook` is re-exported from `@cleocode/core` (static import).
@@ -50,6 +51,9 @@ vi.mock('@cleocode/core/internal', () => ({
   getNativeDb: (...args: unknown[]) => mockGetNativeDb(...args),
   createToolGuard: (...args: unknown[]) => mockCreateToolGuard(...args),
   runSkillNodeOrSpawn: (...args: unknown[]) => mockRunSkillNodeOrSpawn(...args),
+  // T11945 (M4): default-OFF Pi runner wiring — returns undefined unless the flag
+  // is set, so the dispatcher keeps the defaultSkillRunner path (zero change).
+  maybeCreatePiRunner: (...args: unknown[]) => mockMaybeCreatePiRunner(...args),
 }));
 
 // Subprocess spawn gateway (dynamic import inside the dispatcher builder).

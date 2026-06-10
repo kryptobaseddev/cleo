@@ -158,11 +158,17 @@ const runIvtrPlaybookTurn: go.IvtrRunner = async (taskId, options) => {
  */
 const buildGoDispatcher = async (projectRoot: string): Promise<AgentDispatcher> => {
   const { orchestrateSpawnExecute } = await import('@cleocode/runtime/gateway');
-  const { createToolGuard, runSkillNodeOrSpawn } = await import('@cleocode/core/internal');
+  const { createToolGuard, runSkillNodeOrSpawn, maybeCreatePiRunner } = await import(
+    '@cleocode/core/internal'
+  );
 
   // In-process skill nodes execute over a deny-first guarded tool surface scoped
   // to the project root (mirrors playbook.ts AC4). Isolation/agent nodes spawn.
   const tools = createToolGuard({ allowedRoots: [projectRoot] });
+  // M4 keystone (T11945): when CLEO_PI_RUNNER_ENABLED=1, route in-process skill
+  // nodes THROUGH the Pi agent loop. Default-OFF → `undefined` → defaultSkillRunner
+  // (zero behaviour change). The helper lazy-imports the Pi barrel only when enabled.
+  const runner = await maybeCreatePiRunner({ system: 'task-executor', projectRoot });
 
   /** Subprocess-spawn fallback — retained for isolation/agent nodes. */
   const spawn = async (input: AgentDispatchInput): Promise<AgentDispatchResult> => {
@@ -194,9 +200,16 @@ const buildGoDispatcher = async (projectRoot: string): Promise<AgentDispatcher> 
   return {
     async dispatch(input: AgentDispatchInput): Promise<AgentDispatchResult> {
       try {
+        // With the Pi runner wired (T11945) the in-process node runs through the
+        // Pi loop; `runner: undefined` (default-OFF) keeps the defaultSkillRunner path.
         return await runSkillNodeOrSpawn(
           { nodeId: input.nodeId, agentId: input.agentId, context: input.context },
-          { tools, cwd: projectRoot, subprocessSpawn: () => spawn(input) },
+          {
+            tools,
+            cwd: projectRoot,
+            subprocessSpawn: () => spawn(input),
+            ...(runner !== undefined ? { runner } : {}),
+          },
         );
       } catch (err) {
         return {
