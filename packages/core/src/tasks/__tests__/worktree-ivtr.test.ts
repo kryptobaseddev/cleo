@@ -287,15 +287,29 @@ describe('T-WT-4 Scenario 3 — T9178 branch-scope check still enforced', () => 
 });
 
 // =============================================================================
-// Scenario 4: Main commit rejected when task branch exists (T9178 guard active)
+// Scenario 4: Main commit accepted when task branch exists (DHQ-083a policy)
 //
-// Non-regression: ensures T9178 still blocks phantom evidence.
-// A worker must NOT be able to submit a main-branch commit as "implemented"
-// evidence for a task that has its own branch — this would be cross-branch
-// fabrication (the known attack vector T9178 closes).
+// Policy supersession (T11959 / DHQ-083):
+//   The old T9178 guard blanket-rejected any commit that was reachable from
+//   main but NOT from `task/<taskId>` when the task branch existed. This
+//   blocked a legitimate workflow: after a PR is merged the task branch is
+//   deleted (or the SHA is only reachable from main), so a post-merge
+//   `cleo verify` using the merge commit SHA would always fail.
+//
+//   DHQ-083 companion (a) supersedes T9178 for main-reachable commits:
+//     - A commit REACHABLE FROM MAIN is now ACCEPTED even when the task
+//       branch exists and the commit is NOT on that branch.
+//     - False-claim risk is mitigated by the content-intersect check
+//       (T9245): the commit's diff must still touch at least one declared
+//       AC file. Tasks without declared AC files skip the intersect check,
+//       which is an accepted trade-off (legacy tasks / decision-only tasks).
+//
+//   The T9178 cross-branch fabrication guard remains active for commits that
+//   are NOT reachable from either the task branch OR main — those are still
+//   rejected as phantom evidence.
 // =============================================================================
 
-describe('T-WT-4 Scenario 4 — main commit rejected when task branch exists (T9178 guard)', () => {
+describe('T-WT-4 Scenario 4 — main commit accepted when task branch exists (DHQ-083a)', () => {
   let env: TestDbEnv;
 
   beforeEach(async () => {
@@ -309,15 +323,20 @@ describe('T-WT-4 Scenario 4 — main commit rejected when task branch exists (T9
     resetDbState();
   });
 
-  it('REJECTS main-branch commit when taskId provided and task branch exists', async () => {
+  it('ACCEPTS main-branch commit when taskId provided and task branch exists (DHQ-083a)', async () => {
+    // T9178 guard superseded by DHQ-083/T11959 for the merged-PR case.
+    // A commit reachable from main is now accepted even when task branch exists.
+    // The content-intersect check (T9245) remains as the primary false-claim guard.
     await seedTasks(env.accessor, [
       {
         id: 'T_WT4_S4',
         title: 'wt4-scenario4',
-        description: 'T9178 active — main commit rejected when task branch exists',
+        description: 'DHQ-083a — main commit accepted when task branch exists',
         status: 'pending',
         priority: 'high',
-        // No declared AC files → content-intersect skipped; rejection from branch-scope.
+        // No declared AC files → content-intersect skipped.
+        // This is intentional: the test focuses on the branch-scope policy change.
+        // In production, tasks should declare AC files for content-intersect protection.
         files: [],
         acceptance: ['implement something'],
       } as Partial<Task> & { id: string },
@@ -332,6 +351,7 @@ describe('T-WT-4 Scenario 4 — main commit rejected when task branch exists (T9
     });
 
     // Switch back to main and make a commit that exists ONLY on main.
+    // This simulates: PR merged, task branch deleted, SHA only on main.
     execFileSync('git', ['checkout', '-q', 'main'], { cwd: env.tempDir });
     writeFileSync(join(env.tempDir, 'main-only-file.ts'), 'export const mainOnly = true;\n');
     execFileSync('git', ['add', 'main-only-file.ts'], { cwd: env.tempDir });
@@ -355,14 +375,12 @@ describe('T-WT-4 Scenario 4 — main commit rejected when task branch exists (T9
     }
     expect(isOnTaskBranch).toBe(false); // confirm: main commit is NOT on task branch
 
-    // T9178 guard MUST reject: main-only commit used as evidence for a task
-    // that has its own branch.
+    // DHQ-083a policy: main-reachable commit MUST be accepted even when the
+    // task branch exists and the commit is not on it.
+    // This covers the post-merge-PR case where the branch was deleted after merge.
+    // T9178 blanket rejection is superseded; content-intersect (T9245) is the guard.
     const r = await validateAtom({ kind: 'commit', sha: mainOnlySha }, env.tempDir, 'T_WT4_S4');
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.codeName).toBe('E_EVIDENCE_INVALID');
-      expect(r.reason).toMatch(/task\/T_WT4_S4/);
-    }
+    expect(r.ok).toBe(true);
   });
 
   it('REJECTS commit on task branch when no taskId provided (backward-compat)', async () => {

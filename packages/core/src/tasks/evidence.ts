@@ -706,9 +706,16 @@ async function gitShowFiles(sha: string, projectRoot: string): Promise<string[]>
   // diff-tree with --first-parent gives a clean single-parent diff for both
   // regular commits and merge commits (compares merge result to first parent,
   // i.e. the branch tip before the PR was merged).
+  //
+  // --root: Without this flag, git diff-tree returns EMPTY output for the
+  // repository's initial (root) commit because there is no parent to diff
+  // against. Adding --root causes the root commit to be treated as a diff
+  // against the empty tree, correctly listing all files it introduced.
+  // This fixes the gate-verify-hint tests (and any real workflow) where the
+  // evidence commit happens to be the very first commit in the repo (T11959).
   const r = await runCommand(
     'git',
-    ['diff-tree', '--no-commit-id', '-r', '--name-only', '-m', '--first-parent', sha],
+    ['diff-tree', '--root', '--no-commit-id', '-r', '--name-only', '-m', '--first-parent', sha],
     projectRoot,
   );
   if (r.exitCode !== 0) return [];
