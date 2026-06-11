@@ -369,18 +369,18 @@ export const webCommand = defineCommand({
 
     // Print the URL to stderr so it is visible regardless of --output mode.
     // Agents reading stdout still get a clean LAFS envelope; humans at a
-    // terminal see the URL on stderr. stdout-write-allowed: web command URL
-    // print (T11980 batteries-included surface).
-    process.stderr.write(`Opening Studio: ${studioUrl}\n`);
+    // terminal see the URL on stderr.
+    const urlNotice = `Opening Studio: ${studioUrl}\n`;
+    process.stderr.write(urlNotice); // json-stream-hygiene-allowed: TTY-facing URL notice for cleo web batteries-included (T11980)
 
     // Note about Studio assets: T11979 ships the static bundle in a parallel
     // lane. If it is not yet merged, the gateway returns a 404 at the root.
     // We do NOT check for the bundle here — that is T11979's concern.
     // Print a one-line note so the user knows what to expect.
-    process.stderr.write(
+    const installNote =
       '  Note: Studio static bundle ships in T11979 (parallel lane).\n' +
-        '  If the page is blank, the bundle may not yet be deployed in this install.\n',
-    );
+      '  If the page is blank, the bundle may not yet be deployed in this install.\n';
+    process.stderr.write(installNote); // json-stream-hygiene-allowed: TTY-facing install note for cleo web batteries-included (T11980)
 
     cliOutput(
       { url: studioUrl, port, host, gatewayAutoStart: autoStart },
