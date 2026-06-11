@@ -30,13 +30,13 @@
  * @task T11980
  */
 
-import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createWriteStream } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import * as net from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnWrapped } from '@cleocode/core/resources/spawn-wrapper.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -272,11 +272,19 @@ export async function spawnGatewayIfDown(
   if (host !== GATEWAY_DEFAULT_HOST) spawnArgs.push('--host', host);
 
   try {
-    const child = spawn(process.execPath, [cliEntry, ...spawnArgs], {
-      detached: true,
-      stdio: ['ignore', outFd, errFd],
-      env: { ...process.env, CLEO_GATEWAY_AUTO_STARTED: '1' },
-    });
+    // Route through the spawn-wrapper SSoT (T11993) so the gateway child lands
+    // inside cleo.slice with LimitCORE=0 and — as a daemon-class scope — the
+    // ManagedOOMPreference=avoid flag (write-txn holder protection).
+    const { child } = spawnWrapped(
+      process.execPath,
+      [cliEntry, ...spawnArgs],
+      {
+        detached: true,
+        stdio: ['ignore', outFd, errFd],
+        env: { ...process.env, CLEO_GATEWAY_AUTO_STARTED: '1' },
+      },
+      { scopeClass: 'daemon', scopeId: 'gateway' },
+    );
     child.unref();
   } catch (err) {
     const reason = `gateway auto-start: spawn failed — ${err instanceof Error ? err.message : String(err)}`;

@@ -35,6 +35,7 @@ import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
 import { installDaemonExitGuard } from '../llm/pi/pi-errors.js';
 import { reVerifyWorkerReport } from '../orchestrate/worker-verify.js';
+import { spawnWrapped } from '../resources/spawn-wrapper.js';
 import { safeRunCrossProjectHygiene } from './cross-project-hygiene.js';
 import { type ProposeTickOptions, safeRunProposeTick } from './propose-tick.js';
 import { patchSentientState, readSentientState, type SentientState } from './state.js';
@@ -283,12 +284,21 @@ export class StudioSupervisor {
       NODE_ENV: 'production',
     };
 
-    const child = spawn(process.execPath, [studioEntry], {
-      cwd: this.#studioPackageDir,
-      env,
-      stdio: 'inherit',
-      detached: false,
-    });
+    // Route through the spawn-wrapper SSoT (T11993) so the Studio child lands
+    // inside cleo.slice.  Studio is a daemon-class process (it holds the
+    // Studio HTTP server state and may hold open DB handles), so it gets
+    // ManagedOOMPreference=avoid + LimitCORE=0.
+    const { child } = spawnWrapped(
+      process.execPath,
+      [studioEntry],
+      {
+        cwd: this.#studioPackageDir,
+        env,
+        stdio: 'inherit',
+        detached: false,
+      },
+      { scopeClass: 'daemon', scopeId: 'studio' },
+    );
 
     this.#child = child;
     this.#status = 'running';
