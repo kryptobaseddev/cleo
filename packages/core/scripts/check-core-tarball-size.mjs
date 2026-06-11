@@ -18,11 +18,34 @@
  *
  * On failure it prints the largest contributors so the regression is obvious.
  *
+ * ## Budget rationale (T11976 / DHQ-079 — raised 25 MB → 30 MB)
+ *
+ * Baseline composition (v2026.6.14, binaries from release builds):
+ *
+ * | Category                          | Unpacked  | Packed (est.) |
+ * |-----------------------------------|-----------|---------------|
+ * | dist/.js runtime                  | ~16.3 MB  | ~5.2 MB       |
+ * | dist/.d.ts type declarations      |  ~7.5 MB  | ~2.1 MB       |
+ * | dist/.js.map source maps          |  ~9.2 MB  | ~2.6 MB       |
+ * | dist/.d.ts.map declaration maps   |  ~1.9 MB  | ~0.5 MB       |
+ * | migrations + schemas + templates  |  ~1.9 MB  | ~0.4 MB       |
+ * | cleo-supervisor binary (est.)     |  ~8-12 MB | ~7-10 MB      |
+ * | worktree-napi .node (measured)    |  ~3.1 MB  | ~2.8 MB       |
+ * | **Total today**                   |           | **~18-22 MB** |
+ * | T11979 Studio assets (planned)    |           | +3-5 MB       |
+ * | **Total with Studio**             |           | **~21-27 MB** |
+ *
+ * 30 MB gives ~3-9 MB headroom above the Studio-inclusive estimate.
+ * Source maps (.js.map + .d.ts.map, ~3.1 MB packed) are the first trim lever
+ * if a future change pushes past 30 MB. Do NOT trim selfimprove scenario
+ * fixtures (dist/selfimprove/scenarios/) — they are loaded at runtime (DHQ-078).
+ *
  * Usage:
  *   node packages/core/scripts/check-core-tarball-size.mjs
  *
  * @task T11342
  * @task T11580
+ * @task T11976
  */
 
 import { execFileSync } from 'node:child_process';
@@ -36,9 +59,14 @@ const PKG_ROOT = join(__dirname, '..');
 
 /**
  * The single named tarball-size threshold (no magic numbers scattered).
- * 25 MB packed, matching T11342 AC1 / the gen7 packaging budget.
+ *
+ * Raised from 25 MB → 30 MB (T11976 / DHQ-079):
+ * - Measured v2026.6.14 baseline (code-only, no binaries): 7.8 MB packed.
+ * - With compiled Rust binaries (supervisor + worktree-napi): ~18-22 MB packed.
+ * - T11979 will add Studio assets (~3-5 MB packed); 30 MB gives ~3-9 MB headroom.
+ * - Source maps are the first trim lever if this limit needs revisiting.
  */
-export const MAX_CORE_TARBALL_MB = 25;
+export const MAX_CORE_TARBALL_MB = 30;
 
 /** The threshold expressed in bytes for the size comparison. */
 export const MAX_CORE_TARBALL_BYTES = MAX_CORE_TARBALL_MB * 1024 * 1024;

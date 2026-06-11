@@ -2,12 +2,26 @@ name: Core Tarball Size Gate
 
 # @task T11342 — SG-RUNTIME-UNIFICATION R1 (T11252).
 # @task T11580 — R10-L1: worktree-napi joins the supervisor picker.
+# @task T11976 — DHQ-079 fix: filter bug + 25→30 MB budget (Studio headroom T11979).
 #
-# Asserts the packed @cleocode/core tarball stays <= 25 MB and bundles ONLY the
+# Asserts the packed @cleocode/core tarball stays <= 30 MB and bundles ONLY the
 # linux-x64-gnu fallback for each CLEO-managed native binary family
 # (cleo-supervisor + worktree-napi, Pattern P1). Fails the build with a
 # largest-contributors message when the budget is exceeded or an extra platform
 # binary sneaks in.
+#
+# Budget composition (v2026.6.14 baseline, binaries estimated from release builds):
+#   dist/.js files (runtime):         ~16.3 MB uncompressed / ~5.2 MB packed
+#   dist/.d.ts files (type decls):     ~7.5 MB uncompressed / ~2.1 MB packed
+#   dist/.js.map (source maps):        ~9.2 MB uncompressed / ~2.6 MB packed (optional trim)
+#   dist/.d.ts.map (decl maps):        ~1.9 MB uncompressed / ~0.5 MB packed (optional trim)
+#   migrations + schemas + templates:  ~1.9 MB uncompressed / ~0.4 MB packed
+#   cleo-supervisor binary (est.):     ~8-12 MB binary       / ~7-10 MB packed
+#   worktree-napi .node (measured):    ~3.1 MB binary        / ~2.8 MB packed
+#   ─────────────────────────────────────────────────────────────────────────
+#   Total estimate (today):           ~18-22 MB packed → 30 MB budget leaves ~8-12 MB headroom
+#   T11979 Studio assets (planned):   +3-5 MB packed (Svelte/JS bundles)
+#   → 30 MB accommodates today's content + Studio; maps are the first trim lever.
 #
 # Runs at RELEASE-TAG time (and on-demand), NOT on PRs/main: the assertion is only
 # meaningful once the cross-compiled linux-x64-gnu fallback binaries have been
@@ -22,7 +36,7 @@ on:
 
 jobs:
   tarball-size:
-    name: core tarball <= 25MB
+    name: core tarball <= 30MB
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -36,12 +50,19 @@ jobs:
           cache: pnpm
 
       - name: Install workspace dependencies
-        run: pnpm install --frozen-lockfile --filter '!@cleocode/studio'
+        # Install core + its transitive dependencies only (no studio or other consumers).
+        # `...@cleocode/core` = core and everything core depends on (leading `...`).
+        # The previous `--filter '!@cleocode/studio'` install + `@cleocode/core...`
+        # build filter was wrong: trailing `...` means "core and its dependents"
+        # (everything that depends on core, including studio), which caused the
+        # studio vite build to run and fail with missing @sveltejs/kit (T11976 / DHQ-079).
+        run: pnpm install --frozen-lockfile --filter '...@cleocode/core'
 
       # @cleocode/core's `files` includes `dist`, so it must be built before
       # `npm pack` reflects the real tarball contents.
       - name: Build @cleocode/core (+ deps)
-        run: pnpm --filter @cleocode/core... run build
+        # Same leading-... filter: build core and every package it depends on.
+        run: pnpm --filter '...@cleocode/core' run build
 
       # Stage the P1 fallback binary so the gate measures the REAL shipped
       # tarball (with the linux-x64-gnu fallback bundled), not a stripped one.
