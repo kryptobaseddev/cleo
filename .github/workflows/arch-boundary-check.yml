@@ -328,6 +328,32 @@ jobs:
       - name: Lint no NET-NEW bare getActiveSession callsites (baseline mode)
         run: node scripts/lint-no-bare-get-active-session.mjs --check
 
+  installer-node-floor:
+    # T11981 · Epic T11671 E6-ONBOARDING
+    #
+    # Asserts that the NODE_FLOOR_MAJOR/MINOR/PATCH constants baked into
+    # scripts/install.sh and scripts/install.ps1 match the repo's Node floor
+    # SSoT (root package.json engines.node). The installers embed constants
+    # because they run on a plain POSIX shell / PowerShell without a JSON
+    # parser; if the constants drift, machines just above the stale floor
+    # install successfully but fail at runtime with cryptic native-module errors.
+    #
+    # Bumping the floor is a single edit to root engines.node; this gate
+    # surfaces the required follow-up (update installer constants) in CI before
+    # the bump reaches main.
+    #
+    # Pure static analysis of checked-in source — no untrusted input.
+    name: Installer Node Floor SSoT (T11981)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint installer Node floor matches engines.node SSoT
+        run: node scripts/lint-installer-node-floor.mjs
+
   merge-bar-aggregate:
     # T11955 · DHQ-072 · Epic T11679 (DHQ burn-down)
     #
@@ -403,6 +429,7 @@ jobs:
       - llm-chokepoint-guard
       - output-contract-coverage
       - no-bare-get-active-session
+      - installer-node-floor
       - merge-bar-aggregate
     steps:
       - name: Verify every arch-boundary job passed (or was skipped)
