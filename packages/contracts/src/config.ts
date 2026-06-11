@@ -782,6 +782,67 @@ export interface DaemonConfig {
   autoStart: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Resources config (T11994 · PSI + MemAvailable sensing)
+// ---------------------------------------------------------------------------
+
+/**
+ * PSI pressure thresholds for the ResourceMonitor.
+ *
+ * Values are percentage points (0–100) for `avg10` exponential moving averages.
+ * Defaults sit far below systemd-oomd's Fedora kill line (80%/20s on
+ * user@1000.service).
+ *
+ * @task T11994
+ */
+export interface ResourcesPsiConfig {
+  /**
+   * Enter `hold` state when `some avg10` exceeds this value.
+   * @defaultValue 10
+   */
+  holdSomeAvg10?: number;
+  /**
+   * Enter `backoff` state when `some avg10` exceeds this value.
+   * @defaultValue 20
+   */
+  backoffSomeAvg10?: number;
+  /**
+   * Enter `hold` state when `full avg10` exceeds this value.
+   * @defaultValue 5
+   */
+  holdFullAvg10?: number;
+  /**
+   * Enter `backoff` state when `full avg10` exceeds this value.
+   * @defaultValue 10
+   */
+  backoffFullAvg10?: number;
+}
+
+/**
+ * Resource monitor configuration.
+ *
+ * Optional block — all fields have safe defaults. Maps to the
+ * `resources.*` config namespace (Amendment 5 · T11994).
+ *
+ * @task T11994
+ */
+export interface ResourcesConfig {
+  /**
+   * PSI pressure thresholds (percentage points).
+   *
+   * @defaultValue undefined (monitor uses built-in defaults)
+   */
+  psi?: ResourcesPsiConfig;
+  /**
+   * Minimum free memory headroom in MiB.
+   *
+   * Used in degraded mode (PSI absent) as the sole availability signal.
+   *
+   * @defaultValue 256
+   */
+  headroomMb?: number;
+}
+
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
   /** Configuration schema version string. */
@@ -880,6 +941,17 @@ export interface CleoConfig {
    * @task T11984
    */
   daemon?: DaemonConfig;
+  /**
+   * Resource monitor configuration — PSI pressure thresholds and memory
+   * headroom for the daemon-off governor and continuous supervisor mode.
+   *
+   * When absent, the ResourceMonitor uses built-in defaults which sit well
+   * below systemd-oomd's Fedora kill line (80%/20s on user@1000.service).
+   *
+   * @defaultValue undefined (ResourceMonitor uses built-in defaults)
+   * @task T11994
+   */
+  resources?: ResourcesConfig;
 }
 
 /**
