@@ -225,6 +225,44 @@ async function startCli(): Promise<void> {
   setDescribeMode(describeFlag);
 
   // ---------------------------------------------------------------------------
+  // Bare `cleo` (no args) on a TTY → launch the Pi-powered TUI (T11980).
+  //
+  // Contract:
+  //   - argv is EMPTY (zero arguments after binary strip)
+  //   - stdout IS a TTY (process.stdout.isTTY === true)
+  //
+  // Both conditions MUST hold. When either is false the request falls through
+  // to the normal no-args path (help/usage/envelope) so that:
+  //   - cleo --help          → still prints command listing
+  //   - cleo | cat           → non-TTY; emits help envelope (automation safe)
+  //   - CI / scripts         → non-TTY; automation-safe envelope preserved
+  //   - cleo show T1         → positional arg present; normal dispatch
+  //
+  // The TUI launch is deliberately BEFORE startup maintenance because the
+  // cockpit opens its own DB connections through the gateway SDK — running the
+  // full startup maintenance (signaldock migrations, salt validation) before a
+  // human sees their first frame adds latency with no benefit.
+  // ---------------------------------------------------------------------------
+  if (argv.length === 0 && process.stdout.isTTY === true) {
+    // Lazy import keeps the cockpit + gateway-auto-start off ALL other paths.
+    const { runCockpit } = await import('./lib/tui/cockpit.js');
+    // Read the project config tolerantly — if we can't read it, default to
+    // autoStart=true (the happy path). We do NOT hard-import core here to stay
+    // near-instant; config read is best-effort.
+    let autoStart = true;
+    try {
+      const { getRawConfig } = await import('@cleocode/core');
+      const cfg = await getRawConfig();
+      const { shouldAutoStartGateway } = await import('./lib/gateway-auto-start.js');
+      autoStart = shouldAutoStartGateway(cfg as Record<string, unknown> | undefined);
+    } catch {
+      // Config unreadable or no project — proceed with autoStart=true default.
+    }
+    await runCockpit({ autoStart });
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
   // Fast-path for help / version / no-args invocations.
   //
   // The startup maintenance block (legacy cleanup, T310 migrations, conduit DB

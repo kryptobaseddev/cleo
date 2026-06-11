@@ -1031,7 +1031,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'webCommand',
     name: 'web',
-    description: 'Manage CLEO Web UI server',
+    description: 'Open CLEO Studio in the browser (starts gateway on demand)',
     load: async () => (await import('../commands/web.js')).webCommand as CommandDef,
   },
   {
