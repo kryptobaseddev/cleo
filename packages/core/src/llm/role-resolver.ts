@@ -48,6 +48,7 @@ import { deriveApiWire } from './api-mode.js';
 import { CredentialPool } from './credential-pool.js';
 import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
+import { selectBestProvisioned } from './cross-provider-selector.js';
 import { IMPLICIT_FALLBACK_MODEL } from './fallback-model.js';
 import { makeSealedCredential, tokenPreview } from './sealed-credential.js';
 import { getRegisteredSystemDefault } from './system-of-use-registry.js';
@@ -352,28 +353,37 @@ function resolveRegisteredSystemDefault(
  *   5. `defaultProfile` → named profile (`source: 'default-profile'`)
  *   6. `registerSystemOfUse` default (`source: 'registered-default'`) — runtime
  *      registration, consulted strictly BELOW all user config (T11751).
- *   7. implicit fallback (`source: 'implicit-fallback'`)
+ *   7. Cross-provider provisioning-aware selection (DHQ-081 · T11978) —
+ *      enumerates all builtin providers, ranks by provisioning + scoring,
+ *      returns the best provisioned provider+model (`source: 'cross-provider'`).
+ *      Fires ONLY when all config tiers miss. Config pins win absolutely.
+ *   8. Implicit fallback (`source: 'implicit-fallback'`) — only reached when
+ *      NO provider has a usable credential (preserves backward compat).
  *
  * Tiers 1–2 are the *explicit-arg* lane (per-role config / role override);
  * tier 3 is the hermes *granular override* — consulted after the explicit
  * choice but before the global base (`default` / `defaultProfile`), matching
  * the E9 priority `explicit-arg → llm.systems[key] → llm.defaultProfile →
- * registered-default → implicit fallback` (T11748 · T11751). The configurable
- * `defaultProfile` is what lets background roles resolve to a user-selectable
- * provider WITHOUT hardcoding the provider in code.
+ * registered-default → cross-provider → implicit fallback` (T11748 · T11751).
+ * The configurable `defaultProfile` is what lets background roles resolve to a
+ * user-selectable provider WITHOUT hardcoding the provider in code.
  *
- * @param llm       - The LLM config block (may be undefined).
- * @param role      - The role used for `roles[role]` lookup.
- * @param systemKey - Optional encoded system-of-use key activating tiers 3 + 6.
+ * @param llm         - The LLM config block (may be undefined).
+ * @param role        - The role used for `roles[role]` lookup.
+ * @param systemKey   - Optional encoded system-of-use key activating tiers 3 + 6.
+ * @param profileOverride - Optional profile name pin (tier 0).
+ * @param projectRoot - Project root for credential resolution at tier 7.
  * @task T11748 (`systems[systemKey]` tier)
  * @task T11751 (`registered-default` tier)
+ * @task T11978 (`cross-provider` tier — DHQ-081)
  */
-function selectProviderModel(
+async function selectProviderModel(
   llm: LlmConfig | undefined,
   role: RoleName,
   systemKey?: string,
   profileOverride?: string,
-): SelectedProviderModel {
+  projectRoot?: string,
+): Promise<SelectedProviderModel> {
   const roleEntry: LlmRoleConfig | undefined = llm?.roles?.[role];
 
   // 0. Explicit profile pin (T11759 · M4) — HIGHEST priority. A caller that
@@ -422,7 +432,31 @@ function selectProviderModel(
   const registeredDefault = resolveRegisteredSystemDefault(llm, systemKey);
   if (registeredDefault) return registeredDefault;
 
-  // 7. Implicit fallback (last resort).
+  // 7. Cross-provider provisioning-aware selection (DHQ-081 · T11978).
+  //
+  // All config tiers missed. Instead of immediately returning the hardcoded
+  // anthropic fallback, enumerate all builtin providers, rank them by
+  // provisioning state + scoring, and return the best available provider.
+  //
+  // This fixes the core DHQ-081 bug: a machine with only OPENAI_API_KEY set
+  // was landing on anthropic (no credential) instead of openai (has credential).
+  //
+  // Config pins (tiers 0-6) ALWAYS win over this tier. The LIVE anthropic OAuth
+  // path (sk-ant-oat credentials) is handled here — if anthropic wins the
+  // scoring race (provisioned frontier cloud gets PROVISIONED_CLOUD_BIAS),
+  // it returns naturally without any change in behavior.
+  try {
+    const crossProviderResult = await selectBestProvisioned(role, {
+      projectRoot: projectRoot ?? '',
+    });
+    if (crossProviderResult !== null) {
+      return crossProviderResult;
+    }
+  } catch {
+    // Non-fatal — fall through to the anthropic implicit fallback.
+  }
+
+  // 8. Implicit fallback (last resort — no provider has a usable credential).
   return {
     provider: IMPLICIT_FALLBACK_PROVIDER,
     model: IMPLICIT_FALLBACK_MODEL,
@@ -571,12 +605,15 @@ export async function resolveLLMForRole(
   // `opts.systemKey` (threaded by `resolveLLMForSystem`) activates the
   // `llm.systems[key]` granular-override tier; role callers leave it unset and
   // that tier is skipped — role resolution is unchanged (T11748).
+  // `projectRoot` is threaded to tier 7 (cross-provider selector) for any
+  // credential resolution that may need the project context (DHQ-081 · T11978).
   const llmBlock = readLlmBlock(config);
-  const { provider, model, credentialLabel, source } = selectProviderModel(
+  const { provider, model, credentialLabel, source } = await selectProviderModel(
     llmBlock,
     role,
     opts?.systemKey,
     opts?.profileOverride,
+    projectRoot,
   );
 
   // Step 3 — resolve credential.

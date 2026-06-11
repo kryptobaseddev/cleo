@@ -710,6 +710,150 @@ const refreshCatalogCommand = defineCommand({
 });
 
 // ---------------------------------------------------------------------------
+// cleo llm providers — cross-provider provisioning landscape (DHQ-081 · T11978)
+// ---------------------------------------------------------------------------
+
+/**
+ * `cleo llm providers` — show provisioning state for all builtin providers.
+ *
+ * Outputs the full cross-provider enumeration envelope: provisioning state,
+ * reachability, machine-runnable (ollama), resolver score, and the model that
+ * would be selected by the cross-provider selector.
+ *
+ * @task T11978
+ */
+const providersCommand = defineCommand({
+  meta: {
+    name: 'providers',
+    description:
+      'Show provisioning state, reachability, and resolver scores for all builtin LLM providers (DHQ-081).',
+  },
+  args: {
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
+    role: {
+      type: 'string',
+      description:
+        'Role to compute scores against (default: consolidation). One of: consolidation, judgement, hygiene, extraction, derivation.',
+    },
+  },
+  async run({ args }) {
+    const { enumerateProvisionedProviders, roleTierFor } = await import(
+      /* webpackIgnore: true */ '@cleocode/core/llm/cross-provider-selector'
+    );
+    const typedArgs = args as Record<string, unknown>;
+    const role = (
+      typeof typedArgs['role'] === 'string' ? typedArgs['role'] : 'consolidation'
+    ) as string;
+    const taskTier = roleTierFor(role);
+    const providers = await enumerateProvisionedProviders(taskTier);
+
+    const provisioned = providers.filter((p) => p.provisioningState === 'provisioned');
+    const winner =
+      provisioned.length > 0
+        ? provisioned.reduce((best, p) =>
+            (p.resolverScore ?? -Infinity) > (best.resolverScore ?? -Infinity) ? p : best,
+          )
+        : null;
+
+    const envelope = {
+      providers,
+      implicitFallbackWouldUse: 'anthropic',
+      explainCrossProvider: {
+        winner: winner?.id ?? null,
+        scores: Object.fromEntries(providers.map((p) => [p.id, p.resolverScore ?? 0])),
+        reason: winner
+          ? `${winner.id} (tier: ${winner.tier}, score: ${winner.resolverScore}) selected as best provisioned provider for role '${role}'`
+          : `No provisioned provider found; falling back to anthropic implicit fallback`,
+      },
+    };
+
+    if (isHumanOutput() && !typedArgs['json']) {
+      const lines: string[] = ['', 'LLM Providers — Provisioning State', '='.repeat(40)];
+      for (const p of providers) {
+        const star = p.id === winner?.id ? ' ★' : '';
+        const runnable =
+          p.machineRunnable === null ? '' : ` [local:${p.machineRunnable ? 'up' : 'down'}]`;
+        lines.push(
+          `  ${p.id.padEnd(12)}  ${p.provisioningState.padEnd(16)}  score:${String(p.resolverScore ?? '-').padStart(4)}  ${p.reachabilityState}${runnable}${star}`,
+        );
+      }
+      if (winner) {
+        lines.push(
+          '',
+          `Winner: ${winner.id} — would pick model: ${winner.wouldPickModel ?? 'unknown'}`,
+        );
+      }
+      humanLine(lines.join('\n'));
+    } else {
+      cliOutput(envelope, { command: 'llm-providers', operation: 'llm.providers' });
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// cleo llm health — lightweight alias for provisioning status (DHQ-081 · T11978)
+// ---------------------------------------------------------------------------
+
+/**
+ * `cleo llm health` — lightweight provisioning status alias.
+ *
+ * Emits only `provisioningState`, `reachabilityState`, and `machineRunnable`
+ * per provider plus `implicitFallbackWouldUse`. Faster than `cleo llm providers`
+ * for quick status checks.
+ *
+ * @task T11978
+ */
+const healthCommand = defineCommand({
+  meta: {
+    name: 'health',
+    description:
+      'Show lightweight provisioning health for all builtin LLM providers (DHQ-081). Alias for cleo llm providers --brief.',
+  },
+  args: {
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
+  },
+  async run({ args }) {
+    const { enumerateProvisionedProviders } = await import(
+      /* webpackIgnore: true */ '@cleocode/core/llm/cross-provider-selector'
+    );
+    const typedArgs = args as Record<string, unknown>;
+    const providers = await enumerateProvisionedProviders('frontier');
+
+    const healthEnvelope = {
+      providers: providers.map((p) => ({
+        id: p.id,
+        displayName: p.displayName,
+        provisioningState: p.provisioningState,
+        reachabilityState: p.reachabilityState,
+        machineRunnable: p.machineRunnable,
+      })),
+      implicitFallbackWouldUse: 'anthropic' as const,
+    };
+
+    if (isHumanOutput() && !typedArgs['json']) {
+      const lines: string[] = ['', 'LLM Health', '='.repeat(30)];
+      for (const p of healthEnvelope.providers) {
+        const icon = p.provisioningState === 'provisioned' ? '✓' : '✗';
+        const runnable =
+          p.machineRunnable === null ? '' : ` [local:${p.machineRunnable ? 'up' : 'down'}]`;
+        lines.push(
+          `  ${icon} ${p.id.padEnd(12)}  ${p.provisioningState.padEnd(16)}  ${p.reachabilityState}${runnable}`,
+        );
+      }
+      humanLine(lines.join('\n'));
+    } else {
+      cliOutput(healthEnvelope, { command: 'llm-health', operation: 'llm.health' });
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Parent command
 // ---------------------------------------------------------------------------
 
@@ -729,8 +873,10 @@ export const llmCommand = defineCommand({
     add: addCommand,
     'context-engines': contextEnginesCommand,
     cost: costCommand,
+    health: healthCommand,
     list: listCommand,
     login: loginCommand,
+    providers: providersCommand,
     remove: removeCommand,
     stream: streamCommand,
     use: useCommand,
