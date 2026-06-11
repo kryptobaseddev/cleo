@@ -26,8 +26,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../config.js';
 import { clearAnthropicKeyCache } from '../credentials.js';
 import { _resetPermsWarningForTests, _resetRoundRobinForTests } from '../credentials-store.js';
-import { _resetGlobalConfigMigrationLatch } from '../global-config-migration.js';
 import { _resetOllamaProbeCache } from '../cross-provider-selector.js';
+import { _resetGlobalConfigMigrationLatch } from '../global-config-migration.js';
 import { IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } from '../role-resolver.js';
 import { resolveLLMForSystem } from '../system-resolver.js';
 
