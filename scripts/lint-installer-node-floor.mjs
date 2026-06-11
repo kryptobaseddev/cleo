@@ -145,11 +145,7 @@ export function runLint(repoRoot) {
       continue;
     }
 
-    if (
-      found.major !== floor.major ||
-      found.minor !== floor.minor ||
-      found.patch !== floor.patch
-    ) {
+    if (found.major !== floor.major || found.minor !== floor.minor || found.patch !== floor.patch) {
       violations.push(
         `${file}: Node floor mismatch.\n` +
           `  Installer has:  ${found.major}.${found.minor}.${found.patch}\n` +

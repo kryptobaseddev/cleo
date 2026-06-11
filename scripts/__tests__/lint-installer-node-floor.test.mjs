@@ -14,12 +14,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  parseShFloor,
-  parsePsFloor,
-  tripleFrom,
-  runLint,
-} from '../lint-installer-node-floor.mjs';
+import { parsePsFloor, parseShFloor, runLint, tripleFrom } from '../lint-installer-node-floor.mjs';
 
 const __dirname = resolve(fileURLToPath(import.meta.url), '..');
 const REPO_ROOT = resolve(__dirname, '../..');
@@ -58,6 +53,7 @@ function writeInstallSh(dir, major, minor, patch) {
       `NODE_FLOOR_MAJOR=${major}`,
       `NODE_FLOOR_MINOR=${minor}`,
       `NODE_FLOOR_PATCH=${patch}`,
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: intentional sh variable reference in single-quoted string
       'NODE_FLOOR="${NODE_FLOOR_MAJOR}.${NODE_FLOOR_MINOR}.${NODE_FLOOR_PATCH}"',
     ].join('\n'),
     'utf8',
@@ -183,7 +179,7 @@ describe('runLint (scratch repos)', () => {
 
   it('fails when install.sh has a mismatched major version', () => {
     writePkg(tmpRoot, '>=24.16.0');
-    writeInstallSh(tmpRoot, 22, 16, 0);   // wrong major
+    writeInstallSh(tmpRoot, 22, 16, 0); // wrong major
     writeInstallPs1(tmpRoot, 24, 16, 0);
     const { violations } = runLint(tmpRoot);
     expect(violations).toHaveLength(1);
@@ -195,7 +191,7 @@ describe('runLint (scratch repos)', () => {
   it('fails when install.ps1 has a mismatched minor version', () => {
     writePkg(tmpRoot, '>=24.16.0');
     writeInstallSh(tmpRoot, 24, 16, 0);
-    writeInstallPs1(tmpRoot, 24, 0, 0);   // wrong minor
+    writeInstallPs1(tmpRoot, 24, 0, 0); // wrong minor
     const { violations } = runLint(tmpRoot);
     expect(violations).toHaveLength(1);
     expect(violations[0]).toContain('install.ps1');
@@ -212,7 +208,11 @@ describe('runLint (scratch repos)', () => {
   it('fails when install.sh is missing constants', () => {
     writePkg(tmpRoot, '>=24.16.0');
     mkdirSync(join(tmpRoot, 'scripts'), { recursive: true });
-    writeFileSync(join(tmpRoot, 'scripts', 'install.sh'), '#!/usr/bin/env sh\n# no constants', 'utf8');
+    writeFileSync(
+      join(tmpRoot, 'scripts', 'install.sh'),
+      '#!/usr/bin/env sh\n# no constants',
+      'utf8',
+    );
     writeInstallPs1(tmpRoot, 24, 16, 0);
     const { violations } = runLint(tmpRoot);
     expect(violations).toHaveLength(1);
