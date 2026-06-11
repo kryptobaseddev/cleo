@@ -95,6 +95,9 @@ const SUBPATH_DIRS = [
   // T11769). `index.ts` bundles the hand-written `createCleoClient` wrapper plus
   // the transitively-imported generated client under `gateway-client/generated/`.
   'gateway-client',
+  // T11993 — packages/core/src/resources/ hosts spawn-wrapper.ts (and future
+  // monitor/backend files from T11994). Exposed as @cleocode/core/resources/*.
+  'resources',
 ];
 
 

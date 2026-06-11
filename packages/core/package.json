@@ -396,11 +396,6 @@
       "import": "./dist/git-shim-export.js",
       "require": "./dist/git-shim-export.js"
     },
-    "./resources": {
-      "types": "./dist/resources/index.d.ts",
-      "import": "./dist/resources/index.js",
-      "require": "./dist/resources/index.js"
-    },
     "./resources/*": {
       "types": "./dist/resources/*.d.ts",
       "import": "./dist/resources/*.js",
