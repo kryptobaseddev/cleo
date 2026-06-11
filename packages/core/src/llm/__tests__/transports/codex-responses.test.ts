@@ -162,8 +162,11 @@ describe('resolveCodexUrl', () => {
 // ── 1. Wire shape ─────────────────────────────────────────────────────────────
 
 describe('CodexResponsesTransport — wire shape (request-shape builder)', () => {
-  it('sends store:false, stream:false for complete()', async () => {
-    const mockFetch = mockJsonFetch(fakeResponse());
+  it('sends store:false, stream:true, accept:text/event-stream for complete() (backend mandates stream:true)', async () => {
+    const mockFetch = mockSseFetch([
+      { type: 'response.output_text.delta', delta: 'Hello from Codex!' },
+      { type: 'response.completed', response: fakeResponse() },
+    ]);
     globalThis.fetch = mockFetch;
 
     const transport = new CodexResponsesTransport(BASE_OPTS);
@@ -178,10 +181,12 @@ describe('CodexResponsesTransport — wire shape (request-shape builder)', () =>
       RequestInit,
     ];
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    const hdrs = init.headers as Record<string, string>;
 
     expect(url).toBe('https://chatgpt.com/backend-api/codex/responses');
     expect(body['store']).toBe(false);
-    expect(body['stream']).toBe(false);
+    expect(body['stream']).toBe(true);
+    expect(hdrs['accept']).toBe('text/event-stream');
   });
 
   it('sends store:false, stream:true, OpenAI-Beta, accept:text/event-stream for stream()', async () => {
@@ -208,8 +213,7 @@ describe('CodexResponsesTransport — wire shape (request-shape builder)', () =>
   });
 
   it('sends Authorization, chatgpt-account-id, originator from defaultHeaders', async () => {
-    const mockFetch = mockJsonFetch(fakeResponse());
-    globalThis.fetch = mockFetch;
+    globalThis.fetch = mockSseFetch([{ type: 'response.completed', response: fakeResponse() }]);
 
     const transport = new CodexResponsesTransport(BASE_OPTS);
     await transport.complete({
@@ -218,7 +222,10 @@ describe('CodexResponsesTransport — wire shape (request-shape builder)', () =>
       maxTokens: 32,
     });
 
-    const [, init] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
     const hdrs = init.headers as Record<string, string>;
 
     expect(hdrs['Authorization']).toBe('Bearer oat-test-token');
@@ -227,8 +234,7 @@ describe('CodexResponsesTransport — wire shape (request-shape builder)', () =>
   });
 
   it('injects Authorization when not present in defaultHeaders', async () => {
-    const mockFetch = mockJsonFetch(fakeResponse());
-    globalThis.fetch = mockFetch;
+    globalThis.fetch = mockSseFetch([{ type: 'response.completed', response: fakeResponse() }]);
 
     const transport = new CodexResponsesTransport({ provider: 'openai', apiKey: 'sk-test' });
     await transport.complete({
@@ -237,14 +243,16 @@ describe('CodexResponsesTransport — wire shape (request-shape builder)', () =>
       maxTokens: 32,
     });
 
-    const [, init] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
     const hdrs = init.headers as Record<string, string>;
     expect(hdrs['Authorization']).toBe('Bearer sk-test');
   });
 
   it('sends instructions from system prompt', async () => {
-    const mockFetch = mockJsonFetch(fakeResponse());
-    globalThis.fetch = mockFetch;
+    globalThis.fetch = mockSseFetch([{ type: 'response.completed', response: fakeResponse() }]);
 
     const transport = new CodexResponsesTransport(BASE_OPTS);
     await transport.complete({
@@ -254,14 +262,16 @@ describe('CodexResponsesTransport — wire shape (request-shape builder)', () =>
       system: 'You are a helpful assistant.',
     });
 
-    const [, init] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body['instructions']).toBe('You are a helpful assistant.');
   });
 
   it('sends user messages as input items', async () => {
-    const mockFetch = mockJsonFetch(fakeResponse());
-    globalThis.fetch = mockFetch;
+    globalThis.fetch = mockSseFetch([{ type: 'response.completed', response: fakeResponse() }]);
 
     const transport = new CodexResponsesTransport(BASE_OPTS);
     await transport.complete({
@@ -270,7 +280,10 @@ describe('CodexResponsesTransport — wire shape (request-shape builder)', () =>
       maxTokens: 32,
     });
 
-    const [, init] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     const input = body['input'] as Array<Record<string, unknown>>;
     expect(Array.isArray(input)).toBe(true);
@@ -285,8 +298,12 @@ describe('CodexResponsesTransport — wire shape (request-shape builder)', () =>
 // ── 2. Simple text turn ───────────────────────────────────────────────────────
 
 describe('CodexResponsesTransport — complete() — simple text turn', () => {
-  it('returns content and normalized usage from a text response', async () => {
-    globalThis.fetch = mockJsonFetch(fakeResponse());
+  it('aggregates SSE deltas and returns content+usage from response.completed', async () => {
+    globalThis.fetch = mockSseFetch([
+      { type: 'response.output_text.delta', delta: 'Hello ' },
+      { type: 'response.output_text.delta', delta: 'from Codex!' },
+      { type: 'response.completed', response: fakeResponse() },
+    ]);
 
     const transport = new CodexResponsesTransport(BASE_OPTS);
     const response = await transport.complete({
@@ -304,16 +321,20 @@ describe('CodexResponsesTransport — complete() — simple text turn', () => {
   });
 
   it('populates cachedTokens when cached_tokens > 0', async () => {
-    globalThis.fetch = mockJsonFetch(
-      fakeResponse({
-        usage: {
-          input_tokens: 100,
-          output_tokens: 20,
-          total_tokens: 120,
-          input_tokens_details: { cached_tokens: 80 },
-        },
-      }),
-    );
+    globalThis.fetch = mockSseFetch([
+      { type: 'response.output_text.delta', delta: 'Cached answer.' },
+      {
+        type: 'response.completed',
+        response: fakeResponse({
+          usage: {
+            input_tokens: 100,
+            output_tokens: 20,
+            total_tokens: 120,
+            input_tokens_details: { cached_tokens: 80 },
+          },
+        }),
+      },
+    ]);
 
     const transport = new CodexResponsesTransport(BASE_OPTS);
     const response = await transport.complete({
@@ -335,7 +356,10 @@ describe('CodexResponsesTransport — complete() — simple text turn', () => {
 
 describe('CodexResponsesTransport — complete() — multimodal (image + text)', () => {
   it('converts image_url content block to input_image item', async () => {
-    globalThis.fetch = mockJsonFetch(fakeResponse({ output_text: 'I see a cat.' }));
+    globalThis.fetch = mockSseFetch([
+      { type: 'response.output_text.delta', delta: 'I see a cat.' },
+      { type: 'response.completed', response: fakeResponse({ output_text: 'I see a cat.' }) },
+    ]);
 
     const transport = new CodexResponsesTransport(BASE_OPTS);
     await transport.complete({
@@ -376,7 +400,10 @@ describe('CodexResponsesTransport — complete() — multimodal (image + text)',
   });
 
   it('converts base64 image to data URL in input_image item', async () => {
-    globalThis.fetch = mockJsonFetch(fakeResponse({ output_text: 'Blue square.' }));
+    globalThis.fetch = mockSseFetch([
+      { type: 'response.output_text.delta', delta: 'Blue square.' },
+      { type: 'response.completed', response: fakeResponse({ output_text: 'Blue square.' }) },
+    ]);
 
     const transport = new CodexResponsesTransport(BASE_OPTS);
     await transport.complete({
@@ -413,20 +440,23 @@ describe('CodexResponsesTransport — complete() — multimodal (image + text)',
 
 describe('CodexResponsesTransport — complete() — tool call + tool result replay', () => {
   it('sends tools as function-type items', async () => {
-    globalThis.fetch = mockJsonFetch(
-      fakeResponse({
-        output_text: '',
-        output: [
-          {
-            type: 'function_call',
-            id: 'fc_001',
-            call_id: 'call_001',
-            name: 'get_weather',
-            arguments: '{"city":"SF"}',
-          },
-        ],
-      }),
-    );
+    globalThis.fetch = mockSseFetch([
+      {
+        type: 'response.completed',
+        response: fakeResponse({
+          output_text: '',
+          output: [
+            {
+              type: 'function_call',
+              id: 'fc_001',
+              call_id: 'call_001',
+              name: 'get_weather',
+              arguments: '{"city":"SF"}',
+            },
+          ],
+        }),
+      },
+    ]);
 
     const transport = new CodexResponsesTransport(BASE_OPTS);
     await transport.complete({
@@ -454,21 +484,24 @@ describe('CodexResponsesTransport — complete() — tool call + tool result rep
     });
   });
 
-  it('normalizes function_call output items as tool calls', async () => {
-    globalThis.fetch = mockJsonFetch(
-      fakeResponse({
-        output_text: '',
-        output: [
-          {
-            type: 'function_call',
-            id: 'fc_001',
-            call_id: 'call_abc123',
-            name: 'search',
-            arguments: '{"query":"cleo"}',
-          },
-        ],
-      }),
-    );
+  it('normalizes function_call output items as tool calls (via response.completed output array)', async () => {
+    globalThis.fetch = mockSseFetch([
+      {
+        type: 'response.completed',
+        response: fakeResponse({
+          output_text: '',
+          output: [
+            {
+              type: 'function_call',
+              id: 'fc_001',
+              call_id: 'call_abc123',
+              name: 'search',
+              arguments: '{"query":"cleo"}',
+            },
+          ],
+        }),
+      },
+    ]);
 
     const transport = new CodexResponsesTransport(BASE_OPTS);
     const response = await transport.complete({
@@ -493,7 +526,10 @@ describe('CodexResponsesTransport — complete() — tool call + tool result rep
   });
 
   it('converts tool result messages to function_call_output items', async () => {
-    globalThis.fetch = mockJsonFetch(fakeResponse({ output_text: 'It is sunny in SF.' }));
+    globalThis.fetch = mockSseFetch([
+      { type: 'response.output_text.delta', delta: 'It is sunny in SF.' },
+      { type: 'response.completed', response: fakeResponse({ output_text: 'It is sunny in SF.' }) },
+    ]);
 
     const transport = new CodexResponsesTransport(BASE_OPTS);
     await transport.complete({
@@ -683,7 +719,10 @@ describe('CodexResponsesTransport — stream() — SSE iteration', () => {
 
 describe('CodexResponsesTransport — xAI profile', () => {
   it('uses provided baseUrl for endpoint', async () => {
-    globalThis.fetch = mockJsonFetch(fakeResponse({ output_text: 'Grok says hi.' }));
+    globalThis.fetch = mockSseFetch([
+      { type: 'response.output_text.delta', delta: 'Grok says hi.' },
+      { type: 'response.completed', response: fakeResponse({ output_text: 'Grok says hi.' }) },
+    ]);
 
     const transport = new CodexResponsesTransport({
       provider: 'xai',
