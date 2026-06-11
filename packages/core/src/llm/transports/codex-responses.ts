@@ -17,13 +17,13 @@
  * - `chatgpt-account-id: <jwt claim>`
  * - `originator: codex_cli_rs` (set by buildCodexOAuthHeaders)
  * - `OpenAI-Beta: responses=experimental`
- * - `accept: text/event-stream`  (for streaming; `application/json` for complete)
+ * - `accept: text/event-stream`  (always — backend mandates stream:true on every request)
  * - `content-type: application/json`
  *
  * Mandatory body fields:
  * - `model`, `input`, `instructions`
  * - `store: false`                 (codex backend rejects store:true or absent)
- * - `stream: true/false`
+ * - `stream: true`                (always — the Codex backend rejects stream:false)
  *
  * @module llm/transports/codex-responses
  * @task T11985
@@ -170,17 +170,20 @@ export class CodexResponsesTransport implements LlmTransport {
   /**
    * Execute a single (non-streaming) completion using the Responses API.
    *
-   * Makes a raw `fetch` POST to the codex endpoint with `store:false` and
-   * `stream:false`, then normalises the JSON response into a
-   * {@link NormalizedResponse}.
+   * The Codex ChatGPT backend mandates `stream: true` on every request and
+   * returns `400 {"detail":"Stream must be set to true"}` for `stream: false`.
+   * This method therefore always sends `stream: true` with
+   * `Accept: text/event-stream`, internally consumes the SSE stream, and
+   * aggregates text deltas + tool calls + usage into a {@link NormalizedResponse}
+   * — identical to calling `stream()` and collecting all chunks.
    *
    * @param request - Provider-neutral request parameters.
    * @param _ctx - Transport context (unused; `request.signal` handles abort).
    * @returns Normalized response envelope.
    */
   async complete(request: TransportRequest, _ctx?: TransportContext): Promise<NormalizedResponse> {
-    const body = this._buildBody(request, false);
-    const headers = this._buildHeaders(false);
+    const body = this._buildBody(request, true);
+    const headers = this._buildHeaders(true);
 
     const res = await fetch(this._endpointUrl, {
       method: 'POST',
@@ -193,8 +196,95 @@ export class CodexResponsesTransport implements LlmTransport {
       throw new Error(await buildHttpError(res));
     }
 
-    const json = (await res.json()) as Record<string, unknown>;
-    return this._normalize(json, request.model);
+    if (!res.body) {
+      throw new Error('codex_responses: response body is null (no SSE stream)');
+    }
+
+    // Aggregate SSE stream into a single NormalizedResponse.
+    const textParts: string[] = [];
+    const toolCalls: NormalizedToolCall[] = [];
+    let finalUsage: NormalizedUsage | null = null;
+    let finishReason: string | null = null;
+    let responseId: string | null = null;
+    let responseModel: string | null = null;
+
+    for await (const event of parseSSE(res.body, request.signal)) {
+      const evType = event['type'] as string | undefined;
+
+      if (evType === 'response.output_text.delta') {
+        const delta = event['delta'] as string | undefined;
+        if (delta) textParts.push(delta);
+        continue;
+      }
+
+      if (evType === 'response.output_item.done') {
+        // Capture function_call items emitted per-output-item.
+        const item = event['item'] as Record<string, unknown> | undefined;
+        if (item?.['type'] === 'function_call') {
+          toolCalls.push({
+            id: typeof item['call_id'] === 'string' ? item['call_id'] : null,
+            name: typeof item['name'] === 'string' ? item['name'] : 'unknown',
+            arguments: typeof item['arguments'] === 'string' ? item['arguments'] : '{}',
+            providerData: {
+              call_id: item['call_id'],
+              response_item_id: item['id'],
+            },
+          });
+        }
+        continue;
+      }
+
+      if (evType === 'response.completed') {
+        const completedResponse = event['response'] as Record<string, unknown> | undefined;
+        if (completedResponse) {
+          finishReason = (completedResponse['status'] as string | undefined) ?? 'completed';
+          responseId = (completedResponse['id'] as string | undefined) ?? null;
+          responseModel = (completedResponse['model'] as string | undefined) ?? null;
+          const usage = completedResponse['usage'] as Record<string, unknown> | undefined;
+          if (usage) finalUsage = normalizeUsage(usage);
+          // Also capture tool calls embedded in the completed output array.
+          const output = (completedResponse['output'] as Array<unknown> | undefined) ?? [];
+          const embeddedCalls = extractToolCallsFromOutput(
+            output as Array<Record<string, unknown>>,
+          );
+          if (embeddedCalls.length > 0 && toolCalls.length === 0) {
+            toolCalls.push(...embeddedCalls);
+          }
+        }
+        break;
+      }
+
+      if (evType === 'response.failed' || evType === 'response.incomplete') {
+        const failedResponse = event['response'] as Record<string, unknown> | undefined;
+        if (failedResponse) {
+          finishReason = (failedResponse['status'] as string | undefined) ?? evType;
+          const usage = failedResponse['usage'] as Record<string, unknown> | undefined;
+          if (usage) finalUsage = normalizeUsage(usage);
+        }
+        break;
+      }
+
+      if (evType === 'error') {
+        const code = event['code'] as string | undefined;
+        const message = event['message'] as string | undefined;
+        throw new Error(`Codex error: ${message ?? code ?? JSON.stringify(event)}`);
+      }
+    }
+
+    const content = textParts.join('') || null;
+
+    return {
+      id: responseId ?? `resp-${Date.now().toString(36)}`,
+      model: responseModel ?? request.model,
+      content,
+      toolCalls: toolCalls.length > 0 ? toolCalls : null,
+      stopReason: finishReason ?? 'completed',
+      usage: finalUsage ?? { inputTokens: 0, outputTokens: 0 },
+      providerData: {
+        codex_response_id: responseId,
+      },
+      raw: {},
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -301,7 +391,7 @@ export class CodexResponsesTransport implements LlmTransport {
    * mandatory Codex-specific headers:
    * - `OpenAI-Beta: responses=experimental`
    * - `content-type: application/json`
-   * - `accept: text/event-stream` (streaming) or `application/json` (complete)
+   * - `accept: text/event-stream` (always — both complete() and stream() use SSE)
    *
    * The Authorization header is injected only if not already present in
    * `_defaultHeaders` (OAuth callers pre-set it via buildCodexOAuthHeaders).
@@ -351,41 +441,6 @@ export class CodexResponsesTransport implements LlmTransport {
     const tools = buildTools(request.tools);
     if (tools.length > 0) body.tools = tools;
     return body;
-  }
-
-  /**
-   * Normalize a raw Responses API JSON response into a {@link NormalizedResponse}.
-   *
-   * @param response - Raw parsed JSON from the Responses API.
-   * @param requestedModel - Model string from the originating request.
-   * @returns Normalized response envelope.
-   */
-  private _normalize(
-    response: Record<string, unknown>,
-    requestedModel: string,
-  ): NormalizedResponse {
-    const outputText = response['output_text'] as string | undefined;
-    const output = (response['output'] as Array<unknown> | undefined) ?? [];
-    const content =
-      outputText && outputText.length > 0
-        ? outputText
-        : extractTextFromOutput(output as Array<Record<string, unknown>>);
-    const toolCalls = extractToolCallsFromOutput(output as Array<Record<string, unknown>>);
-    const usageRaw = response['usage'] as Record<string, unknown> | undefined;
-    const usage = normalizeUsage(usageRaw ?? {});
-
-    return {
-      id: (response['id'] as string | undefined) ?? `resp-${Date.now().toString(36)}`,
-      model: String((response['model'] as string | undefined) ?? requestedModel),
-      content: content || null,
-      toolCalls: toolCalls.length > 0 ? toolCalls : null,
-      stopReason: (response['status'] as string | undefined) ?? 'completed',
-      usage,
-      providerData: {
-        codex_response_id: response['id'],
-      },
-      raw: response,
-    };
   }
 }
 
@@ -551,27 +606,6 @@ function buildContentList(message: TransportMessage): Array<Record<string, unkno
       source.type === 'base64' ? `data:${source.mediaType};base64,${source.data}` : source.data;
     return { type: 'input_image', image_url: imageUrl, detail: 'auto' };
   });
-}
-
-/**
- * Extract plain text from a Responses API `output` item array.
- *
- * @param output - Array of ResponseOutputItem objects.
- * @returns Concatenated text content, or empty string.
- */
-function extractTextFromOutput(output: Array<Record<string, unknown>>): string {
-  const parts: string[] = [];
-  for (const item of output) {
-    if (item['type'] !== 'message') continue;
-    const content = item['content'];
-    if (!Array.isArray(content)) continue;
-    for (const part of content as Array<Record<string, unknown>>) {
-      if (part['type'] === 'output_text' && typeof part['text'] === 'string') {
-        parts.push(part['text']);
-      }
-    }
-  }
-  return parts.join('');
 }
 
 /**
