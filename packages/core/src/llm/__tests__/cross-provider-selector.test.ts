@@ -220,28 +220,28 @@ describe('scoreProvider — frontier bias (Q1 ratification)', () => {
 // (f) RAM-gate: gemma3:1b under low RAM, gemma3:4b at ≥8GB
 // ---------------------------------------------------------------------------
 
-describe('ollamaDefaultModelForTier — RAM gating (Q2 ratification)', () => {
-  it('(f) returns gemma3:4b for frontier tasks on a machine with ≥8GB RAM', () => {
+describe('ollamaDefaultModelForTier — RAM gating (Q2 ratification · T11990)', () => {
+  it('(f) returns gemma4:e4b for frontier tasks on a machine with ≥8GB RAM', () => {
     const model = ollamaDefaultModelForTier('frontier', 8 * 1024 ** 3); // exactly 8 GB
-    expect(model).toBe('gemma3:4b');
+    expect(model).toBe('gemma4:e4b');
   });
 
-  it('(f) returns gemma3:4b for standard tasks on ≥8GB RAM machine', () => {
+  it('(f) returns gemma4:e4b for standard tasks on ≥8GB RAM machine', () => {
     const model = ollamaDefaultModelForTier('standard', 16 * 1024 ** 3); // 16 GB
-    expect(model).toBe('gemma3:4b');
+    expect(model).toBe('gemma4:e4b');
   });
 
-  it('(f) returns gemma3:1b for fast/local tasks on ≥8GB RAM machine', () => {
+  it('(f) returns gemma4:e2b for fast/local tasks on ≥8GB RAM machine', () => {
     const model = ollamaDefaultModelForTier('fast', 8 * 1024 ** 3);
-    expect(model).toBe('gemma3:1b');
+    expect(model).toBe('gemma4:e2b');
   });
 
-  it('(f) returns gemma3:1b on machine with 4GB ≤ RAM < 8GB for any tier', () => {
+  it('(f) returns gemma4:e2b on machine with 4GB ≤ RAM < 8GB for any tier', () => {
     const model4gb = ollamaDefaultModelForTier('frontier', 4 * 1024 ** 3); // exactly 4 GB
-    expect(model4gb).toBe('gemma3:1b');
+    expect(model4gb).toBe('gemma4:e2b');
 
     const model6gb = ollamaDefaultModelForTier('standard', 6 * 1024 ** 3);
-    expect(model6gb).toBe('gemma3:1b');
+    expect(model6gb).toBe('gemma4:e2b');
   });
 
   it('(f) returns qwen2:0.5b (proof-of-life) on machine with < 4GB RAM', () => {

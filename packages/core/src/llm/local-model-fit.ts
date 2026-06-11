@@ -68,7 +68,7 @@ export interface LocalModelCandidate {
   /** Human-readable display name. */
   readonly displayName: string;
   /** Model family (for grouping in the wizard). */
-  readonly family: 'gemma3' | 'qwen3' | 'llama3.2' | 'qwen2.5-coder' | 'phi4';
+  readonly family: 'gemma4' | 'qwen3' | 'llama3.2' | 'qwen2.5-coder' | 'phi4';
   /** Minimum RAM required to run (worst-case, CPU inference), in GiB. */
   readonly minRamGb: number;
   /** Recommended RAM for comfortable CPU inference, in GiB. */
@@ -104,43 +104,49 @@ export interface LocalModelCandidate {
  */
 export const LOCAL_MODEL_CANDIDATES: ReadonlyArray<LocalModelCandidate> = [
   {
-    modelTag: 'gemma3:1b',
-    displayName: 'Gemma 3 1B',
-    family: 'gemma3',
-    minRamGb: 3,
-    recommendedRamGb: 4,
-    minVramGb: 2,
-    recommendedVramGb: 3,
-    diskSizeGb: 0.8,
+    // Live-verified 2026-06-11: ollama.com/library/gemma4 · gemma4:e2b = 7.2 GB (Q4_K_M)
+    // Edge 2B effective parameters, 128k context, multimodal (text + image).
+    modelTag: 'gemma4:e2b',
+    displayName: 'Gemma 4 E2B (edge)',
+    family: 'gemma4',
+    minRamGb: 4,
+    recommendedRamGb: 6,
+    minVramGb: 3,
+    recommendedVramGb: 5,
+    diskSizeGb: 7.2,
     quantNote: 'Q4_K_M (default pull)',
     codeSpecialist: false,
     contextLengthK: 128,
   },
   {
-    modelTag: 'gemma3:4b',
-    displayName: 'Gemma 3 4B',
-    family: 'gemma3',
+    // Live-verified 2026-06-11: ollama.com/library/gemma4 · gemma4:e4b = 9.6 GB (Q4_K_M)
+    // Edge 4B effective parameters, 128k context, multimodal (text + image).
+    modelTag: 'gemma4:e4b',
+    displayName: 'Gemma 4 E4B (edge)',
+    family: 'gemma4',
     minRamGb: 6,
     recommendedRamGb: 8,
-    minVramGb: 5,
-    recommendedVramGb: 6,
-    diskSizeGb: 3.1,
+    minVramGb: 6,
+    recommendedVramGb: 8,
+    diskSizeGb: 9.6,
     quantNote: 'Q4_K_M (default pull)',
     codeSpecialist: false,
     contextLengthK: 128,
   },
   {
-    modelTag: 'gemma3:12b',
-    displayName: 'Gemma 3 12B',
-    family: 'gemma3',
+    // Live-verified 2026-06-11: ollama.com/library/gemma4 · gemma4:12b = 7.6 GB (QAT)
+    // 12B parameters, 256k context, multimodal (text + image).
+    modelTag: 'gemma4:12b',
+    displayName: 'Gemma 4 12B',
+    family: 'gemma4',
     minRamGb: 10,
     recommendedRamGb: 16,
-    minVramGb: 9,
+    minVramGb: 8,
     recommendedVramGb: 12,
-    diskSizeGb: 8.1,
-    quantNote: 'Q4_K_M (default pull)',
+    diskSizeGb: 7.6,
+    quantNote: 'QAT (default pull)',
     codeSpecialist: false,
-    contextLengthK: 128,
+    contextLengthK: 256,
   },
   {
     modelTag: 'qwen3:1.7b',

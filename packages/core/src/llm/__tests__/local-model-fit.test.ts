@@ -1,16 +1,17 @@
 /**
- * Tests for `llm/local-model-fit.ts` (T11982).
+ * Tests for `llm/local-model-fit.ts` (T11982 · T11990).
  *
  * Coverage:
  *   - low-RAM floor (< 4 GB → no recommendation)
- *   - 8 GB RAM pick (gemma3:4b-class should rank highly)
- *   - 32 GB RAM pick (gemma3:12b eligible)
+ *   - 8 GB RAM pick (gemma4:e4b-class should rank highly)
+ *   - 32 GB RAM pick (gemma4:12b eligible)
  *   - 62 GB RAM + VRAM present → VRAM boost ranks larger models
  *   - already-pulled model gets bonus and surfaces in `alreadyPulled`
  *   - Ollama running + model in /api/tags → `alreadyPulled: true`
  *   - Ollama not running → empty pulledModels, `ollamaRunning: false`
  *
  * @task T11982
+ * @task T11990
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -128,12 +129,12 @@ describe('captureHardwareSnapshot', () => {
 describe('listOllamaPulledModels', () => {
   it('parses /api/tags response correctly', async () => {
     const mockFetch = makeMockFetch([
-      { name: 'gemma3:4b', paramSize: '4B', quant: 'Q4_K_M', family: 'gemma' },
+      { name: 'gemma4:e4b', paramSize: '4B', quant: 'Q4_K_M', family: 'gemma4' },
       { name: 'qwen2.5-coder:3b', paramSize: '3.1B', quant: 'Q4_K_M', family: 'qwen2' },
     ]);
     const models = await listOllamaPulledModels('http://localhost:11434', mockFetch);
     expect(models).toHaveLength(2);
-    expect(models[0]?.name).toBe('gemma3:4b');
+    expect(models[0]?.name).toBe('gemma4:e4b');
     expect(models[1]?.name).toBe('qwen2.5-coder:3b');
   });
 
@@ -249,7 +250,7 @@ describe('rankLocalModelFit — 8 GB RAM, no VRAM', () => {
 // ---------------------------------------------------------------------------
 
 describe('rankLocalModelFit — 32 GB RAM, no VRAM', () => {
-  it('includes gemma3:12b in recommendations at 32 GB', async () => {
+  it('includes gemma4:12b in recommendations at 32 GB', async () => {
     const result = await rankLocalModelFit({
       hardwareOverride: {
         totalRamBytes: 32 * GB,
@@ -260,7 +261,7 @@ describe('rankLocalModelFit — 32 GB RAM, no VRAM', () => {
       pulledModelsOverride: [],
     });
     const tags = result.recommendations.map((r) => r.candidate.modelTag);
-    expect(tags).toContain('gemma3:12b');
+    expect(tags).toContain('gemma4:12b');
   });
 
   it('does not recommend models requiring more RAM than available', async () => {
@@ -350,7 +351,7 @@ describe('rankLocalModelFit — VRAM present boosts scores', () => {
 describe('rankLocalModelFit — already-pulled status', () => {
   it('marks a model as alreadyPulled when it appears in pulledModels list', async () => {
     const pulled: OllamaPulledModel[] = [
-      { name: 'gemma3:4b', parameterSize: '4B', quantizationLevel: 'Q4_K_M', family: 'gemma' },
+      { name: 'gemma4:e4b', parameterSize: '4B', quantizationLevel: 'Q4_K_M', family: 'gemma4' },
     ];
 
     const result = await rankLocalModelFit({
@@ -363,7 +364,7 @@ describe('rankLocalModelFit — already-pulled status', () => {
       pulledModelsOverride: pulled,
     });
 
-    const gemmaRec = result.recommendations.find((r) => r.candidate.modelTag === 'gemma3:4b');
+    const gemmaRec = result.recommendations.find((r) => r.candidate.modelTag === 'gemma4:e4b');
     expect(gemmaRec).toBeDefined();
     expect(gemmaRec?.alreadyPulled).toBe(true);
     expect(gemmaRec?.reasons).toContain('already pulled — no download needed');
@@ -430,7 +431,7 @@ describe('rankLocalModelFit — Ollama liveness', () => {
     mockProbeOllamaAlive.mockResolvedValue(true);
 
     const mockFetch = makeMockFetch([
-      { name: 'gemma3:1b', paramSize: '1B', quant: 'Q4_K_M', family: 'gemma' },
+      { name: 'gemma4:e2b', paramSize: '2B', quant: 'Q4_K_M', family: 'gemma4' },
     ]);
 
     const result = await rankLocalModelFit({
@@ -445,7 +446,7 @@ describe('rankLocalModelFit — Ollama liveness', () => {
 
     expect(result.ollamaRunning).toBe(true);
     expect(result.pulledModels).toHaveLength(1);
-    expect(result.pulledModels[0]?.name).toBe('gemma3:1b');
+    expect(result.pulledModels[0]?.name).toBe('gemma4:e2b');
   });
 
   it('sets ollamaRunning=false and returns empty pulledModels when Ollama is down', async () => {

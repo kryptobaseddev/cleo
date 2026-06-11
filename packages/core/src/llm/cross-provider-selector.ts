@@ -265,8 +265,8 @@ export async function probeOllamaAlive(baseUrl: string): Promise<boolean> {
  * VRAM detection is out-of-scope (deferred to T11982 wizard task).
  *
  * Resolution:
- *   - RAM ≥ 8 GB → `gemma3:4b` for frontier/standard; `gemma3:1b` for fast/local.
- *   - 4 GB ≤ RAM < 8 GB → `gemma3:1b` for all tiers.
+ *   - RAM ≥ 8 GB → `gemma4:e4b` for frontier/standard; `gemma4:e2b` for fast/local.
+ *   - 4 GB ≤ RAM < 8 GB → `gemma4:e2b` for all tiers.
  *   - RAM < 4 GB → `qwen2:0.5b` (proof-of-life only; logged as WARNING).
  *
  * Note: `qwen2:0.5b` MUST NOT be selected as a resolver default. It is a
@@ -278,8 +278,10 @@ export async function probeOllamaAlive(baseUrl: string): Promise<boolean> {
  * the selector reads them via `getProviderProfile('ollama')` when available
  * and only falls back to these when the profile is unavailable (defensive).
  *
- * PROPOSED-for-owner (Q2): `gemma3:4b` is the recommended default.
- * If the catalog does not yet have a `gemma3` family entry, the resolver
+ * Tags live-verified 2026-06-11 on ollama.com/library/gemma4:
+ *   - gemma4:e2b = 7.2 GB (Q4_K_M), edge 2B effective params, ≥ 4 GB RAM
+ *   - gemma4:e4b = 9.6 GB (Q4_K_M), edge 4B effective params, ≥ 8 GB RAM
+ * If the catalog does not yet have a `gemma4` family entry, the resolver
  * logs a hint to run `cleo llm refresh-catalog`.
  *
  * @param tier - The task tier for which a model is being selected.
@@ -293,12 +295,12 @@ export function ollamaDefaultModelForTier(tier: ProviderTier, ramBytesOverride?:
   const gb = ramBytes / 1024 ** 3;
 
   if (gb >= 8) {
-    // High-RAM: use gemma3:4b for standard/frontier, gemma3:1b for fast/local
-    return tier === 'fast' || tier === 'local' ? 'gemma3:1b' : 'gemma3:4b';
+    // High-RAM: use gemma4:e4b for standard/frontier, gemma4:e2b for fast/local
+    return tier === 'fast' || tier === 'local' ? 'gemma4:e2b' : 'gemma4:e4b';
   }
   if (gb >= 4) {
-    // Mid-RAM: gemma3:1b for all tiers
-    return 'gemma3:1b';
+    // Mid-RAM: gemma4:e2b for all tiers
+    return 'gemma4:e2b';
   }
   // Low-RAM proof-of-life floor — NEVER a default for any task tier
   logger.warn(
@@ -680,19 +682,19 @@ export async function selectBestProvisioned(
           ? ollamaProfile?.defaultAuxModel
           : ollamaProfile?.defaultModel) ?? ollamaDefaultModelForTier(winner.tier);
     } else if (gb >= 4) {
-      model = ollamaProfile?.defaultAuxModel ?? 'gemma3:1b';
+      model = ollamaProfile?.defaultAuxModel ?? 'gemma4:e2b';
     } else {
       // Proof-of-life floor — logged as warning by ollamaDefaultModelForTier.
       model = ollamaDefaultModelForTier(winner.tier, ramBytes);
     }
 
-    // Log hint if gemma3 family is not in catalog
+    // Log hint if gemma4 family is not in catalog
     const catalogKey = catalogKeyForProvider(winner.id);
     const catalogModel = resolveProviderDefaultModel(catalogKey);
-    if (!catalogModel?.startsWith('gemma3')) {
+    if (!catalogModel?.startsWith('gemma4')) {
       logger.info(
         { provider: 'ollama', selectedModel: model },
-        'cross-provider-selector: gemma3 family not in catalog snapshot — run `cleo llm refresh-catalog` to pull latest',
+        'cross-provider-selector: gemma4 family not in catalog snapshot — run `cleo llm refresh-catalog` to pull latest',
       );
     }
   } else {

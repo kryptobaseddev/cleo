@@ -37,30 +37,34 @@ import type { ProviderProfile } from '@cleocode/contracts';
  * store API, but local Ollama deployments do not require an actual key —
  * users may leave it empty or store a token for remote/proxied deployments.
  *
- * ## Default model selection (DHQ-081 · T11978)
+ * ## Default model selection (DHQ-081 · T11978 · T11990)
  *
- * `defaultModel` is `gemma3:4b` (standard/frontier tasks, requires ≥ 8 GB RAM).
- * `defaultAuxModel` is `gemma3:1b` (fast/aux tasks, requires ≥ 4 GB RAM).
+ * `defaultModel` is `gemma4:e4b` (standard/frontier tasks, requires ≥ 8 GB RAM).
+ * `defaultAuxModel` is `gemma4:e2b` (fast/aux tasks, requires ≥ 4 GB RAM).
+ *
+ * Tags live-verified on ollama.com/library/gemma4 2026-06-11:
+ *   - gemma4:e2b  = 7.2 GB download (Q4_K_M), edge 2B effective params
+ *   - gemma4:e4b  = 9.6 GB download (Q4_K_M), edge 4B effective params
+ *   - gemma4:12b  = 7.6 GB download (QAT), 12B params, 256k context
  *
  * The cross-provider selector (`cross-provider-selector.ts`) gates model selection
  * on `os.totalmem()` and falls through to `qwen2:0.5b` only as a proof-of-life
  * last resort when RAM is below 4 GB. These are the provider-registry SSoT
  * constants; the selector reads them via `getProviderProfile('ollama')`.
  *
- * PROPOSED-for-owner (Q2): changing from `llama3` to `gemma3:4b` requires users
- * to run `ollama pull gemma3:4b`. If the catalog does not yet have a `gemma3`
- * family entry, the resolver logs a hint to run `cleo llm refresh-catalog`.
+ * If the catalog does not yet have a `gemma4` family entry, the resolver logs a
+ * hint to run `cleo llm refresh-catalog`.
  */
 export const ollamaProfile: ProviderProfile = {
   name: 'ollama',
   displayName: 'Ollama (local)',
   authTypes: ['api_key'],
   baseUrl: 'http://localhost:11434',
-  defaultModel: 'gemma3:4b',
+  defaultModel: 'gemma4:e4b',
   aliases: ['ollama-local'],
   // Hermes-parity routing/catalog fields (T11756). Local on-device tier.
   tier: 'local',
-  defaultAuxModel: 'gemma3:1b',
+  defaultAuxModel: 'gemma4:e2b',
   defaultMaxTokens: 2048,
   envVars: ['OLLAMA_API_KEY', 'OLLAMA_BASE_URL'],
   supportsThinkingBudget: false,
