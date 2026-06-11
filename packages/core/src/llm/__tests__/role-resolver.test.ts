@@ -24,7 +24,6 @@ import {
 } from '../credentials-store.js';
 import { _resetGlobalConfigMigrationLatch } from '../global-config-migration.js';
 import {
-  IMPLICIT_FALLBACK_MODEL,
   IMPLICIT_FALLBACK_PROVIDER,
   type ResolvedLLM,
   resolveLLMForRole,
@@ -36,6 +35,18 @@ const ENV_KEYS = [
   'OPENAI_API_KEY',
   'GEMINI_API_KEY',
   'MOONSHOT_API_KEY',
+  // DHQ-081 (T11978): cross-provider selector enumerates all builtin providers.
+  // Clearing these prevents real env-var credentials from leaking into tests
+  // that assert `source === 'implicit-fallback'`.
+  'DEEPSEEK_API_KEY',
+  'XAI_API_KEY',
+  'GROQ_API_KEY',
+  'KIMI_CODE_API_KEY',
+  'OPENROUTER_API_KEY',
+  'AWS_PROFILE',
+  'OLLAMA_HOST',
+  'OLLAMA_API_KEY',
+  'OLLAMA_BASE_URL',
   'XDG_DATA_HOME',
   // T9405: pin XDG_CONFIG_HOME so getCleoPlatformPaths().config resolves
   // to a per-test temp dir — without this, the global-config-dir tier
@@ -146,14 +157,16 @@ describe('resolveLLMForRole — provider/model resolution chain', () => {
     expect(llm.model).toBe('default-model-y');
   });
 
-  it('resolves role with no daemon field configured — falls back to implicit', async () => {
+  it('resolves role with no config but a valid API key — routes via cross-provider selector (DHQ-081 T11978)', async () => {
     const { projectRoot } = isolate();
-    // No llm.daemon, no llm.default, no llm.roles → implicit fallback.
+    // No llm config at all, but ANTHROPIC_API_KEY is set.
+    // Tier 7 (cross-provider selector) picks up the provisioned anthropic credential
+    // and returns source='cross-provider'. This is the correct behavior post-DHQ-081:
+    // the implicit-fallback is only reached when NO provider has any credential.
     process.env['ANTHROPIC_API_KEY'] = 'sk-ant-no-daemon';
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
-    expect(llm.source).toBe('implicit-fallback');
-    expect(llm.provider).toBe(IMPLICIT_FALLBACK_PROVIDER);
-    expect(llm.model).toBe(IMPLICIT_FALLBACK_MODEL);
+    expect(llm.source).toBe('cross-provider');
+    expect(llm.provider).toBe(IMPLICIT_FALLBACK_PROVIDER); // anthropic wins (frontier + PROVISIONED_CLOUD_BIAS)
   });
 
   it('falls back to llm.default when role-specific override absent', async () => {
@@ -169,14 +182,16 @@ describe('resolveLLMForRole — provider/model resolution chain', () => {
     expect(llm.provider).toBe('anthropic');
   });
 
-  it("source='implicit-fallback' when nothing is configured", async () => {
+  it("source='cross-provider' when no config but anthropic key is set (DHQ-081 T11978)", async () => {
     const { projectRoot } = isolate();
-    // No project config + no global config → all three tiers absent.
+    // No project config + no global config, but ANTHROPIC_API_KEY is set.
+    // Post-DHQ-081: tier 7 (cross-provider) picks up the key and returns
+    // source='cross-provider'. The 'implicit-fallback' source is only reached
+    // when absolutely no provider has any credential whatsoever.
     process.env['ANTHROPIC_API_KEY'] = 'sk-ant-fb';
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
-    expect(llm.source).toBe('implicit-fallback');
-    expect(llm.provider).toBe(IMPLICIT_FALLBACK_PROVIDER);
-    expect(llm.model).toBe(IMPLICIT_FALLBACK_MODEL);
+    expect(llm.source).toBe('cross-provider');
+    expect(llm.provider).toBe(IMPLICIT_FALLBACK_PROVIDER); // anthropic wins scoring
   });
 
   it('role beats default (priority chain)', async () => {

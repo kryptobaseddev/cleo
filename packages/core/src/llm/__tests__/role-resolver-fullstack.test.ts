@@ -312,6 +312,50 @@ describe('resolveLLMForRole — credential tier precedence (full chain)', () => 
 // Per-role credential pinning — distinct labels for distinct roles
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// DHQ-081 (T11978) — cross-provider provisioning-aware selection regressions
+// ---------------------------------------------------------------------------
+
+describe('resolveLLMForRole — DHQ-081 cross-provider provisioning-aware selection', () => {
+  it('(c) config pin wins: explicit provider+model in config resolves before cross-provider selector', async () => {
+    const { projectRoot } = isolate();
+    // Explicitly config-pin anthropic even with no credential (tiers 1–6 win).
+    seedProjectConfig(projectRoot, {
+      default: { provider: 'anthropic', model: 'my-pinned-model' },
+    });
+    // Also set openai key — cross-provider selector would pick openai without the pin.
+    process.env['OPENAI_API_KEY'] = 'sk-openai-test';
+
+    const llm = await resolveLLMForRole('consolidation', { projectRoot });
+    // Config pin must win — anthropic, pinned model, source=default.
+    expect(llm.provider).toBe('anthropic');
+    expect(llm.model).toBe('my-pinned-model');
+    expect(llm.source).toBe('default');
+  });
+
+  it('(a) AC7 regression: machine with openai key + no anthropic resolves to openai via cross-provider', async () => {
+    const { projectRoot } = isolate();
+    // No config, no anthropic key. Only openai key.
+    process.env['OPENAI_API_KEY'] = 'sk-openai-no-anthropic-test';
+
+    const llm = await resolveLLMForRole('consolidation', { projectRoot });
+    // Cross-provider selector should pick openai, not anthropic.
+    expect(llm.provider).toBe('openai');
+    expect(llm.source).toBe('cross-provider');
+  });
+
+  it('(d) nothing provisioned: falls through to anthropic implicit-fallback with null credential', async () => {
+    const { projectRoot } = isolate();
+    // No config, no credentials anywhere.
+    const llm = await resolveLLMForRole('consolidation', { projectRoot });
+    expect(llm.provider).toBe('anthropic');
+    expect(llm.source).toBe('implicit-fallback');
+    expect(llm.credential).toBeNull();
+    expect(llm.sealedCredential).toBeNull();
+    expect(llm.client).toBeNull();
+  });
+});
+
 describe('resolveLLMForRole — per-role credentialLabel isolation', () => {
   it('different roles pinned to different labels each get their own credential', async () => {
     const { projectRoot } = isolate();

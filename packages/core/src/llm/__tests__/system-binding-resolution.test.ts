@@ -22,20 +22,33 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LlmConfig } from '@cleocode/contracts';
 import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../config.js';
 import { clearAnthropicKeyCache } from '../credentials.js';
 import { _resetPermsWarningForTests, _resetRoundRobinForTests } from '../credentials-store.js';
+import { _resetOllamaProbeCache } from '../cross-provider-selector.js';
 import { _resetGlobalConfigMigrationLatch } from '../global-config-migration.js';
 import { IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } from '../role-resolver.js';
 import { resolveLLMForSystem } from '../system-resolver.js';
 
 const SAVED_ENV: Record<string, string | undefined> = {};
+// Full set of env vars consulted by cross-provider-selector.ts (DHQ-081 · T11978).
+// Must be cleared in beforeEach so ambient CI env vars don't cause tier-7 to fire
+// unexpectedly in tests that assert source='implicit-fallback'.
 const ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'OPENAI_API_KEY',
   'GEMINI_API_KEY',
   'MOONSHOT_API_KEY',
+  'DEEPSEEK_API_KEY',
+  'XAI_API_KEY',
+  'GROQ_API_KEY',
+  'KIMI_CODE_API_KEY',
+  'OPENROUTER_API_KEY',
+  'AWS_PROFILE',
+  'OLLAMA_HOST',
+  'OLLAMA_API_KEY',
+  'OLLAMA_BASE_URL',
   'XDG_DATA_HOME',
   'XDG_CONFIG_HOME',
   'CLEO_CONFIG_HOME',
@@ -92,6 +105,10 @@ beforeEach(() => {
   clearAnthropicKeyCache();
   _resetPermsWarningForTests();
   _resetRoundRobinForTests();
+  _resetOllamaProbeCache();
+  // Stub the ollama liveness probe to unreachable so no ambient ollama daemon
+  // can cause tier-7 (cross-provider) to fire in tests expecting implicit-fallback.
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('connect ECONNREFUSED')));
 });
 
 afterEach(() => {
@@ -99,6 +116,8 @@ afterEach(() => {
   clearAnthropicKeyCache();
   _resetPermsWarningForTests();
   _resetRoundRobinForTests();
+  _resetOllamaProbeCache();
+  vi.restoreAllMocks();
 });
 
 // ---------------------------------------------------------------------------
@@ -227,12 +246,14 @@ describe('resolveLLMForSystem — llm.systems[key] override tier (T11748)', () =
     expect(llm.model).toBe('default-rescue');
   });
 
-  it('falls through to implicit-fallback when nothing matches', async () => {
+  it('falls through to implicit-fallback when nothing matches and no provider is provisioned', async () => {
     const { projectRoot } = isolate();
+    // Config has a systems entry for 'memory' but NOT for 'sentient'.
+    // No API keys set (cleared in beforeEach) + ollama probe stubbed to dead →
+    // tier-7 cross-provider selector finds nothing provisioned → null → implicit-fallback.
     seedProjectConfig(projectRoot, {
       systems: { memory: { provider: 'anthropic', model: 'unrelated' } },
     });
-    process.env['ANTHROPIC_API_KEY'] = 'sk-ant';
     const llm = await resolveLLMForSystem('sentient', { projectRoot, skipCatalogDefault: true });
     expect(llm.source).toBe('implicit-fallback');
     expect(llm.model).toBe(IMPLICIT_FALLBACK_MODEL);

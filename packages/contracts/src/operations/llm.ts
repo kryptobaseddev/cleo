@@ -255,6 +255,7 @@ export type ResolutionSource =
   | 'default'
   | 'default-profile'
   | 'registered-default'
+  | 'cross-provider'
   | 'implicit-fallback';
 
 /**

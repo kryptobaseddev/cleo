@@ -207,9 +207,11 @@ describe('resolveLLMForSystem — system-to-role mapping', () => {
     expect(result.model).toBe('override-model');
   });
 
-  it("resolves 'default' system (resolvedRole=null) to consolidation fallback path", async () => {
+  it("resolves 'default' system (resolvedRole=null) via cross-provider when anthropic key set (DHQ-081 T11978)", async () => {
     const { projectRoot } = isolate();
-    // No role config → falls to implicit-fallback
+    // No role config, but ANTHROPIC_API_KEY is set.
+    // Post-DHQ-081: tier 7 (cross-provider) picks up the provisioned anthropic key
+    // instead of the hardcoded implicit-fallback. source='cross-provider'.
     process.env['ANTHROPIC_API_KEY'] = 'sk-ant-default-system';
     const result = await resolveLLMForSystem('default', {
       projectRoot,
@@ -217,8 +219,8 @@ describe('resolveLLMForSystem — system-to-role mapping', () => {
     });
     expect(result.system).toBe('default');
     expect(result.resolvedRole).toBeNull();
-    // Falls through to implicit-fallback because no roles/default config
-    expect(result.source).toBe('implicit-fallback');
+    // Tier 7 wins — anthropic is provisioned → cross-provider
+    expect(result.source).toBe('cross-provider');
   });
 });
 
@@ -297,15 +299,17 @@ describe('resolveLLMForSystem — L1 complexity proposer wiring (T11906 · AC2)'
     expect(result.model).toBe('memory-role-model');
   });
 
-  it("falls back to null role (default path) for 'default' with no complexityPrompt", async () => {
+  it("resolves via cross-provider for 'default' with no complexityPrompt when anthropic key set (DHQ-081 T11978)", async () => {
     const { projectRoot } = isolate();
+    // ANTHROPIC_API_KEY set, no complexityPrompt, no config → tier 7 cross-provider wins.
+    // Post-DHQ-081: provisioned anthropic → cross-provider, not implicit-fallback.
     process.env['ANTHROPIC_API_KEY'] = 'sk-ant-no-prompt';
     const result = await resolveLLMForSystem('default', {
       projectRoot,
       skipCatalogDefault: true,
     });
     expect(result.resolvedRole).toBeNull();
-    expect(result.source).toBe('implicit-fallback');
+    expect(result.source).toBe('cross-provider');
   });
 });
 
