@@ -330,10 +330,6 @@ export async function serveStudioStatic(
             'Cache-Control': 'public, max-age=31536000, immutable',
           }),
     });
-    if (req.method === 'HEAD') {
-      res.end();
-      return;
-    }
     const stream = createReadStream(targetPath);
     stream.on('error', (err: Error) => {
       log.warn({ err, targetPath }, 'studio static read error');
