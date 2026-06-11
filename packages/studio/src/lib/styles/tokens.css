@@ -176,6 +176,136 @@
   --shadow-focus: 0 0 0 3px var(--accent-halo);
 }
 
+/* ===================================================================
+ * Multi-theme token blocks (T11561 · E6-RESKIN-SHELL)
+ *
+ * Each `[data-theme="<name>"]` block layers ONLY the *palette* tokens
+ * (surface / border / text / accent + the semantic family) over the
+ * `:root` defaults above. Structural tokens (spacing, radii, motion,
+ * typography, shadows) are inherited unchanged from `:root` — a theme
+ * never re-defines the grid, only the colours. This keeps every block
+ * small and guarantees the design-system shape is identical across
+ * themes (OCP — open for a new theme, closed for layout drift).
+ *
+ * `data-theme` is set on `<html>` by the client-only theme rune
+ * (`$lib/stores/theme.svelte.ts`). The default (no attribute, or
+ * `data-theme="hermes"`) resolves to the operator-console `:root`
+ * violet. Status / priority / edge tokens reference the semantic
+ * family via `var(--…)` so re-mapping the family below re-themes the
+ * whole graph + board surface for free.
+ *
+ * Theme catalogue:
+ *   - hermes  — default operator-console violet (=`:root`; explicit block
+ *               so the switcher can name it).
+ *   - nous    — cool cyan/teal "deep-thought" console.
+ *   - bronze  — warm amber/bronze low-glare console.
+ *   - slate   — neutral desaturated graphite (high-contrast, calm).
+ *   - mono    — achromatic monochrome (accessibility / print-friendly).
+ *
+ * Each theme also ships a `.light` opt-in variant (`[data-theme="x"].light`)
+ * for operators who prefer a light operator console.
+ * ----------------------------------------------------------------- */
+
+/* --- Hermes (default operator-console violet) ------------------- */
+[data-theme="hermes"] {
+  /* Identical to :root — named so the switcher can round-trip it. */
+  --bg:           #0b0d12;
+  --bg-elev-1:    #151822;
+  --bg-elev-2:    #1b1f2c;
+  --border:        #2a2e3d;
+  --border-strong: #3a4055;
+  --text:       #e7eaf3;
+  --text-dim:   #9aa3b2;
+  --text-faint: #6b7280;
+  --accent:      #a78bfa;
+  --accent-soft: rgba(167, 139, 250, 0.2);
+  --accent-halo: rgba(167, 139, 250, 0.12);
+}
+
+/* --- Nous (cyan/teal deep-thought console) --------------------- */
+[data-theme="nous"] {
+  --bg:           #07110f;
+  --bg-elev-1:    #0e1c1a;
+  --bg-elev-2:    #142826;
+  --border:        #1f3a37;
+  --border-strong: #2c534e;
+  --text:       #e3f4f1;
+  --text-dim:   #93b4af;
+  --text-faint: #5d7d78;
+  --accent:      #2dd4bf;
+  --accent-soft: rgba(45, 212, 191, 0.2);
+  --accent-halo: rgba(45, 212, 191, 0.12);
+  --info:         #22d3ee;
+  --info-soft:    rgba(34, 211, 238, 0.2);
+}
+
+/* --- Bronze (warm amber/bronze low-glare console) -------------- */
+[data-theme="bronze"] {
+  --bg:           #120d07;
+  --bg-elev-1:    #1d150c;
+  --bg-elev-2:    #281d11;
+  --border:        #3a2c1a;
+  --border-strong: #523f26;
+  --text:       #f4ecde;
+  --text-dim:   #c0aa86;
+  --text-faint: #8a7459;
+  --accent:      #f59e0b;
+  --accent-soft: rgba(245, 158, 11, 0.2);
+  --accent-halo: rgba(245, 158, 11, 0.12);
+  --success:      #84cc16;
+  --success-soft: rgba(132, 204, 22, 0.2);
+}
+
+/* --- Slate (neutral graphite, calm high-contrast) -------------- */
+[data-theme="slate"] {
+  --bg:           #0e1014;
+  --bg-elev-1:    #181b21;
+  --bg-elev-2:    #21252d;
+  --border:        #2f343e;
+  --border-strong: #424857;
+  --text:       #eef1f6;
+  --text-dim:   #a4adbd;
+  --text-faint: #717a8a;
+  --accent:      #60a5fa;
+  --accent-soft: rgba(96, 165, 250, 0.2);
+  --accent-halo: rgba(96, 165, 250, 0.12);
+}
+
+/* --- Mono (achromatic monochrome, print/accessibility) --------- */
+[data-theme="mono"] {
+  --bg:           #0a0a0a;
+  --bg-elev-1:    #161616;
+  --bg-elev-2:    #1f1f1f;
+  --border:        #2e2e2e;
+  --border-strong: #444444;
+  --text:       #f2f2f2;
+  --text-dim:   #a0a0a0;
+  --text-faint: #6a6a6a;
+  --accent:      #e5e5e5;
+  --accent-soft: rgba(229, 229, 229, 0.16);
+  --accent-halo: rgba(229, 229, 229, 0.1);
+  --success:      #d4d4d4;
+  --warning:      #bdbdbd;
+  --danger:       #fafafa;
+  --info:         #cfcfcf;
+  --neutral:      #8a8a8a;
+}
+
+/* --- Light operator-console variants (opt-in) ------------------ */
+[data-theme].light {
+  --bg:           #f7f8fb;
+  --bg-elev-1:    #ffffff;
+  --bg-elev-2:    #eef1f6;
+  --border:        #d8dde7;
+  --border-strong: #b7bfcd;
+  --text:       #15181f;
+  --text-dim:   #4a5365;
+  --text-faint: #79839a;
+  --shadow-sm:    0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-md:    0 4px 12px rgba(15, 23, 42, 0.1);
+  --shadow-lg:    0 12px 32px rgba(15, 23, 42, 0.14);
+}
+
 /* Honour user motion preference — override every motion token so that
  * transitions, spring curves, and looping pulses resolve to a no-op. */
 @media (prefers-reduced-motion: reduce) {

@@ -19,9 +19,58 @@ runs:
     - name: Install ripgrep on Linux
       if: runner.os == 'Linux' && steps.check.outputs.present != 'true'
       shell: bash
+      # Runner-image fragility (T11966 / DHQ-077): GitHub-hosted Ubuntu runners
+      # ship third-party apt sources (e.g. packages.microsoft.com / azure-cli)
+      # that intermittently return `403 Forbidden` or `no longer signed`. A bare
+      # `apt-get update` hard-fails (exit 100) on ANY source error, which broke
+      # Build & Verify on every PR even though ripgrep itself was healthy. We
+      # therefore install ripgrep from a pinned GitHub release `.deb` and never
+      # run a full `apt-get update`. apt is used only as a last-resort fallback,
+      # and only after disabling the third-party sources that cause the failure.
+      env:
+        RG_VERSION: 14.1.1
       run: |
-        sudo apt-get update
-        sudo apt-get install -y ripgrep
+        set -euo pipefail
+
+        install_from_github_release() {
+          local arch deb_arch url tmp
+          arch="$(dpkg --print-architecture)"
+          case "$arch" in
+            amd64) deb_arch="amd64" ;;
+            arm64) deb_arch="arm64" ;;
+            *)
+              echo "::warning::Unsupported dpkg arch '$arch' for pinned ripgrep .deb; falling back to apt." >&2
+              return 1
+              ;;
+          esac
+          url="https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep_${RG_VERSION}-1_${deb_arch}.deb"
+          tmp="$(mktemp --suffix=.deb)"
+          echo "Downloading pinned ripgrep ${RG_VERSION} (${deb_arch}) from GitHub release…"
+          if ! curl --fail --location --retry 3 --retry-delay 2 --proto '=https' --tlsv1.2 -o "$tmp" "$url"; then
+            echo "::warning::Pinned ripgrep .deb download failed; falling back to apt." >&2
+            rm -f "$tmp"
+            return 1
+          fi
+          sudo dpkg -i "$tmp"
+          rm -f "$tmp"
+        }
+
+        # Fallback: disable the fragile third-party apt sources, then update only
+        # the remaining (signed, reachable) sources before installing via apt.
+        install_via_apt() {
+          echo "Falling back to apt install of ripgrep…"
+          # Remove the third-party sources that cause `apt-get update` to abort.
+          sudo rm -f /etc/apt/sources.list.d/microsoft*.list \
+                     /etc/apt/sources.list.d/azure-cli*.list 2>/dev/null || true
+          # `|| true` tolerates a residual failing source; the subsequent
+          # install will surface a real error only if ripgrep is unobtainable.
+          sudo apt-get update || true
+          sudo apt-get install -y ripgrep
+        }
+
+        if ! install_from_github_release; then
+          install_via_apt
+        fi
 
     - name: Install ripgrep on macOS
       if: runner.os == 'macOS' && steps.check.outputs.present != 'true'

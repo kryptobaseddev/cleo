@@ -6,7 +6,7 @@
 
 import type { Task, TaskRecord, TaskRef, VerificationGate } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
 import { getRawConfigValue, loadConfig } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
@@ -102,6 +102,16 @@ export interface CompleteTaskOptions {
    * @saga T10538 (PM-Core V2 agent-trust)
    */
   cancelledChildWaiverReason?: string;
+  /**
+   * Reason for waiving the `E_CLEO_DEPENDENCY` gate when this task's own work
+   * is done but its `depends` edges point at not-yet-terminal tasks (a stale or
+   * over-specified dependency). When set, completion proceeds despite the
+   * unresolved depends edges and the decision is audited to
+   * `.cleo/audit/depends-waiver.jsonl`.
+   *
+   * @task T11954 (DHQ-071)
+   */
+  waiveDependsReason?: string;
 }
 
 /**
@@ -416,21 +426,70 @@ export async function completeTask(
     });
   }
 
-  // Check if task has incomplete dependencies
-  // archived tasks are treated as satisfied (equivalent to done) — T1954
+  // ---- Dependency gate (T11954 / DHQ-071) ----
+  // A task whose OWN work is done can still be blocked here by `depends` edges
+  // that point at tasks which are not yet terminal. Two refinements over the
+  // legacy gate so this stops stalling autonomous agents:
+  //
+  //  1. Terminal-status check uses the canonical `TERMINAL_TASK_STATUSES` SSoT
+  //     (done/cancelled/archived) instead of a hand-rolled inline set, so it
+  //     can never drift. A dep ID that no longer exists is dropped by
+  //     `loadTasks` (rows are returned only when present) — a stale reference
+  //     to a deleted task therefore never blocks.
+  //  2. When a genuine non-terminal dep DOES block, the error now surfaces each
+  //     blocker WITH its current status and offers a one-shot, audited
+  //     `--waive-depends "<reason>"` override (mirrors the cancelled-child and
+  //     premature-close waivers). The waiver is recorded to
+  //     `.cleo/audit/depends-waiver.jsonl`.
   if (task.depends?.length) {
     const deps = await acc.loadTasks(task.depends);
-    const incompleteDeps = deps
-      .filter((d) => d.status !== 'done' && d.status !== 'cancelled' && d.status !== 'archived')
-      .map((d) => d.id);
-    if (incompleteDeps.length > 0) {
-      throw new CleoError(
-        ExitCode.DEPENDENCY_ERROR,
-        `Task ${options.taskId} has incomplete dependencies: ${incompleteDeps.join(', ')}`,
-        {
-          fix: `Complete dependencies first: ${incompleteDeps.map((d) => `cleo complete ${d}`).join(', ')}`,
-        },
-      );
+    const unresolvedDeps = deps
+      .filter((d) => !TERMINAL_TASK_STATUSES.has(d.status))
+      .map((d) => ({ id: d.id, status: d.status }));
+    if (unresolvedDeps.length > 0) {
+      const waiverReason = options.waiveDependsReason?.trim();
+      if (!waiverReason) {
+        const offenders = unresolvedDeps.map((d) => `${d.id} (${d.status})`).join(', ');
+        throw new CleoError(
+          ExitCode.DEPENDENCY_ERROR,
+          `Task ${options.taskId} has unresolved dependencies: ${offenders}`,
+          {
+            fix:
+              `Complete the dependencies first ` +
+              `(${unresolvedDeps.map((d) => `cleo complete ${d.id}`).join(', ')}), ` +
+              `OR — if the edge is stale/over-specified and this task's own work is done — ` +
+              `drop it with 'cleo update ${options.taskId} --remove-depends <id>', ` +
+              `OR record an audited one-shot override: ` +
+              `'cleo complete ${options.taskId} --waive-depends "<reason>"' ` +
+              `(audited to .cleo/audit/depends-waiver.jsonl).`,
+            details: {
+              field: 'depends',
+              unresolvedDeps,
+            },
+          },
+        );
+      }
+
+      // Override supplied — audit the decision before proceeding.
+      try {
+        const { appendDependsWaiverAudit } = await import('./depends-waiver-audit.js');
+        await appendDependsWaiverAudit(
+          {
+            taskId: options.taskId,
+            unresolvedDeps,
+            waiverReason,
+            timestamp: new Date().toISOString(),
+            agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+          },
+          cwd,
+        );
+      } catch (err) {
+        // Audit write failure must not block the completion — warn only.
+        console.warn(
+          '[complete] failed to write depends-waiver audit:',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
   }
 
@@ -1230,6 +1289,13 @@ export interface TaskCompleteEngineOptions {
    * @saga T10538 (PM-Core V2 agent-trust)
    */
   cancelledChildWaiverReason?: string;
+  /**
+   * Reason for waiving the `E_CLEO_DEPENDENCY` gate on stale/over-specified
+   * depends edges.
+   * @see CompleteTaskOptions.waiveDependsReason
+   * @task T11954 (DHQ-071)
+   */
+  waiveDependsReason?: string;
 }
 
 /**
@@ -1265,6 +1331,7 @@ export async function taskComplete(
         waiveAc: opts.waiveAc,
         waiveReason: opts.waiveReason,
         cancelledChildWaiverReason: opts.cancelledChildWaiverReason,
+        waiveDependsReason: opts.waiveDependsReason,
       },
       projectRoot,
       accessor,

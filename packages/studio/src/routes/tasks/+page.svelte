@@ -578,7 +578,13 @@
               {filters}
             />
           {:else if filters.state.view === 'graph'}
-            <GraphTab tasks={explorerTasks} deps={explorerDeps} {filters} labels={explorerLabels} />
+            <GraphTab
+              tasks={explorerTasks}
+              deps={explorerDeps}
+              {filters}
+              labels={explorerLabels}
+              activeProjectId={$page.data.activeProjectId ?? null}
+            />
           {:else}
             <KanbanTab tasks={explorerTasks} deps={explorerDeps} {filters} />
           {/if}

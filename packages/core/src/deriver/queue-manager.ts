@@ -31,6 +31,20 @@ export const STALE_CLAIM_MINUTES = 30;
 /** Max retry count before item is moved to 'failed' permanently. */
 export const MAX_RETRY_COUNT = 5;
 
+/**
+ * Base exponential-backoff delay in seconds for a re-queued item (T10405).
+ *
+ * A failed/recovered item's next claim is gated until
+ * `now + BACKOFF_BASE_SECONDS * 2^(retryCount - 1)`, capped at
+ * {@link BACKOFF_MAX_SECONDS}. With base 30s the schedule is
+ * 30s → 60s → 120s → 240s (then capped), so a transiently-failing item
+ * backs off geometrically instead of hot-looping the worker.
+ */
+export const BACKOFF_BASE_SECONDS = 30;
+
+/** Maximum exponential-backoff delay in seconds (cap for {@link computeBackoffSeconds}). */
+export const BACKOFF_MAX_SECONDS = 30 * 60;
+
 /** SQLite busy error string (returned when BEGIN IMMEDIATE cannot acquire lock). */
 const SQLITE_BUSY_STR = 'database is locked';
 
@@ -103,6 +117,30 @@ function minutesAgo(n: number): string {
   return new Date(Date.now() - n * 60_000).toISOString();
 }
 
+/**
+ * Compute the exponential-backoff delay (seconds) for a re-queued item (T10405).
+ *
+ * Returns `BACKOFF_BASE_SECONDS * 2^(attempt - 1)` capped at
+ * {@link BACKOFF_MAX_SECONDS}. `attempt` is the *new* retry count (1-based:
+ * the first failure backs off by the base delay). An `attempt` of 0 or less is
+ * clamped to 1 so the first retry always waits at least the base delay.
+ *
+ * @param attempt - The new (post-increment) retry count for the item.
+ * @returns Backoff delay in seconds, in `[BACKOFF_BASE_SECONDS, BACKOFF_MAX_SECONDS]`.
+ *
+ * @task T10405
+ */
+export function computeBackoffSeconds(attempt: number): number {
+  const safeAttempt = attempt < 1 ? 1 : attempt;
+  const delay = BACKOFF_BASE_SECONDS * 2 ** (safeAttempt - 1);
+  return Math.min(delay, BACKOFF_MAX_SECONDS);
+}
+
+/** Return ISO 8601 timestamp for N seconds in the future. */
+function secondsFromNow(n: number): string {
+  return new Date(Date.now() + n * 1000).toISOString();
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
@@ -137,22 +175,26 @@ export function claimNextItem(options: ClaimOptions = {}): ClaimedItem | null {
   }
 
   try {
+    // T10405: gate on the exponential-backoff window — a re-queued item with a
+    // future `next_attempt_at` is skipped until its backoff elapses. Fresh items
+    // (next_attempt_at IS NULL) are always eligible.
+    const now = new Date().toISOString();
     const row = nativeDb
       .prepare(
         `SELECT id, item_type, item_id, priority, retry_count
          FROM deriver_queue
          WHERE status = 'pending'
+           AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
          ORDER BY priority DESC, created_at ASC
          LIMIT 1`,
       )
-      .get() as RawClaimRow | undefined;
+      .get(now) as RawClaimRow | undefined;
 
     if (!row) {
       nativeDb.exec('ROLLBACK');
       return null;
     }
 
-    const now = new Date().toISOString();
     nativeDb
       .prepare(
         `UPDATE deriver_queue
@@ -206,8 +248,10 @@ export function completeItem(itemId: string, options: CompleteOptions = {}): voi
  * Mark a claimed item as failed (with optional error message).
  *
  * If `retryCount` is below {@link MAX_RETRY_COUNT}, the item is re-queued
- * to `pending` with `retryCount + 1` (for retry next batch).
- * Otherwise the item is permanently moved to `failed`.
+ * to `pending` with `retryCount + 1` and an exponential-backoff
+ * `next_attempt_at` (T10405) so it is not re-claimed until the backoff window
+ * elapses. Otherwise the item is permanently moved to `failed` (DLQ semantics)
+ * and its backoff gate is cleared.
  *
  * @param itemId   - The deriver_queue.id to fail.
  * @param errorMsg - Human-readable error for the error_msg column.
@@ -227,16 +271,19 @@ export function failItem(itemId: string, errorMsg: string, options: CompleteOpti
   if (!row) return;
 
   const nextRetry = (row.retry_count ?? 0) + 1;
-  const nextStatus = nextRetry >= MAX_RETRY_COUNT ? 'failed' : 'pending';
+  const permanentFail = nextRetry >= MAX_RETRY_COUNT;
+  const nextStatus = permanentFail ? 'failed' : 'pending';
+  // Re-queued items back off geometrically; permanently-failed items clear the gate.
+  const nextAttemptAt = permanentFail ? null : secondsFromNow(computeBackoffSeconds(nextRetry));
 
   nativeDb
     .prepare(
       `UPDATE deriver_queue
        SET status = ?, retry_count = ?, error_msg = ?,
-           claimed_at = NULL, claimed_by = NULL
+           claimed_at = NULL, claimed_by = NULL, next_attempt_at = ?
        WHERE id = ? AND status = 'in_progress'`,
     )
-    .run(nextStatus, nextRetry, errorMsg, itemId);
+    .run(nextStatus, nextRetry, errorMsg, nextAttemptAt, itemId);
 }
 
 /**
@@ -282,14 +329,16 @@ export function recoverStaleItems(options: CompleteOptions = {}): StaleRecoveryR
         .run(nextRetry, row.id);
       result.failed++;
     } else {
+      // T10405: re-queued stale items also back off geometrically.
+      const nextAttemptAt = secondsFromNow(computeBackoffSeconds(nextRetry));
       nativeDb
         .prepare(
           `UPDATE deriver_queue
            SET status = 'pending', retry_count = ?, error_msg = 'recovered from stale claim',
-               claimed_at = NULL, claimed_by = NULL
+               claimed_at = NULL, claimed_by = NULL, next_attempt_at = ?
            WHERE id = ?`,
         )
-        .run(nextRetry, row.id);
+        .run(nextRetry, nextAttemptAt, row.id);
       result.requeued++;
     }
   }

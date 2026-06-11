@@ -892,6 +892,75 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
 ] as const;
 
 // ============================================================
+// Channel Boundary Registry (T11952 · epic T11854 · saga T10419)
+// ============================================================
+
+/**
+ * Trust posture for an inbound channel sender.
+ *
+ * - `verified` — sender messages bypass the HITL approval gate and dispatch
+ *   directly to the agent.
+ * - `unverified` — sender messages route through the resumeToken approval gate
+ *   before dispatch (T11854 AC5).
+ */
+export type ChannelTrustPosture = 'verified' | 'unverified';
+
+/**
+ * One row in {@link CHANNEL_BOUNDARY_REGISTRY}. Declares a messaging channel's
+ * delivery boundary: which transport it rides, whether it crosses the network,
+ * whether a platform credential is required, and the default trust posture for
+ * inbound senders.
+ *
+ * This is the channel-layer companion to the ADR-078 module {@link BoundaryEntry}.
+ * Where {@link BoundaryEntry} governs Rust/TS package layering (one row per
+ * crate/package, validated against the filesystem), a {@link ChannelBoundaryEntry}
+ * governs the conversation-surface boundary (one row per channel adapter) and is
+ * NOT filesystem-validated — channels are runtime concepts, not on-disk modules.
+ *
+ * @see T11854 AC4 — every channel registers a boundary entry in boundary.ts.
+ * @see ConduitMessage — the wire shape channels exchange.
+ */
+export interface ChannelBoundaryEntry {
+  /** Stable, kebab-case channel id (e.g. `'local-tui'`, `'telegram'`). */
+  channel: string;
+  /** Underlying conduit transport the adapter rides (e.g. `'local'`, `'http'`). */
+  transport: string;
+  /** Whether the channel originates outbound network traffic. */
+  networkEgress: 'none' | 'required';
+  /** Whether the channel requires a platform credential to operate. */
+  credentialRequired: boolean;
+  /** Default trust posture applied to inbound senders lacking explicit verification. */
+  defaultTrust: ChannelTrustPosture;
+  /** 1-2 sentence rationale for the channel's boundary posture. */
+  rationale: string;
+}
+
+/**
+ * Canonical registry of messaging-channel boundaries.
+ *
+ * The Local-TUI adapter (T11952) is the first reference channel: it rides the
+ * in-process conduit `LocalTransport`, never touches the network, needs no
+ * platform credential, and treats the single local operator as a verified
+ * sender. Platform adapters (Telegram/Discord/Slack/WhatsApp — T11855) append
+ * their own entries as they land.
+ *
+ * Entries are kept alphabetical by `channel` for diff-friendliness.
+ *
+ * @see T11854 AC4
+ */
+export const CHANNEL_BOUNDARY_REGISTRY: readonly ChannelBoundaryEntry[] = [
+  {
+    channel: 'local-tui',
+    transport: 'local',
+    networkEgress: 'none',
+    credentialRequired: false,
+    defaultTrust: 'verified',
+    rationale:
+      'In-process stdin/stdout terminal channel riding the conduit LocalTransport (conduit.db). Fully offline, daemon-OFF, no network, no platform credential; the single local operator is a verified sender.',
+  },
+] as const;
+
+// ============================================================
 // TOOLS-vs-SKILLS boundary (E3 · T11409 · SG-PACKAGE-ARCH)
 // ============================================================
 

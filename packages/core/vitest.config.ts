@@ -15,6 +15,7 @@
  */
 
 import { defineConfig } from 'vitest/config';
+import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 
 export default defineConfig({
   test: {
@@ -51,7 +52,12 @@ export default defineConfig({
       '**/*-integration.test.ts',
     ],
     // Path aliases matching the root tsconfig.
-    alias: {
+    //
+    // T11953 / DHQ-070: `withWorkspaceSubpathAliases` PREPENDS a generic
+    // `@cleocode/<pkg>/<subpath>` → source resolver so a fresh worktree run via
+    // `pnpm --filter @cleocode/core exec vitest` (which loads THIS config)
+    // resolves any subpath without per-PR ad-hoc aliases.
+    alias: withWorkspaceSubpathAliases({
       // T9955: explicit subpath aliases for provenance/jobs/enums modules.
       // These MUST appear BEFORE the bare `@cleocode/contracts` alias so
       // vitest matches the longer prefix first; otherwise the broader alias
@@ -93,6 +99,6 @@ export default defineConfig({
       // caamp and cant — required to resolve @cleocode/core/internal transitive deps
       '@cleocode/caamp': new URL('../../packages/caamp/src/index.ts', import.meta.url).pathname,
       '@cleocode/cant': new URL('../../packages/cant/src/index.ts', import.meta.url).pathname,
-    },
+    }),
   },
 });

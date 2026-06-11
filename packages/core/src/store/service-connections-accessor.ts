@@ -412,6 +412,79 @@ export async function listConnections(
 }
 
 /**
+ * A NON-SECRET, dashboard-facing view of one `agent_service_grants` row joined
+ * to its connection identity. Carries the granted agent, the per-session access
+ * policy (`mode` / `manualApproval`), and the connection's `provider`/`label`
+ * so a read-only surface (the Studio vault dashboard, T11943) can render "which
+ * agent may use which connection" WITHOUT touching the encrypted token blob.
+ *
+ * @task T11943
+ */
+export interface AgentGrantView {
+  /** The granted agent's id. */
+  readonly agentId: string;
+  /** The connection this grant authorizes (FK to `service_connections.id`). */
+  readonly serviceConnectionId: number;
+  /** The connection's provider key, when the connection still exists. */
+  readonly provider: string | null;
+  /** The connection's label, when the connection still exists. */
+  readonly label: string | null;
+  /** The session policy mode (`allow` | `block`). */
+  readonly mode: SessionPolicy['mode'];
+  /** Whether the policy requires an out-of-band manual approval per session. */
+  readonly manualApproval: boolean;
+  /** ISO-8601 grant-creation instant. */
+  readonly createdAt: string;
+  /** ISO-8601 last-update instant. */
+  readonly updatedAt: string;
+}
+
+/**
+ * LIST every agent grant as a NON-SECRET {@link AgentGrantView}, joined to its
+ * connection's `provider`/`label` for display. NEVER decrypts and never carries
+ * a token — the dashboard read path (T11943).
+ *
+ * The join is performed in-memory (one `agent_service_grants` scan + one
+ * `service_connections` scan, both already redacted) so the accessor stays a
+ * pure read with no second round-trip per grant. A grant whose connection was
+ * deleted out-of-band resolves `provider`/`label` to `null` (defensive — the
+ * cascade should prevent this, but the view must not throw).
+ *
+ * @param agentId - When set, restrict to one agent's grants; otherwise all.
+ * @task T11943
+ */
+export async function listAllGrants(
+  agentId?: string,
+  deps?: ServiceVaultDeps,
+): Promise<AgentGrantView[]> {
+  const db = await resolveDb(deps);
+  const grantRows =
+    agentId === undefined
+      ? await db.select().from(agentServiceGrants)
+      : await db.select().from(agentServiceGrants).where(eq(agentServiceGrants.agentId, agentId));
+
+  // Build a connection-id → identity map once (redacted views, no token).
+  const connRows = await db.select().from(serviceConnections);
+  const identityById = new Map<number, { provider: string; label: string }>();
+  for (const c of connRows) identityById.set(c.id, { provider: c.provider, label: c.label });
+
+  return grantRows.map((g) => {
+    const identity = identityById.get(g.serviceConnectionId) ?? null;
+    const policy = parseSessionPolicy(g.sessionPolicy);
+    return {
+      agentId: g.agentId,
+      serviceConnectionId: g.serviceConnectionId,
+      provider: identity?.provider ?? null,
+      label: identity?.label ?? null,
+      mode: policy.mode,
+      manualApproval: policy.manualApproval ?? false,
+      createdAt: g.createdAt,
+      updatedAt: g.updatedAt,
+    };
+  });
+}
+
+/**
  * REVOKE a connection: flip `status` to `revoked` and CLEAR the credential blob.
  *
  * Clearing `credentials_enc` makes the secret unrecoverable (the ciphertext is
