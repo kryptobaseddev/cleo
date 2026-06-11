@@ -24,7 +24,6 @@ import {
 } from '../credentials-store.js';
 import { _resetGlobalConfigMigrationLatch } from '../global-config-migration.js';
 import {
-  IMPLICIT_FALLBACK_MODEL,
   IMPLICIT_FALLBACK_PROVIDER,
   type ResolvedLLM,
   resolveLLMForRole,
