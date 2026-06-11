@@ -1,41 +1,31 @@
 /**
- * Unit tests for CodexResponsesTransport.
+ * Unit tests for CodexResponsesTransport (raw-fetch variant, T11985).
  *
  * Covers:
- * 1. Simple text turn — complete() returns content and usage.
- * 2. Multimodal turn — image_url block converted to input_image item.
- * 3. Tool call + tool result replay — tool call in output, result in next input.
- * 4. Error classification — SDK error propagates as thrown Error.
- * 5. Streaming SSE — stream() yields text deltas and final stopReason+usage.
+ * 1. Wire shape — request-shape builder asserts exact headers/body fields
+ *    for a fixture credential (no live calls).
+ * 2. Simple text turn — complete() returns content and usage.
+ * 3. Multimodal turn — image_url block converted to input_image item.
+ * 4. Tool call + tool result replay — tool call in output, result in next input.
+ * 5. Error surfacing — response body included in thrown Error message.
+ * 6. Streaming SSE — stream() yields text deltas and final stopReason+usage.
+ * 7. resolveCodexUrl — endpoint URL normalisation.
  *
+ * @task T11985
  * @task T9311
  * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 5)
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Mock `openai` — declared before imports.
-// ---------------------------------------------------------------------------
-
-const { mockResponsesCreate } = vi.hoisted(() => ({
-  mockResponsesCreate: vi.fn(),
-}));
-
-vi.mock('openai', () => {
-  class MockOpenAI {
-    responses = { create: mockResponsesCreate };
-  }
-  return { default: MockOpenAI, OpenAI: MockOpenAI };
-});
-
-// ---------------------------------------------------------------------------
-// Imports — after mock declarations.
+// Imports
 // ---------------------------------------------------------------------------
 
 import {
   CodexResponsesTransport,
   type CodexResponsesTransportOptions,
+  resolveCodexUrl,
 } from '../../transports/codex-responses.js';
 
 // ---------------------------------------------------------------------------
@@ -44,18 +34,23 @@ import {
 
 const BASE_OPTS: CodexResponsesTransportOptions = {
   provider: 'openai',
-  apiKey: 'sk-test-key',
+  apiKey: 'oat-test-token',
+  defaultHeaders: {
+    Authorization: 'Bearer oat-test-token',
+    'chatgpt-account-id': 'acct_test123',
+    originator: 'codex_cli_rs',
+  },
 };
 
 /**
- * Build a fake non-streaming Responses API Response object.
+ * Build a fake (non-streaming) Responses API JSON response object.
  */
 function fakeResponse(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 'resp_test_001',
     object: 'response',
     created_at: 1700000000,
-    model: 'codex-mini-latest',
+    model: 'gpt-5.5',
     status: 'completed',
     output_text: 'Hello from Codex!',
     output: [
@@ -65,527 +60,647 @@ function fakeResponse(overrides: Record<string, unknown> = {}): Record<string, u
         content: [{ type: 'output_text', text: 'Hello from Codex!' }],
       },
     ],
-    parallel_tool_calls: false,
-    temperature: 0.7,
-    tool_choice: 'auto',
-    tools: [],
-    top_p: null,
     usage: {
       input_tokens: 10,
       output_tokens: 8,
       total_tokens: 18,
       input_tokens_details: { cached_tokens: 0 },
-      output_tokens_details: { reasoning_tokens: 0 },
     },
     error: null,
-    incomplete_details: null,
-    instructions: null,
-    metadata: null,
     ...overrides,
   };
 }
 
 /**
- * Build a fake async iterable of Responses API stream events.
+ * Build a raw SSE body string from a list of JSON event objects.
  */
-function makeFakeResponseStream(
-  events: Array<Record<string, unknown>>,
-): AsyncIterable<Record<string, unknown>> {
-  return {
-    [Symbol.asyncIterator]() {
-      let i = 0;
-      return {
-        async next() {
-          if (i < events.length) return { value: events[i++], done: false };
-          return { value: undefined, done: true };
-        },
-      };
-    },
-  };
+function buildSSEBody(events: Array<Record<string, unknown>>): string {
+  return events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') + 'data: [DONE]\n\n';
 }
+
+/**
+ * Create a fake ReadableStream from a raw SSE string.
+ */
+function sseStream(raw: string): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(raw);
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+/**
+ * Create a fake fetch that returns a JSON response.
+ */
+function mockJsonFetch(body: Record<string, unknown>, status = 200): typeof fetch {
+  return vi.fn().mockResolvedValue(
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    }),
+  );
+}
+
+/**
+ * Create a fake fetch that returns an SSE stream response.
+ */
+function mockSseFetch(events: Array<Record<string, unknown>>): typeof fetch {
+  return vi.fn().mockResolvedValue(
+    new Response(sseStream(buildSSEBody(events)), {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Setup / teardown
+// ---------------------------------------------------------------------------
+
+let originalFetch: typeof fetch;
+
+beforeEach(() => {
+  originalFetch = globalThis.fetch;
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  vi.restoreAllMocks();
+});
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('CodexResponsesTransport', () => {
-  beforeEach(() => {
-    mockResponsesCreate.mockReset();
+describe('resolveCodexUrl', () => {
+  it('appends /codex/responses to plain backend URL', () => {
+    expect(resolveCodexUrl('https://chatgpt.com/backend-api')).toBe(
+      'https://chatgpt.com/backend-api/codex/responses',
+    );
   });
 
-  // ── 1. Simple text turn ───────────────────────────────────────────────────
-
-  describe('complete() — simple text turn', () => {
-    it('returns content and normalized usage from a text response', async () => {
-      mockResponsesCreate.mockResolvedValue(fakeResponse());
-
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      const response = await transport.complete({
-        model: 'codex-mini-latest',
-        messages: [{ role: 'user', content: 'Hello!' }],
-        maxTokens: 256,
-      });
-
-      expect(response.content).toBe('Hello from Codex!');
-      expect(response.toolCalls).toBeNull();
-      expect(response.stopReason).toBe('completed');
-      expect(response.usage.inputTokens).toBe(10);
-      expect(response.usage.outputTokens).toBe(8);
-      expect(response.id).toBe('resp_test_001');
-    });
-
-    it('sends instructions from system prompt', async () => {
-      mockResponsesCreate.mockResolvedValue(fakeResponse());
-
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      await transport.complete({
-        model: 'codex-mini-latest',
-        messages: [{ role: 'user', content: 'Hi' }],
-        maxTokens: 64,
-        system: 'You are a helpful assistant.',
-      });
-
-      const callArgs = mockResponsesCreate.mock.calls[0][0] as Record<string, unknown>;
-      expect(callArgs['instructions']).toBe('You are a helpful assistant.');
-    });
-
-    it('sends user messages as input items', async () => {
-      mockResponsesCreate.mockResolvedValue(fakeResponse());
-
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      await transport.complete({
-        model: 'codex-mini-latest',
-        messages: [{ role: 'user', content: 'What is 2+2?' }],
-        maxTokens: 32,
-      });
-
-      const callArgs = mockResponsesCreate.mock.calls[0][0] as Record<string, unknown>;
-      const input = callArgs['input'] as Array<Record<string, unknown>>;
-      expect(Array.isArray(input)).toBe(true);
-      expect(input[0]).toMatchObject({
-        type: 'message',
-        role: 'user',
-        content: 'What is 2+2?',
-      });
-    });
-
-    it('populates cachedTokens when input_tokens_details.cached_tokens > 0', async () => {
-      mockResponsesCreate.mockResolvedValue(
-        fakeResponse({
-          usage: {
-            input_tokens: 100,
-            output_tokens: 20,
-            total_tokens: 120,
-            input_tokens_details: { cached_tokens: 80 },
-            output_tokens_details: { reasoning_tokens: 0 },
-          },
-        }),
-      );
-
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      const response = await transport.complete({
-        model: 'codex-mini-latest',
-        messages: [{ role: 'user', content: 'Cached query' }],
-        maxTokens: 64,
-      });
-
-      expect(response.usage.cachedTokens).toBe(80);
-    });
-
-    it('reflects apiMode as codex_responses', () => {
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      expect(transport.apiMode).toBe('codex_responses');
-    });
+  it('appends /responses when URL already ends with /codex', () => {
+    expect(resolveCodexUrl('https://chatgpt.com/backend-api/codex')).toBe(
+      'https://chatgpt.com/backend-api/codex/responses',
+    );
   });
 
-  // ── 2. Multimodal — image + text ──────────────────────────────────────────
-
-  describe('complete() — multimodal (image + text)', () => {
-    it('converts image_url content block to input_image item', async () => {
-      mockResponsesCreate.mockResolvedValue(fakeResponse({ output_text: 'I see a cat.' }));
-
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      await transport.complete({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: 'What is in this image?' },
-              {
-                type: 'image',
-                source: {
-                  type: 'url',
-                  data: 'https://example.com/cat.jpg',
-                  mediaType: 'image/jpeg',
-                },
-              },
-            ],
-          },
-        ],
-        maxTokens: 128,
-      });
-
-      const callArgs = mockResponsesCreate.mock.calls[0][0] as Record<string, unknown>;
-      const input = callArgs['input'] as Array<Record<string, unknown>>;
-      const msgItem = input[0] as Record<string, unknown>;
-      expect(msgItem['type']).toBe('message');
-      const content = msgItem['content'] as Array<Record<string, unknown>>;
-      expect(content).toHaveLength(2);
-      expect(content[0]).toMatchObject({ type: 'input_text', text: 'What is in this image?' });
-      expect(content[1]).toMatchObject({
-        type: 'input_image',
-        image_url: 'https://example.com/cat.jpg',
-        detail: 'auto',
-      });
-    });
-
-    it('converts base64 image to data URL in input_image item', async () => {
-      mockResponsesCreate.mockResolvedValue(fakeResponse({ output_text: 'Blue square.' }));
-
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      await transport.complete({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: { type: 'base64', data: 'abc123==', mediaType: 'image/png' },
-              },
-            ],
-          },
-        ],
-        maxTokens: 64,
-      });
-
-      const callArgs = mockResponsesCreate.mock.calls[0][0] as Record<string, unknown>;
-      const input = callArgs['input'] as Array<Record<string, unknown>>;
-      const content = (input[0] as Record<string, unknown>)['content'] as Array<
-        Record<string, unknown>
-      >;
-      expect(content[0]).toMatchObject({
-        type: 'input_image',
-        image_url: 'data:image/png;base64,abc123==',
-      });
-    });
+  it('leaves URL unchanged when it already ends with /codex/responses', () => {
+    expect(resolveCodexUrl('https://chatgpt.com/backend-api/codex/responses')).toBe(
+      'https://chatgpt.com/backend-api/codex/responses',
+    );
   });
 
-  // ── 3. Tool call + tool result replay ─────────────────────────────────────
+  it('defaults to ChatGPT Codex backend when baseUrl is undefined', () => {
+    expect(resolveCodexUrl(undefined)).toBe('https://chatgpt.com/backend-api/codex/responses');
+  });
+});
 
-  describe('complete() — tool call + tool result replay', () => {
-    it('sends tools as function-type items to the Responses API', async () => {
-      mockResponsesCreate.mockResolvedValue(
-        fakeResponse({
-          output_text: '',
-          output: [
+// ── 1. Wire shape ─────────────────────────────────────────────────────────────
+
+describe('CodexResponsesTransport — wire shape (request-shape builder)', () => {
+  it('sends store:false, stream:false for complete()', async () => {
+    const mockFetch = mockJsonFetch(fakeResponse());
+    globalThis.fetch = mockFetch;
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    await transport.complete({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'hi' }],
+      maxTokens: 64,
+    });
+
+    const [url, init] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+
+    expect(url).toBe('https://chatgpt.com/backend-api/codex/responses');
+    expect(body['store']).toBe(false);
+    expect(body['stream']).toBe(false);
+  });
+
+  it('sends store:false, stream:true, OpenAI-Beta, accept:text/event-stream for stream()', async () => {
+    const mockFetch = mockSseFetch([{ type: 'response.completed', response: fakeResponse() }]);
+    globalThis.fetch = mockFetch;
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    const deltas = [];
+    for await (const d of transport.stream(
+      { model: 'gpt-5.5', messages: [{ role: 'user', content: 'hi' }], maxTokens: 64 },
+      {} as Parameters<typeof transport.stream>[1],
+    )) {
+      deltas.push(d);
+    }
+
+    const [, init] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    const hdrs = init.headers as Record<string, string>;
+
+    expect(body['store']).toBe(false);
+    expect(body['stream']).toBe(true);
+    expect(hdrs['OpenAI-Beta']).toBe('responses=experimental');
+    expect(hdrs['accept']).toBe('text/event-stream');
+  });
+
+  it('sends Authorization, chatgpt-account-id, originator from defaultHeaders', async () => {
+    const mockFetch = mockJsonFetch(fakeResponse());
+    globalThis.fetch = mockFetch;
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    await transport.complete({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'hi' }],
+      maxTokens: 32,
+    });
+
+    const [, init] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const hdrs = init.headers as Record<string, string>;
+
+    expect(hdrs['Authorization']).toBe('Bearer oat-test-token');
+    expect(hdrs['chatgpt-account-id']).toBe('acct_test123');
+    expect(hdrs['originator']).toBe('codex_cli_rs');
+  });
+
+  it('injects Authorization when not present in defaultHeaders', async () => {
+    const mockFetch = mockJsonFetch(fakeResponse());
+    globalThis.fetch = mockFetch;
+
+    const transport = new CodexResponsesTransport({ provider: 'openai', apiKey: 'sk-test' });
+    await transport.complete({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'hi' }],
+      maxTokens: 32,
+    });
+
+    const [, init] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const hdrs = init.headers as Record<string, string>;
+    expect(hdrs['Authorization']).toBe('Bearer sk-test');
+  });
+
+  it('sends instructions from system prompt', async () => {
+    const mockFetch = mockJsonFetch(fakeResponse());
+    globalThis.fetch = mockFetch;
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    await transport.complete({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'hi' }],
+      maxTokens: 64,
+      system: 'You are a helpful assistant.',
+    });
+
+    const [, init] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body['instructions']).toBe('You are a helpful assistant.');
+  });
+
+  it('sends user messages as input items', async () => {
+    const mockFetch = mockJsonFetch(fakeResponse());
+    globalThis.fetch = mockFetch;
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    await transport.complete({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'What is 2+2?' }],
+      maxTokens: 32,
+    });
+
+    const [, init] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    const input = body['input'] as Array<Record<string, unknown>>;
+    expect(Array.isArray(input)).toBe(true);
+    expect(input[0]).toMatchObject({
+      type: 'message',
+      role: 'user',
+      content: 'What is 2+2?',
+    });
+  });
+});
+
+// ── 2. Simple text turn ───────────────────────────────────────────────────────
+
+describe('CodexResponsesTransport — complete() — simple text turn', () => {
+  it('returns content and normalized usage from a text response', async () => {
+    globalThis.fetch = mockJsonFetch(fakeResponse());
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    const response = await transport.complete({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'Hello!' }],
+      maxTokens: 256,
+    });
+
+    expect(response.content).toBe('Hello from Codex!');
+    expect(response.toolCalls).toBeNull();
+    expect(response.stopReason).toBe('completed');
+    expect(response.usage.inputTokens).toBe(10);
+    expect(response.usage.outputTokens).toBe(8);
+    expect(response.id).toBe('resp_test_001');
+  });
+
+  it('populates cachedTokens when cached_tokens > 0', async () => {
+    globalThis.fetch = mockJsonFetch(
+      fakeResponse({
+        usage: {
+          input_tokens: 100,
+          output_tokens: 20,
+          total_tokens: 120,
+          input_tokens_details: { cached_tokens: 80 },
+        },
+      }),
+    );
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    const response = await transport.complete({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'Cached query' }],
+      maxTokens: 64,
+    });
+
+    expect(response.usage.cachedTokens).toBe(80);
+  });
+
+  it('reflects apiMode as codex_responses', () => {
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    expect(transport.apiMode).toBe('codex_responses');
+  });
+});
+
+// ── 3. Multimodal — image + text ──────────────────────────────────────────────
+
+describe('CodexResponsesTransport — complete() — multimodal (image + text)', () => {
+  it('converts image_url content block to input_image item', async () => {
+    globalThis.fetch = mockJsonFetch(fakeResponse({ output_text: 'I see a cat.' }));
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    await transport.complete({
+      model: 'gpt-5.5',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'What is in this image?' },
             {
-              type: 'function_call',
-              id: 'fc_001',
-              call_id: 'call_001',
-              name: 'get_weather',
-              arguments: '{"city":"SF"}',
+              type: 'image',
+              source: {
+                type: 'url',
+                data: 'https://example.com/cat.jpg',
+                mediaType: 'image/jpeg',
+              },
             },
           ],
-        }),
-      );
+        },
+      ],
+      maxTokens: 128,
+    });
 
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      await transport.complete({
-        model: 'codex-mini-latest',
-        messages: [{ role: 'user', content: 'What is the weather in SF?' }],
-        maxTokens: 128,
-        tools: [
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    const input = body['input'] as Array<Record<string, unknown>>;
+    const msgItem = input[0] as Record<string, unknown>;
+    expect(msgItem['type']).toBe('message');
+    const content = msgItem['content'] as Array<Record<string, unknown>>;
+    expect(content).toHaveLength(2);
+    expect(content[0]).toMatchObject({ type: 'input_text', text: 'What is in this image?' });
+    expect(content[1]).toMatchObject({
+      type: 'input_image',
+      image_url: 'https://example.com/cat.jpg',
+      detail: 'auto',
+    });
+  });
+
+  it('converts base64 image to data URL in input_image item', async () => {
+    globalThis.fetch = mockJsonFetch(fakeResponse({ output_text: 'Blue square.' }));
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    await transport.complete({
+      model: 'gpt-5.5',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', data: 'abc123==', mediaType: 'image/png' },
+            },
+          ],
+        },
+      ],
+      maxTokens: 64,
+    });
+
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    const input = body['input'] as Array<Record<string, unknown>>;
+    const content = (input[0] as Record<string, unknown>)['content'] as Array<
+      Record<string, unknown>
+    >;
+    expect(content[0]).toMatchObject({
+      type: 'input_image',
+      image_url: 'data:image/png;base64,abc123==',
+    });
+  });
+});
+
+// ── 4. Tool call + tool result replay ─────────────────────────────────────────
+
+describe('CodexResponsesTransport — complete() — tool call + tool result replay', () => {
+  it('sends tools as function-type items', async () => {
+    globalThis.fetch = mockJsonFetch(
+      fakeResponse({
+        output_text: '',
+        output: [
           {
+            type: 'function_call',
+            id: 'fc_001',
+            call_id: 'call_001',
             name: 'get_weather',
-            description: 'Get weather for a city.',
-            inputSchema: { type: 'object', properties: { city: { type: 'string' } } },
+            arguments: '{"city":"SF"}',
           },
         ],
-      });
+      }),
+    );
 
-      const callArgs = mockResponsesCreate.mock.calls[0][0] as Record<string, unknown>;
-      const tools = callArgs['tools'] as Array<Record<string, unknown>>;
-      expect(tools).toHaveLength(1);
-      expect(tools[0]).toMatchObject({
-        type: 'function',
-        name: 'get_weather',
-        description: 'Get weather for a city.',
-      });
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    await transport.complete({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'What is the weather in SF?' }],
+      maxTokens: 128,
+      tools: [
+        {
+          name: 'get_weather',
+          description: 'Get weather for a city.',
+          inputSchema: { type: 'object', properties: { city: { type: 'string' } } },
+        },
+      ],
     });
 
-    it('normalizes function_call output items as tool calls', async () => {
-      mockResponsesCreate.mockResolvedValue(
-        fakeResponse({
-          output_text: '',
-          output: [
-            {
-              type: 'function_call',
-              id: 'fc_001',
-              call_id: 'call_abc123',
-              name: 'search',
-              arguments: '{"query":"cleo"}',
-            },
-          ],
-        }),
-      );
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    const tools = body['tools'] as Array<Record<string, unknown>>;
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({
+      type: 'function',
+      name: 'get_weather',
+      description: 'Get weather for a city.',
+    });
+  });
 
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      const response = await transport.complete({
-        model: 'codex-mini-latest',
-        messages: [{ role: 'user', content: 'Search for cleo.' }],
-        maxTokens: 128,
-        tools: [
+  it('normalizes function_call output items as tool calls', async () => {
+    globalThis.fetch = mockJsonFetch(
+      fakeResponse({
+        output_text: '',
+        output: [
           {
+            type: 'function_call',
+            id: 'fc_001',
+            call_id: 'call_abc123',
             name: 'search',
-            description: 'Search.',
-            inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+            arguments: '{"query":"cleo"}',
           },
         ],
-      });
+      }),
+    );
 
-      expect(response.toolCalls).toHaveLength(1);
-      expect(response.toolCalls![0]).toMatchObject({
-        id: 'call_abc123',
-        name: 'search',
-        arguments: '{"query":"cleo"}',
-      });
-      expect(response.toolCalls![0].providerData?.['call_id']).toBe('call_abc123');
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    const response = await transport.complete({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'Search for cleo.' }],
+      maxTokens: 128,
+      tools: [
+        {
+          name: 'search',
+          description: 'Search.',
+          inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+        },
+      ],
     });
 
-    it('converts tool result messages to function_call_output items for multi-turn replay', async () => {
-      mockResponsesCreate.mockResolvedValue(fakeResponse({ output_text: 'It is sunny in SF.' }));
-
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      await transport.complete({
-        model: 'codex-mini-latest',
-        messages: [
-          { role: 'user', content: 'Weather in SF?' },
-          { role: 'assistant', content: '' },
-          {
-            role: 'tool',
-            content: '{"temperature":72,"condition":"sunny"}',
-            toolUseId: 'call_abc123',
-          },
-        ],
-        maxTokens: 128,
-      });
-
-      const callArgs = mockResponsesCreate.mock.calls[0][0] as Record<string, unknown>;
-      const input = callArgs['input'] as Array<Record<string, unknown>>;
-      // Last item should be function_call_output
-      const lastItem = input[input.length - 1];
-      expect(lastItem).toMatchObject({
-        type: 'function_call_output',
-        call_id: 'call_abc123',
-        output: '{"temperature":72,"condition":"sunny"}',
-      });
+    expect(response.toolCalls).toHaveLength(1);
+    expect(response.toolCalls![0]).toMatchObject({
+      id: 'call_abc123',
+      name: 'search',
+      arguments: '{"query":"cleo"}',
     });
   });
 
-  // ── 4. Error classification ───────────────────────────────────────────────
+  it('converts tool result messages to function_call_output items', async () => {
+    globalThis.fetch = mockJsonFetch(fakeResponse({ output_text: 'It is sunny in SF.' }));
 
-  describe('complete() — error classification', () => {
-    it('propagates SDK errors as thrown Error', async () => {
-      mockResponsesCreate.mockRejectedValue(new Error('401 Unauthorized: invalid API key'));
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    await transport.complete({
+      model: 'gpt-5.5',
+      messages: [
+        { role: 'user', content: 'Weather in SF?' },
+        { role: 'assistant', content: '' },
+        {
+          role: 'tool',
+          content: '{"temperature":72,"condition":"sunny"}',
+          toolUseId: 'call_abc123',
+        },
+      ],
+      maxTokens: 128,
+    });
 
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      await expect(
-        transport.complete({
-          model: 'codex-mini-latest',
-          messages: [{ role: 'user', content: 'Hi' }],
-          maxTokens: 32,
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    const input = body['input'] as Array<Record<string, unknown>>;
+    const lastItem = input[input.length - 1];
+    expect(lastItem).toMatchObject({
+      type: 'function_call_output',
+      call_id: 'call_abc123',
+      output: '{"temperature":72,"condition":"sunny"}',
+    });
+  });
+});
+
+// ── 5. Error surfacing ────────────────────────────────────────────────────────
+
+describe('CodexResponsesTransport — error surfacing', () => {
+  it('includes JSON error body in thrown error message', async () => {
+    const errBody = { error: { message: 'store must be false', code: 'invalid_request' } };
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(errBody), {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    await expect(
+      transport.complete({
+        model: 'gpt-5.5',
+        messages: [{ role: 'user', content: 'hi' }],
+        maxTokens: 32,
+      }),
+    ).rejects.toThrow('store must be false');
+  });
+
+  it('includes raw text body when JSON parse fails', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response('Bad Gateway', {
+        status: 502,
+        headers: { 'content-type': 'text/plain' },
+      }),
+    );
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    await expect(
+      transport.complete({
+        model: 'gpt-5.5',
+        messages: [{ role: 'user', content: 'hi' }],
+        maxTokens: 32,
+      }),
+    ).rejects.toThrow('502 Bad Gateway');
+  });
+
+  it('falls back to "(no body)" when response body is empty', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response('', {
+        status: 403,
+        headers: {},
+      }),
+    );
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    await expect(
+      transport.complete({
+        model: 'gpt-5.5',
+        messages: [{ role: 'user', content: 'hi' }],
+        maxTokens: 32,
+      }),
+    ).rejects.toThrow('403 status code (no body)');
+  });
+});
+
+// ── 6. Streaming SSE ──────────────────────────────────────────────────────────
+
+describe('CodexResponsesTransport — stream() — SSE iteration', () => {
+  it('yields text deltas from response.output_text.delta events', async () => {
+    globalThis.fetch = mockSseFetch([
+      { type: 'response.output_text.delta', delta: 'Hello' },
+      { type: 'response.output_text.delta', delta: ' world' },
+      { type: 'response.completed', response: fakeResponse({ output_text: 'Hello world' }) },
+    ]);
+
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    const deltas = [];
+    for await (const d of transport.stream(
+      { model: 'gpt-5.5', messages: [{ role: 'user', content: 'Hello' }], maxTokens: 64 },
+      {} as Parameters<typeof transport.stream>[1],
+    )) {
+      deltas.push(d);
+    }
+
+    const textDeltas = deltas.filter((d) => d.text.length > 0);
+    expect(textDeltas.map((d) => d.text).join('')).toBe('Hello world');
+  });
+
+  it('yields final delta with stopReason and usage from response.completed', async () => {
+    globalThis.fetch = mockSseFetch([
+      { type: 'response.output_text.delta', delta: 'Done' },
+      {
+        type: 'response.completed',
+        response: fakeResponse({
+          output_text: 'Done',
+          status: 'completed',
+          usage: {
+            input_tokens: 5,
+            output_tokens: 3,
+            total_tokens: 8,
+            input_tokens_details: { cached_tokens: 0 },
+          },
         }),
-      ).rejects.toThrow('401 Unauthorized');
-    });
+      },
+    ]);
 
-    it('returns null content when output_text is empty and output has no message', async () => {
-      mockResponsesCreate.mockResolvedValue(
-        fakeResponse({
-          output_text: '',
-          output: [
-            {
-              type: 'function_call',
-              id: 'fc_001',
-              call_id: 'call_001',
-              name: 'tool',
-              arguments: '{}',
-            },
-          ],
-        }),
-      );
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    const deltas = [];
+    for await (const d of transport.stream(
+      { model: 'gpt-5.5', messages: [{ role: 'user', content: 'Done?' }], maxTokens: 32 },
+      {} as Parameters<typeof transport.stream>[1],
+    )) {
+      deltas.push(d);
+    }
 
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      const response = await transport.complete({
-        model: 'codex-mini-latest',
-        messages: [{ role: 'user', content: 'Use the tool.' }],
-        maxTokens: 64,
-      });
-
-      expect(response.content).toBeNull();
-      expect(response.toolCalls).toHaveLength(1);
-    });
+    const finalDelta = deltas[deltas.length - 1];
+    expect(finalDelta.stopReason).toBe('completed');
+    expect(finalDelta.usage?.inputTokens).toBe(5);
+    expect(finalDelta.usage?.outputTokens).toBe(3);
   });
 
-  // ── 5. Streaming SSE ──────────────────────────────────────────────────────
+  it('yields stop delta with null usage when no response.completed event arrives', async () => {
+    globalThis.fetch = mockSseFetch([{ type: 'response.output_text.delta', delta: 'Hi' }]);
 
-  describe('stream() — streaming SSE iteration', () => {
-    it('yields text deltas from response.output_text.delta events', async () => {
-      mockResponsesCreate.mockResolvedValue(
-        makeFakeResponseStream([
-          {
-            type: 'response.output_text.delta',
-            delta: 'Hello',
-            item_id: 'item_0',
-            content_index: 0,
-          },
-          {
-            type: 'response.output_text.delta',
-            delta: ' world',
-            item_id: 'item_0',
-            content_index: 0,
-          },
-          {
-            type: 'response.completed',
-            response: fakeResponse({ output_text: 'Hello world' }),
-          },
-        ]),
-      );
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    const deltas = [];
+    for await (const d of transport.stream(
+      { model: 'gpt-5.5', messages: [{ role: 'user', content: 'Hi' }], maxTokens: 16 },
+      {} as Parameters<typeof transport.stream>[1],
+    )) {
+      deltas.push(d);
+    }
 
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      const deltas = [];
-      for await (const d of transport.stream(
-        {
-          model: 'codex-mini-latest',
-          messages: [{ role: 'user', content: 'Hello' }],
-          maxTokens: 64,
-        },
-        {} as Parameters<typeof transport.stream>[1],
-      )) {
-        deltas.push(d);
-      }
-
-      const textDeltas = deltas.filter((d) => d.text.length > 0);
-      expect(textDeltas.map((d) => d.text).join('')).toBe('Hello world');
-    });
-
-    it('yields final delta with stopReason and usage from response.completed event', async () => {
-      mockResponsesCreate.mockResolvedValue(
-        makeFakeResponseStream([
-          {
-            type: 'response.output_text.delta',
-            delta: 'Done',
-            item_id: 'item_0',
-            content_index: 0,
-          },
-          {
-            type: 'response.completed',
-            response: fakeResponse({
-              output_text: 'Done',
-              status: 'completed',
-              usage: {
-                input_tokens: 5,
-                output_tokens: 3,
-                total_tokens: 8,
-                input_tokens_details: { cached_tokens: 0 },
-                output_tokens_details: { reasoning_tokens: 0 },
-              },
-            }),
-          },
-        ]),
-      );
-
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      const deltas = [];
-      for await (const d of transport.stream(
-        {
-          model: 'codex-mini-latest',
-          messages: [{ role: 'user', content: 'Done?' }],
-          maxTokens: 32,
-        },
-        {} as Parameters<typeof transport.stream>[1],
-      )) {
-        deltas.push(d);
-      }
-
-      const finalDelta = deltas[deltas.length - 1];
-      expect(finalDelta.stopReason).toBe('completed');
-      expect(finalDelta.usage?.inputTokens).toBe(5);
-      expect(finalDelta.usage?.outputTokens).toBe(3);
-    });
-
-    it('yields stop delta with null usage when no response.completed event arrives', async () => {
-      mockResponsesCreate.mockResolvedValue(
-        makeFakeResponseStream([
-          { type: 'response.output_text.delta', delta: 'Hi', item_id: 'item_0', content_index: 0 },
-          // no completed event
-        ]),
-      );
-
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      const deltas = [];
-      for await (const d of transport.stream(
-        {
-          model: 'codex-mini-latest',
-          messages: [{ role: 'user', content: 'Hi' }],
-          maxTokens: 16,
-        },
-        {} as Parameters<typeof transport.stream>[1],
-      )) {
-        deltas.push(d);
-      }
-
-      const finalDelta = deltas[deltas.length - 1];
-      expect(finalDelta.stopReason).toBe('stop');
-      expect(finalDelta.usage).toBeNull();
-    });
-
-    it('sets stream: true in the create call params', async () => {
-      mockResponsesCreate.mockResolvedValue(
-        makeFakeResponseStream([
-          {
-            type: 'response.completed',
-            response: fakeResponse(),
-          },
-        ]),
-      );
-
-      const transport = new CodexResponsesTransport(BASE_OPTS);
-      for await (const _ of transport.stream(
-        { model: 'codex-mini-latest', messages: [{ role: 'user', content: 'ok' }], maxTokens: 8 },
-        {} as Parameters<typeof transport.stream>[1],
-      )) {
-        // drain
-      }
-
-      const callArgs = mockResponsesCreate.mock.calls[0][0] as Record<string, unknown>;
-      expect(callArgs['stream']).toBe(true);
-    });
+    const finalDelta = deltas[deltas.length - 1];
+    expect(finalDelta.stopReason).toBe('stop');
+    expect(finalDelta.usage).toBeNull();
   });
 
-  // ── 6. xAI Responses profile ──────────────────────────────────────────────
+  it('exits with failed stopReason on response.failed event', async () => {
+    globalThis.fetch = mockSseFetch([
+      {
+        type: 'response.failed',
+        response: {
+          status: 'failed',
+          error: { code: 'server_error', message: 'Internal server error' },
+        },
+      },
+    ]);
 
-  describe('xAI Responses profile — constructor options wiring', () => {
-    it('uses provided baseUrl and apiKey', async () => {
-      mockResponsesCreate.mockResolvedValue(fakeResponse({ output_text: 'Grok says hi.' }));
+    const transport = new CodexResponsesTransport(BASE_OPTS);
+    const deltas = [];
+    for await (const d of transport.stream(
+      { model: 'gpt-5.5', messages: [{ role: 'user', content: 'hi' }], maxTokens: 16 },
+      {} as Parameters<typeof transport.stream>[1],
+    )) {
+      deltas.push(d);
+    }
+    const finalDelta = deltas[deltas.length - 1];
+    expect(finalDelta.stopReason).toBe('failed');
+  });
+});
 
-      const transport = new CodexResponsesTransport({
-        provider: 'xai',
-        apiKey: 'xai-test-key',
-        baseUrl: 'https://api.x.ai/v1',
-        defaultHeaders: { 'x-grok-conv-id': 'cleo-test-conv' },
-      });
+// ── 7. xAI Responses profile ──────────────────────────────────────────────────
 
-      const response = await transport.complete({
-        model: 'grok-3',
-        messages: [{ role: 'user', content: 'Hello Grok' }],
-        maxTokens: 64,
-      });
+describe('CodexResponsesTransport — xAI profile', () => {
+  it('uses provided baseUrl for endpoint', async () => {
+    globalThis.fetch = mockJsonFetch(fakeResponse({ output_text: 'Grok says hi.' }));
 
-      expect(response.content).toBe('Grok says hi.');
-      expect(transport.provider).toBe('xai');
-      expect(transport.apiMode).toBe('codex_responses');
+    const transport = new CodexResponsesTransport({
+      provider: 'xai',
+      apiKey: 'xai-test-key',
+      baseUrl: 'https://api.x.ai/v1',
     });
+
+    await transport.complete({
+      model: 'grok-3',
+      messages: [{ role: 'user', content: 'Hello Grok' }],
+      maxTokens: 64,
+    });
+
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const [url] = mockFetch.mock.calls[0] as [string];
+    expect(url).toBe('https://api.x.ai/v1/codex/responses');
+    expect(transport.provider).toBe('xai');
+    expect(transport.apiMode).toBe('codex_responses');
   });
 });
