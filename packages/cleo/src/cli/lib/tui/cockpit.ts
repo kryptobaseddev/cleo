@@ -12,12 +12,15 @@
  * `@cleocode/core` DOMAIN import here — the cockpit is a pure SDK consumer, so
  * secrets never cross the boundary (sealed-handle resolution stays server-side).
  *
- * ## Graceful degradation (T11933 · AC1)
+ * ## Graceful degradation (T11933 · AC1 / T11980)
  *
  *  - **pi-tui absent** → print the board as plain text + the install hint, exit
  *    0. NEVER crash.
- *  - **daemon unreachable** → print a clean "start `cleo daemon serve`" message,
- *    exit 0.
+ *  - **daemon unreachable + autoStart true (default)** → spawn `cleo daemon serve`
+ *    as a detached background child (T11980 batteries-included surface), wait
+ *    up to {@link GATEWAY_WAIT_TIMEOUT_MS} ms, then proceed or degrade.
+ *  - **daemon unreachable + autoStart false** → print a clean
+ *    "start `cleo daemon serve`" hint and exit 0 (legacy behaviour preserved).
  *  - **pi-tui present + daemon reachable** → boot the rich differential-rendered
  *    board with a keyboard-navigation skeleton.
  *
@@ -26,10 +29,12 @@
  *
  * @task T11933
  * @task T11934
+ * @task T11980
  * @epic T11916
  */
 
 import { createCleoClient } from '@cleocode/core/gateway-client';
+import { type SpawnGatewayOptions, spawnGatewayIfDown } from '../gateway-auto-start.js';
 import {
   isPiTuiAvailable,
   loadPiTui,
@@ -98,6 +103,22 @@ export interface CockpitOptions {
    * {@link subscribeOrchestrateEvents}.
    */
   readonly subscribe?: SubscribeFn;
+  /**
+   * When `true` (default), attempt to auto-start the gateway via
+   * {@link spawnGatewayIfDown} when it is not reachable. Set to `false` to
+   * disable auto-start and fall back to the static "start the daemon" hint.
+   *
+   * Callers MUST check `daemon.autoStart` in the project config before passing
+   * `true` here (see {@link shouldAutoStartGateway} in gateway-auto-start.ts).
+   *
+   * @default true
+   */
+  readonly autoStart?: boolean;
+  /**
+   * Override gateway spawn options (test seam for {@link spawnGatewayIfDown}).
+   * Only used when `autoStart` is `true`.
+   */
+  readonly spawnOpts?: SpawnGatewayOptions;
 }
 
 /** A line-emitting sink (defaults to stdout) — injectable for tests. */
@@ -109,13 +130,15 @@ export interface CockpitResult {
    * What happened:
    *  - `'rendered'`       — board rendered (interactive or `--once`).
    *  - `'degraded-pi'`    — pi-tui absent; plain-text fallback rendered.
-   *  - `'daemon-down'`    — daemon unreachable; install/start message shown.
+   *  - `'daemon-down'`    — daemon unreachable (auto-start disabled or timed out).
    */
   readonly outcome: 'rendered' | 'degraded-pi' | 'daemon-down';
   /** The base URL the cockpit targeted. */
   readonly baseUrl: string;
   /** Whether the rich pi-tui renderer was used. */
   readonly piTui: boolean;
+  /** Whether the gateway was auto-started by this invocation (T11980). */
+  readonly gatewayAutoStarted?: boolean;
 }
 
 /**
@@ -528,6 +551,11 @@ function runInteractiveLoop(
  * SDK, and the board model — it NEVER throws for the expected degradation paths
  * (pi-tui absent, daemon down); both render a clean message and resolve.
  *
+ * When `options.autoStart` is `true` (default) and the gateway is unreachable,
+ * this function first attempts to spawn the gateway on-demand via
+ * {@link spawnGatewayIfDown} before falling back to the "start it yourself"
+ * hint. NEVER activates a systemd service unit.
+ *
  * @param options - {@link CockpitOptions}.
  * @param sink - Where plain-text lines go (defaults to stdout). Injectable for tests.
  * @returns A {@link CockpitResult} describing what happened (for exit mapping).
@@ -542,14 +570,44 @@ export async function runCockpit(
   const dispatch: DispatchFn = options.dispatch ?? dispatchWorker;
   const subscribe: SubscribeFn = options.subscribe ?? subscribeOrchestrateEvents;
 
+  // Derive port/host from baseUrl for the auto-start probe.
+  let gatewayAutoStarted = false;
+  const autoStart = options.autoStart !== false; // default true
+
   // 1. Fetch home data through the SDK. null ⇒ daemon unreachable.
-  const rows = await fetchTaskRows(baseUrl);
+  let rows = await fetchTaskRows(baseUrl);
+
+  if (rows === null && autoStart) {
+    // Auto-start path (T11980): spawn `cleo daemon serve` as a detached child
+    // and wait for it to accept connections. NEVER touches the systemd service.
+    let port: number | undefined;
+    let host: string | undefined;
+    try {
+      const u = new URL(baseUrl);
+      const parsed = Number.parseInt(u.port, 10);
+      port = Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+      host = u.hostname || undefined;
+    } catch {
+      // URL parse failure — use gateway-auto-start defaults.
+    }
+    const spawnResult = await spawnGatewayIfDown({
+      ...(options.spawnOpts ?? {}),
+      ...(port !== undefined ? { port } : {}),
+      ...(host !== undefined ? { host } : {}),
+    });
+    if (spawnResult.reachable) {
+      gatewayAutoStarted = spawnResult.spawned;
+      // Re-fetch now that the gateway is up.
+      rows = await fetchTaskRows(baseUrl);
+    }
+  }
+
   if (rows === null) {
     sink('CLEO cockpit: the daemon gateway is not reachable.');
     sink(`  Tried: ${baseUrl}/v1`);
     sink('  Start it with:  cleo daemon serve');
     sink('  (override the target with:  cleo tui --base-url <url>)');
-    return { outcome: 'daemon-down', baseUrl, piTui: false };
+    return { outcome: 'daemon-down', baseUrl, piTui: false, gatewayAutoStarted };
   }
 
   const board = buildKanbanBoard(rows);
@@ -563,9 +621,9 @@ export async function runCockpit(
     if (!piTuiOk) {
       sink('');
       sink(PI_TUI_INSTALL_HINT);
-      return { outcome: 'degraded-pi', baseUrl, piTui: false };
+      return { outcome: 'degraded-pi', baseUrl, piTui: false, gatewayAutoStarted };
     }
-    return { outcome: 'rendered', baseUrl, piTui: false };
+    return { outcome: 'rendered', baseUrl, piTui: false, gatewayAutoStarted };
   }
 
   // 3. Rich interactive board.
@@ -575,7 +633,7 @@ export async function runCockpit(
     for (const line of renderKanbanBoardText(board)) sink(line);
     sink('');
     sink(PI_TUI_INSTALL_HINT);
-    return { outcome: 'degraded-pi', baseUrl, piTui: false };
+    return { outcome: 'degraded-pi', baseUrl, piTui: false, gatewayAutoStarted };
   }
 
   const component = new KanbanBoardComponent(board, { baseUrl, dispatch, subscribe });
@@ -584,7 +642,7 @@ export async function runCockpit(
     if (fresh !== null) component.setBoard(buildKanbanBoard(fresh));
   };
   await runInteractiveLoop(piTui, component, refresh);
-  return { outcome: 'rendered', baseUrl, piTui: true };
+  return { outcome: 'rendered', baseUrl, piTui: true, gatewayAutoStarted };
 }
 
 /** Exported for unit tests — the focusable board component. */
