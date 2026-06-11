@@ -124,6 +124,155 @@ describe('uninstallDaemonService — typed result', () => {
 });
 
 // ---------------------------------------------------------------------------
+// T11984 — decideDaemonAction decision table (pure function, no I/O)
+// ---------------------------------------------------------------------------
+
+describe('decideDaemonAction — decision table (T11984)', () => {
+  type Params = {
+    firstInstall: boolean;
+    isEnabledState: string;
+    autoStartConfig: boolean;
+    envDisable: boolean;
+  };
+  type Action = 'enable-and-start' | 'restart-if-changed' | 'leave-disabled' | 'skip';
+
+  const cases: Array<[string, Params, Action]> = [
+    // CLEO_DAEMON_DISABLE=1 always wins (skip), regardless of everything else
+    [
+      'envDisable=true → skip (first install)',
+      { firstInstall: true, isEnabledState: 'not-found', autoStartConfig: true, envDisable: true },
+      'skip',
+    ],
+    [
+      'envDisable=true → skip (upgrade, enabled)',
+      { firstInstall: false, isEnabledState: 'enabled', autoStartConfig: true, envDisable: true },
+      'skip',
+    ],
+    [
+      'envDisable=true → skip (upgrade, disabled)',
+      { firstInstall: false, isEnabledState: 'disabled', autoStartConfig: true, envDisable: true },
+      'skip',
+    ],
+    // autoStartConfig=false always wins (skip), regardless of enabled state
+    [
+      'autoStartConfig=false → skip (first install)',
+      {
+        firstInstall: true,
+        isEnabledState: 'not-found',
+        autoStartConfig: false,
+        envDisable: false,
+      },
+      'skip',
+    ],
+    [
+      'autoStartConfig=false → skip (upgrade, enabled)',
+      { firstInstall: false, isEnabledState: 'enabled', autoStartConfig: false, envDisable: false },
+      'skip',
+    ],
+    [
+      'autoStartConfig=false → skip (upgrade, disabled)',
+      {
+        firstInstall: false,
+        isEnabledState: 'disabled',
+        autoStartConfig: false,
+        envDisable: false,
+      },
+      'skip',
+    ],
+    // First install (unit did not exist before): enable+start
+    [
+      'first install, not-found → enable-and-start',
+      { firstInstall: true, isEnabledState: 'not-found', autoStartConfig: true, envDisable: false },
+      'enable-and-start',
+    ],
+    [
+      'first install, empty state → enable-and-start',
+      { firstInstall: true, isEnabledState: '', autoStartConfig: true, envDisable: false },
+      'enable-and-start',
+    ],
+    // Upgrade, operator previously enabled: restart if content changed
+    [
+      'upgrade, enabled → restart-if-changed',
+      { firstInstall: false, isEnabledState: 'enabled', autoStartConfig: true, envDisable: false },
+      'restart-if-changed',
+    ],
+    // Upgrade, operator explicitly disabled: leave-disabled (respect intent)
+    [
+      'upgrade, disabled → leave-disabled',
+      { firstInstall: false, isEnabledState: 'disabled', autoStartConfig: true, envDisable: false },
+      'leave-disabled',
+    ],
+    [
+      'upgrade, masked → leave-disabled',
+      { firstInstall: false, isEnabledState: 'masked', autoStartConfig: true, envDisable: false },
+      'leave-disabled',
+    ],
+    // Upgrade, unknown/other states: treat as first-like install
+    [
+      'upgrade, static → enable-and-start',
+      { firstInstall: false, isEnabledState: 'static', autoStartConfig: true, envDisable: false },
+      'enable-and-start',
+    ],
+    [
+      'upgrade, indirect → enable-and-start',
+      { firstInstall: false, isEnabledState: 'indirect', autoStartConfig: true, envDisable: false },
+      'enable-and-start',
+    ],
+    [
+      'upgrade, not-found → enable-and-start',
+      {
+        firstInstall: false,
+        isEnabledState: 'not-found',
+        autoStartConfig: true,
+        envDisable: false,
+      },
+      'enable-and-start',
+    ],
+    [
+      'upgrade, empty state → enable-and-start',
+      { firstInstall: false, isEnabledState: '', autoStartConfig: true, envDisable: false },
+      'enable-and-start',
+    ],
+  ];
+
+  it.each(cases)('%s', async (_, params, expected) => {
+    const mod = await import(resolveInstallerScript());
+    expect(mod.decideDaemonAction(params)).toBe(expected);
+  });
+
+  it('envDisable beats autoStartConfig=false (both skip, env reason wins)', async () => {
+    const mod = await import(resolveInstallerScript());
+    const result = mod.decideDaemonAction({
+      firstInstall: true,
+      isEnabledState: 'not-found',
+      autoStartConfig: false,
+      envDisable: true,
+    });
+    expect(result).toBe('skip');
+  });
+
+  it('isEnabledState comparison is case-insensitive', async () => {
+    const mod = await import(resolveInstallerScript());
+    expect(
+      mod.decideDaemonAction({
+        firstInstall: false,
+        isEnabledState: 'DISABLED',
+        autoStartConfig: true,
+        envDisable: false,
+      }),
+    ).toBe('leave-disabled');
+    expect(
+      mod.decideDaemonAction({
+        firstInstall: false,
+        isEnabledState: 'ENABLED',
+        autoStartConfig: true,
+        envDisable: false,
+      }),
+    ).toBe('restart-if-changed');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // T11497 E5-HEADLESS AC3 — saga-scoped installDaemonService
 // ---------------------------------------------------------------------------
 

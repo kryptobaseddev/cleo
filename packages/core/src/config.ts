@@ -129,6 +129,12 @@ const DEFAULTS: CleoConfig = {
   leadRollup: {
     mode: 'passive',
   },
+  // T11984: daemon lifecycle — postinstall respects operator state by default.
+  // Set daemon.autoStart = false (via global config.json) for a persistent
+  // opt-out that survives npm upgrades.
+  daemon: {
+    autoStart: true,
+  },
 };
 
 /** Environment variable to config path mapping. */
