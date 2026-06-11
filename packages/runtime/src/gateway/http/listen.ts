@@ -39,6 +39,7 @@ import { inferGateway, resolveStreamRoute } from '../registry.js';
 import { routeUnary } from './server.js';
 import { createSseStream, encodeStreamEvent, SSE_HEADERS } from './sse.js';
 import { resolveStreamSource, type StreamSourceContext } from './stream-sources.js';
+import { isStudioPath, type StudioStaticOptions, serveStudioStatic } from './studio-static.js';
 import type { HttpUnaryRequest } from './types.js';
 import { attachWsPtyEndpoint, type WsPtyOptions } from './ws-pty.js';
 
@@ -86,6 +87,21 @@ export interface HttpServerOptions {
    * unavailable" close rather than crashing.
    */
   wsPty?: WsPtyOptions;
+  /**
+   * Studio static asset directory for the bundled Web Studio (T11979).
+   *
+   * When provided, requests whose path starts with `/studio` are served as
+   * static files from this directory (the `build/client/` output from an
+   * `adapter-node` Studio build), with SPA fallback to `index.html` for
+   * sub-routes. When `undefined` or the path does not exist on disk, a clean
+   * JSON 503 envelope is returned instead of a stack trace — allowing the
+   * gateway to start without a Studio bundle present (dev checkouts).
+   *
+   * The value is resolved and injected by the caller (`cleo daemon serve`)
+   * using {@link resolveStudioStaticDir} from `@cleocode/cleo` so the runtime
+   * layer stays free of any path-resolution logic.
+   */
+  studioStaticDir?: string;
 }
 
 /**
@@ -442,6 +458,10 @@ async function handleStreamRequest(
  * Handle a single inbound HTTP request: parse the route, read + JSON-parse the
  * body, route it through the gateway handler, and serialize the LAFS response.
  *
+ * Requests whose path starts with `/studio` are delegated to the Studio static
+ * file handler ({@link serveStudioStatic}) before the normal gateway routing is
+ * consulted — they never reach the gateway handler.
+ *
  * All failure modes are rendered as LAFS envelopes — a bad route or malformed
  * body is rejected at the edge (handler never invoked); a thrown handler error
  * is already trapped inside {@link routeUnary} as a `500`. The function never
@@ -451,13 +471,23 @@ async function handleStreamRequest(
  * @param req - The inbound request.
  * @param res - The outbound response.
  * @param log - The adapter's pino logger.
+ * @param studioOpts - Studio static serving options (T11979). When provided,
+ *   requests under `/studio` are served from the bundled static assets.
  */
 async function handleHttpRequest(
   handler: GatewayHandler,
   req: IncomingMessage,
   res: ServerResponse,
   log: ReturnType<typeof getLogger>,
+  studioOpts?: StudioStaticOptions,
 ): Promise<void> {
+  // Studio static serving (T11979) — intercept /studio/* before the API gateway.
+  const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+  if (studioOpts !== undefined && isStudioPath(pathname)) {
+    await serveStudioStatic(req, res, studioOpts);
+    return;
+  }
+
   const route = parseHttpRoute(req.method, req.url);
   if (!route.ok) {
     writeEdgeError(res, route.status, route.code, route.message);
@@ -535,9 +565,18 @@ export function startHttpServer(
 ): Promise<HttpServerHandle> {
   const log = getLogger('gateway-http');
   const host = opts.host ?? '127.0.0.1';
+  // Build StudioStaticOptions from the caller-injected dir (T11979).
+  // Passing `undefined` when no dir is configured keeps the gateway purely
+  // as an API server (dev checkouts where no Studio build exists).
+  const studioOpts: StudioStaticOptions | undefined =
+    opts.studioStaticDir !== undefined ? { staticDir: opts.studioStaticDir } : undefined;
+
+  if (studioOpts !== undefined) {
+    log.info({ studioStaticDir: opts.studioStaticDir }, 'studio static serving enabled at /studio');
+  }
 
   const server = createServer((req, res) => {
-    handleHttpRequest(handler, req, res, log).catch((err: unknown) => {
+    handleHttpRequest(handler, req, res, log, studioOpts).catch((err: unknown) => {
       // handleHttpRequest traps its own failures; this guards the wire path.
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err }, 'http request handling failed');
