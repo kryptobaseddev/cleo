@@ -286,6 +286,8 @@ export type {
   OutputFormat,
   ProviderConfig,
   ResolvedValue,
+  ResourcesConfig,
+  ResourcesPsiConfig,
   RoleName,
   SessionConfig,
   SessionSummaryInput,
