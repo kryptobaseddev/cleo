@@ -261,6 +261,7 @@ export type {
   ClaudeSpawnMode,
   CleoConfig,
   ConfigSource,
+  DaemonConfig,
   DateFormat,
   DecisionsConfig,
   DepsRequiredAt,

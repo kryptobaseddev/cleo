@@ -751,6 +751,37 @@ export interface LeadRollupConfig {
   mode?: LeadRollupMode;
 }
 
+/**
+ * Daemon lifecycle configuration.
+ *
+ * Controls whether the postinstall hook is allowed to auto-enable and start
+ * the cleo-daemon service. When `autoStart` is `false`, postinstall NEVER
+ * enables or starts the service — even on a fresh install. This flag persists
+ * across upgrades so the operator's intent survives `npm install -g`.
+ *
+ * Configure via `~/.local/share/cleo/config.json` (global config):
+ * ```json
+ * { "daemon": { "autoStart": false } }
+ * ```
+ * Or via env var override: `CLEO_DAEMON_DISABLE=1` (per-session, non-persistent).
+ *
+ * @task T11984
+ */
+export interface DaemonConfig {
+  /**
+   * Whether the postinstall hook may auto-enable and start the cleo-daemon.
+   *
+   * - `true` (default): first install enables+starts; upgrade respects the
+   *   current systemd/launchd enabled state.
+   * - `false`: postinstall NEVER enables or starts the daemon. The unit file
+   *   is still written so the operator can activate later via
+   *   `cleo daemon enable`.
+   *
+   * @defaultValue true
+   */
+  autoStart: boolean;
+}
+
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
   /** Configuration schema version string. */
@@ -838,6 +869,17 @@ export interface CleoConfig {
    * @saga T10377
    */
   leadRollup?: LeadRollupConfig;
+  /**
+   * Daemon lifecycle settings.
+   *
+   * When absent, defaults to `{ autoStart: true }` — matching the legacy
+   * install behaviour. Set `autoStart: false` to prevent postinstall from
+   * ever enabling or starting the cleo-daemon (persistent opt-out).
+   *
+   * @defaultValue undefined (treated as { autoStart: true })
+   * @task T11984
+   */
+  daemon?: DaemonConfig;
 }
 
 /**

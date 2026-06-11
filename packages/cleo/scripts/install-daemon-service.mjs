@@ -229,7 +229,26 @@ function isWSL() {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Environment variable that disables daemon auto-start (CI/container path). */
+/**
+ * Environment variable that disables daemon auto-start for the duration of a
+ * single install invocation (CI/container path).
+ *
+ * Unlike `daemon.autoStart = false` in the global config, this env var is NOT
+ * persisted — it must be set on every install invocation. For a durable
+ * opt-out that survives upgrades, set `daemon.autoStart = false` in the CLEO
+ * global config file (printed path: `~/.local/share/cleo/config.json` on
+ * Linux / `~/Library/Application Support/cleo/config.json` on macOS):
+ *
+ *   ```json
+ *   { "daemon": { "autoStart": false } }
+ *   ```
+ *
+ * Priority (highest wins):
+ *   1. CLEO_DAEMON_DISABLE=1        — env override (non-persistent; CI/container)
+ *   2. daemon.autoStart === false   — config-file opt-out (persistent across upgrades)
+ *   3. systemd/launchd enabled state — operator's prior `disable` is respected on upgrade
+ *   4. Default: enable+start on first install; keep-enabled on upgrade where enabled
+ */
 const DAEMON_DISABLE_ENV = 'CLEO_DAEMON_DISABLE';
 
 /**
@@ -309,6 +328,112 @@ function runBin(bin, args) {
 }
 
 // ---------------------------------------------------------------------------
+// Config helpers — daemon.autoStart persistent opt-out (T11984)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read `daemon.autoStart` from the CLEO global config file.
+ *
+ * This is a minimal, tolerant JSON read — it does NOT import compiled core
+ * because postinstall runs before the package's own TypeScript is compiled.
+ * If the config file is absent, unreadable, or missing the key, returns
+ * `true` (the safe default: honour existing enable/start logic).
+ *
+ * Config file location: `{cleoHome}/config.json`
+ *   Linux:  ~/.local/share/cleo/config.json
+ *   macOS:  ~/Library/Application Support/cleo/config.json
+ *   Windows: %LOCALAPPDATA%\cleo\Data\config.json
+ *
+ * @returns {boolean} `false` only when `daemon.autoStart` is explicitly set
+ *   to `false` in the global config. Returns `true` in all other cases.
+ */
+function readGlobalAutoStart() {
+  try {
+    const paths = getPlatformPaths();
+    const configPath = join(paths.data, 'config.json');
+    if (!existsSync(configPath)) return true;
+    const raw = readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+    // Explicit false opt-out only — missing key = default true.
+    if (
+      cfg !== null &&
+      typeof cfg === 'object' &&
+      typeof cfg.daemon === 'object' &&
+      cfg.daemon !== null &&
+      cfg.daemon.autoStart === false
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    // Config unreadable or malformed JSON — safe default: allow auto-start.
+    return true;
+  }
+}
+
+/**
+ * Decide what action the postinstall hook should take for daemon activation.
+ *
+ * This is a pure function (no side-effects, no I/O) that implements the
+ * operator-state-respecting decision table. It can be unit-tested in
+ * isolation without systemd or launchd being present.
+ *
+ * Decision table:
+ *
+ * | firstInstall | isEnabledState     | autoStartConfig | envDisable | action              |
+ * |:------------:|:------------------:|:---------------:|:----------:|:--------------------|
+ * | any          | any                | any             | true       | 'skip'              |
+ * | any          | any                | false           | false      | 'skip'              |
+ * | true         | 'not-found'/other  | true            | false      | 'enable-and-start'  |
+ * | false        | 'enabled'          | true            | false      | 'restart-if-changed'|
+ * | false        | 'disabled'         | true            | false      | 'leave-disabled'    |
+ * | false        | 'masked'           | true            | false      | 'leave-disabled'    |
+ * | false        | other/unknown      | true            | false      | 'enable-and-start'  |
+ *
+ * @param {object} opts
+ * @param {boolean} opts.firstInstall   - True when the unit/plist file did not
+ *   exist before this postinstall run (i.e. `writeIfChanged` wrote a new file).
+ * @param {string}  opts.isEnabledState - Output of `systemctl --user is-enabled
+ *   <unit>` (or equivalent), e.g. 'enabled', 'disabled', 'masked',
+ *   'not-found', 'static', 'indirect', ''. On macOS use 'not-found' for a
+ *   missing plist and 'enabled' for a loaded agent.
+ * @param {boolean} opts.autoStartConfig - Value of `daemon.autoStart` from the
+ *   global config (via `readGlobalAutoStart()`). Default: true.
+ * @param {boolean} opts.envDisable     - Whether `CLEO_DAEMON_DISABLE=1` is set.
+ *
+ * @returns {'enable-and-start' | 'restart-if-changed' | 'leave-disabled' | 'skip'}
+ *
+ * @task T11984
+ */
+export function decideDaemonAction({ firstInstall, isEnabledState, autoStartConfig, envDisable }) {
+  // Highest priority: env override or persistent config opt-out.
+  if (envDisable || autoStartConfig === false) {
+    return 'skip';
+  }
+
+  // First install (unit file did not previously exist): safe to enable+start.
+  if (firstInstall) {
+    return 'enable-and-start';
+  }
+
+  // Upgrade path: inspect the current enabled state.
+  const state = (isEnabledState ?? '').trim().toLowerCase();
+
+  if (state === 'disabled' || state === 'masked') {
+    // Operator explicitly disabled the unit — honour that decision.
+    return 'leave-disabled';
+  }
+
+  if (state === 'enabled') {
+    // Already enabled; only restart if the unit content changed (handled by caller).
+    return 'restart-if-changed';
+  }
+
+  // Unknown / 'not-found' / 'static' / 'indirect' / empty — treat as first-like install.
+  return 'enable-and-start';
+}
+
+// ---------------------------------------------------------------------------
 // Linux — systemd user unit
 // ---------------------------------------------------------------------------
 
@@ -375,8 +500,20 @@ function buildSystemdUnit(cleoExec, scope) {
   //     OOM-killed. systemd now stops restarting after 5 failures in 60 s.
   //   - NODE_OPTIONS=--max-old-space-size: a runaway daemon tick throws a
   //     recoverable single-process JS heap OOM instead of growing unbounded.
-  //   - MemoryMax: best-effort soft cgroup ceiling (enforced only when the user
-  //     manager has memory-cgroup delegation; harmless otherwise).
+  //   - MemoryMax=2G: best-effort soft cgroup ceiling (enforced only when the
+  //     user manager has memory-cgroup delegation; harmless otherwise).
+  //
+  // Drop-in overrides (T11984 / DHQ-D):
+  //   Operators may tighten MemoryMax — or any other [Service] directive —
+  //   by placing a drop-in file at:
+  //     ~/.config/systemd/user/cleo-daemon.service.d/10-memory-cap.conf
+  //   Example content:
+  //     [Service]
+  //     MemoryHigh=768M
+  //     MemoryMax=1G
+  //   A drop-in's directives override the unit's values; re-running postinstall
+  //   rewrites the BASE unit file but does NOT touch or remove any drop-ins.
+  //   Run `systemctl --user daemon-reload` after adding/changing a drop-in.
   return `[Unit]
 Description=${description}
 Documentation=https://github.com/kryptobaseddev/cleocode
@@ -403,12 +540,19 @@ WantedBy=default.target
 /**
  * Install and optionally activate the systemd user unit.
  *
+ * Respects operator state (T11984): if the unit already exists and is
+ * currently disabled or masked, the postinstall hook does NOT re-enable it.
+ * The operator's explicit `systemctl --user disable cleo-daemon` survives
+ * upgrades. See `decideDaemonAction` for the full decision table.
+ *
  * @param {string} cleoExec - Absolute path to the `cleo` binary.
  * @param {{ scopeSagaId?: string; scopeEpicId?: string }} [scope] - Optional scope filter (T11497 AC3).
  */
 function installSystemd(cleoExec, scope) {
   const unitFile = getSystemdUnitFile();
   const unit = buildSystemdUnit(cleoExec, scope);
+  // firstInstall = true when the file did NOT exist before this write.
+  const fileExistedBefore = existsSync(unitFile);
   const written = writeIfChanged(unitFile, unit);
 
   if (written) {
@@ -422,14 +566,54 @@ function installSystemd(cleoExec, scope) {
     console.log('CLEO: systemd unit already up-to-date — skipping write.');
   }
 
-  if (process.env[DAEMON_DISABLE_ENV] === '1') {
+  // Determine the operator's current enabled state (needed for upgrade path).
+  const isEnabledResult = runBin('systemctl', ['--user', 'is-enabled', SYSTEMD_UNIT_NAME]);
+  const isEnabledState = isEnabledResult.output.trim();
+
+  const action = decideDaemonAction({
+    firstInstall: !fileExistedBefore,
+    isEnabledState,
+    autoStartConfig: readGlobalAutoStart(),
+    envDisable: process.env[DAEMON_DISABLE_ENV] === '1',
+  });
+
+  if (action === 'skip') {
+    const reason = process.env[DAEMON_DISABLE_ENV] === '1'
+      ? `${DAEMON_DISABLE_ENV}=1 (CI/container path)`
+      : 'daemon.autoStart=false in global config';
     console.log(
-      `CLEO: ${DAEMON_DISABLE_ENV}=1 — unit written but activation skipped (CI/container path).`,
+      `CLEO: Unit written but activation skipped (${reason}).`,
     );
+    console.log("CLEO: To enable later: run 'cleo daemon enable' or 'systemctl --user enable --now cleo-daemon'");
     return;
   }
 
-  // Enable + start the service.
+  if (action === 'leave-disabled') {
+    console.log(
+      `CLEO: cleo-daemon left ${isEnabledState} (operator state respected — skipping re-enable).`,
+    );
+    console.log("CLEO: To re-enable: run 'cleo daemon enable' or 'systemctl --user enable --now cleo-daemon'");
+    return;
+  }
+
+  if (action === 'restart-if-changed') {
+    if (written) {
+      // Unit content changed on an already-enabled service — restart to pick up changes.
+      const restart = runBin('systemctl', ['--user', 'restart', SYSTEMD_UNIT_NAME]);
+      if (restart.ok) {
+        console.log('CLEO: systemd user service restarted (unit updated).');
+      } else {
+        console.log(
+          `CLEO: systemctl restart skipped (${restart.output || 'systemctl unavailable'}).`,
+        );
+      }
+    } else {
+      console.log('CLEO: systemd unit unchanged and already enabled — no restart needed.');
+    }
+    return;
+  }
+
+  // action === 'enable-and-start': first install or unknown prior state.
   const enable = runBin('systemctl', ['--user', 'enable', '--now', SYSTEMD_UNIT_NAME]);
   if (enable.ok) {
     console.log('CLEO: systemd user service enabled and started.');
@@ -541,7 +725,29 @@ function buildLaunchdPlist(cleoExec, scope) {
 }
 
 /**
+ * Check whether the launchd agent is currently loaded (macOS).
+ *
+ * Uses `launchctl list <label>` — exit 0 with output = loaded; non-zero or
+ * empty = not loaded (disabled / never loaded).
+ *
+ * @returns {'enabled' | 'disabled' | 'not-found'} Launchd agent state.
+ */
+function getLaunchdEnabledState() {
+  const result = runBin('launchctl', ['list', LAUNCHD_PLIST_LABEL]);
+  if (result.ok && result.output.trim()) {
+    return 'enabled';
+  }
+  // Non-zero means 'not in the service manager' — treat same as 'disabled'.
+  return 'disabled';
+}
+
+/**
  * Install and optionally load the launchd plist.
+ *
+ * Respects operator state (T11984): if the plist already exists and the agent
+ * is NOT currently loaded, the postinstall hook does NOT reload it. The
+ * operator's explicit `launchctl bootout` survives upgrades. See
+ * `decideDaemonAction` for the full decision table.
  *
  * @param {string} cleoExec - Absolute path to the `cleo` binary.
  * @param {{ scopeSagaId?: string; scopeEpicId?: string }} [scope] - Optional scope filter (T11497 AC3).
@@ -549,6 +755,8 @@ function buildLaunchdPlist(cleoExec, scope) {
 function installLaunchd(cleoExec, scope) {
   const plistFile = getLaunchdPlistFile();
   const plist = buildLaunchdPlist(cleoExec, scope);
+  // firstInstall = true when the file did NOT exist before this write.
+  const fileExistedBefore = existsSync(plistFile);
   const written = writeIfChanged(plistFile, plist);
 
   if (written) {
@@ -557,14 +765,55 @@ function installLaunchd(cleoExec, scope) {
     console.log('CLEO: launchd plist already up-to-date — skipping write.');
   }
 
-  if (process.env[DAEMON_DISABLE_ENV] === '1') {
+  // Determine the operator's current loaded state (needed for upgrade path).
+  const isEnabledState = fileExistedBefore ? getLaunchdEnabledState() : 'not-found';
+
+  const action = decideDaemonAction({
+    firstInstall: !fileExistedBefore,
+    isEnabledState,
+    autoStartConfig: readGlobalAutoStart(),
+    envDisable: process.env[DAEMON_DISABLE_ENV] === '1',
+  });
+
+  if (action === 'skip') {
+    const reason = process.env[DAEMON_DISABLE_ENV] === '1'
+      ? `${DAEMON_DISABLE_ENV}=1 (CI/container path)`
+      : 'daemon.autoStart=false in global config';
     console.log(
-      `CLEO: ${DAEMON_DISABLE_ENV}=1 — plist written but activation skipped (CI/container path).`,
+      `CLEO: Plist written but activation skipped (${reason}).`,
     );
+    console.log(`CLEO: To enable later: launchctl load "${plistFile}"`);
     return;
   }
 
-  // Try bootstrap (macOS 10.13+) first; fall back to legacy launchctl load.
+  if (action === 'leave-disabled') {
+    console.log(
+      'CLEO: cleo-daemon launchd agent left unloaded (operator state respected — skipping re-load).',
+    );
+    console.log(`CLEO: To re-enable: launchctl load "${plistFile}"`);
+    return;
+  }
+
+  if (action === 'restart-if-changed') {
+    const uid = process.getuid ? String(process.getuid()) : '';
+    if (written && uid) {
+      // Plist content changed on an already-loaded agent — reload to pick up changes.
+      runBin('launchctl', ['bootout', `gui/${uid}`, plistFile]);
+      const reload = runBin('launchctl', ['bootstrap', `gui/${uid}`, plistFile]);
+      if (reload.ok) {
+        console.log(`CLEO: launchd agent reloaded (plist updated, gui/${uid}).`);
+      } else {
+        console.log(
+          `CLEO: launchctl reload skipped (${reload.output || 'launchctl unavailable'}).`,
+        );
+      }
+    } else {
+      console.log('CLEO: launchd plist unchanged and already loaded — no reload needed.');
+    }
+    return;
+  }
+
+  // action === 'enable-and-start': first install or unknown prior state.
   const uid = process.getuid ? String(process.getuid()) : '';
   if (uid) {
     const bootstrap = runBin('launchctl', [
