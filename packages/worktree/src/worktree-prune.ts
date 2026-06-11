@@ -25,7 +25,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PruneWorktreesOptions, PruneWorktreesResult } from '@cleocode/contracts';
 import { getGitRoot, gitSilent } from './git.js';
@@ -63,17 +63,60 @@ export function pruneWorktrees(options: PruneWorktreesOptions): PruneWorktreesRe
   const worktreeRoot = resolveWorktreeRootForHash(projectHash);
   const gitRoot = resolveGitRootOrFallback(projectRoot);
   const removed: string[] = [];
+  const quarantined: string[] = [];
   const errors: Array<{ path: string; reason: string }> = [];
   const gitPruneRan = gitPrune ? runGitPruneAdminCleanup(gitRoot) : false;
   if ((preserveTaskIds === undefined && idleDays === undefined) || !existsSync(worktreeRoot)) {
-    return { removed: 0, removedPaths: [], errors, gitPruneRan };
+    return {
+      removed: 0,
+      removedPaths: [],
+      quarantined: 0,
+      quarantinedPaths: [],
+      errors,
+      gitPruneRan,
+    };
   }
-  for (const entry of safeReaddir(worktreeRoot)) {
+
+  const entries = safeReaddir(worktreeRoot);
+
+  // T11996 Amendment 2 — fail-closed: if the preserve set is empty AND
+  // worktree directories exist, skip pruning entirely to prevent mass-deletion
+  // (e.g. fresh/post-exodus DB). Write a structured audit warning.
+  if (preserveTaskIds !== undefined && preserveTaskIds.size === 0 && entries.length > 0) {
+    const existingDirs = entries.filter((e) => existsSync(join(worktreeRoot, e)));
+    if (existingDirs.length > 0) {
+      appendWorktreeAuditLog(projectRoot, {
+        action: 'prune-skip',
+        xdgPath: worktreeRoot,
+        reason:
+          'preserve set empty while worktrees exist — skipping to prevent mass-deletion (T11996 fail-closed)',
+        success: false,
+      });
+      return {
+        removed: 0,
+        removedPaths: [],
+        quarantined: 0,
+        quarantinedPaths: [],
+        errors,
+        gitPruneRan,
+        skippedFailClosed: true,
+      };
+    }
+  }
+
+  for (const entry of entries) {
     const decision = classifyPruneCandidate(entry, preserveTaskIds, idleDays, worktreeRoot);
     if (decision === null) continue;
-    pruneSingleEntry(decision, gitRoot, projectRoot, removed, errors);
+    pruneSingleEntry(decision, gitRoot, projectRoot, removed, quarantined, errors);
   }
-  return { removed: removed.length, removedPaths: removed, errors, gitPruneRan };
+  return {
+    removed: removed.length,
+    removedPaths: removed,
+    quarantined: quarantined.length,
+    quarantinedPaths: quarantined,
+    errors,
+    gitPruneRan,
+  };
 }
 
 /**
@@ -134,6 +177,11 @@ interface PruneDecision {
  * `preserveTaskIds`/`idleDays` business logic that lives outside the
  * worktrunk-core SDK by design (ADR-061).
  *
+ * T11996 Amendment 1 (PREDICATE BLOCKER): if `preserveTaskIds` is provided and
+ * the entry IS in the set, it is ALWAYS preserved — idle age NEVER overrides
+ * the preserve list. Only entries NOT in the preserve set are eligible for
+ * idle-age pruning when `idleDays` is set.
+ *
  * @internal
  */
 function classifyPruneCandidate(
@@ -144,13 +192,18 @@ function classifyPruneCandidate(
 ): PruneDecision | null {
   const path = join(worktreeRoot, entry);
   if (preserveTaskIds !== undefined) {
-    if (!preserveTaskIds.has(entry)) {
-      return { taskId: entry, path, reason: 'orphan' };
+    // T11996: entries in the preserve set are NEVER eligible for pruning,
+    // regardless of idle age. Idle-age is only applied to orphan entries
+    // (entries not in the preserve set).
+    if (preserveTaskIds.has(entry)) {
+      return null;
     }
-    if (idleDays !== undefined && isWorktreeIdle(path, idleDays)) {
-      return { taskId: entry, path, reason: `idle-${idleDays}d` };
+    // Entry is not in the preserve set — it is an orphan.
+    // Check idle age only when idleDays is specified; otherwise remove immediately.
+    if (idleDays !== undefined && !isWorktreeIdle(path, idleDays)) {
+      return null; // orphan but not yet idle — wait longer
     }
-    return null;
+    return { taskId: entry, path, reason: idleDays !== undefined ? `idle-${idleDays}d` : 'orphan' };
   }
   if (idleDays !== undefined && isWorktreeIdle(path, idleDays)) {
     return { taskId: entry, path, reason: `idle-${idleDays}d` };
@@ -159,12 +212,176 @@ function classifyPruneCandidate(
 }
 
 /**
- * Remove a single worktree entry: unlock via git, remove via napi-backed
- * directory removal, then write audit + sentinel-index entries.
+ * Check whether a worktree has uncommitted changes (dirty state).
  *
- * Mutates `removed` and `errors` in place to keep the orchestrator function
- * thin. Both audit-log and sentinel-index updates are best-effort and never
- * block successful removal.
+ * Runs `git status --porcelain -uall` inside the worktree. `-uall` expands
+ * untracked directories so no file (including .env, local artifacts, etc.) is
+ * missed. Returns `false` when git is unavailable so we never block cleanup
+ * on a git error.
+ *
+ * @param worktreePath - Absolute path to the worktree directory.
+ * @returns `true` when uncommitted changes are present; `false` otherwise.
+ *
+ * @task T11996
+ * @internal
+ */
+function isWorktreeDirty(worktreePath: string): boolean {
+  try {
+    const out = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain', '-uall'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 10_000,
+    });
+    return out.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check whether a worktree has commits not pushed to any remote ref.
+ *
+ * Two cases (T11996 Amendment 3):
+ * (a) Branch with a configured upstream: commits ahead of `@{upstream}`.
+ * (b) Branch with no upstream (never pushed): commits not reachable from any
+ *     remote-tracking ref.
+ * (c) Detached HEAD: commits not reachable from any remote-tracking ref.
+ *
+ * Returns `false` when git is unavailable or the worktree has no commits.
+ *
+ * @param worktreePath - Absolute path to the worktree directory.
+ * @returns `true` when unpushed commits exist; `false` otherwise.
+ *
+ * @task T11996
+ * @internal
+ */
+function hasUnpushedCommits(worktreePath: string): boolean {
+  // Case (a): branch has a tracking upstream — check ahead count.
+  try {
+    const aheadStr = execFileSync(
+      'git',
+      ['-C', worktreePath, 'rev-list', '--count', '@{upstream}..HEAD'],
+      {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 10_000,
+      },
+    ).trim();
+    const aheadCount = Number.parseInt(aheadStr, 10);
+    if (!Number.isNaN(aheadCount) && aheadCount > 0) return true;
+    // Upstream exists and ahead count is 0 — no unpushed commits.
+    return false;
+  } catch {
+    // No upstream configured — fall through to case (b)/(c).
+  }
+
+  // Case (b)/(c): no upstream configured — check whether HEAD is reachable
+  // from the union of all remote-tracking refs.
+  try {
+    const remoteRefsOut = execFileSync(
+      'git',
+      ['-C', worktreePath, 'for-each-ref', '--format=%(refname)', 'refs/remotes/'],
+      {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 10_000,
+      },
+    ).trim();
+    const remoteRefs = remoteRefsOut.split('\n').filter(Boolean);
+    if (remoteRefs.length === 0) {
+      // No remotes configured — any local commit is "unpushed".
+      try {
+        const headOut = execFileSync('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+          timeout: 5_000,
+        }).trim();
+        return headOut.length > 0;
+      } catch {
+        return false;
+      }
+    }
+    // Count commits reachable from HEAD but not from any remote ref.
+    const args = ['-C', worktreePath, 'rev-list', '--count', 'HEAD', '--not', ...remoteRefs];
+    const countOut = execFileSync('git', args, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 15_000,
+    }).trim();
+    const count = Number.parseInt(countOut, 10);
+    return !Number.isNaN(count) && count > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Quarantine a dirty/unpushed worktree by packing it into a `.tar.gz` archive
+ * in `<projectRoot>/.cleo/quarantine/worktrees/`. The original directory is
+ * LEFT INTACT (never deleted). An audit JSONL entry is written.
+ *
+ * The archive is created with `tar -czf ... -C <parent> <taskId>` so the
+ * archive root is `<taskId>/`. `--dereference` captures symlink targets.
+ * No exclusions are applied — the archive captures ALL files including
+ * `.env`, ignored artifacts, etc. (T11996 AC: untracked + ignored files).
+ *
+ * @returns Absolute path to the created archive, or `null` on failure.
+ *
+ * @task T11996
+ * @internal
+ */
+function quarantineWorktreeDir(
+  worktreePath: string,
+  taskId: string,
+  projectRoot: string,
+  reason: string,
+): string | null {
+  try {
+    const quarantineDir = join(projectRoot, '.cleo', 'quarantine', 'worktrees');
+    mkdirSync(quarantineDir, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const archiveName = `${taskId}-${ts}.tar.gz`;
+    const archivePath = join(quarantineDir, archiveName);
+
+    // Capture untracked AND ignored files by not excluding anything.
+    execFileSync(
+      'tar',
+      ['-czf', archivePath, '--dereference', '-C', join(worktreePath, '..'), taskId],
+      {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 120_000,
+      },
+    );
+
+    // Write audit entry — ZERO desktop output (T11996 Amendment 6).
+    const auditPath = join(quarantineDir, 'audit.jsonl');
+    const entry = JSON.stringify({
+      ts: new Date().toISOString(),
+      action: 'quarantine',
+      worktreePath,
+      taskId,
+      archivePath,
+      reason,
+      agentId: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+    });
+    appendFileSync(auditPath, `${entry}\n`, { encoding: 'utf-8' });
+
+    return archivePath;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Remove a single worktree entry: check dirty/unpushed state first, then
+ * either quarantine (if unsafe) or unlock+remove via napi-backed directory
+ * removal, then write audit + sentinel-index entries.
+ *
+ * T11996: dirty or unpushed worktrees are QUARANTINED (tar archive in
+ * `<projectRoot>/.cleo/quarantine/worktrees/`), never deleted. The original
+ * directory is left on disk after quarantine.
+ *
+ * Mutates `removed`, `quarantined`, and `errors` in place.
  *
  * @internal
  */
@@ -173,9 +390,45 @@ function pruneSingleEntry(
   gitRoot: string,
   projectRoot: string,
   removed: string[],
+  quarantined: string[],
   errors: Array<{ path: string; reason: string }>,
 ): void {
   const { taskId, path, reason } = decision;
+
+  // T11996: Dirty/unpushed guard — quarantine instead of deleting.
+  const dirty = isWorktreeDirty(path);
+  const unpushed = dirty ? false : hasUnpushedCommits(path);
+  const shouldQuarantine = dirty || unpushed;
+  const quarantineReason = dirty ? 'dirty' : 'unpushed';
+
+  if (shouldQuarantine) {
+    const archivePath = quarantineWorktreeDir(path, taskId, projectRoot, quarantineReason);
+    if (archivePath !== null) {
+      quarantined.push(path);
+      appendWorktreeAuditLog(projectRoot, {
+        action: 'quarantine',
+        xdgPath: path,
+        taskId,
+        reason: `${reason}+${quarantineReason}`,
+        success: true,
+      });
+    } else {
+      errors.push({
+        path,
+        reason: `quarantine tar failed — worktree preserved (T11996, was ${quarantineReason})`,
+      });
+      appendWorktreeAuditLog(projectRoot, {
+        action: 'quarantine',
+        xdgPath: path,
+        taskId,
+        reason: `${reason}+${quarantineReason}`,
+        success: false,
+        error: 'tar archive creation failed',
+      });
+    }
+    return;
+  }
+
   // T11123: Use NAPI destroyWorktree (Rust worktrunk-core) instead of raw
   // git worktree unlock + remove shell-outs. The NAPI binding handles
   // unlock + force-remove atomically in Rust.

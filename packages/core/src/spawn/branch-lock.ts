@@ -281,7 +281,13 @@ export function pruneOrphanedWorktrees(
   taskIds?: Set<string>,
 ): WorktreeCleanupResult {
   const result = pruneWorktrees({ projectRoot, preserveTaskIds: taskIds });
-  return { removed: result.removed, removedPaths: result.removedPaths, errors: result.errors };
+  return {
+    removed: result.removed,
+    removedPaths: result.removedPaths,
+    quarantined: result.quarantined,
+    quarantinedPaths: result.quarantinedPaths,
+    errors: result.errors,
+  };
 }
 
 /**

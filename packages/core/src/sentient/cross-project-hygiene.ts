@@ -34,7 +34,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getLogger } from '../logger.js';
@@ -563,8 +563,17 @@ export async function runDuplicateEpicDetection(): Promise<DuplicateEpicResult> 
  * `packages/core/src/spawn/branch-lock.ts` so there is zero duplication
  * of the worktree-management logic (DRY).
  *
- * Active task IDs are resolved from each project's tasks.db before calling
- * pruneOrphanedWorktrees so in-flight worktrees are never removed.
+ * Preserve set (T11996 Amendment 1 — PREDICATE BLOCKER fix):
+ * Any task whose status is NOT terminal (i.e. not `done`, `cancelled`, or
+ * `archived`) must be preserved. Querying only `status: 'active'` was the
+ * original bug — it silently removed worktrees for `pending`, `blocked`, and
+ * `proposed` tasks. We now query all non-terminal statuses and build the
+ * preserve set from their union.
+ *
+ * Fail-closed (T11996 Amendment 2):
+ * If the task store is unreadable for a project, skip pruning for that
+ * project and write a structured audit warning. If ALL projects fail to
+ * load tasks, return with zero pruning.
  *
  * Never throws.
  */
@@ -588,18 +597,79 @@ export async function runWorktreePrune(): Promise<WorktreePruneResult> {
     projectsScanned++;
 
     try {
-      // Resolve active task IDs so in-flight worktrees are preserved.
-      const activeTaskIds = new Set<string>();
+      // T11996 Amendment 1: build preserve set from ALL non-terminal statuses.
+      // A task is non-terminal if its status is not in TERMINAL_TASK_STATUSES
+      // (done / cancelled / archived). Pending, active, blocked, and proposed
+      // tasks must NEVER have their worktrees auto-removed or quarantined.
+      const preserveTaskIds = new Set<string>();
+      let taskStoreReadable = false;
       try {
         const accessor = await getTaskAccessor(proj.path);
-        const { tasks } = await accessor.queryTasks({ status: 'active' });
-        for (const t of tasks) activeTaskIds.add(t.id);
+        // Query each non-terminal status and union the results.
+        const nonTerminalStatuses = ['pending', 'active', 'blocked', 'proposed'] as const;
+        for (const status of nonTerminalStatuses) {
+          const { tasks } = await accessor.queryTasks({ status });
+          for (const t of tasks) preserveTaskIds.add(t.id);
+        }
+        taskStoreReadable = true;
       } catch {
-        // Cannot read tasks — skip pruning this project conservatively.
+        // T11996 Amendment 2: task store unreadable — skip this project.
+        // Write a structured audit warning (no desktop output, ZERO notifications).
+        try {
+          const auditDir = join(proj.path, '.cleo', 'audit');
+          mkdirSync(auditDir, { recursive: true });
+          const auditPath = join(auditDir, 'worktree-lifecycle.jsonl');
+          const entry = JSON.stringify({
+            ts: new Date().toISOString(),
+            action: 'prune-skip-fail-closed',
+            projectPath: proj.path,
+            reason:
+              'task store unreadable — skipping worktree prune to prevent data loss (T11996 fail-closed)',
+            agentId: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+          });
+          appendFileSync(auditPath, `${entry}\n`, { encoding: 'utf-8' });
+        } catch {
+          // audit is best-effort
+        }
+        log.warn(
+          { projectPath: proj.path },
+          `${LOG}: step4 — task store unreadable, skipping project`,
+        );
         continue;
       }
 
-      const pruneResult = pruneOrphanedWorktrees(proj.path, activeTaskIds);
+      if (!taskStoreReadable) continue;
+
+      // T11996 Amendment 2: fail-closed — if the preserve set is empty while
+      // worktrees may exist, skip to prevent mass-deletion.
+      // NOTE: pruneOrphanedWorktrees (branch-lock.ts) calls pruneWorktrees
+      // (worktree-prune.ts) which has its own fail-closed guard; this is an
+      // additional layer at the hygiene-loop level so we can log the skip here.
+      if (preserveTaskIds.size === 0) {
+        log.warn(
+          { projectPath: proj.path },
+          `${LOG}: step4 — preserve set empty, skipping project (fail-closed)`,
+        );
+        try {
+          const auditDir = join(proj.path, '.cleo', 'audit');
+          mkdirSync(auditDir, { recursive: true });
+          const auditPath = join(auditDir, 'worktree-lifecycle.jsonl');
+          const entry = JSON.stringify({
+            ts: new Date().toISOString(),
+            action: 'prune-skip-fail-closed',
+            projectPath: proj.path,
+            reason:
+              'preserve set empty — skipping worktree prune to prevent mass-deletion (T11996 fail-closed)',
+            agentId: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+          });
+          appendFileSync(auditPath, `${entry}\n`, { encoding: 'utf-8' });
+        } catch {
+          // audit is best-effort
+        }
+        continue;
+      }
+
+      const pruneResult = pruneOrphanedWorktrees(proj.path, preserveTaskIds);
       totalPruned += pruneResult.removed;
       for (const e of pruneResult.errors) {
         errors.push({ projectPath: proj.path, reason: `${e.path}: ${e.reason}` });

@@ -381,10 +381,20 @@ export interface PruneWorktreesResult {
   removed: number;
   /** Absolute paths that were removed. */
   removedPaths: string[];
+  /** Number of worktrees quarantined (dirty/unpushed — preserved, not deleted). */
+  quarantined: number;
+  /** Absolute paths of quarantined worktrees. */
+  quarantinedPaths: string[];
   /** Entries that failed to remove (with reasons). */
   errors: Array<{ path: string; reason: string }>;
   /** Whether `git worktree prune` was run. */
   gitPruneRan: boolean;
+  /**
+   * True when pruning was skipped entirely because the preserve set was empty
+   * or the task store was unreadable while worktrees exist (fail-closed guard,
+   * T11996). A structured audit warning is written to the lifecycle log.
+   */
+  skippedFailClosed?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -576,6 +586,7 @@ export type WorktreeLifecycleAction =
   | 'adopt'
   | 'prune'
   | 'prune-skip'
+  | 'quarantine'
   | 'force-unlock'
   | 'complete'
   | 'complete-skip'
