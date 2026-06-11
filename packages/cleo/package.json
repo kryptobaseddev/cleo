@@ -34,6 +34,7 @@
     "@cleocode/playbooks": "workspace:*",
     "@cleocode/runtime": "workspace:*",
     "@cleocode/worktree": "workspace:*",
+    "@earendil-works/pi-tui": "^0.79.1",
     "check-disk-space": "^3.4.0",
     "citty": "^0.2.1",
     "graphology": "^0.26.0",
