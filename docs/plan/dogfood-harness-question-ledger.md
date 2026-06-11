@@ -1163,3 +1163,61 @@ The "macOS CI flake" that failed PRs with 8.9k/8.9k tests passing was a real pro
 
 ### Follow-ups FILED
 - `T11960` (DHQ-083 evidence prose-extraction) · `T11963` (generator truncation) · `T11968` (#1058 in flight) ← `T11679`; `T11964` (login-lane test gaps) · `T11965` (auth-mode inference ×3 → one core home + setup doc drift) ← `T11671`.
+
+## Session assessment 2026-06-11 (session-5 — provider-selection + batteries lane)
+
+Reconciled against DHQ-001..085 before logging. **4 genuinely-new** IDs (**DHQ-086..089**); confirmations on DHQ-075/076/079/080/081/083. CORE-API/TOOLS-first.
+
+### DHQ-086 — `codex_responses` transport 400s live (no body) on every call — wire shape mismatched against the Codex ChatGPT backend — **FIXED #1075** (`T11985` done)
+
+Owner surface: CORE transport layer (`T11985` ← `T11767` ← `T11679`).
+
+Root causes (3 wire-shape mismatches vs the Codex ChatGPT backend, found by diffing against the embedded `@earendil-works/pi-ai@0.78.1` reference): (1) OpenAI SDK hardcodes `Accept: application/json` but the backend requires `text/event-stream`; (2) `store:false` must be explicit (the SDK omits it, triggering backend-side validation error); (3) `max_output_tokens` is not a recognized field by this backend — rejected. Compounding: the SDK swallowed error response bodies → `"(no body)"`, making root-cause diagnosis require raw `curl` to replay the request and read the 400 body directly. Transport rewritten to raw `fetch` mirroring pi-ai's wire shape; error paths now log redacted response bodies. Verified live end-to-end: `cleo llm test` → codex transport → Codex backend → pong.
+
+Meta-lesson: `T11767` was filed as "built" but the transport was never live-proven against the real backend. Transport acceptance criteria MUST include a live smoke test against the target backend, not just unit-level shape checks.
+
+### DHQ-087 — Expired vault OAuth credential gets filtered as unprovisioned (no refresh-on-use attempt); `cleo llm test`/`llm stream` bypass the vault entirely for anthropic — **OPEN** (`T11986` ← `T11679`, relates `T11965`)
+
+Owner surface: CORE vault credential lifecycle + `resolveLLMForSystem` chokepoint.
+
+Observed: an expired `sk-ant-oat` (anthropic OAuth token) + stored refresh token in the vault is surfaced by `resolveLLMForSystem` as "unprovisioned" (the provisioning-aware selector filters credentials that fail a liveness check) — the refresh token is PRESENT but no refresh-on-use attempt is made; the credential just falls out of the ranked set silently. Additionally, `cleo llm test` and `cleo llm stream` resolve credentials through a legacy env/cred-file path that bypasses the vault entirely — the anthropic provider is invisible to these diagnostic probes, making it impossible to verify vault-stored credentials from the CLI surface. The two gaps combine: the vault credential silently expires AND the only CLI diagnostic tools can't see it.
+
+Answer vehicle: (1) refresh-on-use in the provisioning-aware selector — if a ranked credential has a stored refresh token, attempt refresh before filtering it out; surface `E_CRED_REFRESH_FAILED` with actionable re-login hint on genuine refresh failure; (2) route `cleo llm test`/`llm stream` through `resolveLLMForSystem` (the E9 chokepoint) so vault-stored credentials are visible to all diagnostic paths. Status: open / filed `T11986`.
+
+### DHQ-088 — `cleo manifest append --task` fails FK error when the task is in the global-scope DB but `pipeline_manifest` FK binds the project-scope tasks table — cross-scope FK unsatisfiable — **OPEN** (`T11987` ← `T11679`)
+
+Owner surface: CORE pipeline manifest domain — the `pipeline_manifest` table schema and its `task_id` foreign key.
+
+Observed: 3 independent worker agents this session hit the same failure: `cleo manifest append '{"task_id":"T####",...}'` returned a raw `FOREIGN KEY constraint failed` error (exit non-zero). Root cause: `pipeline_manifest.task_id` carries an FK referencing the project-scope `tasks_tasks` table, but tasks created via global-scope operations (or tasks resolved from global context) live in the global-scope DB. The FK cannot be satisfied cross-scope — the constraint physically cannot resolve a global-DB task row against a project-DB FK. The error surface is a raw SQLite message with no agent-actionable hint (DHQ-059 class).
+
+Answer vehicle: (1) make `pipeline_manifest.task_id` a soft reference (no FK constraint, or a scope-qualified advisory-only reference validated at query time, not insert time); (2) surface a clear `E_MANIFEST_CROSS_SCOPE` error with the scope of the target task vs the manifest DB, and an explicit `--scope` flag to override; (3) agents should not need to know which DB a task lives in to append a manifest entry. Status: open / filed `T11987`.
+
+### DHQ-089 — npm postinstall unconditionally `systemctl --user enable --now cleo-daemon` on every install/upgrade, silently resurrecting an operator-disabled service; `CLEO_DAEMON_DISABLE` escape was never persisted — **FIXED #1070** (`T11984` done)
+
+Owner surface: CORE daemon lifecycle (`T11984` ← `T11243`).
+
+Root cause: the postinstall script issued `systemctl --user enable --now cleo-daemon.service` unconditionally on every `npm install -g` or upgrade — no check for whether the service was previously disabled or masked. `CLEO_DAEMON_DISABLE=1` env escape existed but was read only at postinstall time (never persisted), so a subsequent `npm install` without the env var would re-enable. An operator who had disabled the daemon after the initial DHQ-055 incident found it running again after upgrading to a new release.
+
+Fix (`#1070`): the postinstall decision table now reads the current systemd enabled/active state before acting — a `disabled` or `masked` unit is left alone, and a persistent `daemon.autoStart: false` config flag (written on first disable, read by postinstall) prevents any future install from re-enabling. Companion research doc `daemon-on-by-default-research` filed evaluating Option B (auto-start-on-demand via socket activation) as the long-term alternative; owner decision pending (registered as row 5 in the daemon decision registry). Status: fixed for the unconditional re-enable; Option B auto-start-on-demand is owner-pending.
+
+### Confirmations on prior entries
+
+#### DHQ-075 / DHQ-076 — worktree-aware evidence atoms
+
+**FIXED #1068** (`T11959`): `cleo verify` now accepts `file:` and `commit:` atoms from a worktree context — commit reachability is resolved against the worktree branch via `git show <branch>:<path>` fallback, and `verificationJson` is written to the canonical tasks.db across the worktree boundary. Also addressed in the same PR: DHQ-083(a) main-reachability guard (`T9178` reachability check superseded by branch-aware resolution, documented); DHQ-083(b) merge-commit `--first-parent` diff (`+ --root` for initial commits so the diff is non-empty). The `pr:<n>` advisory-tolerance deferral (partial-cancel CI) is tracked but deferred.
+
+#### DHQ-083 — evidence engine extracts AC prose tokens as declared file paths
+
+**FIXED #1068** (`T11960`): prose-token extraction now applies a path-like heuristic — slash-bearing tokens that match domain patterns (e.g. `claude.com/platform.claude.com`) are excluded from the declared-file intersection. Regression: `claude.com/platform.claude.com` is no longer incorrectly treated as a declared file path. Note: `platform.claude.com` is NOT a tracked source file in this repo, so the regression AC is satisfied by the heuristic gate.
+
+#### DHQ-079 — `@cleocode/core` tarball exceeds the 25 MB Core Tarball Size Gate
+
+**FIXED #1072** (`T11976`): the headline discovery was that the 25 MB gate NEVER RAN — a `pnpm --filter` direction bug caused `@cleocode/core...` (dependents fan-out) to pull `@cleocode/studio` into the build graph, which died pre-check on 20+ release artifacts. Filter fixed to `...@cleocode/core` (dependencies, not dependents); gate threshold raised to 30 MB with a documented budget table (sourcemaps are the primary trim lever if the budget is exceeded in future).
+
+#### DHQ-080 — tag-driven `cleo release reconcile` fails `E_PLAN_NOT_FOUND`
+
+**FIXED #1071** (`T11977`): `cleo release reconcile` (tag-driven path) now synthesizes a minimal plan record from the tag name + CHANGELOG entry + merged PRs since the last tag, using origin `tag-reconcile-synthesized`. A `--dry-run` flag was added for safe preflight inspection. Live-proven: **v2026.6.14 provenance backfilled** — 107 tasks / 107 changes / 43 PRs recorded against the release.
+
+#### DHQ-081 — LLM resolver picks provider before cred-priority; no cross-provider provisioning-aware selection
+
+**FIXED #1069** (`T11978`, the session keystone): tier-8 cross-provider provisioning-aware selector implemented (`PROVISIONED_CLOUD_BIAS` frontier ranking); config pins win unconditionally; gemma3-class RAM-gated ollama fallback is PROPOSED-for-owner (owner decision pending on default model). Discovery surface added: `cleo llm providers` and `cleo llm health` enumerate provisioned vs reachable vs machine-runnable. **Live-proven on real state**: this machine's anthropic credential was expired at test time; the selector reported WINNER `openai → gpt-5.5` — the regression acceptance criterion on actual provisioning state.
