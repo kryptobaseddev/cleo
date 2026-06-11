@@ -464,12 +464,27 @@ const reconcileCommand = defineCommand({
       type: 'boolean',
       description: 'Reconcile a rollback rather than a publish (deferred to T9528)',
     },
+    /**
+     * T11977 / DHQ-080: tag-driven path dry-run.
+     *
+     * When the release plan file is absent (tag-driven publish with no prior
+     * `cleo release plan`), `--dry-run` synthesises the minimal plan from the
+     * git tag + CHANGELOG.md + merged-PR history and prints the derivation
+     * WITHOUT writing to the DB. Safe to run against the live project — produces
+     * no side effects.
+     */
+    'dry-run': {
+      type: 'boolean',
+      description:
+        'On tag-driven path (no plan file): synthesise and print the plan derivation without writing to DB',
+    },
     json: { type: 'boolean', description: 'Emit LAFS envelope' },
   },
   async run({ args }) {
     const result = await release.releaseReconcileV2(args.version, {
       fromWorkflow: args['from-workflow'] === true,
       rollback: args.rollback === true,
+      dryRun: args['dry-run'] === true,
     });
     // releaseReconcileV2 returns an EngineResult discriminated union
     // ({success:true,data} | {success:false,error}). Passing the union

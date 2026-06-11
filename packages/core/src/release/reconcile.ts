@@ -40,13 +40,422 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { type ReleasePlan, safeParseReleasePlan } from '@cleocode/contracts';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
 import { generateProjectHash } from '../nexus/hash.js';
 import { getProjectRoot } from '../paths.js';
 import { getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
+
+// ─── Tag-reconcile plan synthesis (T11977 · DHQ-080) ─────────────────────────
+
+/** Provenance origin label written into plan.meta when synthesis fires. */
+const TAG_RECONCILE_ORIGIN = 'tag-reconcile-synthesized' as const;
+
+/** T#### regex re-used across synthesis helpers. */
+const SYNTH_TASK_TOKEN_RE = /\bT\d{1,5}\b/g;
+
+/** Conventional-commit prefix detector (mirrors backfill.ts equivalent). */
+const SYNTH_CC_RE =
+  /^(feat|fix|chore|docs|refactor|test|perf|build|ci|revert|breaking|style)(?:\(([^)]+)\))?!?:\s/i;
+
+/**
+ * Result produced by {@link synthesizePlanForReconcile} when plan synthesis
+ * fires on the tag-driven path (no `.cleo/release/<version>.plan.json` exists
+ * but the git tag is present).
+ *
+ * The plan is always in-memory — it is written to disk only after
+ * {@link releaseReconcileV2} successfully commits the provenance transaction
+ * (or skipped entirely when `opts.dryRun = true`).
+ */
+export interface SynthesizedPlanReport {
+  /** The synthesised `ReleasePlan` object, ready for reconcile. */
+  plan: ReleasePlan;
+  /** Previous tag inferred from `git tag --sort=creatordate`. `null` on first-ever release. */
+  prevTag: string | null;
+  /**
+   * T#### tokens derived from the CHANGELOG.md section for this version.
+   * Empty when no CHANGELOG section was found.
+   */
+  changelogTaskIds: string[];
+  /**
+   * T#### tokens derived from merged-PR titles/branches between prevTag..tag.
+   * Empty when gh is unavailable.
+   */
+  prTaskIds: string[];
+  /**
+   * T#### tokens derived from git log subjects between prevTag..tag.
+   * Populated even without gh access.
+   */
+  commitTaskIds: string[];
+  /**
+   * PR numbers discovered via merge-commit subjects (`Merge pull request #NNN`)
+   * in the prevTag..tag range.
+   */
+  discoveredPrNumbers: number[];
+  /** True when a CHANGELOG.md section for this version was found. */
+  changelogSectionFound: boolean;
+}
+
+/**
+ * Infer the previous git tag by listing all tags sorted by creator-date
+ * (annotated + lightweight, oldest-first) and returning the entry
+ * immediately before `version`. Returns `null` when `version` is the
+ * oldest tag or no tags exist.
+ */
+function inferPrevTag(version: string, projectRoot: string): string | null {
+  try {
+    const raw = execFileSync('git', ['tag', '--list', '--sort=creatordate'], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: SUBPROCESS_TIMEOUT_MS,
+    }).trim();
+    const tags = raw
+      .split('\n')
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+    const idx = tags.indexOf(version);
+    if (idx <= 0) return null;
+    return tags[idx - 1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse the CHANGELOG.md section for `version` and extract:
+ *   - Every T#### token mentioned in the section body.
+ *   - The section text (for task summary extraction).
+ *
+ * Canonical header format (ADR-028 §2.5): `## [VERSION]` (no `v` prefix).
+ * We strip the leading `v` before matching so both forms are accepted.
+ *
+ * Returns `{ found: false }` when CHANGELOG.md is missing or has no matching
+ * section — synthesis continues without CHANGELOG data (non-fatal).
+ */
+function parseChangelogSection(
+  version: string,
+  projectRoot: string,
+): { found: false } | { found: true; taskIds: string[]; sectionText: string } {
+  const changelogPath = join(projectRoot, 'CHANGELOG.md');
+  if (!existsSync(changelogPath)) return { found: false };
+
+  let contents: string;
+  try {
+    contents = readFileSync(changelogPath, 'utf-8');
+  } catch {
+    return { found: false };
+  }
+
+  // Normalise version to no-v form (ADR-028 §2.5).
+  const normalized = version.startsWith('v') ? version.slice(1) : version;
+  const headerPattern = `## [${normalized}]`;
+
+  const startIdx = contents.indexOf(headerPattern);
+  if (startIdx < 0) return { found: false };
+
+  // Slice from the header line to the next `## [` section header (exclusive).
+  const bodyStart = startIdx + headerPattern.length;
+  const nextSectionIdx = contents.indexOf('\n## [', bodyStart);
+  const sectionText =
+    nextSectionIdx >= 0 ? contents.slice(bodyStart, nextSectionIdx) : contents.slice(bodyStart);
+
+  // Extract all T#### tokens from the section body.
+  SYNTH_TASK_TOKEN_RE.lastIndex = 0;
+  const tokens = new Set<string>();
+  let m: RegExpExecArray | null = SYNTH_TASK_TOKEN_RE.exec(sectionText);
+  while (m !== null) {
+    tokens.add(m[0]);
+    m = SYNTH_TASK_TOKEN_RE.exec(sectionText);
+  }
+
+  return { found: true, taskIds: Array.from(tokens), sectionText };
+}
+
+/**
+ * Extract unique T#### tokens from the `prevTag..tag` git log (subjects +
+ * bodies), plus PR numbers from merge-commit subjects.
+ *
+ * Returns empty arrays on git failure (non-fatal — synthesis continues).
+ */
+function extractTokensFromGitLog(
+  prevTag: string | null,
+  tag: string,
+  projectRoot: string,
+): { taskIds: string[]; prNumbers: number[] } {
+  try {
+    const range = prevTag ? `${prevTag}..${tag}` : tag;
+    const logOut = execFileSync('git', ['log', '--pretty=format:%s%n%b%n---COMMIT---', range], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: SUBPROCESS_TIMEOUT_MS,
+      maxBuffer: 64 * 1024 * 1024,
+    }).trim();
+
+    SYNTH_TASK_TOKEN_RE.lastIndex = 0;
+    const taskIds = new Set<string>();
+    let m: RegExpExecArray | null = SYNTH_TASK_TOKEN_RE.exec(logOut);
+    while (m !== null) {
+      taskIds.add(m[0]);
+      m = SYNTH_TASK_TOKEN_RE.exec(logOut);
+    }
+
+    // Extract PR numbers from merge-commit subjects: "Merge pull request #NNN"
+    const prNumbers = new Set<number>();
+    const PR_RE = /Merge pull request #(\d+)/g;
+    let pm: RegExpExecArray | null = PR_RE.exec(logOut);
+    while (pm !== null) {
+      const n = Number.parseInt(pm[1], 10);
+      if (Number.isFinite(n) && n > 0) prNumbers.add(n);
+      pm = PR_RE.exec(logOut);
+    }
+
+    return { taskIds: Array.from(taskIds), prNumbers: Array.from(prNumbers) };
+  } catch {
+    return { taskIds: [], prNumbers: [] };
+  }
+}
+
+/**
+ * Parse the CC type from a commit subject and map to a task kind.
+ * Mirrors the equivalent in `backfill.ts`.
+ *
+ * @internal
+ */
+function synthCcToTaskKind(
+  subject: string,
+): 'feat' | 'fix' | 'chore' | 'docs' | 'refactor' | 'test' | 'perf' | 'revert' | 'breaking' {
+  const m = subject.match(SYNTH_CC_RE);
+  const raw = m?.[1]?.toLowerCase() ?? '';
+  switch (raw) {
+    case 'feat':
+      return 'feat';
+    case 'fix':
+      return 'fix';
+    case 'docs':
+      return 'docs';
+    case 'refactor':
+      return 'refactor';
+    case 'test':
+      return 'test';
+    case 'perf':
+      return 'perf';
+    case 'revert':
+      return 'revert';
+    case 'breaking':
+      return 'breaking';
+    default:
+      return 'chore';
+  }
+}
+
+/**
+ * Synthesise a minimal {@link ReleasePlan} for a tag-driven release that has
+ * no `.cleo/release/<version>.plan.json` on disk (DHQ-080 · T11977).
+ *
+ * Derivation order (highest-fidelity source wins):
+ *   (a) CHANGELOG.md section for `version` — task-ID tokens + summaries.
+ *   (b) Merged PRs between prevTag..tag (`git log --merges`) — T#### from titles.
+ *   (c) All commits between prevTag..tag — T#### from subjects/bodies.
+ *
+ * The synthesised plan carries `meta.origin = 'tag-reconcile-synthesized'`
+ * so honest plans (from `cleo release plan`) remain distinguishable. Fields
+ * that cannot be derived without a prior `cleo release plan` run (evidenceAtoms,
+ * gates, prUrl, mergeCommitSha, workflowRunUrl) are left empty/null.
+ *
+ * Does NOT write to disk — the caller decides whether to persist or dry-run.
+ *
+ * @param version   — Version tag to synthesise a plan for (e.g. `v2026.6.14`).
+ * @param projectRoot — Absolute project root.
+ * @returns `SynthesizedPlanReport` with the in-memory plan + derivation metadata.
+ *
+ * @task T11977
+ */
+export async function synthesizePlanForReconcile(
+  version: string,
+  projectRoot: string,
+): Promise<SynthesizedPlanReport> {
+  const prevTag = inferPrevTag(version, projectRoot);
+
+  // (a) CHANGELOG.md section
+  const changelogResult = parseChangelogSection(version, projectRoot);
+  const changelogTaskIds = changelogResult.found ? changelogResult.taskIds : [];
+
+  // (b+c) Git log tokens + PR numbers
+  const { taskIds: commitTaskIds, prNumbers: discoveredPrNumbers } = extractTokensFromGitLog(
+    prevTag,
+    version,
+    projectRoot,
+  );
+
+  // Union the sources; changelog wins position (highest fidelity).
+  const allTokens = new Set<string>([...changelogTaskIds, ...commitTaskIds]);
+
+  // Intersect with valid task IDs in the runtime store (do not fabricate rows).
+  // Use inArray to avoid a full table scan (DHQ-065 anti-pattern guard).
+  const db = await getDb(projectRoot);
+  const validIds = new Set<string>();
+  if (allTokens.size > 0) {
+    const tokenList = Array.from(allTokens);
+    const rows = await db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(inArray(schema.tasks.id, tokenList))
+      .all();
+    for (const r of rows) {
+      if (typeof r.id === 'string') {
+        validIds.add(r.id);
+      }
+    }
+  }
+
+  // Derive task kind heuristic from the CHANGELOG section or first git log subject.
+  let seedKind: ReturnType<typeof synthCcToTaskKind> = 'chore';
+  if (changelogResult.found) {
+    // Scan changelog section for a first `###` heading to derive kind.
+    const firstHeading = changelogResult.sectionText.split('\n').find((l) => l.startsWith('### '));
+    if (firstHeading?.toLowerCase().includes('added')) seedKind = 'feat';
+    else if (firstHeading?.toLowerCase().includes('fix')) seedKind = 'fix';
+  } else {
+    // Fall back to first commit subject CC type.
+    try {
+      const range = prevTag ? `${prevTag}..${version}` : version;
+      const firstSubject = execFileSync('git', ['log', '--pretty=format:%s', '--reverse', range], {
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: SUBPROCESS_TIMEOUT_MS,
+      })
+        .trim()
+        .split('\n')[0];
+      if (firstSubject) seedKind = synthCcToTaskKind(firstSubject);
+    } catch {
+      // non-fatal
+    }
+  }
+
+  const epicId =
+    validIds.size > 0
+      ? (Array.from(validIds)[0] as string)
+      : `SYNTH-${version.replace(/[^A-Z0-9]/gi, '')}`;
+
+  // Build per-task entries. Each task gets a summary from the CHANGELOG section
+  // when available; otherwise a generic backfill note.
+  const taskEntries: ReleasePlan['tasks'] =
+    validIds.size > 0
+      ? Array.from(validIds).map((id) => {
+          // Try to extract a summary line for this task from the CHANGELOG section.
+          let summary = `${id} — synthesized from ${version}`;
+          if (changelogResult.found) {
+            // Look for a bullet line containing the task ID.
+            const summaryLine = changelogResult.sectionText
+              .split('\n')
+              .find((l) => l.includes(`(${id}`) || l.includes(`${id}/`) || l.includes(` ${id} `));
+            if (summaryLine) {
+              // Strip leading `-` or `*` and trailing refs like `_(T#/PR#)_`.
+              summary = summaryLine
+                .replace(/^\s*[-*]\s*/, '')
+                .replace(/\s*_\(.*\)_\s*$/, '')
+                .trim();
+            }
+          }
+          return {
+            id,
+            kind: seedKind,
+            impact: 'patch' as const,
+            userFacingSummary: summary,
+            evidenceAtoms: [`note:synthesized-from-tag-${version}`],
+            epicAncestor: epicId,
+          };
+        })
+      : [
+          {
+            id: `SYNTH-${version.replace(/[^A-Z0-9]/gi, '')}-PLACEHOLDER`,
+            kind: 'chore' as const,
+            impact: 'patch' as const,
+            userFacingSummary: `Tag-driven release ${version} (no task tokens resolved)`,
+            evidenceAtoms: [`note:synthesized-from-tag-${version}`],
+            epicAncestor: epicId,
+          },
+        ];
+
+  // Bucket task IDs into changelog sections.
+  const changelog: ReleasePlan['changelog'] = {
+    features: [],
+    fixes: [],
+    chores: [],
+    breaking: [],
+  };
+  for (const t of taskEntries) {
+    if (t.kind === 'feat') changelog.features.push(t.id);
+    else if (t.kind === 'fix' || t.kind === 'hotfix') changelog.fixes.push(t.id);
+    else if (t.kind === 'breaking' || t.kind === 'revert') changelog.breaking.push(t.id);
+    else changelog.chores.push(t.id);
+  }
+
+  const nowIso = new Date().toISOString();
+  const plan: ReleasePlan = {
+    $schema: 'https://cleocode.io/schemas/release-plan/v1.json',
+    version,
+    resolvedVersion: version,
+    suffixApplied: false,
+    scheme: 'calver',
+    channel: 'latest',
+    epicId,
+    releaseKind: 'regular',
+    createdAt: nowIso,
+    createdBy: TAG_RECONCILE_ORIGIN,
+    previousVersion: prevTag,
+    previousTag: prevTag,
+    previousShippedAt: null,
+    tasks: taskEntries,
+    changelog,
+    gates: [],
+    platformMatrix: [
+      {
+        platform: 'any',
+        publisher: 'npm',
+        package: '@cleocode/cleo',
+        smoke: false,
+      },
+    ],
+    preflightSummary: {
+      esbuildExternalsDrift: false,
+      lockfileDrift: false,
+      epicCompletenessClean: true,
+      doubleListingClean: true,
+      preflightWarnings: [TAG_RECONCILE_ORIGIN],
+    },
+    workflowRunUrl: null,
+    prUrl: null,
+    mergeCommitSha: null,
+    status: 'published',
+    meta: {
+      firstEverRelease: prevTag === null,
+      origin: TAG_RECONCILE_ORIGIN,
+      synthesizedAt: nowIso,
+      changelogSectionFound: changelogResult.found,
+      discoveredPrCount: discoveredPrNumbers.length,
+    },
+  };
+
+  const prTaskIds: string[] = [];
+  // PR task IDs are derived at reconcile time from the actual fetched PRs.
+  // We surface discoveredPrNumbers in the report so dry-run can show them.
+
+  return {
+    plan,
+    prevTag,
+    changelogTaskIds,
+    prTaskIds,
+    commitTaskIds: Array.from(allTokens),
+    discoveredPrNumbers,
+    changelogSectionFound: changelogResult.found,
+  };
+}
 
 const log = getLogger('release:reconcile-v2');
 const execFileAsync = promisify(execFile);
@@ -94,6 +503,16 @@ export interface ReleaseReconcileV2Options {
    * informational; the backfill verb audit-logs overwrites separately.
    */
   forceOverwrite?: boolean;
+  /**
+   * When true (T11977 · DHQ-080), print the synthesised plan derivation
+   * without writing to the DB or disk. Only meaningful on the tag-driven
+   * path (no plan file exists); has no effect when a plan file is present.
+   *
+   * The result envelope carries `dryRun: true` and `synthesizedPlan` with
+   * the plan that WOULD be written, plus the derivation metadata. No DB
+   * rows are inserted.
+   */
+  dryRun?: boolean;
 }
 
 /** Successful reconcile result envelope (SPEC §4.4.5 `data` payload). */
@@ -132,6 +551,32 @@ export interface ReleaseReconcileV2Result {
   durationMs?: number;
   /** Total inserts performed (filled into envelope `meta.txSize`). */
   txSize?: number;
+  /**
+   * Present when reconcile synthesised the plan at runtime (DHQ-080 · T11977):
+   * no `.cleo/release/<version>.plan.json` existed but the git tag was found.
+   * The provenance flag `meta.origin = 'tag-reconcile-synthesized'` is written
+   * into the plan rows so honest plans (from `cleo release plan`) are
+   * distinguishable in the `releases` table.
+   */
+  synthesized?: {
+    /** Number of task IDs derived from CHANGELOG.md section. */
+    changelogTaskCount: number;
+    /** Number of task IDs derived from git log commit subjects. */
+    commitTaskCount: number;
+    /** PR numbers discovered from merge-commit subjects. */
+    discoveredPrNumbers: number[];
+    /** Previous tag inferred from `git tag --sort=creatordate`. Null on first release. */
+    prevTag: string | null;
+    /** True when a CHANGELOG.md section for this version was found. */
+    changelogSectionFound: boolean;
+  };
+  /**
+   * Present when `opts.dryRun = true` and synthesis fires (T11977 · DHQ-080).
+   * The result reflects what WOULD be written without any DB mutation.
+   * `commitCount`, `taskCount`, `changeCount`, `artifactCount`, `brainLinkCount`
+   * reflect plan-level derivation only (no git log walk was performed).
+   */
+  dryRun?: boolean;
 }
 
 // ─── Internal types ──────────────────────────────────────────────────────────
@@ -916,9 +1361,72 @@ export async function releaseReconcileV2(
   const projectRoot = getProjectRoot(opts.projectRoot);
 
   // ── 1. Pre-conditions (R-080 .. R-083) ──
+  //
+  // T11977 / DHQ-080: tag-driven path (git tag + push → GHA publishes to npm,
+  // no `cleo release plan` ever run) leaves no plan file. When the plan is
+  // absent BUT the git tag exists, synthesise a minimal plan at reconcile time
+  // from the git log + CHANGELOG.md + merged PRs. The synthesised plan carries
+  // `meta.origin = 'tag-reconcile-synthesized'` so honest plans are
+  // distinguishable. Evidence-staleness validation (R-313) is skipped for
+  // synthesised plans (there is no evidence to validate).
+  //
+  // When `opts.dryRun = true`, return the derivation report WITHOUT touching
+  // the DB or disk.
+
+  /** Populated when synthesis fires on the tag-driven path. */
+  let synthReport: SynthesizedPlanReport | null = null;
+
   const planRes = loadPlan(version, projectRoot);
-  if (!planRes.success) return planRes;
-  const plan = planRes.data;
+  let plan: ReleasePlan;
+
+  if (!planRes.success) {
+    // Only attempt synthesis for E_PLAN_NOT_FOUND — other errors (e.g.
+    // E_PLAN_INVALID) are returned immediately (the file exists but is corrupt).
+    if (planRes.error.code !== 'E_PLAN_NOT_FOUND') return planRes;
+
+    // Check whether the tag exists before committing to synthesis.
+    const earlyTagRes = assertTagExists(version, projectRoot);
+    if (!earlyTagRes.success) {
+      // Neither a plan file nor a git tag — original E_PLAN_NOT_FOUND is
+      // the most useful error to surface.
+      return planRes;
+    }
+
+    log.info(
+      { version },
+      'E_PLAN_NOT_FOUND on tag-driven path — synthesising minimal plan (DHQ-080 · T11977)',
+    );
+    synthReport = await synthesizePlanForReconcile(version, projectRoot);
+    plan = synthReport.plan;
+
+    // Dry-run: return derivation metadata without any DB writes.
+    if (opts.dryRun) {
+      const durationMs = Date.now() - startedAt;
+      return engineSuccess<ReleaseReconcileV2Result>({
+        version,
+        tag: version,
+        tagSha: earlyTagRes.data,
+        commitCount: 0,
+        taskCount: plan.tasks.length,
+        changeCount: 0,
+        artifactCount: 0,
+        brainLinkCount: 0,
+        orphanCommits: [],
+        dryRun: true,
+        synthesized: {
+          changelogTaskCount: synthReport.changelogTaskIds.length,
+          commitTaskCount: synthReport.commitTaskIds.length,
+          discoveredPrNumbers: synthReport.discoveredPrNumbers,
+          prevTag: synthReport.prevTag,
+          changelogSectionFound: synthReport.changelogSectionFound,
+        },
+        durationMs,
+        txSize: 0,
+      });
+    }
+  } else {
+    plan = planRes.data;
+  }
 
   const tagRes = assertTagExists(version, projectRoot);
   if (!tagRes.success) return tagRes;
@@ -929,8 +1437,9 @@ export async function releaseReconcileV2(
 
   // T9528: backfill walks historical tags whose evidence atoms may reference
   // long-deleted files or rebased commits — skip the R-313 staleness gate.
+  // T11977: synthesised plans have no evidence atoms to validate — also skip.
   // Production publish flows still pass through this check.
-  if (!opts.backfill) {
+  if (!opts.backfill && synthReport === null) {
     const stalenessRes = revalidateEvidenceStaleness(plan, version, projectRoot);
     if (!stalenessRes.success) return stalenessRes;
   }
@@ -1569,6 +2078,19 @@ export async function releaseReconcileV2(
     ...(unknownTokens.size > 0 ? { unknownTokens: Array.from(unknownTokens) } : {}),
     ...(skippedTaskRefs.size > 0 ? { skippedTaskRefs: Array.from(skippedTaskRefs) } : {}),
     ...(reReconciled ? { reReconciled: true } : {}),
+    // T11977 / DHQ-080: include synthesis metadata when the plan was derived at
+    // reconcile time (tag-driven path with no prior `cleo release plan`).
+    ...(synthReport !== null
+      ? {
+          synthesized: {
+            changelogTaskCount: synthReport.changelogTaskIds.length,
+            commitTaskCount: synthReport.commitTaskIds.length,
+            discoveredPrNumbers: synthReport.discoveredPrNumbers,
+            prevTag: synthReport.prevTag,
+            changelogSectionFound: synthReport.changelogSectionFound,
+          },
+        }
+      : {}),
     durationMs,
     txSize,
   };

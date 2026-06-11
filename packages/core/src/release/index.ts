@@ -166,8 +166,13 @@ export type { ReleaseIvtrSuggestParams, releaseCoreOps } from './ops.js';
 export type { ReleasePlanOptions, ReleasePlanResult } from './plan.js';
 export { releasePlan } from './plan.js';
 // T9526 — v2 release reconcile verb (Phase 1 of T9492)
-export type { ReleaseReconcileV2Options, ReleaseReconcileV2Result } from './reconcile.js';
-export { releaseReconcileV2 } from './reconcile.js';
+// T11977 / DHQ-080 — tag-driven plan synthesis added to reconcile
+export type {
+  ReleaseReconcileV2Options,
+  ReleaseReconcileV2Result,
+  SynthesizedPlanReport,
+} from './reconcile.js';
+export { releaseReconcileV2, synthesizePlanForReconcile } from './reconcile.js';
 // Release configuration
 export type {
   ChannelConfig,
