@@ -1210,6 +1210,22 @@ Fix (`#1070`): the postinstall decision table now reads the current systemd enab
 
 **FIXED #1068** (`T11960`): prose-token extraction now applies a path-like heuristic — slash-bearing tokens that match domain patterns (e.g. `claude.com/platform.claude.com`) are excluded from the declared-file intersection. Regression: `claude.com/platform.claude.com` is no longer incorrectly treated as a declared file path. Note: `platform.claude.com` is NOT a tracked source file in this repo, so the regression AC is satisfied by the heuristic gate.
 
+### DHQ-090 — fix-gen prompt carries zero file context — model honestly `NO_PATCH`es without paths — **OPEN** (`T11988` ← `T11679`)
+
+Owner surface: CORE self-improve fix-gen prompt construction (`T11988` ← `T11679`).
+
+Observed: `cleo selfimprove run` dispatches a fix-gen LLM call whose prompt includes the DHQ description and stack trace but no file paths or relevant source context. The model correctly declines to fabricate a patch (emits `NO_PATCH`) rather than hallucinate a fix — but this means the entire fix-gen loop produces zero actionable output. The root cause is not the model; it is the prompt builder omitting the code context that the model needs.
+
+Answer vehicle: the fix-gen prompt must resolve the affected files from the DHQ metadata (stack frames, mentioned symbols, referenced task files) and include relevant source snippets before the LLM call. Status: open / filed `T11988`.
+
+### DHQ-091 — declined / no-patch LLM replies are not logged for audit; silent no-op indistinguishable from genuine tool failure — **OPEN** (`T11989` ← `T11679`)
+
+Owner surface: CORE self-improve loop result recording (`T11989` ← `T11679`).
+
+Observed: when the fix-gen LLM returns `NO_PATCH` (an explicit decline, see DHQ-090), the self-improve loop exits without writing any audit record — the run appears identical to a network timeout or tool crash from the outside. There is no way to distinguish "model saw the problem and declined" from "model call failed" in the run history. This undermines observability for the burn-down loop.
+
+Answer vehicle: every LLM response in the fix-gen path (including explicit no-patch/decline responses) must be recorded in the self-improve audit log with the model, prompt hash, response classification (`NO_PATCH` vs `PATCH_GENERATED` vs `ERROR`), and timestamp. Status: open / filed `T11989`.
+
 #### DHQ-079 — `@cleocode/core` tarball exceeds the 25 MB Core Tarball Size Gate
 
 **FIXED #1072** (`T11976`): the headline discovery was that the 25 MB gate NEVER RAN — a `pnpm --filter` direction bug caused `@cleocode/core...` (dependents fan-out) to pull `@cleocode/studio` into the build graph, which died pre-check on 20+ release artifacts. Filter fixed to `...@cleocode/core` (dependencies, not dependents); gate threshold raised to 30 MB with a documented budget table (sourcemaps are the primary trim lever if the budget is exceeded in future).
@@ -1221,3 +1237,13 @@ Fix (`#1070`): the postinstall decision table now reads the current systemd enab
 #### DHQ-081 — LLM resolver picks provider before cred-priority; no cross-provider provisioning-aware selection
 
 **FIXED #1069** (`T11978`, the session keystone): tier-8 cross-provider provisioning-aware selector implemented (`PROVISIONED_CLOUD_BIAS` frontier ranking); config pins win unconditionally; gemma3-class RAM-gated ollama fallback is PROPOSED-for-owner (owner decision pending on default model). Discovery surface added: `cleo llm providers` and `cleo llm health` enumerate provisioned vs reachable vs machine-runnable. **Live-proven on real state**: this machine's anthropic credential was expired at test time; the selector reported WINNER `openai → gpt-5.5` — the regression acceptance criterion on actual provisioning state.
+
+### DHQ-092 — `release-prepare` preflight-test ran vitest without building workspace packages first — deterministic `Failed to resolve entry for package` since session-5 dist-dependent imports — **OPEN→FIXED in this PR** (`T12005` ← `T11679`)
+
+Owner surface: CI / release pipeline — `.github/workflows/release-prepare.yml` preflight-test job.
+
+Root cause: the `preflight-test` job in `release-prepare.yml` ran `pnpm install --frozen-lockfile` and then immediately `pnpm exec vitest run --shard=N/2` with no build step. Since session-5 merges, tests and source files hard-require built dist outputs (e.g. `packages/brain/src/db-connections.ts` imports `@cleocode/core/store/sqlite-pragmas.js`; living-brain resolves `@cleocode/nexus`). Without `pnpm run build` the package entry points do not exist and vitest fails with `Failed to resolve entry for package` on every shard. The CI `unit-tests` job had the correct sequence (`pnpm run build` + `pnpm --filter @cleocode/studio exec svelte-kit sync` before vitest) but the `release-prepare` preflight job had rotted by divergence from the CI job. The failure was identical on two consecutive dispatches (run 27383451730 + rerun), blocking v2026.6.15 both times.
+
+Fix (this PR `T12005`): mirror CI's unit-tests job in the preflight-test job — add `Build packages (required for cross-package imports)` step (`pnpm run build`, 10 min timeout) and `Generate SvelteKit type stubs` step (`pnpm --filter @cleocode/studio exec svelte-kit sync`, 2 min timeout) immediately after `Install dependencies`, before the vitest step. Raise job `timeout-minutes` from 15 → 30 and test step `timeout-minutes` from 10 → 20 to accommodate build + test. Template parity (Gate 7) updated simultaneously in `packages/core/templates/workflows/release-prepare.yml.tmpl` (`{{BUILD_CMD}}` placeholder); parity lint confirmed clean (`findings=0, baseline=0`). Reconciled against DHQ-001..091 before logging.
+
+Meta-lesson: preflight jobs that run tests MUST mirror the canonical CI job steps (build → stubs → test) or they silently rot every time a new cross-package dist import is introduced. A preflight job that passes lint but skips build is not a real preflight.
