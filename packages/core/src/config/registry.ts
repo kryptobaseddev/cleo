@@ -22,8 +22,8 @@
  * @adr 076
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   CLEO_CONFIG_MANIFEST,
   CONFIG_MANIFEST_ENTRIES,
@@ -33,6 +33,7 @@ import {
   PROJECT_INFO_MANIFEST,
 } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
+import { atomicWriteJson } from '../store/atomic.js';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Types
@@ -425,8 +426,7 @@ export async function unsetConfigValue(
     return { key, scope, removed: false };
   }
 
-  await mkdir(dirname(configPath), { recursive: true });
-  await writeFile(configPath, `${JSON.stringify(existing, null, 2)}\n`, 'utf8');
+  await atomicWriteJson(configPath, existing);
   return { key, scope, removed: true };
 }
 

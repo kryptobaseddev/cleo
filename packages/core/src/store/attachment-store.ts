@@ -17,7 +17,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/contracts';
 import { and, eq, sql } from 'drizzle-orm';
@@ -770,16 +770,31 @@ export function createAttachmentStore(): AttachmentStore {
               .run();
           }
 
-          nativeDb.prepare('COMMIT').run();
-
-          // Write file AFTER transaction (only if blob was new).
-          // File write failure propagates naturally — this is bad but db is committed.
-          // The blob row exists with refCount but no file. Future get() will return null.
-          // This should rarely happen (permission issues, disk full, etc).
+          // Write file BEFORE committing the transaction (T11997: tmp+rename ordering).
+          // This eliminates the row-without-file window: if the file write fails the
+          // transaction rolls back and no orphan row is created. If we crash after the
+          // rename but before COMMIT the file exists without a row — that is the safe
+          // direction (an unreferenced blob on disk is harmless; a row pointing to a
+          // missing file is not).
           if (wasNew) {
+            const tmpPath = `${filePath}.tmp`;
             await mkdir(join(filePath, '..'), { recursive: true });
-            await writeFile(filePath, buf);
+            try {
+              await writeFile(tmpPath, buf);
+              await rename(tmpPath, filePath);
+            } catch (writeErr) {
+              // Clean up the temp file before re-throwing so the rollback below
+              // leaves no partial artifact at the final path.
+              try {
+                await rm(tmpPath, { force: true });
+              } catch {
+                // best-effort
+              }
+              throw writeErr;
+            }
           }
+
+          nativeDb.prepare('COMMIT').run();
 
           const finalRow = await db
             .select()
