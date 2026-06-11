@@ -854,6 +854,96 @@ const healthCommand = defineCommand({
 });
 
 // ---------------------------------------------------------------------------
+// cleo llm fit — local model fit ranking (wizard building block · T11982)
+// ---------------------------------------------------------------------------
+
+/**
+ * `cleo llm fit` — detect Ollama + rank 2–3 best-fit open-weight models for
+ * this machine (wizard building block for T11983).
+ *
+ * Outputs:
+ * - Hardware summary (RAM, VRAM, detection method).
+ * - Whether Ollama is running and which models are already pulled.
+ * - Ranked 2–3 model recommendations with fit reasons and pull commands.
+ * - A `noRecommendationReason` when the machine is below the 4 GB floor.
+ *
+ * @task T11982
+ * @epic T11671
+ */
+const fitCommand = defineCommand({
+  meta: {
+    name: 'fit',
+    description:
+      'Rank 2–3 best-fit local open-weight models for this machine (RAM/VRAM check). Wizard building block for local Ollama setup.',
+  },
+  args: {
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON (LAFS envelope)',
+    },
+    'ollama-url': {
+      type: 'string',
+      description: 'Override Ollama base URL (default: http://localhost:11434)',
+    },
+  },
+  async run({ args }) {
+    const { rankLocalModelFit } = await import(
+      /* webpackIgnore: true */ '@cleocode/core/llm/local-model-fit'
+    );
+    const typedArgs = args as Record<string, unknown>;
+    const ollamaBaseUrl =
+      typeof typedArgs['ollama-url'] === 'string'
+        ? typedArgs['ollama-url']
+        : 'http://localhost:11434';
+
+    const envelope = await rankLocalModelFit({ ollamaBaseUrl });
+
+    if (isHumanOutput() && !typedArgs['json']) {
+      const lines: string[] = ['', 'Local Model Fit — Hardware Summary', '='.repeat(42)];
+
+      const hw = envelope.hardware;
+      lines.push(`  RAM total   : ${hw.totalRamGb.toFixed(1)} GB`);
+      lines.push(`  RAM avail   : ${hw.availableRamGb.toFixed(1)} GB`);
+      if (hw.vramTotalGb !== null) {
+        lines.push(`  VRAM total  : ${hw.vramTotalGb.toFixed(1)} GB (${hw.vramMethod})`);
+        lines.push(
+          `  VRAM free   : ${hw.vramFreeGb !== null ? hw.vramFreeGb.toFixed(1) + ' GB' : 'unknown'}`,
+        );
+      } else {
+        lines.push(`  VRAM        : not detected (${hw.vramMethod})`);
+      }
+      lines.push(`  Ollama      : ${envelope.ollamaRunning ? 'running' : 'not running'}`);
+      if (envelope.pulledModels.length > 0) {
+        lines.push(`  Pulled      : ${envelope.pulledModels.map((m) => m.name).join(', ')}`);
+      }
+
+      lines.push('');
+
+      if (envelope.noRecommendationReason) {
+        lines.push('  No local model recommendations:');
+        lines.push(`  ${envelope.noRecommendationReason}`);
+      } else {
+        lines.push('Recommended Models', '-'.repeat(42));
+        for (let i = 0; i < envelope.recommendations.length; i++) {
+          const rec = envelope.recommendations[i]!;
+          const pulled = rec.alreadyPulled ? ' [already pulled]' : '';
+          lines.push(`  ${i + 1}. ${rec.candidate.displayName}${pulled}  (fit: ${rec.fitTier})`);
+          for (const reason of rec.reasons) {
+            lines.push(`       • ${reason}`);
+          }
+          lines.push(`     pull: ${rec.pullCommand}`);
+          lines.push('');
+        }
+      }
+
+      humanLine(lines.join('\n'));
+    } else {
+      cliOutput(envelope, { command: 'llm-fit', operation: 'llm.fit' });
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Parent command
 // ---------------------------------------------------------------------------
 
@@ -873,6 +963,7 @@ export const llmCommand = defineCommand({
     add: addCommand,
     'context-engines': contextEnginesCommand,
     cost: costCommand,
+    fit: fitCommand,
     health: healthCommand,
     list: listCommand,
     login: loginCommand,

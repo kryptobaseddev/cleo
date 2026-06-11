@@ -282,6 +282,22 @@ export {
   LEGACY_FLAT_KEY_LABEL,
   LEGACY_FLAT_KEY_MARKER,
 } from './legacy-flat-key-import.js';
+// Local model fit ranking — wizard building block (T11982)
+export type {
+  HardwareSnapshot,
+  LocalModelCandidate,
+  LocalModelFitEnvelope,
+  LocalModelFitResult,
+  OllamaPulledModel,
+  VramInfo,
+} from './local-model-fit.js';
+export {
+  captureHardwareSnapshot,
+  LOCAL_FIT_FLOOR_GB,
+  LOCAL_MODEL_CANDIDATES,
+  listOllamaPulledModels,
+  rankLocalModelFit,
+} from './local-model-fit.js';
 export type { ModelMetadata } from './model-metadata.js';
 // Model metadata — context window resolution (T9264 / T-LLM-CRED Phase 3)
 export {
