@@ -277,9 +277,14 @@ export type AtomValidation =
  *
  * @param parsed - Parsed atom from {@link parseEvidence}
  * @param projectRoot - Absolute path to project root (for resolving files, git)
+ * @param taskId - Optional CLEO task ID. When provided, enables branch-scope
+ *   check (T9178), content-intersect check (T9245), worktree-aware HEAD
+ *   resolution (T-WT-3), and git-show file fallback for branch-only files
+ *   (T11959).
  * @returns Validation outcome with canonicalised form on success
  *
  * @task T832
+ * @task T11959
  * @adr ADR-051 §3
  */
 export async function validateAtom(
@@ -292,7 +297,7 @@ export async function validateAtom(
     case 'commit':
       return validateCommit(parsed.sha, projectRoot, taskId);
     case 'files':
-      return validateFiles(parsed.paths, projectRoot);
+      return validateFiles(parsed.paths, projectRoot, taskId);
     case 'test-run':
       return validateTestRun(parsed.path, projectRoot);
     case 'tool':
@@ -420,18 +425,59 @@ async function validateCommit(
     projectRoot,
   );
   if (reachable.exitCode !== 0) {
-    return {
-      ok: false,
-      reason: `Commit ${sha} exists but is not reachable from ${effectiveHead}`,
-      codeName: 'E_EVIDENCE_INVALID',
-    };
+    // DHQ-083 companion (a): when the commit is not reachable from the task
+    // branch HEAD, also accept commits reachable from the canonical integration
+    // branches (main or master). This covers:
+    //   - owner commits directly to main (meta-tasks, emergency fixes)
+    //   - post-merge cleanup where the task branch was deleted and the SHA is
+    //     now only reachable from main
+    //   - the `effectiveHead = "HEAD"` case when HEAD == main tip but taskId
+    //     was not supplied (handled by the no-taskId fast path via getEffectiveHead)
+    let isReachableFromMain = false;
+    if (taskId) {
+      const mainBranches = ['main', 'master'];
+      for (const base of mainBranches) {
+        const baseExists = await runCommand(
+          'git',
+          ['rev-parse', '--verify', `refs/heads/${base}`],
+          projectRoot,
+        );
+        if (baseExists.exitCode !== 0) continue;
+        const mainReachable = await runCommand(
+          'git',
+          ['merge-base', '--is-ancestor', sha, base],
+          projectRoot,
+        );
+        if (mainReachable.exitCode === 0) {
+          isReachableFromMain = true;
+          break;
+        }
+      }
+    }
+    if (!isReachableFromMain) {
+      return {
+        ok: false,
+        reason: taskId
+          ? `Commit ${sha} exists but is not reachable from ${effectiveHead} or main`
+          : `Commit ${sha} exists but is not reachable from ${effectiveHead}`,
+        codeName: 'E_EVIDENCE_INVALID',
+      };
+    }
   }
   // T9178: branch-scope check — reject cross-branch fabricated SHAs.
   // When the validator is invoked in the context of a specific task, require
-  // that the supplied SHA is reachable from task/<taskId>. This blocks the
-  // "worker claims `implemented` with a SHA on main but never on task branch"
-  // failure mode. The check no-ops if the task branch does not yet exist
-  // (e.g. owner-driven completion of a meta-task that never had a worktree).
+  // that the supplied SHA is reachable from EITHER task/<taskId> OR main/master.
+  //
+  // Accepting main-reachable commits (DHQ-083 companion a): before this fix the
+  // check hard-failed for SHAs that were on main but not yet cherry-picked /
+  // merged onto the task branch. This is a valid workflow when an owner commits
+  // directly to main (rare but legitimate for meta-tasks) or when the branch
+  // was deleted after merge. The fix extends the allowlist to include the
+  // canonical integration branches so that merged-and-cleaned-up commits remain
+  // usable as evidence without forcing the agent to use the slower `pr:` atom.
+  //
+  // The check no-ops if the task branch does not yet exist and main has no
+  // commit (early-init edge case handled by the HEAD ancestry check above).
   if (taskId) {
     const branchRef = `task/${taskId}`;
     const branchExists = await runCommand('git', ['rev-parse', '--verify', branchRef], projectRoot);
@@ -442,11 +488,37 @@ async function validateCommit(
         projectRoot,
       );
       if (onBranch.exitCode !== 0) {
-        return {
-          ok: false,
-          reason: `Commit ${sha} not reachable from ${branchRef} — possible phantom evidence`,
-          codeName: 'E_EVIDENCE_INVALID',
-        };
+        // T11959 / DHQ-083 companion (a): also accept commits reachable from the
+        // canonical integration branches (main or master). This covers:
+        //   - commits on main used by meta-tasks / owner-driven completions
+        //   - post-merge task branches that have been cleaned up (the SHA is now
+        //     only reachable from main, not from `task/<id>` which no longer exists)
+        const mainBranches = ['main', 'master'];
+        let onMain = false;
+        for (const base of mainBranches) {
+          const exists = await runCommand(
+            'git',
+            ['rev-parse', '--verify', `refs/heads/${base}`],
+            projectRoot,
+          );
+          if (exists.exitCode !== 0) continue;
+          const reachable = await runCommand(
+            'git',
+            ['merge-base', '--is-ancestor', sha, base],
+            projectRoot,
+          );
+          if (reachable.exitCode === 0) {
+            onMain = true;
+            break;
+          }
+        }
+        if (!onMain) {
+          return {
+            ok: false,
+            reason: `Commit ${sha} not reachable from ${branchRef} or main — possible phantom evidence`,
+            codeName: 'E_EVIDENCE_INVALID',
+          };
+        }
       }
     }
 
@@ -472,10 +544,102 @@ async function validateCommit(
  * SSoT is the explicit `task.files` array — string-token parsing is a
  * fallback for legacy tasks that predate the `--files` flag.
  *
+ * NOTE: The regex is intentionally broad. False-positive prose tokens (e.g.
+ * "claude.com/platform.claude.com") are filtered out by
+ * {@link isRepoPathLike} before being added to the AC-files set (T11960).
+ *
  * @task T9245
+ * @task T11960
  */
 const AC_PATH_TOKEN =
   /(?:^|[\s"'`([])([a-zA-Z0-9_\-./@]+\/[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,8})(?=$|[\s"'`)\],;:])/g;
+
+/**
+ * Known repo directory prefixes that indicate a token is a source path.
+ *
+ * A regex-extracted token is accepted as a path only when it starts with one
+ * of these prefixes (or has a file extension from {@link REPO_FILE_EXTENSIONS}).
+ * This rejects URL-shaped prose tokens like `claude.com/platform.claude.com`
+ * that happen to match the path-token regex.
+ *
+ * @internal
+ * @task T11960
+ */
+const REPO_DIR_PREFIXES: ReadonlyArray<string> = Object.freeze([
+  'packages/',
+  'src/',
+  'scripts/',
+  'docs/',
+  'crates/',
+  'test/',
+  'tests/',
+  '.cleo/',
+  '.github/',
+  'apps/',
+  'lib/',
+  'bin/',
+]);
+
+/**
+ * File extensions that unambiguously identify a repo source path.
+ *
+ * A token with one of these extensions is accepted as a path even if it does
+ * not start with a known {@link REPO_DIR_PREFIXES} directory. Internet
+ * hostnames never end in `.ts`, `.mjs`, `.sql`, etc.
+ *
+ * @internal
+ * @task T11960
+ */
+const REPO_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
+  '.ts',
+  '.tsx',
+  '.mts',
+  '.cts',
+  '.js',
+  '.mjs',
+  '.cjs',
+  '.jsx',
+  '.json',
+  '.toml',
+  '.yaml',
+  '.yml',
+  '.sql',
+  '.sh',
+  '.rs',
+  '.md',
+]);
+
+/**
+ * Heuristic guard that decides whether a regex-extracted slash token is a
+ * plausible repository file path rather than a URL or prose fragment.
+ *
+ * A token passes when it either:
+ *   - starts with a known {@link REPO_DIR_PREFIXES} directory, OR
+ *   - ends with a file extension in {@link REPO_FILE_EXTENSIONS}
+ *
+ * The guard intentionally accepts false negatives (omits exotic paths) rather
+ * than false positives (includes internet hostnames). When a task owner needs
+ * an exotic path captured they can use the explicit `--files` flag on
+ * `cleo add` / `cleo update`.
+ *
+ * @param token - Slash-containing token extracted from AC text.
+ * @returns `true` when the token looks like a repo path.
+ *
+ * @internal
+ * @task T11960
+ */
+export function isRepoPathLike(token: string): boolean {
+  for (const prefix of REPO_DIR_PREFIXES) {
+    if (token.startsWith(prefix)) return true;
+  }
+  // Check file extension — extract the final segment after the last dot.
+  const lastDot = token.lastIndexOf('.');
+  if (lastDot >= 1) {
+    const ext = token.slice(lastDot);
+    if (REPO_FILE_EXTENSIONS.has(ext)) return true;
+  }
+  return false;
+}
 
 /**
  * Extract the canonical list of files a task's acceptance criteria declare.
@@ -483,13 +647,15 @@ const AC_PATH_TOKEN =
  * Resolution order:
  *   1. `task.files` array — authoritative when populated (set via `--files`)
  *   2. AC string parsing — extract path-like tokens from each
- *      `task.acceptance` string
+ *      `task.acceptance` string, then filter with {@link isRepoPathLike}
+ *      to discard URL/prose false-positives (T11960).
  *
  * Returns `null` when the task declares no AC files at all — caller MUST
  * interpret this as "skip content-intersect" rather than "verify fails".
  *
  * @internal
  * @task T9245
+ * @task T11960
  */
 export function extractTaskAcFiles(task: {
   files?: string[] | null;
@@ -499,7 +665,7 @@ export function extractTaskAcFiles(task: {
   if (task.files && task.files.length > 0) {
     return [...task.files];
   }
-  // 2. Parse path tokens from AC strings.
+  // 2. Parse path tokens from AC strings, filtered by repo-path heuristic.
   if (!task.acceptance || task.acceptance.length === 0) {
     return null;
   }
@@ -510,7 +676,8 @@ export function extractTaskAcFiles(task: {
     AC_PATH_TOKEN.lastIndex = 0;
     let m: RegExpExecArray | null = AC_PATH_TOKEN.exec(item);
     while (m !== null) {
-      if (m[1]) parsed.add(m[1]);
+      // T11960: apply repo-path heuristic to filter URL/prose false-positives.
+      if (m[1] && isRepoPathLike(m[1])) parsed.add(m[1]);
       m = AC_PATH_TOKEN.exec(item);
     }
   }
@@ -518,14 +685,32 @@ export function extractTaskAcFiles(task: {
 }
 
 /**
- * Run `git show --name-only <sha>` and return the list of file paths the
- * commit touched (added, modified, or deleted). Empty array on git failure.
+ * Return the list of file paths a commit touched (added, modified, or deleted).
+ *
+ * Uses `git diff-tree --no-commit-id -r --name-only -m --first-parent` which
+ * correctly handles **merge commits** by diffing against the first parent only.
+ * The legacy `git show --name-only` approach returned an empty list for merge
+ * commits because show without `--first-parent` produces a combined diff that
+ * `--name-only` cannot meaningfully summarise, causing the content-intersect
+ * gate to report "touches no files" for every merge commit (DHQ-083 companion b).
+ *
+ * @param sha - Commit SHA to inspect.
+ * @param projectRoot - Working directory for git operations.
+ * @returns File paths touched by the commit; empty array on git failure.
  *
  * @internal
  * @task T9245
+ * @task T11959 (DHQ-083 companion b — merge-commit first-parent diff)
  */
 async function gitShowFiles(sha: string, projectRoot: string): Promise<string[]> {
-  const r = await runCommand('git', ['show', '--name-only', '--pretty=format:', sha], projectRoot);
+  // diff-tree with --first-parent gives a clean single-parent diff for both
+  // regular commits and merge commits (compares merge result to first parent,
+  // i.e. the branch tip before the PR was merged).
+  const r = await runCommand(
+    'git',
+    ['diff-tree', '--no-commit-id', '-r', '--name-only', '-m', '--first-parent', sha],
+    projectRoot,
+  );
   if (r.exitCode !== 0) return [];
   return r.stdout
     .split('\n')
@@ -717,7 +902,70 @@ async function checkCommitContentIntersect(
   return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
 }
 
-async function validateFiles(paths: string[], projectRoot: string): Promise<AtomValidation> {
+/**
+ * Read file content from the git object store for the given task branch.
+ *
+ * Used as a fallback when the file does not exist at `projectRoot` on disk —
+ * i.e. when the file was added/modified only on `task/<taskId>` and has not
+ * yet been merged to main (the worktree isolation scenario from T11959).
+ *
+ * @param relPath - Repo-relative file path.
+ * @param taskId - CLEO task ID; the branch `task/<taskId>` is checked first.
+ * @param projectRoot - Working directory for git operations.
+ * @returns Buffer of the file content, or `null` when not found on any branch.
+ *
+ * @internal
+ * @task T11959
+ */
+async function gitShowFileContent(
+  relPath: string,
+  taskId: string,
+  projectRoot: string,
+): Promise<Buffer | null> {
+  // Normalise the path: strip leading "./" so git:show works correctly.
+  const norm = relPath.replace(/^\.\//, '');
+
+  // Try task/<taskId> first, then main, then master, then HEAD.
+  const refs = [`task/${taskId}`, 'main', 'master', 'HEAD'];
+  for (const ref of refs) {
+    const r = await runCommand('git', ['show', `${ref}:${norm}`], projectRoot);
+    if (r.exitCode === 0 && r.stdout.length > 0) {
+      return Buffer.from(r.stdout, 'binary');
+    }
+  }
+  return null;
+}
+
+/**
+ * Validate a `files:` evidence atom.
+ *
+ * Resolution order for each path:
+ *   1. Filesystem check — `existsSync(abs)` at `projectRoot`.
+ *   2. Git-show fallback (T11959) — when `taskId` is provided and the file is
+ *      absent at `projectRoot`, try reading it from `task/<taskId>` (or main /
+ *      HEAD) via `git show <ref>:<path>`. This allows worktree agents to record
+ *      `files:` evidence for files that exist only on their branch and have not
+ *      yet been merged to main, without triggering `E_WT_DB_ISOLATION_VIOLATION`.
+ *
+ * When the file is read from git (fallback path) the sha256 is computed from
+ * the git-object content rather than the on-disk content.  The re-validation at
+ * `cleo complete` time uses the same fallback path so the checksums remain
+ * consistent across verify → complete.
+ *
+ * @param paths - Repo-relative or absolute file paths.
+ * @param projectRoot - Absolute path to project root.
+ * @param taskId - Optional CLEO task ID; enables the git-show fallback (T11959).
+ * @returns Validated atom on success, error on failure.
+ *
+ * @internal
+ * @task T832
+ * @task T11959
+ */
+async function validateFiles(
+  paths: string[],
+  projectRoot: string,
+  taskId?: string,
+): Promise<AtomValidation> {
   if (paths.length === 0) {
     return {
       ok: false,
@@ -728,22 +976,41 @@ async function validateFiles(paths: string[], projectRoot: string): Promise<Atom
   const files: Array<{ path: string; sha256: string }> = [];
   for (const p of paths) {
     const abs = isAbsolute(p) ? p : resolvePath(projectRoot, p);
-    if (!existsSync(abs)) {
+    let content: Buffer;
+
+    if (existsSync(abs)) {
+      // Happy path — file exists on disk.
+      const st = await stat(abs);
+      if (!st.isFile()) {
+        return {
+          ok: false,
+          reason: `Path is not a regular file: ${p}`,
+          codeName: 'E_EVIDENCE_INVALID',
+        };
+      }
+      content = await readFile(abs);
+    } else if (taskId) {
+      // T11959: Git-show fallback for branch-only files (worktree context).
+      // The file exists on the task branch but not yet at the canonical root.
+      const fromGit = await gitShowFileContent(p, taskId, projectRoot);
+      if (!fromGit) {
+        return {
+          ok: false,
+          reason:
+            `File does not exist: ${p}` +
+            ` (checked filesystem at ${projectRoot} and git refs task/${taskId}, main, HEAD)`,
+          codeName: 'E_EVIDENCE_INVALID',
+        };
+      }
+      content = fromGit;
+    } else {
       return {
         ok: false,
         reason: `File does not exist: ${p}`,
         codeName: 'E_EVIDENCE_INVALID',
       };
     }
-    const st = await stat(abs);
-    if (!st.isFile()) {
-      return {
-        ok: false,
-        reason: `Path is not a regular file: ${p}`,
-        codeName: 'E_EVIDENCE_INVALID',
-      };
-    }
-    const content = await readFile(abs);
+
     const sha256 = createHash('sha256').update(content).digest('hex');
     files.push({ path: p, sha256 });
   }
@@ -1429,16 +1696,22 @@ export const CRITICAL_GATES_NO_OVERRIDE: readonly VerificationGate[] = Object.fr
  * @param projectRoot - Absolute path to project root
  * @param gate - Optional gate name; when provided enables the critical-gate
  *   override-rejection check (T9245). Omit for back-compat callers.
+ * @param taskId - Optional CLEO task ID; enables git-show fallback for files
+ *   that were on the task branch at verify time but are now on main after
+ *   merge (T11959). When provided, sha256 comparison uses the same git-show
+ *   resolution path as validate time so the checksums remain consistent.
  * @returns Revalidation outcome
  *
  * @task T832
  * @task T9245
+ * @task T11959
  * @adr ADR-051 §5 / §8 (Decision 8)
  */
 export async function revalidateEvidence(
   evidence: GateEvidence,
   projectRoot: string,
   gate?: VerificationGate,
+  taskId?: string,
 ): Promise<RevalidationResult> {
   // T9245: critical-gate override rejection.
   // When the gate is `implemented` or `testsPassed`, evidence that has no
@@ -1487,11 +1760,21 @@ export async function revalidateEvidence(
       case 'files': {
         for (const f of atom.files) {
           const abs = isAbsolute(f.path) ? f.path : resolvePath(projectRoot, f.path);
-          if (!existsSync(abs)) {
+          let content: Buffer | null = null;
+
+          if (existsSync(abs)) {
+            content = await readFile(abs);
+          } else if (taskId) {
+            // T11959: git-show fallback — file may have been on task branch at
+            // verify time and is now on main after merge, or it may still only
+            // exist on the branch. Use the same resolution path as validateFiles.
+            content = await gitShowFileContent(f.path, taskId, projectRoot);
+          }
+
+          if (!content) {
             failed.push({ atom, reason: `File removed since verify: ${f.path}` });
             break;
           }
-          const content = await readFile(abs);
           const sha256 = createHash('sha256').update(content).digest('hex');
           if (sha256 !== f.sha256) {
             failed.push({
