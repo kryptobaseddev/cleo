@@ -71,7 +71,15 @@ vi.mock('../catalog-model-resolver.js', async (importOriginal) => {
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { llmAdd, llmList, llmProfile, llmRemove, llmUse, llmWhoami } from '../cli-ops.js';
+import {
+  llmAdd,
+  llmList,
+  llmProfile,
+  llmRemove,
+  llmUse,
+  llmWhoami,
+  redactSecret,
+} from '../cli-ops.js';
 import {
   OAUTH_STATUS_PROVIDERS,
   resolveCredentials,
@@ -527,5 +535,30 @@ describe('resolveProviderStatus — kimi-code resolvedSource (T9323 AC#3)', () =
 
     expect(status.hasCredential).toBe(!!raw.apiKey);
     expect(status.resolvedSource).toBe('env');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// redactSecret (T11968 — repro follow-through: debug body must never carry the
+// live credential; the envelope keeps suppressing the body entirely)
+// ---------------------------------------------------------------------------
+
+describe('redactSecret', () => {
+  it('replaces every occurrence of the secret with the last-4 preview', () => {
+    const secret = 'sk-ant-oat-supersecret-AAAA';
+    const body = `{"error":{"message":"invalid bearer ${secret} and again ${secret}"}}`;
+    const out = redactSecret(body, secret);
+    expect(out).not.toContain(secret);
+    expect(out).toContain('…AAAA');
+    expect(out.match(/…AAAA/g)).toHaveLength(2);
+  });
+
+  it('returns the text unchanged for null or short secrets (no shredding)', () => {
+    expect(redactSecret('body text', null)).toBe('body text');
+    expect(redactSecret('body text', 'short')).toBe('body text');
+  });
+
+  it('handles empty body', () => {
+    expect(redactSecret('', 'sk-ant-oat-supersecret')).toBe('');
   });
 });
