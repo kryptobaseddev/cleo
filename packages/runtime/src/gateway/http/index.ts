@@ -57,6 +57,16 @@ export {
   type StreamSourceTeardown,
   tickStreamSource,
 } from './stream-sources.js';
+export {
+  isStudioPath,
+  mimeType,
+  resolveStudioAssetPath,
+  resolveStudioStaticDir,
+  STUDIO_PREFIX,
+  type StudioStaticOptions,
+  serveStudioStatic,
+  writeBundleAbsentError,
+} from './studio-static.js';
 export type { HttpUnaryRequest, HttpUnaryResult } from './types.js';
 export {
   attachWsPtyEndpoint,

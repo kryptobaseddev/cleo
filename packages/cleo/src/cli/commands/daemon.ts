@@ -44,6 +44,7 @@ import { defineCommand } from 'citty';
 import { createCliGatewayHandler } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { cliError, cliOutput } from '../renderers/index.js';
+import { resolveStudioStaticDir } from '../web-subsystem.js';
 
 /**
  * Default loopback TCP port for the `cleo daemon serve` HTTP gateway.
@@ -539,7 +540,17 @@ const serveCommand = defineCommand({
       }
       const host = (args.host as string | undefined) ?? '127.0.0.1';
 
-      const handle = await serveGateway({ handler: createCliGatewayHandler(), port, host });
+      // Resolve the bundled Studio static assets (T11979). When the Studio build
+      // is present (bundled in the npm tarball or built in a dev checkout), the
+      // gateway serves it at /studio; when absent, /studio returns a clean 503.
+      const studioStaticDir = resolveStudioStaticDir();
+
+      const handle = await serveGateway({
+        handler: createCliGatewayHandler(),
+        port,
+        host,
+        studioStaticDir,
+      });
       cliOutput(
         {
           pid: process.pid,
@@ -547,12 +558,17 @@ const serveCommand = defineCommand({
           port: handle.port,
           scope: handle.scope,
           facade: '/v1',
+          studioUrl:
+            studioStaticDir !== undefined ? `http://${handle.host}:${handle.port}/studio/` : null,
           message: `HTTP gateway listening on http://${handle.host}:${handle.port}/v1`,
         },
         {
           command: 'daemon',
           operation: 'daemon.serve',
-          message: `HTTP gateway listening on http://${handle.host}:${handle.port}/v1 (PID ${process.pid})`,
+          message:
+            studioStaticDir !== undefined
+              ? `HTTP gateway listening on http://${handle.host}:${handle.port}/v1 (Studio: http://${handle.host}:${handle.port}/studio/, PID ${process.pid})`
+              : `HTTP gateway listening on http://${handle.host}:${handle.port}/v1 (PID ${process.pid})`,
         },
       );
       // Foreground: block until a termination signal, then close cleanly.

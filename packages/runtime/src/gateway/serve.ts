@@ -52,6 +52,17 @@ export interface ServeGatewayOptions {
   host?: string;
   /** The scope this gateway process serves. Defaults to `'global'`. */
   scope?: GatewayScope;
+  /**
+   * Absolute path to the Studio static asset directory (T11979).
+   *
+   * When set, the HTTP server serves the bundled CLEO Web Studio at `/studio`
+   * using the `build/client/` static assets from an `adapter-node` Studio build.
+   * When `undefined`, `/studio` routes return a clean 503 "bundle absent" JSON
+   * envelope. The caller resolves this path (typically via
+   * `resolveStudioStaticDir` from `@cleocode/cleo`) so the runtime stays free of
+   * any path-resolution policy.
+   */
+  studioStaticDir?: string;
 }
 
 /**
@@ -108,7 +119,7 @@ export async function serveGateway(opts: ServeGatewayOptions): Promise<ServeGate
   const subsystem = defineGatewaySubsystem({
     scope,
     handler: opts.handler,
-    http: { port: opts.port, host },
+    http: { port: opts.port, host, studioStaticDir: opts.studioStaticDir },
   });
 
   const context = await subsystem.start();

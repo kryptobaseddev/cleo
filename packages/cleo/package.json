@@ -15,7 +15,7 @@
     "gen:manifest": "node scripts/generate-command-manifest.mjs",
     "prebuild": "node scripts/generate-command-manifest.mjs",
     "build": "tsc",
-    "postbuild": "node scripts/assert-shebang.mjs",
+    "postbuild": "node scripts/assert-shebang.mjs && node scripts/copy-studio-dist.mjs",
     "pretypecheck": "node scripts/generate-command-manifest.mjs",
     "typecheck": "tsc --noEmit",
     "test": "cd ../.. && vitest run packages/cleo/src",
@@ -67,7 +67,8 @@
     "bin",
     "scripts",
     "templates",
-    "assets"
+    "assets",
+    "studio-dist"
   ],
   "devDependencies": {
     "@cleocode/utils": "workspace:*",
