@@ -1176,7 +1176,7 @@ Root causes (3 wire-shape mismatches vs the Codex ChatGPT backend, found by diff
 
 Meta-lesson: `T11767` was filed as "built" but the transport was never live-proven against the real backend. Transport acceptance criteria MUST include a live smoke test against the target backend, not just unit-level shape checks.
 
-### DHQ-087 — Expired vault OAuth credential gets filtered as unprovisioned (no refresh-on-use attempt); `cleo llm test`/`llm stream` bypass the vault entirely for anthropic — **OPEN** (`T11986` ← `T11679`, relates `T11965`)
+### DHQ-087 — Expired vault OAuth credential gets filtered as unprovisioned (no refresh-on-use attempt); `cleo llm test`/`llm stream` bypass the vault entirely for anthropic — **FIXED #1092** (`T11986` done)
 
 Owner surface: CORE vault credential lifecycle + `resolveLLMForSystem` chokepoint.
 
@@ -1210,7 +1210,7 @@ Fix (`#1070`): the postinstall decision table now reads the current systemd enab
 
 **FIXED #1068** (`T11960`): prose-token extraction now applies a path-like heuristic — slash-bearing tokens that match domain patterns (e.g. `claude.com/platform.claude.com`) are excluded from the declared-file intersection. Regression: `claude.com/platform.claude.com` is no longer incorrectly treated as a declared file path. Note: `platform.claude.com` is NOT a tracked source file in this repo, so the regression AC is satisfied by the heuristic gate.
 
-### DHQ-090 — fix-gen prompt carries zero file context — model honestly `NO_PATCH`es without paths — **OPEN** (`T11988` ← `T11679`)
+### DHQ-090 — fix-gen prompt carries zero file context — model honestly `NO_PATCH`es without paths — **FIXED #1087** (`T11988` done)
 
 Owner surface: CORE self-improve fix-gen prompt construction (`T11988` ← `T11679`).
 
@@ -1218,7 +1218,7 @@ Observed: `cleo selfimprove run` dispatches a fix-gen LLM call whose prompt incl
 
 Answer vehicle: the fix-gen prompt must resolve the affected files from the DHQ metadata (stack frames, mentioned symbols, referenced task files) and include relevant source snippets before the LLM call. Status: open / filed `T11988`.
 
-### DHQ-091 — declined / no-patch LLM replies are not logged for audit; silent no-op indistinguishable from genuine tool failure — **OPEN** (`T11989` ← `T11679`)
+### DHQ-091 — declined / no-patch LLM replies are not logged for audit; silent no-op indistinguishable from genuine tool failure — **FIXED #1093** (`T11989` done)
 
 Owner surface: CORE self-improve loop result recording (`T11989` ← `T11679`).
 
@@ -1238,7 +1238,7 @@ Answer vehicle: every LLM response in the fix-gen path (including explicit no-pa
 
 **FIXED #1069** (`T11978`, the session keystone): tier-8 cross-provider provisioning-aware selector implemented (`PROVISIONED_CLOUD_BIAS` frontier ranking); config pins win unconditionally; gemma3-class RAM-gated ollama fallback is PROPOSED-for-owner (owner decision pending on default model). Discovery surface added: `cleo llm providers` and `cleo llm health` enumerate provisioned vs reachable vs machine-runnable. **Live-proven on real state**: this machine's anthropic credential was expired at test time; the selector reported WINNER `openai → gpt-5.5` — the regression acceptance criterion on actual provisioning state.
 
-### DHQ-092 — `release-prepare` preflight-test ran vitest without building workspace packages first — deterministic `Failed to resolve entry for package` since session-5 dist-dependent imports — **OPEN→FIXED in this PR** (`T12005` ← `T11679`)
+### DHQ-092 — `release-prepare` preflight-test ran vitest without building workspace packages first — deterministic `Failed to resolve entry for package` since session-5 dist-dependent imports — **FIXED #1086** (`T12005` done)
 
 Owner surface: CI / release pipeline — `.github/workflows/release-prepare.yml` preflight-test job.
 
@@ -1247,3 +1247,38 @@ Root cause: the `preflight-test` job in `release-prepare.yml` ran `pnpm install 
 Fix (this PR `T12005`): mirror CI's unit-tests job in the preflight-test job — add `Build packages (required for cross-package imports)` step (`pnpm run build`, 10 min timeout) and `Generate SvelteKit type stubs` step (`pnpm --filter @cleocode/studio exec svelte-kit sync`, 2 min timeout) immediately after `Install dependencies`, before the vitest step. Raise job `timeout-minutes` from 15 → 30 and test step `timeout-minutes` from 10 → 20 to accommodate build + test. Template parity (Gate 7) updated simultaneously in `packages/core/templates/workflows/release-prepare.yml.tmpl` (`{{BUILD_CMD}}` placeholder); parity lint confirmed clean (`findings=0, baseline=0`). Reconciled against DHQ-001..091 before logging. Second gap found on first post-fix dispatch (run 27386016186): worktree-audit tests (L105/134/175, `expected false to be true`) failed because the worktree-napi native binary was absent — CI's unit-tests job builds it BEFORE `pnpm install` (the "Build worktree-napi native addon BEFORE pnpm install (T9982)" step at ci.yml ~1254) and installs ripgrep via `./.github/actions/install-ripgrep` immediately after; preflight-test had neither. Fix (follow-up PR `task/T12005-napi-parity`): insert the full napi case-block verbatim before `pnpm install` and add the ripgrep step after it. CI's unit-tests job relies on ubuntu-latest's preinstalled rustup/cargo with no explicit Rust setup action — no extra Rust step added. Same hunk mirrored in the template. Root class: preflight must mirror the FULL CI unit-test step sequence (napi-build → install → ripgrep → build → stubs → test), not just post-install steps.
 
 Meta-lesson: preflight jobs that run tests MUST mirror the canonical CI job steps (build → stubs → test) or they silently rot every time a new cross-package dist import is introduced. A preflight job that passes lint but skips build is not a real preflight.
+
+## Session assessment 2026-06-12 (session-6 — ship v2026.6.15 + never-OOM P1 + first model-authored PR)
+
+Reconciled against DHQ-001..092 before logging — **3 genuinely-new IDs** (**DHQ-093..095**); status flips on DHQ-087/090/091 (all FIXED); DHQ-092 CONFIRMED FIXED (second gap found + fixed, preflight passed on dispatch 3). CORE-API/TOOLS-first.
+
+### Status flips
+
+- **DHQ-087 → FIXED #1092** (`T11986`): refresh-on-use implemented at the E9 chokepoint — single-flight refresh attempt with 30-second negative-cache; rotated tokens persisted atomically; `E_CRED_REFRESH_FAILED`-class error surfaces an actionable `cleo login anthropic` hint on genuine refresh failure; `cleo llm test`/`llm stream` now routed through `resolveCredentialsAsync` (the E9 chokepoint), making vault-stored credentials visible to all diagnostic paths. Gate-13 violations reduced from 53 → 40. Live note: this machine's anthropic refresh token is genuinely REVOKED — refresh was attempted (attempted:1) and the actionable `cleo login anthropic` hint surfaced correctly; one manual login restores the credential.
+- **DHQ-090 → FIXED #1087** (`T11988`): fix-gen prompt builder now resolves affected files from DHQ metadata (stack frames, mentioned symbols, referenced task files), adds bounded file context (24 KB per file, 64 KB total, truncation markers at limit), and seeds a code-regression scenario. PROOF: first model-authored draft PR #1090 — gpt-5.5 authored the correct minimal `probeVersion` 2→1 diff against seeded context without fabricating paths.
+- **DHQ-091 → FIXED #1093** (`T11989`): every LLM response in the fix-gen path (including explicit no-patch/decline responses) is now recorded in the self-improve audit log with model, prompt hash, response classification (`NO_PATCH` vs `PATCH_GENERATED` vs `ERROR`), and timestamp. Declined/no-patch replies are logged redacted and truncated onto the DHQ evidence row (`evidence.fixGen.replyExcerpt`), making "model declined" distinguishable from "tool crashed" in the run history.
+- **DHQ-092 → CONFIRMED FIXED** (second gap found and fixed in follow-up PR #1086 `task/T12005-napi-parity` — napi-before-install + ripgrep steps added verbatim; preflight passed on dispatch 3 with no regressions).
+
+### DHQ-093 — release-prepare bump-PR job requires a committed `.cleo/release/<v>.plan.json` but `.cleo/release` is gitignored — plan-file path structurally broken — **OPEN** (`T12006` ← `T11679`)
+
+Owner surface: CORE release pipeline — `release-prepare.yml` bump-PR job and `cleo release open`.
+
+Observed: the `release-prepare` bump-PR job fails with "Plan file not found — cannot verify sha256"; `cleo release open --commit-plan` fails on the same gitignore restriction and continues without staging the plan file. v2026.6.13, v2026.6.14, and v2026.6.15 all shipped TAG-DRIVEN (DHQ-042 precedent) rather than through the `release-prepare` bump-PR path because the plan file cannot reach the branch. The release-prepare end-to-end path has never been exercised on a real release.
+
+Answer vehicle: pass the plan via workflow input/artifact or retrieve it from the blob store by sha256 (the plan is already canonically stored via `cleo docs add`); alternatively, publish only the minimal fields the bump-PR job needs (version + task IDs) as a workflow input rather than a full plan file on disk. One release must ship through the `release-prepare` end-to-end path to prove the fixed flow.
+
+### DHQ-094 — selfimprove draft-PR packaging commits the invoking checkout's entire dirty working tree — owner workspace files pushed to origin by the autonomous loop — **OPEN** (`T12007` ← `T11679`, P1)
+
+Owner surface: CORE self-improve loop — draft-PR packaging and worktree isolation (`T12007` ← `T11679`, relates `T11988`).
+
+Observed live during the first model-authored PR (#1090): 8 untracked `.cleo/rcasd` scratch notes, shipped-changeset bookkeeping files, and the patch artifact itself were swept into the branch, pushed to origin, and then removed from the local checkout (restored from `FETCH_HEAD`). The loop applied the patch in the invoking checkout (not an ephemeral worktree), then staged all untracked files before committing — so any pre-existing dirty or untracked workspace files became part of the PR branch. Owner workspace files pushed to a public origin is a data-hygiene and confidentiality violation, and the files were only recoverable because `FETCH_HEAD` was intact.
+
+Answer vehicle: apply the patch in an ephemeral clean worktree (provision via `cleo worktree add --ephemeral`), commit only patch-touched paths (explicit `git add <paths>` from the diff manifest, never `git add .`), and add a regression scenario that seeds an untracked file in the invoking checkout and asserts it survives untouched and is absent from the resulting PR branch.
+
+### DHQ-095 — cross-provider selector picks model variants the provisioned account wire cannot serve (`gpt-5.5-pro` 400s on the Codex ChatGPT backend) — **OPEN** (`T12008` ← `T11679`)
+
+Owner surface: CORE provider/model selection — `selectProviderModel` candidate ranking (`T12008` ← `T11679`, relates `T11978`).
+
+Observed: the provisioning-aware selector (DHQ-081's fix, `T11978`) chose `wouldPickModel=gpt-5.5-pro` (catalog-newest ranking) but the `codex_responses` ChatGPT-account wire rejects it with a 400 — the capability table for that transport only supports `gpt-5.5` and the `gpt-5.5-pro` variant is not served on the ChatGPT-account-backed Codex endpoint. Fix-gen degraded to no-patch as a result. Workaround active: `cleo llm use openai --model gpt-5.5` (a config pin that wins unconditionally in the selector).
+
+Answer vehicle: a wire/account capability table that constrains the candidate model set before `release_date` ranking — each transport/wire reports which model IDs it can actually serve; the cross-provider selector filters to the intersection before picking the newest. Remove the manual pin once capability-aware selection is in place.
