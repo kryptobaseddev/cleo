@@ -32,10 +32,12 @@ const { runSelfImproveMock, dispatchMock } = vi.hoisted(() => ({
 }));
 
 // Mock the CORE engine barrel — the handler imports `runSelfImprove` +
-// `getProjectRoot` + `getLogger` from `@cleocode/core/internal`. Stubbing it
-// keeps the test off the heavy core/runtime dependency tree.
+// `buildProbePayload` + `getProjectRoot` + `getLogger` from
+// `@cleocode/core/internal`. Stubbing it keeps the test off the heavy
+// core/runtime dependency tree.
 vi.mock('@cleocode/core/internal', () => ({
   runSelfImprove: runSelfImproveMock,
+  buildProbePayload: vi.fn(() => ({ probe: 'ok', version: 1 })),
   getProjectRoot: vi.fn(() => '/tmp/selfimprove-test'),
   getLogger: vi.fn(() => ({
     error: vi.fn(),
@@ -76,8 +78,8 @@ describe('SelfimproveHandler dispatch (T11889 · T11889-D)', () => {
     handler = new SelfimproveHandler();
   });
 
-  it('declares only the run mutation op', () => {
-    expect(handler.getSupportedOperations()).toEqual({ query: [], mutate: ['run'] });
+  it('declares the probe query op and run mutation op (T11988)', () => {
+    expect(handler.getSupportedOperations()).toEqual({ query: ['probe'], mutate: ['run'] });
   });
 
   it('rejects a missing scenario with E_INVALID_INPUT, NOT E_INVALID_OPERATION', async () => {
@@ -97,10 +99,17 @@ describe('SelfimproveHandler dispatch (T11889 · T11889-D)', () => {
     expect(res.error?.code).toBe('E_INVALID_OPERATION');
   });
 
-  it('returns E_INVALID_OPERATION for any query op (no read surface)', async () => {
+  it('returns E_INVALID_OPERATION for an unknown query op', async () => {
     const res = await handler.query('run', { scenario: 'x' });
     expect(res.success).toBe(false);
     expect(res.error?.code).toBe('E_INVALID_OPERATION');
+  });
+
+  it('probe query returns { probe: "ok", version: 1 } (T11988)', async () => {
+    const res = await handler.query('probe');
+    expect(res.success).toBe(true);
+    expect((res.data as Record<string, unknown>)?.probe).toBe('ok');
+    expect((res.data as Record<string, unknown>)?.version).toBe(1);
   });
 
   it('delegates run to CORE runSelfImprove (default OFF — execute:false)', async () => {
@@ -197,7 +206,7 @@ describe('SelfimproveHandler dispatch (T11889 · T11889-D)', () => {
   });
 });
 
-describe('selfimprove OperationDef SSoT (T11889-D)', () => {
+describe('selfimprove OperationDef SSoT (T11889-D · T11988)', () => {
   it('registers selfimprove as a canonical domain', () => {
     expect(CANONICAL_DOMAINS).toContain('selfimprove');
   });
@@ -210,5 +219,14 @@ describe('selfimprove OperationDef SSoT (T11889-D)', () => {
     expect(op?.sessionRequired).toBe(true);
     expect(op?.requiredParams).toEqual(['scenario']);
     expect(op?.params?.map((p) => p.name)).toEqual(['scenario', 'execute', 'dryRun', 'backend']);
+  });
+
+  it('exposes selfimprove.probe as a query op (T11988 — seeded regression scenario)', () => {
+    const op = OPERATIONS.find((o) => o.domain === 'selfimprove' && o.operation === 'probe');
+    expect(op).toBeDefined();
+    expect(op?.gateway).toBe('query');
+    expect(op?.idempotent).toBe(true);
+    expect(op?.sessionRequired).toBe(false);
+    expect(op?.requiredParams).toEqual([]);
   });
 });

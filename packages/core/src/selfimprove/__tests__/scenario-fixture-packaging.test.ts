@@ -20,7 +20,7 @@
  * @task T11974
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -35,6 +35,9 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
 /** The canned scenario the self-improvement loop replays by default. */
 const SCENARIO = 'dhq-replay-find';
+
+/** The seeded-code-regression scenario (T11988). */
+const SEEDED_SCENARIO = 'seeded-code-regression';
 
 describe('selfimprove scenario fixture packaging (T11974)', () => {
   it('copies the scenario.json + golden.json into dist after build', () => {
@@ -56,5 +59,47 @@ describe('selfimprove scenario fixture packaging (T11974)', () => {
     const srcDir = resolve(packageRoot, 'src/selfimprove/scenarios', SCENARIO);
     expect(existsSync(resolve(srcDir, 'scenario.json'))).toBe(true);
     expect(existsSync(resolve(srcDir, 'golden.json'))).toBe(true);
+  });
+});
+
+describe('seeded-code-regression scenario fixture packaging (T11988)', () => {
+  it('has the seeded scenario source fixtures', () => {
+    const srcDir = resolve(packageRoot, 'src/selfimprove/scenarios', SEEDED_SCENARIO);
+    expect(existsSync(resolve(srcDir, 'scenario.json'))).toBe(true);
+    expect(existsSync(resolve(srcDir, 'golden.json'))).toBe(true);
+  });
+
+  it('seeded scenario.json is parseable and has the probe op', () => {
+    const srcDir = resolve(packageRoot, 'src/selfimprove/scenarios', SEEDED_SCENARIO);
+    const raw = JSON.parse(readFileSync(resolve(srcDir, 'scenario.json'), 'utf8')) as {
+      name: string;
+      ops: { gateway: string; domain: string; operation: string }[];
+    };
+    expect(raw.name).toBe(SEEDED_SCENARIO);
+    expect(raw.ops).toHaveLength(1);
+    expect(raw.ops[0]?.domain).toBe('selfimprove');
+    expect(raw.ops[0]?.operation).toBe('probe');
+    expect(raw.ops[0]?.gateway).toBe('query');
+  });
+
+  it('seeded golden.json expects { probe: "ok", version: 1 }', () => {
+    const srcDir = resolve(packageRoot, 'src/selfimprove/scenarios', SEEDED_SCENARIO);
+    const raw = JSON.parse(readFileSync(resolve(srcDir, 'golden.json'), 'utf8')) as {
+      name: string;
+      envelopes: { data: { probe: string; version: number } }[];
+    };
+    expect(raw.name).toBe(SEEDED_SCENARIO);
+    expect(raw.envelopes).toHaveLength(1);
+    expect(raw.envelopes[0]?.data.probe).toBe('ok');
+    expect(raw.envelopes[0]?.data.version).toBe(1);
+  });
+
+  it('copies the seeded-code-regression fixtures into dist after build', () => {
+    const distDir = resolve(packageRoot, 'dist/selfimprove/scenarios', SEEDED_SCENARIO);
+    const builtDistExists = existsSync(resolve(packageRoot, 'dist/selfimprove/scenario.js'));
+    if (builtDistExists) {
+      expect(existsSync(resolve(distDir, 'scenario.json'))).toBe(true);
+      expect(existsSync(resolve(distDir, 'golden.json'))).toBe(true);
+    }
   });
 });
