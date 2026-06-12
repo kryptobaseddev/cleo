@@ -228,6 +228,62 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # T12011: Build the Studio SvelteKit bundle and stage it into
+      # packages/cleo/studio-dist/ BEFORE any verification or publish step.
+      #
+      # Context: packages/cleo/package.json lists "studio-dist" in its files[]
+      # array, but build.mjs never builds @cleocode/studio (it is a SvelteKit
+      # app, not a TypeScript library). Without this step the packages/cleo/
+      # postbuild script (scripts/copy-studio-dist.mjs) silently exits 0
+      # because packages/studio/build/ does not exist in CI, which means
+      # studio-dist is absent at publish time and npm silently omits it from
+      # the tarball. cleo web then boots the gateway but serves a blank Studio
+      # from every npm install.
+      #
+      # The Studio build is a SvelteKit adapter-node compilation and is the
+      # only heavyweight step outside build.mjs. No incremental caching is
+      # possible here — always rebuild from scratch.
+      # T12011: Build the Studio SvelteKit bundle and stage it into
+      # packages/cleo/studio-dist/ BEFORE any verification or publish step.
+      #
+      # Context: packages/cleo/package.json lists "studio-dist" in its files[]
+      # array, but build.mjs never builds @cleocode/studio (it is a SvelteKit
+      # app, not a TypeScript library). Without this step the packages/cleo/
+      # postbuild script (scripts/copy-studio-dist.mjs) silently exits 0
+      # because packages/studio/build/ does not exist in CI, which means
+      # studio-dist is absent at publish time and npm silently omits it from
+      # the tarball. cleo web then boots the gateway but serves a blank Studio
+      # from every npm install.
+      #
+      # Build order:
+      #   1. @cleocode/brain — depends on contracts+core+paths (all built by
+      #      build.mjs above). brain is a Studio runtime dependency that
+      #      build.mjs does not include in its wave graph.
+      #   2. @cleocode/studio — SvelteKit adapter-node build. Depends on
+      #      brain, core, runtime (all now present after step 1).
+      #   3. copy-studio-dist.mjs — copies packages/studio/build/ into
+      #      packages/cleo/studio-dist/ (the existing staging mechanism from
+      #      T11979/#1074).
+      - name: Build Studio bundle and stage into packages/cleo
+        run: |
+          set -euo pipefail
+
+          echo "--- Building @cleocode/brain (Studio runtime dep, not in build.mjs) ---"
+          pnpm --filter @cleocode/brain run build
+
+          echo "--- Building @cleocode/studio (SvelteKit adapter-node) ---"
+          pnpm --filter @cleocode/studio run build
+
+          echo "--- Staging studio build → packages/cleo/studio-dist ---"
+          node packages/cleo/scripts/copy-studio-dist.mjs
+
+          echo "--- Verifying studio-dist was staged ---"
+          if [[ ! -d "packages/cleo/studio-dist/client" ]]; then
+            echo "::error::packages/cleo/studio-dist/client not found after staging"
+            exit 1
+          fi
+          echo "studio-dist/client present after staging"
+
       # Hard gate: ESM module-load smoke test — runs AFTER build, BEFORE publish.
       #
       # Imports @cleocode/core and @cleocode/cleo directly from the local built
@@ -357,6 +413,18 @@ jobs:
             exit 1
           fi
           echo "Playbooks tarball verification passed"
+
+      # T12011: Hard gate — verify that @cleocode/cleo's npm tarball contains
+      # every entry declared in packages/cleo/package.json files[] AND that
+      # the Studio bundle (studio-dist/client/) is present with at least an
+      # index entry. A silently-thinner cleo tarball must never ship again.
+      #
+      # This gate runs AFTER the "Build Studio bundle and stage" step above, so
+      # studio-dist should already be populated. If it is missing, the gate
+      # fails loudly with the missing entry name rather than silently omitting
+      # it from the published package.
+      - name: Verify @cleocode/cleo tarball contents (T12011)
+        run: node scripts/assert-cleo-tarball.mjs
 
       - name: Validate build output
         run: |
