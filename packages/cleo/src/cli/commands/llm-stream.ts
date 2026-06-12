@@ -34,7 +34,7 @@ async function buildSession(
   provider: ModelTransport,
   model: string,
 ): Promise<import('@cleocode/contracts/llm/interfaces.js').LlmSession> {
-  const [{ resolveCredentials }, { ConcreteSession }, { ModelRunner }, { deriveApiWire }] =
+  const [{ resolveCredentialsAsync }, { ConcreteSession }, { ModelRunner }, { deriveApiWire }] =
     await Promise.all([
       import(/* webpackIgnore: true */ '@cleocode/core/llm/credentials.js'),
       import(/* webpackIgnore: true */ '@cleocode/core/llm/concrete-session.js'),
@@ -42,11 +42,16 @@ async function buildSession(
       import(/* webpackIgnore: true */ '@cleocode/core/llm/api-mode.js'),
     ]);
 
-  const cred = resolveCredentials(provider);
+  // Use the async resolver (vault chokepoint — T11986 · DHQ-087): this
+  // delegates to the UnifiedCredentialPool which triggers lazy-seed and
+  // proactive OAuth refresh before returning a credential. The legacy sync
+  // path (resolveCredentials) bypassed the pool's refresh-on-use step and
+  // would silently return null for an expired-but-refreshable OAT token.
+  const cred = await resolveCredentialsAsync(provider);
   if (!cred.apiKey) {
     throw new Error(
       `No credential found for provider '${provider}'. ` +
-        `Set the appropriate environment variable or run 'cleo llm add ${provider}'.`,
+        `Run \`cleo login ${provider}\` (for OAuth) or \`cleo llm add ${provider} <key>\` (for API key).`,
     );
   }
 

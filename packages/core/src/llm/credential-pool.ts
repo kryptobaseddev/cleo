@@ -203,6 +203,214 @@ function sortByPriorityDesc(entries: StoredCredential[]): StoredCredential[] {
 }
 
 // ---------------------------------------------------------------------------
+// Single-flight refresh guard (T11986 · DHQ-087)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-`(provider, label)` in-flight refresh promise.
+ *
+ * When N concurrent callers arrive with the same expired credential, only the
+ * first one POSTs to the token endpoint. All others await the same Promise so
+ * the endpoint is called exactly once per concurrent burst.
+ *
+ * The key is `"${provider}::${label}"`. The map is cleared when the Promise
+ * resolves (or rejects) so the next caller after a settled refresh starts a
+ * fresh attempt.
+ *
+ * @internal
+ * @task T11986
+ */
+const _refreshInFlight = new Map<string, Promise<boolean>>();
+
+/**
+ * TTL for a negative-cache entry after a failed refresh attempt (30 seconds).
+ *
+ * Prevents hammering the token endpoint when the refresh token is invalid or
+ * the server is returning errors. After the TTL the next resolution attempt
+ * will retry the refresh.
+ *
+ * @internal
+ * @task T11986
+ */
+const REFRESH_NEGATIVE_CACHE_TTL_MS = 30_000;
+
+/**
+ * Negative-cache map: `"${provider}::${label}" → epoch ms when the failed entry expires`.
+ *
+ * An entry in this map means "the last refresh of this credential failed; skip
+ * until the timestamp has passed".
+ *
+ * @internal
+ * @task T11986
+ */
+const _refreshNegativeCache = new Map<string, number>();
+
+/** Internal: reset refresh state for testing. */
+export function _resetRefreshStateForTests(): void {
+  _refreshInFlight.clear();
+  _refreshNegativeCache.clear();
+}
+
+/**
+ * Outcome of {@link refreshExpiredOAuthForProvider}.
+ *
+ * @task T11986
+ */
+export interface RefreshOAuthForProviderResult {
+  /** Number of credentials for which refresh was attempted. */
+  attempted: number;
+  /** Number of credentials refreshed successfully. */
+  refreshed: number;
+  /**
+   * Error from the last failed refresh, or `null` when all succeeded.
+   *
+   * When every entry either succeeded or was skipped (no refresh token /
+   * non-OAuth / still valid), this is `null`.
+   */
+  lastError: Error | null;
+  /**
+   * Human-readable hint surfaced when all eligible entries failed to refresh.
+   *
+   * `null` when not all entries failed, or when no refresh was attempted.
+   * Callers may surface this to the operator.
+   */
+  actionableHint: string | null;
+}
+
+/**
+ * Refresh every expired-but-refreshable OAuth credential for `provider`,
+ * with single-flight coalescing and a negative-cache on failure.
+ *
+ * ## Design (T11986 · DHQ-087)
+ *
+ * Called by `cross-provider-selector.ts` **before** the provisioning probe so
+ * that an expired OAuth credential is renewed in-place and the selector sees
+ * a valid token instead of filtering the provider as "not-provisioned".
+ *
+ * Single-flight: concurrent callers sharing the same `(provider, label)` key
+ * coalesce on one in-flight Promise — the token endpoint is called at most
+ * once per concurrent burst. After the Promise settles the key is deleted so
+ * the next caller starts fresh.
+ *
+ * Negative-cache: a failed refresh stamps a 30-second suppression window.
+ * During that window subsequent calls skip the refresh attempt rather than
+ * hammering the endpoint with doomed requests.
+ *
+ * On total failure (every eligible entry failed): returns an `actionableHint`
+ * with the exact re-login command (`cleo login ${provider}`).
+ *
+ * Note: `CredentialPool._refreshOAuthCredential` swallows errors silently by
+ * design (its caller's retry path handles 401s). Here we need to surface
+ * failures so callers can show actionable hints. We therefore attempt the
+ * refresh via a fresh `CredentialPool` instance and check the credential store
+ * for an updated `expiresAt` after the attempt to distinguish success from
+ * failure.
+ *
+ * @param provider - The LLM transport provider to refresh credentials for.
+ * @returns Refresh outcome with counts, last error, and actionable hint.
+ *
+ * @task T11986
+ */
+export async function refreshExpiredOAuthForProvider(
+  provider: ModelTransport,
+): Promise<RefreshOAuthForProviderResult> {
+  const entries = await listCredentials(provider);
+  const now = Date.now();
+
+  let attempted = 0;
+  let refreshed = 0;
+  let lastError: Error | null = null;
+
+  for (const entry of entries) {
+    // Only OAuth entries with a refresh token and that are expired (or near expiry).
+    if (entry.authType !== 'oauth') continue;
+    if (!entry.refreshToken) continue;
+    if (entry.disabled === true) continue;
+
+    // Skip entries that still have valid tokens (beyond the proactive floor).
+    const isExpiredOrNearExpiry =
+      typeof entry.expiresAt === 'number' &&
+      entry.expiresAt > 0 &&
+      entry.expiresAt <= now + PROACTIVE_REFRESH_FLOOR_MS;
+    if (!isExpiredOrNearExpiry) continue;
+
+    const key = `${provider}::${entry.label}`;
+
+    // Negative-cache check: skip if last refresh failed recently.
+    const negExpiry = _refreshNegativeCache.get(key);
+    if (typeof negExpiry === 'number' && now < negExpiry) {
+      // Still in negative-cache window — count as attempted-but-not-refreshed.
+      attempted += 1;
+      lastError =
+        lastError ??
+        new Error(
+          `OAuth refresh suppressed for ${provider}::${entry.label} (negative cache active)`,
+        );
+      continue;
+    }
+
+    attempted += 1;
+
+    // Single-flight coalescing: build the in-flight promise if this is the
+    // leader; followers await the same promise. The promise resolves with
+    // `true` (refreshed) or `false` (not needed) for success, or rejects
+    // on network/token error.
+    let inFlight = _refreshInFlight.get(key);
+    if (!inFlight) {
+      // Leader: kick off the refresh. `proactiveRefresh` returns true when
+      // a refresh was performed. It swallows internal errors (by design, to
+      // keep the pool's 401-retry path intact) — we detect failure by
+      // checking whether the entry's expiresAt advanced after the call.
+      const pool = new CredentialPool(provider);
+      const expiresAtBefore = entry.expiresAt;
+      inFlight = pool
+        .proactiveRefresh(entry.label)
+        .then(async (wasAttempted) => {
+          if (!wasAttempted) {
+            // proactiveRefresh returned false — token was still valid (race).
+            return true;
+          }
+          // Check whether the store was actually updated (expiresAt advanced).
+          const after = await getCredentialByLabel(provider, entry.label);
+          const didAdvance =
+            after !== null &&
+            typeof after.expiresAt === 'number' &&
+            after.expiresAt > (expiresAtBefore ?? 0);
+          if (!didAdvance) {
+            // Refresh was attempted but the access token did not change →
+            // the PKCE exchange failed (e.g. refresh token revoked).
+            throw new Error(
+              `OAuth refresh token exchange failed for ${provider}::${entry.label} — ` +
+                `the stored token may be revoked. Run \`cleo login ${provider}\` to re-authenticate.`,
+            );
+          }
+          return true;
+        })
+        .finally(() => {
+          _refreshInFlight.delete(key);
+        });
+
+      _refreshInFlight.set(key, inFlight);
+    }
+
+    try {
+      await inFlight;
+      refreshed += 1;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      _refreshNegativeCache.set(key, Date.now() + REFRESH_NEGATIVE_CACHE_TTL_MS);
+    }
+  }
+
+  const actionableHint =
+    attempted > 0 && refreshed === 0 && lastError !== null
+      ? `OAuth refresh failed for provider '${provider}'. Run \`cleo login ${provider}\` to re-authenticate.`
+      : null;
+
+  return { attempted, refreshed, lastError, actionableHint };
+}
+
+// ---------------------------------------------------------------------------
 // CredentialPool
 // ---------------------------------------------------------------------------
 
