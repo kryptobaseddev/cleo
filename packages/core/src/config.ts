@@ -9,14 +9,13 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import type { CleoConfig, ConfigSource, ResolvedValue } from '@cleocode/contracts';
 // Import from the dependency-free leaf (NOT ./llm/role-resolver.js) so this
 // module's eager DEFAULTS read cannot enter role-resolver's circular import
 // chain and hit a temporal-dead-zone ReferenceError. See llm/fallback-model.ts.
 import { IMPLICIT_FALLBACK_MODEL } from './llm/fallback-model.js';
 import { getConfigPath, getGlobalConfigPath } from './paths.js';
+import { atomicWriteJson } from './store/atomic.js';
 import { readJson, saveJson } from './store/json.js';
 
 /** Default configuration values. */
@@ -385,11 +384,9 @@ export async function setConfigValue(
 ): Promise<{ key: string; value: unknown; scope: 'project' | 'global' }> {
   const configPath = opts?.global ? getGlobalConfigPath() : getConfigPath(cwd);
 
-  // Ensure file exists
+  // Ensure file exists atomically (crash-safe bootstrap, T11997)
   if (!existsSync(configPath)) {
-    const dir = dirname(configPath);
-    await mkdir(dir, { recursive: true });
-    await writeFile(configPath, '{}', 'utf-8');
+    await atomicWriteJson(configPath, {});
   }
 
   const config = (await readJson<Record<string, unknown>>(configPath)) ?? {};
@@ -484,11 +481,9 @@ export async function applyStrictnessPreset(
   const definition = STRICTNESS_PRESETS[preset];
   const configPath = opts?.global ? getGlobalConfigPath() : getConfigPath(cwd);
 
-  // Ensure config file exists
+  // Ensure config file exists atomically (crash-safe bootstrap, T11997)
   if (!existsSync(configPath)) {
-    const dir = dirname(configPath);
-    await mkdir(dir, { recursive: true });
-    await writeFile(configPath, '{}', 'utf-8');
+    await atomicWriteJson(configPath, {});
   }
 
   const config = (await readJson<Record<string, unknown>>(configPath)) ?? {};
