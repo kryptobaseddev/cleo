@@ -1,11 +1,12 @@
 /**
- * Tests for the gateway auto-start-on-demand helper (T11980).
+ * Tests for the gateway auto-start-on-demand helper (T11980 · T12009).
  *
  * Covers:
  *  - {@link shouldAutoStartGateway} — pure config-flag reader
  *  - {@link probePort} — TCP port availability check
  *  - {@link pollPort} — exponential-backoff polling loop
  *  - {@link spawnGatewayIfDown} — spawn path (mocked child_process)
+ *  - {@link resolveCliEntryPath} — layout-proof CLI entry resolution (T12009)
  *
  * Integration: the actual spawn is NOT exercised in unit tests (that would
  * require a compiled CLI bundle and a free port). The spawn path is exercised
@@ -13,16 +14,22 @@
  * binds a TCP server so the port probe succeeds.
  *
  * @task T11980
+ * @task T12009
  */
 
+import * as fs from 'node:fs';
 import * as net from 'node:net';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   GATEWAY_DEFAULT_HOST,
   GATEWAY_DEFAULT_PORT,
   GATEWAY_WAIT_TIMEOUT_MS,
   pollPort,
   probePort,
+  resolveCliEntryPath,
   shouldAutoStartGateway,
   spawnGatewayIfDown,
 } from '../gateway-auto-start.js';
@@ -261,6 +268,127 @@ describe('spawnGatewayIfDown', () => {
     // that the contract shape is correct.
     expect(typeof result.reachable).toBe('boolean');
     expect(typeof result.spawned).toBe('boolean');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveCliEntryPath — layout-proof entry resolution (T12009)
+//
+// These tests create minimal synthetic package hierarchies in a tmp directory
+// to verify the resolver works in the two layouts that matter:
+//   (a) packaged/bundled layout: <pkg>/dist/cli/index.js  (the bundle itself)
+//   (b) symlinked global-bin:    .npm-global/bin/cleo.js  → real pkg entry
+//   (c) missing dist → descriptive throw
+//
+// We inject the `startUrl` parameter added for testability — the resolver
+// uses `import.meta.url` by default (the real production path).
+// ---------------------------------------------------------------------------
+
+describe('resolveCliEntryPath (T12009 regression)', () => {
+  /** Temporary root directory cleaned up after each test. */
+  let tmpRoot = '';
+
+  /**
+   * Create a minimal synthetic @cleocode/cleo package under `root` at the
+   * given relative path. The package.json is written with `name: "@cleocode/cleo"`.
+   * If `withDist` is true, the `dist/cli/index.js` placeholder is also created.
+   *
+   * @returns The absolute path to the package root.
+   */
+  function makePackage(root: string, relativePkgPath: string, withDist = true): string {
+    const pkgRoot = path.join(root, relativePkgPath);
+    fs.mkdirSync(pkgRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgRoot, 'package.json'),
+      JSON.stringify({ name: '@cleocode/cleo', version: '0.0.0' }),
+    );
+    if (withDist) {
+      const distCli = path.join(pkgRoot, 'dist', 'cli');
+      fs.mkdirSync(distCli, { recursive: true });
+      fs.writeFileSync(path.join(distCli, 'index.js'), '// placeholder');
+    }
+    return pkgRoot;
+  }
+
+  beforeAll(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-entry-test-'));
+  });
+
+  afterEach(() => {
+    // Clean up sub-directories created inside tmpRoot between tests, but keep
+    // the root so beforeAll's mkdtemp does not need to be re-run.
+    for (const entry of fs.readdirSync(tmpRoot)) {
+      fs.rmSync(path.join(tmpRoot, entry), { recursive: true, force: true });
+    }
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('(a) resolves dist/cli/index.js from inside a bundled dist/cli/ layout', () => {
+    // Simulate the esbuild bundle layout:
+    //   <tmpRoot>/lib/node_modules/@cleocode/cleo/{package.json,dist/cli/index.js}
+    // The "calling module" is the bundle itself: dist/cli/index.js (2 hops to pkg root).
+    const pkgRoot = makePackage(tmpRoot, 'lib/node_modules/@cleocode/cleo');
+    const bundleFile = path.join(pkgRoot, 'dist', 'cli', 'index.js');
+    const startUrl = pathToFileURL(bundleFile).href;
+
+    const resolved = resolveCliEntryPath(startUrl);
+    expect(resolved).toBe(bundleFile);
+  });
+
+  it('(b) resolves correctly when the start URL is a symlinked global-bin entry', () => {
+    // Simulate:
+    //   .npm-global/lib/node_modules/@cleocode/cleo/  ← real package
+    //   .npm-global/bin/cleo.js → ../lib/node_modules/@cleocode/cleo/bin/cleo.js
+    // The resolver must follow the symlink and walk up to find the package root.
+    const pkgRoot = makePackage(tmpRoot, 'npm-global/lib/node_modules/@cleocode/cleo');
+
+    // Create a "bin" entry inside the package (real file, not the symlink target itself).
+    const binDir = path.join(pkgRoot, 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    const binEntry = path.join(binDir, 'cleo.js');
+    fs.writeFileSync(binEntry, '#!/usr/bin/env node\n// bin shim');
+
+    // Create the global-bin symlink pointing at the bin entry.
+    const globalBinDir = path.join(tmpRoot, 'npm-global', 'bin');
+    fs.mkdirSync(globalBinDir, { recursive: true });
+    const symlink = path.join(globalBinDir, 'cleo.js');
+    fs.symlinkSync(binEntry, symlink);
+
+    // The resolver receives the symlink path (as node would see import.meta.url
+    // of a file reached via a symlinked bin).
+    const startUrl = pathToFileURL(symlink).href;
+    const expected = path.join(pkgRoot, 'dist', 'cli', 'index.js');
+
+    const resolved = resolveCliEntryPath(startUrl);
+    expect(resolved).toBe(expected);
+  });
+
+  it('(c) throws a descriptive error when dist/cli/index.js is absent', () => {
+    // Package exists but dist/ was never built.
+    const pkgRoot = makePackage(tmpRoot, 'no-dist-pkg', /* withDist */ false);
+    // The calling file is inside the package src/ tree.
+    const fakeSrc = path.join(pkgRoot, 'src', 'cli', 'lib', 'gateway-auto-start.js');
+    fs.mkdirSync(path.dirname(fakeSrc), { recursive: true });
+    fs.writeFileSync(fakeSrc, '');
+    const startUrl = pathToFileURL(fakeSrc).href;
+
+    expect(() => resolveCliEntryPath(startUrl)).toThrow(
+      /dist\/cli\/index\.js is missing|dist\/cli\/index\.js/,
+    );
+  });
+
+  it('(d) throws a descriptive error when no @cleocode/cleo package.json is found', () => {
+    // Isolated tmp dir with no package.json containing the right name.
+    const orphanDir = path.join(tmpRoot, 'orphan', 'deep', 'nested');
+    fs.mkdirSync(orphanDir, { recursive: true });
+    const fakeSrc = path.join(orphanDir, 'index.js');
+    fs.writeFileSync(fakeSrc, '');
+    const startUrl = pathToFileURL(fakeSrc).href;
+
+    expect(() => resolveCliEntryPath(startUrl)).toThrow(/@cleocode\/cleo|package root/);
   });
 });
 

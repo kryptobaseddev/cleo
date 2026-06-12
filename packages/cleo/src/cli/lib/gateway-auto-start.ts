@@ -28,10 +28,11 @@
  *
  * @module
  * @task T11980
+ * @task T12009
  */
 
 import { once } from 'node:events';
-import { createWriteStream } from 'node:fs';
+import { createWriteStream, existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import * as net from 'node:net';
 import { dirname, join } from 'node:path';
@@ -59,6 +60,9 @@ const POLL_INITIAL_DELAY_MS = 100;
 
 /** Maximum poll interval cap in ms. */
 const POLL_MAX_DELAY_MS = 1_000;
+
+/** The npm package name this resolver targets. */
+const CLEO_PACKAGE_NAME = '@cleocode/cleo';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -185,21 +189,73 @@ export async function pollPort(port: number, host: string, timeoutMs: number): P
 /**
  * Resolve the absolute path to the compiled CLI bundle (`dist/cli/index.js`).
  *
- * Walks upward from this compiled module to find `dist/cli/index.js` within
- * the same package. Works in both source (`src/`) and compiled (`dist/`) trees
- * because the relative distance from this file to the package root is the same.
+ * Walks **upward** from the given `startUrl` until it finds a `package.json`
+ * whose `"name"` field equals `"@cleocode/cleo"`, then returns
+ * `<pkgRoot>/dist/cli/index.js`.
  *
- * @returns Absolute path to the CLI entry-point JS file.
- * @internal
+ * ## Why the walk, not fixed-depth `..` arithmetic?
+ *
+ * The original implementation used `join(thisDir, '..', '..', '..', '..', '..')`
+ * — valid in the **source tree** (`src/cli/lib/` is 3 dirs deep inside the
+ * package), but the esbuild **bundle** inlines ALL modules into a single file
+ * at `<pkg>/dist/cli/index.js`.  From inside the bundle,
+ * `import.meta.url` IS `<pkg>/dist/cli/index.js`, so `dirname` is
+ * `<pkg>/dist/cli/` (only 2 hops to the package root).  Five `..` from there
+ * escapes the package entirely and reaches the npm prefix's `lib/` directory,
+ * giving the child process a path that does not exist (T12009).
+ *
+ * Walking to the nearest ancestor `package.json` with the right name is
+ * layout-proof: it finds the same root regardless of whether the module is
+ * bundled or unbundled, and regardless of the npm prefix or symlink topology.
+ *
+ * The start-path is resolved through `realpathSync` so symlinked global-bin
+ * installs (`.npm-global/bin/cleo → ../lib/node_modules/@cleocode/cleo/bin/cleo.js`)
+ * anchor to the real package directory before the walk begins.
+ *
+ * @param startUrl - `import.meta.url` of the calling module. Injectable for
+ *   tests so the resolver can be exercised against a synthetic file hierarchy
+ *   without a real install. Defaults to this module's own `import.meta.url`.
+ * @returns Absolute path to `<pkgRoot>/dist/cli/index.js`.
+ * @throws {Error} When no `package.json` with `name === "@cleocode/cleo"` is
+ *   found within 20 ancestor directories, or when the resolved
+ *   `dist/cli/index.js` does not exist on disk.
  */
-function resolveCliEntryPath(): string {
-  // __dirname in ESM → dirname(fileURLToPath(import.meta.url))
-  const thisDir = dirname(fileURLToPath(import.meta.url));
-  // From packages/cleo/src/cli/lib/ → packages/cleo/ is 4 levels up
-  // From packages/cleo/dist/cli/lib/ → packages/cleo/ is 4 levels up
-  // We go up to the package root then descend to dist/cli/index.js
-  const pkgRoot = join(thisDir, '..', '..', '..', '..', '..');
-  return join(pkgRoot, 'dist', 'cli', 'index.js');
+export function resolveCliEntryPath(startUrl: string = import.meta.url): string {
+  // Resolve symlinks so packaged global-bin layouts anchor to the real file.
+  const startFile = realpathSync(fileURLToPath(startUrl));
+  let current = dirname(startFile);
+
+  for (let i = 0; i < 20; i++) {
+    const pkgJsonPath = join(current, 'package.json');
+    if (existsSync(pkgJsonPath)) {
+      let pkgName: string | undefined;
+      try {
+        const raw = readFileSync(pkgJsonPath, 'utf8');
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        pkgName = typeof parsed['name'] === 'string' ? parsed['name'] : undefined;
+      } catch {
+        // Malformed package.json — skip this candidate and keep walking.
+      }
+      if (pkgName === CLEO_PACKAGE_NAME) {
+        const entry = join(current, 'dist', 'cli', 'index.js');
+        if (!existsSync(entry)) {
+          throw new Error(
+            `@cleocode/cleo package root found at ${current} but dist/cli/index.js is missing — ` +
+              `run \`pnpm --filter @cleocode/cleo run build\` to generate it`,
+          );
+        }
+        return entry;
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) break; // filesystem root — nowhere left to walk
+    current = parent;
+  }
+
+  throw new Error(
+    `could not locate ${CLEO_PACKAGE_NAME} package root starting from ${startFile} — ` +
+      `checked up to 20 ancestor directories`,
+  );
 }
 
 // ---------------------------------------------------------------------------
