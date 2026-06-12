@@ -49,7 +49,7 @@
 export function probeVersion(): number {
   // SEEDED BUG (T11988): should be `return 1` — intentional off-by-one for
   // the seeded-code-regression end-to-end fix-gen scenario.
-  return 2;
+  return 1;
 }
 
 /**
