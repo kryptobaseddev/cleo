@@ -1,7 +1,8 @@
 ---
-"@cleocode/core": minor
-"@cleocode/cleo": minor
-"@cleocode/contracts": patch
+id: t11995-janitor-mvp
+tasks: [T11995]
+kind: feat
+summary: "janitor MVP — registration-primary process reaper + stale scope/lock/debris sweep (silent, idempotent)"
 ---
 
 feat(T11995): janitor MVP — registration-primary process reaper + stale scope/lock/debris sweep (silent, idempotent)

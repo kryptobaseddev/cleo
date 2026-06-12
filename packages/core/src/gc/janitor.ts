@@ -57,10 +57,9 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { repairConfigFile } from '../config/config-repair.js';
-import { getCleoHome } from '../paths.js';
+import { getCleoHome, resolveOrCwd } from '../paths.js';
 import { repairAttachmentStore } from '../store/attachment-repair.js';
 import { pruneOrphanTempDirs, pruneOrphanWorktrees } from './cleanup.js';
 
@@ -753,7 +752,7 @@ export async function runJanitor(opts: JanitorOptions = {}): Promise<JanitorResu
       const { resolveCleoDir } = await import('../paths.js');
       cleoDir = resolveCleoDir();
     } catch {
-      cleoDir = join(process.cwd(), '.cleo');
+      cleoDir = join(resolveOrCwd(), '.cleo');
     }
   }
 
@@ -845,8 +844,7 @@ export async function runJanitor(opts: JanitorOptions = {}): Promise<JanitorResu
   // ── Category 5/6: Worktrees ───────────────────────────────────────────────
   if (!skip.worktrees && activeTaskIds !== undefined) {
     try {
-      const xdgData = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-      const wRoot = worktreesRoot ?? join(xdgData, 'cleo', 'worktrees');
+      const wRoot = worktreesRoot ?? join(getCleoHome(), 'worktrees');
       const result = pruneOrphanWorktrees({ worktreesRoot: wRoot, activeTaskIds, dryRun });
       worktreesPruned = result.removed;
       worktreesQuarantined = result.quarantined;
