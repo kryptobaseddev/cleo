@@ -25,7 +25,10 @@
   "dependencies": {
     "3d-force-graph": "^1.80.0",
     "@cleocode/brain": "workspace:*",
+    "@cleocode/cant": "workspace:*",
+    "@cleocode/caamp": "workspace:*",
     "@cleocode/contracts": "workspace:*",
+    "jsonc-parser": "^3.3.1",
     "@cleocode/core": "workspace:*",
     "@cleocode/runtime": "workspace:*",
     "loro-crdt": "*",

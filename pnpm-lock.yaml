@@ -794,6 +794,12 @@ importers:
       '@cleocode/brain':
         specifier: workspace:*
         version: link:../brain
+      '@cleocode/caamp':
+        specifier: workspace:*
+        version: link:../caamp
+      '@cleocode/cant':
+        specifier: workspace:*
+        version: link:../cant
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -833,6 +839,9 @@ importers:
       hono:
         specifier: ^4.7.10
         version: 4.12.12
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
       llmtxt:
         specifier: ^2026.5.15
         version: 2026.5.15(@cleocode/lafs@2026.5.122)(drizzle-orm@1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
