@@ -15,10 +15,14 @@
  * `anthropic` fallback, `selectBestProvisioned` is called. It:
  *
  *   1. Enumerates all {@link BUILTIN_PROVIDER_IDS} (11 providers).
- *   2. Probes which are provisioned (have a non-exhausted, non-expired
+ *   2. **Refresh-on-use (T11986 · DHQ-087)**: for any provider with an
+ *      expired-but-refreshable OAuth credential, attempts a refresh BEFORE
+ *      the provisioning probe so the selector sees a valid token instead of
+ *      silently filtering the provider as "not-provisioned".
+ *   3. Probes which are provisioned (have a non-exhausted, non-expired
  *      credential in the cred store OR a non-empty env var).
- *   3. Ranks provisioned providers by `scoreProvider(provider, taskTier)`.
- *   4. Returns the winner's `SelectedProviderModel`, or `null` if nothing
+ *   4. Ranks provisioned providers by `scoreProvider(provider, taskTier)`.
+ *   5. Returns the winner's `SelectedProviderModel`, or `null` if nothing
  *      is provisioned (caller falls through to the anthropic implicit fallback,
  *      preserving backward compat).
  *
@@ -33,6 +37,7 @@
  *
  * @module llm/cross-provider-selector
  * @task T11978
+ * @task T11986
  * @epic T11679
  */
 
@@ -40,8 +45,9 @@ import { totalmem } from 'node:os';
 import type { ResolutionSource } from '@cleocode/contracts';
 import type { ProviderTier } from '@cleocode/contracts/llm/provider-profile.js';
 import { getLogger } from '../logger.js';
+import { refreshExpiredOAuthForProvider } from './credential-pool.js';
 import { resolveCredentials } from './credentials.js';
-import { pickCredentialForProviderSync } from './credentials-store.js';
+import { listCredentials, pickCredentialForProviderSync } from './credentials-store.js';
 import type { ModelTransport } from './types-config.js';
 
 const logger = getLogger('llm-cross-provider-selector');
@@ -461,7 +467,6 @@ export async function enumerateProvisionedProviders(
   // Lazy import to avoid circular deps at module init time.
   const { getProviderProfile } = await import('./provider-registry/index.js');
   const { resolveProviderDefaultModel } = await import('./catalog-model-resolver.js');
-  const { listCredentials } = await import('./credentials-store.js');
 
   const ollamaDefaultBase = 'http://localhost:11434';
   let ollamaAlive = false;
@@ -469,6 +474,43 @@ export async function enumerateProvisionedProviders(
     ollamaAlive = await probeOllamaAlive(ollamaDefaultBase);
   } catch {
     ollamaAlive = false;
+  }
+
+  // Refresh-on-use (T11986 · DHQ-087): before probing provisioning state,
+  // attempt to refresh any expired-but-refreshable OAuth credential for each
+  // provider. This ensures an expired OAT with a stored refresh token is
+  // renewed in-place so `isProvisioned()` sees a valid access token and
+  // correctly reports the provider as provisioned rather than filtering it.
+  // Failures are soft-logged — a provider that cannot refresh still falls
+  // through with `reachabilityState: 'credential-expired'` as before.
+  for (const id of BUILTIN_PROVIDER_IDS) {
+    const credsBefore = await listCredentials(id);
+    const hasExpiredOAuth = credsBefore.some(
+      (c) =>
+        c.authType === 'oauth' &&
+        c.refreshToken &&
+        typeof c.expiresAt === 'number' &&
+        c.expiresAt > 0 &&
+        c.expiresAt <= Date.now(),
+    );
+    if (!hasExpiredOAuth) continue;
+
+    try {
+      const result = await refreshExpiredOAuthForProvider(id);
+      if (result.actionableHint) {
+        logger.info(
+          { provider: id, hint: result.actionableHint },
+          'cross-provider-selector: OAuth refresh failed during enumeration',
+        );
+      } else if (result.refreshed > 0) {
+        logger.debug(
+          { provider: id, refreshed: result.refreshed },
+          'cross-provider-selector: refreshed expired OAuth credential before enumeration',
+        );
+      }
+    } catch {
+      // Non-fatal: provider is left in its pre-refresh state.
+    }
   }
 
   const results: ProviderEnumeration[] = [];
@@ -482,7 +524,7 @@ export async function enumerateProvisionedProviders(
     const allCreds = await listCredentials(id);
     const credentialCount = allCreds.length;
 
-    // Provisioning state
+    // Provisioning state (checked AFTER any refresh above).
     const provisioned = isProvisioned(id);
     const provisioningState: 'provisioned' | 'not-provisioned' = provisioned
       ? 'provisioned'
@@ -593,8 +635,45 @@ export async function selectBestProvisioned(
 ): Promise<SelectedProviderModel | null> {
   const taskTier = roleTierFor(role);
 
-  // Collect provisioned providers synchronously first to avoid async overhead
-  // when nothing is provisioned (the common case on anthropic-only machines).
+  // Refresh-on-use (T11986 · DHQ-087): attempt to refresh any expired-but-
+  // refreshable OAuth credential for each provider BEFORE the provisioning
+  // probe. This ensures an expired OAT with a valid refresh token is renewed
+  // so `isProvisioned()` below sees an up-to-date access token. Only providers
+  // with at least one expired OAuth entry trigger a refresh attempt. Failures
+  // are logged but non-fatal — the provider is still filtered as
+  // "not-provisioned" if the refresh could not succeed.
+  for (const id of BUILTIN_PROVIDER_IDS) {
+    const creds = await listCredentials(id);
+    const hasExpiredOAuth = creds.some(
+      (c) =>
+        c.authType === 'oauth' &&
+        c.refreshToken &&
+        typeof c.expiresAt === 'number' &&
+        c.expiresAt > 0 &&
+        c.expiresAt <= Date.now(),
+    );
+    if (!hasExpiredOAuth) continue;
+
+    try {
+      const result = await refreshExpiredOAuthForProvider(id);
+      if (result.actionableHint) {
+        logger.warn(
+          { provider: id, hint: result.actionableHint },
+          'cross-provider-selector: OAuth refresh-on-use failed — credential will be excluded from resolution',
+        );
+      } else if (result.refreshed > 0) {
+        logger.debug(
+          { provider: id, refreshed: result.refreshed },
+          'cross-provider-selector: renewed expired OAuth credential via refresh-on-use',
+        );
+      }
+    } catch {
+      // Non-fatal: provider remains in its pre-refresh state.
+    }
+  }
+
+  // Collect provisioned providers (checked AFTER any refresh above so renewed
+  // tokens are visible to the sync credential store reader).
   const provisionedIds: ModelTransport[] = [];
   for (const id of BUILTIN_PROVIDER_IDS) {
     if (isProvisioned(id)) {

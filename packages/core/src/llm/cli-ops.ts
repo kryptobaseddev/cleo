@@ -60,7 +60,7 @@ import {
   resolveAuxiliaryFallbackChain,
 } from './auxiliary-fallback.js';
 import { catalogKeyForProvider, validateModelForProvider } from './catalog-model-resolver.js';
-import { authHeaders, resolveCredentials } from './credentials.js';
+import { authHeaders, resolveCredentialsAsync } from './credentials.js';
 import {
   addCredential,
   getCredentialByLabel,
@@ -383,18 +383,30 @@ export async function llmProfile(
 /**
  * `llm.test` — round-trip ping against the resolved provider.
  *
- * Resolves a credential the same way the role-resolver would (preferring a
- * specific `label` when supplied), builds the minimal HTTP request via
- * `authHeaders()`, and pings the provider with a 1-token prompt. NEVER
- * returns the raw token in the result envelope.
+ * Resolves a credential through the unified vault chokepoint (T11986 ·
+ * DHQ-087): uses `resolveCredentialsAsync` (which delegates to the
+ * {@link UnifiedCredentialPool}) so vault-stored credentials — including
+ * OAuth tokens that may need refreshing — are always visible to diagnostic
+ * probes. The legacy sync `resolveCredentials()` path was replaced here
+ * because it skips the pool's lazy-seed and refresh-on-use steps.
+ *
+ * When a specific `label` is supplied, the credential is looked up directly
+ * from the store (bypassing the pool picker). This path also benefits from
+ * refresh-on-use: if the stored credential is an expired OAuth token with a
+ * refresh token, `resolveCredentialsAsync` will renew it through the pool
+ * before returning.
+ *
+ * NEVER returns the raw token in the result envelope (S-11).
  *
  * @task T9258
+ * @task T11986
  */
 export async function llmTest(params: LlmTestParams): Promise<EngineResult<LlmTestResult>> {
   const provider = params.provider;
   const model = params.model ?? IMPLICIT_FALLBACK_MODEL;
 
-  // 1. Resolve credential — prefer explicit label, fall back to the 6-tier chain.
+  // 1. Resolve credential — prefer explicit label, fall back to the vault
+  //    chokepoint (resolveCredentialsAsync triggers lazy-seed + refresh-on-use).
   let token: string | null = null;
   let credentialSource: LlmTestResult['credentialSource'] = 'env';
   let credentialPreview = '…';
@@ -415,40 +427,86 @@ export async function llmTest(params: LlmTestParams): Promise<EngineResult<LlmTe
     credentialPreview = tokenPreviewOf(token, authType);
     baseUrl = stored.baseUrl ?? null;
   } else {
-    const cred = resolveCredentials(provider);
+    // Use the async resolver (vault chokepoint) — picks through the pool after
+    // triggering lazy-seed. The pool's proactiveRefresh handles expired OAuth.
+    const cred = await resolveCredentialsAsync(provider);
     if (!cred.apiKey) {
       return engineError(
         'E_CREDENTIAL_NOT_FOUND',
-        `No credential resolved for provider='${provider}' via env / cred-file / claude-creds / config`,
+        `No credential resolved for provider='${provider}' via the vault (cred store / env / seeder). ` +
+          `Run \`cleo llm add ${provider} <key>\` or \`cleo login ${provider}\` to add one.`,
       );
     }
     token = cred.apiKey;
-    credentialSource = cred.source ?? 'env';
+    credentialSource = cred.source ?? 'cred-file';
     authType = cred.authType;
     credentialPreview = tokenPreviewOf(token, authType);
   }
 
-  // 2. Build a 1-token probe request. We keep this provider-aware but minimal:
-  //    Anthropic is the implicit-fallback target so we exercise its endpoint;
-  //    other providers receive a structured error until Phase 3 widens the
-  //    probe surface.
-  if (provider !== 'anthropic') {
-    return engineError(
-      'E_NOT_IMPLEMENTED',
-      `llm.test currently supports the 'anthropic' transport only. Got '${provider}'.`,
-    );
+  // 2. Resolve the provider base URL for non-default endpoints.
+  if (!baseUrl) {
+    try {
+      const { getProviderProfile } = await import('./provider-registry/index.js');
+      const profile = await getProviderProfile(provider);
+      baseUrl = profile?.baseUrl ?? null;
+    } catch {
+      baseUrl = null;
+    }
   }
 
+  // 3. Build a 1-token probe request. Currently supports Anthropic (Messages
+  //    API) and OpenAI-compatible providers (Chat Completions API). Other
+  //    providers fall back to the anthropic probe shape when their endpoint
+  //    is compatible (e.g. ollama/openrouter with chat-completions).
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...authHeaders({ provider, apiKey: token, source: credentialSource, authType }),
   };
-  const url = `${baseUrl ?? 'https://api.anthropic.com'}/v1/messages`;
-  const body = JSON.stringify({
-    model,
-    max_tokens: 1,
-    messages: [{ role: 'user', content: 'ping' }],
-  });
+
+  let url: string;
+  let body: string;
+
+  if (provider === 'anthropic') {
+    url = `${baseUrl ?? 'https://api.anthropic.com'}/v1/messages`;
+    body = JSON.stringify({
+      model,
+      max_tokens: 1,
+      messages: [{ role: 'user', content: 'ping' }],
+    });
+  } else if (
+    provider === 'openai' ||
+    provider === 'openrouter' ||
+    provider === 'deepseek' ||
+    provider === 'xai' ||
+    provider === 'groq' ||
+    provider === 'moonshot' ||
+    provider === 'ollama' ||
+    provider === 'kimi-code'
+  ) {
+    // OpenAI-compatible Chat Completions endpoint.
+    const defaultBase: Record<string, string> = {
+      openai: 'https://api.openai.com',
+      openrouter: 'https://openrouter.ai/api',
+      deepseek: 'https://api.deepseek.com',
+      xai: 'https://api.x.ai',
+      groq: 'https://api.groq.com/openai',
+      moonshot: 'https://api.moonshot.cn',
+      ollama: 'http://localhost:11434',
+      'kimi-code': 'https://api.kimi.com/coding',
+    };
+    url = `${baseUrl ?? defaultBase[provider] ?? 'https://api.openai.com'}/v1/chat/completions`;
+    body = JSON.stringify({
+      model,
+      max_tokens: 1,
+      messages: [{ role: 'user', content: 'ping' }],
+    });
+  } else {
+    return engineError(
+      'E_NOT_IMPLEMENTED',
+      `llm.test does not yet support provider '${provider}'. ` +
+        `Supported: anthropic, openai, openrouter, deepseek, xai, groq, moonshot, ollama, kimi-code.`,
+    );
+  }
 
   const start = Date.now();
   let providerResponseId: string | null = null;
