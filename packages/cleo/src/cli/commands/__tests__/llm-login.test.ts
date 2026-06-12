@@ -861,3 +861,121 @@ describe('runLlmLogin — T11958: Anthropic exchange wire shape', () => {
     expect(m.exchangePkceCode).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// T12010 — regression: process.stdin must be paused after paste-back read
+// (open stdin keeps the Node.js event loop alive → cleo login hangs forever)
+// ---------------------------------------------------------------------------
+
+describe('runLlmLogin — T12010: stdin paused after headless paste-back (no event-loop leak)', () => {
+  it('pauses stdin after receiving the code on the success path', async () => {
+    // Track whether pause() was called using a plain property override so we
+    // don't rely on vi.spyOn against a stream prototype method.
+    let pauseCalled = false;
+    const origPause = process.stdin.pause.bind(process.stdin);
+    process.stdin.pause = (() => {
+      pauseCalled = true;
+      return origPause();
+    }) as typeof process.stdin.pause;
+
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(() => listener('http://localhost?code=t12010-code&state='), 0);
+        }
+        return process.stdin;
+      });
+    // Prevent resume() from actually flowing the real stdin (which is not a real TTY).
+    const resumeSpy = vi.spyOn(process.stdin, 'resume').mockReturnValue(process.stdin);
+
+    m.exchangePkceCode.mockResolvedValue({
+      accessToken: 'sk-ant-oat-t12010',
+      expiresIn: 3600,
+      tokenType: 'bearer',
+    });
+    m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
+
+    const result = await runLlmLogin('anthropic', { headless: true });
+
+    stdinSpy.mockRestore();
+    resumeSpy.mockRestore();
+    // Restore original pause (was replaced with tracking wrapper above).
+    process.stdin.pause = origPause as typeof process.stdin.pause;
+
+    // The flow must succeed.
+    expect(result.success).toBe(true);
+    // stdin.pause() MUST have been called inside the 'data' handler (T12010 fix).
+    expect(pauseCalled).toBe(true);
+  });
+
+  it('pauses stdin even when the pasted redirect URL has no code (error path does not leak)', async () => {
+    // An empty query string URL has no `code` parameter — parseAuthorizationInput
+    // returns `{ code: undefined }`, causing _headlessPkceFlow to reject.
+    let pauseCalled = false;
+    const origPause = process.stdin.pause.bind(process.stdin);
+    process.stdin.pause = (() => {
+      pauseCalled = true;
+      return origPause();
+    }) as typeof process.stdin.pause;
+
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          // A URL with NO code= param → parseAuthorizationInput returns { code: undefined }.
+          setTimeout(
+            () => listener('https://platform.claude.com/oauth/code/callback?state=abc'),
+            0,
+          );
+        }
+        return process.stdin;
+      });
+    const resumeSpy = vi.spyOn(process.stdin, 'resume').mockReturnValue(process.stdin);
+
+    const result = await runLlmLogin('anthropic', { headless: true });
+
+    stdinSpy.mockRestore();
+    resumeSpy.mockRestore();
+    process.stdin.pause = origPause as typeof process.stdin.pause;
+
+    // The flow must fail (no code in URL), but stdin must still be paused.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_PKCE_INVALID_CALLBACK');
+    expect(pauseCalled).toBe(true);
+  });
+
+  it('pauses stdin when the OAuth state does not match (CSRF error path)', async () => {
+    let pauseCalled = false;
+    const origPause = process.stdin.pause.bind(process.stdin);
+    process.stdin.pause = (() => {
+      pauseCalled = true;
+      return origPause();
+    }) as typeof process.stdin.pause;
+
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          // Emit a redirect URL with a deliberately wrong state → CSRF rejection.
+          setTimeout(
+            () =>
+              listener('https://platform.claude.com/oauth/code/callback?code=x&state=WRONG-STATE'),
+            0,
+          );
+        }
+        return process.stdin;
+      });
+    const resumeSpy = vi.spyOn(process.stdin, 'resume').mockReturnValue(process.stdin);
+
+    const result = await runLlmLogin('anthropic', { headless: true });
+
+    stdinSpy.mockRestore();
+    resumeSpy.mockRestore();
+    process.stdin.pause = origPause as typeof process.stdin.pause;
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_PKCE_INVALID_CALLBACK');
+    expect(pauseCalled).toBe(true);
+  });
+});
