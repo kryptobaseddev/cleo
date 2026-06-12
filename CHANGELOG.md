@@ -1,5 +1,39 @@
 # Changelog
 
+## [2026.6.15] (2026-06-12)
+
+### Added
+
+- Ship CLEO Web Studio inside the published @cleocode/cleo package (gateway-served at /studio) _(provenance: [T11979](https://github.com/kryptobaseddev/cleo/search?q=T11979&type=commits))_
+- Batteries-included surface — bare `cleo` launches TUI, `cleo web` opens Studio, gateway auto-starts on demand _(provenance: [T11980](https://github.com/kryptobaseddev/cleo/search?q=T11980&type=commits))_
+- One-line installer + OS prereq bootstrap for macOS, Linux, and Windows _(provenance: [T11981](https://github.com/kryptobaseddev/cleo/search?q=T11981&type=commits))_
+- feat(T11982): local-model fit ranking + cleo llm fit (wizard building block) _(provenance: [T11982](https://github.com/kryptobaseddev/cleo/search?q=T11982&type=commits))_
+
+### Changed
+
+
+
+### Fixed
+
+- DHQ-080: `cleo release reconcile` now synthesises a minimal plan on the tag-driven path (no prior `cleo release plan`) _(provenance: [T11977](https://github.com/kryptobaseddev/cleo/search?q=T11977&type=commits))_
+- postinstall respects operator daemon state — no silent re-enable on upgrade _(provenance: [T11984](https://github.com/kryptobaseddev/cleo/search?q=T11984&type=commits))_
+- DHQ-086: codex_responses wire shape fixed — store:false, OpenAI-Beta header, SSE Accept, error-body surfacing _(provenance: [T11985](https://github.com/kryptobaseddev/cleo/search?q=T11985&type=commits))_
+- fix(T11990): gemma3→gemma4 edge-model family in ollama fallback + fit table (live-verified) _(provenance: [T11990](https://github.com/kryptobaseddev/cleo/search?q=T11990&type=commits))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.6.14] (2026-06-10)
 
 > **Gateway-write + agent-tool + Studio interactivity release** — the gateway grows the task write-path (streaming subscribe + reorder/bulk-move/assignee), the agent harness gains a real M7 tool catalog (memory/MCP/skills/cron/media) and service-credential injection, Studio becomes an interactive Kanban dispatcher with workgraph + vault views and a multi-theme reskin, and the self-improvement loop becomes runnable from a released install. New harness/tool behaviour remains **default-OFF / opt-in**; the released CLI is behaviourally compatible with v2026.6.13. 11 PRs (#1049, #1053–#1063), all CI-green through the merge-bar gate.
