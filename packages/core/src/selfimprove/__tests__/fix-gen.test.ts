@@ -47,6 +47,7 @@ import {
   looksLikeUnifiedDiff,
   stripCodeFences,
 } from '../fix-gen.js';
+import type { LoadedFileContext } from '../fix-gen-context.js';
 import type { ReplayDispatch } from '../replay.js';
 import { runSelfImprove } from '../run-loop.js';
 
@@ -118,12 +119,55 @@ describe('fix-gen — pure helpers', () => {
   });
 
   it('buildFixGenPrompt embeds the regression coordinates + demands a unified diff', () => {
-    const { system, user } = buildFixGenPrompt(makeRequest('/tmp/p'));
+    // Provide an empty file context to keep the test pure (no IO).
+    const emptyCtx: LoadedFileContext = {
+      entries: [],
+      totalBytes: 0,
+      truncatedCount: 0,
+      budgetSkippedCount: 0,
+      errorCount: 0,
+    };
+    const { system, user } = buildFixGenPrompt(makeRequest('/tmp/p'), emptyCtx);
     expect(system).toContain('unified diff');
     expect(system).toContain('NO_PATCH');
     expect(user).toContain('tasks.find');
     expect(user).toContain('data/count');
     expect(user).toContain('DHQ-deadbeef');
+  });
+
+  it('buildFixGenPrompt includes the file-context section when entries are provided', () => {
+    const ctxWithFile: LoadedFileContext = {
+      entries: [
+        {
+          repoRelativePath: 'packages/core/src/selfimprove/probe-helper.ts',
+          content: 'export function probeVersion(): number { return 2; }',
+          truncated: false,
+          budgetExhausted: false,
+          readError: false,
+        },
+      ],
+      totalBytes: 52,
+      truncatedCount: 0,
+      budgetSkippedCount: 0,
+      errorCount: 0,
+    };
+    const { user } = buildFixGenPrompt(makeRequest('/tmp/p'), ctxWithFile);
+    expect(user).toContain('probe-helper.ts');
+    expect(user).toContain('probeVersion');
+    // The "no context" fallback should NOT appear when context is provided.
+    expect(user).not.toContain('No source file context available');
+  });
+
+  it('buildFixGenPrompt emits the no-context notice when entries are empty', () => {
+    const emptyCtx: LoadedFileContext = {
+      entries: [],
+      totalBytes: 0,
+      truncatedCount: 0,
+      budgetSkippedCount: 0,
+      errorCount: 0,
+    };
+    const { user } = buildFixGenPrompt(makeRequest('/tmp/p'), emptyCtx);
+    expect(user).toContain('No source file context available');
   });
 });
 

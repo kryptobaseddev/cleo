@@ -43,6 +43,12 @@ import { resolve as resolvePath } from 'node:path';
 import { cwd as processCwd } from 'node:process';
 import type { Logger } from 'pino';
 import type { DiffEntry } from './envelope-diff.js';
+import {
+  type LoadedFileContext,
+  type LoadFileContextOptions,
+  loadFileContext,
+  renderFileContextSection,
+} from './fix-gen-context.js';
 
 /**
  * The E9 system-of-use label the fix-generator resolves its model under. Maps to
@@ -82,6 +88,19 @@ export interface FixGenRepoContext {
   readonly projectRoot: string;
   /** Optional one-line summary of what the scenario exercises. */
   readonly summary?: string;
+  /**
+   * Optional override for the file-context loading options (per-file budget,
+   * total budget). When absent the defaults from {@link "./fix-gen-context.js"}
+   * apply ({@link DEFAULT_PER_FILE_BUDGET} / {@link DEFAULT_TOTAL_BUDGET}).
+   *
+   * Setting `perFileBudget: 0` and `totalBudget: 0` effectively disables file
+   * context injection (the prompt degrades to the regression-only view — the model
+   * may still produce NO_PATCH, which is the honest outcome when context is
+   * insufficient).
+   *
+   * @task T11988
+   */
+  readonly contextBudget?: Pick<LoadFileContextOptions, 'perFileBudget' | 'totalBudget'>;
 }
 
 /** A generated patch, or an explicit "no usable patch" signal. */
@@ -191,14 +210,30 @@ export function looksLikeUnifiedDiff(text: string): boolean {
 
 /**
  * Build the system + user prompt the real generator sends to the LLM. Pure
- * (no IO) so it is unit-testable in isolation. The prompt is deliberately strict:
- * "respond with ONLY a unified diff" — anything else fails
- * {@link looksLikeUnifiedDiff} downstream and degrades to "no patch".
+ * (no IO) so it is unit-testable in isolation when an explicit `fileContext` is
+ * passed; the default path calls {@link loadFileContext} to resolve the relevant
+ * source files for each regressing op-coordinate (IO-bearing path used in
+ * production).
+ *
+ * The prompt is deliberately strict: "respond with ONLY a unified diff" — anything
+ * else fails {@link looksLikeUnifiedDiff} downstream and degrades to "no patch".
+ * When file context is available it is embedded between the regression description
+ * and the "produce the diff" instruction so the model can locate the responsible
+ * code. When context is absent (unmapped op or budget exhausted) the model is
+ * explicitly told it may respond `NO_PATCH` — this keeps the prompt honest.
  *
  * @param request - The fix-generation request.
+ * @param fileContext - Optional pre-loaded file context (injected for pure unit
+ *   tests). When absent, {@link loadFileContext} is called with the request's
+ *   `repoContext.projectRoot` and the op-coordinates from `regressions`.
  * @returns The `{ system, user }` prompt pair.
+ *
+ * @task T11988
  */
-export function buildFixGenPrompt(request: FixGenRequest): { system: string; user: string } {
+export function buildFixGenPrompt(
+  request: FixGenRequest,
+  fileContext?: LoadedFileContext,
+): { system: string; user: string } {
   const system =
     'You are an autonomous software-maintenance agent. You are given a detected ' +
     'regression in a TypeScript monorepo (a divergence between a replayed scenario ' +
@@ -207,18 +242,35 @@ export function buildFixGenPrompt(request: FixGenRequest): { system: string; use
     'Respond with ONLY the unified diff and NOTHING else — no prose, no code fences, ' +
     'no explanation. If you cannot propose a safe fix, respond with the single token ' +
     'NO_PATCH.';
+
   const lines = request.regressions.map(
     (r) =>
       `- op ${r.opCoord} (#${r.opIndex}) at path \`${r.path}\`: ` +
       `actual=${JSON.stringify(r.actual)} expected=${JSON.stringify(r.expected)}`,
   );
+
+  // Resolve file context: use the pre-loaded context (pure test path) or load it
+  // now from disk (production path). Either way we render the same section string.
+  const ctx: LoadedFileContext =
+    fileContext ??
+    loadFileContext({
+      projectRoot: request.repoContext.projectRoot,
+      opCoords: request.regressions.map((r) => r.opCoord),
+      ...request.repoContext.contextBudget,
+    });
+  const fileSection = renderFileContextSection(ctx);
+
   const user =
     `Regression ${request.dhqId} in scenario \`${request.scenario}\` ` +
     `(${request.regressions.length} diverging path(s)).\n` +
     (request.repoContext.summary ? `Scenario summary: ${request.repoContext.summary}\n` : '') +
     `Project root: ${request.repoContext.projectRoot}\n\n` +
-    `Diverging paths:\n${lines.join('\n')}\n\n` +
-    'Produce the unified diff that resolves these divergences.';
+    `Diverging paths:\n${lines.join('\n')}\n` +
+    (fileSection
+      ? `\n${fileSection}\n`
+      : '\n[No source file context available — respond NO_PATCH if you cannot locate the fix.]\n') +
+    '\nProduce the unified diff that resolves these divergences.';
+
   return { system, user };
 }
 

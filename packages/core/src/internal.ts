@@ -2729,6 +2729,9 @@ export {
   type HealthFlag,
   type HealthFlagStatus,
 } from './memory/brain-health-dashboard.js';
+// Self-improvement probe op (T11988) — exposes the patchable probe helper for
+// the seeded-code-regression scenario (selfimprove.probe query).
+export { buildProbePayload } from './selfimprove/probe-helper.js';
 export type {
   ReplayDispatch,
   ReplayDispatchOp,

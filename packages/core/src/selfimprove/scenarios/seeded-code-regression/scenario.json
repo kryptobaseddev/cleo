@@ -1,0 +1,12 @@
+{
+  "name": "seeded-code-regression",
+  "description": "Seeded code-regression scenario for end-to-end fix-gen proof (T11988). A deliberately broken selfimprove helper returns the wrong value; the regression is detectable from the replay envelope and fixable by a targeted one-line code patch.",
+  "ops": [
+    {
+      "gateway": "query",
+      "domain": "selfimprove",
+      "operation": "probe",
+      "params": { "scenario": "seeded-code-regression" }
+    }
+  ]
+}

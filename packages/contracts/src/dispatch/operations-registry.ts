@@ -9216,6 +9216,24 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
 
+  // ── selfimprove query: probe (T11988 — seeded-code-regression scenario) ────────
+  // Pure read-only op that returns `{ probe: 'ok', version: probeVersion() }`.
+  // The `probe-helper.ts` intentionally ships with `probeVersion()` returning `2`
+  // (should be `1`) so the seeded-code-regression scenario replay diverges from its
+  // golden (`version: 1`) and gives the fix-gen LLM stage a real, patchable bug.
+  {
+    gateway: 'query',
+    domain: 'selfimprove',
+    operation: 'probe',
+    description:
+      'selfimprove.probe (query) — returns { probe: "ok", version: 1 } (health/version probe). Used by the seeded-code-regression scenario to validate the fix-gen pipeline (T11988).',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [] satisfies ParamDef[],
+  },
+
   // ── selfimprove mutate: run (T11889 / T11889-D — the self-dogfooding loop) ──
   // Boots ONE sandbox → replays the named canned scenario → diffs result
   // envelopes vs the golden → on a regression emits ONE leased `selfimprove_dhq`

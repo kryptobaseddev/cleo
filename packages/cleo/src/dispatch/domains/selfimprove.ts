@@ -32,7 +32,12 @@ import type {
   ReplayDispatchOp,
   RunSelfImproveOptions,
 } from '@cleocode/core/internal';
-import { getLogger, getProjectRoot, runSelfImprove } from '@cleocode/core/internal';
+import {
+  buildProbePayload,
+  getLogger,
+  getProjectRoot,
+  runSelfImprove,
+} from '@cleocode/core/internal';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, unsupportedOp, wrapResult } from './_base.js';
 
@@ -48,11 +53,27 @@ const log = getLogger('domain:selfimprove');
  */
 export class SelfimproveHandler implements DomainHandler {
   /**
-   * The self-improvement domain exposes no read-only queries — the only verb is
-   * the `run` mutation. Any query op resolves to `E_INVALID_OPERATION`.
+   * Handle self-improvement query operations.
+   *
+   * Supported operations:
+   * - `probe` — return the probe payload from {@link buildProbePayload} (T11988).
+   *   Used by the `seeded-code-regression` scenario to expose a patchable code
+   *   bug (the probe version off-by-one) for end-to-end fix-gen proof.
    */
   async query(operation: string, _params?: Record<string, unknown>): Promise<DispatchResponse> {
-    return unsupportedOp('query', 'selfimprove', operation, Date.now());
+    const startTime = Date.now();
+    switch (operation) {
+      case 'probe':
+        return wrapResult(
+          { success: true, data: buildProbePayload() },
+          'query',
+          'selfimprove',
+          operation,
+          startTime,
+        );
+      default:
+        return unsupportedOp('query', 'selfimprove', operation, startTime);
+    }
   }
 
   /**
@@ -136,7 +157,7 @@ export class SelfimproveHandler implements DomainHandler {
   /** Return declared operations for introspection and registry validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: [],
+      query: ['probe'],
       mutate: ['run'],
     };
   }
