@@ -92,17 +92,23 @@ describe('pruneWorktrees', () => {
     }
   });
 
-  it('removes all when preserveTaskIds is empty set', () => {
-    const { projectRoot, cleanup } = setupFakeProject();
+  it('fail-closed: removes nothing when preserveTaskIds is empty set with existing worktrees (T11996)', () => {
+    const { projectRoot, worktreeRoot, cleanup } = setupFakeProject();
 
     try {
+      // T11996 fail-closed: empty preserveTaskIds + existing worktrees → skip.
       const result = pruneWorktrees({
         projectRoot,
         preserveTaskIds: new Set<string>(),
         gitPrune: false,
       });
 
-      expect(result.removed).toBe(3);
+      expect(result.removed).toBe(0);
+      expect(result.skippedFailClosed).toBe(true);
+      // All worktrees must still exist.
+      expect(existsSync(join(worktreeRoot, 'T1001'))).toBe(true);
+      expect(existsSync(join(worktreeRoot, 'T1002'))).toBe(true);
+      expect(existsSync(join(worktreeRoot, 'T1003'))).toBe(true);
     } finally {
       cleanup();
     }

@@ -247,42 +247,69 @@ describe('pruneOrphanWorktrees', () => {
     expect(existsSync(join(projectDir, 'T1003'))).toBe(true);
   });
 
-  it('removes all dirs when activeTaskIds is empty', () => {
+  it('removes orphan dirs when activeTaskIds is non-empty but unmatched', () => {
+    // T11996: the fail-closed guard blocks removal when activeTaskIds is empty
+    // (prevents mass-deletion when the task store is unreadable). Tests that
+    // represent the "remove all orphans" case must use a non-empty set containing
+    // a task ID that doesn't match any worktree dir — T1001/T1002/T1003 are all
+    // absent from the set so they are treated as orphans and removed.
+    const result = pruneOrphanWorktrees({
+      worktreesRoot,
+      activeTaskIds: new Set(['T-ANCHOR']),
+    });
+
+    expect(result.removed).toBe(3);
+    expect(existsSync(join(projectDir, 'T1001'))).toBe(false);
+    expect(existsSync(join(projectDir, 'T1002'))).toBe(false);
+    expect(existsSync(join(projectDir, 'T1003'))).toBe(false);
+  });
+
+  it('fail-closed: skips removal when activeTaskIds is empty and worktrees exist (T11996)', () => {
+    // Regression: empty activeTaskIds + existing worktrees → guard fires.
     const result = pruneOrphanWorktrees({
       worktreesRoot,
       activeTaskIds: new Set<string>(),
     });
 
-    expect(result.removed).toBe(3);
+    expect(result.skippedFailClosed).toBe(true);
+    expect(result.removed).toBe(0);
+    // All dirs must still exist.
+    expect(existsSync(join(projectDir, 'T1001'))).toBe(true);
+    expect(existsSync(join(projectDir, 'T1002'))).toBe(true);
+    expect(existsSync(join(projectDir, 'T1003'))).toBe(true);
   });
 
   it('dry-run returns paths without deleting', () => {
+    // T11996: non-empty preserve set so fail-closed guard does not fire.
+    // T1001/T1002/T1003 are not in the set → all reported as would-be-removed.
     const result = pruneOrphanWorktrees({
       worktreesRoot,
-      activeTaskIds: new Set<string>(),
+      activeTaskIds: new Set(['T-ANCHOR']),
       dryRun: true,
     });
 
     expect(result.removed).toBe(3);
     expect(result.dryRun).toBe(true);
-    // Dirs must still exist.
+    // Dirs must still exist (dry-run must not delete).
     expect(existsSync(join(projectDir, 'T1001'))).toBe(true);
     expect(existsSync(join(projectDir, 'T1002'))).toBe(true);
     expect(existsSync(join(projectDir, 'T1003'))).toBe(true);
   });
 
   it('scopes to projectHash when provided', () => {
-    // Create a second project.
+    // Create a second project hash directory.
     const other = join(worktreesRoot, 'other-hash');
     mkdirSync(join(other, 'T9999'), { recursive: true });
 
+    // T11996: non-empty preserve set so fail-closed guard does not fire.
     const result = pruneOrphanWorktrees({
       worktreesRoot,
       projectHash: PROJECT_HASH,
-      activeTaskIds: new Set<string>(),
+      activeTaskIds: new Set(['T-ANCHOR']),
     });
 
-    // Only T1001-T1003 should be removed; T9999 in 'other-hash' is untouched.
+    // Only T1001-T1003 under PROJECT_HASH should be removed;
+    // T9999 in 'other-hash' is untouched (scoped scan).
     expect(result.removed).toBe(3);
     expect(existsSync(join(other, 'T9999'))).toBe(true);
   });

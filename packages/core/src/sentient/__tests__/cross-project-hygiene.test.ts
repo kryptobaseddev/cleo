@@ -43,6 +43,8 @@ vi.mock('../../spawn/branch-lock.js', () => ({
   pruneOrphanedWorktrees: vi.fn(() => ({
     removed: 0,
     removedPaths: [],
+    quarantined: 0,
+    quarantinedPaths: [],
     errors: [],
   })),
 }));
@@ -383,12 +385,56 @@ describe('runWorktreePrune', () => {
   afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
   it('calls pruneOrphanedWorktrees for each reachable project', async () => {
+    // T11996: the fail-closed guard skips pruneOrphanedWorktrees when the
+    // preserve set is empty. Seed one non-terminal task per project so the
+    // preserve set is non-empty and pruning proceeds. The orphaned worktrees
+    // being pruned (T1/T2) don't match 'T-LIVE' so they are still removed.
     const rootA = await makeProject(tmp, 'wt-proj-a');
     const rootB = await makeProject(tmp, 'wt-proj-b');
 
     vi.spyOn(nexusRegistry, 'nexusList').mockResolvedValueOnce([
       mockProject('lll111', rootA, 'wt-proj-a'),
       mockProject('mmm222', rootB, 'wt-proj-b'),
+    ]);
+
+    // runWorktreePrune queries 4 statuses per project (pending/active/blocked/proposed).
+    // Return one live task on the first status query so preserveTaskIds is non-empty.
+    vi.spyOn(dataAccessor, 'getTaskAccessor').mockImplementation(async () => {
+      let callCount = 0;
+      return {
+        queryTasks: vi.fn(async () => {
+          callCount++;
+          // First call (status='pending') returns a live task; rest return empty.
+          return callCount === 1 ? { tasks: [{ id: 'T-LIVE', status: 'pending' }] } : { tasks: [] };
+        }),
+        countTasks: vi.fn(async () => 0),
+      } as Awaited<ReturnType<typeof dataAccessor.getTaskAccessor>>;
+    });
+
+    const pruneSpy = vi.spyOn(branchLock, 'pruneOrphanedWorktrees').mockReturnValue({
+      removed: 2,
+      removedPaths: ['/some/path/T1', '/some/path/T2'],
+      quarantined: 0,
+      quarantinedPaths: [],
+      errors: [],
+    });
+
+    const result = await runWorktreePrune();
+    expect(result.projectsScanned).toBe(2);
+    expect(result.totalPruned).toBe(4); // 2 per project × 2 projects
+    expect(pruneSpy).toHaveBeenCalledTimes(2);
+    // The live task must be in the preserve set passed to pruneOrphanedWorktrees.
+    const [, setA] = pruneSpy.mock.calls[0] as [string, Set<string>];
+    expect(setA.has('T-LIVE')).toBe(true);
+  });
+
+  it('skips pruning when task store yields empty preserve set (T11996 fail-closed)', async () => {
+    // Regression: when ALL statuses return empty tasks, the fail-closed guard
+    // in runWorktreePrune must skip pruneOrphanedWorktrees to prevent
+    // mass-deletion when the DB is freshly initialised or unreadable.
+    const root = await makeProject(tmp, 'wt-fail-closed');
+    vi.spyOn(nexusRegistry, 'nexusList').mockResolvedValueOnce([
+      mockProject('zzz999', root, 'wt-fail-closed'),
     ]);
 
     vi.spyOn(dataAccessor, 'getTaskAccessor').mockImplementation(
@@ -399,16 +445,12 @@ describe('runWorktreePrune', () => {
         }) as Awaited<ReturnType<typeof dataAccessor.getTaskAccessor>>,
     );
 
-    const pruneSpy = vi.spyOn(branchLock, 'pruneOrphanedWorktrees').mockReturnValue({
-      removed: 2,
-      removedPaths: ['/some/path/T1', '/some/path/T2'],
-      errors: [],
-    });
+    const pruneSpy = vi.spyOn(branchLock, 'pruneOrphanedWorktrees');
 
     const result = await runWorktreePrune();
-    expect(result.projectsScanned).toBe(2);
-    expect(result.totalPruned).toBe(4); // 2 per project × 2 projects
-    expect(pruneSpy).toHaveBeenCalledTimes(2);
+    // pruneOrphanedWorktrees must NOT be called — fail-closed guard blocked it.
+    expect(pruneSpy).not.toHaveBeenCalled();
+    expect(result.totalPruned).toBe(0);
   });
 
   it('skips unreachable project directories', async () => {
@@ -438,9 +480,13 @@ describe('runWorktreePrune', () => {
         }) as Awaited<ReturnType<typeof dataAccessor.getTaskAccessor>>,
     );
 
-    const pruneSpy = vi
-      .spyOn(branchLock, 'pruneOrphanedWorktrees')
-      .mockReturnValue({ removed: 0, removedPaths: [], errors: [] });
+    const pruneSpy = vi.spyOn(branchLock, 'pruneOrphanedWorktrees').mockReturnValue({
+      removed: 0,
+      removedPaths: [],
+      quarantined: 0,
+      quarantinedPaths: [],
+      errors: [],
+    });
 
     await runWorktreePrune();
     // pruneOrphanedWorktrees should be called with the active task ID in the set.

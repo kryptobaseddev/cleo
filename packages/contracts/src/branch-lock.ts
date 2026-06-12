@@ -102,6 +102,10 @@ export interface WorktreeCleanupResult {
   removed: number;
   /** Paths that were removed. */
   removedPaths: string[];
+  /** Number of worktrees quarantined (dirty/unpushed — preserved, not deleted). */
+  quarantined: number;
+  /** Paths that were quarantined. */
+  quarantinedPaths: string[];
   /** Paths that failed to remove (with reasons). */
   errors: Array<{ path: string; reason: string }>;
 }

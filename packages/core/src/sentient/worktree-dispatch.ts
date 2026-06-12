@@ -149,7 +149,14 @@ function _syncPruneWorktrees(
   options: Parameters<typeof import('@cleocode/worktree').pruneWorktrees>[0],
 ): PruneWorktreesResult {
   if (!_pruneWorktreesCache) {
-    return { removed: 0, removedPaths: [], errors: [], gitPruneRan: false };
+    return {
+      removed: 0,
+      removedPaths: [],
+      quarantined: 0,
+      quarantinedPaths: [],
+      errors: [],
+      gitPruneRan: false,
+    };
   }
   return _pruneWorktreesCache(options);
 }
