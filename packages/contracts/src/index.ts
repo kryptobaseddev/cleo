@@ -2149,7 +2149,13 @@ export type {
   StatsSkillLifecycleState,
   StatsSkillSourceType,
 } from './skills/stats.js';
-export type { AdapterSpawnProvider, SpawnContext, SpawnResult } from './spawn.js';
+export type {
+  AdapterSpawnProvider,
+  AgentContainmentMode,
+  AgentSuiteOwnership,
+  SpawnContext,
+  SpawnResult,
+} from './spawn.js';
 // === CLEO Spawn Types (distinct from adapter spawn) ===
 export type {
   CAAMPSpawnOptions,

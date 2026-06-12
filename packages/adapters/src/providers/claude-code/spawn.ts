@@ -5,17 +5,26 @@
  * Migrated from src/core/spawn/adapters/claude-code-adapter.ts
  *
  * Uses the native `claude` CLI to spawn subagent processes with prompts
- * written to temporary files. Processes run detached and are tracked
- * by PID for listing and termination.
+ * written to temporary files. Processes run in per-session containment
+ * (systemd transient scope on Linux, or setsid process group as fallback)
+ * so that session end reaps the entire MCP suite tree.
  *
  * @task T5240
+ * @task T11998 — per-session scope/pgid suite containment
  */
 
 import { exec, spawn as nodeSpawn } from 'node:child_process';
 import { unlink, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
-import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
+import type {
+  AdapterSpawnProvider,
+  AgentSuiteOwnership,
+  SpawnContext,
+  SpawnResult,
+} from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
+import { reapAgentSuite } from './suite-reaper.js';
 
 const execAsync = promisify(exec);
 
@@ -24,6 +33,8 @@ interface TrackedProcess {
   pid: number;
   taskId: string;
   startTime: string;
+  /** Suite containment handle — used by terminate() and session-end reap (T11998). */
+  ownership: AgentSuiteOwnership;
 }
 
 /**
@@ -98,15 +109,27 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       // --print: non-interactive batch mode (process prompt, output response, exit)
       // --dangerously-skip-permissions: allow all tool calls without human approval
       // --output-format json: structured output for parsing
-      const args = [
+      const claudeArgs = [
         '--print',
         '--dangerously-skip-permissions',
         '--output-format',
         'json',
         tmpFile,
       ];
+
+      // T11998: Build the argv with per-session containment.
+      // On Linux with systemd, this wraps 'claude' inside a transient
+      // cleo.slice scope (systemd-run --user --scope ...).
+      // On non-Linux or without systemd, falls back to pgid (detached+setsid).
+      // The ownership handle records the scope unit name or pgid for reaping.
+      const spawnBuild = buildAgentSpawnArgs('claude', claudeArgs, instanceId);
+
+      // For the systemd path: the child of systemd-run is NOT detached (systemd
+      // manages the scope lifecycle).  For the pgid path: we use detached:true
+      // so Node creates a new session, giving us a fresh pgid to kill the group.
+      const isSystemd = spawnBuild.ownership.mode === 'systemd';
       const spawnOpts: Parameters<typeof nodeSpawn>[2] = {
-        detached: true,
+        detached: !isSystemd,
         stdio: ['ignore', 'pipe', 'pipe'],
       };
 
@@ -126,14 +149,28 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         spawnOpts.env = { ...process.env, ...optionsEnv };
       }
 
-      const child = nodeSpawn('claude', args, spawnOpts);
+      const child = nodeSpawn(spawnBuild.command, spawnBuild.args, spawnOpts);
+      // unref() so the parent process can exit without waiting for the child.
+      // The containment scope/pgid ensures the child tree can still be reaped.
       child.unref();
+
+      // Resolve the ownership handle: for the pgid path the pgid is the same
+      // as the pid when detached:true (Node sets the child as the group leader).
+      const ownership: AgentSuiteOwnership = {
+        ...spawnBuild.ownership,
+        pid: child.pid,
+        pgid:
+          spawnBuild.ownership.mode === 'pgid' && child.pid !== undefined
+            ? child.pid
+            : spawnBuild.ownership.pgid,
+      };
 
       if (child.pid) {
         this.processMap.set(instanceId, {
           pid: child.pid,
           taskId: context.taskId,
           startTime,
+          ownership,
         });
       }
 
@@ -153,6 +190,9 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         providerId: 'claude-code',
         status: 'running',
         startTime,
+        // T11998: surface the ownership handle in the result so callers can
+        // persist it or pass it to reapAgentSuite on session end.
+        ownership,
       };
     } catch (error) {
       // Log spawn failure for debugging
@@ -198,6 +238,8 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
           providerId: 'claude-code',
           status: 'running',
           startTime: tracked.startTime,
+          // T11998: propagate ownership handle so callers can reap the suite.
+          ownership: tracked.ownership,
         });
       } catch {
         this.processMap.delete(instanceId);
@@ -210,20 +252,45 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
   /**
    * Terminate a running spawn by instance ID.
    *
-   * Sends SIGTERM to the tracked process. If the process is not found
-   * or has already exited, this is a no-op.
+   * Uses the suite-reaper to kill the entire process tree (root claude CLI +
+   * all MCP grandchildren) via the containment handle recorded at spawn time.
+   * Falls back to a direct SIGTERM on the tracked PID for legacy entries
+   * that pre-date T11998 and lack an ownership handle.
+   *
+   * Idempotent: no-op if the instance is not found or has already exited.
    *
    * @param instanceId - ID of the spawn instance to terminate
+   * @task T11998
    */
   async terminate(instanceId: string): Promise<void> {
     const tracked = this.processMap.get(instanceId);
     if (!tracked) return;
 
-    try {
-      process.kill(tracked.pid, 'SIGTERM');
-    } catch {
-      // Process may have already exited
-    }
     this.processMap.delete(instanceId);
+
+    try {
+      // T11998: reap the entire suite tree via the containment handle.
+      await reapAgentSuite(tracked.ownership);
+    } catch {
+      // Best-effort: fall back to direct SIGTERM on the root pid.
+      try {
+        process.kill(tracked.pid, 'SIGTERM');
+      } catch {
+        // Process may have already exited — no-op.
+      }
+    }
+  }
+
+  /**
+   * Terminate all tracked spawn instances on session end.
+   *
+   * Called by the session lifecycle when a CLEO session ends, ensuring
+   * no orphaned agent suites (root process + MCP children) remain.
+   *
+   * @task T11998
+   */
+  async terminateAll(): Promise<void> {
+    const instanceIds = [...this.processMap.keys()];
+    await Promise.allSettled(instanceIds.map((id) => this.terminate(id)));
   }
 }
