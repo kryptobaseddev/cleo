@@ -1,7 +1,7 @@
 {
   "name": "@cleocode/core",
   "version": "2026.5.126",
-  "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
+  "description": "CLEO core business logic kernel \u2014 tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -395,6 +395,16 @@
       "types": "./dist/git-shim-export.d.ts",
       "import": "./dist/git-shim-export.js",
       "require": "./dist/git-shim-export.js"
+    },
+    "./resources/*": {
+      "types": "./dist/resources/*.d.ts",
+      "import": "./dist/resources/*.js",
+      "require": "./dist/resources/*.js"
+    },
+    "./resources/*.js": {
+      "types": "./dist/resources/*.d.ts",
+      "import": "./dist/resources/*.js",
+      "require": "./dist/resources/*.js"
     }
   },
   "scripts": {

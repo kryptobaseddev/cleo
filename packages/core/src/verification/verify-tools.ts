@@ -40,9 +40,8 @@
  * @see packages/core/src/tasks/tool-cache.ts — runToolCached (evidence caching layer)
  */
 
-import { spawn } from 'node:child_process';
-
 import { resolveOrCwd } from '../paths.js';
+import { spawnWrapped } from '../resources/spawn-wrapper.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -177,11 +176,15 @@ async function runStep(
     const stdoutBuf = new TailBuffer(tailBytes);
     const stderrBuf = new TailBuffer(tailBytes);
 
-    const child = spawn(cmd, args, {
-      cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
-    });
+    // Route through the spawn-wrapper SSoT (T11993) — tool verification
+    // runs use the 'tool' scope class (no oomd-avoid, since these are
+    // short-lived read-mostly processes and not write-txn holders).
+    const { child } = spawnWrapped(
+      cmd,
+      args,
+      { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: process.env },
+      { scopeClass: 'tool' },
+    );
 
     let timedOut = false;
     const timer = setTimeout(() => {

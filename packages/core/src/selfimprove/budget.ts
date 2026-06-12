@@ -84,13 +84,22 @@ export const DEFAULT_BUDGET: SelfImproveBudget = {
 };
 
 /**
+ * @deprecated Use {@link "../resources/spawn-wrapper.js".buildSpawnArgs} instead.
+ *
  * The launch-boundary memory cap — an OPERATIONAL wrapper, NOT an in-code cap.
  *
  * A CORE function cannot portably self-confine to a cgroup (`systemd-run` is
  * Linux-only; re-exec'ing under it from inside the engine is fragile), so the
  * runbook / spawn wrapper that invokes `cleo selfimprove run` wraps it on Linux.
- * On macOS the gondolin VM's own `memory` option bounds the guest. Exported as a
- * documented constant so the spawn wrapper and the runbook share one SSoT string.
+ * On macOS the gondolin VM's own `memory` option bounds the guest.
+ *
+ * **Retired (T11993)**: callers should use
+ * `buildSpawnArgs('cleo', ['selfimprove', 'run', ...], {}, { scopeClass: 'agent' })`
+ * from `@cleocode/core/resources/spawn-wrapper` instead.  This constant remains
+ * exported only for backward compatibility until all doc references are updated.
+ *
+ * The new SSoT places children under `cleo.slice` with coredumps suppressed
+ * via `ulimit -c 0` and staged memory budgets (see spawn-wrapper module TSDoc).
  */
 export const MEMORY_MAX_LAUNCH_WRAPPER =
   'systemd-run --user --scope -p MemoryMax=32G -p MemorySwapMax=0' as const;

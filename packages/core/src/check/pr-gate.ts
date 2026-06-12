@@ -28,6 +28,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { getProjectRoot } from '../paths.js';
+import { buildSpawnArgs, hasSystemdRun } from '../resources/spawn-wrapper.js';
 
 /**
  * A single runnable pre-PR gate. The `command` + `args` are executed verbatim
@@ -271,27 +272,15 @@ export function selectPrGates(opts: Pick<RunPrGateOptions, 'full' | 'only'>): {
 }
 
 /**
- * Is `systemd-run` available on this host? Probed once and cached for the
- * process lifetime.
- */
-let systemdRunAvailable: boolean | undefined;
-function hasSystemdRun(): boolean {
-  if (systemdRunAvailable !== undefined) return systemdRunAvailable;
-  if (process.platform !== 'linux') {
-    systemdRunAvailable = false;
-    return false;
-  }
-  const probe = spawnSync('systemd-run', ['--version'], { stdio: 'ignore' });
-  systemdRunAvailable = probe.status === 0;
-  return systemdRunAvailable;
-}
-
-/**
  * Build the argv for a gate, wrapping heavy gates in a cgroup-capped
- * `systemd-run --user --scope` when available on Linux.
+ * `systemd-run --user --scope` (via the spawn-wrapper SSoT) when available.
+ *
+ * Delegates to {@link buildSpawnArgs} from
+ * `packages/core/src/resources/spawn-wrapper.ts` — the ONLY constructor of
+ * `systemd-run` argv for cleo children (T11993 SSoT enforcement).
  *
  * @param gate the gate definition
- * @param memoryMax MemoryMax value (e.g. `16G`)
+ * @param memoryMax MemoryMax value (e.g. `16G`); passed as a resource override.
  * @returns `{ command, args, capped }`
  * @internal exported for unit testing
  */
@@ -300,21 +289,14 @@ export function buildGateArgv(
   memoryMax: string,
 ): { command: string; args: string[]; capped: boolean } {
   if (gate.heavy && hasSystemdRun()) {
+    const built = buildSpawnArgs(gate.command, gate.args, {
+      scopeClass: 'test',
+      resources: { memoryMax },
+    });
     return {
-      command: 'systemd-run',
-      args: [
-        '--user',
-        '--scope',
-        '--quiet',
-        '-p',
-        `MemoryMax=${memoryMax}`,
-        '-p',
-        'MemorySwapMax=0',
-        '--',
-        gate.command,
-        ...gate.args,
-      ],
-      capped: true,
+      command: built.command,
+      args: built.args,
+      capped: built.mode === 'systemd',
     };
   }
   return { command: gate.command, args: [...gate.args], capped: false };
