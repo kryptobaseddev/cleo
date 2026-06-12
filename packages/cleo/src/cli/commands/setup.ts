@@ -72,13 +72,12 @@ async function _readWhoamiSnapshot(): Promise<{
   credentialCount: number;
 }> {
   try {
-    const { loadConfig } = await import('@cleocode/core/config');
+    const { loadConfig, getConfigValue } = await import('@cleocode/core/config');
     const { getCredentialPool } = await import('@cleocode/core/llm/credential-pool');
     const cfg = await loadConfig();
+    const nameResult = await getConfigValue<string>('agent.name').catch(() => null);
     const agentName =
-      typeof cfg?.identity?.name === 'string' && cfg.identity.name
-        ? cfg.identity.name
-        : 'cleo-agent';
+      typeof nameResult?.value === 'string' && nameResult.value ? nameResult.value : 'cleo-agent';
     const provider = cfg?.llm?.default?.provider ?? '';
     const model = cfg?.llm?.default?.model ?? '';
     let credentialCount = 0;

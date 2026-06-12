@@ -50,7 +50,9 @@ vi.mock('@cleocode/core/config', async (importOriginal) => {
     ...actual,
     setConfigValue: (...a: unknown[]) => mockSetConfigValue(...(a as [])),
     loadConfig: () => mockLoadConfigCore(),
-    getConfigValue: vi.fn(async () => ({ value: undefined })),
+    getConfigValue: vi.fn(async (key: string) => ({
+      value: key === 'agent.name' ? 'test-agent' : undefined,
+    })),
   };
 });
 
