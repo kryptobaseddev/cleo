@@ -98,8 +98,8 @@ export const DEFAULT_BUDGET: SelfImproveBudget = {
  * from `@cleocode/core/resources/spawn-wrapper` instead.  This constant remains
  * exported only for backward compatibility until all doc references are updated.
  *
- * The new SSoT places children under `cleo.slice` with `LimitCORE=0` (zero
- * coredumps) and staged memory budgets (see spawn-wrapper module TSDoc).
+ * The new SSoT places children under `cleo.slice` with coredumps suppressed
+ * via `ulimit -c 0` and staged memory budgets (see spawn-wrapper module TSDoc).
  */
 export const MEMORY_MAX_LAUNCH_WRAPPER =
   'systemd-run --user --scope -p MemoryMax=32G -p MemorySwapMax=0' as const;

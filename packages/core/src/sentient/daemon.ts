@@ -287,7 +287,7 @@ export class StudioSupervisor {
     // Route through the spawn-wrapper SSoT (T11993) so the Studio child lands
     // inside cleo.slice.  Studio is a daemon-class process (it holds the
     // Studio HTTP server state and may hold open DB handles), so it gets
-    // ManagedOOMPreference=avoid + LimitCORE=0.
+    // ManagedOOMPreference=avoid + ulimit -c 0 core suppression.
     const { child } = spawnWrapped(
       process.execPath,
       [studioEntry],

@@ -273,8 +273,9 @@ export async function spawnGatewayIfDown(
 
   try {
     // Route through the spawn-wrapper SSoT (T11993) so the gateway child lands
-    // inside cleo.slice with LimitCORE=0 and — as a daemon-class scope — the
-    // ManagedOOMPreference=avoid flag (write-txn holder protection).
+    // inside cleo.slice with core-dumps suppressed via ulimit -c 0 and —
+    // as a daemon-class scope — the ManagedOOMPreference=avoid flag (write-txn
+    // holder protection).
     const { child } = spawnWrapped(
       process.execPath,
       [cliEntry, ...spawnArgs],

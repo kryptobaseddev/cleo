@@ -121,26 +121,40 @@ describe('buildSpawnArgs — systemd path', () => {
     expect(props['MemorySwapMax']).toBe('0');
   });
 
-  it('emits LimitCORE=0 by default', () => {
+  it('wraps inner command with sh/ulimit by default (noCoreFile=true)', () => {
+    // LimitCORE is a service-unit EXEC property — invalid on --scope units.
+    // Core suppression is done caller-side via ulimit -c 0 instead.
     _forceSystemdRunAvailable(true);
     const result = buildSpawnArgs('node', []);
-    const { props } = parseSystemdRunArgv(result.args);
-    expect(props['LimitCORE']).toBe('0');
+    const { props, innerCommand, innerArgs } = parseSystemdRunArgv(result.args);
+    // No LimitCORE scope property
+    expect(props['LimitCORE']).toBeUndefined();
+    // Inner command is sh running the ulimit fragment
+    expect(innerCommand).toBe('sh');
+    expect(innerArgs[0]).toBe('-c');
+    expect(innerArgs[1]).toContain('ulimit -c 0');
+    expect(innerArgs[1]).toContain('exec "$@"');
+    // The real command is at innerArgs[3] (after 'sh', '-c', '<script>', 'sh')
+    expect(innerArgs[3]).toBe('node');
   });
 
-  it('omits LimitCORE when noCoreFile=false', () => {
+  it('does NOT wrap with sh/ulimit and has no LimitCORE when noCoreFile=false', () => {
     _forceSystemdRunAvailable(true);
     const result = buildSpawnArgs('node', [], { noCoreFile: false });
-    const { props } = parseSystemdRunArgv(result.args);
+    const { props, innerCommand } = parseSystemdRunArgv(result.args);
     expect(props['LimitCORE']).toBeUndefined();
+    // Inner command is the real command directly (no sh wrapping)
+    expect(innerCommand).toBe('node');
   });
 
-  it('passes the original command + args after -- separator', () => {
+  it('passes the original command + args inside sh/ulimit wrapper', () => {
     _forceSystemdRunAvailable(true);
     const result = buildSpawnArgs('pnpm', ['run', 'test', '--reporter=verbose']);
     const { innerCommand, innerArgs } = parseSystemdRunArgv(result.args);
-    expect(innerCommand).toBe('pnpm');
-    expect(innerArgs).toEqual(['run', 'test', '--reporter=verbose']);
+    // sh is the inner command; real command is at innerArgs[3]
+    expect(innerCommand).toBe('sh');
+    expect(innerArgs[3]).toBe('pnpm');
+    expect(innerArgs.slice(4)).toEqual(['run', 'test', '--reporter=verbose']);
   });
 
   it('generates a unit name under cleo-<class>-*.scope pattern', () => {
@@ -210,9 +224,21 @@ describe('buildSpawnArgs — pgid fallback path (no systemd-run)', () => {
     expect(result.mode).toBe('pgid');
   });
 
-  it('returns the original command unchanged', () => {
+  it('wraps with sh/ulimit on pgid path when noCoreFile=true (default)', () => {
+    // ulimit -c 0 suppresses coredumps consistently in both paths.
     _forceSystemdRunAvailable(false);
     const result = buildSpawnArgs('pnpm', ['run', 'test']);
+    expect(result.command).toBe('sh');
+    expect(result.args[0]).toBe('-c');
+    expect(result.args[1]).toContain('ulimit -c 0');
+    // Real command embedded at index 3
+    expect(result.args[3]).toBe('pnpm');
+    expect(result.args.slice(4)).toEqual(['run', 'test']);
+  });
+
+  it('returns the original command unchanged on pgid path when noCoreFile=false', () => {
+    _forceSystemdRunAvailable(false);
+    const result = buildSpawnArgs('pnpm', ['run', 'test'], { noCoreFile: false });
     expect(result.command).toBe('pnpm');
     expect(result.args).toEqual(['run', 'test']);
   });

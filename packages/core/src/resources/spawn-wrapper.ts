@@ -133,8 +133,15 @@ export interface BuildSpawnArgsOptions {
   resources?: SliceResourceConfig;
 
   /**
-   * When `true`, emit `LimitCORE=0` on the scope so that V8-heap aborts and
-   * cgroup hard-cap kills do NOT produce a coredump / abrt-applet toast.
+   * When `true` (default), suppress coredumps by wrapping the inner command
+   * as `sh -c 'ulimit -c 0; exec "$@"' sh <cmd> <args...>`.
+   *
+   * This achieves process-level core suppression without relying on
+   * `LimitCORE=0`, which is a service-unit EXEC property and is rejected by
+   * `systemd-run --scope` ("Unknown assignment: LimitCORE").  The `ulimit -c 0`
+   * approach works identically in the systemd path and the pgid-fallback path,
+   * preventing V8-heap-abort and cgroup-kill coredumps from producing
+   * abrt-applet toasts on Fedora and Ubuntu.
    *
    * Default: `true`.
    */
@@ -211,7 +218,7 @@ export const CLEO_SLICE = 'cleo.slice' as const;
  */
 export const DEFAULT_SCOPE_RESOURCES: Required<SliceResourceConfig> = {
   memoryHigh: 'infinity', // P1: disabled — no throttle (safe until P2 stall-escalator)
-  memoryMax: '32G', // P1: hard cap (benign cgroup kill, no coredump w/ LimitCORE=0)
+  memoryMax: '32G', // P1: hard cap (benign cgroup kill; coredumps suppressed via ulimit -c 0)
 };
 
 /**
@@ -314,13 +321,22 @@ let _scopeCounter = 0;
  * ['systemd-run', '--user', '--scope', '--slice=cleo.slice',
  *   '--unit=cleo-<class>-<id>.scope',
  *   '-p', 'MemoryHigh=<high>', '-p', 'MemoryMax=<max>',
- *   '-p', 'MemorySwapMax=0', '-p', 'LimitCORE=0',
+ *   '-p', 'MemorySwapMax=0',
  *   ['-p', 'ManagedOOMPreference=avoid'],  // daemon/db only
- *   '--', command, ...args]
+ *   '--',
+ *   // when noCoreFile=true (default):
+ *   'sh', '-c', 'ulimit -c 0; exec "$@"', 'sh', command, ...args
+ *   // when noCoreFile=false:
+ *   command, ...args]
  * ```
  *
- * When `systemd-run` is NOT available, the result is the original
- * `[command, ...args]` unchanged, and `mode` is `'pgid'`.
+ * `LimitCORE` is intentionally NOT used — it is a service-unit EXEC property
+ * and is rejected by `systemd-run --scope` with "Unknown assignment: LimitCORE".
+ * Core-dump suppression is applied at the process level instead via
+ * `ulimit -c 0` (POSIX sh, works in both systemd and pgid-fallback paths).
+ *
+ * When `systemd-run` is NOT available, the result is `[command, ...args]`
+ * (or the sh/ulimit-wrapped form when noCoreFile=true) and `mode` is `'pgid'`.
  *
  * @param command - The executable to run (e.g. `'node'`).
  * @param args - Arguments to pass to the executable.
@@ -341,6 +357,15 @@ export function buildSpawnArgs(
         '[cleo:spawn-wrapper] systemd-run unavailable — falling back to plain pgid spawn ' +
           '(no cgroup containment; set NODE_OPTIONS=--max-old-space-size=<mb> externally)\n',
       );
+    }
+    if (noCoreFile) {
+      // Apply ulimit -c 0 in the pgid path as well so core suppression is
+      // consistent regardless of whether systemd is available.
+      return {
+        command: 'sh',
+        args: ['-c', 'ulimit -c 0; exec "$@"', 'sh', command, ...args],
+        mode: 'pgid',
+      };
     }
     return { command, args: [...args], mode: 'pgid' };
   }
@@ -375,16 +400,23 @@ export function buildSpawnArgs(
     wrapArgs.push('-p', `MemoryHigh=${highStr}`);
   }
 
-  if (noCoreFile) {
-    wrapArgs.push('-p', 'LimitCORE=0');
-  }
-
   // Selective oomd-avoid: only for write-txn holder classes.
   if (OOM_AVOID_CLASSES.has(scopeClass)) {
     wrapArgs.push('-p', 'ManagedOOMPreference=avoid');
   }
 
-  wrapArgs.push('--', command, ...args);
+  if (noCoreFile) {
+    // LimitCORE is a service-unit EXEC property — it is NOT valid on scope
+    // units and causes systemd-run to reject the argv with:
+    //   "Unknown assignment: LimitCORE=0"
+    // Suppress coredumps at the process level instead: wrap the inner command
+    // in a tiny sh fragment that sets `ulimit -c 0` then execs the real binary.
+    // This is equivalent to LimitCORE for our purposes and works on both
+    // Fedora and Ubuntu CI runners.
+    wrapArgs.push('--', 'sh', '-c', 'ulimit -c 0; exec "$@"', 'sh', command, ...args);
+  } else {
+    wrapArgs.push('--', command, ...args);
+  }
 
   return {
     command: 'systemd-run',
