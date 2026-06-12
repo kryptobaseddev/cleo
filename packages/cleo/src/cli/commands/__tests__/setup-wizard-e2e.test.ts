@@ -190,8 +190,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { printWhoamiSummaryAndOfferTui } from '@cleocode/core/setup';
 import { _pickOllamaModelInteractive } from '@cleocode/core/setup/sections/models-roles';
-import { _printWhoamiSummaryAndOfferTui, runSetup } from '../setup.js';
+import { runSetup } from '../setup.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -369,9 +370,9 @@ describe('cleo setup — e2e TTY-simulated (T11983)', () => {
   // 4. whoami summary + TUI offer printed on first-run completion
   // -------------------------------------------------------------------------
 
-  it('_printWhoamiSummaryAndOfferTui prints identity + provider + model, TUI declined', async () => {
+  it('printWhoamiSummaryAndOfferTui prints identity + provider + model, TUI declined', async () => {
     const io = new CapturingIO({ confirms: [false] });
-    await _printWhoamiSummaryAndOfferTui(io);
+    await printWhoamiSummaryAndOfferTui(io);
 
     const allOutput = [...io.infos, ...io.warns].join('\n');
 
@@ -391,7 +392,7 @@ describe('cleo setup — e2e TTY-simulated (T11983)', () => {
     expect(allOutput).toMatch(/cleo whoami/);
   });
 
-  it('_printWhoamiSummaryAndOfferTui: accepts gracefully when confirm throws (non-TTY)', async () => {
+  it('printWhoamiSummaryAndOfferTui: accepts gracefully when confirm throws (non-TTY)', async () => {
     const brokenIO: WizardIO = {
       prompt: vi.fn(async () => ''),
       confirm: vi.fn(async () => {
@@ -403,7 +404,7 @@ describe('cleo setup — e2e TTY-simulated (T11983)', () => {
       error: vi.fn(),
     };
     // Must not throw — swallows the error gracefully.
-    await expect(_printWhoamiSummaryAndOfferTui(brokenIO)).resolves.toBeUndefined();
+    await expect(printWhoamiSummaryAndOfferTui(brokenIO)).resolves.toBeUndefined();
   });
 
   // -------------------------------------------------------------------------

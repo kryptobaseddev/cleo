@@ -47,105 +47,13 @@ import type {
 import {
   createDefaultWizardRunner,
   mergeConfigJson,
+  printWhoamiSummaryAndOfferTui,
   WizardInterruptError,
 } from '@cleocode/core/setup';
 import { defineCommand } from 'citty';
 import { ReadlineWizardIO, StdinClosedError } from '../lib/readline-wizard-io.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 import { makeOAuthAcquirer } from './login.js';
-
-// ---------------------------------------------------------------------------
-// Post-wizard helpers (T11983)
-// ---------------------------------------------------------------------------
-
-/**
- * Read a best-effort CLEO identity snapshot for the whoami-style summary.
- *
- * Never throws — returns partial data on any config/credential error.
- *
- * @internal
- */
-async function _readWhoamiSnapshot(): Promise<{
-  agentName: string;
-  provider: string;
-  model: string;
-  credentialCount: number;
-}> {
-  try {
-    const { loadConfig, getConfigValue } = await import('@cleocode/core/config');
-    const { getCredentialPool } = await import('@cleocode/core/llm/credential-pool');
-    const cfg = await loadConfig();
-    const nameResult = await getConfigValue<string>('agent.name').catch(() => null);
-    const agentName =
-      typeof nameResult?.value === 'string' && nameResult.value ? nameResult.value : 'cleo-agent';
-    const provider = cfg?.llm?.default?.provider ?? '';
-    const model = cfg?.llm?.default?.model ?? '';
-    let credentialCount = 0;
-    try {
-      const pool = getCredentialPool();
-      const entries = await pool.list();
-      credentialCount = entries.length;
-    } catch {
-      // best-effort
-    }
-    return { agentName, provider, model, credentialCount };
-  } catch {
-    return { agentName: 'cleo-agent', provider: '', model: '', credentialCount: 0 };
-  }
-}
-
-/**
- * Print a whoami-style summary to stderr and offer to launch the TUI.
- *
- * Called after a successful first-run completion. Output goes to stderr only
- * so the LAFS envelope already written to stdout is never corrupted.
- *
- * The TUI offer uses `io.confirm()` — if the user accepts, launches
- * `cleo tui` via a child_process exec (non-blocking — the wizard process
- * does not wait for TUI exit so the call is fire-and-forget).
- *
- * @param io - Wizard I/O surface (for the TUI offer prompt).
- *
- * @task T11983
- */
-export async function _printWhoamiSummaryAndOfferTui(io: WizardIO): Promise<void> {
-  const snap = await _readWhoamiSnapshot();
-
-  const lines = [
-    '',
-    '─────────────────────────────────────────',
-    'CLEO Setup Complete',
-    '─────────────────────────────────────────',
-    `  Agent name : ${snap.agentName}`,
-    `  Provider   : ${snap.provider || '(not set)'}`,
-    `  Model      : ${snap.model || '(not set)'}`,
-    `  Credentials: ${snap.credentialCount} in pool`,
-    '',
-    "Run 'cleo whoami' for full identity details.",
-    "Run 'cleo llm health' to verify your credentials.",
-    '─────────────────────────────────────────',
-    '',
-  ];
-  for (const line of lines) {
-    io.info(line);
-  }
-
-  // Offer to launch the TUI — non-blocking (fire-and-forget spawn).
-  try {
-    const launch = await io.confirm('Launch the CLEO TUI now?', false);
-    if (launch) {
-      io.info("Launching 'cleo tui'…");
-      const { spawn } = await import('node:child_process');
-      // Detach so the wizard process exits cleanly regardless of TUI lifetime.
-      spawn('cleo', ['tui'], {
-        stdio: 'inherit',
-        detached: false,
-      });
-    }
-  } catch {
-    // If the prompt fails (non-TTY or stdin closed), skip silently.
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Public types — exported so the Studio `/setup` route (T-E3-8) can reuse
@@ -597,7 +505,7 @@ export const setupCommand = defineCommand({
     // offer to launch the TUI.  Output goes to stderr so it never corrupts the
     // LAFS envelope already written to stdout.
     if (result.ok && result.firstRunComplete) {
-      await _printWhoamiSummaryAndOfferTui(io);
+      await printWhoamiSummaryAndOfferTui(io);
     }
 
     if (!result.ok) {

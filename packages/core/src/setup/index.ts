@@ -42,6 +42,7 @@ export {
   createVerificationSection,
   type VerificationCheck,
 } from './sections/verification.js';
+export { printWhoamiSummaryAndOfferTui } from './whoami-summary.js';
 export {
   StubWizardIO,
   WizardFatalError,
