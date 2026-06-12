@@ -1,5 +1,39 @@
 # Changelog
 
+## [2026.6.16] (2026-06-12)
+
+### Added
+
+- cleo setup wizard e2e: fit-gated Ollama model picker, firstRunComplete flag, whoami summary + TUI offer after first-run, 16-test e2e TTY-simulated suite _(provenance: [T11983](https://github.com/kryptobaseddev/cleo/search?q=T11983&type=commits))_
+- DHQ-087: OAuth refresh-on-use at the E9 chokepoint — expired vault OAT is auto-refreshed before provisioning probe; llm test/stream unified through vault chokepoint _(provenance: [T11986](https://github.com/kryptobaseddev/cleo/search?q=T11986&type=commits))_
+- fix-gen resolves opCoord to handler + core source files; bounded context budget; seeded code-regression scenario _(provenance: [T11988](https://github.com/kryptobaseddev/cleo/search?q=T11988&type=commits))_
+- fix-gen logs redacted, truncated model reply on model-declined and fixgen-not-a-diff outcomes; reply excerpt persisted on DHQ evidence row _(provenance: [T11989](https://github.com/kryptobaseddev/cleo/search?q=T11989&type=commits))_
+- janitor MVP — registration-primary process reaper + stale scope/lock/debris sweep (silent, idempotent) _(provenance: [T11995](https://github.com/kryptobaseddev/cleo/search?q=T11995&type=commits))_
+
+### Changed
+
+
+
+### Fixed
+
+- Layout-proof CLI entry resolution for gateway auto-start — fixes MODULE_NOT_FOUND in packaged installs _(provenance: [T12009](https://github.com/kryptobaseddev/cleo/search?q=T12009&type=commits))_
+- cleo login exits cleanly after OAuth success — pause stdin after paste-back read to release the event-loop hold _(provenance: [T12010](https://github.com/kryptobaseddev/cleo/search?q=T12010&type=commits))_
+- publish pipeline builds+stages studio-dist before npm publish; tarball gate asserts every files[] entry exists _(provenance: [T12011](https://github.com/kryptobaseddev/cleo/search?q=T12011&type=commits))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.6.15] (2026-06-12)
 
 ### Added
