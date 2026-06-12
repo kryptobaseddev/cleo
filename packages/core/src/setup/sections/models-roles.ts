@@ -38,6 +38,8 @@ import {
   listProviderModels,
   resolveProviderDefaultModel,
 } from '../../llm/catalog-model-resolver.js';
+import type { LocalModelFitEnvelope } from '../../llm/local-model-fit.js';
+import { LOCAL_FIT_FLOOR_GB } from '../../llm/local-model-fit.js';
 import type { WizardIO, WizardOptions, WizardSectionRunner } from '../wizard.js';
 
 /**
@@ -173,34 +175,47 @@ export function createModelsRolesSection(): WizardSectionRunner {
       }
 
       // 1. Default model selection.
-      const modelChoices = modelChoicesForProvider(defaultProvider);
-      if (modelChoices.length > 1) {
-        const picked = await io.select(
-          `Default model for ${defaultProvider}?`,
-          modelChoices as readonly string[],
-        );
-        if (picked !== SKIP_CHOICE) {
-          await setConfigValue('llm.default.model', picked, undefined, { global: true });
-          await setConfigValue('llm.default.provider', defaultProvider, undefined, {
-            global: true,
-          });
-          changes.push(`default model → ${picked}`);
+      // For local (ollama) providers: use fit-gated recommendations (T11983 AC).
+      // RECOMMEND-NEVER-KILL: never auto-pull, never auto-select; present ranked
+      // options from `rankLocalModelFit`; machines below the 4 GB floor get
+      // cloud-only guidance.
+      if (defaultProvider === 'ollama') {
+        const modelPicked = await _pickOllamaModelInteractive(io);
+        if (modelPicked) {
+          await setConfigValue('llm.default.model', modelPicked, undefined, { global: true });
+          await setConfigValue('llm.default.provider', 'ollama', undefined, { global: true });
+          changes.push(`default model → ${modelPicked}`);
         }
       } else {
-        // Catalog empty — fall back to the resolver's latest, or a free prompt.
-        const latest = resolveProviderDefaultModel(catalogKeyForProvider(defaultProvider));
-        const typed = (
-          await io.prompt(
-            `Default model for ${defaultProvider}${latest ? ` [${latest}]` : ''} (blank to skip):`,
-          )
-        ).trim();
-        const model = typed || latest || '';
-        if (model) {
-          await setConfigValue('llm.default.model', model, undefined, { global: true });
-          await setConfigValue('llm.default.provider', defaultProvider, undefined, {
-            global: true,
-          });
-          changes.push(`default model → ${model}`);
+        const modelChoices = modelChoicesForProvider(defaultProvider);
+        if (modelChoices.length > 1) {
+          const picked = await io.select(
+            `Default model for ${defaultProvider}?`,
+            modelChoices as readonly string[],
+          );
+          if (picked !== SKIP_CHOICE) {
+            await setConfigValue('llm.default.model', picked, undefined, { global: true });
+            await setConfigValue('llm.default.provider', defaultProvider, undefined, {
+              global: true,
+            });
+            changes.push(`default model → ${picked}`);
+          }
+        } else {
+          // Catalog empty — fall back to the resolver's latest, or a free prompt.
+          const latest = resolveProviderDefaultModel(catalogKeyForProvider(defaultProvider));
+          const typed = (
+            await io.prompt(
+              `Default model for ${defaultProvider}${latest ? ` [${latest}]` : ''} (blank to skip):`,
+            )
+          ).trim();
+          const model = typed || latest || '';
+          if (model) {
+            await setConfigValue('llm.default.model', model, undefined, { global: true });
+            await setConfigValue('llm.default.provider', defaultProvider, undefined, {
+              global: true,
+            });
+            changes.push(`default model → ${model}`);
+          }
         }
       }
 
@@ -256,4 +271,120 @@ async function writeRoleBinding(
       global: true,
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Fit-gated local (Ollama) model picker (T11983 AC)
+// ---------------------------------------------------------------------------
+
+/**
+ * Injectable dependency for the Ollama model picker — lets tests stub out
+ * `rankLocalModelFit` without reaching into the real OS/network layer.
+ *
+ * @internal
+ */
+export type LocalModelFitRanker = () => Promise<LocalModelFitEnvelope>;
+
+/**
+ * The default ranker used in production: calls the real `rankLocalModelFit`.
+ *
+ * Lazy import keeps this module free of heavy OS-level side effects at parse
+ * time (Gate-13 compliance: no transport construction at import).
+ *
+ * @internal
+ */
+async function defaultLocalModelFitRanker(): Promise<LocalModelFitEnvelope> {
+  const { rankLocalModelFit } = await import('../../llm/local-model-fit.js');
+  return rankLocalModelFit();
+}
+
+/**
+ * Interactive Ollama model picker driven by fit-gated recommendations (T11983).
+ *
+ * Behaviour:
+ * - Calls `rankLocalModelFit` to detect hardware + Ollama state.
+ * - Below the 4 GB floor → informs the user (cloud-only guidance) and returns
+ *   `null` (caller skips the binding).
+ * - Above the floor with recommendations → presents a ranked pick list of
+ *   2–3 candidates (never auto-selects, never auto-pulls — RECOMMEND-NEVER-KILL).
+ * - Already-pulled models are surfaced first with a `[pulled]` tag.
+ * - Free-text fallback offered as the last option so the user can type any tag.
+ * - Returns the chosen model tag, or `null` if the user skipped.
+ *
+ * The ranker is injectable so tests can supply a stub envelope without
+ * hitting the OS or network.
+ *
+ * @param io - Wizard I/O surface.
+ * @param ranker - Override the fit ranker for tests (defaults to the real one).
+ * @returns The chosen Ollama model tag, or `null` when the user skipped / below floor.
+ *
+ * @task T11983
+ */
+export async function _pickOllamaModelInteractive(
+  io: WizardIO,
+  ranker: LocalModelFitRanker = defaultLocalModelFitRanker,
+): Promise<string | null> {
+  io.info('Detecting local hardware for Ollama model fit ranking…');
+
+  let fitEnvelope: LocalModelFitEnvelope;
+  try {
+    fitEnvelope = await ranker();
+  } catch (err) {
+    io.warn(
+      `Hardware detection failed: ${err instanceof Error ? err.message : String(err)}. ` +
+        'Falling back to manual model entry.',
+    );
+    const typed = (
+      await io.prompt('Enter Ollama model tag (e.g. gemma4:e2b) or blank to skip:')
+    ).trim();
+    return typed || null;
+  }
+
+  const hw = fitEnvelope.hardware;
+  io.info(
+    `  Hardware: ${hw.totalRamGb.toFixed(1)} GB RAM, ` +
+      (hw.vramTotalGb !== null ? `${hw.vramTotalGb.toFixed(1)} GB VRAM` : 'no GPU detected') +
+      (fitEnvelope.ollamaRunning ? ', Ollama running' : ', Ollama not running'),
+  );
+
+  // Below floor: guide to cloud-only.
+  if (fitEnvelope.noRecommendationReason) {
+    io.warn(
+      `\nLocal model recommendation not available: ${fitEnvelope.noRecommendationReason}\n` +
+        `This machine has ${hw.totalRamGb.toFixed(1)} GB RAM — local LLM inference requires at least ${LOCAL_FIT_FLOOR_GB} GB.\n` +
+        'Please use a cloud provider (anthropic, openai, gemini, etc.) instead.',
+    );
+    return null;
+  }
+
+  // Build choice list from fit recommendations.
+  const recs = fitEnvelope.recommendations;
+  if (recs.length === 0) {
+    io.warn('No local model candidates fit this machine. Consider a cloud provider.');
+    const typed = (await io.prompt('Enter Ollama model tag manually (blank to skip):')).trim();
+    return typed || null;
+  }
+
+  io.info('\nRecommended local models (ranked by hardware fit):');
+  const choices: string[] = recs.map((r) => {
+    const tag = r.candidate.modelTag;
+    const pulled = r.alreadyPulled ? ' [pulled]' : '';
+    return `${tag}${pulled} (${r.fitTier})`;
+  });
+  // Always offer a manual-entry option so the user is never locked in.
+  choices.push('(enter manually)');
+  choices.push(SKIP_CHOICE);
+
+  const picked = await io.select('Choose a local model for Ollama:', choices as readonly string[]);
+
+  if (picked === SKIP_CHOICE) return null;
+
+  if (picked === '(enter manually)') {
+    const typed = (await io.prompt('Enter Ollama model tag (e.g. gemma4:e2b):')).trim();
+    return typed || null;
+  }
+
+  // Strip the suffix annotation to get the raw model tag.
+  const rawTag = picked.split(' ')[0] ?? picked;
+  return rawTag;
 }
