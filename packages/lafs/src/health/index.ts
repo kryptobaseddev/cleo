@@ -9,11 +9,21 @@
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-let pkg: { version: string };
+// T12011: Both require() calls use relative paths that are valid when running
+// from the source/dist location but break when Vite's SSR bundler inlines this
+// module into a different output path (e.g. .svelte-kit/output/server/chunks/).
+// The outer catch guarantees that a version-resolution failure in a bundled
+// context never prevents the health middleware from loading.
+let pkg: { version: string } = { version: 'unknown' };
 try {
-  pkg = require('../../package.json');
+  try {
+    pkg = require('../../package.json') as { version: string };
+  } catch {
+    pkg = require('../../../package.json') as { version: string };
+  }
 } catch {
-  pkg = require('../../../package.json');
+  // Running from a bundled SSR context where relative require() paths do not
+  // resolve — version falls back to 'unknown'. Health checks still work.
 }
 
 /** Configuration for the {@link healthCheck} middleware. */
