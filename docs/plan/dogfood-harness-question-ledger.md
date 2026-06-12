@@ -1293,7 +1293,7 @@ Fix (`T12009` / PR): replaced fixed-depth arithmetic with a walk up the director
 
 Meta-lesson (DHQ-086 class): merging a batteries-included AC (`T11980`) without a packaged-install e2e of the new spawn path means the regression only surfaces in production.
 
-### DHQ-097 — `cleo login` hangs after successful OAuth — process never exits — **OPEN** (`T12010` ← `T11679`)
+### DHQ-097 — `cleo login` hangs after successful OAuth — process never exits — **FIXED #1096** (`T12010` ← `T11679`)
 
 Owner surface: CORE OAuth login — process exit after token storage.
 
@@ -1307,3 +1307,13 @@ Owner surface: CORE release pipeline — `release.yml` build + publish phase.
 Observed auditing the installed v2026.6.15 package: `packages/cleo/package.json` `files[]` includes `"studio-dist"` but the installed `@cleocode/cleo` has no `studio-dist/` directory. npm silently omits `files[]` entries that do not exist at publish time. T11979/#1074 added the entry and the `copy-studio-dist.mjs` staging script but the `release.yml` publish job never built `@cleocode/studio` — so `packages/cleo/studio-dist/` was never created in CI, and npm silently dropped it. `cleo web` boots the gateway (post-T12009) but `/studio` returns `E_STUDIO_BUNDLE_ABSENT` from every global install.
 
 Answer vehicle: (1) add an explicit "Build Studio bundle and stage into packages/cleo" CI step running `@cleocode/brain` + `@cleocode/studio` builds + `copy-studio-dist.mjs` before any publish step; (2) new `scripts/assert-cleo-tarball.mjs` gate that asserts every `files[]` entry exists on disk and that `studio-dist/client/_app/` is present — hard fail with `::error::` annotation on any missing entry so the regression can never ship silently again. Also add missing transitive deps (`@cleocode/cant`, `@cleocode/caamp`, `jsonc-parser`) to `packages/studio/package.json` so pnpm links them for the SvelteKit adapter-node SSR build.
+
+### DHQ-099 — published core dist deep-imports unpublished @cleocode/utils (hardcoded Wave 7.5 list rotted); v2026.6.17 dead on import — **FIXED in this PR** (T12012)
+
+Owner surface: CORE build pipeline — `build.mjs` Wave 7.5 + `packages/core/scripts/check-core-bundle-budget.mjs` AC1 gate + `release.yml` packed-install smoke.
+
+Observed on installed v2026.6.17: EVERY cleo invocation including `--version` died with `ERR_MODULE_NOT_FOUND: Cannot find package '@cleocode/utils' imported from @cleocode/core/dist/selfimprove/fix-gen.js`. Root cause: `build.mjs` Wave 7.5 surgically re-emits `@cleocode/utils`-consuming core source files via esbuild (inlining utils) to repair the bare import left by the playbooks `tsc -b` reference build. This worked correctly for the three original consumers (memory/redaction, llm/plugin-facade, docs/export-document), but the list was HARDCODED. T11989 (#1093) added a fourth consumer — `packages/core/src/selfimprove/fix-gen.ts` — and the hardcoded list was not updated. The workspace resolves utils via symlinks so CI passed; packed npm install exploded.
+
+Two structural gates also failed to catch it: (1) the bundle-budget gate's AC1 check only probes EXPORTED submodule entry points in package.json `exports` — `selfimprove/fix-gen.js` is a deep-linked file not in the exports map, so AC1 never scanned it; (2) there was no packed-install smoke test in the release pipeline, making this the third packaged-only failure in 24h.
+
+Answer vehicle: (T12012) (1) replace Wave 7.5 hardcoded list with a runtime scan of `packages/core/src/**/*.ts` (excluding tests) for import specifiers matching `@cleocode/utils` — logged at build time, permanently self-maintaining; (2) add a Wave 7.5 post-build assertion that hard-fails the build if any `packages/core/dist/**/*.js` retains a bare `@cleocode/utils` import; (3) extend bundle-budget AC1 with a full-dist-tree sweep (Pass B) covering ALL `.js` files under `dist/`, not just exported submodule entry points; (4) new `scripts/packed-install-smoke.mjs` — packs all 18 published packages, installs @cleocode/cleo into an isolated tmp dir with local tarball `overrides` (no registry traffic), runs `cleo --version` and asserts exit 0; (5) wire the smoke script as a hard gate in `release.yml` after the existing tarball verification steps.

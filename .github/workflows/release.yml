@@ -426,6 +426,21 @@ jobs:
       - name: Verify @cleocode/cleo tarball contents (T12011)
         run: node scripts/assert-cleo-tarball.mjs
 
+      # T12012: Hard gate — packed-install smoke test. Catches the class of
+      # regression where a published package's dist imports a workspace-private
+      # package that is NOT declared in that package's dependencies (and therefore
+      # absent from npm). This is the third packaged-install-only failure in 24h
+      # (DHQ-096 entry path, DHQ-098 studio-dist, DHQ-099 @cleocode/utils in
+      # selfimprove/fix-gen.js). The workspace resolves everything via symlinks so
+      # CI passes, but a fresh `npm install` trips ERR_MODULE_NOT_FOUND.
+      #
+      # Mechanism: npm pack all published packages into a temp dir, then npm
+      # install @cleocode/cleo into an isolated app with package.json `overrides`
+      # mapping every @cleocode/* to its local tarball (no registry traffic), then
+      # run `cleo --version` and assert exit 0 + non-empty version string.
+      - name: Packed-install smoke test (T12012)
+        run: node scripts/packed-install-smoke.mjs
+
       - name: Validate build output
         run: |
           declare -a required_artifacts=(
