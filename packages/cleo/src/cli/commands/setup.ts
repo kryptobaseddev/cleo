@@ -47,6 +47,7 @@ import type {
 import {
   createDefaultWizardRunner,
   mergeConfigJson,
+  printWhoamiSummaryAndOfferTui,
   WizardInterruptError,
 } from '@cleocode/core/setup';
 import { defineCommand } from 'citty';
@@ -78,6 +79,7 @@ export type CleoSetupSection = WizardSection;
  * `@cleocode/core` directly.
  *
  * @task T9421
+ * @task T11983
  */
 export interface CleoSetupResult {
   /** Section ids that actually executed (in order). */
@@ -86,6 +88,16 @@ export interface CleoSetupResult {
   summary: string[];
   /** `true` if every section reported success (no `failed:` summary). */
   ok: boolean;
+  /**
+   * `true` when all sections completed successfully and the first-run
+   * completion marker was written (mirrors {@link WizardRunResult.firstRunComplete}).
+   *
+   * `false` for single-section runs (`--section`) and whenever any section
+   * produced a `failed:` summary line.
+   *
+   * @task T11983
+   */
+  firstRunComplete: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +327,7 @@ export async function runSetup(
     sectionsRun: runResult.sectionsRun,
     summary: runResult.summary,
     ok: isOk(runResult),
+    firstRunComplete: runResult.firstRunComplete,
   };
 }
 
@@ -477,6 +490,9 @@ export const setupCommand = defineCommand({
       io.close();
     }
 
+    // --- Post-wizard: whoami-style summary + TUI offer (T11983) ------------
+    // Emit the LAFS envelope FIRST (before the human-readable footer) so
+    // JSON consumers reading stdout get a clean single envelope.
     cliOutput(result, {
       command: 'setup',
       operation: 'setup.run',
@@ -484,6 +500,13 @@ export const setupCommand = defineCommand({
         ? `Setup completed (${result.sectionsRun.length} section(s)).`
         : `Setup finished with errors (${result.sectionsRun.length} section(s)).`,
     });
+
+    // After successful first-run completion, print a whoami-style summary and
+    // offer to launch the TUI.  Output goes to stderr so it never corrupts the
+    // LAFS envelope already written to stdout.
+    if (result.ok && result.firstRunComplete) {
+      await printWhoamiSummaryAndOfferTui(io);
+    }
 
     if (!result.ok) {
       process.exit(1);
