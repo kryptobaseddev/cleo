@@ -395,6 +395,10 @@ async function _headlessPkceFlow(
   return new Promise<string>((resolve, reject) => {
     process.stdin.setEncoding('utf8');
     process.stdin.once('data', (chunk) => {
+      // Pause immediately after reading one chunk so the resumed stream does
+      // not keep the Node.js event loop alive after the promise settles
+      // (T12010 — process hung indefinitely after successful OAuth).
+      process.stdin.pause();
       const parsed = parseAuthorizationInput(String(chunk));
       if (!parsed.code) {
         reject(new Error('Pasted input is missing the authorization "code" parameter'));
