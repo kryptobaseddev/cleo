@@ -4,7 +4,78 @@
  * @task T5240
  * @task T9214 — orchestrator-defer waiver field (W4 UX hardening)
  * @task T9215 — DelegateTaskEnvelope discriminated-union type (W1 wiring)
+ * @task T11998 — per-session suite containment (AgentSuiteOwnership)
  */
+
+// =============================================================================
+// Agent suite ownership handle (T11998 — suite containment)
+// =============================================================================
+
+/**
+ * Containment mode used when spawning an agent process tree.
+ *
+ * - `'systemd'` — the agent and its MCP children run inside a transient
+ *   `systemd --user` scope unit.  The scope is the kill handle.
+ * - `'pgid'` — the agent runs in its own POSIX process group.  Negative-PID
+ *   kill (`kill(-pgid, SIGTERM)`) reaps the whole group.
+ * - `'none'` — no containment (detached+unref legacy path).  The janitor
+ *   (T11995) is the only backstop.
+ */
+export type AgentContainmentMode = 'systemd' | 'pgid' | 'none';
+
+/**
+ * Ownership/cleanup handle recorded per spawned agent session.
+ *
+ * This record is stored alongside the {@link SpawnResult} so that
+ * `terminate()` and session-end flows can reap the entire process tree
+ * (including indirectly-spawned MCP grandchildren) via a single kill.
+ *
+ * ## Systemd path
+ * `systemctl --user stop <unitName>` stops the scope and all processes
+ * inside it.  If the scope has already exited, use `reset-failed` to clear
+ * the failed-unit ledger; ESRCH / no-such-unit errors are no-ops.
+ *
+ * ## Pgid path
+ * `process.kill(-pgid, 'SIGTERM')` sends SIGTERM to every process in the
+ * group.  After a grace period, `process.kill(-pgid, 'SIGKILL')` cleans
+ * up survivors.  ESRCH is a no-op (group already gone).
+ *
+ * @task T11998
+ */
+export interface AgentSuiteOwnership {
+  /**
+   * Containment mode in effect for this agent spawn.
+   *
+   * Determines which reap primitive to use on session end.
+   */
+  readonly mode: AgentContainmentMode;
+
+  /**
+   * Systemd transient scope unit name (e.g. `cleo-agent-session-T1234.scope`).
+   *
+   * Present only when `mode === 'systemd'`.  Use as the argument to
+   * `systemctl --user stop <unitName>`.
+   */
+  readonly unitName?: string;
+
+  /**
+   * POSIX process-group ID of the spawned agent root process.
+   *
+   * Present only when `mode === 'pgid'`.  Use as negative-PID with kill:
+   * `process.kill(-pgid, 'SIGTERM')`.
+   *
+   * When `mode === 'systemd'` the pgid is also populated as a fallback
+   * handle (e.g. if the scope unit is unavailable at reap time).
+   */
+  readonly pgid?: number;
+
+  /**
+   * PID of the direct child process spawned by cleo.
+   *
+   * Informational — prefer `unitName` or `pgid` for reaping.
+   */
+  readonly pid?: number;
+}
 
 export interface AdapterSpawnProvider {
   canSpawn(): Promise<boolean>;
@@ -48,6 +119,14 @@ export interface SpawnResult {
   endTime?: string;
   /** Error message when status is 'failed'. Contains details about what went wrong. */
   error?: string;
+  /**
+   * Suite containment ownership handle (T11998).
+   *
+   * Present when the spawn provider recorded containment info.
+   * Use this to reap the entire MCP suite tree on session end or terminate().
+   * Absent for legacy spawns that used detached+unref without containment.
+   */
+  ownership?: AgentSuiteOwnership;
 }
 
 // =============================================================================
