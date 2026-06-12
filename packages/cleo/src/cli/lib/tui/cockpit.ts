@@ -33,6 +33,8 @@
  * @epic T11916
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createCleoClient } from '@cleocode/core/gateway-client';
 import { type SpawnGatewayOptions, spawnGatewayIfDown } from '../gateway-auto-start.js';
 import {
@@ -573,6 +575,9 @@ export async function runCockpit(
   // Derive port/host from baseUrl for the auto-start probe.
   let gatewayAutoStarted = false;
   const autoStart = options.autoStart !== false; // default true
+  // Capture the spawn failure reason so we can surface it when the gateway
+  // remains unreachable (T12009: previously discarded, making diagnosis hard).
+  let autoStartFailReason: string | undefined;
 
   // 1. Fetch home data through the SDK. null ⇒ daemon unreachable.
   let rows = await fetchTaskRows(baseUrl);
@@ -599,12 +604,35 @@ export async function runCockpit(
       gatewayAutoStarted = spawnResult.spawned;
       // Re-fetch now that the gateway is up.
       rows = await fetchTaskRows(baseUrl);
+    } else {
+      // Preserve the failure reason for the user-facing error block below.
+      autoStartFailReason = spawnResult.reason;
     }
   }
 
   if (rows === null) {
     sink('CLEO cockpit: the daemon gateway is not reachable.');
     sink(`  Tried: ${baseUrl}/v1`);
+    // Surface the auto-start failure reason so the next such defect is
+    // diagnosable in one run (T12009 — previously this was silently discarded).
+    if (autoStartFailReason !== undefined) {
+      sink(`  auto-start: ${autoStartFailReason}`);
+    }
+    // Append the last line of gateway.err (the child's stderr) when readable —
+    // that one line would have made T12009 a 1-minute diagnosis.
+    try {
+      const { getCleoLogDir } = await import('@cleocode/core');
+      const errPath = join(getCleoLogDir(), 'gateway.err');
+      const errContent = readFileSync(errPath, 'utf8').trimEnd();
+      if (errContent.length > 0) {
+        const lastLine = errContent.split('\n').at(-1) ?? '';
+        if (lastLine.length > 0) {
+          sink(`  gateway.err: ${lastLine}`);
+        }
+      }
+    } catch {
+      // Non-fatal: log file absent or unreadable — skip silently.
+    }
     sink('  Start it with:  cleo daemon serve');
     sink('  (override the target with:  cleo tui --base-url <url>)');
     return { outcome: 'daemon-down', baseUrl, piTui: false, gatewayAutoStarted };

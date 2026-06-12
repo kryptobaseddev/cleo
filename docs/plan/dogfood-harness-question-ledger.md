@@ -1282,3 +1282,21 @@ Owner surface: CORE provider/model selection — `selectProviderModel` candidate
 Observed: the provisioning-aware selector (DHQ-081's fix, `T11978`) chose `wouldPickModel=gpt-5.5-pro` (catalog-newest ranking) but the `codex_responses` ChatGPT-account wire rejects it with a 400 — the capability table for that transport only supports `gpt-5.5` and the `gpt-5.5-pro` variant is not served on the ChatGPT-account-backed Codex endpoint. Fix-gen degraded to no-patch as a result. Workaround active: `cleo llm use openai --model gpt-5.5` (a config pin that wins unconditionally in the selector).
 
 Answer vehicle: a wire/account capability table that constrains the candidate model set before `release_date` ranking — each transport/wire reports which model IDs it can actually serve; the cross-provider selector filters to the intersection before picking the newest. Remove the manual pin once capability-aware selection is in place.
+
+### DHQ-096 — bare `cleo` auto-start dead in packaged installs — `resolveCliEntryPath` hardcoded source-tree depth, child died with `MODULE_NOT_FOUND` — **FIXED in this PR** (`T12009`)
+
+Owner surface: CORE gateway auto-start — `packages/cleo/src/cli/lib/gateway-auto-start.ts` `resolveCliEntryPath`.
+
+Observed live on v2026.6.15 (`~/.local/state/cleo/gateway.err`): `Cannot find module '/home/keatonhoskins/.npm-global/lib/dist/cli/index.js'`. The auto-started gateway child died instantly on every packaged install; `cleo` (bare, TTY) always printed "daemon gateway is not reachable". Root cause: `resolveCliEntryPath` computed `join(dirname(import.meta.url), '..', '..', '..', '..', '..')` — written for the source layout (`src/cli/lib/` is 3 dirs inside the package), but the esbuild bundle inlines ALL source into `<pkg>/dist/cli/index.js`. From inside the bundle `import.meta.url` IS `<pkg>/dist/cli/index.js`, so 5 `..` escapes the package and lands at `.npm-global/lib/`, not the package root. A secondary observability gap: `spawnResult.reason` was discarded by `runCockpit`, so the error was invisible even when looking at the TUI output.
+
+Fix (`T12009` / PR): replaced fixed-depth arithmetic with a walk up the directory tree to the nearest ancestor `package.json` with `name === "@cleocode/cleo"`, then return `<pkgRoot>/dist/cli/index.js`. `realpathSync` resolves symlinked global-bin layouts before the walk. Descriptive error surfaced when dist is absent or package not found. `runCockpit` now emits `  auto-start: <reason>` and the last line of `gateway.err` when the gateway stays unreachable. Four regression tests cover (a) bundled layout, (b) symlinked-bin, (c) missing-dist → throw, (d) no package → throw. Live proof: `CLEO Cockpit — Kanban (498 tasks)` rendered; port 7777 confirmed accepting.
+
+Meta-lesson (DHQ-086 class): merging a batteries-included AC (`T11980`) without a packaged-install e2e of the new spawn path means the regression only surfaces in production.
+
+### DHQ-097 — `cleo login` hangs after successful OAuth — process never exits — **OPEN** (`T12010` ← `T11679`)
+
+Owner surface: CORE OAuth login — process exit after token storage.
+
+Observed: after `cleo login anthropic` completes the browser-approve → token-exchange flow and stores the `sk-ant-oat` credential, the process hangs indefinitely. The user must Ctrl-C to return to the shell. The token IS stored (subsequent `cleo llm test` works), but the CLI process never calls `process.exit()` after the flow completes. Likely cause: an open handle (event emitter, timer, or HTTP server from the OAuth callback listener) that is not torn down after token storage.
+
+Answer vehicle: identify the open handle via `--expose-gc` / `wtfnode` in dev, ensure the OAuth callback HTTP server is `server.close()`d and all timers are cleared after the token is stored, and add a process exit path (`process.exit(0)`) as a final backstop if handles remain open after a 500 ms grace period. Regression test: run `cleo login anthropic` with a mock token-exchange endpoint and assert the process exits within 2 seconds of the exchange completing.
