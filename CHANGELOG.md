@@ -1,6 +1,8 @@
 # Changelog
 
-## [2026.6.16] (2026-06-12)
+## [2026.6.17] (2026-06-12)
+
+> Published as v2026.6.17 — the v2026.6.16 tag was never published (its release run failed on the new studio-dist gate; fixed by #1100 which this release includes).
 
 ### Added
 
