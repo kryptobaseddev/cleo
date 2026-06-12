@@ -438,6 +438,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "context.inject",
       "detect",
       "map",
+      "janitor.run",
     ],
     "query": [
       "version",
@@ -847,7 +848,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `308`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `309`;
 
 exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — domain-grouped operations snapshot > tier-2-groupedOperations 1`] = `
 {
@@ -881,6 +882,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "import",
       "detect",
       "map",
+      "janitor.run",
     ],
     "query": [
       "version",
@@ -1467,4 +1469,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `442`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `443`;

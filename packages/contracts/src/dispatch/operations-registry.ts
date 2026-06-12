@@ -9881,4 +9881,31 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+  // T11995 — Janitor MVP: orphan process reaper + stale scope/lock/debris sweep
+  {
+    gateway: 'mutate',
+    domain: 'admin',
+    operation: 'janitor.run',
+    description:
+      'admin.janitor.run (mutate) — run the janitor sweep: reap orphan processes, stop dead cleo-owned scopes, reclaim stale locks, prune tmp debris',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Report planned actions without mutating anything.',
+      },
+      {
+        name: 'gracePeriodMs',
+        type: 'number',
+        required: false,
+        description:
+          'Minimum age (ms) of an unregistered process before reap eligibility (default: 600000).',
+      },
+    ] satisfies ParamDef[],
+  },
 ];

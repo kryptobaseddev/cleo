@@ -581,6 +581,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/issue.js')).issueCommand as CommandDef,
   },
   {
+    exportName: 'janitorCommand',
+    name: 'janitor',
+    description: 'Orphan process reaper and stale scope/lock/debris sweep (silent, idempotent)',
+    load: async () => (await import('../commands/janitor.js')).janitorCommand as CommandDef,
+  },
+  {
     exportName: 'labelsCommand',
     name: 'labels',
     description: 'List all labels (no args), or show tasks for a label (cleo labels <name>)',
