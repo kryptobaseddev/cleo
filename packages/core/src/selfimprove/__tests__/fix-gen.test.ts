@@ -46,6 +46,7 @@ import {
   generateFixPatch,
   looksLikeUnifiedDiff,
   stripCodeFences,
+  truncateReply,
 } from '../fix-gen.js';
 import type { LoadedFileContext } from '../fix-gen-context.js';
 import type { ReplayDispatch } from '../replay.js';
@@ -230,6 +231,89 @@ describe('fix-gen — generateFixPatch with a deterministic fake', () => {
   });
 });
 
+// ── T11989 — reply-logging tests ─────────────────────────────────────────────
+describe('T11989 — declined/not-a-diff outcomes log + attach reply excerpt', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = join(tmpdir(), `fixgen-t11989-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(root, { recursive: true });
+  });
+
+  afterEach(() => {
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  });
+
+  it('(a) declined reply lands in the FixGenResult replyExcerpt truncated at 3 KiB', async () => {
+    // Build a reply that exceeds the 3072-byte cap so we exercise truncation.
+    const longReply = 'NO_PATCH — reason: ' + 'x'.repeat(4000);
+    const generator: FixGenerator = {
+      propose: vi.fn(async () => ({
+        kind: 'none' as const,
+        reason: 'model-declined',
+        rawReply: truncateReply(longReply),
+      })),
+    };
+    const res = await generateFixPatch({ request: makeRequest(root), generator, cwd: root });
+
+    expect(res.kind).toBe('skipped');
+    if (res.kind !== 'skipped') throw new Error('unreachable');
+    expect(res.reason).toContain('model-declined');
+    // replyExcerpt must be present and bounded.
+    expect(res.replyExcerpt).toBeDefined();
+    const excerpt = res.replyExcerpt!;
+    // Must be truncated (original is > 3072 bytes).
+    expect(excerpt).toContain('…[truncated');
+    // Must not exceed the budget (the marker itself may add a few chars, but the
+    // original content portion is capped).
+    expect(Buffer.byteLength(excerpt, 'utf8')).toBeLessThan(3200);
+    // No patch file written.
+    expect(existsSync(join(root, `selfimprove-${SCENARIO}.patch`))).toBe(false);
+  });
+
+  it('(b) a seeded credential string in the reply is redacted', async () => {
+    const secretApiKey = 'sk-ant-api03-ShouldNotAppearInLogs';
+    const bearerToken = 'Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.fake';
+    const replyWithSecrets = `I cannot fix this. Token: ${secretApiKey} Auth: ${bearerToken}`;
+
+    // Call truncateReply directly (the path exercised by createLlmFixGenerator).
+    const excerpt = truncateReply(replyWithSecrets);
+
+    expect(excerpt).not.toContain(secretApiKey);
+    expect(excerpt).not.toContain(bearerToken);
+    // The redaction marker '[REDACTED]' should be present.
+    expect(excerpt).toContain('[REDACTED]');
+  });
+
+  it('(c) valid-diff path logs nothing extra (replyExcerpt is absent on written result)', async () => {
+    const generator = fakeGenerator({ kind: 'patch', diff: CANNED_PATCH, model: 'fake-model' });
+    const res = await generateFixPatch({ request: makeRequest(root), generator, cwd: root });
+
+    expect(res.kind).toBe('written');
+    // The written variant has no replyExcerpt field — confirm the type contract.
+    expect('replyExcerpt' in res).toBe(false);
+  });
+
+  it('fixgen-not-a-diff path attaches replyExcerpt from the non-diff output', async () => {
+    const proseReply = 'Sorry, I cannot propose a fix for this regression.';
+    const generator = fakeGenerator({ kind: 'patch', diff: proseReply, model: 'm' });
+    const res = await generateFixPatch({ request: makeRequest(root), generator, cwd: root });
+
+    expect(res.kind).toBe('skipped');
+    if (res.kind !== 'skipped') throw new Error('unreachable');
+    expect(res.reason).toBe('fixgen-not-a-diff');
+    // replyExcerpt must carry the (redacted) prose.
+    expect(res.replyExcerpt).toBeDefined();
+    expect(res.replyExcerpt).toContain('Sorry');
+    // No patch file written.
+    expect(existsSync(join(root, `selfimprove-${SCENARIO}.patch`))).toBe(false);
+  });
+});
+
 /**
  * Build a dispatch port that DIVERGES from the golden so the loop finds a
  * regression (mirrors the run-loop test's regressionDispatch).
@@ -369,5 +453,46 @@ describe('run-loop CAPSTONE — regression → fix-gen → DRAFT PR (determinist
     if (res.draftPr?.kind === 'error') {
       expect(res.draftPr.code).toBe('E_NOT_FOUND');
     }
+  });
+
+  it('T11989: model-declined reply excerpt is persisted on the DHQ evidence row', async () => {
+    // Simulate a generator that declines with a pre-sanitized rawReply excerpt
+    // (as createLlmFixGenerator would produce after truncateReply).
+    const declineExcerpt = 'I cannot produce a fix for this regression.';
+    const generator: FixGenerator = {
+      propose: vi.fn(async () => ({
+        kind: 'none' as const,
+        reason: 'model-declined',
+        rawReply: declineExcerpt,
+      })),
+    };
+
+    const res = await runSelfImprove({
+      scenario: SCENARIO,
+      dispatch: regressionDispatch(),
+      backend: 'in-process',
+      guard,
+      adapter: realAdapter,
+      cwd: projectRoot,
+      execute: true,
+      piRunnerEnabled: true,
+      fixGenerator: generator,
+    });
+
+    // Fix-gen must have run and returned skipped (no patch written).
+    expect(res.fixGen?.kind).toBe('skipped');
+    if (res.fixGen?.kind === 'skipped') {
+      expect(res.fixGen.reason).toContain('model-declined');
+      // The replyExcerpt propagates through generateFixPatch → FixGenResult.
+      expect(res.fixGen.replyExcerpt).toBe(declineExcerpt);
+    }
+
+    // The evidence row stored on the DHQ must contain the excerpt so the
+    // operator can diagnose the model's actual output.
+    const evidenceRaw = openRegressionJson();
+    expect(evidenceRaw).not.toBeNull();
+    const evidence = JSON.parse(evidenceRaw!);
+    expect(evidence.fixGen).toBeDefined();
+    expect(evidence.fixGen.replyExcerpt).toBe(declineExcerpt);
   });
 });

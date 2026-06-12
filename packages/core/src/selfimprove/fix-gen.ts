@@ -41,6 +41,7 @@
 import { writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { cwd as processCwd } from 'node:process';
+import { redact } from '@cleocode/utils';
 import type { Logger } from 'pino';
 import type { DiffEntry } from './envelope-diff.js';
 import {
@@ -49,6 +50,13 @@ import {
   loadFileContext,
   renderFileContextSection,
 } from './fix-gen-context.js';
+
+/**
+ * Maximum byte length of a model-reply excerpt stored in DHQ evidence or logs.
+ * Replies beyond this threshold are truncated with a marker so logs stay bounded
+ * while preserving enough context for diagnosis.
+ */
+const REPLY_EXCERPT_MAX_BYTES = 3072;
 
 /**
  * The E9 system-of-use label the fix-generator resolves its model under. Maps to
@@ -118,6 +126,13 @@ export type FixGenOutput =
       readonly kind: 'none';
       /** Machine-stable reason for the absence. */
       readonly reason: string;
+      /**
+       * Credential-redacted, byte-bounded excerpt of the raw model reply (when the
+       * reason is `'model-declined'`). Absent for failure modes that have no reply
+       * (e.g. `'no-credential-resolved'`). Callers that log or persist this field
+       * MUST NOT additionally redact — it is pre-sanitized by the generator.
+       */
+      readonly rawReply?: string;
     };
 
 /**
@@ -154,6 +169,14 @@ export type FixGenResult =
       readonly kind: 'skipped';
       /** Machine-stable reason recorded on the DHQ evidence. */
       readonly reason: string;
+      /**
+       * Credential-redacted, byte-bounded excerpt of the raw model reply for
+       * `'model-declined'` and `'fixgen-not-a-diff'` outcomes. Absent for
+       * generator errors and other failure modes that have no usable reply text.
+       * Persisted on the DHQ evidence row so the loop operator can diagnose the
+       * model's actual output without re-running.
+       */
+      readonly replyExcerpt?: string;
     };
 
 /**
@@ -275,6 +298,28 @@ export function buildFixGenPrompt(
 }
 
 /**
+ * Produce a credential-redacted, byte-bounded excerpt of a raw model reply for
+ * safe logging and DHQ evidence attachment.
+ *
+ * The excerpt is at most {@link REPLY_EXCERPT_MAX_BYTES} UTF-8 bytes. When the
+ * reply is longer a `…[truncated <N> bytes]` marker replaces the tail so the
+ * caller can distinguish a genuinely-short reply from a truncated one. The
+ * returned string is already passed through {@link redact} so no downstream
+ * scrubbing is needed.
+ *
+ * @param reply - The raw model reply text.
+ * @returns A scrubbed, bounded excerpt string.
+ */
+export function truncateReply(reply: string): string {
+  const scrubbed = redact(reply);
+  const buf = Buffer.from(scrubbed, 'utf8');
+  if (buf.byteLength <= REPLY_EXCERPT_MAX_BYTES) return scrubbed;
+  const truncated = buf.subarray(0, REPLY_EXCERPT_MAX_BYTES).toString('utf8');
+  const overflow = buf.byteLength - REPLY_EXCERPT_MAX_BYTES;
+  return `${truncated}…[truncated ${overflow} bytes]`;
+}
+
+/**
  * Lazily-resolved module logger (import-time side-effect-free).
  */
 let cachedLogger: Logger | undefined;
@@ -324,19 +369,37 @@ export async function generateFixPatch(opts: GenerateFixPatchOptions): Promise<F
   }
 
   if (output.kind === 'none') {
-    logger.info(
-      { dhqId: request.dhqId, scenario: request.scenario, reason: output.reason },
-      'fix-gen produced no patch (graceful skip — no PR)',
-    );
-    return { kind: 'skipped', reason: `fixgen-none:${output.reason}` };
+    // For model-declined the generator already pre-sanitized the rawReply field;
+    // log it at debug so the reply is visible without noise on green runs.
+    const replyExcerpt = output.rawReply;
+    if (replyExcerpt !== undefined) {
+      logger.debug(
+        { dhqId: request.dhqId, scenario: request.scenario, reason: output.reason, replyExcerpt },
+        'fix-gen model declined — raw reply excerpt (redacted, truncated) attached to DHQ evidence',
+      );
+    } else {
+      logger.info(
+        { dhqId: request.dhqId, scenario: request.scenario, reason: output.reason },
+        'fix-gen produced no patch (graceful skip — no PR)',
+      );
+    }
+    return {
+      kind: 'skipped',
+      reason: `fixgen-none:${output.reason}`,
+      ...(replyExcerpt !== undefined ? { replyExcerpt } : {}),
+    };
   }
 
   if (!looksLikeUnifiedDiff(output.diff)) {
+    // The model returned something but it is not a unified diff. Log the reply
+    // excerpt at warn (actionable — the model may need a prompt tweak) and
+    // attach it to the DHQ evidence row for the operator.
+    const replyExcerpt = truncateReply(output.diff);
     logger.warn(
-      { dhqId: request.dhqId, scenario: request.scenario },
-      'fix-gen output is not a unified diff (graceful skip — no PR)',
+      { dhqId: request.dhqId, scenario: request.scenario, replyExcerpt },
+      'fix-gen output is not a unified diff (graceful skip — no PR); raw reply attached to DHQ evidence',
     );
-    return { kind: 'skipped', reason: 'fixgen-not-a-diff' };
+    return { kind: 'skipped', reason: 'fixgen-not-a-diff', replyExcerpt };
   }
 
   // Normalize a trailing newline so `git apply` accepts the hunk.
@@ -422,7 +485,16 @@ export function createLlmFixGenerator(opts: { projectRoot?: string } = {}): FixG
         });
         const text = (response.content ?? '').trim();
         if (text.length === 0 || text === 'NO_PATCH') {
-          return { kind: 'none', reason: 'model-declined' };
+          // Attach a redacted, bounded excerpt so the caller can log it onto
+          // the DHQ evidence row without having to re-run. The empty-reply case
+          // carries no useful excerpt; only the non-empty case (e.g. prose like
+          // "I cannot fix this") is worth capturing.
+          const rawReply = text.length > 0 ? truncateReply(text) : undefined;
+          return {
+            kind: 'none',
+            reason: 'model-declined',
+            ...(rawReply !== undefined ? { rawReply } : {}),
+          };
         }
         return { kind: 'patch', diff: stripCodeFences(text), model: response.model };
       } catch (err) {
