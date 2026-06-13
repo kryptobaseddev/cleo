@@ -877,34 +877,173 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   // AC1 inlining check passes). @cleocode/utils is the one exception: it is
   // private (never published) and esbuild-inlined into the Wave-5 bundle — but
   // the playbooks `tsc -b` reference build (Wave 7) re-emits core's composite
-  // project via plain tsc, which does NOT apply the esbuild utils alias and
-  // leaves a bare `import '@cleocode/utils'` in the three leaf modules that
-  // consume it (memory/redaction.ts, llm/plugin-facade.ts, docs/export-document.ts).
+  // project via plain tsc for ALL files under packages/core/src/, which does NOT
+  // apply the esbuild utils alias and leaves bare `import '@cleocode/utils'`
+  // specifiers in every source file that consumes it.
   // With utils moved to devDependencies (T11654) that surviving import is
-  // unresolvable on npm (install 404 / runtime ERR_MODULE_NOT_FOUND) AND trips
-  // the bundle-budget gate's AC1 (undeclared @cleocode/* import).
+  // unresolvable on npm (install 404 / runtime ERR_MODULE_NOT_FOUND).
   //
   // Re-running the FULL core esbuild here would self-contain all ~625 entry
   // points and blow the dist size budget (T11582 — observed 1 GB). Instead,
-  // surgically re-emit ONLY core's three utils-consuming entry points with
-  // esbuild (utils inlined per the coreBuildOptions alias), overwriting the tsc
-  // output for just those files. The rest of the tsc-transpiled tree — incl.
-  // nested-subdir JS like store/exodus/index.js that the esbuild entry-point
-  // scan does not cover — is left untouched, so dist size is unaffected.
+  // surgically re-emit ONLY the utils-consuming source files with esbuild
+  // (utils inlined per the coreBuildOptions alias), overwriting the tsc output
+  // for just those files.
+  //
+  // DERIVED LIST (T12012): the set of files is scanned from source at build
+  // time rather than maintained as a hardcoded list. This prevents the class of
+  // rot that caused the v2026.6.17 dead-on-import regression (T11989 added a
+  // fourth consumer — selfimprove/fix-gen.ts — and the list was not updated).
+  // Exclusions: __tests__/ directories and *.test.ts files.
   // ---------------------------------------------------------------------------
-  console.log('\n[build] Wave 7.5: re-inline @cleocode/utils into core leaf files (T11654)');
-  await esbuild.build({
-    ...coreBuildOptions,
-    entryPoints: [
-      { in: 'packages/core/src/memory/redaction.ts', out: 'memory/redaction' },
-      { in: 'packages/core/src/llm/plugin-facade.ts', out: 'llm/plugin-facade' },
-      { in: 'packages/core/src/docs/export-document.ts', out: 'docs/export-document' },
-    ],
-  });
-  await sanitizeSourcemaps('packages/core/dist'); // T9184
-  console.log(
-    '  -> packages/core/dist/{memory/redaction,llm/plugin-facade,docs/export-document}.js (utils inlined)',
-  );
+
+  /**
+   * Scan packages/core/src for all TypeScript source files (excluding tests)
+   * that contain an import specifier for @cleocode/utils, and return them as
+   * esbuild { in, out } entry point objects suitable for Wave 7.5.
+   *
+   * @returns {{ in: string; out: string }[]}
+   */
+  function deriveUtilsConsumers() {
+    const coreSourceRoot = resolve(__dirname, 'packages/core/src');
+    /** @type {{ in: string; out: string }[]} */
+    const consumers = [];
+    // Regex matches any import/export from specifier containing @cleocode/utils.
+    // Anchored to actual import syntax to avoid matching comments or strings.
+    const utilsImportRe = /(?:\bfrom\s*|(?:^|\s)import\s*)\s*['"]@cleocode\/utils(?:\/[^'"]*)?['"]/;
+
+    /** @param {string} dir */
+    function walk(dir) {
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === '__tests__') continue; // skip test dirs
+          walk(full);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        if (!entry.name.endsWith('.ts')) continue;
+        if (entry.name.endsWith('.d.ts') || entry.name.endsWith('.test.ts')) continue;
+        let src;
+        try {
+          src = readFileSync(full, 'utf8');
+        } catch {
+          continue;
+        }
+        if (!utilsImportRe.test(src)) continue;
+        // Compute the out path: relative to coreSourceRoot, drop .ts extension.
+        const rel = full.slice(coreSourceRoot.length + 1).replace(/\.ts$/, '');
+        consumers.push({ in: full, out: rel });
+      }
+    }
+    walk(coreSourceRoot);
+    return consumers;
+  }
+
+  const wave75Entries = deriveUtilsConsumers();
+  console.log('\n[build] Wave 7.5: re-inline @cleocode/utils into core leaf files (T11654, T12012)');
+  console.log(`  Derived ${wave75Entries.length} utils-consuming source file(s):`);
+  for (const ep of wave75Entries) {
+    console.log(`    ${ep.in.slice(__dirname.length + 1)} -> packages/core/dist/${ep.out}.js`);
+  }
+  if (wave75Entries.length === 0) {
+    console.log('  (no utils consumers found — Wave 7.5 is a no-op)');
+  } else {
+    await esbuild.build({
+      ...coreBuildOptions,
+      entryPoints: wave75Entries,
+    });
+    await sanitizeSourcemaps('packages/core/dist'); // T9184
+    console.log('  Wave 7.5 complete — @cleocode/utils inlined into all consumers above.');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Wave 7.5 post-assertion: verify NO dist file under packages/core/dist/
+  // retains a bare @cleocode/utils import specifier (T12012).
+  //
+  // This is the canonical build-time guard for the class of bug where a new
+  // utils-consuming source file is added but the Wave 7.5 esbuild re-emit does
+  // not cover it (either because the scan missed it or because esbuild could not
+  // inline it). Hard-fails the build rather than shipping a broken tarball.
+  //
+  // Note: the bundle-budget gate's AC1 check only probes EXPORTED submodule
+  // entry points (the declared package.json exports map). Files emitted by the
+  // playbooks tsc -b reference build that are NOT in the exports map (e.g.
+  // deep-linked selfimprove/fix-gen.js) are invisible to AC1 — this assertion
+  // is the canonical fallback guard for those paths.
+  // ---------------------------------------------------------------------------
+  {
+    const coreDistRoot = resolve(__dirname, 'packages/core/dist');
+    /** @type {string[]} */
+    const offenders = [];
+    const bareUtilsRe =
+      /(?:\bfrom\s*|\bimport\s*|\brequire\s*\(\s*)['"](@cleocode\/utils(?:\/[^'"]*)?)['"]/g;
+
+    /** @param {string} dir */
+    function assertNoUtils(dir) {
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          assertNoUtils(full);
+          continue;
+        }
+        if (!entry.isFile() || !entry.name.endsWith('.js')) continue;
+        let src;
+        try {
+          src = readFileSync(full, 'utf8');
+        } catch {
+          continue;
+        }
+        // Check line-by-line so we skip JSDoc/block-comment lines (starting with
+        // * or //) that may mention @cleocode/utils as a doc example.
+        const srcLines = src.split('\n');
+        let foundUtils = false;
+        for (const ln of srcLines) {
+          const trimmed = ln.trimStart();
+          if (trimmed.startsWith('*') || trimmed.startsWith('//')) continue;
+          if (bareUtilsRe.test(ln)) {
+            foundUtils = true;
+            break;
+          }
+          bareUtilsRe.lastIndex = 0;
+        }
+        bareUtilsRe.lastIndex = 0; // reset stateful regex
+        if (foundUtils) {
+          offenders.push(full.slice(coreDistRoot.length + 1));
+        }
+      }
+    }
+    assertNoUtils(coreDistRoot);
+
+    if (offenders.length > 0) {
+      console.error(
+        '\n[build] FATAL: Wave 7.5 post-assertion FAILED — the following dist files still ' +
+          'contain a bare @cleocode/utils import that will break on npm install (T12012):',
+      );
+      for (const f of offenders) {
+        console.error(`  packages/core/dist/${f}`);
+      }
+      console.error(
+        '\nFix: add the corresponding packages/core/src/**/*.ts source file to the scan ' +
+          'scope (ensure it is not accidentally excluded) so Wave 7.5 esbuild-inlines it.',
+      );
+      process.exit(1);
+    }
+    console.log(
+      '[build] Wave 7.5 assertion passed — no bare @cleocode/utils import survives in packages/core/dist/',
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Wave 8: cleo esbuild bundle (deps adapters, playbooks, runtime — all ready)

@@ -235,11 +235,44 @@ function bareCleocodeImports(file) {
   const found = new Set();
   // Match the module specifier of import/export-from and require() forms only,
   // capturing the bare `@cleocode/<pkg>` package root (drops any /subpath).
+  //
+  // The `\b(from|import)\b` pattern must NOT match inside JSDoc comments where
+  // the commenter writes `* import { Foo } from '@cleocode/runtime'` as an
+  // example of what NOT to do. tsc-emitted dist retains JSDoc block comments,
+  // so we skip matches where the match begins on a line that starts with
+  // optional whitespace + `*` (i.e. is a JSDoc/block-comment line) or follows
+  // `//` (single-line comment).
   const specRe =
     /(?:\bfrom\s*|\bimport\s*|\brequire\s*\(\s*)['"](@cleocode\/[a-z0-9-]+)(?:\/[^'"]*)?['"]/g;
+  // Split into lines once for comment-line detection.
+  const lines = src.split('\n');
+  // Build a cumulative offset map: lineStart[i] = character offset of the
+  // first character on line i (0-indexed).
+  const lineStart = new Array(lines.length);
+  let offset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    lineStart[i] = offset;
+    offset += lines[i].length + 1; // +1 for the newline
+  }
+  /** @param {number} charIndex @returns {string} the line text containing charIndex */
+  function lineAt(charIndex) {
+    // Binary search for the line whose start is <= charIndex.
+    let lo = 0;
+    let hi = lineStart.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineStart[mid] <= charIndex) lo = mid;
+      else hi = mid - 1;
+    }
+    return lines[lo];
+  }
   let m;
   while ((m = specRe.exec(src)) !== null) {
     if (m[1] === '@cleocode/core') continue; // never a dependency of itself
+    const ln = lineAt(m.index).trimStart();
+    // Skip if the match is inside a JSDoc/block-comment line (starts with *)
+    // or a single-line comment (starts with //).
+    if (ln.startsWith('*') || ln.startsWith('//')) continue;
     found.add(m[1]);
   }
   return found;
@@ -272,24 +305,89 @@ async function main() {
   }
 
   // --- AC1: no unresolvable bare @cleocode/* import survives -------------------
-  console.log('\nInlining check — surviving @cleocode/* imports must be declared deps:');
+  //
+  // Two-pass check (T12012):
+  //
+  //   Pass A (submodule entry points) — scans the EXPORTED submodule files
+  //   declared in package.json exports (the original check). These are the
+  //   public API surface consumers import directly.
+  //
+  //   Pass B (full dist tree) — scans EVERY .js file under dist/ for bare
+  //   @cleocode/* specifiers that are undeclared in package.json dependencies.
+  //   This catches deep-linked files that are NOT in the exports map but are
+  //   still reachable at runtime (e.g. dist/selfimprove/fix-gen.js, which the
+  //   playbooks tsc -b reference build emits directly from source without the
+  //   esbuild utils-alias pass). The original AC1 missed these files because it
+  //   only probed the declared exports. Pass B is the canonical fallback guard.
+  //
+  // Pass A gives per-submodule diagnostics; Pass B is the comprehensive sweep.
+  // Both must pass before the gate succeeds.
+
+  console.log('\nAC1 Pass A — submodule entry-point inlining check:');
   for (const subpath of ['.', ...PROBED_SUBMODULES]) {
     const file = distEntryFor(exportsMap, subpath);
     if (!existsSync(file)) {
-      failures.push(`AC1: ${subpath} -> ${file} does not exist (build did not emit it)`);
+      failures.push(`AC1-A: ${subpath} -> ${file} does not exist (build did not emit it)`);
       continue;
     }
     const bare = bareCleocodeImports(file);
     const undeclared = [...bare].filter((spec) => !deps.has(spec));
     if (undeclared.length > 0) {
       failures.push(
-        `AC1: '${subpath}' emits undeclared bare import(s) ${undeclared.join(', ')} — ` +
+        `AC1-A: '${subpath}' emits undeclared bare import(s) ${undeclared.join(', ')} — ` +
           'every surviving @cleocode/* specifier must be a declared @cleocode/core dependency',
       );
     }
     console.log(
       `  ${subpath.padEnd(14)} imports: ${bare.size === 0 ? '(none — fully inlined)' : [...bare].join(', ')}`,
     );
+  }
+
+  // AC1 Pass B: full dist tree sweep for undeclared @cleocode/* bare imports.
+  // This is the canonical guard for deep-linked files not covered by Pass A.
+  console.log('\nAC1 Pass B — full dist tree sweep for undeclared @cleocode/* imports:');
+  {
+    /** @type {Map<string, Set<string>>} file (relative to dist/) -> set of undeclared specs */
+    const distOffenders = new Map();
+    const stack = [DIST_DIR];
+    while (stack.length > 0) {
+      const cur = stack.pop();
+      let entries;
+      try {
+        entries = readdirSync(cur, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const full = join(cur, entry.name);
+        if (entry.isDirectory()) {
+          stack.push(full);
+          continue;
+        }
+        if (!entry.isFile() || !entry.name.endsWith('.js')) continue;
+        const bare = bareCleocodeImports(full);
+        const undeclared = [...bare].filter((spec) => !deps.has(spec));
+        if (undeclared.length > 0) {
+          distOffenders.set(full.slice(DIST_DIR.length + 1), new Set(undeclared));
+        }
+      }
+    }
+    if (distOffenders.size > 0) {
+      console.error(`  FAIL — ${distOffenders.size} dist file(s) contain undeclared @cleocode/* import(s):`);
+      for (const [rel, specs] of [...distOffenders.entries()].sort()) {
+        console.error(`    dist/${rel}: ${[...specs].join(', ')}`);
+        failures.push(
+          `AC1-B: dist/${rel} emits undeclared bare import(s) ${[...specs].join(', ')} — ` +
+            'not a declared @cleocode/core dependency; will break npm install',
+        );
+      }
+    } else {
+      console.log(
+        `  OK — no undeclared @cleocode/* bare imports found in any of the ${
+          [...readdirSync(DIST_DIR, { withFileTypes: true })].length
+        } top-level dist entries`,
+      );
+    }
   }
 
   // --- AC3: per-submodule tree-shake probe ------------------------------------
