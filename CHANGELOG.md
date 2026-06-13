@@ -1,5 +1,33 @@
 # Changelog
 
+## [2026.6.18] (2026-06-13)
+
+### Added
+
+
+
+### Changed
+
+
+
+### Fixed
+
+- derive Wave 7.5 utils-inline list from source scan + dist assert + packed-install smoke (v2026.6.17 dead-on-import) _(provenance: [T12012](https://github.com/kryptobaseddev/cleo/search?q=T12012&type=commits))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.6.17] (2026-06-12)
 
 > Published as v2026.6.17 — the v2026.6.16 tag was never published (its release run failed on the new studio-dist gate; fixed by #1100 which this release includes).
