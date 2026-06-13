@@ -1,0 +1,10 @@
+diff --git a/packages/core/src/selfimprove/probe-helper.ts b/packages/core/src/selfimprove/probe-helper.ts
+--- a/packages/core/src/selfimprove/probe-helper.ts
++++ b/packages/core/src/selfimprove/probe-helper.ts
+@@ -50,5 +50,5 @@
+ export function probeVersion(): number {
+   // SEEDED BUG (T11988): should be `return 1` — intentional off-by-one for
+   // the seeded-code-regression end-to-end fix-gen scenario.
+-  return 2;
++  return 1;
+ }
