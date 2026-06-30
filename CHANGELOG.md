@@ -1,5 +1,36 @@
 # Changelog
 
+## [2026.6.19] (2026-06-30)
+
+### Added
+
+- `.cleo/project-context.json` `release.prRequiredWorkflows` — project-configurable required-workflow set for the `pr:` evidence atom; an explicit empty array means "no required workflows" so a downstream repo with no CI accepts MERGED PRs (gh#1104) _(provenance: [T12014](https://github.com/kryptobaseddev/cleo/search?q=T12014&type=commits))_
+
+### Changed
+
+
+
+### Fixed
+
+- `pr:` evidence atom no longer rejects downstream-consumer-repo PRs that lack cleocode's `CI`/`Lockfile Check`/`Contracts Dep Lint` workflows — the required-workflow set now resolves env → project-context → cleocode-default (gh#1104) _(provenance: [T12014](https://github.com/kryptobaseddev/cleo/search?q=T12014&type=commits))_
+- `testsPassed`/`implemented` owner-override combined with soft (`note:`/`url:`) evidence is now rejected at `cleo verify` with the same T9245 message `cleo complete` uses, ending the accept-then-reject divergence; a real hard atom supplied alongside an override is preserved (gh#1105) _(provenance: [T12015](https://github.com/kryptobaseddev/cleo/search?q=T12015&type=commits))_
+- `cleo update --blocked-by "<text>"` now persists the free-text blocked reason instead of returning `E_CLEO_NO_CHANGE` (the flag was dropped at the dispatch, wrapper, and contract layers) (gh#1106) _(provenance: [T12016](https://github.com/kryptobaseddev/cleo/search?q=T12016&type=commits))_
+- `cleo lifecycle {start,complete,skip}` and `orchestrate start` no longer fail with `FOREIGN KEY constraint failed` — the lifecycle store was rebound from the dead bare `lifecycle_*` tables to the prefixed consolidated tables, so an epic can advance past `research` and child tasks can be completed again (gh#1107) _(provenance: [T12017](https://github.com/kryptobaseddev/cleo/search?q=T12017&type=commits))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.6.18] (2026-06-13)
 
 ### Added
