@@ -155,3 +155,19 @@ export const PR_REQUIRED_WORKFLOWS: readonly string[] = Object.freeze([
  * @task T9764
  */
 export const PR_REQUIRED_WORKFLOWS_ENV_VAR = 'CLEO_PR_REQUIRED_WORKFLOWS' as const;
+
+/**
+ * Dot-path of the `.cleo/project-context.json` field that declares a project's
+ * required-workflow set for the `pr:` evidence atom, sitting as a tier between
+ * {@link PR_REQUIRED_WORKFLOWS_ENV_VAR} (most specific) and the
+ * {@link PR_REQUIRED_WORKFLOWS} default (least specific).
+ *
+ * Shape: `{ "release": { "prRequiredWorkflows": string[] } }`. An explicitly
+ * declared EMPTY array means the project has NO required workflows, so any
+ * MERGED PR (state=MERGED) satisfies `pr:` — the path for downstream consumer
+ * repos that have no CI (gh#1104). Key ABSENT falls through to the default.
+ *
+ * @task T9764
+ * @task T12014 (gh#1104)
+ */
+export const PR_REQUIRED_WORKFLOWS_CONTEXT_KEY = 'release.prRequiredWorkflows' as const;

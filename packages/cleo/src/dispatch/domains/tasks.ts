@@ -414,7 +414,11 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         severity: params.severity,
         // T1590: AC-immutability override reason
         reason: params.reason,
-        // T9241: clear the free-text blockedBy reason
+        // T9241 / gh#1106: set/clear the free-text blockedBy reason. The set
+        // path (`blockedBy`) was previously dropped here — only `clearBlockedBy`
+        // was forwarded — so `cleo update --blocked-by "..."` produced
+        // E_CLEO_NO_CHANGE. Both paths must be wired.
+        blockedBy: params.blockedBy,
         clearBlockedBy: params.clearBlockedBy,
         // T9327: relates mutations
         relates: params.relates,

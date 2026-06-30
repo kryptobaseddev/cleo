@@ -29,6 +29,7 @@ import {
   checkEngineMigrationLocDrop,
   checkGateEvidenceMinimumDetailed,
   composeGateEvidence,
+  isHardAtom,
   parseEvidence,
   validateAtom,
 } from '../tasks/evidence.js';
@@ -498,11 +499,37 @@ export async function validateGateVerify(
         // CLEO_OWNER_OVERRIDE=1 alone). Audit:
         // `.cleo/rcasd/campaign-validation-2026-05-12/SYNTHESIS.md`.
         //
-        // Workers can still supply `--evidence` alongside the override (in
-        // which case parsedAtoms below would apply); the rejection only
-        // fires when no `--evidence` was provided.
+        // gh#1105 / T12015: the critical-gate hard-atom requirement is enforced
+        // at VERIFY time with the SAME predicate revalidateEvidence applies at
+        // COMPLETE time ({@link isHardAtom}). Previously verify gated on
+        // `!params.evidence` (any string present) while complete gated on
+        // hard-atom *content*, so an override combined with a soft atom
+        // (note:/url:) was accepted at verify and then reversed at complete
+        // (accept-then-reject). We parse + validate any supplied evidence so a
+        // real hard atom (e.g. commit:) is PRESERVED rather than silently
+        // discarded, and reject soft-only / bare overrides on critical gates
+        // immediately with the same T9245 wording complete uses.
         const criticalTargets = targets.filter((g) => g === 'implemented' || g === 'testsPassed');
-        if (criticalTargets.length > 0 && !params.evidence) {
+
+        const overrideAtoms: EvidenceAtom[] = [];
+        if (params.evidence) {
+          let parsed: ReturnType<typeof parseEvidence>;
+          try {
+            parsed = parseEvidence(params.evidence);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return engineError('E_EVIDENCE_INVALID', message);
+          }
+          for (const atom of parsed.atoms) {
+            const check = await validateAtom(atom, projectRoot, taskId);
+            if (!check.ok) {
+              return engineError(check.codeName, check.reason);
+            }
+            overrideAtoms.push(check.atom);
+          }
+        }
+
+        if (criticalTargets.length > 0 && !overrideAtoms.some(isHardAtom)) {
           return engineError(
             'E_CRITICAL_GATE_OVERRIDE_REJECTED',
             `T9245: gate(s) ${criticalTargets.join(', ')} reject CLEO_OWNER_OVERRIDE-only ` +
@@ -512,8 +539,9 @@ export async function validateGateVerify(
               `(qaPassed, documented, securityPassed, cleanupDone).`,
           );
         }
-        // Override — no evidence required for non-critical gates.
-        validatedAtoms = [{ kind: 'override', reason: override.reason }];
+        // Preserve any real hard atoms alongside the override marker (audit
+        // trail); non-critical gates may still pass with override-only.
+        validatedAtoms = [{ kind: 'override', reason: override.reason }, ...overrideAtoms];
       } else {
         if (!params.evidence) {
           return engineError(

@@ -1496,6 +1496,8 @@ export interface TasksUpdateQueryParams {
   reason?: string;
   /** Dependency declaration waiver for critical-priority tasks (T1856). */
   dependsWaiver?: string;
+  /** Set the blockedBy free-text reason. @task T9241 (gh#1106) */
+  blockedBy?: string;
   /** Clear the blockedBy free-text reason (set to undefined). @task T9241 */
   clearBlockedBy?: boolean;
   /** Set related tasks (replaces existing). @task T9327 */
@@ -2421,6 +2423,7 @@ export const TASKS_UPDATE_INPUT_SCHEMA: JsonSchema = {
     severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
     reason: { type: 'string' },
     dependsWaiver: { type: 'string' },
+    blockedBy: { type: 'string' },
     clearBlockedBy: { type: 'boolean' },
     relates: {
       type: 'array',

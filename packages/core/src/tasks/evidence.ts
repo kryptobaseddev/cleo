@@ -1520,7 +1520,16 @@ async function validatePrAtom(prNumber: number, projectRoot: string): Promise<At
   // Dynamic import keeps the verification module free of a static dependency
   // on the release subtree, mirroring the pattern used by validateDecision.
   const { resolvePrEvidenceAtom } = await import('../release/pr-evidence.js');
-  const result = await resolvePrEvidenceAtom(prNumber, projectRoot);
+  // gh#1104 / T12014: thread the project's `.cleo/project-context.json` so a
+  // downstream repo can declare its own required-workflow set (or an empty set
+  // = no required workflows). loadProjectContext (the SYNC `{context, loaded}`
+  // one from agents/variable-substitution) is best-effort and non-throwing; on
+  // a missing/malformed file `loaded` is false → pass null → cleocode default.
+  const { loadProjectContext } = await import('../agents/variable-substitution.js');
+  const ctx = loadProjectContext(projectRoot);
+  const result = await resolvePrEvidenceAtom(prNumber, projectRoot, {
+    projectContext: ctx.loaded ? ctx.context : null,
+  });
   if (!result.ok) {
     return { ok: false, reason: result.reason, codeName: result.codeName };
   }
@@ -1690,6 +1699,28 @@ export const CRITICAL_GATES_NO_OVERRIDE: readonly VerificationGate[] = Object.fr
 ]);
 
 /**
+ * Whether an evidence atom is a "hard" (programmatically-validated) atom.
+ *
+ * Hard atoms — `commit`, `files`, `test-run`, `tool`, `pr`, `decision` — carry
+ * programmatic proof. Soft atoms — `override`, `note`, `url` — do not. The
+ * T9245 critical-gate rule (`implemented`, `testsPassed`) requires at least one
+ * hard atom even under an owner override.
+ *
+ * This is the SINGLE SOURCE OF TRUTH for the predicate. Both the verify-time
+ * acceptance check ({@link ../validation/engine-ops.validateGateVerify}) and the
+ * complete-time re-validation ({@link revalidateEvidence}) MUST use it so the
+ * two checks can never diverge (gh#1105: verify accepted an override+soft-atom
+ * green that complete then reversed).
+ *
+ * @task T9245
+ * @task T12015
+ * @adr ADR-051
+ */
+export function isHardAtom(atom: EvidenceAtom): boolean {
+  return atom.kind !== 'override' && atom.kind !== 'note' && atom.kind !== 'url';
+}
+
+/**
  * Re-validate stored evidence to detect tampering between verify and complete.
  *
  * Hard atoms (commit, files, test-run, tool) are re-executed. Soft atoms
@@ -1726,9 +1757,7 @@ export async function revalidateEvidence(
   // as: evidence.override === true AND every recorded atom is either
   // `kind: 'override'` or `kind: 'note'` (notes alone are insufficient too).
   if (gate && CRITICAL_GATES_NO_OVERRIDE.includes(gate)) {
-    const hasHardAtom = evidence.atoms.some(
-      (a) => a.kind !== 'override' && a.kind !== 'note' && a.kind !== 'url',
-    );
+    const hasHardAtom = evidence.atoms.some(isHardAtom);
     if (evidence.override === true && !hasHardAtom) {
       return {
         stillValid: false,

@@ -224,9 +224,9 @@ function fetchPassedGateNames(taskIds: string[]): Map<string, string[]> {
     SELECT DISTINCT
       p.task_id   AS task_id,
       g.gate_name AS gate_name
-    FROM lifecycle_gate_results g
-    INNER JOIN lifecycle_stages s     ON s.id = g.stage_id
-    INNER JOIN lifecycle_pipelines p  ON p.id = s.pipeline_id
+    FROM tasks_lifecycle_gate_results g
+    INNER JOIN tasks_lifecycle_stages s     ON s.id = g.stage_id
+    INNER JOIN tasks_lifecycle_pipelines p  ON p.id = s.pipeline_id
     WHERE p.task_id IN (${placeholders})
       AND g.result = 'pass'
     ORDER BY g.gate_name ASC

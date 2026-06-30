@@ -117,6 +117,19 @@ export async function orchestrateStartup(
     // Auto-initialize lifecycle at 'research' stage if not already initialized.
     // initLoomForEpic is idempotent — re-invoking orchestrateStartup is safe.
     const loomResult = await initLoomForEpic(epicId, root);
+    // gh#1107 / T12017: surface a genuine init failure instead of returning
+    // success:true while writing zero lifecycle rows (the silent failure that
+    // made the FK split-brain invisible — `orchestrate start` reported
+    // `initialized:true` yet `lifecycle show` stayed `not_started`).
+    // `error` is only set on a real failure; the idempotent already-initialized
+    // path sets `alreadyInitialized:true` with no error, so this never fires
+    // for the benign re-init case.
+    if (loomResult.error) {
+      return engineError(
+        'E_LIFECYCLE_INIT_FAILED',
+        `Lifecycle init for ${epicId} failed: ${loomResult.error}`,
+      );
+    }
     const autoInitialized = loomResult.initialized;
     const currentStage = autoInitialized ? 'research' : 'already-initialized';
 

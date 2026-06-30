@@ -188,9 +188,9 @@ export function fetchEpicProgressBatch(
       SELECT
         p.task_id                                                             AS task_id,
         SUM(CASE WHEN g.result != 'pass' THEN 1 ELSE 0 END)                 AS pending_count
-      FROM lifecycle_pipelines p
-      LEFT JOIN lifecycle_stages s   ON s.pipeline_id = p.id
-      LEFT JOIN lifecycle_gate_results g ON g.stage_id = s.id
+      FROM tasks_lifecycle_pipelines p
+      LEFT JOIN tasks_lifecycle_stages s   ON s.pipeline_id = p.id
+      LEFT JOIN tasks_lifecycle_gate_results g ON g.stage_id = s.id
       WHERE p.task_id IN (${placeholders})
       GROUP BY p.task_id
     `;

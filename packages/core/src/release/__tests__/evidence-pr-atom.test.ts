@@ -521,6 +521,36 @@ describe('resolveRequiredWorkflows', () => {
     const r = resolveRequiredWorkflows({ CLEO_PR_REQUIRED_WORKFLOWS: '' });
     expect(r).toContain('CI');
   });
+
+  // gh#1104 / T12014 — project-context tier
+  it('returns project-context release.prRequiredWorkflows when set', () => {
+    const r = resolveRequiredWorkflows({}, { release: { prRequiredWorkflows: ['My CI'] } });
+    expect(r).toEqual(['My CI']);
+  });
+
+  it('returns EMPTY when project-context declares an empty required set (no-CI downstream repo)', () => {
+    const r = resolveRequiredWorkflows({}, { release: { prRequiredWorkflows: [] } });
+    expect(r).toEqual([]);
+  });
+
+  it('env var beats project-context', () => {
+    const r = resolveRequiredWorkflows(
+      { CLEO_PR_REQUIRED_WORKFLOWS: 'X' },
+      { release: { prRequiredWorkflows: ['Y'] } },
+    );
+    expect(r).toEqual(['X']);
+  });
+
+  it('falls back to the default when context lacks the release key', () => {
+    const r = resolveRequiredWorkflows({}, { foo: 'bar' });
+    expect(r).toContain('CI');
+  });
+
+  it('falls back to the default when release.prRequiredWorkflows is malformed (not an array)', () => {
+    const r = resolveRequiredWorkflows({}, { release: { prRequiredWorkflows: 'CI' } });
+    expect(r).toContain('CI');
+    expect(r).toContain('Lockfile Check');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -557,6 +587,47 @@ describe('evaluateRollup', () => {
       ['CI', 'Lockfile Check'],
     );
     expect(r.ok).toBe(true);
+  });
+
+  // gh#1104 / T12014 — empty required list is the lever: any MERGED PR passes.
+  it('accepts an empty rollup when there are no required workflows', () => {
+    const r = evaluateRollup([], []);
+    expect(r.ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gh#1104 / T12014 — downstream consumer repo with no CI workflows
+// ---------------------------------------------------------------------------
+
+describe('resolvePrEvidenceAtom — downstream repo with no CI (gh#1104)', () => {
+  it('accepts a MERGED PR with empty checks when project-context declares no required workflows', async () => {
+    // A downstream repo (e.g. kodomeet): MERGED PR, statusCheckRollup empty.
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      payload: makePrPayload({ statusCheckRollup: [] }),
+    });
+    const r = await resolvePrEvidenceAtom(20, projectRoot, {
+      fetchGhPrPayload: mockFetch,
+      projectContext: { release: { prRequiredWorkflows: [] } },
+      bypassCache: true,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it('still rejects a MERGED PR with empty checks under the cleocode default (no project-context)', async () => {
+    // Regression guard: cleocode's own strict gating must be unchanged.
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      payload: makePrPayload({ statusCheckRollup: [] }),
+    });
+    const r = await resolvePrEvidenceAtom(20, projectRoot, {
+      fetchGhPrPayload: mockFetch,
+      bypassCache: true,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toMatch(/Required workflows did not run/);
   });
 });
 

@@ -2741,6 +2741,12 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Justification to waive the critical-priority --depends requirement',
       },
       {
+        name: 'blockedBy',
+        type: 'string',
+        required: false,
+        description: 'Set the free-text blockedBy reason (gh#1106)',
+      },
+      {
         name: 'clearBlockedBy',
         type: 'boolean',
         required: false,
