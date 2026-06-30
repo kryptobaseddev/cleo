@@ -14,6 +14,8 @@
  * @saga T10281
  */
 
+import { join } from 'node:path';
+import { isMainThread } from 'node:worker_threads';
 import type { ObserveBrainResult } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import type {
@@ -28,6 +30,39 @@ import type {
 } from './brain-writer-thread.js';
 
 /**
+ * Synchronise the writer's `CLEO_DIR` view with the op's authoritative
+ * `projectRoot` when executing inside the brain-writer worker thread.
+ *
+ * ## Why this is required (cross-thread env staleness)
+ *
+ * `worker_threads.Worker` receives a *snapshot copy* of `process.env` at spawn
+ * time; later mutations on the main thread are NOT propagated to the worker.
+ * The persistent brain-writer worker is spawned lazily on the first enqueue and
+ * then lives for the rest of the process, so its `process.env['CLEO_DIR']` is
+ * frozen to whatever value was set when it spawned.
+ *
+ * `resolveCleoDir()` gives an absolute `CLEO_DIR` override precedence over the
+ * explicitly-passed `cwd` (paths.ts step 2 > step 3). Inside the worker, that
+ * stale absolute override therefore wins over the op's `projectRoot`, so every
+ * downstream `getDb()` / `resolveCleoDir()` (e.g. the cross-db session
+ * write-guard in `observeBrain`) resolves to the WRONG `.cleo` directory —
+ * silently dropping cross-db references such as `sourceSessionId`.
+ *
+ * Each write op already carries its authoritative `projectRoot`, so on the
+ * worker thread we re-point `CLEO_DIR` to `<projectRoot>/.cleo` before
+ * dispatching — exactly mirroring the value the main thread holds. On the main
+ * thread (inline-fallback executor) we leave `process.env` untouched: its
+ * `CLEO_DIR` is already authoritative and must not be clobbered.
+ *
+ * @param projectRoot - The op's authoritative project root.
+ */
+function syncWorkerCleoDir(projectRoot: string): void {
+  if (isMainThread) return;
+  // Mirror the main thread's resolution: an absolute CLEO_DIR pins `.cleo`.
+  process.env['CLEO_DIR'] = join(projectRoot, '.cleo');
+}
+
+/**
  * Dispatch a write op to its terminal handler. Throws on failure — the worker
  * envelope code converts the throw into an `ok:false` response.
  *
@@ -35,6 +70,11 @@ import type {
  * @returns A typed `BrainWriteResult` mirroring the op's `kind`.
  */
 export async function handleWriteOp(op: BrainWriteOp): Promise<BrainWriteResult> {
+  // Re-point CLEO_DIR to the op's project root on the worker thread so all
+  // downstream `.cleo` resolution (incl. cross-db write-guards) is consistent
+  // with the main thread regardless of the worker's stale env snapshot.
+  syncWorkerCleoDir(op.projectRoot);
+
   switch (op.kind) {
     case 'observe':
       return handleObserve(op);
