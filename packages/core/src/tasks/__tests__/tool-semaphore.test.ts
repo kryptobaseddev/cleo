@@ -23,12 +23,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import type { ResourceSample } from '../../resources/backend.js';
 import {
   acquireGlobalSlot,
   defaultMaxConcurrent,
+  pressureScaleSlots,
   resolveMaxConcurrent,
   semaphoreDir,
 } from '../tool-semaphore.js';
+
+/** Synthetic pressure sample for deterministic, /proc-free slot-scaling tests. */
+function makeSample(someAvg10: number): ResourceSample {
+  return {
+    sampledAtMs: 1,
+    pressureAvailable: true,
+    memAvailableBytes: 32 * 1024 * 1024 * 1024,
+    globalPressure: {
+      some: { avg10: someAvg10, avg60: someAvg10, avg300: someAvg10, totalUs: 0 },
+      full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+    },
+    slicePressure: null,
+    walObservations: [],
+  };
+}
 
 let originalCleoHome: string | undefined;
 
@@ -215,6 +232,77 @@ describe('acquireGlobalSlot — blocking', () => {
       );
     } finally {
       await blocking();
+    }
+  });
+});
+
+describe('pressureScaleSlots (T12001 — pressure-dynamic slots)', () => {
+  it('halves test/build slots at hold pressure (some>10) and floors to 1 at backoff (some>25)', () => {
+    expect(pressureScaleSlots('test', 4, makeSample(0))).toBe(4);
+    expect(pressureScaleSlots('test', 4, makeSample(15))).toBe(2);
+    expect(pressureScaleSlots('test', 4, makeSample(30))).toBe(1);
+    expect(pressureScaleSlots('build', 4, makeSample(30))).toBe(1);
+  });
+
+  it('leaves light tools (lint/typecheck) unscaled under pressure', () => {
+    expect(pressureScaleSlots('lint', 8, makeSample(30))).toBe(8);
+    expect(pressureScaleSlots('typecheck', 8, makeSample(30))).toBe(8);
+  });
+});
+
+describe('acquireGlobalSlot pressure scaling (T12001)', () => {
+  it('shrinks the acquirable window to 1 under backoff pressure, recovers on release', async () => {
+    isolateCleoHome();
+    const high = makeSample(30); // some>25 → effectiveMax = 1 for 'test'
+    const first = await acquireGlobalSlot('test', { pressureSample: high, cpuCount: 16 });
+    try {
+      // Only one slot is eligible under high pressure → second acquire times out.
+      await expect(
+        acquireGlobalSlot('test', {
+          pressureSample: high,
+          cpuCount: 16,
+          pollMs: 10,
+          timeoutMs: 100,
+        }),
+      ).rejects.toThrow(/Timed out/);
+    } finally {
+      await first();
+    }
+    // After release, a fresh acquire under high pressure succeeds (slot freed).
+    const again = await acquireGlobalSlot('test', {
+      pressureSample: high,
+      cpuCount: 16,
+      timeoutMs: 200,
+    });
+    await again();
+  });
+
+  it('allows full static concurrency when pressure is low (no scaling)', async () => {
+    isolateCleoHome();
+    const low = makeSample(0); // effectiveMax = static = max(1, 16/4) = 4
+    const a = await acquireGlobalSlot('test', {
+      pressureSample: low,
+      cpuCount: 16,
+      timeoutMs: 500,
+    });
+    const b = await acquireGlobalSlot('test', {
+      pressureSample: low,
+      cpuCount: 16,
+      timeoutMs: 500,
+    });
+    // Two concurrent grants coexist under low pressure.
+    await a();
+    await b();
+  });
+
+  it('honors an explicit CLEO_TOOL_CONCURRENCY override (no scaling)', () => {
+    process.env.CLEO_TOOL_CONCURRENCY_TEST = '7';
+    try {
+      // Override is read by resolveMaxConcurrent; pressureScaleSlots is bypassed
+      // in acquire when an override is present (asserted via resolveMaxConcurrent).
+      expect(resolveMaxConcurrent('test', 16)).toBe(7);
+    } finally {
+      delete process.env.CLEO_TOOL_CONCURRENCY_TEST;
     }
   });
 });

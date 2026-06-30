@@ -2057,6 +2057,21 @@ export type {
 } from './release/version-bump.js';
 // === Human Render Contract (Epic T10114, ADR-077) ===
 export * from './render/index.js';
+export type {
+  AdmissionResult,
+  GovernorMode,
+  ResourceClass,
+  ResourceDeferral,
+  ResourceGrant,
+} from './resource-governor.js';
+// === Resource Governor — Never-OOM admission layer (T11999 / Epic T11992) ===
+export {
+  DEFAULT_RESOURCE_RETRY_AFTER_MS,
+  isResourceGrant,
+  RESOURCE_BACKPRESSURE_CODE,
+  RESOURCE_CLASSES,
+  RESOURCE_DEFERRED_CODE,
+} from './resource-governor.js';
 // === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===
 export type {
   BottleneckTask,
