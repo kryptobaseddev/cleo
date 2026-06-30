@@ -1146,6 +1146,27 @@ async function maybeTriggerDreamCycleScan(
  * @returns The tick outcome (or an `error` outcome if the tick itself threw).
  */
 export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
+  // T12001 (Never-OOM AC3): the whole tick — pick + spawn + the background
+  // dream / deriver / hygiene / drift / worktree-prune scans — is db-heavy.
+  // Gate the interval through the governor's `db-heavy` class; under memory
+  // pressure skip this tick cleanly (recorded skip reason, NO user-visible
+  // error) and let the next cron interval retry. `off` mode is pass-through.
+  // Lazy-imported to keep the test surface small (matches this file's pattern).
+  const { governor } = await import('../resources/governor.js');
+  const dbHeavy = await governor.tryAcquire('db-heavy');
+  if (dbHeavy.deferred) {
+    try {
+      await incrementStats(options.statePath, { ticksExecuted: 1 });
+    } catch {
+      // ignore — stats increment is best-effort
+    }
+    return {
+      kind: 'backoff',
+      taskId: null,
+      detail: `tickSkipped:pressure (db-heavy deferred, retryAfterMs=${dbHeavy.retryAfterMs})`,
+    };
+  }
+
   let outcome: TickOutcome;
   try {
     outcome = await runTick(options);
@@ -1248,6 +1269,15 @@ export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
         // Ignore.
       });
   }
+
+  // Release the db-heavy slot now the tick + scan dispatch has returned. The
+  // body above is exception-safe (runTick is caught into an outcome; every
+  // background scan is fire-and-forget with its own .catch), so a
+  // release-before-return is sufficient — and a leaked slot self-heals via the
+  // governor's stale-lock recovery regardless.
+  await dbHeavy.release().catch(() => {
+    /* idempotent — slot already reaped */
+  });
 
   return outcome;
 }
