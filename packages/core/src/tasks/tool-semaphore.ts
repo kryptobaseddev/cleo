@@ -40,6 +40,8 @@ import { join } from 'node:path';
 import lockfile from 'proper-lockfile';
 
 import { getCleoHome } from '../paths.js';
+import type { ResourceSample } from '../resources/backend.js';
+import { ResourceMonitor } from '../resources/monitor.js';
 import type { CanonicalTool } from './tool-resolver.js';
 
 // ---------------------------------------------------------------------------
@@ -89,6 +91,16 @@ export interface AcquireSlotOptions {
    * @internal
    */
   cpuCount?: number;
+  /**
+   * Memory-pressure sample used to scale the effective slot count for the
+   * pressure-sensitive `test`/`build` tools (T12001, Epic T11992). When
+   * omitted, a best-effort live sample is taken (fail-open to the static slot
+   * count on any error). Pass `null` to disable pressure scaling explicitly.
+   * Tests inject a synthetic sample for determinism.
+   *
+   * @internal
+   */
+  pressureSample?: ResourceSample | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +150,62 @@ export function resolveMaxConcurrent(canonical: CanonicalTool, cpuCount?: number
     }
   }
   return defaultMaxConcurrent(canonical, cpuCount ?? availableParallelism());
+}
+
+/**
+ * Whether a canonical tool's slot budget shrinks under memory pressure.
+ * Only the heavy `test`/`build` classes scale; lint/typecheck/audit are light
+ * and single-threaded, so they keep their static budget.
+ */
+function isPressureSensitive(canonical: CanonicalTool): boolean {
+  return canonical === 'test' || canonical === 'build';
+}
+
+/**
+ * Scale a static slot budget down under memory pressure (T12001 · choke-point
+ * #6). Mirrors the governor's `test-run` budget: halve when `some avg10` exceeds
+ * the hold threshold, floor to 1 when it exceeds the backoff/floor threshold.
+ * Recovers automatically as pressure clears. `full-build` is not represented as
+ * a canonical tool here; the dedicated `full-build` governor class (T11999)
+ * pins that to one machine-wide slot.
+ *
+ * @task T12001
+ */
+export function pressureScaleSlots(
+  canonical: CanonicalTool,
+  staticMax: number,
+  sample: ResourceSample,
+  thresholds: { holdSomeAvg10?: number; floorSomeAvg10?: number } = {},
+): number {
+  if (!Number.isFinite(staticMax) || !isPressureSensitive(canonical)) return staticMax;
+  const hold = thresholds.holdSomeAvg10 ?? 10;
+  const floor = thresholds.floorSomeAvg10 ?? 25;
+  const some = sample.globalPressure?.some?.avg10 ?? sample.slicePressure?.some?.avg10 ?? 0;
+  if (some > floor) return 1;
+  if (some > hold) return Math.max(1, Math.floor(staticMax / 2));
+  return staticMax;
+}
+
+/**
+ * Best-effort point-sample for slot scaling. NEVER throws — on any error (no
+ * `/proc`, non-Linux, read failure) returns `null` so the caller fails open to
+ * the static slot count. The PSI + meminfo reads are sub-5ms.
+ */
+async function samplePressureSafe(): Promise<ResourceSample | null> {
+  try {
+    return await new ResourceMonitor().sample();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether an explicit `CLEO_TOOL_CONCURRENCY_<TOOL>` override is set — when so,
+ * the operator's intent is authoritative and pressure scaling is bypassed.
+ */
+function hasConcurrencyOverride(canonical: CanonicalTool): boolean {
+  const raw = process.env[`CLEO_TOOL_CONCURRENCY_${canonical.toUpperCase().replace(/-/g, '_')}`];
+  return raw !== undefined && raw !== '';
 }
 
 // ---------------------------------------------------------------------------
@@ -214,8 +282,24 @@ export async function acquireGlobalSlot(
     return NOOP_RELEASE;
   }
 
+  // T12001 / choke-point #6: shrink the EFFECTIVE slot count for the heavy
+  // test/build classes under memory pressure so builds/tests can't co-schedule
+  // into an OOM. The static slot FILES are still created (stable dir across
+  // pressure swings) — only the acquirable window shrinks, and it recovers as
+  // pressure clears. An explicit CLEO_TOOL_CONCURRENCY_* override is honored
+  // verbatim, and any sampling failure fails OPEN to the static count.
+  let effectiveMax = max;
+  if (isPressureSensitive(canonical) && !hasConcurrencyOverride(canonical)) {
+    const sample =
+      opts.pressureSample !== undefined ? opts.pressureSample : await samplePressureSafe();
+    if (sample) effectiveMax = pressureScaleSlots(canonical, max, sample);
+  }
+
   const dir = semaphoreDir(canonical);
+  // Create the full static slot set so the directory is stable; only the first
+  // `effectiveMax` are eligible this acquire.
   const slots = ensureSlotFiles(dir, max);
+  const usableSlots = slots.slice(0, Math.max(1, effectiveMax));
 
   const timeoutMs = opts.timeoutMs ?? 3_600_000;
   const pollMs = opts.pollMs ?? 100;
@@ -224,7 +308,7 @@ export async function acquireGlobalSlot(
 
   // Randomise slot order so concurrent acquirers don't collide on slot 0.
   // The Fisher–Yates shuffle is fine for small N.
-  const order = [...slots.keys()];
+  const order = [...usableSlots.keys()];
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     const a = order[i];
