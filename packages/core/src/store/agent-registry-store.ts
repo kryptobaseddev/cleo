@@ -62,7 +62,7 @@ import { getCleoHome } from '../paths.js';
 // the prefixed `agent_registry_*` tables). T11622 routes the runtime read/write
 // path onto those prefixed tables; this module only reconciles the legacy
 // health-probe ledger via the drizzle-agent-registry forward migration.
-import { _resetDualScopeDbCache, openDualScopeDb } from './dual-scope-db.js';
+import { _resetDualScopeDbCache, openDualScopeDbAtPath } from './dual-scope-db.js';
 import { migrateSanitized, reconcileJournal } from './migration-manager.js';
 import {
   resolveConsolidatedJournalSiblings,
@@ -329,7 +329,22 @@ export async function ensureGlobalAgentRegistryDb(): Promise<{
   // and runs the consolidated cleo-global migrations (which create the prefixed
   // `agent_registry_*` tables + apply the 20260602000001_t11622 rename). We
   // extract its native handle so we can reconcile the legacy health-probe ledger.
-  const dualHandle = await openDualScopeDb('global');
+  // Open the consolidated GLOBAL handle at the EXACT path this module resolved
+  // (`dbPath`), rather than letting `openDualScopeDb('global')` re-resolve it from
+  // its OWN `getCleoHome()` binding. Both bindings normally agree — they build the
+  // identical `join(getCleoHome(), 'cleo.db')` — but under per-test `vi.doMock`
+  // churn the two module graphs can resolve `getCleoHome()` to DIFFERENT generations
+  // of the mock, so `openDualScopeDb('global')` would migrate (and cache) a STALE
+  // path while this module seeds/reads `dbPath`. That divergence created an empty,
+  // un-migrated `cleo.db` at `dbPath` (root cause of the flaky `no such table:
+  // agent_registry_skills`). Passing the resolved `dbPath` to the explicit-path
+  // opener makes `getGlobalAgentRegistryDbPath()` the SINGLE source of truth for the
+  // path. The explicit-path form passes no `exodusCwd`, so it never arms the
+  // exodus-on-open hook (correct: this is the canonical global identity DB) and it
+  // caches per (scope, dbPath) exactly like `openDualScopeDb`. Behaviour is
+  // byte-identical in production, where `getCleoHome()` is stable and both bindings
+  // already agree.
+  const dualHandle = await openDualScopeDbAtPath('global', dbPath);
 
   // Extract the underlying DatabaseSync. Drizzle exposes it via `$client`.
   const nativeDb = (dualHandle.db as { $client?: DatabaseSync }).$client ?? null;

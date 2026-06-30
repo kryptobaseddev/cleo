@@ -97,6 +97,27 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
 
   const dbPath = join(cleoHome, 'cleo.db'); // E6-L5 (T11525): signaldock consolidated into GLOBAL cleo.db
 
+  // Regression assertion (flaky `no such table: agent_registry_skills`, fixed by
+  // routing ensureGlobalAgentRegistryDb through openDualScopeDbAtPath('global',
+  // dbPath) so the migration always lands at THIS resolved path — not a stale
+  // mock generation of getCleoHome). If the consolidated migration ran against a
+  // divergent path, the table is absent here and we fail with a clear message
+  // instead of a cryptic seed error 100 lines later.
+  {
+    const verify = new DatabaseSync(dbPath);
+    const skillsTable = verify
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_registry_skills'")
+      .get() as { name: string } | undefined;
+    verify.close();
+    if (!skillsTable) {
+      throw new Error(
+        `makeTmpEnv: ensureGlobalAgentRegistryDb() did not create agent_registry_skills at ` +
+          `${dbPath} — the consolidated global migration resolved to a divergent path ` +
+          `(regression: dual-scope path divergence under vi.doMock churn).`,
+      );
+    }
+  }
+
   // Seed the skills catalog so junction writes succeed.
   const seedDb = new DatabaseSync(dbPath);
   seedDb.exec('PRAGMA foreign_keys = ON');
