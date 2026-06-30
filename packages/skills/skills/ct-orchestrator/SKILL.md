@@ -183,6 +183,26 @@ cleo orchestrate start --epic T1575  # Full state: session, pipeline, next task
 7. Final validation with Lead across the full epic
 ```
 
+#### Never-OOM admission (T11992 · T12000)
+
+`cleo orchestrate ready` / `waves` now carry an additive `admission` block:
+
+```
+"admission": { "agentBudget": 2, "admitted": ["T1","T2"], "deferred": ["T3"] }
+```
+
+- Spawn **only** `admission.admitted` this pass — that is the fan-out the host can
+  take without OOM. Do **not** spawn `admission.deferred`.
+- After a worker completes (a slot frees), **re-query** `orchestrate ready` — the
+  previously-deferred tasks promote into `admitted`. This is pull-based; never
+  fail or skip a deferred task, just retry it on the next pull.
+- If a `cleo orchestrate spawn` returns `E_RESOURCE_DEFERRED` (the hard gate
+  denied an `agent-session` slot under pressure), treat it like a lifecycle gate:
+  wait `details.retryAfterMs` and re-spawn. No worktree/process was provisioned,
+  so there is nothing to clean up.
+
+On an idle host every ready task is `admitted` and behaviour is unchanged.
+
 ### 4. Report to Human
 
 After each wave or on request: what completed, blockers needing HITL, next actions.
