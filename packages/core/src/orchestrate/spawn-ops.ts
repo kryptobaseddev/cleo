@@ -67,6 +67,7 @@ import type {
   CLEOSpawnContext,
   WorktreeHook,
 } from '@cleocode/contracts';
+import { RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
 import { destroyWorktree, runWorktreeHooks } from '@cleocode/worktree';
 import { findLeastLoadedAgent } from '../agents/capacity.js';
 import { substituteCantAgentBody } from '../agents/variable-substitution.js';
@@ -81,6 +82,7 @@ import type { ConduitSubscriptionConfig } from '../orchestration/spawn-prompt.js
 import { resolveEffectiveTier } from '../orchestration/tier-selector.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import { getProjectRoot } from '../paths.js';
+import { governor } from '../resources/governor.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
@@ -740,6 +742,23 @@ export async function orchestrateSpawnExecute(
   const cwd = getProjectRoot(projectRoot);
   const autoComplete = opts.autoComplete ?? true;
 
+  // T12000 (Never-OOM): acquire an `agent-session` grant BEFORE any worktree or
+  // process is provisioned, so a denial under memory pressure leaves NO partial
+  // artifacts behind — the orchestrator gets a structured, retryable deferral
+  // (treat like a lifecycle gate: wait `retryAfterMs`, re-spawn). Pass-through
+  // in `off` mode and on idle hosts, so single spawns are never spuriously
+  // blocked; under pressure it serialises the provisioning bursts that drive
+  // the OOM. The grant is held for the provisioning + dispatch window and
+  // released in the `finally` (point-in-time admission; lifetime process-group
+  // ownership is the supervisor-mode backend's job, T11998).
+  const admit = await governor.tryAcquire('agent-session');
+  if (admit.deferred) {
+    return engineError(RESOURCE_DEFERRED_CODE, admit.reason, {
+      exitCode: 75,
+      details: { class: admit.class, retryAfterMs: admit.retryAfterMs, taskId },
+    });
+  }
+
   try {
     // Get spawn registry
     await initializeDefaultAdapters();
@@ -1092,6 +1111,11 @@ export async function orchestrateSpawnExecute(
         exitCode: 60,
       },
     };
+  } finally {
+    // Release the agent-session slot once provisioning + dispatch returns.
+    await admit.release().catch(() => {
+      /* Idempotent release — slot already reaped (e.g. stale recovery). */
+    });
   }
 }
 

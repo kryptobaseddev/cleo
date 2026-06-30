@@ -34,6 +34,7 @@ import { resolveSagaMemberIds } from '../sagas/storage.js';
 import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
+import { computeAgentAdmission } from './admission.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -473,6 +474,10 @@ export async function orchestrateReady(
         }
       }
 
+      // T12000: annotate which ready tasks are admittable now vs deferred so
+      // orchestrators size their fan-out to host capacity (Never-OOM).
+      const admission = await computeAgentAdmission(aggregated.map((t) => t.id));
+
       return {
         success: true,
         data: {
@@ -481,6 +486,7 @@ export async function orchestrateReady(
           total: aggregated.length,
           via: 'saga' as const,
           sagaMembers: members,
+          admission,
           ...(skippedNested.length > 0 && { sagaNestedSkipped: skippedNested }),
           ...(reason !== undefined && { reason }),
           ...(depsWarning !== undefined && { depsWarning }),
@@ -507,18 +513,24 @@ export async function orchestrateReady(
       }
     }
 
+    const readyOut = ready.map((t) => ({
+      id: t.taskId,
+      title: t.title,
+      priority: t.priority,
+      depends: t.depends,
+    }));
+    // T12000: annotate which ready tasks are admittable now vs deferred so
+    // orchestrators size their fan-out to host capacity (Never-OOM).
+    const admission = await computeAgentAdmission(readyOut.map((t) => t.id));
+
     return {
       success: true,
       data: {
         epicId,
-        readyTasks: ready.map((t) => ({
-          id: t.taskId,
-          title: t.title,
-          priority: t.priority,
-          depends: t.depends,
-        })),
-        total: ready.length,
+        readyTasks: readyOut,
+        total: readyOut.length,
         via: 'parent' as const,
+        admission,
         ...(reason !== undefined && { reason }),
         ...(depsWarning !== undefined && { depsWarning }),
       },
@@ -651,9 +663,13 @@ export async function orchestrateWaves(
 
     if (!sagaShaped) {
       const result = await getEnrichedWaves(epicId, root, accessor);
+      // T12000: admission over the first actionable (non-completed) wave —
+      // the tasks an orchestrator would spawn next — so the fan-out is sized
+      // to host capacity (Never-OOM).
+      const admission = await computeAgentAdmission(firstActionableWaveTaskIds(result.waves));
       return {
         success: true,
-        data: { ...result, via: 'parent' as const },
+        data: { ...result, via: 'parent' as const, admission },
       };
     }
 
@@ -719,6 +735,9 @@ export async function orchestrateWaves(
       mergedWaves.push(merged);
     }
 
+    // T12000: admission over the first actionable merged wave (Never-OOM).
+    const admission = await computeAgentAdmission(firstActionableWaveTaskIds(mergedWaves));
+
     return {
       success: true,
       data: {
@@ -728,6 +747,7 @@ export async function orchestrateWaves(
         totalTasks: totalChildren,
         via: 'saga' as const,
         sagaMembers: members,
+        admission,
         ...(skippedNested.length > 0 && { sagaNestedSkipped: skippedNested }),
       },
     };
@@ -735,6 +755,19 @@ export async function orchestrateWaves(
     const code = (err as { code?: string }).code ?? 'E_GENERAL';
     return engineError(code, (err as Error).message);
   }
+}
+
+/**
+ * Task IDs of the first actionable (non-completed) wave — the set an
+ * orchestrator would spawn next. Empty when every wave is complete. Used to
+ * scope the {@link AgentAdmission} annotation to the immediately-relevant fan-out
+ * rather than the entire (largely future) wave plan.
+ *
+ * @task T12000
+ */
+function firstActionableWaveTaskIds(waves: readonly EnrichedWave[]): string[] {
+  const actionable = waves.find((w) => w.status !== 'completed');
+  return actionable ? [...actionable.taskIds] : [];
 }
 
 /**
