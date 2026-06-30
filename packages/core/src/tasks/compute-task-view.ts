@@ -136,7 +136,7 @@ function fetchLifecycleProgress(taskIds: string[]): Map<string, TaskViewLifecycl
     pipelineRows = native
       .prepare(
         `SELECT task_id, current_stage_id, id AS pipeline_id
-         FROM lifecycle_pipelines
+         FROM tasks_lifecycle_pipelines
          WHERE task_id IN (${placeholders})`,
       )
       .all(...taskIds) as PipelineRow[];
@@ -173,7 +173,7 @@ function fetchLifecycleProgress(taskIds: string[]): Map<string, TaskViewLifecycl
     stageRows = native
       .prepare(
         `SELECT pipeline_id, stage_name, status, id AS stage_id
-         FROM lifecycle_stages
+         FROM tasks_lifecycle_stages
          WHERE pipeline_id IN (${stagePlaceholders})`,
       )
       .all(...pipelineIds) as StageRow[];

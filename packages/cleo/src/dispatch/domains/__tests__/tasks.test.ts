@@ -736,6 +736,37 @@ describe('TasksHandler', () => {
       );
     });
 
+    it('update - forwards blockedBy param to engine (gh#1106 — was dropped, only clear was wired)', async () => {
+      vi.mocked(taskUpdate).mockResolvedValue({
+        success: true,
+        data: {
+          task: {
+            id: 'T001',
+            title: 'Test',
+            description: 'test',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: '2026-01-01',
+            updatedAt: null,
+          },
+        },
+      });
+
+      const result = await handler.mutate('update', {
+        taskId: 'T001',
+        blockedBy: 'waiting on cloud creds',
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskUpdate).toHaveBeenCalledWith(
+        '/mock/project',
+        'T001',
+        expect.objectContaining({
+          blockedBy: 'waiting on cloud creds',
+        }),
+      );
+    });
+
     it('complete - delegates to taskCompleteStrict', async () => {
       vi.mocked(completeTaskStrict).mockResolvedValue({
         success: true,

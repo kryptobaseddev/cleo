@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
-import { updateTask } from '../update.js';
+import { taskUpdate, updateTask } from '../update.js';
 
 describe('updateTask', () => {
   let env: TestDbEnv;
@@ -470,6 +470,30 @@ describe('updateTask', () => {
       await updateTask({ taskId: 'T001', clearBlockedBy: true }, env.tempDir, accessor);
       const reloaded = await accessor.loadSingleTask('T001');
       expect(reloaded?.blockedBy).toBeUndefined();
+    });
+
+    // gh#1106 / T12016 — the EngineResult wrapper `taskUpdate` (the layer the
+    // dispatch handler calls) must forward `blockedBy`. It previously omitted it
+    // from its `updates` type and forwarding object, so `cleo update --blocked-by`
+    // round-tripped to E_CLEO_NO_CHANGE.
+    it('wrapper taskUpdate forwards blockedBy and counts it as a change', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Task',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const result = await taskUpdate(env.tempDir, 'T001', { blockedBy: 'waiting on infra' });
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      // taskToRecord maps the free-text string reason into a 1-element array on
+      // the wire TaskRecord (engine-converters.ts — blockedBy: string vs string[]).
+      expect(result.data.task.blockedBy).toEqual(['waiting on infra']);
+      expect(result.data.changes).toContain('blockedBy');
     });
   });
 

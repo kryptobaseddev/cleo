@@ -228,14 +228,54 @@ export const defaultFetchGhPrPayload: FetchGhPrPayload = async (prNumber: number
 // ---------------------------------------------------------------------------
 
 /**
+ * Extract a project's declared required-workflow set from a parsed
+ * `.cleo/project-context.json` object (the `release.prRequiredWorkflows` field,
+ * {@link PR_REQUIRED_WORKFLOWS_CONTEXT_KEY}).
+ *
+ * Semantics (gh#1104):
+ * - Returns `null` when the key is ABSENT or malformed (not an array) — the
+ *   caller falls through to the {@link PR_REQUIRED_WORKFLOWS} default.
+ * - Returns the (possibly EMPTY) array of trimmed, non-empty string entries
+ *   when the key is present. An empty array is a meaningful value meaning "no
+ *   required workflows" — a MERGED PR with no/empty checks then satisfies `pr:`.
+ *   It MUST NOT be coerced to `null` or to the default.
+ *
+ * @task T12014 (gh#1104)
+ */
+function extractProjectContextRequiredWorkflows(
+  projectContext?: Record<string, unknown> | null,
+): string[] | null {
+  if (typeof projectContext !== 'object' || projectContext === null) return null;
+  const release = (projectContext as Record<string, unknown>).release;
+  if (typeof release !== 'object' || release === null) return null;
+  const declared = (release as Record<string, unknown>).prRequiredWorkflows;
+  if (!Array.isArray(declared)) return null;
+  // Present-but-empty is intentional: return [] (not null) so an explicit
+  // "no required workflows" declaration accepts any MERGED PR.
+  return declared
+    .filter((s): s is string => typeof s === 'string')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
  * Resolve the list of required-workflow names for the current project.
  *
- * Reads the `CLEO_PR_REQUIRED_WORKFLOWS` env var first (comma-separated)
- * and falls back to {@link PR_REQUIRED_WORKFLOWS} when unset.
+ * Precedence (most specific wins):
+ * 1. `CLEO_PR_REQUIRED_WORKFLOWS` env var (comma-separated) — CI/operator
+ *    override.
+ * 2. `.cleo/project-context.json` `release.prRequiredWorkflows`
+ *    ({@link PR_REQUIRED_WORKFLOWS_CONTEXT_KEY}) — committed per-project config.
+ *    An explicit empty array means NO required workflows (gh#1104).
+ * 3. {@link PR_REQUIRED_WORKFLOWS} default (the cleocode contract-repo gates).
  *
  * @task T9764
+ * @task T12014 (gh#1104)
  */
-export function resolveRequiredWorkflows(env: NodeJS.ProcessEnv = process.env): string[] {
+export function resolveRequiredWorkflows(
+  env: NodeJS.ProcessEnv = process.env,
+  projectContext?: Record<string, unknown> | null,
+): string[] {
   const raw = env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
   if (typeof raw === 'string' && raw.trim().length > 0) {
     return raw
@@ -243,6 +283,8 @@ export function resolveRequiredWorkflows(env: NodeJS.ProcessEnv = process.env): 
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
   }
+  const fromContext = extractProjectContextRequiredWorkflows(projectContext);
+  if (fromContext !== null) return fromContext;
   return [...PR_REQUIRED_WORKFLOWS];
 }
 
@@ -411,6 +453,11 @@ export interface ResolvePrEvidenceAtomOptions {
   readonly env?: NodeJS.ProcessEnv;
   /** When `true`, bypass cache reads. Cache writes always happen. */
   readonly bypassCache?: boolean;
+  /**
+   * Parsed `.cleo/project-context.json` (or `null`). Tier between env and the
+   * built-in default for required-workflow resolution (gh#1104). @task T12014
+   */
+  readonly projectContext?: Record<string, unknown> | null;
 }
 
 /**
@@ -501,7 +548,7 @@ export async function resolvePrEvidenceAtom(
 
   const rollupResult = evaluateRollup(
     payload.statusCheckRollup,
-    resolveRequiredWorkflows(opts.env),
+    resolveRequiredWorkflows(opts.env, opts.projectContext),
   );
   if (!rollupResult.ok) {
     return {

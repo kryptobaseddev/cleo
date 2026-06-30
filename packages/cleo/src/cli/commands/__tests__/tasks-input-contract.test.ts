@@ -328,6 +328,19 @@ describe('cleo update — --params path (T9917)', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 
+  it('accepts blockedBy via --params (gh#1106 — schema additionalProperties:false now lists it)', async () => {
+    await invokeRun(updateCommand, {
+      taskId: 'T9917',
+      params: JSON.stringify({ blockedBy: 'waiting on cloud creds' }),
+    });
+
+    expect(mockCliError).not.toHaveBeenCalled();
+    expect(mockDispatchRaw).toHaveBeenCalledTimes(1);
+    const [, , op, params] = mockDispatchRaw.mock.calls[0] ?? [];
+    expect(op).toBe('update');
+    expect((params as Record<string, unknown>)['blockedBy']).toBe('waiting on cloud creds');
+  });
+
   it('rejects an invalid status enum value', async () => {
     await invokeRun(updateCommand, {
       taskId: 'T9917',

@@ -402,3 +402,100 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
     expect(bindings[0]?.bindingType).toBe('satisfies');
   });
 });
+
+// ---------------------------------------------------------------------------
+// gh#1105 / T12015 — override + soft evidence is rejected AT VERIFY, matching
+// the complete-side T9245 hard-atom check (no accept-then-reject divergence).
+// ---------------------------------------------------------------------------
+
+describe('validateGateVerify — critical-gate override parity (gh#1105 / T12015)', () => {
+  let savedOverride: string | undefined;
+  let savedReason: string | undefined;
+  let savedRole: string | undefined;
+
+  beforeEach(async () => {
+    resetDbState();
+    TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-gate-1105-'));
+    await setupTestRoot();
+    initGitRepoWithCommit('seed.ts');
+    writeTestRunJson();
+    // Owner-override context. CLEO_AGENT_ROLE must be cleared — readOverrideState
+    // downgrades the override for worker/lead/subagent roles.
+    savedOverride = process.env.CLEO_OWNER_OVERRIDE;
+    savedReason = process.env.CLEO_OWNER_OVERRIDE_REASON;
+    savedRole = process.env.CLEO_AGENT_ROLE;
+    process.env.CLEO_OWNER_OVERRIDE = '1';
+    process.env.CLEO_OWNER_OVERRIDE_REASON = 'gh#1105 parity test';
+    delete process.env.CLEO_AGENT_ROLE;
+  });
+
+  afterEach(async () => {
+    if (savedOverride === undefined) delete process.env.CLEO_OWNER_OVERRIDE;
+    else process.env.CLEO_OWNER_OVERRIDE = savedOverride;
+    if (savedReason === undefined) delete process.env.CLEO_OWNER_OVERRIDE_REASON;
+    else process.env.CLEO_OWNER_OVERRIDE_REASON = savedReason;
+    if (savedRole === undefined) delete process.env.CLEO_AGENT_ROLE;
+    else process.env.CLEO_AGENT_ROLE = savedRole;
+    resetDbState();
+    await rm(TEST_ROOT, { recursive: true, force: true });
+  });
+
+  it('REJECTS testsPassed at verify when override is combined with note-only evidence', async () => {
+    await seedTask('T200');
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId: 'T200',
+      gate: 'testsPassed',
+      value: true,
+      evidence: 'note:owner-says-ok',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_CRITICAL_GATE_OVERRIDE_REJECTED');
+    expect(result.error?.message).toMatch(/T9245/);
+  });
+
+  it('REJECTS implemented at verify when override is combined with url-only evidence', async () => {
+    await seedTask('T201');
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId: 'T201',
+      gate: 'implemented',
+      value: true,
+      evidence: 'url:https://example.com/proof',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_CRITICAL_GATE_OVERRIDE_REJECTED');
+    expect(result.error?.message).toMatch(/T9245/);
+  });
+
+  it('REJECTS under --all when override is combined with note-only evidence', async () => {
+    await seedTask('T202');
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId: 'T202',
+      all: true,
+      evidence: 'note:owner-says-ok',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_CRITICAL_GATE_OVERRIDE_REJECTED');
+  });
+
+  it('ACCEPTS qaPassed with override + note (non-critical gate unchanged)', async () => {
+    await seedTask('T203');
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId: 'T203',
+      gate: 'qaPassed',
+      value: true,
+      evidence: 'note:owner-says-ok',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('ACCEPTS implemented with override PLUS a real commit atom (hard atom is preserved)', async () => {
+    await seedTask('T204');
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId: 'T204',
+      gate: 'implemented',
+      value: true,
+      evidence: `commit:${SEED_COMMIT_SHA};files:seed.ts`,
+    });
+    expect(result.success).toBe(true);
+  });
+});

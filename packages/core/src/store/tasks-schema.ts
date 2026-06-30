@@ -37,6 +37,41 @@ export type {
 } from './schema/chain-schema.js';
 // Re-export WarpChain schema tables so drizzle-kit picks them up for migrations.
 export { warpChainInstances, warpChains } from './schema/chain-schema.js';
+export type {
+  NewTasksLifecycleEvidenceRow as NewLifecycleEvidenceRow,
+  NewTasksLifecycleGateResultRow as NewLifecycleGateResultRow,
+  NewTasksLifecyclePipelineRow as NewLifecyclePipelineRow,
+  NewTasksLifecycleStageRow as NewLifecycleStageRow,
+  NewTasksLifecycleTransitionRow as NewLifecycleTransitionRow,
+  TasksLifecycleEvidenceRow as LifecycleEvidenceRow,
+  TasksLifecycleGateResultRow as LifecycleGateResultRow,
+  TasksLifecyclePipelineRow as LifecyclePipelineRow,
+  TasksLifecycleStageRow as LifecycleStageRow,
+  TasksLifecycleTransitionRow as LifecycleTransitionRow,
+} from './schema/cleo-project/lifecycle.js';
+// COMPLETE-CUTOVER (T12017 · gh#1107) — lifecycle domain → PREFIXED tables.
+//
+// Completes the satellite-rebind deferred at the top of this file. The bare
+// `lifecycle_pipelines.task_id` carried a FK to the now-DEAD bare `tasks`
+// table; with the task family moved to `tasks_tasks`, every lifecycle insert
+// hit `FOREIGN KEY constraint failed`, so an epic could never advance past
+// `research` (gh#1107). The bare lifecycle_* tables are empty; all 711
+// pipelines / 1199 stages already live in the prefixed `tasks_lifecycle_*`
+// tables (exodus moved them) — so this is a pure runtime-binding switch with
+// NO data migration. Column names are byte-identical (verified), so every
+// `schema.lifecycle*` call site keeps compiling and now reads/writes the
+// prefixed tables. As with the task-core block, an explicit named re-export
+// shadows the `export *` below for the same names. The `.references(() =>
+// lifecyclePipelines.id)` sites in schema/lifecycle.ts + schema/manifest.ts
+// import the bare OBJECTS directly (not via this barrel) and stay bare for the
+// drizzle-tasks migration generator — do not touch them.
+export {
+  tasksLifecycleEvidence as lifecycleEvidence,
+  tasksLifecycleGateResults as lifecycleGateResults,
+  tasksLifecyclePipelines as lifecyclePipelines,
+  tasksLifecycleStages as lifecycleStages,
+  tasksLifecycleTransitions as lifecycleTransitions,
+} from './schema/cleo-project/lifecycle.js';
 // ── COMPLETE-CUTOVER provenance rebind (T11883 · E3) ──────────────────────────
 // Shadow the legacy un-prefixed PROVENANCE drizzle symbols (otherwise exported
 // via `export * from './schema/index.js'` below) onto the PREFIXED consolidated

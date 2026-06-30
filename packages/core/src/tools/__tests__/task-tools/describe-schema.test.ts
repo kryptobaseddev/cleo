@@ -49,9 +49,13 @@ describe('describeSchema', () => {
     expect(sessions!.columns.map((c) => c.name)).toContain('started_at');
   });
 
-  it('snapshot — lifecycle_pipelines table shape', () => {
+  it('snapshot — tasks_lifecycle_pipelines table shape', () => {
     const { tables } = describeSchema();
-    const lp = tables.find((t) => t.name === 'lifecycle_pipelines');
+    // gh#1107 / T12017: the runtime lifecycle drizzle symbols were rebound from
+    // the dead bare `lifecycle_pipelines` table to the prefixed
+    // `tasks_lifecycle_pipelines` table, so describeSchema now reports the
+    // prefixed name.
+    const lp = tables.find((t) => t.name === 'tasks_lifecycle_pipelines');
     expect(lp).toBeDefined();
 
     const idCol = lp!.columns.find((c) => c.name === 'id');

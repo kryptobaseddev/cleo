@@ -36,6 +36,7 @@ import { resetDbState } from '../../store/sqlite.js';
 import {
   CRITICAL_GATES_NO_OVERRIDE,
   extractTaskAcFiles,
+  isHardAtom,
   resolveCanonicalProjectRoot,
   revalidateEvidence,
   validateAtom,
@@ -291,6 +292,56 @@ describe('T9245 — revalidateEvidence rejects override-only on critical gates',
     );
     expect(r.stillValid).toBe(false);
     expect(r.failedAtoms[0]?.reason).toMatch(/testsPassed/);
+  });
+
+  // gh#1105 / T12015 — note (or url) alongside an override is STILL override-only
+  // on a critical gate. Pins the predicate parity with the verify-side check.
+  it('REJECTS override + note-only evidence on testsPassed (soft atom is not a hard atom)', async () => {
+    const r = await revalidateEvidence(
+      {
+        atoms: [
+          { kind: 'override', reason: 'owner-says-ok' },
+          { kind: 'note', note: 'docs-only change' },
+        ],
+        capturedAt: new Date().toISOString(),
+        capturedBy: 'owner',
+        override: true,
+        overrideReason: 'owner-says-ok',
+      },
+      '/tmp',
+      'testsPassed',
+    );
+    expect(r.stillValid).toBe(false);
+    expect(r.failedAtoms[0]?.reason).toMatch(/T9245/);
+  });
+
+  it('ACCEPTS override + a hard atom on implemented (hard atom present → parity with verify)', async () => {
+    // With a hard atom present, the T9245 rejection is skipped and the override
+    // short-circuit returns stillValid:true — mirroring the verify-side accept
+    // for override + commit. (The commit is not git-re-executed under override.)
+    const r = await revalidateEvidence(
+      {
+        atoms: [
+          { kind: 'override', reason: 'owner-override' },
+          { kind: 'commit', sha: 'a'.repeat(40) },
+        ],
+        capturedAt: new Date().toISOString(),
+        capturedBy: 'owner',
+        override: true,
+        overrideReason: 'owner-override',
+      },
+      '/tmp',
+      'implemented',
+    );
+    expect(r.stillValid).toBe(true);
+  });
+
+  it('isHardAtom: commit/files/test-run/tool/pr/decision are hard; override/note/url are soft', () => {
+    expect(isHardAtom({ kind: 'commit', sha: 'a'.repeat(40) })).toBe(true);
+    expect(isHardAtom({ kind: 'files', files: ['x'] })).toBe(true);
+    expect(isHardAtom({ kind: 'override', reason: 'x' })).toBe(false);
+    expect(isHardAtom({ kind: 'note', note: 'x' })).toBe(false);
+    expect(isHardAtom({ kind: 'url', url: 'https://x' })).toBe(false);
   });
 
   it('ACCEPTS override-only evidence on qaPassed (non-critical)', async () => {

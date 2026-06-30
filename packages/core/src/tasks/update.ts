@@ -752,6 +752,8 @@ export async function taskUpdate(
     scope?: string;
     severity?: string;
     reason?: string;
+    /** Set the blockedBy free-text reason. @task T9241 (gh#1106) */
+    blockedBy?: string;
     clearBlockedBy?: boolean;
     /** @task T9327 */
     relates?: Array<{ taskId: string; type: string; reason?: string }>;
@@ -792,6 +794,7 @@ export async function taskUpdate(
         relates: updates.relates,
         addRelates: updates.addRelates,
         removeRelates: updates.removeRelates,
+        blockedBy: updates.blockedBy,
         clearBlockedBy: updates.clearBlockedBy,
       },
       projectRoot,
