@@ -17,7 +17,8 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as governorModule from '../../resources/governor.js';
 import {
   _resetDualScopeDbCache,
   insertIdempotent,
@@ -233,4 +234,44 @@ describe('WAL coexistence (E3 AC8 preview)', () => {
     expect(projJournal?.journal_mode).toBe('wal');
     expect(globJournal?.journal_mode).toBe('wal');
   }, 30_000);
+});
+
+describe('exodus-on-open db-heavy admission (T12001 / Epic T11992)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('skips the exodus auto-migrate but still returns a usable handle when db-heavy is deferred', async () => {
+    // Force the governor to DENY db-heavy admission on the exodus-on-open path.
+    const spy = vi.spyOn(governorModule.governor, 'tryAcquire').mockResolvedValue({
+      deferred: true,
+      class: 'db-heavy',
+      retryAfterMs: 2000,
+      reason: 'forced deferral (test)',
+    });
+
+    // skip-not-block: the interactive open must NEVER fail or block under pressure
+    // — it returns a valid, live handle (migration is simply deferred to a calmer
+    // open). The legacy fleet is empty here, so the un-migrated handle is correct.
+    const handle = await openDualScopeDb('project', projectDir);
+    expect(handle).toBeDefined();
+    expect(handle.scope).toBe('project');
+
+    // The governor was consulted for db-heavy admission on the exodus path.
+    expect(spy).toHaveBeenCalledWith('db-heavy');
+  });
+
+  it('proceeds with exodus-on-open when db-heavy is granted (full-budget byte-compatible)', async () => {
+    const spy = vi.spyOn(governorModule.governor, 'tryAcquire').mockResolvedValue({
+      deferred: false,
+      class: 'db-heavy',
+      slot: 0,
+      acquiredAtMs: Date.now(),
+      release: async () => {},
+    });
+
+    const handle = await openDualScopeDb('project', projectDir);
+    expect(handle).toBeDefined();
+    expect(spy).toHaveBeenCalledWith('db-heavy');
+  });
 });

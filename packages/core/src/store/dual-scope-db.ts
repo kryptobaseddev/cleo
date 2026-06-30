@@ -738,6 +738,36 @@ export async function openDualScopeDbAtPath(
     // `openDualScopeDb` AND `dbPath` is the canonical path for that scope+cwd —
     // never for explicit-path opens (test fixtures / legacy-path domains).
     if (exodusCwd !== undefined && dbPath === resolveDualScopeDbPath(scope, exodusCwd)) {
+      // ── T12001 (Epic T11992) — db-heavy admission for the exodus auto-migrate ──
+      // The on-open exodus (reconcile + parity verify + migrate) is a heavy DB op;
+      // letting it co-schedule with builds/tests/agents is a historical OOM vector.
+      // Admit it through the governor's `db-heavy` class (machine-wide serialized;
+      // deferred under memory backoff). On a denial we SKIP the migration THIS open
+      // (kill-switch precedent CLEO_DISABLE_EXODUS_ON_OPEN) — NEVER block or defer
+      // the interactive command (interactive-cli is never gated) — and it re-runs
+      // idempotently on a calmer open. Fail-open: ANY governor error proceeds
+      // un-gated, byte-identical to pre-T12001 behaviour.
+      let releaseDbHeavy: (() => Promise<void>) | null = null;
+      let dbHeavyDeferred = false;
+      try {
+        const { governor } = await import('../resources/governor.js');
+        const admit = await governor.tryAcquire('db-heavy');
+        if (admit.deferred) {
+          dbHeavyDeferred = true;
+        } else {
+          releaseDbHeavy = admit.release;
+        }
+      } catch {
+        // Governor unavailable — fail open (proceed un-gated).
+      }
+      if (dbHeavyDeferred) {
+        log.debug(
+          { scope, dbPath },
+          'exodus-on-open skipped this open — db-heavy deferred under memory pressure ' +
+            '(re-runs idempotently on a calmer open)',
+        );
+        return handle;
+      }
       try {
         const { maybeRunExodusOnOpen } = await import('./exodus/on-open.js');
         const result = await maybeRunExodusOnOpen(scope, dbPath, nativeDb, exodusCwd);
@@ -787,6 +817,10 @@ export async function openDualScopeDbAtPath(
         return scope === 'project'
           ? openDualScopeDbAtPath('project', dbPath)
           : openDualScopeDbAtPath('global', dbPath);
+      } finally {
+        // Release the db-heavy slot on EVERY exit path (early returns above run
+        // `finally` first). Idempotent; release errors are swallowed.
+        if (releaseDbHeavy) await releaseDbHeavy().catch(() => {});
       }
     }
 
