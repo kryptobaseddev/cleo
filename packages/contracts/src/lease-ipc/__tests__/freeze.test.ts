@@ -26,14 +26,14 @@ import {
 
 describe('lease-ipc v1.1 freeze guard (T11627)', () => {
   it('pins the parallel protocol version', () => {
-    expect(LEASE_IPC_PROTOCOL_VERSION).toBe('1.1.0');
+    expect(LEASE_IPC_PROTOCOL_VERSION).toBe('1.2.0');
   });
 
   it('the version differs from the frozen supervisor-ipc v1.0 wire version', () => {
     // The two contracts are distinguished on the wire purely by this string;
     // it MUST NOT collide with '1.0.0'.
     expect(LEASE_IPC_PROTOCOL_VERSION).not.toBe('1.0.0');
-    expect(isFrozenLeaseIpcVersion('1.1.0')).toBe(true);
+    expect(isFrozenLeaseIpcVersion('1.2.0')).toBe(true);
     expect(isFrozenLeaseIpcVersion('1.0.0')).toBe(false);
   });
 
@@ -46,6 +46,8 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'tool_grant',
       'queue_admit',
       'worker_heartbeat',
+      'resource_admit',
+      'resource_release',
     ]);
   });
 
@@ -60,6 +62,8 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'child_killed_unresponsive',
       'queue_admit_result',
       'heartbeat_ack',
+      'resource_admit_result',
+      'resource_release_result',
       'error',
     ]);
   });
@@ -87,6 +91,8 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'tool_grant',
       'queue_admit',
       'worker_heartbeat',
+      'resource_admit',
+      'resource_release',
       'lease_granted',
       'lease_queued',
       'lease_denied',
@@ -96,6 +102,8 @@ describe('lease-ipc v1.1 freeze guard (T11627)', () => {
       'child_killed_unresponsive',
       'queue_admit_result',
       'heartbeat_ack',
+      'resource_admit_result',
+      'resource_release_result',
       'error',
     ]);
   });
@@ -106,7 +114,7 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
     // Literal JSON shape produced by
     // cleo_supervisor::lease_ipc::LeaseEnvelope::request(...).to_ndjson().
     const wire = {
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'abc',
       direction: 'request',
       request: {
@@ -128,7 +136,7 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
 
   it('parses the exact JSON a Rust lease_granted response envelope serializes', () => {
     const wire = {
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'abc',
       direction: 'response',
       response: {
@@ -146,7 +154,7 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
 
   it('parses a Rust child_killed_unresponsive event envelope', () => {
     const wire = {
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'evt-1',
       direction: 'response',
       response: {
@@ -162,7 +170,7 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
 
   it('parses a reused v1.0 error response shape ({ kind, code, message })', () => {
     const wire = {
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'e',
       direction: 'response',
       response: { kind: 'error', code: 'E_LEASE_UNIMPLEMENTED', message: 'deferred handler' },
@@ -172,7 +180,7 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
 
   it('parses the exact JSON a Rust queue_admit request envelope serializes (T11630)', () => {
     const wire = {
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'qa-1',
       direction: 'request',
       request: {
@@ -192,7 +200,7 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
 
   it('parses the exact JSON a Rust queue_admit_result response envelope serializes (T11630)', () => {
     const wire = {
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'qa-1',
       direction: 'response',
       response: {
@@ -208,7 +216,7 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
 
   it('parses the exact JSON a Rust worker_heartbeat request envelope serializes (T11628)', () => {
     const wire = {
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'hb-1',
       direction: 'request',
       request: {
@@ -226,7 +234,7 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
 
   it('parses the exact JSON a Rust heartbeat_ack response envelope serializes (T11628)', () => {
     const wire = {
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'hb-1',
       direction: 'response',
       response: { kind: 'heartbeat_ack' },
@@ -238,9 +246,61 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
     }
   });
 
+  it('parses the exact JSON a Rust resource_admit request envelope serializes (T12001)', () => {
+    const wire = {
+      protocol_version: '1.2.0',
+      id: 'ra-1',
+      direction: 'request',
+      request: {
+        kind: 'resource_admit',
+        class: 'db-heavy',
+        holder_id: 'pid-42:db-heavy',
+        budget: 1,
+      },
+    };
+    const parsed = LeaseIpcEnvelopeSchema.safeParse(wire);
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.direction === 'request') {
+      expect(parsed.data.request.kind).toBe('resource_admit');
+    }
+  });
+
+  it('parses the exact JSON a Rust resource_admit_result response envelope serializes (T12001)', () => {
+    const wire = {
+      protocol_version: '1.2.0',
+      id: 'ra-1',
+      direction: 'response',
+      response: {
+        kind: 'resource_admit_result',
+        disposition: 'deferred',
+        retry_after_ms: 2000,
+        slots_remaining: 0,
+      },
+    };
+    const parsed = LeaseIpcEnvelopeSchema.safeParse(wire);
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.direction === 'response') {
+      expect(parsed.data.response.kind).toBe('resource_admit_result');
+    }
+  });
+
+  it('parses the exact JSON a Rust resource_release_result response envelope serializes (T12001)', () => {
+    const wire = {
+      protocol_version: '1.2.0',
+      id: 'rr-1',
+      direction: 'response',
+      response: { kind: 'resource_release_result', released: true, slots_remaining: 1 },
+    };
+    const parsed = LeaseIpcEnvelopeSchema.safeParse(wire);
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.direction === 'response') {
+      expect(parsed.data.response.kind).toBe('resource_release_result');
+    }
+  });
+
   it('rejects an unknown message kind (proves the union is closed)', () => {
     const wire = {
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'abc',
       direction: 'request',
       request: { kind: 'lease_teleport', scope: 'project', lane: 'tasks' },
@@ -250,7 +310,7 @@ describe('lease-ipc v1.1 wire-shape parity with Rust serde (T11627)', () => {
 
   it('rejects an unknown scope/lane enum value (snake_case enums are closed)', () => {
     const wire = {
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'abc',
       direction: 'request',
       request: {
@@ -298,6 +358,10 @@ function sampleRequestFor(kind: (typeof LEASE_IPC_REQUEST_KINDS)[number]): unkno
       };
     case 'worker_heartbeat':
       return { kind, child_id: 'worker-1', in_flight_llm: true };
+    case 'resource_admit':
+      return { kind, class: 'db-heavy', holder_id: 'pid-42:db-heavy', budget: 1 };
+    case 'resource_release':
+      return { kind, class: 'db-heavy', holder_id: 'pid-42:db-heavy' };
   }
 }
 
@@ -336,6 +400,10 @@ function sampleResponseFor(kind: (typeof LEASE_IPC_RESPONSE_KINDS)[number]): unk
       };
     case 'heartbeat_ack':
       return { kind };
+    case 'resource_admit_result':
+      return { kind, disposition: 'deferred', retry_after_ms: 2000, slots_remaining: 0 };
+    case 'resource_release_result':
+      return { kind, released: true, slots_remaining: 1 };
     case 'error':
       return { kind, code: 'E_X', message: 'x' };
   }

@@ -36,7 +36,7 @@ use cleo_supervisor::ipc_server;
 use cleo_supervisor::lease_handler::{LeaseArbiter, ScopeDbResolver};
 use cleo_supervisor::lease_ipc::{
     DbScope, LeaseAcquireReq, LeaseEnvelope, LeaseLane, LeasePayload, LeaseReleaseReq, LeaseRequest,
-    LeaseResponse,
+    LeaseResponse, LEASE_IPC_PROTOCOL_VERSION,
 };
 use cleo_supervisor::supervisor::ChildRegistry;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -135,7 +135,10 @@ async fn v1_1_acquire_release_over_socket_v1_0_unaffected() {
 
     let granted_line = read_line(&mut lines).await;
     let granted = LeaseEnvelope::from_ndjson(&granted_line).expect("parse granted envelope");
-    assert_eq!(granted.protocol_version, "1.1.0", "v1.1 response framing");
+    assert_eq!(
+        granted.protocol_version, LEASE_IPC_PROTOCOL_VERSION,
+        "v1.x response framing"
+    );
     assert_eq!(granted.id, "lease-acq-1", "correlation id echoed");
     let granted_epoch = match granted.payload {
         LeasePayload::Response {

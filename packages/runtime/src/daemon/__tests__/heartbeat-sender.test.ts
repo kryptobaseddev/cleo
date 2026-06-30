@@ -29,7 +29,7 @@ describe('createHeartbeatSender (T11628)', () => {
     expect(written[0].endsWith('\n')).toBe(true);
     const parsed = JSON.parse(written[0].trimEnd());
     expect(parsed.protocol_version).toBe(LEASE_IPC_PROTOCOL_VERSION);
-    expect(parsed.protocol_version).toBe('1.1.0');
+    expect(parsed.protocol_version).toBe('1.2.0');
     expect(parsed.direction).toBe('request');
     expect(parsed.id).toBe(id);
     expect(parsed.request.kind).toBe('worker_heartbeat');
@@ -73,7 +73,7 @@ describe('createHeartbeatSender (T11628)', () => {
     // The supervisor encodes its heartbeat_ack reply through the same codec.
     const client = createLeaseIpcClient();
     const ackLine = JSON.stringify({
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'hb-1',
       direction: 'response',
       response: { kind: 'heartbeat_ack' },

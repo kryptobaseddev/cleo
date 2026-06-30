@@ -34,6 +34,7 @@ use cleo_supervisor::ipc_server;
 use cleo_supervisor::lease_handler::{LeaseArbiter, ScopeDbResolver};
 use cleo_supervisor::lease_ipc::{
     LeaseEnvelope, LeasePayload, LeaseRequest, LeaseResponse, WorkerHeartbeatReq,
+    LEASE_IPC_PROTOCOL_VERSION,
 };
 use cleo_supervisor::llm_queue::LlmQueue;
 use cleo_supervisor::supervisor::ChildRegistry;
@@ -116,7 +117,10 @@ async fn worker_heartbeat_over_socket_acks_and_v1_0_unaffected() {
 
     let ack_line = read_line(&mut lines).await;
     let ack = LeaseEnvelope::from_ndjson(&ack_line).expect("parse ack envelope");
-    assert_eq!(ack.protocol_version, "1.1.0", "v1.1 response framing");
+    assert_eq!(
+        ack.protocol_version, LEASE_IPC_PROTOCOL_VERSION,
+        "v1.x response framing"
+    );
     assert_eq!(ack.id, "hb-1", "correlation id echoed");
     assert!(
         matches!(

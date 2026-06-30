@@ -32,7 +32,7 @@ use cleo_supervisor::ipc_server;
 use cleo_supervisor::lease_handler::{LeaseArbiter, ScopeDbResolver};
 use cleo_supervisor::lease_ipc::{
     LeaseEnvelope, LeasePayload, LeaseRequest, LeaseResponse, QueueAdmitDisposition, QueueAdmitReq,
-    QueuePriorityClass,
+    QueuePriorityClass, LEASE_IPC_PROTOCOL_VERSION,
 };
 use cleo_supervisor::llm_queue::LlmQueue;
 use cleo_supervisor::supervisor::ChildRegistry;
@@ -116,7 +116,10 @@ async fn queue_admit_over_socket_admits_then_defers_v1_0_unaffected() {
     write_line(&mut write, &admit1.to_ndjson().expect("ser admit1")).await;
     let line1 = read_line(&mut lines).await;
     let env1 = LeaseEnvelope::from_ndjson(&line1).expect("parse admit1 result");
-    assert_eq!(env1.protocol_version, "1.1.0", "v1.1 response framing");
+    assert_eq!(
+        env1.protocol_version, LEASE_IPC_PROTOCOL_VERSION,
+        "v1.x response framing"
+    );
     assert_eq!(env1.id, "qadmit-1", "correlation id echoed");
     match env1.payload {
         LeasePayload::Response {

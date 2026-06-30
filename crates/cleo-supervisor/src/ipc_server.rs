@@ -171,7 +171,7 @@ fn error_response(err: &RegistryError) -> IpcResponse {
 /// through — without committing to (or failing on) either union's inner shape.
 #[derive(serde::Deserialize)]
 struct VersionPeek {
-    /// The wire protocol version (`"1.0.0"` → v1.0 dispatch, `"1.1.0"` → lease).
+    /// The wire protocol version (`"1.0.0"` → v1.0 dispatch, `"1.2.0"` → lease).
     protocol_version: String,
 }
 
@@ -505,7 +505,7 @@ pub async fn serve(
 /// v1.1 lease arbiter wired into the version router (ST-5 — the daemon-on fast
 /// path).
 ///
-/// When `lease` is `Some`, `"1.1.0"` frames are dispatched through the arbiter's
+/// When `lease` is `Some`, `"1.2.0"` frames are dispatched through the arbiter's
 /// `BEGIN IMMEDIATE` claim transaction; `"1.0.0"` frames route to the unchanged
 /// v1.0 dispatch. When `lease` is `None` this is byte-identical to [`serve`].
 ///
