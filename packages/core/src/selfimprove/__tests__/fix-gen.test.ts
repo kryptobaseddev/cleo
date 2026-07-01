@@ -397,6 +397,10 @@ describe('run-loop CAPSTONE — regression → fix-gen → DRAFT PR (determinist
       piRunnerEnabled: true, // arm fix-gen WITHOUT mutating process.env
       fixGenerator: generator,
       draftPrRun, // mock the egress shell-out
+      // T12007: the egress isolates in a transient worktree; mock the
+      // provisioner/remover so the capstone stays deterministic (no real git).
+      draftPrProvisionWorktree: () => {},
+      draftPrRemoveWorktree: () => {},
     });
 
     // 1. The pipeline closed: regression acted on + fix-gen wrote the patch.

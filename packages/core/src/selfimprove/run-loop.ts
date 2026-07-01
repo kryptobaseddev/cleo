@@ -67,7 +67,13 @@ import {
   type SelfImproveBudget,
 } from './budget.js';
 import { createDhqAdapter, type DhqAdapter } from './dhq-adapter.js';
-import { type CommandRunner, type DraftPrResult, openDraftPr } from './draft-pr.js';
+import {
+  type CommandRunner,
+  type DraftPrResult,
+  openDraftPr,
+  type WorktreeProvisioner,
+  type WorktreeRemover,
+} from './draft-pr.js';
 import { computeQuestionHash, type DiffEntry, diffEnvelopes } from './envelope-diff.js';
 import {
   createLlmFixGenerator,
@@ -139,6 +145,14 @@ export interface RunSelfImproveOptions {
    * tests so the capstone proves the egress WITHOUT a real `gh`/`git` invocation.
    */
   readonly draftPrRun?: CommandRunner;
+  /**
+   * Test seam: inject the draft-PR isolation-worktree provisioner (T12007).
+   * Defaults to `@cleocode/worktree`'s `addTransientWorktree`. Supplied by tests
+   * so the capstone proves the egress WITHOUT a real git repo / remote.
+   */
+  readonly draftPrProvisionWorktree?: WorktreeProvisioner;
+  /** Test seam: inject the draft-PR isolation-worktree remover (T12007). */
+  readonly draftPrRemoveWorktree?: WorktreeRemover;
   /** Test seam: inject the guard backing the in-process fallback env. */
   readonly guard?: ToolGuard;
   /** Test seam: inject the run id (defaults to a timestamped id). */
@@ -409,6 +423,12 @@ export async function runSelfImprove(opts: RunSelfImproveOptions): Promise<SelfI
         execute,
         ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
         ...(opts.draftPrRun !== undefined ? { run: opts.draftPrRun } : {}),
+        ...(opts.draftPrProvisionWorktree !== undefined
+          ? { provisionWorktree: opts.draftPrProvisionWorktree }
+          : {}),
+        ...(opts.draftPrRemoveWorktree !== undefined
+          ? { removeWorktree: opts.draftPrRemoveWorktree }
+          : {}),
       });
       if (draftPr.kind === 'ok') {
         await adapter.recordPrUrl(questionHash, draftPr.prUrl);
