@@ -1,5 +1,37 @@
 # Changelog
 
+## [2026.6.20] (2026-06-30)
+
+### Added
+
+- `ResourceGovernor` — Never-OOM class-based admission core: a priority-class admission API (`interactive-cli` → `agent-session` → `llm-call` → `test-run`/`scoped-build` → `full-build` → `db-heavy` → `background-autonomous`) whose per-class slot budgets are computed at acquire time from host RAM + memory-pressure (PSI). Denials return a structured, retryable `E_RESOURCE_DEFERRED` (never a silent drop). Three daemon-off-capable modes (`supervisor`/`local`/`off`, default `local`) (gh#1110) _(provenance: [T11999](https://github.com/kryptobaseddev/cleo/search?q=T11999&type=commits))_
+- `cleo orchestrate ready` / `waves` now carry an additive `admission` block (`agentBudget` · `admitted[]` · `deferred[]`) so an orchestrator sizes its parallel fan-out to host capacity and retries the deferred remainder on a later pull instead of spawning a swarm that OOMs the box (gh#1113) _(provenance: [T12000](https://github.com/kryptobaseddev/cleo/search?q=T12000&type=commits))_
+- `cleo-supervisor` gains the `resource_admit` / `resource_release` lease-ipc verbs (protocol v1.1 → v1.2) — a central per-class heavy-op concurrency arbiter that bounds builds/tests/exodus machine-wide when `CLEO_RESOURCES_MODE=supervisor`; degrades to the local slot engine when the supervisor is absent (gh#1115) _(provenance: [T12001](https://github.com/kryptobaseddev/cleo/search?q=T12001&type=commits))_
+
+### Changed
+
+- `cleo orchestrate spawn` acquires an `agent-session` grant BEFORE any worktree or process is provisioned; under memory pressure it returns a retryable `E_RESOURCE_DEFERRED` with no partial artifacts left behind, instead of adding to an OOM (gh#1113) _(provenance: [T12000](https://github.com/kryptobaseddev/cleo/search?q=T12000&type=commits))_
+- The sentient tick and the exodus-on-open auto-migration now defer cleanly under memory pressure via the governor's `db-heavy` class (skip-not-block, recorded skip reason, no user-visible error); evidence tool-slots scale down under pressure and recover, and the `full-build` class stays pinned to one machine-wide slot (gh#1110, gh#1111, gh#1114) _(provenance: [T12001](https://github.com/kryptobaseddev/cleo/search?q=T12001&type=commits))_
+
+### Fixed
+
+- Flaky `no such table: agent_registry_skills` — `ensureGlobalAgentRegistryDb` resolved the global `cleo.db` path twice (its own resolution + `openDualScopeDb('global')`'s), so under per-test module-mock churn the consolidated migration could land at a divergent path; it now routes through `openDualScopeDbAtPath('global', dbPath)` so the resolved path is the single source of truth (gh#1112) _(provenance: [T12019](https://github.com/kryptobaseddev/cleo/search?q=T12019&type=commits))_
+- BRAIN observations could silently drop `sourceSessionId` (and other cross-db references) — `getDb` returned a cached but closed shared consolidated-`cleo.db` handle (it lacked the liveness guard `getBrainDb` already had), so the next query threw `database is not open`, which `observeBrain`'s cross-db write-guard swallowed and mistook for "session absent"; `getDb` now re-derives a closed handle from the live connection cache (gh#1117) _(provenance: [T12020](https://github.com/kryptobaseddev/cleo/search?q=T12020&type=commits))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.6.19] (2026-06-30)
 
 ### Added
