@@ -10,8 +10,8 @@
 //! `IPC_PROTOCOL_VERSION = "1.0.0"`, its `IpcRequest`/`IpcResponse` "10-tuple",
 //! and its freeze `mod tests` all stay green. The two protocols are
 //! distinguished on the wire purely by the [`LeaseEnvelope::protocol_version`]
-//! string ([`LEASE_IPC_PROTOCOL_VERSION`] = `"1.1.0"`), so a single accept loop
-//! can route `"1.0.0"` → [`crate::ipc::IpcRequest`] and `"1.1.0"` →
+//! string ([`LEASE_IPC_PROTOCOL_VERSION`] = `"1.2.0"`), so a single accept loop
+//! can route `"1.0.0"` → [`crate::ipc::IpcRequest`] and `"1.2.0"` →
 //! [`LeaseRequest`] (the version router lands with the T11626 listener / ST-5).
 //!
 //! These serde types are the byte-for-byte mirror of the Zod schemas in
@@ -28,6 +28,14 @@
 //! version bump; their handlers are deferred and return `E_LEASE_UNIMPLEMENTED`
 //! until a follow-up task. This module (ST-1) ships the **protocol surface with
 //! no consumer** — zero behavior change.
+//!
+//! ## v1.2 (T12001 · Epic T11992)
+//!
+//! The `resource_admit` / `resource_release` request kinds (and their
+//! `resource_admit_result` / `resource_release_result` replies) add the central
+//! per-class concurrency arbiter for heavy ops (builds, tests, exodus). Adding
+//! them widened the frozen union, so the protocol version steps to `"1.2.0"` via
+//! a coordinated Rust + TS edit. Both verbs are WIRED.
 
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +47,7 @@ use serde::{Deserialize, Serialize};
 /// a coordinated dual (Rust + TS) edit, never in place. It is intentionally a
 /// *different string* from [`crate::ipc::IPC_PROTOCOL_VERSION`] so a shared
 /// accept loop can route the two contracts apart on the wire.
-pub const LEASE_IPC_PROTOCOL_VERSION: &str = "1.1.0";
+pub const LEASE_IPC_PROTOCOL_VERSION: &str = "1.2.0";
 
 /// The cleo.db scope a lease is arbitrated within. Mirrors `LeaseScope` in TS.
 ///
@@ -98,6 +106,16 @@ pub enum LeaseRequest {
     /// for callers that bypass the `queue_admit` seam (T11628 · AC1/AC2).
     /// `[wired]`
     WorkerHeartbeat(WorkerHeartbeatReq),
+    /// Admit (or defer) a heavy resource-intensive operation through the central
+    /// per-class concurrency arbiter (T12001 · Epic T11992). The client computes
+    /// the class budget from its local memory-pressure sample; the supervisor
+    /// enforces the in-flight COUNT across every process so builds / tests /
+    /// exodus can never co-schedule past the budget. Shares the `queue_admit`
+    /// deferral contract (`deferred` + `retry_after_ms`). `[wired]`
+    ResourceAdmit(ResourceAdmitReq),
+    /// Release a previously-admitted resource slot so the next acquirer can
+    /// proceed (T12001 · Epic T11992). Idempotent. `[wired]`
+    ResourceRelease(ResourceReleaseReq),
 }
 
 /// An arbiter → client lease response or unsolicited event.
@@ -125,6 +143,10 @@ pub enum LeaseResponse {
     /// Acknowledge a `worker_heartbeat`: the watchdog recorded the beat and reset
     /// the child's deadline (T11628). Carries nothing — its presence IS the ack.
     HeartbeatAck(HeartbeatAck),
+    /// Reply to a `resource_admit`: the heavy op was admitted or deferred (T12001).
+    ResourceAdmitResult(ResourceAdmitResult),
+    /// Reply to a `resource_release`: the slot was released (T12001).
+    ResourceReleaseResult(ResourceReleaseResult),
     /// An error response correlated to a request id. Reuses the v1.0
     /// [`crate::ipc::ErrorResult`] shape so error framing is shared across both
     /// protocol versions.
@@ -324,6 +346,32 @@ pub struct WorkerHeartbeatReq {
     pub in_flight_llm: bool,
 }
 
+/// Admit (or defer) a heavy resource-intensive operation (T12001 · Epic T11992).
+///
+/// The client computes `budget` from its local memory-pressure sample; the
+/// supervisor enforces the per-class in-flight COUNT centrally across processes,
+/// so heavy ops (builds, tests, exodus) can never co-schedule past the budget.
+/// Mirrors `ResourceAdmitReq`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceAdmitReq {
+    /// The resource class (e.g. `"db-heavy"`, `"full-build"`, `"test-run"`).
+    pub class: String,
+    /// The caller holding the slot — process/worktree-unique; the release key.
+    pub holder_id: String,
+    /// The client-computed budget: the max concurrent holders for this class.
+    pub budget: u32,
+}
+
+/// Release a previously-admitted resource slot (T12001). Mirrors
+/// `ResourceReleaseReq`. Idempotent — releasing an unknown holder is a no-op.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceReleaseReq {
+    /// The resource class the slot belongs to.
+    pub class: String,
+    /// The holder that was admitted (matches the admit `holder_id`).
+    pub holder_id: String,
+}
+
 // ─── Response payloads ──────────────────────────────────────────────────────
 
 /// The lease was granted to the caller. Mirrors `LeaseGranted`.
@@ -417,6 +465,39 @@ pub struct QueueAdmitResult {
     pub queue_position: u32,
 }
 
+/// The disposition of a `resource_admit` request (T12001).
+///
+/// Mirrors `ResourceAdmitDisposition` in TS — `admitted` (run the heavy op now)
+/// or `deferred` (back off `retry_after_ms` and re-request; never a silent drop).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceAdmitDisposition {
+    /// Admitted — run the heavy op now.
+    Admitted,
+    /// Deferred — wait `retry_after_ms` and re-request.
+    Deferred,
+}
+
+/// Reply to a `resource_admit` (T12001). Mirrors `ResourceAdmitResult`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceAdmitResult {
+    /// Whether the heavy op was admitted or deferred.
+    pub disposition: ResourceAdmitDisposition,
+    /// Back-off in ms before re-requesting (0 when admitted).
+    pub retry_after_ms: u64,
+    /// Remaining slots for the class after this decision.
+    pub slots_remaining: u32,
+}
+
+/// Reply to a `resource_release` (T12001). Mirrors `ResourceReleaseResult`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceReleaseResult {
+    /// Whether a held slot was actually released (false = no such holder).
+    pub released: bool,
+    /// Remaining in-flight holders for the class after the release.
+    pub slots_remaining: u32,
+}
+
 /// Acknowledge a `worker_heartbeat` (T11628). Mirrors `HeartbeatAck`.
 ///
 /// Deliberately empty — the ack's presence (correlated by id) is the signal
@@ -460,7 +541,7 @@ mod tests {
     /// The FROZEN v1.1 request `kind` values, in declaration order. The
     /// schema-drift guard pins this tuple; any addition/removal is a
     /// contract-breaking change requiring a coordinated dual edit.
-    const LEASE_REQUEST_KINDS: [&str; 7] = [
+    const LEASE_REQUEST_KINDS: [&str; 9] = [
         "lease_acquire",
         "lease_release",
         "lease_renew",
@@ -468,10 +549,12 @@ mod tests {
         "tool_grant",
         "queue_admit",
         "worker_heartbeat",
+        "resource_admit",
+        "resource_release",
     ];
 
-    /// The FROZEN v1.1 response `kind` values, in declaration order.
-    const LEASE_RESPONSE_KINDS: [&str; 10] = [
+    /// The FROZEN v1.2 response `kind` values, in declaration order.
+    const LEASE_RESPONSE_KINDS: [&str; 12] = [
         "lease_granted",
         "lease_queued",
         "lease_denied",
@@ -481,6 +564,8 @@ mod tests {
         "child_killed_unresponsive",
         "queue_admit_result",
         "heartbeat_ack",
+        "resource_admit_result",
+        "resource_release_result",
         "error",
     ];
 
@@ -524,6 +609,15 @@ mod tests {
             LeaseRequest::WorkerHeartbeat(WorkerHeartbeatReq {
                 child_id: "worker-1".into(),
                 in_flight_llm: true,
+            }),
+            LeaseRequest::ResourceAdmit(ResourceAdmitReq {
+                class: "db-heavy".into(),
+                holder_id: "pid-42:db-heavy".into(),
+                budget: 1,
+            }),
+            LeaseRequest::ResourceRelease(ResourceReleaseReq {
+                class: "db-heavy".into(),
+                holder_id: "pid-42:db-heavy".into(),
             }),
         ]
     }
@@ -578,6 +672,15 @@ mod tests {
                 queue_position: 2,
             }),
             LeaseResponse::HeartbeatAck(HeartbeatAck {}),
+            LeaseResponse::ResourceAdmitResult(ResourceAdmitResult {
+                disposition: ResourceAdmitDisposition::Deferred,
+                retry_after_ms: 2000,
+                slots_remaining: 0,
+            }),
+            LeaseResponse::ResourceReleaseResult(ResourceReleaseResult {
+                released: true,
+                slots_remaining: 1,
+            }),
             LeaseResponse::Error(crate::ipc::ErrorResult {
                 code: "E_LEASE_BAD_VERSION".into(),
                 message: "unsupported protocol".into(),
@@ -599,7 +702,7 @@ mod tests {
 
     #[test]
     fn pins_the_parallel_protocol_version() {
-        assert_eq!(LEASE_IPC_PROTOCOL_VERSION, "1.1.0");
+        assert_eq!(LEASE_IPC_PROTOCOL_VERSION, "1.2.0");
         // It MUST differ from the byte-frozen v1.0 contract so the accept loop
         // can route the two apart on the wire.
         assert_ne!(LEASE_IPC_PROTOCOL_VERSION, crate::ipc::IPC_PROTOCOL_VERSION);
@@ -657,7 +760,7 @@ mod tests {
 
     /// Confirms the JSON shape a TS Zod peer expects: a discriminated union on
     /// `kind`, wrapped by `direction` + `protocol_version` + `id`, with
-    /// snake_case enum payloads.
+    /// `snake_case` enum payloads.
     #[test]
     fn json_shape_matches_ts_contract() {
         let env = LeaseEnvelope::request(

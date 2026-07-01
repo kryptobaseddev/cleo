@@ -42,6 +42,7 @@ pub mod logging;
 pub mod paths;
 pub mod pidfile;
 pub mod process;
+pub mod resource_arbiter;
 pub mod supervisor;
 pub mod watchdog;
 

@@ -12,12 +12,12 @@
  *
  * ```jsonc
  * // request
- * { "protocol_version": "1.1.0", "id": "abc", "direction": "request",
+ * { "protocol_version": "1.2.0", "id": "abc", "direction": "request",
  *   "request": { "kind": "lease_acquire", "scope": "project", "lane": "tasks",
  *                "holder_id": "pid-42:tasks", "priority": 0, "ttl_ms": 30000,
  *                "reentrant": true } }
  * // response
- * { "protocol_version": "1.1.0", "id": "abc", "direction": "response",
+ * { "protocol_version": "1.2.0", "id": "abc", "direction": "response",
  *   "response": { "kind": "lease_granted", "scope": "project", "lane": "tasks",
  *                 "holder_id": "pid-42:tasks", "epoch": 7, "ttl_ms": 30000,
  *                 "expires_at_ms": 1000030000 } }
@@ -230,6 +230,50 @@ export const WorkerHeartbeatRequestSchema = z
 export type WorkerHeartbeatRequest = z.infer<typeof WorkerHeartbeatRequestSchema>;
 
 /**
+ * Admit (or defer) a heavy resource-intensive operation through the central
+ * per-class concurrency arbiter (T12001 · Epic T11992). Mirrors
+ * `ResourceAdmitReq`. `[wired]`
+ *
+ * The client computes `budget` from its local memory-pressure sample; the
+ * supervisor enforces the per-class in-flight COUNT centrally across processes,
+ * so heavy ops (builds, tests, exodus) can never co-schedule past the budget.
+ */
+export const ResourceAdmitRequestSchema = z
+  .object({
+    /** Tag discriminating this request variant. */
+    kind: z.literal('resource_admit'),
+    /** The resource class (e.g. `"db-heavy"`, `"full-build"`, `"test-run"`). */
+    class: z.string().min(1),
+    /** The caller holding the slot — process/worktree-unique; the release key. */
+    holder_id: z.string().min(1),
+    /** The client-computed budget: the max concurrent holders for this class. */
+    budget: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/** Resource-admit request payload (inferred from {@link ResourceAdmitRequestSchema}). */
+export type ResourceAdmitRequest = z.infer<typeof ResourceAdmitRequestSchema>;
+
+/**
+ * Release a previously-admitted resource slot (T12001). Mirrors
+ * `ResourceReleaseReq`. Idempotent — releasing an unknown holder is a no-op.
+ * `[wired]`
+ */
+export const ResourceReleaseRequestSchema = z
+  .object({
+    /** Tag discriminating this request variant. */
+    kind: z.literal('resource_release'),
+    /** The resource class the slot belongs to. */
+    class: z.string().min(1),
+    /** The holder that was admitted (matches the admit `holder_id`). */
+    holder_id: z.string().min(1),
+  })
+  .strict();
+
+/** Resource-release request payload (inferred from {@link ResourceReleaseRequestSchema}). */
+export type ResourceReleaseRequest = z.infer<typeof ResourceReleaseRequestSchema>;
+
+/**
  * The discriminated union of all client → arbiter lease requests. The `kind`
  * field selects the variant, matching the serde `#[serde(tag = "kind")]`
  * tagging on the Rust `LeaseRequest` enum.
@@ -242,6 +286,8 @@ export const LeaseIpcRequestSchema = z.discriminatedUnion('kind', [
   ToolGrantRequestSchema,
   QueueAdmitRequestSchema,
   WorkerHeartbeatRequestSchema,
+  ResourceAdmitRequestSchema,
+  ResourceReleaseRequestSchema,
 ]);
 
 /** Any lease IPC request (inferred from {@link LeaseIpcRequestSchema}). */
@@ -446,6 +492,54 @@ export const HeartbeatAckResponseSchema = z
 export type HeartbeatAckResponse = z.infer<typeof HeartbeatAckResponseSchema>;
 
 /**
+ * The disposition of a `resource_admit` request (T12001) — `admitted` (run the
+ * heavy op now) or `deferred` (back off `retry_after_ms` and re-request; never a
+ * silent drop). Mirrors `ResourceAdmitDisposition`.
+ */
+export const ResourceAdmitDispositionSchema = z.enum(['admitted', 'deferred']);
+
+/** A `resource_admit` disposition (inferred from {@link ResourceAdmitDispositionSchema}). */
+export type ResourceAdmitDisposition = z.infer<typeof ResourceAdmitDispositionSchema>;
+
+/**
+ * Reply to a `resource_admit`: the heavy op was admitted or deferred (T12001).
+ * Mirrors `ResourceAdmitResult`.
+ */
+export const ResourceAdmitResultResponseSchema = z
+  .object({
+    /** Tag discriminating this response variant. */
+    kind: z.literal('resource_admit_result'),
+    /** Whether the heavy op was admitted or deferred. */
+    disposition: ResourceAdmitDispositionSchema,
+    /** Back-off in ms before re-requesting (0 when admitted). */
+    retry_after_ms: z.number().int().nonnegative(),
+    /** Remaining slots for the class after this decision. */
+    slots_remaining: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/** Resource-admit result payload (inferred from {@link ResourceAdmitResultResponseSchema}). */
+export type ResourceAdmitResultResponse = z.infer<typeof ResourceAdmitResultResponseSchema>;
+
+/**
+ * Reply to a `resource_release`: the slot was released (T12001). Mirrors
+ * `ResourceReleaseResult`.
+ */
+export const ResourceReleaseResultResponseSchema = z
+  .object({
+    /** Tag discriminating this response variant. */
+    kind: z.literal('resource_release_result'),
+    /** Whether a held slot was actually released (false = no such holder). */
+    released: z.boolean(),
+    /** Remaining in-flight holders for the class after the release. */
+    slots_remaining: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/** Resource-release result payload (inferred from {@link ResourceReleaseResultResponseSchema}). */
+export type ResourceReleaseResultResponse = z.infer<typeof ResourceReleaseResultResponseSchema>;
+
+/**
  * An error response correlated to a request. Mirrors the v1.0
  * `crate::ipc::ErrorResult` shape reused by the Rust `LeaseResponse::Error`
  * variant — error framing is shared across protocol versions.
@@ -479,6 +573,8 @@ export const LeaseIpcResponseSchema = z.discriminatedUnion('kind', [
   ChildKilledUnresponsiveResponseSchema,
   QueueAdmitResultResponseSchema,
   HeartbeatAckResponseSchema,
+  ResourceAdmitResultResponseSchema,
+  ResourceReleaseResultResponseSchema,
   LeaseErrorResponseSchema,
 ]);
 
@@ -559,10 +655,12 @@ export const LEASE_IPC_REQUEST_KINDS = [
   'tool_grant',
   'queue_admit',
   'worker_heartbeat',
+  'resource_admit',
+  'resource_release',
 ] as const;
 
 /**
- * The v1.1 response `kind` values, in declaration order. The schema-drift guard
+ * The v1.2 response `kind` values, in declaration order. The schema-drift guard
  * test pins this tuple.
  */
 export const LEASE_IPC_RESPONSE_KINDS = [
@@ -575,6 +673,8 @@ export const LEASE_IPC_RESPONSE_KINDS = [
   'child_killed_unresponsive',
   'queue_admit_result',
   'heartbeat_ack',
+  'resource_admit_result',
+  'resource_release_result',
   'error',
 ] as const;
 

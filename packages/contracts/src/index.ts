@@ -777,6 +777,11 @@ export type {
   QueuePriorityClass,
   RateCheckRequest,
   RateResultResponse,
+  ResourceAdmitDisposition,
+  ResourceAdmitRequest,
+  ResourceAdmitResultResponse,
+  ResourceReleaseRequest,
+  ResourceReleaseResultResponse,
   ToolGrantedResponse,
   ToolGrantRequest,
 } from './lease-ipc/index.js';
@@ -808,6 +813,11 @@ export {
   QueuePriorityClassSchema,
   RateCheckRequestSchema,
   RateResultResponseSchema,
+  ResourceAdmitDispositionSchema,
+  ResourceAdmitRequestSchema,
+  ResourceAdmitResultResponseSchema,
+  ResourceReleaseRequestSchema,
+  ResourceReleaseResultResponseSchema,
   ToolGrantedResponseSchema,
   ToolGrantRequestSchema,
 } from './lease-ipc/index.js';

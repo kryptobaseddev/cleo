@@ -10,8 +10,8 @@
  *
  * The wire format is byte-identical framing to the frozen `supervisor-ipc` v1.0
  * envelope; only the version string ({@link LEASE_IPC_PROTOCOL_VERSION} =
- * `1.1.0`) and the inner union differ. A single supervisor accept loop routes
- * `1.0.0` frames to the v1.0 union and `1.1.0` frames to this lease union.
+ * `1.2.0`) and the inner union differ. A single supervisor accept loop routes
+ * `1.0.0` frames to the v1.0 union and `1.2.0` frames to this lease union.
  *
  * The Rust `cleo-supervisor` is the arbiter (server); a CLEO process running in
  * `CLEO_WRITER_LEASE_MODE=supervisor` is a client that sends lease requests and

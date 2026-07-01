@@ -29,7 +29,7 @@ describe('LeaseIpcClient NDJSON codec (T11894 ST-5)', () => {
     expect(line.endsWith('\n')).toBe(true);
     const parsed = JSON.parse(line.trimEnd());
     expect(parsed.protocol_version).toBe(LEASE_IPC_PROTOCOL_VERSION);
-    expect(parsed.protocol_version).toBe('1.1.0');
+    expect(parsed.protocol_version).toBe('1.2.0');
     expect(parsed.direction).toBe('request');
     expect(parsed.id).toBe(id);
     expect(parsed.request.kind).toBe('lease_acquire');
@@ -61,7 +61,7 @@ describe('LeaseIpcClient NDJSON codec (T11894 ST-5)', () => {
   it('decodes a well-formed lease_granted response envelope', () => {
     const client = createLeaseIpcClient();
     const wire = JSON.stringify({
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'abc',
       direction: 'response',
       response: {
@@ -85,7 +85,7 @@ describe('LeaseIpcClient NDJSON codec (T11894 ST-5)', () => {
   it('decodes an unsolicited child_killed_unresponsive event', () => {
     const client = createLeaseIpcClient();
     const wire = JSON.stringify({
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'evt-1',
       direction: 'response',
       response: {
@@ -120,7 +120,7 @@ describe('LeaseIpcClient NDJSON codec (T11894 ST-5)', () => {
   it('decodes a heartbeat_ack response envelope (T11628)', () => {
     const client = createLeaseIpcClient();
     const wire = JSON.stringify({
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'hb-1',
       direction: 'response',
       response: { kind: 'heartbeat_ack' },
@@ -133,7 +133,7 @@ describe('LeaseIpcClient NDJSON codec (T11894 ST-5)', () => {
   it('decodes a deferred-handler E_LEASE_UNIMPLEMENTED error', () => {
     const client = createLeaseIpcClient();
     const wire = JSON.stringify({
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'rate-1',
       direction: 'response',
       response: { kind: 'error', code: 'E_LEASE_UNIMPLEMENTED', message: 'deferred handler' },
@@ -153,7 +153,7 @@ describe('LeaseIpcClient NDJSON codec (T11894 ST-5)', () => {
   it('rejects a schema-violating frame with a typed MalformedLeaseIpcFrameError', () => {
     const client = createLeaseIpcClient();
     const bad = JSON.stringify({
-      protocol_version: '1.1.0',
+      protocol_version: '1.2.0',
       id: 'abc',
       direction: 'response',
       response: { kind: 'bogus' },

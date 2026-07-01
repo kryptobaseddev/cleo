@@ -41,6 +41,11 @@ import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from './backend.js';
 import { ResourceMonitor } from './monitor.js';
+import {
+  resolveSupervisorSocketPath,
+  sendResourceAdmit,
+  sendResourceRelease,
+} from './supervisor-admit.js';
 
 let _log: ReturnType<typeof getLogger> | null = null;
 function log(): ReturnType<typeof getLogger> {
@@ -53,7 +58,7 @@ function log(): ReturnType<typeof getLogger> {
 // ---------------------------------------------------------------------------
 
 let _cachedMode: GovernorMode | null = null;
-let _supervisorDemotionLogged = false;
+let _supervisorDegradeLogged = false;
 
 /**
  * Resolve the governor mode from `CLEO_RESOURCES_MODE`, once per process.
@@ -70,32 +75,26 @@ export function resolveGovernorMode(): GovernorMode {
 }
 
 /**
- * The mode actually used for arbitration. `supervisor` demotes to `local`
- * because the IPC client is not wired yet — a dead/absent arbiter must never
- * deadlock work. Logged once. Mirrors writer-lease `effectiveMode`.
+ * Log (once) that `supervisor` mode degraded to the local slot engine because
+ * the arbiter was unreachable — a dead/absent supervisor must never deadlock
+ * work (T12001). Mirrors the writer-lease degrade-once behaviour.
  */
-function effectiveMode(): Exclude<GovernorMode, 'supervisor'> {
-  const mode = resolveGovernorMode();
-  if (mode === 'supervisor') {
-    if (!_supervisorDemotionLogged) {
-      _supervisorDemotionLogged = true;
-      log().info(
-        'CLEO_RESOURCES_MODE=supervisor but no IPC client is wired; ' +
-          'demoting to local-mode admission for the process lifetime.',
-      );
-    }
-    return 'local';
-  }
-  return mode;
+function logSupervisorDegradeOnce(reason: string): void {
+  if (_supervisorDegradeLogged) return;
+  _supervisorDegradeLogged = true;
+  log().info(
+    `CLEO_RESOURCES_MODE=supervisor but the arbiter is unreachable (${reason}); ` +
+      'degrading to local-mode admission for the process lifetime.',
+  );
 }
 
 /**
- * Reset cached process-global state (mode + demotion flag). Tests only.
+ * Reset cached process-global state (mode + degrade flag). Tests only.
  * @internal
  */
 export function _resetGovernorStateForTest(): void {
   _cachedMode = null;
-  _supervisorDemotionLogged = false;
+  _supervisorDegradeLogged = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +231,18 @@ function deferral(cls: ResourceClass, reason: string, retryAfterMs: number): Res
   return { deferred: true, class: cls, retryAfterMs, reason };
 }
 
+let _supervisorHolderSeq = 0;
+
+/**
+ * A process-unique holder id for a supervisor `resource_admit`, so each acquire
+ * is a distinct slot (matched 1:1 by its `release`). `pid` scopes the holder to
+ * this process; the sequence distinguishes concurrent holds of the same class.
+ */
+function supervisorHolderId(cls: ResourceClass): string {
+  _supervisorHolderSeq += 1;
+  return `${process.pid}:${cls}:${_supervisorHolderSeq}`;
+}
+
 /** Options for {@link ResourceGovernor.acquire}. */
 export interface AcquireOptions extends BudgetOptions {
   /**
@@ -267,7 +278,8 @@ export class ResourceGovernor {
    */
   async acquire(cls: ResourceClass, opts: AcquireOptions = {}): Promise<AdmissionResult> {
     // Ungated fast paths: off mode + interactive-cli are pure pass-through.
-    if (effectiveMode() === 'off' || cls === 'interactive-cli') {
+    const mode = resolveGovernorMode();
+    if (mode === 'off' || cls === 'interactive-cli') {
       return passThroughGrant(cls);
     }
 
@@ -281,6 +293,16 @@ export class ResourceGovernor {
         `class '${cls}' budget is 0 under current pressure (some avg10=${someAvg10(sample).toFixed(1)})`,
         DEFAULT_RESOURCE_RETRY_AFTER_MS,
       );
+    }
+
+    // Supervisor mode (T12001): route the count enforcement through the central
+    // Rust arbiter so heavy ops are bounded machine-wide. The client computes the
+    // budget (above) from its local pressure sample; the supervisor enforces the
+    // in-flight COUNT. An unreachable supervisor degrades to the local slot
+    // engine below — never a deadlock.
+    if (mode === 'supervisor') {
+      const viaSupervisor = await this.acquireViaSupervisor(cls, Math.floor(budget));
+      if (viaSupervisor !== null) return viaSupervisor;
     }
 
     const dir = governorSlotDir(cls);
@@ -334,6 +356,48 @@ export class ResourceGovernor {
     );
   }
 
+  /**
+   * Route an admission through the supervisor's central `resource_admit` verb.
+   * Returns a grant (whose `release` calls `resource_release`) or a deferral, or
+   * `null` when the supervisor is unreachable so the caller degrades to the
+   * local slot engine. Never throws — a dead arbiter never deadlocks work.
+   *
+   * @task T12001
+   */
+  private async acquireViaSupervisor(
+    cls: ResourceClass,
+    budget: number,
+  ): Promise<AdmissionResult | null> {
+    const socketPath = resolveSupervisorSocketPath();
+    const holderId = supervisorHolderId(cls);
+    const reply = await sendResourceAdmit(socketPath, cls, holderId, budget);
+    if ('unavailable' in reply) {
+      logSupervisorDegradeOnce(reply.reason);
+      return null;
+    }
+    if (reply.disposition === 'deferred') {
+      return deferral(
+        cls,
+        `class '${cls}' deferred by supervisor (budget ${budget})`,
+        reply.retry_after_ms || DEFAULT_RESOURCE_RETRY_AFTER_MS,
+      );
+    }
+    let released = false;
+    return {
+      deferred: false,
+      class: cls,
+      slot: 0,
+      acquiredAtMs: Date.now(),
+      release: async () => {
+        if (released) return;
+        released = true;
+        await sendResourceRelease(socketPath, cls, holderId).catch(() => {
+          // Best-effort: the arbiter reclaims the slot on process death anyway.
+        });
+      },
+    };
+  }
+
   /** Non-blocking single-pass acquire (admission semantics). */
   async tryAcquire(cls: ResourceClass, opts: AcquireOptions = {}): Promise<AdmissionResult> {
     return this.acquire(cls, { ...opts, blocking: false });
@@ -344,7 +408,9 @@ export class ResourceGovernor {
    * of slot files currently locked. `Infinity` for ungated classes.
    */
   async available(cls: ResourceClass, opts: AcquireOptions = {}): Promise<number> {
-    if (effectiveMode() === 'off' || cls === 'interactive-cli') return Number.POSITIVE_INFINITY;
+    if (resolveGovernorMode() === 'off' || cls === 'interactive-cli') {
+      return Number.POSITIVE_INFINITY;
+    }
     const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
     const budget = computeClassBudget(cls, sample, opts);
     if (!Number.isFinite(budget)) return Number.POSITIVE_INFINITY;

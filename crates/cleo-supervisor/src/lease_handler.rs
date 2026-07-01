@@ -18,7 +18,7 @@
 //! ## What lands here (ST-5)
 //!
 //!   * [`LeaseArbiter::handle`] — the [`crate::lease_ipc::LeaseRequest`]
-//!     dispatcher invoked by the accept-loop version router for `"1.1.0"` frames.
+//!     dispatcher invoked by the accept-loop version router for `"1.2.0"` frames.
 //!   * `lease_acquire` / `lease_release` / `lease_renew` — the v1 core verbs,
 //!     each a synchronous `rusqlite` transaction against the scope's `cleo.db`
 //!     that mirrors the Node `tryClaimOnce` / release / heartbeat SQL byte for
@@ -49,9 +49,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::lease_ipc::{
     ChildKilled, DbScope, LeaseAcquireReq, LeaseGranted, LeaseLane, LeaseReleaseReq, LeaseRenewReq,
     LeaseRequest, LeaseResponse, QueueAdmitDisposition, QueueAdmitReq, QueueAdmitResult,
-    QueuePriorityClass,
+    QueuePriorityClass, ResourceAdmitDisposition, ResourceAdmitReq, ResourceAdmitResult,
+    ResourceReleaseReq, ResourceReleaseResult,
 };
 use crate::llm_queue::{AdmitDecision, LlmQueue, PriorityClass};
+use crate::resource_arbiter::ResourceAdmitOutcome;
 
 /// Error code returned for a request kind that is declared in the frozen v1.1
 /// union but whose handler is deferred (`rate_check` / `tool_grant`).
@@ -101,6 +103,8 @@ pub fn request_kind(req: &LeaseRequest) -> &'static str {
         LeaseRequest::ToolGrant(_) => "tool_grant",
         LeaseRequest::QueueAdmit(_) => "queue_admit",
         LeaseRequest::WorkerHeartbeat(_) => "worker_heartbeat",
+        LeaseRequest::ResourceAdmit(_) => "resource_admit",
+        LeaseRequest::ResourceRelease(_) => "resource_release",
     }
 }
 
@@ -191,6 +195,10 @@ pub struct LeaseArbiter {
     /// `worker_heartbeat` then still acks (the worker degrades gracefully), it
     /// just records nothing.
     heartbeat_sink: Option<crate::watchdog::HeartbeatSink>,
+    /// The central per-class heavy-op concurrency arbiter (T12001 · Epic
+    /// T11992). Shared across all clients (the contended counter is process-
+    /// global, like the LLM queue). Cheap to clone (`Arc` bump).
+    resource_arbiter: crate::resource_arbiter::ResourceArbiter,
 }
 
 impl LeaseArbiter {
@@ -201,6 +209,7 @@ impl LeaseArbiter {
             resolver,
             llm_queue: LlmQueue::new(),
             heartbeat_sink: None,
+            resource_arbiter: crate::resource_arbiter::ResourceArbiter::new(),
         }
     }
 
@@ -212,6 +221,7 @@ impl LeaseArbiter {
             resolver,
             llm_queue,
             heartbeat_sink: None,
+            resource_arbiter: crate::resource_arbiter::ResourceArbiter::new(),
         }
     }
 
@@ -262,6 +272,10 @@ impl LeaseArbiter {
             // The watchdog heartbeat verb is WIRED (T11628) — resets the child's
             // deadline clock in the shared ledger the sweep task reads.
             LeaseRequest::WorkerHeartbeat(req) => self.handle_worker_heartbeat(&req),
+            // The heavy-op admission verbs are WIRED (T12001) — central per-class
+            // concurrency arbiter shared across every process.
+            LeaseRequest::ResourceAdmit(req) => self.handle_resource_admit(&req),
+            LeaseRequest::ResourceRelease(req) => self.handle_resource_release(&req),
         }
     }
 
@@ -312,6 +326,42 @@ impl LeaseArbiter {
             },
         };
         LeaseResponse::QueueAdmitResult(result)
+    }
+
+    /// `resource_admit` — admit (or defer) a heavy op through the central
+    /// per-class concurrency arbiter (T12001 · Epic T11992). The client supplies
+    /// the pressure-derived `budget`; the supervisor enforces the in-flight count
+    /// across every process. A saturated class is DEFERRED with a `retry_after_ms`
+    /// back-off — never a silent drop, sharing the `queue_admit` contract.
+    fn handle_resource_admit(&self, req: &ResourceAdmitReq) -> LeaseResponse {
+        let result = match self
+            .resource_arbiter
+            .admit(&req.class, &req.holder_id, req.budget)
+        {
+            ResourceAdmitOutcome::Admitted { slots_remaining } => ResourceAdmitResult {
+                disposition: ResourceAdmitDisposition::Admitted,
+                retry_after_ms: 0,
+                slots_remaining,
+            },
+            ResourceAdmitOutcome::Deferred { retry_after_ms } => ResourceAdmitResult {
+                disposition: ResourceAdmitDisposition::Deferred,
+                retry_after_ms,
+                slots_remaining: 0,
+            },
+        };
+        LeaseResponse::ResourceAdmitResult(result)
+    }
+
+    /// `resource_release` — return a previously-admitted slot so the next
+    /// acquirer can proceed (T12001). Idempotent: releasing an unknown holder is
+    /// a no-op that reports `released: false`.
+    fn handle_resource_release(&self, req: &ResourceReleaseReq) -> LeaseResponse {
+        let (released, slots_remaining) =
+            self.resource_arbiter.release(&req.class, &req.holder_id);
+        LeaseResponse::ResourceReleaseResult(ResourceReleaseResult {
+            released,
+            slots_remaining,
+        })
     }
 
     /// The deferred-handler error response (`E_LEASE_UNIMPLEMENTED`).
@@ -932,6 +982,69 @@ mod tests {
                 );
             }
             other => panic!("expected deferred queue_admit_result, got {other:?}"),
+        }
+    }
+
+    /// `resource_admit` admits up to the client-supplied budget then defers; a
+    /// `resource_release` frees the slot so the next acquirer is admitted again
+    /// (T12001 · Epic T11992). Shares the `queue_admit` deferral contract.
+    #[test]
+    fn resource_admit_is_wired_and_admits_releases_defers() {
+        let (arb, _dir, _p) = fixture();
+
+        // First admit of a budget-1 class → admitted, no free slots left.
+        let first = arb.handle(LeaseRequest::ResourceAdmit(ResourceAdmitReq {
+            class: "full-build".into(),
+            holder_id: "build-a".into(),
+            budget: 1,
+        }));
+        match first {
+            LeaseResponse::ResourceAdmitResult(r) => {
+                assert_eq!(r.disposition, ResourceAdmitDisposition::Admitted);
+                assert_eq!(r.retry_after_ms, 0);
+                assert_eq!(r.slots_remaining, 0);
+            }
+            other => panic!("expected admitted resource_admit_result, got {other:?}"),
+        }
+
+        // A second holder against the now-full class → deferred with back-off.
+        let second = arb.handle(LeaseRequest::ResourceAdmit(ResourceAdmitReq {
+            class: "full-build".into(),
+            holder_id: "build-b".into(),
+            budget: 1,
+        }));
+        match second {
+            LeaseResponse::ResourceAdmitResult(r) => {
+                assert_eq!(r.disposition, ResourceAdmitDisposition::Deferred);
+                assert!(r.retry_after_ms >= 1, "a deferral carries a positive back-off");
+            }
+            other => panic!("expected deferred resource_admit_result, got {other:?}"),
+        }
+
+        // Release the first holder → its slot frees.
+        let released = arb.handle(LeaseRequest::ResourceRelease(ResourceReleaseReq {
+            class: "full-build".into(),
+            holder_id: "build-a".into(),
+        }));
+        match released {
+            LeaseResponse::ResourceReleaseResult(r) => {
+                assert!(r.released, "the held slot was released");
+                assert_eq!(r.slots_remaining, 0, "no holders remain in-flight");
+            }
+            other => panic!("expected resource_release_result, got {other:?}"),
+        }
+
+        // The previously-deferred holder is now admitted.
+        let retry = arb.handle(LeaseRequest::ResourceAdmit(ResourceAdmitReq {
+            class: "full-build".into(),
+            holder_id: "build-b".into(),
+            budget: 1,
+        }));
+        match retry {
+            LeaseResponse::ResourceAdmitResult(r) => {
+                assert_eq!(r.disposition, ResourceAdmitDisposition::Admitted);
+            }
+            other => panic!("expected admitted resource_admit_result on retry, got {other:?}"),
         }
     }
 
