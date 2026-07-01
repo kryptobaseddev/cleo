@@ -1,5 +1,33 @@
 # Changelog
 
+## [2026.7.2] (2026-07-01)
+
+### Added
+
+
+
+### Changed
+
+
+
+### Fixed
+
+- The autonomous self-improvement loop's draft-PR egress applied the generated fix patch in the invoking checkout and ran `git add -A`, sweeping the orchestrator's entire dirty working tree — untracked scratch notes, uncommitted edits, the patch artifact — onto the public branch, pushing them to origin and deleting them locally; the egress now provisions an ephemeral worktree off `origin/main`, applies the patch there and stages only the paths the patch names (`git add -- <paths>`, never `git add -A`), so the invoking checkout is never mutated (gh#1120) _(provenance: [T12007](https://github.com/kryptobaseddev/cleo/search?q=T12007&type=commits))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.7.1] (2026-07-01)
 
 ### Added
