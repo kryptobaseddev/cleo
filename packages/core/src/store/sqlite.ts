@@ -443,6 +443,22 @@ export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof sch
     resetDbState();
   }
 
+  // Liveness guard (T12020): the tasks domain shares the consolidated project
+  // `cleo.db` `DatabaseSync` with the brain domain (both extract `$client` from
+  // the same `openDualScopeDb('project')` cache entry). A concurrent or deferred
+  // reset on the shared handle — e.g. another domain's `closeDb()` /
+  // `_resetDualScopeDbCache('project')`, or a fire-and-forget brain write firing
+  // across a test boundary — can close the underlying connection while THIS
+  // singleton still references it. Returning that stale (closed) handle makes
+  // the next query throw `database is not open`, which `observeBrain`'s cross-db
+  // session write-guard swallows and mistakes for "session absent" — silently
+  // nulling `sourceSessionId`. Detect the closed handle and re-derive from the
+  // live `openDualScopeDb` cache below. Mirrors the brain-domain guard in
+  // `getBrainDb` (memory-sqlite.ts, T11522).
+  if (_db && (_nativeDb === null || !_nativeDb.isOpen)) {
+    resetDbState();
+  }
+
   if (_db) return _db;
 
   // If already initializing, wait for the in-flight init
