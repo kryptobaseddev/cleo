@@ -4,6 +4,8 @@
 
 # CLEO
 
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.kryptobaseddev%2Fcleo-mcp-server.svg)](https://mcptoplist.com/server/io.github.kryptobaseddev%2Fcleo-mcp-server)
+
 [![npm version](https://img.shields.io/npm/v/@cleocode/cleo.svg)](https://www.npmjs.com/package/@cleocode/cleo)
 [![CI](https://github.com/kryptobaseddev/cleo/actions/workflows/ci.yml/badge.svg)](https://github.com/kryptobaseddev/cleo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
