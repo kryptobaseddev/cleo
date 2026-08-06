@@ -191,7 +191,7 @@ describe('role-executor cross-provider failover (T12082)', () => {
     expect(mockResolveLLMForRole).toHaveBeenCalledTimes(1);
   });
 
-  it('does NOT carry the caller\'s modelOverride across a failover', async () => {
+  it("does NOT carry the caller's modelOverride across a failover", async () => {
     // A model id belongs to one provider. Measured before the fix: an anthropic
     // 429 failed over and then asked openai for `claude-fable-5` (400) and
     // ollama for `claude-fable-5` (404 model not found) — so failover could
