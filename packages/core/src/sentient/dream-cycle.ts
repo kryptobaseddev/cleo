@@ -905,7 +905,9 @@ async function describeAnthropicExclusion(): Promise<string> {
     // and idempotent on the error path.
     await pool.seed().catch(() => undefined);
     const status = await pool.getSeederStatus();
-    const claudeCode = status.find((s) => s.sourceId === 'claude-code');
+    // 'claude-code' below is a credential SEEDER id, not a model literal — the
+    // chokepoint rule's pattern cannot tell the two apart, hence the opt-out.
+    const claudeCode = status.find((s) => s.sourceId === 'claude-code'); // llm-resolve-allowed: seeder id, not a model
     if (claudeCode?.lastResult === 'skipped-consent') {
       return (
         'Anthropic was excluded because its stored credentials are expired and the ' +
