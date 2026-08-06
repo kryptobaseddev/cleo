@@ -276,7 +276,15 @@ async function attemptRoleCall(
   }
 
   const credentialLabel = llm.credentialLabel ?? '<default>';
-  const model = opts.modelOverride ?? llm.model;
+  // T12085: a model id belongs to ONE provider. Carrying the caller's
+  // `modelOverride` across a failover asks the substitute provider for a model
+  // it has never heard of — measured: an anthropic 429 failed over and then
+  // asked openai for `claude-fable-5` (400) and ollama for `claude-fable-5`
+  // (404 "model not found"), so failover was guaranteed to fail for exactly the
+  // callers who pinned a model. After a failover the substitute's OWN resolved
+  // model wins; the override applies only to the caller's first-choice provider.
+  const isFailover = excludeProviders.length > 0;
+  const model = isFailover ? llm.model : (opts.modelOverride ?? llm.model);
 
   const request: TransportRequest = {
     model,

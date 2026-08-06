@@ -38,8 +38,8 @@
  * @task T11975
  */
 
-import { writeFileSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve as resolvePath } from 'node:path';
 import { cwd as processCwd } from 'node:process';
 import { redact } from '@cleocode/utils';
 import type { Logger } from 'pino';
@@ -208,7 +208,11 @@ export interface GenerateFixPatchOptions {
  */
 export function fixPatchPath(scenario: string, cwd?: string): string {
   const safeScenario = scenario.replace(/[^a-z0-9-]/gi, '-');
-  return resolvePath(cwd ?? processCwd(), `selfimprove-${safeScenario}.patch`);
+  // T12084: under `.cleo/`, NOT the repo root. A candidate patch is an
+  // untracked file, and an untracked file in the repo root is exactly what
+  // T12007 swept onto a public branch via `git add -A`. `.cleo/` is gitignored,
+  // so the patch stays inspectable without being sweepable.
+  return resolvePath(cwd ?? processCwd(), join('.cleo', 'selfimprove', `${safeScenario}.patch`));
 }
 
 /**
@@ -404,6 +408,7 @@ export async function generateFixPatch(opts: GenerateFixPatchOptions): Promise<F
 
   // Normalize a trailing newline so `git apply` accepts the hunk.
   const diff = output.diff.endsWith('\n') ? output.diff : `${output.diff}\n`;
+  mkdirSync(dirname(patchPath), { recursive: true });
   writeFileSync(patchPath, diff, 'utf8');
   const bytes = Buffer.byteLength(diff, 'utf8');
   logger.info(
@@ -434,6 +439,14 @@ export async function generateFixPatch(opts: GenerateFixPatchOptions): Promise<F
  * const out = await gen.propose(request); // resolves model via E9, never raw client
  * ```
  */
+/**
+ * How many alternate providers fix-gen may try after one fails (T12084).
+ *
+ * Two, matching the role-executor. A background stage that walks every
+ * provider to fail every time costs more than it can possibly return.
+ */
+const MAX_FIXGEN_FAILOVERS = 2;
+
 export function createLlmFixGenerator(opts: { projectRoot?: string } = {}): FixGenerator {
   return {
     async propose(request: FixGenRequest): Promise<FixGenOutput> {
@@ -443,67 +456,98 @@ export function createLlmFixGenerator(opts: { projectRoot?: string } = {}): FixG
       const { ModelRunner } = await import('../llm/model-runner.js');
 
       // 1. E9 resolution chokepoint. Never throws (resolver contract).
+      //
+      // T12084: with failover. This path does NOT go through `executeForRole`,
+      // so the cross-provider failover added there never applied here — fix-gen
+      // stayed pinned to whatever the selector picked first and died with the
+      // same `400 'gpt-5.5-pro' is not supported when using Codex with a
+      // ChatGPT account` on every run, reporting only `llm-call-failed`. One
+      // chokepoint gaining failover does not help the callers of the other one.
       const projectRoot = opts.projectRoot ?? request.repoContext.projectRoot;
-      const resolved = await resolveLLMForSystem(FIXGEN_SYSTEM, { projectRoot });
-      if (!resolved.sealedCredential && resolved.authType !== 'aws_sdk') {
-        return { kind: 'none', reason: 'no-credential-resolved' };
-      }
+      const excludeProviders: string[] = [];
 
-      // 2. Materialize the plaintext ONLY at the wire boundary (E10), build a
-      //    clean descriptor, and construct the transport inside ModelRunner.
-      const apiKey = resolved.sealedCredential
-        ? (await resolved.sealedCredential.fetch()).value
-        : null;
-      const built = await ModelRunner.build({
-        provider: resolved.provider,
-        model: resolved.model,
-        credential: resolved.credential
-          ? {
-              provider: resolved.credential.provider,
-              apiKey,
-              source: resolved.credential.source,
-              authType: resolved.credential.authType,
-            }
-          : null,
-        source: resolved.source,
-        ...(resolved.credentialLabel !== undefined
-          ? { credentialLabel: resolved.credentialLabel }
-          : {}),
-        apiMode: resolved.apiMode,
-        baseUrl: resolved.baseUrl,
-        authType: resolved.authType,
-        ...(resolved.capabilities !== undefined ? { capabilities: resolved.capabilities } : {}),
-      });
-
-      // 3. ONE non-streaming completion. The system prompt is threaded onto the
-      //    request via `systemSuffix` (ConcreteSession maps it to
-      //    `TransportRequest.system`); the user turn carries the regression detail.
-      const { system, user } = buildFixGenPrompt(request);
-      try {
-        const response = await built.session.send([{ role: 'user', content: user }], {
-          systemSuffix: system,
+      for (let attempt = 0; attempt <= MAX_FIXGEN_FAILOVERS; attempt++) {
+        const resolved = await resolveLLMForSystem(FIXGEN_SYSTEM, {
+          projectRoot,
+          excludeProviders: [...excludeProviders],
         });
-        const text = (response.content ?? '').trim();
-        if (text.length === 0 || text === 'NO_PATCH') {
-          // Attach a redacted, bounded excerpt so the caller can log it onto
-          // the DHQ evidence row without having to re-run. The empty-reply case
-          // carries no useful excerpt; only the non-empty case (e.g. prose like
-          // "I cannot fix this") is worth capturing.
-          const rawReply = text.length > 0 ? truncateReply(text) : undefined;
-          return {
-            kind: 'none',
-            reason: 'model-declined',
-            ...(rawReply !== undefined ? { rawReply } : {}),
-          };
+        if (!resolved.sealedCredential && resolved.authType !== 'aws_sdk') {
+          return { kind: 'none', reason: 'no-credential-resolved' };
         }
-        return { kind: 'patch', diff: stripCodeFences(text), model: response.model };
-      } catch (err) {
-        logger.warn(
-          { system: FIXGEN_SYSTEM, err: err instanceof Error ? err.message : String(err) },
-          'fix-gen LLM call failed — degrading to no-patch',
-        );
-        return { kind: 'none', reason: 'llm-call-failed' };
+        if (excludeProviders.includes(resolved.provider)) {
+          // Nothing else is provisioned — retrying the same provider would just
+          // repeat its failure.
+          return { kind: 'none', reason: 'llm-call-failed' };
+        }
+
+        // 2. Materialize the plaintext ONLY at the wire boundary (E10), build a
+        //    clean descriptor, and construct the transport inside ModelRunner.
+        const apiKey = resolved.sealedCredential
+          ? (await resolved.sealedCredential.fetch()).value
+          : null;
+        const built = await ModelRunner.build({
+          provider: resolved.provider,
+          model: resolved.model,
+          credential: resolved.credential
+            ? {
+                provider: resolved.credential.provider,
+                apiKey,
+                source: resolved.credential.source,
+                authType: resolved.credential.authType,
+              }
+            : null,
+          source: resolved.source,
+          ...(resolved.credentialLabel !== undefined
+            ? { credentialLabel: resolved.credentialLabel }
+            : {}),
+          apiMode: resolved.apiMode,
+          baseUrl: resolved.baseUrl,
+          authType: resolved.authType,
+          ...(resolved.capabilities !== undefined ? { capabilities: resolved.capabilities } : {}),
+        });
+
+        // 3. ONE non-streaming completion. The system prompt is threaded onto the
+        //    request via `systemSuffix` (ConcreteSession maps it to
+        //    `TransportRequest.system`); the user turn carries the regression detail.
+        const { system, user } = buildFixGenPrompt(request);
+        try {
+          const response = await built.session.send([{ role: 'user', content: user }], {
+            systemSuffix: system,
+          });
+          const text = (response.content ?? '').trim();
+          if (text.length === 0 || text === 'NO_PATCH') {
+            // Attach a redacted, bounded excerpt so the caller can log it onto
+            // the DHQ evidence row without having to re-run. The empty-reply case
+            // carries no useful excerpt; only the non-empty case (e.g. prose like
+            // "I cannot fix this") is worth capturing.
+            const rawReply = text.length > 0 ? truncateReply(text) : undefined;
+            return {
+              kind: 'none',
+              reason: 'model-declined',
+              ...(rawReply !== undefined ? { rawReply } : {}),
+            };
+          }
+          return { kind: 'patch', diff: stripCodeFences(text), model: response.model };
+        } catch (err) {
+          logger.warn(
+            {
+              system: FIXGEN_SYSTEM,
+              provider: resolved.provider,
+              model: resolved.model,
+              attempt: attempt + 1,
+              err: err instanceof Error ? err.message : String(err),
+            },
+            attempt < MAX_FIXGEN_FAILOVERS
+              ? 'fix-gen LLM call failed — failing over to another provider'
+              : 'fix-gen LLM call failed — degrading to no-patch',
+          );
+          if (attempt >= MAX_FIXGEN_FAILOVERS) {
+            return { kind: 'none', reason: 'llm-call-failed' };
+          }
+          excludeProviders.push(resolved.provider);
+        }
       }
+      return { kind: 'none', reason: 'llm-call-failed' };
     },
   };
 }

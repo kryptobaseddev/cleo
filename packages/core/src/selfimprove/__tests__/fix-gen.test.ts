@@ -102,9 +102,11 @@ function fakeGenerator(output: FixGenOutput): FixGenerator {
 
 describe('fix-gen — pure helpers', () => {
   it('fixPatchPath sanitizes the scenario and resolves against cwd', () => {
-    // `/`, `.`, `.`, `/` → 4 dashes; no traversal escapes the cwd.
+    // `/`, `.`, `.`, `/` → 4 dashes; no traversal escapes the cwd. T12084: the
+    // patch lives under `.cleo/` (gitignored), never the repo root, so an
+    // untracked candidate cannot be swept onto a branch by `git add -A`.
     const p = fixPatchPath('weird/../name', '/tmp/proj');
-    expect(p).toBe('/tmp/proj/selfimprove-weird----name.patch');
+    expect(p).toBe('/tmp/proj/.cleo/selfimprove/weird----name.patch');
   });
 
   it('looksLikeUnifiedDiff accepts a real diff and rejects prose / empty', () => {
@@ -194,7 +196,7 @@ describe('fix-gen — generateFixPatch with a deterministic fake', () => {
 
     expect(res.kind).toBe('written');
     if (res.kind !== 'written') throw new Error('unreachable');
-    expect(res.patchPath).toBe(join(root, `selfimprove-${SCENARIO}.patch`));
+    expect(res.patchPath).toBe(join(root, '.cleo', 'selfimprove', `${SCENARIO}.patch`));
     expect(res.model).toBe('fake-model');
     expect(existsSync(res.patchPath)).toBe(true);
     const written = readFileSync(res.patchPath, 'utf8');
@@ -407,7 +409,7 @@ describe('run-loop CAPSTONE — regression → fix-gen → DRAFT PR (determinist
     expect(res.outcome).toBe('regression-acted');
     expect(res.fixGen?.kind).toBe('written');
     expect(generator.propose).toHaveBeenCalledTimes(1);
-    const patchPath = join(projectRoot, `selfimprove-${SCENARIO}.patch`);
+    const patchPath = join(projectRoot, '.cleo', 'selfimprove', `${SCENARIO}.patch`);
     expect(existsSync(patchPath)).toBe(true);
     if (res.fixGen?.kind === 'written') {
       expect(res.fixGen.patchPath).toBe(patchPath);
@@ -450,12 +452,17 @@ describe('run-loop CAPSTONE — regression → fix-gen → DRAFT PR (determinist
     // DHQ still emitted (execute), but fix-gen never ran and no patch exists.
     expect(res.fixGen).toBeNull();
     expect(generator.propose).not.toHaveBeenCalled();
-    expect(existsSync(join(projectRoot, `selfimprove-${SCENARIO}.patch`))).toBe(false);
+    expect(existsSync(join(projectRoot, '.cleo', 'selfimprove', `${SCENARIO}.patch`))).toBe(false);
 
-    // With no patch on disk the egress degrades to the existing no-patch skip.
-    expect(res.draftPr?.kind).toBe('error');
-    if (res.draftPr?.kind === 'error') {
-      expect(res.draftPr.code).toBe('E_NOT_FOUND');
+    // With no patch on disk the egress degrades to a no-patch SKIP — which is
+    // what this test has always been named for. It previously asserted
+    // `error`/`E_NOT_FOUND`, i.e. the assertion encoded the defect while the
+    // title stated the contract, so the suite stayed green while `--execute`
+    // reported "Patch file not found at …" — a path nobody was ever going to
+    // write — on every gated run (T12084).
+    expect(res.draftPr?.kind).toBe('skipped');
+    if (res.draftPr?.kind === 'skipped') {
+      expect(res.draftPr.reason).toContain('CLEO_PI_RUNNER_ENABLED');
     }
   });
 

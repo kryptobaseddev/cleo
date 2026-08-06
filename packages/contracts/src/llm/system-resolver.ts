@@ -124,6 +124,16 @@ export interface ResolveLLMForSystemOptions {
    * without changing the system identity.
    */
   roleOverride?: RoleName;
+  /**
+   * Providers to skip for this resolution (T12084).
+   *
+   * Mirrors `ResolveLLMForRoleOptions.excludeProviders` and exists for the same
+   * reason: a caller that has just watched a provider fail needs its retry to
+   * land elsewhere. Without it, every consumer of this resolver — fix-gen among
+   * them — is permanently pinned to the first provider the selector picks, no
+   * matter how reliably it fails.
+   */
+  excludeProviders?: readonly string[];
 
   /**
    * When `true`, the resolver skips the provider-registry defaultModel lookup

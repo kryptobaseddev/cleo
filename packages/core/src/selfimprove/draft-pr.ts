@@ -178,8 +178,22 @@ export interface DraftPrFailure {
   readonly message: string;
 }
 
+/**
+ * The stage did not run because there was nothing to propose (T12084).
+ *
+ * Distinct from `error`: no patch exists because fix-generation was gated off
+ * or produced nothing, which is the DESIGNED path — the loop still emits its
+ * DHQ row. Reporting that as `E_NOT_FOUND: Patch file not found` names a file
+ * nobody was ever going to write and reads as a broken self-improvement loop.
+ */
+export interface DraftPrSkipped {
+  readonly kind: 'skipped';
+  /** Why no PR was attempted, in terms the reader can act on. */
+  readonly reason: string;
+}
+
 /** Discriminated-union result of {@link openDraftPr}. */
-export type DraftPrResult = DraftPrDryRun | DraftPrOk | DraftPrFailure;
+export type DraftPrResult = DraftPrDryRun | DraftPrOk | DraftPrFailure | DraftPrSkipped;
 
 /**
  * Sanitize a scenario name into a filesystem/ref-safe stem.

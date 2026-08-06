@@ -191,6 +191,31 @@ describe('role-executor cross-provider failover (T12082)', () => {
     expect(mockResolveLLMForRole).toHaveBeenCalledTimes(1);
   });
 
+  it('does NOT carry the caller\'s modelOverride across a failover', async () => {
+    // A model id belongs to one provider. Measured before the fix: an anthropic
+    // 429 failed over and then asked openai for `claude-fable-5` (400) and
+    // ollama for `claude-fable-5` (404 model not found) — so failover could
+    // never work for a caller who pinned a model, which is exactly the caller
+    // who most needs it.
+    mockResolveLLMForRole
+      .mockResolvedValueOnce(resolved('anthropic'))
+      .mockResolvedValueOnce(resolved('ollama'));
+    const rateLimited = new Error('429 rate_limit_error') as Error & { status: number };
+    rateLimited.status = 429;
+    mockAnthropicComplete.mockRejectedValueOnce(rateLimited);
+    mockOllamaComplete.mockResolvedValueOnce(OK);
+
+    await executeForRole('consolidation', 'sys', 'user', { modelOverride: 'claude-fable-5' });
+
+    // First attempt honours the override; the failover uses ollama's own model.
+    expect(mockAnthropicComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'claude-fable-5' }),
+    );
+    expect(mockOllamaComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'ollama-model' }),
+    );
+  });
+
   it('does not resolve twice when the first provider succeeds', async () => {
     mockResolveLLMForRole.mockResolvedValue(resolved('anthropic'));
     mockAnthropicComplete.mockResolvedValue({ ...OK, model: 'anthropic-model' });

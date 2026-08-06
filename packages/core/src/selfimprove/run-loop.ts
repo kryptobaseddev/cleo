@@ -53,6 +53,7 @@
  * @task T11913
  */
 
+import { existsSync } from 'node:fs';
 import type { Logger } from 'pino';
 import { type ExecutionEnvBackend, resolveExecutionEnv } from '../llm/pi/resolve-execution-env.js';
 import { resolveOrCwd } from '../paths.js';
@@ -410,28 +411,60 @@ export async function runSelfImprove(opts: RunSelfImproveOptions): Promise<SelfI
     }
 
     // ── 5. open ONE DRAFT PR (counts against maxPrs=1) + record url back ────────
+    //
+    // T12084: only when there is actually a patch to propose. Fix-gen is the
+    // only thing that writes this file and it is gated behind the Pi runner, so
+    // on a plain `--execute` the file never exists — and the stage reported
+    // `E_NOT_FOUND: Patch file not found at …`, naming a path nobody was ever
+    // going to write. That reads as a broken self-improvement loop when the
+    // loop had in fact done its whole job: detected the regression and filed
+    // the DHQ.
+    //
+    // The budget is still charged BEFORE the check, so a `maxPrs = 0` run halts
+    // pre-flight exactly as before — the cap governs whether this run may reach
+    // egress at all, and must not become unenforceable just because this
+    // particular run had nothing to push.
     let draftPr: DraftPrResult | null = null;
+    // `fixPatchPath` already resolves against cwd — the same absolute path the
+    // fix-gen stage writes and the egress guard checks.
+    const patchPath = fixPatchPath(opts.scenario, opts.cwd);
     try {
       breaker.chargeOrTrip({ prs: 1 });
-      draftPr = await openDraftPr({
-        scenario: opts.scenario,
-        // SAME path fix-gen writes to (sanitized, resolved against cwd) so the
-        // egress `existsSync` guard finds exactly the file 4b produced.
-        diffPath: fixPatchPath(opts.scenario, opts.cwd),
-        title: `fix(selfimprove): ${opts.scenario} regression`,
-        body: `Auto-detected regression in the \`${opts.scenario}\` dogfood scenario (run ${runId}).`,
-        execute,
-        ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
-        ...(opts.draftPrRun !== undefined ? { run: opts.draftPrRun } : {}),
-        ...(opts.draftPrProvisionWorktree !== undefined
-          ? { provisionWorktree: opts.draftPrProvisionWorktree }
-          : {}),
-        ...(opts.draftPrRemoveWorktree !== undefined
-          ? { removeWorktree: opts.draftPrRemoveWorktree }
-          : {}),
-      });
-      if (draftPr.kind === 'ok') {
-        await adapter.recordPrUrl(questionHash, draftPr.prUrl);
+      if (!existsSync(patchPath)) {
+        draftPr = {
+          kind: 'skipped',
+          reason: piRunnerEnabled
+            ? `Fix-generation ran but produced no patch at '${patchPath}' — the DHQ row is ` +
+              `filed; there is nothing to propose.`
+            : `Fix-generation is gated off (CLEO_PI_RUNNER_ENABLED!=1), so no patch was ` +
+              `generated. The DHQ row is filed. Set CLEO_PI_RUNNER_ENABLED=1 together with ` +
+              `--execute to have CLEO author a candidate fix and open a draft PR.`,
+        };
+        logger.info(
+          { scenario: opts.scenario, runId, reason: draftPr.reason },
+          'self-improve draft-PR SKIPPED — no patch to propose',
+        );
+      } else {
+        draftPr = await openDraftPr({
+          scenario: opts.scenario,
+          // SAME path fix-gen writes to (sanitized, resolved against cwd) so the
+          // egress `existsSync` guard finds exactly the file 4b produced.
+          diffPath: fixPatchPath(opts.scenario, opts.cwd),
+          title: `fix(selfimprove): ${opts.scenario} regression`,
+          body: `Auto-detected regression in the \`${opts.scenario}\` dogfood scenario (run ${runId}).`,
+          execute,
+          ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+          ...(opts.draftPrRun !== undefined ? { run: opts.draftPrRun } : {}),
+          ...(opts.draftPrProvisionWorktree !== undefined
+            ? { provisionWorktree: opts.draftPrProvisionWorktree }
+            : {}),
+          ...(opts.draftPrRemoveWorktree !== undefined
+            ? { removeWorktree: opts.draftPrRemoveWorktree }
+            : {}),
+        });
+        if (draftPr.kind === 'ok') {
+          await adapter.recordPrUrl(questionHash, draftPr.prUrl);
+        }
       }
     } catch (err) {
       return tripFromError(

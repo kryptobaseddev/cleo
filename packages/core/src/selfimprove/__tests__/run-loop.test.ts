@@ -216,7 +216,14 @@ describe('runSelfImprove — regression → draft-PR (mocked gh, dry-run)', () =
       expect(res.draftPr.steps.some((s) => /push.*\bmain\b/.test(s))).toBe(false);
     } else {
       // dry-run is the default egress (execute flows to openDraftPr but the patch is absent)
-      expect(res.draftPr?.kind === 'dry-run' || res.draftPr?.kind === 'error').toBe(true);
+      // T12084: with fix-gen gated off there is no patch, so the egress is a
+      // SKIP. `dry-run`/`error` remain valid for the other paths — the point
+      // of this assertion is that no real push fired.
+      expect(
+        res.draftPr?.kind === 'dry-run' ||
+          res.draftPr?.kind === 'error' ||
+          res.draftPr?.kind === 'skipped',
+      ).toBe(true);
     }
   });
 });

@@ -303,6 +303,8 @@ export async function resolveLLMForSystem(
       // T11759: pin a named profile (e.g. a `.cantbook` stage's `profile:`) as
       // the highest-priority resolution tier. Absent/incomplete → falls through.
       ...(opts?.profile !== undefined ? { profileOverride: opts.profile } : {}),
+      // T12084: carry exclusions through to the provisioning-aware tier.
+      ...(opts?.excludeProviders !== undefined ? { excludeProviders: opts.excludeProviders } : {}),
     });
   } catch (err) {
     // Mirror role-resolver's never-throw contract: return a null-credential
