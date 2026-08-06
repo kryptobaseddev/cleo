@@ -164,7 +164,9 @@ export type CredentialSourceWire =
   | 'cred-file'
   | 'claude-creds'
   | 'global-config'
-  | 'project-config';
+  | 'project-config'
+  /** Keyless local inference daemon detected at runtime (T12082). */
+  | 'local-daemon';
 
 /**
  * Authentication scheme used when sending the credential to the provider.
@@ -223,6 +225,22 @@ export interface CredentialMetadataWire {
   source: CredentialSourceWire | undefined;
   /** Scheme used to present the credential to the provider. */
   authType: AuthTypeWire;
+  /**
+   * Custom API endpoint this credential targets, when it has one.
+   *
+   * NOT a secret — an endpoint URL — so it belongs on the metadata wire rather
+   * than behind the sealed handle. It is load-bearing: without it a consumer
+   * building a transport cannot learn that a credential points at a local or
+   * proxied endpoint, and silently falls back to the vendor's public API.
+   *
+   * T12081: `role-executor` set `baseUrl` from `deriveApiWire(provider)` — the
+   * provider DEFAULT — because this field did not exist. An Ollama credential
+   * carrying `http://localhost:11434/v1` was rewritten to `api.openai.com` and
+   * rejected 401; the same held for LM Studio, vLLM, OpenRouter and Azure.
+   * Every custom-endpoint credential resolved correctly, then called the wrong
+   * host.
+   */
+  baseUrl?: string | null;
 }
 
 // ============================================================================
@@ -365,6 +383,19 @@ export interface ResolveLLMForRoleOptions {
    * @task T11759
    */
   profileOverride?: string;
+  /**
+   * Providers to skip during this resolution (T12082).
+   *
+   * Set by the caller after a provider has already failed for this call, so
+   * the retry lands somewhere else. Applies to EVERY tier including config
+   * pins: a pinned provider that just returned a terminal error is not a
+   * better answer for having been pinned.
+   *
+   * Empty/absent leaves resolution completely unchanged.
+   *
+   * @task T12082
+   */
+  excludeProviders?: readonly string[];
 }
 
 // ============================================================================

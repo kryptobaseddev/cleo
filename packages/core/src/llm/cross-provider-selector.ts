@@ -48,6 +48,7 @@ import { getLogger } from '../logger.js';
 import { refreshExpiredOAuthForProvider } from './credential-pool.js';
 import { resolveCredentials } from './credentials.js';
 import { listCredentials, pickCredentialForProviderSync } from './credentials-store.js';
+import { detectLocalInference, listOllamaModels } from './local-inference-probe.js';
 import type { ModelTransport } from './types-config.js';
 
 const logger = getLogger('llm-cross-provider-selector');
@@ -358,6 +359,42 @@ function isProvisioned(provider: ModelTransport): boolean {
   return (cred.apiKey?.trim().length ?? 0) > 0;
 }
 
+/**
+ * Intersect the RAM-preferred Ollama model with the models actually installed.
+ *
+ * Resolution order:
+ *   1. exact tag match — the preferred model is pulled, use it;
+ *   2. same family — `gemma4:e4b` preferred, `gemma4:e2b` installed;
+ *   3. first installed model — some local inference beats none;
+ *   4. the preference unchanged, when the installed set is unknown (empty),
+ *      because an empty list means "could not ask", not "nothing installed".
+ *
+ * @param preferred - model chosen by the RAM/tier heuristic.
+ * @param installed - model ids the daemon reports, in daemon order.
+ * @returns the model to call.
+ *
+ * @example
+ * ```ts
+ * reconcileOllamaModel('gemma4:e4b', ['qwen2.5-coder:3b']); // → 'qwen2.5-coder:3b'
+ * reconcileOllamaModel('gemma4:e4b', ['gemma4:e2b']);       // → 'gemma4:e2b'
+ * reconcileOllamaModel('gemma4:e4b', []);                   // → 'gemma4:e4b'
+ * ```
+ *
+ * @task T12082
+ */
+export function reconcileOllamaModel(preferred: string, installed: readonly string[]): string {
+  if (installed.length === 0) return preferred;
+  if (installed.includes(preferred)) return preferred;
+
+  const family = preferred.split(':')[0];
+  if (family !== undefined && family !== '') {
+    const sameFamily = installed.find((m) => m.split(':')[0] === family);
+    if (sameFamily !== undefined) return sameFamily;
+  }
+
+  return installed[0] ?? preferred;
+}
+
 // ---------------------------------------------------------------------------
 // Scoring
 // ---------------------------------------------------------------------------
@@ -631,9 +668,10 @@ export async function enumerateProvisionedProviders(
  */
 export async function selectBestProvisioned(
   role: string,
-  opts: { projectRoot: string },
+  opts: { projectRoot: string; exclude?: readonly string[] },
 ): Promise<SelectedProviderModel | null> {
   const taskTier = roleTierFor(role);
+  const excluded = new Set(opts.exclude ?? []);
 
   // Refresh-on-use (T11986 · DHQ-087): attempt to refresh any expired-but-
   // refreshable OAuth credential for each provider BEFORE the provisioning
@@ -676,8 +714,35 @@ export async function selectBestProvisioned(
   // tokens are visible to the sync credential store reader).
   const provisionedIds: ModelTransport[] = [];
   for (const id of BUILTIN_PROVIDER_IDS) {
+    if (excluded.has(id)) continue;
     if (isProvisioned(id)) {
       provisionedIds.push(id);
+    }
+  }
+
+  // T12082: a RUNNING local daemon is its own provisioning evidence.
+  //
+  // `isProvisioned` cannot probe (it is sync), so it settles for "OLLAMA_HOST
+  // is set OR the store has an entry" — and liveness was then probed only for
+  // providers already in the provisioned set, which is circular: an unlisted
+  // ollama could never be probed, so it could never be listed.
+  //
+  // The cost of that circularity is total, not marginal. On a machine whose
+  // cloud credentials had all expired, every role resolved to
+  // `no-provisioned-provider` — no consolidation, no extraction, no hygiene,
+  // no dream cycle — while an Ollama daemon with models loaded answered on
+  // loopback in 24 ms. A provider that needs no key should not have to be
+  // declared; it only has to answer.
+  let localModels: readonly string[] = [];
+  if (!excluded.has('ollama') && !provisionedIds.includes('ollama')) {
+    const local = await detectLocalInference();
+    if (local !== null && local.name === 'ollama') {
+      provisionedIds.push('ollama');
+      localModels = local.models;
+      logger.debug(
+        { baseUrl: local.baseUrl, models: local.models },
+        'cross-provider-selector: unlisted ollama daemon is live — admitting as provisioned',
+      );
     }
   }
 
@@ -701,13 +766,18 @@ export async function selectBestProvisioned(
   );
   const { pickCredentialForProvider } = await import('./credentials-store.js');
 
-  // Probe ollama liveness only when ollama is in the provisioned set.
+  // Probe ollama liveness only when ollama is in the provisioned set. A daemon
+  // admitted by the live-probe above is alive by construction — re-probing it
+  // through a second code path would only add a way for the two to disagree.
   const ollamaProvisioned = provisionedIds.includes('ollama');
-  let ollamaAlive = false;
-  if (ollamaProvisioned) {
+  let ollamaAlive = localModels.length > 0;
+  if (ollamaProvisioned && !ollamaAlive) {
     const profile = await getProviderProfile('ollama');
     const ollamaBase = profile?.baseUrl ?? 'http://localhost:11434';
     ollamaAlive = await probeOllamaAlive(ollamaBase);
+    // Declared-and-live: ask the daemon what it actually holds, so the RAM
+    // heuristic below can be intersected with the installed set.
+    if (ollamaAlive) localModels = await listOllamaModels(ollamaBase);
   }
 
   // Score all provisioned providers.
@@ -766,6 +836,12 @@ export async function selectBestProvisioned(
       // Proof-of-life floor — logged as warning by ollamaDefaultModelForTier.
       model = ollamaDefaultModelForTier(winner.tier, ramBytes);
     }
+
+    // T12082: the RAM gate answers "what could this machine run", not "what is
+    // pulled". A resolved model the daemon does not hold is a 404 at call time,
+    // which reads as "local inference is broken" rather than "that tag is not
+    // installed" — so intersect the fit heuristic with the installed set.
+    model = reconcileOllamaModel(model, localModels);
 
     // Log hint if gemma4 family is not in catalog
     const catalogKey = catalogKeyForProvider(winner.id);
