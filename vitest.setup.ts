@@ -66,6 +66,15 @@ if (!process.env.XDG_CACHE_HOME) {
 if (!process.env.AGENTS_HOME) {
   process.env.AGENTS_HOME = join(sandbox, 'agents');
 }
+// T12082: the cross-provider selector now admits a LIVE local inference daemon
+// as provisioned — a provider that needs no key should not have to be declared,
+// only to answer. That makes host state a test input: on a developer machine
+// running Ollama, every "nothing is provisioned" assertion in the LLM suite
+// flips. Pin it off by default; the tests that exercise the local path unset
+// this variable themselves.
+if (!process.env.CLEO_DISABLE_LOCAL_INFERENCE) {
+  process.env.CLEO_DISABLE_LOCAL_INFERENCE = '1';
+}
 if (!process.env.NEXUS_HOME) {
   process.env.NEXUS_HOME = join(sandbox, 'nexus');
 }

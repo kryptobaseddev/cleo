@@ -50,6 +50,7 @@ import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
 import { selectBestProvisioned } from './cross-provider-selector.js';
 import { IMPLICIT_FALLBACK_MODEL } from './fallback-model.js';
+import { detectLocalInference } from './local-inference-probe.js';
 import { makeSealedCredential, tokenPreview } from './sealed-credential.js';
 import { getRegisteredSystemDefault } from './system-of-use-registry.js';
 import { buildAnthropicClient } from './transports/anthropic-client-factory.js';
@@ -76,6 +77,17 @@ export { IMPLICIT_FALLBACK_MODEL };
  * @task T9255
  */
 export const IMPLICIT_FALLBACK_PROVIDER: ModelTransport = 'anthropic';
+
+/**
+ * Placeholder bearer token used for a keyless local inference daemon (T12082).
+ *
+ * Not a secret and not validated by anything: local servers accept any bearer
+ * value. It exists because the transport contract requires a token field, and
+ * because every consumer in this layer gates on `credential != null` — without
+ * a placeholder, a perfectly usable daemon is indistinguishable from an
+ * unconfigured provider.
+ */
+export const LOCAL_PLACEHOLDER_TOKEN = 'local';
 
 /**
  * Implicit fallback model for the `hygiene` role.
@@ -466,6 +478,45 @@ async function selectProviderModel(
 }
 
 /**
+ * Re-route a resolution away from providers the caller has excluded (T12082).
+ *
+ * Called only when `excludeProviders` is non-empty, which happens only after
+ * that provider has already failed the current call. The replacement comes
+ * from the provisioning-aware selector rather than the config cascade, because
+ * every config tier would just name the same excluded pin again.
+ *
+ * When no substitute is provisioned, the original selection is returned
+ * unchanged: the caller is about to fail either way, and preserving the
+ * original keeps its error message pointed at the provider actually
+ * configured.
+ *
+ * @param selected - the resolution produced by the normal cascade.
+ * @param role - logical role being resolved.
+ * @param projectRoot - project root for provisioning lookups.
+ * @param exclude - providers that must not be returned.
+ * @returns the original selection, or a substitute that is not excluded.
+ *
+ * @task T12082
+ */
+async function applyProviderExclusions(
+  selected: SelectedProviderModel,
+  role: RoleName,
+  projectRoot: string,
+  exclude: readonly string[] | undefined,
+): Promise<SelectedProviderModel> {
+  if (exclude === undefined || exclude.length === 0) return selected;
+  if (!exclude.includes(selected.provider)) return selected;
+
+  try {
+    const substitute = await selectBestProvisioned(role, { projectRoot, exclude });
+    if (substitute !== null) return substitute;
+  } catch {
+    // Non-fatal — fall through to the original selection.
+  }
+  return selected;
+}
+
+/**
  * Try the credentials-store first (with `preferLabel` when pinned), then fall
  * back to the 6-tier `resolveCredentials()` chain. Returns `null` only when
  * both produce nothing.
@@ -505,6 +556,8 @@ async function resolveCredentialForRole(
           apiKey: stored.accessToken,
           source: 'cred-file',
           authType: wireAuthType,
+          // T12081: preserve the stored endpoint (Ollama/LM Studio/vLLM/…).
+          baseUrl: stored.baseUrl ?? null,
         },
         usedLabel: stored.label,
       };
@@ -529,6 +582,8 @@ async function resolveCredentialForRole(
           apiKey: picked.accessToken,
           source: 'cred-file',
           authType: wireAuthType,
+          // T12081: preserve the stored endpoint (Ollama/LM Studio/vLLM/…).
+          baseUrl: picked.baseUrl ?? null,
         },
         usedLabel: picked.label,
       };
@@ -543,6 +598,37 @@ async function resolveCredentialForRole(
   if (cred.apiKey) {
     return { credential: cred, usedLabel: undefined };
   }
+
+  // T12082: a keyless local daemon has no credential to find, and demanding
+  // one is what kept it unusable.
+  //
+  // Every caller of this resolver gates on `credential != null`, so the
+  // selector could admit a live Ollama, score it, and pick it — and then the
+  // call died one step later with "no usable credential. Run 'cleo llm login'
+  // … to authenticate", advice that is meaningless for a server that accepts
+  // any bearer token. The provider profile already documents the empty-string
+  // placeholder; this is where that placeholder has to be produced.
+  //
+  // Synthesised ONLY when the daemon actually answers, so this never invents a
+  // credential for a provider that is not there.
+  if (provider === 'ollama') {
+    const local = await detectLocalInference();
+    if (local !== null && local.name === 'ollama') {
+      return {
+        credential: {
+          provider,
+          apiKey: LOCAL_PLACEHOLDER_TOKEN,
+          source: 'local-daemon',
+          authType: 'api_key',
+          // ROOT url, not the `/v1` form: `deriveApiWire('ollama')` selects the
+          // NATIVE transport, which appends `/api/chat` itself.
+          baseUrl: local.baseUrl,
+        },
+        usedLabel: undefined,
+      };
+    }
+  }
+
   return { credential: null, usedLabel: undefined };
 }
 
@@ -608,12 +694,24 @@ export async function resolveLLMForRole(
   // `projectRoot` is threaded to tier 7 (cross-provider selector) for any
   // credential resolution that may need the project context (DHQ-081 · T11978).
   const llmBlock = readLlmBlock(config);
-  const { provider, model, credentialLabel, source } = await selectProviderModel(
+  const selected = await selectProviderModel(
     llmBlock,
     role,
     opts?.systemKey,
     opts?.profileOverride,
     projectRoot,
+  );
+
+  // T12082: honour caller-supplied exclusions. A provider is excluded only
+  // because it already failed this very call, so a config pin naming it is no
+  // longer the best answer — re-run the provisioning-aware selection without
+  // it. Without this, one broken provider takes down the role even when other
+  // credentials (and a live local daemon) are sitting right there.
+  const { provider, model, credentialLabel, source } = await applyProviderExclusions(
+    selected,
+    role,
+    projectRoot,
+    opts?.excludeProviders,
   );
 
   // Step 3 — resolve credential.
@@ -670,6 +768,11 @@ export async function resolveLLMForRole(
       provider: credential.provider,
       source: credential.source,
       authType: wireAuthType,
+      // T12081: carry the credential's OWN endpoint. Without it a consumer
+      // building a transport cannot tell that this credential targets a local
+      // or proxied host, and falls back to the provider's public API — which
+      // rejected every Ollama / LM Studio / vLLM / OpenRouter credential 401.
+      baseUrl: credential.baseUrl ?? null,
     };
     sealedCredential = makeSealedCredential({
       provider: credential.provider,

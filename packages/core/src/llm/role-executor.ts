@@ -174,7 +174,92 @@ export async function executeForRole(
   userContent: string,
   opts: ExecuteForRoleOptions = {},
 ): Promise<ExecuteForRoleResult | null> {
-  const llm = await resolveLLMForRole(role, { projectRoot: opts.projectRoot });
+  // T12082: one broken provider must not take the role down.
+  //
+  // This path drives the whole brain layer — consolidation, extraction,
+  // hygiene, the dream cycle. It resolved ONE provider and returned null on
+  // any failure, so a credential that is present but rejected (here: an
+  // openai Codex OAuth answering `400 'gpt-5.5-pro' is not supported when
+  // using Codex with a ChatGPT account`) disabled every background capability
+  // while other usable providers sat unconsulted. `shouldFallback` was already
+  // computed by the classifier and then thrown away.
+  //
+  // Failing over costs one extra resolution on an already-failed call, and the
+  // excluded provider is remembered only for the duration of this call — no
+  // persistent state, so a provider that recovers is picked again immediately.
+  const excludeProviders: string[] = [];
+
+  for (let attempt = 0; ; attempt++) {
+    const outcome = await attemptRoleCall(role, systemPrompt, userContent, opts, excludeProviders);
+    if (outcome.kind === 'ok') return outcome.result;
+    if (outcome.kind === 'give-up' || attempt >= MAX_ROLE_FAILOVERS) return null;
+    excludeProviders.push(outcome.provider);
+  }
+}
+
+/**
+ * How many alternate providers {@link executeForRole} may try after the first
+ * one fails.
+ *
+ * Two, not unbounded: each attempt costs a resolution plus a wire call, and a
+ * background pass that walks eleven providers to fail eleven times is worse
+ * than one that fails fast.
+ *
+ * @task T12082
+ */
+const MAX_ROLE_FAILOVERS = 2;
+
+/**
+ * Result of a single provider attempt.
+ *
+ * `give-up` means retrying elsewhere cannot help — the caller aborted, or the
+ * request itself is malformed. `failover` means this provider is unusable but
+ * another one might not be.
+ *
+ * @task T12082
+ */
+type RoleCallOutcome =
+  | { kind: 'ok'; result: ExecuteForRoleResult }
+  | { kind: 'failover'; provider: string }
+  | { kind: 'give-up' };
+
+/**
+ * Execute the role call against exactly one resolved provider.
+ *
+ * Extracted from {@link executeForRole} so the failover loop has a single
+ * attempt to drive; the body is unchanged apart from returning a discriminated
+ * outcome instead of `null`.
+ *
+ * @param role - semantic role.
+ * @param systemPrompt - system instruction.
+ * @param userContent - user message.
+ * @param opts - caller options.
+ * @param excludeProviders - providers that already failed this call.
+ * @returns the outcome of this single attempt.
+ *
+ * @task T9320
+ * @task T12082
+ */
+async function attemptRoleCall(
+  role: RoleName,
+  systemPrompt: string,
+  userContent: string,
+  opts: ExecuteForRoleOptions,
+  excludeProviders: readonly string[],
+): Promise<RoleCallOutcome> {
+  const llm = await resolveLLMForRole(role, {
+    projectRoot: opts.projectRoot,
+    // Snapshot: the loop appends to this array between attempts, and handing
+    // the live reference out would let a resolver observe a list that changes
+    // under it after the call.
+    excludeProviders: [...excludeProviders],
+  });
+
+  // The resolver could not honour the exclusion — nothing else is provisioned.
+  // Calling the same failed provider a second time would repeat its failure and
+  // its side effects (a 401 would quarantine the same credential twice).
+  if (excludeProviders.includes(llm.provider)) return { kind: 'give-up' };
+
   if (!llm.sealedCredential || !llm.credential) {
     // No usable credential for this role's resolved provider. Surface ONE
     // actionable re-auth hint per (role, provider) tuple instead of a silent
@@ -185,7 +270,9 @@ export async function executeForRole(
         `Run 'cleo llm login' (or 'cleo llm add ${llm.provider}') to authenticate, ` +
         `or 'cleo llm profile ${role} <provider>' to bind this role to a configured provider.`,
     );
-    return null;
+    // Another provider may well have a credential — that is worth one more
+    // resolution before the whole capability goes dark.
+    return { kind: 'failover', provider: llm.provider };
   }
 
   const credentialLabel = llm.credentialLabel ?? '<default>';
@@ -238,7 +325,11 @@ export async function executeForRole(
       expiresAt: null,
       refreshToken: null,
       extraHeaders: {},
-      baseUrl: wire.baseUrl,
+      // T12081: the credential's OWN endpoint wins. Using `wire.baseUrl`
+      // unconditionally rewrote every custom endpoint (Ollama, LM Studio,
+      // vLLM, OpenRouter, Azure) to the provider's public API, which then
+      // rejected the local key with 401.
+      baseUrl: llm.credential?.baseUrl ?? wire.baseUrl,
       awsProfile: null,
     };
     const transport = ModelRunner.buildTransportFromCredential(
@@ -265,10 +356,13 @@ export async function executeForRole(
 
     const resp = await transport.complete(request);
     return {
-      content: resp.content ?? '',
-      usage: resp.usage,
-      provider: llm.provider,
-      model: resp.model,
+      kind: 'ok',
+      result: {
+        content: resp.content ?? '',
+        usage: resp.usage,
+        provider: llm.provider,
+        model: resp.model,
+      },
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -303,6 +397,13 @@ export async function executeForRole(
         `[role-executor] role=${role} provider=${llm.provider} model=${model} call failed: ${message}`,
       );
     }
-    return null;
+
+    // An abort is the CALLER's decision — retrying elsewhere would ignore it.
+    // Everything else (auth, rate limit, 4xx, 5xx, network) is a property of
+    // this provider, so another one is worth trying.
+    if (classified.reason === 'timeout' && opts.signal?.aborted === true) {
+      return { kind: 'give-up' };
+    }
+    return { kind: 'failover', provider: llm.provider };
   }
 }

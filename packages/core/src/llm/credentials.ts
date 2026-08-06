@@ -63,7 +63,13 @@ export type CredentialSource =
   | 'cred-file'
   | 'claude-creds'
   | 'global-config'
-  | 'project-config';
+  | 'project-config'
+  /**
+   * Synthesised for a keyless local inference daemon that answered a liveness
+   * probe (T12082). No stored secret exists or is needed — the placeholder
+   * token satisfies the transport contract, not the endpoint.
+   */
+  | 'local-daemon';
 
 /**
  * Authentication scheme used to send the credential to the provider.
@@ -101,6 +107,15 @@ export interface CredentialResult {
    * them as Anthropic OAuth (`sk-ant-oat-*` access / `sk-ant-ort-*` refresh).
    */
   authType: AuthType;
+  /**
+   * Custom API endpoint this credential targets, when the stored record has one.
+   *
+   * T12081: this field did not exist, so the endpoint was dropped at the FIRST
+   * hop of the resolution chain. Consumers then rebuilt it from the provider
+   * default, which rewrote every Ollama / LM Studio / vLLM / OpenRouter /
+   * Azure credential to the vendor's public API and got 401.
+   */
+  baseUrl?: string | null;
 }
 
 /**
