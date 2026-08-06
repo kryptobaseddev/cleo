@@ -110,7 +110,11 @@ export interface ResolvedToolCommand {
  */
 export type ResolveToolResult =
   | { ok: true; command: ResolvedToolCommand }
-  | { ok: false; reason: string; codeName: 'E_TOOL_UNKNOWN' | 'E_TOOL_UNAVAILABLE' };
+  | {
+      ok: false;
+      reason: string;
+      codeName: 'E_TOOL_UNKNOWN' | 'E_TOOL_UNAVAILABLE' | 'E_TOOL_NOT_APPLICABLE';
+    };
 
 // ---------------------------------------------------------------------------
 // Aliases — preserved for backward compatibility with evidence written
@@ -319,6 +323,85 @@ function parseCommandString(raw: string): CommandShape | null {
   return { cmd, args: parts.slice(1) };
 }
 
+/**
+ * Markers that prove a project actually uses a given toolchain (T12083).
+ *
+ * Consulted ONLY for language-default resolutions. An explicit command in
+ * `project-context.json` is always applicable — the operator said so.
+ *
+ * A marker is a config file, a `package.json` script of the canonical name, or
+ * a declared dependency. Any one is enough.
+ */
+const APPLICABILITY_MARKERS: Partial<
+  Record<ProjectType, Partial<Record<CanonicalTool, { files: string[]; deps: string[] }>>>
+> = {
+  node: {
+    typecheck: { files: ['tsconfig.json', 'jsconfig.json'], deps: ['typescript'] },
+    lint: {
+      files: [
+        'biome.json',
+        'biome.jsonc',
+        '.eslintrc',
+        '.eslintrc.js',
+        '.eslintrc.cjs',
+        '.eslintrc.json',
+        'eslint.config.js',
+        'eslint.config.mjs',
+        '.oxlintrc.json',
+      ],
+      deps: ['@biomejs/biome', 'eslint', 'oxlint'],
+    },
+  },
+};
+
+/**
+ * Does this project actually have the toolchain a language default assumes?
+ *
+ * The node default for `typecheck` is `npx tsc --noEmit`. In a plain
+ * JavaScript project that is not a "working default" — `npx` reports
+ * *"This is not the tsc command you are looking for"* and exits 1, so the
+ * `qaPassed` gate can never be satisfied and **no task can ever be completed**.
+ * A correct worker that implements, tests, and commits is then rejected for
+ * lacking a typechecker in a project that has nothing to typecheck.
+ *
+ * That is the drop-into-any-project blocker: gate rigour has to scale to the
+ * project's actual toolchain, not to the one CLEO was built in.
+ *
+ * @param canonical - canonical tool name.
+ * @param projectRoot - absolute project root.
+ * @param primaryType - detected project type.
+ * @returns `true` when the toolchain is present, or when no marker is defined
+ *   for this (type, tool) pair — unknown means "assume applicable", which
+ *   preserves every existing gate.
+ *
+ * @task T12083
+ */
+function isToolApplicable(
+  canonical: CanonicalTool,
+  projectRoot: string,
+  primaryType: ProjectType,
+): boolean {
+  const marker = APPLICABILITY_MARKERS[primaryType]?.[canonical];
+  if (!marker) return true;
+
+  if (marker.files.some((f) => existsSync(join(projectRoot, f)))) return true;
+
+  try {
+    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as {
+      scripts?: Record<string, string>;
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    if (pkg.scripts?.[canonical]) return true;
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    if (marker.deps.some((d) => d in deps)) return true;
+  } catch {
+    // No package.json / unreadable — fall through to "not applicable".
+  }
+
+  return false;
+}
+
 interface ResolveOptions {
   /**
    * Override for `primaryType` lookup — set in tests where no real
@@ -425,6 +508,22 @@ export function resolveToolCommand(
         `Add an explicit command to .cleo/project-context.json (testing.command / build.command / lint.command / typecheck.command / audit.command / security-scan.command) ` +
         `or extend LANGUAGE_DEFAULTS in @cleocode/core/tasks/tool-resolver.ts.`,
       codeName: 'E_TOOL_UNAVAILABLE',
+    };
+  }
+
+  // T12083: a language default is a guess about the project. Only run it when
+  // the project shows evidence of that toolchain — otherwise the gate demands
+  // a tool the project has no reason to own.
+  if (!isToolApplicable(canonical, projectRoot, primaryType)) {
+    return {
+      ok: false,
+      reason:
+        `Tool "${toolName}" is not applicable to this project: no ${canonical} toolchain ` +
+        `was detected (no config file, no "${canonical}" script in package.json, and no ` +
+        `matching dependency). The default for primaryType="${primaryType}" would have run ` +
+        `\`${def.cmd} ${def.args.join(' ')}\`, which cannot succeed here. Add ` +
+        `${canonical}.command to .cleo/project-context.json to declare one explicitly.`,
+      codeName: 'E_TOOL_NOT_APPLICABLE',
     };
   }
 

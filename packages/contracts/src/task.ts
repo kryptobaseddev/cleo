@@ -192,7 +192,23 @@ export type EvidenceAtom =
       failCount: number;
       skipCount: number;
     }
-  | { kind: 'tool'; tool: string; exitCode: number; stdoutTail: string }
+  | {
+      kind: 'tool';
+      tool: string;
+      exitCode: number;
+      stdoutTail?: string;
+      /**
+       * The project has no such toolchain, so the gate is satisfied by absence
+       * rather than by a run (T12083).
+       *
+       * Recorded explicitly so the audit trail never implies a tool ran that
+       * did not. Only ever set for a GUESSED language default — a command
+       * declared in `project-context.json` is always executed.
+       */
+      notApplicable?: boolean;
+      /** Why the tool was judged inapplicable. Present iff `notApplicable`. */
+      reason?: string;
+    }
   | { kind: 'url'; url: string }
   | { kind: 'note'; note: string }
   | { kind: 'override'; reason: string }

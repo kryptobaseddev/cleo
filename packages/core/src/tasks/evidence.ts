@@ -1204,6 +1204,25 @@ async function validateTestRun(path: string, projectRoot: string): Promise<AtomV
 
 async function validateTool(tool: string, projectRoot: string): Promise<AtomValidation> {
   const resolution = resolveToolCommand(tool, projectRoot);
+
+  // T12083: the project has no such toolchain. This is a fact about the
+  // project, not a failure of the work — a plain JavaScript project cannot
+  // typecheck, and demanding it means no task in that project can ever be
+  // completed however correct the work is.
+  //
+  // Recorded as a first-class `not-applicable` atom rather than silently
+  // passed: the audit trail must show that the gate was satisfied by absence
+  // and say WHY, so a project that later adopts the toolchain starts being
+  // held to it automatically. Rigour is unchanged wherever the tool exists —
+  // applicability is only consulted for guessed language defaults, never for a
+  // command the operator declared.
+  if (!resolution.ok && resolution.codeName === 'E_TOOL_NOT_APPLICABLE') {
+    return {
+      ok: true,
+      atom: { kind: 'tool', tool, exitCode: 0, notApplicable: true, reason: resolution.reason },
+    };
+  }
+
   if (!resolution.ok) {
     return {
       ok: false,

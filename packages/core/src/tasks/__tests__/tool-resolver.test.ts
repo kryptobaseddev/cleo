@@ -27,6 +27,20 @@ function writeProjectContext(root: string, ctx: Record<string, unknown>): void {
   writeFileSync(join(root, '.cleo', 'project-context.json'), JSON.stringify(ctx, null, 2));
 }
 
+/**
+ * Give the sandbox the toolchain markers a node project would really have.
+ *
+ * T12083 gates GUESSED language defaults on evidence that the project uses that
+ * toolchain, so a test about language-default *provenance* has to be run in a
+ * project where the default is applicable — otherwise it is a test about
+ * applicability instead. The marker-less case is covered in
+ * `tool-applicability.test.ts`.
+ */
+function writeNodeToolchain(root: string): void {
+  writeFileSync(join(root, 'tsconfig.json'), '{}');
+  writeFileSync(join(root, 'biome.json'), '{}');
+}
+
 describe('resolveToolCommand — project-context overrides', () => {
   let dir: string;
   beforeEach(() => {
@@ -169,6 +183,7 @@ describe('resolveToolCommand — language defaults (no project-context)', () => 
       projectTypes: ['node'],
       primaryType: 'node',
     });
+    writeNodeToolchain(dir);
     const r = resolveToolCommand('tsc', dir);
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -450,6 +465,7 @@ describe('resolveToolCommand — T12027 generalized overrides (lint/typecheck/au
       primaryType: 'node',
       lint: { command: '' },
     });
+    writeNodeToolchain(dir);
     const r = resolveToolCommand('lint', dir);
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -465,6 +481,7 @@ describe('resolveToolCommand — T12027 generalized overrides (lint/typecheck/au
       primaryType: 'node',
       lint: {},
     });
+    writeNodeToolchain(dir);
     const r = resolveToolCommand('lint', dir);
     expect(r.ok).toBe(true);
     if (r.ok) {
