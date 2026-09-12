@@ -78,6 +78,13 @@ describe('shutdownCliRuntime — coordinated CLI teardown (T11568 · T11655)', (
 
   it('is idempotent — a second call never throws', async () => {
     await shutdownCliRuntime();
-    await expect(shutdownCliRuntime()).resolves.toHaveLength(4);
+    // Label assertion, not a count: a renamed or swapped step would pass a
+    // length check while changing the contract.
+    await expect(shutdownCliRuntime()).resolves.toEqual([
+      expect.objectContaining({ label: 'brain-writer' }),
+      expect.objectContaining({ label: 'embedding-queue' }),
+      expect.objectContaining({ label: 'databases' }),
+      expect.objectContaining({ label: 'logger' }),
+    ]);
   });
 });

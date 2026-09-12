@@ -18,6 +18,7 @@ import {
   resolveMemoryMaxMb,
   withMemoryLimit,
 } from '../heavy-tool-limit.js';
+import { CANONICAL_TOOLS } from '../tool-resolver.js';
 
 describe('resolveMemoryMaxMb', () => {
   it('derives the ceiling from host RAM', () => {
@@ -161,4 +162,17 @@ describe('isHeavyTool — one definition, not four', () => {
     expect(confined).toBe(isHeavyTool(c));
     expect(capped).toBe(isHeavyTool(c));
   });
+});
+
+it('records a deliberate decision about every canonical, so none is heavy by omission', () => {
+  // `nexus-impact-full` is NOT heavy. Recording that as a decision rather
+  // than leaving it as an absence: its docblock says it analyses all symbols
+  // in a task's file list, which scales with input — so whether it belongs in
+  // HEAVY_TOOLS is a real question, not an obvious no. It is left cheap here
+  // because nothing has measured it forking, and adding it would silently
+  // grant it the long deadline and the memory ceiling.
+  //
+  // If this assertion fails because a canonical was added, that is the point:
+  // decide, then update the list.
+  expect(CANONICAL_TOOLS.filter(isHeavyTool)).toEqual(['test', 'build']);
 });

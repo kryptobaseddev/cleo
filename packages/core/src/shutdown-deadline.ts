@@ -61,8 +61,29 @@ export const EXIT_BACKSTOP_MS = 3_000;
 export interface StepOutcome {
   /** Human-readable step name, used in diagnostics. */
   readonly label: string;
-  /** `true` when the step settled within its deadline. */
+  /**
+   * `true` when the step settled within its deadline.
+   *
+   * NOTE: settled includes "threw immediately" — see {@link threw}. Teardown is
+   * best-effort by policy, so a throwing step is not a failure of the exit
+   * path. It is still worth recording.
+   */
   readonly settled: boolean;
+  /**
+   * `true` when the step threw rather than completing.
+   *
+   * Without this, `settled` alone made a throwing step **structurally
+   * invisible**: four steps that all threw and four that all succeeded
+   * produced byte-identical outcome arrays. That is absence reading as
+   * success, in the teardown path, in code written to fix exactly that.
+   *
+   * It matters unevenly. A throwing `logger` close is noise; a throwing
+   * `databases` close means an unclean SQLite shutdown, and this project has
+   * explicit history with WAL/sidecar desync (AGENTS.md, Runtime Data Safety).
+   * A throwing `brain-writer` plausibly means unflushed memory writes — every
+   * invocation, forever, with nothing to look at.
+   */
+  readonly threw: boolean;
   /** Wall-clock time the step consumed, in ms. */
   readonly durationMs: number;
 }
@@ -92,12 +113,23 @@ export async function withDeadline(
   const startedAt = Date.now();
   let timer: NodeJS.Timeout | undefined;
 
+  let threw = false;
+
   const settled = await Promise.race([
     (async () => {
       try {
         await step();
       } catch {
-        // Best-effort teardown — a throwing step is a settled step.
+        // Best-effort teardown — a throwing step is still a settled step and
+        // must not abort the exit path. RECORDED rather than swallowed, so a
+        // teardown failing on every invocation is discoverable.
+        //
+        // Deliberately not logged here. `closeLogger` is itself step 4 of this
+        // sequence, so a catch that reaches for the logger can run against a
+        // subsystem that is mid-teardown or already closed — turning a recorded
+        // failure into a second, worse one. The caller surfaces `threw` on
+        // stderr instead, where nothing is being torn down.
+        threw = true;
       }
       return true;
     })(),
@@ -109,7 +141,7 @@ export async function withDeadline(
   ]);
 
   if (timer) clearTimeout(timer);
-  return { label, settled, durationMs: Date.now() - startedAt };
+  return { label, settled, threw, durationMs: Date.now() - startedAt };
 }
 
 /**

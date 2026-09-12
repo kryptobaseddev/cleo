@@ -511,6 +511,17 @@ async function runMainWithLafsEnvelope(
       // abandoned rather than awaited. Say so on stderr (stdout carries exactly
       // one LAFS envelope, ADR-086): a step that blew its budget is a leak, and
       // the next report should name the subsystem instead of guessing.
+      // A step that THREW is reported too — `settled` alone includes "threw
+      // immediately", so without this a teardown failing on every invocation
+      // looks identical to a clean one.
+      const threw = outcomes.filter((o) => o.threw);
+      if (threw.length > 0) {
+        process.stderr.write(
+          `cleo: teardown step(s) failed but did not block exit: ` +
+            `${threw.map((o) => o.label).join(', ')}. The command's own result stands.\n`,
+        );
+      }
+
       const stalled = outcomes.filter((o) => !o.settled);
       if (stalled.length > 0) {
         process.stderr.write(

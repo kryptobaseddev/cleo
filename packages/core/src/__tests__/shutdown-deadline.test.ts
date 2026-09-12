@@ -44,6 +44,25 @@ describe('withDeadline', () => {
     expect(outcome.settled).toBe(true);
   });
 
+  it('RECORDS that a step threw, so a failing teardown is not invisible', async () => {
+    // `settled` alone includes "threw immediately", so without `threw` four
+    // steps that all failed and four that all succeeded produce identical
+    // outcome arrays — absence reading as success, in the teardown path.
+    const ok = await withDeadline('fine', async () => {}, 1_000);
+    const bad = await withDeadline(
+      'boom',
+      () => {
+        throw new Error('unclean close');
+      },
+      1_000,
+    );
+
+    expect(ok.settled).toBe(true);
+    expect(ok.threw).toBe(false);
+    expect(bad.settled).toBe(true);
+    expect(bad.threw).toBe(true);
+  });
+
   it('does not itself keep the event loop alive', async () => {
     // A deadline timer that was ref'd would recreate the very hang it guards
     // against, holding the process open for the full budget on every command.
