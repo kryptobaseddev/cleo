@@ -355,7 +355,7 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ### Tool resolution + result cache (ADR-061)
 
-`tool:<name>` evidence resolves via `.cleo/project-context.json` with per-`primaryType` fallbacks. Results cached under `.cleo/cache/evidence/<key>.json`, keyed on `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies coalesce; cross-worktree bounded by per-tool semaphore at `~/.local/share/cleo/locks/tool-<canonical>/`. Tune with `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`. The wall-clock deadline per tool run defaults to 300000 ms; override with `CLEO_TOOL_TIMEOUT_<TOOL>=<ms>` (positive integer; invalid values are rejected with a clear error, never silently ignored).
+`tool:<name>` evidence resolves via `.cleo/project-context.json` with per-`primaryType` fallbacks. Results cached under `.cleo/cache/evidence/<key>.json`, keyed on `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies coalesce; cross-worktree bounded by per-tool semaphore at `~/.local/share/cleo/locks/tool-<canonical>/`. Tune with `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`. The wall-clock deadline per tool run is per-canonical: **1800000 ms (30 min) for `test` and `build`**, 300000 ms (5 min) for everything else — a suite is not a linter, and a 5 min cap below a real suite meant every run was killed and nothing was ever cached (gh#1221). Override with `CLEO_TOOL_TIMEOUT_<TOOL>=<ms>` (positive integer; invalid values are rejected with a clear error naming the default that applies to THAT tool, never silently ignored). A timed-out run caches nothing, so retrying unchanged fails identically after re-running the whole tool — raise the deadline instead.
 
 ### `pr:<number>` retroactive atom (T9764)
 
