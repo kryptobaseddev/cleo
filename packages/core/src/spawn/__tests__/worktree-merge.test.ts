@@ -241,3 +241,90 @@ describe('completeAgentWorktreeViaMerge (ADR-062)', () => {
     expect(result.error).toMatch(/does not exist/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// T12153 (GH #1223) — "nothing to integrate" is not a failure
+// ---------------------------------------------------------------------------
+
+describe('completeAgentWorktreeViaMerge — nothing to integrate (T12153)', () => {
+  let fixture: Fixture;
+
+  afterEach(() => {
+    fixture?.cleanup();
+  });
+
+  /**
+   * The reported case. Most tasks are worked on a feature branch and merged by
+   * PR, so no `task/<id>` branch and no agent worktree ever exist. Before
+   * T12153 that produced `merged: false` with
+   * `error: "task branch 'task/T1655' does not exist"`, and `cleo complete`
+   * logged it at WARN as an integration failure — on most completions.
+   */
+  it('reports nothingToIntegrate when neither branch nor worktree exists', () => {
+    fixture = makeRepo('main');
+    const result = completeAgentWorktreeViaMerge('T9999001', fixture.root);
+
+    // The FLAG is the classification a caller must branch on.
+    expect(result.nothingToIntegrate).toBe(true);
+    expect(result.merged).toBe(false);
+  });
+
+  /**
+   * `error` is deliberately still populated here, and the first draft of this
+   * change cleared it. That was wrong: `orchestrate worktree-complete` renders
+   * `integration.error ?? 'unknown merge failure'`, so dropping the string
+   * replaced an accurate message with a misleading one on a second surface.
+   *
+   * So the split is: `error` is a human-readable MESSAGE, `nothingToIntegrate`
+   * is the machine-readable CLASSIFICATION. A caller must never infer failure
+   * from the mere presence of a string.
+   */
+  it('keeps a descriptive message, but one that does not read as a failure', () => {
+    fixture = makeRepo('main');
+    const result = completeAgentWorktreeViaMerge('T9999005', fixture.root);
+
+    expect(result.error).toContain('nothing to integrate');
+    expect(result.error).not.toMatch(/fail|conflict|error/i);
+  });
+
+  it('leaves the other result fields in their no-work state', () => {
+    fixture = makeRepo('trunk');
+    const result = completeAgentWorktreeViaMerge('T9999002', fixture.root);
+
+    expect(result.mergeCommit).toBe('');
+    expect(result.commitCount).toBe(0);
+    expect(result.rebased).toBe(false);
+    expect(result.worktreeRemoved).toBe(false);
+    expect(result.branchDeleted).toBe(false);
+    expect(result.targetBranch).toBe('trunk');
+  });
+
+  it('does NOT claim nothingToIntegrate when a task branch DOES exist', () => {
+    // The dangerous inverse: suppressing a genuine integration failure would
+    // be worse than the noise this change removes. A task branch that exists
+    // must still go through the real integration path.
+    fixture = makeRepo('main');
+    const git = (...args: string[]): string =>
+      execFileSync('git', args, {
+        cwd: fixture.root,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+    git('branch', 'task/T9999003');
+
+    const result = completeAgentWorktreeViaMerge('T9999003', fixture.root);
+    expect(result.nothingToIntegrate).toBeUndefined();
+  });
+
+  it('is not a git repo → still an error, not nothingToIntegrate', () => {
+    // A non-git directory is a real problem and must keep reporting as one.
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-nogit-'));
+    try {
+      const result = completeAgentWorktreeViaMerge('T9999004', dir);
+      expect(result.nothingToIntegrate).toBeUndefined();
+      expect(result.error).toMatch(/Not a git repo/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
