@@ -102,7 +102,19 @@ export interface ExtractionResult {
 // Prompt
 // ---------------------------------------------------------------------------
 
-const EXTRACTION_SYSTEM_PROMPT = `You are extracting durable knowledge from a Claude coding session transcript.
+/**
+ * System prompt for transcript extraction.
+ *
+ * Exported so its agreement with {@link ExtractionResponseSchema} is testable.
+ * gh#1219: the prompt and the schema disagreed — the prompt asked for an empty
+ * ARRAY while the schema required the object `{memories: [...]}` — and nothing
+ * in the build could notice, because the only thing that reconciles them is a
+ * model's interpretation at run time. The tests in
+ * `__tests__/transcript-extraction-gh1219.test.ts` are what keep them aligned.
+ *
+ * @task T12133 (gh#1219)
+ */
+export const EXTRACTION_SYSTEM_PROMPT = `You are extracting durable knowledge from a Claude coding session transcript.
 Extract ONLY high-value items that a developer would want to remember across sessions.
 Reject noise: greetings, meta-commentary, transient state, tool output without findings.
 
@@ -120,7 +132,13 @@ Type definitions:
 - constraint: rule/limitation discovered ("X must always Y")
 - correction: anti-pattern to avoid ("Avoid X; use Z instead")
 
-Return empty array if nothing of durable value exists. Maximum 7 extractions.`;
+OUTPUT FORMAT (gh#1219 — this must agree with the schema, or nothing is stored):
+Respond with a single JSON object of exactly this shape:
+  {"memories": [ {type, content, importance, entities, justification}, ... ]}
+The top level is an OBJECT with one key, "memories". It is NOT a bare array.
+When nothing is worth remembering, return {"memories": []} — an empty array
+INSIDE the object, never a bare [] and never a different key name.
+Maximum 7 entries.`;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -226,7 +244,7 @@ export async function extractTranscript(
 
   try {
     const clipped = clipTranscript(transcriptText, 60_000);
-    const userPrompt = `Session ID: ${sessionId}\n\nTranscript:\n${clipped}\n\nExtract up to 7 high-value memories. Return empty array if nothing valuable.`;
+    const userPrompt = `Session ID: ${sessionId}\n\nTranscript:\n${clipped}\n\nExtract up to 7 high-value memories. Respond with the JSON object {"memories": [...]}, using {"memories": []} if nothing is valuable.`;
 
     if (backend.name === 'transformers') {
       // transformers.js direct path — uses pipeline() without Vercel AI SDK
@@ -238,6 +256,13 @@ export async function extractTranscript(
         schema: ExtractionResponseSchema,
         system: EXTRACTION_SYSTEM_PROMPT,
         prompt: userPrompt,
+        // gh#1219: without this the AI SDK warns "The feature responseFormat is
+        // not supported. JSON response format schema is only supported with
+        // structuredOutputs" and sends NO schema on the wire, leaving
+        // correctness entirely to prompt discipline. Providers that do not
+        // consume the `openai` namespace ignore it, so this is safe for the
+        // anthropic / ollama / transformers backends too.
+        providerOptions: { openai: { structuredOutputs: true } },
       });
       memories = object.memories;
     }
