@@ -76,6 +76,35 @@ export const WORKSPACE_CONCURRENCY = 1;
 export type HeavyToolEnv = Readonly<Record<string, string>>;
 
 /**
+ * Per-runner worker-count variables, keyed by the env var each runner reads.
+ *
+ * T12116: the original overlay set `VITEST_MAX_WORKERS` and nothing else, so a
+ * consumer running `cargo test`, `pytest`, `go test` or `make` got no bound at
+ * all — and CLEO is a general task runner whose projects are not all Node.
+ * Each entry below is the documented knob for one ecosystem's test/build
+ * parallelism; setting a variable a project does not use is inert, so the whole
+ * table can be applied unconditionally.
+ *
+ * This is still advisory — a runner may ignore its own variable. The hard bound
+ * is the cgroup in `heavy-tool-limit.ts`; these merely stop a cooperative
+ * runner from sizing its pool off `nproc` and immediately breaching it.
+ */
+const WORKER_COUNT_VARS = [
+  /** vitest — overrides the resolved config, so it binds projects with their own. */
+  'VITEST_MAX_WORKERS',
+  /** jest — honoured by jest >= 29 when no CLI flag is given. */
+  'JEST_MAX_WORKERS',
+  /** cargo test / libtest harness. */
+  'RUST_TEST_THREADS',
+  /** cargo build + `cargo test`'s compile step. */
+  'CARGO_BUILD_JOBS',
+  /** Go toolchain — bounds both `go test -p` scheduling and runtime threads. */
+  'GOMAXPROCS',
+  /** pytest-xdist, when `-n auto` is in use. */
+  'PYTEST_XDIST_AUTO_NUM_WORKERS',
+] as const;
+
+/**
  * Worker count this machine can hold, given {@link GIB_PER_WORKER}.
  *
  * @param totalRamGib - total RAM in GiB; defaults to a live reading.
@@ -138,12 +167,21 @@ export function heavyToolEnv(
     NODE_OPTIONS: mergeNodeOptions(env.NODE_OPTIONS, HEAVY_TOOL_HEAP_MB),
   };
 
-  // Respect a deliberate setting; supply one otherwise.
-  if (!env.VITEST_MAX_WORKERS) {
-    overlay.VITEST_MAX_WORKERS = String(heavyToolWorkers(totalRamGib));
+  // Respect a deliberate setting; supply one otherwise. An existing value
+  // always wins — a project that asked for more has outranked our default
+  // since T12096, and that contract is unchanged.
+  const workers = String(heavyToolWorkers(totalRamGib));
+  for (const key of WORKER_COUNT_VARS) {
+    if (!env[key]) overlay[key] = workers;
   }
+
   if (!env.npm_config_workspace_concurrency) {
     overlay.npm_config_workspace_concurrency = String(WORKSPACE_CONCURRENCY);
+  }
+  // GNU make sizes `-j` off nproc when told `-j` with no argument; an explicit
+  // job count here bounds a Makefile-driven test/build target too.
+  if (!env.MAKEFLAGS) {
+    overlay.MAKEFLAGS = `-j${workers}`;
   }
 
   return overlay;
