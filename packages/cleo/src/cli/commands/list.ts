@@ -32,6 +32,18 @@ const listArgs = {
     type: 'string',
     description: 'Alias for --parent (legacy parentId compatibility)',
   },
+  // T12123 (GH #1242) — a DISCOVERABLE spelling of the `--limit 0` escape
+  // hatch. `options.limit === 0 ? undefined : ...` in core has always meant
+  // "no limit" and worked correctly, but it was documented nowhere: `--limit`'s
+  // help text said only "Maximum number of tasks to return". So the one flag
+  // that made complete enumeration possible was invisible to anyone who had
+  // not read the core source, while `--output id` silently returned a page of
+  // 10 against a match count of 1075.
+  all: {
+    type: 'boolean',
+    description:
+      'Return EVERY matching task instead of the default page of 10 (equivalent to --limit 0).',
+  },
   // T9922 — MVI record projection opt-out flags (surfaced for --help).
   verbose: {
     type: 'boolean',
@@ -74,6 +86,11 @@ export const listCommand = defineCommand({
 
     // CLI-only compatibility alias — not a registry param, so forwarded here.
     if (args['parent-id'] !== undefined) params['parent'] ??= args['parent-id'];
+
+    // GH #1242 — `--all` is the discoverable spelling of `--limit 0`. Set it
+    // explicitly rather than deleting `limit`, because an ABSENT limit falls
+    // back to TASK_LIST_DEFAULT_LIMIT (10), not to "no limit".
+    if (args['all'] === true) params['limit'] = 0;
 
     const limit = typeof params['limit'] === 'number' ? (params['limit'] as number) : undefined;
     const offset = typeof params['offset'] === 'number' ? (params['offset'] as number) : undefined;

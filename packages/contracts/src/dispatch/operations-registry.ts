@@ -319,7 +319,7 @@ export const OPERATIONS: OperationDef[] = [
         type: 'number',
         required: false,
         description:
-          'Maximum number of tasks to return (default 10; --limit 0 returns every match)',
+          'Maximum number of tasks to return (default 10; --limit 0 or --all returns every match)',
       },
       {
         name: 'offset',
