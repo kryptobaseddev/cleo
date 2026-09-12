@@ -1,7 +1,23 @@
 #!/usr/bin/env node
 /**
- * Gate 21 — every `--flag` documented in CLEO-INJECTION.md must be ACCEPTED
+ * Gate 21 — every `--flag` in a documented `cleo` invocation must be ACCEPTED
  * by the command it is shown with (T12139).
+ *
+ * Two sources:
+ *   1. `packages/core/templates/CLEO-INJECTION.md` — injected verbatim into
+ *      every spawned agent.
+ *   2. `.github/workflows/*.yml` + `packages/core/templates/workflows/*.yml.tmpl`
+ *      — the `run:` blocks CI actually executes.
+ *
+ * The second source is gate 15's territory, and it exists for the same reason:
+ * `release-prepare.yml` invoked two commands that never existed, and each
+ * dispatch burned a full ~21-minute green preflight to discover ONE of them.
+ * Gate 15 now asserts every `cleo <verb>` in a workflow resolves — but not its
+ * FLAGS. That half did not bite while an unknown flag was silently ignored;
+ * once T12139 makes it exit 6, a stale workflow flag becomes a late, expensive
+ * CI failure. Raised by cleo-optimizer reviewing T12139, who argued the
+ * coverage case without being able to demonstrate a break — so this closes a
+ * gap rather than fixing a known bug.
  *
  * The third member of a family:
  *   - gate 14 (`lint-injection-commands.mjs`) — every documented COMMAND resolves
@@ -44,6 +60,44 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TEMPLATE = join(REPO_ROOT, 'packages/core/templates/CLEO-INJECTION.md');
 
 /**
+ * Flags documented in workflow `run:` blocks, keyed by verb.
+ *
+ * Reuses gate 15's `run:`-only, line-local extractor for the VERB so the two
+ * gates cannot disagree about what counts as an invocation — a `name:` is a
+ * display string, and `ln -sf … /usr/local/bin/cleo` followed by the next
+ * mapping key must not read as `cleo timeout-minutes`. Flags are then taken
+ * from the same line.
+ *
+ * @returns map of verb → sorted flag list.
+ */
+export async function extractWorkflowFlags() {
+  const { globSync } = await import('node:fs');
+  const { extractWorkflowCleoCommands } = await import('./lint-workflow-cleo-commands.mjs');
+  const files = [
+    ...globSync('.github/workflows/*.yml', { cwd: REPO_ROOT }),
+    ...globSync('packages/core/templates/workflows/*.yml.tmpl', { cwd: REPO_ROOT }),
+  ];
+  const byVerb = new Map();
+  for (const rel of files) {
+    const raw = readFileSync(join(REPO_ROOT, rel), 'utf-8').replace(
+      /\{\{[A-Z_]+\}\}/g,
+      'PLACEHOLDER',
+    );
+    const invocations = extractWorkflowCleoCommands(raw);
+    if (invocations.length === 0) continue;
+    const lines = raw.split('\n');
+    for (const inv of invocations) {
+      const line = lines[inv.line - 1] ?? '';
+      const flags = [...line.matchAll(/(--[a-z][\w-]*)/g)].map((f) => f[1]);
+      if (flags.length === 0) continue;
+      if (!byVerb.has(inv.verb)) byVerb.set(inv.verb, new Set());
+      for (const f of flags) byVerb.get(inv.verb).add(f);
+    }
+  }
+  return new Map([...byVerb].map(([k, v]) => [k, [...v].sort()]));
+}
+
+/**
  * Flags documented for a command, scoped to a single line so a `--flag`
  * further down the document is never attributed to an unrelated verb above it.
  *
@@ -64,7 +118,7 @@ export function extractDocumentedFlags(markdown) {
   return new Map([...byVerb].map(([k, v]) => [k, [...v].sort()]));
 }
 
-function main() {
+async function main() {
   const markdown = readFileSync(TEMPLATE, 'utf-8');
   const documented = extractDocumentedFlags(markdown);
 
@@ -81,7 +135,12 @@ function main() {
   }
 
   console.log(
-    `lint-injection-flags: ${flagCount} documented flag(s) across ${documented.size} command(s).`,
+    `lint-injection-flags: ${flagCount} documented flag(s) across ${documented.size} command(s) in CLEO-INJECTION.md.`,
+  );
+  const wf = await extractWorkflowFlags();
+  const wfCount = [...wf.values()].reduce((n, fs) => n + fs.length, 0);
+  console.log(
+    `lint-injection-flags: ${wfCount} flag(s) across ${wf.size} command(s) in workflow run: blocks.`,
   );
   console.log(
     'Acceptance is asserted through assertKnownFlags itself by ' +
@@ -93,4 +152,4 @@ function main() {
 
 const invokedDirectly =
   process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
-if (invokedDirectly) main();
+if (invokedDirectly) await main();

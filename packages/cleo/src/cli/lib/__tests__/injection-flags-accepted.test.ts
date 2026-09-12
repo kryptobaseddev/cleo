@@ -22,7 +22,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ArgsDef, CommandDef } from 'citty';
 import { describe, expect, it } from 'vitest';
-import { extractDocumentedFlags } from '../../../../../../scripts/lint-injection-flags.mjs';
+import {
+  extractDocumentedFlags,
+  extractWorkflowFlags,
+} from '../../../../../../scripts/lint-injection-flags.mjs';
 import { assertKnownFlags, CLI_GLOBAL_FLAGS, UnknownFlagError } from '../strict-args.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../..');
@@ -79,12 +82,13 @@ describe('gate 21 — documented flags are accepted (T12139)', () => {
     expect(documented.size).toBeGreaterThan(5);
   });
 
-  it('every documented flag is accepted by its command', async () => {
+  /** Check one verb→flags map against the real commands. @returns rejections. */
+  async function rejectionsIn(source: Map<string, string[]>): Promise<string[]> {
     const mods = moduleByVerb();
     const globals = new Set(CLI_GLOBAL_FLAGS);
     const rejected: string[] = [];
 
-    for (const [verb, flags] of documented) {
+    for (const [verb, flags] of source) {
       const mod = mods.get(verb);
       if (!mod) continue; // not a top-level command (e.g. a doc-only example)
       let cmd: CommandDef;
@@ -101,11 +105,32 @@ describe('gate 21 — documented flags are accepted (T12139)', () => {
         if (!(await accepts(cmd, flag))) rejected.push(`cleo ${verb} ${flag}`);
       }
     }
+    return rejected;
+  }
 
+  it('every flag documented in CLEO-INJECTION.md is accepted by its command', async () => {
     // Any entry here is either a flag the protocol documents and the binary
     // refuses, or a flag that exists only on a subcommand path this resolver
     // could not reach. Both are worth a human look.
-    expect(rejected).toEqual([]);
+    expect(await rejectionsIn(documented)).toEqual([]);
+  });
+
+  /**
+   * The second source, raised by cleo-optimizer reviewing T12139.
+   *
+   * Gate 15 exists because `release-prepare.yml` invoked two commands that
+   * never existed, and each dispatch burned a ~21-minute green preflight to
+   * discover ONE of them. It asserts every `cleo <verb>` in a workflow
+   * resolves — but not its FLAGS. That half did not bite while an unknown flag
+   * was silently ignored; once T12139 makes it exit 6, a stale workflow flag
+   * becomes a late and expensive CI failure instead of a quiet wrong result.
+   */
+  it('every flag in a workflow run: block is accepted by its command', async () => {
+    const wf = (await extractWorkflowFlags()) as Map<string, string[]>;
+    // Vacuous-pass guard: the workflows DO invoke cleo with flags, so an empty
+    // map means the extractor broke rather than that CI is clean.
+    expect([...wf.values()].reduce((n, f) => n + f.length, 0)).toBeGreaterThan(5);
+    expect(await rejectionsIn(wf)).toEqual([]);
   });
 
   /**
