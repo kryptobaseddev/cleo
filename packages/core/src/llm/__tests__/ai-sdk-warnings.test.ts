@@ -93,3 +93,59 @@ describe('installAiSdkWarningHandler (T12142)', () => {
     expect(stdout).not.toHaveBeenCalled();
   });
 });
+
+describe('WHERE the handler is installed — the half the in-process tests cannot check', () => {
+  /**
+   * Every other test in this file calls `installAiSdkWarningHandler()` directly and
+   * then asserts nothing reaches stdout. They prove the handler WORKS. They cannot
+   * prove it is INSTALLED on the path that emits, and they pass either way.
+   *
+   * That gap shipped once: the handler was installed at module load of
+   * `model-runner.ts`, reasoning from gate 13 that the LLM chokepoint is where all
+   * consumers pass through. `memory/llm-backend-resolver.ts` builds its own clients
+   * and imports `ai` only as `import type { LanguageModel }` — type-only, erased at
+   * runtime — so it never loaded `model-runner.ts`, never installed the handler, and
+   * ai@6's `console.info` banner went to STDOUT, appending an English sentence to the
+   * LAFS envelope. `--field /data/created/0` then returned a task id with a newline
+   * and that sentence attached.
+   *
+   * So this test asserts placement, structurally, because placement is the property
+   * that was wrong. A test that can only fail when the guard is broken — and never
+   * when the guard is bypassed — is the shape that let this through.
+   */
+  it('is installed from the CLI envelope funnel, not only from the LLM chokepoint', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, resolve } = await import('node:path');
+
+    const here = dirname(fileURLToPath(import.meta.url));
+    const cliIndex = resolve(here, '../../../../cleo/src/cli/index.ts');
+    const src = readFileSync(cliIndex, 'utf8');
+
+    expect(src).toContain('installAiSdkWarningHandler');
+
+    // It must sit inside the funnel every command passes through, so that a path
+    // which never touches the LLM chokepoint is still covered.
+    const funnelAt = src.indexOf('async function runMainWithLafsEnvelope(');
+    const installAt = src.indexOf('installAiSdkWarningHandler');
+    expect(funnelAt).toBeGreaterThan(-1);
+    expect(installAt).toBeGreaterThan(funnelAt);
+  });
+
+  it('the bypassing module still does not import the chokepoint — the reason placement matters', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, resolve } = await import('node:path');
+
+    const here = dirname(fileURLToPath(import.meta.url));
+    const resolver = resolve(here, '../../memory/llm-backend-resolver.ts');
+    const src = readFileSync(resolver, 'utf8');
+
+    // It constructs AI SDK clients of its own...
+    expect(src).toMatch(/createOpenAICompatible|createAnthropic/);
+    // ...and its only `ai` import is type-only, so importing it installs nothing.
+    expect(src).not.toMatch(/^import\s+\{[^}]*\}\s+from\s+'ai'/m);
+    expect(src).not.toContain("from './model-runner.js'");
+    expect(src).not.toContain("from '../llm/model-runner.js'");
+  });
+});

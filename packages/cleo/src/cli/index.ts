@@ -416,6 +416,37 @@ async function runMainWithLafsEnvelope(
   rawArgs: string[],
   showUsage: typeof cittyShowUsage,
 ): Promise<void> {
+  // GH #1223 — install the AI SDK warning handler HERE, at the one funnel every
+  // command passes through, not at `model-runner.ts` module load.
+  //
+  // The original placement reasoned from gate 13: the LLM chokepoint is where
+  // every consumer "passes through", so installing at its module load covers
+  // everything. That is true of the gate's INTENT and false of the running code.
+  // `memory/llm-backend-resolver.ts` builds its own clients
+  // (`createOpenAICompatible`, `createAnthropic`) and its only `ai` import is
+  // `import type { LanguageModel }` — type-only, erased at runtime — so it never
+  // loads `model-runner.ts` and never installed the handler. Gate 13 sees those
+  // constructions in `--strict` and they sit inside the accepted baseline, so a
+  // baseline stood between the comment and the truth.
+  //
+  // ai@6's `logWarnings` emits its one-time banner with `console.info`, which is
+  // STDOUT, while the warnings themselves go to `console.warn` (stderr). So an
+  // uncovered path does not merely log noisily — it appends a sentence to the
+  // LAFS envelope, and `--field /data/created/0` hands the caller a task id with
+  // a newline and an English sentence attached.
+  //
+  // This function is where the envelope contract is enforced, so it is where the
+  // guard belongs: a stdout guard should live with the contract it protects, not
+  // with the subsystem that happens to violate it. Dynamic + deep import keeps
+  // gate 10 (no static core barrel in the CLI) and the startup cost untouched;
+  // the module has no heavy dependencies and never imports `ai`.
+  try {
+    const { installAiSdkWarningHandler } = await import('@cleocode/core/llm/ai-sdk-warnings');
+    installAiSdkWarningHandler();
+  } catch {
+    // Never block the CLI on a diagnostic guard.
+  }
+
   const helpFlags = ['--help', '-h'];
   const versionFlags = ['--version', '-V'];
 
