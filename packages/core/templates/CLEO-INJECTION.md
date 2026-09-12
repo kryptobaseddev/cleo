@@ -298,6 +298,32 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | — | `E_EVIDENCE_STALE` | Files/commits changed since `verify`; re-verify with updated evidence |
 | — | `E_EVIDENCE_INVALID_DECISION` | `decision:<id>` atom — decision ID not found or not accepted/proposed in BRAIN |
 | — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` or `CLEO_OWNER_OVERRIDE=1` |
+| — | `E_IDEMPOTENCY_UNSUPPORTED` | That verb does not honour `--idempotency-key` and the key was NOT applied. Query before retrying — see below |
+| 143 / 137 | *(killed — no code)* | **A killed mutation carries NO information about whether it committed.** See below |
+
+### A killed write is not a failed write
+
+`cleo` exiting 143 (SIGTERM) or 137 (SIGKILL) — including a bare exit with no
+output at all — tells you **nothing** about whether the mutation landed. The
+commit is fast; what hangs is the teardown after it. So the common case is that
+the row IS there.
+
+**Never retry a killed mutation blindly.** Establish the truth first:
+
+```bash
+cleo find "<the exact title>" --include-archive   # find excludes archived by default
+cleo list --parent <id> --all                     # list truncates at 10 without it
+cleo show <id> --full
+```
+
+Both read paths above have silent defaults that hide a row you just wrote — a
+truncated list and an archive-excluded search each report a complete-looking
+answer. Use the flags shown, or a retry will create a duplicate of a task that
+already exists.
+
+`--idempotency-key` does NOT make a retry safe on `add`, `add-batch`, `update`,
+`docs add`, `memory observe` or `relates add`: those verbs reject the key with
+`E_IDEMPOTENCY_UNSUPPORTED` rather than pretending to honour it.
 <!-- /CLEO-INJECTION:section=error-handling -->
 
 <!-- CLEO-INJECTION:section=pre-complete-gate -->
