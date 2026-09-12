@@ -2,7 +2,7 @@
 id: p0-process-lifecycle-and-memory-kernel
 tasks: [T12115, T12116, T12117]
 kind: fix
-summary: a cleo command now finishes, exits, and never loses a write — bounded teardown, a single-process bin shim, a kernel-enforced memory ceiling for heavy tools, and fail-open duplicate detection (gh#1228, gh#1229, gh#1237, gh#1241, gh#1244, gh#1207)
+summary: a cleo command now finishes, exits, and never loses a write — bounded teardown, a single-process bin shim, a kernel-enforced memory ceiling for heavy tools, and fail-open duplicate detection (gh#1228, gh#1229, gh#1237, gh#1241, gh#1244)
 ---
 
 Three defects that together explain how CLEO could degrade the host it runs on.
@@ -29,6 +29,13 @@ per command and — because `execFileSync` blocks the shim's own event loop —
 meant SIGTERM to the shim never reached the child, orphaning it by construction.
 The flags now ride the shebang via `env -S`; the re-exec survives only for the
 `CLEO_MAX_OLD_SPACE_MB` override and non-POSIX shims, and forwards signals.
+
+This halves the process count and resident memory per invocation and makes
+signals reach the CLI. It does **not** measurably improve startup latency —
+measured 1.33/1.32/1.34 s before versus 1.34/1.31/1.30 s after. A bare Node
+boot is ~0.01 s, so the second spawn was never the expensive part; the ~1.3 s
+floor is loading the CLI bundle itself, which is paid once either way. The
+separate latency complaint in gh#1207 is untouched by this.
 
 **Heavy tools had no real ceiling.** `VITEST_MAX_WORKERS` binds vitest and
 nothing else, and `--max-old-space-size` caps the V8 old space rather than RSS,
