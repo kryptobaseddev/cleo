@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-09-12T21:34:01.376Z",
+  "note": "Modules that reach the AI SDK at runtime (gh#1223). A net-new entrant FAILS: confirm the entry point that reaches it installs the stdout guard, then re-record with --update-baseline.",
+  "modules": [
+    "packages/adapters/src/providers/claude-sdk/spawn.ts",
+    "packages/adapters/src/providers/openai-sdk/spawn.ts",
+    "packages/core/src/llm/model-runner.ts",
+    "packages/core/src/memory/dialectic-evaluator.ts",
+    "packages/core/src/memory/llm-backend-resolver.ts",
+    "packages/core/src/memory/transcript-extractor.ts"
+  ]
+}

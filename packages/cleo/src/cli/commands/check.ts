@@ -656,6 +656,15 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-arch-gate-parity.mjs',
         description: 'The bundled gate list and the AGENTS.md gate table are the same set',
       },
+      {
+        // gh#1223: every module reaching the AI SDK can emit on stdout via
+        // `ai@6`'s console.info banner. An INVENTORY rather than a per-module
+        // rule — the guard is installed once at the envelope funnel by design.
+        id: 'gate-21-ai-sdk-surface',
+        task: 'T12169',
+        script: 'scripts/lint-ai-sdk-surface.mjs',
+        description: 'No unreviewed module reaches the AI SDK at runtime',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];
