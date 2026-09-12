@@ -41,6 +41,7 @@ import {
 } from '@cleocode/contracts';
 
 import { CleoError } from '../errors.js';
+import { pushWarning } from '../output.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
 import {
   computeCommitRevalidationKey,
@@ -623,6 +624,47 @@ async function validateCommit(
 }
 
 /**
+ * Warning code emitted when the T9245 content-intersect check was computed
+ * from acceptance PROSE rather than from a declared `task.files` list, and so
+ * was downgraded from blocking to advisory (gh#1240).
+ *
+ * A distinct, stable code so the downgrade is COUNTABLE: "how many tasks rely
+ * on derived AC files?" is answerable by grepping envelopes rather than by
+ * reading code. If the answer is "almost all", `--files` adoption is the real
+ * problem and this tier boundary is hiding it; if "almost none", the change
+ * costs nearly nothing. Shipping a gate change blind to its own blast radius
+ * would be a poor look given what gh#1240 is about.
+ *
+ * @task T12118 (gh#1240)
+ */
+export const W_AC_FILES_DERIVED = 'W_AC_FILES_DERIVED';
+
+/**
+ * Surface a downgraded content-intersect result as a first-class envelope
+ * warning.
+ *
+ * Deliberately NOT log-only: a warning nobody reads is how a weakened gate
+ * becomes an invisible one.
+ *
+ * @param taskId - Task whose gate was evaluated.
+ * @param detail - The reason text the gate would have failed with.
+ *
+ * @internal
+ * @task T12118 (gh#1240)
+ */
+function warnDerivedAcFiles(taskId: string, detail: string): void {
+  pushWarning({
+    code: W_AC_FILES_DERIVED,
+    severity: 'warn',
+    message:
+      `Content-intersect check for ${taskId} was NOT enforced: its AC file list was ` +
+      `inferred from acceptance prose, not declared via --files. ${detail} ` +
+      `Declare files with \`cleo update ${taskId} --files <paths>\` to make this gate enforcing.`,
+    context: { taskId, acFilesProvenance: 'derived' },
+  });
+}
+
+/**
  * Path-token regex used by {@link extractTaskAcFiles} to recover AC file paths
  * from free-text acceptance strings when {@link Task.files} is empty.
  *
@@ -748,13 +790,103 @@ export function extractTaskAcFiles(task: {
   files?: string[] | null;
   acceptance?: ReadonlyArray<unknown> | null;
 }): string[] | null {
-  // 1. Explicit files array wins.
+  return extractTaskAcFilesWithProvenance(task).files;
+}
+
+/**
+ * Where an AC file list came from.
+ *
+ * `declared` — someone wrote `--files`. A statement of intent, and the only
+ * tier with the authority to BLOCK a gate.
+ *
+ * `derived` — a regex found path-shaped tokens in acceptance prose. A guess,
+ * and advisory only. See {@link extractTaskAcFilesWithProvenance}.
+ *
+ * @task T12118 (gh#1240)
+ */
+export type AcFilesProvenance = 'declared' | 'derived';
+
+/**
+ * Negation cues that mean a path named nearby is PROHIBITED, not required.
+ *
+ * @remarks
+ * This list exists ONLY to keep the advisory message from telling an operator
+ * to modify a file their own acceptance criteria forbid. **It buys no
+ * enforcement authority and must never be used to promote derived file lists
+ * back to blocking.** Prose cannot reliably distinguish a target from a
+ * prohibition, an example, or a cross-reference — handling the negations we
+ * have seen does not change that, it only moves the next failure somewhere we
+ * have not looked yet. The tier boundary in
+ * {@link extractTaskAcFilesWithProvenance} is the actual fix (gh#1240).
+ *
+ * @internal
+ * @task T12118 (gh#1240)
+ */
+const AC_NEGATION_CUE =
+  /\b(?:not|no|never|without|unmodified|untouched|unchanged|avoid(?:s|ing)?|exclude[sd]?|excluding|unaffected|preserve[sd]?|nothing)\b/i;
+
+/**
+ * Does the clause surrounding `token` in `text` negate it?
+ *
+ * Splits on clause boundaries so a prohibition in one clause does not suppress
+ * a legitimate requirement in another — `"updates src/a.ts; does not touch
+ * src/b.ts"` must keep `src/a.ts`.
+ *
+ * @internal
+ * @task T12118 (gh#1240)
+ */
+function clauseNegatesToken(text: string, token: string): boolean {
+  for (const clause of text.split(/[;,]|\s+(?:and|but|while|whereas)\s+/i)) {
+    if (clause.includes(token)) return AC_NEGATION_CUE.test(clause);
+  }
+  return AC_NEGATION_CUE.test(text);
+}
+
+/**
+ * Extract a task's AC file list together with its provenance.
+ *
+ * ## Why provenance matters (gh#1240)
+ *
+ * `task.files` is the documented SSoT, and prose parsing is documented as a
+ * fallback for legacy tasks predating `--files`. But the T9245 content-
+ * intersect gate treated both identically and BLOCKED on either — so **a
+ * heuristic fallback was wired to a blocking gate**.
+ *
+ * The reported symptom is the sharpest possible demonstration: an AC reading
+ * "the diff touches no line of src/lib/compound-catalog.ts" had the filename
+ * scraped out of it and the negation discarded, so the gate demanded a
+ * modification to the one file the task forbade touching. The gate became
+ * satisfiable only by violating the criteria it was enforcing, and every
+ * honest escape was worse than the check: modify the forbidden file, rewrite
+ * the AC to hide the filename, or burn an audited owner override on correct
+ * work.
+ *
+ * The negation is the most spectacular symptom, not the defect. A regex
+ * cannot tell a target from a prohibition, an example, or a cross-reference,
+ * and the incentive created by getting it wrong is to stop writing negative
+ * constraints — which are among the most valuable ACs there are, because
+ * "do not modify X" is how a blast radius gets pinned.
+ *
+ * So: **enforcement requires a declaration; a guess may only advise.** The
+ * caller blocks on `declared` and warns on `derived`.
+ *
+ * @param task - Task fields to read.
+ * @returns Files plus the provenance the caller must gate enforcement on.
+ *
+ * @task T12118 (gh#1240)
+ * @task T9245
+ */
+export function extractTaskAcFilesWithProvenance(task: {
+  files?: string[] | null;
+  acceptance?: ReadonlyArray<unknown> | null;
+}): { files: string[] | null; provenance: AcFilesProvenance } {
+  // 1. Explicit files array wins — a declaration.
   if (task.files && task.files.length > 0) {
-    return [...task.files];
+    return { files: [...task.files], provenance: 'declared' };
   }
   // 2. Parse path tokens from AC strings, filtered by repo-path heuristic.
   if (!task.acceptance || task.acceptance.length === 0) {
-    return null;
+    return { files: null, provenance: 'derived' };
   }
   const parsed = new Set<string>();
   for (const item of task.acceptance) {
@@ -763,12 +895,18 @@ export function extractTaskAcFiles(task: {
     AC_PATH_TOKEN.lastIndex = 0;
     let m: RegExpExecArray | null = AC_PATH_TOKEN.exec(item);
     while (m !== null) {
+      const token = m[1];
       // T11960: apply repo-path heuristic to filter URL/prose false-positives.
-      if (m[1] && isRepoPathLike(m[1])) parsed.add(m[1]);
+      // gh#1240: drop paths their own clause forbids touching, so the advisory
+      // never names a file the AC prohibits. Advisory quality only — see
+      // AC_NEGATION_CUE.
+      if (token && isRepoPathLike(token) && !clauseNegatesToken(item, token)) {
+        parsed.add(token);
+      }
       m = AC_PATH_TOKEN.exec(item);
     }
   }
-  return parsed.size > 0 ? Array.from(parsed) : null;
+  return { files: parsed.size > 0 ? Array.from(parsed) : null, provenance: 'derived' };
 }
 
 /**
@@ -980,7 +1118,7 @@ async function checkCommitContentIntersect(
   if (task.kind === 'research' || task.kind === 'spike') {
     return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
   }
-  const acFiles = extractTaskAcFiles({
+  const { files: acFiles, provenance } = extractTaskAcFilesWithProvenance({
     files: task.files,
     acceptance: task.acceptance as ReadonlyArray<unknown> | null | undefined,
   });
@@ -988,25 +1126,40 @@ async function checkCommitContentIntersect(
   if (!acFiles || acFiles.length === 0) {
     return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
   }
+  /**
+   * gh#1240: only a DECLARATION may block. `derived` means a regex found
+   * path-shaped tokens in acceptance prose — a guess about what a sentence
+   * meant, which cannot distinguish a target from a prohibition, an example,
+   * or a cross-reference. Blocking on that produced gates satisfiable only by
+   * violating the acceptance criteria they enforce. The check still runs and
+   * is still reported; it just cannot fail the gate.
+   */
+  const enforcing = provenance === 'declared';
   const diffFiles = await gitShowFiles(sha, projectRoot);
+  const acPreview = `${acFiles.slice(0, 5).join(', ')}${acFiles.length > 5 ? '…' : ''}`;
   if (diffFiles.length === 0) {
-    return {
-      ok: false,
-      reason:
-        `Commit ${sha.slice(0, 7)} touches no files — cannot satisfy implemented gate ` +
-        `for task ${taskId} (expected diff to include at least one of: ${acFiles.slice(0, 5).join(', ')}` +
-        `${acFiles.length > 5 ? '…' : ''})`,
-      codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
-    };
+    const reason =
+      `Commit ${sha.slice(0, 7)} touches no files — cannot satisfy implemented gate ` +
+      `for task ${taskId} (expected diff to include at least one of: ${acPreview})`;
+    if (!enforcing) {
+      warnDerivedAcFiles(taskId, reason);
+      return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
+    }
+    return { ok: false, reason, codeName: 'E_EVIDENCE_CONTENT_MISMATCH' };
   }
   if (!diffIntersectsAc(diffFiles, acFiles)) {
+    const reason =
+      `Commit ${sha.slice(0, 7)} diff does not intersect task ${taskId} AC files. ` +
+      `Diff touched: [${diffFiles.slice(0, 5).join(', ')}${diffFiles.length > 5 ? '…' : ''}]. ` +
+      `AC ${enforcing ? 'declared' : 'inferred from prose'}: [${acPreview}]. ` +
+      `T9245: the commit MUST modify at least one declared AC file.`;
+    if (!enforcing) {
+      warnDerivedAcFiles(taskId, reason);
+      return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
+    }
     return {
       ok: false,
-      reason:
-        `Commit ${sha.slice(0, 7)} diff does not intersect task ${taskId} AC files. ` +
-        `Diff touched: [${diffFiles.slice(0, 5).join(', ')}${diffFiles.length > 5 ? '…' : ''}]. ` +
-        `AC declared: [${acFiles.slice(0, 5).join(', ')}${acFiles.length > 5 ? '…' : ''}]. ` +
-        `T9245: the commit MUST modify at least one declared AC file.`,
+      reason,
       codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
     };
   }
