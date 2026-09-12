@@ -314,8 +314,14 @@ const handoffCommand = defineCommand({
       nextSuggested: handoff.nextSuggested ?? [],
       openBlockers: handoff.openBlockers ?? [],
       openBugs: handoff.openBugs ?? [],
-      ...(handoff.note ? { note: handoff.note } : {}),
-      ...(handoff.nextAction ? { nextAction: handoff.nextAction } : {}),
+      // GH #1277 — mirrors computeHandoff: `null` is a recorded answer, an
+      // absent key is not. Kept in step with packages/core/src/sessions/handoff.ts.
+      note: handoff.note ?? null,
+      noteChars: handoff.noteChars ?? (typeof handoff.note === 'string' ? handoff.note.length : 0),
+      nextAction: handoff.nextAction ?? null,
+      nextActionChars:
+        handoff.nextActionChars ??
+        (typeof handoff.nextAction === 'string' ? handoff.nextAction.length : 0),
     };
 
     cliOutput(
