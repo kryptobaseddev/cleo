@@ -162,7 +162,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'caampCommand',
     name: 'caamp',
-    description: 'CAAMP injection management: deduplicate blocks, inspect injection state',
+    description: 'CAAMP injection management: repair markers, deduplicate blocks',
     load: async () => (await import('../commands/caamp.js')).caampCommand as CommandDef,
   },
   {
@@ -394,6 +394,23 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorLegacyBackupsCommand as CommandDef,
   },
   {
+    exportName: 'doctorMemoryGuardCommand',
+    name: 'memory-guard',
+    description:
+      'Audit the machine-wide memory guard that bounds test runs an agent starts OUTSIDE cleo ',
+    load: async () =>
+      (await import('../commands/doctor-memory-guard.js')).doctorMemoryGuardCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorNexusResidencyCommand',
+    name: 'nexus-residency',
+    description:
+      'Report nexus tables resident in the wrong store — graph tables orphaned in the global ',
+    load: async () =>
+      (await import('../commands/doctor-nexus-residency.js'))
+        .doctorNexusResidencyCommand as CommandDef,
+  },
+  {
     exportName: 'doctorProjectsCommand',
     name: 'doctor-projects',
     description: 'Probe every registered project (nexus.db) for DB + config health',
@@ -415,6 +432,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     description: 'Detect malformed CLEO databases (PRAGMA quick_check) and restore each from its ',
     load: async () =>
       (await import('../commands/doctor-repair.js')).doctorRepairCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorSupersededStoreCommand',
+    name: 'superseded-store',
+    description:
+      'Report pre-dual-scope store files (.cleo/tasks.db, .cleo/brain.db) still on disk under ',
+    load: async () =>
+      (await import('../commands/doctor-superseded-store.js'))
+        .doctorSupersededStoreCommand as CommandDef,
   },
   {
     exportName: 'doctorCommand',
