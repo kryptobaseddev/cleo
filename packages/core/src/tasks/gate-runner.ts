@@ -188,13 +188,18 @@ async function runTestGate(
   const combined = truncateString(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
 
   if (timedOut) {
+    // T12137 (gh#1270): 'error', NOT 'fail'. A gate that was killed produced no
+    // verdict — it did not find a problem, it never finished looking. Recording
+    // it as 'fail' makes a false red indistinguishable from a real one, which
+    // costs an agent the work it actually completed. The distinction already
+    // existed in `AcceptanceGateResult['result']` and was simply unused here.
     return makeResult(
       index,
       gate,
-      'fail',
+      'error',
       durationMs,
       combined,
-      `Gate timed out after ${timeoutMs}ms`,
+      `Gate did not finish: killed after ${timeoutMs}ms. This is NOT a failure — the check never produced a verdict. Re-run it, or raise the timeout.`,
     );
   }
 
@@ -442,13 +447,18 @@ async function runCommandGate(
   const combined = truncateString(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
 
   if (timedOut) {
+    // T12137 (gh#1270): 'error', NOT 'fail'. A gate that was killed produced no
+    // verdict — it did not find a problem, it never finished looking. Recording
+    // it as 'fail' makes a false red indistinguishable from a real one, which
+    // costs an agent the work it actually completed. The distinction already
+    // existed in `AcceptanceGateResult['result']` and was simply unused here.
     return makeResult(
       index,
       gate,
-      'fail',
+      'error',
       durationMs,
       combined,
-      `Gate timed out after ${timeoutMs}ms`,
+      `Gate did not finish: killed after ${timeoutMs}ms. This is NOT a failure — the check never produced a verdict. Re-run it, or raise the timeout.`,
     );
   }
 
@@ -553,13 +563,18 @@ async function runLintGate(
   const combined = truncateString(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
 
   if (timedOut) {
+    // T12137 (gh#1270): 'error', NOT 'fail'. A gate that was killed produced no
+    // verdict — it did not find a problem, it never finished looking. Recording
+    // it as 'fail' makes a false red indistinguishable from a real one, which
+    // costs an agent the work it actually completed. The distinction already
+    // existed in `AcceptanceGateResult['result']` and was simply unused here.
     return makeResult(
       index,
       gate,
-      'fail',
+      'error',
       durationMs,
       combined,
-      `Gate timed out after ${timeoutMs}ms`,
+      `Gate did not finish: killed after ${timeoutMs}ms. This is NOT a failure — the check never produced a verdict. Re-run it, or raise the timeout.`,
     );
   }
 
@@ -732,7 +747,13 @@ function makeResult(
   evidence?: string,
   errorMessage?: string,
 ): AcceptanceGateResult {
-  // Apply advisory override: a failed advisory gate becomes 'warn'
+  // Apply advisory override: a failed advisory gate becomes 'warn'.
+  //
+  // Deliberately keyed on 'fail' alone. An 'error' result (gh#1270 — the gate
+  // was killed and produced no verdict) must NOT be downgraded to 'warn': a
+  // warning reads as "we looked and it was nearly fine", which is the opposite
+  // of "we never finished looking". Advisory is a statement about how much a
+  // verdict matters, and a killed gate has no verdict to soften.
   const finalResult = result === 'fail' && gate.advisory === true ? 'warn' : result;
 
   return {

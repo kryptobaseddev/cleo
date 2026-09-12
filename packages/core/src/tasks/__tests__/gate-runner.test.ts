@@ -349,3 +349,88 @@ describe('gate-runner — integration with contract types', () => {
     expect(results.every((r) => r.result)).toBe(true);
   });
 });
+
+describe('gate-runner — a killed gate is not a failed gate (gh#1270)', () => {
+  it('records a timed-out gate as error, never fail', async () => {
+    // The defect: a gate killed by its own timeout was recorded as `fail`.
+    // An agent then reports a red that never happened and redoes or abandons
+    // work that actually succeeded. Reported twice in the field:
+    // "Agents twice reported a gate as FAILED when it had only been killed —
+    // a false red is as costly as a false green."
+    const gates: CommandGate[] = [
+      {
+        kind: 'command',
+        description: 'sleep — never finishes within its budget',
+        cmd: 'sleep',
+        args: ['30'],
+        exitCode: 0,
+        timeoutMs: 300,
+      },
+    ];
+
+    const results = await runGates(gates, { projectRoot });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.result).toBe('error');
+    // The precise assertion: it must not be reportable as a verdict.
+    expect(results[0]?.result).not.toBe('fail');
+    expect(results[0]?.result).not.toBe('pass');
+  }, 20_000);
+
+  it('says plainly that the gate did not finish', async () => {
+    // The message is what an agent reads before deciding whether to redo work.
+    const results = await runGates(
+      [
+        {
+          kind: 'command',
+          description: 'sleep — never finishes within its budget',
+          cmd: 'sleep',
+          args: ['30'],
+          exitCode: 0,
+          timeoutMs: 300,
+        } satisfies CommandGate,
+      ],
+      { projectRoot },
+    );
+
+    expect(results[0]?.errorMessage).toMatch(/did not finish/i);
+    expect(results[0]?.errorMessage).toMatch(/NOT a failure/i);
+  }, 20_000);
+
+  it('does not downgrade a killed advisory gate to warn', async () => {
+    // `advisory` softens a VERDICT. A killed gate has no verdict to soften, and
+    // 'warn' reads as "we looked and it was nearly fine" — the opposite of
+    // "we never finished looking".
+    const gates: CommandGate[] = [
+      {
+        kind: 'command',
+        description: 'sleep — advisory gate that never finishes',
+        cmd: 'sleep',
+        args: ['30'],
+        exitCode: 0,
+        timeoutMs: 300,
+        advisory: true,
+      },
+    ];
+
+    const results = await runGates(gates, { projectRoot });
+
+    expect(results[0]?.result).toBe('error');
+    expect(results[0]?.result).not.toBe('warn');
+  }, 20_000);
+
+  it('still reports a real failure as fail — the fix must not hide verdicts', async () => {
+    const gates: CommandGate[] = [
+      {
+        kind: 'command',
+        description: 'false-command — a gate that genuinely fails',
+        cmd: 'false',
+        exitCode: 0,
+      },
+    ];
+
+    const results = await runGates(gates, { projectRoot });
+
+    expect(results[0]?.result).toBe('fail');
+  });
+});
