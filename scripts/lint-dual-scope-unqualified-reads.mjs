@@ -118,16 +118,42 @@ function sharedSchemaTables() {
   return names;
 }
 
-/** Every TypeScript source file tracked by git, excluding tests and schema modules. */
+/**
+ * Globs the scan covers, and the reason each is here.
+ *
+ * SQL that touches a both-scope table is not confined to TypeScript. A first
+ * version of this gate scanned only `*.ts` under `packages/` and would have
+ * reported the rule as enforced while missing two unqualified
+ * `INSERT INTO _writer_leases` in `crates/cleo-supervisor/src/lease_handler.rs`
+ * and unqualified brain-table references in a drizzle migration. A gate whose
+ * scope is narrower than its rule states the wrong thing confidently.
+ */
+const SCAN_GLOBS = ['*.ts', '*.rs', '*.sql', '*.mjs'];
+
+/** Human-readable description of the scan boundary, printed with every result. */
+const SCAN_SCOPE_DESCRIPTION =
+  'packages/**, crates/**, scripts/** — *.ts, *.rs, *.sql, *.mjs (excluding tests, dist/ and schema modules)';
+
+/**
+ * Every source file tracked by git that could contain SQL, excluding tests,
+ * build output and the schema modules that DECLARE these tables.
+ */
 function sourceFiles() {
-  const out = execFileSync('git', ['ls-files', '*.ts'], { cwd: REPO_ROOT, encoding: 'utf-8' });
-  return out
-    .split('\n')
-    .filter(Boolean)
-    .filter((f) => f.startsWith('packages/'))
-    .filter((f) => !/(^|\/)(__tests__|dist)\//.test(f))
-    .filter((f) => !/\.(test|spec)\.tsx?$/.test(f))
-    .filter((f) => !f.includes('/store/schema/'));
+  const out = execFileSync('git', ['ls-files', ...SCAN_GLOBS], {
+    cwd: REPO_ROOT,
+    encoding: 'utf-8',
+  });
+  return (
+    out
+      .split('\n')
+      .filter(Boolean)
+      .filter((f) => /^(packages|crates|scripts)\//.test(f))
+      .filter((f) => !/(^|\/)(__tests__|tests|dist|target|node_modules)\//.test(f))
+      .filter((f) => !/\.(test|spec)\.(ts|tsx|mjs)$/.test(f))
+      .filter((f) => !f.includes('/store/schema/'))
+      // The gate's own baseline and script would otherwise match themselves.
+      .filter((f) => !f.endsWith('lint-dual-scope-unqualified-reads.mjs'))
+  );
 }
 
 /**
@@ -237,7 +263,8 @@ if (regressions.length === 0) {
       ? ` (${improved.length} file(s) improved — consider --update-baseline)`
       : '';
   console.log(
-    `lint-dual-scope-unqualified-reads: OK — ${findings.length} unqualified reference(s), no regression against baseline${suffix}.`,
+    `lint-dual-scope-unqualified-reads: OK — ${findings.length} unqualified reference(s), no regression against baseline${suffix}.\n` +
+      `  scanned: ${SCAN_SCOPE_DESCRIPTION}`,
   );
   process.exit(0);
 }
