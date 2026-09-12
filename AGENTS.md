@@ -246,6 +246,14 @@ metadata:
 
 PR-gated pipeline. **NO direct pushes to `main`.** All PRs target `main` through GitHub Merge Queue.
 
+> **One deliberate exception, stated so nobody later "discovers" it as a vulnerability.** Branch
+> protection runs with `enforce_admins: false` — the setting the snippet further down this section
+> sets explicitly — so a repository admin CAN merge without the required `CI` check. That is the
+> owner's intended escape hatch, not a gap. Everything else is closed: `allow_force_pushes: false`,
+> `allow_deletions: false`, `required_status_checks.strict: true`. The invariant is therefore "no
+> direct pushes **for non-admins**", and an agent should not treat admin bypass as evidence the
+> pipeline is broken. Verified 2026-09-12 (T12152 · the AGENTS.md enforcement audit).
+
 **Verbs:** `plan` → `open` → `reconcile` (or `rollback`). The legacy `start`/`verify`/`publish` verbs were removed in T9540; the `ship` shim was deleted in T10103.
 
 **Branches:** `feat/T####-<slug>` or `task/T####-<slug>` (feature) · `release/v<version>` (cut by `release-prepare` GHA workflow).
