@@ -28,15 +28,20 @@
  * Usage: `node scripts/find-unimported-modules.mjs`
  */
 
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { join, resolve, dirname, relative } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 
 const PKGS = readdirSync('packages').filter((p) => existsSync(join('packages', p, 'src')));
 const files = [];
 function walk(d) {
   for (const e of readdirSync(d)) {
     const p = join(d, e);
-    let st; try { st = statSync(p); } catch { continue; }
+    let st;
+    try {
+      st = statSync(p);
+    } catch {
+      continue;
+    }
     if (st.isDirectory()) {
       if (/node_modules|dist|\.git|__tests__/.test(p)) continue;
       walk(p);
@@ -59,11 +64,17 @@ function resolveSpec(spec, fromFile) {
   const cands = [];
   if (spec.startsWith('.')) {
     const base = spec.replace(/\.js$/, '');
-    cands.push(resolve(dirname(fromFile), base + '.ts'), resolve(dirname(fromFile), base + '.tsx'),
-               resolve(dirname(fromFile), base, 'index.ts'));
+    cands.push(
+      resolve(dirname(fromFile), base + '.ts'),
+      resolve(dirname(fromFile), base + '.tsx'),
+      resolve(dirname(fromFile), base, 'index.ts'),
+    );
   } else {
     for (const [name, root] of pkgRoot) {
-      if (spec === name) { cands.push(join(root, 'index.ts')); break; }
+      if (spec === name) {
+        cands.push(join(root, 'index.ts'));
+        break;
+      }
       if (spec.startsWith(name + '/')) {
         const sub = spec.slice(name.length + 1).replace(/\.js$/, '');
         cands.push(join(root, sub + '.ts'), join(root, sub, 'index.ts'));
@@ -89,10 +100,16 @@ for (const f of files) {
 }
 
 const isEntry = (f) => /\/(index|internal|cli\/index)\.ts$/.test(f) || /\/bin\//.test(f);
-const orphans = files.filter((f) => !importedBy.has(f) && !isEntry(f))
-  .map((f) => ({ f: relative(process.cwd(), f), lines: readFileSync(f, 'utf-8').split('\n').length }))
+const orphans = files
+  .filter((f) => !importedBy.has(f) && !isEntry(f))
+  .map((f) => ({
+    f: relative(process.cwd(), f),
+    lines: readFileSync(f, 'utf-8').split('\n').length,
+  }))
   .sort((a, b) => b.lines - a.lines);
 
 console.log(`scanned ${files.length} modules across ${PKGS.length} packages`);
-console.log(`${orphans.length} imported by NOTHING (excluding entry points), ${orphans.reduce((s,o)=>s+o.lines,0)} lines\n`);
+console.log(
+  `${orphans.length} imported by NOTHING (excluding entry points), ${orphans.reduce((s, o) => s + o.lines, 0)} lines\n`,
+);
 for (const o of orphans.slice(0, 30)) console.log(String(o.lines).padStart(6), o.f);
