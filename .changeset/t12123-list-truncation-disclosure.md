@@ -17,7 +17,9 @@ The defect was that the enumeration render modes **discarded that `page` metadat
 
 ## What changed
 
-**1. `--all`** — a discoverable spelling of `--limit 0`. Core's `options.limit === 0 ? undefined : …` has always meant "no limit" and worked correctly, but it was documented **nowhere**: `--limit`'s help text said only "Maximum number of tasks to return". The one flag that made complete enumeration possible was invisible to anyone who had not read the core source. Both spellings are now named in the registry description.
+**1. `--all`** — a discoverable spelling of the escape hatch. Core's `options.limit === 0 ? undefined : …` has always meant "no limit" and worked correctly, but it was documented **nowhere**: `--limit`'s help text said only "Maximum number of tasks to return". The one flag that made complete enumeration possible was invisible to anyone who had not read the core source.
+
+`--all` is the idiom this PR **teaches**; `--limit 0` is named only as a compatibility note, and deliberately not as the recommended path. See below.
 
 **2. Truncation disclosure** on `--output id`, `--output table`, and `--summary`:
 
@@ -30,6 +32,29 @@ page deliberately.
 The reporter noted that `--summary` was untested for the same skew. It has it — `--summary` is one line per *returned* record — so it is covered here too.
 
 `--output count` is deliberately **exempt**: it already prints the full match count, so warning there would contradict its own output.
+
+## Why `--all` is taught and `--limit 0` is only a footnote
+
+An earlier draft of this changeset named both spellings as equals. That would have been a
+mistake, because **`--limit 0` does not mean "no limit" everywhere in this CLI.** Measured
+on the same build (GH #1302):
+
+```
+$ cleo find "worktree" --limit 0
+{"success":true,"data":{"results":[],"total":260},
+ "meta":{…,"message":"No matching tasks found"}}
+```
+
+Zero rows, reported as success, with a human-readable line asserting the opposite of the
+`total` sitting beside it in the same object. `find` and `list` each hand-roll their own
+limit handling (`find.ts:109`, `list.ts:75`), and the registry-driven forward introduced in
+GH #1245 covers `list` only.
+
+So documenting `--limit 0` as the recommended path would have converted an *undocumented*
+inconsistency into a **taught** one — instructing every agent to use a flag that silently
+returns nothing from a sibling command. `--all` is uniform, so it is the spelling in every
+help string and registry description here. `find --all` (plus `find --limit 0` meaning
+unlimited, and a fix for the self-refuting envelope) follows in its own PR.
 
 ## Two deliberate non-changes
 

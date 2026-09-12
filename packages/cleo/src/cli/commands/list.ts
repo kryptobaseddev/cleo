@@ -39,10 +39,19 @@ const listArgs = {
   // that made complete enumeration possible was invisible to anyone who had
   // not read the core source, while `--output id` silently returned a page of
   // 10 against a match count of 1075.
+  //
+  // `--all` is the idiom to TEACH, and `--limit 0` is only a compatibility
+  // note — because `--limit 0` does NOT mean "no limit" everywhere. Measured
+  // on the same build (GH #1302): `cleo find "worktree" --limit 0` returns
+  // `{success: true, results: [], total: 260}` — zero rows, reported as
+  // success, with a `message` of "No matching tasks found" sitting beside a
+  // total of 260. Documenting `--limit 0` as the recommended path here would
+  // teach every agent a flag that silently returns nothing from `find`, which
+  // is worse than leaving it undocumented. `find --all` is filed to follow.
   all: {
     type: 'boolean',
     description:
-      'Return EVERY matching task instead of the default page of 10 (equivalent to --limit 0).',
+      'Return EVERY matching task instead of the default page of 10. Prefer this over --limit 0: --all means the same thing on every command, whereas --limit 0 is list-specific (cleo find reads it as zero results).',
   },
   // T9922 — MVI record projection opt-out flags (surfaced for --help).
   verbose: {
