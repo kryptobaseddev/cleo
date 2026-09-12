@@ -13,7 +13,16 @@
  * @module
  */
 
-import { buildCommandGroups } from '@cleocode/core/internal';
+// gh#1207: import the NARROW module, never the `@cleocode/core/internal`
+// barrel. `index.ts` eagerly imports this file to build the alias map on every
+// invocation, so a barrel import here is paid by EVERY command — `cleo
+// --version` included. Measured against the core the installed CLI actually
+// resolves (its NESTED @cleocode/core 2026.8.9, not the stale hoisted copy):
+// importing `@cleocode/core/internal` costs 1.14s of the 1.31s that `cleo
+// --version` takes, while this module — whose only dependency is
+// `@cleocode/contracts` — costs 0.09s. The barrel is the single largest
+// component of CLI startup, and it was reached for ONE function.
+import { buildCommandGroups } from '@cleocode/core/routing/build-command-groups.js';
 import type { ArgsDef, CommandDef } from 'citty';
 import { showUsage as cittyShowUsage } from 'citty';
 
