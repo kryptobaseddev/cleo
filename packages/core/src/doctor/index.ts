@@ -55,6 +55,8 @@ export {
   recommendForBackup,
   scanLegacyBackups,
 } from './legacy-backups.js';
+export type { MalformedTaskIdReport, MalformedTaskRow } from './malformed-task-ids.js';
+export { scanMalformedTaskIds } from './malformed-task-ids.js';
 export type { PragmaSsot, PragmaSsotEntry } from './pragma-ssot.js';
 export {
   loadPragmaSsot,
