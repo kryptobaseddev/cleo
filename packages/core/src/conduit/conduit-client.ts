@@ -72,7 +72,11 @@ export class ConduitClient implements Conduit {
     });
     return {
       messageId: result.messageId,
-      deliveredAt: new Date().toISOString(),
+      // gh#1316: the transport has just written this row `status='pending'` and
+      // returns no delivery time. `acceptedAt` is what we actually know;
+      // `deliveredAt` stays null until a later path records real delivery.
+      acceptedAt: new Date().toISOString(),
+      deliveredAt: null,
     };
   }
 
@@ -168,7 +172,11 @@ export class ConduitClient implements Conduit {
     const result = await this.transport.publishToTopic(topicName, content, options);
     return {
       messageId: result.messageId,
-      deliveredAt: new Date().toISOString(),
+      // gh#1316: the transport has just written this row `status='pending'` and
+      // returns no delivery time. `acceptedAt` is what we actually know;
+      // `deliveredAt` stays null until a later path records real delivery.
+      acceptedAt: new Date().toISOString(),
+      deliveredAt: null,
     };
   }
 

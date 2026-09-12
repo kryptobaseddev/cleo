@@ -188,8 +188,12 @@ describe('ConduitClient', () => {
 
       const result = await client.send('target-agent', 'hello');
       expect(result.messageId).toBe('msg-xyz');
-      expect(result.deliveredAt).toBeDefined();
-      expect(new Date(result.deliveredAt).toString()).not.toBe('Invalid Date');
+      // gh#1316: a send writes the row `status='pending'`, so delivery is NOT
+      // yet a fact. `acceptedAt` is what the send knows; asserting a valid
+      // date on `deliveredAt` is what forced the synthesized receipt.
+      expect(result.deliveredAt).toBeNull();
+      expect(result.acceptedAt).toBeDefined();
+      expect(new Date(result.acceptedAt).toString()).not.toBe('Invalid Date');
     });
 
     it('forwards threadId as conversationId to transport.push', async () => {
