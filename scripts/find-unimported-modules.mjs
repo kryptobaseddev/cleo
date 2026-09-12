@@ -98,7 +98,26 @@ for (const f of files) {
   }
 }
 
-const isEntry = (f) => /\/(index|internal|cli\/index)\.ts$/.test(f) || /\/bin\//.test(f);
+/**
+ * Whether a module is an entry point — reached by something other than import.
+ *
+ * Name-based exclusions alone are not enough. A module that parses
+ * `process.argv`, carries a shebang, or guards on `import.meta.main` is
+ * EXECUTED BY PATH and will never appear in an import graph: "nothing imports
+ * it" is true and irrelevant.
+ *
+ * This docblock used to list that case as a known false positive and leave it
+ * to the reader. It is now enforced, because a caveat nobody executes is not a
+ * caveat — `adr-backfill-walker.ts` was reported by this very script while
+ * being a `--dry-run`/`--apply` CLI script with its own usage instructions.
+ */
+const isEntry = (f) => {
+  if (/\/(index|internal|cli\/index)\.ts$/.test(f) || /\/bin\//.test(f)) return true;
+  const src = readFileSync(f, 'utf-8');
+  return (
+    src.startsWith('#!') || /\bprocess\.argv\b/.test(src) || /\bimport\.meta\.main\b/.test(src)
+  );
+};
 const orphans = files
   .filter((f) => !importedBy.has(f) && !isEntry(f))
   .map((f) => ({
