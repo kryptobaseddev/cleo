@@ -268,12 +268,35 @@ describe('completeWorktreeForTask (T9548)', () => {
       lifecycleAuditPath,
     });
 
-    // The underlying merge helper returns merged=false with "branch does not exist",
-    // which surfaces as outcome=conflict from the SDK. Worktree path obviously
-    // does not exist on disk — but the function must NOT throw.
-    expect(result.outcome).toBe('conflict');
+    // T12153 (GH #1223) — this used to assert `outcome: 'conflict'`, and the
+    // comment here described why rather than claiming it was right: "the
+    // underlying merge helper returns merged=false … which surfaces as
+    // outcome=conflict from the SDK". That was narration of the mechanism. The
+    // intent the test was written to protect is in its NAME and its last
+    // clause: it must return **gracefully** and must NOT throw.
+    //
+    // A task that never had a branch has nothing to merge, so `'conflict'` was
+    // a false failure — and it came with recovery steps for a worktree and a
+    // branch that do not exist. `'noop'` is the outcome the name always
+    // described.
+    expect(result.outcome).toBe('noop');
     expect(result.integration?.merged).toBe(false);
-    expect(result.integration?.error).toMatch(/does not exist/);
+    expect(result.integration?.nothingToIntegrate).toBe(true);
+
+    // Stronger than the assertion it replaces: the old path returned
+    // `recovery.steps` telling an operator how to resolve a merge that never
+    // needed to happen. Nothing to recover means no recovery block.
+    expect(result.recovery).toBeUndefined();
+
+    // The original intent, now explicit rather than implied by the absence of
+    // a thrown error.
+    expect(() =>
+      completeWorktreeForTask('T9548-NEVER-2', fixture.root, {
+        targetBranch: 'main',
+        skipFetch: true,
+        lifecycleAuditPath,
+      }),
+    ).not.toThrow();
   });
 
   // -------------------------------------------------------------------------
