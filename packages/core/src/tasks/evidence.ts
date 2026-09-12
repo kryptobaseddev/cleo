@@ -20,7 +20,7 @@
  * @adr ADR-061
  */
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
@@ -47,7 +47,7 @@ import {
   readCommitRevalidationEntry,
   writeCommitRevalidationEntry,
 } from './revalidation-cache.js';
-import { runToolCached } from './tool-cache.js';
+import { resolveSpawnTimeoutMs, runToolCached } from './tool-cache.js';
 import {
   CANONICAL_TOOLS,
   type CanonicalTool,
@@ -1188,12 +1188,91 @@ interface VitestJsonLike {
   numTodoTests?: number;
 }
 
+/**
+ * Resolve the tree that evidence tools should RUN in, given the CLEO store
+ * root.
+ *
+ * `projectRoot` is the store root. For a git worktree, `getProjectRoot()`
+ * deliberately resolves to the MAIN repo so all worktrees share one `.cleo/`
+ * database — correct for the store, wrong as a tool's working directory.
+ * Using it to spawn `tool:` evidence made a verify launched from a worktree
+ * measure the main checkout instead (gh#1220, gh#1226): a peer's in-flight
+ * branch and untracked files decided the result. A red peer produced a false
+ * FAIL; a green peer produced a silent false PASS attesting a run that never
+ * touched the code under test (gh#1230).
+ *
+ * Resolution is deliberately CONSERVATIVE: the caller's git toplevel is used
+ * only when it belongs to the SAME project — i.e. when its canonical main
+ * repo equals `projectRoot`. Anything else (an unrelated cwd, a test harness
+ * pointing at a tmpdir, a non-git cwd) falls back to `projectRoot`, so
+ * single-checkout behaviour is bit-for-bit unchanged.
+ *
+ * @param projectRoot - Absolute CLEO store root.
+ * @param cwd - Directory the CLI was invoked from. Defaults to `process.cwd()`.
+ * @returns Absolute path of the tree to execute in.
+ *
+ * @task T12112 (gh#1220, gh#1226, gh#1230)
+ */
+export function resolveEvidenceExecutionRoot(
+  projectRoot: string,
+  // This function's entire purpose is to recover the tree the CLI was INVOKED
+  // from, which is by definition not the project root. The sanctioned
+  // `resolveOrCwd()` falls back to `getProjectRoot()`, which deliberately
+  // collapses a worktree to its main repo — using it here would make this
+  // function return `projectRoot` unconditionally and silently revert gh#1220
+  // while every test stayed green. The bare cwd is the only correct source,
+  // and it only LOCATES a candidate; the same-project check below decides
+  // whether it is honoured.
+  cwd: string = process.cwd(), // CWD-OK: the caller's invocation dir is the subject, not a stand-in for the project root (gh#1220)
+): string {
+  let toplevel: string;
+  try {
+    toplevel = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return projectRoot; // not a git checkout — nothing better to offer
+  }
+  if (!toplevel) return projectRoot;
+
+  const sameProject = (a: string, b: string): boolean => {
+    const norm = (x: string): string => {
+      try {
+        return realpathSync(x);
+      } catch {
+        return resolvePath(x);
+      }
+    };
+    return norm(a) === norm(b);
+  };
+
+  // Only redirect when the caller's tree is a worktree OF this project.
+  if (sameProject(resolveCanonicalProjectRoot(toplevel), projectRoot)) return toplevel;
+  return projectRoot;
+}
+
 async function validateTestRun(path: string, projectRoot: string): Promise<AtomValidation> {
-  const abs = isAbsolute(path) ? path : resolvePath(projectRoot, path);
+  // gh#1226: a relative test-run path names a report the caller just wrote,
+  // in the caller's tree. Resolving it against the shared store root made a
+  // report written in a worktree report "file does not exist". Try the
+  // execution root first, then fall back to the store root so an absolute or
+  // store-relative path keeps working.
+  const executionRoot = resolveEvidenceExecutionRoot(projectRoot);
+  let abs: string;
+  if (isAbsolute(path)) {
+    abs = path;
+  } else {
+    const fromExecution = resolvePath(executionRoot, path);
+    abs = existsSync(fromExecution) ? fromExecution : resolvePath(projectRoot, path);
+  }
   if (!existsSync(abs)) {
     return {
       ok: false,
-      reason: `test-run file does not exist: ${path}`,
+      reason:
+        `test-run file does not exist: ${path} ` +
+        `(looked in ${executionRoot}${executionRoot === projectRoot ? '' : ` and ${projectRoot}`})`,
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
@@ -1297,18 +1376,26 @@ async function validateTool(tool: string, projectRoot: string): Promise<AtomVali
     };
   }
 
-  const result = await runToolCached(resolution.command, projectRoot);
+  // gh#1220/#1226/#1230: spawn in — and fingerprint against — the tree the
+  // operator actually invoked from, not the shared store root.
+  const executionRoot = resolveEvidenceExecutionRoot(projectRoot);
+  const result = await runToolCached(resolution.command, projectRoot, { executionRoot });
 
   // T12025: wall-clock child-process deadline exceeded — the tool was
   // terminated and the lock released. Signal retry; do NOT record a partially
   // captured gate.
   if (result.timedOut) {
+    const envKey = `CLEO_TOOL_TIMEOUT_${resolution.command.canonical.toUpperCase().replace(/-/g, '_')}`;
+    const deadlineMs = resolveSpawnTimeoutMs(resolution.command.canonical);
     return {
       ok: false,
       reason:
         `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
-        `exceeded the wall-clock deadline and was terminated. The lock and semaphore ` +
-        `slot are released — retry the verify once the system has capacity.`,
+        `exceeded its ${Math.round(deadlineMs / 1000)}s wall-clock deadline in ${result.executionRoot} ` +
+        `and was terminated. No result was captured, so nothing was cached. ` +
+        `RETRYING UNCHANGED WILL FAIL IDENTICALLY and will re-run the whole tool first — ` +
+        `raise the deadline with ${envKey}=<milliseconds> (e.g. ${envKey}=1800000 for 30 min) ` +
+        `and verify again.`,
       codeName: 'E_EVIDENCE_TOOL_TIMEOUT',
     };
   }
