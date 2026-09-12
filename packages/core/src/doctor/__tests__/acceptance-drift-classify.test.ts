@@ -1,0 +1,80 @@
+/**
+ * Unit coverage for the acceptance composition rule (gh#1290 · T12157).
+ *
+ * The rule is the load-bearing part of the scan and it was got WRONG twice
+ * before it was measured, so it is tested directly rather than through a
+ * database. Both wrong versions are pinned as explicit counter-examples: a rule
+ * that silently reverts to `json == text` would pass a naive test suite while
+ * mis-reporting 88 tasks.
+ *
+ * @task T12157
+ */
+
+import { describe, expect, it } from 'vitest';
+import { classifyAcceptanceDrift } from '../acceptance-drift.js';
+
+describe('classifyAcceptanceDrift — the live convention is json == text + child', () => {
+  it('treats an empty task as consistent', () => {
+    expect(classifyAcceptanceDrift({ jsonCount: 0, textRowCount: 0, childRowCount: 0 })).toBeNull();
+  });
+
+  it('treats text-only agreement as consistent', () => {
+    expect(classifyAcceptanceDrift({ jsonCount: 4, textRowCount: 4, childRowCount: 0 })).toBeNull();
+  });
+
+  it('treats a container whose children ARE in the JSON as consistent', () => {
+    // T001's shape: one child projection, serialised into acceptance_json as
+    // "Complete child T9092: …". 446 of 582 containers look like this.
+    expect(classifyAcceptanceDrift({ jsonCount: 1, textRowCount: 0, childRowCount: 1 })).toBeNull();
+  });
+
+  it('treats a mixed container as consistent when JSON carries text AND children', () => {
+    expect(classifyAcceptanceDrift({ jsonCount: 3, textRowCount: 1, childRowCount: 2 })).toBeNull();
+  });
+
+  it('flags JSON criteria that were never projected to rows', () => {
+    expect(classifyAcceptanceDrift({ jsonCount: 5, textRowCount: 0, childRowCount: 0 })).toBe(
+      'json-never-projected',
+    );
+  });
+
+  it('flags rows with an empty JSON column — the only data-losing shape', () => {
+    // `cleo show` reads the JSON column, so these criteria exist and cannot be
+    // read back.
+    expect(classifyAcceptanceDrift({ jsonCount: 0, textRowCount: 7, childRowCount: 0 })).toBe(
+      'rows-unreadable',
+    );
+  });
+
+  it('flags a container whose children are missing from the JSON as legacy', () => {
+    // The pre-2026-06 convention: JSON holds exactly the text criteria.
+    expect(classifyAcceptanceDrift({ jsonCount: 6, textRowCount: 6, childRowCount: 5 })).toBe(
+      'legacy-children-omitted',
+    );
+  });
+
+  it('flags a shortfall that is not explained by the child projections', () => {
+    expect(classifyAcceptanceDrift({ jsonCount: 8, textRowCount: 4, childRowCount: 5 })).toBe(
+      'count-mismatch',
+    );
+  });
+
+  describe('counter-examples — rules that were believed and are wrong', () => {
+    it('does NOT accept json == text when children exist (the stated-but-wrong rule)', () => {
+      // If the rule ever reverts to `json == text`, this returns null and 88
+      // legacy-convention tasks are silently reported as healthy.
+      expect(
+        classifyAcceptanceDrift({ jsonCount: 6, textRowCount: 6, childRowCount: 5 }),
+      ).not.toBeNull();
+    });
+
+    it('does NOT treat an empty-JSON container as designed', () => {
+      // 18 tasks were described as "containers in their designed state". Under
+      // the live convention a container's children appear in the JSON, so an
+      // empty JSON column beside child rows is drift, not design.
+      expect(
+        classifyAcceptanceDrift({ jsonCount: 0, textRowCount: 0, childRowCount: 4 }),
+      ).not.toBeNull();
+    });
+  });
+});
