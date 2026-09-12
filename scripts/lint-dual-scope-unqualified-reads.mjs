@@ -193,9 +193,34 @@ for (const file of sourceFiles()) {
   }
 }
 
-/** Per-file counts — the unit the baseline ratchets on. */
+/**
+ * Per-file, per-table counts — the unit the baseline ratchets on.
+ *
+ * Deliberately NOT `path:line`. A baseline keyed on position cannot tell a line
+ * SHIFT from a new violation: inserting lines above an existing hit re-keys it
+ * and the gate reports a fresh violation at a call site nobody touched
+ * (gh#1308). `path:line` is a position, not an identity.
+ *
+ * Keying on (file, table) is immune to that. The residual laundering window,
+ * stated so a reader knows the limit: removing one unqualified reference to a
+ * table and adding another to the SAME table in the SAME file nets to zero and
+ * passes. Narrowing further would mean recording statement text, which makes
+ * the baseline a second copy of the source. This is the trade, made knowingly.
+ */
 const byFile = {};
-for (const f of findings) byFile[f.file] = (byFile[f.file] ?? 0) + 1;
+for (const f of findings) {
+  byFile[f.file] ??= {};
+  byFile[f.file][f.table] = (byFile[f.file][f.table] ?? 0) + 1;
+}
+
+/** Total findings recorded for a file in a baseline entry (object or legacy number). */
+function baselineTotalFor(entry) {
+  if (typeof entry === 'number') return entry;
+  if (entry && typeof entry === 'object') {
+    return Object.values(entry).reduce((n, v) => n + (typeof v === 'number' ? v : 0), 0);
+  }
+  return 0;
+}
 
 if (UPDATE) {
   writeFileSync(
@@ -252,12 +277,25 @@ try {
 }
 
 const baseCounts = baseline.counts ?? {};
-const regressions = Object.entries(byFile)
-  .filter(([file, n]) => n > (baseCounts[file] ?? 0))
-  .map(([file, n]) => ({ file, was: baseCounts[file] ?? 0, now: n }));
+const regressions = [];
+for (const [file, tables] of Object.entries(byFile)) {
+  const baseEntry = baseCounts[file];
+  for (const [table, now] of Object.entries(tables)) {
+    const was =
+      typeof baseEntry === 'object' && baseEntry !== null
+        ? (baseEntry[table] ?? 0)
+        : // Legacy numeric entry: fall back to the file total, which is the
+          // strictest reading a per-file baseline can support.
+          baselineTotalFor(baseEntry);
+    if (now > was) regressions.push({ file, table, was, now });
+  }
+}
 
 if (regressions.length === 0) {
-  const improved = Object.entries(baseCounts).filter(([file, was]) => (byFile[file] ?? 0) < was);
+  const improved = Object.entries(baseCounts).filter(
+    ([file, was]) =>
+      Object.values(byFile[file] ?? {}).reduce((n, v) => n + v, 0) < baselineTotalFor(was),
+  );
   const suffix =
     improved.length > 0
       ? ` (${improved.length} file(s) improved — consider --update-baseline)`
@@ -273,8 +311,8 @@ console.error(
   `lint-dual-scope-unqualified-reads: FAIL — ${regressions.length} file(s) gained unqualified reads of a both-scope table:\n`,
 );
 for (const r of regressions) {
-  console.error(`  ${r.file}: ${r.was} -> ${r.now}`);
-  report(findings.filter((f) => f.file === r.file));
+  console.error(`  ${r.file}  [${r.table}]: ${r.was} -> ${r.now}`);
+  report(findings.filter((f) => f.file === r.file && f.table === r.table));
   console.error('');
 }
 console.error(

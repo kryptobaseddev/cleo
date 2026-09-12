@@ -1,97 +1,433 @@
 {
-  "generatedAt": "2026-09-12T20:22:48.859Z",
+  "generatedAt": "2026-09-12T20:31:14.008Z",
   "note": "Unqualified reads of tables resident in BOTH cleo.db scopes (gh#1283). Counts may only DECREASE. Regenerate with: node scripts/lint-dual-scope-unqualified-reads.mjs --update-baseline",
   "ambiguousTables": 27,
   "totalFindings": 580,
   "counts": {
-    "crates/cleo-supervisor/src/lease_handler.rs": 2,
-    "packages/brain/src/adapters/brain.ts": 6,
-    "packages/cleo/src/dispatch/domains/memory.ts": 10,
-    "packages/cleo/src/dispatch/domains/nexus.ts": 2,
-    "packages/core/migrations/drizzle-brain/20260408000001_t417-agent-field/migration.sql": 1,
-    "packages/core/migrations/drizzle-brain/20260411000001_t528-graph-schema-expansion/migration.sql": 6,
-    "packages/core/migrations/drizzle-brain/20260412000001_t531-quality-score-typed-tables/migration.sql": 4,
-    "packages/core/migrations/drizzle-brain/20260413000001_t549-tiered-typed-memory/migration.sql": 32,
-    "packages/core/migrations/drizzle-brain/20260415000001_t626-normalize-co-retrieved-edge-type/migration.sql": 1,
-    "packages/core/migrations/drizzle-brain/20260416000001_t673-retrieval-log-plasticity-columns/migration.sql": 4,
-    "packages/core/migrations/drizzle-brain/20260416000002_t673-plasticity-events-expand/migration.sql": 5,
-    "packages/core/migrations/drizzle-brain/20260416000003_t673-page-edges-plasticity-columns/migration.sql": 7,
-    "packages/core/migrations/drizzle-brain/20260416000005_t726-dedup-tier-columns/migration.sql": 11,
-    "packages/core/migrations/drizzle-brain/20260416000006_t790-hebbian-prune/migration.sql": 2,
-    "packages/core/migrations/drizzle-brain/20260416000007_t799-observation-attachments-json/migration.sql": 1,
-    "packages/core/migrations/drizzle-brain/20260423000001_t1084-peer-id-memory-isolation/migration.sql": 8,
-    "packages/core/migrations/drizzle-brain/20260424000001_t1260-provenance-class/migration.sql": 4,
-    "packages/core/migrations/drizzle-brain/20260424000003_t1145-extend-brain-observations/migration.sql": 4,
-    "packages/core/migrations/drizzle-brain/20260504000001_t1826-decisions-v2/migration.sql": 8,
-    "packages/core/migrations/drizzle-brain/20260505000001_t1830-decision-category/migration.sql": 2,
-    "packages/core/migrations/drizzle-brain/20260507000001_t9179-fresh-db-missing-columns/migration.sql": 3,
-    "packages/core/migrations/drizzle-brain/20260512000001_t1896-pattern-dedup-columns/migration.sql": 2,
-    "packages/core/migrations/drizzle-brain/20260512000002_t1897-observation-provenance/migration.sql": 3,
-    "packages/core/migrations/drizzle-brain/20260530000001_t11355-sticky-tags-junction/migration.sql": 1,
-    "packages/core/migrations/drizzle-brain/20260530000003_t11371-add-attention-table/migration.sql": 1,
-    "packages/core/migrations/drizzle-brain/20260610000001_t10405-bitemporal-network-columns/migration.sql": 8,
-    "packages/core/migrations/drizzle-cleo-global/20260531000001_t11363-consolidation-cleo-global/migration.sql": 23,
-    "packages/core/migrations/drizzle-cleo-project/20260531000001_t11363-consolidation-cleo-project/migration.sql": 23,
-    "packages/core/src/deriver/deriver.ts": 3,
-    "packages/core/src/doctor/db-substrate.ts": 4,
-    "packages/core/src/memory/auto-research.ts": 1,
-    "packages/core/src/memory/brain-backfill.ts": 8,
-    "packages/core/src/memory/brain-consolidator.ts": 6,
-    "packages/core/src/memory/brain-doctor.ts": 9,
-    "packages/core/src/memory/brain-health-dashboard.ts": 5,
-    "packages/core/src/memory/brain-lifecycle.ts": 25,
-    "packages/core/src/memory/brain-page-nodes.ts": 11,
-    "packages/core/src/memory/brain-reasoning.ts": 6,
-    "packages/core/src/memory/brain-search.ts": 8,
-    "packages/core/src/memory/brain-stdp.ts": 47,
-    "packages/core/src/memory/brain-stub-prune.ts": 5,
-    "packages/core/src/memory/brain-sweep-executor.ts": 2,
-    "packages/core/src/memory/brain-writer-handlers.ts": 3,
-    "packages/core/src/memory/claude-mem-migration.ts": 6,
-    "packages/core/src/memory/dream-cycle.ts": 3,
-    "packages/core/src/memory/engine-compat.ts": 17,
-    "packages/core/src/memory/extraction-gate.ts": 8,
-    "packages/core/src/memory/graph-memory-bridge.ts": 20,
-    "packages/core/src/memory/graph-queries.ts": 15,
-    "packages/core/src/memory/llm-extraction.ts": 1,
-    "packages/core/src/memory/memory-bridge.ts": 4,
-    "packages/core/src/memory/nexus-plasticity.ts": 2,
-    "packages/core/src/memory/observer-reflector.ts": 8,
-    "packages/core/src/memory/public-api.ts": 10,
-    "packages/core/src/memory/quality-feedback.ts": 22,
-    "packages/core/src/memory/retrieval/build-retrieval-bundle.ts": 10,
-    "packages/core/src/memory/retrieval/log-retrieval.ts": 1,
-    "packages/core/src/memory/retrieval/observe.ts": 1,
-    "packages/core/src/memory/retrieval/search.ts": 4,
-    "packages/core/src/memory/retrieval/timeline.ts": 8,
-    "packages/core/src/memory/sleep-consolidation.ts": 11,
-    "packages/core/src/memory/specialists.ts": 6,
-    "packages/core/src/memory/surprisal-tree.ts": 7,
-    "packages/core/src/memory/surprisal.ts": 1,
-    "packages/core/src/memory/temporal-supersession.ts": 4,
-    "packages/core/src/memory/transcript-extractor.ts": 1,
-    "packages/core/src/memory/transcript-ingestor.ts": 1,
-    "packages/core/src/memory/transcript-scanner.ts": 2,
-    "packages/core/src/nexus/living-brain.ts": 14,
-    "packages/core/src/nexus/query.ts": 2,
-    "packages/core/src/nexus/tasks-bridge.ts": 3,
-    "packages/core/src/sentient/dream-cycle.ts": 1,
-    "packages/core/src/sentient/ingesters/brain-ingester.ts": 1,
-    "packages/core/src/store/agent-registry-store.ts": 1,
-    "packages/core/src/store/exodus/__fixtures__/representative-fixture.ts": 6,
-    "packages/core/src/store/memory-sqlite.ts": 1,
-    "packages/core/src/store/migration-manager.ts": 12,
-    "packages/core/src/store/recover-brain-db.ts": 1,
-    "packages/core/src/system/rogue-cleo-detector.ts": 1,
-    "packages/core/src/upgrade.ts": 2,
-    "packages/studio/src/lib/graph/adapters/cross-substrate.ts": 5,
-    "packages/studio/src/routes/+page.server.ts": 5,
-    "packages/studio/src/routes/api/brain/stream/+server.ts": 4,
-    "packages/studio/src/routes/api/memory/decision-store/+server.ts": 2,
-    "packages/studio/src/routes/api/memory/learning-store/+server.ts": 3,
-    "packages/studio/src/routes/api/memory/pattern-store/+server.ts": 3,
-    "packages/studio/src/routes/api/memory/quality/+server.ts": 9,
-    "packages/studio/src/routes/api/memory/reason-why/+server.ts": 1,
-    "packages/studio/src/routes/api/v1/graph/+server.ts": 3
+    "crates/cleo-supervisor/src/lease_handler.rs": {
+      "_writer_leases": 2
+    },
+    "packages/brain/src/adapters/brain.ts": {
+      "brain_decisions": 1,
+      "brain_learnings": 1,
+      "brain_memory_links": 1,
+      "brain_observations": 1,
+      "brain_page_edges": 1,
+      "brain_patterns": 1
+    },
+    "packages/cleo/src/dispatch/domains/memory.ts": {
+      "brain_backfill_runs": 1,
+      "brain_observations": 6,
+      "brain_page_edges": 2,
+      "brain_retrieval_log": 1
+    },
+    "packages/cleo/src/dispatch/domains/nexus.ts": {
+      "brain_page_nodes": 2
+    },
+    "packages/core/migrations/drizzle-brain/20260408000001_t417-agent-field/migration.sql": {
+      "brain_observations": 1
+    },
+    "packages/core/migrations/drizzle-brain/20260411000001_t528-graph-schema-expansion/migration.sql": {
+      "brain_page_edges": 2,
+      "brain_page_nodes": 4
+    },
+    "packages/core/migrations/drizzle-brain/20260412000001_t531-quality-score-typed-tables/migration.sql": {
+      "brain_decisions": 1,
+      "brain_learnings": 1,
+      "brain_observations": 1,
+      "brain_patterns": 1
+    },
+    "packages/core/migrations/drizzle-brain/20260413000001_t549-tiered-typed-memory/migration.sql": {
+      "brain_decisions": 8,
+      "brain_learnings": 8,
+      "brain_observations": 8,
+      "brain_patterns": 8
+    },
+    "packages/core/migrations/drizzle-brain/20260415000001_t626-normalize-co-retrieved-edge-type/migration.sql": {
+      "brain_page_edges": 1
+    },
+    "packages/core/migrations/drizzle-brain/20260416000001_t673-retrieval-log-plasticity-columns/migration.sql": {
+      "brain_retrieval_log": 4
+    },
+    "packages/core/migrations/drizzle-brain/20260416000002_t673-plasticity-events-expand/migration.sql": {
+      "brain_plasticity_events": 5
+    },
+    "packages/core/migrations/drizzle-brain/20260416000003_t673-page-edges-plasticity-columns/migration.sql": {
+      "brain_page_edges": 7
+    },
+    "packages/core/migrations/drizzle-brain/20260416000005_t726-dedup-tier-columns/migration.sql": {
+      "brain_decisions": 3,
+      "brain_learnings": 3,
+      "brain_observations": 2,
+      "brain_patterns": 3
+    },
+    "packages/core/migrations/drizzle-brain/20260416000006_t790-hebbian-prune/migration.sql": {
+      "brain_page_edges": 2
+    },
+    "packages/core/migrations/drizzle-brain/20260416000007_t799-observation-attachments-json/migration.sql": {
+      "brain_observations": 1
+    },
+    "packages/core/migrations/drizzle-brain/20260423000001_t1084-peer-id-memory-isolation/migration.sql": {
+      "brain_decisions": 2,
+      "brain_learnings": 2,
+      "brain_observations": 2,
+      "brain_patterns": 2
+    },
+    "packages/core/migrations/drizzle-brain/20260424000001_t1260-provenance-class/migration.sql": {
+      "brain_decisions": 1,
+      "brain_learnings": 1,
+      "brain_observations": 1,
+      "brain_patterns": 1
+    },
+    "packages/core/migrations/drizzle-brain/20260424000003_t1145-extend-brain-observations/migration.sql": {
+      "brain_observations": 4
+    },
+    "packages/core/migrations/drizzle-brain/20260504000001_t1826-decisions-v2/migration.sql": {
+      "brain_decisions": 8
+    },
+    "packages/core/migrations/drizzle-brain/20260505000001_t1830-decision-category/migration.sql": {
+      "brain_decisions": 2
+    },
+    "packages/core/migrations/drizzle-brain/20260507000001_t9179-fresh-db-missing-columns/migration.sql": {
+      "brain_observations": 1,
+      "brain_retrieval_log": 2
+    },
+    "packages/core/migrations/drizzle-brain/20260512000001_t1896-pattern-dedup-columns/migration.sql": {
+      "brain_patterns": 2
+    },
+    "packages/core/migrations/drizzle-brain/20260512000002_t1897-observation-provenance/migration.sql": {
+      "brain_observations": 3
+    },
+    "packages/core/migrations/drizzle-brain/20260530000001_t11355-sticky-tags-junction/migration.sql": {
+      "brain_sticky_notes": 1
+    },
+    "packages/core/migrations/drizzle-brain/20260530000003_t11371-add-attention-table/migration.sql": {
+      "brain_attention": 1
+    },
+    "packages/core/migrations/drizzle-brain/20260610000001_t10405-bitemporal-network-columns/migration.sql": {
+      "brain_decisions": 2,
+      "brain_learnings": 2,
+      "brain_observations": 2,
+      "brain_patterns": 2
+    },
+    "packages/core/migrations/drizzle-cleo-global/20260531000001_t11363-consolidation-cleo-global/migration.sql": {
+      "brain_attention": 1,
+      "brain_backfill_runs": 1,
+      "brain_consolidation_events": 1,
+      "brain_decisions": 1,
+      "brain_deriver_queue": 1,
+      "brain_learnings": 1,
+      "brain_memory_links": 1,
+      "brain_memory_trees": 1,
+      "brain_modulators": 1,
+      "brain_observations": 1,
+      "brain_observations_staging": 1,
+      "brain_page_edges": 1,
+      "brain_page_nodes": 1,
+      "brain_patterns": 1,
+      "brain_plasticity_events": 1,
+      "brain_promotion_log": 1,
+      "brain_retrieval_log": 1,
+      "brain_schema_meta": 1,
+      "brain_session_narrative": 1,
+      "brain_sticky_notes": 1,
+      "brain_sticky_tags": 1,
+      "brain_transcript_events": 1,
+      "brain_weight_history": 1
+    },
+    "packages/core/migrations/drizzle-cleo-project/20260531000001_t11363-consolidation-cleo-project/migration.sql": {
+      "brain_attention": 1,
+      "brain_backfill_runs": 1,
+      "brain_consolidation_events": 1,
+      "brain_decisions": 1,
+      "brain_deriver_queue": 1,
+      "brain_learnings": 1,
+      "brain_memory_links": 1,
+      "brain_memory_trees": 1,
+      "brain_modulators": 1,
+      "brain_observations": 1,
+      "brain_observations_staging": 1,
+      "brain_page_edges": 1,
+      "brain_page_nodes": 1,
+      "brain_patterns": 1,
+      "brain_plasticity_events": 1,
+      "brain_promotion_log": 1,
+      "brain_retrieval_log": 1,
+      "brain_schema_meta": 1,
+      "brain_session_narrative": 1,
+      "brain_sticky_notes": 1,
+      "brain_sticky_tags": 1,
+      "brain_transcript_events": 1,
+      "brain_weight_history": 1
+    },
+    "packages/core/src/deriver/deriver.ts": {
+      "brain_observations": 3
+    },
+    "packages/core/src/doctor/db-substrate.ts": {
+      "__drizzle_migrations": 1,
+      "brain_memory_links": 1,
+      "brain_observations": 1,
+      "brain_page_nodes": 1
+    },
+    "packages/core/src/memory/auto-research.ts": {
+      "brain_transcript_events": 1
+    },
+    "packages/core/src/memory/brain-backfill.ts": {
+      "brain_backfill_runs": 8
+    },
+    "packages/core/src/memory/brain-consolidator.ts": {
+      "brain_page_edges": 2,
+      "brain_patterns": 4
+    },
+    "packages/core/src/memory/brain-doctor.ts": {
+      "brain_consolidation_events": 1,
+      "brain_learnings": 1,
+      "brain_observations": 5,
+      "brain_promotion_log": 2
+    },
+    "packages/core/src/memory/brain-health-dashboard.ts": {
+      "brain_observations": 5
+    },
+    "packages/core/src/memory/brain-lifecycle.ts": {
+      "brain_consolidation_events": 2,
+      "brain_learnings": 2,
+      "brain_observations": 9,
+      "brain_page_edges": 2,
+      "brain_promotion_log": 8,
+      "brain_retrieval_log": 2
+    },
+    "packages/core/src/memory/brain-page-nodes.ts": {
+      "brain_decisions": 2,
+      "brain_memory_links": 1,
+      "brain_observations": 1,
+      "brain_page_edges": 4,
+      "brain_page_nodes": 3
+    },
+    "packages/core/src/memory/brain-reasoning.ts": {
+      "brain_decisions": 1,
+      "brain_learnings": 1,
+      "brain_memory_links": 1,
+      "brain_page_edges": 2,
+      "brain_page_nodes": 1
+    },
+    "packages/core/src/memory/brain-search.ts": {
+      "brain_decisions": 2,
+      "brain_learnings": 2,
+      "brain_observations": 2,
+      "brain_patterns": 2
+    },
+    "packages/core/src/memory/brain-stdp.ts": {
+      "brain_modulators": 2,
+      "brain_page_edges": 8,
+      "brain_plasticity_events": 15,
+      "brain_retrieval_log": 13,
+      "brain_weight_history": 9
+    },
+    "packages/core/src/memory/brain-stub-prune.ts": {
+      "brain_observations": 5
+    },
+    "packages/core/src/memory/brain-sweep-executor.ts": {
+      "brain_backfill_runs": 1,
+      "brain_observations_staging": 1
+    },
+    "packages/core/src/memory/brain-writer-handlers.ts": {
+      "brain_plasticity_events": 1,
+      "brain_weight_history": 2
+    },
+    "packages/core/src/memory/claude-mem-migration.ts": {
+      "brain_decisions": 2,
+      "brain_learnings": 2,
+      "brain_observations": 2
+    },
+    "packages/core/src/memory/dream-cycle.ts": {
+      "brain_consolidation_events": 1,
+      "brain_observations": 1,
+      "brain_retrieval_log": 1
+    },
+    "packages/core/src/memory/engine-compat.ts": {
+      "brain_decisions": 7,
+      "brain_learnings": 3,
+      "brain_observations": 3,
+      "brain_patterns": 4
+    },
+    "packages/core/src/memory/extraction-gate.ts": {
+      "brain_decisions": 2,
+      "brain_learnings": 2,
+      "brain_observations": 2,
+      "brain_patterns": 2
+    },
+    "packages/core/src/memory/graph-memory-bridge.ts": {
+      "brain_decisions": 2,
+      "brain_learnings": 1,
+      "brain_observations": 2,
+      "brain_page_edges": 9,
+      "brain_page_nodes": 5,
+      "brain_patterns": 1
+    },
+    "packages/core/src/memory/graph-queries.ts": {
+      "brain_page_edges": 6,
+      "brain_page_nodes": 9
+    },
+    "packages/core/src/memory/llm-extraction.ts": {
+      "brain_decisions": 1
+    },
+    "packages/core/src/memory/memory-bridge.ts": {
+      "brain_decisions": 1,
+      "brain_learnings": 1,
+      "brain_observations": 1,
+      "brain_patterns": 1
+    },
+    "packages/core/src/memory/nexus-plasticity.ts": {
+      "brain_retrieval_log": 2
+    },
+    "packages/core/src/memory/observer-reflector.ts": {
+      "brain_observations": 8
+    },
+    "packages/core/src/memory/public-api.ts": {
+      "brain_decisions": 2,
+      "brain_learnings": 2,
+      "brain_observations": 4,
+      "brain_patterns": 2
+    },
+    "packages/core/src/memory/quality-feedback.ts": {
+      "brain_decisions": 4,
+      "brain_learnings": 4,
+      "brain_observations": 4,
+      "brain_patterns": 4,
+      "brain_retrieval_log": 2,
+      "brain_usage_log": 4
+    },
+    "packages/core/src/memory/retrieval/build-retrieval-bundle.ts": {
+      "brain_decisions": 3,
+      "brain_learnings": 3,
+      "brain_observations": 1,
+      "brain_patterns": 3
+    },
+    "packages/core/src/memory/retrieval/log-retrieval.ts": {
+      "brain_retrieval_log": 1
+    },
+    "packages/core/src/memory/retrieval/observe.ts": {
+      "brain_observations": 1
+    },
+    "packages/core/src/memory/retrieval/search.ts": {
+      "brain_decisions": 1,
+      "brain_learnings": 1,
+      "brain_observations": 1,
+      "brain_patterns": 1
+    },
+    "packages/core/src/memory/retrieval/timeline.ts": {
+      "brain_decisions": 2,
+      "brain_learnings": 2,
+      "brain_observations": 2,
+      "brain_patterns": 2
+    },
+    "packages/core/src/memory/sleep-consolidation.ts": {
+      "brain_learnings": 1,
+      "brain_observations": 9,
+      "brain_patterns": 1
+    },
+    "packages/core/src/memory/specialists.ts": {
+      "brain_decisions": 1,
+      "brain_learnings": 1,
+      "brain_observations": 2,
+      "brain_patterns": 2
+    },
+    "packages/core/src/memory/surprisal-tree.ts": {
+      "brain_memory_trees": 6,
+      "brain_observations": 1
+    },
+    "packages/core/src/memory/surprisal.ts": {
+      "brain_observations": 1
+    },
+    "packages/core/src/memory/temporal-supersession.ts": {
+      "brain_page_edges": 3,
+      "brain_page_nodes": 1
+    },
+    "packages/core/src/memory/transcript-extractor.ts": {
+      "brain_observations": 1
+    },
+    "packages/core/src/memory/transcript-ingestor.ts": {
+      "brain_transcript_events": 1
+    },
+    "packages/core/src/memory/transcript-scanner.ts": {
+      "brain_observations": 2
+    },
+    "packages/core/src/nexus/living-brain.ts": {
+      "brain_decisions": 1,
+      "brain_memory_links": 1,
+      "brain_page_edges": 8,
+      "brain_page_nodes": 4
+    },
+    "packages/core/src/nexus/query.ts": {
+      "brain_page_nodes": 2
+    },
+    "packages/core/src/nexus/tasks-bridge.ts": {
+      "brain_page_edges": 3
+    },
+    "packages/core/src/sentient/dream-cycle.ts": {
+      "brain_observations": 1
+    },
+    "packages/core/src/sentient/ingesters/brain-ingester.ts": {
+      "brain_observations": 1
+    },
+    "packages/core/src/store/agent-registry-store.ts": {
+      "__drizzle_migrations": 1
+    },
+    "packages/core/src/store/exodus/__fixtures__/representative-fixture.ts": {
+      "brain_decisions": 3,
+      "brain_observations": 3
+    },
+    "packages/core/src/store/memory-sqlite.ts": {
+      "brain_schema_meta": 1
+    },
+    "packages/core/src/store/migration-manager.ts": {
+      "__drizzle_migrations": 12
+    },
+    "packages/core/src/store/recover-brain-db.ts": {
+      "brain_observations": 1
+    },
+    "packages/core/src/system/rogue-cleo-detector.ts": {
+      "__drizzle_migrations": 1
+    },
+    "packages/core/src/upgrade.ts": {
+      "__drizzle_migrations": 2
+    },
+    "packages/studio/src/lib/graph/adapters/cross-substrate.ts": {
+      "brain_decisions": 1,
+      "brain_memory_links": 1,
+      "brain_observations": 1,
+      "brain_page_edges": 2
+    },
+    "packages/studio/src/routes/+page.server.ts": {
+      "brain_decisions": 2,
+      "brain_observations": 2,
+      "brain_page_nodes": 1
+    },
+    "packages/studio/src/routes/api/brain/stream/+server.ts": {
+      "brain_observations": 2,
+      "brain_page_edges": 2
+    },
+    "packages/studio/src/routes/api/memory/decision-store/+server.ts": {
+      "brain_decisions": 2
+    },
+    "packages/studio/src/routes/api/memory/learning-store/+server.ts": {
+      "brain_learnings": 3
+    },
+    "packages/studio/src/routes/api/memory/pattern-store/+server.ts": {
+      "brain_patterns": 3
+    },
+    "packages/studio/src/routes/api/memory/quality/+server.ts": {
+      "brain_decisions": 2,
+      "brain_learnings": 1,
+      "brain_observations": 5,
+      "brain_patterns": 1
+    },
+    "packages/studio/src/routes/api/memory/reason-why/+server.ts": {
+      "brain_decisions": 1
+    },
+    "packages/studio/src/routes/api/v1/graph/+server.ts": {
+      "brain_page_edges": 1,
+      "brain_page_nodes": 2
+    }
   }
 }
