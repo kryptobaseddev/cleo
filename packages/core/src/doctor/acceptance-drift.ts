@@ -78,6 +78,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { SQLOutputValue } from 'node:sqlite';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 
 /** The dual-scope store filename (ADR-068). */
@@ -255,6 +256,73 @@ interface ScanRow {
   readonly child_n: number;
 }
 
+/** Narrow a column to `string`, or `null` when it is absent or another type. */
+function columnAsStringOrNull(value: SQLOutputValue | undefined): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+/**
+ * Narrow a numeric column, tolerating the `bigint` SQLite may return.
+ *
+ * `COUNT`/`SUM` come back as `number` for small results and `bigint` for large
+ * ones, and `json_array_length` is an integer. Anything else is a column that
+ * is not what this module thinks it is, which {@link toScanRow} rejects.
+ */
+function columnAsCount(value: SQLOutputValue | undefined): number | null {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'bigint') return Number(value);
+  return null;
+}
+
+/**
+ * Convert one driver row into a {@link ScanRow}.
+ *
+ * Explicit rather than a cast. `node:sqlite` hands back
+ * `Record<string, SQLOutputValue>`, and asserting that into a shaped interface
+ * would compile while silently tolerating a column set that no longer matches —
+ * in a module whose entire purpose is detecting exactly that kind of drift.
+ *
+ * @throws when a column is missing or has an unexpected type, so a query that
+ *   drifts from this shape fails loudly at the first row instead of producing
+ *   a scan full of zeroes that reads like a clean store.
+ */
+function toScanRow(record: Record<string, SQLOutputValue>): ScanRow {
+  const id = columnAsStringOrNull(record['id']);
+  const jsonN = columnAsCount(record['json_n']);
+  const textN = columnAsCount(record['text_n']);
+  const childN = columnAsCount(record['child_n']);
+
+  // Name the offending column. An error that says only "the shape is wrong"
+  // sends the reader to the SQL when the problem is one value in one row —
+  // the failure describing the wrong thing with full confidence (ADR-092).
+  const bad = [
+    ['id', id],
+    ['json_n', jsonN],
+    ['text_n', textN],
+    ['child_n', childN],
+  ].find(([, value]) => value === null)?.[0];
+
+  if (bad !== undefined || id === null || jsonN === null || textN === null || childN === null) {
+    throw new Error(
+      `acceptance-drift: scan column "${String(bad)}" had an unexpected type ` +
+        `(got ${typeof record[String(bad)]}) for task ${String(record['id'] ?? '<unknown>')}. ` +
+        'The SQL and ScanRow have drifted apart.',
+    );
+  }
+
+  return {
+    id,
+    // `type` is NULLABLE in practice: 174 of 5,068 rows in this store carry no
+    // type at all. It is a reporting field here, not an input to the drift
+    // classification, so a missing one must not abort a whole-store survey.
+    type: columnAsStringOrNull(record['type']) ?? 'unknown',
+    created_at: columnAsStringOrNull(record['created_at']),
+    json_n: jsonN,
+    text_n: textN,
+    child_n: childN,
+  };
+}
+
 /**
  * Classify one task, or `null` when its two stores are consistent.
  *
@@ -360,16 +428,17 @@ export function scanAcceptanceDrift(projectRoot: string): AcceptanceDriftScanRes
            LEFT JOIN main.tasks_task_acceptance_criteria c ON c.task_id = t.id
           GROUP BY t.id`,
       )
-      .all() as ScanRow[];
+      .all()
+      .map(toScanRow);
 
     const entries: AcceptanceDriftEntry[] = [];
     const byKind: Record<AcceptanceDriftKind, number> = { ...empty };
     let rawDisagreements = 0;
 
     for (const row of rows) {
-      const jsonCount = Number(row.json_n) || 0;
-      const textRowCount = Number(row.text_n) || 0;
-      const childRowCount = Number(row.child_n) || 0;
+      const jsonCount = row.json_n;
+      const textRowCount = row.text_n;
+      const childRowCount = row.child_n;
       const totalRows = textRowCount + childRowCount;
 
       if (jsonCount !== totalRows) rawDisagreements += 1;
