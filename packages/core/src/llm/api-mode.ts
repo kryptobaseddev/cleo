@@ -64,6 +64,59 @@ export interface DerivedApiWire {
  * @returns The derived wire facts.
  * @task T11745
  */
+/**
+ * Default API base URL per builtin provider — the SSoT for "where does this
+ * provider actually live".
+ *
+ * ## Why this exists (gh#1216)
+ *
+ * {@link deriveApiWire} returned `baseUrl: null` for every OpenAI-compatible
+ * provider except Codex, and a null base URL makes the OpenAI SDK default to
+ * `api.openai.com`. So an OpenRouter key was sent to OpenAI, which rejected it
+ * with its own canonical 401 pointing the user at platform.openai.com — an
+ * error message that blames the key rather than the routing. The same fault
+ * applied to deepseek, xai, groq and moonshot: the documented providers were
+ * unusable out of the box, with no config surface that fixed it.
+ *
+ * The base URLs were not unknown. They were recorded in THREE places —
+ * the hand-written builtin profiles, the generated models.dev catalog, and an
+ * inline map inside `cli-ops.ts` — and consumed by none of the one path that
+ * decides where a request is sent. This constant is that path's source, and
+ * `cli-ops` now reads it too so the two cannot drift.
+ *
+ * Values include the API version segment, matching what the transports expect
+ * as `baseURL` and what the builtin profiles already carry.
+ *
+ * Absent providers resolve to `null` deliberately: `anthropic`, `bedrock` and
+ * `gemini` do not speak chat-completions against a URL we choose here, and
+ * `openai` itself is the SDK's own default.
+ *
+ * @task T12132 (gh#1216)
+ */
+export const DEFAULT_PROVIDER_BASE_URLS: Readonly<Partial<Record<ModelTransport, string>>> =
+  Object.freeze({
+    openrouter: 'https://openrouter.ai/api/v1',
+    deepseek: 'https://api.deepseek.com/v1',
+    xai: 'https://api.x.ai/v1',
+    groq: 'https://api.groq.com/openai/v1',
+    moonshot: 'https://api.moonshot.cn/v1',
+    ollama: 'http://localhost:11434/v1',
+    'kimi-code': 'https://api.kimi.com/coding',
+  });
+
+/**
+ * The default API base URL for a provider, or `null` when the transport
+ * supplies its own.
+ *
+ * @param provider - Resolved provider transport.
+ * @returns Absolute base URL including the version segment, or `null`.
+ *
+ * @task T12132 (gh#1216)
+ */
+export function defaultBaseUrlFor(provider: ModelTransport): string | null {
+  return DEFAULT_PROVIDER_BASE_URLS[provider] ?? null;
+}
+
 export function deriveApiWire(
   provider: ModelTransport,
   authType: 'api_key' | 'oauth' | 'aws_sdk' | null,
@@ -91,5 +144,11 @@ export function deriveApiWire(
   }
   // openai (api_key), openrouter, deepseek, xai, groq, moonshot, … →
   // OpenAI-compatible chat-completions.
-  return { apiMode: 'chat_completions', baseUrl: null };
+  //
+  // gh#1216: this returned `null` for ALL of them, and a null base URL makes
+  // the OpenAI SDK default to api.openai.com — so an OpenRouter key went to
+  // OpenAI and came back with OpenAI's own 401 blaming the key. `openai`
+  // itself is absent from the table and still resolves to null, which is
+  // correct: the SDK's default is right for it.
+  return { apiMode: 'chat_completions', baseUrl: defaultBaseUrlFor(provider) };
 }
