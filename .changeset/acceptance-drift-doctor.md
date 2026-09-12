@@ -38,8 +38,26 @@ criteria against 4 text + 5 child rows.
 reports four kinds — `json-never-projected` (24), `rows-unreadable` (20),
 `legacy-children-omitted` (88), `count-mismatch` (32) — separating legacy-era
 rows from current-era regressions so the check is actionable rather than
-permanently red. It exits non-zero only on current-era drift; `--all` widens
-that.
+permanently red. What fails is **baseline membership, not creation date**. Acceptance rows are
+written throughout a task's life — reparenting, child completion, an edited
+criterion — so drift is introduced by a WRITE while a birthday is fixed forever.
+Keying the gate on creation date would exempt every old task from every future
+regression: 223 tasks created before the convention settled have been updated
+since, so a date-keyed gate is blind to new drift across 4,459 of 5,068 rows,
+88% of the store. The per-install baseline (`.cleo/acceptance-drift-baseline.json`,
+written by `--update-baseline`) keeps the 163 historical rows quiet while a
+pre-June task that drifts tomorrow is a net-add and fails. Creation date is
+retained purely as a reporting attribute. `--all` ignores the baseline entirely.
+
+The baseline is per-install rather than committed to this repo: the entries are
+task ids from one project's own store, so a repo-committed baseline would bake
+cleocode's ids into a CLI that ships to everyone else.
+
+Scope is **cardinality, not content** — measured, not assumed: comparing the
+sorted multiset of JSON strings against the row texts where counts already
+agree gives 0 content differences across 601 current-era tasks and 1 across
+4,053 legacy ones (`T11011`). Named as out of scope rather than left to be
+discovered.
 
 **It deliberately does not read `tasks_acceptance_projection_state`**, which is
 the surface built to answer exactly this question and which reports `status =

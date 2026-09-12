@@ -56,18 +56,41 @@
  * therefore derives the answer from the data every time and never reads that
  * table.
  *
+ * ## Scope: cardinality, not content
+ *
+ * This compares COUNTS — how many criteria each store holds. It cannot see a
+ * task whose JSON has the right number of entries but the wrong text, which is
+ * what a renamed child produces, since JSON entries are literal
+ * `"Complete child T9092: <title>"` strings.
+ *
+ * That gap was measured rather than assumed. Comparing the sorted multiset of
+ * JSON strings against the row texts, restricted to tasks whose counts already
+ * agree: **601 current-era tasks, 0 content differences; 4,053 legacy tasks, 1**
+ * — `T11011`. So count identity is an excellent proxy in this store, and
+ * content comparison would earn one legacy row. Named as out of scope rather
+ * than left for a reader to discover.
+ *
  * @task T12157
  * @see ADR-088 — PM-Core V2 containers
  * @see ADR-092 — failure geometries; "a status surface that reports a state it
  *   does not measure"
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 
 /** The dual-scope store filename (ADR-068). */
 const LIVE_STORE_FILENAME = 'cleo.db';
+
+/**
+ * Where a project records the drift it has decided to live with.
+ *
+ * Per-INSTALL, not per-repo. The entries are task ids from this project's own
+ * store, so a baseline committed to the cleo repository would bake cleocode's
+ * task ids into a CLI that ships to everyone else.
+ */
+export const ACCEPTANCE_DRIFT_BASELINE_FILE = 'acceptance-drift-baseline.json';
 
 /**
  * The date from which `json == text + child` has been honoured uniformly.
@@ -77,8 +100,9 @@ const LIVE_STORE_FILENAME = 'cleo.db';
  * (363 vs 38); from 2026-06 onward it is 68 vs 0. Across ALL tasks created on or
  * after this date, exactly **one** violates the rule out of 608.
  *
- * Rows older than this are reported as `legacy` rather than as regressions, so
- * that the one real defect is not buried under 163 historical rows.
+ * Rows older than this are reported as `legacy` so a reader can see WHY an entry
+ * is in the baseline. It is a REPORTING attribute only and does not decide what
+ * fails — see {@link AcceptanceDriftScanResult.unbaselined} for why.
  */
 export const ACCEPTANCE_CONVENTION_SETTLED_AT = '2026-06-01';
 
@@ -152,14 +176,73 @@ export interface AcceptanceDriftScanResult {
   readonly entries: readonly AcceptanceDriftEntry[];
   /** One line per drift kind, for a summary line. */
   readonly byKind: Readonly<Record<AcceptanceDriftKind, number>>;
-  /**
-   * Entries created on or after {@link ACCEPTANCE_CONVENTION_SETTLED_AT}.
-   *
-   * This is the number that should gate anything. Measured 2026-09-12 on a
-   * 5,067-task store: **1** (`T11889`, an epic whose JSON carries 8 criteria
-   * against 4 text + 5 child rows), against 163 legacy-era entries.
-   */
+  /** Entries created on or after {@link ACCEPTANCE_CONVENTION_SETTLED_AT}. */
   readonly currentEraDrift: number;
+  /**
+   * Entries whose task id is NOT in the baseline — the number that gates.
+   *
+   * Creation date deliberately does not appear in this calculation. Acceptance
+   * rows are written throughout a task's life (reparenting, child completion,
+   * an edited criterion), so drift is introduced by a WRITE while a birthday is
+   * fixed forever. Keying the gate on creation date exempts every old task from
+   * every future regression: measured on this store, **223 tasks created before
+   * the convention settled have been updated since**, and a date-keyed gate is
+   * blind to new drift across 4,459 of 5,068 rows — 88% of the store.
+   *
+   * A baseline of known ids fixes that. It is wrong about the past on purpose
+   * so it can be right about the future: the 163 historical rows stay quiet,
+   * and a pre-June task that drifts tomorrow is a net-add and fails.
+   */
+  readonly unbaselined: readonly AcceptanceDriftEntry[];
+  /** Baselined ids that no longer drift — safe to prune. */
+  readonly staleBaselineIds: readonly string[];
+  /** Absolute path of the baseline file, whether or not it exists. */
+  readonly baselinePath: string;
+}
+
+/**
+ * Read the per-install baseline of task ids whose drift is accepted.
+ *
+ * A missing or unreadable file yields an empty set, so a first run reports
+ * everything rather than silently passing. Failing open here would reproduce
+ * the defect this module exists to catch.
+ */
+export function readAcceptanceDriftBaseline(baselinePath: string): ReadonlySet<string> {
+  if (!existsSync(baselinePath)) return new Set();
+  try {
+    const parsed = JSON.parse(readFileSync(baselinePath, 'utf-8')) as { taskIds?: unknown };
+    if (!Array.isArray(parsed.taskIds)) return new Set();
+    return new Set(parsed.taskIds.filter((id): id is string => typeof id === 'string'));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Write the baseline from a scan, accepting every current entry.
+ *
+ * @param scan - a completed scan; its entries become the accepted set.
+ * @returns the number of ids recorded.
+ */
+export function writeAcceptanceDriftBaseline(scan: AcceptanceDriftScanResult): number {
+  const taskIds = [...scan.entries].map((e) => e.taskId).sort();
+  writeFileSync(
+    scan.baselinePath,
+    `${JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        note:
+          'Acceptance drift accepted for these task ids (gh#1290). Any OTHER drifting task fails ' +
+          '`cleo doctor acceptance-drift`, regardless of when it was created. Regenerate with ' +
+          '`cleo doctor acceptance-drift --update-baseline`.',
+        taskIds,
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+  return taskIds.length;
 }
 
 /** A row as returned by the scan query. */
@@ -231,6 +314,8 @@ export function classifyAcceptanceDrift(row: {
  */
 export function scanAcceptanceDrift(projectRoot: string): AcceptanceDriftScanResult {
   const storePath = join(projectRoot, '.cleo', LIVE_STORE_FILENAME);
+  const baselinePath = join(projectRoot, '.cleo', ACCEPTANCE_DRIFT_BASELINE_FILE);
+  const baselined = readAcceptanceDriftBaseline(baselinePath);
   const empty: Readonly<Record<AcceptanceDriftKind, number>> = {
     'json-never-projected': 0,
     'rows-unreadable': 0,
@@ -247,6 +332,9 @@ export function scanAcceptanceDrift(projectRoot: string): AcceptanceDriftScanRes
       entries: [],
       byKind: empty,
       currentEraDrift: 0,
+      unbaselined: [],
+      staleBaselineIds: [],
+      baselinePath,
     };
   }
 
@@ -299,7 +387,13 @@ export function scanAcceptanceDrift(projectRoot: string): AcceptanceDriftScanRes
         childRowCount,
         appWritten: (row.created_at ?? '').includes('T'),
         createdAt: row.created_at,
-        legacyEra: (row.created_at ?? '') < ACCEPTANCE_CONVENTION_SETTLED_AT,
+        // Fail CLOSED on a missing date: an unknown creation date must not
+        // buy an exemption. Measured 0 null/empty in 5,068 rows, so this
+        // guards a direction rather than a known victim.
+        legacyEra:
+          row.created_at !== null &&
+          row.created_at !== '' &&
+          row.created_at < ACCEPTANCE_CONVENTION_SETTLED_AT,
       });
     }
 
@@ -311,6 +405,9 @@ export function scanAcceptanceDrift(projectRoot: string): AcceptanceDriftScanRes
       entries,
       byKind,
       currentEraDrift: entries.filter((e) => !e.legacyEra).length,
+      unbaselined: entries.filter((e) => !baselined.has(e.taskId)),
+      staleBaselineIds: [...baselined].filter((id) => !entries.some((e) => e.taskId === id)),
+      baselinePath,
     };
   } finally {
     snapshot.close();

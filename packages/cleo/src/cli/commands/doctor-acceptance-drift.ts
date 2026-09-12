@@ -19,7 +19,10 @@
  */
 
 import { getProjectRoot } from '@cleocode/core';
-import { scanAcceptanceDrift } from '@cleocode/core/doctor/acceptance-drift.js';
+import {
+  scanAcceptanceDrift,
+  writeAcceptanceDriftBaseline,
+} from '@cleocode/core/doctor/acceptance-drift.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -41,9 +44,13 @@ export const doctorAcceptanceDriftCommand = defineCommand({
       'table, separating legacy-convention rows from current-era regressions. Read-only — repairs nothing.',
   },
   args: {
+    'update-baseline': {
+      type: 'boolean',
+      description: 'Accept every current drifting task, so only NEW drift fails afterwards',
+    },
     all: {
       type: 'boolean',
-      description: 'Exit non-zero for legacy-era entries too, not only current-era drift',
+      description: 'Exit non-zero for every drifting task, baselined or not',
     },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },
@@ -57,7 +64,16 @@ export const doctorAcceptanceDriftCommand = defineCommand({
       operation: 'doctor.acceptance-drift.run',
     });
 
-    const failing = ctx.args.all ? result.entries.length : result.currentEraDrift;
+    if (ctx.args['update-baseline']) {
+      writeAcceptanceDriftBaseline(result);
+      return;
+    }
+
+    // Baseline membership, NOT creation date, decides what fails. Acceptance
+    // rows are written throughout a task's life, so drift is introduced by a
+    // WRITE while a birthday is fixed forever — keying the gate on creation
+    // date would exempt 4,459 of 5,068 tasks from every future regression.
+    const failing = ctx.args.all ? result.entries.length : result.unbaselined.length;
     if (failing > 0 && (process.exitCode === undefined || process.exitCode === 0)) {
       process.exitCode = 1;
     }

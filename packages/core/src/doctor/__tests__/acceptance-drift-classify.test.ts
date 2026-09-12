@@ -10,8 +10,52 @@
  * @task T12157
  */
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { classifyAcceptanceDrift } from '../acceptance-drift.js';
+import type { AcceptanceDriftEntry, AcceptanceDriftScanResult } from '../acceptance-drift.js';
+import {
+  classifyAcceptanceDrift,
+  readAcceptanceDriftBaseline,
+  writeAcceptanceDriftBaseline,
+} from '../acceptance-drift.js';
+
+/** A drifting entry created before the convention settled. */
+function entry(taskId: string, createdAt: string): AcceptanceDriftEntry {
+  return {
+    taskId,
+    type: 'task',
+    kind: 'count-mismatch',
+    jsonCount: 3,
+    textRowCount: 1,
+    childRowCount: 1,
+    appWritten: true,
+    createdAt,
+    legacyEra: createdAt < '2026-06-01',
+  };
+}
+
+/** A scan result carrying nothing but the baseline path. */
+function emptyScan(baselinePath: string): AcceptanceDriftScanResult {
+  return {
+    storePath: '/dev/null',
+    storeExists: true,
+    tasksScanned: 0,
+    rawDisagreements: 0,
+    entries: [],
+    byKind: {
+      'json-never-projected': 0,
+      'rows-unreadable': 0,
+      'legacy-children-omitted': 0,
+      'count-mismatch': 0,
+    },
+    currentEraDrift: 0,
+    unbaselined: [],
+    staleBaselineIds: [],
+    baselinePath,
+  };
+}
 
 describe('classifyAcceptanceDrift — the live convention is json == text + child', () => {
   it('treats an empty task as consistent', () => {
@@ -76,5 +120,41 @@ describe('classifyAcceptanceDrift — the live convention is json == text + chil
         classifyAcceptanceDrift({ jsonCount: 0, textRowCount: 0, childRowCount: 4 }),
       ).not.toBeNull();
     });
+  });
+});
+
+describe('baseline gating — creation date must not decide what fails', () => {
+  it('reads an absent baseline as empty rather than as "everything accepted"', () => {
+    // Failing OPEN here would reproduce the defect this module exists to catch:
+    // a check that reports success for work it did not do.
+    expect(readAcceptanceDriftBaseline('/nonexistent/acceptance-drift-baseline.json').size).toBe(0);
+  });
+
+  it('round-trips a baseline and excludes exactly the recorded ids', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'accept-drift-'));
+    const baselinePath = join(dir, 'acceptance-drift-baseline.json');
+    try {
+      const legacyDrift = entry('T0001', '2026-04-01T00:00:00.000Z');
+      const newDriftOnOldTask = entry('T0002', '2026-04-01T00:00:00.000Z');
+
+      // Accept only the first.
+      writeAcceptanceDriftBaseline({
+        ...emptyScan(baselinePath),
+        entries: [legacyDrift],
+      });
+
+      const baselined = readAcceptanceDriftBaseline(baselinePath);
+      expect(baselined.has('T0001')).toBe(true);
+
+      // THE REGRESSION THIS GUARDS: T0002 was created in April, so a gate keyed
+      // on creation date calls it "legacy" and stays green forever. Measured on
+      // the real store, 223 pre-convention tasks have been updated since — a
+      // date-keyed gate is blind to new drift across 88% of it.
+      const unbaselined = [legacyDrift, newDriftOnOldTask].filter((e) => !baselined.has(e.taskId));
+      expect(unbaselined.map((e) => e.taskId)).toEqual(['T0002']);
+      expect(unbaselined[0]?.legacyEra).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
