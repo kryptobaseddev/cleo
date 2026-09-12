@@ -580,6 +580,82 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-workflow-cleo-commands.mjs',
         description: 'Every `cleo` command invoked by a workflow (or its template) exists',
       },
+      // ---------------------------------------------------------------------
+      // T12122 (GH #1251): the nine gates below were documented in AGENTS.md's
+      // gate table but were NEVER bundled here, so `cleo check arch` reported
+      // a green that covered 10 of the 15 documented gates. Every agent is
+      // told to run this command to self-check before pushing, so the command
+      // silently covering two-thirds of its own documentation is the same
+      // defect class as a filter that is accepted and not applied.
+      //
+      // All nine were measured before bundling: none needs a build, network
+      // access, or non-trivial time (~800 ms for all nine combined), so there
+      // was no reason for the omission and nothing has to be skipped.
+      // ---------------------------------------------------------------------
+      {
+        id: 'gate-11',
+        task: 'T9802',
+        script: 'scripts/lint-paths-ssot.mjs',
+        description:
+          'env-paths / XDG_DATA_HOME / worktree path strings live in packages/paths only',
+      },
+      {
+        id: 'gate-12',
+        task: 'T9860',
+        script: 'scripts/lint-deployed-template-parity.mjs',
+        description: '.github/workflows/* matches the rendered core workflow templates',
+      },
+      {
+        id: 'gate-13',
+        task: 'T11281',
+        script: 'scripts/lint-node-engine-ssot.mjs',
+        description: 'Every package engines.node equals the root floor',
+      },
+      {
+        id: 'gate-14',
+        task: 'T11400',
+        script: 'scripts/lint-publish-surface.mjs',
+        description: 'release.yml publish_pkg list is the npm publish SSoT',
+      },
+      {
+        id: 'gate-15',
+        task: 'T11418',
+        script: 'scripts/lint-no-runtime-in-contracts.mjs',
+        description: 'packages/contracts is types-only (no net-new runtime helper)',
+      },
+      {
+        id: 'gate-16',
+        task: 'T11409',
+        script: 'scripts/lint-tools-vs-skills-boundary.mjs',
+        description: 'Atomic tool primitives are defined only in their home packages',
+      },
+      {
+        id: 'gate-17',
+        task: 'T11389',
+        script: 'scripts/lint-no-crate-publish.mjs',
+        description: 'Every crate declares publish = false (zero crates.io)',
+      },
+      {
+        id: 'gate-18',
+        task: 'T11783',
+        script: 'scripts/lint-llm-chokepoint.mjs',
+        description: 'LLM resolution + client/transport construction stay in the chokepoint',
+      },
+      {
+        id: 'gate-19',
+        task: 'T12069',
+        script: 'scripts/lint-injection-commands.mjs',
+        description: 'Every `cleo` command named in CLEO-INJECTION.md exists',
+      },
+      {
+        // T12122: the gate on the gates. Without it, this list and the
+        // AGENTS.md table drift apart again the moment someone adds one and
+        // not the other — which is exactly how the 10-vs-15 split happened.
+        id: 'gate-20',
+        task: 'T12122',
+        script: 'scripts/lint-arch-gate-parity.mjs',
+        description: 'The bundled gate list and the AGENTS.md gate table are the same set',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];
