@@ -45,9 +45,13 @@ describe('renderOutputMode — id', () => {
     expect(out.text).toBe('S-42');
   });
 
-  it('returns typed empty reason text for an unrecognised shape', () => {
+  it('emits NOTHING (not prose) for an unrecognised shape, with a typed reason', () => {
+    // gh#1317: `--output id` is contracted to one ID per line, so an empty
+    // result must be an EMPTY STREAM. This previously returned the sentence
+    // `No ids.`, which a `while read` loop consumes as the ids `No` and `ids.`.
     const out = renderOutputMode('id', { value: 7, foo: 'bar' });
-    expect(out.text).toBe('No ids.');
+    expect(out.text).toBe('');
+    expect(out.text).not.toContain('No ids');
     expect(out.emptyReason).toBe('no-renderable-ids');
   });
 
@@ -189,9 +193,13 @@ describe('renderOutputMode — table', () => {
     expect(text).toContain('T9930');
   });
 
-  it('returns "No rows." for an empty list', () => {
+  it('emits NOTHING for an empty list — TSV with zero rows is zero bytes', () => {
+    // gh#1317, the `--output table` half: prose in a TSV stream is as wrong as
+    // prose in an ID stream, and the issue only named the ID case.
     const out = renderOutputMode('table', { tasks: [] });
-    expect(out.text).toBe('No rows.');
+    expect(out.text).toBe('');
+    expect(out.text).not.toContain('No rows');
+    expect(out.emptyReason).toBe('no-renderable-records');
   });
 });
 
@@ -280,9 +288,12 @@ describe('renderOutputMode — {results: [...]} envelopes (T12067)', () => {
     expect(renderOutputMode('count', { results: [{ id: 'A' }, { id: 'B' }] }).text).toBe('2');
   });
 
-  it('reports empty for a genuinely empty result set', () => {
+  it('reports empty for a genuinely empty result set — via emptyReason, not prose', () => {
+    // The reason survives; only its DESTINATION changes. `--output count`
+    // already answered `0` for this same query, which is the asymmetry that
+    // made the defect visible (gh#1317).
     const out = renderOutputMode('id', { results: [], total: 0 });
-    expect(out.text).toBe('No ids.');
+    expect(out.text).toBe('');
     expect(out.emptyReason).toBe('no-renderable-ids');
   });
 
