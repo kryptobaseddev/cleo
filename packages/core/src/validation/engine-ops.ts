@@ -538,14 +538,43 @@ export async function validateGateVerify(
         }
 
         if (criticalTargets.length > 0 && !overrideAtoms.some(isHardAtom)) {
+          // gh#1278(b): the remediation MUST be derived from the refused gate's
+          // own minimum, never spelled out here. The previous message
+          // interpolated the gate into a fixed `commit:<sha>;files:<paths>`
+          // example, so refusing `testsPassed` advertised exactly the evidence
+          // that gate rejects — a surface whose advice is computed independently
+          // of the rule it describes (ADR-092).
+          const refused = criticalTargets[0] as VerificationGate;
+          const perGate = checkGateEvidenceMinimumDetailed(refused, []);
+          const remedy =
+            perGate?.hint ??
+            `cleo verify ${taskId} --gate ${refused} --evidence "<evidence this gate accepts>"`;
           return engineError(
             'E_CRITICAL_GATE_OVERRIDE_REJECTED',
             `T9245: gate(s) ${criticalTargets.join(', ')} reject CLEO_OWNER_OVERRIDE-only ` +
-              `evidence. Critical gates require a hard atom (commit/files/test-run/tool). ` +
-              `Re-run 'cleo verify ${taskId} --gate ${criticalTargets[0]} --evidence "commit:<sha>;files:<paths>"' ` +
-              `with real evidence. Override may still bypass non-critical gates ` +
+              `evidence. Override may still bypass non-critical gates ` +
               `(qaPassed, documented, securityPassed, cleanupDone).`,
+            { fix: remedy },
           );
+        }
+
+        // gh#1278(a): the override path must ALSO satisfy each critical gate's
+        // per-gate minimum. Without this the two branches diverge — the
+        // non-override path applies the minimum below, the override path did
+        // not, so `files:` satisfied `testsPassed` through the override route
+        // while being correctly refused on the ordinary one.
+        //
+        // Scoped to `criticalTargets` deliberately: qaPassed, documented,
+        // securityPassed and cleanupDone legitimately pass on override-only
+        // evidence per ADR-051, and widening this to all `targets` would break
+        // that (asserted in gate-verify-hint.test.ts).
+        for (const criticalGate of criticalTargets) {
+          const missing = checkGateEvidenceMinimumDetailed(criticalGate, overrideAtoms);
+          if (missing) {
+            return engineError('E_EVIDENCE_INSUFFICIENT', missing.message, {
+              fix: missing.hint,
+            });
+          }
         }
         // Preserve any real hard atoms alongside the override marker (audit
         // trail); non-critical gates may still pass with override-only.
