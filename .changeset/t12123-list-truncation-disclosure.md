@@ -56,6 +56,20 @@ returns nothing from a sibling command. `--all` is uniform, so it is the spellin
 help string and registry description here. `find --all` (plus `find --limit 0` meaning
 unlimited, and a fix for the self-refuting envelope) follows in its own PR.
 
+## The remedy is named by the command that owns the flag
+
+The warning is emitted from the **generic** `cliOutput`, which every command reaches — `cleo find` included. An earlier revision printed *"Re-run with `--all` (or `--limit 0`)"* unconditionally, which is advice that is wrong for most commands and **actively broken for `find`**: no `all` arg is declared there, and `--limit 0` is `slice(0, 0)` — zero rows.
+
+Composed with the unknown-flag guard (#1276) it degrades further. `assertKnownFlags` runs at the `lazyCommand` chokepoint every manifest command passes through, and `--all` is not a global flag — so the printed remedy becomes a hard `E_UNKNOWN_FLAG` exit 6. **The CLI would refuse the invocation it had just told the caller to run.** Neither PR is wrong alone; the defect exists only in the composition.
+
+There is also a second turn: `cleo find "x" --limit 0 --output id` takes the zero-results branch, which calls `cliOutput` again — so the same bad advice is reprinted immediately after following it produced zero rows.
+
+Fixed by moving the remedy to the command that owns the flag. `CliOutputOptions` gains an optional `enumerateAllFlag`; `list` passes `'--all'`; every other command passes nothing and gets `--limit <n>` / `--offset <n>` advice, which is true everywhere.
+
+Deliberately **not** an allow-list of commands inside the renderer. That would put the same fact in two places and let a command that gains or loses the flag drift out of step with the message. Keeping the spelling with its owner means there is no second list to update.
+
+Two tests pin it, and both fail against the previous revision: a command that declares no flag must never see `--all`, and `--limit 0` must never be suggested at all. The earlier test asserting `--all` unconditionally was **pinning the defect**, and was rewritten rather than kept.
+
 ## Two deliberate non-changes
 
 - **Written to stderr, never stdout.** `--output id` exists to be piped; a warning line inside the id stream would corrupt the very consumer it protects (ADR-086 — one clean payload per call on stdout).

@@ -125,6 +125,9 @@ export const listCommand = defineCommand({
 
     const filtered = (data?.filtered as number) ?? tasks.length;
     const page = response.page ?? createPage({ total: filtered, limit, offset });
-    cliOutput(data, { command: 'list', operation: 'tasks.list', page });
+    // `list` is the command that declares `--all`, so it is the command that
+    // names it as the truncation remedy. Commands without the flag pass nothing
+    // and get --limit/--offset advice instead.
+    cliOutput(data, { command: 'list', operation: 'tasks.list', page, enumerateAllFlag: '--all' });
   },
 });

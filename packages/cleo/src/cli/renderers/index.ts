@@ -317,6 +317,15 @@ export interface CliOutputOptions {
   operation?: string;
   /** Pagination metadata for canonical envelope `page` field. */
   page?: FormatOptions['page'];
+  /**
+   * Spelling of this command's "return everything" flag, e.g. `'--all'`.
+   *
+   * Supplied ONLY by commands that actually declare such a flag. The truncation
+   * warning names it as the remedy when present, and falls back to
+   * `--limit`/`--offset` advice when absent — so a command without the flag can
+   * never print a remedy its own arg parser would reject.
+   */
+  enumerateAllFlag?: string;
   /** Extra metadata extensions merged into `meta`. */
   extensions?: Record<string, unknown>;
   /**
@@ -372,7 +381,10 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     // `--output id` stream stays parseable (ADR-086).
     if (outputMode === 'id' || outputMode === 'table') {
       const facts = detectTruncation(data, opts.page);
-      if (facts) process.stderr.write(`${formatTruncationWarning(facts, outputMode)}\n`);
+      if (facts)
+        process.stderr.write(
+          `${formatTruncationWarning(facts, outputMode, opts.enumerateAllFlag)}\n`,
+        );
     }
     return;
   }
@@ -392,7 +404,8 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     // same skew. It has it: `--summary` is one line per RETURNED record, so a
     // truncated page reads as the whole set here too.
     const facts = detectTruncation(data, opts.page);
-    if (facts) process.stderr.write(`${formatTruncationWarning(facts, 'summary')}\n`);
+    if (facts)
+      process.stderr.write(`${formatTruncationWarning(facts, 'summary', opts.enumerateAllFlag)}\n`);
     return;
   }
 

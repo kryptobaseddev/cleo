@@ -439,13 +439,34 @@ export type TruncatableRender = Extract<OutputMode, 'id' | 'table'> | 'summary';
  *
  * @task T12123
  */
-export function formatTruncationWarning(facts: TruncationFacts, mode: TruncatableRender): string {
+export function formatTruncationWarning(
+  facts: TruncationFacts,
+  mode: TruncatableRender,
+  enumerateAllFlag?: string,
+): string {
   const surface = mode === 'summary' ? '--summary' : `--output ${mode}`;
-  return (
-    `cleo: TRUNCATED — ${surface} returned ${facts.returned} of ${facts.total} matching rows. ` +
-    'Re-run with --all (or --limit 0) to enumerate every match, ' +
-    'or pass --limit/--offset to page deliberately.'
-  );
+  const head = `cleo: TRUNCATED — ${surface} returned ${facts.returned} of ${facts.total} matching rows. `;
+
+  // The remedy is only printed when the CALLING COMMAND declares a flag that
+  // actually enumerates everything, and the caller supplies its spelling. This
+  // warning is emitted from the generic `cliOutput`, which every command reaches
+  // — so an unconditional "re-run with --all (or --limit 0)" is advice that is
+  // wrong for most of them. On `cleo find` specifically BOTH halves are wrong:
+  // no `all` arg is declared, and `--limit 0` is `slice(0, 0)` — zero rows. Once
+  // the unknown-flag guard lands, that suggestion becomes a hard
+  // E_UNKNOWN_FLAG exit rather than a harmless one, i.e. the CLI refusing the
+  // invocation it just told the caller to run.
+  //
+  // Keeping the flag's spelling with the command that owns it means a command
+  // that gains or loses the flag cannot fall out of step with this message —
+  // there is no second list here to update.
+  if (enumerateAllFlag) {
+    return (
+      `${head}Re-run with ${enumerateAllFlag} to enumerate every match, ` +
+      'or pass --limit/--offset to page deliberately.'
+    );
+  }
+  return `${head}Pass --limit <n> / --offset <n> to page deliberately, or narrow the query.`;
 }
 
 export function renderOutputMode(mode: OutputMode, data: unknown): OutputModeResult {

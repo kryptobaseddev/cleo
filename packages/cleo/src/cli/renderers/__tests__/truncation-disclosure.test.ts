@@ -99,12 +99,41 @@ describe('detectTruncation (T12123)', () => {
 });
 
 describe('formatTruncationWarning (T12123)', () => {
-  it('names the counts and the exact remedy', () => {
-    const text = formatTruncationWarning({ returned: 10, total: 1075 }, 'id');
+  it('names the counts and the remedy the CALLING COMMAND actually has', () => {
+    const text = formatTruncationWarning({ returned: 10, total: 1075 }, 'id', '--all');
     expect(text).toContain('TRUNCATED');
     expect(text).toContain('--output id returned 10 of 1075 matching rows');
     expect(text).toContain('--all');
-    expect(text).toContain('--limit 0');
+  });
+
+  /**
+   * The previous revision of the test above asserted `--all` and `--limit 0`
+   * UNCONDITIONALLY, which pinned a defect rather than a behaviour.
+   *
+   * This warning is emitted from the generic `cliOutput`, which every command
+   * reaches — `cleo find` included. On `find` both halves of that advice are
+   * wrong: no `all` arg is declared, and `--limit 0` is `slice(0, 0)`, i.e.
+   * ZERO rows. Worse in composition: once the unknown-flag guard lands, the
+   * suggested `--all` becomes a hard E_UNKNOWN_FLAG exit — the CLI refusing the
+   * invocation it had just printed.
+   *
+   * So the remedy is supplied by the command that owns the flag, and a command
+   * that does not own one gets paging advice that is true everywhere.
+   */
+  it('never names --all when the command did not declare it', () => {
+    const text = formatTruncationWarning({ returned: 20, total: 260 }, 'id');
+    expect(text).toContain('TRUNCATED');
+    expect(text).toContain('--output id returned 20 of 260 matching rows');
+    expect(text).not.toContain('--all');
+    expect(text).toContain('--limit');
+    expect(text).toContain('--offset');
+  });
+
+  it('never suggests --limit 0, which means "zero rows" on find', () => {
+    expect(formatTruncationWarning({ returned: 20, total: 260 }, 'id')).not.toContain('--limit 0');
+    expect(formatTruncationWarning({ returned: 10, total: 1075 }, 'id', '--all')).not.toContain(
+      '--limit 0',
+    );
   });
 
   it('names --summary correctly rather than as an --output value', () => {
