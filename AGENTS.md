@@ -59,6 +59,23 @@ cleo check arch          # baseline mode — regressions only
 cleo check arch --strict # zero-tolerance
 ```
 
+`cleo check arch` runs **every gate in the table below** — gate 20
+(`lint-arch-gate-parity`) fails the build if the two ever disagree again. Until
+T12122 they did: the runner bundled 10 of the 15 then-documented gates, so the
+command reported a green that had never exercised the other five, and four
+gates it *did* run were absent from this table. A tool that silently covers
+part of what its documentation claims is the same defect as a filter that is
+accepted and not applied — and every agent is told to run this command to
+self-check before pushing.
+
+Note that the runner's `gate-N` ids and this table's row numbers are
+independent and do collide (runner `gate-6` is row 16's gate). Join on the
+SCRIPT PATH, which is what gate 20 does.
+
+`--strict` is aspirational, not a passing gate: several gates carry real
+baselines, so `cleo check arch --strict` fails today by design. Baseline mode
+(the default) is the one that must stay green.
+
 CI job: `Architectural Boundary Check (SG-ARCH-SOLID T9837)` (baseline mode by default).
 
 | # | Gate                                  | Script                                          | Baseline                                          | Rule                                                                                  |
@@ -78,14 +95,19 @@ CI job: `Architectural Boundary Check (SG-ARCH-SOLID T9837)` (baseline mode by d
 | 13 | LLM Chokepoint Guard (T11783)         | `scripts/lint-llm-chokepoint.mjs`               | `scripts/.lint-llm-chokepoint-baseline.json`      | LLM resolution + client/transport construction live ONLY in the chokepoint (`resolveLLMForSystem`/`role-resolver.ts`/`api-mode.ts` + the single `model-runner.ts` + `transports/**`). Forbidden out-of-chokepoint (6 rule classes, each baselined): `new *Transport(`, AI-SDK `create{Anthropic,OpenAI,OpenAICompatible,GoogleGenerativeAI}(`, raw `new {Anthropic,OpenAI}(`, `process.env.*_API_KEY` reads, hardcoded model-id literals (core resolution/consumer code), `resolveCredentials(` for inline client construction. Structural fix for E9 resolver divergence (PR #954). Per-line opt-out `// llm-resolve-allowed: <reason>`. |
 | 14 | Injection Command Existence (T12069)   | `scripts/lint-injection-commands.mjs`           | inline (`RETIRED_COMMAND_ALLOWLIST`)              | Every `cleo <verb> [<sub>]` named in `packages/core/templates/CLEO-INJECTION.md` MUST resolve against the CLI's command manifest. That template is injected verbatim into EVERY spawned agent and is phrased as instruction, so a documented-but-missing command burns a turn and — worse — teaches the agent the whole subsystem is broken. Measured 2026-08-06: 5 of 7 "first-reach" Nexus commands did not exist (`nexus report`/`brain find`/`compare`/`shared`/`synthesize`, plus `nexus admin`). Parses manifest + command modules from SOURCE (never `dist/`), so CI needs no build. A verb named while documenting its own REMOVAL goes in `RETIRED_COMMAND_ALLOWLIST` with rationale. |
 | 15 | Workflow Command Existence (T12093)    | `scripts/lint-workflow-cleo-commands.mjs`       | none (zero-tolerance)                             | Gate 14's rule, applied to `.github/workflows/*.yml` + `packages/core/templates/workflows/*.yml.tmpl`. Every `cleo <verb> [<sub>]` in a `run:` block MUST resolve against the command manifest. Worse than gate 14's case because the failure is delayed and expensive: `release-prepare.yml` ran `cleo version-bump` (never existed) and then `cleo release changelog` (no such sub-verb), each at the END of `Prepare bump-PR`, so every dispatch cost a full green preflight (~21 min) to discover ONE of them — and the shipped template carried the same break into every consuming project since PR #868. Scans `run:` only (a `name:` is a display string) and anchors the match so `@cleocode/cleo exec …` is not read as `cleo exec`. |
+| 16 | Bare `getActiveSession()` (T11640)     | `scripts/lint-no-bare-get-active-session.mjs`   | inline (11-callsite baseline)                     | No NET-NEW bare `getActiveSession()` callsite — use `resolveCurrentSession`, which honours the session-scope cascade instead of silently binding whatever session happens to be active. |
+| 17 | Per-domain DB singleton (T12041)       | `scripts/lint-no-domain-db-singleton.mjs`       | inline (8-violation baseline)                     | No NET-NEW per-domain DB handle cache. Bind through the `ProjectStore`/`GlobalStore` ports so `cleo health` can enumerate every handle (the E6 cutover, ADR-068). |
+| 18 | Vitest memory safety (T12087)          | `scripts/lint-vitest-memory-safe.mjs`           | none (zero-tolerance)                             | **ZERO TOLERANCE.** Every `vitest.config.*` MUST spread `MEMORY_SAFE_TEST_DEFAULTS` (worker cap + heap cap). An unbounded fork pool froze this machine twice, and it only ever bites LOCALLY — CI runners have 2-4 cores, so the unsafe default passes there and takes down the developer instead. |
+| 19 | CLI startup barrel imports (T12076)    | `scripts/lint-cli-startup-barrel-imports.mjs`   | inline (106-import ratchet)                       | Ratchet, not zero-tolerance: the count of static `@cleocode/core` barrel imports in the CLI may fall but never rise. Each one forces the full 1266-module core graph to load before any command runs (measured 2.54 s for the barrel vs 0.12 s for a deep module). |
+| 20 | Arch-gate parity (T12122)              | `scripts/lint-arch-gate-parity.mjs`             | none (zero-tolerance)                             | **The gate on the gates.** The gate list bundled into `cleo check arch` and THIS table MUST name the same set of scripts. Measured 2026-09-12: the runner bundled 10 while this table documented 15, drifting in both directions — so every agent told to run `cleo check arch` before pushing got a green covering two-thirds of the documented gates. Joins on script PATH, never gate number (the two numbering schemes already collide: runner `gate-6` is row 16's gate, not row 6's). |
 
 **Common modes (all gates):** `--strict` zero-tolerance · `--baseline` regenerate · default fail-on-net-add.
 
 **Per-line opt-outs (trailing comment):** `// define-command-ssot-allowed`, `// db-open-allowed: <reason>`, `// fan-out-ok: <reason>`, `// ssot-exempt-ok: <reason>`, `// cli-boundary-ok: <reason>`, `// cli-boundary-file-ok: <reason>` (first 20 lines), `// llm-resolve-allowed: <reason>`.
 
-**Exempt by convention (Gate 6):** functions named `*Command` / `make*Command` (citty factory helpers).
+**Exempt by convention (CLI package boundary, row 6):** functions named `*Command` / `make*Command` (citty factory helpers).
 
-### DB Open Guard — canonical allowlist (Gate 3)
+### DB Open Guard — canonical allowlist (row 3)
 
 Reduced to **3 path entries** after the E6 store-rewrite cascade (T11521–T11528) routed every per-domain accessor through `openDualScopeDb` (T11529 · E6-L9). The gate now runs in `--strict` mode (zero tolerance).
 
@@ -179,9 +201,28 @@ After adoption: surfaces in `cleo worktree list` tagged `source: claude-agent`, 
 
 Canonical `ct-*` skills under `packages/skills/skills/` describe how CLEO works to every spawned agent. When code changes but skill text doesn't, agents act on stale instructions.
 
-**Rule:** when you edit a path declared in the coverage map (`packages/skills/internal/skill-coverage.yml`), update the corresponding skill in the same PR — or acknowledge via commit trailer `Skill-Drift-Acknowledged: <reason>`. CI gate: `Skill Drift Check` (fails with `E_SKILL_DRIFT_UNACKNOWLEDGED`).
+**Convention:** when you edit a path declared in the coverage map (`packages/skills/internal/skill-coverage.yml`), update the corresponding skill in the same PR — or acknowledge via commit trailer `Skill-Drift-Acknowledged: <reason>`.
 
-**Tier-0 skills — NO trailer override permitted:**
+> ⚠️ **NOT ENFORCED — this is a convention, not a gate (T12124 · GH #1256).**
+> There is no `Skill Drift Check` job and no `E_SKILL_DRIFT_UNACKNOWLEDGED`
+> error: no script reads the coverage map, no workflow runs the check, and the
+> map itself holds exactly one entry (`cleo-validator`, tier 2) pointing at
+> paths its own comment says do not exist. The tier-0 skills listed below have
+> **no coverage entries at all**, so the "no trailer override" rule below
+> protects nothing today.
+>
+> This warning is here because the previous wording asserted a CI gate that
+> does not exist, and a false assurance is worse than none — it removes the
+> vigilance that would otherwise substitute for the missing mechanism. The risk
+> is not theoretical: `CLEO-INJECTION.md`, a tier-0 artifact injected verbatim
+> into every spawned agent, had drifted into describing bare `cleo show {id}`
+> as the "full task record" (it withholds `description`), which is the sentence
+> that produced the GH #1243 data-loss incident. **Until the gate exists, treat
+> skill updates as a manual responsibility on every PR.**
+>
+> Building it is tracked in T12124 · GH #1256.
+
+**Tier-0 skills — trailer override is not permitted BY CONVENTION (unenforced, see above):**
 
 - `ct-cleo` — CLI protocol + session lifecycle
 - `ct-orchestrator` — spawn/delegation contract
