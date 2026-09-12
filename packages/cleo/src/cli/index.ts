@@ -504,8 +504,26 @@ async function runMainWithLafsEnvelope(
       // envelope has been written, so the loop drains and the process exits.
       // The error branches above already `process.exit(1)` (which bypasses this
       // finally), so this runs only on the success path.
-      const { shutdownCliRuntime } = await import('@cleocode/core/internal');
-      await shutdownCliRuntime();
+      const { shutdownCliRuntime, armExitBackstop } = await import('@cleocode/core/internal');
+      const outcomes = await shutdownCliRuntime();
+
+      // T12115 — teardown is now deadline-bounded, so a wedged worker is
+      // abandoned rather than awaited. Say so on stderr (stdout carries exactly
+      // one LAFS envelope, ADR-086): a step that blew its budget is a leak, and
+      // the next report should name the subsystem instead of guessing.
+      const stalled = outcomes.filter((o) => !o.settled);
+      if (stalled.length > 0) {
+        process.stderr.write(
+          `cleo: teardown step(s) exceeded their deadline and were abandoned: ` +
+            `${stalled.map((o) => `${o.label} (${o.durationMs}ms)`).join(', ')}\n`,
+        );
+      }
+
+      // Last resort. The timer is unref'd, so a process whose loop drains
+      // normally exits on its own and never reaches this — the "drain, then
+      // exit" contract (ADR-039 / T9633) is preserved for every healthy
+      // command. It fires only in the case that previously hung forever.
+      armExitBackstop(0);
     }
   });
 }
