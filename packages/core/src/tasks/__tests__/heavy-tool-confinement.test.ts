@@ -16,11 +16,34 @@
  * unwrapped spawn, which the unit tests already cover.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { cgroupConfinementAvailable, withMemoryLimit } from '../heavy-tool-limit.js';
 
-const available = cgroupConfinementAvailable();
+/**
+ * Whether a transient scope can ACTUALLY be created here.
+ *
+ * `cgroupConfinementAvailable()` answers "is the machinery present" — the right
+ * question for production, where an unwrapped spawn is a safe degradation. It
+ * is the wrong question for a test, because a CI runner can have `systemd-run`
+ * on PATH and a user manager that answers `systemctl is-system-running`, and
+ * still refuse to create a scope (no session bus, no delegated cgroup). There
+ * the probe says yes and the scope fails, so the test fails for an environment
+ * reason rather than a code one.
+ *
+ * So: attempt a real, trivial scope once and believe the result.
+ */
+function canActuallyConfine(): boolean {
+  if (!cgroupConfinementAvailable()) return false;
+  const r = spawnSync(
+    'systemd-run',
+    ['--user', '--scope', '--quiet', '--collect', '-p', 'MemoryMax=64M', '--', 'true'],
+    { stdio: 'ignore', timeout: 15_000 },
+  );
+  return !r.error && r.status === 0;
+}
+
+const available = canActuallyConfine();
 
 /** Touch `mb` MiB for real — `Buffer.alloc` alone may never fault the pages in. */
 const GREEDY = (mb: number) =>
