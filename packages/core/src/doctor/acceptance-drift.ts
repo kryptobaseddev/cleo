@@ -56,6 +56,25 @@
  * therefore derives the answer from the data every time and never reads that
  * table.
  *
+ * ## This is an OPERATOR command, NOT a CI gate — deliberately
+ *
+ * The baseline is per-install and lives at `.cleo/acceptance-drift-baseline.json`,
+ * which `.cleo/.gitignore` excludes by design (line 25 is a blanket `*` with an
+ * explicit allow list, and this file is correctly not on it — see
+ * {@link ACCEPTANCE_DRIFT_BASELINE_FILE} for why it must not be tracked).
+ *
+ * So **in CI, or in any fresh clone, no baseline exists, every entry reports
+ * unbaselined, and this command exits non-zero.** That is not a bug to route
+ * around; it follows from the baseline being about rows in one store rather
+ * than about source files. Every other baselined check in this repo IS a CI
+ * gate whose baseline is tracked, so the next reader who sees
+ * `--update-baseline` and a `.cleo/*-baseline.json` will reasonably
+ * pattern-match this into `cleo check arch`. Do not.
+ *
+ * What CI *can* assert is the invariant that needs no per-install state: **no
+ * task created since the convention settled violates `json == text + child`.**
+ * That is a single query over the same data and it is clean in a fresh clone.
+ *
  * ## Scope: cardinality, not content
  *
  * This compares COUNTS — how many criteria each store holds. It cannot see a
