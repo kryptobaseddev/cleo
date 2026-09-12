@@ -6,7 +6,11 @@
  *
  * Three-tier escalation (T1681):
  *
- *   Tier 1 — BM25 / vector similarity (current: Jaccard trigrams or cosine):
+ *   Tier 1 — lexical OR vector similarity. NOT BM25, despite the historical
+ *     naming: there is no IDF, no term frequency and no length normalisation.
+ *     Two implementations, selected at runtime (see `runDuplicateCheck`):
+ *       - lexical: Jaccard over CHARACTER TRIGRAMS of a title-2x-weighted blob
+ *       - vector:  cosine over embeddings, when an embedding provider is loaded
  *     score >= 0.92 → reject (clear match)
  *     score <  0.50 → insert (clear different)
  *     score in [0.50, 0.92) → escalate to Tier 2
@@ -19,11 +23,11 @@
  *   Tier 3 — LLM reasoning (max 1 call per cleo add):
  *     are_duplicate=true  → reject
  *     are_duplicate=false → insert
- *     LLM error / timeout → fall back to BM25-only decision (never block on error)
+ *     LLM error / timeout → fall back to Tier-1-only decision (never block on error)
  *
- * Thresholds (original T1633 behavior preserved for BM25 clear-match path):
- *   BM25 score >= 0.85 → warning emitted to stderr (non-blocking)
- *   BM25 score >= 0.92 → rejected with E_DUPLICATE_TASK_LIKELY
+ * Thresholds (original T1633 behavior preserved for the Tier-1 clear-match path):
+ *   Tier-1 score >= 0.85 → warning emitted to stderr (non-blocking)
+ *   Tier-1 score >= 0.92 → rejected with E_DUPLICATE_TASK_LIKELY
  *
  * @epic T1627
  * @task T1633
@@ -38,17 +42,17 @@ import type { DataAccessor } from '../store/data-accessor.js';
 // Thresholds
 // ============================================================================
 
-/** BM25 score at which a non-blocking warning is emitted. */
+/** Tier-1 score at which a non-blocking warning is emitted. (Name kept: exported API.) */
 export const DUPLICATE_WARN_THRESHOLD = 0.85;
 
-/** BM25 score at which task creation is rejected (clear match — no escalation). */
+/** Tier-1 score at which creation is rejected (clear match). (Name kept: exported API.) */
 export const DUPLICATE_REJECT_THRESHOLD = 0.92;
 
 /**
- * BM25 lower bound for the ambiguous range.
+ * Tier-1 lower bound for the ambiguous range.
  * Scores below this are considered clear-different and skip Jaccard + LLM.
  */
-const BM25_ESCALATE_LOW = 0.5;
+const TIER1_ESCALATE_LOW = 0.5;
 
 /**
  * Jaccard reject threshold.
@@ -102,6 +106,14 @@ export interface DuplicateCheckResult {
    * Which tier produced the final decision.
    * @task T1681
    */
+  /**
+   * Which tier produced the decision.
+   *
+   * `'bm25'` is a HISTORICAL label for the Tier-1 measure, kept because it is
+   * emitted in the envelope and renaming it would break consumers. Tier 1 is
+   * not BM25 — see the module docblock. Reporting WHICH Tier-1 implementation
+   * ran (lexical vs vector) is tracked separately.
+   */
   tier?: 'bm25' | 'jaccard' | 'llm';
 }
 
@@ -131,7 +143,7 @@ export const DuplicateReasoningSchema = z.object({
 export type DuplicateReasoning = z.infer<typeof DuplicateReasoningSchema>;
 
 // ============================================================================
-// Similarity Primitives — Tier 1 (BM25 proxy)
+// Similarity Primitives — Tier 1 (lexical: character-trigram Jaccard)
 // ============================================================================
 
 /**
@@ -205,7 +217,7 @@ function buildSearchBlob(title: string, description: string): string {
  *
  * Uses Jaccard similarity over character trigrams of a weighted blob
  * (title 2×, description 1×). This is zero-dependency, deterministic,
- * and symmetrical. Used as the BM25 proxy in Tier 1.
+ * and symmetrical. This is the LEXICAL Tier-1 measure — it is not BM25.
  *
  * @param titleA - First title.
  * @param descA - First description.
@@ -267,7 +279,7 @@ function tokenise(text: string): string[] {
 
 /**
  * Build word-level n-gram set from title + description + labels.
- * This differs from the BM25 blob (which uses character trigrams, no labels).
+ * This differs from the Tier-1 lexical blob (character trigrams, no labels).
  *
  * @param title - Task title.
  * @param description - Task description.
@@ -275,7 +287,7 @@ function tokenise(text: string): string[] {
  * @returns Set of word unigrams + bigrams.
  */
 function buildWordNgramSet(title: string, description: string, labels: string[]): Set<string> {
-  // Title carries 2× weight via repetition (matches BM25 weighting)
+  // Title carries 2x weight via repetition (matches the Tier-1 blob weighting)
   const titleTokens = tokenise(title);
   const descTokens = tokenise(description);
   const labelTokens = labels.flatMap((l) => tokenise(l));
@@ -286,7 +298,7 @@ function buildWordNgramSet(title: string, description: string, labels: string[])
 
 /**
  * Compute Jaccard similarity over word-level n-grams including labels.
- * Used as Tier-2 discriminator when BM25 is ambiguous.
+ * Used as Tier-2 discriminator when the Tier-1 score is ambiguous.
  *
  * @param titleA - First title.
  * @param descA - First description.
@@ -314,27 +326,47 @@ export function computeJaccardWordSimilarity(
 // ============================================================================
 
 /**
- * Attempt to compute vector-based similarity for a single active task.
+ * Embed the incoming search blob ONCE for the whole duplicate check.
  *
- * Embeds the incoming blob and the candidate task's blob, then computes
- * cosine similarity from the dot product (assuming unit-norm vectors from
- * standard embedding models).
- *
- * Returns `null` when embedding is unavailable (triggers lexical fallback).
+ * Returns `null` when embedding is unavailable, which makes the caller fall
+ * back to the lexical (trigram) measure for every candidate.
  *
  * @param incomingBlob - Normalised search blob for the new task.
- * @param candidateBlob - Normalised search blob for the candidate task.
- * @returns Cosine similarity in [0, 1], or null when unavailable.
+ * @returns The incoming embedding, or `null` when embedding is unavailable.
+ */
+async function embedIncomingOnce(incomingBlob: string): Promise<Float32Array | null> {
+  try {
+    const { isEmbeddingAvailable, embedText } = await import('../memory/brain-embedding.js');
+    if (!isEmbeddingAvailable()) return null;
+    return (await embedText(incomingBlob)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cosine similarity between a PRE-COMPUTED incoming vector and a candidate blob.
+ *
+ * The incoming vector is computed once per duplicate check by
+ * {@link embedIncomingOnce} and passed in. It used to be embedded inside this
+ * function, which ran once per candidate — so a store with 1,126 active tasks
+ * embedded the same incoming text 1,126 times per `cleo add`. Only the candidate
+ * is embedded here.
+ *
+ * @param incomingVec - Pre-computed embedding of the incoming blob.
+ * @param candidateBlob - Candidate search blob to embed and compare.
+ * @returns Cosine similarity in [0, 1], or `null` when embedding is unavailable.
  */
 async function tryVectorSimilarity(
-  incomingBlob: string,
+  incomingVec: Float32Array,
   candidateBlob: string,
 ): Promise<number | null> {
   try {
     const { isEmbeddingAvailable, embedText } = await import('../memory/brain-embedding.js');
     if (!isEmbeddingAvailable()) return null;
 
-    const [vecA, vecB] = await Promise.all([embedText(incomingBlob), embedText(candidateBlob)]);
+    const vecA = incomingVec;
+    const vecB = await embedText(candidateBlob);
     if (!vecA || !vecB || vecA.length !== vecB.length) return null;
 
     // Cosine similarity (assumes unit-norm vectors from embedding model)
@@ -404,7 +436,7 @@ function buildDuplicateUserPrompt(
  *
  * Cost cap: max 1 call per `cleo add` invocation (enforced by the caller via
  * a `llmCallMade` flag). Never throws — returns null on error/timeout so the
- * caller can fall back to BM25-only decision.
+ * caller can fall back to a Tier-1-only decision.
  *
  * @param incomingTitle - Title of the task being added.
  * @param incomingDescription - Description of the task being added.
@@ -424,7 +456,7 @@ export async function callLlmDuplicateReasoning(
     const { resolveLLMForRole } = await import('../llm/role-resolver.js');
 
     // T9255: route through the role-based resolver. Duplicate-detection is a
-    // consolidation-tier call (LLM acts as the tie-breaker between BM25 and
+    // consolidation-tier call (LLM acts as the tie-breaker between Tier 1 and
     // Jaccard tiers). The resolver walks `llm.roles.consolidation` →
     // `llm.default` → `llm.daemon` → implicit fallback, preserving the
     // prior `config.llm.daemon.*` defaulting behaviour.
@@ -515,7 +547,7 @@ export async function callLlmDuplicateReasoning(
 
     return validation.data;
   } catch {
-    // LLM call errors always fall back to BM25-only decision
+    // LLM call errors always fall back to a Tier-1-only decision
     return null;
   }
 }
@@ -530,11 +562,11 @@ export async function callLlmDuplicateReasoning(
  *
  * Algorithm:
  *
- * Tier 1 — BM25 / vector similarity (per candidate):
+ * Tier 1 — lexical or vector similarity (per candidate):
  *   For each active task, compute vector cosine similarity (if embedding is available)
- *   or Jaccard character-trigram similarity as a proxy. This produces a BM25-like score.
+ *   Jaccard over character trigrams, or cosine over embeddings when a provider is loaded.
  *   - score >= DUPLICATE_REJECT_THRESHOLD (0.92): clear match → reject immediately.
- *   - score < BM25_ESCALATE_LOW (0.50): clear different → skip Tier 2 + 3 for this candidate.
+ *   - score < TIER1_ESCALATE_LOW (0.50): clear different → skip Tier 2 + 3 for this candidate.
  *   - score in [0.50, 0.92): ambiguous → collect for Tier-2 Jaccard evaluation.
  *
  * Tier 2 — Jaccard word n-grams (title+description+labels):
@@ -546,7 +578,7 @@ export async function callLlmDuplicateReasoning(
  *
  * Tier 3 — LLM reasoning (max 1 call per `cleo add`):
  *   Call the daemon provider with both task descriptions and the structured-output schema.
- *   On error/timeout: fall back to Tier-1 BM25 decision for the candidate (never block).
+ *   On error/timeout: fall back to the Tier-1 decision for the candidate (never block).
  *
  * @param title - Title of the task being added.
  * @param description - Description of the task being added (empty string if not provided).
@@ -587,12 +619,18 @@ export async function checkDuplicates(
     }
   })();
 
-  // ---- Tier 1: BM25 / vector ------------------------------------------------
-  // Candidates that need Tier-2 Jaccard evaluation (BM25 ambiguous range).
-  // Map: candidate → bm25Score
-  const tier1Ambiguous: Array<{ task: Task; bm25Score: number }> = [];
+  // Embed the incoming blob ONCE for the whole check. This used to happen inside
+  // `tryVectorSimilarity`, which runs once per candidate — so a store with 1,126
+  // active tasks embedded the same incoming text 1,126 times per `cleo add`.
+  // `null` here simply means every candidate uses the lexical measure.
+  const incomingVec = embeddingEnabled ? await embedIncomingOnce(incomingBlob) : null;
 
-  // Clear-match candidates (bm25 >= DUPLICATE_REJECT_THRESHOLD or >= DUPLICATE_WARN_THRESHOLD)
+  // ---- Tier 1: lexical or vector --------------------------------------------
+  // Candidates that need Tier-2 Jaccard evaluation (Tier-1 ambiguous range).
+  // Map: candidate → tier1Score
+  const tier1Ambiguous: Array<{ task: Task; tier1Score: number }> = [];
+
+  // Clear-match candidates (tier1 >= DUPLICATE_REJECT_THRESHOLD or >= DUPLICATE_WARN_THRESHOLD)
   const clearMatchCandidates: DuplicateCandidate[] = [];
 
   for (const task of activeTasks) {
@@ -604,31 +642,31 @@ export async function checkDuplicates(
 
     const candidateBlob = buildSearchBlob(task.title, task.description ?? '');
 
-    let bm25Score: number;
-    if (embeddingEnabled) {
-      const vecScore = await tryVectorSimilarity(incomingBlob, candidateBlob);
-      bm25Score =
+    let tier1Score: number;
+    if (incomingVec) {
+      const vecScore = await tryVectorSimilarity(incomingVec, candidateBlob);
+      tier1Score =
         vecScore ??
         computeLexicalSimilarity(title, description, task.title, task.description ?? '');
     } else {
-      bm25Score = computeLexicalSimilarity(title, description, task.title, task.description ?? '');
+      tier1Score = computeLexicalSimilarity(title, description, task.title, task.description ?? '');
     }
 
-    if (bm25Score >= DUPLICATE_REJECT_THRESHOLD) {
+    if (tier1Score >= DUPLICATE_REJECT_THRESHOLD) {
       // Clear match — reject without escalating
-      clearMatchCandidates.push({ id: task.id, title: task.title, score: bm25Score });
-    } else if (bm25Score >= BM25_ESCALATE_LOW) {
+      clearMatchCandidates.push({ id: task.id, title: task.title, score: tier1Score });
+    } else if (tier1Score >= TIER1_ESCALATE_LOW) {
       // Ambiguous — collect for Tier 2
-      tier1Ambiguous.push({ task, bm25Score });
+      tier1Ambiguous.push({ task, tier1Score });
       // Also surface in warn range (>= DUPLICATE_WARN_THRESHOLD) even before Tier 2
-      if (bm25Score >= DUPLICATE_WARN_THRESHOLD) {
-        clearMatchCandidates.push({ id: task.id, title: task.title, score: bm25Score });
+      if (tier1Score >= DUPLICATE_WARN_THRESHOLD) {
+        clearMatchCandidates.push({ id: task.id, title: task.title, score: tier1Score });
       }
     }
-    // bm25Score < BM25_ESCALATE_LOW → clear different, skip
+    // tier1Score < TIER1_ESCALATE_LOW → clear different, skip
   }
 
-  // If we already have a clear-match reject, return immediately (BM25-only path).
+  // If we already have a clear-match reject, return immediately (Tier-1-only path).
   if (clearMatchCandidates.some((c) => c.score >= DUPLICATE_REJECT_THRESHOLD)) {
     const sorted = clearMatchCandidates
       .filter((c) => c.score >= DUPLICATE_REJECT_THRESHOLD)
@@ -650,7 +688,7 @@ export async function checkDuplicates(
   const tier2Ambiguous: Array<{ task: Task; jaccardScore: number }> = [];
   const tier2Candidates: DuplicateCandidate[] = [];
 
-  for (const { task, bm25Score: _bm25 } of tier1Ambiguous) {
+  for (const { task, tier1Score: _tier1 } of tier1Ambiguous) {
     const jScore = computeJaccardWordSimilarity(
       title,
       description,
@@ -730,11 +768,11 @@ export async function checkDuplicates(
       };
     }
 
-    // LLM failed/timed out — fall back to BM25-only decision.
-    // The BM25 score for the top candidate is in [0.5, 0.92), which means
+    // LLM failed/timed out — fall back to a Tier-1-only decision.
+    // The Tier-1 score for the top candidate is in [0.5, 0.92), which means
     // it's in the warn zone only if >= DUPLICATE_WARN_THRESHOLD.
-    const bm25Entry = tier1Ambiguous.find((e) => e.task.id === topCandidate.task.id);
-    const fallbackScore = bm25Entry?.bm25Score ?? topCandidate.jaccardScore;
+    const tier1Entry = tier1Ambiguous.find((e) => e.task.id === topCandidate.task.id);
+    const fallbackScore = tier1Entry?.tier1Score ?? topCandidate.jaccardScore;
     if (fallbackScore >= DUPLICATE_WARN_THRESHOLD) {
       const candidate: DuplicateCandidate = {
         id: topCandidate.task.id,
@@ -751,7 +789,7 @@ export async function checkDuplicates(
     }
   }
 
-  // ---- Collect any BM25 warn-zone candidates (non-rejecting) ----------------
+  // ---- Collect any Tier-1 warn-zone candidates (non-rejecting) --------------
   const warnCandidates = clearMatchCandidates
     .filter((c) => c.score >= DUPLICATE_WARN_THRESHOLD && c.score < DUPLICATE_REJECT_THRESHOLD)
     .sort((a, b) => b.score - a.score)
