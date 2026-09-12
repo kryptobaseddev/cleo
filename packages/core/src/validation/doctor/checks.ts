@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { listRegisteredWorktrees } from '@cleocode/worktree';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
 import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
 import {
@@ -668,6 +669,263 @@ export function checkSqliteNotTracked(projectRoot?: string): CheckResult {
       fix: null,
     };
   }
+}
+
+// ============================================================================
+// Check: Shared-worktree git hazards (T12161)
+// ============================================================================
+
+/**
+ * Worktrees that share this repository's single `.git` directory.
+ *
+ * Returns 1 for an ordinary checkout. Anything above 1 means several working
+ * trees — in this project, usually several concurrent agent sessions — are
+ * backed by ONE object store, ONE config file and ONE stash stack.
+ *
+ * @param root - repository path to inspect.
+ * @returns worktree count, or `null` when git could not answer.
+ */
+function sharedWorktreeCount(root: string): number | null {
+  // Routed through `@cleocode/worktree` rather than a raw `git worktree list`
+  // per D010 / T9984 — the registry is that package's surface, and it already
+  // owns porcelain parsing. `listRegisteredWorktrees` never throws: an
+  // unreadable registry yields `[]`. A real repository always has at least one
+  // registered worktree, so an empty list means "could not determine", which is
+  // `null` here and NOT "zero worktrees" — the difference decides whether the
+  // caller warns or stays silent.
+  const registered = listRegisteredWorktrees(root);
+  return registered.length > 0 ? registered.length : null;
+}
+
+/**
+ * Warn when a stash stack is shared by several worktrees.
+ *
+ * ## The failure this exists to stop (T12161)
+ *
+ * The stash is a property of the repository, not of the working tree. Every
+ * worktree sharing a `.git` sees the same stack, so `git stash pop` — which
+ * takes `stash@{0}` when given no argument — pops whatever another session
+ * pushed most recently, into YOUR tree, on YOUR branch.
+ *
+ * Measured 2026-09-12 in this repo: an agent ran `git stash push` on an
+ * untracked file (a no-op, so nothing was pushed), then `git stash pop`, and
+ * silently received an unrelated entry from a 26-deep stack belonging to
+ * another session's branch work. It modified a generated manifest the agent
+ * had never touched. It was caught before commit by a diff review, not by any
+ * tooling.
+ *
+ * The stack here is not transient: entries date back months, across branches
+ * that are long merged. A single-worktree repo has none of this exposure,
+ * which is why the check stays silent there rather than nagging every user
+ * about a normal stash.
+ *
+ * @param projectRoot - repository to inspect; defaults to the resolved root.
+ * @returns a warning naming the depth and the top entry, or a pass.
+ *
+ * @task T12161
+ */
+export function checkSharedWorktreeStashes(projectRoot?: string): CheckResult {
+  const root = getProjectRoot(projectRoot);
+  const id = 'shared_worktree_stashes';
+
+  if (!existsSync(join(root, '.git'))) {
+    return {
+      id,
+      category: 'configuration',
+      status: 'info',
+      message: 'Not a git repository (skipping shared-stash check)',
+      details: { isGitRepo: false },
+      fix: null,
+    };
+  }
+
+  const worktrees = sharedWorktreeCount(root);
+  let entries: string[];
+  try {
+    entries = execFileSync('git', ['stash', 'list', '--pretty=%gd|%gs'], {
+      cwd: root,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .split('\n')
+      .filter((l) => l.trim().length > 0);
+  } catch {
+    return {
+      id,
+      category: 'configuration',
+      status: 'info',
+      message: 'Could not read the stash list (skipping shared-stash check)',
+      details: { worktrees },
+      fix: null,
+    };
+  }
+
+  // A stash in a single-worktree repo is ordinary and private. The hazard is
+  // specifically that another tree can pop it out from under you.
+  if (entries.length === 0 || worktrees === null || worktrees < 2) {
+    return {
+      id,
+      category: 'configuration',
+      status: 'passed',
+      message:
+        entries.length === 0
+          ? 'Stash stack is empty'
+          : `${entries.length} stash entr${entries.length === 1 ? 'y' : 'ies'}, single worktree — not shared`,
+      details: { stashCount: entries.length, worktrees },
+      fix: null,
+    };
+  }
+
+  return {
+    id,
+    category: 'configuration',
+    status: 'warning',
+    message:
+      `${entries.length} stash entries are shared by ${worktrees} worktrees — ` +
+      "a bare `git stash pop` here takes another session's work, not yours",
+    details: {
+      stashCount: entries.length,
+      worktrees,
+      topEntry: entries[0] ?? null,
+    },
+    fix: 'Never use a bare `git stash pop` in this repo. Run `git stash list`, identify your own entry, and apply it explicitly with `git stash apply stash@{N}`.',
+  };
+}
+
+/**
+ * Warn when a repo-LOCAL identity override is absent from recent history.
+ *
+ * ## The failure this exists to stop (T12161)
+ *
+ * `user.name` and `user.email` set at `--local` scope live in `.git/config`,
+ * which every worktree shares. One session setting a throwaway identity — for
+ * a measurement, a probe, a bisect — silently re-authors every commit made by
+ * every other session in every other worktree until someone notices.
+ *
+ * Measured 2026-09-12 in this repo: `user.name` was left as `compose probe
+ * <probe@local>` after a merge-composition experiment, and three commits from
+ * a different session on a different branch were authored under it. Nothing
+ * warned; it was found by reading `git log` for an unrelated reason.
+ *
+ * ## Why this reads `--local` and not the effective identity
+ *
+ * `git config user.email` returns the MERGED value — local, then global, then
+ * system. Reading that would flag a first-time contributor whose perfectly
+ * correct global identity simply has no commits here yet, which is noise. A
+ * repo-local override is different in kind: it is a deliberate act scoped to
+ * this repository, it is the only kind that one session can impose on another
+ * through the shared `.git`, and when it authored none of recent history the
+ * overwhelmingly likely explanation is that somebody else set it for something
+ * else. So the remedy is to REMOVE the override and fall back to the
+ * committer's own global identity — not to set another value.
+ *
+ * Gated on a shared `.git` for the same reason as the stash check: a local
+ * identity in a single-worktree repo affects only the person who set it.
+ *
+ * @param projectRoot - repository to inspect; defaults to the resolved root.
+ * @returns a warning naming the override, or a pass.
+ *
+ * @task T12161
+ */
+export function checkSharedGitIdentity(projectRoot?: string): CheckResult {
+  const root = getProjectRoot(projectRoot);
+  const id = 'shared_git_identity';
+
+  if (!existsSync(join(root, '.git'))) {
+    return {
+      id,
+      category: 'configuration',
+      status: 'info',
+      message: 'Not a git repository (skipping shared-identity check)',
+      details: { isGitRepo: false },
+      fix: null,
+    };
+  }
+
+  const worktrees = sharedWorktreeCount(root);
+  if (worktrees === null || worktrees < 2) {
+    return {
+      id,
+      category: 'configuration',
+      status: 'passed',
+      message: 'Single worktree — git identity is not shared',
+      details: { worktrees },
+      fix: null,
+    };
+  }
+
+  const gitValue = (args: readonly string[]): string | null => {
+    try {
+      const out = execFileSync('git', [...args], {
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      return out.length > 0 ? out : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const localEmail = gitValue(['config', '--local', 'user.email']);
+
+  // No repo-local override: whatever identity is in play came from the
+  // committer's own global config and is none of this check's business.
+  if (localEmail === null) {
+    return {
+      id,
+      category: 'configuration',
+      status: 'passed',
+      message: 'No repo-local git identity override — each session uses its own global identity',
+      details: { worktrees, localOverride: null },
+      fix: null,
+    };
+  }
+
+  const authors = (gitValue(['log', '-50', '--format=%ae']) ?? '')
+    .split('\n')
+    .filter((l) => l.trim().length > 0);
+
+  // No history to compare against proves nothing either way.
+  if (authors.length === 0) {
+    return {
+      id,
+      category: 'configuration',
+      status: 'passed',
+      message: 'No commit history to compare the local git identity against',
+      details: { worktrees, localOverride: localEmail },
+      fix: null,
+    };
+  }
+
+  if (authors.includes(localEmail)) {
+    return {
+      id,
+      category: 'configuration',
+      status: 'passed',
+      message: `Repo-local git identity (${localEmail}) appears in recent history`,
+      details: { worktrees, localOverride: localEmail, sampled: authors.length },
+      fix: null,
+    };
+  }
+
+  const mostRecent = authors[0] ?? '(unknown)';
+  return {
+    id,
+    category: 'configuration',
+    status: 'warning',
+    message:
+      `Repo-local git identity "${localEmail}" authored none of the last ${authors.length} ` +
+      `commits, and this .git is shared by ${worktrees} worktrees — every session ` +
+      'committing right now is attributed to it',
+    details: {
+      worktrees,
+      localOverride: localEmail,
+      sampled: authors.length,
+      mostRecentHistoricalAuthor: mostRecent,
+    },
+    fix: 'If this override is left over from another session, remove it so each session uses its own identity: git config --local --unset user.email && git config --local --unset user.name',
+  };
 }
 
 // ============================================================================
@@ -1605,6 +1863,9 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     checkNoLocalSchemas(projectRoot),
     // Orphan worktrees audit (T9043)
     auditOrphanWorktrees(),
+    // Shared-worktree git hazards (T12161)
+    checkSharedWorktreeStashes(projectRoot),
+    checkSharedGitIdentity(projectRoot),
   ];
 }
 
