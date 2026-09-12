@@ -723,6 +723,12 @@ export {
 } from './invariants/index.js';
 // === Background Job Status (T9955 — promoted from core/store/tasks-schema.ts) ===
 export type { BackgroundJobStatus } from './jobs.js';
+// gh#494 · T12140 — per-kind lifecycle requirements SSoT (types + const data;
+// the predicates live in core per the contracts-purity gate)
+export {
+  KIND_LIFECYCLE_REQUIREMENTS,
+  type KindLifecycleRequirement,
+} from './kind-lifecycle.js';
 export type {
   CleoResponse,
   ConformanceReport,

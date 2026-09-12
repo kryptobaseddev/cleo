@@ -12,6 +12,7 @@ import { type EngineResult, engineError, engineSuccess } from '../engine-result.
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
+import { requiresStagedPipeline } from '../lifecycle/kind-requirements.js';
 import { getLogger } from '../logger.js';
 import {
   type AutoCompleteWorktreeResult,
@@ -1586,7 +1587,13 @@ export async function completeTaskStrict(
       const task = await accessor.loadSingleTask(taskId);
       if (task?.parentId) {
         const parent = await accessor.loadSingleTask(task.parentId);
-        if (parent?.type === 'epic') {
+        // gh#494 · T12140: the staged pipeline is calibrated for design-bearing
+        // work. Whether it gates child completion is now a property of the
+        // epic's KIND, declared once in KIND_LIFECYCLE_REQUIREMENTS, rather
+        // than applied uniformly. Evidence gates (ADR-051) are unaffected —
+        // this axis governs ceremony, not rigour. An absent kind resolves to
+        // 'work', so a missing field can never be a way to opt out.
+        if (parent?.type === 'epic' && requiresStagedPipeline(parent.kind)) {
           const earlyStages = new Set([
             'research',
             'consensus',
