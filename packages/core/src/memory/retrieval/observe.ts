@@ -12,6 +12,7 @@ import type {
   ObserveBrainParams,
   ObserveBrainResult,
 } from '@cleocode/contracts';
+import { pushWarning } from '../../output.js';
 import {
   sessionExistsInTasksDb,
   sessionExistsInTasksDbFresh,
@@ -393,6 +394,20 @@ export interface PopulateEmbeddingsResult {
   processed: number;
   skipped: number;
   errors: number;
+  /**
+   * Why nothing was processed, when nothing was.
+   *
+   * A bare `{processed: 0, skipped: 0, errors: 0}` is indistinguishable
+   * between "everything is already embedded" and "embeddings are switched off
+   * or broken" — and for the whole of gh#1217 it silently meant the latter
+   * while `brain.embedding.enabled` was true. Reporting the reason is the
+   * difference between a no-op and an outage.
+   *
+   * Absent when work was actually attempted.
+   *
+   * @task T12129 (gh#1217)
+   */
+  inactiveReason?: 'no-provider' | 'provider-load-failed' | 'no-brain-db';
 }
 
 /**
@@ -438,8 +453,23 @@ export async function populateEmbeddings(
   projectRoot: string,
   options?: PopulateEmbeddingsOptions,
 ): Promise<PopulateEmbeddingsResult> {
+  // gh#1217: this check used to be unsatisfiable. `isEmbeddingAvailable()`
+  // reported whether the lazy model had ALREADY loaded, and the only thing
+  // that loads it is an embed call — which this function is. So the backfill
+  // returned 0/0/0 on every run, forever, and said nothing about why.
+  // `isAvailable()` is now capability, so this gate means what it reads as:
+  // "is there a provider that could do this at all?"
   if (!isEmbeddingAvailable()) {
-    return { processed: 0, skipped: 0, errors: 0 };
+    pushWarning({
+      code: 'W_EMBEDDINGS_UNAVAILABLE',
+      severity: 'warn',
+      message:
+        'Embedding backfill did nothing: no embedding provider is available. ' +
+        'If brain.embedding.enabled is true, the provider failed to load in this ' +
+        'process (commonly: no cached model and no network for the ~22 MB first-run ' +
+        'download). Hybrid search will fall back to FTS5.',
+    });
+    return { processed: 0, skipped: 0, errors: 0, inactiveReason: 'no-provider' };
   }
 
   const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
@@ -447,7 +477,7 @@ export async function populateEmbeddings(
   const nativeDb = getBrainNativeDb(projectRoot);
 
   if (!nativeDb) {
-    return { processed: 0, skipped: 0, errors: 0 };
+    return { processed: 0, skipped: 0, errors: 0, inactiveReason: 'no-brain-db' };
   }
 
   const batchSize = options?.batchSize ?? 50;
