@@ -14,8 +14,7 @@ import {
   type ArchiveReasonValue,
   ExitCode,
   isArchiveTombstoneAllowed,
-  isTaskId,
-  TASK_ID_REGEX,
+  isStorableTaskId,
   type Task,
   type TaskStatus,
   type TaskType,
@@ -47,13 +46,13 @@ async function insertTaskRow(task: Task, cwd?: string): Promise<Task> {
   // what makes it unfixable. Validate here, at the chokepoint every task
   // insert passes through, so a malformed id fails loudly at write time
   // instead of silently becoming unreachable data.
-  if (!isTaskId(task.id)) {
+  if (!isStorableTaskId(task.id)) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
       `Refusing to insert a task with a malformed id: ${JSON.stringify(task.id)}`,
       {
-        fix: `Task ids must match ${TASK_ID_REGEX.source} (e.g. "T1234"). This is a bug in the caller — the id should come from the id generator, not from user input or a path.`,
-        details: { field: 'id', value: String(task.id), expected: TASK_ID_REGEX.source },
+        fix: 'A task id must be a non-empty identifier under 64 characters, starting with a letter, containing no whitespace, path separators or control characters (e.g. "T1234"). This is a bug in the caller — the id should come from the id generator, not from user input or a path.',
+        details: { field: 'id', value: String(task.id) },
       },
     );
   }

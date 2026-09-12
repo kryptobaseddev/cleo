@@ -2670,4 +2670,4 @@ export {
 // T12077: SSoT for the keys under which payloads carry their rows.
 export { COLLECTION_KEYS, type CollectionKey } from './collection-keys.js';
 
-export { isTaskId, TASK_ID_REGEX, type TaskId } from './task-id.js';
+export { isStorableTaskId, isTaskId, TASK_ID_REGEX, type TaskId } from './task-id.js';

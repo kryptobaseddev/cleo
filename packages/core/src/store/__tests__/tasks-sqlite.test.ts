@@ -79,13 +79,12 @@ describe('SQLite tasks-sqlite', () => {
     // validators that should have prevented it are what make it unfixable.
     it.each([
       ['/mnt/projects/cleocode', 'a filesystem path — the value actually found in the store'],
+      ['../../etc/passwd', 'a relative path'],
       ['', 'empty'],
-      ['T', 'no digits'],
-      ['1234', 'no T prefix'],
-      ['t1234', 'lowercase prefix'],
-      ['T12.4', 'non-digit body'],
-      ['see T1234 for details', 'prose containing a valid id — anchoring matters'],
-      ['T12345678', 'longer than the canonical bound'],
+      ['1234', 'starts with a digit, so it is a count not an id'],
+      ['see T1234 for details', 'prose containing a valid id — whitespace is disqualifying'],
+      ['T\nX', 'embedded control character'],
+      ['T'.repeat(65), 'absurd length'],
     ])('refuses to insert a task whose id is %j (%s)', async (badId) => {
       const { createTask } = await import('../tasks-sqlite.js');
       const task = makeTask({ id: badId, title: 'should never be stored' });
@@ -93,12 +92,18 @@ describe('SQLite tasks-sqlite', () => {
       await expect(createTask(task)).rejects.toThrow(/malformed id/i);
     });
 
-    it('still accepts a well-formed id', async () => {
-      // The guard must reject garbage without narrowing what already works.
+    it.each([
+      ['T4242', 'the canonical generated shape'],
+      // CLEO mints this itself in `archive-reason-invariant.ts`. A guard that
+      // rejected it would break `cleo release reconcile`, and the doctor's
+      // --fix would DELETE working release follow-up tasks.
+      ['T-RECONCILE-FOLLOWUP-v2026.5.63-6', 'a structured id CLEO generates on purpose'],
+      ['T932EP', 'a pre-existing shape found in a live store'],
+    ])('accepts %j (%s)', async (goodId) => {
       const { createTask, getTask } = await import('../tasks-sqlite.js');
-      await createTask(makeTask({ id: 'T9999999', title: 'upper bound' }));
+      await createTask(makeTask({ id: goodId, title: 'legitimate' }));
 
-      expect(await getTask('T9999999')).not.toBeNull();
+      expect(await getTask(goodId)).not.toBeNull();
     });
 
     it('creates a task and retrieves it', async () => {

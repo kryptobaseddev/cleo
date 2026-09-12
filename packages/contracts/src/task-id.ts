@@ -65,3 +65,63 @@ export type TaskId = string & { readonly __brand: 'TaskId' };
 export function isTaskId(value: unknown): value is TaskId {
   return typeof value === 'string' && TASK_ID_REGEX.test(value);
 }
+
+/**
+ * Characters and shapes that can never be a task identifier.
+ *
+ * ## Why this exists alongside {@link TASK_ID_REGEX}
+ *
+ * `TASK_ID_REGEX` describes the *canonical* id the generator produces. It is
+ * NOT what the store actually contains, and enforcing it at the write path
+ * would break working features. Measured against a live store of 3,198 tasks:
+ *
+ * | id | origin |
+ * |---|---|
+ * | `T-RECONCILE-FOLLOWUP-v2026.5.63-6` | generated ON PURPOSE by `archive-reason-invariant.ts` |
+ * | `T932EP` | unknown, pre-existing |
+ * | `/mnt/projects/cleocode` | the corruption this guard exists to stop |
+ *
+ * So CLEO deliberately mints structured ids that its own canonical pattern
+ * rejects — and, separately, that `cleo show` rejects too, which makes those
+ * release follow-up tasks as unreachable as the corrupt row. That is a real
+ * defect, but it is a **design** question about the id space, and settling it
+ * inside a guard that stops path-shaped garbage would be scope creep with a
+ * broken `cleo release reconcile` as the cost.
+ *
+ * This predicate therefore rejects only what cannot be an identifier under any
+ * shape: empty, whitespace, path separators, control characters, or absurd
+ * length. It catches the actual harm without taking a position on digits.
+ */
+const FORBIDDEN_IN_TASK_ID = /[\s/\\\x00-\x1f\x7f]/;
+
+/** Longest plausible identifier; anything beyond this is not an id. */
+const MAX_TASK_ID_LENGTH = 64;
+
+/**
+ * Whether `value` is storable as a task identifier.
+ *
+ * Deliberately broader than {@link isTaskId}: it admits every id shape CLEO
+ * actually mints (including the structured `T-RECONCILE-FOLLOWUP-…` ids the
+ * release reconciler creates) while rejecting values that are not identifiers
+ * at all. Use this at write chokepoints; use {@link isTaskId} when you
+ * genuinely need the canonical generated shape.
+ *
+ * @param value - candidate identifier.
+ * @returns `true` when `value` can be stored as an id.
+ *
+ * @example
+ * ```ts
+ * isStorableTaskId('T12128');                          // true
+ * isStorableTaskId('T-RECONCILE-FOLLOWUP-v2026.5.63-6'); // true — CLEO mints these
+ * isStorableTaskId('/mnt/projects/cleocode');          // false — a path
+ * isStorableTaskId('see T1234 for details');           // false — whitespace
+ * ```
+ */
+export function isStorableTaskId(value: unknown): value is TaskId {
+  if (typeof value !== 'string') return false;
+  if (value.length === 0 || value.length > MAX_TASK_ID_LENGTH) return false;
+  if (FORBIDDEN_IN_TASK_ID.test(value)) return false;
+  // An identifier must start with a letter — this rejects paths beginning
+  // `./`, `~`, or a digit-only value that is really a count.
+  return /^[A-Za-z]/.test(value);
+}

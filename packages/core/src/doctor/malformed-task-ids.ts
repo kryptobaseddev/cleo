@@ -32,7 +32,7 @@
  * @task T12128
  */
 
-import { isTaskId } from '@cleocode/contracts';
+import { isStorableTaskId } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import { openDualScopeDb } from '../store/dual-scope-db.js';
 
@@ -52,14 +52,20 @@ export interface MalformedTaskRow {
 
 /** Outcome of a {@link scanMalformedTaskIds} run. */
 export interface MalformedTaskIdReport {
-  /** Every row whose id fails {@link isTaskId}. */
+  /** Every row whose id fails {@link isStorableTaskId}. */
   readonly rows: readonly MalformedTaskRow[];
   /** `true` when `--fix` ran and rows were deleted. */
   readonly deleted: boolean;
 }
 
 /**
- * Find task rows whose id is not a well-formed task identifier.
+ * Find task rows whose id could not be an identifier at all.
+ *
+ * Uses {@link isStorableTaskId}, NOT the canonical {@link isTaskId}. That
+ * distinction is load-bearing: CLEO deliberately mints structured ids such as
+ * `T-RECONCILE-FOLLOWUP-v2026.5.63-6` (see `archive-reason-invariant.ts`) which
+ * the canonical pattern rejects. Reporting those here would be wrong, and
+ * `--fix` would DELETE working release follow-up tasks.
  *
  * @param cwd - project root.
  * @param opts - `fix: true` deletes the rows found; default is read-only.
@@ -90,7 +96,7 @@ export async function scanMalformedTaskIds(
 
   const rows: MalformedTaskRow[] = [];
   for (const raw of all) {
-    if (isTaskId(raw.id)) continue;
+    if (isStorableTaskId(raw.id)) continue;
     const id = String(raw.id);
 
     const dep = (await db.all(
