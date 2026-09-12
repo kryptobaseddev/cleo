@@ -48,6 +48,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { totalmem } from 'node:os';
+import { isHeavyTool } from './heavy-tool-env.js';
 import type { CanonicalTool } from './tool-resolver.js';
 
 /** Fraction of host RAM one heavy tool invocation may occupy. */
@@ -197,7 +198,10 @@ export function withMemoryLimit(
 ): LimitedCommand {
   const env = opts.env ?? process.env;
 
-  if (canonical !== 'test' && canonical !== 'build') {
+  // One definition of "heavy", shared with the worker caps, the semaphore and
+  // the spawn deadline. Four independent literals agreeing by coincidence is
+  // how a fifth heavy tool gets a long deadline and no memory bound.
+  if (!isHeavyTool(canonical)) {
     return { cmd, args, confined: false, memoryMaxMb: null };
   }
 

@@ -519,10 +519,16 @@ async function runMainWithLafsEnvelope(
         );
       }
 
-      // Last resort. The timer is unref'd, so a process whose loop drains
-      // normally exits on its own and never reaches this — the "drain, then
-      // exit" contract (ADR-039 / T9633) is preserved for every healthy
-      // command. It fires only in the case that previously hung forever.
+      // Last resort. The timer is unref'd, so a process that drains promptly
+      // exits on its own and never reaches this — the "drain, then exit"
+      // contract (ADR-039 / T9633) is preserved for the common case.
+      //
+      // It is NOT true that only leaks reach it: an unref'd timer still fires
+      // when the loop is alive for any reason at that moment, including
+      // legitimate unawaited work such as the fire-and-forget BRAIN embedding
+      // scheduled by `cleo memory observe`, whose first call loads a ~22 MB
+      // model. The backstop's stderr line therefore says what was abandoned
+      // and how to recover it, rather than asserting the process was idle.
       armExitBackstop(0);
     }
   });

@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { heavyToolEnv } from '../heavy-tool-env.js';
+import { heavyToolEnv, isHeavyTool } from '../heavy-tool-env.js';
 import {
   HEAVY_TOOL_MEMORY_CEILING_MB,
   HEAVY_TOOL_MEMORY_FLOOR_MB,
@@ -71,14 +71,16 @@ describe('withMemoryLimit', () => {
     expect(withMemoryLimit('build', 'pnpm', ['run', 'build'], confined).confined).toBe(true);
   });
 
-  it.each(['lint', 'typecheck', 'audit', 'security-scan'] as const)(
-    'leaves %s unwrapped — it is one cheap process, not a fork bomb',
-    (canonical) => {
-      const c = withMemoryLimit(canonical, 'pnpm', ['run', canonical], confined);
-      expect(c.confined).toBe(false);
-      expect(c.cmd).toBe('pnpm');
-    },
-  );
+  it.each([
+    'lint',
+    'typecheck',
+    'audit',
+    'security-scan',
+  ] as const)('leaves %s unwrapped — it is one cheap process, not a fork bomb', (canonical) => {
+    const c = withMemoryLimit(canonical, 'pnpm', ['run', canonical], confined);
+    expect(c.confined).toBe(false);
+    expect(c.cmd).toBe('pnpm');
+  });
 
   it('degrades to the unwrapped command when systemd is unavailable', () => {
     // Off-Linux, or in a container with no user manager. The env overlay stays
@@ -124,5 +126,39 @@ describe('heavyToolEnv beyond vitest', () => {
 
   it('still leaves cheap tools alone', () => {
     expect(heavyToolEnv('lint', {}, 62)).toEqual({});
+  });
+});
+
+describe('isHeavyTool — one definition, not four', () => {
+  // Before this predicate, "heavy" was an independent literal in four places:
+  // heavy-tool-env.ts, tool-semaphore.ts, tool-cache.ts and heavy-tool-limit.ts.
+  // They agreed by coincidence. Adding a fifth heavy tool took four coordinated
+  // edits, and missing one produced a SILENT asymmetry — a tool inheriting the
+  // long spawn deadline but no memory bound, which is the exact ordering hazard
+  // the release sequencing exists to prevent, reappearing inside one process.
+  it.each(['test', 'build'] as const)('treats %s as heavy', (c) => {
+    expect(isHeavyTool(c)).toBe(true);
+  });
+
+  it.each(['lint', 'typecheck', 'audit', 'security-scan'] as const)('treats %s as cheap', (c) => {
+    expect(isHeavyTool(c)).toBe(false);
+  });
+
+  it.each([
+    'test',
+    'build',
+    'lint',
+    'typecheck',
+    'audit',
+    'security-scan',
+  ] as const)('the memory ceiling and the worker caps agree about %s', (c) => {
+    // The tripwire. If these two ever disagree, one bound is being applied
+    // without the other — which is worse than neither, because a tool with a
+    // raised worker cap and no memory ceiling is unbounded by construction.
+    const confined = withMemoryLimit(c, 'pnpm', [], { available: true, env: {} }).confined;
+    const capped = Object.keys(heavyToolEnv(c, {}, 62)).length > 0;
+
+    expect(confined).toBe(isHeavyTool(c));
+    expect(capped).toBe(isHeavyTool(c));
   });
 });
