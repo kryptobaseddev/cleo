@@ -71,6 +71,36 @@ describe('SQLite tasks-sqlite', () => {
   // === createTask ===
 
   describe('createTask', () => {
+    // T12128 (gh#1249): the id shape was validated on every READ path and on
+    // none of the write paths. A project path reached the `id` column of
+    // `tasks_tasks` — `id='/mnt/projects/cleocode'` — and the row became
+    // IMMORTAL: `cleo list` returns it while `show`, `update` and `delete` all
+    // reject the id as malformed before they can reach it. The read-side
+    // validators that should have prevented it are what make it unfixable.
+    it.each([
+      ['/mnt/projects/cleocode', 'a filesystem path — the value actually found in the store'],
+      ['', 'empty'],
+      ['T', 'no digits'],
+      ['1234', 'no T prefix'],
+      ['t1234', 'lowercase prefix'],
+      ['T12.4', 'non-digit body'],
+      ['see T1234 for details', 'prose containing a valid id — anchoring matters'],
+      ['T12345678', 'longer than the canonical bound'],
+    ])('refuses to insert a task whose id is %j (%s)', async (badId) => {
+      const { createTask } = await import('../tasks-sqlite.js');
+      const task = makeTask({ id: badId, title: 'should never be stored' });
+
+      await expect(createTask(task)).rejects.toThrow(/malformed id/i);
+    });
+
+    it('still accepts a well-formed id', async () => {
+      // The guard must reject garbage without narrowing what already works.
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
+      await createTask(makeTask({ id: 'T9999999', title: 'upper bound' }));
+
+      expect(await getTask('T9999999')).not.toBeNull();
+    });
+
     it('creates a task and retrieves it', async () => {
       const { createTask, getTask } = await import('../tasks-sqlite.js');
       const task = makeTask({ id: 'T001', title: 'First task', description: 'A test task' });
