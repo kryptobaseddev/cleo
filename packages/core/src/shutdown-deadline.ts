@@ -30,11 +30,19 @@
  *    worker thread that outlives us by microseconds before the process exits.
  *
  * 2. {@link armExitBackstop} — an **unref'd** timer that force-exits if the
- *    loop is still alive after the grace period. Unref'd is the whole trick:
- *    a timer that does not itself hold the loop open. If teardown worked and
- *    the loop drains, the process exits naturally and this timer never fires —
- *    the established "drain, then exit" contract (ADR-039 / T9633) is fully
- *    preserved. It fires only in the case that used to hang forever.
+ *    loop is still alive after the grace period. Unref'd means the timer does
+ *    not itself hold the loop open, so a process that drains promptly exits
+ *    naturally and never reaches it.
+ *
+ *    It does NOT mean the timer only fires on leaks. An unref'd timer still
+ *    *fires* if the loop is alive for any other reason when the grace period
+ *    elapses — including legitimate unawaited work. `cleo memory observe`
+ *    schedules a fire-and-forget embedding whose first call loads a ~22 MB
+ *    model, which will not finish inside the grace window on a cold cache. So
+ *    the backstop can and does cut short work that was going to succeed. That
+ *    is an accepted trade: a bounded exit with a named remedy beats an
+ *    unbounded hang. It is why the message below says what was abandoned
+ *    rather than claiming the process was idle.
  *
  * Neither is a substitute for fixing a leak. Both exist so that the next leak
  * costs a log line instead of a wedged host.
@@ -138,7 +146,13 @@ export function activeHandleSummary(): string {
  *
  * When it does fire, it writes one diagnostic line to **stderr** — never stdout,
  * which must carry exactly one LAFS envelope per call (ADR-086) — naming what
- * kept the loop alive, then exits with `code`.
+ * kept the loop alive and warning that unawaited background work was cut short,
+ * then exits with `code`.
+ *
+ * The exit code stays the command's own result. A killed *tail* is not a failed
+ * *command*: the envelope on stdout is already correct and the row is already
+ * written. Exiting non-zero here would turn a slow-but-correct invocation into
+ * a failure, which is the false-red defect (gh#1270) in a new place.
  *
  * @param code - exit code to use; the command's own result, not an error code.
  * @param graceMs - how long to let the loop try to drain on its own.
@@ -155,8 +169,12 @@ export function armExitBackstop(code = 0, graceMs: number = EXIT_BACKSTOP_MS): N
     if (process.env.CLEO_NO_EXIT_BACKSTOP === '1') return;
     process.stderr.write(
       `cleo: event loop still alive ${graceMs}ms after teardown ` +
-        `(held by: ${activeHandleSummary()}); exiting rc:${code}. ` +
-        `This is a resource leak — please report it with the command you ran.\n`,
+        `(held by: ${activeHandleSummary()}); exiting rc:${code}.\n` +
+        `cleo: any unawaited background work was abandoned. The command's own ` +
+        `result stands — its envelope is already written. Deferred BRAIN ` +
+        `embeddings are recoverable with \`cleo brain maintenance\`. If this ` +
+        `recurs on a fast command it is a resource leak; please report it with ` +
+        `the command you ran.\n`,
     );
     process.exit(code);
   }, graceMs);

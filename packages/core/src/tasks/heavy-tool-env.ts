@@ -76,6 +76,41 @@ export const WORKSPACE_CONCURRENCY = 1;
 export type HeavyToolEnv = Readonly<Record<string, string>>;
 
 /**
+ * Canonical tools treated as HEAVY — the ones that fork.
+ *
+ * The single definition. Before this there were four independent literals
+ * across `heavy-tool-env.ts`, `tool-semaphore.ts`, `tool-cache.ts` and
+ * `heavy-tool-limit.ts`, all agreeing by coincidence. Adding a fifth heavy tool
+ * took four coordinated edits, and missing one produced a **silent asymmetry** —
+ * a tool inheriting the long deadline but no memory bound, say, which is the
+ * ordering hazard we sequence PRs to avoid, reappearing inside one process.
+ */
+const HEAVY_TOOLS = new Set<CanonicalTool>(['test', 'build']);
+
+/**
+ * Whether a canonical tool is heavy enough to need bounding.
+ *
+ * Heavy means "forks, and its memory is a product rather than a constant":
+ * a test or build spawns workers, which is what makes the ceiling necessary.
+ * `lint`, `typecheck`, `audit` and `security-scan` are single cheap processes —
+ * bounding them costs a subprocess to guard nothing.
+ *
+ * @param canonical - the tool in question.
+ * @returns `true` when the tool needs a worker cap, a memory ceiling and the
+ *          longer spawn deadline. All three must agree, which is why they read
+ *          this instead of each keeping a literal.
+ *
+ * @example
+ * ```ts
+ * isHeavyTool('test');      // true
+ * isHeavyTool('typecheck'); // false
+ * ```
+ */
+export function isHeavyTool(canonical: CanonicalTool): boolean {
+  return HEAVY_TOOLS.has(canonical);
+}
+
+/**
  * Per-runner worker-count variables, keyed by the env var each runner reads.
  *
  * T12116: the original overlay set `VITEST_MAX_WORKERS` and nothing else, so a
@@ -161,7 +196,7 @@ export function heavyToolEnv(
   env: NodeJS.ProcessEnv = process.env,
   totalRamGib: number = totalmem() / 1024 ** 3,
 ): HeavyToolEnv {
-  if (canonical !== 'test' && canonical !== 'build') return {};
+  if (!isHeavyTool(canonical)) return {};
 
   const overlay: Record<string, string> = {
     NODE_OPTIONS: mergeNodeOptions(env.NODE_OPTIONS, HEAVY_TOOL_HEAP_MB),
