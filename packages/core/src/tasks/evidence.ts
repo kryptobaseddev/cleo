@@ -2006,6 +2006,61 @@ export function checkCallsiteCoverageAtom(atoms: EvidenceAtom[]): string | null 
   return null;
 }
 
+/**
+ * Was this task's `implemented` gate satisfied by a DECISION rather than by a
+ * code change?
+ *
+ * ADR-051 lets `implemented` be satisfied by `[decision, files]` or
+ * `[decision, note]` — the shape of a pure audit, review or spike: read code,
+ * record findings, change nothing. But `testsPassed` accepts only
+ * `test-run | tool | pr` and `qaPassed` only `tool | pr`, so such a task could
+ * not complete (gh#1215). The remaining escapes are all unusable by
+ * construction: `tool:test` is meaningless for a task that changed nothing,
+ * and `CLEO_OWNER_OVERRIDE` is capped per session and rejected on critical
+ * gates anyway. A correctly-evidenced audit task simply stayed pending.
+ *
+ * A decision-only task has no tests to run and nothing to lint, so those gates
+ * are satisfied by ABSENCE — the same reasoning as the T12083
+ * `notApplicable` tool atom, which records that a gate was satisfied because
+ * the project has no such toolchain rather than silently passing it.
+ *
+ * Deliberately narrow: a `commit:` or `pr:` atom anywhere in the `implemented`
+ * evidence means code DID change, and the normal gates apply in full. The
+ * exemption cannot be reached by choosing weaker evidence — `implemented`
+ * still had to be satisfied first, and `decision:` is a hard atom validated
+ * against the BRAIN decision-store.
+ *
+ * @param implementedEvidence - Stored evidence for the `implemented` gate.
+ * @returns `true` when the task demonstrably changed no code.
+ *
+ * @task T12125 (gh#1215)
+ * @adr ADR-051 §2.3
+ */
+export function isDecisionOnlyImplementation(
+  implementedEvidence: { atoms?: ReadonlyArray<{ kind: string }> } | null | undefined,
+): boolean {
+  const atoms = implementedEvidence?.atoms;
+  if (!atoms || atoms.length === 0) return false;
+  const hasDecision = atoms.some((a) => a.kind === 'decision');
+  if (!hasDecision) return false;
+  // Any evidence of an actual code change disqualifies the exemption.
+  return !atoms.some((a) => a.kind === 'commit' || a.kind === 'pr');
+}
+
+/**
+ * Gates that a decision-only task satisfies by absence.
+ *
+ * `testsPassed` and `qaPassed` measure the effect of a code change. With no
+ * code change there is nothing for them to measure, and demanding them makes
+ * the task uncompletable rather than well-verified.
+ *
+ * @task T12125 (gh#1215)
+ */
+export const DECISION_ONLY_INAPPLICABLE_GATES: readonly VerificationGate[] = Object.freeze([
+  'testsPassed',
+  'qaPassed',
+]);
+
 // ---------------------------------------------------------------------------
 // Gate minimum evaluation
 // ---------------------------------------------------------------------------
