@@ -1401,6 +1401,18 @@ export interface TasksAddParams {
   description?: string;
   /** Canonical wire field for parent task ID. @see ADR-057 D2 */
   parent?: string;
+  /**
+   * Where {@link parent} came from, when the caller knows.
+   *
+   * @remarks
+   * T12136 (GH #1232/#1238): the CLI infers a parent from the session's
+   * `current` pointer before dispatch, so core cannot tell an inherited parent
+   * from a named one. Without that distinction
+   * `E_CLEO_DEPTH_EXCEEDED` names a task the caller never mentioned and
+   * suggests reparenting into a hierarchy it never intended to touch.
+   * Defaults to `'explicit'`.
+   */
+  parentSource?: 'explicit' | 'session-inference';
   depends?: string[];
   priority?: string;
   labels?: string[];
