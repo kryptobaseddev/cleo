@@ -267,8 +267,7 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 
 | Need | Flag | Example |
 |------|------|---------|
-| Scalar extract (mutate) | `--field <jsonpointer>` | `id=$(cleo add 'X' --acceptance "..." --field /data/created/0)` |
-| Scalar extract (read) | `--field <jsonpointer>` | `st=$(cleo show T123 --field /data/task/status)` — note `/data/task/`, see below |
+| Scalar extract | `--field <jsonpointer>` | mutate: `id=$(cleo add 'X' --acceptance "..." --field /data/created/0)` · read: `st=$(cleo show T123 --field /data/task/status)` |
 | ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id \| while read c; do …; done` |
 | Affected count | `--output count` | `cleo list --parent EPIC --status pending --output count` |
 | TSV (no header) | `--output table` | `cleo list --parent EPIC --output table` |
@@ -277,9 +276,7 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 | Suppress stderr | `--quiet` | `cleo add-batch --file f.json --parent T1 --quiet --output id` |
 | Force full record | `--full` | `cleo show T123 --full` |
 
-**READ and MUTATE envelopes nest DIFFERENTLY — this is the single most-guessed-wrong pointer shape.** Mutation envelopes are FLAT (`/data/created/0`, `/data/updated/0`, `/data/count`). Read envelopes NEST the record (`cleo show` puts the task under `task`, so it is `/data/task/status`, NEVER `/data/status`). Generalising the mutation examples to a read is the natural guess and it is wrong; three separate agents filed it. `--field` resolves `description`, `verification`, `acceptance` and `evidence` transparently even under the default projection, so `cleo show <id> --field /data/task/description` works without `--full`. An unresolvable pointer is a typed `E_FIELD_NOT_FOUND` that lists every valid pointer for that operation — read it rather than guessing again.
-
-Mutate ops (`add`, `add-batch`, `update`, `complete`, `delete`) return `{count, created[], updated[], deleted[], ids[]}` by default (T9931). Use contract-backed paths: `/data/created/0` for create/add-batch, `/data/updated/0` for update/complete, `/data/deleted/0` for delete, and `/data/count` for counts. `ids[]` is a deprecated compatibility alias; opt back to full record via `--full`. Anti-patterns (REJECTED): `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`. Full contract: `cleo docs fetch adr-086-cli-output-contract-e9`.
+**READ and MUTATE envelopes NEST DIFFERENTLY — the most-guessed-wrong pointer shape.** Mutation envelopes are FLAT (`/data/created/0`); read envelopes nest the record, so `cleo show` needs `/data/task/status`, NEVER `/data/status`. `--field` resolves `description`/`acceptance`/`verification` transparently even under the default projection — no `--full` needed. An unresolvable pointer is a typed `E_FIELD_NOT_FOUND` listing every valid pointer for that op; read it rather than guessing again. `cleo verify`'s own response is SELF-CONFIRMING (it returns the full `verification` object) — do not re-read to check it; if you must, use `--field /data/task/verification`, never `--field /data/task` (MVI-projected, and it made six verified tasks look like no-op writes). Mutate ops (`add`, `add-batch`, `update`, `complete`, `delete`) return `{count, created[], updated[], deleted[], ids[]}` by default (T9931). Use contract-backed paths: `/data/created/0` for create/add-batch, `/data/updated/0` for update/complete, `/data/deleted/0` for delete, and `/data/count` for counts. `ids[]` is a deprecated compatibility alias; opt back to full record via `--full`. Anti-patterns (REJECTED): `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`. Full contract: `cleo docs fetch adr-086-cli-output-contract-e9`.
 <!-- /CLEO-INJECTION:section=output-contract -->
 
 <!-- CLEO-INJECTION:section=error-handling -->
@@ -339,8 +336,6 @@ cleo complete T###
 ```
 
 On complete, CLEO re-validates every hard atom (commit reachable, file sha256 match, test-run hash match). Tampering → `E_EVIDENCE_STALE`, re-verify required.
-
-**`cleo verify`'s own response is SELF-CONFIRMING — do not re-read to check it.** It returns the complete `verification` object (`gates`, `evidence.atoms`, `capturedAt`, `gateSet`, `evidenceStored`). Truncating it to grep for `"success":true` throws away the only reliable confirmation you will get. If you do need a read-back, the pointer is `cleo show <id> --field /data/task/verification` (or `.../verification/evidence` for the atoms) — **not** `--field /data/task`, which returns the MVI projection and made six genuinely-verified tasks look like writes that had silently done nothing (GH #1231).
 
 ### 3. Record learnings
 
