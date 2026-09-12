@@ -22,6 +22,7 @@ SvelteKit routes, npm lifecycle scripts and one-off migrations are all loaded by
 convention rather than import, and the script's docblock names those false
 positives explicitly.
 
-All five entries in `.cleo/deprecations.yml` are now past their stated removal
-version. Only the one with zero importers is removed here; the other four are
-shims that may still have out-of-tree consumers and need a deliberate decision.
+All **six** entries in `.cleo/deprecations.yml` were past their stated removal
+version. Only the one with zero importers is removed here; the remaining five
+are shims that may still have out-of-tree consumers and need a deliberate
+decision about the deprecation window.

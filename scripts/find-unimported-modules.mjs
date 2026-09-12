@@ -89,8 +89,7 @@ const importedBy = new Map();
 const RE = /(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g;
 for (const f of files) {
   const src = readFileSync(f, 'utf-8');
-  let m;
-  while ((m = RE.exec(src))) {
+  for (const m of src.matchAll(RE)) {
     const t = resolveSpec(m[1], f);
     if (t && t !== f) {
       if (!importedBy.has(t)) importedBy.set(t, new Set());

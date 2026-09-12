@@ -26,7 +26,7 @@ deprecations:
   # (T9793); the canonical aggregator is `aggregateChangesetsForRelease`
   # in `packages/core/src/release/changesets-aggregator.ts`.
 
-  # REMOVED in T12132 — `adr-backfill-walker.ts` was deleted. It was three
+  # REMOVED in T12134 — `adr-backfill-walker.ts` was deleted. It was three
   # minor versions past its own removal target (remove: v2026.6.0, current
   # v2026.8.9) and no module in the workspace imported it. The replacement
   # (`cleo docs add --type note`) has been the canonical surface since T9788.
