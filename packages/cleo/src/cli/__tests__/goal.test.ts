@@ -26,6 +26,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { goalCommand } from '../commands/goal.js';
+import { assertSpawnReachedCommand, parseSoleEnvelope } from './helpers/envelope.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -87,16 +88,13 @@ interface LafsEnvelope<TData = unknown> {
 
 /** Extract the JSON LAFS envelope from a CLI invocation's stdout. */
 function parseEnvelope<T = unknown>(stdout: string): LafsEnvelope<T> {
-  const lines = stdout.split('\n').filter((l) => l.trim().length > 0);
-  for (const line of lines) {
-    if (!line.trim().startsWith('{')) continue;
-    try {
-      return JSON.parse(line) as LafsEnvelope<T>;
-    } catch {
-      /* keep scanning */
-    }
-  }
-  throw new Error(`parseEnvelope: no JSON envelope on stdout. Got:\n${stdout.slice(0, 2000)}`);
+  // Strict by design (gh#1223). The previous implementation walked stdout
+  // line by line and returned the first one that parsed, so anything appended
+  // after the envelope — a dependency's `console.info`, say — was invisible.
+  // ADR-086 says ONE envelope per call; a helper that tolerates extra output
+  // makes stdout impurity untestable by construction.
+  assertSpawnReachedCommand(stdout);
+  return parseSoleEnvelope(stdout) as LafsEnvelope<T>;
 }
 
 interface GoalData {

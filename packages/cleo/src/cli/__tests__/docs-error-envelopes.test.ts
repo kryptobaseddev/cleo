@@ -31,6 +31,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { assertSpawnReachedCommand, parseSoleEnvelope } from './helpers/envelope.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -72,10 +73,11 @@ function runCli(args: string[]): { stdout: string; stderr: string; status: numbe
  * usage etc.) go to stderr.
  */
 function parseEnvelopeFromStdout(stdout: string): LafsEnvelope {
-  const lines = stdout.split('\n').filter((l) => l.trim().length > 0);
-  const envelopeLine = lines.find((l) => l.trim().startsWith('{'));
-  expect(envelopeLine, 'expected a JSON envelope line on stdout').toBeDefined();
-  return JSON.parse(envelopeLine as string) as LafsEnvelope;
+  // Strict by design (gh#1223): the previous implementation SEARCHED stdout for
+  // the first `{`-line, which passes on polluted output and made stdout
+  // impurity untestable. ADR-086 says one envelope per call — assert that.
+  assertSpawnReachedCommand(stdout);
+  return parseSoleEnvelope(stdout) as LafsEnvelope;
 }
 
 /**
