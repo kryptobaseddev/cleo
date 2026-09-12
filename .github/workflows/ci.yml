@@ -1531,6 +1531,22 @@ jobs:
       - name: Verify CLI binary
         shell: bash
         run: node packages/cleo/dist/cli/index.js version
+      # T12116: execute the bin shim through its OWN SHEBANG, on every platform
+      # in the matrix. Until now nothing in CI did — "Verify CLI binary" above
+      # invokes `dist/cli/index.js` directly, and the only other reference to
+      # `bin/cleo.js` in any workflow is a `chmod +x`. So the entry point every
+      # user actually types had zero coverage of the path that resolves it.
+      #
+      # That matters most for the shebang itself, which carries Node flags via
+      # `env -S`. If a platform's `env` rejects `-S` the shim does not degrade —
+      # it fails to start at all, because there is no interpreter to fall back
+      # to, and the in-file fallback never runs. `node bin/cleo.js` would pass
+      # while the real invocation was broken, so this step must NOT use `node`.
+      - name: Verify bin shim runs via its shebang
+        shell: bash
+        run: |
+          chmod +x packages/cleo/bin/cleo.js
+          ./packages/cleo/bin/cleo.js --version
       - name: Verify runtime gateway/mcp dist exists
         # R8 (T11259): standalone packages/mcp-adapter deleted; MCP transport consolidated
         # into @cleocode/runtime/gateway/mcp. Verify the runtime dist ships the mcp adapter.
