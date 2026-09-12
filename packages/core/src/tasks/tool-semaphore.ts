@@ -42,8 +42,8 @@
  * @adr ADR-061
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { availableParallelism, totalmem } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { availableParallelism, hostname, totalmem } from 'node:os';
 import { join } from 'node:path';
 
 import lockfile from 'proper-lockfile';
@@ -310,6 +310,192 @@ export function semaphoreDir(canonical: CanonicalTool): string {
   return join(getCleoHome(), 'locks', `tool-${canonical}`);
 }
 
+/**
+ * Identity of the process currently holding a semaphore slot.
+ *
+ * `proper-lockfile` decides staleness from the lock's **mtime**, which it
+ * refreshes on a timer while the holder lives. That makes a slot held by a
+ * process which died without releasing indistinguishable from one held by a
+ * legitimately long-running suite: both simply wait out `staleMs` (10 min by
+ * default). On a box where evidence runs are frequent, one orphan therefore
+ * blocks every later verify for ten minutes with `E_EVIDENCE_TOOL_BUSY` and
+ * no indication of who is holding it (gh#1222).
+ *
+ * Recording the holder turns that into a decidable question: a slot whose
+ * owner is a dead pid on this host is orphaned NOW, not in ten minutes, and
+ * the operator can be told which process to look at.
+ *
+ * @task T12113 (gh#1222)
+ */
+export interface SlotHolder {
+  /** OS process id of the holder. */
+  pid: number;
+  /** Host that pid is meaningful on. Liveness is only decided on a match. */
+  host: string;
+  /** ISO 8601 timestamp of acquisition — lets the operator judge "stuck vs slow". */
+  acquiredAt: string;
+  /** Canonical tool the slot belongs to. */
+  canonical: string;
+  /** Slot file this holder record describes. */
+  slot: string;
+}
+
+/**
+ * Path of the sidecar holder record for a slot.
+ *
+ * Deliberately a SIBLING of the lock rather than a file inside it:
+ * `proper-lockfile` removes its lock directory with `rmdir`, which fails if we
+ * have put anything inside it.
+ *
+ * @internal
+ * @task T12113 (gh#1222)
+ */
+function holderPath(slotPath: string): string {
+  return `${slotPath}.holder.json`;
+}
+
+/**
+ * Record who holds a slot. Best-effort: a failure here must never fail an
+ * acquire that has already succeeded, because the slot IS held at that point
+ * and throwing would leak it.
+ *
+ * @internal
+ * @task T12113 (gh#1222)
+ */
+function writeHolder(slotPath: string, canonical: string): void {
+  const holder: SlotHolder = {
+    pid: process.pid,
+    host: hostname(),
+    acquiredAt: new Date().toISOString(),
+    canonical,
+    slot: slotPath,
+  };
+  try {
+    writeFileSync(holderPath(slotPath), JSON.stringify(holder), 'utf-8');
+  } catch {
+    /* best-effort — never fail an acquire that succeeded */
+  }
+}
+
+/**
+ * Read a slot's holder record. Returns `null` when absent or unparseable —
+ * both mean "we cannot say who holds this", which is treated as alive.
+ *
+ * @internal
+ * @task T12113 (gh#1222)
+ */
+export function readHolder(slotPath: string): SlotHolder | null {
+  try {
+    const parsed = JSON.parse(readFileSync(holderPath(slotPath), 'utf-8')) as Partial<SlotHolder>;
+    if (typeof parsed.pid !== 'number' || typeof parsed.host !== 'string') return null;
+    return parsed as SlotHolder;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Is a slot's recorded holder still running?
+ *
+ * Fails SAFE: an unknown holder, a holder on another host, or any error is
+ * reported as ALIVE. Reaping a live holder's slot would let two heavy suites
+ * run against one bound — the exact oversubscription the semaphore exists to
+ * prevent — so uncertainty must never authorise a reap.
+ *
+ * @param holder - Holder record, or `null` when none could be read.
+ * @returns `true` when the slot must be treated as legitimately held.
+ *
+ * @task T12113 (gh#1222)
+ */
+export function isHolderAlive(holder: SlotHolder | null): boolean {
+  if (!holder) return true; // unknown — assume alive
+  if (holder.host !== hostname()) return true; // pid is not ours to judge
+  try {
+    process.kill(holder.pid, 0); // signal 0 = existence check, sends nothing
+    return true;
+  } catch (err) {
+    // EPERM means the process exists but belongs to another user.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * Release a slot whose recorded holder is gone.
+ *
+ * Removes `proper-lockfile`'s lock directory directly — the same thing its own
+ * stale recovery does, but decided by process liveness instead of by a 10
+ * minute mtime timeout.
+ *
+ * @param slotPath - Slot lock file path.
+ * @returns `true` when an orphaned slot was actually reaped.
+ *
+ * @task T12113 (gh#1222)
+ */
+export function reapSlotIfOrphaned(slotPath: string): boolean {
+  const holder = readHolder(slotPath);
+  if (isHolderAlive(holder)) return false;
+  try {
+    rmSync(`${slotPath}.lock`, { recursive: true, force: true });
+    rmSync(holderPath(slotPath), { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Enumerate every slot of a canonical tool with its holder and liveness.
+ *
+ * Backs the operator-facing lock inspection surface requested in gh#1222 —
+ * "who is holding this, and is it even alive?" — which previously required
+ * reading `~/.local/share/cleo/locks/` by hand.
+ *
+ * @param canonical - Canonical tool name.
+ * @returns One row per existing slot file.
+ *
+ * @task T12113 (gh#1222)
+ */
+export function listSlotHolders(
+  canonical: CanonicalTool,
+): Array<{ slot: string; held: boolean; holder: SlotHolder | null; alive: boolean }> {
+  const dir = semaphoreDir(canonical);
+  if (!existsSync(dir)) return [];
+  const rows: Array<{
+    slot: string;
+    held: boolean;
+    holder: SlotHolder | null;
+    alive: boolean;
+  }> = [];
+  for (let i = 0; ; i++) {
+    const slotPath = join(dir, `slot-${i}.lock`);
+    if (!existsSync(slotPath)) break;
+    const holder = readHolder(slotPath);
+    rows.push({
+      slot: slotPath,
+      held: existsSync(`${slotPath}.lock`),
+      holder,
+      alive: isHolderAlive(holder),
+    });
+  }
+  return rows;
+}
+
+/**
+ * Reap every orphaned slot of a canonical tool.
+ *
+ * @param canonical - Canonical tool name.
+ * @returns Paths of the slots actually reaped.
+ *
+ * @task T12113 (gh#1222)
+ */
+export function reapOrphanedSlots(canonical: CanonicalTool): string[] {
+  const reaped: string[] = [];
+  for (const row of listSlotHolders(canonical)) {
+    if (row.held && !row.alive && reapSlotIfOrphaned(row.slot)) reaped.push(row.slot);
+  }
+  return reaped;
+}
+
 function ensureSlotFiles(dir: string, count: number): string[] {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
@@ -409,12 +595,27 @@ export async function acquireGlobalSlot(
     for (const idx of order) {
       const path = slots[idx];
       if (!path) continue;
+      let acquired: (() => Promise<void>) | null = null;
       try {
-        const release = await lockfile.lock(path, {
-          retries: 0,
-          stale: staleMs,
-          realpath: false,
-        });
+        acquired = await lockfile.lock(path, { retries: 0, stale: staleMs, realpath: false });
+      } catch {
+        // gh#1222: the slot is held — but by whom? proper-lockfile decides
+        // staleness from mtime, so a process that died without releasing
+        // holds the slot for the full staleMs (10 min) and is
+        // indistinguishable from a legitimately slow suite. Ask the holder
+        // record instead: a dead pid on this host is orphaned NOW. Fails
+        // safe — an unknown or remote holder is treated as alive.
+        if (reapSlotIfOrphaned(path)) {
+          try {
+            acquired = await lockfile.lock(path, { retries: 0, stale: staleMs, realpath: false });
+          } catch {
+            acquired = null; // someone else won the race for the reaped slot
+          }
+        }
+      }
+      if (acquired) {
+        const release = acquired;
+        writeHolder(path, canonical);
         let released = false;
         return async () => {
           if (released) return;
@@ -426,20 +627,32 @@ export async function acquireGlobalSlot(
             // (e.g. via stale recovery). Swallow — the post-condition
             // is "slot is free", which is true either way.
           }
+          try {
+            rmSync(`${path}.holder.json`, { force: true });
+          } catch {
+            /* best-effort — a stale holder record is only ever advisory */
+          }
         };
-      } catch {
-        // slot busy; try next
       }
     }
     // All slots busy — sleep and retry.
     await sleep(pollMs);
   }
 
+  // gh#1222: name the holders. "Everything is busy" with no way to see WHO is
+  // what made an orphaned slot look like a broken semaphore.
+  const holders = listSlotHolders(canonical)
+    .filter((r) => r.held)
+    .map((r) => {
+      const h = r.holder;
+      if (!h) return `${r.slot}: holder unknown`;
+      return `${r.slot}: pid ${h.pid} on ${h.host} since ${h.acquiredAt}${r.alive ? '' : ' (DEAD)'}`;
+    });
   throw new Error(
     `Timed out after ${timeoutMs}ms waiting for a free '${canonical}' tool slot ` +
-      `(max ${max} concurrent). Override with CLEO_TOOL_CONCURRENCY_${canonical
-        .toUpperCase()
-        .replace(/-/g, '_')}=<n>.`,
+      `(max ${max} concurrent).` +
+      (holders.length > 0 ? ` Current holders — ${holders.join('; ')}.` : '') +
+      ` Override with CLEO_TOOL_CONCURRENCY_${canonical.toUpperCase().replace(/-/g, '_')}=<n>.`,
   );
 }
 
