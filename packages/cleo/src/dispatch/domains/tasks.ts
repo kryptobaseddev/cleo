@@ -142,6 +142,11 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       status: params.status,
       priority: params.priority,
       type: params.type,
+      // T12120 (GH #1245/#1246) — these two axes were missing here as well as
+      // at every other layer of the relay; omitting them here silently drops
+      // the filter after the CLI has already accepted it.
+      severity: params.severity,
+      kind: params.kind,
       phase: params.phase,
       label: params.label,
       children: params.children,

@@ -24,7 +24,7 @@ import type { TaskAnalysisResult, TaskRef } from '../results.js';
  * Common task types (API contract — matches CLI src/types/task.ts)
  */
 import type { TaskStatus } from '../status-registry.js';
-import type { TaskPriority, TaskType } from '../task.js';
+import type { TaskKind, TaskPriority, TaskSeverity, TaskType } from '../task.js';
 import type { TaskRecord } from '../task-record.js';
 import type { ExternalTask, ExternalTaskLink, ReconcileResult } from '../task-sync.js';
 import type {
@@ -83,8 +83,34 @@ export interface TasksListParams {
   status?: TaskStatus;
   priority?: TaskPriority;
   type?: string;
+  /**
+   * Filter by severity axis (`P0`-`P3`), orthogonal to {@link priority}.
+   *
+   * @remarks
+   * T12120 (GH #1245): previously absent from every layer of the read path,
+   * so `cleo list --severity P0` returned every task with no signal that the
+   * constraint had been dropped. Values outside `TASK_SEVERITIES` are rejected
+   * with `E_VALIDATION` — an unrecognised filter value must never widen a
+   * result set.
+   */
+  severity?: TaskSeverity | TaskSeverity[];
+  /**
+   * Filter by kind axis (ADR-066), orthogonal to {@link type}.
+   *
+   * @remarks
+   * T12120 (GH #1246): absent from the read path for the same reason as
+   * {@link severity}. Stored in the `role` DB column.
+   */
+  kind?: TaskKind | TaskKind[];
   phase?: string;
   label?: string;
+  /**
+   * No-op, retained for compatibility.
+   *
+   * @remarks
+   * T12120 (GH #1247): `--parent` already restricts to DIRECT children on
+   * every path, so there is no transitive mode for this flag to narrow from.
+   */
   children?: boolean;
   limit?: number;
   offset?: number;

@@ -19,7 +19,11 @@ import { ExitCode } from '@cleocode/contracts';
 import { createPage } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { dispatchRaw, handleRawError, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
-import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
+import {
+  getOperationParams,
+  paramsToCittyArgs,
+  registryParamsToDispatchPayload,
+} from '../lib/registry-args.js';
 import { cliOutput } from '../renderers/index.js';
 
 const listArgs = {
@@ -59,21 +63,20 @@ export const listCommand = defineCommand({
     // list uses dispatchRaw, so it calls the describe short-circuit directly.
     if (maybeEmitDescribe('query', 'tasks', 'list', { command: 'list' })) return;
 
-    const limit = args['limit'] !== undefined ? parseInt(args['limit'] as string, 10) : undefined;
-    const offset =
-      args['offset'] !== undefined ? parseInt(args['offset'] as string, 10) : undefined;
+    // T12120 (GH #1245/#1248) — forward EVERY registry-declared param instead
+    // of hand-copying a subset. The previous hand-written block copied 7 of the
+    // 10 declared params, so `--compact` was advertised in `--help` and never
+    // delivered, and any param added to the registry later would have been
+    // dropped the same way. Deriving payload and flags from the same
+    // `ParamDef[]` makes that divergence unrepresentable.
+    const declaredParams = getOperationParams('query', 'tasks', 'list');
+    const params = registryParamsToDispatchPayload(declaredParams, args as Record<string, unknown>);
 
-    const params: Record<string, unknown> = {};
-    if (args['status'] !== undefined) params['status'] = args['status'];
-    if (args['priority'] !== undefined) params['priority'] = args['priority'];
-    if (args['type'] !== undefined) params['type'] = args['type'];
-    if (args['parent'] !== undefined) params['parent'] = args['parent'];
-    if (args['parent-id'] !== undefined) params['parent'] = params['parent'] ?? args['parent-id'];
-    if (args['phase'] !== undefined) params['phase'] = args['phase'];
-    if (args['label'] !== undefined) params['label'] = args['label'];
-    if (args['children'] !== undefined) params['children'] = args['children'];
-    if (limit !== undefined) params['limit'] = limit;
-    if (offset !== undefined) params['offset'] = offset;
+    // CLI-only compatibility alias — not a registry param, so forwarded here.
+    if (args['parent-id'] !== undefined) params['parent'] ??= args['parent-id'];
+
+    const limit = typeof params['limit'] === 'number' ? (params['limit'] as number) : undefined;
+    const offset = typeof params['offset'] === 'number' ? (params['offset'] as number) : undefined;
 
     const response = await dispatchRaw('query', 'tasks', 'list', params);
 
