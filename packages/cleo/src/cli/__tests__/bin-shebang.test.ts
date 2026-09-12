@@ -5,6 +5,24 @@
  * `#!/usr/bin/env node` so that npm-global installs work without
  * errors like "import: not found" or "/bin: Is a directory".
  *
+ * ## The exact string is load-bearing — do not relax it to admit flags
+ *
+ * `#!/usr/bin/env -S node --max-old-space-size=1536 …` is the tempting way to
+ * pass Node flags in one process, and this assertion is the only thing that
+ * stops it. `env -S` is supported by GNU coreutils (>= 8.30) and by BSD/macOS,
+ * so it passes on the machines most maintainers test on — and it breaks the
+ * CLI outright on musl/BusyBox. Measured 2026-09-12 on the official
+ * `node:22-alpine` image, where `/usr/bin/env` symlinks to `/bin/busybox`:
+ *
+ *     /usr/bin/env: unrecognized option: S
+ *     Usage: env [-i0] [-u NAME]... [-] [NAME=VALUE]... [PROG ARGS]
+ *     exit=1
+ *
+ * BusyBox 1.37.0 has no `-S`. The failure is at exec time, before any JS is
+ * parsed, so no in-process fallback can recover it: `cleo` is unlaunchable.
+ * The same file with the plain shebang ran fine. Flags are applied by the
+ * re-exec in `bin/cleo.js` instead — see the rationale there.
+ *
  * These tests check the compiled dist files (not the TypeScript sources)
  * because that is the artefact consumers receive. If dist files are not
  * present (clean checkout before first build), the tests are skipped

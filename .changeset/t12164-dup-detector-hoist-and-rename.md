@@ -15,9 +15,11 @@ Two changes to `duplicate-detector.ts`, both with no behavioural effect on the d
 const [vecA, vecB] = await Promise.all([embedText(incomingBlob), embedText(candidateBlob)]);
 ```
 
-So the *same* incoming text was embedded once for each candidate. Against the live store's **1,126** active tasks that is 1,126 embeddings of one string per `cleo add`, where one is needed. This is the O(active-tasks) cost on the write path, and it is why a `cleo add-batch --dry-run` — the operation whose entire contract is to insert nothing — has been measured exceeding 120 seconds on a single-task file.
+So the *same* incoming text was embedded once for each candidate.
 
-The incoming vector is now computed once by `embedIncomingOnce` before the loop and passed in; only the candidate is embedded per iteration. Total embeddings per check go from **2N** to **1 + N**.
+**Scope note, because main moved under this PR.** When this was found, the vector phase ran against every active task — 1,126 in the live store, so 1,126 embeddings of one string per `cleo add`. #1258 has since landed a count cap (`MAX_VECTOR_CANDIDATES = 25`) and a 5s deadline on that phase, so the redundancy is now bounded at 25 rather than unbounded. The hoist still takes 2N embeddings to 1 + N — it is just that N is now capped. The original 1,126 figure describes the pre-#1258 behaviour and is kept here as the provenance of the finding, not as a current measurement.
+
+The incoming vector is now computed once by `embedIncomingOnce` before the loop and passed in; only the candidate is embedded per iteration. Total embeddings per check go from **2N** to **1 + N**, with N bounded by #1258's cap.
 
 A test pins it by **call count rather than wall-clock** — a timing test would be flaky and would not say which call was redundant. Against main it fails with `expected [ …(25) ] to have a length of 1 but got 25`.
 

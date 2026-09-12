@@ -39,7 +39,8 @@ describe('incoming-blob embedding is hoisted out of the candidate loop', () => {
   it('embeds the incoming blob exactly once regardless of candidate count', async () => {
     const { checkDuplicates } = await import('../duplicate-detector.js');
 
-    const CANDIDATES = 25;
+    const CANDIDATES = 10; // deliberately under MAX_VECTOR_CANDIDATES (25) so the
+    // assertion is about the hoist, not about #1258's budget cap
     const tasks = Array.from({ length: CANDIDATES }, (_, i) => ({
       id: `T${1000 + i}`,
       title: `Candidate task number ${i}`,

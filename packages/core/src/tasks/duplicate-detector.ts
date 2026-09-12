@@ -75,6 +75,31 @@ export const MAX_CANDIDATES = 3;
 /** LLM call timeout in milliseconds. */
 const LLM_TIMEOUT_MS = 15_000;
 
+/**
+ * Maximum candidates that may be scored with local embeddings (T12117).
+ *
+ * The vector tier used to run inside the per-candidate loop with no bound, so
+ * `cleo add` performed one local model inference **per active task** before
+ * committing the row — O(active tasks) inferences on the write path. In a
+ * project with ~1,000 active tasks that is thousands of inferences to create
+ * one row, which is why `cleo add` was observed taking 180-280 s and failing
+ * outright on a memory-constrained host (issue #1244).
+ *
+ * Candidates beyond this budget fall back to the lexical score, which is the
+ * same fallback already used whenever embeddings are unavailable — so this
+ * bounds cost without introducing a new code path.
+ */
+const MAX_VECTOR_CANDIDATES = 25;
+
+/**
+ * Wall-clock budget for the whole vector-scoring phase, in milliseconds.
+ *
+ * A second bound beside {@link MAX_VECTOR_CANDIDATES} because the count cap
+ * assumes each inference is fast, and a cold model load is not. Whichever
+ * bound trips first ends the phase.
+ */
+const VECTOR_PHASE_BUDGET_MS = 5_000;
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -633,6 +658,12 @@ export async function checkDuplicates(
   // Clear-match candidates (tier1 >= DUPLICATE_REJECT_THRESHOLD or >= DUPLICATE_WARN_THRESHOLD)
   const clearMatchCandidates: DuplicateCandidate[] = [];
 
+  // T12117: bound the vector tier. Exceeding either budget degrades the
+  // remaining candidates to the lexical score — the same path taken when
+  // embeddings are unavailable — rather than extending the write.
+  let vectorBudget = MAX_VECTOR_CANDIDATES;
+  const vectorDeadline = Date.now() + VECTOR_PHASE_BUDGET_MS;
+
   for (const task of activeTasks) {
     // Do not compare a task with itself (e.g. if being re-added after creation)
     if (task.title === title) {
@@ -643,7 +674,14 @@ export async function checkDuplicates(
     const candidateBlob = buildSearchBlob(task.title, task.description ?? '');
 
     let tier1Score: number;
-    if (incomingVec) {
+    // Both bounds apply. #1258 caps the vector phase by COUNT and DEADLINE so a
+    // large store cannot stall a write; this branch additionally passes the
+    // PRE-COMPUTED incoming vector, so the incoming blob is embedded once for
+    // the whole check rather than once per candidate. `incomingVec` is non-null
+    // only when embedding is available, so it subsumes the old
+    // `embeddingEnabled` test.
+    if (incomingVec && vectorBudget > 0 && Date.now() < vectorDeadline) {
+      vectorBudget--;
       const vecScore = await tryVectorSimilarity(incomingVec, candidateBlob);
       tier1Score =
         vecScore ??
@@ -861,4 +899,92 @@ export async function loadActiveTasks(accessor: DataAccessor): Promise<Task[]> {
     limit: MAX_ACTIVE_TASKS_SCAN,
   });
   return tasks;
+}
+
+/**
+ * Total wall-clock budget for duplicate detection on the write path, in ms.
+ *
+ * Detection is three tiers deep and two of them can call out of process (local
+ * embeddings, then an LLM). Each has its own bound, but "bounded individually"
+ * is not "bounded in aggregate" — and this runs BEFORE the row is inserted.
+ */
+const DUPLICATE_CHECK_BUDGET_MS = 20_000;
+
+/** Env var overriding {@link DUPLICATE_CHECK_BUDGET_MS}. */
+export const DUPLICATE_CHECK_BUDGET_ENV = 'CLEO_DUPLICATE_CHECK_BUDGET_MS';
+
+/**
+ * Resolve the duplicate-detection budget, honouring an operator override.
+ *
+ * @param env - environment to read the override from.
+ * @returns budget in ms; the default when unset or malformed.
+ */
+export function resolveDuplicateCheckBudgetMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number.parseInt(env[DUPLICATE_CHECK_BUDGET_ENV] ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : DUPLICATE_CHECK_BUDGET_MS;
+}
+
+/**
+ * {@link checkDuplicates} with a hard deadline and a fail-OPEN result.
+ *
+ * ## Why fail open (T12117 · issue #1244)
+ *
+ * Duplicate detection runs before the insert, so anything that stalls it
+ * doesn't slow the write down — it *loses* it. Reported from the field: three
+ * `cleo add` attempts at 280 s each, none of which created a row, on a host
+ * under memory pressure. No error, no id, no task. A silent write failure is
+ * the worst failure mode a task tracker has, because the agent that filed the
+ * task believes the work is recorded.
+ *
+ * It is also silent in the dangerous direction relative to CLEO's documented
+ * recovery advice. A killed mutation is supposed to mean "query before
+ * retrying — the write has usually landed", which was independently confirmed
+ * true for a timeout-killed write. But these writes had NOT landed, and nothing
+ * in the output distinguishes the two cases. An agent following the contract
+ * correctly reaches the wrong conclusion in one direction or the other.
+ *
+ * So: the row is the product, detection is enrichment. When the budget is
+ * blown, report that on stderr and let the insert proceed. A duplicate that
+ * slips through is recoverable by a human in seconds; a task that was never
+ * created is lost work nobody knows to look for.
+ *
+ * @param args - forwarded verbatim to {@link checkDuplicates}.
+ * @returns the real verdict, or a permissive one when the budget was exceeded.
+ *
+ * @task T12117
+ */
+export async function checkDuplicatesBounded(
+  ...args: Parameters<typeof checkDuplicates>
+): Promise<DuplicateCheckResult & { timedOut: boolean }> {
+  let timer: NodeJS.Timeout | undefined;
+  const budgetMs = resolveDuplicateCheckBudgetMs();
+
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), budgetMs);
+    // Must not hold the CLI's event loop open on its own.
+    timer.unref();
+  });
+
+  try {
+    const verdict = await Promise.race([checkDuplicates(...args), timeout]);
+
+    if (verdict === null) {
+      process.stderr.write(
+        `cleo: duplicate detection exceeded ${budgetMs}ms and was skipped; ` +
+          `creating the task anyway. Run 'cleo find' to check for duplicates.\n`,
+      );
+      return {
+        maxScore: 0,
+        candidates: [],
+        shouldReject: false,
+        shouldWarn: false,
+        tier: 'bm25',
+        timedOut: true,
+      };
+    }
+
+    return { ...verdict, timedOut: false };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
