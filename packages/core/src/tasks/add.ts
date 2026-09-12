@@ -1208,11 +1208,15 @@ export async function addTask(
   // Runs before the exact-title duplicate check so warnings/rejections surface early.
   // Skip on dry-run (no data written) and skip when forceDuplicate bypasses rejection.
   if (!options.dryRun) {
-    const { checkDuplicates, buildWarnMessage, buildRejectMessage } = await import(
+    const { checkDuplicatesBounded, buildWarnMessage, buildRejectMessage } = await import(
       './duplicate-detector.js'
     );
 
-    const dupCheck = await checkDuplicates(
+    // T12117 (#1244): bounded and fail-OPEN. This runs BEFORE the insert, so a
+    // stall here does not slow the write down — it loses it. Reported from the
+    // field: three `cleo add` attempts at 280 s each, none of which created a
+    // row. The row is the product; duplicate detection is enrichment.
+    const dupCheck = await checkDuplicatesBounded(
       options.title,
       options.description ?? '',
       dataAccessor,

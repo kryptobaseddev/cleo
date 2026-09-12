@@ -51,6 +51,7 @@ import lockfile from 'proper-lockfile';
 import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from '../resources/backend.js';
 import { ResourceMonitor } from '../resources/monitor.js';
+import { isHeavyTool } from './heavy-tool-env.js';
 import type { CanonicalTool } from './tool-resolver.js';
 
 // ---------------------------------------------------------------------------
@@ -244,7 +245,12 @@ export function resolveMaxConcurrent(
  * and single-threaded, so they keep their static budget.
  */
 function isPressureSensitive(canonical: CanonicalTool): boolean {
-  return canonical === 'test' || canonical === 'build';
+  // Delegates rather than repeating the literal. This was the third
+  // independent definition of "heavy"; all three agreed by coincidence, and a
+  // fifth heavy tool would have needed three coordinated edits — with a missed
+  // one producing a SILENT asymmetry (a tool granted the long deadline and the
+  // worker caps but not a semaphore slot, or the reverse).
+  return isHeavyTool(canonical);
 }
 
 /**
