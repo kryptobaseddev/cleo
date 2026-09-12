@@ -311,7 +311,7 @@ archived, `list` truncates at 10, and new children sort last):
 
 ```bash
 cleo find "<exact title>" --include-archive
-cleo list --parent <id> --all
+cleo list --parent <id> --limit 0
 ```
 
 `--idempotency-key` does NOT make a retry safe on `add`/`add-batch`/`update`/
