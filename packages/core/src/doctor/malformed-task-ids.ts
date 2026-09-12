@@ -36,6 +36,34 @@ import { isStorableTaskId } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import { openDualScopeDb } from '../store/dual-scope-db.js';
 
+/**
+ * Columns that hold a task id, by convention across the prefixed schema.
+ *
+ * Discovery is deliberately convention-based rather than FK-based. Only 11 of
+ * the 18 referencing tables declare a foreign key to `tasks_tasks` — and
+ * `tasks_lifecycle_pipelines`, which holds the dependent of the one malformed
+ * row actually present in this repository's store, is **not** one of them. A
+ * FK-only sweep would have reported "no dependents" for the live case.
+ */
+const TASK_ID_COLUMNS = [
+  'task_id',
+  'depends_on',
+  'related_to',
+  'target_task_id',
+  'parent_id',
+  'current_task',
+] as const;
+
+/** Rows in one table that reference a malformed id. */
+export interface DependentRows {
+  /** Table holding the references. */
+  readonly table: string;
+  /** Column holding them. */
+  readonly column: string;
+  /** How many rows reference the malformed id. */
+  readonly count: number;
+}
+
 /** A task row whose id does not match the canonical shape. */
 export interface MalformedTaskRow {
   /** The malformed id, verbatim. */
@@ -48,6 +76,12 @@ export interface MalformedTaskRow {
   readonly type: string | null;
   /** Rows in `tasks_task_dependencies` that name this id on either side. */
   readonly dependencyRows: number;
+  /**
+   * Every reference to this id anywhere in the store, per table and column.
+   *
+   * The repair refuses while this is non-empty — see {@link scanMalformedTaskIds}.
+   */
+  readonly dependents: readonly DependentRows[];
 }
 
 /** Outcome of a {@link scanMalformedTaskIds} run. */
@@ -56,6 +90,22 @@ export interface MalformedTaskIdReport {
   readonly rows: readonly MalformedTaskRow[];
   /** `true` when `--fix` ran and rows were deleted. */
   readonly deleted: boolean;
+  /**
+   * Ids `--fix` REFUSED to delete because other tables reference them.
+   *
+   * Deleting a malformed row while leaving its references behind manufactures
+   * exactly the violation `cleo doctor fk-check` exists to detect — one doctor
+   * creating work for another. Found on real data: the single malformed row in
+   * this repository's own store has a dependent row in
+   * `tasks_lifecycle_pipelines`, a table with no declared foreign key.
+   *
+   * A blanket cascade is not the answer either: 18 tables hold a task id, and
+   * they include `tasks_audit_log` and `tasks_task_work_history`, which are
+   * evidence. Deleting the audit trail of a bad row destroys the record of how
+   * it got there. Which references are safe to remove is an operator judgement,
+   * so the repair reports them and stops.
+   */
+  readonly refused: readonly string[];
 }
 
 /**
@@ -68,8 +118,10 @@ export interface MalformedTaskIdReport {
  * `--fix` would DELETE working release follow-up tasks.
  *
  * @param cwd - project root.
- * @param opts - `fix: true` deletes the rows found; default is read-only.
- * @returns the rows found, and whether they were deleted.
+ * @param opts - `fix: true` deletes rows that nothing references; default is
+ *               read-only. Rows WITH references are never deleted — see
+ *               {@link MalformedTaskIdReport.refused}.
+ * @returns the rows found, their references, and what was deleted or refused.
  *
  * @example
  * ```ts
@@ -85,6 +137,21 @@ export async function scanMalformedTaskIds(
 ): Promise<MalformedTaskIdReport> {
   const { db } = await openDualScopeDb('project', cwd);
 
+  // Every prefixed table holding a task-id-shaped column. Discovered from the
+  // live schema rather than hardcoded, so a table added later is covered
+  // automatically — the failure mode of a stale list here is a silent partial
+  // repair, which is the very thing this command exists to avoid.
+  const schemaRows = (await db.all(
+    sql`SELECT m.name AS tbl, i.name AS col
+        FROM sqlite_master AS m
+        JOIN pragma_table_info(m.name) AS i
+        WHERE m.type = 'table' AND m.name LIKE 'tasks_%'`,
+  )) as ReadonlyArray<{ tbl: unknown; col: unknown }>;
+
+  const refs = schemaRows
+    .map((r) => ({ table: String(r.tbl), column: String(r.col) }))
+    .filter((r) => (TASK_ID_COLUMNS as readonly string[]).includes(r.column));
+
   const all = (await db.all(
     sql`SELECT id, title, status, type FROM tasks_tasks`,
   )) as ReadonlyArray<{
@@ -99,32 +166,42 @@ export async function scanMalformedTaskIds(
     if (isStorableTaskId(raw.id)) continue;
     const id = String(raw.id);
 
-    const dep = (await db.all(
-      sql`SELECT COUNT(*) AS c FROM tasks_task_dependencies
-          WHERE task_id = ${id} OR depends_on = ${id}`,
-    )) as ReadonlyArray<{ c?: number }>;
+    const dependents: DependentRows[] = [];
+    for (const { table, column } of refs) {
+      // `tasks_tasks.id` is the row itself, not a reference to it.
+      if (table === 'tasks_tasks' && column !== 'parent_id') continue;
+
+      const hit = (await db.all(
+        sql`SELECT COUNT(*) AS c FROM ${sql.identifier(table)}
+            WHERE ${sql.identifier(column)} = ${id}`,
+      )) as ReadonlyArray<{ c?: number }>;
+
+      const count = hit[0]?.c ?? 0;
+      if (count > 0) dependents.push({ table, column, count });
+    }
 
     rows.push({
       id,
       title: raw.title == null ? null : String(raw.title),
       status: raw.status == null ? null : String(raw.status),
       type: raw.type == null ? null : String(raw.type),
-      dependencyRows: dep[0]?.c ?? 0,
+      dependencyRows: dependents
+        .filter((d) => d.table === 'tasks_task_dependencies')
+        .reduce((n, d) => n + d.count, 0),
+      dependents,
     });
   }
 
   let deleted = false;
-  if (opts.fix && rows.length > 0) {
+  const refused = rows.filter((r) => r.dependents.length > 0);
+
+  if (opts.fix && rows.length > 0 && refused.length === 0) {
     // One transaction: a partially-repaired store is worse than an unrepaired
     // one, because the operator would then have to re-derive which rows were
-    // left behind — and these rows are precisely the ones no query can name.
+    // left behind — and these are the rows no query can name.
     await db.run(sql`BEGIN`);
     try {
       for (const row of rows) {
-        await db.run(
-          sql`DELETE FROM tasks_task_dependencies
-              WHERE task_id = ${row.id} OR depends_on = ${row.id}`,
-        );
         await db.run(sql`DELETE FROM tasks_tasks WHERE id = ${row.id}`);
       }
       await db.run(sql`COMMIT`);
@@ -135,5 +212,5 @@ export async function scanMalformedTaskIds(
     }
   }
 
-  return { rows, deleted };
+  return { rows, deleted, refused: refused.map((r) => r.id) };
 }

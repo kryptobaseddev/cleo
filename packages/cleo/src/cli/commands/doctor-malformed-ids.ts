@@ -31,12 +31,15 @@ export const doctorMalformedIdsCommand = defineCommand({
     name: 'malformed-ids',
     description:
       'Report task rows whose id is not a valid task identifier — rows that `cleo list` returns ' +
-      'but `show`/`update`/`delete` cannot address. Read-only unless --fix is given.',
+      'but `show`/`update`/`delete` cannot address. Read-only unless --fix is given; --fix ' +
+      'refuses any row other tables still reference, and reports them instead.',
   },
   args: {
     fix: {
       type: 'boolean',
-      description: 'Delete the unaddressable rows (and their dependency edges) in one transaction',
+      description:
+        'Delete unaddressable rows in one transaction. Refuses any row still referenced by ' +
+        'another table — deleting those would manufacture the orphans `doctor fk-check` detects.',
     },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },
@@ -50,6 +53,7 @@ export const doctorMalformedIdsCommand = defineCommand({
       operation: 'doctor.malformed-ids.run',
     });
 
+    // Refused rows are unresolved by definition — `--fix` ran and declined.
     const unresolved = report.rows.length > 0 && !report.deleted;
     if (unresolved && (process.exitCode === undefined || process.exitCode === 0)) {
       process.exitCode = 1;

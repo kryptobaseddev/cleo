@@ -120,3 +120,61 @@ describe('scanMalformedTaskIds', () => {
     expect(await getTask('T4242')).not.toBeNull();
   });
 });
+
+describe('scanMalformedTaskIds — refuses to orphan references', () => {
+  /** Reference the malformed id from a table with NO declared foreign key. */
+  async function addLifecycleReference(taskId: string): Promise<void> {
+    const { sql } = await import('drizzle-orm');
+    const { openDualScopeDb } = await import('../../store/dual-scope-db.js');
+    const { db } = await openDualScopeDb('project', tempDir);
+    const now = new Date().toISOString();
+    await db.run(
+      sql`INSERT INTO tasks_lifecycle_pipelines
+            (id, task_id, status, started_at, version)
+          VALUES (${`lp-${taskId}`}, ${taskId}, 'active', ${now}, 1)`,
+    );
+  }
+
+  it('reports a dependent in a table with no declared FK', async () => {
+    // Only 11 of the 18 referencing tables declare a foreign key, and
+    // `tasks_lifecycle_pipelines` is NOT one of them — yet it holds the
+    // dependent of the single malformed row found in this repo's live store.
+    // An FK-only sweep would report "no dependents" for the real case.
+    const { scanMalformedTaskIds } = await import('../malformed-task-ids.js');
+    await insertRawTaskRow('/mnt/projects/cleocode', 'junk');
+    await addLifecycleReference('/mnt/projects/cleocode');
+
+    const report = await scanMalformedTaskIds(tempDir);
+
+    const dep = report.rows[0]?.dependents.find((d) => d.table === 'tasks_lifecycle_pipelines');
+    expect(dep?.count).toBe(1);
+  });
+
+  it('REFUSES --fix while a reference exists, rather than orphaning it', async () => {
+    // Deleting the row and leaving the reference manufactures exactly the
+    // violation `cleo doctor fk-check` exists to detect — one doctor creating
+    // work for another.
+    const { scanMalformedTaskIds } = await import('../malformed-task-ids.js');
+    await insertRawTaskRow('/mnt/projects/cleocode', 'junk');
+    await addLifecycleReference('/mnt/projects/cleocode');
+
+    const fixed = await scanMalformedTaskIds(tempDir, { fix: true });
+
+    expect(fixed.deleted).toBe(false);
+    expect(fixed.refused).toEqual(['/mnt/projects/cleocode']);
+    // And the row is still there — a refusal must not half-delete.
+    expect((await scanMalformedTaskIds(tempDir)).rows).toHaveLength(1);
+  });
+
+  it('still deletes a malformed row that nothing references', async () => {
+    // The refusal must not make the command useless for the clean case.
+    const { scanMalformedTaskIds } = await import('../malformed-task-ids.js');
+    await insertRawTaskRow('/mnt/projects/cleocode', 'junk');
+
+    const fixed = await scanMalformedTaskIds(tempDir, { fix: true });
+
+    expect(fixed.deleted).toBe(true);
+    expect(fixed.refused).toEqual([]);
+    expect((await scanMalformedTaskIds(tempDir)).rows).toEqual([]);
+  });
+});
