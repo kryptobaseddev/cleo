@@ -42,7 +42,18 @@ import { shutdownCliRuntime } from '../shutdown.js';
 
 describe('shutdownCliRuntime — coordinated CLI teardown (T11568 · T11655)', () => {
   it('is callable and resolves with nothing initialized (best-effort)', async () => {
-    await expect(shutdownCliRuntime()).resolves.toBeUndefined();
+    // T12115 changed the return from `void` to one StepOutcome per step, so the
+    // CLI can report a step that blew its deadline. The assertion these tests
+    // always MEANT was "resolves without throwing" — `toBeUndefined()` was the
+    // incidental return value, not the contract under test. Asserting the
+    // outcomes is strictly stronger.
+    const outcomes = await shutdownCliRuntime();
+    expect(outcomes.map((o) => o.label)).toEqual([
+      'brain-writer',
+      'embedding-queue',
+      'databases',
+      'logger',
+    ]);
   });
 
   it('tears down the embedding-queue worker (T11655 contract)', async () => {
@@ -55,7 +66,11 @@ describe('shutdownCliRuntime — coordinated CLI teardown (T11568 · T11655)', (
     shutdownBrainWriterMock.mockRejectedValueOnce(new Error('boom'));
     resetEmbeddingQueueMock.mockClear();
     closeLoggerMock.mockClear();
-    await expect(shutdownCliRuntime()).resolves.toBeUndefined();
+    // Previously this could only assert "did not throw". The outcomes make the
+    // actual claim directly checkable: every step ran despite one rejecting.
+    const outcomes = await shutdownCliRuntime();
+    expect(outcomes).toHaveLength(4);
+    expect(outcomes.every((o) => o.settled)).toBe(true);
     // Steps after the throwing one still ran.
     expect(resetEmbeddingQueueMock).toHaveBeenCalledTimes(1);
     expect(closeLoggerMock).toHaveBeenCalledTimes(1);
@@ -63,6 +78,13 @@ describe('shutdownCliRuntime — coordinated CLI teardown (T11568 · T11655)', (
 
   it('is idempotent — a second call never throws', async () => {
     await shutdownCliRuntime();
-    await expect(shutdownCliRuntime()).resolves.toBeUndefined();
+    // Label assertion, not a count: a renamed or swapped step would pass a
+    // length check while changing the contract.
+    await expect(shutdownCliRuntime()).resolves.toEqual([
+      expect.objectContaining({ label: 'brain-writer' }),
+      expect.objectContaining({ label: 'embedding-queue' }),
+      expect.objectContaining({ label: 'databases' }),
+      expect.objectContaining({ label: 'logger' }),
+    ]);
   });
 });
