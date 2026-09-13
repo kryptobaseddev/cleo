@@ -364,6 +364,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         title: params.title,
         description: typeof params.description === 'string' ? params.description : undefined,
         parent: params.parent,
+        // T12136: carry the CLI's inference decision through to core.
+        parentSource: params.parentSource,
         depends: params.depends,
         priority: params.priority,
         labels: params.labels,

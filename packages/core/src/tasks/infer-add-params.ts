@@ -54,7 +54,50 @@ export interface InferAddParamsResult {
   acceptance?: string[];
   /** Parent task ID inferred from the active session's current task. */
   inferredParent?: string;
+  /**
+   * Why parent inference produced (or declined to produce) a parent.
+   *
+   * Always populated when inference was ATTEMPTED — i.e. no explicit
+   * `--parent` and a non-epic type. Absent when the caller named a parent, so
+   * a present value means "this parent did not come from your command".
+   *
+   * @remarks
+   * T12136 (GH #1232/#1238): the inference itself was announced only through
+   * `humanInfo`, which is silent under `--json`/`--quiet` — so the population
+   * that gets hurt by it (agents) never saw it. The caller then hit
+   * `E_CLEO_DEPTH_EXCEEDED` naming a task it had never mentioned, with advice
+   * pointing at an epic it had never intended to file under. Carrying the
+   * decision in the RESULT, rather than only on a human-only stderr channel,
+   * is what lets the machine-readable surfaces name it too.
+   */
+  parentInference?: ParentInference;
 }
+
+/** Outcome of the session-based parent inference step. */
+export interface ParentInference {
+  /** `'applied'` when a parent was inferred; otherwise why it was not. */
+  outcome: 'applied' | 'no-current-task' | 'stale-terminal' | 'lookup-failed';
+  /** The session's `current` pointer, when there was one. */
+  candidateId?: string;
+  /** Status of the candidate when it was rejected as stale. */
+  candidateStatus?: string;
+  /** Human-readable statement of what happened, safe to surface verbatim. */
+  note: string;
+}
+
+/**
+ * Statuses that disqualify a session's `current` pointer from supplying a
+ * parent.
+ *
+ * @remarks
+ * T12136: a `current` pointer outlives the work it points at. This session's
+ * own pointer was `T12100` — set 2026-08-19, status `done`, in a session
+ * started 2026-08-01 — and would have parented any new task under a task
+ * finished weeks earlier. Inheriting a parent from completed work is never
+ * what the caller meant, so a terminal candidate is declined rather than
+ * silently used.
+ */
+const NON_INFERABLE_STATUSES: ReadonlySet<string> = new Set(['done', 'cancelled', 'archived']);
 
 /**
  * Infer files touched by a task from its title and description using GitNexus.
@@ -368,11 +411,51 @@ export async function inferTaskAddParams(
     try {
       const accessor = await getTaskAccessor(projectRoot);
       const focusResult = await currentTask(undefined, accessor);
-      if (focusResult.currentTask) {
-        result.inferredParent = focusResult.currentTask;
+      const candidateId = focusResult.currentTask;
+
+      if (!candidateId) {
+        result.parentInference = {
+          outcome: 'no-current-task',
+          note: 'no --parent given and the session has no current task; no parent inferred',
+        };
+      } else {
+        // T12136 (GH #1232/#1238) — a `current` pointer outlives its work.
+        // Check the candidate is still live BEFORE adopting it, so a task is
+        // never filed under work that is already finished.
+        const candidate = await accessor.loadSingleTask(candidateId);
+        const candidateStatus = candidate?.status;
+        if (candidateStatus !== undefined && NON_INFERABLE_STATUSES.has(candidateStatus)) {
+          result.parentInference = {
+            outcome: 'stale-terminal',
+            candidateId,
+            candidateStatus,
+            note:
+              `no --parent given; declined to inherit ${candidateId} from the session ` +
+              `pointer because it is '${candidateStatus}'. Pass --parent <id> explicitly.`,
+          };
+        } else {
+          result.inferredParent = candidateId;
+          result.parentInference = {
+            outcome: 'applied',
+            candidateId,
+            ...(candidateStatus !== undefined ? { candidateStatus } : {}),
+            note:
+              `no --parent given; inherited ${candidateId} from the active session ` +
+              `pointer (cleo current), not from this command`,
+          };
+        }
       }
-    } catch {
-      // Session lookup is non-fatal — proceed without inference
+    } catch (err: unknown) {
+      // T12136: still non-fatal, but no longer INDISTINGUISHABLE from
+      // "there is no current task". A failed lookup and an absent pointer led
+      // to the same silent outcome, so a broken session looked identical to a
+      // clean one.
+      result.parentInference = {
+        outcome: 'lookup-failed',
+        note:
+          'no --parent given; the session lookup for parent inference failed, so no ' +
+          `parent was inferred (${err instanceof Error ? err.message : String(err)})`,
+      };
     }
   }
 
