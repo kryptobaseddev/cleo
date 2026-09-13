@@ -15,12 +15,23 @@
  * this script just bridges that to a static index the bundler can analyse.
  */
 
-import { readdirSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = resolve(__dirname, '..');
+/** Monorepo root — `packages/cleo` is two levels down. */
+const REPO_ROOT = resolve(PKG_ROOT, '..', '..');
+/**
+ * `--check` verifies without writing.
+ *
+ * `pretypecheck` and `prebuild` use it, because a build step must NOT mutate a
+ * tracked file: it dirties every agent's working tree and changes the evidence
+ * cache fingerprint as a side effect of running a tool (gh#1306).
+ */
+const CHECK_ONLY = process.argv.slice(2).includes('--check');
 const COMMANDS_DIR = join(PKG_ROOT, 'src', 'cli', 'commands');
 const OUTPUT_DIR = join(PKG_ROOT, 'src', 'cli', 'generated');
 const OUTPUT_FILE = join(OUTPUT_DIR, 'command-manifest.ts');
@@ -156,11 +167,75 @@ export interface CommandManifestEntry {
   }
   lines.push('] as const;', '');
 
+  const formatted = formatSource(lines.join('\n'));
+  const rel = OUTPUT_FILE.replace(`${PKG_ROOT}/`, '');
+
+  if (CHECK_ONLY) {
+    let committed;
+    try {
+      committed = readFileSync(OUTPUT_FILE, 'utf8');
+    } catch {
+      console.error(
+        `generate-command-manifest: ${rel} is MISSING.\n` +
+          '  Create it with: pnpm --filter @cleocode/cleo run gen:manifest',
+      );
+      process.exit(1);
+    }
+    if (committed === formatted) {
+      console.info(`generate-command-manifest: ${rel} is current (${entries.length} entries).`);
+      return;
+    }
+    console.error(
+      `\ngenerate-command-manifest: ${rel} is STALE.\n\n` +
+        '  The committed manifest does not match what its generator produces.\n' +
+        '  This check does NOT rewrite it — a typecheck or build must not mutate\n' +
+        '  tracked files (gh#1306): doing so dirties every agent\'s tree and changes\n' +
+        '  the evidence-cache fingerprint as a side effect of running a tool.\n\n' +
+        '  FIX:  pnpm --filter @cleocode/cleo run gen:manifest\n' +
+        `        git add ${rel} && git commit\n`,
+    );
+    process.exit(1);
+  }
+
   mkdirSync(OUTPUT_DIR, { recursive: true });
-  writeFileSync(OUTPUT_FILE, lines.join('\n'), 'utf8');
-  console.info(
-    `generate-command-manifest: wrote ${entries.length} entries to ${OUTPUT_FILE.replace(PKG_ROOT + '/', '')}`,
-  );
+  writeFileSync(OUTPUT_FILE, formatted, 'utf8');
+  console.info(`generate-command-manifest: wrote ${entries.length} entries to ${rel}`);
 }
+
+/**
+ * Return `source` as biome would format it.
+ *
+ * The generator used to emit unformatted output which biome then reformatted on
+ * commit, so every regeneration produced ~183 lines of pure formatting diff. That
+ * noise is not cosmetic: it CAMOUFLAGES real drift. Two commands
+ * (`doctor memory-guard`, `doctor superseded-store`) were missing from the
+ * committed manifest for weeks inside that noise. Formatting here means a diff
+ * means content, and nothing else.
+ *
+ * Falls back to the unformatted source if biome is unavailable, so the generator
+ * still works in an environment without dev dependencies.
+ */
+function formatSource(source) {
+  // The scratch file MUST live in the output directory, not in os.tmpdir().
+  // Biome resolves configuration and per-path overrides BY PATH, so formatting
+  // the same bytes at /tmp and at packages/cleo/src/cli/generated/ produces
+  // different output — measured: a temp-path format then reformatted at the
+  // real path, which would make `--check` flip-flop forever.
+  mkdirSync(OUTPUT_DIR, { recursive: true });
+  const scratch = join(OUTPUT_DIR, '.command-manifest.fmt.ts');
+  try {
+    writeFileSync(scratch, source, 'utf8');
+    execFileSync(join(REPO_ROOT, 'node_modules/.bin/biome'), ['format', '--write', scratch], {
+      cwd: REPO_ROOT,
+      stdio: 'ignore',
+    });
+    return readFileSync(scratch, 'utf8');
+  } catch {
+    return source;
+  } finally {
+    rmSync(scratch, { force: true });
+  }
+}
+
 
 main();

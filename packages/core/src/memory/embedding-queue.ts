@@ -76,6 +76,19 @@ export class EmbeddingQueue {
   private shutdownPromise: Promise<void> | null = null;
 
   /**
+   * Set at the very top of {@link doShutdown}, before anything is awaited.
+   *
+   * T12115: shutdown used to *start new work* — `doShutdown` awaited `drain()`,
+   * which called `initWorker()` (spawning a worker thread) and, when no worker
+   * was available, scheduled `setImmediate(fallbackEmbed)` callbacks that each
+   * load a transformers.js model and run inference on the main thread. Those
+   * callbacks outlive the `drain()` promise, so teardown reported success while
+   * the loop still held pending model loads — and the process never exited.
+   * This flag is the guard that makes shutdown purely subtractive.
+   */
+  private shuttingDown = false;
+
+  /**
    * Store the observation ID → DB write callback so the worker result
    * can be persisted back to brain_embeddings without coupling to SQLite here.
    */
@@ -172,6 +185,11 @@ export class EmbeddingQueue {
    * Uses the worker thread when available, falls back to inline setImmediate.
    */
   private async drain(): Promise<void> {
+    // T12115: never start new work once teardown has begun. Spawning a worker
+    // or loading an embedding model here is what kept one-shot CLI processes
+    // alive in `ep_poll` indefinitely.
+    if (this.shuttingDown) return;
+
     this.draining = true;
 
     // Ensure worker is initialised (no-op after first call)
@@ -211,6 +229,10 @@ export class EmbeddingQueue {
    * Runs directly on the main thread (but inside setImmediate to yield first).
    */
   private async fallbackEmbed(item: QueueItem): Promise<void> {
+    // T12115: a `setImmediate` scheduled before teardown can run after it. The
+    // model import below is expensive and would re-hold the loop, so re-check.
+    if (this.shuttingDown) return;
+
     const cb = this.callbacks.get(item.observationId);
     if (!cb) return;
     this.callbacks.delete(item.observationId);
@@ -234,12 +256,22 @@ export class EmbeddingQueue {
   }
 
   private async doShutdown(): Promise<void> {
-    // Drain remaining queue items
-    if (this.queue.length > 0) {
-      await this.drain();
-    }
+    // Order matters: claim the flag before the first `await` so no drain cycle,
+    // no queued `setImmediate`, and no `enqueue` can start work behind us.
+    this.shuttingDown = true;
 
-    // Terminate the worker
+    // T12115: deliberately do NOT drain. An embedding is enrichment; the
+    // observation row it belongs to was already committed by the caller — the
+    // pre-existing inline-fallback comment says as much ("observation already
+    // persisted without embedding"). Draining here traded a durable row we
+    // already have for an unbounded model load on the exit path, and the old
+    // code did not even wait for worker-dispatched results before terminating,
+    // so those embeddings were discarded anyway. Dropping the tail is what the
+    // code always effectively did; now it does so promptly and on purpose.
+    const dropped = this.queue.length;
+    this.queue.length = 0;
+    this.draining = false;
+
     if (this.worker) {
       try {
         await this.worker.terminate();
@@ -250,6 +282,14 @@ export class EmbeddingQueue {
     }
 
     this.callbacks.clear();
+
+    if (dropped > 0) {
+      const { getLogger } = await import('../logger.js');
+      getLogger('embedding-queue').debug(
+        { dropped },
+        'embedding-queue: dropped pending items at shutdown',
+      );
+    }
   }
 }
 
