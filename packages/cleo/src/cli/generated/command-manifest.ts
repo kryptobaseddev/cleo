@@ -354,6 +354,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/docs.js')).docsCommand as CommandDef,
   },
   {
+    exportName: 'doctorAcceptanceDriftCommand',
+    name: 'acceptance-drift',
+    description:
+      'Report tasks whose acceptance criteria disagree between the JSON column and the typed rows ',
+    load: async () =>
+      (await import('../commands/doctor-acceptance-drift.js'))
+        .doctorAcceptanceDriftCommand as CommandDef,
+  },
+  {
     exportName: 'doctorDbSubstrateCommand',
     name: 'db-substrate',
     description: 'Walk every DB in the inventory + report integrity, row counts, orphan dirs. ',
@@ -402,6 +411,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-memory-guard.js')).doctorMemoryGuardCommand as CommandDef,
   },
   {
+    exportName: 'doctorNexusResidencyCommand',
+    name: 'nexus-residency',
+    description:
+      'Report nexus tables resident in the wrong store — graph tables orphaned in the global ',
+    load: async () =>
+      (await import('../commands/doctor-nexus-residency.js'))
+        .doctorNexusResidencyCommand as CommandDef,
+  },
+  {
     exportName: 'doctorProjectsCommand',
     name: 'doctor-projects',
     description: 'Probe every registered project (nexus.db) for DB + config health',
@@ -432,6 +450,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () =>
       (await import('../commands/doctor-superseded-store.js'))
         .doctorSupersededStoreCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorToolLocksCommand',
+    name: 'tool-locks',
+    description:
+      'Inspect the machine-wide evidence-tool semaphore: which slots are held, by which pid, ',
+    load: async () =>
+      (await import('../commands/doctor-tool-locks.js')).doctorToolLocksCommand as CommandDef,
   },
   {
     exportName: 'doctorCommand',
