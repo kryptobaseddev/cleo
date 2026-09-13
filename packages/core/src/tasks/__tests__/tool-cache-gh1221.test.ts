@@ -33,7 +33,13 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { runToolCached } from '../tool-cache.js';
+import {
+  DEFAULT_SPAWN_TIMEOUT_MS,
+  defaultSpawnTimeoutMs,
+  HEAVY_TOOL_SPAWN_TIMEOUT_MS,
+  resolveSpawnTimeoutMs,
+  runToolCached,
+} from '../tool-cache.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
 
 function git(dir: string, args: string[]): string {
@@ -225,4 +231,49 @@ describe('gh#1220 / gh#1226 / gh#1230 — evidence must describe the tree it was
     const ranIn = readFileSync(join(markerDir, 'cwd.txt'), 'utf-8').trim();
     expect(realpathSync(ranIn)).toBe(realpathSync(dir));
   }, 30_000);
+});
+
+describe('gh#1221 — the heavy-tool deadline must not be a linter deadline', () => {
+  it('test and build get the 30 min heavy default', () => {
+    expect(defaultSpawnTimeoutMs('test')).toBe(HEAVY_TOOL_SPAWN_TIMEOUT_MS);
+    expect(defaultSpawnTimeoutMs('build')).toBe(HEAVY_TOOL_SPAWN_TIMEOUT_MS);
+    // 3x the ~10 min suite measured in the report — headroom, not a budget.
+    expect(HEAVY_TOOL_SPAWN_TIMEOUT_MS).toBe(1_800_000);
+  });
+
+  it('lint, typecheck, audit and security-scan do NOT inherit it', () => {
+    // Single-process and CPU-bound: a lint running for 5 minutes is hung,
+    // not busy. Letting them inherit the heavy budget would turn a hang into
+    // a 30-minute hang.
+    for (const tool of ['lint', 'typecheck', 'audit', 'security-scan']) {
+      expect(defaultSpawnTimeoutMs(tool)).toBe(DEFAULT_SPAWN_TIMEOUT_MS);
+    }
+  });
+
+  it('resolveSpawnTimeoutMs falls back per-canonical, and the env override still wins', () => {
+    expect(resolveSpawnTimeoutMs('test', {})).toBe(HEAVY_TOOL_SPAWN_TIMEOUT_MS);
+    expect(resolveSpawnTimeoutMs('lint', {})).toBe(DEFAULT_SPAWN_TIMEOUT_MS);
+    expect(resolveSpawnTimeoutMs('test', { CLEO_TOOL_TIMEOUT_TEST: '90000' })).toBe(90_000);
+  });
+
+  it('an invalid override names the per-canonical default it would have used', () => {
+    // The operator must not be told "300000" while a `test` run would actually
+    // have used 1800000 — that is how a second wrong assumption gets made.
+    // The remediation lives in CleoError's `fix`, which is what the CLI shows.
+    let fix: string | undefined;
+    try {
+      resolveSpawnTimeoutMs('test', { CLEO_TOOL_TIMEOUT_TEST: 'soon' });
+    } catch (err) {
+      fix = (err as { fix?: string }).fix;
+    }
+    expect(fix).toContain('1800000ms default');
+
+    let lintFix: string | undefined;
+    try {
+      resolveSpawnTimeoutMs('lint', { CLEO_TOOL_TIMEOUT_LINT: 'soon' });
+    } catch (err) {
+      lintFix = (err as { fix?: string }).fix;
+    }
+    expect(lintFix).toContain('300000ms default');
+  });
 });

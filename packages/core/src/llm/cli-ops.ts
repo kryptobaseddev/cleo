@@ -54,6 +54,7 @@ import { getLogger } from '../logger.js';
 // contains a credential substring is automatically scrubbed before it
 // reaches the dispatch envelope or the audit log.
 import { redactContent } from '../memory/redaction.js';
+import { defaultBaseUrlFor } from './api-mode.js';
 import {
   DEFAULT_AUXILIARY_FALLBACK_CHAIN,
   parseAuxiliaryFallbackChain,
@@ -484,17 +485,15 @@ export async function llmTest(params: LlmTestParams): Promise<EngineResult<LlmTe
     provider === 'kimi-code'
   ) {
     // OpenAI-compatible Chat Completions endpoint.
-    const defaultBase: Record<string, string> = {
-      openai: 'https://api.openai.com',
-      openrouter: 'https://openrouter.ai/api',
-      deepseek: 'https://api.deepseek.com',
-      xai: 'https://api.x.ai',
-      groq: 'https://api.groq.com/openai',
-      moonshot: 'https://api.moonshot.cn',
-      ollama: 'http://localhost:11434',
-      'kimi-code': 'https://api.kimi.com/coding',
-    };
-    url = `${baseUrl ?? defaultBase[provider] ?? 'https://api.openai.com'}/v1/chat/completions`;
+    //
+    // gh#1216: this map used to be a SECOND, independently-maintained copy of
+    // every provider's base URL, in a different shape (no version segment) to
+    // the one the transports use. Two copies of the same fact drift, and the
+    // copy that mattered for routing was a third place that had none at all.
+    // Both now read DEFAULT_PROVIDER_BASE_URLS.
+    const base =
+      baseUrl ?? defaultBaseUrlFor(provider as ModelTransport) ?? 'https://api.openai.com/v1';
+    url = `${base.replace(/\/+$/, '')}/chat/completions`;
     body = JSON.stringify({
       model,
       max_tokens: 1,

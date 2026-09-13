@@ -242,6 +242,67 @@ export interface RunToolOptions {
 export const DEFAULT_SPAWN_TIMEOUT_MS = 300_000;
 
 /**
+ * Wall-clock deadline for the HEAVY tool classes (`test`, `build`), in ms.
+ *
+ * ## Why these need their own default (gh#1221)
+ *
+ * A test suite is categorically not a linter. The single 300s default was
+ * below a real monorepo suite — measured ~10 min in the gh#1221 report — so
+ * EVERY run was killed before finishing, and the timeout path deliberately
+ * caches nothing (T12025, correct: an unfinished run is not a result). The
+ * cache could therefore never hit, not because the key moved but because no
+ * entry was ever produced, on a path that always fired. Each attempt still ran
+ * the suite at full parallelism for the full 300s before discarding it — the
+ * worst possible shape, and the load multiplier that wedged shared hosts.
+ *
+ * 30 min is 3x the measured ~10 min suite, so a project whose suite triples
+ * still completes on the default rather than discovering an env var after
+ * burning 5 CPU-minutes to learn its name. It is a ceiling on a pathological
+ * hang, not a budget anyone should plan to use.
+ *
+ * ## Why a longer rope is safe now, and was not before
+ *
+ * Raising a deadline means a runaway suite runs LONGER before anything stops
+ * it, and the 300s kill was accidentally acting as a crude memory
+ * circuit-breaker. Heavy tools are now spawned inside a memory-bounded scope
+ * with swap denied (T12116), so duration no longer converts into unbounded
+ * host memory: a runaway dies inside its own boundary and CLEO reports a
+ * failed run. A failed test run is a result; a frozen workstation is not.
+ *
+ * `lint`, `typecheck`, `audit` and `security-scan` deliberately do NOT inherit
+ * this — they are single-process and CPU-bound, and a lint that has run for 5
+ * minutes is hung, not busy.
+ *
+ * @task T12126 (gh#1221)
+ */
+export const HEAVY_TOOL_SPAWN_TIMEOUT_MS = 1_800_000;
+
+/**
+ * Canonical tools that get {@link HEAVY_TOOL_SPAWN_TIMEOUT_MS}.
+ *
+ * Matches the memory-bound heavy classes rather than being a second, separate
+ * opinion about which tools are expensive — the two must not drift.
+ *
+ * @task T12126 (gh#1221)
+ */
+const HEAVY_TIMEOUT_TOOLS: ReadonlySet<string> = new Set(['test', 'build']);
+
+/**
+ * The default wall-clock deadline for a canonical tool, before any env
+ * override.
+ *
+ * @param canonical - Canonical tool name from the resolver.
+ * @returns Deadline in milliseconds.
+ *
+ * @task T12126 (gh#1221)
+ */
+export function defaultSpawnTimeoutMs(canonical: string): number {
+  return HEAVY_TIMEOUT_TOOLS.has(canonical)
+    ? HEAVY_TOOL_SPAWN_TIMEOUT_MS
+    : DEFAULT_SPAWN_TIMEOUT_MS;
+}
+
+/**
  * Resolve the wall-clock child-process deadline for a canonical tool.
  *
  * Precedence:
@@ -267,15 +328,16 @@ export function resolveSpawnTimeoutMs(
   env: NodeJS.ProcessEnv = process.env,
 ): number {
   const envKey = `CLEO_TOOL_TIMEOUT_${canonical.toUpperCase().replace(/-/g, '_')}`;
+  const fallback = defaultSpawnTimeoutMs(canonical);
   const raw = env[envKey];
-  if (raw === undefined || raw.trim() === '') return DEFAULT_SPAWN_TIMEOUT_MS;
+  if (raw === undefined || raw.trim() === '') return fallback;
   const trimmed = raw.trim();
   if (!/^\d+$/.test(trimmed)) {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `${envKey} must be a positive integer (milliseconds), got "${raw}".`,
       {
-        fix: `Set ${envKey} to a millisecond value such as 600000 (10 min), or unset it to use the ${DEFAULT_SPAWN_TIMEOUT_MS}ms default.`,
+        fix: `Set ${envKey} to a millisecond value such as 600000 (10 min), or unset it to use the ${fallback}ms default.`,
       },
     );
   }
@@ -285,7 +347,7 @@ export function resolveSpawnTimeoutMs(
       ExitCode.VALIDATION_ERROR,
       `${envKey} must be greater than zero, got ${parsed}.`,
       {
-        fix: `Set ${envKey} to a positive millisecond value such as 600000 (10 min), or unset it to use the ${DEFAULT_SPAWN_TIMEOUT_MS}ms default.`,
+        fix: `Set ${envKey} to a positive millisecond value such as 600000 (10 min), or unset it to use the ${fallback}ms default.`,
       },
     );
   }

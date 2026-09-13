@@ -434,6 +434,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorSupersededStoreCommand as CommandDef,
   },
   {
+    exportName: 'doctorToolLocksCommand',
+    name: 'tool-locks',
+    description:
+      'Inspect the machine-wide evidence-tool semaphore: which slots are held, by which pid, ',
+    load: async () =>
+      (await import('../commands/doctor-tool-locks.js')).doctorToolLocksCommand as CommandDef,
+  },
+  {
     exportName: 'doctorCommand',
     name: 'doctor',
     description: 'Run system diagnostics and health checks',
@@ -935,8 +943,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'showCommand',
     name: 'show',
-    description:
-      'Show task details by ID. MVI-projected (id + title + status + key metadata) by default; pass --verbose / --full to receive the complete record with description, acceptance, verification, evidence, etc. (T9922)',
+    description: 'Show task details by ID. Accepts SEVERAL ids — ',
     load: async () => (await import('../commands/show.js')).showCommand as CommandDef,
   },
   {
