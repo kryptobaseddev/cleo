@@ -99,11 +99,15 @@ describe('parseAcceptanceCriteria', () => {
   });
 
   it('JSON-array fast-path: falls through to pipe tokenizer on malformed JSON', () => {
-    // Starts with `[` but isn't valid JSON → fall through to pipe tokenizer.
-    // The tokenizer then enters bracket-mode at the leading `[` (depth=1) and
-    // the `|` is swallowed as part of the unterminated bracket span. The
-    // entire input is emitted as a single trailing token.
-    expect(parseAcceptanceCriteria('[not-json|AC2')).toEqual(['[not-json|AC2']);
+    // Starts with `[` but isn't valid JSON → falls through to the pipe
+    // tokenizer, as before.
+    //
+    // BEHAVIOUR CHANGED (gh#1321). This previously asserted the whole input as
+    // one token, because the unterminated `[` opened bracket scope and
+    // swallowed the delimiter. The leading `[` has no partner, so it groups
+    // nothing and is now a literal — which recovers the two criteria the caller
+    // plainly wrote.
+    expect(parseAcceptanceCriteria('[not-json|AC2')).toEqual(['[not-json', 'AC2']);
   });
 
   it('JSON-array fast-path: falls through when leading `[` is followed by depth-0 pipe outside bracket scope', () => {
@@ -113,11 +117,68 @@ describe('parseAcceptanceCriteria', () => {
   });
 
   // ─── Defensive: malformed bracket inputs must NOT throw or infinite-loop ──
-  it('does not throw on unbalanced opening bracket', () => {
-    // Unbalanced `(` — once we open a bracket, the rest of the input is
-    // captured inside depth>=1 and emitted as one trailing token.
+  // ── gh#1321 — a prose apostrophe must not swallow the rest ────────────────
+
+  it('splits normally when a criterion contains a contraction', () => {
+    // The reported defect. `doesn't` opened a quote context nothing could
+    // close, so every later `|` was absorbed: this returned 2 tokens.
+    expect(parseAcceptanceCriteria("ac one|the user doesn't care|ac three")).toEqual([
+      'ac one',
+      "the user doesn't care",
+      'ac three',
+    ]);
+  });
+
+  it('splits normally when a criterion contains a possessive', () => {
+    expect(parseAcceptanceCriteria("ac one|the user's token|ac three")).toEqual([
+      'ac one',
+      "the user's token",
+      'ac three',
+    ]);
+  });
+
+  it('splits normally with TWO contractions, which used to balance into a wrong answer', () => {
+    // Two apostrophes accidentally paired across the delimiter, producing a
+    // DIFFERENT wrong answer (3 tokens with `doesn't|can't` merged) rather than
+    // an obviously broken one. That is why the failure looked erratic across
+    // samples instead of systematic.
+    expect(parseAcceptanceCriteria("ac one|doesn't|can't|ac four")).toEqual([
+      'ac one',
+      "doesn't",
+      "can't",
+      'ac four',
+    ]);
+  });
+
+  it('is INSENSITIVE to input length — the reported hypothesis was a correlation', () => {
+    // The report attributed the defect to input length. 804 characters of clean
+    // input always split correctly; an unmatched quote absorbs the REMAINDER, so
+    // length governed how much was lost, not whether anything was.
+    const long = `${'x'.repeat(200)}|`.repeat(4) + 'end';
+    expect(parseAcceptanceCriteria(long)).toHaveLength(5);
+  });
+
+  it('still keeps gh#409 quoted string-unions as one token', () => {
+    // The rule this fix narrows exists for a reason; it must survive. These
+    // quotes are balanced by construction, and sit at token boundaries.
+    expect(parseAcceptanceCriteria("a|'realtime-token'|'batch'|c")).toEqual([
+      'a',
+      "'realtime-token'|'batch'",
+      'c',
+    ]);
+  });
+
+  it('splits normally across an unbalanced opening bracket', () => {
+    // BEHAVIOUR CHANGED (gh#1321). This previously asserted
+    // `['AC1', '(unclosed|AC2']` — the old tokenizer opened bracket scope at
+    // `(`, found no partner, and absorbed the remainder into one token. That
+    // expectation pinned the corruption: a stray `(` in prose silently merged
+    // every criterion after it.
+    //
+    // An unbalanced bracket groups nothing, so it is now treated as a literal
+    // and the delimiters after it still split.
     expect(() => parseAcceptanceCriteria('AC1|(unclosed|AC2')).not.toThrow();
-    expect(parseAcceptanceCriteria('AC1|(unclosed|AC2')).toEqual(['AC1', '(unclosed|AC2']);
+    expect(parseAcceptanceCriteria('AC1|(unclosed|AC2')).toEqual(['AC1', '(unclosed', 'AC2']);
   });
 
   it('tolerates unbalanced closing bracket (no underflow)', () => {

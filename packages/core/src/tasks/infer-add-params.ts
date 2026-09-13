@@ -200,10 +200,45 @@ function splitAcceptance(input: string, delim = '|'): string[] {
       // Inside a quote: only the matching close char exits.
       if (ch === quote) quote = null;
       buf += ch;
-    } else if (ch === '"' || ch === "'") {
+    } else if (
+      (ch === '"' || ch === "'") &&
+      input.indexOf(ch, i + 1) !== -1 &&
+      // An apostrophe INSIDE a word is never a quote opener. `doesn't` and
+      // `user's` are prose; `'batch'` is a quoted span. The discriminator is
+      // the preceding character: a quote that opens a span sits at a token
+      // boundary (start, whitespace, delimiter, or an opening bracket), never
+      // immediately after a letter or digit.
+      !/[\p{L}\p{N}]/u.test(buf.slice(-1))
+    ) {
+      // gh#1321 — enter a quote context ONLY when a matching close exists later.
+      //
+      // An UNMATCHED quote used to open a context that nothing could close, so
+      // every remaining delimiter was absorbed and the rest of the input became
+      // one token. The common trigger is not exotic input — it is a prose
+      // apostrophe:
+      //
+      //   "ac one|the user doesn't care|ac three"  ->  2 tokens, not 3
+      //   "ac one|the user's token|ac three"       ->  2 tokens, not 3
+      //
+      // Measured: 804 characters of clean input split correctly, so the
+      // length hypothesis in the report was a correlation — an unmatched quote
+      // swallows the REMAINDER, so longer input loses more criteria. Length
+      // governs severity, not occurrence.
+      //
+      // The lookahead preserves every gh#409 case, because those quotes are
+      // balanced by construction (`'realtime-token'|'batch'`). An unmatched
+      // quote is now what it almost always is in prose: a literal character.
       quote = ch;
       buf += ch;
-    } else if (ch === '(' || ch === '[' || ch === '{') {
+    } else if (
+      (ch === '(' || ch === '[' || ch === '{') &&
+      // gh#1321 — only enter a bracket context when its partner exists later.
+      // An unbalanced `(` used to absorb the remainder exactly as an unmatched
+      // quote did: `"a|see (note|c|d|e"` became 2 tokens instead of 5. The old
+      // docblock promised the tail was "emitted as a single trailing token",
+      // which described the corruption rather than preventing it.
+      input.indexOf(ch === '(' ? ')' : ch === '[' ? ']' : '}', i + 1) !== -1
+    ) {
       depth++;
       buf += ch;
     } else if (ch === ')' || ch === ']' || ch === '}') {
