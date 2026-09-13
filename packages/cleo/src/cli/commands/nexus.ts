@@ -14,9 +14,11 @@
  * @epic T4545
  */
 
+import { statSync } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { ExitCode } from '@cleocode/contracts';
 import { getProjectRoot } from '@cleocode/core';
 import { getSymbolImpact } from '@cleocode/core/nexus';
 import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
@@ -153,12 +155,127 @@ const statusCommand = defineCommand({
       type: 'boolean',
       description: 'Output as JSON (LAFS envelope format)',
     },
+    // gh#1329, second half — DECLARE the global output flag so citty consumes
+    // it. Undeclared, `--output json` was consumed as the positional `path`,
+    // and `json` base64url'd into a well-formed project id: the flag silently
+    // changed WHICH PROJECT was queried, which is how the reporter reached the
+    // reporting bug. Same precedent as `docs.ts`, which declares it "for
+    // docs-command consistency".
+    //
+    // The repo-wide fix is the strict-flags chokepoint (gh#1276); declaring it
+    // here removes the hazard from the one command whose swallowed value selects
+    // a project rather than merely being ignored.
+    output: {
+      type: 'string',
+      description:
+        'Output mode: envelope|id|table|count|silent (global output flag; declared here so it is not consumed as the positional path).',
+    },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const startTime = Date.now();
+
+    // gh#1329 — the graph DB is PROJECT-scoped since ADR-090/T11648: one store
+    // per project, and `getIndexStats` documents its `_projectId` parameter as
+    // unused for exactly that reason. `getNexusDb()` opens THIS project's store,
+    // so counts describe this project no matter what path was asked about.
+    //
+    // Reporting a `projectId` derived from a foreign path alongside those counts
+    // is the defect: `cleo nexus status /definitely/not/a/real/repo` returned
+    // `indexed: true` with the real project's 26,964 nodes and a projectId
+    // derived from the bogus path. CLEO-INJECTION.md makes this the MANDATED
+    // first call precisely so an agent does not read `E_NOT_FOUND` as "no such
+    // symbol" when the truth is a stale or wrong index — so a confident false
+    // yes here defeats the surface written to prevent it.
+    //
+    // A cross-project answer is not available from here, so refuse rather than
+    // answer about the wrong project.
+    // gh#1329, the issue's headline case — `cleo nexus status /definitely/not/a/
+    // real/repo` returned `indexed: true` with this project's 26,964 nodes. The
+    // id is derived by base64url-ing the string, which succeeds for ANY string,
+    // so a path that does not exist produces a perfectly well-formed project id
+    // and nothing downstream ever asks whether it names a real directory.
+    //
+    // This also defuses the route the reporter actually arrived by: `cleo nexus
+    // status --output json` swallowed `json` as the positional `path`, and
+    // `json` is not a directory, so it now errors here instead of silently
+    // becoming a different project. The general flag-swallowing fix is the
+    // strict-flags chokepoint (gh#1276); this is the narrow guard that stops
+    // THIS command answering about a project that cannot exist.
+    if (args.path) {
+      let isDir = false;
+      try {
+        isDir = statSync(repoPath).isDirectory();
+      } catch {
+        isDir = false;
+      }
+      if (!isDir) {
+        cliError(
+          `nexus status was given '${args.path as string}', which is not a directory.\n` +
+            'A project id can be derived from any string, so an unreadable path would ' +
+            "otherwise produce a well-formed id and be reported alongside THIS project's " +
+            'counts. If you meant to pass a flag value, note that an undeclared flag on ' +
+            'this subcommand is consumed as the positional path.',
+          ExitCode.INVALID_INPUT,
+          {
+            name: 'E_NEXUS_PATH_NOT_A_DIRECTORY',
+            fix: `cleo nexus status <existing project directory>   (omit the path to use the current project)`,
+          },
+          { operation: 'nexus.status' },
+        );
+        process.exitCode = ExitCode.INVALID_INPUT;
+        return;
+      }
+    }
+
+    // gh#1329 — the SAME defect reached by the other flag. `--project-id`
+    // overrides the id we report while `getNexusDb()` still opens THIS
+    // project's store, so a foreign id is printed alongside this project's
+    // counts. `getIndexStats` documents its `_projectId` parameter as unused
+    // since ADR-090 · T11648 for exactly that reason: the graph DB is
+    // project-scoped, so the id cannot select anything.
+    //
+    // The id is derived from the path, so an override that MATCHES the derived
+    // id is a no-op and stays allowed — it is only a foreign id that asks a
+    // question this process cannot answer.
+    const derivedProjectId = Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    if (projectIdOverride !== undefined && projectIdOverride !== derivedProjectId) {
+      cliError(
+        `nexus status cannot report on project '${projectIdOverride}' from this project.\n` +
+          'The code-intelligence graph is project-scoped (ADR-090 · T11648), so the counts ' +
+          'always describe the store that is open — passing a different --project-id would ' +
+          "relabel this project's index as another's, which is the confident-but-wrong " +
+          'answer this guard exists to prevent.',
+        ExitCode.INVALID_INPUT,
+        {
+          name: 'E_NEXUS_CROSS_PROJECT_STATUS',
+          fix: `cd <that project> && cleo nexus status   (this project's id is ${derivedProjectId})`,
+        },
+        { operation: 'nexus.status' },
+      );
+      process.exitCode = ExitCode.INVALID_INPUT;
+      return;
+    }
+
+    const currentRoot = getProjectRoot();
+    if (args.path && path.resolve(repoPath) !== path.resolve(currentRoot)) {
+      cliError(
+        `nexus status cannot report on '${repoPath}' from this project.\n` +
+          'The code-intelligence graph is project-scoped (ADR-090 · T11648): one store per ' +
+          'project, and the counts always describe the store that is open. Reporting them ' +
+          `under '${repoPath}' would attribute this project's index to another.`,
+        ExitCode.INVALID_INPUT,
+        {
+          name: 'E_NEXUS_CROSS_PROJECT_STATUS',
+          fix: `cd ${repoPath} && cleo nexus status`,
+        },
+        { operation: 'nexus.status' },
+      );
+      process.exitCode = ExitCode.INVALID_INPUT;
+      return;
+    }
 
     try {
       const [{ getNexusDb, nexusSchema }, { getIndexStats }] = await Promise.all([
@@ -1563,8 +1680,15 @@ const exportCommand = defineCommand({
         // Raw file output — write directly to stdout (binary/text graph data).
         // Intentionally NOT routed through humanLine — this IS the command's
         // primary stdout payload (the exported graph file content).
-        process.stdout.write(result.content);
-        if (!result.content.endsWith('\n')) process.stdout.write('\n');
+        // gh#1308 — both stdout gates keep SEPARATE baselines keyed on `path:line`,
+        // so these two pre-existing, deliberate writes were re-reported as NEW
+        // every time anything above them shifted. A marker travels with the line;
+        // a number does not. Each gate needs its own marker (verified: the
+        // discipline gate reads `stdout-discipline-allowed`, the allowlist gate
+        // reads `stdout-write-allowed`), so both entries leave the baselines
+        // permanently instead of being re-keyed on every rebase.
+        process.stdout.write(result.content); // stdout-discipline-allowed: raw graph payload // stdout-write-allowed: raw graph payload
+        if (!result.content.endsWith('\n')) process.stdout.write('\n'); // stdout-discipline-allowed: trailing newline // stdout-write-allowed: trailing newline
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
