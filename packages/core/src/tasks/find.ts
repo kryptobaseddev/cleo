@@ -552,10 +552,17 @@ export async function findTasks(
 
   const total = results.length;
 
-  // Apply pagination
+  // Apply pagination.
+  //
+  // GH #1302 — `limit === 0` means NO LIMIT here, as it always has in
+  // `listTasks`. It previously meant `slice(offset, offset + 0)`, i.e. ZERO
+  // rows, so the same flag spelled the same way returned everything on
+  // `cleo list` and nothing on `cleo find`. The envelope made that worse rather
+  // than obvious: `{"results": [], "total": 260}` with a message reading "No
+  // matching tasks found" — the answer and its own refutation in one object.
   const limit = options.limit ?? 20;
   const offset = options.offset ?? 0;
-  results = results.slice(offset, offset + limit);
+  results = limit === 0 ? results.slice(offset) : results.slice(offset, offset + limit);
 
   // Enrich each result with _next progressive disclosure directives
   const enrichedResults = results.map((r) => ({
