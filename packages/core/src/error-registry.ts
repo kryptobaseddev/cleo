@@ -368,6 +368,25 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
     retryable: false,
     httpStatus: 422,
   },
+  {
+    // gh#1273 — AC_LOCKED is a deliberate POLICY guard, not a fault. It has a
+    // documented override (`--reason`) that writes a real audit entry to
+    // `.cleo/audit/ac-changes.jsonl`. Unregistered, it rendered with no
+    // category at all, so a considered refusal read to the caller like an
+    // internal crash.
+    //
+    // CONTRACT, not VALIDATION: the input is well-formed and the guard is about
+    // WHEN the change is allowed, not whether it parses. And `retryable: false`
+    // because an identical retry is refused identically — the caller must
+    // either supply `--reason` or not make the change.
+    exitCode: ExitCode.AC_LOCKED,
+    lafsCode: 'E_CLEO_AC_LOCKED',
+    category: 'CONTRACT',
+    description:
+      'Acceptance criteria are locked at this lifecycle stage; re-run with --reason to override with an audit entry',
+    retryable: false,
+    httpStatus: 409,
+  },
 ];
 
 /** Lookup by exit code number. */
