@@ -242,6 +242,52 @@ describe('parseAcceptanceCriteria', () => {
     expect(parseAcceptanceCriteria("it doesn't accept 'a'|'b' though|ac two")).toHaveLength(2);
   });
 
+  // The quote-opener rule is an ENUMERATED allowlist, and this is that
+  // enumeration as a fixture rather than as a sentence.
+  //
+  // gh#1339 happened because the docblock enumerated cases ("start, whitespace,
+  // delimiter, or an opening bracket") while the predicate negated a category
+  // (`!isAlnum`). Those agree only if the complement of alphanumeric is exactly
+  // that set — it is not, it also contains `}`, `)`, `]`, `.` — so the code was
+  // a strict superset of the documented rule and the gap stayed invisible until
+  // an input landed in it. A correct comment beside looser code is worse than a
+  // stale one: it passes the exact check a careful reader performs, so its
+  // accuracy is what stops them looking.
+  //
+  // Tabulating the enumeration is the only form in which the comment can be
+  // enforced. If the allowlist is edited, a row here must change with it.
+  describe('gh#1339: the quote-opener allowlist, enumerated', () => {
+    const OPENS_A_QUOTED_SPAN: ReadonlyArray<readonly [string, string, number]> = [
+      ['start of input', "'a'|'b'", 1],
+      ['whitespace', "accepts 'a'|'b' here", 1],
+      ['the delimiter itself', "ac one|'a'|'b'|ac three", 3],
+      ['an opening paren', "fn('a'|'b')|ac two", 2],
+      ['an opening bracket', "arr['a'|'b']|ac two", 2],
+      ['an opening brace', "obj{'a'|'b'}|ac two", 2],
+      ['a comma', "f(x,'a'|'b')|ac two", 2],
+      ['an equals', "mode='a'|'b'|ac two", 2],
+      ['a colon', "mode:'a'|'b'|ac two", 2],
+    ];
+
+    const IS_PROSE: ReadonlyArray<readonly [string, string, number]> = [
+      ['a letter', "the user's file|ac two|ac three", 3],
+      ['a digit', "v2's output|ac two|ac three", 3],
+      // The four below are the ones `!isAlnum` admitted and this rule rejects.
+      ['a closing brace', "stash@{2}'s a|ac two|stash@{1}'s b|ac four", 4],
+      ['a closing paren', "fn(x)'s result|ac two|ac three", 3],
+      ['a closing bracket', "arr[0]'s value|ac two|ac three", 3],
+      ['a period', "v1.2's output|ac two", 2],
+    ];
+
+    it.each(OPENS_A_QUOTED_SPAN)('opens a span after %s', (_label, input, expected) => {
+      expect(parseAcceptanceCriteria(input)).toHaveLength(expected);
+    });
+
+    it.each(IS_PROSE)('is prose after %s', (_label, input, expected) => {
+      expect(parseAcceptanceCriteria(input)).toHaveLength(expected);
+    });
+  });
+
   it('terminates on a pathologically long input (loop bound)', () => {
     // 10k tokens — proves the loop is bounded by input.length.
     const input = Array.from({ length: 10_000 }, (_, n) => `AC${n}`).join('|');
