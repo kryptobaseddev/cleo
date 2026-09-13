@@ -1368,7 +1368,15 @@ interface VitestJsonLike {
  */
 export function resolveEvidenceExecutionRoot(
   projectRoot: string,
-  cwd: string = process.cwd(),
+  // This function's entire purpose is to recover the tree the CLI was INVOKED
+  // from, which is by definition not the project root. The sanctioned
+  // `resolveOrCwd()` falls back to `getProjectRoot()`, which deliberately
+  // collapses a worktree to its main repo — using it here would make this
+  // function return `projectRoot` unconditionally and silently revert gh#1220
+  // while every test stayed green. The bare cwd is the only correct source,
+  // and it only LOCATES a candidate; the same-project check below decides
+  // whether it is honoured.
+  cwd: string = process.cwd(), // CWD-OK: the caller's invocation dir is the subject, not a stand-in for the project root (gh#1220)
 ): string {
   let toplevel: string;
   try {

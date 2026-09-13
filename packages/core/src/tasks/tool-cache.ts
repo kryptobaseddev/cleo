@@ -47,6 +47,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { withLock } from '../store/lock.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
+import { withMemoryLimit } from './heavy-tool-limit.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
 import { type AcquireSlotOptions, acquireGlobalSlot } from './tool-semaphore.js';
 
@@ -836,10 +837,19 @@ export async function runToolCached(
         }
 
         // Spawn the tool ourselves.
+        //
+        // T12116: `test` and `build` run inside a transient systemd scope with
+        // a hard `MemoryMax` and `MemorySwapMax=0`, so the kernel bounds the
+        // ENTIRE process tree — a `pnpm -r` fan-out into fifteen packages is
+        // still one cgroup, which is the multiplier the semaphore could not
+        // see. Denying swap is the point: the failure this guards against was
+        // a throttle-and-thrash host freeze, not an OOM kill. Degrades to an
+        // unwrapped spawn off Linux or without a user systemd manager.
+        const limited = withMemoryLimit(command.canonical, command.cmd, command.args);
         const startedAt = Date.now();
         const result = await spawnCmd(
-          command.cmd,
-          command.args,
+          limited.cmd,
+          [...limited.args],
           executionRoot,
           spawnTimeoutMs,
           heavyToolEnv(command.canonical),

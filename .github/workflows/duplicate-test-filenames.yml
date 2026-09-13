@@ -1,0 +1,35 @@
+# Duplicate Test Filename Gate (T12154 · gh#1286)
+#
+# A basename that names several test files is not an identifier. Two agents
+# debugging "the prune test" reasoned about different files for an extended
+# exchange because three files share that name — and the mismatch was visible
+# in both their messages without either noticing.
+#
+# Baselined and forward-only: the existing 71 duplicated names are recorded and
+# counts may only decrease. Renaming them is not required; stopping the 72nd is.
+#
+# Deliberately dependency-free — the script uses only `git ls-files` and node
+# builtins — so this job is checkout + node and adds no meaningful load while
+# runner capacity is the constraint.
+name: Duplicate Test Filenames
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+  push:
+    branches: [main]
+
+jobs:
+  duplicate-test-filenames:
+    name: No new duplicate test filenames
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+
+      - name: Assert no test filename became more ambiguous
+        run: node scripts/lint-duplicate-test-filenames.mjs

@@ -42,6 +42,45 @@ export type ProjectionMode = 'mvi' | 'full';
 export type ProjectionKind = 'task' | 'epic' | 'saga' | 'doc' | 'unknown';
 
 /**
+ * Envelope key naming every field the projection withheld.
+ *
+ * Why this exists (T12121 · GH #1243)
+ * -----------------------------------
+ * The MVI projection dropped non-allow-listed fields with NO record of having
+ * done so, and `description` is not on the task allow-list. So
+ * `cleo show <id>` returned a task whose 1440-character description was not
+ * truncated, not null — the key was simply ABSENT. An absent key and an empty
+ * value are indistinguishable to every consumer, so the idiomatic, careful
+ * read reported a populated field as empty:
+ *
+ * ```python
+ * desc = task.get('description') or ''   # -> '' for a 1440-char description
+ * ```
+ *
+ * That turned a read defect into a DATA-LOSS defect on 2026-09-12: one agent
+ * filed T289 with a full mechanism description; a second ran `cleo show T289`
+ * without `--full`, read nothing, correctly-by-its-own-logic concluded the
+ * task was a title-only stub, and overwrote the description. It also broke
+ * CLEO's own documented recovery for a killed write ("query before retrying"),
+ * because querying without `--full` reports the record as empty — so the
+ * recommended recovery step is exactly what authorises the clobber.
+ *
+ * The invariant this key restores: **a field that exists on the record is
+ * present in the envelope, or is explicitly marked as withheld.** The marker
+ * carries each withheld field's content size, which is the signal that
+ * distinguishes the two cases the incident confused — a genuine stub has no
+ * marker at all, while a populated record reports `{ description: 1440 }`.
+ *
+ * A withheld field's VALUE is deliberately not reproduced here, truncated or
+ * otherwise. A truncated copy under the real field name would be worse than
+ * absence: a consumer that read it and wrote it back would silently corrupt
+ * the record, where absence only risks an overwrite with fresh text.
+ *
+ * @task T12121
+ */
+export const WITHHELD_KEY = '_withheld';
+
+/**
  * Allow-list of fields kept for each known kind under `'mvi'` mode.
  *
  * Keep these sets small — every field added here defeats the purpose of MVI
@@ -98,22 +137,150 @@ const GENERIC_MVI_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Pick the MVI-allow-listed keys out of a record.
+ * Byte size of a field's JSON-serialized value, or `0` when it has no content.
+ *
+ * Used to describe a withheld field without reproducing it. A truncated copy
+ * under the real field name would be worse than absence: a consumer that read
+ * it and wrote it back would silently CORRUPT the record, where absence only
+ * risks an overwrite. A size is inert.
+ *
+ * @internal
+ */
+function contentBytes(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'string') return value.length;
+  if (Array.isArray(value)) return value.length === 0 ? 0 : JSON.stringify(value).length;
+  if (typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>).length === 0
+      ? 0
+      : JSON.stringify(value).length;
+  }
+  return String(value).length;
+}
+
+/**
+ * Pick the MVI-allow-listed keys out of a record, reporting what was withheld.
+ *
+ * @returns `picked` — the allow-listed subset; `withheld` — a field→byte-size
+ *          map of keys that were present on the source record WITH CONTENT and
+ *          are absent from `picked`. Fields that were null/undefined/empty are
+ *          deliberately not reported: their absence tells no lie, and listing
+ *          them would bury the ones that do.
  *
  * @internal
  */
 function pickFields<T extends Record<string, unknown>>(
   record: T,
   allow: ReadonlySet<string>,
-): Partial<T> {
-  const out: Partial<T> = {};
+): { picked: Partial<T>; withheld: Record<string, number> } {
+  const picked: Partial<T> = {};
+  const withheld: Record<string, number> = {};
   for (const key of Object.keys(record)) {
     if (allow.has(key)) {
       // Index assertion is safe: `key` came from Object.keys(record).
-      (out as Record<string, unknown>)[key] = record[key];
+      (picked as Record<string, unknown>)[key] = record[key];
+      continue;
     }
+    if (key === WITHHELD_KEY) continue;
+    const bytes = contentBytes(record[key]);
+    if (bytes > 0) withheld[key] = bytes;
   }
-  return out;
+  return { picked, withheld };
+}
+
+/**
+ * Attach the {@link WITHHELD_KEY} marker to a projected record.
+ *
+ * The marker is inserted immediately after `id` so that, under a token budget,
+ * {@link reduceToBudget}'s drop-from-the-end order sacrifices content fields
+ * before the statement of what is missing. A record that admits it is partial
+ * is more useful than one extra field with no warning.
+ *
+ * @internal
+ */
+function withWithheldMarker<T extends Record<string, unknown>>(
+  projected: Partial<T>,
+  withheld: Record<string, number>,
+): Partial<T> {
+  if (Object.keys(withheld).length === 0) return projected;
+  const sorted: Record<string, number> = {};
+  for (const key of Object.keys(withheld).sort()) {
+    const bytes = withheld[key];
+    if (bytes !== undefined) sorted[key] = bytes;
+  }
+
+  const source = projected as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  if ('id' in source) out['id'] = source['id'];
+  out[WITHHELD_KEY] = sorted;
+  for (const key of Object.keys(source)) {
+    if (key === 'id' || key === WITHHELD_KEY) continue;
+    out[key] = source[key];
+  }
+  return out as Partial<T>;
+}
+
+/**
+ * Every key on `record` that carries content, excluding the marker itself.
+ *
+ * @internal
+ */
+function contentBearingKeys(record: Record<string, unknown>): string[] {
+  return Object.keys(record).filter((key) => key !== WITHHELD_KEY && contentBytes(record[key]) > 0);
+}
+
+/**
+ * Project under a hard token budget while still telling the truth about what
+ * was withheld.
+ *
+ * The marker costs tokens, so it cannot simply be bolted on after reduction —
+ * doing so overshot a 61-token budget by 123 tokens in testing, breaking the
+ * budget's "hard" guarantee. Instead the marker participates in the budget:
+ * each round recomputes it against the surviving key set, and if the marked
+ * record still does not fit, one more content field is sacrificed and the
+ * marker is recomputed to account for it.
+ *
+ * At budgets too small to carry any marker the record degrades to `{ id }`.
+ * That boundary is acceptable precisely because `{ id }` is self-evidently not
+ * a full record — it cannot be mistaken for a complete one, which is the
+ * failure mode this marker exists to prevent.
+ *
+ * @internal
+ */
+function projectWithinBudget<T extends Record<string, unknown>>(
+  original: T,
+  picked: Partial<T>,
+  budget: number,
+  estimator: TokenEstimator,
+): Partial<T> {
+  const contentKeys = contentBearingKeys(original);
+  let candidate: Partial<T> = picked;
+
+  for (;;) {
+    const surviving = new Set(Object.keys(candidate));
+    const withheld: Record<string, number> = {};
+    for (const key of contentKeys) {
+      if (!surviving.has(key)) {
+        withheld[key] = contentBytes((original as Record<string, unknown>)[key]);
+      }
+    }
+    const marked = withWithheldMarker({ ...candidate }, withheld);
+    if (estimator.estimate(marked) <= budget) return marked;
+
+    const droppable = Object.keys(candidate).filter((k) => k !== 'id' && k !== WITHHELD_KEY);
+    if (droppable.length === 0) break;
+
+    const victim = droppable[droppable.length - 1];
+    const next: Partial<T> = {};
+    for (const key of Object.keys(candidate)) {
+      if (key === victim) continue;
+      (next as Record<string, unknown>)[key] = (candidate as Record<string, unknown>)[key];
+    }
+    candidate = next;
+  }
+
+  // The marker itself cannot fit. Fall back to the unmarked minimum.
+  return reduceToBudget(picked, budget, estimator).record;
 }
 
 /**
@@ -142,7 +309,8 @@ export function projectMvi<T extends Record<string, unknown>>(
 ): Partial<T> {
   if (kind === 'unknown') return record;
   const allow = MVI_FIELDS[kind];
-  return pickFields(record, allow);
+  const { picked, withheld } = pickFields(record, allow);
+  return withWithheldMarker(picked, withheld);
 }
 
 /**
@@ -187,10 +355,20 @@ function reduceToBudget<T extends Record<string, unknown>>(
   record: Partial<T>,
   budget: number,
   estimator: TokenEstimator,
-): Partial<T> {
-  if (estimator.estimate(record) <= budget) return record;
+): { record: Partial<T>; dropped: Record<string, number> } {
+  if (estimator.estimate(record) <= budget) return { record, dropped: {} };
 
   const keys = Object.keys(record);
+  const droppedOf = (kept: Partial<T>): Record<string, number> => {
+    const dropped: Record<string, number> = {};
+    for (const key of keys) {
+      if (key in kept) continue;
+      const bytes = contentBytes((record as Record<string, unknown>)[key]);
+      if (bytes > 0) dropped[key] = bytes;
+    }
+    return dropped;
+  };
+
   // Drop non-id keys from the end until we fit (or only id remains).
   const droppable = keys.filter((k) => k !== 'id');
   for (let drop = 1; drop <= droppable.length; drop++) {
@@ -203,7 +381,9 @@ function reduceToBudget<T extends Record<string, unknown>>(
     for (const key of keys) {
       if (keep.has(key)) (candidate as Record<string, unknown>)[key] = record[key];
     }
-    if (estimator.estimate(candidate) <= budget) return candidate;
+    if (estimator.estimate(candidate) <= budget) {
+      return { record: candidate, dropped: droppedOf(candidate) };
+    }
   }
 
   // Last resort: id only (or empty when there is no id).
@@ -211,7 +391,7 @@ function reduceToBudget<T extends Record<string, unknown>>(
   if ('id' in record) {
     (minimal as Record<string, unknown>)['id'] = (record as Record<string, unknown>)['id'];
   }
-  return minimal;
+  return { record: minimal, dropped: droppedOf(minimal) };
 }
 
 /**
@@ -264,13 +444,17 @@ export function projectMVI<T extends Record<string, unknown>>(
     options.kind === 'unknown' || !(options.kind in MVI_FIELDS)
       ? GENERIC_MVI_FIELDS
       : MVI_FIELDS[options.kind as Exclude<ProjectionKind, 'unknown'>];
-  const projected = pickFields(record, allow);
+  const { picked, withheld } = pickFields(record, allow);
 
   // Step 4: optional token-budget reduction via the LAFS estimator.
+  // T12121 (GH #1243): budget reduction is the SECOND way a field used to
+  // vanish without a trace — `reduceToBudget` drops trailing keys to fit, and
+  // in the last-resort case strips everything but `id`. Those drops are merged
+  // into the same marker, so "withheld" means withheld for ANY reason.
   if (typeof options.budget === 'number' && options.budget > 0) {
-    return reduceToBudget(projected, options.budget, new TokenEstimator());
+    return projectWithinBudget(record, picked, options.budget, new TokenEstimator());
   }
-  return projected;
+  return withWithheldMarker(picked, withheld);
 }
 
 /**
