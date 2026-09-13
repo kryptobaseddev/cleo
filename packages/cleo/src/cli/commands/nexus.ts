@@ -17,6 +17,7 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { ExitCode } from '@cleocode/contracts';
 import { getProjectRoot } from '@cleocode/core';
 import { getSymbolImpact } from '@cleocode/core/nexus';
 import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
@@ -159,6 +160,39 @@ const statusCommand = defineCommand({
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const startTime = Date.now();
+
+    // gh#1329 — the graph DB is PROJECT-scoped since ADR-090/T11648: one store
+    // per project, and `getIndexStats` documents its `_projectId` parameter as
+    // unused for exactly that reason. `getNexusDb()` opens THIS project's store,
+    // so counts describe this project no matter what path was asked about.
+    //
+    // Reporting a `projectId` derived from a foreign path alongside those counts
+    // is the defect: `cleo nexus status /definitely/not/a/real/repo` returned
+    // `indexed: true` with the real project's 26,964 nodes and a projectId
+    // derived from the bogus path. CLEO-INJECTION.md makes this the MANDATED
+    // first call precisely so an agent does not read `E_NOT_FOUND` as "no such
+    // symbol" when the truth is a stale or wrong index — so a confident false
+    // yes here defeats the surface written to prevent it.
+    //
+    // A cross-project answer is not available from here, so refuse rather than
+    // answer about the wrong project.
+    const currentRoot = getProjectRoot();
+    if (args.path && path.resolve(repoPath) !== path.resolve(currentRoot)) {
+      cliError(
+        `nexus status cannot report on '${repoPath}' from this project.\n` +
+          'The code-intelligence graph is project-scoped (ADR-090 · T11648): one store per ' +
+          'project, and the counts always describe the store that is open. Reporting them ' +
+          `under '${repoPath}' would attribute this project's index to another.`,
+        ExitCode.INVALID_INPUT,
+        {
+          name: 'E_NEXUS_CROSS_PROJECT_STATUS',
+          fix: `cd ${repoPath} && cleo nexus status`,
+        },
+        { operation: 'nexus.status' },
+      );
+      process.exitCode = ExitCode.INVALID_INPUT;
+      return;
+    }
 
     try {
       const [{ getNexusDb, nexusSchema }, { getIndexStats }] = await Promise.all([
