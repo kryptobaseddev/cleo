@@ -55,6 +55,71 @@ export function getOperationParams(
   return [...params, IDEMPOTENCY_KEY_PARAM];
 }
 
+/**
+ * Forward every registry-declared param from parsed citty args into a dispatch
+ * payload, coercing each value to its declared `type`.
+ *
+ * Why this exists (T12120 · GH #1245, #1248)
+ * ------------------------------------------
+ * {@link paramsToCittyArgs} derives a command's citty *flags* from the
+ * registry, so `--help` advertises exactly the registry's surface. But
+ * commands historically hand-wrote the other half — a block of
+ * `if (args['x'] !== undefined) params['x'] = args['x'];` lines — so the
+ * advertised surface and the *forwarded* surface were free to drift. They did:
+ * `cleo list` declared 10 params, hand-copied 7, and `--compact` was therefore
+ * accepted, documented, implemented in core, and never delivered (GH #1248).
+ *
+ * Deriving the payload from the same `ParamDef[]` that derives the flags makes
+ * that divergence unrepresentable — a param cannot be advertised without also
+ * being forwarded.
+ *
+ * @param params - The operation's declared `ParamDef[]` (from {@link getOperationParams}).
+ * @param args - Parsed citty args for the invocation.
+ * @returns Dispatch payload containing only the params actually supplied,
+ *          keyed by canonical `param.name` (not the CLI flag spelling).
+ *
+ * @example
+ * ```typescript
+ * const params = getOperationParams('query', 'tasks', 'list');
+ * const payload = registryParamsToDispatchPayload(params, args);
+ * await dispatchRaw('query', 'tasks', 'list', payload);
+ * ```
+ */
+export function registryParamsToDispatchPayload(
+  params: ParamDef[],
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+
+  for (const param of params) {
+    const flag = param.cli?.flag ?? param.name;
+    const raw = args[flag];
+    if (raw === undefined || raw === null) continue;
+
+    if (param.type === 'number') {
+      const parsed = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+      if (!Number.isNaN(parsed)) payload[param.name] = parsed;
+      continue;
+    }
+    if (param.type === 'boolean') {
+      payload[param.name] = typeof raw === 'boolean' ? raw : String(raw) !== 'false';
+      continue;
+    }
+    if (param.type === 'array') {
+      payload[param.name] = Array.isArray(raw)
+        ? raw
+        : String(raw)
+            .split(',')
+            .map((part) => part.trim())
+            .filter((part) => part.length > 0);
+      continue;
+    }
+    payload[param.name] = raw;
+  }
+
+  return payload;
+}
+
 export { paramsToCittyArgs } from '@cleocode/contracts';
 // Re-export paramsToCittyArgs and types so command files only need one import.
 export type { CittyArgDef, ParamDef };

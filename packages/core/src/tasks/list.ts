@@ -4,7 +4,15 @@
  * @epic T4454
  */
 
-import type { Task, TaskPriority, TaskRecord, TaskStatus, TaskType } from '@cleocode/contracts';
+import type {
+  Task,
+  TaskKind,
+  TaskPriority,
+  TaskRecord,
+  TaskSeverity,
+  TaskStatus,
+  TaskType,
+} from '@cleocode/contracts';
 import type { LAFSPage } from '@cleocode/lafs';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
@@ -19,6 +27,7 @@ import { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL } from '../s
 import { resolveSagaMemberIds } from '../sagas/storage.js';
 import type { TaskQueryFilters } from '../store/data-accessor.js';
 import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
+import { assertTaskAxisFilters } from './axis-filters.js';
 import { tasksToRecords } from './engine-converters.js';
 
 // Re-export saga constants for backwards-compat (T10123).
@@ -58,9 +67,36 @@ export interface ListTasksOptions {
   status?: TaskStatus;
   priority?: TaskPriority;
   type?: TaskType;
+  /**
+   * Severity axis filter (`P0`-`P3`), orthogonal to {@link priority}.
+   * @task T12120 — GH #1245; previously accepted at the CLI and never applied.
+   */
+  severity?: TaskSeverity | TaskSeverity[];
+  /**
+   * Kind axis filter (ADR-066), orthogonal to {@link type}.
+   * @task T12120 — GH #1246; previously accepted at the CLI and never applied.
+   */
+  kind?: TaskKind | TaskKind[];
   parentId?: string;
   phase?: string;
   label?: string;
+  /**
+   * No-op, retained for compatibility.
+   *
+   * @remarks
+   * T12120 (GH #1247): `--children` was advertised in `--help` as "limit
+   * parent queries to direct children" and threaded through four layers into
+   * this options bag, but `listTasks` never read it — because `parentId`
+   * ALREADY restricts to direct children on every path (the default query
+   * applies `eq(tasks.parentId, ...)`, and the saga branch resolves members
+   * through the same `parentId` containment since T10638). There is no
+   * transitive mode for it to narrow from, so it cannot change a result.
+   *
+   * Kept as an accepted field rather than removed so the advertised CLI
+   * surface stays stable; `listTasks` asserts the equivalence in tests so a
+   * future transitive mode is forced to give this flag real meaning instead
+   * of leaving it a lie.
+   */
   children?: boolean;
   limit?: number;
   offset?: number;
@@ -158,6 +194,15 @@ export async function listTasks(
   if (options.parentId && sagaMemberIds === null) queryFilters.parentId = options.parentId;
   if (options.phase) queryFilters.phase = options.phase;
   if (options.label) queryFilters.label = options.label;
+  // T12120 (GH #1245/#1246) — validate BEFORE querying so an unrecognised
+  // value raises E_VALIDATION instead of being dropped and widening the
+  // result set to every task.
+  const axes = assertTaskAxisFilters({
+    severity: options.severity as string | string[] | undefined,
+    kind: options.kind as string | string[] | undefined,
+  });
+  if (axes.severity) queryFilters.severity = axes.severity;
+  if (axes.kind) queryFilters.kind = axes.kind;
   if (options.excludeArchived && options.status !== 'archived') {
     queryFilters.excludeStatus = 'archived';
   }
@@ -241,6 +286,8 @@ export async function taskList(
     status?: string;
     priority?: string;
     type?: string;
+    severity?: string | string[];
+    kind?: string | string[];
     phase?: string;
     label?: string;
     children?: boolean;
@@ -264,6 +311,8 @@ export async function taskList(
         status: params?.status as TaskStatus | undefined,
         priority: params?.priority as TaskPriority | undefined,
         type: params?.type as TaskType | undefined,
+        severity: params?.severity as TaskSeverity | TaskSeverity[] | undefined,
+        kind: params?.kind as TaskKind | TaskKind[] | undefined,
         phase: params?.phase,
         label: params?.label,
         children: params?.children,

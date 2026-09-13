@@ -77,6 +77,10 @@ export async function tasksListOp(
     status?: TaskStatus;
     priority?: TaskPriority;
     type?: TaskType;
+    /** Severity axis filter (P0-P3). @task T12120 — GH #1245 */
+    severity?: TaskSeverity | TaskSeverity[];
+    /** Kind axis filter (ADR-066). @task T12120 — GH #1246 */
+    kind?: TaskKind | TaskKind[];
     phase?: string;
     label?: string;
     children?: boolean;
@@ -91,6 +95,8 @@ export async function tasksListOp(
       status: params.status,
       priority: params.priority,
       type: params.type,
+      severity: params.severity,
+      kind: params.kind,
       phase: params.phase,
       label: params.label,
       children: params.children,

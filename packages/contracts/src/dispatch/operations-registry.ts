@@ -292,19 +292,34 @@ export const OPERATIONS: OperationDef[] = [
       { name: 'status', type: 'string', required: false, description: 'Filter by task status' },
       { name: 'priority', type: 'string', required: false, description: 'Filter by task priority' },
       { name: 'type', type: 'string', required: false, description: 'Filter by task type' },
+      {
+        name: 'severity',
+        type: 'string',
+        required: false,
+        description: 'Filter by severity axis (P0|P1|P2|P3); invalid values are rejected',
+      },
+      {
+        name: 'kind',
+        type: 'string',
+        required: false,
+        description:
+          'Filter by kind axis (work|research|experiment|bug|spike|release); invalid values are rejected',
+      },
       { name: 'phase', type: 'string', required: false, description: 'Filter by task phase' },
       { name: 'label', type: 'string', required: false, description: 'Filter by task label' },
       {
         name: 'children',
         type: 'boolean',
         required: false,
-        description: 'Limit parent queries to direct children',
+        description:
+          'DEPRECATED (no effect; slated for removal in a future major): --parent already returns DIRECT children only, for every parent type including sagas. Do not use.',
       },
       {
         name: 'limit',
         type: 'number',
         required: false,
-        description: 'Maximum number of tasks to return',
+        description:
+          'Maximum number of tasks to return (default 10). Use --all to return every match. (--limit 0 also returns every match, but only on this command — prefer --all.)',
       },
       {
         name: 'offset',
