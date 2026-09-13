@@ -20,10 +20,15 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import type { LafsEnvelope, LafsError, LafsSuccess } from '@cleocode/contracts';
 import type { CliEnvelope, CliEnvelopeError, CliMeta, LAFSPage, Warning } from '@cleocode/lafs';
 import { getCurrentWarningCollector, validateEnvelope } from '@cleocode/lafs';
 import { CleoError } from './errors.js';
+// Imported AFTER context-alert deliberately: that module already pulls in
+// `../paths.js`, so this adds no new edge — but placing it EARLIER changes
+// module evaluation order and reproducibly broke worktree-prune (gh#1234).
+import { getProjectRoot } from './paths.js';
 import {
   getCurrentExecutionSessionId,
   getCurrentOriginSessionId,
@@ -137,6 +142,25 @@ function createCliMeta(operation: string, duration_ms = 0): CliMeta {
   const originSessionId = getCurrentOriginSessionId() ?? sessionId ?? executionSessionId;
   meta['originSessionId'] = originSessionId;
   meta['executionSessionId'] = executionSessionId;
+  // gh#1234: which store answered? Task ids are project-scoped but look
+  // global, so the same id means different things in different roots. Stamped
+  // HERE, in the one place every CLI envelope's meta is built, rather than at
+  // call sites — a field that is present wherever someone remembered it is the
+  // same defect one level up. Best-effort: a command run outside any project
+  // must still emit an envelope.
+  try {
+    // Home-collapsed deliberately. Envelopes are pasted into public issue
+    // trackers constantly — a raw absolute path would put the user's account
+    // name in every one of them, permanently, as a side effect of a
+    // disclosure field. `~/projects/foo` still answers "which store answered
+    // this?" for the reader who ran the command, which is the whole purpose.
+    const root = getProjectRoot();
+    const home = homedir();
+    meta['projectRoot'] =
+      home && root.startsWith(`${home}/`) ? `~${root.slice(home.length)}` : root;
+  } catch {
+    /* no resolvable project — omit rather than fail the envelope */
+  }
   if (warnings && warnings.length > 0) {
     meta['warnings'] = warnings;
   }

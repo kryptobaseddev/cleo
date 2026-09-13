@@ -763,6 +763,30 @@ export interface CliMeta {
   /** Specific execution instance for this command/step, if present. */
   executionSessionId?: string;
   /**
+   * Absolute path of the CLEO project root this envelope was answered from.
+   *
+   * ## Why every envelope carries this (gh#1234)
+   *
+   * The store is selected by cwd, and task ids are PROJECT-SCOPED while
+   * LOOKING global: `T100` carries no qualifier. So the same command with the
+   * same id answers from a different store depending on where it ran, and
+   * until this field existed nothing in the response said which.
+   *
+   * Measured across one workspace with 38 CLEO stores: `cleo show T100`
+   * returned "Task 100" from one project and "Phone management in the
+   * customer account p…" from another, with byte-identical `meta` key sets.
+   * A reader could not distinguish a correct answer from an answer about a
+   * different project — and a verification gate was written to the wrong
+   * project as a result.
+   *
+   * Per-project stores are correct (ADR-068); the defect was the absence of
+   * disclosure. A PATH rather than a project id is deliberate: the reader's
+   * question is "which store answered?", and a path answers it without a
+   * further lookup, whereas an id would need resolving to learn what it means
+   * — the same indirection that made this invisible.
+   */
+  projectRoot?: string;
+  /**
    * Array of suggested follow-up commands (LAFS hint for chained reasoning).
    *
    * Envelope-wide first-class field promoted from the nexus-only
