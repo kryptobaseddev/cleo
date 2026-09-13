@@ -7,10 +7,11 @@
  * close step was never reached).
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   activeHandleSummary,
   armExitBackstop,
+  EXIT_BACKSTOP_MS,
   STEP_DEADLINE_MS,
   withDeadline,
 } from '../shutdown-deadline.js';
@@ -100,5 +101,64 @@ describe('activeHandleSummary', () => {
     } finally {
       for (const t of timers) clearTimeout(t);
     }
+  });
+});
+
+describe('armExitBackstop — exit code inheritance (gh regression)', () => {
+  const realExit = process.exit;
+  const realExitCode = process.exitCode;
+  let exited: number | undefined;
+
+  beforeEach(() => {
+    exited = undefined;
+    // @ts-expect-error — test double for a never-returning signature
+    process.exit = (code?: number) => {
+      exited = code;
+    };
+  });
+
+  afterEach(() => {
+    process.exit = realExit;
+    process.exitCode = realExitCode;
+    vi.useRealTimers();
+  });
+
+  it('inherits a non-zero process.exitCode instead of forcing 0', () => {
+    // ~199 call sites report failure by SETTING process.exitCode and returning
+    // normally (add-batch, agent, …). Those return through the SUCCESS-path
+    // finally, so a backstop that hardcodes 0 tells the caller a failed command
+    // succeeded — while its own envelope says it failed.
+    vi.useFakeTimers();
+    process.exitCode = 6;
+    armExitBackstop();
+    vi.advanceTimersByTime(EXIT_BACKSTOP_MS + 10);
+    expect(exited).toBe(6);
+  });
+
+  it('reads the exit code at FIRE time, not arm time', () => {
+    vi.useFakeTimers();
+    process.exitCode = 0;
+    armExitBackstop();
+    // A command that decides it failed after the backstop was armed must still
+    // be reported honestly.
+    process.exitCode = 1;
+    vi.advanceTimersByTime(EXIT_BACKSTOP_MS + 10);
+    expect(exited).toBe(1);
+  });
+
+  it('still honours an explicitly supplied code', () => {
+    vi.useFakeTimers();
+    process.exitCode = 6;
+    armExitBackstop(0);
+    vi.advanceTimersByTime(EXIT_BACKSTOP_MS + 10);
+    expect(exited).toBe(0);
+  });
+
+  it('falls back to 0 when no code is set anywhere', () => {
+    vi.useFakeTimers();
+    process.exitCode = undefined;
+    armExitBackstop();
+    vi.advanceTimersByTime(EXIT_BACKSTOP_MS + 10);
+    expect(exited).toBe(0);
   });
 });

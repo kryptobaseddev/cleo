@@ -193,22 +193,37 @@ export function activeHandleSummary(): string {
  * @example
  * ```ts
  * await shutdownCliRuntime();
- * armExitBackstop(0);   // healthy commands exit before this ever fires
+ * armExitBackstop();    // inherits process.exitCode; healthy commands never reach it
  * ```
  */
-export function armExitBackstop(code = 0, graceMs: number = EXIT_BACKSTOP_MS): NodeJS.Timeout {
+export function armExitBackstop(code?: number, graceMs: number = EXIT_BACKSTOP_MS): NodeJS.Timeout {
   const timer = setTimeout(() => {
     if (process.env.CLEO_NO_EXIT_BACKSTOP === '1') return;
+    // Resolve the exit code at FIRE time, and inherit `process.exitCode` when
+    // the caller did not name one.
+    //
+    // The first version of this hardcoded 0, which silently discarded the
+    // result of any command that reports failure by SETTING `process.exitCode`
+    // and returning normally rather than calling `process.exit()`. There are
+    // ~199 such call sites (`add-batch`, `agent`, …), and they are not the
+    // error branches that bypass this path — a failed `cleo add-batch` returns
+    // through the success-path `finally`, so a backstop that forces 0 tells the
+    // caller the command succeeded while its own envelope says it failed.
+    //
+    // That is the exact inversion this module exists to prevent, so the
+    // backstop must never manufacture an exit code it was not given. Reading at
+    // fire time rather than arm time also catches a code set after arming.
+    const resolved = code ?? (typeof process.exitCode === 'number' ? process.exitCode : 0);
     process.stderr.write(
       `cleo: event loop still alive ${graceMs}ms after teardown ` +
-        `(held by: ${activeHandleSummary()}); exiting rc:${code}.\n` +
+        `(held by: ${activeHandleSummary()}); exiting rc:${resolved}.\n` +
         `cleo: any unawaited background work was abandoned. The command's own ` +
         `result stands — its envelope is already written. Deferred BRAIN ` +
         `embeddings are recoverable with \`cleo brain maintenance\`. If this ` +
         `recurs on a fast command it is a resource leak; please report it with ` +
         `the command you ran.\n`,
     );
-    process.exit(code);
+    process.exit(resolved);
   }, graceMs);
 
   timer.unref();

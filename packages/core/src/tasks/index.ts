@@ -280,8 +280,14 @@ export {
   type AcquireSlotOptions,
   acquireGlobalSlot,
   defaultMaxConcurrent,
+  isHolderAlive,
+  listSlotHolders,
   type ReleaseSlotFn,
+  readHolder,
+  reapOrphanedSlots,
+  reapSlotIfOrphaned,
   resolveMaxConcurrent,
+  type SlotHolder,
   semaphoreDir,
 } from './tool-semaphore.js';
 export { taskUpdate, type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';
