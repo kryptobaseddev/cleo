@@ -742,7 +742,7 @@ export function checkSharedWorktreeStashes(projectRoot?: string): CheckResult {
   const worktrees = sharedWorktreeCount(root);
   let entries: string[];
   try {
-    entries = execFileSync('git', ['stash', 'list', '--pretty=%gd|%gs'], {
+    entries = execFileSync('git', ['stash', 'list', '--pretty=%H %gd %gs'], {
       cwd: root,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -786,6 +786,12 @@ export function checkSharedWorktreeStashes(projectRoot?: string): CheckResult {
     details: {
       stashCount: entries.length,
       worktrees,
+      // SHA first, deliberately. `stash@{n}` is a POSITION, not an identity:
+      // dropping any entry renumbers every one below it, so an index cited in a
+      // report can name a different stash by the time anyone reads it. Observed
+      // 2026-09-12: one stash referred to as `stash@{2}` and then `stash@{1}`
+      // inside a single session. The SHA is stable and `git stash show <sha>`
+      // accepts it.
       topEntry: entries[0] ?? null,
     },
     fix: 'Never use a bare `git stash pop` in this repo. Run `git stash list`, identify your own entry, and apply it explicitly with `git stash apply stash@{N}`.',
