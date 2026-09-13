@@ -131,7 +131,14 @@ describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
   describe('Template size', () => {
     it('is under 470 lines (raised from 450 for the killed-write section — T12162)', () => {
       const lines = content.split('\n').length;
-      expect(lines).toBeLessThanOrEqual(470);
+      expect(
+        lines,
+        `CLEO-INJECTION.md is ${lines} lines against a cap of 470. This file is embedded ` +
+          'verbatim into every tier-1 spawn prompt, so every line costs tokens on every agent ' +
+          'CLEO spawns. Prefer compressing in place — reshaping fenced blocks and bullet lists ' +
+          'into tables or prose recovered 23 lines in PR #1350 without dropping a single fact — ' +
+          'over raising the cap. If you do raise it, say so explicitly in the commit message.',
+      ).toBeLessThanOrEqual(470);
     });
 
     it('is at least 50 lines (not accidentally empty)', () => {
