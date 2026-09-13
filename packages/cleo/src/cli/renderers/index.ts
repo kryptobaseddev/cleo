@@ -112,7 +112,12 @@ import { getOutputMode } from '../output-context.js';
 import { getSummaryMode } from '../summary-context.js';
 import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
 import { normalizeForHuman } from './normalizer.js';
-import { renderOutputMode, renderSummary } from './output-mode.js';
+import {
+  detectTruncation,
+  formatTruncationWarning,
+  renderOutputMode,
+  renderSummary,
+} from './output-mode.js';
 
 export type { RenderWavesMode, RenderWavesOptions } from '@cleocode/core';
 export { renderWaves };
@@ -312,6 +317,15 @@ export interface CliOutputOptions {
   operation?: string;
   /** Pagination metadata for canonical envelope `page` field. */
   page?: FormatOptions['page'];
+  /**
+   * Spelling of this command's "return everything" flag, e.g. `'--all'`.
+   *
+   * Supplied ONLY by commands that actually declare such a flag. The truncation
+   * warning names it as the remedy when present, and falls back to
+   * `--limit`/`--offset` advice when absent — so a command without the flag can
+   * never print a remedy its own arg parser would reject.
+   */
+  enumerateAllFlag?: string;
   /** Extra metadata extensions merged into `meta`. */
   extensions?: Record<string, unknown>;
   /**
@@ -361,6 +375,17 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
       const text = out.text.length > 0 ? out.text : `No output (${out.emptyReason ?? 'empty'}).`;
       process.stdout.write(text + '\n');
     }
+    // T12123 (GH #1242) — disclose truncation for the ENUMERATION modes.
+    // `count` is exempt: it already prints the full match count, so a warning
+    // there would contradict its own output. Written to stderr so a piped
+    // `--output id` stream stays parseable (ADR-086).
+    if (outputMode === 'id' || outputMode === 'table') {
+      const facts = detectTruncation(data, opts.page);
+      if (facts)
+        process.stderr.write(
+          `${formatTruncationWarning(facts, outputMode, opts.enumerateAllFlag)}\n`,
+        );
+    }
     return;
   }
 
@@ -375,6 +400,12 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
       const text = out.text.length > 0 ? out.text : `No output (${out.emptyReason ?? 'empty'}).`;
       process.stdout.write(text + '\n');
     }
+    // T12123 (GH #1242) — the reporter flagged `--summary` as untested for the
+    // same skew. It has it: `--summary` is one line per RETURNED record, so a
+    // truncated page reads as the whole set here too.
+    const facts = detectTruncation(data, opts.page);
+    if (facts)
+      process.stderr.write(`${formatTruncationWarning(facts, 'summary', opts.enumerateAllFlag)}\n`);
     return;
   }
 

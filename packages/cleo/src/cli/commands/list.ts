@@ -32,6 +32,27 @@ const listArgs = {
     type: 'string',
     description: 'Alias for --parent (legacy parentId compatibility)',
   },
+  // T12123 (GH #1242) — a DISCOVERABLE spelling of the `--limit 0` escape
+  // hatch. `options.limit === 0 ? undefined : ...` in core has always meant
+  // "no limit" and worked correctly, but it was documented nowhere: `--limit`'s
+  // help text said only "Maximum number of tasks to return". So the one flag
+  // that made complete enumeration possible was invisible to anyone who had
+  // not read the core source, while `--output id` silently returned a page of
+  // 10 against a match count of 1075.
+  //
+  // `--all` is the idiom to TEACH, and `--limit 0` is only a compatibility
+  // note — because `--limit 0` does NOT mean "no limit" everywhere. Measured
+  // on the same build (GH #1302): `cleo find "worktree" --limit 0` returns
+  // `{success: true, results: [], total: 260}` — zero rows, reported as
+  // success, with a `message` of "No matching tasks found" sitting beside a
+  // total of 260. Documenting `--limit 0` as the recommended path here would
+  // teach every agent a flag that silently returns nothing from `find`, which
+  // is worse than leaving it undocumented. `find --all` is filed to follow.
+  all: {
+    type: 'boolean',
+    description:
+      'Return EVERY matching task instead of the default page of 10. Prefer this over --limit 0: --all means the same thing on every command, whereas --limit 0 is list-specific (cleo find reads it as zero results).',
+  },
   // T9922 — MVI record projection opt-out flags (surfaced for --help).
   verbose: {
     type: 'boolean',
@@ -75,6 +96,11 @@ export const listCommand = defineCommand({
     // CLI-only compatibility alias — not a registry param, so forwarded here.
     if (args['parent-id'] !== undefined) params['parent'] ??= args['parent-id'];
 
+    // GH #1242 — `--all` is the discoverable spelling of `--limit 0`. Set it
+    // explicitly rather than deleting `limit`, because an ABSENT limit falls
+    // back to TASK_LIST_DEFAULT_LIMIT (10), not to "no limit".
+    if (args['all'] === true) params['limit'] = 0;
+
     const limit = typeof params['limit'] === 'number' ? (params['limit'] as number) : undefined;
     const offset = typeof params['offset'] === 'number' ? (params['offset'] as number) : undefined;
 
@@ -99,6 +125,9 @@ export const listCommand = defineCommand({
 
     const filtered = (data?.filtered as number) ?? tasks.length;
     const page = response.page ?? createPage({ total: filtered, limit, offset });
-    cliOutput(data, { command: 'list', operation: 'tasks.list', page });
+    // `list` is the command that declares `--all`, so it is the command that
+    // names it as the truncation remedy. Commands without the flag pass nothing
+    // and get --limit/--offset advice instead.
+    cliOutput(data, { command: 'list', operation: 'tasks.list', page, enumerateAllFlag: '--all' });
   },
 });
