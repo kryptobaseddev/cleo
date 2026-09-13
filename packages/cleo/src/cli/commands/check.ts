@@ -667,6 +667,15 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-dual-scope-unqualified-reads.mjs',
         description: 'No unqualified SQL reads of tables resident in both cleo.db scopes',
       },
+      {
+        // gh#1223: every module reaching the AI SDK can emit on stdout via
+        // `ai@6`'s console.info banner. An INVENTORY rather than a per-module
+        // rule — the guard is installed once at the envelope funnel by design.
+        id: 'gate-22',
+        task: 'T12169',
+        script: 'scripts/lint-ai-sdk-surface.mjs',
+        description: 'No unreviewed module reaches the AI SDK at runtime',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];
