@@ -668,6 +668,15 @@ const checkArchCommand = defineCommand({
         description: 'No unqualified SQL reads of tables resident in both cleo.db scopes',
       },
       {
+        // gh#1223: every module reaching the AI SDK can emit on stdout via
+        // `ai@6`'s console.info banner. An INVENTORY rather than a per-module
+        // rule — the guard is installed once at the envelope funnel by design.
+        id: 'gate-22',
+        task: 'T12169',
+        script: 'scripts/lint-ai-sdk-surface.mjs',
+        description: 'No unreviewed module reaches the AI SDK at runtime',
+      },
+      {
         // T12138 / gh#1207: SCOPE differs from gate 19 deliberately. Gate 19
         // ratchets a repo-wide count (106, may fall never rise); this permits
         // ZERO across the 16 modules reachable from the entrypoint's static
