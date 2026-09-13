@@ -76,6 +76,70 @@ export const WORKSPACE_CONCURRENCY = 1;
 export type HeavyToolEnv = Readonly<Record<string, string>>;
 
 /**
+ * Canonical tools treated as HEAVY — the ones that fork.
+ *
+ * The single definition. Before this there were four independent literals
+ * across `heavy-tool-env.ts`, `tool-semaphore.ts`, `tool-cache.ts` and
+ * `heavy-tool-limit.ts`, all agreeing by coincidence. Adding a fifth heavy tool
+ * took four coordinated edits, and missing one produced a **silent asymmetry** —
+ * a tool inheriting the long deadline but no memory bound, say, which is the
+ * ordering hazard we sequence PRs to avoid, reappearing inside one process.
+ */
+const HEAVY_TOOLS = new Set<CanonicalTool>(['test', 'build']);
+
+/**
+ * Whether a canonical tool is heavy enough to need bounding.
+ *
+ * Heavy means "forks, and its memory is a product rather than a constant":
+ * a test or build spawns workers, which is what makes the ceiling necessary.
+ * `lint`, `typecheck`, `audit` and `security-scan` are single cheap processes —
+ * bounding them costs a subprocess to guard nothing.
+ *
+ * @param canonical - the tool in question.
+ * @returns `true` when the tool needs a worker cap, a memory ceiling and the
+ *          longer spawn deadline. All three must agree, which is why they read
+ *          this instead of each keeping a literal.
+ *
+ * @example
+ * ```ts
+ * isHeavyTool('test');      // true
+ * isHeavyTool('typecheck'); // false
+ * ```
+ */
+export function isHeavyTool(canonical: CanonicalTool): boolean {
+  return HEAVY_TOOLS.has(canonical);
+}
+
+/**
+ * Per-runner worker-count variables, keyed by the env var each runner reads.
+ *
+ * T12116: the original overlay set `VITEST_MAX_WORKERS` and nothing else, so a
+ * consumer running `cargo test`, `pytest`, `go test` or `make` got no bound at
+ * all — and CLEO is a general task runner whose projects are not all Node.
+ * Each entry below is the documented knob for one ecosystem's test/build
+ * parallelism; setting a variable a project does not use is inert, so the whole
+ * table can be applied unconditionally.
+ *
+ * This is still advisory — a runner may ignore its own variable. The hard bound
+ * is the cgroup in `heavy-tool-limit.ts`; these merely stop a cooperative
+ * runner from sizing its pool off `nproc` and immediately breaching it.
+ */
+const WORKER_COUNT_VARS = [
+  /** vitest — overrides the resolved config, so it binds projects with their own. */
+  'VITEST_MAX_WORKERS',
+  /** jest — honoured by jest >= 29 when no CLI flag is given. */
+  'JEST_MAX_WORKERS',
+  /** cargo test / libtest harness. */
+  'RUST_TEST_THREADS',
+  /** cargo build + `cargo test`'s compile step. */
+  'CARGO_BUILD_JOBS',
+  /** Go toolchain — bounds both `go test -p` scheduling and runtime threads. */
+  'GOMAXPROCS',
+  /** pytest-xdist, when `-n auto` is in use. */
+  'PYTEST_XDIST_AUTO_NUM_WORKERS',
+] as const;
+
+/**
  * Worker count this machine can hold, given {@link GIB_PER_WORKER}.
  *
  * @param totalRamGib - total RAM in GiB; defaults to a live reading.
@@ -132,18 +196,27 @@ export function heavyToolEnv(
   env: NodeJS.ProcessEnv = process.env,
   totalRamGib: number = totalmem() / 1024 ** 3,
 ): HeavyToolEnv {
-  if (canonical !== 'test' && canonical !== 'build') return {};
+  if (!isHeavyTool(canonical)) return {};
 
   const overlay: Record<string, string> = {
     NODE_OPTIONS: mergeNodeOptions(env.NODE_OPTIONS, HEAVY_TOOL_HEAP_MB),
   };
 
-  // Respect a deliberate setting; supply one otherwise.
-  if (!env.VITEST_MAX_WORKERS) {
-    overlay.VITEST_MAX_WORKERS = String(heavyToolWorkers(totalRamGib));
+  // Respect a deliberate setting; supply one otherwise. An existing value
+  // always wins — a project that asked for more has outranked our default
+  // since T12096, and that contract is unchanged.
+  const workers = String(heavyToolWorkers(totalRamGib));
+  for (const key of WORKER_COUNT_VARS) {
+    if (!env[key]) overlay[key] = workers;
   }
+
   if (!env.npm_config_workspace_concurrency) {
     overlay.npm_config_workspace_concurrency = String(WORKSPACE_CONCURRENCY);
+  }
+  // GNU make sizes `-j` off nproc when told `-j` with no argument; an explicit
+  // job count here bounds a Makefile-driven test/build target too.
+  if (!env.MAKEFLAGS) {
+    overlay.MAKEFLAGS = `-j${workers}`;
   }
 
   return overlay;
