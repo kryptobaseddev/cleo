@@ -112,3 +112,91 @@ describe('createIdempotency middleware', () => {
     expect(result.error?.code).toBe('E_IDEMPOTENCY_KEY_CONFLICT');
   });
 });
+
+describe('T12162 — a key on an operation that cannot honour it', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAll.mockReturnValue([]);
+  });
+
+  // `mutate/tasks/add` is `idempotent: false` in the operations registry, as are
+  // add-batch, update, docs.add, memory.observe and relates.add — precisely the
+  // verbs a caller reaches for after a killed write (gh#1229, gh#1244).
+  const NON_IDEMPOTENT = { domain: 'tasks', operation: 'add' } as const;
+
+  it('REFUSES the request instead of silently ignoring the key', async () => {
+    const middleware = createIdempotency();
+    const next = vi.fn().mockResolvedValue(makeResponse());
+
+    const result = await middleware(
+      makeRequest({ ...NON_IDEMPOTENT, params: { idempotencyKey: 'retry-123' } }),
+      next,
+    );
+
+    // The handler must NOT run: executing it is what creates the duplicate the
+    // caller was trying to avoid.
+    expect(next).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_IDEMPOTENCY_UNSUPPORTED');
+  });
+
+  it('tells the caller the key was NOT applied, and to query before retrying', async () => {
+    const middleware = createIdempotency();
+    const next = vi.fn().mockResolvedValue(makeResponse());
+
+    const result = await middleware(
+      makeRequest({ ...NON_IDEMPOTENT, params: { idempotencyKey: 'retry-123' } }),
+      next,
+    );
+
+    // A caller that reads only the message must not be left believing the key
+    // worked — that belief is what turns an unsafe retry into a confident one.
+    expect(result.error?.message).toContain('NOT applied');
+    expect(result.error?.message).toContain('tasks.add');
+    expect(result.error?.message).toMatch(/cleo (find|show)/);
+    expect(result.error?.details).toMatchObject({
+      domain: 'tasks',
+      operation: 'add',
+      idempotencySupported: false,
+    });
+  });
+
+  it('echoes the key back in meta so the refusal is traceable to the request', async () => {
+    const middleware = createIdempotency();
+    const next = vi.fn().mockResolvedValue(makeResponse());
+
+    const result = await middleware(
+      makeRequest({ ...NON_IDEMPOTENT, params: { idempotencyKey: 'retry-123' } }),
+      next,
+    );
+
+    expect(result.meta.idempotencyKey).toBe('retry-123');
+  });
+
+  it('does NOT refuse when no key was supplied — silence is never a default', async () => {
+    // The key reaches params only when the caller passed --idempotency-key
+    // explicitly, so an ordinary `cleo add` must be entirely unaffected.
+    const middleware = createIdempotency();
+    const response = makeResponse();
+    const next = vi.fn().mockResolvedValue(response);
+
+    const result = await middleware(makeRequest({ ...NON_IDEMPOTENT, params: {} }), next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(result).toBe(response);
+  });
+
+  it('ignores a blank key rather than refusing on whitespace', async () => {
+    const middleware = createIdempotency();
+    const response = makeResponse();
+    const next = vi.fn().mockResolvedValue(response);
+
+    const result = await middleware(
+      makeRequest({ ...NON_IDEMPOTENT, params: { idempotencyKey: '   ' } }),
+      next,
+    );
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(result).toBe(response);
+  });
+});

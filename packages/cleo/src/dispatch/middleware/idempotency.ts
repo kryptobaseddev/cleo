@@ -128,9 +128,66 @@ export function createIdempotency(): Middleware {
     if (req.gateway !== 'mutate') return next();
 
     const resolved = resolve(req.gateway, req.domain, req.operation);
-    if (!resolved?.def.idempotent) return next();
-
     const idempotencyKey = getIdempotencyKey(req.params);
+
+    if (!resolved?.def.idempotent) {
+      // The operation cannot honour a key, and the caller supplied one (T12162).
+      //
+      // Returning `next()` here is what shipped, and it is the worst of the
+      // three options. `--idempotency-key` is stripped from argv before citty
+      // ever validates it (cli/index.ts) and merged into params for EVERY
+      // mutate dispatch (adapters/cli.ts `mergeIdempotencyParam`), so the flag
+      // parses cleanly on `add`, `add-batch`, `update`, `docs add`,
+      // `memory observe` and `relates add` — none of which is `idempotent: true`
+      // in the registry. The audit middleware then records the key against the
+      // row, so the audit trail asserts the request was keyed. Every signal
+      // available to the caller says the key was honoured, and the retry
+      // duplicates anyway.
+      //
+      // That matters because the callers reaching for this flag are the ones
+      // already in trouble: a mutation was killed, they cannot tell whether it
+      // committed (gh#1229), and a retry is how duplicates get created
+      // (gh#1244 — a consecutive-ID pair proves the first write committed).
+      // A flag that looks like the remedy and is inert is worse than no flag,
+      // because it converts a known-unsafe retry into one believed safe.
+      //
+      // Refusing is therefore the only honest answer. It cannot produce a false
+      // positive: the key reaches params only when the caller passed
+      // `--idempotency-key` explicitly, so silence here is never a default.
+      //
+      // Note the guard `unknown flag rejection` (gh#1276) cannot catch this —
+      // the flag is removed from argv before citty sees it.
+      if (idempotencyKey) {
+        return {
+          meta: {
+            gateway: req.gateway,
+            domain: req.domain,
+            operation: req.operation,
+            timestamp: new Date().toISOString(),
+            duration_ms: 0,
+            source: req.source,
+            requestId: req.requestId,
+            ...(req.sessionId ? { sessionId: req.sessionId } : {}),
+            idempotencyKey,
+          },
+          success: false,
+          error: {
+            code: 'E_IDEMPOTENCY_UNSUPPORTED',
+            message:
+              `${req.domain}.${req.operation} does not support --idempotency-key, so the key was NOT applied. ` +
+              'Do not retry this command blindly: query first with `cleo find` or `cleo show <id> --full` ' +
+              'to establish whether the previous attempt committed.',
+            details: {
+              domain: req.domain,
+              operation: req.operation,
+              idempotencySupported: false,
+            },
+          },
+        };
+      }
+      return next();
+    }
+
     if (!idempotencyKey) return next();
 
     const lookup = await findPersistedResponse(req, idempotencyKey);

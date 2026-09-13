@@ -268,7 +268,7 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 | Need | Flag | Example |
 |------|------|---------|
 | Scalar extract | `--field <jsonpointer>` | `id=$(cleo add 'X' --acceptance "..." --field /data/created/0)` |
-| ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id \| while read c; do …; done` |
+| ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id --limit 0 \| while read c; do …; done` — **`--limit 0` means EVERY match on BOTH `list` and `find`** (gh#1302, fixed). REQUIRED on `list`, which otherwise stops at 10 silently while `--output count` reports the true total. On `find`, `--all` is the same thing with a name. |
 | Affected count | `--output count` | `cleo list --parent EPIC --status pending --output count` |
 | TSV (no header) | `--output table` | `cleo list --parent EPIC --output table` |
 | Silent (exit-code only) | `--output silent` | `cleo update T123 --status done --output silent` |
@@ -298,6 +298,13 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | — | `E_EVIDENCE_STALE` | Files/commits changed since `verify`; re-verify with updated evidence |
 | — | `E_EVIDENCE_INVALID_DECISION` | `decision:<id>` atom — decision ID not found or not accepted/proposed in BRAIN |
 | — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` or `CLEO_OWNER_OVERRIDE=1` |
+| — | `E_IDEMPOTENCY_UNSUPPORTED` | That verb ignores `--idempotency-key`; the key was NOT applied. Query before retrying |
+| 143 / 137 | *(killed — no code)* | **A killed write carries NO information about whether it committed** |
+
+### A killed write is not a failed write
+
+A 143/137 exit — or a bare exit with no output — says nothing about whether the mutation landed: the commit is fast, the teardown after it is what hangs, so the row is usually THERE. **Never retry a killed mutation blindly.** Check by id first — `cleo show <id> --full`. A HIT is conclusive even while the writer is still hung (the race can hide a committed row, never invent one); a MISS proves nothing until the writer exits. Searching instead of reading by id needs exact flags, because both read paths hide a row you just wrote (`find` excludes archived; `list` truncates at 10 and new children sort last): `cleo find "<title>" --include-archive --all` and `cleo list --parent <id> --limit 0`. `--idempotency-key` does NOT make a retry safe on `add`/`add-batch`/`update`/`docs add`/`memory observe`/`relates add` — those reject it outright.
+
 <!-- /CLEO-INJECTION:section=error-handling -->
 
 <!-- CLEO-INJECTION:section=pre-complete-gate -->
