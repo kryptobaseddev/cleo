@@ -91,13 +91,26 @@ describe('nexus status — scope honesty (gh#1329)', () => {
     );
   });
 
-  it('declares no `output` flag — so `--output <x>` is swallowed as the path', () => {
-    // The second route to the same defect: `--output` is not declared here, so
-    // citty consumes its VALUE positionally and `--output envelope` silently
-    // asked about `<cwd>/envelope`. The cross-project guard catches that route
-    // too, which is why this PR does not also need to change flag parsing —
-    // but the absence of the flag is the precondition and is worth pinning.
+  // BEHAVIOUR CHANGE. This test previously asserted the OPPOSITE — that `output`
+  // is undefined — and called that "the precondition worth pinning". It was
+  // pinning the defect: undeclared, citty consumed the flag's VALUE positionally,
+  // so `--output envelope` silently asked about `<cwd>/envelope` and
+  // `--output json` about `<cwd>/json`. A swallowed flag that changes WHICH
+  // PROJECT is queried is not a precondition to preserve.
+  it('declares the `output` flag, so its value is never consumed as the path', () => {
     const { args } = statusCommand();
-    expect(args['output']).toBeUndefined();
+    expect(args['output']).toMatchObject({ type: 'string' });
+  });
+
+  it('gh#1329: every flag this command declares is a non-positional, so none can be swallowed', () => {
+    // The general fix is the strict-flags chokepoint (gh#1276). This narrower
+    // invariant is what protects THIS command: exactly one positional, so any
+    // undeclared flag's value lands on `path` — which is now validated as a real
+    // directory before an id is derived from it.
+    const { args } = statusCommand();
+    const positionals = Object.entries(args).filter(
+      ([, spec]) => (spec as { type?: string }).type === 'positional',
+    );
+    expect(positionals.map(([name]) => name)).toEqual(['path']);
   });
 });

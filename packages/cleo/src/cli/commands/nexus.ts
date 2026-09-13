@@ -155,6 +155,21 @@ const statusCommand = defineCommand({
       type: 'boolean',
       description: 'Output as JSON (LAFS envelope format)',
     },
+    // gh#1329, second half — DECLARE the global output flag so citty consumes
+    // it. Undeclared, `--output json` was consumed as the positional `path`,
+    // and `json` base64url'd into a well-formed project id: the flag silently
+    // changed WHICH PROJECT was queried, which is how the reporter reached the
+    // reporting bug. Same precedent as `docs.ts`, which declares it "for
+    // docs-command consistency".
+    //
+    // The repo-wide fix is the strict-flags chokepoint (gh#1276); declaring it
+    // here removes the hazard from the one command whose swallowed value selects
+    // a project rather than merely being ignored.
+    output: {
+      type: 'string',
+      description:
+        'Output mode: envelope|id|table|count|silent (global output flag; declared here so it is not consumed as the positional path).',
+    },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
