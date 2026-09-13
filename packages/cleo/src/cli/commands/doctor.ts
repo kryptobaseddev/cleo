@@ -35,6 +35,7 @@ import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
+import { doctorMalformedIdsCommand } from './doctor-malformed-ids.js';
 import { doctorMemoryGuardCommand } from './doctor-memory-guard.js';
 import { doctorNexusResidencyCommand } from './doctor-nexus-residency.js';
 import { runDoctorProjects } from './doctor-projects.js';
@@ -241,6 +242,7 @@ export const doctorCommand = defineCommand({
     // T10309 / Saga T10281 / Epic T10282 — Legacy-backup walker
     'legacy-backups': doctorLegacyBackupsCommand,
     // T12095 — pre-dual-scope store files still on disk under their old LIVE names
+    'malformed-ids': doctorMalformedIdsCommand,
     'superseded-store': doctorSupersededStoreCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify
     'memory-guard': doctorMemoryGuardCommand,

@@ -403,6 +403,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorLegacyBackupsCommand as CommandDef,
   },
   {
+    exportName: 'doctorMalformedIdsCommand',
+    name: 'malformed-ids',
+    description: 'Report task rows whose id is not a valid task identifier — rows that ',
+    load: async () =>
+      (await import('../commands/doctor-malformed-ids.js')).doctorMalformedIdsCommand as CommandDef,
+  },
+  {
     exportName: 'doctorMemoryGuardCommand',
     name: 'memory-guard',
     description:

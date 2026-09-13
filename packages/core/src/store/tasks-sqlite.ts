@@ -12,12 +12,15 @@ import {
   ARCHIVE_REASON_TOMBSTONE,
   ArchiveReasonTombstoneError,
   type ArchiveReasonValue,
+  ExitCode,
   isArchiveTombstoneAllowed,
+  isStorableTaskId,
   type Task,
   type TaskStatus,
   type TaskType,
 } from '@cleocode/contracts';
 import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { CleoError } from '../errors.js';
 import { rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnTaskDelete } from './cross-db-cleanup.js';
 import {
@@ -35,6 +38,25 @@ import * as schema from './tasks-schema.js';
 
 /** Insert a task row directly. Internal use only — call createTask for the safe path. */
 async function insertTaskRow(task: Task, cwd?: string): Promise<Task> {
+  // T12128: the id shape is validated on every READ path and on none of the
+  // write paths, which is how `id='/mnt/projects/cleocode'` reached
+  // `tasks_tasks`. That row is immortal: `cleo list` returns it, while `show`,
+  // `update` and `delete` all reject the id as malformed before they can reach
+  // it — the read-side validators that should have prevented it are exactly
+  // what makes it unfixable. Validate here, at the chokepoint every task
+  // insert passes through, so a malformed id fails loudly at write time
+  // instead of silently becoming unreachable data.
+  if (!isStorableTaskId(task.id)) {
+    throw new CleoError(
+      ExitCode.INVALID_INPUT,
+      `Refusing to insert a task with a malformed id: ${JSON.stringify(task.id)}`,
+      {
+        fix: 'A task id must be a non-empty identifier under 64 characters, starting with a letter, containing no whitespace, path separators or control characters (e.g. "T1234"). This is a bug in the caller — the id should come from the id generator, not from user input or a path.',
+        details: { field: 'id', value: String(task.id) },
+      },
+    );
+  }
+
   const db = await getDb(cwd);
   const row = taskToRow(task);
   db.insert(schema.tasks).values(row).run();
