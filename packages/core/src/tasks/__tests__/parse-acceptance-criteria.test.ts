@@ -188,6 +188,60 @@ describe('parseAcceptanceCriteria', () => {
     expect(parseAcceptanceCriteria('AC1)|AC2')).toEqual(['AC1)', 'AC2']);
   });
 
+  it('gh#1339: a possessive after a CLOSING bracket is still prose', () => {
+    // The first fix keyed on "the preceding character is not alphanumeric",
+    // which admitted `}` — so `stash@{2}'s` opened a quote context. With a
+    // SECOND such possessive later the quotes balance, the matching-close
+    // lookahead is satisfied, and the whole span between them merges. This is
+    // the case that survived the first fix: supplied 5, parsed 4.
+    const input =
+      'AC1 plain|' +
+      "AC2 stash@{2}'s correction is verified on fresh|" +
+      "AC3 stash@{1}'s global testTimeout is set|" +
+      'AC4 plain|' +
+      'AC5 plain';
+
+    const out = parseAcceptanceCriteria(input);
+
+    expect(out).toHaveLength(5);
+    expect(out[1]).toBe("AC2 stash@{2}'s correction is verified on fresh");
+    expect(out[2]).toBe("AC3 stash@{1}'s global testTimeout is set");
+  });
+
+  it('gh#1339: a possessive after `)`, `]` or `.` is prose too', () => {
+    // Same class as `}`. Each of these is a non-alphanumeric character that the
+    // first fix would have accepted as a quote opener, and none of them can
+    // begin a quoted span in practice.
+    expect(parseAcceptanceCriteria("the fn(x)'s result|ac two|ac three")).toHaveLength(3);
+    expect(parseAcceptanceCriteria("arr[0]'s value|ac two|ac three")).toHaveLength(3);
+    expect(parseAcceptanceCriteria("v1.2's output|ac two")).toHaveLength(2);
+  });
+
+  it('gh#1339: an ODD apostrophe count destroys the remainder, not just one pair', () => {
+    // axiom-dev-lead predicted an odd count would be "more visible". It is in
+    // fact more destructive: the unmatched quote absorbs everything after it,
+    // so AC3 and AC4 disappear entirely rather than merging with a neighbour.
+    const out = parseAcceptanceCriteria("AC1 plain|AC2 the user's file|AC3 plain|AC4 plain");
+
+    expect(out).toHaveLength(4);
+    expect(out[3]).toBe('AC4 plain');
+  });
+
+  it('gh#1339: a quote opener is still honoured at every real token boundary', () => {
+    // The allowlist must not be so tight that it breaks the gh#409 rule it
+    // exists to preserve. Start-of-input, whitespace, the delimiter itself and
+    // an opening bracket all legitimately precede a quoted span.
+    expect(parseAcceptanceCriteria("'a'|'b'")).toHaveLength(1);
+    expect(parseAcceptanceCriteria("mode accepts 'realtime-token'|'batch' exactly")).toHaveLength(
+      1,
+    );
+    expect(parseAcceptanceCriteria("ac one|'a'|'b'|ac three")).toHaveLength(3);
+    expect(parseAcceptanceCriteria("fn('a'|'b') is called|ac two")).toHaveLength(2);
+    // A contraction earlier in the same criterion must not disarm a real union
+    // later in it.
+    expect(parseAcceptanceCriteria("it doesn't accept 'a'|'b' though|ac two")).toHaveLength(2);
+  });
+
   it('terminates on a pathologically long input (loop bound)', () => {
     // 10k tokens — proves the loop is bounded by input.length.
     const input = Array.from({ length: 10_000 }, (_, n) => `AC${n}`).join('|');

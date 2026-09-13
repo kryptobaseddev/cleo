@@ -203,12 +203,20 @@ function splitAcceptance(input: string, delim = '|'): string[] {
     } else if (
       (ch === '"' || ch === "'") &&
       input.indexOf(ch, i + 1) !== -1 &&
-      // An apostrophe INSIDE a word is never a quote opener. `doesn't` and
-      // `user's` are prose; `'batch'` is a quoted span. The discriminator is
-      // the preceding character: a quote that opens a span sits at a token
-      // boundary (start, whitespace, delimiter, or an opening bracket), never
-      // immediately after a letter or digit.
-      !/[\p{L}\p{N}]/u.test(buf.slice(-1))
+      // An apostrophe INSIDE or AFTER a word is never a quote opener. `doesn't`
+      // and `user's` are prose; `'batch'` is a quoted span. The discriminator is
+      // the preceding character, and it must be an ALLOWLIST rather than "not
+      // alphanumeric": `stash@{2}'s correction` is possessive even though `}` is
+      // not a letter or digit, and the not-alphanumeric form admitted it as a
+      // quote opener. With a second such possessive later in the string the
+      // quotes balance, the lookahead below is satisfied, and the whole span
+      // between them merges — supplied 5, parsed 4 (gh#1339).
+      //
+      // A quote that really opens a span sits at a token boundary: start of
+      // input, whitespace, the delimiter itself, or an opening bracket. Nothing
+      // else. A closing bracket, a letter, a digit or a period before it means
+      // prose.
+      /^$|[\s|([{,=:]$/.test(buf.slice(-1))
     ) {
       // gh#1321 — enter a quote context ONLY when a matching close exists later.
       //
