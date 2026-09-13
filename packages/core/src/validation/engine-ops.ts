@@ -30,6 +30,8 @@ import {
   checkEngineMigrationLocDrop,
   checkGateEvidenceMinimumDetailed,
   composeGateEvidence,
+  DECISION_ONLY_INAPPLICABLE_GATES,
+  isDecisionOnlyImplementation,
   isHardAtom,
   type ParsedAtom,
   parseEvidence,
@@ -586,7 +588,16 @@ export async function validateGateVerify(
         // T9949: surface the rich example-bearing remediation hint via
         // `engineError({fix:})` so `note:`-only callers see exactly which
         // alternative atom kind the gate requires (commit/files/decision/pr).
+        // gh#1215: a task whose `implemented` gate was satisfied by a DECISION
+        // with no commit/pr changed no code, so `testsPassed` / `qaPassed` have
+        // nothing to measure. Demanding them made correctly-evidenced audit and
+        // review tasks uncompletable: tool:test is meaningless when nothing
+        // changed, and the owner override is session-capped and rejected on
+        // critical gates. Satisfied by absence, as with the T12083
+        // `notApplicable` tool atom.
+        const decisionOnly = isDecisionOnlyImplementation(verification.evidence?.implemented);
         for (const targetGate of targets) {
+          if (decisionOnly && DECISION_ONLY_INAPPLICABLE_GATES.includes(targetGate)) continue;
           const missing = checkGateEvidenceMinimumDetailed(targetGate, validatedAtoms);
           if (missing) {
             return engineError('E_EVIDENCE_INSUFFICIENT', missing.message, {
