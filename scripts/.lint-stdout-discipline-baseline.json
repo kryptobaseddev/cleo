@@ -38,8 +38,8 @@
     "packages/cleo/src/cli/commands/export-tasks.ts:78",
     "packages/cleo/src/cli/commands/export.ts:69",
     "packages/cleo/src/cli/commands/export.ts:70",
-    "packages/cleo/src/cli/commands/nexus.ts:1566",
-    "packages/cleo/src/cli/commands/nexus.ts:1567",
+    "packages/cleo/src/cli/commands/nexus.ts:1600",
+    "packages/cleo/src/cli/commands/nexus.ts:1601",
     "packages/cleo/src/cli/commands/sentient.ts:951",
     "packages/cleo/src/cli/commands/sentient.ts:954",
     "packages/cleo/src/cli/commands/sentient.ts:958",
@@ -53,5 +53,5 @@
     "packages/cleo/src/cli/commands/status.ts:289",
     "packages/cleo/src/cli/commands/worktree.ts:274"
   ],
-  "updatedAt": "2026-08-09T04:21:40.097Z"
+  "updatedAt": "2026-09-13T00:34:26.951Z"
 }
