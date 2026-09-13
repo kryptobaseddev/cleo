@@ -14,6 +14,7 @@ import {
   projectMvi,
   projectMviList,
   resolveProjectionMode,
+  WITHHELD_KEY,
 } from '../mvi-projection.js';
 
 const FULL_TASK = {
@@ -61,10 +62,13 @@ const FULL_DOC = {
 } as const;
 
 describe('projectMvi', () => {
-  it('keeps the allow-listed task fields', () => {
+  it('keeps the allow-listed task fields, plus the withheld marker (T12121)', () => {
     const out = projectMvi(FULL_TASK, 'task');
+    // `_withheld` is part of the projected surface as of T12121 (GH #1243):
+    // a field that exists on the record is either present in the envelope or
+    // explicitly named as withheld. See WITHHELD_KEY.
     expect(Object.keys(out).sort()).toEqual(
-      ['id', 'kind', 'parentId', 'priority', 'status', 'title', 'type'].sort(),
+      ['_withheld', 'id', 'kind', 'parentId', 'priority', 'status', 'title', 'type'].sort(),
     );
     expect(out.id).toBe('T9922');
     expect(out.title).toBe('MVI projection default');
@@ -78,6 +82,50 @@ describe('projectMvi', () => {
     expect(out['acceptance']).toBeUndefined();
     expect(out['labels']).toBeUndefined();
     expect(out['createdAt']).toBeUndefined();
+  });
+
+  it('NAMES every dropped field that had content, with its size (T12121)', () => {
+    const out = projectMvi(FULL_TASK, 'task') as Record<string, unknown>;
+    const withheld = out[WITHHELD_KEY] as Record<string, number>;
+
+    // The field whose silent absence caused a destructive overwrite.
+    expect(withheld['description']).toBe(FULL_TASK.description.length);
+    expect(withheld['verification']).toBeGreaterThan(0);
+    expect(withheld['acceptance']).toBeGreaterThan(0);
+    expect(withheld['labels']).toBeGreaterThan(0);
+    expect(withheld['createdAt']).toBeGreaterThan(0);
+
+    // Allow-listed (thus present) fields are never reported as withheld.
+    for (const kept of ['id', 'title', 'status', 'priority', 'type', 'parentId', 'kind']) {
+      expect(withheld).not.toHaveProperty(kept);
+    }
+  });
+
+  it('does NOT reproduce a withheld value — only its size (T12121)', () => {
+    // A truncated copy under the real field name would let a consumer read it
+    // and write it back, silently CORRUPTING the record. A size is inert.
+    const out = projectMvi(FULL_TASK, 'task') as Record<string, unknown>;
+    expect(JSON.stringify(out)).not.toContain('Long description');
+    expect(typeof (out[WITHHELD_KEY] as Record<string, unknown>)['description']).toBe('number');
+  });
+
+  it('omits the marker entirely for a genuine stub — absence of marker means complete', () => {
+    // This is the distinction the 2026-09-12 incident confused: a title-only
+    // stub carries NO marker, so an agent can tell "nothing was hidden" from
+    // "a 1440-character description was hidden".
+    const stub = {
+      id: 'T001',
+      title: 'stub',
+      status: 'pending',
+      priority: 'medium',
+      type: 'task',
+      kind: 'work',
+      description: '',
+      verification: null,
+      acceptance: [],
+    };
+    const out = projectMvi(stub, 'task') as Record<string, unknown>;
+    expect(out).not.toHaveProperty(WITHHELD_KEY);
   });
 
   it('keeps childRollup on epic kind but drops it on task kind', () => {
@@ -144,6 +192,80 @@ describe('PROJECTION_PLANS — SSoT for read ops', () => {
     expect(PROJECTION_PLANS['tasks.add']).toBeUndefined();
     expect(PROJECTION_PLANS['tasks.update']).toBeUndefined();
     expect(PROJECTION_PLANS['tasks.complete']).toBeUndefined();
+  });
+});
+
+describe('applyProjectionPlan — the exact `cleo show` path (T12121 · GH #1243)', () => {
+  /**
+   * This is the end-to-end shape of the 2026-09-12 data-loss incident:
+   * `cleo show T289` routes through PROJECTION_PLANS['tasks.show'], which
+   * projected `data.task` and dropped `description` with no trace. The second
+   * agent read `task.description`, got nothing, concluded "title-only stub",
+   * and overwrote a 1440-character description.
+   */
+  it('marks a withheld description so absence can no longer read as empty', () => {
+    const description = 'x'.repeat(1440);
+    const data = {
+      task: {
+        id: 'T289',
+        title: 'filed with a full mechanism description',
+        status: 'pending',
+        priority: 'high',
+        type: 'task',
+        kind: 'bug',
+        description,
+        verification: { passed: false },
+      },
+      view: {},
+      attachments: [],
+    };
+
+    const out = applyProjectionPlan(data, 'tasks.show', 'mvi') as {
+      task: Record<string, unknown>;
+    };
+
+    // The pre-fix behaviour: the key is still absent...
+    expect(out.task['description']).toBeUndefined();
+    // ...but the envelope now SAYS so, with the size that distinguishes a
+    // populated field from a genuine stub.
+    const withheld = out.task[WITHHELD_KEY] as Record<string, number>;
+    expect(withheld['description']).toBe(1440);
+    expect(withheld['verification']).toBeGreaterThan(0);
+
+    // And the value itself is not reproduced, so nothing invites a round-trip.
+    expect(JSON.stringify(out.task)).not.toContain(description);
+  });
+
+  it('leaves a genuine stub unmarked, so "no marker" means "nothing hidden"', () => {
+    const data = {
+      task: {
+        id: 'T290',
+        title: 'genuinely a stub',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        kind: 'work',
+        description: null,
+      },
+    };
+    const out = applyProjectionPlan(data, 'tasks.show', 'mvi') as {
+      task: Record<string, unknown>;
+    };
+    expect(out.task).not.toHaveProperty(WITHHELD_KEY);
+  });
+
+  it('marks withheld fields on every row of a list, not just single records', () => {
+    const data = {
+      tasks: [
+        { id: 'T1', title: 'a', status: 'pending', description: 'some real content' },
+        { id: 'T2', title: 'b', status: 'pending' },
+      ],
+    };
+    const out = applyProjectionPlan(data, 'tasks.list', 'mvi') as {
+      tasks: Record<string, unknown>[];
+    };
+    expect((out.tasks[0]?.[WITHHELD_KEY] as Record<string, number>)['description']).toBe(17);
+    expect(out.tasks[1]).not.toHaveProperty(WITHHELD_KEY);
   });
 });
 

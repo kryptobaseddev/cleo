@@ -17,7 +17,7 @@ The ONLY canonical sources of session state are:
 - `cleo briefing` — structured handoff + next tasks + BRAIN context
 - `cleo focus <id>` — **primary orient surface** — single call replacing 8: identity, scope, blockers, ready wave, docs, git activity, brain context (≤ 1 500 tokens)
 - `cleo memory find "<query>"` — BRAIN memory lookup
-- `cleo show <taskId>` — individual task detail (use when you need the raw task record)
+- `cleo show <taskId> --full` — individual task detail. **Use `--full`.** Bare `cleo show` returns an MVI projection that WITHHOLDS `description` and `verification`; withheld fields are named in `_withheld` (field → size), and a record with no `_withheld` key is complete.
 
 If you find yourself reading a markdown file for orientation, STOP. Run `cleo briefing`.
 
@@ -30,7 +30,7 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 3. `cleo current` — active task? (~100 tokens)
 4. `cleo next` — what to work on (~300 tokens)
 5. `cleo focus {id}` — **preferred orient call** — single envelope with identity + scope + blockers + ready wave + docs + brain context (≤ 1 500 tokens, replaces 8 calls)
-6. `cleo show {id}` — full task record details when you need the raw record (~400 tokens)
+6. `cleo show {id} --full` — the full task record (~400 tokens). Bare `cleo show {id}` is an MVI projection, NOT the full record — see the `_withheld` note under Task Discovery before you act on a field's absence.
 7. `cleo orchestrate start --epic TXXX` — for epics with ≥ 5 children (~300 tokens, auto-inits LOOM)
 <!-- /CLEO-INJECTION:section=session-start -->
 
@@ -102,7 +102,7 @@ only — dependencies, ordering, cross-reference, evidence, supersession, proven
 |---------|---------|-----|
 | `cleo focus <id>` | ≤ 1 500 | **Primary orient surface** — identity + scope + blockers + ready wave + docs + brain context in ONE call |
 | `cleo find "query"` | 200-400 | Search tasks (default) |
-| `cleo show <id>` | 300-600 | Raw task record (fallback when focus envelope is not sufficient) |
+| `cleo show <id> --full` | 300-600 | Full task record (fallback when focus envelope is not sufficient). Bare `cleo show <id>` WITHHOLDS `description` + `verification` and names them in `_withheld`. **Never read a field's absence as "empty" — check `_withheld` first, or pass `--full`.** A record with no `_withheld` key is complete. |
 | `cleo list --parent <id>` | 1000-5000 | Direct children only |
 <!-- /CLEO-INJECTION:section=task-discovery -->
 
