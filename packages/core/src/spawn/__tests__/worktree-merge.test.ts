@@ -231,14 +231,27 @@ describe('completeAgentWorktreeViaMerge (ADR-062)', () => {
     expect(existsSync(join(wtRoot, 'T1587c'))).toBe(false);
   });
 
-  it('returns error when the task branch does not exist', () => {
+  it('classifies a missing task branch as nothing-to-integrate (T12153)', () => {
     fixture = makeRepo('trunk');
     const result = completeAgentWorktreeViaMerge('T-NEVER-CREATED', fixture.root, {
       targetBranch: 'trunk',
       skipFetch: true,
     });
     expect(result.merged).toBe(false);
-    expect(result.error).toMatch(/does not exist/);
+
+    // T12153 rewrote this path deliberately: a task that never had a branch is
+    // a no-work outcome, not an integration failure. This assertion used to be
+    // `toMatch(/does not exist/)`, which pinned the INCIDENTAL WORDING of the
+    // old message — so T12153's rename broke it while the behaviour it was
+    // meant to protect was working exactly as intended.
+    //
+    // It now asserts the contract the implementation actually publishes, which
+    // is the one `branch-lock.ts` states at the callsite: "A caller
+    // distinguishes no-work from failure by the FLAG, never by the presence of
+    // a string." The message is checked only for the substring T12153
+    // guarantees, not for a phrasing nobody promised to keep.
+    expect(result.nothingToIntegrate).toBe(true);
+    expect(result.error).toContain('nothing to integrate');
   });
 });
 
