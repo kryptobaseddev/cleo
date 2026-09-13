@@ -540,7 +540,7 @@ async function runMainWithLafsEnvelope(
       // scheduled by `cleo memory observe`, whose first call loads a ~22 MB
       // model. The backstop's stderr line therefore says what was abandoned
       // and how to recover it, rather than asserting the process was idle.
-      armExitBackstop(0);
+      armExitBackstop();
     }
   });
 }
