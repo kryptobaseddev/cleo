@@ -667,6 +667,18 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-dual-scope-unqualified-reads.mjs',
         description: 'No unqualified SQL reads of tables resident in both cleo.db scopes',
       },
+      {
+        // T12138 / gh#1207: SCOPE differs from gate 19 deliberately. Gate 19
+        // ratchets a repo-wide count (106, may fall never rise); this permits
+        // ZERO across the 16 modules reachable from the entrypoint's static
+        // import graph, because those are paid on EVERY invocation including
+        // `cleo --version` — one import was 87% of CLI startup. Neither
+        // subsumes the other; the filenames carry the distinction.
+        id: 'gate-23',
+        task: 'T12138',
+        script: 'scripts/lint-cli-startup-barrel-entrypoint.mjs',
+        description: 'No module reachable from the CLI entrypoint statically imports a core barrel',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

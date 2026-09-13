@@ -26,7 +26,7 @@ Core's `exports` map was missing
 `./routing/*` and `./routing/*.js` entries that ~25 other directories already
 have, so the narrow specifier did not resolve; both are added.
 
-A new gate, `scripts/lint-cli-startup-barrel.mjs`, walks the CLI entrypoint's
+A new gate, `scripts/lint-cli-startup-barrel-entrypoint.mjs`, walks the CLI entrypoint's
 STATIC import graph and fails on any CORE barrel import, naming the chain that
 reaches it. Dynamic `await import(...)` at point of use remains fine — that is
 the pattern the architecture prescribes. Per-line opt-out:
