@@ -89,6 +89,30 @@ export interface WorktreeMergeResult {
   branchDeleted: boolean;
   /** Error message if any step failed (non-fatal — caller decides). */
   error?: string;
+  /**
+   * True when there was **nothing to integrate** — no `task/<taskId>` branch and
+   * no worktree directory ever existed for this task.
+   *
+   * @remarks
+   * T12153 (GH #1223): this is NOT a failure, and conflating it with one made
+   * `cleo complete` log
+   *
+   * ```
+   * WARN … mergeError: "task branch 'task/T1655' does not exist"
+   * ```
+   *
+   * for every task worked on a feature branch and merged by PR — which is most
+   * of them. `merged: false` plus an `error` was the only shape available, so a
+   * routine, correct outcome was reported at WARN as an integration failure.
+   *
+   * Noise at WARN is worse than silence: it trains a reader to ignore a channel
+   * that should mean something, so the one genuine rebase conflict is filtered
+   * out along with the hundred non-events.
+   *
+   * Callers should treat `nothingToIntegrate: true` as success-with-no-work,
+   * and reserve failure handling for `merged: false` WITHOUT this flag.
+   */
+  nothingToIntegrate?: boolean;
 }
 
 /**

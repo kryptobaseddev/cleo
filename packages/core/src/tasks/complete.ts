@@ -1141,7 +1141,18 @@ export async function completeTask(
     const integration = completeAgentWorktreeIntegration(options.taskId, projectRoot, {
       taskTitle: task.title,
     });
-    if (!integration.merged && integration.error) {
+    // T12153 (GH #1223) — `nothingToIntegrate` is NOT a failure. Most tasks are
+    // worked on a feature branch and merged by PR, so no `task/<id>` branch or
+    // agent worktree ever existed, and there is nothing to merge. Reporting
+    // that at WARN (as `mergeError: "task branch … does not exist"`) trained
+    // readers to ignore a channel that should mean something — and the one
+    // genuine rebase conflict was filtered out with the hundred non-events.
+    if (integration.nothingToIntegrate) {
+      getLogger('tasks:complete').debug(
+        { taskId: options.taskId },
+        '[T12153] no task branch or worktree for this task — nothing to integrate',
+      );
+    } else if (!integration.merged && integration.error) {
       getLogger('tasks:complete').warn(
         {
           taskId: options.taskId,

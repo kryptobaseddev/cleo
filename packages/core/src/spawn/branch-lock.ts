@@ -629,6 +629,40 @@ export function completeAgentWorktreeViaMerge(
   const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
   const worktreePath = join(worktreeRoot, taskId);
 
+  // T12153 (GH #1223) — distinguish "nothing to integrate" from "integration
+  // failed" BEFORE delegating.
+  //
+  // Most tasks are worked on a feature branch and merged by PR, so no
+  // `task/<id>` branch and no agent worktree ever exist. The NAPI helper
+  // reports that as `merged: false` with `error: "task branch … does not
+  // exist"`, which is the only shape it has — and the caller then logs a WARN
+  // naming a mergeError for a task where nothing failed. That is a routine,
+  // correct outcome reported as a failure, on most completions.
+  //
+  // Detected here rather than by string-matching the Rust error, which would
+  // couple this to a message in another language that is free to change.
+  const branchExists = gitSync(['branch', '--list', branch], gitRoot).trim().length > 0;
+  if (!branchExists && !existsSync(worktreePath)) {
+    return {
+      taskId,
+      targetBranch,
+      merged: false,
+      mergeCommit: '',
+      commitCount: 0,
+      rebased: false,
+      worktreeRemoved: false,
+      branchDeleted: false,
+      // `error` is kept as a human-readable MESSAGE, while
+      // `nothingToIntegrate` is the machine-readable CLASSIFICATION. Dropping
+      // the string made `orchestrate worktree-complete` fall back to
+      // "unknown merge failure" (it renders `integration.error ?? …`), which
+      // is strictly less informative than the truth. A caller distinguishes
+      // no-work from failure by the FLAG, never by the presence of a string.
+      error: `no task branch '${branch}' and no worktree — nothing to integrate`,
+      nothingToIntegrate: true,
+    };
+  }
+
   // T11124: Delegate to Rust NAPI SSoT
   const result = integrateWorktree({
     repoRoot: gitRoot,
