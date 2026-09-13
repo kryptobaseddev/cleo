@@ -332,6 +332,37 @@ export function completeWorktreeForTask(
     };
   }
 
+  // ---- Nothing to integrate: not a conflict. ------------------------------
+  //
+  // T12153 (GH #1223) — a task worked on a feature branch and merged by PR has
+  // no `task/<id>` branch and no agent worktree, so there is nothing to merge.
+  // That reached the conflict path below purely because it was `!merged`, and
+  // was reported as `outcome: 'conflict'` with recovery steps for a merge that
+  // never needed to happen. It routes into the existing `'noop'` vocabulary —
+  // the same outcome already used for "already integrated" — rather than
+  // needing a new one.
+  if (integration.nothingToIntegrate) {
+    appendWorktreeAuditEntry(
+      projectRoot,
+      {
+        actor,
+        action: 'complete-skip',
+        target: worktreePath,
+        branch,
+        taskId,
+        reason: `no task branch '${branch}' and no worktree — nothing to integrate`,
+        success: true,
+      },
+      opts.lifecycleAuditPath,
+    );
+    return {
+      taskId,
+      outcome: 'noop',
+      integration,
+      reason: `No worktree or task branch for ${taskId} — nothing to integrate (task was not worked on a task branch).`,
+    };
+  }
+
   // ---- Conflict path: preserve worktree, write audit, return error. -------
   appendWorktreeAuditEntry(
     projectRoot,
