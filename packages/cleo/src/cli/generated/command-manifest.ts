@@ -411,6 +411,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-memory-guard.js')).doctorMemoryGuardCommand as CommandDef,
   },
   {
+    exportName: 'doctorNexusResidencyCommand',
+    name: 'nexus-residency',
+    description:
+      'Report nexus tables resident in the wrong store — graph tables orphaned in the global ',
+    load: async () =>
+      (await import('../commands/doctor-nexus-residency.js'))
+        .doctorNexusResidencyCommand as CommandDef,
+  },
+  {
     exportName: 'doctorProjectsCommand',
     name: 'doctor-projects',
     description: 'Probe every registered project (nexus.db) for DB + config health',
