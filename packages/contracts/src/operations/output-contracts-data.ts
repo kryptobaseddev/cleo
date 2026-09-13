@@ -66,10 +66,15 @@ const tasksShowOutputContract: OperationOutputContract = {
   operation: 'tasks.show',
   shapeNote:
     'The task record is nested under `task` — use /data/task/<field>, not /data/<field>. ' +
+    'Mutation envelopes are FLAT by contrast (/data/created/0, /data/updated/0), which is ' +
+    'the asymmetry that produced GH #1225/#1239/#1231. ' +
     '`view` may be null. `acRows` and `relations` are conditional. ' +
-    'The listed pointers are the default (MVI) projection — `verification`, `acceptance`, ' +
-    '`description`, and `evidence` live only in the full record (`cleo show <id> --full`); ' +
-    '`--field` resolves them transparently when they exist (T12108).',
+    '`description`, `acceptance` and `verification` are withheld by the default (MVI) ' +
+    'projection but `--field` resolves them transparently (T12108) — no `--full` needed. ' +
+    'Evidence is NOT a task field: it lives at /data/task/verification/evidence ' +
+    '(keyed by gate), alongside /data/task/verification/gates. T12127 (GH #1231) — the ' +
+    'previous wording advertised `/data/task/evidence`, which does not exist, in the very ' +
+    'text shown to an agent whose pointer had just failed.',
   dataSchema: {
     type: 'object',
     required: ['task', 'view', 'attachments'],
@@ -114,6 +119,16 @@ const tasksShowOutputContract: OperationOutputContract = {
     '/data/task/priority',
     '/data/task/type',
     '/data/task/parentId',
+    // T12127 (GH #1231) — withheld by the MVI projection but resolvable
+    // through `--field` since T12108. They were absent from this list, so the
+    // remediation an agent is shown on a failed pointer never mentioned the
+    // fields it most often wanted, and `cleo show --field /data/task` came
+    // back looking like a write that had silently done nothing.
+    '/data/task/description',
+    '/data/task/acceptance',
+    '/data/task/verification',
+    '/data/task/verification/gates',
+    '/data/task/verification/evidence',
     '/data/view/id',
     '/data/view/title',
   ],

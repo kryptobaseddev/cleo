@@ -267,7 +267,7 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 
 | Need | Flag | Example |
 |------|------|---------|
-| Scalar extract | `--field <jsonpointer>` | `id=$(cleo add 'X' --acceptance "..." --field /data/created/0)` |
+| Scalar extract | `--field <jsonpointer>` | mutate: `id=$(cleo add 'X' --acceptance "..." --field /data/created/0)` · read: `st=$(cleo show T123 --field /data/task/status)` |
 | ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id --limit 0 \| while read c; do …; done` — **`--limit 0` means EVERY match on BOTH `list` and `find`** (gh#1302, fixed). REQUIRED on `list`, which otherwise stops at 10 silently while `--output count` reports the true total. On `find`, `--all` is the same thing with a name. |
 | Affected count | `--output count` | `cleo list --parent EPIC --status pending --output count` |
 | TSV (no header) | `--output table` | `cleo list --parent EPIC --output table` |
@@ -276,7 +276,7 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 | Suppress stderr | `--quiet` | `cleo add-batch --file f.json --parent T1 --quiet --output id` |
 | Force full record | `--full` | `cleo show T123 --full` |
 
-Mutate ops (`add`, `add-batch`, `update`, `complete`, `delete`) return `{count, created[], updated[], deleted[], ids[]}` by default (T9931). Use contract-backed paths: `/data/created/0` for create/add-batch, `/data/updated/0` for update/complete, `/data/deleted/0` for delete, and `/data/count` for counts. `ids[]` is a deprecated compatibility alias; opt back to full record via `--full`. Anti-patterns (REJECTED): `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`.
+**READ and MUTATE envelopes NEST DIFFERENTLY — the most-guessed-wrong pointer shape.** Mutation envelopes are FLAT (`/data/created/0`); read envelopes nest the record, so `cleo show` needs `/data/task/status`, NEVER `/data/status`. `--field` resolves `description`/`acceptance`/`verification` transparently even under the default projection — no `--full` needed. An unresolvable pointer is a typed `E_FIELD_NOT_FOUND` listing every valid pointer for that op; read it rather than guessing again. `cleo verify`'s own response is SELF-CONFIRMING (it returns the full `verification` object) — do not re-read to check it; if you must, use `--field /data/task/verification`, never `--field /data/task` (MVI-projected, and it made six verified tasks look like no-op writes). Mutate ops (`add`, `add-batch`, `update`, `complete`, `delete`) return `{count, created[], updated[], deleted[], ids[]}` by default (T9931). Use contract-backed paths: `/data/created/0` for create/add-batch, `/data/updated/0` for update/complete, `/data/deleted/0` for delete, and `/data/count` for counts. `ids[]` is a deprecated compatibility alias; opt back to full record via `--full`. Anti-patterns (REJECTED): `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`.
 <!-- /CLEO-INJECTION:section=output-contract -->
 
 <!-- CLEO-INJECTION:section=error-handling -->
