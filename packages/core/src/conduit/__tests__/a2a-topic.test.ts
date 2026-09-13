@@ -342,9 +342,13 @@ describe('ConduitClient — A2A Topic Delegation (T1252)', () => {
       payload: { event: 'work-complete' },
     });
 
+    // gh#1316: `deliveredAt` is null until delivery is confirmed. This
+    // assertion previously required a string, which is what made the
+    // synthesized receipt necessary to satisfy it.
     expect(result).toMatchObject({
       messageId: expect.any(String),
-      deliveredAt: expect.any(String),
+      acceptedAt: expect.any(String),
+      deliveredAt: null,
     });
 
     await client.disconnect();

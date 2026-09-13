@@ -330,7 +330,11 @@ describe('E2E: ConduitClient send + poll (T1131 acceptance 2)', () => {
 
     const sendResult = await senderClient.send('receiver-client', 'e2e message via ConduitClient');
     expect(sendResult.messageId).toBeDefined();
-    expect(sendResult.deliveredAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // gh#1316: `deliveredAt` is null until delivery is confirmed; `acceptedAt`
+    // is the timestamp a send actually produces. This assertion previously
+    // pinned the synthesized receipt.
+    expect(sendResult.deliveredAt).toBeNull();
+    expect(sendResult.acceptedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     const messages = await receiverClient.poll();
     expect(messages.length).toBeGreaterThan(0);

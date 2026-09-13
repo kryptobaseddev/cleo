@@ -1773,7 +1773,18 @@ const sendCommand = defineCommand({
       });
 
       cliOutput(
-        { success: true, data: { messageId: result.messageId, deliveredAt: result.deliveredAt } },
+        {
+          success: true,
+          // gh#1316: `acceptedAt` is what a send knows; `deliveredAt` is null
+          // until delivery is confirmed. Reporting only the latter would hand
+          // the caller a null where a real timestamp used to be, and drop the
+          // fact that is actually true.
+          data: {
+            messageId: result.messageId,
+            acceptedAt: result.acceptedAt,
+            deliveredAt: result.deliveredAt,
+          },
+        },
         { command: 'agent send' },
       );
 

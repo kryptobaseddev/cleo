@@ -119,12 +119,45 @@ export interface ConduitSendOptions {
   metadata?: Record<string, unknown>;
 }
 
-/** Result of sending a message. */
+/**
+ * Result of sending a message.
+ *
+ * ## Why `deliveredAt` is nullable (gh#1316)
+ *
+ * It was `deliveredAt: string`, and `ConduitClient.send` filled it with
+ * `new Date().toISOString()` for a row the transport had just written with
+ * `status = 'pending'`. That is not an approximation of a delivery time — the
+ * transport returns none, the row says the message is undelivered, and the
+ * schema has a SEPARATE real `delivered_at` that a different code path fills in
+ * later. The system models the distinction correctly everywhere except at the
+ * boundary where it is reported.
+ *
+ * Because the field was REQUIRED, "accepted but not yet delivered" — the normal
+ * case, and the state every message passes through — was **unrepresentable at
+ * the type level**. So the only way to satisfy the contract was to invent a
+ * value, which is what the code did.
+ *
+ * The two facts are now separate: `acceptedAt` is what a send genuinely knows,
+ * and `deliveredAt` is `null` until delivery actually happens.
+ */
 export interface ConduitSendResult {
   /** The assigned message ID. */
   messageId: string;
-  /** ISO 8601 timestamp of delivery. */
-  deliveredAt: string;
+  /**
+   * ISO 8601 timestamp at which the transport ACCEPTED the message.
+   *
+   * Always known at send time. This is what the old `deliveredAt` actually
+   * contained.
+   */
+  acceptedAt: string;
+  /**
+   * ISO 8601 timestamp of actual delivery, or `null` when not yet delivered.
+   *
+   * `null` is the normal result of a `send`: the row is written `pending` and a
+   * later path records real delivery. A non-null value here means delivery is
+   * confirmed — never that it is assumed.
+   */
+  deliveredAt: string | null;
 }
 
 /** Unsubscribe function returned by event subscriptions. */
