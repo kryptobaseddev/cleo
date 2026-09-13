@@ -1,0 +1,33 @@
+# AI SDK Surface Inventory (T12169 · gh#1223)
+#
+# Every module that reaches the AI SDK at runtime can emit on STDOUT — `ai@6`
+# logs its one-time banner with `console.info`, which lands after the LAFS
+# envelope and breaks ADR-086's one-envelope-per-call contract.
+#
+# The gate is an INVENTORY, not a per-module rule: the stdout guard is installed
+# once at the CLI's envelope funnel by design, so requiring each module to
+# install it would contradict that. What failed was that a module began reaching
+# the SDK and nobody asked the coverage question. A net-new entrant fails here.
+#
+# Dependency-free — `git ls-files` plus node builtins — so this is checkout +
+# node and adds no meaningful load.
+name: AI SDK Surface
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+  push:
+    branches: [main]
+
+jobs:
+  ai-sdk-surface:
+    name: No unreviewed module reaches the AI SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+      - name: Assert the AI SDK surface is the reviewed one
+        run: node scripts/lint-ai-sdk-surface.mjs

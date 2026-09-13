@@ -20,7 +20,7 @@
  * @adr ADR-061
  */
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
@@ -41,13 +41,14 @@ import {
 } from '@cleocode/contracts';
 
 import { CleoError } from '../errors.js';
+import { pushWarning } from '../output.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
 import {
   computeCommitRevalidationKey,
   readCommitRevalidationEntry,
   writeCommitRevalidationEntry,
 } from './revalidation-cache.js';
-import { runToolCached } from './tool-cache.js';
+import { resolveSpawnTimeoutMs, runToolCached } from './tool-cache.js';
 import {
   CANONICAL_TOOLS,
   type CanonicalTool,
@@ -623,6 +624,47 @@ async function validateCommit(
 }
 
 /**
+ * Warning code emitted when the T9245 content-intersect check was computed
+ * from acceptance PROSE rather than from a declared `task.files` list, and so
+ * was downgraded from blocking to advisory (gh#1240).
+ *
+ * A distinct, stable code so the downgrade is COUNTABLE: "how many tasks rely
+ * on derived AC files?" is answerable by grepping envelopes rather than by
+ * reading code. If the answer is "almost all", `--files` adoption is the real
+ * problem and this tier boundary is hiding it; if "almost none", the change
+ * costs nearly nothing. Shipping a gate change blind to its own blast radius
+ * would be a poor look given what gh#1240 is about.
+ *
+ * @task T12118 (gh#1240)
+ */
+export const W_AC_FILES_DERIVED = 'W_AC_FILES_DERIVED';
+
+/**
+ * Surface a downgraded content-intersect result as a first-class envelope
+ * warning.
+ *
+ * Deliberately NOT log-only: a warning nobody reads is how a weakened gate
+ * becomes an invisible one.
+ *
+ * @param taskId - Task whose gate was evaluated.
+ * @param detail - The reason text the gate would have failed with.
+ *
+ * @internal
+ * @task T12118 (gh#1240)
+ */
+function warnDerivedAcFiles(taskId: string, detail: string): void {
+  pushWarning({
+    code: W_AC_FILES_DERIVED,
+    severity: 'warn',
+    message:
+      `Content-intersect check for ${taskId} was NOT enforced: its AC file list was ` +
+      `inferred from acceptance prose, not declared via --files. ${detail} ` +
+      `Declare files with \`cleo update ${taskId} --files <paths>\` to make this gate enforcing.`,
+    context: { taskId, acFilesProvenance: 'derived' },
+  });
+}
+
+/**
  * Path-token regex used by {@link extractTaskAcFiles} to recover AC file paths
  * from free-text acceptance strings when {@link Task.files} is empty.
  *
@@ -748,13 +790,103 @@ export function extractTaskAcFiles(task: {
   files?: string[] | null;
   acceptance?: ReadonlyArray<unknown> | null;
 }): string[] | null {
-  // 1. Explicit files array wins.
+  return extractTaskAcFilesWithProvenance(task).files;
+}
+
+/**
+ * Where an AC file list came from.
+ *
+ * `declared` — someone wrote `--files`. A statement of intent, and the only
+ * tier with the authority to BLOCK a gate.
+ *
+ * `derived` — a regex found path-shaped tokens in acceptance prose. A guess,
+ * and advisory only. See {@link extractTaskAcFilesWithProvenance}.
+ *
+ * @task T12118 (gh#1240)
+ */
+export type AcFilesProvenance = 'declared' | 'derived';
+
+/**
+ * Negation cues that mean a path named nearby is PROHIBITED, not required.
+ *
+ * @remarks
+ * This list exists ONLY to keep the advisory message from telling an operator
+ * to modify a file their own acceptance criteria forbid. **It buys no
+ * enforcement authority and must never be used to promote derived file lists
+ * back to blocking.** Prose cannot reliably distinguish a target from a
+ * prohibition, an example, or a cross-reference — handling the negations we
+ * have seen does not change that, it only moves the next failure somewhere we
+ * have not looked yet. The tier boundary in
+ * {@link extractTaskAcFilesWithProvenance} is the actual fix (gh#1240).
+ *
+ * @internal
+ * @task T12118 (gh#1240)
+ */
+const AC_NEGATION_CUE =
+  /\b(?:not|no|never|without|unmodified|untouched|unchanged|avoid(?:s|ing)?|exclude[sd]?|excluding|unaffected|preserve[sd]?|nothing)\b/i;
+
+/**
+ * Does the clause surrounding `token` in `text` negate it?
+ *
+ * Splits on clause boundaries so a prohibition in one clause does not suppress
+ * a legitimate requirement in another — `"updates src/a.ts; does not touch
+ * src/b.ts"` must keep `src/a.ts`.
+ *
+ * @internal
+ * @task T12118 (gh#1240)
+ */
+function clauseNegatesToken(text: string, token: string): boolean {
+  for (const clause of text.split(/[;,]|\s+(?:and|but|while|whereas)\s+/i)) {
+    if (clause.includes(token)) return AC_NEGATION_CUE.test(clause);
+  }
+  return AC_NEGATION_CUE.test(text);
+}
+
+/**
+ * Extract a task's AC file list together with its provenance.
+ *
+ * ## Why provenance matters (gh#1240)
+ *
+ * `task.files` is the documented SSoT, and prose parsing is documented as a
+ * fallback for legacy tasks predating `--files`. But the T9245 content-
+ * intersect gate treated both identically and BLOCKED on either — so **a
+ * heuristic fallback was wired to a blocking gate**.
+ *
+ * The reported symptom is the sharpest possible demonstration: an AC reading
+ * "the diff touches no line of src/lib/compound-catalog.ts" had the filename
+ * scraped out of it and the negation discarded, so the gate demanded a
+ * modification to the one file the task forbade touching. The gate became
+ * satisfiable only by violating the criteria it was enforcing, and every
+ * honest escape was worse than the check: modify the forbidden file, rewrite
+ * the AC to hide the filename, or burn an audited owner override on correct
+ * work.
+ *
+ * The negation is the most spectacular symptom, not the defect. A regex
+ * cannot tell a target from a prohibition, an example, or a cross-reference,
+ * and the incentive created by getting it wrong is to stop writing negative
+ * constraints — which are among the most valuable ACs there are, because
+ * "do not modify X" is how a blast radius gets pinned.
+ *
+ * So: **enforcement requires a declaration; a guess may only advise.** The
+ * caller blocks on `declared` and warns on `derived`.
+ *
+ * @param task - Task fields to read.
+ * @returns Files plus the provenance the caller must gate enforcement on.
+ *
+ * @task T12118 (gh#1240)
+ * @task T9245
+ */
+export function extractTaskAcFilesWithProvenance(task: {
+  files?: string[] | null;
+  acceptance?: ReadonlyArray<unknown> | null;
+}): { files: string[] | null; provenance: AcFilesProvenance } {
+  // 1. Explicit files array wins — a declaration.
   if (task.files && task.files.length > 0) {
-    return [...task.files];
+    return { files: [...task.files], provenance: 'declared' };
   }
   // 2. Parse path tokens from AC strings, filtered by repo-path heuristic.
   if (!task.acceptance || task.acceptance.length === 0) {
-    return null;
+    return { files: null, provenance: 'derived' };
   }
   const parsed = new Set<string>();
   for (const item of task.acceptance) {
@@ -763,12 +895,18 @@ export function extractTaskAcFiles(task: {
     AC_PATH_TOKEN.lastIndex = 0;
     let m: RegExpExecArray | null = AC_PATH_TOKEN.exec(item);
     while (m !== null) {
+      const token = m[1];
       // T11960: apply repo-path heuristic to filter URL/prose false-positives.
-      if (m[1] && isRepoPathLike(m[1])) parsed.add(m[1]);
+      // gh#1240: drop paths their own clause forbids touching, so the advisory
+      // never names a file the AC prohibits. Advisory quality only — see
+      // AC_NEGATION_CUE.
+      if (token && isRepoPathLike(token) && !clauseNegatesToken(item, token)) {
+        parsed.add(token);
+      }
       m = AC_PATH_TOKEN.exec(item);
     }
   }
-  return parsed.size > 0 ? Array.from(parsed) : null;
+  return { files: parsed.size > 0 ? Array.from(parsed) : null, provenance: 'derived' };
 }
 
 /**
@@ -980,7 +1118,7 @@ async function checkCommitContentIntersect(
   if (task.kind === 'research' || task.kind === 'spike') {
     return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
   }
-  const acFiles = extractTaskAcFiles({
+  const { files: acFiles, provenance } = extractTaskAcFilesWithProvenance({
     files: task.files,
     acceptance: task.acceptance as ReadonlyArray<unknown> | null | undefined,
   });
@@ -988,25 +1126,40 @@ async function checkCommitContentIntersect(
   if (!acFiles || acFiles.length === 0) {
     return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
   }
+  /**
+   * gh#1240: only a DECLARATION may block. `derived` means a regex found
+   * path-shaped tokens in acceptance prose — a guess about what a sentence
+   * meant, which cannot distinguish a target from a prohibition, an example,
+   * or a cross-reference. Blocking on that produced gates satisfiable only by
+   * violating the acceptance criteria they enforce. The check still runs and
+   * is still reported; it just cannot fail the gate.
+   */
+  const enforcing = provenance === 'declared';
   const diffFiles = await gitShowFiles(sha, projectRoot);
+  const acPreview = `${acFiles.slice(0, 5).join(', ')}${acFiles.length > 5 ? '…' : ''}`;
   if (diffFiles.length === 0) {
-    return {
-      ok: false,
-      reason:
-        `Commit ${sha.slice(0, 7)} touches no files — cannot satisfy implemented gate ` +
-        `for task ${taskId} (expected diff to include at least one of: ${acFiles.slice(0, 5).join(', ')}` +
-        `${acFiles.length > 5 ? '…' : ''})`,
-      codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
-    };
+    const reason =
+      `Commit ${sha.slice(0, 7)} touches no files — cannot satisfy implemented gate ` +
+      `for task ${taskId} (expected diff to include at least one of: ${acPreview})`;
+    if (!enforcing) {
+      warnDerivedAcFiles(taskId, reason);
+      return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
+    }
+    return { ok: false, reason, codeName: 'E_EVIDENCE_CONTENT_MISMATCH' };
   }
   if (!diffIntersectsAc(diffFiles, acFiles)) {
+    const reason =
+      `Commit ${sha.slice(0, 7)} diff does not intersect task ${taskId} AC files. ` +
+      `Diff touched: [${diffFiles.slice(0, 5).join(', ')}${diffFiles.length > 5 ? '…' : ''}]. ` +
+      `AC ${enforcing ? 'declared' : 'inferred from prose'}: [${acPreview}]. ` +
+      `T9245: the commit MUST modify at least one declared AC file.`;
+    if (!enforcing) {
+      warnDerivedAcFiles(taskId, reason);
+      return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
+    }
     return {
       ok: false,
-      reason:
-        `Commit ${sha.slice(0, 7)} diff does not intersect task ${taskId} AC files. ` +
-        `Diff touched: [${diffFiles.slice(0, 5).join(', ')}${diffFiles.length > 5 ? '…' : ''}]. ` +
-        `AC declared: [${acFiles.slice(0, 5).join(', ')}${acFiles.length > 5 ? '…' : ''}]. ` +
-        `T9245: the commit MUST modify at least one declared AC file.`,
+      reason,
       codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
     };
   }
@@ -1188,12 +1341,91 @@ interface VitestJsonLike {
   numTodoTests?: number;
 }
 
+/**
+ * Resolve the tree that evidence tools should RUN in, given the CLEO store
+ * root.
+ *
+ * `projectRoot` is the store root. For a git worktree, `getProjectRoot()`
+ * deliberately resolves to the MAIN repo so all worktrees share one `.cleo/`
+ * database — correct for the store, wrong as a tool's working directory.
+ * Using it to spawn `tool:` evidence made a verify launched from a worktree
+ * measure the main checkout instead (gh#1220, gh#1226): a peer's in-flight
+ * branch and untracked files decided the result. A red peer produced a false
+ * FAIL; a green peer produced a silent false PASS attesting a run that never
+ * touched the code under test (gh#1230).
+ *
+ * Resolution is deliberately CONSERVATIVE: the caller's git toplevel is used
+ * only when it belongs to the SAME project — i.e. when its canonical main
+ * repo equals `projectRoot`. Anything else (an unrelated cwd, a test harness
+ * pointing at a tmpdir, a non-git cwd) falls back to `projectRoot`, so
+ * single-checkout behaviour is bit-for-bit unchanged.
+ *
+ * @param projectRoot - Absolute CLEO store root.
+ * @param cwd - Directory the CLI was invoked from. Defaults to `process.cwd()`.
+ * @returns Absolute path of the tree to execute in.
+ *
+ * @task T12112 (gh#1220, gh#1226, gh#1230)
+ */
+export function resolveEvidenceExecutionRoot(
+  projectRoot: string,
+  // This function's entire purpose is to recover the tree the CLI was INVOKED
+  // from, which is by definition not the project root. The sanctioned
+  // `resolveOrCwd()` falls back to `getProjectRoot()`, which deliberately
+  // collapses a worktree to its main repo — using it here would make this
+  // function return `projectRoot` unconditionally and silently revert gh#1220
+  // while every test stayed green. The bare cwd is the only correct source,
+  // and it only LOCATES a candidate; the same-project check below decides
+  // whether it is honoured.
+  cwd: string = process.cwd(), // CWD-OK: the caller's invocation dir is the subject, not a stand-in for the project root (gh#1220)
+): string {
+  let toplevel: string;
+  try {
+    toplevel = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return projectRoot; // not a git checkout — nothing better to offer
+  }
+  if (!toplevel) return projectRoot;
+
+  const sameProject = (a: string, b: string): boolean => {
+    const norm = (x: string): string => {
+      try {
+        return realpathSync(x);
+      } catch {
+        return resolvePath(x);
+      }
+    };
+    return norm(a) === norm(b);
+  };
+
+  // Only redirect when the caller's tree is a worktree OF this project.
+  if (sameProject(resolveCanonicalProjectRoot(toplevel), projectRoot)) return toplevel;
+  return projectRoot;
+}
+
 async function validateTestRun(path: string, projectRoot: string): Promise<AtomValidation> {
-  const abs = isAbsolute(path) ? path : resolvePath(projectRoot, path);
+  // gh#1226: a relative test-run path names a report the caller just wrote,
+  // in the caller's tree. Resolving it against the shared store root made a
+  // report written in a worktree report "file does not exist". Try the
+  // execution root first, then fall back to the store root so an absolute or
+  // store-relative path keeps working.
+  const executionRoot = resolveEvidenceExecutionRoot(projectRoot);
+  let abs: string;
+  if (isAbsolute(path)) {
+    abs = path;
+  } else {
+    const fromExecution = resolvePath(executionRoot, path);
+    abs = existsSync(fromExecution) ? fromExecution : resolvePath(projectRoot, path);
+  }
   if (!existsSync(abs)) {
     return {
       ok: false,
-      reason: `test-run file does not exist: ${path}`,
+      reason:
+        `test-run file does not exist: ${path} ` +
+        `(looked in ${executionRoot}${executionRoot === projectRoot ? '' : ` and ${projectRoot}`})`,
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
@@ -1297,18 +1529,26 @@ async function validateTool(tool: string, projectRoot: string): Promise<AtomVali
     };
   }
 
-  const result = await runToolCached(resolution.command, projectRoot);
+  // gh#1220/#1226/#1230: spawn in — and fingerprint against — the tree the
+  // operator actually invoked from, not the shared store root.
+  const executionRoot = resolveEvidenceExecutionRoot(projectRoot);
+  const result = await runToolCached(resolution.command, projectRoot, { executionRoot });
 
   // T12025: wall-clock child-process deadline exceeded — the tool was
   // terminated and the lock released. Signal retry; do NOT record a partially
   // captured gate.
   if (result.timedOut) {
+    const envKey = `CLEO_TOOL_TIMEOUT_${resolution.command.canonical.toUpperCase().replace(/-/g, '_')}`;
+    const deadlineMs = resolveSpawnTimeoutMs(resolution.command.canonical);
     return {
       ok: false,
       reason:
         `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
-        `exceeded the wall-clock deadline and was terminated. The lock and semaphore ` +
-        `slot are released — retry the verify once the system has capacity.`,
+        `exceeded its ${Math.round(deadlineMs / 1000)}s wall-clock deadline in ${result.executionRoot} ` +
+        `and was terminated. No result was captured, so nothing was cached. ` +
+        `RETRYING UNCHANGED WILL FAIL IDENTICALLY and will re-run the whole tool first — ` +
+        `raise the deadline with ${envKey}=<milliseconds> (e.g. ${envKey}=1800000 for 30 min) ` +
+        `and verify again.`,
       codeName: 'E_EVIDENCE_TOOL_TIMEOUT',
     };
   }
@@ -1773,6 +2013,61 @@ export function checkCallsiteCoverageAtom(atoms: EvidenceAtom[]): string | null 
   }
   return null;
 }
+
+/**
+ * Was this task's `implemented` gate satisfied by a DECISION rather than by a
+ * code change?
+ *
+ * ADR-051 lets `implemented` be satisfied by `[decision, files]` or
+ * `[decision, note]` — the shape of a pure audit, review or spike: read code,
+ * record findings, change nothing. But `testsPassed` accepts only
+ * `test-run | tool | pr` and `qaPassed` only `tool | pr`, so such a task could
+ * not complete (gh#1215). The remaining escapes are all unusable by
+ * construction: `tool:test` is meaningless for a task that changed nothing,
+ * and `CLEO_OWNER_OVERRIDE` is capped per session and rejected on critical
+ * gates anyway. A correctly-evidenced audit task simply stayed pending.
+ *
+ * A decision-only task has no tests to run and nothing to lint, so those gates
+ * are satisfied by ABSENCE — the same reasoning as the T12083
+ * `notApplicable` tool atom, which records that a gate was satisfied because
+ * the project has no such toolchain rather than silently passing it.
+ *
+ * Deliberately narrow: a `commit:` or `pr:` atom anywhere in the `implemented`
+ * evidence means code DID change, and the normal gates apply in full. The
+ * exemption cannot be reached by choosing weaker evidence — `implemented`
+ * still had to be satisfied first, and `decision:` is a hard atom validated
+ * against the BRAIN decision-store.
+ *
+ * @param implementedEvidence - Stored evidence for the `implemented` gate.
+ * @returns `true` when the task demonstrably changed no code.
+ *
+ * @task T12125 (gh#1215)
+ * @adr ADR-051 §2.3
+ */
+export function isDecisionOnlyImplementation(
+  implementedEvidence: { atoms?: ReadonlyArray<{ kind: string }> } | null | undefined,
+): boolean {
+  const atoms = implementedEvidence?.atoms;
+  if (!atoms || atoms.length === 0) return false;
+  const hasDecision = atoms.some((a) => a.kind === 'decision');
+  if (!hasDecision) return false;
+  // Any evidence of an actual code change disqualifies the exemption.
+  return !atoms.some((a) => a.kind === 'commit' || a.kind === 'pr');
+}
+
+/**
+ * Gates that a decision-only task satisfies by absence.
+ *
+ * `testsPassed` and `qaPassed` measure the effect of a code change. With no
+ * code change there is nothing for them to measure, and demanding them makes
+ * the task uncompletable rather than well-verified.
+ *
+ * @task T12125 (gh#1215)
+ */
+export const DECISION_ONLY_INAPPLICABLE_GATES: readonly VerificationGate[] = Object.freeze([
+  'testsPassed',
+  'qaPassed',
+]);
 
 // ---------------------------------------------------------------------------
 // Gate minimum evaluation

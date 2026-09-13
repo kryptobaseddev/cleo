@@ -55,18 +55,20 @@
 import { closeLogger } from './logger.js';
 import { shutdownBrainWriter } from './memory/brain-writer-thread.js';
 import { resetEmbeddingQueue } from './memory/embedding-queue.js';
+import { type StepOutcome, withDeadline } from './shutdown-deadline.js';
 import { closeAllDatabases } from './store/sqlite.js';
 
 /**
- * Run a teardown step, swallowing any error so a single failure cannot abort
- * the remaining teardown steps. Best-effort by design.
+ * Run a teardown step under a deadline, swallowing both errors and stalls.
+ *
+ * T12115: the original helper swallowed only *throws*. A step that never
+ * settles is not a throw, so a stalled worker handshake hung the exit path
+ * forever — measured at 12.9 hours on a live host, with the process still
+ * holding its SQLite descriptors because teardown never reached step 3.
+ * Bounding each step is what makes "best-effort" actually best-effort.
  */
-async function safely(step: () => Promise<void> | void): Promise<void> {
-  try {
-    await step();
-  } catch {
-    // Best-effort teardown — never let cleanup throw out of the CLI exit path.
-  }
+async function safely(label: string, step: () => Promise<void> | void): Promise<StepOutcome> {
+  return withDeadline(label, step);
 }
 
 /**
@@ -92,7 +94,9 @@ async function safely(step: () => Promise<void> | void): Promise<void> {
  * Every step is best-effort and idempotent — safe to call once per process at
  * exit, and harmless if a given subsystem was never initialized.
  *
- * @returns A promise that resolves once all teardown steps have settled.
+ * @returns One {@link StepOutcome} per step, in run order. A step with
+ *          `settled: false` blew its deadline and was abandoned — the caller
+ *          should surface that, because it means something leaked.
  *
  * @example
  * ```ts
@@ -105,20 +109,23 @@ async function safely(step: () => Promise<void> | void): Promise<void> {
  *
  * @task T11568
  */
-export async function shutdownCliRuntime(): Promise<void> {
+export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
   // 1. BRAIN single-writer worker thread — the live MessagePort that hangs
   //    `cleo memory observe` / `cleo docs add` / any brain.db write path.
-  await safely(() => shutdownBrainWriter());
+  const outcomes: StepOutcome[] = [];
+  outcomes.push(await safely('brain-writer', () => shutdownBrainWriter()));
 
   // 2. Embedding queue worker thread (T11655) — the second live MessagePort.
   //    Flushes in-flight batches then terminates the worker, so an opportunistic
   //    embed enqueued during the command cannot keep the loop alive at exit.
-  await safely(() => resetEmbeddingQueue());
+  outcomes.push(await safely('embedding-queue', () => resetEmbeddingQueue()));
 
   // 3. Close DB singletons (dual-scope cleo.db + brain/nexus native handles).
   //    Releases SQLite file handles — required before tmpdir cleanup on Windows.
-  await safely(() => closeAllDatabases());
+  outcomes.push(await safely('databases', () => closeAllDatabases()));
 
   // 4. Flush + terminate the pino-roll transport worker thread.
-  await safely(() => closeLogger());
+  outcomes.push(await safely('logger', () => closeLogger()));
+
+  return outcomes;
 }

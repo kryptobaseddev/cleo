@@ -106,12 +106,26 @@ describe('captureHead + captureDirtyFingerprint', () => {
     expect(head).toBe(sha);
   });
 
-  it('dirtyFingerprint changes when the tree is edited', async () => {
+  it('dirtyFingerprint changes when a TRACKED file is modified', async () => {
+    initRepo(dir);
+    const fp1 = await captureDirtyFingerprint(dir);
+    writeFileSync(join(dir, 'a.txt'), 'edited\n'); // a.txt is committed by initRepo
+    const fp2 = await captureDirtyFingerprint(dir);
+    expect(fp1).not.toBe(fp2);
+  });
+
+  it('dirtyFingerprint IGNORES untracked files (gh#1221)', async () => {
+    // Behaviour change, not a relaxation of rigour. While untracked files
+    // counted, any tool that emitted one (coverage/, *.log, .vitest/ — none
+    // gitignored here) changed the key the NEXT call computes, so the tool
+    // invalidated its own cache entry merely by running and the cache could
+    // never hit. The cost is pinned in tool-cache-gh1221.test.ts under
+    // "TRADEOFF", with CLEO_EVIDENCE_FRESH as the escape hatch.
     initRepo(dir);
     const fp1 = await captureDirtyFingerprint(dir);
     writeFileSync(join(dir, 'b.txt'), 'untracked\n');
     const fp2 = await captureDirtyFingerprint(dir);
-    expect(fp1).not.toBe(fp2);
+    expect(fp1).toBe(fp2);
   });
 });
 
@@ -250,14 +264,29 @@ describe('runToolCached — invalidation', () => {
     expect(readFileSync(markerFile, 'utf-8')).toBe('xx');
   });
 
-  it('invalidates when an uncommitted file is added', async () => {
+  it('invalidates when a TRACKED file is modified without committing', async () => {
+    const cmd = shCommand(`printf x >> "${markerFile}"; echo ok`);
+    await runToolCached(cmd, dir);
+
+    // a.txt is tracked (committed by initRepo) — an uncommitted edit to it
+    // must still invalidate, or the cache would hide real work in progress.
+    writeFileSync(join(dir, 'a.txt'), 'uncommitted edit\n');
+
+    const r2 = await runToolCached(cmd, dir);
+    expect(r2.cacheHit).toBe(false);
+  });
+
+  it('does NOT invalidate when an untracked file is added (gh#1221 tradeoff)', async () => {
+    // See captureDirtyFingerprint's docblock. Untracked output from the tool
+    // itself is indistinguishable from untracked input by the operator, and
+    // counting either one made caching impossible in practice.
     const cmd = shCommand(`printf x >> "${markerFile}"; echo ok`);
     await runToolCached(cmd, dir);
 
     writeFileSync(join(dir, 'untracked.txt'), 'hello\n');
 
     const r2 = await runToolCached(cmd, dir);
-    expect(r2.cacheHit).toBe(false);
+    expect(r2.cacheHit).toBe(true);
   });
 });
 

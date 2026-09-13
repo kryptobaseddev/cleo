@@ -47,6 +47,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { withLock } from '../store/lock.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
+import { withMemoryLimit } from './heavy-tool-limit.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
 import { type AcquireSlotOptions, acquireGlobalSlot } from './tool-semaphore.js';
 
@@ -121,6 +122,20 @@ export interface ToolRunResult {
    * @task T12025
    */
   lockBusy: boolean;
+  /**
+   * Absolute path of the tree this run was executed in and fingerprinted
+   * against.
+   *
+   * Reported so the operator can SEE which checkout produced the evidence
+   * instead of inferring it from a confusing failure — the explicit ask in
+   * gh#1220. Lives on the result rather than on {@link ToolCacheEntry}
+   * because the entry is content-addressed and shared between worktrees: a
+   * hit served to a second worktree must not claim to have run in the first
+   * one's directory.
+   *
+   * @task T12112 (gh#1220)
+   */
+  executionRoot: string;
   /** Full cache entry — useful for audit / debugging. */
   entry: ToolCacheEntry;
 }
@@ -135,7 +150,14 @@ export interface RunToolOptions {
    * When `true`, bypass the cache (always spawn). The fresh result is still
    * written to cache for subsequent calls.
    *
-   * @defaultValue `false`
+   * When omitted, `CLEO_EVIDENCE_FRESH=1` in the environment turns this on.
+   * That is the documented escape hatch for the tracked-only fingerprint
+   * (see {@link captureDirtyFingerprint}): an uncommitted NEW file does not
+   * move the cache key, so this is how an operator forces a measured run
+   * without committing first.
+   *
+   * @defaultValue `false` (or `CLEO_EVIDENCE_FRESH === '1'`)
+   * @task T12112 (gh#1221)
    */
   bypassCache?: boolean;
   /**
@@ -181,6 +203,25 @@ export interface RunToolOptions {
    * @task T12105
    */
   spawnTimeoutMs?: number;
+  /**
+   * Absolute path of the tree the tool should actually RUN in, and whose git
+   * state is fingerprinted for the cache key.
+   *
+   * `projectRoot` is the CLEO **store** root: for a git worktree,
+   * `getProjectRoot()` deliberately resolves to the MAIN repo so every
+   * worktree shares one `.cleo/` database. Reusing that value as the tool's
+   * working directory is what made evidence describe the wrong tree
+   * (gh#1220, gh#1226, gh#1230) — a verify launched from a worktree measured
+   * the main checkout, which on a shared box carries a peer's in-flight
+   * branch and untracked files. That yields a false FAIL when the peer is
+   * red, and — the dangerous direction — a silent false PASS when the peer is
+   * green, attesting a run that never touched the code under test.
+   *
+   * Defaults to `projectRoot`, preserving single-checkout behaviour exactly.
+   *
+   * @task T12112 (gh#1220, gh#1226, gh#1230)
+   */
+  executionRoot?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +240,67 @@ export interface RunToolOptions {
  * @task T12105
  */
 export const DEFAULT_SPAWN_TIMEOUT_MS = 300_000;
+
+/**
+ * Wall-clock deadline for the HEAVY tool classes (`test`, `build`), in ms.
+ *
+ * ## Why these need their own default (gh#1221)
+ *
+ * A test suite is categorically not a linter. The single 300s default was
+ * below a real monorepo suite — measured ~10 min in the gh#1221 report — so
+ * EVERY run was killed before finishing, and the timeout path deliberately
+ * caches nothing (T12025, correct: an unfinished run is not a result). The
+ * cache could therefore never hit, not because the key moved but because no
+ * entry was ever produced, on a path that always fired. Each attempt still ran
+ * the suite at full parallelism for the full 300s before discarding it — the
+ * worst possible shape, and the load multiplier that wedged shared hosts.
+ *
+ * 30 min is 3x the measured ~10 min suite, so a project whose suite triples
+ * still completes on the default rather than discovering an env var after
+ * burning 5 CPU-minutes to learn its name. It is a ceiling on a pathological
+ * hang, not a budget anyone should plan to use.
+ *
+ * ## Why a longer rope is safe now, and was not before
+ *
+ * Raising a deadline means a runaway suite runs LONGER before anything stops
+ * it, and the 300s kill was accidentally acting as a crude memory
+ * circuit-breaker. Heavy tools are now spawned inside a memory-bounded scope
+ * with swap denied (T12116), so duration no longer converts into unbounded
+ * host memory: a runaway dies inside its own boundary and CLEO reports a
+ * failed run. A failed test run is a result; a frozen workstation is not.
+ *
+ * `lint`, `typecheck`, `audit` and `security-scan` deliberately do NOT inherit
+ * this — they are single-process and CPU-bound, and a lint that has run for 5
+ * minutes is hung, not busy.
+ *
+ * @task T12126 (gh#1221)
+ */
+export const HEAVY_TOOL_SPAWN_TIMEOUT_MS = 1_800_000;
+
+/**
+ * Canonical tools that get {@link HEAVY_TOOL_SPAWN_TIMEOUT_MS}.
+ *
+ * Matches the memory-bound heavy classes rather than being a second, separate
+ * opinion about which tools are expensive — the two must not drift.
+ *
+ * @task T12126 (gh#1221)
+ */
+const HEAVY_TIMEOUT_TOOLS: ReadonlySet<string> = new Set(['test', 'build']);
+
+/**
+ * The default wall-clock deadline for a canonical tool, before any env
+ * override.
+ *
+ * @param canonical - Canonical tool name from the resolver.
+ * @returns Deadline in milliseconds.
+ *
+ * @task T12126 (gh#1221)
+ */
+export function defaultSpawnTimeoutMs(canonical: string): number {
+  return HEAVY_TIMEOUT_TOOLS.has(canonical)
+    ? HEAVY_TOOL_SPAWN_TIMEOUT_MS
+    : DEFAULT_SPAWN_TIMEOUT_MS;
+}
 
 /**
  * Resolve the wall-clock child-process deadline for a canonical tool.
@@ -226,15 +328,16 @@ export function resolveSpawnTimeoutMs(
   env: NodeJS.ProcessEnv = process.env,
 ): number {
   const envKey = `CLEO_TOOL_TIMEOUT_${canonical.toUpperCase().replace(/-/g, '_')}`;
+  const fallback = defaultSpawnTimeoutMs(canonical);
   const raw = env[envKey];
-  if (raw === undefined || raw.trim() === '') return DEFAULT_SPAWN_TIMEOUT_MS;
+  if (raw === undefined || raw.trim() === '') return fallback;
   const trimmed = raw.trim();
   if (!/^\d+$/.test(trimmed)) {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `${envKey} must be a positive integer (milliseconds), got "${raw}".`,
       {
-        fix: `Set ${envKey} to a millisecond value such as 600000 (10 min), or unset it to use the ${DEFAULT_SPAWN_TIMEOUT_MS}ms default.`,
+        fix: `Set ${envKey} to a millisecond value such as 600000 (10 min), or unset it to use the ${fallback}ms default.`,
       },
     );
   }
@@ -244,7 +347,7 @@ export function resolveSpawnTimeoutMs(
       ExitCode.VALIDATION_ERROR,
       `${envKey} must be greater than zero, got ${parsed}.`,
       {
-        fix: `Set ${envKey} to a positive millisecond value such as 600000 (10 min), or unset it to use the ${DEFAULT_SPAWN_TIMEOUT_MS}ms default.`,
+        fix: `Set ${envKey} to a positive millisecond value such as 600000 (10 min), or unset it to use the ${fallback}ms default.`,
       },
     );
   }
@@ -485,20 +588,42 @@ export async function captureHead(projectRoot: string): Promise<string | null> {
 }
 
 /**
- * Capture a fingerprint of the uncommitted tree by sha256-hashing
- * `git status --porcelain=v1`. Returns `null` for non-git roots.
+ * Capture a fingerprint of the uncommitted TRACKED tree by sha256-hashing
+ * `git status --porcelain=v1 --untracked-files=no`. Returns `null` for
+ * non-git roots.
  *
  * Two repos with identical tracked content but different uncommitted edits
- * produce different fingerprints — so editing a file before re-verifying
- * always invalidates the cache for tools sensitive to that file.
+ * produce different fingerprints — so editing a tracked file before
+ * re-verifying always invalidates the cache for tools sensitive to that file.
+ *
+ * ## Why untracked files are excluded (gh#1221)
+ *
+ * The fingerprint is captured BEFORE the tool spawns and is the key the
+ * result is stored under. When untracked files were included, a tool that
+ * emitted any untracked artifact changed the fingerprint that the NEXT call
+ * computes — so the tool invalidated its own cache entry simply by running,
+ * and the cache could never hit. This is not hypothetical or
+ * multi-agent-specific: in this repo `coverage/`, `.vitest/` and `*.log` are
+ * not gitignored, so a single suite run is enough. A one-line marker file is
+ * enough.
+ *
+ * Excluding untracked files fixes that at the root, rather than maintaining a
+ * per-project list of build-output paths that rots as tooling changes.
+ *
+ * TRADEOFF (deliberate): a brand-new UNTRACKED source or test file no longer
+ * invalidates the cache either, so `cleo verify` can return a cached pass
+ * that did not exercise it. Commit the file (HEAD moves, the key moves) or
+ * force a fresh run with {@link RunToolOptions.bypassCache} — surfaced as
+ * `CLEO_EVIDENCE_FRESH=1`. The alternative — a maintained exclude list — trades
+ * a loud, documented staleness for a silent, per-project one.
  *
  * The cache directory itself (`.cleo/cache/`) and other CLEO-managed runtime
- * state (`.cleo/tasks.db`, `.cleo/brain.db`, journal/log files) are excluded
- * from the fingerprint via pathspec. Without this exclusion the cache would
- * invalidate itself on every write — call #1 writes its entry, call #2 sees
- * the new file in `git status` and records a different fingerprint.
+ * state (`.cleo/tasks.db`, `.cleo/brain.db`, journal/log files) remain
+ * excluded via pathspec so a tracked-and-modified CLEO file cannot reintroduce
+ * the same self-invalidation.
  *
  * @task T1534
+ * @task T12112 (gh#1221)
  */
 export async function captureDirtyFingerprint(projectRoot: string): Promise<string | null> {
   const r = await spawnCmd(
@@ -506,6 +631,10 @@ export async function captureDirtyFingerprint(projectRoot: string): Promise<stri
     [
       'status',
       '--porcelain=v1',
+      // gh#1221: untracked files are the tool's own output as often as they
+      // are the operator's input; including them made every tool invalidate
+      // its own cache entry. See the docblock TRADEOFF note.
+      '--untracked-files=no',
       '--',
       '.',
       ':(exclude).cleo/cache',
@@ -626,12 +755,25 @@ export async function runToolCached(
   // CLEO_TOOL_TIMEOUT_<CANONICAL> env override, else the 5 min default.
   const spawnTimeoutMs = opts.spawnTimeoutMs ?? resolveSpawnTimeoutMs(command.canonical);
 
-  const head = await captureHead(projectRoot);
-  const dirtyFingerprint = await captureDirtyFingerprint(projectRoot);
+  // gh#1220/#1226/#1230: the tool runs in — and is fingerprinted against —
+  // the caller's tree, which is NOT necessarily the store root. The cache
+  // ENTRY still lives under `projectRoot` so every worktree shares one cache;
+  // that is sound because the key is content-addressed (HEAD + tracked
+  // fingerprint), so two trees only collide when they hold the same code.
+  const executionRoot = opts.executionRoot ?? projectRoot;
+
+  // gh#1221 escape hatch. The fingerprint covers TRACKED content only, so an
+  // uncommitted NEW file does not invalidate the cache; this is the
+  // documented way to force a measured run without committing first.
+  // An explicit option always wins over the env var.
+  const bypassCache = opts.bypassCache ?? process.env['CLEO_EVIDENCE_FRESH'] === '1';
+
+  const head = await captureHead(executionRoot);
+  const dirtyFingerprint = await captureDirtyFingerprint(executionRoot);
   const key = computeCacheKey(command, head, dirtyFingerprint);
 
   // Fast path — fresh cache hit
-  if (!opts.bypassCache) {
+  if (!bypassCache) {
     const existing = readCacheEntry(projectRoot, key);
     if (existing) {
       return {
@@ -642,6 +784,7 @@ export async function runToolCached(
         cacheHit: true,
         timedOut: false,
         lockBusy: false,
+        executionRoot,
         entry: existing,
       };
     }
@@ -676,7 +819,7 @@ export async function runToolCached(
       async () => {
         // Inside the lock — re-check the cache. If another process beat us to
         // it, prefer its result.
-        if (!opts.bypassCache) {
+        if (!bypassCache) {
           const fresh = readCacheEntry(projectRoot, key);
           if (fresh) {
             return {
@@ -687,17 +830,27 @@ export async function runToolCached(
               cacheHit: true,
               timedOut: false,
               lockBusy: false,
+              executionRoot,
               entry: fresh,
             };
           }
         }
 
         // Spawn the tool ourselves.
+        //
+        // T12116: `test` and `build` run inside a transient systemd scope with
+        // a hard `MemoryMax` and `MemorySwapMax=0`, so the kernel bounds the
+        // ENTIRE process tree — a `pnpm -r` fan-out into fifteen packages is
+        // still one cgroup, which is the multiplier the semaphore could not
+        // see. Denying swap is the point: the failure this guards against was
+        // a throttle-and-thrash host freeze, not an OOM kill. Degrades to an
+        // unwrapped spawn off Linux or without a user systemd manager.
+        const limited = withMemoryLimit(command.canonical, command.cmd, command.args);
         const startedAt = Date.now();
         const result = await spawnCmd(
-          command.cmd,
-          command.args,
-          projectRoot,
+          limited.cmd,
+          [...limited.args],
+          executionRoot,
           spawnTimeoutMs,
           heavyToolEnv(command.canonical),
         );
@@ -716,6 +869,7 @@ export async function runToolCached(
             cacheHit: false,
             timedOut: true,
             lockBusy: false,
+            executionRoot,
             entry: {
               schemaVersion: 1,
               key,
@@ -762,6 +916,7 @@ export async function runToolCached(
           cacheHit: false,
           timedOut: false,
           lockBusy: false,
+          executionRoot,
           entry,
         };
       },
@@ -785,6 +940,7 @@ export async function runToolCached(
           cacheHit: false,
           timedOut: false,
           lockBusy: true,
+          executionRoot,
           entry: {
             schemaVersion: 1,
             key,

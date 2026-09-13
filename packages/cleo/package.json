@@ -13,10 +13,10 @@
   },
   "scripts": {
     "gen:manifest": "node scripts/generate-command-manifest.mjs",
-    "prebuild": "node scripts/generate-command-manifest.mjs",
+    "prebuild": "node scripts/generate-command-manifest.mjs --check",
     "build": "tsc",
     "postbuild": "node scripts/assert-shebang.mjs && node scripts/copy-studio-dist.mjs",
-    "pretypecheck": "node scripts/generate-command-manifest.mjs",
+    "pretypecheck": "node scripts/generate-command-manifest.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "cd ../.. && vitest run packages/cleo/src",
     "test:integration": "cd ../.. && vitest run --config packages/cleo/vitest.integration.config.ts",
