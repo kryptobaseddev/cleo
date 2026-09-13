@@ -307,27 +307,18 @@ MANDATORY before every `cleo complete <id>`. Every gate write MUST be backed by 
 
 ### 1. Capture evidence for each gate
 
-```bash
-# implemented — commit + file list (OR decision:<id> for decision-only tasks)
-cleo verify T### --gate implemented \
-  --evidence "commit:<sha>;files:path/a.ts,path/b.ts"
+Every gate takes `cleo verify T### --gate <gate> --evidence "<atoms>"`:
 
-# testsPassed — tool:test (canonical) or test-run:<json>
-cleo verify T### --gate testsPassed --evidence "tool:test"
+| gate | evidence that satisfies it |
+|------|----------------------------|
+| `implemented` | `commit:<sha>;files:path/a.ts,path/b.ts` — or `decision:<id>` for decision-only tasks |
+| `testsPassed` | `tool:test` (canonical) or `test-run:<json>` |
+| `qaPassed` | `tool:lint;tool:typecheck` |
+| `documented` | `files:docs/spec.md` |
+| `securityPassed` | `tool:security-scan` |
+| `cleanupDone` | `note:removed dead branches` |
 
-# qaPassed — lint + typecheck
-cleo verify T### --gate qaPassed --evidence "tool:lint;tool:typecheck"
-
-# retroactive PR atom (PR MERGED + CI green) satisfies implemented + testsPassed + qaPassed
-cleo verify T### --gate implemented --evidence "pr:357"
-cleo verify T### --gate testsPassed --evidence "pr:357"
-cleo verify T### --gate qaPassed --evidence "pr:357"
-
-# documented / securityPassed / cleanupDone
-cleo verify T### --gate documented --evidence "files:docs/spec.md"
-cleo verify T### --gate securityPassed --evidence "tool:security-scan"
-cleo verify T### --gate cleanupDone --evidence "note:removed dead branches"
-```
+A retroactive `pr:<number>` atom (PR MERGED + CI green) satisfies `implemented` + `testsPassed` + `qaPassed` at once — record it against each of the three.
 
 ### 2. Then complete
 
@@ -382,23 +373,9 @@ Accepts IFF PR `state=MERGED` AND required-workflow checks are `SUCCESS`/`SKIPPE
 | `1` | tier 0 + full **CLEO-INJECTION.md embed** (this document) — **default** |
 | `2` | tier 1 + **ct-cleo** + **ct-orchestrator** skill excerpts + **SUBAGENT-PROTOCOL-BLOCK** + anti-patterns |
 
-Invoke with an explicit tier:
+Invoke with `cleo orchestrate spawn T1234 --tier 0|1|2` — tier 0 for quick workers, tier 2 for autonomous ones; omitting `--tier` gives tier 1.
 
-```bash
-cleo orchestrate spawn T1234 --tier 0   # minimal (quick workers)
-cleo orchestrate spawn T1234            # tier 1 (default)
-cleo orchestrate spawn T1234 --tier 2   # full (autonomous workers)
-```
-
-Every spawn prompt contains these required sections — orchestrators can programmatically assert their presence before dispatching a subagent:
-
-- `## Task Identity`
-- `## File Paths (absolute — do not guess)`
-- `## Session Linkage`
-- `## Stage-Specific Guidance`
-- `## Evidence-Based Gate Ritual (MANDATORY · ADR-051 · T832)`
-- `## Quality Gates`
-- `## Return Format Contract (MANDATORY)`
+Every spawn prompt contains these required sections, so an orchestrator can programmatically assert their presence before dispatching: `## Task Identity` · `## File Paths (absolute — do not guess)` · `## Session Linkage` · `## Stage-Specific Guidance` · `## Evidence-Based Gate Ritual (MANDATORY · ADR-051 · T832)` · `## Quality Gates` · `## Return Format Contract (MANDATORY)`.
 <!-- /CLEO-INJECTION:section=spawn-tiers -->
 
 <!-- CLEO-INJECTION:section=rules -->
