@@ -139,6 +139,26 @@ export interface EnforceAcceptanceImmutabilityOptions {
 }
 
 /**
+ * Does this task have no acceptance criteria at all?
+ *
+ * Treats `undefined`, `null`, an empty list, and a list whose entries are all
+ * blank as equally empty — to an operator, a task whose AC column holds `[]`
+ * and one holding `['']` both have no criteria, and the guard must not
+ * distinguish them.
+ *
+ * @param acceptance - The task's current acceptance criteria.
+ * @returns `true` when there is nothing for the immutability guard to protect.
+ *
+ * @task T12153 (gh#1235)
+ */
+function isAcceptanceEmpty(acceptance: AcceptanceItem[] | undefined | null): boolean {
+  if (!acceptance || acceptance.length === 0) return true;
+  // A structured AcceptanceGate is never blank — it carries kind and payload.
+  // Only a whitespace-only STRING counts as an absent criterion.
+  return acceptance.every((item) => typeof item === 'string' && item.trim().length === 0);
+}
+
+/**
  * Enforce the AC-immutability guard for a task update.
  *
  * Behaviour:
@@ -177,6 +197,22 @@ export function enforceAcceptanceImmutability(options: EnforceAcceptanceImmutabi
 
   // Idempotent payload → no-op even when locked.
   if (acceptanceEquals(task.acceptance, newAcceptance)) return;
+
+  // The task has NO acceptance criteria yet → guard does not apply (gh#1235).
+  //
+  // This guard exists to stop criteria being REFRAMED after implementation —
+  // moving the goalposts once you know what you built. A task with no criteria
+  // has no goalposts to move: supplying them for the first time is what the
+  // acceptance model wants, not what it protects against.
+  //
+  // Without this case the guard inverted its own purpose. A task reaching a
+  // locked stage with an empty AC list could never gain any, and the error told
+  // the operator that "reframing AC after implementation is anti-pattern" about
+  // criteria that did not exist. The only escape was `--reason`, which writes an
+  // audit record asserting a deliberate override of a protection that was never
+  // protecting anything — so the audit trail accrues entries that mean nothing,
+  // which is how an audit trail stops being read.
+  if (isAcceptanceEmpty(task.acceptance)) return;
 
   const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
   if (!trimmedReason) {
