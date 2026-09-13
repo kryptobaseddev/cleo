@@ -164,7 +164,7 @@ function extractCount(data: unknown): number {
  * output remains scannable in a 132-col terminal.
  */
 function renderTableList(tasks: Array<Record<string, unknown>>): string {
-  if (tasks.length === 0) return 'No rows.';
+  if (tasks.length === 0) return '';
 
   const COL_TITLE_MAX = 60;
   const rows = tasks.map((t) => ({
@@ -270,8 +270,9 @@ export class UnsupportedRendererError extends Error {
  * Single-record envelopes (`{task: {...}}`, bare `{id, status, title}`) emit
  * exactly one line. List-shaped envelopes (`{tasks: []}` / `{items: []}`)
  * emit one line per element. Records missing `id` are skipped (consistent
- * with `--output id`). Empty arrays return `'No rows.'` to match the
- * `--output table` empty contract.
+ * with `--output id`). An empty collection emits NOTHING — an empty stream is
+ * the correct representation of zero rows in a machine-readable mode, and the
+ * human explanation goes to stderr (gh#1317).
  *
  * Title is truncated to 60 chars (UTF-16 code units) with a trailing `…`
  * when shortened — matches the cell cap used by `renderTableList`.
@@ -281,7 +282,7 @@ export class UnsupportedRendererError extends Error {
  */
 export function renderSummary(data: unknown): OutputModeResult {
   if (data === null || typeof data !== 'object') {
-    return { text: 'No rows.', emptyReason: 'no-renderable-records' };
+    return { text: '', emptyReason: 'no-renderable-records' };
   }
   const rec = data as Record<string, unknown>;
 
@@ -302,7 +303,7 @@ export function renderSummary(data: unknown): OutputModeResult {
     return { text: renderSummaryRow(rec) };
   }
 
-  return { text: 'No rows.', emptyReason: 'no-renderable-records' };
+  return { text: '', emptyReason: 'no-renderable-records' };
 }
 
 /** Render a single record line: `<id> [<status>] <title-truncated-60>`. */
@@ -315,7 +316,7 @@ function renderSummaryRow(record: Record<string, unknown>): string {
 
 /** Render a list of records, one line each. Skips rows lacking an id. */
 function renderSummaryList(rows: unknown[]): OutputModeResult {
-  if (rows.length === 0) return { text: 'No rows.', emptyReason: 'no-renderable-records' };
+  if (rows.length === 0) return { text: '', emptyReason: 'no-renderable-records' };
   const lines: string[] = [];
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
@@ -324,7 +325,7 @@ function renderSummaryList(rows: unknown[]): OutputModeResult {
     lines.push(renderSummaryRow(rec));
   }
   return lines.length === 0
-    ? { text: 'No rows.', emptyReason: 'no-renderable-records' }
+    ? { text: '', emptyReason: 'no-renderable-records' }
     : { text: lines.join('\n') };
 }
 
@@ -474,7 +475,7 @@ export function renderOutputMode(mode: OutputMode, data: unknown): OutputModeRes
     case 'id': {
       const ids = extractIds(data);
       return ids.length === 0
-        ? { text: 'No ids.', emptyReason: 'no-renderable-ids' }
+        ? { text: '', emptyReason: 'no-renderable-ids' }
         : { text: ids.join('\n') };
     }
     case 'count': {
@@ -485,11 +486,18 @@ export function renderOutputMode(mode: OutputMode, data: unknown): OutputModeRes
         const rec = data as Record<string, unknown>;
         const collection = pickCollection(rec);
         if (collection) {
-          return { text: renderTableList(collection as Array<Record<string, unknown>>) };
+          const text = renderTableList(collection as Array<Record<string, unknown>>);
+          // An empty TSV is zero bytes, and the REASON still travels — to
+          // stderr, via the caller. Losing it here would trade one defect for
+          // another: a silent empty stream with no way to tell "no rows" from
+          // "the command did not run" (gh#1317).
+          return text.length === 0 ? { text: '', emptyReason: 'no-renderable-records' } : { text };
         }
         return { text: renderTableGeneric(rec) };
       }
-      return { text: data === null || data === undefined ? '(empty)' : String(data) };
+      return data === null || data === undefined
+        ? { text: '', emptyReason: 'no-renderable-records' }
+        : { text: String(data) };
     }
     case 'silent': {
       return { text: null, emptyReason: 'silent-mode' };

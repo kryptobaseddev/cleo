@@ -84,16 +84,19 @@ describe('renderSummary — list', () => {
     expect(out.text).toBe('T1 [pending] first\nT3 [done] third');
   });
 
-  it('returns "No rows." for an empty {tasks: []}', () => {
+  it('emits NOTHING for an empty {tasks: []} — prose is not a summary row', () => {
+    // gh#1317: `--summary` is 1 line per record, so zero records is zero lines.
     const out = renderSummary({ tasks: [] });
-    expect(out.text).toBe('No rows.');
+    expect(out.text).toBe('');
+    expect(out.emptyReason).toBe('no-renderable-records');
   });
 
-  it('returns "No rows." when no rows in a list survive id-filtering', () => {
+  it('emits NOTHING when no rows survive id-filtering', () => {
     const out = renderSummary({
       tasks: [{ status: 'orphan', title: 'a' }, { title: 'b' }],
     });
-    expect(out.text).toBe('No rows.');
+    expect(out.text).toBe('');
+    expect(out.emptyReason).toBe('no-renderable-records');
   });
 });
 
@@ -121,23 +124,23 @@ describe('renderSummary — title truncation', () => {
 describe('renderSummary — unrecognised shapes', () => {
   it('returns typed empty reason text for an object with no id / tasks / items / task key', () => {
     const out = renderSummary({ foo: 'bar', count: 7 });
-    expect(out.text).toBe('No rows.');
+    expect(out.text).toBe('');
     expect(out.emptyReason).toBe('no-renderable-records');
   });
 
   it('returns typed empty reason text for null', () => {
     const out = renderSummary(null);
-    expect(out.text).toBe('No rows.');
+    expect(out.text).toBe('');
     expect(out.emptyReason).toBe('no-renderable-records');
   });
 
   it('returns typed empty reason text for primitive data', () => {
     expect(renderSummary('a-string')).toMatchObject({
-      text: 'No rows.',
+      text: '',
       emptyReason: 'no-renderable-records',
     });
     expect(renderSummary(42)).toMatchObject({
-      text: 'No rows.',
+      text: '',
       emptyReason: 'no-renderable-records',
     });
   });
