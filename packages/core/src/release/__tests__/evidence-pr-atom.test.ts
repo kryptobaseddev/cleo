@@ -28,7 +28,12 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { EvidenceAtom } from '@cleocode/contracts';
+import {
+  type EvidenceAtom,
+  PR_REQUIRED_WORKFLOWS,
+  PR_REQUIRED_WORKFLOWS_CONTEXT_KEY,
+  PR_REQUIRED_WORKFLOWS_ENV_VAR,
+} from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkGateEvidenceMinimum, parseEvidence, validateAtom } from '../../tasks/evidence.js';
 import {
@@ -99,10 +104,19 @@ beforeEach(() => {
   projectRoot = mkdtempSync(join(tmpdir(), 'cleo-pr-atom-test-'));
   fetchSpy = vi.fn();
   mockFetch = ((prNumber, cwd) => fetchSpy(prNumber, cwd)) as unknown as FetchGhPrPayload;
+  // gh#1323 — these fixtures used to inherit `PR_REQUIRED_WORKFLOWS` implicitly,
+  // because an unresolvable required set fell through to cleocode's own gate
+  // names. It no longer does: an undetermined set is now `tier: 'unknown'` and
+  // refuses. Every fixture that means "this project requires CI etc." must now
+  // SAY so, which is exactly what the change asks of real projects — and the
+  // fact that 15 tests silently depended on that fallback is the measure of how
+  // invisible it was.
+  process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR] = 'CI,Lockfile Check,Contracts Dep Lint';
 });
 
 afterEach(() => {
   rmSync(projectRoot, { recursive: true, force: true });
+  delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
   vi.restoreAllMocks();
 });
 
@@ -404,7 +418,10 @@ describe('resolvePrEvidenceAtom — failure paths', () => {
     // gh#1198: the rejection names both sides and the source instead of
     // asserting the PR is at fault.
     expect(r.reason).toMatch(/required gates were not found/);
-    expect(r.reason).toContain('source: built-in default list');
+    // gh#1198 asks that the SOURCE be disclosed, not that it be any particular
+    // tier. gh#1323 removed the built-in-default tier, so assert the disclosure
+    // rather than the tier that used to provide it.
+    expect(r.reason).toMatch(/required workflows \(source: .+\)/);
     expect(r.reason).toContain('- CI  NOT FOUND on this PR');
     expect(r.reason).toContain('- Some Other Job  SUCCESS');
     // T12100: the error must point at the override tiers, or consumers conclude
@@ -618,6 +635,9 @@ describe('evaluateRollup', () => {
 
 describe('resolvePrEvidenceAtom — downstream repo with no CI (gh#1104)', () => {
   it('accepts a MERGED PR with empty checks when project-context declares no required workflows', async () => {
+    // The env tier is declared globally in beforeEach; this test exercises a
+    // LOWER tier, so it must clear the more specific one first (gh#1323).
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
     // A downstream repo (e.g. kodomeet): MERGED PR, statusCheckRollup empty.
     fetchSpy.mockResolvedValue({
       ok: true,
@@ -631,12 +651,18 @@ describe('resolvePrEvidenceAtom — downstream repo with no CI (gh#1104)', () =>
     expect(r.ok).toBe(true);
   });
 
-  it('still rejects a MERGED PR with empty checks under the cleocode default (no project-context)', async () => {
-    // Regression guard: cleocode's own strict gating must be unchanged.
+  // BEHAVIOUR CHANGE (gh#1323). This test previously asserted that an
+  // unresolvable required set fell through to cleocode's own gate names and
+  // refused with "required gates were not found". That refusal was a confident
+  // answer sourced from the wrong project: in a repo without those workflows it
+  // reports failure when the truth is that CLEO never knew what to look for.
+  // The atom must now say so instead.
+  it('refuses with UNKNOWN — not a gate failure — when no tier can name the required checks', async () => {
     fetchSpy.mockResolvedValue({
       ok: true,
       payload: makePrPayload({ statusCheckRollup: [] }),
     });
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
     const r = await resolvePrEvidenceAtom(20, projectRoot, {
       fetchGhPrPayload: mockFetch,
       fetchGhBranchProtection: async () => ({ ok: false, reason: 'no branch protection' }),
@@ -644,9 +670,38 @@ describe('resolvePrEvidenceAtom — downstream repo with no CI (gh#1104)', () =>
     });
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.reason).toMatch(/required gates were not found/);
-    expect(r.reason).toContain('source: built-in default list');
-    expect(r.reason).toContain('    (none)');
+    // NOT "required gates were not found" — that asserts the checks ran and did
+    // not pass, which is a different and false claim.
+    expect(r.reason).toMatch(/Cannot determine the required checks/);
+    expect(r.reason).not.toMatch(/required gates were not found/);
+    expect(r.codeName).toBe('E_EVIDENCE_INSUFFICIENT');
+    // It must name BOTH levers, including the empty-array one, because "this
+    // repo requires none" is a legitimate answer the caller may need to give.
+    expect(r.reason).toContain(PR_REQUIRED_WORKFLOWS_CONTEXT_KEY);
+    expect(r.reason).toContain('[]');
+  });
+
+  it("does not leak cleocode's own gate names into a foreign project's refusal", async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload({ statusCheckRollup: [] }) });
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
+    const r = await resolvePrEvidenceAtom(20, projectRoot, {
+      fetchGhPrPayload: mockFetch,
+      fetchGhBranchProtection: async () => ({ ok: false, reason: 'no workflows in this repo' }),
+      bypassCache: true,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    // The measured gh#1323 report: a repo with Actions removed entirely was
+    // told its PR lacked 'CI' / 'Lockfile Check' / 'Contracts Dep Lint'.
+    // Check the DISTINCTIVE names, not 'CI' — the remedy text legitimately says
+    // "a repository with no CI at all", and a naive substring match on a
+    // two-letter name would fail on the advice rather than on a leak.
+    expect(r.reason).not.toContain('Lockfile Check');
+    expect(r.reason).not.toContain('Contracts Dep Lint');
+    // And no per-required FOUND/NOT FOUND listing at all: there is no required
+    // list to enumerate, which is the whole point.
+    expect(r.reason).not.toMatch(/NOT FOUND on this PR/);
+    expect(PR_REQUIRED_WORKFLOWS).toContain('Lockfile Check');
   });
 });
 
@@ -677,6 +732,9 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
   }
 
   it('uses branch-protection contexts when env and project-context are absent', async () => {
+    // The env tier is declared globally in beforeEach; this test exercises a
+    // LOWER tier, so it must clear the more specific one first (gh#1323).
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
     // The repo's real required check is 'Repo CI' — a name the built-in
     // default does not contain, so this only passes when the protection tier
     // is actually consulted.
@@ -729,7 +787,10 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('falls back to the built-in default when the protection lookup fails', async () => {
+  // BEHAVIOUR CHANGE (gh#1323): a failed protection lookup no longer falls back
+  // to cleocode's gate names. With a declared list it still succeeds (below);
+  // with nothing declared it is UNKNOWN rather than silently borrowed.
+  it('still succeeds on a failed protection lookup when the project DECLARES its checks', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
     const { fetcher } = makeProtectionFetcher({ ok: false, reason: 'offline' });
     const r = await resolvePrEvidenceAtom(96, projectRoot, {
@@ -740,7 +801,27 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('is UNKNOWN on a failed protection lookup when the project declares nothing', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
+    const { fetcher } = makeProtectionFetcher({ ok: false, reason: 'offline' });
+    const r = await resolvePrEvidenceAtom(96, projectRoot, {
+      fetchGhPrPayload: mockFetch,
+      fetchGhBranchProtection: fetcher,
+      bypassCache: true,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toMatch(/Cannot determine the required checks/);
+    // The underlying reason is carried through, so the operator can tell a
+    // network failure from a repo that genuinely declares nothing.
+    expect(r.reason).toContain('offline');
+  });
+
   it('names the branch-protection source in the missing-workflows rejection', async () => {
+    // The env tier is declared globally in beforeEach; this test exercises a
+    // LOWER tier, so it must clear the more specific one first (gh#1323).
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
     const { fetcher } = makeProtectionFetcher({ ok: true, contexts: ['Repo CI'] });
     const r = await resolvePrEvidenceAtom(96, projectRoot, {
@@ -755,6 +836,9 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
   });
 
   it('caches the protection lookup across verifies (1h TTL)', async () => {
+    // The env tier is declared globally in beforeEach; this test exercises a
+    // LOWER tier, so it must clear the more specific one first (gh#1323).
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
     const { fetcher, spy } = makeProtectionFetcher({
       ok: true,
@@ -812,7 +896,10 @@ describe('resolvePrEvidenceAtom — missing-workflows rejection detail (gh#1198)
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.reason).toContain('Cannot accept pr atom for PR #102');
-    expect(r.reason).toContain('source: built-in default list');
+    // gh#1198 asks that the SOURCE be disclosed, not that it be any particular
+    // tier. gh#1323 removed the built-in-default tier, so assert the disclosure
+    // rather than the tier that used to provide it.
+    expect(r.reason).toMatch(/required workflows \(source: .+\)/);
     expect(r.reason).toContain('- CI  FOUND on this PR');
     expect(r.reason).toContain('- Lockfile Check  NOT FOUND on this PR');
     expect(r.reason).toContain('- Contracts Dep Lint  NOT FOUND on this PR');

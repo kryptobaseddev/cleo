@@ -14,6 +14,7 @@
  * @epic T4545
  */
 
+import { statSync } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -176,6 +177,73 @@ const statusCommand = defineCommand({
     //
     // A cross-project answer is not available from here, so refuse rather than
     // answer about the wrong project.
+    // gh#1329, the issue's headline case — `cleo nexus status /definitely/not/a/
+    // real/repo` returned `indexed: true` with this project's 26,964 nodes. The
+    // id is derived by base64url-ing the string, which succeeds for ANY string,
+    // so a path that does not exist produces a perfectly well-formed project id
+    // and nothing downstream ever asks whether it names a real directory.
+    //
+    // This also defuses the route the reporter actually arrived by: `cleo nexus
+    // status --output json` swallowed `json` as the positional `path`, and
+    // `json` is not a directory, so it now errors here instead of silently
+    // becoming a different project. The general flag-swallowing fix is the
+    // strict-flags chokepoint (gh#1276); this is the narrow guard that stops
+    // THIS command answering about a project that cannot exist.
+    if (args.path) {
+      let isDir = false;
+      try {
+        isDir = statSync(repoPath).isDirectory();
+      } catch {
+        isDir = false;
+      }
+      if (!isDir) {
+        cliError(
+          `nexus status was given '${args.path as string}', which is not a directory.\n` +
+            'A project id can be derived from any string, so an unreadable path would ' +
+            "otherwise produce a well-formed id and be reported alongside THIS project's " +
+            'counts. If you meant to pass a flag value, note that an undeclared flag on ' +
+            'this subcommand is consumed as the positional path.',
+          ExitCode.INVALID_INPUT,
+          {
+            name: 'E_NEXUS_PATH_NOT_A_DIRECTORY',
+            fix: `cleo nexus status <existing project directory>   (omit the path to use the current project)`,
+          },
+          { operation: 'nexus.status' },
+        );
+        process.exitCode = ExitCode.INVALID_INPUT;
+        return;
+      }
+    }
+
+    // gh#1329 — the SAME defect reached by the other flag. `--project-id`
+    // overrides the id we report while `getNexusDb()` still opens THIS
+    // project's store, so a foreign id is printed alongside this project's
+    // counts. `getIndexStats` documents its `_projectId` parameter as unused
+    // since ADR-090 · T11648 for exactly that reason: the graph DB is
+    // project-scoped, so the id cannot select anything.
+    //
+    // The id is derived from the path, so an override that MATCHES the derived
+    // id is a no-op and stays allowed — it is only a foreign id that asks a
+    // question this process cannot answer.
+    const derivedProjectId = Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    if (projectIdOverride !== undefined && projectIdOverride !== derivedProjectId) {
+      cliError(
+        `nexus status cannot report on project '${projectIdOverride}' from this project.\n` +
+          'The code-intelligence graph is project-scoped (ADR-090 · T11648), so the counts ' +
+          'always describe the store that is open — passing a different --project-id would ' +
+          "relabel this project's index as another's, which is the confident-but-wrong " +
+          'answer this guard exists to prevent.',
+        ExitCode.INVALID_INPUT,
+        {
+          name: 'E_NEXUS_CROSS_PROJECT_STATUS',
+          fix: `cd <that project> && cleo nexus status   (this project's id is ${derivedProjectId})`,
+        },
+        { operation: 'nexus.status' },
+      );
+      process.exitCode = ExitCode.INVALID_INPUT;
+      return;
+    }
+
     const currentRoot = getProjectRoot();
     if (args.path && path.resolve(repoPath) !== path.resolve(currentRoot)) {
       cliError(

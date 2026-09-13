@@ -30,8 +30,22 @@
  * @task T12174
  */
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { nexusCommand } from '../nexus.js';
+
+/**
+ * Source of the command under test.
+ *
+ * The guards below are ORDERING and REACHABILITY assertions — a guard placed
+ * after the value it protects guards nothing — and ordering is not observable
+ * from the command's declared `args`. Behaviour itself is verified live against
+ * a control (a bogus path, a foreign `--project-id`, and a swallowed flag all
+ * exit 2; the no-argument invocation still exits 0 and returns real counts).
+ */
+const NEXUS_COMMAND = join(dirname(fileURLToPath(import.meta.url)), '..', 'nexus.ts');
 
 /** The `status` subcommand, as the CLI resolves it. */
 function statusCommand(): { args: Record<string, unknown> } {
@@ -50,6 +64,31 @@ describe('nexus status — scope honesty (gh#1329)', () => {
     // one.
     const { args } = statusCommand();
     expect(args['path']).toMatchObject({ type: 'positional' });
+  });
+
+  it('gh#1329: a path that is not a directory must be refused before an id is derived', () => {
+    // The id is `base64url(path).slice(0,32)`, which succeeds for ANY string —
+    // so a non-existent path produced a well-formed project id and was reported
+    // alongside THIS project's counts. Measured:
+    //   cleo nexus status /definitely/not/a/real/repo
+    //     -> indexed: true, nodeCount: 26964, projectId derived from the bogus path
+    const src = readFileSync(NEXUS_COMMAND, 'utf-8');
+    expect(src).toContain('E_NEXUS_PATH_NOT_A_DIRECTORY');
+    // The guard must run BEFORE the id is derived, or it guards nothing.
+    expect(src.indexOf('E_NEXUS_PATH_NOT_A_DIRECTORY')).toBeLessThan(
+      src.indexOf('const derivedProjectId'),
+    );
+  });
+
+  it('gh#1329: a foreign --project-id is refused, since the id cannot select a store', () => {
+    // `getIndexStats` documents its `_projectId` as unused since ADR-090/T11648
+    // — the graph DB is project-scoped, so an override relabels this project's
+    // counts as another's rather than selecting anything.
+    const src = readFileSync(NEXUS_COMMAND, 'utf-8');
+    expect(src).toContain('derivedProjectId');
+    expect(src).toMatch(
+      /projectIdOverride !== undefined && projectIdOverride !== derivedProjectId/,
+    );
   });
 
   it('declares no `output` flag — so `--output <x>` is swallowed as the path', () => {

@@ -48,5 +48,8 @@
       "Do not use any type — strict mode is enabled",
       "Do not import across package boundaries without explicit dependencies"
     ]
+  },
+  "release": {
+    "prRequiredWorkflows": ["CI", "Lockfile Check", "Contracts Dep Lint"]
   }
 }
