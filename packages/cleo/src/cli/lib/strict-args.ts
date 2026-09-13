@@ -73,6 +73,92 @@ export type CittyArgsSchema =
 export const E_UNKNOWN_FLAG = 'E_UNKNOWN_FLAG' as const;
 
 /**
+ * Flags consumed by the CLI entry point rather than by any single command.
+ *
+ * `packages/cleo/src/cli/index.ts` strips these from argv before citty ever
+ * sees them, so no command declares them in its own `args` — which means a
+ * generic strict-flag guard MUST treat them as known or it would reject every
+ * invocation that passes `--json`.
+ *
+ * This is the SSoT for that set. `index.ts` is asserted against it by
+ * `strict-flags-chokepoint.test.ts`, because a second hand-maintained list of
+ * global flags is exactly the divergence this whole cluster has been about —
+ * a guard whose allowlist drifts from the parser would start rejecting valid
+ * flags, which is worse than the silence it replaced.
+ *
+ * @task T12139
+ */
+/**
+ * Flags REMOVED from a command, mapped to the guidance that replaces them.
+ *
+ * A retired flag is REJECTED like any other unknown flag — but with the
+ * remedy substituted for the did-you-mean, because the caller's problem is
+ * not a typo: the mechanism they remember is gone.
+ *
+ * @remarks
+ * T12139 — my first attempt let these flags PASS THROUGH, on the assumption
+ * that dispatch's purpose-built `E_FLAG_REMOVED` would fire and say something
+ * better. Measured against the built binary, it does not:
+ * `packages/cleo/src/cli/commands/complete.ts` never forwards `force` to
+ * dispatch at all, so `E_FLAG_REMOVED` (`dispatch/domains/tasks.ts`) is
+ * reachable only by direct SDK/dispatch callers. From the CLI, `--force` was
+ * silently ignored and the caller then got an unrelated failure — an evidence
+ * gate or pending-children error that says nothing about the flag they passed.
+ *
+ * Passing it through would therefore have restored EXACTLY the defect this
+ * guard exists to remove: a flag accepted and silently discarded. So the flag
+ * is rejected, and the rejection carries the replacement mechanism instead of
+ * a spelling suggestion.
+ *
+ * That `E_FLAG_REMOVED` is unreachable from the CLI is its own defect, filed
+ * separately — surfacing removal guidance from the CLI is a different change
+ * from validating flags.
+ *
+ * @task T12139
+ */
+export const RETIRED_FLAG_GUIDANCE: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map([
+  [
+    'complete',
+    new Map([
+      [
+        '--force',
+        '--force was removed by ADR-051. Record evidence instead: `cleo verify <id> --gate <gate> --evidence "<atoms>"`, then `cleo complete <id>`. For an audited emergency bypass, set CLEO_OWNER_OVERRIDE=1 on verify.',
+      ],
+    ]),
+  ],
+]);
+
+/** `complete`'s alias shares its retired-flag guidance. */
+const RETIRED_FLAG_ALIASES: ReadonlyMap<string, string> = new Map([['done', 'complete']]);
+
+/**
+ * Resolve the removal guidance for a flag, if it is a retired one.
+ *
+ * @internal
+ */
+function retiredGuidanceFor(commandName: string, flag: string): string | undefined {
+  const key = RETIRED_FLAG_ALIASES.get(commandName) ?? commandName;
+  return RETIRED_FLAG_GUIDANCE.get(key)?.get(flag);
+}
+
+export const CLI_GLOBAL_FLAGS: readonly string[] = Object.freeze([
+  '--json',
+  '--human',
+  '--quiet',
+  '--field',
+  '--fields',
+  '--mvi',
+  '--verbose',
+  '--full',
+  '--output',
+  '--summary',
+  '--describe',
+  '--idempotency-key',
+  '--help',
+  '--version',
+]);
+
+/**
  * Structured error thrown by {@link assertKnownFlags} when an unknown flag
  * is encountered in `rawArgs`. Carries the offending token, the command
  * context, and an array of Levenshtein-ranked suggestions so the calling
@@ -107,6 +193,8 @@ export class UnknownFlagError extends Error {
   readonly knownFlags: readonly string[];
   /** Suggested fix string for {@link CliErrorDetails.fix}. */
   readonly fix: string;
+  /** Set when the flag was REMOVED rather than mistyped. @task T12139 */
+  readonly retiredGuidance?: string;
 
   /**
    * @param input - Structured failure context: offending flag, command
@@ -117,6 +205,13 @@ export class UnknownFlagError extends Error {
     command: string;
     suggestions: readonly string[];
     knownFlags: readonly string[];
+    /**
+     * Replacement guidance for a flag that was REMOVED rather than mistyped.
+     * When present it supersedes the did-you-mean `fix`, because the caller
+     * needs the new mechanism, not a spelling correction.
+     * @task T12139
+     */
+    retiredGuidance?: string;
   }) {
     const suggestionPart =
       input.suggestions.length > 0 ? ` Did you mean: ${input.suggestions.join(', ')}?` : '';
@@ -128,8 +223,10 @@ export class UnknownFlagError extends Error {
     this.command = input.command;
     this.suggestions = input.suggestions;
     this.knownFlags = input.knownFlags;
-    this.fix =
-      input.suggestions.length > 0
+    this.retiredGuidance = input.retiredGuidance;
+    this.fix = input.retiredGuidance
+      ? input.retiredGuidance
+      : input.suggestions.length > 0
         ? `Try one of: ${input.suggestions.join(', ')}. ` +
           `Run \`cleo ${input.command} --help\` for the full flag list.`
         : `Run \`cleo ${input.command} --help\` for the full flag list.`;
@@ -148,8 +245,25 @@ export class UnknownFlagError extends Error {
 function collectKnownLongFlags(schema: Record<string, ArgDef>): Set<string> {
   const known = new Set<string>();
   for (const [name, def] of Object.entries(schema)) {
-    if (!def || def.type === 'positional') continue;
+    if (!def) continue;
+    // T12139 — a POSITIONAL parameter is still accepted in `--name value`
+    // form, because citty's non-strict parseArgs populates `args.<name>` for
+    // both spellings and the handler reads `args.<name>` either way.
+    //
+    // This is not a concession: `cleo add`'s `title` is declared
+    // `type: 'positional'`, and `cleo add --title "..."` is the form
+    // CLEO-INJECTION.md documents EVERYWHERE and that every agent uses. It
+    // works today. Skipping positionals here would have made this guard reject
+    // the single most-used documented invocation in the system — inventing a
+    // restriction the command does not actually have, while claiming to
+    // enforce the command's real surface.
+    //
+    // Measured before this line existed:
+    //   $ cleo add --type task --parent T12119 --title smoke --acceptance a --dry-run
+    //   E_UNKNOWN_FLAG: unknown flag '--title' for 'add'.
+    //                   Did you mean: --files, --note, --size, --type?
     known.add(`--${name}`);
+    if (def.type === 'positional') continue;
     // citty boolean flags accept a --no-<name> form for explicit false.
     if (def.type === 'boolean') {
       known.add(`--no-${name}`);
@@ -245,6 +359,11 @@ export function assertKnownFlags(
   const resolved = schema as Record<string, ArgDef>;
 
   const known = collectKnownLongFlags(resolved);
+  // T12139: entry-point flags are stripped by `index.ts` and declared by no
+  // command, so a generic guard must treat them as known. Deliberately NOT
+  // added to the did-you-mean candidates — suggesting `--json` for a mistyped
+  // domain flag would be noise.
+  for (const global of CLI_GLOBAL_FLAGS) known.add(global);
   const candidates = collectSuggestionCandidates(resolved);
 
   for (let i = 0; i < rawArgs.length; i++) {
@@ -264,6 +383,7 @@ export function assertKnownFlags(
       const flagName = eqIdx >= 0 ? token.slice(0, eqIdx) : token;
       if (!known.has(flagName)) {
         throw new UnknownFlagError({
+          retiredGuidance: retiredGuidanceFor(commandName, flagName),
           flag: flagName,
           command: commandName,
           suggestions: didYouMean(flagName, candidates, 3),
