@@ -461,12 +461,7 @@ export async function computeBriefing(
 
   // T1905 / BBTT-W1-3: Evaluate default briefing contract.
   // Always runs; violations surface as warnings + contractViolations field.
-  const defaultContract: BriefingFieldContract = {
-    nextTasks: { dedupBy: 'id' },
-    openBugs: { dedupBy: 'id' },
-    blockedTasks: { dedupBy: 'id' },
-    activeEpics: { dedupBy: 'id' },
-  };
+  const defaultContract: BriefingFieldContract = getDefaultBriefingContract();
   const contractViolations = assertBriefingContract(partialBriefing, defaultContract);
   const briefing: SessionBriefing =
     contractViolations.length > 0
@@ -715,7 +710,13 @@ async function resolveHandoffFromDocs(
       nextSuggested: [],
       openBlockers: [],
       openBugs: [],
+      // GH #1277 — the docs-fallback producer. A second construction site the
+      // typechecker surfaced; keep both in step or the contract rule fires here
+      // and not at computeHandoff, which is a confusing place to debug from.
       note: description,
+      noteChars: description.length,
+      nextAction: null,
+      nextActionChars: 0,
     };
 
     return {
@@ -1160,10 +1161,20 @@ const MAX_MEMORY_TITLE_LEN_DIET = 80;
  * orchestrator session. This function removes only the zero-length arrays;
  * non-empty ones are preserved as-is.
  *
+ * Only zero-length ARRAYS are dropped. Scalar keys are retained deliberately —
+ * `note`, `noteChars`, `nextAction` and `nextActionChars` especially: GH #1277
+ * was caused by `note` (and its twin `nextAction`) being absent
+ * rather than `null`, which made a note-free handoff byte-identical to a lost
+ * one. **Do not add any of those four to the strip list** — a `null` note is a
+ * recorded answer and must survive to the consumer. The briefing contract rule
+ * `'lastSession.handoff': { requireKeys: ['note', 'nextAction'] }` fails the
+ * briefing if this is ever undone.
+ *
  * @param handoff - Raw handoff data from the last session.
- * @returns Handoff with empty array fields omitted.
+ * @returns Handoff with empty array fields omitted; scalar keys untouched.
  *
  * @task T9964
+ * @task T12159
  */
 function cleanHandoff(handoff: HandoffData): HandoffData {
   // Build a mutable copy. We cast to a plain record to permit `delete` on
@@ -1519,6 +1530,32 @@ async function computeDocsContext(
 // ---------------------------------------------------------------------------
 
 /**
+ * The contract `cleo briefing` evaluates on every call.
+ *
+ * Exported so the rules are assertable in isolation — a rule that only exists
+ * inline in the call site can be removed without a test noticing, which is how
+ * the shape this contract guards regressed twice before (GH #1243, GH #1242).
+ *
+ * @returns The default {@link BriefingFieldContract}.
+ *
+ * @task T1905
+ * @task T12159
+ */
+export function getDefaultBriefingContract(): BriefingFieldContract {
+  return {
+    nextTasks: { dedupBy: 'id' },
+    openBugs: { dedupBy: 'id' },
+    blockedTasks: { dedupBy: 'id' },
+    activeEpics: { dedupBy: 'id' },
+    // GH #1277 — a handoff that recorded no note (or no next action) must say
+    // so with `null`, never by omitting the key. BOTH fields are named: a rule
+    // that guards one field of an object while its twin carries the identical
+    // defect knowingly under-covers the object it names.
+    'lastSession.handoff': { requireKeys: ['note', 'nextAction'] },
+  };
+}
+
+/**
  * Evaluate a {@link BriefingFieldContract} against a computed briefing and
  * return an array of {@link ContractViolation} entries.
  *
@@ -1550,6 +1587,29 @@ export function assertBriefingContract(
 
     // Resolve the field value from the briefing (supports nested paths via dot notation)
     const items = resolveBriefingField(briefing, field);
+
+    // 0. Required-key check (GH #1277). Runs BEFORE the array guard because it
+    //    is the one rule that applies to OBJECT-valued fields. A missing key is
+    //    a violation; an explicit `null` is not — that is the whole distinction
+    //    the rule exists to enforce. A field that is absent entirely (no last
+    //    session at all) is skipped: firing there would make the rule
+    //    permanently red on every fresh project, and a rule that is always red
+    //    is a rule nobody reads.
+    if (rule.requireKeys && rule.requireKeys.length > 0) {
+      if (items !== null && items !== undefined && typeof items === 'object') {
+        const obj = items as Record<string, unknown>;
+        const missing = rule.requireKeys.filter((k) => !(k in obj));
+        if (missing.length > 0) {
+          violations.push({
+            field,
+            message: `${field} omits required key(s): ${missing.join(', ')} — an absent key is indistinguishable from a recorded-empty one (GH #1277); emit null instead`,
+            kind: 'missing-key',
+            severity: 'P1',
+          });
+        }
+      }
+    }
+
     if (!Array.isArray(items)) continue;
 
     // 1. Staleness check
