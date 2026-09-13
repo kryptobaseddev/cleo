@@ -335,7 +335,24 @@ export interface AcceptanceGateResult {
   req?: string;
   /** Gate variant. */
   kind: AcceptanceGateKind;
-  /** Outcome of the gate execution. */
+  /**
+   * Outcome of the gate execution.
+   *
+   * `fail` and `error` are NOT interchangeable, and the difference is the whole
+   * point of having both (gh#1270):
+   *
+   * - `pass` — ran to completion, satisfied.
+   * - `fail` — ran to completion, **found a problem**. A verdict.
+   * - `warn` — a `fail` on a gate marked `advisory`.
+   * - `skipped` — deliberately not run.
+   * - `error` — **did not finish**: killed by timeout or signal, or could not
+   *   be executed. This is *not a verdict*. Recording it as `fail` produces a
+   *   false red, which costs an agent work it had actually completed and writes
+   *   an assertion into the evidence record that a check found a problem when
+   *   none was ever made. Consumers must treat `error` as "unknown, re-run",
+   *   never as "failed" — see the mapping in `lifecycle/index.ts`, which
+   *   resolves it to `pending`.
+   */
   result: 'pass' | 'fail' | 'warn' | 'skipped' | 'error';
   /** Wall-clock duration of the gate execution in milliseconds. */
   durationMs: number;
