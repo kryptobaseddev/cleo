@@ -26,7 +26,18 @@ export const findCommand = defineCommand({
     },
     in: { type: 'string', description: 'Field to search in (title|description|notes|id)' },
     'include-archive': { type: 'boolean', description: 'Include archived tasks' },
-    limit: { type: 'string', description: 'Max results (default: 20)' },
+    limit: {
+      type: 'string',
+      description: 'Max results (default: 20; --limit 0 returns every match)',
+    },
+    // GH #1302 — parity with `cleo list --all`. `find` truncated at 20 with no
+    // way to enumerate: no such flag existed, and `--limit 0` returned zero
+    // rows rather than everything. The truncation warning could therefore name
+    // a remedy this command did not have.
+    all: {
+      type: 'boolean',
+      description: 'Return EVERY matching task instead of the default page of 20.',
+    },
     offset: { type: 'string', description: 'Skip first N results' },
     fields: { type: 'string', description: 'Comma-separated additional fields to include' },
     verbose: {
@@ -97,7 +108,11 @@ export const findCommand = defineCommand({
     // find uses dispatchRaw, so it calls the describe short-circuit directly.
     if (maybeEmitDescribe('query', 'tasks', 'find', { command: 'find' })) return;
 
-    const limit = args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined;
+    let limit = args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined;
+    // `--all` is the discoverable spelling; set it explicitly rather than
+    // deleting `limit`, because an ABSENT limit falls back to the default of
+    // 20, not to "no limit".
+    if (args.all === true) limit = 0;
     const offset = args.offset !== undefined ? Number.parseInt(args.offset, 10) : undefined;
     const params: Record<string, unknown> = {};
     if (args.query !== undefined) params['query'] = args.query;
@@ -129,11 +144,18 @@ export const findCommand = defineCommand({
         : (rawData as Record<string, unknown>)) ?? {};
     const results = Array.isArray(data?.results) ? data.results : [];
     if (results.length === 0) {
-      cliOutput(data, {
-        command: 'find',
-        message: 'No matching tasks found',
-        operation: 'tasks.find',
-      });
+      // GH #1302 — the message must not contradict `total` in the same object.
+      // This branch previously always said "No matching tasks found", which was
+      // false whenever matches existed but the requested page was empty (an
+      // offset past the end, or the old `--limit 0` that meant zero rows). A
+      // caller reads the sentence, believes it, and stops — while `total` sat
+      // beside it saying otherwise.
+      const matched = typeof data?.['total'] === 'number' ? (data['total'] as number) : 0;
+      const message =
+        matched > 0
+          ? `No results on this page — ${matched} task(s) matched. Re-run with --all to enumerate every match, or adjust --limit/--offset.`
+          : 'No matching tasks found';
+      cliOutput(data, { command: 'find', message, operation: 'tasks.find' });
       process.exit(ExitCode.NO_DATA);
       return;
     }

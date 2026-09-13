@@ -656,6 +656,26 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-arch-gate-parity.mjs',
         description: 'The bundled gate list and the AGENTS.md gate table are the same set',
       },
+      {
+        // gh#1283: some tables live in BOTH cleo.db scopes, and nexus ATTACHes
+        // the global file onto the shared project handle. A bare name then
+        // resolves by SQLite search order and answers without saying which
+        // file it read. Narrow by design — qualifying EVERYTHING would break
+        // the nexus registry fall-through that depends on bare names.
+        id: 'gate-21',
+        task: 'T12156',
+        script: 'scripts/lint-dual-scope-unqualified-reads.mjs',
+        description: 'No unqualified SQL reads of tables resident in both cleo.db scopes',
+      },
+      {
+        // gh#1223: every module reaching the AI SDK can emit on stdout via
+        // `ai@6`'s console.info banner. An INVENTORY rather than a per-module
+        // rule — the guard is installed once at the envelope funnel by design.
+        id: 'gate-22',
+        task: 'T12169',
+        script: 'scripts/lint-ai-sdk-surface.mjs',
+        description: 'No unreviewed module reaches the AI SDK at runtime',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];
