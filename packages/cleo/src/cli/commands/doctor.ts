@@ -36,6 +36,7 @@ import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
 import { doctorMemoryGuardCommand } from './doctor-memory-guard.js';
+import { doctorNexusResidencyCommand } from './doctor-nexus-residency.js';
 import { runDoctorProjects } from './doctor-projects.js';
 import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
 import { doctorRepairCommand } from './doctor-repair.js';
@@ -243,7 +244,10 @@ export const doctorCommand = defineCommand({
     'superseded-store': doctorSupersededStoreCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify
     'memory-guard': doctorMemoryGuardCommand,
+    // T12157 — the two acceptance stores (json column vs text+child rows) must agree
     'acceptance-drift': doctorAcceptanceDriftCommand,
+    // T12158 — tables nexus resolves by bare name must actually live where it assumes
+    'nexus-residency': doctorNexusResidencyCommand,
     // T12113 (gh#1222) — evidence-tool semaphore holders + orphan reaping
     'tool-locks': doctorToolLocksCommand,
     // T11777 / Saga T11242 / Epic T11249 — exodus stranded-residue check (+ --fix)
