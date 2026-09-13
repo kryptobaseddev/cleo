@@ -29,6 +29,7 @@ import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { createDoctorProgress } from '../progress.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
+import { doctorAcceptanceDriftCommand } from './doctor-acceptance-drift.js';
 import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
 import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
@@ -241,6 +242,7 @@ export const doctorCommand = defineCommand({
     'superseded-store': doctorSupersededStoreCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify
     'memory-guard': doctorMemoryGuardCommand,
+    'acceptance-drift': doctorAcceptanceDriftCommand,
     // T11777 / Saga T11242 / Epic T11249 — exodus stranded-residue check (+ --fix)
     'exodus-residue': doctorExodusResidueCommand,
     // T11837 / Saga T11242 / Epic T11833 — read-only exodus health report

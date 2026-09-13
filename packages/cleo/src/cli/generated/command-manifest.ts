@@ -354,6 +354,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/docs.js')).docsCommand as CommandDef,
   },
   {
+    exportName: 'doctorAcceptanceDriftCommand',
+    name: 'acceptance-drift',
+    description:
+      'Report tasks whose acceptance criteria disagree between the JSON column and the typed rows ',
+    load: async () =>
+      (await import('../commands/doctor-acceptance-drift.js'))
+        .doctorAcceptanceDriftCommand as CommandDef,
+  },
+  {
     exportName: 'doctorDbSubstrateCommand',
     name: 'db-substrate',
     description: 'Walk every DB in the inventory + report integrity, row counts, orphan dirs. ',
