@@ -1,0 +1,38 @@
+# Dual-Scope Unqualified Read Gate (T12156 · gh#1283)
+#
+# Some tables exist in BOTH the project `cleo.db` and the global `cleo.db`, and
+# both files can be visible on one connection at once — nexus ATTACHes the
+# global file onto the project handle as `nexus_global`, and that handle is
+# shared by every project-scope domain. A bare `FROM <table>` then resolves by
+# SQLite's search order and returns a confident answer that never says which
+# file it read.
+#
+# Baselined and forward-only. The rule is deliberately narrow: qualify the
+# tables resident in BOTH scopes, and leave bare names alone for tables
+# resident in one — nexus registry lookups depend on that fall-through.
+#
+# Dependency-free — the script uses only `git ls-files` and node builtins — so
+# this job is checkout + node and adds no meaningful load while runner capacity
+# is the constraint.
+name: Dual-Scope Unqualified Reads
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+  push:
+    branches: [main]
+
+jobs:
+  dual-scope-unqualified-reads:
+    name: No new unqualified reads of both-scope tables
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+
+      - name: Assert no new unqualified both-scope table reads
+        run: node scripts/lint-dual-scope-unqualified-reads.mjs
