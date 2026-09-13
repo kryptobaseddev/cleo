@@ -41,6 +41,7 @@ import { runDoctorProjects } from './doctor-projects.js';
 import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
 import { doctorRepairCommand } from './doctor-repair.js';
 import { doctorSupersededStoreCommand } from './doctor-superseded-store.js';
+import { doctorToolLocksCommand } from './doctor-tool-locks.js';
 import { readMigrationConflicts } from './migrate-agents-v2.js';
 
 // ============================================================================
@@ -247,6 +248,8 @@ export const doctorCommand = defineCommand({
     'acceptance-drift': doctorAcceptanceDriftCommand,
     // T12158 — tables nexus resolves by bare name must actually live where it assumes
     'nexus-residency': doctorNexusResidencyCommand,
+    // T12113 (gh#1222) — evidence-tool semaphore holders + orphan reaping
+    'tool-locks': doctorToolLocksCommand,
     // T11777 / Saga T11242 / Epic T11249 — exodus stranded-residue check (+ --fix)
     'exodus-residue': doctorExodusResidueCommand,
     // T11837 / Saga T11242 / Epic T11833 — read-only exodus health report
