@@ -488,6 +488,48 @@ describe('validateGateVerify — critical-gate override parity (gh#1105 / T12015
     expect(result.success).toBe(true);
   });
 
+  // ── gh#1278 — the refusal must not propose its own bypass ──────────────
+
+  it('gh#1278(a): REJECTS testsPassed under override with files: — the two branches must not diverge', async () => {
+    // `files:` is a HARD atom, so it clears the T9245 hard-atom check and the
+    // override path used to stop there. The non-override path applies the
+    // per-gate minimum, which testsPassed does NOT satisfy with files: alone.
+    // The result was that override evidence was WEAKER-gated than ordinary
+    // evidence on the one gate where that matters most.
+    await seedTask('T205');
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId: 'T205',
+      gate: 'testsPassed',
+      value: true,
+      evidence: `commit:${SEED_COMMIT_SHA};files:seed.ts`,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_EVIDENCE_INSUFFICIENT');
+  });
+
+  it('gh#1278(b): the refusal must NOT advertise the evidence the gate rejects', async () => {
+    // The message interpolated the refused gate into a FIXED atom list, so
+    // refusing testsPassed printed `--evidence "commit:<sha>;files:<paths>"` —
+    // the exact evidence that gate cannot accept. A reader following the
+    // remediation verbatim lands back on a refusal.
+    await seedTask('T206');
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId: 'T206',
+      gate: 'testsPassed',
+      value: true,
+      evidence: 'note:owner-says-ok',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_CRITICAL_GATE_OVERRIDE_REJECTED');
+
+    const advice = `${result.error?.message ?? ''} ${String(
+      (result.error as { fix?: string } | undefined)?.fix ?? '',
+    )}`;
+    expect(advice).not.toMatch(/files:<paths>/);
+    // And it must still say something actionable, derived from the gate itself.
+    expect(advice.length).toBeGreaterThan(0);
+  });
+
   it('ACCEPTS implemented with override PLUS a real commit atom (hard atom is preserved)', async () => {
     await seedTask('T204');
     const result = await validateGateVerify(TEST_ROOT, {
