@@ -308,7 +308,17 @@ export type RequiredWorkflowsSource =
   | { readonly tier: 'env' }
   | { readonly tier: 'project-context' }
   | { readonly tier: 'branch-protection'; readonly repo: string; readonly branch: string }
-  | { readonly tier: 'default' };
+  | { readonly tier: 'default' }
+  /**
+   * No tier could name this repository's required checks (gh#1323).
+   *
+   * This is a DISTINCT outcome from "no checks are required". The previous
+   * behaviour fell through to {@link PR_REQUIRED_WORKFLOWS} — *cleocode's own*
+   * gate names — and evaluated a foreign repository against them, producing a
+   * confident refusal sourced from the wrong project. A surface that takes a
+   * target must be able to say it cannot answer.
+   */
+  | { readonly tier: 'unknown'; readonly reason: string };
 
 /**
  * The resolved required-workflow list plus the tier that produced it.
@@ -336,6 +346,8 @@ export function describeRequiredWorkflowsSource(source: RequiredWorkflowsSource)
       return `branch protection for ${source.repo}@${source.branch}`;
     case 'default':
       return 'built-in default list (cleocode gates)';
+    case 'unknown':
+      return `undetermined — ${source.reason}`;
   }
 }
 
@@ -583,7 +595,29 @@ export async function resolveRequiredWorkflowsDetailed(
     };
   }
 
-  return { workflows: [...PR_REQUIRED_WORKFLOWS], source: { tier: 'default' } };
+  // gh#1323 — do NOT fall through to `PR_REQUIRED_WORKFLOWS` here. Those are
+  // CLEOCODE's gate names ('CI', 'Lockfile Check', 'Contracts Dep Lint'), and
+  // applying them to whatever repository we happen to be pointed at is the
+  // defect: in a project without them, every `pr:` atom is refused because the
+  // checks it looks for belong to a different codebase. The refusal reads as
+  // "your gates did not pass" when the truth is "we asked the wrong question".
+  //
+  // Measured on a consuming repo with GitHub Actions removed entirely: zero
+  // workflow files, zero check-runs on main, and `gh pr checks` reporting
+  // nothing on a PR merged minutes earlier — yet the atom still evaluated
+  // against cleocode's three names and refused. 37 tasks were blocked on it.
+  //
+  // So return UNKNOWN and let the caller fail loudly. cleocode itself resolves
+  // through the project-context tier, which is where its own list now lives —
+  // a default that only one repository can satisfy is that repository's
+  // configuration, not a library default.
+  return {
+    workflows: [],
+    source: {
+      tier: 'unknown',
+      reason: `no required-check source for this repository (${fetched.reason})`,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -894,6 +928,37 @@ export async function resolvePrEvidenceAtom(
     fetchGhBranchProtection: opts.fetchGhBranchProtection,
     bypassProtectionCache: opts.bypassCache,
   });
+  // gh#1323 — an UNDETERMINED required set is not a failing one. Refuse here,
+  // before the rollup is evaluated, because evaluating an empty required list
+  // would silently ACCEPT every PR, and evaluating a foreign list refuses every
+  // PR with `E_EVIDENCE_TESTS_FAILED` — a code that asserts the tests ran and
+  // failed. Neither is true. The honest answer names what could not be
+  // determined and how to declare it.
+  if (required.source.tier === 'unknown') {
+    return {
+      ok: false,
+      reason:
+        `Cannot determine the required checks for this repository, so PR #${prNumber} ` +
+        `cannot be accepted as evidence (${required.source.reason}).\n\n` +
+        `  This is NOT a statement that the PR's checks failed — CLEO does not know ` +
+        `which checks\n  this project requires, and will not guess with another ` +
+        `project's gate names.\n\n` +
+        `  Declare them, whichever is true:\n` +
+        `    - this project requires checks: set \`${PR_REQUIRED_WORKFLOWS_CONTEXT_KEY}\` in\n` +
+        `      \`.cleo/project-context.json\` to their exact names, or export ` +
+        `${PR_REQUIRED_WORKFLOWS_ENV_VAR}\n` +
+        `    - this project requires NONE (no CI, or none gating merges): set ` +
+        `\`${PR_REQUIRED_WORKFLOWS_CONTEXT_KEY}\`\n      to an explicit empty array ` +
+        `\`[]\` — a MERGED PR then satisfies the atom on its own\n` +
+        `    - or configure branch protection on the default branch, which CLEO reads ` +
+        `directly\n\n` +
+        `  In a repository with no CI at all, \`commit:<sha>;note:<why>\` for ` +
+        `\`implemented\` plus\n  \`tool:test\` / \`tool:lint\` for the rest is the ` +
+        `honest path.`,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+    };
+  }
+
   const rollupResult = evaluateRollup(payload.statusCheckRollup, required.workflows, {
     requiredSource: describeRequiredWorkflowsSource(required.source),
     prNumber,

@@ -1,0 +1,40 @@
+# Generated-Artifact Drift Check (T12150 · gh#1281)
+#
+# Some generated files are COMMITTED. When two PRs each regenerate one, git
+# merges it TEXTUALLY rather than regenerating, so entries are lost at merge
+# time in a defect that exists in neither PR.
+#
+# This job MUST NOT depend on any step that runs `prebuild` or `pretypecheck`,
+# because both regenerate the artifact — which is precisely why the drift was
+# unobservable before: no command in normal use ever reads the committed file.
+# Regeneration here happens under our control, and the result is compared.
+name: Generated Artifact Drift
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+  push:
+    branches: [main]
+
+jobs:
+  drift:
+    name: Generated artifacts match their source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: pnpm
+
+      # `--ignore-scripts` keeps postinstall (and anything that might
+      # regenerate an artifact) from running before the comparison.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Assert committed generated artifacts are current
+        run: node scripts/lint-generated-artifact-drift.mjs
