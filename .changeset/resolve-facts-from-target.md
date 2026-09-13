@@ -1,6 +1,8 @@
 ---
-'@cleocode/core': patch
-'@cleocode/cleo': patch
+id: resolve-facts-from-target
+tasks: [T12176]
+kind: fix
+summary: A check that takes a target resolves its facts from that target, or says it cannot — nexus status stops answering about the ambient project, and pr:<n> stops borrowing cleocode's own gate names
 ---
 
 A check that takes a target resolves its facts from that target, or says it cannot (gh#1329, gh#1323)

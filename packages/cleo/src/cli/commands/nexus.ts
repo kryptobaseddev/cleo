@@ -1680,8 +1680,15 @@ const exportCommand = defineCommand({
         // Raw file output — write directly to stdout (binary/text graph data).
         // Intentionally NOT routed through humanLine — this IS the command's
         // primary stdout payload (the exported graph file content).
-        process.stdout.write(result.content);
-        if (!result.content.endsWith('\n')) process.stdout.write('\n');
+        // gh#1308 — both stdout gates keep SEPARATE baselines keyed on `path:line`,
+        // so these two pre-existing, deliberate writes were re-reported as NEW
+        // every time anything above them shifted. A marker travels with the line;
+        // a number does not. Each gate needs its own marker (verified: the
+        // discipline gate reads `stdout-discipline-allowed`, the allowlist gate
+        // reads `stdout-write-allowed`), so both entries leave the baselines
+        // permanently instead of being re-keyed on every rebase.
+        process.stdout.write(result.content); // stdout-discipline-allowed: raw graph payload // stdout-write-allowed: raw graph payload
+        if (!result.content.endsWith('\n')) process.stdout.write('\n'); // stdout-discipline-allowed: trailing newline // stdout-write-allowed: trailing newline
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
