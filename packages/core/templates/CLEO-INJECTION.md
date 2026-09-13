@@ -303,19 +303,7 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 
 ### A killed write is not a failed write
 
-A 143/137 exit — or a bare exit with no output — says nothing about whether the
-mutation landed. The commit is fast; the teardown after it is what hangs, so the
-row is usually THERE. Never retry a killed mutation blindly. Check first, with
-these exact flags — both read paths hide a row you just wrote (`find` excludes
-archived, `list` truncates at 10, and new children sort last):
-
-```bash
-cleo find "<exact title>" --include-archive
-cleo list --parent <id> --limit 0
-```
-
-`--idempotency-key` does NOT make a retry safe on `add`/`add-batch`/`update`/
-`docs add`/`memory observe`/`relates add` — those reject it outright.
+A 143/137 exit — or a bare exit with no output — says nothing about whether the mutation landed: the commit is fast, the teardown after it is what hangs, so the row is usually THERE. **Never retry a killed mutation blindly.** Check by id first — `cleo show <id> --full`. A HIT is conclusive even while the writer is still hung (the race can hide a committed row, never invent one); a MISS proves nothing until the writer exits. Searching instead of reading by id needs exact flags, because both read paths hide a row you just wrote (`find` excludes archived; `list` truncates at 10 and new children sort last): `cleo find "<title>" --include-archive` and `cleo list --parent <id> --limit 0`. `--idempotency-key` does NOT make a retry safe on `add`/`add-batch`/`update`/`docs add`/`memory observe`/`relates add` — those reject it outright.
 
 <!-- /CLEO-INJECTION:section=error-handling -->
 
