@@ -42,6 +42,7 @@ import type { LlmTransport } from '@cleocode/contracts/llm/normalized-response.j
 import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
 import type { LanguageModel } from 'ai';
 import { getLogger } from '../logger.js';
+import { installAiSdkWarningHandler } from './ai-sdk-warnings.js';
 import { deriveApiWire } from './api-mode.js';
 import { ConcreteSession } from './concrete-session.js';
 import { getKimiCodeMshHeaders } from './provider-registry/builtin/kimi-code.js';
@@ -273,6 +274,14 @@ function descriptorToCredential(d: ResolvedLLMDescriptor): ResolvedCredential {
  * resolution — that happens upstream in `resolveLLMForRole` /
  * `resolveLLMForSystem`.
  */
+// T12142 (GH #1223) — install the warning handler at MODULE LOAD of the LLM
+// chokepoint, before any provider can emit. `ai@6` logs its one-time banner
+// with `console.info` (stdout), which lands after the LAFS envelope and breaks
+// ADR-086's one-envelope-per-call contract. Gate 13 makes this file the SSoT
+// for LLM client construction, so it is the one place every consumer — CLI,
+// studio, daemon — passes through.
+installAiSdkWarningHandler();
+
 export const ModelRunner = {
   /**
    * Construct the transport for a descriptor. This is the ONLY home for
