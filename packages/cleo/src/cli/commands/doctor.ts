@@ -29,6 +29,7 @@ import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { createDoctorProgress } from '../progress.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
+import { doctorAcceptanceDriftCommand } from './doctor-acceptance-drift.js';
 import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
 import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
@@ -242,6 +243,9 @@ export const doctorCommand = defineCommand({
     'superseded-store': doctorSupersededStoreCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify
     'memory-guard': doctorMemoryGuardCommand,
+    // T12157 — the two acceptance stores (json column vs text+child rows) must agree
+    'acceptance-drift': doctorAcceptanceDriftCommand,
+    // T12158 — tables nexus resolves by bare name must actually live where it assumes
     'nexus-residency': doctorNexusResidencyCommand,
     // T11777 / Saga T11242 / Epic T11249 — exodus stranded-residue check (+ --fix)
     'exodus-residue': doctorExodusResidueCommand,
