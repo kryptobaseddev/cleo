@@ -374,12 +374,30 @@ async function lintCoreSignatures() {
 //
 // Detects pairs of fields in the same interface where one is the alias of the other.
 // Heuristic: same interface, two fields where one is "<X>Id" and the other is "<X>",
-// or a known alias pair like ("type", "kind"), ("role", "kind").
+// or a known alias pair like ("role", "kind").
+//
+// T12120 (ADR-066) — `['type', 'kind']` WAS in this list and is now removed.
+// It was wrong: `type` and `kind` are ORTHOGONAL AXES, not two names for one
+// field. ADR-066 defines `--type {saga|epic|task|subtask}` and
+// `--kind {work|research|experiment|bug|spike|release}` as independent, and the
+// evidence is unambiguous:
+//   - `TaskType` and `TaskKind` have completely DISJOINT value sets
+//     (packages/contracts/src/task.ts)
+//   - they are two separate DB columns, with their own index on `role`
+//     (packages/core/src/store/schema/tasks.ts)
+//   - `cleo add --type task --kind bug` is a documented, meaningful invocation
+// The entry never fired only because no `*Params` interface had declared both
+// until `TasksListParams` legitimately needed them (GH #1246). Do NOT re-add it.
+//
+// `['role', 'kind']` STAYS, and the asymmetry is deliberate: that one IS a
+// genuine rename. T9072 renamed the TS field `role` → `kind` while the DB
+// column stayed `role` (`kind: text('role', { enum: TASK_KINDS })`), and
+// ADR-066 removed `cleo bug`/`--role` in favour of `--kind`. One column, two
+// names — so a contract declaring both really is an SSoT violation.
 
 const KNOWN_ALIAS_PAIRS = [
   ['parent', 'parentId'],
   ['role', 'kind'],
-  ['type', 'kind'],
 ];
 
 function lintContractsForAliases() {

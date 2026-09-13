@@ -164,7 +164,7 @@ function extractCount(data: unknown): number {
  * output remains scannable in a 132-col terminal.
  */
 function renderTableList(tasks: Array<Record<string, unknown>>): string {
-  if (tasks.length === 0) return 'No rows.';
+  if (tasks.length === 0) return '';
 
   const COL_TITLE_MAX = 60;
   const rows = tasks.map((t) => ({
@@ -270,8 +270,9 @@ export class UnsupportedRendererError extends Error {
  * Single-record envelopes (`{task: {...}}`, bare `{id, status, title}`) emit
  * exactly one line. List-shaped envelopes (`{tasks: []}` / `{items: []}`)
  * emit one line per element. Records missing `id` are skipped (consistent
- * with `--output id`). Empty arrays return `'No rows.'` to match the
- * `--output table` empty contract.
+ * with `--output id`). An empty collection emits NOTHING — an empty stream is
+ * the correct representation of zero rows in a machine-readable mode, and the
+ * human explanation goes to stderr (gh#1317).
  *
  * Title is truncated to 60 chars (UTF-16 code units) with a trailing `…`
  * when shortened — matches the cell cap used by `renderTableList`.
@@ -281,7 +282,7 @@ export class UnsupportedRendererError extends Error {
  */
 export function renderSummary(data: unknown): OutputModeResult {
   if (data === null || typeof data !== 'object') {
-    return { text: 'No rows.', emptyReason: 'no-renderable-records' };
+    return { text: '', emptyReason: 'no-renderable-records' };
   }
   const rec = data as Record<string, unknown>;
 
@@ -302,7 +303,7 @@ export function renderSummary(data: unknown): OutputModeResult {
     return { text: renderSummaryRow(rec) };
   }
 
-  return { text: 'No rows.', emptyReason: 'no-renderable-records' };
+  return { text: '', emptyReason: 'no-renderable-records' };
 }
 
 /** Render a single record line: `<id> [<status>] <title-truncated-60>`. */
@@ -315,7 +316,7 @@ function renderSummaryRow(record: Record<string, unknown>): string {
 
 /** Render a list of records, one line each. Skips rows lacking an id. */
 function renderSummaryList(rows: unknown[]): OutputModeResult {
-  if (rows.length === 0) return { text: 'No rows.', emptyReason: 'no-renderable-records' };
+  if (rows.length === 0) return { text: '', emptyReason: 'no-renderable-records' };
   const lines: string[] = [];
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
@@ -324,7 +325,7 @@ function renderSummaryList(rows: unknown[]): OutputModeResult {
     lines.push(renderSummaryRow(rec));
   }
   return lines.length === 0
-    ? { text: 'No rows.', emptyReason: 'no-renderable-records' }
+    ? { text: '', emptyReason: 'no-renderable-records' }
     : { text: lines.join('\n') };
 }
 
@@ -346,12 +347,135 @@ function renderSummaryList(rows: unknown[]): OutputModeResult {
  * }
  * ```
  */
+/**
+ * How much of a matching result set a projection mode actually returned.
+ *
+ * @task T12123
+ */
+export interface TruncationFacts {
+  /** Rows emitted on stdout. */
+  returned: number;
+  /** Rows the query matched. */
+  total: number;
+}
+
+/**
+ * Detect that a projection mode is about to emit fewer rows than the query
+ * matched.
+ *
+ * Why this exists (T12123 · GH #1242)
+ * -----------------------------------
+ * `cleo list --status pending --output count` reported 1075 while
+ * `--output id` returned 10 for the same query, seconds apart, with no
+ * `_truncated`, no `hasMore`, no `nextCursor`, and nothing on stderr. The
+ * short list was indistinguishable from a complete list of ten.
+ *
+ * Neither number is wrong. `count` is the filter-aware match count by design
+ * (see {@link extractCount} and T11481 · DHQ-034), and `TASK_LIST_DEFAULT_LIMIT`
+ * is 10. The defect is that the enumeration modes silently discard the `page`
+ * metadata the envelope already carries — `{mode:"offset", limit:10, offset:0,
+ * hasMore:true, total:1075}` — so the caller has no way to learn it saw a page.
+ *
+ * The consequence is worse than a short list. An agent enumerating tasks
+ * bottom-up to diff against a top-down walk got 16 of ~220 rows and reported
+ * "2 orphans" — a clean, plausible, entirely artefactual finding, which also
+ * implied the other 205 had been verified. Absent rows read as "these do not
+ * exist" rather than "these were not returned".
+ *
+ * @param data - The envelope `data` payload.
+ * @param page - The envelope `page` metadata, when the command supplied it.
+ * @returns The counts when the emitted set is a strict subset of the matched
+ *          set; `null` when the result is complete (or not a collection).
+ */
+export function detectTruncation(data: unknown, page?: unknown): TruncationFacts | null {
+  if (data === null || typeof data !== 'object') return null;
+  const rec = data as Record<string, unknown>;
+  const collection = pickCollection(rec);
+  if (!collection) return null;
+  const returned = collection.length;
+
+  // Prefer the envelope's own pagination statement when present.
+  if (page !== null && typeof page === 'object') {
+    const pageRec = page as Record<string, unknown>;
+    const total = pageRec['total'];
+    if (pageRec['hasMore'] === true && typeof total === 'number' && total > returned) {
+      return { returned, total };
+    }
+  }
+
+  // Fall back to the filter-aware match count the payload carries. This is the
+  // same field `--output count` prints, so the warning and that number can
+  // never disagree.
+  const filtered = rec['filtered'];
+  if (typeof filtered === 'number' && filtered > returned) {
+    return { returned, total: filtered };
+  }
+  const total = rec['total'];
+  if (typeof total === 'number' && total > returned && rec['filtered'] === undefined) {
+    return { returned, total };
+  }
+  return null;
+}
+
+/**
+ * Render surfaces that emit one line per RETURNED row and therefore can
+ * present a page as if it were the whole set.
+ *
+ * `count` is deliberately absent: it prints the filter-aware match count, so
+ * it is the one mode that already tells the truth about the full population.
+ *
+ * @task T12123
+ */
+export type TruncatableRender = Extract<OutputMode, 'id' | 'table'> | 'summary';
+
+/**
+ * The truncation warning text for a projection mode.
+ *
+ * Deliberately written to stderr by the caller, never stdout: `--output id`
+ * exists to be piped, and a warning line inside the id stream would corrupt
+ * the very consumer it is meant to protect (ADR-086 — one clean payload per
+ * call on stdout). The exit code is deliberately left at 0 as well: flipping
+ * it would break every `set -e` consumer to fix a silent-truncation bug,
+ * trading one silent failure for a loud unrelated one.
+ *
+ * @task T12123
+ */
+export function formatTruncationWarning(
+  facts: TruncationFacts,
+  mode: TruncatableRender,
+  enumerateAllFlag?: string,
+): string {
+  const surface = mode === 'summary' ? '--summary' : `--output ${mode}`;
+  const head = `cleo: TRUNCATED — ${surface} returned ${facts.returned} of ${facts.total} matching rows. `;
+
+  // The remedy is only printed when the CALLING COMMAND declares a flag that
+  // actually enumerates everything, and the caller supplies its spelling. This
+  // warning is emitted from the generic `cliOutput`, which every command reaches
+  // — so an unconditional "re-run with --all (or --limit 0)" is advice that is
+  // wrong for most of them. On `cleo find` specifically BOTH halves are wrong:
+  // no `all` arg is declared, and `--limit 0` is `slice(0, 0)` — zero rows. Once
+  // the unknown-flag guard lands, that suggestion becomes a hard
+  // E_UNKNOWN_FLAG exit rather than a harmless one, i.e. the CLI refusing the
+  // invocation it just told the caller to run.
+  //
+  // Keeping the flag's spelling with the command that owns it means a command
+  // that gains or loses the flag cannot fall out of step with this message —
+  // there is no second list here to update.
+  if (enumerateAllFlag) {
+    return (
+      `${head}Re-run with ${enumerateAllFlag} to enumerate every match, ` +
+      'or pass --limit/--offset to page deliberately.'
+    );
+  }
+  return `${head}Pass --limit <n> / --offset <n> to page deliberately, or narrow the query.`;
+}
+
 export function renderOutputMode(mode: OutputMode, data: unknown): OutputModeResult {
   switch (mode) {
     case 'id': {
       const ids = extractIds(data);
       return ids.length === 0
-        ? { text: 'No ids.', emptyReason: 'no-renderable-ids' }
+        ? { text: '', emptyReason: 'no-renderable-ids' }
         : { text: ids.join('\n') };
     }
     case 'count': {
@@ -362,11 +486,18 @@ export function renderOutputMode(mode: OutputMode, data: unknown): OutputModeRes
         const rec = data as Record<string, unknown>;
         const collection = pickCollection(rec);
         if (collection) {
-          return { text: renderTableList(collection as Array<Record<string, unknown>>) };
+          const text = renderTableList(collection as Array<Record<string, unknown>>);
+          // An empty TSV is zero bytes, and the REASON still travels — to
+          // stderr, via the caller. Losing it here would trade one defect for
+          // another: a silent empty stream with no way to tell "no rows" from
+          // "the command did not run" (gh#1317).
+          return text.length === 0 ? { text: '', emptyReason: 'no-renderable-records' } : { text };
         }
         return { text: renderTableGeneric(rec) };
       }
-      return { text: data === null || data === undefined ? '(empty)' : String(data) };
+      return data === null || data === undefined
+        ? { text: '', emptyReason: 'no-renderable-records' }
+        : { text: String(data) };
     }
     case 'silent': {
       return { text: null, emptyReason: 'silent-mode' };

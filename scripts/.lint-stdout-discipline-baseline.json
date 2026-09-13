@@ -44,12 +44,12 @@
     "packages/cleo/src/cli/commands/sentient.ts:962",
     "packages/cleo/src/cli/commands/sentient.ts:966",
     "packages/cleo/src/cli/commands/sentient.ts:971",
-    "packages/cleo/src/cli/commands/session.ts:746",
+    "packages/cleo/src/cli/commands/session.ts:752",
     "packages/cleo/src/cli/commands/skill.ts:91",
     "packages/cleo/src/cli/commands/snapshot.ts:41",
     "packages/cleo/src/cli/commands/snapshot.ts:42",
     "packages/cleo/src/cli/commands/status.ts:289",
     "packages/cleo/src/cli/commands/worktree.ts:274"
   ],
-  "updatedAt": "2026-09-13T01:56:15.062Z"
+  "updatedAt": "2026-09-13T15:34:19.635Z"
 }

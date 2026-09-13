@@ -15,7 +15,15 @@
 
 import type { ArchivedTask } from './archive.js';
 import type { Session } from './session.js';
-import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from './task.js';
+import type {
+  Task,
+  TaskKind,
+  TaskPriority,
+  TaskSeverity,
+  TaskSize,
+  TaskStatus,
+  TaskType,
+} from './task.js';
 
 /**
  * Agent instance row shape for DataAccessor methods.
@@ -59,6 +67,27 @@ export interface TaskQueryFilters {
   status?: TaskStatus | TaskStatus[];
   priority?: TaskPriority;
   type?: TaskType;
+  /**
+   * Severity axis filter (`P0`-`P3`). Orthogonal to {@link priority}.
+   *
+   * @remarks
+   * T12120 (GH #1245): `severity` is a first-class ADR-066 axis that
+   * `cleo add --severity` persists, but it had no read path at any layer —
+   * so `cleo list --severity P0` returned every task with no signal that the
+   * constraint had been dropped. A filter that is accepted and not applied
+   * fails OPEN, which is the most dangerous possible answer to "show me only
+   * the critical items".
+   */
+  severity?: TaskSeverity | TaskSeverity[];
+  /**
+   * Kind axis filter (`work`/`research`/`experiment`/`bug`/`spike`/`release`).
+   * Orthogonal to {@link type}. Stored in the `role` DB column.
+   *
+   * @remarks
+   * T12120 (GH #1245): missing from the read path for the same reason as
+   * {@link severity}.
+   */
+  kind?: TaskKind | TaskKind[];
   parentId?: string | null; // null = root tasks only
   phase?: string;
   label?: string;

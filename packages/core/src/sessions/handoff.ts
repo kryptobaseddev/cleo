@@ -42,10 +42,38 @@ export interface HandoffData {
   openBlockers: string[];
   /** Open bugs */
   openBugs: string[];
-  /** Human override note */
-  note?: string;
-  /** Human override next action */
-  nextAction?: string;
+  /**
+   * Human override note. **Always present** — `null` when none was recorded.
+   *
+   * GH #1277: this was `note?: string`, assigned only when a note existed, so
+   * a handoff that recorded no note omitted the key and read as a complete
+   * handoff. Absence and emptiness must not be the same byte sequence.
+   */
+  note: string | null;
+  /**
+   * Length of {@link note} in characters, `0` when none was recorded.
+   *
+   * Lets a consumer distinguish "no note" from "note withheld by a projection"
+   * without carrying the note itself.
+   */
+  noteChars: number;
+  /**
+   * Human override next action. **Always present** — `null` when none was set.
+   *
+   * GH #1277: carried the identical defect to {@link note} — assigned only
+   * under `if (options.nextAction)`, so both "none set" and "set to an empty
+   * string" collapsed into an absent key. Fixed in the same change, because a
+   * `requireKeys` rule that guards `note` while its twin sits beside it
+   * knowingly under-covers the object it names.
+   */
+  nextAction: string | null;
+  /**
+   * Length of {@link nextAction} in characters, `0` when none was set.
+   *
+   * Same purpose as {@link noteChars}: separates "not set" from "withheld by a
+   * projection" without carrying the value.
+   */
+  nextActionChars: number;
 }
 
 /**
@@ -93,15 +121,14 @@ export async function computeHandoff(
     nextSuggested: computeNextSuggested(session, tasks),
     openBlockers: findOpenBlockers(tasks, session),
     openBugs: findOpenBugs(tasks, session),
+    // GH #1277 — emitted unconditionally. `null` is a recorded answer; an
+    // absent key is not, and `cleanHandoff` strips the empty arrays around it
+    // so the remainder reads as a complete handoff either way.
+    note: options.note ?? null,
+    noteChars: options.note?.length ?? 0,
+    nextAction: options.nextAction ?? null,
+    nextActionChars: options.nextAction?.length ?? 0,
   };
-
-  // Apply human overrides
-  if (options.note) {
-    handoff.note = options.note;
-  }
-  if (options.nextAction) {
-    handoff.nextAction = options.nextAction;
-  }
 
   return handoff;
 }

@@ -403,6 +403,20 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorLegacyBackupsCommand as CommandDef,
   },
   {
+    exportName: 'doctorLegacyReaperCommand',
+    name: 'legacy-reaper',
+    description: 'Detect the legacy cleo-mcp-reaper user timer that kills processes by generic ',
+    load: async () =>
+      (await import('../commands/doctor-legacy-reaper.js')).doctorLegacyReaperCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorMalformedIdsCommand',
+    name: 'malformed-ids',
+    description: 'Report task rows whose id is not a valid task identifier — rows that ',
+    load: async () =>
+      (await import('../commands/doctor-malformed-ids.js')).doctorMalformedIdsCommand as CommandDef,
+  },
+  {
     exportName: 'doctorMemoryGuardCommand',
     name: 'memory-guard',
     description:

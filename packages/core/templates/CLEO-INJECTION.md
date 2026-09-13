@@ -257,7 +257,7 @@ Path policy: use repo-relative paths inside current repo/worktree — do not att
 <!-- /CLEO-INJECTION:section=documents -->
 <!-- CLEO-INJECTION:section=human-render -->
 ## Human Render Contract (ADR-077)
-Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` ∈ `tree | table | list | grouped-list | section | single | generic` — agents route on `kind`. Render logic in `packages/core/src/render/`, primitives in `packages/animations/render/`, icon enums in `@cleocode/contracts/render/icon.ts`. Families self-register via `registerRenderer(command, kind, fn)`. Commands: `cleo show T<id>` (typed), `cleo show T<id> --human` (force), `cleo tree T<id>` (generic walk of parent + `groups` edges). Full: `cleo docs fetch adr-077-human-render-contract`.
+Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` ∈ `tree | table | list | grouped-list | section | single | generic` — agents route on `kind`. Render logic in `packages/core/src/render/`, primitives in `packages/animations/render/`, icon enums in `@cleocode/contracts/render/icon.ts`. Families self-register via `registerRenderer(command, kind, fn)`. Commands: `cleo show T<id>` (typed), `cleo show T<id> --human` (force), `cleo tree T<id>` (generic walk of parent + `groups` edges).
 <!-- /CLEO-INJECTION:section=human-render -->
 
 <!-- CLEO-INJECTION:section=output-contract -->
@@ -267,8 +267,8 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 
 | Need | Flag | Example |
 |------|------|---------|
-| Scalar extract | `--field <jsonpointer>` | `id=$(cleo add 'X' --acceptance "..." --field /data/created/0)` |
-| ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id \| while read c; do …; done` |
+| Scalar extract | `--field <jsonpointer>` | mutate: `id=$(cleo add 'X' --acceptance "..." --field /data/created/0)` · read: `st=$(cleo show T123 --field /data/task/status)` |
+| ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id --limit 0 \| while read c; do …; done` — **`--limit 0` means EVERY match on BOTH `list` and `find`** (gh#1302, fixed). REQUIRED on `list`, which otherwise stops at 10 silently while `--output count` reports the true total. On `find`, `--all` is the same thing with a name. |
 | Affected count | `--output count` | `cleo list --parent EPIC --status pending --output count` |
 | TSV (no header) | `--output table` | `cleo list --parent EPIC --output table` |
 | Silent (exit-code only) | `--output silent` | `cleo update T123 --status done --output silent` |
@@ -276,7 +276,7 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 | Suppress stderr | `--quiet` | `cleo add-batch --file f.json --parent T1 --quiet --output id` |
 | Force full record | `--full` | `cleo show T123 --full` |
 
-Mutate ops (`add`, `add-batch`, `update`, `complete`, `delete`) return `{count, created[], updated[], deleted[], ids[]}` by default (T9931). Use contract-backed paths: `/data/created/0` for create/add-batch, `/data/updated/0` for update/complete, `/data/deleted/0` for delete, and `/data/count` for counts. `ids[]` is a deprecated compatibility alias; opt back to full record via `--full`. Anti-patterns (REJECTED): `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`. Full contract: `cleo docs fetch adr-086-cli-output-contract-e9`.
+**READ and MUTATE envelopes NEST DIFFERENTLY — the most-guessed-wrong pointer shape.** Mutation envelopes are FLAT (`/data/created/0`); read envelopes nest the record, so `cleo show` needs `/data/task/status`, NEVER `/data/status`. `--field` resolves `description`/`acceptance`/`verification` transparently even under the default projection — no `--full` needed. An unresolvable pointer is a typed `E_FIELD_NOT_FOUND` listing every valid pointer for that op; read it rather than guessing again. `cleo verify`'s own response is SELF-CONFIRMING (it returns the full `verification` object) — do not re-read to check it; if you must, use `--field /data/task/verification`, never `--field /data/task` (MVI-projected, and it made six verified tasks look like no-op writes). Mutate ops (`add`, `add-batch`, `update`, `complete`, `delete`) return `{count, created[], updated[], deleted[], ids[]}` by default (T9931). Use contract-backed paths: `/data/created/0` for create/add-batch, `/data/updated/0` for update/complete, `/data/deleted/0` for delete, and `/data/count` for counts. `ids[]` is a deprecated compatibility alias; opt back to full record via `--full`. Anti-patterns (REJECTED): `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`.
 <!-- /CLEO-INJECTION:section=output-contract -->
 
 <!-- CLEO-INJECTION:section=error-handling -->
@@ -298,6 +298,13 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | — | `E_EVIDENCE_STALE` | Files/commits changed since `verify`; re-verify with updated evidence |
 | — | `E_EVIDENCE_INVALID_DECISION` | `decision:<id>` atom — decision ID not found or not accepted/proposed in BRAIN |
 | — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` or `CLEO_OWNER_OVERRIDE=1` |
+| — | `E_IDEMPOTENCY_UNSUPPORTED` | That verb ignores `--idempotency-key`; the key was NOT applied. Query before retrying |
+| 143 / 137 | *(killed — no code)* | **A killed write carries NO information about whether it committed** |
+
+### A killed write is not a failed write
+
+A 143/137 exit — or a bare exit with no output — says nothing about whether the mutation landed: the commit is fast, the teardown after it is what hangs, so the row is usually THERE. **Never retry a killed mutation blindly.** Check by id first — `cleo show <id> --full`. A HIT is conclusive even while the writer is still hung (the race can hide a committed row, never invent one); a MISS proves nothing until the writer exits. Searching instead of reading by id needs exact flags, because both read paths hide a row you just wrote (`find` excludes archived; `list` truncates at 10 and new children sort last): `cleo find "<title>" --include-archive --all` and `cleo list --parent <id> --limit 0`. `--idempotency-key` does NOT make a retry safe on `add`/`add-batch`/`update`/`docs add`/`memory observe`/`relates add` — those reject it outright.
+
 <!-- /CLEO-INJECTION:section=error-handling -->
 
 <!-- CLEO-INJECTION:section=pre-complete-gate -->
@@ -307,27 +314,18 @@ MANDATORY before every `cleo complete <id>`. Every gate write MUST be backed by 
 
 ### 1. Capture evidence for each gate
 
-```bash
-# implemented — commit + file list (OR decision:<id> for decision-only tasks)
-cleo verify T### --gate implemented \
-  --evidence "commit:<sha>;files:path/a.ts,path/b.ts"
+Every gate takes `cleo verify T### --gate <gate> --evidence "<atoms>"`:
 
-# testsPassed — tool:test (canonical) or test-run:<json>
-cleo verify T### --gate testsPassed --evidence "tool:test"
+| gate | evidence that satisfies it |
+|------|----------------------------|
+| `implemented` | `commit:<sha>;files:path/a.ts,path/b.ts` — or `decision:<id>` for decision-only tasks |
+| `testsPassed` | `tool:test` (canonical) or `test-run:<json>` |
+| `qaPassed` | `tool:lint;tool:typecheck` |
+| `documented` | `files:docs/spec.md` |
+| `securityPassed` | `tool:security-scan` |
+| `cleanupDone` | `note:removed dead branches` |
 
-# qaPassed — lint + typecheck
-cleo verify T### --gate qaPassed --evidence "tool:lint;tool:typecheck"
-
-# retroactive PR atom (PR MERGED + CI green) satisfies implemented + testsPassed + qaPassed
-cleo verify T### --gate implemented --evidence "pr:357"
-cleo verify T### --gate testsPassed --evidence "pr:357"
-cleo verify T### --gate qaPassed --evidence "pr:357"
-
-# documented / securityPassed / cleanupDone
-cleo verify T### --gate documented --evidence "files:docs/spec.md"
-cleo verify T### --gate securityPassed --evidence "tool:security-scan"
-cleo verify T### --gate cleanupDone --evidence "note:removed dead branches"
-```
+A retroactive `pr:<number>` atom (PR MERGED + CI green) satisfies `implemented` + `testsPassed` + `qaPassed` at once — record it against each of the three.
 
 ### 2. Then complete
 
@@ -382,23 +380,9 @@ Accepts IFF PR `state=MERGED` AND required-workflow checks are `SUCCESS`/`SKIPPE
 | `1` | tier 0 + full **CLEO-INJECTION.md embed** (this document) — **default** |
 | `2` | tier 1 + **ct-cleo** + **ct-orchestrator** skill excerpts + **SUBAGENT-PROTOCOL-BLOCK** + anti-patterns |
 
-Invoke with an explicit tier:
+Invoke with `cleo orchestrate spawn T1234 --tier 0|1|2` — tier 0 for quick workers, tier 2 for autonomous ones; omitting `--tier` gives tier 1.
 
-```bash
-cleo orchestrate spawn T1234 --tier 0   # minimal (quick workers)
-cleo orchestrate spawn T1234            # tier 1 (default)
-cleo orchestrate spawn T1234 --tier 2   # full (autonomous workers)
-```
-
-Every spawn prompt contains these required sections — orchestrators can programmatically assert their presence before dispatching a subagent:
-
-- `## Task Identity`
-- `## File Paths (absolute — do not guess)`
-- `## Session Linkage`
-- `## Stage-Specific Guidance`
-- `## Evidence-Based Gate Ritual (MANDATORY · ADR-051 · T832)`
-- `## Quality Gates`
-- `## Return Format Contract (MANDATORY)`
+Every spawn prompt contains these required sections, so an orchestrator can programmatically assert their presence before dispatching: `## Task Identity` · `## File Paths (absolute — do not guess)` · `## Session Linkage` · `## Stage-Specific Guidance` · `## Evidence-Based Gate Ritual (MANDATORY · ADR-051 · T832)` · `## Quality Gates` · `## Return Format Contract (MANDATORY)`.
 <!-- /CLEO-INJECTION:section=spawn-tiers -->
 
 <!-- CLEO-INJECTION:section=rules -->

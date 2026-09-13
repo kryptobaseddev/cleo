@@ -63,6 +63,24 @@ export interface AddTaskOptions {
   priority?: TaskPriority;
   type?: TaskType;
   parentId?: string | null;
+  /**
+   * Where {@link parentId} came from.
+   *
+   * @remarks
+   * T12136 (GH #1232/#1238): `E_CLEO_DEPTH_EXCEEDED` named a parent the caller
+   * had never mentioned — it was inherited from the session's `current`
+   * pointer — and the message read as though the caller had asked to file
+   * under it. The suggested remedy then pointed at the parent epic of a task
+   * the caller never intended to be under at all, and that advice was the only
+   * actionable-looking thing in the message.
+   *
+   * Knowing the provenance lets the error describe the world the caller is in
+   * rather than the checker's state. Defaults to `'explicit'` so a caller that
+   * genuinely passed `--parent` is never told it was inferred.
+   *
+   * @defaultValue 'explicit'
+   */
+  parentSource?: 'explicit' | 'session-inference';
   size?: TaskSize;
   phase?: string;
   labels?: string[];
@@ -813,7 +831,11 @@ export async function addTask(
           `correct container (saga→epic, epic→task, task→subtask).`,
       fix: isFirstTask
         ? 'cleo saga create --title "<theme>" --description "..." --acceptance "AC1|AC2|AC3|AC4|AC5"'
-        : 'cleo add "Task title" --parent T### --acceptance "AC1|AC2|AC3"',
+        : // T12136 (GH #1232) — was `cleo add "Task title" --parent T### …`, the
+          // POSITIONAL-title form, contradicting the `--title` form used
+          // throughout CLEO-INJECTION.md. A fix hint that disagrees with the
+          // injected protocol makes the reader doubt both.
+          'cleo add --type task --parent T### --title "..." --acceptance "AC1|AC2|AC3"',
     });
   }
 
@@ -1026,13 +1048,28 @@ export async function addTask(
       // concrete higher-level container, or to --parent none to escape
       // auto-inference (the task will still need a valid parent).
       const grandparentEpic = ancestors.length > 0 ? ancestors[ancestors.length - 1] : ancestors[0];
+
+      // T12136 (GH #1232/#1238) — when the parent was INHERITED rather than
+      // named, say so FIRST. Otherwise the message reads as though the caller
+      // asked to file under `parentId`, and the "use --parent <epic>" advice
+      // — the only actionable-looking line — points into a hierarchy the
+      // caller never intended to touch. Naming the inference converts the
+      // suggestion from misleading to optional.
+      const wasInherited = options.parentSource === 'session-inference';
+      const provenance = wasInherited
+        ? `You did not pass --parent: ${parentId} was inherited from the active session ` +
+          `pointer (cleo current). `
+        : '';
+      const escapeHint = wasInherited
+        ? ' Or pass --parent <id> explicitly to override the session pointer, or --parent none to suppress inference.'
+        : '';
       const epicSuggestion = grandparentEpic
         ? ` Use --parent ${grandparentEpic.id} (the parent epic) instead.`
         : ' Reparent under a higher-level container, or use --parent none to suppress session-based parent inference.';
       throw new CleoError(
         ExitCode.DEPTH_EXCEEDED,
-        `Cannot add a child to ${parentId}: the hierarchy depth cap (${policy.maxDepth}) would be exceeded. ` +
-          `Tasks at depth ${parentDepth} cannot have children.${epicSuggestion}`,
+        `${provenance}Cannot add a child to ${parentId}: the hierarchy depth cap (${policy.maxDepth}) would be exceeded. ` +
+          `Tasks at depth ${parentDepth} cannot have children.${epicSuggestion}${escapeHint}`,
         {
           fix: grandparentEpic
             ? `cleo add --parent ${grandparentEpic.id} --title "..." --acceptance "..."`
@@ -1043,6 +1080,7 @@ export async function addTask(
             actual: parentDepth + 1,
             suggestedParentId: grandparentEpic?.id,
             suggestedParentTitle: grandparentEpic?.title,
+            parentSource: options.parentSource ?? 'explicit',
           },
         },
       );

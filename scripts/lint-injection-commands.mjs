@@ -328,6 +328,135 @@ export function findRequiredArgViolations(markdown, sourceForVerb) {
   return violations;
 }
 
+// ---------------------------------------------------------------------------
+// T12127 (GH #1225 · #1239 · #1231) — documented POINTERS must resolve too.
+//
+// Gate 14 already asserts that every `cleo <verb>` named in the template
+// exists, and T12077 extended it to "exists AND is runnable". This is the same
+// rule one level down: a documented `--field` JSON pointer must resolve against
+// the operation's `fieldPointers` contract.
+//
+// The template's only `--field` example was `cleo add … --field /data/created/0`
+// — a MUTATION envelope, which is flat. Read envelopes nest under `task`. With
+// no read example to generalise from, every agent following the injection
+// guessed `/data/<field>` for a read and hit E_FIELD_NOT_FOUND. Three separate
+// agents filed it (#1225, #1239, #1231), and each said the same thing: the
+// error message is excellent, the documentation is what was wrong.
+// ---------------------------------------------------------------------------
+
+/** Pointers documented for a shell-variable capture rather than a real op. */
+const POINTER_PLACEHOLDERS = new Set(['<jsonpointer>', '<pointer>', '<field>']);
+
+/**
+ * Extract every `cleo <verb> … --field <pointer>` pairing from markdown.
+ *
+ * Scoped to a single line so a `--field` further down the document is never
+ * attributed to an unrelated verb above it.
+ *
+ * @param markdown - the template text.
+ * @returns `{verb, pointer, raw}` records in document order.
+ */
+export function extractDocumentedPointers(markdown) {
+  const out = [];
+  for (const line of markdown.split('\n')) {
+    for (const m of line.matchAll(
+      /\bcleo\s+([a-z][\w-]*)[^\n]*?--field\s+(\/[\w\-./<>]+|<[\w-]+>)/g,
+    )) {
+      const verb = m[1];
+      const pointer = m[2];
+      if (POINTER_PLACEHOLDERS.has(pointer)) continue;
+      if (!pointer.startsWith('/')) continue;
+      out.push({ verb, pointer, raw: `cleo ${verb} --field ${pointer}` });
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse `operation -> Set<fieldPointer>` out of the OUTPUT_CONTRACTS source.
+ *
+ * Reads from SOURCE, never `dist/`, so the gate runs on a bare checkout with
+ * no install and no build — the same contract the sibling gates follow.
+ *
+ * @param source - contents of `packages/contracts/src/operations/output-contracts-data.ts`.
+ * @returns map of operation name → the pointers its contract declares.
+ */
+export function loadFieldPointerContracts(source) {
+  const contracts = new Map();
+  const opMatches = [...source.matchAll(/operation:\s*'([a-z][\w.-]*)'/g)];
+  for (let i = 0; i < opMatches.length; i++) {
+    const op = opMatches[i][1];
+    const start = opMatches[i].index ?? 0;
+    const end =
+      i + 1 < opMatches.length ? (opMatches[i + 1].index ?? source.length) : source.length;
+    const block = source.slice(start, end);
+    const fp = block.match(/fieldPointers:\s*\[([\s\S]*?)\]/);
+    if (!fp) continue;
+    const pointers = new Set([...fp[1].matchAll(/'(\/[^']+)'/g)].map((m) => m[1]));
+    if (pointers.size > 0) contracts.set(op, pointers);
+  }
+  return contracts;
+}
+
+/**
+ * Resolve a CLI verb to its canonical `<domain>.<operation>` identifier.
+ *
+ * Three declaration styles are in use across the command modules, so all three
+ * are matched rather than assuming one:
+ *   - `dispatchRaw('query', 'tasks', 'show')`
+ *   - `operation: 'tasks.update'`
+ *   - `getOperationParams('query', 'tasks', 'show')`
+ *
+ * @param source - the verb's command-module source, or null when unresolvable.
+ * @returns the operation name, or null.
+ */
+export function operationForVerbSource(source) {
+  if (!source) return null;
+  const dispatch = source.match(/dispatchRaw\(\s*'(?:query|mutate)',\s*'([\w.-]+)',\s*'([\w.-]+)'/);
+  if (dispatch) return `${dispatch[1]}.${dispatch[2]}`;
+  const explicit = source.match(/operation:\s*'([a-z][\w.-]*\.[\w.-]+)'/);
+  if (explicit) return explicit[1];
+  const params = source.match(
+    /getOperationParams\(\s*'(?:query|mutate)',\s*'([\w.-]+)',\s*'([\w.-]+)'/,
+  );
+  if (params) return `${params[1]}.${params[2]}`;
+  return null;
+}
+
+/**
+ * Flag every documented `--field` pointer that its operation's contract does
+ * not declare.
+ *
+ * Silent when the verb cannot be resolved to an operation, or the operation has
+ * no OUTPUT contract yet (OUTPUT_CONTRACTS is populated incrementally) — this
+ * gate asserts that what IS documented is correct, never that every op has a
+ * contract.
+ *
+ * @param markdown - the template text.
+ * @param contracts - from {@link loadFieldPointerContracts}.
+ * @param sourceForVerb - resolves a verb to its command-module source.
+ * @returns violation records shaped like the gate's other checks.
+ */
+export function findPointerViolations(markdown, contracts, sourceForVerb) {
+  const violations = [];
+  for (const doc of extractDocumentedPointers(markdown)) {
+    const operation = operationForVerbSource(sourceForVerb(doc.verb));
+    if (!operation) continue;
+    const declared = contracts.get(operation);
+    if (!declared) continue;
+    if (declared.has(doc.pointer)) continue;
+    violations.push({
+      raw: doc.raw,
+      reason:
+        `pointer "${doc.pointer}" is not declared by the ${operation} OUTPUT contract. ` +
+        `Valid: ${[...declared].join(', ')}. ` +
+        'Every agent CLEO spawns is instructed to use these pointers, so a wrong one ' +
+        'costs a turn and teaches the wrong envelope shape.',
+    });
+  }
+  return violations;
+}
+
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   const asJson = process.argv.includes('--json');
@@ -364,20 +493,35 @@ if (isMain) {
   };
   violations.push(...findRequiredArgViolations(markdown, sourceForVerb));
 
+  // T12127: existence and runnability are still not enough — a documented
+  // `--field` pointer must also RESOLVE against the op's OUTPUT contract.
+  const pointerContracts = loadFieldPointerContracts(
+    readFileSync(
+      join(REPO_ROOT, 'packages/contracts/src/operations/output-contracts-data.ts'),
+      'utf-8',
+    ),
+  );
+  violations.push(...findPointerViolations(markdown, pointerContracts, sourceForVerb));
+
   if (asJson) {
     process.stdout.write(`${JSON.stringify({ violations }, null, 2)}\n`);
   } else if (violations.length > 0) {
     process.stderr.write(
-      `CLEO-INJECTION.md names ${violations.length} command(s) that do not exist.\n` +
-        'Every agent CLEO spawns is instructed to run these.\n\n',
+      `CLEO-INJECTION.md has ${violations.length} unresolvable reference(s) ` +
+        '(a command that does not exist, an invocation that cannot run, or a ' +
+        '`--field` pointer the operation does not declare).\n' +
+        'Every agent CLEO spawns is instructed to follow these.\n\n',
     );
     for (const v of violations) {
       process.stderr.write(`  ✗ ${v.raw}\n      ${v.reason}\n`);
     }
-    process.stderr.write('\nFix the template, or implement the command.\n');
+    process.stderr.write(
+      '\nFix the template, or implement the command / add the pointer to the contract.\n',
+    );
   } else {
     process.stdout.write(
-      `CLEO-INJECTION.md: all ${extractCleoCommands(markdown).length} referenced commands exist.\n`,
+      `CLEO-INJECTION.md: all ${extractCleoCommands(markdown).length} referenced commands exist, ` +
+        `and all ${extractDocumentedPointers(markdown).length} documented --field pointer(s) resolve.\n`,
     );
   }
   process.exit(violations.length > 0 ? 1 : 0);

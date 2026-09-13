@@ -657,6 +657,21 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       if (filters.type) conditions.push(eq(schema.tasks.type, filters.type));
       if (filters.phase) conditions.push(eq(schema.tasks.phase, filters.phase));
 
+      // T12120 (GH #1245) — severity/kind are ADR-066 first-class axes that
+      // `cleo add` persists but no read path ever filtered on, so
+      // `list --severity P0` silently returned every task. Both accept a
+      // single value or an array; values are validated upstream by
+      // `assertTaskAxisFilters` so an unknown value can never reach SQL and
+      // widen the result set.
+      if (filters.severity) {
+        const severities = Array.isArray(filters.severity) ? filters.severity : [filters.severity];
+        conditions.push(inArray(schema.tasks.severity, severities));
+      }
+      if (filters.kind) {
+        const kinds = Array.isArray(filters.kind) ? filters.kind : [filters.kind];
+        conditions.push(inArray(schema.tasks.kind, kinds));
+      }
+
       if (filters.parentId !== undefined) {
         if (filters.parentId === null) {
           conditions.push(isNull(schema.tasks.parentId));

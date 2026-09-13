@@ -242,6 +242,17 @@ export interface BriefingFieldRule {
    * Violations are emitted when an item carries one of these provenance values.
    */
   excludeProvenance?: BriefingExcludeProvenance[];
+  /**
+   * Keys that MUST be present on this field's object, even when the value is
+   * `null`. Applies to object-valued fields (not lists) and exists to stop an
+   * absent key from being indistinguishable from a recorded-empty one.
+   *
+   * The motivating case (GH #1277) is `lastSession.handoff.note`: a handoff
+   * that recorded no note omitted the key entirely, so a lost handoff and a
+   * note-free handoff were byte-identical to a consumer. `null` satisfies the
+   * rule; a missing key does not.
+   */
+  requireKeys?: readonly string[];
 }
 
 /**
@@ -284,8 +295,9 @@ export interface ContractViolation {
    * - `stale` — field data exceeds `maxAgeDays`.
    * - `duplicate` — two items share the same `dedupBy` key value.
    * - `excluded-provenance` — item carries a banned provenance tag.
+   * - `missing-key` — an object field omits a key named in `requireKeys`.
    */
-  kind: 'stale' | 'duplicate' | 'excluded-provenance';
+  kind: 'stale' | 'duplicate' | 'excluded-provenance' | 'missing-key';
   /** Severity — P0 violations block `cleo briefing --strict`. */
   severity: 'P0' | 'P1';
 }

@@ -38,6 +38,50 @@ import { taskToRecord } from './engine-converters.js';
 import { findTasks } from './find.js';
 
 /**
+ * Where a resolved parent came from.
+ *
+ * @remarks
+ * T12136 (GH #1232/#1238) — `E_CLEO_DEPTH_EXCEEDED` named a parent the caller
+ * had never mentioned, because it had been inherited from session state, and
+ * the message read as though the caller had asked for it. An explicit argument
+ * must always outrank an inference, and an inference that fires must be
+ * visible in the output; this discriminant is what makes the second half
+ * possible.
+ *
+ * @task T12136
+ */
+export type ParentSource = 'explicit' | 'parent-search' | 'session-inference';
+
+/** Result of {@link resolveParentFromSession}. */
+export interface ParentResolution {
+  /** The resolved parent ID, or `null` when none was determined. */
+  resolvedParent: string | null;
+  /** Where {@link resolvedParent} came from. */
+  parentSource: ParentSource;
+  /**
+   * Present when the resolution was NOT a plain explicit parent — an
+   * inference fired, was declined as stale, or the session lookup failed.
+   * Safe to surface verbatim to the caller.
+   */
+  inferenceNote?: string;
+  /** Set when resolution failed outright (e.g. `--parent-search` matched nothing). */
+  error?: EngineResult<never>;
+}
+
+/**
+ * Statuses that disqualify a task from being inherited as a parent.
+ *
+ * @remarks
+ * T12136: session state outlives the work it points at. Inheriting a parent
+ * from finished work is never what the caller meant.
+ */
+const NON_INFERABLE_PARENT_STATUSES: ReadonlySet<string> = new Set([
+  'done',
+  'cancelled',
+  'archived',
+]);
+
+/**
  * Resolve the parent task ID through 3 mechanisms in priority order (T090):
  * 1. Explicit --parent flag (already resolved by caller)
  * 2. --parent-search fuzzy title match
@@ -57,15 +101,17 @@ export async function resolveParentFromSession(
     parentSearch?: string;
     type?: string;
   },
-): Promise<{ resolvedParent: string | null; error?: EngineResult<never> }> {
-  // 1. Explicit --parent: use as-is
+): Promise<ParentResolution> {
+  // 1. Explicit --parent: use as-is. An explicit argument ALWAYS outranks an
+  //    inference — this branch must stay first.
   if (params.parent) {
-    return { resolvedParent: params.parent };
+    return { resolvedParent: params.parent, parentSource: 'explicit' };
   }
 
   const accessor = await getTaskAccessor(projectRoot);
 
-  // 2. --parent-search: fuzzy title match
+  // 2. --parent-search: fuzzy title match. Still caller-driven, but the ID was
+  //    chosen by a search rather than named, so it is reported.
   if (params.parentSearch) {
     const searchResult = await findTasks(
       { query: params.parentSearch, limit: 1 },
@@ -73,10 +119,16 @@ export async function resolveParentFromSession(
       accessor,
     );
     if (searchResult.results.length > 0) {
-      return { resolvedParent: searchResult.results[0].id };
+      const match = searchResult.results[0];
+      return {
+        resolvedParent: match.id,
+        parentSource: 'parent-search',
+        inferenceNote: `--parent-search "${params.parentSearch}" resolved to ${match.id}`,
+      };
     }
     return {
       resolvedParent: null,
+      parentSource: 'explicit',
       error: engineError(
         'E_NOT_FOUND',
         `No task found matching --parent-search "${params.parentSearch}"`,
@@ -84,19 +136,54 @@ export async function resolveParentFromSession(
     };
   }
 
-  // 3. Session-scoped epic inheritance (non-epic tasks only)
+  // 3. Session-scoped epic inheritance (non-epic tasks only).
+  //
+  // T12136 (GH #1232/#1238): this is the SECOND session-derived inference site
+  // — the CLI's `inferTaskAddParams` infers from the session's `current` task
+  // pointer, while this one infers from `session.scope.epicId`. The CLI path
+  // sets `params.parent` before reaching here, so this branch is what
+  // NON-CLI callers (SDK, dispatch, MCP) actually hit, and it was equally
+  // silent. Fixing only the CLI would have left the programmatic path in
+  // exactly the state the issues describe.
   if (params.type !== 'epic') {
     try {
       const session = await getActiveSession(projectRoot);
       if (session?.scope?.type === 'epic' && session.scope.epicId) {
-        return { resolvedParent: session.scope.epicId };
+        const epicId = session.scope.epicId;
+        // Do not inherit from an epic that is already finished — a session
+        // scope outlives the work it points at.
+        const epic = await accessor.loadSingleTask(epicId);
+        if (epic && NON_INFERABLE_PARENT_STATUSES.has(epic.status)) {
+          return {
+            resolvedParent: null,
+            parentSource: 'explicit',
+            inferenceNote:
+              `declined to inherit parent ${epicId} from the session's epic scope ` +
+              `because it is '${epic.status}'; pass --parent <id> explicitly`,
+          };
+        }
+        return {
+          resolvedParent: epicId,
+          parentSource: 'session-inference',
+          inferenceNote:
+            `no parent given; inherited ${epicId} from the session's epic scope, ` +
+            'not from this command',
+        };
       }
-    } catch {
-      // Session lookup failure is non-fatal — proceed without parent
+    } catch (err: unknown) {
+      // Still non-fatal, but no longer indistinguishable from "no session
+      // scope" — a broken lookup used to look identical to a clean one.
+      return {
+        resolvedParent: null,
+        parentSource: 'explicit',
+        inferenceNote: `session lookup for parent inference failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      };
     }
   }
 
-  return { resolvedParent: null };
+  return { resolvedParent: null, parentSource: 'explicit' };
 }
 
 /**
@@ -129,6 +216,12 @@ export async function addTaskWithSessionScope(
     files?: string[];
     dryRun?: boolean;
     parentSearch?: string;
+    /**
+     * Set by the CLI when it already inferred the parent from the session's
+     * `current` pointer, so core does not re-derive provenance it cannot see.
+     * @task T12136
+     */
+    parentSource?: 'explicit' | 'session-inference';
     kind?: string;
     scope?: string;
     severity?: string;
@@ -149,14 +242,29 @@ export async function addTaskWithSessionScope(
      * parent (PM-Core V2 design-point 5). @saga T10538
      */
     reopenedAncestors?: string[];
+    /**
+     * Present when the parent was NOT a plain explicit argument — an inference
+     * fired, was declined as stale, or the session lookup failed.
+     *
+     * @remarks
+     * T12136 (GH #1232/#1238): an inference that fires must be visible in the
+     * output. It was previously announced only through the CLI's `humanInfo`,
+     * which is silent under `--json`/`--quiet`, so programmatic callers — the
+     * ones that then hit `E_CLEO_DEPTH_EXCEEDED` naming a task they had never
+     * mentioned — never saw it.
+     */
+    parentInference?: { parentSource: ParentSource; note: string };
   }>
 > {
   try {
-    const { resolvedParent, error } = await resolveParentFromSession(projectRoot, {
-      parent: params.parent,
-      parentSearch: params.parentSearch,
-      type: params.type,
-    });
+    const { resolvedParent, parentSource, inferenceNote, error } = await resolveParentFromSession(
+      projectRoot,
+      {
+        parent: params.parent,
+        parentSearch: params.parentSearch,
+        type: params.type,
+      },
+    );
 
     if (error) {
       return error as EngineResult<{
@@ -174,6 +282,12 @@ export async function addTaskWithSessionScope(
         title: params.title,
         description: params.description,
         parentId: resolvedParent,
+        // T12136: so `E_CLEO_DEPTH_EXCEEDED` can say the parent was inherited
+        // rather than named. The CLI may already have decided this upstream.
+        parentSource:
+          params.parentSource === 'session-inference' || parentSource === 'session-inference'
+            ? 'session-inference'
+            : 'explicit',
         depends: params.depends,
         priority: (params.priority as TaskPriority) || 'medium',
         labels: params.labels,
@@ -197,6 +311,8 @@ export async function addTaskWithSessionScope(
       task: taskToRecord(result.task),
       duplicate: result.duplicate ?? false,
       dryRun: params.dryRun,
+      // T12136: report the inference on the machine-readable channel.
+      ...(inferenceNote ? { parentInference: { parentSource, note: inferenceNote } } : {}),
       ...(result.warnings?.length && { warnings: result.warnings }),
       // T10538 / design-point 5 — surface the ancestor reopen to the caller.
       ...(result.reopenedAncestors?.length && {

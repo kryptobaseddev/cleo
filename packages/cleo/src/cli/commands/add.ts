@@ -440,11 +440,30 @@ export const addCommand = defineCommand({
     }
     if (inferred.files) params['files'] = inferred.files;
     if (inferred.acceptance) params['acceptance'] = inferred.acceptance;
-    // T1329: parent inference from active session's current task
+    // T1329: parent inference from active session's current task.
+    //
+    // T12136 (GH #1232/#1238) — the inference is now reported on BOTH channels.
+    // It used to be announced only via `humanInfo`, which returns early unless
+    // `format === 'human' && !quiet` — so under `--json` or a pipe, the
+    // population most affected by a silently-inherited parent (agents) never
+    // saw it. `parentSource` travels with the dispatch payload so core can
+    // name the inference in `E_CLEO_DEPTH_EXCEEDED`, and the notice is lifted
+    // into the envelope's meta so machine consumers can read it too.
     if (inferred.inferredParent) {
       params['parent'] = inferred.inferredParent;
-      humanInfo(`[cleo add] inferred --parent from current task: ${inferred.inferredParent}`);
+      params['parentSource'] = 'session-inference';
+      humanInfo(
+        `[cleo add] ${inferred.parentInference?.note ?? `inferred --parent from current task: ${inferred.inferredParent}`}`,
+      );
     }
+    // A DECLINED inference matters just as much: it is why a task the caller
+    // expected to be parented came out unparented.
+    if (inferred.parentInference && inferred.parentInference.outcome !== 'applied') {
+      if (inferred.parentInference.outcome !== 'no-current-task') {
+        humanWarn(`⚠ [cleo add] ${inferred.parentInference.note}`);
+      }
+    }
+    const parentInferenceMeta = inferred.parentInference;
 
     // T9073 / T9071: fire signed severity attestation for any role.
     // Severity is orthogonal to priority — no auto-mapping here.
@@ -484,20 +503,33 @@ export const addCommand = defineCommand({
       }
     }
 
+    // T12136: surface the parent-inference decision in the envelope so a
+    // `--json` consumer can see that the parent did not come from its command.
+    const inferenceExtensions =
+      parentInferenceMeta && parentInferenceMeta.outcome !== 'no-current-task'
+        ? { parentInference: parentInferenceMeta }
+        : undefined;
+
     if (data?.duplicate) {
       cliOutput(data, {
         command: 'add',
         message: 'Task with identical title was created recently',
         operation: 'tasks.add',
+        ...(inferenceExtensions ? { extensions: inferenceExtensions } : {}),
       });
     } else if (data?.dryRun) {
       cliOutput(data, {
         command: 'add',
         message: 'Dry run - no changes made',
         operation: 'tasks.add',
+        ...(inferenceExtensions ? { extensions: inferenceExtensions } : {}),
       });
     } else {
-      cliOutput(data, { command: 'add', operation: 'tasks.add' });
+      cliOutput(data, {
+        command: 'add',
+        operation: 'tasks.add',
+        ...(inferenceExtensions ? { extensions: inferenceExtensions } : {}),
+      });
     }
   },
 });

@@ -35,6 +35,8 @@ import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
+import { doctorLegacyReaperCommand } from './doctor-legacy-reaper.js';
+import { doctorMalformedIdsCommand } from './doctor-malformed-ids.js';
 import { doctorMemoryGuardCommand } from './doctor-memory-guard.js';
 import { doctorNexusResidencyCommand } from './doctor-nexus-residency.js';
 import { runDoctorProjects } from './doctor-projects.js';
@@ -240,6 +242,10 @@ export const doctorCommand = defineCommand({
     'db-substrate': doctorDbSubstrateCommand,
     // T10309 / Saga T10281 / Epic T10282 — Legacy-backup walker
     'legacy-backups': doctorLegacyBackupsCommand,
+    // T12131 — the reaper that kills live Codex sessions
+    'legacy-reaper': doctorLegacyReaperCommand,
+    // T12128 — task ids that fail the write-path validator
+    'malformed-ids': doctorMalformedIdsCommand,
     // T12095 — pre-dual-scope store files still on disk under their old LIVE names
     'superseded-store': doctorSupersededStoreCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify

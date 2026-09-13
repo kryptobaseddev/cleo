@@ -55,11 +55,18 @@ export function renderBriefing(data: Record<string, unknown>, quiet: boolean): s
     if (typeof decisions === 'number' && decisions > 0) {
       lines.push(`  ${DIM}Decisions recorded:${NC} ${decisions}`);
     }
+    // GH #1277 — print the absence. A silent renderer makes a note-free
+    // handoff look identical to a lost one on the human surface too, which is
+    // how the JSON-side omission stayed invisible for as long as it did.
     if (handoff['note']) {
       lines.push(`  ${DIM}Note:${NC} ${String(handoff['note'])}`);
+    } else {
+      lines.push(`  ${DIM}Note:${NC} ${DIM}(none recorded)${NC}`);
     }
     if (handoff['nextAction']) {
       lines.push(`  ${DIM}Next action:${NC} ${String(handoff['nextAction'])}`);
+    } else {
+      lines.push(`  ${DIM}Next action:${NC} ${DIM}(none set)${NC}`);
     }
     lines.push('');
   } else {

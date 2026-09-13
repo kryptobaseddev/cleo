@@ -71,6 +71,41 @@ describe('SQLite tasks-sqlite', () => {
   // === createTask ===
 
   describe('createTask', () => {
+    // T12128 (gh#1249): the id shape was validated on every READ path and on
+    // none of the write paths. A project path reached the `id` column of
+    // `tasks_tasks` — `id='/mnt/projects/cleocode'` — and the row became
+    // IMMORTAL: `cleo list` returns it while `show`, `update` and `delete` all
+    // reject the id as malformed before they can reach it. The read-side
+    // validators that should have prevented it are what make it unfixable.
+    it.each([
+      ['/mnt/projects/cleocode', 'a filesystem path — the value actually found in the store'],
+      ['../../etc/passwd', 'a relative path'],
+      ['', 'empty'],
+      ['1234', 'starts with a digit, so it is a count not an id'],
+      ['see T1234 for details', 'prose containing a valid id — whitespace is disqualifying'],
+      ['T\nX', 'embedded control character'],
+      ['T'.repeat(65), 'absurd length'],
+    ])('refuses to insert a task whose id is %j (%s)', async (badId) => {
+      const { createTask } = await import('../tasks-sqlite.js');
+      const task = makeTask({ id: badId, title: 'should never be stored' });
+
+      await expect(createTask(task)).rejects.toThrow(/malformed id/i);
+    });
+
+    it.each([
+      ['T4242', 'the canonical generated shape'],
+      // CLEO mints this itself in `archive-reason-invariant.ts`. A guard that
+      // rejected it would break `cleo release reconcile`, and the doctor's
+      // --fix would DELETE working release follow-up tasks.
+      ['T-RECONCILE-FOLLOWUP-v2026.5.63-6', 'a structured id CLEO generates on purpose'],
+      ['T932EP', 'a pre-existing shape found in a live store'],
+    ])('accepts %j (%s)', async (goodId) => {
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
+      await createTask(makeTask({ id: goodId, title: 'legitimate' }));
+
+      expect(await getTask(goodId)).not.toBeNull();
+    });
+
     it('creates a task and retrieves it', async () => {
       const { createTask, getTask } = await import('../tasks-sqlite.js');
       const task = makeTask({ id: 'T001', title: 'First task', description: 'A test task' });

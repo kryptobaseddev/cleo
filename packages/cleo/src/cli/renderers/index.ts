@@ -112,7 +112,12 @@ import { getOutputMode } from '../output-context.js';
 import { getSummaryMode } from '../summary-context.js';
 import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
 import { normalizeForHuman } from './normalizer.js';
-import { renderOutputMode, renderSummary } from './output-mode.js';
+import {
+  detectTruncation,
+  formatTruncationWarning,
+  renderOutputMode,
+  renderSummary,
+} from './output-mode.js';
 
 export type { RenderWavesMode, RenderWavesOptions } from '@cleocode/core';
 export { renderWaves };
@@ -312,6 +317,15 @@ export interface CliOutputOptions {
   operation?: string;
   /** Pagination metadata for canonical envelope `page` field. */
   page?: FormatOptions['page'];
+  /**
+   * Spelling of this command's "return everything" flag, e.g. `'--all'`.
+   *
+   * Supplied ONLY by commands that actually declare such a flag. The truncation
+   * warning names it as the remedy when present, and falls back to
+   * `--limit`/`--offset` advice when absent — so a command without the flag can
+   * never print a remedy its own arg parser would reject.
+   */
+  enumerateAllFlag?: string;
   /** Extra metadata extensions merged into `meta`. */
   extensions?: Record<string, unknown>;
   /**
@@ -344,6 +358,40 @@ export interface CliOutputOptions {
  * @task T4666
  * @task T4813
  */
+/**
+ * Write a machine-readable render to stdout, and its emptiness to stderr.
+ *
+ * `--output id` is contracted to emit one task ID per line; `--output table`
+ * to emit TSV. **An empty result must therefore be an empty stream**, not a
+ * sentence. It previously printed `No ids.` / `No rows.` onto stdout, so the
+ * pipeline CLEO's own protocol documents —
+ *
+ * ```
+ * cleo list --parent EPIC --output id | while read c; do … ; done
+ * ```
+ *
+ * — ran its body with `c` set to `No` and then `ids.` against a childless
+ * parent, i.e. against two task IDs that do not exist (gh#1317).
+ *
+ * The asymmetry that made it obvious: `--output count` already answered `0`
+ * for the same query, correctly and machine-readably.
+ *
+ * The human explanation is not discarded — it goes to **stderr**, where an
+ * interactive caller still sees it and a pipeline does not consume it. That is
+ * the same split ADR-086 already requires of every log line.
+ *
+ * @task T12170
+ */
+function writeMachineOutput(text: string, emptyReason?: string): void {
+  if (text.length > 0) {
+    process.stdout.write(`${text}\n`);
+    return;
+  }
+  // Empty stdout is the answer. Say WHY on stderr so an interactive caller is
+  // not left wondering whether the command ran.
+  process.stderr.write(`No output (${emptyReason ?? 'empty'}).\n`);
+}
+
 export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const ctx = getFormatContext();
   const fieldCtx = getFieldContext();
@@ -358,8 +406,18 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   if (outputMode !== 'envelope' && !fieldCtx.field) {
     const out = renderOutputMode(outputMode, data);
     if (out.text !== null) {
-      const text = out.text.length > 0 ? out.text : `No output (${out.emptyReason ?? 'empty'}).`;
-      process.stdout.write(text + '\n');
+      writeMachineOutput(out.text, out.emptyReason);
+    }
+    // T12123 (GH #1242) — disclose truncation for the ENUMERATION modes.
+    // `count` is exempt: it already prints the full match count, so a warning
+    // there would contradict its own output. Written to stderr so a piped
+    // `--output id` stream stays parseable (ADR-086).
+    if (outputMode === 'id' || outputMode === 'table') {
+      const facts = detectTruncation(data, opts.page);
+      if (facts)
+        process.stderr.write(
+          `${formatTruncationWarning(facts, outputMode, opts.enumerateAllFlag)}\n`,
+        );
     }
     return;
   }
@@ -372,9 +430,14 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   if (summary && !fieldCtx.field) {
     const out = renderSummary(data);
     if (out.text !== null) {
-      const text = out.text.length > 0 ? out.text : `No output (${out.emptyReason ?? 'empty'}).`;
-      process.stdout.write(text + '\n');
+      writeMachineOutput(out.text, out.emptyReason);
     }
+    // T12123 (GH #1242) — the reporter flagged `--summary` as untested for the
+    // same skew. It has it: `--summary` is one line per RETURNED record, so a
+    // truncated page reads as the whole set here too.
+    const facts = detectTruncation(data, opts.page);
+    if (facts)
+      process.stderr.write(`${formatTruncationWarning(facts, 'summary', opts.enumerateAllFlag)}\n`);
     return;
   }
 
