@@ -1263,17 +1263,30 @@ jobs:
         # Windows shards temporarily disabled pending T9182/T9181 follow-up — pre-existing
         # afterEach hook hangs on injection-chain + orchestrate-engine + paths tests.
         # Linux + macOS validate cross-platform correctness for v2026.5.50.
-        # T12177 (gh#1359): macOS runs in the MERGE QUEUE, not on every PR push.
+        # T12177 (gh#1359): macOS runs on what LANDS, not on every PR push.
         # Measured 2026-09-13: `Unit Tests (macos-latest, shard 1)` took 33.0
         # min against 18.6 min for the identical ubuntu shard, and macOS was
         # 4,071 s of the run's 8,290 job-seconds (49%). It was therefore both
         # the entire critical path of every PR and half the cost — while
         # `required_status_checks.strict` guaranteed the commit it validated
         # would be invalidated by the next merge to main. The coverage was
-        # real; the commit it covered was not the one that landed.
-        # Gating on `merge_group` instead runs macOS against the exact tree
-        # that is about to become main, amortised across the whole batch.
-        os: ${{ fromJson(github.event_name == 'merge_group' && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        # real; the commit it covered was never the one that landed.
+        #
+        # So macOS moves to the two events that ARE the landed commit:
+        # `push` to main (post-merge verification, which is what exists today)
+        # and `merge_group`. The merge-queue arm is deliberately kept even
+        # though this repo cannot use it — merge queue requires an
+        # organization-owned repository and `kryptobaseddev` is a personal
+        # account, verified 2026-09-13 by a controlled pair against
+        # POST /rulesets: `{"type":"merge_queue"}` returns 422 "Invalid rule"
+        # while `{"type":"deletion"}` on the same endpoint returns 201. If the
+        # repo is ever transferred to an org, macOS becomes a pre-merge gate
+        # again by enabling the queue, with no change to this file.
+        #
+        # The tradeoff this accepts: a macOS-only regression now lands on main
+        # before it is detected, instead of blocking the PR. It is detected on
+        # the very next push run, against the exact commit that introduced it.
+        os: ${{ fromJson((github.event_name == 'merge_group' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
         shard: [1, 2]
       fail-fast: false
     steps:
@@ -1449,17 +1462,30 @@ jobs:
     strategy:
       matrix:
         # Windows temporarily disabled pending T9182/T9181 follow-up.
-        # T12177 (gh#1359): macOS runs in the MERGE QUEUE, not on every PR push.
+        # T12177 (gh#1359): macOS runs on what LANDS, not on every PR push.
         # Measured 2026-09-13: `Unit Tests (macos-latest, shard 1)` took 33.0
         # min against 18.6 min for the identical ubuntu shard, and macOS was
         # 4,071 s of the run's 8,290 job-seconds (49%). It was therefore both
         # the entire critical path of every PR and half the cost — while
         # `required_status_checks.strict` guaranteed the commit it validated
         # would be invalidated by the next merge to main. The coverage was
-        # real; the commit it covered was not the one that landed.
-        # Gating on `merge_group` instead runs macOS against the exact tree
-        # that is about to become main, amortised across the whole batch.
-        os: ${{ fromJson(github.event_name == 'merge_group' && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        # real; the commit it covered was never the one that landed.
+        #
+        # So macOS moves to the two events that ARE the landed commit:
+        # `push` to main (post-merge verification, which is what exists today)
+        # and `merge_group`. The merge-queue arm is deliberately kept even
+        # though this repo cannot use it — merge queue requires an
+        # organization-owned repository and `kryptobaseddev` is a personal
+        # account, verified 2026-09-13 by a controlled pair against
+        # POST /rulesets: `{"type":"merge_queue"}` returns 422 "Invalid rule"
+        # while `{"type":"deletion"}` on the same endpoint returns 201. If the
+        # repo is ever transferred to an org, macOS becomes a pre-merge gate
+        # again by enabling the queue, with no change to this file.
+        #
+        # The tradeoff this accepts: a macOS-only regression now lands on main
+        # before it is detected, instead of blocking the PR. It is detected on
+        # the very next push run, against the exact commit that introduced it.
+        os: ${{ fromJson((github.event_name == 'merge_group' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
