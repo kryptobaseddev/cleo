@@ -69,8 +69,26 @@ jobs:
       - name: Initialize CLEO project context
         # cleo init is idempotent — safe to run even when the project is already
         # initialized. This ensures `.cleo/` and the audit directory exist.
+        #
+        # `--yes` was removed here (gh#1373). It never existed on `init` — the
+        # command is non-interactive by construction and has no such flag. citty
+        # accepted and ignored it, so on <= 2026.8.9 the step worked by accident.
+        # #1276 turns an unknown flag into a hard E_UNKNOWN_FLAG, so from
+        # v2026.9.1 BOTH branches of the old `||` chain fail; the trailing
+        # `|| true` then swallowed it and the step reported success while
+        # having initialized nothing. Two properties of that old line are worth
+        # keeping out of any replacement: stderr was sent to /dev/null, and a
+        # real failure was indistinguishable from a no-op. Neither is true below
+        # — a failure is annotated on the run, and the step still exits 0 so an
+        # already-initialized project (the common case) does not fail the job.
         run: |
-          cleo init --yes 2>/dev/null || pnpm dlx @cleocode/cleo init --yes 2>/dev/null || true
+          if cleo init; then
+            echo "cleo init: ok (workspace binary)"
+          elif pnpm dlx @cleocode/cleo init; then
+            echo "cleo init: ok (pnpm dlx)"
+          else
+            echo "::warning::cleo init failed on both the workspace binary and pnpm dlx; continuing, but .cleo/ may be absent and downstream steps may find nothing to prune"
+          fi
         env:
           CLEO_PROJECT_ROOT: ${{ github.workspace }}
 
