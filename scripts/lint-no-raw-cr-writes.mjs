@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /**
- * Lint rule: reject raw `process.stdout.write('\r…')` writes outside
- * `@cleocode/animations`.
+ * Lint rule: reject raw `process.stdout.write('\r…')` AND
+ * `process.stderr.write('\r…')` writes outside `@cleocode/animations`.
+ *
+ * The regex has always covered both streams; this header said "stdout" only,
+ * which made the rule look narrower than it is and made its suggested remedy
+ * look universal when it is not — see "Opt-out" below.
  *
  * Why this matters
  * ----------------
@@ -18,8 +22,20 @@
  * Opt-out
  * -------
  * Genuinely necessary exceptions can append `// raw-cr-allowed` as a trailing
- * comment on the offending line. Use sparingly — usually the right answer is
- * to add the surface to `@cleocode/animations` and consume it from there.
+ * comment ON THE OFFENDING LINE — a preceding comment block does not suppress
+ * it. Use sparingly; usually the right answer is to add the surface to
+ * `@cleocode/animations` and consume it from there.
+ *
+ * The one case where that is NOT the right answer, and the reason this note
+ * exists: `createSpinnerHandle` writes to `process.stdout` only, and
+ * `SpinnerHandleOptions` carries no stream option. A `process.stderr.write`
+ * callsite therefore CANNOT take the suggested remedy, and for progress output
+ * it should not want to — ADR-086 reserves stdout for exactly one LAFS
+ * envelope, so moving a `\r` write from stderr to stdout would trade a
+ * cosmetic concern for a protocol violation. Three such callsites exist in
+ * `cleo/src/cli/commands/llm-login.ts` (interactive OAuth progress) and are
+ * marked. If a stderr-capable handle is ever added to `@cleocode/animations`,
+ * they should route through it and the markers should come out.
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
