@@ -36,7 +36,7 @@ import {
   defineCommand,
   runCommand,
 } from 'citty';
-
+import { cittyErrorCodeName, cittyErrorFix, stripAnsi } from './citty-error-envelope.js';
 // NOTE: `@cleocode/core/internal` is a 2018-line barrel re-exporting 406
 // symbols. A top-level eager import here transitively loads the entire CORE
 // dependency tree (drizzle, node:sqlite, every dispatch handler, every
@@ -513,9 +513,9 @@ async function runMainWithLafsEnvelope(
         // `console.log` (stdout), which would corrupt the JSON envelope below.
         // The envelope's `fix` field tells humans how to recover; agents key
         // off `codeName`. Help is one `cleo <cmd> --help` away.
-        cliError(cittyCliError.message, 1, {
-          name: cittyCliError.code === 'EARG' ? 'E_VALIDATION' : `E_${cittyCliError.code}`,
-          fix: `Run 'cleo <command> --help' to see required arguments.`,
+        cliError(stripAnsi(cittyCliError.message), 1, {
+          name: cittyErrorCodeName(cittyCliError.code),
+          fix: cittyErrorFix(cittyCliError.code),
         });
         process.exit(1);
       }
