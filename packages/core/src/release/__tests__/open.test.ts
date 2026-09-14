@@ -144,6 +144,7 @@ function makeStubRunner(opts?: {
   authOk?: boolean;
   runListResponse?: string;
   workflowRunThrows?: Error;
+  defaultBranch?: string;
 }): ReleaseOpenRunner & {
   calls: Array<{ cmd: string; args: readonly string[] }>;
 } {
@@ -175,6 +176,10 @@ function makeStubRunner(opts?: {
       }
       if (args[0] === 'run' && args[1] === 'watch') {
         return '';
+      }
+      // gh#1375: the guard asks GitHub which branch workflow_dispatch checks out.
+      if (args[0] === 'repo' && args[1] === 'view') {
+        return `${opts?.defaultBranch ?? 'main'}\n`;
       }
       return '';
     },
@@ -383,5 +388,105 @@ describe('releaseOpen — idempotency', () => {
       (c) => c.args[0] === 'workflow' && c.args[1] === 'run',
     ).length;
     expect(dispatchCallsAfterSecond).toBe(1);
+  });
+});
+
+// =============================================================================
+// gh#1375 — --commit-plan must reach the ref the workflow checks out
+// =============================================================================
+
+/**
+ * `--commit-plan` runs `git add -f` + `git commit` and nothing else; there is
+ * no push anywhere in `open.ts`. The dispatched workflow checks out the remote
+ * default branch, so a purely local commit leaves it reporting
+ * `Plan file … not found — cannot verify sha256` — AFTER lint, typecheck, both
+ * test shards and build have run. The whole cost is paid before the mistake is
+ * visible, which is why these tests assert that NO dispatch happened.
+ */
+describe('releaseOpen — gh#1375: the plan must be on the dispatch branch', () => {
+  /** Give `testDir` an `origin` bare remote with one commit on `main`. */
+  function attachRemote(): string {
+    const remote = join(
+      testDir,
+      '..',
+      `remote-${Date.now()}-${Math.random().toString(16).slice(2)}.git`,
+    );
+    execFileSync('git', ['init', '--bare', '--quiet', '--initial-branch=main', remote]);
+    execFileSync('git', ['-C', testDir, 'remote', 'add', 'origin', remote]);
+    execFileSync('git', ['-C', testDir, 'checkout', '-q', '-B', 'main']);
+    writeFileSync(join(testDir, 'README.md'), 'seed\n', { encoding: 'utf-8' });
+    execFileSync('git', ['-C', testDir, 'add', 'README.md']);
+    execFileSync('git', ['-C', testDir, 'commit', '-q', '-m', 'seed']);
+    execFileSync('git', ['-C', testDir, 'push', '-q', '-u', 'origin', 'main']);
+    return remote;
+  }
+
+  /** The dispatch we must NOT have made. */
+  function dispatchOf(runner: { calls: Array<{ args: readonly string[] }> }) {
+    return runner.calls.find((c) => c.args[0] === 'workflow' && c.args[1] === 'run');
+  }
+
+  it('REFUSES when the plan is committed locally but never pushed, and does not dispatch', async () => {
+    const version = 'v2026.6.0';
+    writePlanFile(version, makePlan(version));
+    writeWorkflowFile();
+    await seedReleaseRow(version, 'planned');
+    attachRemote();
+
+    const runner = makeStubRunner();
+    const result = await releaseOpen({ version, projectRoot: testDir, commitPlan: true }, runner);
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe(E_INVALID_STATE);
+    expect(result.error.message).toContain('absent from origin/main');
+    expect(result.error.fix).toContain('open a PR');
+    // The point of the guard: the preflight is never paid for.
+    expect(dispatchOf(runner)).toBeUndefined();
+  });
+
+  it('DISPATCHES with the hash when the plan is already on the dispatch branch', async () => {
+    const version = 'v2026.6.0';
+    const planPath = writePlanFile(version, makePlan(version));
+    writeWorkflowFile();
+    await seedReleaseRow(version, 'planned');
+    attachRemote();
+    // Put the exact bytes on origin/main before opening.
+    execFileSync('git', ['-C', testDir, 'add', '-f', planPath]);
+    execFileSync('git', ['-C', testDir, 'commit', '-q', '-m', 'chore(release): attach plan']);
+    execFileSync('git', ['-C', testDir, 'push', '-q', 'origin', 'main']);
+
+    const runner = makeStubRunner();
+    const result = await releaseOpen({ version, projectRoot: testDir, commitPlan: true }, runner);
+
+    expect(result.success).toBe(true);
+    const dispatched = dispatchOf(runner);
+    expect(dispatched).toBeDefined();
+    expect(dispatched?.args.some((a) => a.startsWith('plan-blob-sha256='))).toBe(true);
+  });
+
+  it('REFUSES when origin holds a DIFFERENT plan, naming both hashes, and does not dispatch', async () => {
+    const version = 'v2026.6.0';
+    const planPath = writePlanFile(version, makePlan(version));
+    writeWorkflowFile();
+    await seedReleaseRow(version, 'planned');
+    attachRemote();
+    // Push a plan, then change the local copy so the two disagree.
+    execFileSync('git', ['-C', testDir, 'add', '-f', planPath]);
+    execFileSync('git', ['-C', testDir, 'commit', '-q', '-m', 'chore(release): attach plan']);
+    execFileSync('git', ['-C', testDir, 'push', '-q', 'origin', 'main']);
+    const drifted = makePlan(version);
+    drifted.tasks[0].userFacingSummary = 'Drifted after the push';
+    writePlanFile(version, drifted);
+
+    const runner = makeStubRunner();
+    const result = await releaseOpen({ version, projectRoot: testDir, commitPlan: true }, runner);
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe(E_INVALID_STATE);
+    expect(result.error.message).toContain('does not match the local plan');
+    expect(result.error.message).toMatch(/remote sha256 [0-9a-f]{64}, local [0-9a-f]{64}/);
+    expect(dispatchOf(runner)).toBeUndefined();
   });
 });
