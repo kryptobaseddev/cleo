@@ -1,5 +1,20 @@
 # Changelog
 
+## [2026.9.3] (2026-09-14)
+
+### Fixed
+
+- An evidence-cache entry whose key can never rotate is no longer written or read. `computeCacheKey` hashes `{canonical, cmd, args, head, dirtyFingerprint}`; outside a git checkout both git fields are `null`, so the key becomes a function of **the command alone** — editing source does not change it, committing does not change it. `2026.9.2` fixed the variant that stores `exitCode: null`, a permanent unclearable **red**. This is its mirror and it is worse: a **real exit code**, which can be a **PASS**. A poisoned red fails closed and is investigated within minutes; a cached green closes the question, and `tool:test` satisfies `testsPassed` without spawning anything. Structural for any project whose CLEO root sits above its git root — a supported layout, where both fields are null on **every** run. Measured in the field: four entries, all `exitCode: 0`, the `test` one recording `122 files / 2557 tests` from 2026-08-07 against a suite now at `856 files / 13,621 tests` (gh#1404) _(provenance: [T12185](https://github.com/kryptobaseddev/cleo/search?q=T12185&type=commits))_
+- A citty error no longer emits `E_E_UNKNOWN_COMMAND`, raw ANSI escape bytes inside the JSON envelope, or a `fix` line that withholds the subcommands it already knows. The `E_` prefix was applied unconditionally to codes that are not uniformly prefixed; citty's colourised message went into the envelope verbatim, against ADR-086's one-parseable-envelope rule; and an unknown *subcommand* was told about required *arguments*. All three sat on the path an agent reaches for **after** something else has gone wrong (gh#1391) _(provenance: [T12184](https://github.com/kryptobaseddev/cleo/search?q=T12184&type=commits))_
+
+### Notes
+
+`2026.9.2`'s guard and this one are deliberately narrow: a git root still caches both passes and failures. Refusing more broadly would trade a fabricated pass for a permanent cache miss on healthy projects — the same overcorrection pointed the other way.
+
+Projects whose CLEO root is not a git checkout lose tool-result caching entirely. Stated rather than hidden: they were never getting valid caching, they were getting one answer forever. A content fingerprint that works without git would restore it and is a larger change.
+
+Repository-only in this release, with no effect on published packages: the post-deploy verifier now checks the **tarball** an install actually fetches rather than the per-version metadata, which propagate independently — measured on the `2026.9.2` publish, three packages served metadata `200` while their tarballs were still `404`, for 200–217 seconds, and the old check called all three confirmed (gh#1377). The `scripts` vitest project now runs in CI, gated on the files a change is responsible for; 34 test files had been unreachable because `scripts/**` was absent from the paths-filter (gh#1403).
+
 ## [2026.9.2] (2026-09-14)
 
 ### Fixed

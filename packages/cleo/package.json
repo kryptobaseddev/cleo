@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.9.2",
+  "version": "2026.9.3",
   "description": "CLEO CLI — the assembled product consuming @cleocode/core",
   "type": "module",
   "main": "./dist/cli/index.js",
