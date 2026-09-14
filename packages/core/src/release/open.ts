@@ -88,7 +88,17 @@ export interface ReleaseOpenOptions {
   watch?: boolean;
   /**
    * When true, commit the plan file to the active branch before dispatching.
-   * NOT the default — the workflow can re-derive the plan from `releases` + tasks.db.
+   *
+   * T12092: the claim this doc used to carry — "the workflow can re-derive the
+   * plan from `releases` + tasks.db" — is false. `.cleo/cleo.db` is gitignored
+   * (ADR-013 §9), so a runner has no task store and `cleo release plan` cannot
+   * run there. Committing the plan is the only way a task- or epic-scoped
+   * release can be planned.
+   *
+   * gh#1375: committing is necessary and NOT sufficient. The plan has to reach
+   * the branch `workflow_dispatch` checks out, and this module never pushes —
+   * so `releaseOpen` verifies the plan's presence and content on that remote
+   * ref and refuses before dispatching rather than after a full preflight.
    */
   commitPlan?: boolean;
   /**
@@ -413,11 +423,85 @@ async function readReleaseStatus(
  *
  * @internal
  */
-function commitPlanFile(planPath: string, version: string, projectRoot: string): void {
-  // Stage the plan file. Use a relative path so git accepts it inside the worktree.
-  const relPath = planPath.startsWith(projectRoot)
+function toRepoRelative(planPath: string, projectRoot: string): string {
+  return planPath.startsWith(projectRoot)
     ? planPath.slice(projectRoot.length).replace(/^\/+/, '')
     : planPath;
+}
+
+/**
+ * Resolve the branch `workflow_dispatch` will check out.
+ *
+ * A `workflow_dispatch` with no explicit ref runs against the repository's
+ * DEFAULT branch, so that — not the caller's current branch — is where the
+ * plan file has to be. Prefer GitHub's own answer; fall back to the local
+ * `origin/HEAD` symref when `gh` cannot answer.
+ *
+ * @internal
+ */
+function resolveDispatchBranch(runner: ReleaseOpenRunner, projectRoot: string): string | null {
+  try {
+    const name = runner
+      .runGh(
+        ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
+        projectRoot,
+      )
+      .trim();
+    if (name !== '') return name;
+  } catch {
+    // fall through to the local symref
+  }
+  try {
+    const ref = runGitWithLockRetry(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: SUBPROCESS_TIMEOUT_MS,
+    }).trim();
+    return ref.startsWith('origin/') ? ref.slice('origin/'.length) : ref || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * gh#1375: read the plan blob as it exists on the remote dispatch branch.
+ *
+ * Returns `null` when the path is absent there — which is the state a local
+ * `--commit-plan` leaves behind, because `commitPlanFile` commits and there is
+ * no push anywhere in this module.
+ *
+ * @internal
+ */
+function readPlanBlobOnRemote(relPath: string, projectRoot: string, branch: string): Buffer | null {
+  try {
+    runGitWithLockRetry(['fetch', '--quiet', 'origin', branch], {
+      cwd: projectRoot,
+      stdio: 'pipe',
+      timeout: SUBPROCESS_TIMEOUT_MS,
+    });
+  } catch {
+    // A failed fetch leaves the remote-tracking ref stale rather than absent;
+    // the cat-file below still answers, just against older data. Reporting
+    // "absent" from a stale ref is the safe direction — it refuses, it does
+    // not dispatch.
+  }
+  try {
+    // No `encoding`, so this is the raw blob: the workflow hashes bytes.
+    return execFileSync('git', ['cat-file', 'blob', `origin/${branch}:${relPath}`], {
+      cwd: projectRoot,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: SUBPROCESS_TIMEOUT_MS,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function commitPlanFile(planPath: string, version: string, projectRoot: string): void {
+  // Stage the plan file. Use a relative path so git accepts it inside the worktree.
+  const relPath = toRepoRelative(planPath, projectRoot);
   // `-f`: the plan lives under the gitignored `.cleo/`, so a plain `git add`
   // refuses it ("use -f if you really want to add them") and the commit below
   // would then have nothing staged.
@@ -590,11 +674,80 @@ export async function releaseOpen(
   const dispatchFields = ['--field', `version=${opts.version}`];
   // T12092: forward the plan hash ONLY when the plan was committed. The
   // workflow's verify branch reads the plan FILE from its checkout, so the hash
-  // is meaningful exactly when the file is present there — and committing is
-  // the only way it can be, since `.cleo/` is gitignored. Sending the hash
-  // without the file would fail verification; omitting it with the file present
-  // would pointlessly regenerate a plan CI cannot compute (no tasks.db).
+  // is meaningful exactly when the file is present there — and committing is a
+  // NECESSARY step toward that, since `.cleo/` is gitignored. It is not a
+  // sufficient one (gh#1375): a local commit is invisible to the runner, so the
+  // guard below checks the remote ref rather than trusting the commit.
   if (commitPlan) {
+    // gh#1375: committing is NECESSARY and NOT SUFFICIENT. `commitPlanFile`
+    // runs `git add -f` and `git commit` and nothing else — there is no push
+    // anywhere in this module — so the plan sits in a LOCAL commit while the
+    // workflow checks out the remote default branch and reports
+    //   ::error::Plan file .cleo/release/<v>.plan.json not found
+    // after lint, typecheck, both test shards and build have already run. The
+    // whole cost of the mistake is paid before the mistake is visible.
+    //
+    // So verify the claim the dispatch depends on — the plan file is present,
+    // with THIS content, on the ref the workflow will read — rather than the
+    // proxy for it (that a commit command exited 0). The two differ exactly in
+    // the case that has been failing.
+    const relPath = toRepoRelative(planPath, projectRoot);
+    const dispatchBranch = resolveDispatchBranch(runner, projectRoot);
+    if (dispatchBranch === null) {
+      return engineError<ReleaseOpenResult>(
+        E_INVALID_STATE,
+        'Cannot determine the default branch that workflow_dispatch will check out, so ' +
+          `the presence of ${relPath} there cannot be verified`,
+        {
+          exitCode: ExitCode.VALIDATION_ERROR,
+          fix: "Check 'gh repo view --json defaultBranchRef' and that 'origin' is configured",
+          details: { version: opts.version, planPath: relPath },
+        },
+      );
+    }
+    const remoteBlob = readPlanBlobOnRemote(relPath, projectRoot, dispatchBranch);
+    if (remoteBlob === null) {
+      return engineError<ReleaseOpenResult>(
+        E_INVALID_STATE,
+        `--commit-plan committed ${relPath} locally, but it is absent from ` +
+          `origin/${dispatchBranch} — the ref workflow_dispatch checks out. The dispatch ` +
+          'would fail its plan-verify step after a full preflight.',
+        {
+          exitCode: ExitCode.VALIDATION_ERROR,
+          fix:
+            `Get the plan commit onto ${dispatchBranch} first — open a PR carrying ${relPath}, ` +
+            `or push the branch that holds it — then re-run 'cleo release open ${opts.version}'.`,
+          details: {
+            version: opts.version,
+            planPath: relPath,
+            dispatchBranch,
+            planBlobSha256,
+          },
+        },
+      );
+    }
+    const remoteSha256 = createHash('sha256').update(remoteBlob).digest('hex');
+    if (remoteSha256 !== planBlobSha256) {
+      return engineError<ReleaseOpenResult>(
+        E_INVALID_STATE,
+        `${relPath} on origin/${dispatchBranch} does not match the local plan ` +
+          `(remote sha256 ${remoteSha256}, local ${planBlobSha256}). The workflow would ` +
+          'verify the remote copy and reject the hash this command is about to send.',
+        {
+          exitCode: ExitCode.VALIDATION_ERROR,
+          fix:
+            `Push the current plan to ${dispatchBranch} (or re-run 'cleo release plan ` +
+            `${opts.version}' if the remote copy is the newer one), then re-run this command.`,
+          details: {
+            version: opts.version,
+            planPath: relPath,
+            dispatchBranch,
+            localSha256: planBlobSha256,
+            remoteSha256,
+          },
+        },
+      );
+    }
     dispatchFields.push('--field', `plan-blob-sha256=${planBlobSha256}`);
   }
   if (opts.epic !== undefined && opts.epic !== '') {
