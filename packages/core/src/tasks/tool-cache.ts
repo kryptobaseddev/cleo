@@ -81,6 +81,13 @@ export interface ToolCacheEntry {
   dirtyFingerprint: string | null;
   /** Process exit code. */
   exitCode: number | null;
+  /**
+   * POSIX signal that terminated the run, when one did (gh#1381).
+   *
+   * Optional because entries written before this field existed do not carry
+   * it; absent and `null` both mean "not killed by a signal".
+   */
+  signal?: NodeJS.Signals | null;
   /** Last 512 bytes of stdout. */
   stdoutTail: string;
   /** Last 512 bytes of stderr. */
@@ -100,6 +107,13 @@ export interface ToolCacheEntry {
  */
 export interface ToolRunResult {
   exitCode: number | null;
+  /**
+   * POSIX signal that terminated the run, or `null`. Non-null means the tool
+   * STARTED and was killed — which is a different fact from `exitCode: null`
+   * alone, and the one the caller needs to avoid reporting a killed run as a
+   * missing binary (gh#1381).
+   */
+  signal: NodeJS.Signals | null;
   stdoutTail: string;
   stderrTail: string;
   durationMs: number;
@@ -393,6 +407,17 @@ export function computeCacheKey(
 
 interface CommandResult {
   exitCode: number | null;
+  /**
+   * POSIX signal name that terminated the child, or `null` when it exited
+   * normally (or never started).
+   *
+   * gh#1381: Node's `close` event is `(code, signal)` and exactly one of them
+   * is non-null. Binding only `code` collapses "killed after running" and
+   * "never started" into the same `exitCode: null`, one line after the two
+   * were distinguishable — and the caller then reports a 41-minute OOM-killed
+   * test suite as "binary missing or spawn error".
+   */
+  signal: NodeJS.Signals | null;
   stdout: string;
   stderr: string;
   /** `true` when the wall-clock deadline was exceeded and the process was force-killed. */
@@ -547,16 +572,28 @@ function spawnCmd(
       if (forceKillTimer !== undefined) clearTimeout(forceKillTimer);
     };
 
-    const finalise = (exitCode: number | null) => {
+    const finalise = (exitCode: number | null, signal: NodeJS.Signals | null) => {
       clearTimers();
-      resolve({ exitCode, stdout: stdoutBuf.toString(), stderr: stderrBuf.toString(), timedOut });
+      resolve({
+        exitCode,
+        signal,
+        stdout: stdoutBuf.toString(),
+        stderr: stderrBuf.toString(),
+        timedOut,
+      });
     };
 
+    // A genuine pre-start failure: ENOENT, EACCES, EAGAIN. No signal, no code.
     child.on('error', () => {
-      finalise(null);
+      finalise(null, null);
     });
-    child.on('close', (code) => {
-      finalise(code);
+    // gh#1381: `close` passes `(code, signal)` and exactly one is non-null.
+    // The signal arm is the OOM case — `withMemoryLimit` runs `test`/`build`
+    // inside a systemd scope with `MemorySwapMax=0`, so the kernel SIGKILLs
+    // the whole cgroup when the suite exceeds the ceiling. Dropping `signal`
+    // here is what made that indistinguishable from a missing binary.
+    child.on('close', (code, signal) => {
+      finalise(code, signal);
     });
 
     if (spawnTimeoutMs !== undefined && spawnTimeoutMs > 0) {
@@ -696,6 +733,16 @@ export function readCacheEntry(projectRoot: string, key: string): ToolCacheEntry
     // "file must exist" requirement. It carries no real result — treat as
     // a miss until the lock holder writes the entry.
     if (parsed.pending === true) return null;
+    // gh#1380: an entry whose run produced no exit code is not a result — it
+    // records that we do not know what happened. Refusing it on READ as well
+    // as declining to write it retires the entries already persisted by
+    // <= 2026.9.1, which cannot clean themselves up: when the tool ran off a
+    // non-git root, `head` and `dirtyFingerprint` are both null, they are part
+    // of the cache key, and a key that cannot change can never be invalidated
+    // by a commit or an edit. One signal-killed run would otherwise serve a
+    // cached "binary missing" forever, without ever spawning again — a
+    // permanent red that no amount of correct work clears.
+    if (parsed.exitCode === null || parsed.exitCode === undefined) return null;
     return parsed as ToolCacheEntry;
   } catch {
     return null;
@@ -778,6 +825,7 @@ export async function runToolCached(
     if (existing) {
       return {
         exitCode: existing.exitCode,
+        signal: existing.signal ?? null,
         stdoutTail: existing.stdoutTail,
         stderrTail: existing.stderrTail,
         durationMs: existing.durationMs,
@@ -824,6 +872,7 @@ export async function runToolCached(
           if (fresh) {
             return {
               exitCode: fresh.exitCode,
+              signal: fresh.signal ?? null,
               stdoutTail: fresh.stdoutTail,
               stderrTail: fresh.stderrTail,
               durationMs: fresh.durationMs,
@@ -863,6 +912,7 @@ export async function runToolCached(
         if (result.timedOut) {
           return {
             exitCode: result.exitCode,
+            signal: result.signal,
             stdoutTail: tailString(result.stdout, tailBytes),
             stderrTail: tailString(result.stderr, tailBytes),
             durationMs,
@@ -881,6 +931,7 @@ export async function runToolCached(
               head,
               dirtyFingerprint,
               exitCode: null,
+              signal: result.signal,
               stdoutTail: '',
               stderrTail: '',
               durationMs,
@@ -900,16 +951,27 @@ export async function runToolCached(
           head,
           dirtyFingerprint,
           exitCode: result.exitCode,
+          signal: result.signal,
           stdoutTail: tailString(result.stdout, tailBytes),
           stderrTail: tailString(result.stderr, tailBytes),
           durationMs,
           capturedAt: new Date().toISOString(),
         };
 
-        writeCacheEntry(projectRoot, entry);
+        // gh#1380: `exitCode === null` means the process produced no exit code —
+        // it was killed by a signal, or never started. Either way we do not know
+        // whether the tool would have passed, and an unknown must never be
+        // cached. The `timedOut` branch above already returns without writing
+        // for exactly this reason; a signal kill that is NOT a CLEO timeout —
+        // the memory-scope OOM in gh#1381 — had no equivalent guard and fell
+        // through to here.
+        if (entry.exitCode !== null) {
+          writeCacheEntry(projectRoot, entry);
+        }
 
         return {
           exitCode: entry.exitCode,
+          signal: entry.signal ?? null,
           stdoutTail: entry.stdoutTail,
           stderrTail: entry.stderrTail,
           durationMs: entry.durationMs,
@@ -934,6 +996,7 @@ export async function runToolCached(
       if (causeCode === 'ELOCKED') {
         return {
           exitCode: null,
+          signal: null,
           stdoutTail: '',
           stderrTail: '',
           durationMs: 0,

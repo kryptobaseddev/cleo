@@ -234,3 +234,43 @@ export function withMemoryLimit(
     memoryMaxMb,
   };
 }
+
+/**
+ * One sentence describing the memory bound a given tool runs under, for use in
+ * an error message. Empty string when the tool is not confined.
+ *
+ * Derived by asking {@link withMemoryLimit} rather than re-testing
+ * `isHeavyTool` and re-reading the ceiling. That matters here for the same
+ * reason the comment inside `withMemoryLimit` gives: four independent literals
+ * agreeing by coincidence is how a fifth heavy tool gets a long deadline and
+ * no memory bound. A message that confidently names a ceiling the tool does
+ * not actually run under would be worse than no message.
+ *
+ * Deliberately does NOT assert that a kill was an OOM kill. `SIGKILL` inside a
+ * bounded scope is *consistent* with the cgroup being OOM-killed and is also
+ * what an operator's own `kill -9` produces. The caller reports the signal it
+ * measured; this reports the ceiling as configured; the two facts sit next to
+ * each other and the reader draws the conclusion. Inferring OOM from SIGKILL
+ * alone would be the same defect this text exists to fix — a true observation
+ * stated as a cause it does not establish.
+ *
+ * @param canonical - the tool that was run.
+ * @param env - environment, for tests.
+ * @returns a leading-space sentence, or `''` when unconfined.
+ *
+ * @task T12116
+ */
+export function describeMemoryLimit(
+  canonical: CanonicalTool,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const limited = withMemoryLimit(canonical, 'probe', [], { env });
+  if (!limited.confined || limited.memoryMaxMb === null) return '';
+  return (
+    ` This tool runs inside a memory-bounded systemd scope ` +
+    `(MemoryMax=${limited.memoryMaxMb}M, swap denied), so the kernel kills the whole ` +
+    `process tree if it exceeds that ceiling — which is consistent with the signal above, ` +
+    `though an external kill looks identical. Raise it with ${MEMORY_MAX_ENV}=<megabytes>, ` +
+    `reduce the tool's own worker count, or set ${DISABLE_ENV}=1 to run unconfined.`
+  );
+}
