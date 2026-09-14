@@ -23,7 +23,9 @@
  * ## Checks
  *
  *   1. `vitest.memory-safe.ts` exists and exports MEMORY_SAFE_TEST_DEFAULTS.
- *   2. Every `vitest.config.ts` (root + `packages/*`) imports AND spreads it.
+ *   2. Every git-tracked `vitest.config.*` ANYWHERE in the repo imports AND
+ *      spreads it (gh#1354 — the previous root+`packages/*` glob could not see
+ *      `scripts/vitest.config.ts`, which was the one file still inheriting).
  *   3. No config re-declares `maxWorkers` / `poolOptions.forks.execArgv` after
  *      the spread — that would silently override the ceiling.
  *   4. No config overrides `pool` away from `'forks'` (per-worker V8 flags do
@@ -35,7 +37,8 @@
  * @task T12087
  */
 
-import { existsSync, globSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const REPO = process.cwd();
@@ -58,7 +61,42 @@ if (!existsSync(ssotPath)) {
 }
 
 // 2-4 — every config.
-const configs = ['vitest.config.ts', ...globSync('packages/*/vitest.config.ts', { cwd: REPO })];
+//
+// gh#1354: this was `['vitest.config.ts', ...globSync('packages/*/vitest.config.ts')]`
+// — root plus one directory level. `scripts/vitest.config.ts` is git-tracked and
+// live, sat outside that glob, and was the ONE config in the repo still relying
+// on `extends: true` instead of spreading the defaults. The gate reported
+// "OK — 20 vitest config(s)" and 20 was a count of the files it had chosen to
+// look at, not of the files that exist. A zero-tolerance gate reporting a total
+// it derived from its own blind spot is the worst available shape.
+//
+// Derived from `git ls-files` rather than enumerated, so the set is "every
+// config in the repo" by construction. A future `tools/vitest.config.ts` is
+// covered the day it is committed, with no edit here — which is the only kind
+// of fix that survives the next directory.
+function trackedVitestConfigs() {
+  const out = execFileSync('git', ['ls-files', '-z', '*vitest.config.*'], {
+    cwd: REPO,
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  return out
+    .split('\0')
+    .filter(Boolean)
+    .filter((f) => /(^|\/)vitest\.config\.(ts|mts|cts|js|mjs|cjs)$/.test(f))
+    .sort();
+}
+
+const configs = trackedVitestConfigs();
+if (configs.length === 0) {
+  // An empty scan is not a pass. If `git ls-files` returns nothing the gate has
+  // lost its input, and reporting OK would be exactly the failure above.
+  console.error(
+    'lint-vitest-memory-safe: FAIL — found no tracked vitest config files. ' +
+      'The scan lost its input; this is not a clean repo.',
+  );
+  process.exit(1);
+}
 
 for (const rel of configs) {
   const abs = join(REPO, rel);
