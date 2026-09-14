@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 2
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      scripts: ${{ steps.filter.outputs.scripts }}
       schemas: ${{ steps.filter.outputs.schemas }}
       core: ${{ steps.filter.outputs.core }}
       cleo: ${{ steps.filter.outputs.cleo }}
@@ -81,6 +82,22 @@ jobs:
               - 'tsconfig*.json'
               - 'vitest.config.ts'
               - 'build.mjs'
+            # gh#1403: `scripts/**` is deliberately NOT in `code` above. The
+            # scripts tests are a real vitest project (`scripts/vitest.config.ts`,
+            # name `scripts`, listed in the root `projects:` array), but nothing
+            # in `code` matches `scripts/`, so a PR touching only scripts/ skipped
+            # unit tests entirely — and the `ci` aggregate accepts `skipped` as a
+            # pass, so such a PR rendered CLEAN with its tests never executed.
+            # Measured on #1401, which added 13 tests: Unit Tests, Type Check,
+            # Build & Verify and Install Test all reported `skipping`.
+            #
+            # Adding 'scripts/**' to `code` would fix it by running the full
+            # 777-file suite (~19 min/shard) on every scripts change. This
+            # narrower filter drives a scoped `--project=scripts` job instead,
+            # which is the suite that can actually be affected.
+            scripts:
+              - 'scripts/**'
+              - 'vitest.memory-safe.js'
             schemas:
               - 'packages/*/schemas/**'
               - 'packages/*/templates/**'
@@ -1833,6 +1850,148 @@ jobs:
         run: pnpm exec forge-ts build || true
 
   # ──────────────────────────────────────────────────────────────────────────
+  # gh#1403: the scripts/ test project, which nothing used to run on a
+  # scripts-only PR.
+  #
+  # `scripts/__tests__/*.test.mjs` is a real vitest project — name `scripts`,
+  # listed in the root config's `projects:` array — but the `code` filter that
+  # gates `unit-tests` matches no path under `scripts/`. A PR touching only
+  # scripts/ therefore skipped every test job, and because this workflow's
+  # aggregate accepts `skipped` as a pass, it rendered CLEAN. Measured on
+  # #1401, a PR whose entire content was 13 new tests: all of Unit Tests, Type
+  # Check, Build & Verify and Install Test reported `skipping`.
+  #
+  # Scoped rather than folded into `code` on purpose: a scripts-only change can
+  # only affect this project, and running the full 777-file suite (~19 min per
+  # shard) to cover it would put the whole matrix on the PR critical path for
+  # a one-file edit.
+  #
+  # WHY THIS RUNS SELECTED FILES AND NOT THE WHOLE PROJECT
+  # -----------------------------------------------------
+  # `vitest run --project=scripts` is RED on main today: measured 2026-09-14,
+  # 16 failed / 472 passed across 5 files. At least two of those are failing
+  # DELIBERATELY — lint-stdout-discipline.test.mjs and
+  # lint-stdout-write-allowlist.test.mjs both say "is expected to fail today"
+  # in their own comments, because they assert a `--strict` mode the committed
+  # baseline has not reached. So "run the project" cannot be a blocking gate
+  # until someone decides what the gate asserts, which is a separate piece of
+  # work (gh#1403).
+  #
+  # Making it advisory instead was considered and rejected: a test job that
+  # cannot fail is the thing that looks like coverage and isn't, and unlike the
+  # post-deploy verifier — which runs after publish and so can prevent nothing
+  # either way — a test gate sits exactly where prevention happens.
+  #
+  # So it gates on the files THIS change is responsible for: the test files it
+  # edits, plus the sibling test of any script it edits. The 16 stay red and
+  # visible without blocking unrelated work, and the gate tightens on its own
+  # as they are fixed.
+  #
+  # KNOWN GAP, stated so nobody reads this as full coverage: a PR that changes
+  # scripts/foo.mjs where scripts/__tests__/foo.test.mjs does not exist runs
+  # nothing. That is strictly smaller than the gap it replaces — which was
+  # "nothing runs, ever, and the PR renders CLEAN" — but it is real.
+  #
+  # Safe to run scoped only because #1393 made scripts/vitest.config.ts spread
+  # MEMORY_SAFE_TEST_DEFAULTS directly. It previously relied on `extends: true`,
+  # which resolves to nothing when the project is its own root — the unbounded
+  # shape that froze a developer machine twice (gh#1354, T12087).
+  # ──────────────────────────────────────────────────────────────────────────
+  scripts-tests:
+    name: Scripts Tests
+    needs: [biome, changes]
+    if: needs.changes.outputs.scripts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed to diff against the PR base to find which test files this
+          # change is responsible for.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - name: Select the test files this change is responsible for
+        id: select
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$BASE_SHA" ]]; then
+            BASE="$BASE_SHA"
+          else
+            BASE="$(git rev-parse HEAD~1)"
+          fi
+          echo "Comparing against $BASE"
+          CHANGED="$(git diff --name-only "$BASE"...HEAD -- 'scripts/**' || true)"
+          echo "Changed under scripts/:"; echo "$CHANGED" | sed 's/^/  /'
+
+          # 1. Test files the PR edits directly.
+          # 2. The SIBLING test of any script the PR edits — so changing
+          #    scripts/lint-foo.mjs runs scripts/__tests__/lint-foo.test.mjs
+          #    even when the test itself is untouched. Without this, the job
+          #    only ever covers PRs that happen to edit a test.
+          SELECTED=""
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            [[ -f "$f" ]] || continue
+            case "$f" in
+              scripts/__tests__/*.test.mjs)
+                SELECTED+="$f"$'\n' ;;
+              scripts/*.mjs)
+                sib="scripts/__tests__/$(basename "$f" .mjs).test.mjs"
+                [[ -f "$sib" ]] && SELECTED+="$sib"$'\n' ;;
+            esac
+          done <<< "$CHANGED"
+
+          SELECTED="$(printf '%s' "$SELECTED" | sort -u | sed '/^$/d')"
+          COUNT="$(printf '%s' "$SELECTED" | grep -c . || true)"
+          echo "Selected $COUNT test file(s):"; echo "$SELECTED" | sed 's/^/  /'
+          {
+            echo "count=$COUNT"
+            echo "files<<EOF"
+            echo "$SELECTED"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        if: steps.select.outputs.count != '0'
+        run: pnpm install --frozen-lockfile
+      - name: Run the selected scripts tests
+        if: steps.select.outputs.count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t FILES <<< "${{ steps.select.outputs.files }}"
+          echo "Running ${#FILES[@]} test file(s) in the scripts project:"
+          printf '  %s\n' "${FILES[@]}"
+          pnpm exec vitest run --project=scripts "${FILES[@]}"
+      - name: No scripts tests are implicated by this change
+        if: steps.select.outputs.count == '0'
+        run: |
+          echo "This PR touches scripts/ but implicates no test file:"
+          echo "  - it edits no scripts/__tests__/*.test.mjs, and"
+          echo "  - no script it edits has a sibling test."
+          echo
+          echo "Nothing to run. This is a KNOWN GAP, not coverage (gh#1403):"
+          echo "a script with no sibling test is still unverified by this job."
+
+  # ──────────────────────────────────────────────────────────────────────────
   # Aggregate success gate. Branch protection on `main` requires a single
   # status context named "CI"; this job IS that context. GitHub posts one
   # check-run per *job* (not per workflow), so the workflow being named "CI"
@@ -1893,6 +2052,7 @@ jobs:
       - drizzle-kit-check
       - typecheck
       - unit-tests
+      - scripts-tests
       - build-verify
       - validate-json
       - install-test
