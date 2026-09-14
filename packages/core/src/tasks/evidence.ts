@@ -43,6 +43,7 @@ import {
 import { CleoError } from '../errors.js';
 import { pushWarning } from '../output.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
+import { describeMemoryLimit } from './heavy-tool-limit.js';
 import {
   computeCommitRevalidationKey,
   readCommitRevalidationEntry,
@@ -1568,12 +1569,39 @@ async function validateTool(tool: string, projectRoot: string): Promise<AtomVali
     };
   }
 
+  // gh#1381: a tool KILLED after it started is a different fact from a tool
+  // that never started, and until the signal was bound in `spawnCmd` the two
+  // arrived here as the same `exitCode: null`. The message below used to say
+  // "binary missing or spawn error" for both — so an OOM-killed 41-minute test
+  // suite sent three separate operators hunting a binary that was present, and
+  // the one diagnostic that would have helped (you exceeded the memory
+  // ceiling) was the one fact discarded.
+  if (result.signal !== null) {
+    const limit = describeMemoryLimit(resolution.command.canonical);
+    return {
+      ok: false,
+      reason:
+        `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
+        `RAN for ${Math.round(result.durationMs / 1000)}s in ${result.executionRoot} and was ` +
+        `KILLED by ${result.signal}. The binary is present and the command started — ` +
+        `this is not a resolution problem.${limit} ` +
+        `Nothing was cached, so a retry re-runs the tool from scratch and will be killed ` +
+        `identically unless the cause is addressed.` +
+        (result.stdoutTail || result.stderrTail
+          ? ` Last output before the kill: ${tailString(`${result.stdoutTail}\n${result.stderrTail}`, 512)}`
+          : ''),
+      codeName: 'E_EVIDENCE_TOOL_KILLED',
+    };
+  }
+
   if (result.exitCode === null) {
     return {
       ok: false,
       reason:
         `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
-        `could not be executed (binary missing or spawn error)`,
+        `could not be executed in ${result.executionRoot} — the process never started ` +
+        `(binary missing, not executable, or spawn error). No signal was delivered, so ` +
+        `it did not run and get killed.`,
       codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE',
     };
   }
