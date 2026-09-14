@@ -15,8 +15,43 @@ on:
   # protection is satisfied without a human pushing a commit.
   workflow_dispatch:
 
+# gh#1362: cancellation is right on PRs and wrong on main.
+#
+# `github.ref` is `refs/heads/main` for EVERY push to main, so all main pushes
+# shared one concurrency group and each merge cancelled the run of the commit
+# before it. During a merge burst only the LAST commit was ever verified
+# against main itself; the intermediate commits sat on main with no main-tip
+# result, and nothing reported the gap — a cancelled run is visually
+# indistinguishable from a superseded one.
+#
+# Measured 2026-09-13: `b069e0e9b` (#1259) main run 34743226954 CANCELLED (47
+# jobs success, 2 cancelled, aggregate failure) when `ed8182bf9` (#1282) landed
+# ~6 minutes later. That one was harmless only because `ed8182bf9` CONTAINS
+# `b069e0e9b`, so the later run was a strict superset. That is a property of
+# the burst, not a guarantee: a burst ending in a revert — or in any commit
+# that supersedes what an earlier one added — leaves the intermediate state
+# unverified with no superset run to cover it.
+#
+# This repo cannot use a merge queue (`POST /rulesets` with
+# `{"type":"merge_queue"}` returns 422; merge queue requires an org and the
+# owner account is personal), so PRs land serially onto a moving main and
+# bursts are the normal case rather than the exception.
+#
+# Appending the SHA on main — and ONLY on main — gives every main commit its
+# own group, so no main run can cancel another. Every other event keeps the
+# group it had, so PR cancellation is untouched and still reclaims the runner
+# time it was added for:
+#
+#   push to main              group ends `-<sha>`      unique per commit, never cancelled
+#   pull_request              suffix is ''             unchanged, still cancels on new push
+#   workflow_dispatch (branch) suffix is ''            unchanged, re-dispatch supersedes
+#
+# Keying by SHA rather than setting `cancel-in-progress: false` on main is
+# deliberate: `false` makes main runs QUEUE behind each other, and macOS runner
+# allocation is already the CI bottleneck (gh#1351). Unique groups let them run
+# in parallel instead.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: true
 
 jobs:
