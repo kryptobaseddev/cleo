@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026.9.2] (2026-09-14)
+
+### Fixed
+
+- A signal-killed tool is no longer reported as a missing binary. `spawnCmd` bound only `code` from Node's `close` event, which fires with `(code, signal)` and exactly one non-null — so a process killed by a signal arrived as `exitCode: null`, the same value a spawn that never started produces, and `validateTool` reported both as `E_EVIDENCE_TOOL_UNAVAILABLE` ("binary missing or spawn error"). Measured in the field: a 41-minute monorepo test suite, traced live in `/proc` with seven vitest workers executing, reported as a missing binary; three operators verified `npm` and `pnpm` resolved under `env -i` before anyone questioned the message. New `E_EVIDENCE_TOOL_KILLED` names the signal, the elapsed time, the execution root and the output captured before the kill (gh#1381) _(provenance: [T12182](https://github.com/kryptobaseddev/cleo/search?q=T12182&type=commits))_
+- A killed tool run no longer poisons the evidence cache. That `exitCode: null` was persisted as a well-formed entry and served on the next verify without spawning anything. Where the tool runs off a non-git root, `head` and `dirtyFingerprint` are null too — and both are cache-key components, so the key could never change and the wrong answer was permanent. `runToolCached` no longer writes a null-`exitCode` entry, and `readCacheEntry` refuses one, which retires the entries already written by `<= 2026.9.1` since those cannot rotate themselves out (gh#1380, gh#1387) _(provenance: [T12182](https://github.com/kryptobaseddev/cleo/search?q=T12182&type=commits))_
+
+### Notes
+
+The memory ceiling that produces the kill is **not** the defect and is unchanged. `withMemoryLimit` (T12116) runs `test` and `build` inside a systemd scope with `MemorySwapMax=0`; without it the failure mode is a throttle-and-thrash host freeze that logs nothing at all, which is strictly worse to diagnose than a clean kill. The new message reports the signal as **measured** and the ceiling as **configured**, side by side, and does not assert OOM — `SIGKILL` inside a bounded scope is also what an operator's own `kill -9` produces.
+
+Repository-only changes in this release, with no effect on published packages: the CI aggregate now names which jobs failed versus which were cancelled (gh#1358); gate 18 scans every tracked vitest config rather than root plus `packages/*` (gh#1354); gates 18 and 20 are wired into a workflow, having been documented and bundled but executed by nothing (gh#1394); `pnpm lint`'s second half runs in CI (gh#1355); and `cleo init --yes`, a flag that never existed, is gone from `worktree-cleanup.yml` (gh#1373).
+
 ## [2026.9.1] (2026-09-13)
 
 ### Added
