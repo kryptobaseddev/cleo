@@ -1,5 +1,63 @@
 # Changelog
 
+## [2026.9.1] (2026-09-13)
+
+### Added
+
+- `cleo doctor acceptance-drift` — assert the two acceptance stores agree, on the rule that is actually in force _(provenance: [T12157](https://github.com/kryptobaseddev/cleo/search?q=T12157&type=commits))_
+- Gate the set of modules that reach the AI SDK, because each one can put a banner on stdout _(provenance: [T12169](https://github.com/kryptobaseddev/cleo/search?q=T12169&type=commits))_
+- `cleo doctor nexus-residency` — assert the schema-residency invariant nexus silently depends on _(provenance: [T12158](https://github.com/kryptobaseddev/cleo/search?q=T12158&type=commits))_
+
+### Changed
+
+- The lockBusy test asserts that it did not wait out the stale window, instead of a 2-second wall-clock budget _(provenance: [T12172](https://github.com/kryptobaseddev/cleo/search?q=T12172&type=commits))_
+- Spawned-CLI tests parse stdout as exactly one envelope instead of searching it for a brace-line _(provenance: [T12167](https://github.com/kryptobaseddev/cleo/search?q=T12167&type=commits))_
+- AGENTS.md states the one deliberate exception to "NO direct pushes to main" — admins bypass the required check by design _(provenance: [T12152](https://github.com/kryptobaseddev/cleo/search?q=T12152&type=commits))_
+- Compress two CLEO-INJECTION.md sections in place — 450 to 427 lines with no fact dropped, restoring headroom under the 450-line budget _(provenance: [T12176](https://github.com/kryptobaseddev/cleo/search?q=T12176&type=commits))_
+
+### Fixed
+
+- AC-file enforcement requires a declaration; prose-derived lists advise instead of blocking (gh#1240) _(provenance: [T12118](https://github.com/kryptobaseddev/cleo/search?q=T12118&type=commits))_
+- a task with no acceptance criteria is no longer locked against gaining its first (gh#1235) _(provenance: [T12153](https://github.com/kryptobaseddev/cleo/search?q=T12153&type=commits))_
+- A prose apostrophe no longer swallows every acceptance criterion after it _(provenance: [T12175](https://github.com/kryptobaseddev/cleo/search?q=T12175&type=commits))_
+- Conduit send reports when a message was ACCEPTED; deliveredAt is null until delivery is confirmed _(provenance: [T12173](https://github.com/kryptobaseddev/cleo/search?q=T12173&type=commits))_
+- The critical-gate refusal no longer proposes the bypass as its own remedy, and the override path applies the per-gate minimum _(provenance: [T12160](https://github.com/kryptobaseddev/cleo/search?q=T12160&type=commits))_
+- decision-only tasks can complete without testsPassed/qaPassed, and pr:-atom inertness in CI-less repos is documented (gh#1215, gh#1224) _(provenance: [T12125](https://github.com/kryptobaseddev/cleo/search?q=T12125&type=commits))_
+- Gate unqualified SQL reads of tables resident in both cleo.db scopes — a bare name answers without saying which file it read _(provenance: [T12156](https://github.com/kryptobaseddev/cleo/search?q=T12156&type=commits))_
+- Gate against new duplicate test filenames — a basename shared by several files is not an identifier _(provenance: [T12154](https://github.com/kryptobaseddev/cleo/search?q=T12154&type=commits))_
+- every envelope discloses which project store answered it (gh#1234) _(provenance: [T12150](https://github.com/kryptobaseddev/cleo/search?q=T12150&type=commits))_
+- evidence tools run in the caller's worktree, and a tool no longer invalidates its own cache by running (gh#1221, gh#1220, gh#1226, gh#1230) _(provenance: [T12112](https://github.com/kryptobaseddev/cleo/search?q=T12112&type=commits))_
+- evidence tool slots are released by holder liveness, not by a 10-minute mtime timeout, and the busy error names the holder (gh#1222) _(provenance: [T12113](https://github.com/kryptobaseddev/cleo/search?q=T12113&type=commits))_
+- the exit backstop no longer forces rc:0, discarding the failure a command already reported _(provenance: [T12166](https://github.com/kryptobaseddev/cleo/search?q=T12166&type=commits))_
+- Register ExitCode.AC_LOCKED and gate the two SSoTs that describe exit codes _(provenance: [T12171](https://github.com/kryptobaseddev/cleo/search?q=T12171&type=commits))_
+- assert committed generated artifacts match their source, and regenerate the manifest that had already drifted (gh#1281) _(provenance: [T12150](https://github.com/kryptobaseddev/cleo/search?q=T12150&type=commits))_
+- per-canonical evidence-tool deadline — test/build get 30 min, lint/typecheck stay at 5 (gh#1221) _(provenance: [T12126](https://github.com/kryptobaseddev/cleo/search?q=T12126&type=commits))_
+- --idempotency-key is refused where it cannot be honoured, instead of being silently ignored (gh#1229, gh#1244) _(provenance: [T12162](https://github.com/kryptobaseddev/cleo/search?q=T12162&type=commits))_
+- a gate killed by its own timeout is recorded as `error`, not `fail` — a false red is as costly as a false green (gh#1270) _(provenance: [T12137](https://github.com/kryptobaseddev/cleo/search?q=T12137&type=commits))_
+- cleo doctor legacy-reaper detects the hand-applied MCP reaper that terminates live Codex CLI sessions (gh#1187) _(provenance: [T12131](https://github.com/kryptobaseddev/cleo/search?q=T12131&type=commits))_
+- Machine-readable output modes emit an empty stream for zero results, not an English sentence _(provenance: [T12170](https://github.com/kryptobaseddev/cleo/search?q=T12170&type=commits))_
+- macOS unit tests gate on the commit that lands, not on every PR push — the coverage was real but aimed at a commit `strict` guaranteed to discard _(provenance: [T12177](https://github.com/kryptobaseddev/cleo/search?q=T12177&type=commits))_
+- `pretypecheck`/`prebuild` verify the command manifest instead of regenerating it, so running a tool no longer mutates a tracked file _(provenance: [T12163](https://github.com/kryptobaseddev/cleo/search?q=T12163&type=commits))_
+- `cleo nexus status` refuses a foreign path instead of reporting this project's index under it _(provenance: [T12174](https://github.com/kryptobaseddev/cleo/search?q=T12174&type=commits))_
+- a cleo command now finishes, exits, and never loses a write — bounded teardown, a single-process bin shim, a kernel-enforced memory ceiling for heavy tools, and fail-open duplicate detection (gh#1228, gh#1229, gh#1237, gh#1241, gh#1244) _(provenance: [T12115](https://github.com/kryptobaseddev/cleo/search?q=T12115&type=commits), [T12116](https://github.com/kryptobaseddev/cleo/search?q=T12116&type=commits), [T12117](https://github.com/kryptobaseddev/cleo/search?q=T12117&type=commits))_
+- remove two modules nothing imports, one of them three minor versions past its own removal target, and add a repeatable sweep for the rest _(provenance: [T12134](https://github.com/kryptobaseddev/cleo/search?q=T12134&type=commits))_
+- A check that takes a target resolves its facts from that target, or says it cannot — nexus status stops answering about the ambient project, and pr:<n> stops borrowing cleocode's own gate names _(provenance: [T12176](https://github.com/kryptobaseddev/cleo/search?q=T12176&type=commits))_
+- cleo doctor warns when a shared .git lets one session's stash or identity silently reach another _(provenance: [T12161](https://github.com/kryptobaseddev/cleo/search?q=T12161&type=commits))_
+- cleo list honours every filter it advertises — severity/kind now filter, an unknown value errors instead of returning the whole table, and the CLI can no longer drop a registry-declared param _(provenance: [T12120](https://github.com/kryptobaseddev/cleo/search?q=T12120&type=commits))_
+- cleo show no longer hides a populated description behind an absent key — the MVI projection names every field it withholds, with its size _(provenance: [T12121](https://github.com/kryptobaseddev/cleo/search?q=T12121&type=commits))_
+- cleo check arch runs every gate the AGENTS.md table documents — 9 missing gates bundled, 4 undocumented gates documented, a gate on the gates, and the false Skill-Drift-gate claim removed _(provenance: [T12122](https://github.com/kryptobaseddev/cleo/search?q=T12122&type=commits))_
+- cleo list discloses truncation on --output id/table/--summary and gains --all, so a page is no longer indistinguishable from the whole set _(provenance: [T12123](https://github.com/kryptobaseddev/cleo/search?q=T12123&type=commits))_
+- documented --field pointers are now gated — gate 14 asserts every pointer in CLEO-INJECTION.md resolves, the read-vs-mutation nesting asymmetry is stated, and the tasks.show contract stops advertising a path that does not exist _(provenance: [T12127](https://github.com/kryptobaseddev/cleo/search?q=T12127&type=commits))_
+- cleo add no longer inherits a parent from finished work, and an inference that fires is named in the output and in the error instead of being announced only to humans _(provenance: [T12136](https://github.com/kryptobaseddev/cleo/search?q=T12136&type=commits))_
+- BREAKING: an unknown flag is now an error instead of being silently ignored — the existing assertKnownFlags guard is applied at the CLI chokepoint rather than to one command _(provenance: [T12139](https://github.com/kryptobaseddev/cleo/search?q=T12139&type=commits))_
+- stdout carries only the LAFS envelope — the AI SDK's warning banner was breaking ADR-086 on every mutating command _(provenance: [T12142](https://github.com/kryptobaseddev/cleo/search?q=T12142&type=commits))_
+- cleo complete stops reporting a merge failure for tasks that never had a task branch — and orchestrate worktree-complete stops calling it a conflict _(provenance: [T12153](https://github.com/kryptobaseddev/cleo/search?q=T12153&type=commits))_
+- briefing discloses a note-free handoff instead of omitting the key, so a lost handoff and a note-free one are no longer byte-identical _(provenance: [T12159](https://github.com/kryptobaseddev/cleo/search?q=T12159&type=commits))_
+- embed the incoming blob once per duplicate check instead of once per candidate, and stop calling the Tier-1 score BM25 _(provenance: [T12164](https://github.com/kryptobaseddev/cleo/search?q=T12164&type=commits))_
+- cleo find gains --all, --limit 0 means unlimited as it does on list, and the zero-results message stops contradicting its own total _(provenance: [T12168](https://github.com/kryptobaseddev/cleo/search?q=T12168&type=commits))_
+- the task id is validated at the write path, and rows already written with a malformed id can finally be removed (gh#1249) _(provenance: [T12128](https://github.com/kryptobaseddev/cleo/search?q=T12128&type=commits))_
+- Remove the two `cleo docs fetch` directives in CLEO-INJECTION.md whose slugs both return E_NOT_FOUND — a template injected into every agent must not instruct a failing command _(provenance: [T12176](https://github.com/kryptobaseddev/cleo/search?q=T12176&type=commits))_
+
 ## [2026.8.9] (2026-08-20)
 
 ### Added

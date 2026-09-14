@@ -1,0 +1,737 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.9.1",
+  "resolvedVersion": "v2026.9.1",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12111",
+  "releaseKind": "regular",
+  "createdAt": "2026-09-13T17:16:56.348Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.8.9",
+  "previousTag": "v2026.8.9",
+  "previousShippedAt": "2026-08-20T16:14:49.205Z",
+  "tasks": [
+    {
+      "id": "T12112",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1221/#1220/#1226/#1230: fingerprint tracked content only; run evidence tools in the caller's worktree",
+      "evidenceAtoms": [
+        "pr:1251"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12113",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1222: release evidence tool slots by holder liveness, not by a 10-minute mtime timeout",
+      "evidenceAtoms": [
+        "pr:1259"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12115",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1228/#1229/#1237/#1241: bound CLI teardown and collapse the double-process bin shim",
+      "evidenceAtoms": [
+        "pr:1258"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12116",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "gh#1221/#1222: kernel-enforced runner-agnostic memory ceiling for heavy tools",
+      "evidenceAtoms": [
+        "pr:1258"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12117",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1244: bound duplicate detection and fail open so a write is never lost",
+      "evidenceAtoms": [
+        "pr:1258"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12118",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1240: AC-file enforcement requires a declaration; prose-derived lists become advisory",
+      "evidenceAtoms": [
+        "pr:1259"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12120",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1245/#1246/#1247/#1248: cleo list honours every filter it advertises",
+      "evidenceAtoms": [
+        "pr:1371"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12121",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1243: cleo show names every field the MVI projection withholds",
+      "evidenceAtoms": [
+        "pr:1252"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12122",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1253/#1256: cleo check arch runs every gate its own docs claim, plus a gate on the gates",
+      "evidenceAtoms": [
+        "pr:1257"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12123",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1242: cleo list discloses truncation and gains --all",
+      "evidenceAtoms": [
+        "pr:1371"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12125",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1215/gh#1224: decision-only tasks can complete; pr: atom inertness documented",
+      "evidenceAtoms": [
+        "pr:1259"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12126",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "gh#1221(b): per-canonical spawn deadline — test/build get 30 min, lint/typecheck stay at 5",
+      "evidenceAtoms": [
+        "pr:1259"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12127",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1225/#1239/#1231: document the read-vs-mutation pointer nesting and gate that documented pointers resolve",
+      "evidenceAtoms": [
+        "pr:1371"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12128",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1249/#1214: validate the task id at the write path + cleo doctor malformed-ids",
+      "evidenceAtoms": [
+        "pr:1371"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12131",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1187: detect the legacy cleo-mcp-reaper that kills live Codex sessions",
+      "evidenceAtoms": [
+        "pr:1371"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12134",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Remove dead + past-due-deprecated modules; all 5 deprecation entries are overdue",
+      "evidenceAtoms": [
+        "pr:1363"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12136",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1232/#1238: an explicit argument must outrank an inference, and an inference that fires must be visible",
+      "evidenceAtoms": [
+        "pr:1371"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12137",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1270: a killed gate must not be recorded as FAILED",
+      "evidenceAtoms": [
+        "pr:1363"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12139",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1245b: apply the existing assertKnownFlags guard at the CLI chokepoint — an unknown flag must never be silently swallowed",
+      "evidenceAtoms": [
+        "pr:1363"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12142",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1223: stdout carries only the LAFS envelope — backend notices and mergeError go to stderr",
+      "evidenceAtoms": [
+        "pr:1363"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12150",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1281: assert generated-and-committed artifacts match their source in CI",
+      "evidenceAtoms": [
+        "pr:1282"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12152",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "AUDIT RESULT: AGENTS.md enforcement claims verified — 1 gap of 11, plus 2 near-false-findings",
+      "evidenceAtoms": [
+        "pr:1288"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12153",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1235 item 1: an empty-AC task is locked against ever gaining acceptance criteria",
+      "evidenceAtoms": [
+        "pr:1363"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12154",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Duplicate test filename gate (gh#1286)",
+      "evidenceAtoms": [
+        "pr:1294"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12156",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Dual-scope unqualified read gate (gh#1283)",
+      "evidenceAtoms": [
+        "pr:1297"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12157",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Acceptance drift doctor check (gh#1290)",
+      "evidenceAtoms": [
+        "pr:1299"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12158",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Nexus schema residency audit (gh#1298)",
+      "evidenceAtoms": [
+        "pr:1303"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12159",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "briefing omits the handoff note, so a lost handoff and a note-free one are byte-identical (gh#1277)",
+      "evidenceAtoms": [
+        "pr:1371"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12160",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Critical-gate refusal must not propose its own bypass (gh#1278)",
+      "evidenceAtoms": [
+        "pr:1363"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12161",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo doctor: shared-worktree stash and git-identity hazards",
+      "evidenceAtoms": [
+        "pr:1363"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12162",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "refuse --idempotency-key where it cannot be honoured (gh#1229, gh#1244)",
+      "evidenceAtoms": [
+        "pr:1371"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12163",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "pretypecheck must verify the manifest, not regenerate it (gh#1306)",
+      "evidenceAtoms": [
+        "pr:1312"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12164",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Hoist the incoming embedding out of the candidate loop and stop calling the lexical score BM25",
+      "evidenceAtoms": [
+        "pr:1363"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12166",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "the exit backstop must not manufacture rc:0 over a command's own failure",
+      "evidenceAtoms": [
+        "pr:1318"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12167",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Strict stdout-envelope test helper (gh#1223)",
+      "evidenceAtoms": [
+        "pr:1363"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12168",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleo find gains --all, --limit 0 means unlimited, and the envelope stops contradicting its own total (gh#1302)",
+      "evidenceAtoms": [
+        "pr:1320"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12169",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "AI SDK surface inventory gate (gh#1223)",
+      "evidenceAtoms": [
+        "pr:1322"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12170",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Machine-readable output modes must not emit prose (gh#1317)",
+      "evidenceAtoms": [
+        "pr:1371"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12171",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "ExitCode / error-registry parity gate (gh#1273)",
+      "evidenceAtoms": [
+        "pr:1325"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12172",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "lockBusy test must assert behaviour, not a wall-clock budget (gh#1254)",
+      "evidenceAtoms": [
+        "pr:1363"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12173",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Conduit send must not synthesize a delivery receipt (gh#1316)",
+      "evidenceAtoms": [
+        "pr:1363"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12174",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "nexus status must not report another project's index (gh#1329)",
+      "evidenceAtoms": [
+        "pr:1341"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12175",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "A prose apostrophe must not swallow later acceptance criteria (gh#1321)",
+      "evidenceAtoms": [
+        "pr:1331"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12176",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "A check that takes a target must resolve its facts from that target (gh#1329, gh#1323)",
+      "evidenceAtoms": [
+        "pr:1341"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12177",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "macOS unit tests run in the merge queue, not on every PR push (gh#1359)",
+      "evidenceAtoms": [
+        "pr:1360"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T12116",
+      "T12126",
+      "T12134",
+      "T12152",
+      "T12154",
+      "T12156",
+      "T12157",
+      "T12158",
+      "T12160",
+      "T12161",
+      "T12162",
+      "T12163",
+      "T12164",
+      "T12166",
+      "T12167",
+      "T12169",
+      "T12170",
+      "T12171",
+      "T12172",
+      "T12173",
+      "T12174",
+      "T12175",
+      "T12176",
+      "T12177"
+    ],
+    "fixes": [
+      "T12112",
+      "T12113",
+      "T12115",
+      "T12117",
+      "T12118",
+      "T12120",
+      "T12121",
+      "T12122",
+      "T12123",
+      "T12125",
+      "T12127",
+      "T12128",
+      "T12131",
+      "T12136",
+      "T12137",
+      "T12139",
+      "T12142",
+      "T12150",
+      "T12153",
+      "T12159",
+      "T12168"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-13T17:16:56.348Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-13T17:16:56.348Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-13T17:16:56.348Z",
+      "resolvedCommand": "npx biome check .",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-13T17:16:56.348Z",
+      "resolvedCommand": "npx tsc --noEmit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-13T17:16:56.348Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-13T17:16:56.348Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 265 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.9.1 — 2026-09-13\n\n### Added\n\n- `cleo doctor acceptance-drift` — assert the two acceptance stores agree, on the rule that is actually in force _(provenance: [T12157](https://github.com/kryptobaseddev/cleo/search?q=T12157&type=commits))_\n- Gate the set of modules that reach the AI SDK, because each one can put a banner on stdout _(provenance: [T12169](https://github.com/kryptobaseddev/cleo/search?q=T12169&type=commits))_\n- `cleo doctor nexus-residency` — assert the schema-residency invariant nexus silently depends on _(provenance: [T12158](https://github.com/kryptobaseddev/cleo/search?q=T12158&type=commits))_\n\n### Changed\n\n- The lockBusy test asserts that it did not wait out the stale window, instead of a 2-second wall-clock budget _(provenance: [T12172](https://github.com/kryptobaseddev/cleo/search?q=T12172&type=commits))_\n- Spawned-CLI tests parse stdout as exactly one envelope instead of searching it for a brace-line _(provenance: [T12167](https://github.com/kryptobaseddev/cleo/search?q=T12167&type=commits))_\n- AGENTS.md states the one deliberate exception to \"NO direct pushes to main\" — admins bypass the required check by design _(provenance: [T12152](https://github.com/kryptobaseddev/cleo/search?q=T12152&type=commits))_\n- Compress two CLEO-INJECTION.md sections in place — 450 to 427 lines with no fact dropped, restoring headroom under the 450-line budget _(provenance: [T12176](https://github.com/kryptobaseddev/cleo/search?q=T12176&type=commits))_\n\n### Fixed\n\n- AC-file enforcement requires a declaration; prose-derived lists advise instead of blocking (gh#1240) _(provenance: [T12118](https://github.com/kryptobaseddev/cleo/search?q=T12118&type=commits))_\n- a task with no acceptance criteria is no longer locked against gaining its first (gh#1235) _(provenance: [T12153](https://github.com/kryptobaseddev/cleo/search?q=T12153&type=commits))_\n- A prose apostrophe no longer swallows every acceptance criterion after it _(provenance: [T12175](https://github.com/kryptobaseddev/cleo/search?q=T12175&type=commits))_\n- Conduit send reports when a message was ACCEPTED; deliveredAt is null until delivery is confirmed _(provenance: [T12173](https://github.com/kryptobaseddev/cleo/search?q=T12173&type=commits))_\n- The critical-gate refusal no longer proposes the bypass as its own remedy, and the override path applies the per-gate minimum _(provenance: [T12160](https://github.com/kryptobaseddev/cleo/search?q=T12160&type=commits))_\n- decision-only tasks can complete without testsPassed/qaPassed, and pr:-atom inertness in CI-less repos is documented (gh#1215, gh#1224) _(provenance: [T12125](https://github.com/kryptobaseddev/cleo/search?q=T12125&type=commits))_\n- Gate unqualified SQL reads of tables resident in both cleo.db scopes — a bare name answers without saying which file it read _(provenance: [T12156](https://github.com/kryptobaseddev/cleo/search?q=T12156&type=commits))_\n- Gate against new duplicate test filenames — a basename shared by several files is not an identifier _(provenance: [T12154](https://github.com/kryptobaseddev/cleo/search?q=T12154&type=commits))_\n- every envelope discloses which project store answered it (gh#1234) _(provenance: [T12150](https://github.com/kryptobaseddev/cleo/search?q=T12150&type=commits))_\n- evidence tools run in the caller's worktree, and a tool no longer invalidates its own cache by running (gh#1221, gh#1220, gh#1226, gh#1230) _(provenance: [T12112](https://github.com/kryptobaseddev/cleo/search?q=T12112&type=commits))_\n- evidence tool slots are released by holder liveness, not by a 10-minute mtime timeout, and the busy error names the holder (gh#1222) _(provenance: [T12113](https://github.com/kryptobaseddev/cleo/search?q=T12113&type=commits))_\n- the exit backstop no longer forces rc:0, discarding the failure a command already reported _(provenance: [T12166](https://github.com/kryptobaseddev/cleo/search?q=T12166&type=commits))_\n- Register ExitCode.AC_LOCKED and gate the two SSoTs that describe exit codes _(provenance: [T12171](https://github.com/kryptobaseddev/cleo/search?q=T12171&type=commits))_\n- assert committed generated artifacts match their source, and regenerate the manifest that had already drifted (gh#1281) _(provenance: [T12150](https://github.com/kryptobaseddev/cleo/search?q=T12150&type=commits))_\n- per-canonical evidence-tool deadline — test/build get 30 min, lint/typecheck stay at 5 (gh#1221) _(provenance: [T12126](https://github.com/kryptobaseddev/cleo/search?q=T12126&type=commits))_\n- --idempotency-key is refused where it cannot be honoured, instead of being silently ignored (gh#1229, gh#1244) _(provenance: [T12162](https://github.com/kryptobaseddev/cleo/search?q=T12162&type=commits))_\n- a gate killed by its own timeout is recorded as `error`, not `fail` — a false red is as costly as a false green (gh#1270) _(provenance: [T12137](https://github.com/kryptobaseddev/cleo/search?q=T12137&type=commits))_\n- cleo doctor legacy-reaper detects the hand-applied MCP reaper that terminates live Codex CLI sessions (gh#1187) _(provenance: [T12131](https://github.com/kryptobaseddev/cleo/search?q=T12131&type=commits))_\n- Machine-readable output modes emit an empty stream for zero results, not an English sentence _(provenance: [T12170](https://github.com/kryptobaseddev/cleo/search?q=T12170&type=commits))_\n- macOS unit tests gate on the commit that lands, not on every PR push — the coverage was real but aimed at a commit `strict` guaranteed to discard _(provenance: [T12177](https://github.com/kryptobaseddev/cleo/search?q=T12177&type=commits))_\n- `pretypecheck`/`prebuild` verify the command manifest instead of regenerating it, so running a tool no longer mutates a tracked file _(provenance: [T12163](https://github.com/kryptobaseddev/cleo/search?q=T12163&type=commits))_\n- `cleo nexus status` refuses a foreign path instead of reporting this project's index under it _(provenance: [T12174](https://github.com/kryptobaseddev/cleo/search?q=T12174&type=commits))_\n- a cleo command now finishes, exits, and never loses a write — bounded teardown, a single-process bin shim, a kernel-enforced memory ceiling for heavy tools, and fail-open duplicate detection (gh#1228, gh#1229, gh#1237, gh#1241, gh#1244) _(provenance: [T12115](https://github.com/kryptobaseddev/cleo/search?q=T12115&type=commits), [T12116](https://github.com/kryptobaseddev/cleo/search?q=T12116&type=commits), [T12117](https://github.com/kryptobaseddev/cleo/search?q=T12117&type=commits))_\n- remove two modules nothing imports, one of them three minor versions past its own removal target, and add a repeatable sweep for the rest _(provenance: [T12134](https://github.com/kryptobaseddev/cleo/search?q=T12134&type=commits))_\n- A check that takes a target resolves its facts from that target, or says it cannot — nexus status stops answering about the ambient project, and pr:<n> stops borrowing cleocode's own gate names _(provenance: [T12176](https://github.com/kryptobaseddev/cleo/search?q=T12176&type=commits))_\n- cleo doctor warns when a shared .git lets one session's stash or identity silently reach another _(provenance: [T12161](https://github.com/kryptobaseddev/cleo/search?q=T12161&type=commits))_\n- cleo list honours every filter it advertises — severity/kind now filter, an unknown value errors instead of returning the whole table, and the CLI can no longer drop a registry-declared param _(provenance: [T12120](https://github.com/kryptobaseddev/cleo/search?q=T12120&type=commits))_\n- cleo show no longer hides a populated description behind an absent key — the MVI projection names every field it withholds, with its size _(provenance: [T12121](https://github.com/kryptobaseddev/cleo/search?q=T12121&type=commits))_\n- cleo check arch runs every gate the AGENTS.md table documents — 9 missing gates bundled, 4 undocumented gates documented, a gate on the gates, and the false Skill-Drift-gate claim removed _(provenance: [T12122](https://github.com/kryptobaseddev/cleo/search?q=T12122&type=commits))_\n- cleo list discloses truncation on --output id/table/--summary and gains --all, so a page is no longer indistinguishable from the whole set _(provenance: [T12123](https://github.com/kryptobaseddev/cleo/search?q=T12123&type=commits))_\n- documented --field pointers are now gated — gate 14 asserts every pointer in CLEO-INJECTION.md resolves, the read-vs-mutation nesting asymmetry is stated, and the tasks.show contract stops advertising a path that does not exist _(provenance: [T12127](https://github.com/kryptobaseddev/cleo/search?q=T12127&type=commits))_\n- cleo add no longer inherits a parent from finished work, and an inference that fires is named in the output and in the error instead of being announced only to humans _(provenance: [T12136](https://github.com/kryptobaseddev/cleo/search?q=T12136&type=commits))_\n- BREAKING: an unknown flag is now an error instead of being silently ignored — the existing assertKnownFlags guard is applied at the CLI chokepoint rather than to one command _(provenance: [T12139](https://github.com/kryptobaseddev/cleo/search?q=T12139&type=commits))_\n- stdout carries only the LAFS envelope — the AI SDK's warning banner was breaking ADR-086 on every mutating command _(provenance: [T12142](https://github.com/kryptobaseddev/cleo/search?q=T12142&type=commits))_\n- cleo complete stops reporting a merge failure for tasks that never had a task branch — and orchestrate worktree-complete stops calling it a conflict _(provenance: [T12153](https://github.com/kryptobaseddev/cleo/search?q=T12153&type=commits))_\n- briefing discloses a note-free handoff instead of omitting the key, so a lost handoff and a note-free one are no longer byte-identical _(provenance: [T12159](https://github.com/kryptobaseddev/cleo/search?q=T12159&type=commits))_\n- embed the incoming blob once per duplicate check instead of once per candidate, and stop calling the Tier-1 score BM25 _(provenance: [T12164](https://github.com/kryptobaseddev/cleo/search?q=T12164&type=commits))_\n- cleo find gains --all, --limit 0 means unlimited as it does on list, and the zero-results message stops contradicting its own total _(provenance: [T12168](https://github.com/kryptobaseddev/cleo/search?q=T12168&type=commits))_\n- the task id is validated at the write path, and rows already written with a malformed id can finally be removed (gh#1249) _(provenance: [T12128](https://github.com/kryptobaseddev/cleo/search?q=T12128&type=commits))_\n- Remove the two `cleo docs fetch` directives in CLEO-INJECTION.md whose slugs both return E_NOT_FOUND — a template injected into every agent must not instruct a failing command _(provenance: [T12176](https://github.com/kryptobaseddev/cleo/search?q=T12176&type=commits))_\n",
+    "changesetEntryCount": 47,
+    "changesetIds": [
+      "ac-files-provenance-two-tier",
+      "ac-lock-empty-task",
+      "acceptance-apostrophe-split",
+      "acceptance-drift-doctor",
+      "ai-sdk-surface-inventory",
+      "conduit-delivery-receipt",
+      "critical-gate-refusal",
+      "decision-only-gates-and-pr-inertness",
+      "dual-scope-unqualified-reads",
+      "duplicate-test-filename-gate",
+      "envelope-project-root",
+      "evidence-pipeline-tree-and-cache",
+      "evidence-semaphore-slot-liveness",
+      "exit-backstop-preserves-exit-code",
+      "exit-code-registry-parity",
+      "generated-artifact-drift",
+      "heavy-tool-deadline-per-canonical",
+      "idempotency-key-honesty",
+      "killed-gate-not-failed",
+      "legacy-reaper-detection",
+      "lockbusy-behavioural-assertion",
+      "machine-output-no-prose",
+      "macos-gates-on-landed-commit",
+      "manifest-verify-not-regenerate",
+      "nexus-schema-residency",
+      "nexus-status-scope-honesty",
+      "p0-process-lifecycle-and-memory-kernel",
+      "remove-dead-modules",
+      "resolve-facts-from-target",
+      "shared-worktree-git-hazards",
+      "strict-envelope-test-helper",
+      "t12120-inert-list-filters",
+      "t12121-show-withheld-marker",
+      "t12122-arch-gate-parity",
+      "t12123-list-truncation-disclosure",
+      "t12127-pointer-ssot",
+      "t12136-explicit-outranks-inference",
+      "t12139-strict-flags-chokepoint",
+      "t12142-stdout-purity",
+      "t12152-branch-protection-accuracy",
+      "t12153-mergeerror-noise",
+      "t12159-briefing-handoff-note",
+      "t12164-dup-detector-hoist-and-rename",
+      "t12168-find-all-and-limit-semantics",
+      "task-id-ssot-and-repair",
+      "template-compress-lossless",
+      "template-dead-doc-slugs"
+    ],
+    "taskIds": [
+      "T12112",
+      "T12113",
+      "T12115",
+      "T12116",
+      "T12117",
+      "T12118",
+      "T12120",
+      "T12121",
+      "T12122",
+      "T12123",
+      "T12125",
+      "T12126",
+      "T12127",
+      "T12128",
+      "T12131",
+      "T12134",
+      "T12136",
+      "T12137",
+      "T12139",
+      "T12142",
+      "T12150",
+      "T12152",
+      "T12153",
+      "T12154",
+      "T12156",
+      "T12157",
+      "T12158",
+      "T12159",
+      "T12160",
+      "T12161",
+      "T12162",
+      "T12163",
+      "T12164",
+      "T12166",
+      "T12167",
+      "T12168",
+      "T12169",
+      "T12170",
+      "T12171",
+      "T12172",
+      "T12173",
+      "T12174",
+      "T12175",
+      "T12176",
+      "T12177"
+    ]
+  }
+}
