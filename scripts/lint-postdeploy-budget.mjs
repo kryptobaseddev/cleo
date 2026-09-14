@@ -82,19 +82,19 @@ if (capMinutes !== capEnvMinutes) {
   problems.push(
     `timeout-minutes (${capMinutes}) != POSTDEPLOY_JOB_CAP_MINUTES (${capEnvMinutes}).\n` +
       '    The run step asserts against the env var, but the runner obeys timeout-minutes.\n' +
-      '    While they disagree, that assertion is checking a number nothing enforces.'
+      '    While they disagree, that assertion is checking a number nothing enforces.',
   );
 }
 
 if (budgetMs >= capMs) {
   problems.push(
     `POSTDEPLOY_TIMEOUT_MS (${budgetMs}ms) >= job cap (${capMinutes}min = ${capMs}ms).\n` +
-      '    The runner would kill the job mid-poll; no package named, no artifacts written.'
+      '    The runner would kill the job mid-poll; no package named, no artifacts written.',
   );
 } else if (capMs - budgetMs < MIN_HEADROOM_MS) {
   problems.push(
     `only ${capMs - budgetMs}ms of headroom between budget and cap (need >= ${MIN_HEADROOM_MS}ms).\n` +
-      '    Checkout, setup and npm install all run before the poll starts.'
+      '    Checkout, setup and npm install all run before the poll starts.',
   );
 }
 
