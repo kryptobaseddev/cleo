@@ -743,6 +743,29 @@ export function readCacheEntry(projectRoot: string, key: string): ToolCacheEntry
     // cached "binary missing" forever, without ever spawning again — a
     // permanent red that no amount of correct work clears.
     if (parsed.exitCode === null || parsed.exitCode === undefined) return null;
+    // gh#1404: an entry whose `head` is null was keyed on the command ALONE —
+    // `computeCacheKey` hashes {canonical, cmd, args, head, dirtyFingerprint},
+    // so with both git fields null nothing a developer does to the SOURCE can
+    // change the key. Editing does not. Committing does not. Only editing the
+    // tool command itself does, which is a config change, not a code change.
+    //
+    // That is not a cache; it is a hardcoded answer with a filename. And
+    // unlike gh#1380's `exitCode: null` — which fails closed and is therefore
+    // loud — this holds a REAL exit code of either sign. A cached PASS is not
+    // self-announcing: nobody debugs a passing gate.
+    //
+    // Measured 2026-09-14 on a project whose CLEO root sits ABOVE its git root
+    // (a supported layout — the repo was a subdirectory, so both fields were
+    // null for EVERY run, always): four entries, all `exitCode: 0`, the `test`
+    // one recording `122 files / 2557 tests` from 2026-08-07 against a suite
+    // that is now 856 files / 13,621 tests. It had stayed inert only because
+    // the tool command was later rewritten, changing `args` and therefore the
+    // key. Revert that command and `tool:test` returns 0 without spawning.
+    //
+    // Refused on READ as well as declining to write, because entries already
+    // on disk in every consumer's `.cleo/cache/evidence/` cannot rotate
+    // themselves out — that is the defect itself.
+    if (parsed.head === null || parsed.head === undefined) return null;
     return parsed as ToolCacheEntry;
   } catch {
     return null;
@@ -965,7 +988,20 @@ export async function runToolCached(
         // for exactly this reason; a signal kill that is NOT a CLEO timeout —
         // the memory-scope OOM in gh#1381 — had no equivalent guard and fell
         // through to here.
-        if (entry.exitCode !== null) {
+        // gh#1380: `exitCode === null` means we do not know what happened.
+        // gh#1404: `head === null` means the key cannot rotate, so whatever is
+        // stored becomes permanent regardless of any later source change.
+        //
+        // The second costs a project whose CLEO root is not a git checkout all
+        // tool-result caching. That is the right trade and worth stating
+        // rather than hiding: such projects are not getting valid caching
+        // today, they are getting ONE answer forever. A slow correct answer
+        // beats a fast fabricated one.
+        //
+        // Deliberately narrow. A guard that also refused, say, non-zero exits
+        // would trade a fabricated pass for a permanent cache miss on healthy
+        // projects — the same overcorrection pointed the other way.
+        if (entry.exitCode !== null && entry.head !== null) {
           writeCacheEntry(projectRoot, entry);
         }
 
