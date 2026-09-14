@@ -921,7 +921,15 @@ jobs:
     # Must exceed POSTDEPLOY_TIMEOUT_MS below, or the runner kills the job
     # mid-poll and the artifacts never get written — a worse outcome than a
     # clean "not installable at deadline" failure (gh#1377).
-    timeout-minutes: 25
+    #
+    # This relationship is ASSERTED, not merely documented: the run step below
+    # fails fast if the budget meets or exceeds the cap, and
+    # scripts/lint-postdeploy-budget.mjs binds this literal to the
+    # POSTDEPLOY_JOB_CAP_MINUTES env var so the two cannot drift apart. The
+    # previous wording stated the requirement in prose only, which is the same
+    # shape as every other "by convention" enforcement in this repo (gh#1394,
+    # gh#1412) — a rule nothing checks.
+    timeout-minutes: 40
 
     steps:
       - name: Checkout code
@@ -958,10 +966,35 @@ jobs:
           # npm's tarball CDN lags its metadata CDN. Measured on v2026.9.2:
           # four packages served metadata 200 while their tarballs were still
           # 404, for 177-217s; @cleocode/cleo was still 404 at +5min. The old
-          # ~3s retry budget could not span that. Keep below timeout-minutes.
-          POSTDEPLOY_TIMEOUT_MS: '900000'
+          # ~3s retry budget could not span that.
+          #
+          # Raised 900000 -> 1800000 after v2026.9.3 (gh#1409). That release
+          # failed post-deploy on a GOOD release: @cleocode/cleo's tarball
+          # became fetchable at 16:28:39Z, the 900s deadline fell at 16:28:08Z
+          # — a correct red, issued 31 seconds too early. The budget was sized
+          # from the 17 fast packages (slowest converged at +337s) rather than
+          # from the one that actually gates `npm i -g`: @cleocode/cleo is
+          # 22.2 MB packed, 2.5x the next largest, and took ~920s. A budget
+          # derived from the distribution is wrong for the outlier that decides
+          # whether the release is usable.
+          POSTDEPLOY_TIMEOUT_MS: '1800000'
           POSTDEPLOY_INTERVAL_MS: '15000'
+          # Mirrors `timeout-minutes` above. Bound to it by
+          # scripts/lint-postdeploy-budget.mjs; asserted against the budget below.
+          POSTDEPLOY_JOB_CAP_MINUTES: '40'
         run: |
+          # Fail fast if the poll budget meets or exceeds the job cap. In that
+          # configuration the runner kills the job mid-poll, so the step never
+          # reaches its own failure branch: no "NOT INSTALLABLE" line, no
+          # package named, no artifacts uploaded. A red with no diagnosis is
+          # strictly less useful than the red this budget exists to produce.
+          CAP_MS=$(( POSTDEPLOY_JOB_CAP_MINUTES * 60000 ))
+          if [ "$POSTDEPLOY_TIMEOUT_MS" -ge "$CAP_MS" ]; then
+            echo "::error::POSTDEPLOY_TIMEOUT_MS (${POSTDEPLOY_TIMEOUT_MS}ms) must be LESS than the job cap (${POSTDEPLOY_JOB_CAP_MINUTES}min = ${CAP_MS}ms)."
+            echo "The runner would kill this job mid-poll and no diagnosis would be written."
+            exit 1
+          fi
+          echo "budget ${POSTDEPLOY_TIMEOUT_MS}ms < cap ${CAP_MS}ms — ok"
           ARTIFACT_DIR="/tmp/postdeploy-artifacts"
           node scripts/execute-payload.mjs \
             --version "$VERSION" \

@@ -400,6 +400,33 @@ jobs:
       - name: Lint installer Node floor matches engines.node SSoT
         run: node scripts/lint-installer-node-floor.mjs
 
+  postdeploy-budget:
+    # gh#1409 — bind the post-deploy poll budget to the job cap.
+    #
+    # release.yml's post-deploy job polls npm until every TARBALL is fetchable,
+    # bounded by POSTDEPLOY_TIMEOUT_MS; the job is bounded by timeout-minutes.
+    # If the budget ever meets or exceeds the cap the runner kills the job
+    # mid-poll, so the step never reaches its own failure branch: no package
+    # named, no artifacts. A red with no diagnosis is WORSE than the red the
+    # budget exists to produce.
+    #
+    # That requirement lived in a release.yml comment for months. A comment is
+    # not an enforcement — the same shape as gh#1394's three unwired arch gates
+    # and gh#1412's lint-changesets, which calls itself a CI gate while no
+    # workflow invokes it. Wired here on the day it was written, deliberately,
+    # because shipping an unwired gate while filing issues about unwired gates
+    # would be the joke writing itself.
+    name: Post-Deploy Budget (gh#1409)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Assert post-deploy poll budget fits inside the job cap
+        run: node scripts/lint-postdeploy-budget.mjs
+
   vitest-memory-safe:
     # Gate 18 (T12087) — ZERO TOLERANCE. Every vitest config must spread
     # MEMORY_SAFE_TEST_DEFAULTS; an unbounded fork pool froze this machine
@@ -519,6 +546,7 @@ jobs:
       - no-bare-get-active-session
       - installer-node-floor
       - vitest-memory-safe
+      - postdeploy-budget
       - arch-gate-parity
       - merge-bar-aggregate
     steps:
