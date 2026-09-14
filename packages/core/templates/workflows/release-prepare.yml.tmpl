@@ -318,7 +318,55 @@ jobs:
         id: plan
         run: |
           mkdir -p .cleo/release
-          PLAN_FILE=".cleo/release/${{ inputs.version }}.plan.json"
+
+          # gh#1370 (T12187): the plan file is NAMED BY THE COMMAND, not by us.
+          # `cleo release plan` resolves the version through `normalizeVersion`,
+          # which ADDS a leading `v` — every plan on disk is
+          # `v<version>.plan.json`. Building this path from the raw input meant
+          # a dispatch of `2026.9.1` had the command write `v2026.9.1.plan.json`
+          # while this step read `2026.9.1.plan.json`. Normalise identically.
+          RAW_VERSION="${{ inputs.version }}"
+          case "$RAW_VERSION" in
+            v*) PLAN_VERSION="$RAW_VERSION" ;;
+            *) PLAN_VERSION="v$RAW_VERSION" ;;
+          esac
+          PLAN_FILE=".cleo/release/${PLAN_VERSION}.plan.json"
+          PLAN_LOG="${RUNNER_TEMP:-/tmp}/${PLAN_VERSION}.plan.stdout.log"
+
+          # gh#1370: a release plan is a PLAN, not a summary envelope.
+          #
+          # `release plan` WRITES the plan file itself (R-030) and prints only a
+          # SUMMARY on stdout — version, taskCount, evidenceComplete,
+          # changelogWritten, planPath — with no `tasks` array. So anything that
+          # lands a stdout capture at the plan's path still parses as JSON and
+          # still hashes cleanly, and `plan-blob-sha256` downstream would then
+          # certify the integrity of the wrong artifact. Assert the SHAPE before
+          # any hash is taken over it, on BOTH branches.
+          ASSERT_PLAN="${RUNNER_TEMP:-/tmp}/assert-release-plan.cjs"
+          cat > "$ASSERT_PLAN" <<'ASSERT_PLAN_EOF'
+          const { readFileSync } = require('node:fs');
+          const target = process.argv[2];
+          let plan;
+          try {
+            plan = JSON.parse(readFileSync(target, 'utf8'));
+          } catch (err) {
+            console.error('::error::' + target + ' is not valid JSON: ' + err.message);
+            console.error('A prose-prefixed summary envelope is not a release plan (gh#1370).');
+            process.exit(1);
+          }
+          if (!Array.isArray(plan.tasks)) {
+            const keys = Object.keys(plan).join(', ');
+            console.error('::error::' + target + ' has no "tasks" array. Top-level keys: ' + keys);
+            console.error('A summary envelope is not a release plan (gh#1370).');
+            process.exit(1);
+          }
+          if (plan.tasks.length === 0) {
+            console.error('::error::' + target + ' has an EMPTY "tasks" array — refusing to release nothing.');
+            process.exit(1);
+          }
+          console.log('plan OK: ' + plan.tasks.length + ' tasks, resolvedVersion=' + (plan.resolvedVersion || '<absent>'));
+          ASSERT_PLAN_EOF
+
           if [ -z "${{ inputs.plan-blob-sha256 }}" ]; then
             echo "No plan-blob-sha256 input — generating fresh plan."
             # T12089: `cleo release plan` REQUIRES a scope (--saga | --epic |
@@ -338,7 +386,21 @@ jobs:
               echo "::error::No release scope supplied. Dispatch with 'epic' or 'tasks' (cleo release plan requires --saga, --epic or --tasks), or pass plan-blob-sha256 with a committed plan file."
               exit 1
             fi
-            cleo release plan "${{ inputs.version }}" "${SCOPE_ARGS[@]}" --json > "$PLAN_FILE"
+            # gh#1370: do NOT redirect stdout onto "$PLAN_FILE". The command
+            # writes that file itself; the redirect aimed a second writer at the
+            # same path and whichever landed last became the artifact hashed
+            # below. Capture stdout to a log and surface it only on failure.
+            if ! cleo release plan "$RAW_VERSION" "${SCOPE_ARGS[@]}" --json > "$PLAN_LOG" 2>&1; then
+              echo "::error::cleo release plan failed — output follows"
+              cat "$PLAN_LOG"
+              exit 1
+            fi
+            if [ ! -f "$PLAN_FILE" ]; then
+              echo "::error::cleo release plan reported success but $PLAN_FILE does not exist. Plan command output:"
+              cat "$PLAN_LOG"
+              exit 1
+            fi
+            node "$ASSERT_PLAN" "$PLAN_FILE"
           else
             echo "Verifying pre-computed plan against sha256=${{ inputs.plan-blob-sha256 }}"
             if [ ! -f "$PLAN_FILE" ]; then
@@ -350,6 +412,9 @@ jobs:
               echo "::error::Plan sha256 mismatch — expected ${{ inputs.plan-blob-sha256 }}, got $ACTUAL"
               exit 1
             fi
+            # gh#1370: a matching sha proves the file is UNCHANGED, never that
+            # it is a plan. A committed summary envelope hashes just as well.
+            node "$ASSERT_PLAN" "$PLAN_FILE"
           fi
           echo "plan_file=$PLAN_FILE" >> "$GITHUB_OUTPUT"
         timeout-minutes: 5
