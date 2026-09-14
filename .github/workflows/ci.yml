@@ -1976,11 +1976,28 @@ jobs:
         if: steps.select.outputs.count != '0'
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mapfile -t FILES <<< "${{ steps.select.outputs.files }}"
           echo "Running ${#FILES[@]} test file(s) in the scripts project:"
           printf '  %s\n' "${FILES[@]}"
-          pnpm exec vitest run --project=scripts "${FILES[@]}"
+
+          REPORT="${RUNNER_TEMP:-/tmp}/scripts-run.json"
+          pnpm exec vitest run --project=scripts \
+            --reporter=default --reporter=json --outputFile="$REPORT" \
+            "${FILES[@]}"
+          RC=$?
+
+          # The selection count is the count of what this job CHOSE, not of what
+          # vitest RAN. Measured 2026-09-14: given one collectable path and one
+          # that matches no include, vitest runs the first, ignores the second
+          # and exits 0 — "Test Files 1 passed (1)" for a two-file selection.
+          # A total miss does exit 1, so only the PARTIAL case is silent, and it
+          # is the one a rename or a config change would produce.
+          node scripts/assert-vitest-collected.mjs "$REPORT" "${FILES[@]}"
+          ARC=$?
+
+          if [[ $RC -ne 0 ]]; then exit $RC; fi
+          exit $ARC
       - name: No scripts tests are implicated by this change
         if: steps.select.outputs.count == '0'
         run: |
