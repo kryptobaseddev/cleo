@@ -106,5 +106,5 @@ if (problems.length > 0) {
 
 console.log(
   `lint-postdeploy-budget: OK — budget ${budgetMs}ms < cap ${capMs}ms ` +
-    `(${capMinutes}min), headroom ${capMs - budgetMs}ms, env mirrors literal.`
+    `(${capMinutes}min), headroom ${capMs - budgetMs}ms, env mirrors literal.`,
 );
