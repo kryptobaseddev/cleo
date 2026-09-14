@@ -11,7 +11,9 @@
 
 The memory ceiling that produces the kill is **not** the defect and is unchanged. `withMemoryLimit` (T12116) runs `test` and `build` inside a systemd scope with `MemorySwapMax=0`; without it the failure mode is a throttle-and-thrash host freeze that logs nothing at all, which is strictly worse to diagnose than a clean kill. The new message reports the signal as **measured** and the ceiling as **configured**, side by side, and does not assert OOM — `SIGKILL` inside a bounded scope is also what an operator's own `kill -9` produces.
 
-Repository-only changes in this release, with no effect on published packages: the CI aggregate now names which jobs failed versus which were cancelled (gh#1358); gate 18 scans every tracked vitest config rather than root plus `packages/*` (gh#1354); gates 18 and 20 are wired into a workflow, having been documented and bundled but executed by nothing (gh#1394); `pnpm lint`'s second half runs in CI (gh#1355); and `cleo init --yes`, a flag that never existed, is gone from `worktree-cleanup.yml` (gh#1373).
+`@cleocode/cleo` is also republished, but its only source change is three trailing `// raw-cr-allowed` markers plus explanatory comments in `llm-login.ts` — the executable text is byte-identical (gh#1355).
+
+Repository-only changes in this release, with no effect on any published artifact: the CI aggregate now names which jobs failed versus which were cancelled (gh#1358); gate 18 scans every tracked vitest config rather than root plus `packages/*` (gh#1354); gates 18 and 20 are wired into a workflow, having been documented and bundled but executed by nothing (gh#1394); `pnpm lint`'s second half runs in CI, having been wired to nothing for 92 days (gh#1355); and `cleo init --yes`, a flag that never existed, is gone from `worktree-cleanup.yml` (gh#1373).
 
 ## [2026.9.1] (2026-09-13)
 
