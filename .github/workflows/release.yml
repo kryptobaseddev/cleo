@@ -918,7 +918,10 @@ jobs:
     # The job failure is visible in the Actions UI and the artifact captures
     # which packages failed verification so the issue can be investigated.
     continue-on-error: true
-    timeout-minutes: 10
+    # Must exceed POSTDEPLOY_TIMEOUT_MS below, or the runner kills the job
+    # mid-poll and the artifacts never get written — a worse outcome than a
+    # clean "not installable at deadline" failure (gh#1377).
+    timeout-minutes: 25
 
     steps:
       - name: Checkout code
@@ -952,6 +955,12 @@ jobs:
       - name: Run execute-payload
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          # npm's tarball CDN lags its metadata CDN. Measured on v2026.9.2:
+          # four packages served metadata 200 while their tarballs were still
+          # 404, for 177-217s; @cleocode/cleo was still 404 at +5min. The old
+          # ~3s retry budget could not span that. Keep below timeout-minutes.
+          POSTDEPLOY_TIMEOUT_MS: '900000'
+          POSTDEPLOY_INTERVAL_MS: '15000'
         run: |
           ARTIFACT_DIR="/tmp/postdeploy-artifacts"
           node scripts/execute-payload.mjs \
