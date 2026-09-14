@@ -1878,7 +1878,14 @@ jobs:
     steps:
       - name: Verify every required job passed (or was skipped)
         env:
+          # `join(needs.*.result)` yields the RESULTS ONLY, with no job names —
+          # which is why this gate could not say what went wrong (gh#1358). It
+          # is retained because `lint-merge-bar-aggregate` asserts this exact
+          # expression is present as proof the job gates on upstream results.
           RESULTS: ${{ join(needs.*.result, ',') }}
+          # The same data keyed BY JOB NAME, which is what lets the messages
+          # below name the offender instead of saying "one or more".
+          NEEDS_JSON: ${{ toJSON(needs) }}
           # forge-ts-check is ADVISORY (continue-on-error: true). It stays in
           # `needs` (the merge-bar lint requires every sibling to gate), but
           # its result is carved out below: a job that hits its timeout
@@ -1888,16 +1895,57 @@ jobs:
         run: |
           echo "Upstream job results: ${RESULTS}"
           echo "Advisory forge-ts-check result: ${ADVISORY_RESULT}"
-          # Count upstream failures/cancellations; 'skipped' (path-filtered)
-          # and 'success' are acceptable.
-          bad=$(printf '%s' "${RESULTS}" | tr ',' '\n' | grep -cE '^(failure|cancelled)$' || true)
-          # Carve out the advisory job: its failure/timeout never gates.
+
+          # gh#1358: `failure` and `cancelled` were collapsed into one red with
+          # one message naming neither. Measured across 40 open PRs, four showed
+          # `CI FAILURE` with ZERO failing jobs — in every case the only FAILURE
+          # entry was this aggregate itself, reacting to a single cancellation.
+          # A reader's cheapest interpretation of a red CI is "a test broke",
+          # and it was wrong on all four. Both states still close the merge bar;
+          # what changes is that the reader is told WHICH, and which job.
+          #
+          # `jq` is preinstalled on GitHub-hosted runners.
+          ADVISORY_JOBS='forge-ts-check'
+          names_with() {   # names_with <result>
+            printf '%s' "${NEEDS_JSON}" \
+              | jq -r --arg r "$1" 'to_entries[] | select(.value.result == $r) | .key' \
+              | grep -vxF "${ADVISORY_JOBS}" || true
+          }
+          failed=$(names_with failure)
+          cancelled=$(names_with cancelled)
+
           if printf '%s' "${ADVISORY_RESULT}" | grep -qE '^(failure|cancelled)$'; then
             echo "::warning::Advisory job forge-ts-check concluded '${ADVISORY_RESULT}' — not gating (T11967)."
-            bad=$((bad - 1))
           fi
-          if [ "${bad}" -gt 0 ]; then
-            echo "::error::One or more required CI jobs failed or were cancelled — see the upstream job results above."
+
+          {
+            echo "### CI aggregate"
+            echo
+            echo "| outcome | jobs |"
+            echo "|---|---|"
+            echo "| failed | ${failed:-_none_} |"
+            echo "| cancelled | ${cancelled:-_none_} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ -n "${failed}" ]; then
+            echo "::error title=CI: required jobs FAILED::$(printf '%s' "${failed}" | tr '\n' ' ')"
+            # NOT `[ -n "$x" ] && echo ...` — GitHub runs `run:` under `bash -e`,
+            # where a false test is a non-zero command and aborts the step
+            # before `exit 1` is reached, turning a named failure back into an
+            # unexplained one. Exactly the class of defect this block fixes.
+            if [ -n "${cancelled}" ]; then
+              echo "::error title=CI: also cancelled::$(printf '%s' "${cancelled}" | tr '\n' ' ')"
+            fi
             exit 1
           fi
+
+          if [ -n "${cancelled}" ]; then
+            # No job failed. Something cancelled these — usually a newer push
+            # superseding this run (concurrency: cancel-in-progress), sometimes
+            # a job outliving its siblings. Either way NO TEST BROKE, and the
+            # fix is a re-run, not an investigation.
+            echo "::error title=CI: cancelled, NOT failed — re-run, do not investigate::$(printf '%s' "${cancelled}" | tr '\n' ' ') were CANCELLED. No job reported a failure. This aggregate is red because a cancelled job is not a pass, not because a test broke."
+            exit 1
+          fi
+
           echo "All required CI jobs succeeded or were skipped."
