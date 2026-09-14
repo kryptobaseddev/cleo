@@ -1,8 +1,9 @@
 ---
-'@cleocode/core': patch
+id: tool-signal-kill-and-null-cache
+tasks: [T12182]
+kind: fix
+summary: A signal-killed tool no longer reports as a missing binary, and its non-result is never cached
 ---
-
-fix: a tool killed by a signal is no longer reported as a missing binary, and its non-result is never cached
 
 `spawnCmd` bound only `code` from Node's `close` event. `close` fires with
 `(code, signal)` and exactly one is non-null, so a process killed by a signal
@@ -57,6 +58,3 @@ Changes:
   tool cannot acquire a message that names a bound it does not run under.
 
 Closes gh#1381, gh#1380.
-
-tasks: [T12182]
-kind: fix
