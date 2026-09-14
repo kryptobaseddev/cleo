@@ -279,7 +279,14 @@ async function _runPkceLogin(
     return _errorResult('E_PKCE_EXCHANGE_FAILED', `PKCE code exchange failed: ${msg}`, meta);
   }
 
-  process.stderr.write('\r  Authorization approved.              \n\n');
+  // The `\r` clears the device-code polling line this replaces. Marked rather
+  // than routed through `@cleocode/animations`: `createSpinnerHandle` writes to
+  // process.stdout ONLY (SpinnerHandleOptions carries no stream option), and
+  // ADR-086 reserves stdout for exactly one LAFS envelope — so taking the
+  // gate's suggested remedy here would trade a cosmetic concern for a
+  // protocol violation. On a non-TTY the `\r` is an ordinary character on a
+  // stream that is already non-machine-readable by contract.
+  process.stderr.write('\r  Authorization approved.              \n\n'); // raw-cr-allowed
 
   const label = opts.label ?? 'oauth-login';
   const expiresAt =
@@ -533,7 +540,9 @@ async function _runKimiCodeLogin(
   try {
     tokenResp = await pollForToken(cfg, startResp, {
       onPending: (elapsed: number) => {
-        process.stderr.write(`\r  Polling... ${elapsed}s elapsed`);
+        // In-place progress during device-code polling; stderr per ADR-086,
+        // and the sanctioned handle is stdout-only. See the note above.
+        process.stderr.write(`\r  Polling... ${elapsed}s elapsed`); // raw-cr-allowed
       },
     });
   } catch (err: unknown) {
@@ -553,7 +562,8 @@ async function _runKimiCodeLogin(
     );
   }
 
-  process.stderr.write('\r  Kimi Code authorization approved.              \n\n');
+  // Clears the `Polling...` line above; stderr per ADR-086.
+  process.stderr.write('\r  Kimi Code authorization approved.              \n\n'); // raw-cr-allowed
 
   const label = opts.label ?? 'oauth-login';
   const expiresAt =

@@ -587,6 +587,28 @@ jobs:
       - name: Detect high-fan-out types that should be in packages/contracts
         run: node scripts/lint-contracts-fan-out.mjs
 
+  raw-cr-writes-lint:
+    # gh#1355 — `pnpm lint` is `biome check . && node
+    # scripts/lint-no-raw-cr-writes.mjs`, and CI ran only the biome half (as
+    # the separate "Biome CI" job). The second half was wired to nothing, so a
+    # zero-tolerance gate sat red on main for 92 days with no signal: measured
+    # 2026-09-14, three unmarked `process.stderr.write('\r…')` callsites in
+    # `llm-login.ts`. A gate nothing runs is not a gate.
+    #
+    # Deliberately install-free: the script imports only node:fs and node:path,
+    # so a `pnpm install --frozen-lockfile` here would add minutes to the PR
+    # critical path to run a dependency-free static scan.
+    name: Raw CR Writes Lint (gh#1355)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - name: Reject raw \r writes to stdout/stderr outside @cleocode/animations
+        run: node scripts/lint-no-raw-cr-writes.mjs
+
   format-error-misuse-lint:
     # T9789 / E-DOCS-FORMATERR-FIX — guard against
     # `cliOutput(formatError(...))` and `cliError(formatError(...))`
@@ -1849,6 +1871,7 @@ jobs:
       - lafs-envelope-conformance
       - contracts-dep-lint
       - contracts-fan-out-lint
+      - raw-cr-writes-lint
       - format-error-misuse-lint
       - deprecations-lint
       - pragma-drift
