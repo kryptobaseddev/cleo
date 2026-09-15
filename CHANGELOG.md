@@ -1,5 +1,29 @@
 # Changelog
 
+## [2026.9.4] (2026-09-15)
+
+### Fixed
+
+- **A tool-evidence cache entry is now keyed on the tree the tool actually ran in.** `computeCacheKey` hashed `{canonical, cmd, args, head, dirtyFingerprint}` and **no working directory**, while the cache *directory* is shared by every worktree of a project on purpose — `getProjectRoot()` resolves a worktree to the main repo so they share one `.cleo/`. Two clean worktrees at the same HEAD produce the same `dirtyFingerprint` (the empty-input hash), so **they collided by construction** and a run in worktree A was served to worktree B. T12112 had already threaded `executionRoot` through *execution* for this exact hazard; it never reached the key. A field survey found 259 tool entries, **0** carrying any directory, and **8 produced in worktrees that no longer existed** — every one `exitCode: 0` and still servable, which makes the evidence unfalsifiable rather than merely stale (gh#1419)
+- **`cleo complete --field` failed on every pointer**, including the three its own `E_FIELD_NOT_FOUND` recommended — so an agent following the `fix` re-ran the failing command verbatim. The mutate-projection middleware had already reduced the payload to the flat envelope; the handler then read `data?.task ?? data` under a comment describing the pre-T9931 world, found no `task` key, and re-wrapped the whole envelope under `task`. `cleo update` was unaffected because it passes `response.data` straight through — `complete` was the only command in the CLI that rewrapped (gh#1411)
+- **`cleo verify`'s operations had no output contract at all.** Zero `check.*` operations were registered, so `check.gate.set` and `check.gate.status` fell through to the generic contract: `cleo verify --describe` returned an empty contract, and `E_FIELD_NOT_FOUND` listed no valid pointers while CLEO-INJECTION.md promises it "lists every valid pointer for that op" (gh#1423)
+- **CLEO-INJECTION.md told every spawned agent to use a pointer that cannot resolve.** Line 279 documented `--field /data/task/verification` for `cleo verify`, which returns the **flat** mutate record; the nested spelling is `cleo show`'s read shape. The document's own rule two sentences earlier states the distinction correctly and then gets it wrong for this verb (gh#1420)
+- **A failed release-readiness gate could not stop anything.** `runSpawnReadinessHygieneCli` reported failure by setting `process.exitCode` and returning normally, under a caller comment asserting it "exits on failure". So `cleo release plan` proceeded past a failed gate and wrote `success: true` while the process exited non-zero — two readings of one run that disagree, and **both are consumed by automation**: `release-prepare.yml` gates on the exit code, CLEO-INJECTION.md tells every agent to gate on the envelope. The result is now a value the caller branches on, and the two agree in every branch (gh#1366)
+- **A 10-second timeout was reported as "Changeset lint failed"**, sending the operator to repair changesets that were valid. `err.code === 'ETIMEDOUT'` was available in the handler and discarded. A timeout and a validation failure are different facts and no longer share a message (gh#1367)
+- **Gates 14 and 15 validated `cleo` VERBS but never FLAGS.** citty silently ignores unknown flags, so a flag that never existed has always been a no-op nothing reports. Found by the new check: `release-rollback.yml.tmpl` passed `--reason` to `release reconcile`, whose entire flag surface is `--from-workflow --rollback --dry-run --json` — **the operator's rollback reason has never reached the database**, while the step whose own comment says it "MUST write rollback marker" reported success every time. Also `cleo memory digest --brief` written into every cli-bridge-mode AGENTS.md, and `orchestrate start/ready --epic` and `memory decision-find --epic` in CLEO-INJECTION.md, the last promising an epic filter that does not exist and returning the **unfiltered** decision set (gh#1373)
+
+### Changed
+
+- `ToolCacheEntry.schemaVersion` bumps **1 → 2**. Every entry written before `executionRoot` was part of a run's identity is refused on a single comparison — **1,255 entries in this repository alone**, none of which could say which tree produced them. This is the mechanism gh#1380 and gh#1404 each rebuilt by hand while the version counter sat unused at 1 through both.
+- N worktrees now run a tool N times instead of sharing one result. That sharing was unsound: `biome lint .` walks untracked-not-ignored files and `node_modules` differ per worktree. Cross-worktree *concurrency bounding* (the per-tool semaphore) is untouched; only the unsound *result sharing* is gone.
+- `Scripts Tests` in CI now builds before running, because several `scripts/` tests spawn a script that imports built `@cleocode/core` output. The job goes from well under a minute to ~2m41s whenever a scripts test is implicated. Stated here so the duration change is not re-investigated later.
+
+### Notes
+
+The evidence-cache work is a design change, not a fourth patch. `TOOL_RUN_IDENTITY_FIELDS` is now the single source of truth for what the cache key hashes, what the read guard requires, and what the persist guard requires — three things previously maintained by hand, with the read and write guards transcribing the same rule in different code and nothing asserting they agreed. A field added to that array is keyed, required on read, and required on write, together or not at all.
+
+**Known limit:** gate 14 *abstains* on `CLEO-INJECTION.md:279` rather than validating it. `tasks.verify` still has no output contract and `operationForVerbSource` cannot statically resolve an operation that `verify.ts` picks at runtime (`gate.set` vs `gate.status`). The documented pointer is correct because it was corrected, not because anything checks it.
+
 ## [2026.9.3] (2026-09-14)
 
 ### Fixed
