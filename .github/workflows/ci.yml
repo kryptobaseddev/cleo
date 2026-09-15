@@ -2007,6 +2007,20 @@ jobs:
       - name: Install dependencies
         if: steps.select.outputs.count != '0'
         run: pnpm install --frozen-lockfile
+      - name: Build packages (selected tests spawn scripts that import built dist)
+        # gh#1403 follow-up. This job installed but never built, and several
+        # scripts/ tests spawn a script that imports `@cleocode/core`'s built
+        # output — `lint-changesets.test.mjs` is the clear case: all five of its
+        # assertions expect exit 0 or 1, and with no dist the script exits 2
+        # before parsing anything, so every one fails.
+        #
+        # This went unnoticed because the sibling-test rule that selects such a
+        # test is itself new. A PR editing scripts/lint-changesets.mjs is the
+        # first thing that ever ran that file here, and it failed on a missing
+        # prerequisite rather than on its own change. Selecting a test without
+        # being able to satisfy what it needs is not coverage.
+        if: steps.select.outputs.count != '0'
+        run: pnpm run build
       - name: Run the selected scripts tests
         if: steps.select.outputs.count != '0'
         shell: bash

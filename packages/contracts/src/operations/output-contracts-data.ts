@@ -24,6 +24,7 @@
  * @task T11692 — DHQ-057: per-operation output schema SSoT
  */
 
+import { checkGateSetOutputContract, checkGateStatusOutputContract } from './check.js';
 import {
   accountAddOutputContract,
   accountListOutputContract,
@@ -602,6 +603,11 @@ const adminConfigUnsetOutputContract: OperationOutputContract = {
  * @task T11692
  */
 export const OUTPUT_CONTRACTS: OperationOutputContractRegistry = {
+  // gate verification (T12192 · gh#1420 · gh#1423) — `cleo verify`, the op
+  // every agent is told to run before every `cleo complete`, previously fell
+  // through to the generic contract with an EMPTY pointer list.
+  'check.gate.set': checkGateSetOutputContract,
+  'check.gate.status': checkGateStatusOutputContract,
   'tasks.show': tasksShowOutputContract,
   'tasks.list': tasksListOutputContract,
   'tasks.find': tasksFindOutputContract,

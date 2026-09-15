@@ -10,7 +10,7 @@ This command extends ct-orchestrator with **Claude Code-specific** operational g
 cleo session status              # Resume existing?
 cleo dash                        # Project overview
 cleo current                     # Active task?
-cleo orchestrate start --epic TXXX  # Full state + pipeline + next task
+cleo orchestrate start TXXX  # Full state + pipeline + next task
 ```
 
 Then ask the human what they want to focus on today. Follow LOOM (RCASD -> IVTR) lifecycle for all work.

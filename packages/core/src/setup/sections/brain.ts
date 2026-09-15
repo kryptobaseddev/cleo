@@ -4,7 +4,7 @@
  * Controls how BRAIN context is surfaced inside AGENTS.md by toggling
  * `brain.memoryBridge.mode` across three operator-visible values:
  *
- *   - `'digest'`   — AGENTS.md gets a `cleo memory digest --brief` directive
+ *   - `'digest'`   — AGENTS.md gets a `cleo memory digest` directive
  *                    (no `.cleo/memory-bridge.md` written). Wire value stays
  *                    `'cli'` so existing project configs continue to resolve
  *                    correctly; the wizard label was renamed to "digest" to

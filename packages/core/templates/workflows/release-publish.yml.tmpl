@@ -382,7 +382,7 @@ jobs:
           gh issue create \
             --label release-incident \
             --title "Provenance backfill needed for ${VERSION}" \
-            --body "release-publish.yml reconcile job failed for ${VERSION}. Tag and publish completed successfully; only the provenance graph is incomplete. To recover, run \`cleo release reconcile ${VERSION} --backfill\` from a local checkout. Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            --body "release-publish.yml reconcile job failed for ${VERSION}. Tag and publish completed successfully; only the provenance graph is incomplete. To recover, run \`cleo release reconcile ${VERSION}\` from a local checkout. Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         timeout-minutes: 5

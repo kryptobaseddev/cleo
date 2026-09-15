@@ -116,6 +116,21 @@ describe('gh#1403 — the scripts test project is reachable from CI', () => {
     expect(jobBlock(ci, 'scripts-tests')).toMatch(/__tests__\/\$\(basename/);
   });
 
+  it('builds before running, or a test that spawns a script cannot pass', () => {
+    // The job installed but never built. Several scripts/ tests spawn a script
+    // that imports `@cleocode/core`'s built output: lint-changesets.mjs exits 2
+    // with "has not been built" before parsing anything, so all five of
+    // lint-changesets.test.mjs's assertions (each expecting exit 0 or 1) fail.
+    //
+    // Nothing caught it because the sibling-test rule that selects that file is
+    // itself new — the first PR to edit scripts/lint-changesets.mjs was the
+    // first run that ever included it, and it failed on a missing prerequisite
+    // rather than on its own change. Selecting a test the job cannot satisfy is
+    // not coverage.
+    const job = jobBlock(ci, 'scripts-tests');
+    expect(job).toMatch(/run: pnpm run build/);
+  });
+
   it('is in the ci aggregate’s needs, so its failure fails the merge bar', () => {
     // The aggregate accepts `skipped` as a pass — which is what let a
     // scripts-only PR go green. Being in `needs` is what makes a FAILURE here

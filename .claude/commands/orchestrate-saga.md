@@ -78,7 +78,7 @@ EPICS (dep order):
 <auto: one line per Epic "Eid — title (Nt)">
 
 EXEC: TeamCreate continuous loop, never idle.
-- Pull: `cleo orchestrate ready --epic <Eid>`. Spawn: `cleo orchestrate spawn <Tid>`.
+- Pull: `cleo orchestrate ready <epicId>`. Spawn: `cleo orchestrate spawn <Tid>`.
 - After every merge, re-pull next ready. Loop until rollup = N/N.
 - Cross-team handoff via SendMessage on wave-block clear.
 
