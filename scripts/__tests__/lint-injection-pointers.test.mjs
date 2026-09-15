@@ -94,8 +94,22 @@ describe('extractDocumentedPointers', () => {
   });
 
   it('never attributes a pointer to a verb on a different line', () => {
+    // The property this test is named for is ATTRIBUTION: the pointer on the
+    // last line must not be credited to `cleo show` on the first. That still
+    // holds — `verb` is null.
+    //
+    // The assertion used to be `toEqual([])`, which additionally required the
+    // entry to DISAPPEAR. gh#1373 changed that deliberately: an unattributable
+    // pointer is now surfaced with `verb: null` and counted in the gate's
+    // output instead of being dropped, because a pointer nobody can attribute
+    // is exactly what must not vanish from a gate's view — that is how a check
+    // comes to cover less than it reports. `findPointerViolations` skips
+    // `verb === null`, so nothing is judged against the wrong contract.
     const md = 'cleo show T1\n\nsomething else --field /data/created/0';
-    expect(extractDocumentedPointers(md)).toEqual([]);
+    const out = extractDocumentedPointers(md);
+    expect(out).toHaveLength(1);
+    expect(out[0].verb).toBeNull();
+    expect(out.some((d) => d.verb === 'show')).toBe(false);
   });
 
   it('ignores placeholder pointers', () => {
