@@ -16,6 +16,7 @@
  * @task gh#1440
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,11 +47,21 @@ describe('release reconcile resolves a bare version to the v-prefixed plan (gh#1
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 
-  /** A project root with a `.cleo/release/` dir and no plan files. */
+  /**
+   * A project root with a `.cleo/release/` dir and no plan files.
+   *
+   * The `git init` is load-bearing: `resolveCleoDir` requires a `.cleo`
+   * directory WITH a sibling `.git`, and rejects the root outright otherwise.
+   * Without it the fixture fails at project resolution with
+   * `E_INVALID_PROJECT_ROOT` — before reconcile reaches the normalisation these
+   * tests exist to check, so the assertions would fail for a reason that has
+   * nothing to do with what is under test.
+   */
   function emptyProject(): string {
     const root = mkdtempSync(join(tmpdir(), 'reconcile-version-'));
     dirs.push(root);
     mkdirSync(join(root, '.cleo', 'release'), { recursive: true });
+    execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' });
     return root;
   }
 
@@ -89,8 +100,13 @@ describe('release reconcile resolves a bare version to the v-prefixed plan (gh#1
     if (fix.length > 0) expect(fix).toContain('v9999.1.1');
   });
 
-  it('the fixture genuinely has no plan file — the control for the above', () => {
+  it('the fixture is resolvable AND genuinely has no plan file — the control', () => {
+    // Two separate properties, both required. The first is what CI caught: a
+    // fixture missing `.git` is rejected at project resolution, so every
+    // assertion above would fail for a reason unrelated to versions.
     const root = emptyProject();
+    expect(existsSync(join(root, '.git'))).toBe(true);
+    expect(existsSync(join(root, '.cleo'))).toBe(true);
     expect(existsSync(join(root, '.cleo', 'release', 'v9999.1.1.plan.json'))).toBe(false);
     expect(existsSync(join(root, '.cleo', 'release', '9999.1.1.plan.json'))).toBe(false);
   });
