@@ -458,7 +458,7 @@ export function findPointerViolations(markdown, contracts, sourceForVerb) {
 }
 
 // ---------------------------------------------------------------------------
-// T12190 (GH #1373) — documented FLAGS must exist, not just the verb.
+// T12191 (GH #1373) — documented FLAGS must exist, not just the verb.
 //
 // Gates 14 and 15 assert the verb half of `cleo <verb> [<sub>] --flags` and
 // stop there. citty 0.2.1 parses with `strict: false`, so a flag that never
@@ -502,7 +502,7 @@ export function findPointerViolations(markdown, contracts, sourceForVerb) {
  *
  * @param source - contents of `packages/cleo/src/cli/lib/strict-args.ts`.
  * @returns the global flag tokens, leading dashes included.
- * @task T12190
+ * @task T12191
  */
 export function loadGlobalFlags(source) {
   // Anchor on `Object.freeze([`, NOT on the first `[` after the identifier:
@@ -529,7 +529,7 @@ export function loadGlobalFlags(source) {
  *
  * @param sources - iterable of command-module sources.
  * @returns set of `'<verb> <sub>'` labels.
- * @task T12190
+ * @task T12191
  */
 export function extractHandWiredGuards(sources) {
   const labels = new Set();
@@ -562,7 +562,7 @@ export function extractHandWiredGuards(sources) {
  * @returns accepted flag tokens with leading dashes; EMPTY when the `args`
  *   block could not be located, which callers must treat as "unknown", never
  *   as "accepts nothing".
- * @task T12190
+ * @task T12191
  */
 export function extractAcceptedFlags(source, name) {
   const metaRe = new RegExp(`meta:\\s*\\{[^}]*name:\\s*'${name}'`);
@@ -622,7 +622,7 @@ export function extractAcceptedFlags(source, name) {
  *
  * @param source - contents of `packages/cleo/src/cli/lib/strict-args.ts`.
  * @returns map of command name → set of retired flag tokens.
- * @task T12190
+ * @task T12191
  */
 export function loadRetiredFlags(source) {
   const at = source.indexOf('RETIRED_FLAG_GUIDANCE');
@@ -671,7 +671,7 @@ export function loadRetiredFlags(source) {
  *
  * @param text - markdown, YAML `run:` lines, or any shell-ish text.
  * @returns `{verb, sub, flags, line, raw}` records in document order.
- * @task T12190
+ * @task T12191
  */
 export function extractInvocationsWithFlags(text) {
   const INVOCATION =
@@ -714,7 +714,7 @@ export function extractInvocationsWithFlags(text) {
  * @param repoRoot - absolute repo root.
  * @returns `{ check, sourceForVerb }` — `check(invocation)` returns a violation
  *   record or `null`.
- * @task T12190
+ * @task T12191
  */
 export function makeFlagChecker(repoRoot) {
   const manifestSource = readFileSync(
@@ -820,7 +820,7 @@ export function makeFlagChecker(repoRoot) {
  * @param checker - from {@link makeFlagChecker}.
  * @param skipComment - optional predicate; a line it accepts is not scanned.
  * @returns violation records (empty when clean).
- * @task T12190
+ * @task T12191
  */
 export function findFlagViolations(text, checker, skipComment) {
   const out = [];
@@ -883,7 +883,7 @@ if (isMain) {
   );
   violations.push(...findPointerViolations(markdown, pointerContracts, sourceForVerb));
 
-  // T12190 (GH #1373): existence, runnability and pointer-resolution are STILL
+  // T12191 (GH #1373): existence, runnability and pointer-resolution are STILL
   // not enough — a documented flag must exist. citty parses with
   // `strict: false`, so `cleo memory decision-find --epic <epicId>` returned
   // the UNFILTERED decision set and looked like a successful narrow query.

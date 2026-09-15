@@ -220,7 +220,7 @@ function stripPlaceholders(source) {
  *
  * @param yamlText - the workflow source (placeholders already blanked).
  * @returns text of the same line count, containing only `run:` shell.
- * @task T12190
+ * @task T12191
  */
 export function extractRunBlockText(yamlText) {
   const lines = yamlText.split('\n');
@@ -277,7 +277,7 @@ if (isMain) {
 
   const violations = docs.flatMap((d) => findWorkflowViolations(d.rel, d.text, registry));
 
-  // T12190 (GH #1373) — the verb half is not the whole call site. `cleo init
+  // T12191 (GH #1373) — the verb half is not the whole call site. `cleo init
   // --yes` sat in `worktree-cleanup.yml` since PR #868 doing nothing, and
   // `release-rollback.yml.tmpl` passed `--reason "${REASON}"` to a command with
   // no such flag, so the operator's rollback reason was parsed as a stray

@@ -1,5 +1,5 @@
 /**
- * Gates 14 + 15, flag half (T12190 · GH #1373).
+ * Gates 14 + 15, flag half (T12191 · GH #1373).
  *
  * Every assertion here runs against the REAL repository sources, never a
  * fixture copy. That is deliberate: the defect this gate exists to catch is a
@@ -14,7 +14,7 @@
  * reports every case as SKIPPED, which reads as "nothing to see" instead of as
  * N specific failures.
  *
- * @task T12190
+ * @task T12191
  */
 
 import { readFileSync } from 'node:fs';
