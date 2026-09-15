@@ -37,11 +37,12 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
@@ -61,8 +62,24 @@ import { type AcquireSlotOptions, acquireGlobalSlot } from './tool-semaphore.js'
  * @task T1534
  */
 export interface ToolCacheEntry {
-  /** Schema version for forwards compatibility. */
-  schemaVersion: 1;
+  /**
+   * Schema version for forwards compatibility.
+   *
+   * Bumped 1 -> 2 by gh#1419, which added {@link ToolCacheEntry.executionRoot}
+   * to the run's identity. Every entry written before that field existed is
+   * refused wholesale by {@link readCacheEntry} on this one comparison.
+   *
+   * That is the mechanism gh#1380 and gh#1404 each rebuilt by hand. Both
+   * needed to retire entries already on disk in consumers' caches, and both
+   * did it with a bespoke null-check on the field they had just added —
+   * `exitCode === null`, then `head === null` — while this field, whose entire
+   * purpose is to retire incompatible entries, stayed at 1 through both.
+   * Two defects, two hand-written retirement clauses, one unused version
+   * counter sitting between them.
+   *
+   * @task T12190 (gh#1419)
+   */
+  schemaVersion: 2;
   /** Cache key (also encoded in the filename). */
   key: string;
   /** Canonical tool name from the resolver. */
@@ -79,6 +96,26 @@ export interface ToolCacheEntry {
   head: string | null;
   /** sha256 of `git status --porcelain` (uncommitted tree fingerprint). */
   dirtyFingerprint: string | null;
+  /**
+   * Absolute, symlink-resolved path of the tree the tool actually ran in.
+   *
+   * Part of the run's IDENTITY (see {@link TOOL_RUN_IDENTITY_FIELDS}), so it
+   * is in the cache key: two clean worktrees at the same HEAD no longer
+   * collide. They used to by construction — a clean tree's
+   * `dirtyFingerprint` is the empty-input hash in every worktree, so the old
+   * key `{canonical, cmd, args, head, dirtyFingerprint}` was byte-identical
+   * across them.
+   *
+   * Stored as well as keyed, so a hit can be AUDITED. Before this field,
+   * `ToolCacheEntry` carried no directory at all: a field survey of 259 tool
+   * entries found 0 that could say which tree produced them, and 8 that had
+   * been produced in worktrees since deleted — every one `exitCode: 0` and
+   * still servable, which makes the evidence unfalsifiable rather than merely
+   * stale. Nobody can go and look.
+   *
+   * @task T12190 (gh#1419)
+   */
+  executionRoot: string;
   /** Process exit code. */
   exitCode: number | null;
   /**
@@ -373,32 +410,164 @@ export function resolveSpawnTimeoutMs(
 // ---------------------------------------------------------------------------
 
 /**
+ * The fields that establish WHICH RUN a cache entry describes.
+ *
+ * This list is the single source of truth for three things that must agree
+ * and previously did not, because each was maintained by hand:
+ *
+ *   1. what {@link computeCacheKey} hashes,
+ *   2. what {@link readCacheEntry} requires before serving an entry,
+ *   3. what `runToolCached` requires before persisting one.
+ *
+ * ## Why this exists rather than a fourth guard clause
+ *
+ * Three defects in three releases, each invisible to the detector written for
+ * the one before it:
+ *
+ * | | gh#1380 (2026.9.2) | gh#1404 (2026.9.3) | gh#1419 (this) |
+ * |---|---|---|---|
+ * | signature | `exitCode: null` | real code, `head: null` | well-formed, genuinely succeeded |
+ * | wrong how | never ran | key cannot rotate | ran, on the wrong tree |
+ * | detector | all-null | real code + null head | neither matches |
+ *
+ * Each fix added one `if` naming one field, to two separate guards — the read
+ * path and the write path — that encode the same rule in different code with
+ * nothing asserting they agree. A fourth defect means a fourth pair of `if`s,
+ * and the pair for defect five is the one somebody edits only half of.
+ *
+ * The recurring mistake is not any of the three fields. It is that a field
+ * could be added to {@link ToolCacheEntry} without being added to the key:
+ * `executionRoot` was threaded all the way through execution by T12112 and
+ * never reached `computeCacheKey`, so the tool correctly ran in worktree A
+ * and its result was then served to worktree B under an identical key. The
+ * execution half of that fix landed; the caching half did not.
+ *
+ * Deriving all three consumers from this one array makes that specific
+ * mistake unavailable: a field added here is keyed, required on read, and
+ * required on write, together or not at all.
+ *
+ * ## What is deliberately NOT here
+ *
+ * `exitCode` is a RESULT, not an identity — it is what the run produced, not
+ * which run it was. It has its own non-null requirement in
+ * {@link isEntryUsable} (gh#1380: an unknown outcome must never be cached).
+ * Putting it here would key the cache on its own answer.
+ *
+ * @task T12190 (gh#1419)
+ */
+export const TOOL_RUN_IDENTITY_FIELDS = [
+  'canonical',
+  'cmd',
+  'args',
+  'head',
+  'dirtyFingerprint',
+  'executionRoot',
+] as const;
+
+/**
+ * The identity half of a {@link ToolCacheEntry} — the inputs that determine
+ * which run it is, independent of what that run produced.
+ *
+ * @task T12190 (gh#1419)
+ */
+export type ToolRunIdentity = Pick<ToolCacheEntry, (typeof TOOL_RUN_IDENTITY_FIELDS)[number]>;
+
+/**
+ * Normalise an execution root to a stable, comparable absolute path.
+ *
+ * Symlinks are resolved so that two spellings of one directory produce one
+ * key — the safe direction, since collapsing an alias can only merge entries
+ * that genuinely describe the same tree, while failing to collapse it would
+ * split one tree's cache across spellings. A path that cannot be resolved
+ * (it has been deleted) falls back to lexical resolution rather than
+ * throwing: callers of {@link computeCacheKey} must be able to compute the
+ * key of a run whose directory is already gone, precisely so
+ * {@link readCacheEntry} can then refuse it.
+ *
+ * @task T12190 (gh#1419)
+ */
+function normalizeExecutionRoot(executionRoot: string): string {
+  try {
+    return realpathSync(executionRoot);
+  } catch {
+    return resolve(executionRoot);
+  }
+}
+
+/**
  * Compute the cache key for a resolved tool command + repo state.
  *
- * Key includes:
- *   - Canonical tool name
- *   - Resolved command + args (sensitive to project-context updates)
- *   - Git HEAD sha (so a new commit invalidates everything)
- *   - Dirty-tree fingerprint (so an uncommitted edit invalidates everything)
+ * The key covers exactly {@link TOOL_RUN_IDENTITY_FIELDS} — canonical tool
+ * name, resolved command and args, git HEAD, dirty-tree fingerprint, and the
+ * normalised execution root. Fields are projected in the order that array
+ * declares, so the hashed payload is a function of the array and adding a
+ * field there changes every key by construction.
+ *
+ * `executionRoot` is a REQUIRED parameter, deliberately. A defaulted one
+ * would let every callsite that was not updated keep computing the old,
+ * colliding key while the type-checker reported success — which is the exact
+ * shape of the defect this fixes, since `executionRoot` already existed and
+ * already reached this function's caller.
  *
  * Using `createHash('sha256')` makes the key collision-resistant and bounded
- * to 64 hex chars regardless of input size.
+ * to 32 hex chars regardless of input size.
  *
  * @task T1534
+ * @task T12190 (gh#1419)
  */
 export function computeCacheKey(
   command: ResolvedToolCommand,
   head: string | null,
   dirtyFingerprint: string | null,
+  executionRoot: string,
 ): string {
-  const payload = JSON.stringify({
+  const identity: ToolRunIdentity = {
     canonical: command.canonical,
     cmd: command.cmd,
     args: command.args,
     head,
     dirtyFingerprint,
-  });
+    executionRoot: normalizeExecutionRoot(executionRoot),
+  };
+  // Projected through TOOL_RUN_IDENTITY_FIELDS rather than written as an
+  // object literal: the literal is what drifted from the entry shape before.
+  const payload = JSON.stringify(TOOL_RUN_IDENTITY_FIELDS.map((f) => identity[f]));
   return createHash('sha256').update(payload).digest('hex').slice(0, 32);
+}
+
+/**
+ * Whether a cache entry may be SERVED or PERSISTED as a real result.
+ *
+ * One predicate, used by both {@link readCacheEntry} and the persist guard in
+ * `runToolCached`, so the two cannot drift apart. Two rules:
+ *
+ *   1. every field in {@link TOOL_RUN_IDENTITY_FIELDS} is present and
+ *      non-null — an entry that cannot say which run it describes is not
+ *      evidence of anything;
+ *   2. `exitCode` is non-null — a run that produced no exit code records that
+ *      we do not know what happened, and an unknown must never be cached
+ *      (gh#1380).
+ *
+ * Rule 1 subsumes gh#1404's `head === null` clause without naming `head`:
+ * when the tool runs off a non-git root both git fields are null on EVERY
+ * run, so the key is a function of the command alone and nothing a developer
+ * does to the source can rotate it. That is not a cache, it is a hardcoded
+ * answer with a filename — and unlike gh#1380 it holds a real exit code,
+ * which can be a PASS. A poisoned red is investigated within minutes; nobody
+ * debugs a passing gate.
+ *
+ * The cost is stated rather than hidden: a project whose CLEO root is not a
+ * git checkout gets no tool-result caching at all. Such projects are not
+ * getting valid caching today — they are getting one answer forever.
+ *
+ * @task T12190 (gh#1419)
+ */
+export function isEntryUsable(entry: Partial<ToolCacheEntry>): boolean {
+  for (const field of TOOL_RUN_IDENTITY_FIELDS) {
+    const value = entry[field];
+    if (value === null || value === undefined) return false;
+  }
+  return entry.exitCode !== null && entry.exitCode !== undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -728,44 +897,39 @@ export function readCacheEntry(projectRoot: string, key: string): ToolCacheEntry
     const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Partial<ToolCacheEntry> & {
       pending?: boolean;
     };
-    if (parsed.schemaVersion !== 1 || parsed.key !== key) return null;
+
+    // Schema gate. Bumped to 2 by gh#1419; every entry written before
+    // `executionRoot` was part of a run's identity is refused here, on this
+    // one line. gh#1380 and gh#1404 each needed exactly this and each
+    // reimplemented it as a bespoke null-check on their own field, while this
+    // counter sat unused at 1 through both.
+    if (parsed.schemaVersion !== 2 || parsed.key !== key) return null;
+
     // A placeholder written by `runToolCached` to satisfy proper-lockfile's
     // "file must exist" requirement. It carries no real result — treat as
-    // a miss until the lock holder writes the entry.
+    // a miss until the lock holder writes the entry. Checked before the
+    // identity gate below because a placeholder legitimately has none.
     if (parsed.pending === true) return null;
-    // gh#1380: an entry whose run produced no exit code is not a result — it
-    // records that we do not know what happened. Refusing it on READ as well
-    // as declining to write it retires the entries already persisted by
-    // <= 2026.9.1, which cannot clean themselves up: when the tool ran off a
-    // non-git root, `head` and `dirtyFingerprint` are both null, they are part
-    // of the cache key, and a key that cannot change can never be invalidated
-    // by a commit or an edit. One signal-killed run would otherwise serve a
-    // cached "binary missing" forever, without ever spawning again — a
-    // permanent red that no amount of correct work clears.
-    if (parsed.exitCode === null || parsed.exitCode === undefined) return null;
-    // gh#1404: an entry whose `head` is null was keyed on the command ALONE —
-    // `computeCacheKey` hashes {canonical, cmd, args, head, dirtyFingerprint},
-    // so with both git fields null nothing a developer does to the SOURCE can
-    // change the key. Editing does not. Committing does not. Only editing the
-    // tool command itself does, which is a config change, not a code change.
+
+    // The identity + result gate (gh#1380, gh#1404, gh#1419), derived from
+    // TOOL_RUN_IDENTITY_FIELDS rather than written out field by field, and
+    // shared verbatim with the persist guard in `runToolCached`.
+    if (!isEntryUsable(parsed)) return null;
+
+    // gh#1419: refuse a hit whose originating tree is GONE.
     //
-    // That is not a cache; it is a hardcoded answer with a filename. And
-    // unlike gh#1380's `exitCode: null` — which fails closed and is therefore
-    // loud — this holds a REAL exit code of either sign. A cached PASS is not
-    // self-announcing: nobody debugs a passing gate.
+    // Keying on `executionRoot` stops one live worktree from being served
+    // another live worktree's result. It does not address the worse case the
+    // field survey actually found: 8 entries produced in worktrees that had
+    // since been deleted, all `exitCode: 0`, all still servable. A stale
+    // result is merely wrong; a result whose tree no longer exists is
+    // UNFALSIFIABLE — there is nowhere left to go and check what ran.
     //
-    // Measured 2026-09-14 on a project whose CLEO root sits ABOVE its git root
-    // (a supported layout — the repo was a subdirectory, so both fields were
-    // null for EVERY run, always): four entries, all `exitCode: 0`, the `test`
-    // one recording `122 files / 2557 tests` from 2026-08-07 against a suite
-    // that is now 856 files / 13,621 tests. It had stayed inert only because
-    // the tool command was later rewritten, changing `args` and therefore the
-    // key. Revert that command and `tool:test` returns 0 without spawning.
-    //
-    // Refused on READ as well as declining to write, because entries already
-    // on disk in every consumer's `.cleo/cache/evidence/` cannot rotate
-    // themselves out — that is the defect itself.
-    if (parsed.head === null || parsed.head === undefined) return null;
+    // This is the one rule that is genuinely read-only. At write time the
+    // directory exists by construction, so it cannot live in `isEntryUsable`
+    // alongside the rules both paths share.
+    if (!existsSync(parsed.executionRoot as string)) return null;
+
     return parsed as ToolCacheEntry;
   } catch {
     return null;
@@ -840,7 +1004,7 @@ export async function runToolCached(
 
   const head = await captureHead(executionRoot);
   const dirtyFingerprint = await captureDirtyFingerprint(executionRoot);
-  const key = computeCacheKey(command, head, dirtyFingerprint);
+  const key = computeCacheKey(command, head, dirtyFingerprint, executionRoot);
 
   // Fast path — fresh cache hit
   if (!bypassCache) {
@@ -877,7 +1041,7 @@ export async function runToolCached(
   ensureCacheDir(projectRoot);
   const cachePath = cacheEntryPath(projectRoot, key);
   if (!existsSync(cachePath)) {
-    writeFileSync(cachePath, JSON.stringify({ schemaVersion: 1, key, pending: true }), 'utf-8');
+    writeFileSync(cachePath, JSON.stringify({ schemaVersion: 2, key, pending: true }), 'utf-8');
   }
 
   const releaseSemaphore = opts.skipGlobalSemaphore
@@ -944,7 +1108,7 @@ export async function runToolCached(
             lockBusy: false,
             executionRoot,
             entry: {
-              schemaVersion: 1,
+              schemaVersion: 2,
               key,
               canonical: command.canonical,
               displayName: command.displayName,
@@ -953,6 +1117,7 @@ export async function runToolCached(
               source: command.source,
               head,
               dirtyFingerprint,
+              executionRoot,
               exitCode: null,
               signal: result.signal,
               stdoutTail: '',
@@ -964,7 +1129,7 @@ export async function runToolCached(
         }
 
         const entry: ToolCacheEntry = {
-          schemaVersion: 1,
+          schemaVersion: 2,
           key,
           canonical: command.canonical,
           displayName: command.displayName,
@@ -973,6 +1138,7 @@ export async function runToolCached(
           source: command.source,
           head,
           dirtyFingerprint,
+          executionRoot,
           exitCode: result.exitCode,
           signal: result.signal,
           stdoutTail: tailString(result.stdout, tailBytes),
@@ -981,27 +1147,32 @@ export async function runToolCached(
           capturedAt: new Date().toISOString(),
         };
 
-        // gh#1380: `exitCode === null` means the process produced no exit code —
-        // it was killed by a signal, or never started. Either way we do not know
-        // whether the tool would have passed, and an unknown must never be
-        // cached. The `timedOut` branch above already returns without writing
-        // for exactly this reason; a signal kill that is NOT a CLEO timeout —
-        // the memory-scope OOM in gh#1381 — had no equivalent guard and fell
-        // through to here.
-        // gh#1380: `exitCode === null` means we do not know what happened.
-        // gh#1404: `head === null` means the key cannot rotate, so whatever is
-        // stored becomes permanent regardless of any later source change.
+        // Persist only a usable entry. `isEntryUsable` is the SAME predicate
+        // `readCacheEntry` applies, which is the point: these two guards used
+        // to be independent transcriptions of one rule — `exitCode !== null
+        // && head !== null`, written out twice — so a field added to one had
+        // to be remembered into the other. gh#1380 and gh#1404 each edited
+        // both, and nothing checked that they still agreed.
         //
-        // The second costs a project whose CLEO root is not a git checkout all
-        // tool-result caching. That is the right trade and worth stating
-        // rather than hiding: such projects are not getting valid caching
-        // today, they are getting ONE answer forever. A slow correct answer
-        // beats a fast fabricated one.
+        // What the shared predicate refuses, and why none of it is an
+        // overcorrection:
+        //   - unknown outcome (`exitCode: null`) — a signal kill, or a
+        //     failure to start. The `timedOut` branch above already returns
+        //     without writing for this reason; an OOM kill that is not a CLEO
+        //     timeout (gh#1381) had no equivalent guard and fell through here.
+        //   - unrotatable key (`head: null`) — costs a non-git CLEO root all
+        //     caching. Stated rather than hidden: those projects are not
+        //     getting valid caching today, they are getting ONE answer
+        //     forever, and a slow correct answer beats a fast fabricated one.
+        //   - unattributable run (`executionRoot` absent) — cannot occur on
+        //     this path, and is required here anyway so that read and write
+        //     stay ONE rule rather than two that happen to match today.
         //
-        // Deliberately narrow. A guard that also refused, say, non-zero exits
-        // would trade a fabricated pass for a permanent cache miss on healthy
-        // projects — the same overcorrection pointed the other way.
-        if (entry.exitCode !== null && entry.head !== null) {
+        // Deliberately narrow in the other direction too: refusing, say, all
+        // non-zero exits would trade a fabricated pass for a permanent cache
+        // miss on healthy projects — the same overcorrection pointed the
+        // other way.
+        if (isEntryUsable(entry)) {
           writeCacheEntry(projectRoot, entry);
         }
 
@@ -1041,7 +1212,7 @@ export async function runToolCached(
           lockBusy: true,
           executionRoot,
           entry: {
-            schemaVersion: 1,
+            schemaVersion: 2,
             key,
             canonical: command.canonical,
             displayName: command.displayName,
@@ -1050,6 +1221,7 @@ export async function runToolCached(
             source: command.source,
             head,
             dirtyFingerprint,
+            executionRoot,
             exitCode: null,
             stdoutTail: '',
             stderrTail: '',

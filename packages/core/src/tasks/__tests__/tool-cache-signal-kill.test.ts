@@ -235,13 +235,14 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
     writeFileSync(
       join(cacheDir, `${key}.json`),
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         key,
         canonical: 'lint',
         displayName: 'lint',
         cmd: 'sh',
         args: ['-c', 'true'],
         source: 'language-default',
+        executionRoot: dir,
         head: null,
         dirtyFingerprint: null,
         exitCode: null,
@@ -263,13 +264,14 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
     writeFileSync(
       join(cacheDir, `${key}.json`),
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         key,
         canonical: 'lint',
         displayName: 'lint',
         cmd: 'sh',
         args: ['-c', 'true'],
         source: 'language-default',
+        executionRoot: dir,
         head: 'abc123',
         dirtyFingerprint: 'def456',
         exitCode: 0,

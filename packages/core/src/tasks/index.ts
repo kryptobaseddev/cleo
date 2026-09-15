@@ -259,10 +259,13 @@ export {
   captureHead,
   clearToolCache,
   computeCacheKey,
+  isEntryUsable,
   type RunToolOptions,
   readCacheEntry,
   runToolCached,
+  TOOL_RUN_IDENTITY_FIELDS,
   type ToolCacheEntry,
+  type ToolRunIdentity,
   type ToolRunResult,
   writeCacheEntry,
 } from './tool-cache.js';
