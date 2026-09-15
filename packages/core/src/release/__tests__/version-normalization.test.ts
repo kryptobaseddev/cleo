@@ -17,7 +17,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -159,5 +159,127 @@ describe('causeChainMessages — the driver reason must reach the envelope (gh#1
     let err = new Error('depth-0');
     for (let i = 1; i < 20; i++) err = new Error(`depth-${i}`, { cause: err });
     expect(causeChainMessages(err, 3)).toHaveLength(3);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// gh#1440 follow-up — a flag accepted and not applied (measured 2026-09-15)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Write a schema-valid plan file so `loadPlan` succeeds.
+ *
+ * @param projectRoot - Fixture root containing `.cleo/release/`.
+ * @param version - `v`-prefixed version the plan is for.
+ */
+function writeValidPlan(projectRoot: string, version: string): void {
+  const nowIso = new Date().toISOString();
+  const plan = {
+    $schema: 'https://cleocode.io/schemas/release-plan/v1.json',
+    version,
+    resolvedVersion: version,
+    suffixApplied: false,
+    scheme: 'calver',
+    channel: 'latest',
+    epicId: 'T9999',
+    releaseKind: 'regular',
+    createdAt: nowIso,
+    createdBy: 'dry-run-scope-test',
+    previousVersion: null,
+    previousTag: null,
+    previousShippedAt: null,
+    tasks: [
+      {
+        id: 'T9999',
+        kind: 'feat' as const,
+        impact: 'minor' as const,
+        userFacingSummary: 'Ship T9999',
+        evidenceAtoms: [],
+        epicAncestor: 'T9999',
+      },
+    ],
+    changelog: { features: ['T9999'], fixes: [], chores: [], breaking: [] },
+    gates: [],
+    platformMatrix: [{ platform: 'any', publisher: 'npm', package: '@cleocode/cleo', smoke: true }],
+    preflightSummary: {
+      esbuildExternalsDrift: false,
+      lockfileDrift: false,
+      epicCompletenessClean: true,
+      doubleListingClean: true,
+    },
+    workflowRunUrl: null,
+    prUrl: null,
+    mergeCommitSha: null,
+    status: 'published',
+    meta: { firstEverRelease: true },
+  };
+  writeFileSync(
+    join(projectRoot, '.cleo', 'release', `${version}.plan.json`),
+    JSON.stringify(plan, null, 2),
+  );
+}
+
+describe('--dry-run must not perform the write it promises not to (gh#1440 follow-up)', () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  function project(): string {
+    const root = mkdtempSync(join(tmpdir(), 'reconcile-dryrun-'));
+    dirs.push(root);
+    mkdirSync(join(root, '.cleo', 'release'), { recursive: true });
+    execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' });
+    return root;
+  }
+
+  it('REFUSES --dry-run when a plan file exists, instead of writing', async () => {
+    // Measured against v2026.9.4: `reconcile <v> --dry-run` attempted the
+    // provenance INSERT and failed on the same UNIQUE constraint as the real
+    // run. The dry-run early-return lives inside the synthesis branch, so with
+    // a plan file present the flag was accepted and silently ignored — the
+    // caller asked not to mutate and got a mutation.
+    const root = project();
+    writeValidPlan(root, 'v9999.2.2');
+
+    const res = await releaseReconcileV2('v9999.2.2', { projectRoot: root, dryRun: true });
+
+    expect(res.success).toBe(false);
+    if (res.success) return;
+    expect(res.error.code).toBe('E_DRY_RUN_UNSUPPORTED');
+    // The remedy must be runnable in this case — the defect being fixed one
+    // layer up is an error whose fix cannot work.
+    expect(String(res.error.fix ?? '')).toContain('release show');
+    expect(String(res.error.fix ?? '')).not.toContain('--dry-run to inspect');
+  });
+
+  it('does NOT refuse when there is no plan file — the refusal is scoped', async () => {
+    // Control. On the tag-driven path --dry-run is genuinely honoured, so the
+    // refusal must not fire there. Without a tag this fixture fails with
+    // E_PLAN_NOT_FOUND, which is the point: any error EXCEPT the new one.
+    const root = project();
+
+    const res = await releaseReconcileV2('v9999.3.3', { projectRoot: root, dryRun: true });
+
+    expect(res.success).toBe(false);
+    if (res.success) return;
+    expect(res.error.code).not.toBe('E_DRY_RUN_UNSUPPORTED');
+  });
+
+  it('the plan fixture is genuinely loadable — the control for the refusal', async () => {
+    // If the plan were schema-invalid, loadPlan would fail first and the
+    // refusal above would never be reached, so the test would pass for the
+    // wrong reason. Without --dry-run the same fixture must get PAST plan
+    // loading.
+    const root = project();
+    writeValidPlan(root, 'v9999.2.2');
+
+    const res = await releaseReconcileV2('v9999.2.2', { projectRoot: root });
+
+    expect(res.success).toBe(false);
+    if (res.success) return;
+    expect(res.error.code).not.toBe('E_PLAN_INVALID');
+    expect(res.error.code).not.toBe('E_PLAN_NOT_FOUND');
   });
 });

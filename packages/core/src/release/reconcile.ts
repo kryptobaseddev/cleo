@@ -1439,6 +1439,32 @@ export async function releaseReconcileV2(
   const planRes = loadPlan(version, projectRoot);
   let plan: ReleasePlan;
 
+  // gh#1440 follow-up — `--dry-run` is honoured ONLY on the tag-driven path
+  // below, where synthesis fires. With a plan file present the flag was
+  // accepted and then silently ignored, so `reconcile <v> --dry-run` performed
+  // the full provenance WRITE: measured 2026-09-15 against v2026.9.4, where it
+  // attempted the insert and failed on the same UNIQUE constraint as the real
+  // run. A flag that is accepted and not applied is worse than one that does
+  // not exist — the caller asked not to mutate and got a mutation.
+  //
+  // Refusing is the honest stop-gap. Actually honouring it here (deriving the
+  // row and skipping the transaction) is the better end state and is a design
+  // call on the provenance path, deliberately left open.
+  if (planRes.success && opts.dryRun === true) {
+    return engineError(
+      'E_DRY_RUN_UNSUPPORTED',
+      `--dry-run is not supported for ${version}: a plan file exists, and on that path ` +
+        'reconcile performs the full provenance write. Refusing rather than writing.',
+      {
+        details: { version, planPath: join(projectRoot, PLAN_DIR_REL, `${version}.plan.json`) },
+        fix:
+          `Inspect the current state with 'cleo release show ${version}' or ` +
+          "'cleo release list' before reconciling. --dry-run applies only on the " +
+          'tag-driven path, where no plan file exists and the plan is synthesised.',
+      },
+    );
+  }
+
   if (!planRes.success) {
     // Only attempt synthesis for E_PLAN_NOT_FOUND — other errors (e.g.
     // E_PLAN_INVALID) are returned immediately (the file exists but is corrupt).
@@ -2084,12 +2110,24 @@ export async function releaseReconcileV2(
           causeChain: err.causeChain,
           version,
         },
+        // The remedy must be runnable IN THIS CASE. The first version of this
+        // string recommended `--dry-run` unconditionally — but this error can
+        // only fire after a write was attempted, and on the plan-file path
+        // `--dry-run` does not apply at all. That is the same defect gh#1440
+        // item 1 was filed about (an error whose fix cannot work), reintroduced
+        // one layer in by the fix for it. Measured 2026-09-15: the recommended
+        // command failed identically to the run that produced the advice.
         fix:
           `The ${err.table} write was rejected by the database: ${err.rootCause}. ` +
           'Nothing was committed — the whole reconcile runs in one transaction. ' +
-          `Re-run with 'cleo release reconcile ${version} --dry-run' to inspect the ` +
-          'derived row without writing, and check `details.causeChain` for the ' +
-          'driver message under the query text.',
+          (synthReport === null
+            ? `A plan file exists for ${version}, so --dry-run does not apply here. ` +
+              `Inspect the existing state with 'cleo release show ${version}' or ` +
+              "'cleo release list' — a row may already be present from " +
+              '`cleo release plan`. '
+            : `Re-run with 'cleo release reconcile ${version} --dry-run' to inspect ` +
+              'the derived row without writing. ') +
+          'See `details.causeChain` for the driver message under the query text.',
       });
     }
     const message = err instanceof Error ? err.message : String(err);
