@@ -50,6 +50,7 @@ import {
   getPushMode,
   loadReleaseConfig,
 } from './release-config.js';
+import { normalizeVersion } from './version.js';
 import { resolveVersionBumpTargets } from './version-bump.js';
 
 // ── Provenance dual-write retirement (T9541) ─────────────────────────────────
@@ -307,10 +308,6 @@ function validateCalVerWindow(
       ? `CalVer OK (stable): ${version}`
       : `${version} does not match current CalVer ${currentYear}.${currentMonth}`,
   };
-}
-
-function normalizeVersion(version: string): string {
-  return version.startsWith('v') ? version : `v${version}`;
 }
 
 /**

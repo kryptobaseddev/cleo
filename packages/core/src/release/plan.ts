@@ -70,6 +70,7 @@ import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { runGitWithLockRetry } from './engine-ops.js';
 import { loadReleaseConfig } from './release-config.js';
+import { normalizeVersion } from './version.js';
 
 const log = getLogger('release:plan');
 
@@ -242,15 +243,6 @@ const DEFAULT_PLATFORM_MATRIX_ENTRY: ReleasePlatformMatrixEntry = {
 // ---------------------------------------------------------------------------
 // Helpers — version + channel
 // ---------------------------------------------------------------------------
-
-/**
- * Normalize a version string to include the leading `v` (e.g. `2026.6.0` → `v2026.6.0`).
- *
- * @internal
- */
-function normalizeVersion(version: string): string {
-  return version.startsWith('v') ? version : `v${version}`;
-}
 
 /**
  * Map the new channel taxonomy (latest|beta|alpha|rc) onto the DB channel

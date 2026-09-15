@@ -47,6 +47,7 @@ import { generateProjectHash } from '../nexus/hash.js';
 import { getProjectRoot } from '../paths.js';
 import { getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
+import { normalizeVersion } from './version.js';
 
 // ─── Tag-reconcile plan synthesis (T11977 · DHQ-080) ─────────────────────────
 
@@ -1279,12 +1280,54 @@ function withTransaction<T>(fn: () => Promise<T>, projectRoot: string): Promise<
  * Tag an error with the table it failed in so the caller can emit
  * `error.details.table` per SPEC §4.4.3 R-100.
  */
+/**
+ * Collect every distinct message in an error's `cause` chain, outermost first.
+ *
+ * Drizzle wraps a driver failure in an error whose `message` is the QUERY and
+ * its parameters; the reason the row was rejected — the NOT NULL / CHECK /
+ * FK text SQLite actually produced — lives further down the `cause` chain.
+ * Reporting only the outer message prints 31 column names and a parameter blob
+ * while omitting the single sentence that says what was wrong (gh#1440).
+ *
+ * @param err - The thrown value.
+ * @param limit - Maximum chain depth to walk (guards a cyclic `cause`).
+ * @returns Distinct messages, outermost first.
+ */
+export function causeChainMessages(err: unknown, limit = 8): string[] {
+  const out: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+  while (current !== null && current !== undefined && out.length < limit) {
+    if (seen.has(current)) break;
+    seen.add(current);
+    const message = current instanceof Error ? current.message : String(current);
+    if (message && !out.includes(message)) out.push(message);
+    current = current instanceof Error ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return out;
+}
+
 class ProvenanceTableError extends Error {
   readonly table: string;
+  /** Every message in the cause chain, outermost first. */
+  readonly causeChain: string[];
+  /** The innermost message — the driver's actual reason, when there is one. */
+  readonly rootCause: string;
+
   constructor(table: string, cause: unknown) {
-    const causeMsg = cause instanceof Error ? cause.message : String(cause);
-    super(`Failed writing ${table}: ${causeMsg}`);
+    const chain = causeChainMessages(cause);
+    const root = chain.length > 0 ? (chain[chain.length - 1] as string) : String(cause);
+    // Lead with the ROOT cause. The outer drizzle message is retained after it
+    // for context, but an operator reading the first line must see the reason,
+    // not the query.
+    super(
+      chain.length > 1
+        ? `Failed writing ${table}: ${root} (while: ${chain[0]})`
+        : `Failed writing ${table}: ${root}`,
+    );
     this.table = table;
+    this.causeChain = chain;
+    this.rootCause = root;
     this.name = 'ProvenanceTableError';
     if (cause instanceof Error && cause.stack) this.stack = cause.stack;
   }
@@ -1358,11 +1401,24 @@ export function sanitisePrShasForFk(
  * @returns EngineResult envelope.
  */
 export async function releaseReconcileV2(
-  version: string,
+  rawVersion: string,
   opts: ReleaseReconcileV2Options = {},
 ): Promise<EngineResult<ReleaseReconcileV2Result>> {
   const startedAt = Date.now();
   const projectRoot = getProjectRoot(opts.projectRoot);
+
+  // gh#1440 — normalise ONCE, at the boundary, so every downstream use (plan
+  // path, tag lookup, DB primary key) sees the same spelling.
+  //
+  // `cleo release plan 2026.9.4` normalises and writes
+  // `.cleo/release/v2026.9.4.plan.json`. This verb took its argument verbatim
+  // and looked for `2026.9.4.plan.json`, so the same version string that had
+  // just planned successfully failed here with E_PLAN_NOT_FOUND — and the
+  // error's `fix` said to run `cleo release plan 2026.9.4`, the command that
+  // had just produced the file it could not see. Following that fix loops.
+  // AGENTS.md's runbook uses the bare form for both verbs, so as documented it
+  // could not work.
+  const version = normalizeVersion(rawVersion);
 
   // ── 1. Pre-conditions (R-080 .. R-083) ──
   //
@@ -2017,10 +2073,31 @@ export async function releaseReconcileV2(
     }, projectRoot);
   } catch (err) {
     if (err instanceof ProvenanceTableError) {
-      return engineError('E_PROVENANCE_FAILED', err.message, { details: { table: err.table } });
+      // gh#1440 — `fix` was EMPTY on a provenance write, and the message
+      // truncated before the driver's reason, so the envelope did not say what
+      // rejected the row. Both are now carried: the root cause leads the
+      // message, and the full chain travels in `details`.
+      return engineError('E_PROVENANCE_FAILED', err.message, {
+        details: {
+          table: err.table,
+          rootCause: err.rootCause,
+          causeChain: err.causeChain,
+          version,
+        },
+        fix:
+          `The ${err.table} write was rejected by the database: ${err.rootCause}. ` +
+          'Nothing was committed — the whole reconcile runs in one transaction. ' +
+          `Re-run with 'cleo release reconcile ${version} --dry-run' to inspect the ` +
+          'derived row without writing, and check `details.causeChain` for the ' +
+          'driver message under the query text.',
+      });
     }
-    return engineError('E_PROVENANCE_FAILED', err instanceof Error ? err.message : String(err), {
-      details: { table: 'unknown' },
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_PROVENANCE_FAILED', message, {
+      details: { table: 'unknown', causeChain: causeChainMessages(err), version },
+      fix:
+        'The provenance transaction failed before any table could be identified. ' +
+        'Nothing was committed. Check `details.causeChain` for the underlying error.',
     });
   }
 
