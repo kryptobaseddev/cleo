@@ -115,7 +115,39 @@ export const completeCommand = defineCommand({
     }
 
     const data = response.data as Record<string, unknown> | undefined;
-    // Engine may return {task: {...}} or the task record directly
+
+    // gh#1411: when the mutate-projection middleware has already reduced the
+    // payload to the minimal envelope, pass it through UNCHANGED.
+    //
+    // `createMutateMinimalEnvelope` stamps `meta.mutateProjection` for exactly
+    // this decision — its docblock says the stamp exists "so consumers can
+    // distinguish a minimal envelope from a full record without
+    // re-implementing the policy". This handler was the one consumer that
+    // re-implemented it, and got it wrong.
+    //
+    // The line below used to read `data?.task ?? data`, under a comment
+    // saying the engine "may return {task: {...}} or the task record
+    // directly". Post-T9931 it returns neither: it returns a mutation
+    // envelope `{count, created, updated, deleted, ids, ...}`. `data.task` is
+    // then undefined, so the fallback took the whole envelope and nested it
+    // AGAIN under `task` — putting the task id at `/data/task/updated/0`
+    // while `--field` resolves against the flat projected shape. Every
+    // documented pointer missed, including the three the resulting
+    // E_FIELD_NOT_FOUND recommended, so an agent following the `fix` field
+    // re-ran the failing command verbatim.
+    //
+    // `cleo update` was unaffected because it passes `response.data` straight
+    // to `cliOutput` (update.ts). `complete` was the only command in the CLI
+    // that rewrapped, which is why the sibling-verb control in gh#1411 showed
+    // identical pointers resolving there and failing here.
+    if (response.meta.mutateProjection === 'mvi') {
+      cliOutput(response.data, { command: 'complete', operation: 'tasks.complete' });
+      return;
+    }
+
+    // Verbose path (`--full` / `--verbose` / `--human`): the engine's own
+    // `{task: {...}}` shape is the contract, and the diagnostic keys below
+    // survive because no projection stripped them.
     const task = data?.task ?? data;
     const output: Record<string, unknown> = { task };
     // T12102 (gh#1196) — idempotent complete: surface the no-op marker +

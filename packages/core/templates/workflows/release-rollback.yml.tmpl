@@ -298,8 +298,24 @@ been updated by the \`reconcile-rollback\` job."
       # R-256: reconcile MUST write rollback marker into `releases` +
       # `release_changes`. The CLI is the canonical writer — workflow
       # YAML never touches the DB directly.
+      #
+      # gh#1373: `--reason` was removed from this line. It is not declared in
+      # `release reconcile`'s args — the command's whole flag surface is
+      # `--from-workflow --rollback --dry-run --json`. citty parses with
+      # `strict: false`, so `--reason` was absorbed as an undeclared boolean and
+      # `"${REASON}"` fell through as a stray positional: the operator's reason
+      # has never reached the database, and the step reported success every
+      # time. Dropping the flag does not lose information that was being
+      # recorded; it stops the step from claiming to record it. The reason is
+      # echoed into the run log so it is at least retained where an operator
+      # reading this job can see it.
+      #
+      # Giving `reconcile --rollback` a real `--reason` is a CLI change, not a
+      # workflow change, and is tracked separately.
       - name: Record rollback
-        run: cleo release reconcile "${VERSION}" --rollback --reason "${REASON}"
+        run: |
+          echo "Rollback reason (not persisted — see gh#1373): ${REASON}"
+          cleo release reconcile "${VERSION}" --rollback
         timeout-minutes: 5
 
       # Recovery hint in the job summary so an operator who sees a
@@ -316,7 +332,7 @@ been updated by the \`reconcile-rollback\` job."
             echo "**Recovery commands** (if anything went wrong):"
             echo ""
             echo "\`\`\`"
-            echo "cleo release reconcile ${VERSION} --rollback --reason \"${REASON}\""
+            echo "cleo release reconcile ${VERSION} --rollback"
             echo "\`\`\`"
           } >> "$GITHUB_STEP_SUMMARY"
         timeout-minutes: 1

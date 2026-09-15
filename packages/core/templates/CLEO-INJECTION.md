@@ -31,7 +31,7 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 4. `cleo next` — what to work on (~300 tokens)
 5. `cleo focus {id}` — **preferred orient call** — single envelope with identity + scope + blockers + ready wave + docs + brain context (≤ 1 500 tokens, replaces 8 calls)
 6. `cleo show {id} --full` — the full task record (~400 tokens). Bare `cleo show {id}` is an MVI projection, NOT the full record — see the `_withheld` note under Task Discovery before you act on a field's absence.
-7. `cleo orchestrate start --epic TXXX` — for epics with ≥ 5 children (~300 tokens, auto-inits LOOM)
+7. `cleo orchestrate start <epicId>` — for epics with ≥ 5 children (~300 tokens, auto-inits LOOM)
 <!-- /CLEO-INJECTION:section=session-start -->
 
 <!-- CLEO-INJECTION:section=work-loop -->
@@ -53,7 +53,7 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | You just ran `cleo complete <id>` for a non-trivial task | Run `cleo memory observe "..." --title "..."` with what you learned |
 | Task acceptance criterion contains "test" | Propose an `AcceptanceGate` with `kind:"test"` via `cleo req add` |
 | Session token budget ≈ 80% consumed | Run `cleo session end --note "..."` and hand off |
-| Multiple related tasks ready in parallel | Run `cleo orchestrate ready --epic <id>` for the wave set |
+| Multiple related tasks ready in parallel | Run `cleo orchestrate ready <epicId>` for the wave set |
 | About to call `cleo complete` | First: check gates via `cleo show <id>` → run tests → then complete |
 | Writing a canonical doc (spec/adr/research/handoff/note/llm-readme) | Use `cleo docs add --type <kind> --slug <kebab-handle>` — NEVER raw fs write to `.cleo/adrs/`, `.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` |
 | Reading an ADR/spec/research note/handoff | `cleo docs fetch <slug>` — never grep the filesystem for canonical docs |
@@ -145,7 +145,7 @@ CLEO has **three distinct relationship systems**. Do not conflate them.
 | LLM status | `cleo memory llm-status` | 50 |
 | Ground-truth promote | `cleo memory verify <id>` (owner only) | 50 |
 
-Memory context: `cleo memory digest --brief` gives a live project memory summary (default mode). Legacy file mode: set `brain.memoryBridge.mode = "file"` in config to restore `@.cleo/memory-bridge.md` injection.
+Memory context: `cleo memory digest` gives a live project memory summary (this is the default mode; there is no `--brief` flag). Legacy file mode: set `brain.memoryBridge.mode = "file"` in config to restore `@.cleo/memory-bridge.md` injection.
 <!-- /CLEO-INJECTION:section=memory -->
 
 <!-- CLEO-INJECTION:section=data-location -->
@@ -215,7 +215,7 @@ silently substituting `git grep`.
 | Goal | Command |
 |------|---------|
 | Initialize epic pipeline | `cleo orchestrate start <epicId>` (auto-inits LOOM research stage) |
-| Get parallel-safe wave | `cleo orchestrate ready --epic <id>` |
+| Get parallel-safe wave | `cleo orchestrate ready <epicId>` |
 | Get spawn prompt for a task | `cleo orchestrate spawn <taskId>` |
 | Spawn without worktree (opt-out) | `cleo orchestrate spawn <taskId> --no-worktree` |
 | Multi-agent IVTR loop | `cleo orchestrate ivtr <taskId> --start` |
@@ -276,7 +276,7 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 | Suppress stderr | `--quiet` | `cleo add-batch --file f.json --parent T1 --quiet --output id` |
 | Force full record | `--full` | `cleo show T123 --full` |
 
-**READ and MUTATE envelopes NEST DIFFERENTLY — the most-guessed-wrong pointer shape.** Mutation envelopes are FLAT (`/data/created/0`); read envelopes nest the record, so `cleo show` needs `/data/task/status`, NEVER `/data/status`. `--field` resolves `description`/`acceptance`/`verification` transparently even under the default projection — no `--full` needed. An unresolvable pointer is a typed `E_FIELD_NOT_FOUND` listing every valid pointer for that op; read it rather than guessing again. `cleo verify`'s own response is SELF-CONFIRMING (it returns the full `verification` object) — do not re-read to check it; if you must, use `--field /data/task/verification`, never `--field /data/task` (MVI-projected, and it made six verified tasks look like no-op writes). Mutate ops (`add`, `add-batch`, `update`, `complete`, `delete`) return `{count, created[], updated[], deleted[], ids[]}` by default (T9931). Use contract-backed paths: `/data/created/0` for create/add-batch, `/data/updated/0` for update/complete, `/data/deleted/0` for delete, and `/data/count` for counts. `ids[]` is a deprecated compatibility alias; opt back to full record via `--full`. Anti-patterns (REJECTED): `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`.
+**READ and MUTATE envelopes NEST DIFFERENTLY — the most-guessed-wrong pointer shape.** Mutation envelopes are FLAT (`/data/created/0`); read envelopes nest the record, so `cleo show` needs `/data/task/status`, NEVER `/data/status`. `--field` resolves `description`/`acceptance`/`verification` transparently even under the default projection — no `--full` needed. An unresolvable pointer is a typed `E_FIELD_NOT_FOUND` listing every valid pointer for that op; read it rather than guessing again. `cleo verify`'s own response is SELF-CONFIRMING (it returns the full `verification` object) — do not re-read to check it; if you must, use `--field /data/verification` — `verify` is a MUTATE and its record is FLAT, so the nested `/data/task/...` spelling cannot resolve (gh#1420). Mutate ops (`add`, `add-batch`, `update`, `complete`, `delete`) return `{count, created[], updated[], deleted[], ids[]}` by default (T9931). Use contract-backed paths: `/data/created/0` for create/add-batch, `/data/updated/0` for update/complete, `/data/deleted/0` for delete, and `/data/count` for counts. `ids[]` is a deprecated compatibility alias; opt back to full record via `--full`. Anti-patterns (REJECTED): `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`.
 <!-- /CLEO-INJECTION:section=output-contract -->
 
 <!-- CLEO-INJECTION:section=error-handling -->
@@ -420,7 +420,7 @@ Architectural decisions belong in the BRAIN decision-store (`.cleo/brain.db` →
 
 **Legacy fallback (last resort only):** `grep -r "D0xx" .cleo/adrs/` then `grep -r "D0xx" .cleo/agent-outputs/`. These are legacy sources being migrated to the decision-store. Prefer BRAIN decisions when available.
 
-Check outcome status (pending/accepted/superseded) and fetch sibling decisions from same epic via `cleo memory decision-find --epic <epicId>`.
+Check outcome status (pending/accepted/superseded). `decision-find` has **no epic filter** — it searches by QUERY text only, so scope it with the epic id as the query (`cleo memory decision-find "<epicId>"`) and read `source_table`/`source_rowid` to confirm provenance.
 
 Budget: 3 JIT calls per task phase. More = task is underspecified.
 <!-- /CLEO-INJECTION:section=memory-jit -->

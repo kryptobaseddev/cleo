@@ -254,7 +254,7 @@ Schema definitions: `packages/playbooks/src/schema.ts` (playbook tables),
 | Command | Status | Description |
 |---------|--------|-------------|
 | `cleo orchestrate spawn <taskId>` | Shipped (T882) | Emit a `SpawnPayload` for a task. |
-| `cleo orchestrate ready --epic <id>` | Shipped | Return parallel-safe wave. |
+| `cleo orchestrate ready <epicId>` | Shipped | Return parallel-safe wave. |
 | `cleo orchestrate waves <epicId>` | Shipped | View epic wave plan. |
 | `cleo orchestrate start <epicId>` | Shipped | Initialize epic pipeline (auto-inits LOOM research). |
 | `cleo orchestrate plan <epicId>` | Shipped (T889) | Plan epic decomposition. |

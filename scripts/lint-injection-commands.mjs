@@ -359,13 +359,43 @@ const POINTER_PLACEHOLDERS = new Set(['<jsonpointer>', '<pointer>', '<field>']);
 export function extractDocumentedPointers(markdown) {
   const out = [];
   for (const line of markdown.split('\n')) {
-    for (const m of line.matchAll(
-      /\bcleo\s+([a-z][\w-]*)[^\n]*?--field\s+(\/[\w\-./<>]+|<[\w-]+>)/g,
-    )) {
-      const verb = m[1];
-      const pointer = m[2];
+    // Pair each pointer with the NEAREST PRECEDING verb, not the first on the
+    // line. The previous pattern anchored on `\bcleo\s+(\w+)` and let
+    // `[^\n]*?` span lazily to the first `--field`, which on a prose line
+    // carrying several commands attributes the pointer to the EARLIEST verb.
+    //
+    // Measured on line 279 of CLEO-INJECTION.md, whose token order is
+    // `cleo show` … `cleo verify` … `--field /data/task/verification`: the
+    // pointer belongs to `verify` and the gate reported `show`.
+    //
+    // That mis-pairing hid the defect this check exists to catch. The line
+    // documented `cleo verify --field /data/task/verification` (gh#1420 —
+    // verify returns the FLAT mutate record, so the pointer cannot resolve),
+    // and `/data/task/verification` IS declared by `tasks.show`. Wrong verb
+    // and wrong pointer CANCELLED INTO A PASS. The gate was green on broken
+    // documentation and would have failed on corrected documentation — which
+    // is invisible until somebody fixes the underlying defect.
+    const verbs = [...line.matchAll(/\bcleo\s+([a-z][\w-]*)/g)].map((m) => ({
+      at: m.index ?? 0,
+      verb: m[1],
+    }));
+
+    for (const m of line.matchAll(/--field\s+(\/[\w\-./<>]+|<[\w-]+>)/g)) {
+      const pointer = m[1];
       if (POINTER_PLACEHOLDERS.has(pointer)) continue;
       if (!pointer.startsWith('/')) continue;
+
+      const at = m.index ?? 0;
+      const preceding = verbs.filter((v) => v.at < at);
+      if (preceding.length === 0) {
+        // Unpaired: surfaced with `verb: null` rather than dropped. A pointer
+        // nobody can attribute is exactly what must not vanish from a gate's
+        // view — silently discarding it is how a check comes to cover less
+        // than it reports.
+        out.push({ verb: null, pointer, raw: `--field ${pointer}` });
+        continue;
+      }
+      const verb = preceding[preceding.length - 1].verb;
       out.push({ verb, pointer, raw: `cleo ${verb} --field ${pointer}` });
     }
   }
@@ -440,6 +470,7 @@ export function operationForVerbSource(source) {
 export function findPointerViolations(markdown, contracts, sourceForVerb) {
   const violations = [];
   for (const doc of extractDocumentedPointers(markdown)) {
+    if (doc.verb === null) continue; // unattributable — counted, not judged
     const operation = operationForVerbSource(sourceForVerb(doc.verb));
     if (!operation) continue;
     const declared = contracts.get(operation);
@@ -455,6 +486,386 @@ export function findPointerViolations(markdown, contracts, sourceForVerb) {
     });
   }
   return violations;
+}
+
+// ---------------------------------------------------------------------------
+// T12191 (GH #1373) — documented FLAGS must exist, not just the verb.
+//
+// Gates 14 and 15 assert the verb half of `cleo <verb> [<sub>] --flags` and
+// stop there. citty 0.2.1 parses with `strict: false`, so a flag that never
+// existed is absorbed as a positional and nothing reports it —
+// `cleo init --yes` sat in `worktree-cleanup.yml` since PR #868 doing nothing.
+//
+// #1276 (T12139) installed `assertKnownFlags` at the lazy-command chokepoint,
+// which is often described as covering every command. Measured against the
+// SHIPPED 2026.9.3 binary, it does not:
+//
+//   cleo list --zzzbogus           -> E_UNKNOWN_FLAG rc=6
+//   cleo find --zzzbogus           -> E_UNKNOWN_FLAG rc=6
+//   cleo memory find --zzzbogus    -> accepted rc=0
+//   cleo worktree list --zzzbogus  -> accepted rc=0
+//   cleo backup list --zzzbogus    -> accepted rc=0
+//   cleo docs list-types --zzzbogus-> accepted rc=0
+//
+// The chokepoint wraps MANIFEST entries — root verbs — and passes `meta.name`.
+// citty dispatches a `verb sub` invocation to the sub-command's own `run`,
+// which the wrapper never reaches. So the runtime rejects a bad flag on a root
+// LEAF verb and silently ignores one on any `verb sub`, except the five
+// sub-commands inside `docs.ts` that call `assertKnownFlags` by hand (T10359).
+//
+// Both are defects in the call site; they are not the same defect, and this
+// gate must not claim otherwise:
+//
+//   guard: 'rejects' — hard failure the moment the caller upgrades.
+//   guard: 'silent'  — the flag is accepted and discarded, which is the
+//                      original `cleo list --severity P0` shape: a confident
+//                      unfiltered answer indistinguishable from a real one.
+// ---------------------------------------------------------------------------
+
+/**
+ * Long flags consumed by the CLI entry point rather than by any command.
+ *
+ * Parsed from `CLI_GLOBAL_FLAGS` in `strict-args.ts`, which that file declares
+ * as the SSoT for the set and which `strict-flags-chokepoint.test.ts` asserts
+ * `index.ts` against. Re-typing the list here would give this gate an allowlist
+ * that drifts from the parser it models — and a gate that rejects a flag the
+ * CLI accepts is worse than the silence it replaces.
+ *
+ * @param source - contents of `packages/cleo/src/cli/lib/strict-args.ts`.
+ * @returns the global flag tokens, leading dashes included.
+ * @task T12191
+ */
+export function loadGlobalFlags(source) {
+  // Anchor on `Object.freeze([`, NOT on the first `[` after the identifier:
+  // the declaration reads `CLI_GLOBAL_FLAGS: readonly string[] = Object.freeze([`
+  // and the first bracket pair belongs to the TYPE ANNOTATION. Taking it
+  // returned an empty set, and an empty global-flag set makes this gate report
+  // `--json` as an unknown flag on every command that passes it.
+  const at = source.indexOf('CLI_GLOBAL_FLAGS');
+  if (at === -1) return new Set();
+  const open = source.indexOf('Object.freeze([', at);
+  if (open === -1) return new Set();
+  const close = source.indexOf(']', open);
+  if (close === -1) return new Set();
+  return new Set([...source.slice(open, close).matchAll(/'(--?[\w-]+)'/g)].map((m) => m[1]));
+}
+
+/**
+ * Sub-commands that validate their own flags via a hand-wired
+ * `assertKnownFlags(rawArgs, …, '<verb> <sub>')` call.
+ *
+ * Derived from the callsites rather than hardcoded, so a command that gains or
+ * loses the guard changes this gate's verdict without anyone remembering to
+ * edit a list.
+ *
+ * @param sources - iterable of command-module sources.
+ * @returns set of `'<verb> <sub>'` labels.
+ * @task T12191
+ */
+export function extractHandWiredGuards(sources) {
+  const labels = new Set();
+  for (const source of sources) {
+    for (const m of source.matchAll(
+      /assertKnownFlags\([^)]*?'([a-z][\w-]*(?:\s+[a-z][\w-]*)?)'\s*\)/g,
+    )) {
+      labels.add(m[1]);
+    }
+  }
+  return labels;
+}
+
+/**
+ * The full set of long flags a command accepts, mirroring the runtime's
+ * `collectKnownLongFlags` in `strict-args.ts`.
+ *
+ * Three rules are copied from it deliberately, because a divergence in any one
+ * of them produces a false violation on a flag that demonstrably works:
+ *
+ * - a POSITIONAL still contributes `--<name>`; citty's non-strict parse
+ *   populates `args.<name>` for both spellings, and `cleo add --title "…"` is
+ *   the form CLEO-INJECTION.md documents everywhere;
+ * - a BOOLEAN also contributes `--no-<name>`;
+ * - an `alias` contributes `-<a>` when single-character, `--<a>` otherwise,
+ *   as a string or an array.
+ *
+ * @param source - the command module source.
+ * @param name   - the command's `meta.name` (root verb or sub-verb).
+ * @returns accepted flag tokens with leading dashes; EMPTY when the `args`
+ *   block could not be located, which callers must treat as "unknown", never
+ *   as "accepts nothing".
+ * @task T12191
+ */
+export function extractAcceptedFlags(source, name) {
+  const metaRe = new RegExp(`meta:\\s*\\{[^}]*name:\\s*'${name}'`);
+  const metaAt = source.search(metaRe);
+  if (metaAt === -1) return new Set();
+
+  const argsAt = source.indexOf('args: {', metaAt);
+  if (argsAt === -1) return new Set();
+  const nextDefine = source.indexOf('defineCommand(', metaAt + 1);
+  if (nextDefine !== -1 && nextDefine < argsAt) return new Set();
+
+  const bodyStart = argsAt + 'args: {'.length;
+  let depth = 1;
+  let i = bodyStart;
+  for (; i < source.length && depth > 0; i++) {
+    if (source[i] === '{') depth++;
+    else if (source[i] === '}') depth--;
+  }
+  const body = source.slice(bodyStart, i - 1).replace(/\/\/[^\n]*/g, '');
+
+  const flags = new Set();
+  for (const m of body.matchAll(/(?:^|[,{])\s*'?([a-z][\w-]*)'?\s*:\s*\{/gm)) {
+    const key = m[1];
+    const start = m.index + m[0].length;
+    let d = 1;
+    let j = start;
+    for (; j < body.length && d > 0; j++) {
+      if (body[j] === '{') d++;
+      else if (body[j] === '}') d--;
+    }
+    const block = body.slice(start, j - 1);
+
+    flags.add(`--${key}`);
+    if (/type:\s*'positional'/.test(block)) continue;
+    if (/type:\s*'boolean'/.test(block)) flags.add(`--no-${key}`);
+
+    const single = block.match(/alias:\s*'([\w-]+)'/);
+    if (single) flags.add(single[1].length === 1 ? `-${single[1]}` : `--${single[1]}`);
+    const arr = block.match(/alias:\s*\[([^\]]*)\]/);
+    if (arr) {
+      for (const a of [...arr[1].matchAll(/'([\w-]+)'/g)].map((x) => x[1])) {
+        flags.add(a.length === 1 ? `-${a}` : `--${a}`);
+      }
+    }
+  }
+  return flags;
+}
+
+/**
+ * Flags a command REMOVED, parsed from `RETIRED_FLAG_GUIDANCE` in
+ * `strict-args.ts`.
+ *
+ * Documentation that names a retired flag in order to say it is gone —
+ * "`cleo complete --force` removed per ADR-051" — is the flag equivalent of
+ * {@link RETIRED_COMMAND_ALLOWLIST}, and failing it would make this gate
+ * demand the deletion of the sentence that tells an agent what to do instead.
+ *
+ * @param source - contents of `packages/cleo/src/cli/lib/strict-args.ts`.
+ * @returns map of command name → set of retired flag tokens.
+ * @task T12191
+ */
+export function loadRetiredFlags(source) {
+  const at = source.indexOf('RETIRED_FLAG_GUIDANCE');
+  if (at === -1) return new Map();
+  const end = source.indexOf('\n]);', at);
+  const body = source.slice(at, end === -1 ? source.length : end);
+
+  const out = new Map();
+  // Entries read `[ 'complete', new Map([[ '--force', '…' ]]) ]`.
+  for (const m of body.matchAll(/\[\s*'([a-z][\w-]*)',\s*new Map\(\[([\s\S]*?)\]\)/g)) {
+    const flags = new Set([...m[2].matchAll(/'(--[\w-]+)'/g)].map((f) => f[1]));
+    if (flags.size > 0) out.set(m[1], flags);
+  }
+  // Aliases share their target's guidance (`done` → `complete`).
+  for (const m of body.matchAll(
+    /RETIRED_FLAG_ALIASES[\s\S]*?\[\['([a-z][\w-]*)',\s*'([a-z][\w-]*)'\]\]/g,
+  )) {
+    const target = out.get(m[2]);
+    if (target) out.set(m[1], target);
+  }
+  return out;
+}
+
+/**
+ * `cleo <verb> [<sub>] [flags…]` occurrences, WITH the flags each one passes.
+ *
+ * Shared by gates 14 and 15 so the two cannot disagree about what a call site
+ * is. Backslash continuations are joined first — a workflow that writes
+ * `cleo release plan "$V" \` then `--epic "$E"` on the next line is one
+ * invocation, and matching line-locally would silently see it as zero flags,
+ * which is the under-report shape this gate exists to remove.
+ *
+ * A BACKTICK terminates the tail. Without that, a markdown line carrying two
+ * code spans — ``cleo init --yes`` and ``cleo orchestrate ready --epic <id>`` —
+ * parses as ONE invocation of `init` that swallows the prose between them, so
+ * the report blames `--epic` on `init` and never mentions `orchestrate ready`
+ * at all. The gate still fired, at the wrong command and with one defect
+ * hidden; a violation attributed to the wrong call site is a violation nobody
+ * can act on.
+ *
+ * A `<placeholder>` is an accepted token: documentation is written as
+ * `cleo docs add <taskId> <file> --type <kind>`, and stopping the scan at the
+ * first `<` drops every flag on such a line. Everything else terminates at a
+ * shell metacharacter, so `|| pnpm dlx … init --yes` is attributed to the
+ * SECOND command rather than folded into the first.
+ *
+ * @param text - markdown, YAML `run:` lines, or any shell-ish text.
+ * @returns `{verb, sub, flags, line, raw}` records in document order.
+ * @task T12191
+ */
+export function extractInvocationsWithFlags(text) {
+  const INVOCATION =
+    /(?<![\w/@.-])cleo[ \t]+([a-z][\w-]*)((?:[ \t]+(?:<[\w-]+>|[^\s|&;<>#()'"`]+|'[^']*'|"[^"]*"))*)/g;
+
+  const out = [];
+  // Join continuations while preserving the ORIGINAL line number of the head.
+  const raw = text.split('\n');
+  const joined = [];
+  for (let i = 0; i < raw.length; i++) {
+    let line = raw[i];
+    const start = i + 1;
+    while (/\\$/.test(line) && i + 1 < raw.length) {
+      line = `${line.slice(0, -1)} ${raw[++i].trim()}`;
+    }
+    joined.push({ line, no: start });
+  }
+
+  for (const { line, no } of joined) {
+    for (const m of line.matchAll(INVOCATION)) {
+      const tail = m[2] ?? '';
+      const first = tail.trim().split(/\s+/)[0];
+      const sub = first && /^[a-z][\w-]*$/.test(first) ? first : null;
+      const flags = [...tail.matchAll(/(?:^|\s)(--?[a-zA-Z][\w-]*)/g)].map((f) => f[1]);
+      out.push({ verb: m[1], sub, flags, line: no, raw: m[0].trim() });
+    }
+  }
+  return out;
+}
+
+/**
+ * Build the flag checker shared by gates 14 and 15.
+ *
+ * Everything it compares against is read from SOURCE at call time — the global
+ * flag list, the retired-flag map, the hand-wired guard labels and each
+ * command's `args` block. There is no second copy of any of them in this file,
+ * because a gate whose allowlist drifts from the parser it models starts
+ * rejecting flags the CLI accepts, which is worse than the silence it replaces.
+ *
+ * @param repoRoot - absolute repo root.
+ * @returns `{ check, sourceForVerb }` — `check(invocation)` returns a violation
+ *   record or `null`.
+ * @task T12191
+ */
+export function makeFlagChecker(repoRoot) {
+  const manifestSource = readFileSync(
+    join(repoRoot, 'packages/cleo/src/cli/generated/command-manifest.ts'),
+    'utf-8',
+  );
+  const moduleByVerb = new Map();
+  for (const e of manifestSource.matchAll(
+    /name:\s*'([^']+)',[\s\S]{0,400}?import\('\.\.\/commands\/([^']+)\.js'\)/g,
+  )) {
+    moduleByVerb.set(e[1], e[2]);
+  }
+
+  const strictArgs = readFileSync(
+    join(repoRoot, 'packages/cleo/src/cli/lib/strict-args.ts'),
+    'utf-8',
+  );
+  const globalFlags = loadGlobalFlags(strictArgs);
+  const retiredFlags = loadRetiredFlags(strictArgs);
+  if (globalFlags.size === 0) {
+    throw new Error(
+      'lint: CLI_GLOBAL_FLAGS parsed as EMPTY from strict-args.ts. Refusing to run — ' +
+        'an empty global-flag set would report --json as unknown on every command.',
+    );
+  }
+
+  const cache = new Map();
+  const sourceForVerb = (verb) => {
+    if (cache.has(verb)) return cache.get(verb);
+    const mod = moduleByVerb.get(verb);
+    let source = null;
+    if (mod) {
+      try {
+        source = readFileSync(
+          join(repoRoot, 'packages/cleo/src/cli/commands', `${mod}.ts`),
+          'utf-8',
+        );
+      } catch {
+        source = null;
+      }
+    }
+    cache.set(verb, source);
+    return source;
+  };
+
+  const handWired = extractHandWiredGuards(
+    [...moduleByVerb.keys()].map(sourceForVerb).filter(Boolean),
+  );
+
+  /**
+   * @param inv - one record from {@link extractInvocationsWithFlags}.
+   * @returns violation record, or null when the invocation is clean or
+   *   unresolvable. UNRESOLVABLE IS NOT A VIOLATION: an `args` block this
+   *   parser cannot locate yields an empty accepted-set, and reporting every
+   *   flag on such a command would be a gate failing on its own blind spot.
+   */
+  const check = (inv) => {
+    if (inv.flags.length === 0) return null;
+    const source = sourceForVerb(inv.verb);
+    if (!source) return null;
+
+    const subs = extractRootSubCommands(source, inv.verb);
+    const isGroup = subs.size > 0;
+    // A group command's second token is only a sub-verb if it IS one; anything
+    // else is a positional, and the group itself declares no runnable args.
+    const target = isGroup ? (inv.sub && subs.has(inv.sub) ? inv.sub : null) : inv.verb;
+    if (target === null) return null;
+
+    const accepted = extractAcceptedFlags(source, target);
+    if (accepted.size === 0) return null;
+
+    const label = isGroup ? `${inv.verb} ${target}` : inv.verb;
+    const retired = retiredFlags.get(target) ?? new Set();
+    const bad = inv.flags.filter((f) => !accepted.has(f) && !globalFlags.has(f) && !retired.has(f));
+    if (bad.length === 0) return null;
+
+    // The runtime guard is installed at the lazy-command chokepoint, which
+    // wraps MANIFEST entries and so only ever sees the ROOT verb. A `verb sub`
+    // invocation is dispatched to the sub-command's own run, which the wrapper
+    // never reaches — measured on the shipped 2026.9.3 binary. The two cases
+    // are different defects and the report must not blur them.
+    const guard = isGroup ? (handWired.has(label) ? 'rejects' : 'silent') : 'rejects';
+    return {
+      ...inv,
+      label,
+      guard,
+      bad,
+      accepted: [...accepted].sort(),
+      reason:
+        guard === 'rejects'
+          ? `\`cleo ${label}\` has no flag ${bad.join(', ')} — the CLI rejects it with E_UNKNOWN_FLAG (exit 6)`
+          : `\`cleo ${label}\` has no flag ${bad.join(', ')} — citty parses non-strictly and no guard reaches a sub-command, so it is ACCEPTED AND DISCARDED`,
+    };
+  };
+
+  return { check, sourceForVerb };
+}
+
+/**
+ * Flag violations in a text surface.
+ *
+ * @param text    - the document.
+ * @param checker - from {@link makeFlagChecker}.
+ * @param skipComment - optional predicate; a line it accepts is not scanned.
+ * @returns violation records (empty when clean).
+ * @task T12191
+ */
+export function findFlagViolations(text, checker, skipComment) {
+  const out = [];
+  const seen = new Set();
+  for (const inv of extractInvocationsWithFlags(text)) {
+    if (skipComment?.(inv.raw)) continue;
+    const v = checker.check(inv);
+    if (!v) continue;
+    const key = `${v.label}:${v.bad.join(',')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out;
 }
 
 const isMain = import.meta.url === `file://${process.argv[1]}`;
@@ -503,13 +914,22 @@ if (isMain) {
   );
   violations.push(...findPointerViolations(markdown, pointerContracts, sourceForVerb));
 
+  // T12191 (GH #1373): existence, runnability and pointer-resolution are STILL
+  // not enough — a documented flag must exist. citty parses with
+  // `strict: false`, so `cleo memory decision-find --epic <epicId>` returned
+  // the UNFILTERED decision set and looked like a successful narrow query.
+  // Four such flags were documented here, two of them in the mandated
+  // orchestration path every agent is told to run on an epic of five or more.
+  violations.push(...findFlagViolations(markdown, makeFlagChecker(REPO_ROOT)));
+
   if (asJson) {
     process.stdout.write(`${JSON.stringify({ violations }, null, 2)}\n`);
   } else if (violations.length > 0) {
     process.stderr.write(
       `CLEO-INJECTION.md has ${violations.length} unresolvable reference(s) ` +
-        '(a command that does not exist, an invocation that cannot run, or a ' +
-        '`--field` pointer the operation does not declare).\n' +
+        '(a command that does not exist, an invocation that cannot run, a ' +
+        '`--field` pointer the operation does not declare, or a flag the ' +
+        'command does not accept).\n' +
         'Every agent CLEO spawns is instructed to follow these.\n\n',
     );
     for (const v of violations) {
@@ -521,7 +941,9 @@ if (isMain) {
   } else {
     process.stdout.write(
       `CLEO-INJECTION.md: all ${extractCleoCommands(markdown).length} referenced commands exist, ` +
-        `and all ${extractDocumentedPointers(markdown).length} documented --field pointer(s) resolve.\n`,
+        `all ${extractDocumentedPointers(markdown).filter((d) => d.verb !== null).length} documented --field pointer(s) resolve ` +
+        `(${extractDocumentedPointers(markdown).filter((d) => d.verb === null).length} unattributable, counted not judged), ` +
+        `and every flag on the ${extractInvocationsWithFlags(markdown).filter((i) => i.flags.length > 0).length} flagged invocation(s) is declared.\n`,
     );
   }
   process.exit(violations.length > 0 ? 1 : 0);
