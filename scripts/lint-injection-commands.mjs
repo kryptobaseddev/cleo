@@ -359,13 +359,43 @@ const POINTER_PLACEHOLDERS = new Set(['<jsonpointer>', '<pointer>', '<field>']);
 export function extractDocumentedPointers(markdown) {
   const out = [];
   for (const line of markdown.split('\n')) {
-    for (const m of line.matchAll(
-      /\bcleo\s+([a-z][\w-]*)[^\n]*?--field\s+(\/[\w\-./<>]+|<[\w-]+>)/g,
-    )) {
-      const verb = m[1];
-      const pointer = m[2];
+    // Pair each pointer with the NEAREST PRECEDING verb, not the first on the
+    // line. The previous pattern anchored on `\bcleo\s+(\w+)` and let
+    // `[^\n]*?` span lazily to the first `--field`, which on a prose line
+    // carrying several commands attributes the pointer to the EARLIEST verb.
+    //
+    // Measured on line 279 of CLEO-INJECTION.md, whose token order is
+    // `cleo show` … `cleo verify` … `--field /data/task/verification`: the
+    // pointer belongs to `verify` and the gate reported `show`.
+    //
+    // That mis-pairing hid the defect this check exists to catch. The line
+    // documented `cleo verify --field /data/task/verification` (gh#1420 —
+    // verify returns the FLAT mutate record, so the pointer cannot resolve),
+    // and `/data/task/verification` IS declared by `tasks.show`. Wrong verb
+    // and wrong pointer CANCELLED INTO A PASS. The gate was green on broken
+    // documentation and would have failed on corrected documentation — which
+    // is invisible until somebody fixes the underlying defect.
+    const verbs = [...line.matchAll(/\bcleo\s+([a-z][\w-]*)/g)].map((m) => ({
+      at: m.index ?? 0,
+      verb: m[1],
+    }));
+
+    for (const m of line.matchAll(/--field\s+(\/[\w\-./<>]+|<[\w-]+>)/g)) {
+      const pointer = m[1];
       if (POINTER_PLACEHOLDERS.has(pointer)) continue;
       if (!pointer.startsWith('/')) continue;
+
+      const at = m.index ?? 0;
+      const preceding = verbs.filter((v) => v.at < at);
+      if (preceding.length === 0) {
+        // Unpaired: surfaced with `verb: null` rather than dropped. A pointer
+        // nobody can attribute is exactly what must not vanish from a gate's
+        // view — silently discarding it is how a check comes to cover less
+        // than it reports.
+        out.push({ verb: null, pointer, raw: `--field ${pointer}` });
+        continue;
+      }
+      const verb = preceding[preceding.length - 1].verb;
       out.push({ verb, pointer, raw: `cleo ${verb} --field ${pointer}` });
     }
   }
@@ -440,6 +470,7 @@ export function operationForVerbSource(source) {
 export function findPointerViolations(markdown, contracts, sourceForVerb) {
   const violations = [];
   for (const doc of extractDocumentedPointers(markdown)) {
+    if (doc.verb === null) continue; // unattributable — counted, not judged
     const operation = operationForVerbSource(sourceForVerb(doc.verb));
     if (!operation) continue;
     const declared = contracts.get(operation);
@@ -910,7 +941,8 @@ if (isMain) {
   } else {
     process.stdout.write(
       `CLEO-INJECTION.md: all ${extractCleoCommands(markdown).length} referenced commands exist, ` +
-        `all ${extractDocumentedPointers(markdown).length} documented --field pointer(s) resolve, ` +
+        `all ${extractDocumentedPointers(markdown).filter((d) => d.verb !== null).length} documented --field pointer(s) resolve ` +
+        `(${extractDocumentedPointers(markdown).filter((d) => d.verb === null).length} unattributable, counted not judged), ` +
         `and every flag on the ${extractInvocationsWithFlags(markdown).filter((i) => i.flags.length > 0).length} flagged invocation(s) is declared.\n`,
     );
   }

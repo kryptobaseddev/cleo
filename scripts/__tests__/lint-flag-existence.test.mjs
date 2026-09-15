@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   extractAcceptedFlags,
+  extractDocumentedPointers,
   extractInvocationsWithFlags,
   findFlagViolations,
   loadGlobalFlags,
@@ -252,5 +253,55 @@ describe('extractRunBlockText', () => {
 
   it('preserves line numbering so a violation points at the real step', () => {
     expect(extractRunBlockText(YAML).split('\n')).toHaveLength(YAML.split('\n').length);
+  });
+});
+
+describe('--field pointer pairing (gh#1373 PR, bug found by cleo-dev)', () => {
+  // The old pattern anchored on `\bcleo\s+(\w+)` and let `[^\n]*?` span
+  // lazily to the first `--field`, attributing a pointer to the EARLIEST verb
+  // on the line rather than the nearest preceding one.
+  //
+  // On CLEO-INJECTION.md line 279 that hid the exact defect the check exists
+  // to catch: the line documented `cleo verify --field /data/task/verification`
+  // (gh#1420 — verify returns the flat mutate record), the gate paired it to
+  // `cleo show`, and `/data/task/verification` IS declared by `tasks.show`.
+  // Wrong verb and wrong pointer cancelled into a PASS — green on broken docs,
+  // and it would have gone red on corrected ones.
+
+  it('pairs a pointer with the NEAREST preceding verb, not the first', () => {
+    const out = extractDocumentedPointers(
+      '`cleo show` needs x, and `cleo verify` — use `--field /data/task/verification`',
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].verb).toBe('verify');
+  });
+
+  it('still pairs correctly when the nearest verb IS the first', () => {
+    const out = extractDocumentedPointers('`cleo show T1 --field /data/task/status`');
+    expect(out[0]).toMatchObject({ verb: 'show', pointer: '/data/task/status' });
+  });
+
+  it('finds EVERY pointer on a line, not just the first', () => {
+    // The old regex consumed a span per match and silently lost later pointers;
+    // line 279 has two and only one was ever extracted.
+    const out = extractDocumentedPointers(
+      'use `cleo verify --field /data/task/verification`, never `--field /data/task`',
+    );
+    expect(out.map((d) => d.pointer)).toEqual(['/data/task/verification', '/data/task']);
+  });
+
+  it('surfaces an unattributable pointer as verb:null instead of dropping it', () => {
+    const out = extractDocumentedPointers('Use `--field /data/orphaned` somewhere.');
+    expect(out).toHaveLength(1);
+    expect(out[0].verb).toBeNull();
+  });
+
+  it('the real template pairs its verify pointers to verify', () => {
+    const out = extractDocumentedPointers(read(INJECTION));
+    expect(out.filter((d) => d.verb === 'verify').map((d) => d.pointer)).toEqual([
+      '/data/task/verification',
+      '/data/task',
+    ]);
+    expect(out.filter((d) => d.verb === null)).toEqual([]);
   });
 });
