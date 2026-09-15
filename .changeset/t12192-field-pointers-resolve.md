@@ -25,7 +25,7 @@ into teaching `--field /data/task/verification` — the nested READ spelling —
 a verb that returns the FLAT mutate record. Gate 14 was green throughout,
 because the verb exists.
 
-New gate 23 closes the structural half: every `--field` pointer in
-CLEO-INJECTION.md must resolve against its operation's declared `fieldPointers`.
-Verbs whose operation has no explicit contract are skipped and COUNTED in the
-output rather than failed, so the remaining gap is visible instead of silent.
+The structural half (gh#1421) is NOT closed here: gate 14 on main already validates
+`--field` pointers against `OUTPUT_CONTRACTS`. I duplicated it before checking.
+What that gate does have is a pairing bug — it anchors on the FIRST `cleo <verb>`
+on a line, so it blamed verify's pointer on `cleo show`. Handed to gh#1373's lane.
