@@ -343,3 +343,137 @@ describe('renderOutputMode — {suggestions: [...]} envelopes (T12077)', () => {
     expect(renderSummary(nextEnvelope).emptyReason).toBeUndefined();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// gh#1402 / gh#1405 — a projection mode must not disagree with its own envelope
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Measured shapes, `cleo` 2026.9.3 against this repo, BEFORE the fix:
+ *
+ *   verb            key          rows  --output count  --output id
+ *   worktree list   worktrees       9       0 (wrong)     0 (wrong)
+ *   saga list       sagas          58      58             0 (wrong)
+ *   backup list     backups        55      55             0 (wrong)
+ *
+ * `worktree list` is the dangerous one: it carries no `total`/`count` sibling,
+ * so BOTH modes agreed on 0 and the cross-check that caught the other two was
+ * absent. It is also the enumeration a cleanup decision reads, where a
+ * confident 0 reads as "there are no worktrees".
+ */
+describe('collection identity — envelope vs projection agreement (gh#1405)', () => {
+  const worktrees = {
+    worktrees: [
+      { path: '/home/u/cleocode', branch: 'main', taskId: null },
+      { path: '/home/u/wt/a', branch: 'feat/a', taskId: null },
+      { path: '/home/u/wt/b', branch: 'feat/b', taskId: 'T1' },
+    ],
+  };
+  const backups = {
+    backups: [{ backupId: 'snapshot-1' }, { backupId: 'snapshot-2' }],
+    count: 2,
+  };
+  const sagas = { sagas: [{ id: 'SG1' }, { id: 'SG2' }], total: 2 };
+
+  it('counts worktrees off the collection, not an id projection', () => {
+    // Was 0 against 9 records. No `total`/`count` sibling exists to fall back
+    // to, so the count HAS to come from the collection itself.
+    expect(renderOutputMode('count', worktrees).text).toBe('3');
+  });
+
+  it('projects worktree identity as `path`, since worktrees carry no id', () => {
+    const out = renderOutputMode('id', worktrees);
+    expect(out.text).toBe('/home/u/cleocode\n/home/u/wt/a\n/home/u/wt/b');
+    expect(out.refusal).toBeUndefined();
+  });
+
+  it('projects backup identity as `backupId`', () => {
+    expect(renderOutputMode('id', backups).text).toBe('snapshot-1\nsnapshot-2');
+  });
+
+  it('projects saga identity as `id` — the key was simply absent from the SSoT', () => {
+    expect(renderOutputMode('id', sagas).text).toBe('SG1\nSG2');
+  });
+
+  it.each([
+    ['worktrees', worktrees, 3],
+    ['backups', backups, 2],
+    ['sagas', sagas, 2],
+  ])('%s: --output id emits exactly one line per returned row', (_key, payload, rows) => {
+    // The load-bearing invariant. NOT `count === rows`: `--output count` is the
+    // filter-aware MATCH count by design (T11481), so on a paginated listing it
+    // legitimately exceeds the returned rows — `find` reports 638 while
+    // returning a page of 20. Only the per-row projections must match the
+    // envelope they were rendered from.
+    const out = renderOutputMode('id', payload);
+    expect(out.text?.split('\n').length).toBe(rows);
+  });
+
+  it('renders the identity column in table mode too', () => {
+    const table = renderOutputMode('table', worktrees).text ?? '';
+    expect(table).toContain('/home/u/cleocode');
+  });
+
+  it('renders the identity in summary mode too', () => {
+    const summary = renderSummary(worktrees).text ?? '';
+    expect(summary).toContain('/home/u/wt/a');
+  });
+});
+
+describe('--output id refuses rather than lying (gh#1402)', () => {
+  it('REFUSES when rows are present but none carry an identity', () => {
+    // The whole point of gh#1402: an empty stream here is indistinguishable
+    // from "this project has no sagas", and the documented
+    // `--output id | while read` idiom then loops zero times over a non-empty
+    // set. A refusal teaches; an empty stream teaches the opposite of the truth.
+    const out = renderOutputMode('id', { mysteries: [{ name: 'a' }, { name: 'b' }] });
+    expect(out.text).toBeNull();
+    expect(out.refusal?.code).toBe('E_OUTPUT_IDENTITY_UNDECLARED');
+    expect(out.refusal?.message).toContain('mysteries');
+    expect(out.refusal?.fix).toContain('COLLECTION_IDENTITY_FIELDS');
+  });
+
+  it('does NOT refuse an genuinely empty collection — zero rows is truthful', () => {
+    // The distinction the issue turns on. Empty must stay an empty stream at
+    // exit 0; only "rows exist and I cannot name them" is a refusal.
+    const out = renderOutputMode('id', { tasks: [] });
+    expect(out.refusal).toBeUndefined();
+    expect(out.text).toBe('');
+    expect(out.emptyReason).toBe('no-renderable-ids');
+  });
+});
+
+describe('unlisted collection keys degrade to found, not to zero (gh#1405)', () => {
+  it('resolves a single unambiguous array of records under an unknown key', () => {
+    // This file has been patched four times by adding a key to a list, and each
+    // miss produced a confident zero. A new key must not be able to do that
+    // again: the fallback means the NEXT unlisted collection is counted, and at
+    // worst refuses on identity — never silently reports 0.
+    expect(renderOutputMode('count', { widgets: [{ id: 'W1' }, { id: 'W2' }] }).text).toBe('2');
+    expect(renderOutputMode('id', { widgets: [{ id: 'W1' }, { id: 'W2' }] }).text).toBe('W1\nW2');
+  });
+
+  it('stays out of the way when the payload is ambiguous', () => {
+    // Two top-level arrays of records: which one is "the collection" is not
+    // knowable, so the fallback declines and the existing single-record
+    // branches handle it exactly as before. A guess here would be the same
+    // class of defect as the one being fixed.
+    const out = renderOutputMode('count', {
+      task: { id: 'T1' },
+      alpha: [{ id: 'A' }],
+      beta: [{ id: 'B' }],
+    });
+    expect(out.text).toBe('1');
+  });
+
+  it('does not mistake an array of scalars for a collection', () => {
+    expect(renderOutputMode('count', { task: { id: 'T1' }, files: ['a.ts', 'b.ts'] }).text).toBe(
+      '1',
+    );
+  });
+
+  it('keeps the canonical `tasks` key winning over any sibling array', () => {
+    const out = renderOutputMode('id', { tasks: [{ id: 'T1' }], others: [{ id: 'X1' }] });
+    expect(out.text).toBe('T1');
+  });
+});

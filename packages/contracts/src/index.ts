@@ -2668,6 +2668,11 @@ export {
   CAAMP_MARKER_START,
 } from './caamp-markers.js';
 // T12077: SSoT for the keys under which payloads carry their rows.
-export { COLLECTION_KEYS, type CollectionKey } from './collection-keys.js';
+export {
+  COLLECTION_IDENTITY_FIELDS,
+  COLLECTION_KEYS,
+  type CollectionKey,
+  DEFAULT_IDENTITY_FIELD,
+} from './collection-keys.js';
 
 export { isStorableTaskId, isTaskId, TASK_ID_REGEX, type TaskId } from './task-id.js';

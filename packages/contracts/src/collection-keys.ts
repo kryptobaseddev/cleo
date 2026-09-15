@@ -39,7 +39,51 @@
  * Order matters only when a payload carries more than one (it should not);
  * earlier keys win, which keeps the canonical `tasks` shape authoritative.
  */
-export const COLLECTION_KEYS = ['tasks', 'items', 'results', 'suggestions'] as const;
+export const COLLECTION_KEYS = [
+  'tasks',
+  'items',
+  'results',
+  'suggestions',
+  // gh#1402 / gh#1405 — instances 4, 5 and 6 of the defect this file documents.
+  // `saga list` emits `sagas` and `--output id` returned an EMPTY STREAM against
+  // 58 rows; `backup list` emits `backups`; `worktree list` emits `worktrees`
+  // and, carrying no `total`/`count` sibling, reported `--output count` = 0
+  // against 9 records — so both projection modes agreed on a wrong answer and
+  // the cross-check that caught the other two was absent.
+  'sagas',
+  'backups',
+  'worktrees',
+] as const;
 
 /** A key under which a payload may carry its rows. */
 export type CollectionKey = (typeof COLLECTION_KEYS)[number];
+
+/**
+ * The field that identifies a record, for collections whose identity is not `id`.
+ *
+ * ## Why a registry rather than "assume `id`" (gh#1405)
+ *
+ * `--output id` projected `record.id` unconditionally and dropped every row
+ * lacking one. Two collections in this codebase legitimately have no `id`:
+ *
+ * | collection  | identity    | measured                                    |
+ * |-------------|-------------|---------------------------------------------|
+ * | `worktrees` | `path`      | 9 records, 0 ids emitted, `--output count` 0 |
+ * | `backups`   | `backupId`  | 55 records, 0 ids emitted                    |
+ *
+ * The filter was silent, so an absent identity rendered exactly like an empty
+ * collection. That matters most for `worktree list`, which is the enumeration a
+ * cleanup decision reads: a confident `0` reads as "there are no worktrees",
+ * which is the precondition for pruning.
+ *
+ * A collection absent from this map identifies by `id`.
+ *
+ * @task gh#1405
+ */
+export const COLLECTION_IDENTITY_FIELDS: Readonly<Partial<Record<CollectionKey, string>>> = {
+  worktrees: 'path',
+  backups: 'backupId',
+};
+
+/** Default identity field for collections not named in {@link COLLECTION_IDENTITY_FIELDS}. */
+export const DEFAULT_IDENTITY_FIELD = 'id';

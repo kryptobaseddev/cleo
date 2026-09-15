@@ -405,6 +405,22 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   // `envelope` mode (default) falls through to the existing human/JSON paths.
   if (outputMode !== 'envelope' && !fieldCtx.field) {
     const out = renderOutputMode(outputMode, data);
+    // gh#1405 — a projection that cannot answer REFUSES rather than emitting an
+    // empty stream. An empty stream and "this collection declares no identity"
+    // are different facts, and rendering them identically is what let the
+    // documented `--output id | while read` idiom loop zero times against a
+    // non-empty result set and look like an empty project.
+    if (out.refusal) {
+      cliError(
+        out.refusal.message,
+        2,
+        { name: out.refusal.code, fix: out.refusal.fix },
+        {
+          operation: opts.operation ?? opts.command,
+        },
+      );
+      process.exit(2);
+    }
     if (out.text !== null) {
       writeMachineOutput(out.text, out.emptyReason);
     }

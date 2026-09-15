@@ -19,7 +19,11 @@
  * @epic T9855
  */
 
-import { COLLECTION_KEYS as CONTRACT_COLLECTION_KEYS } from '@cleocode/contracts';
+import {
+  COLLECTION_IDENTITY_FIELDS,
+  COLLECTION_KEYS as CONTRACT_COLLECTION_KEYS,
+  DEFAULT_IDENTITY_FIELD,
+} from '@cleocode/contracts';
 import { truncateString } from '@cleocode/core';
 import type { OutputMode } from '../output-context.js';
 
@@ -57,12 +61,92 @@ const COLLECTION_KEYS = CONTRACT_COLLECTION_KEYS;
  *
  * @task T12067
  */
-function pickCollection(rec: Record<string, unknown>): unknown[] | undefined {
+interface CollectionEntry {
+  /** The key the rows were found under — determines the identity field. */
+  key: string;
+  /** The rows themselves. */
+  rows: unknown[];
+}
+
+/**
+ * Resolve the list-shaped collection on an envelope `data` payload.
+ *
+ * Known keys win, in {@link COLLECTION_KEYS} order, preserving the precedence
+ * the canonical `tasks` shape has always had.
+ *
+ * ## The fallback, and why it is not "first array wins" (gh#1405)
+ *
+ * This file has now been patched four times by adding a key to a list, and each
+ * time the key that was missing produced a confident zero rather than an error —
+ * the miss is invisible precisely because an absent key and an empty collection
+ * render identically. Adding three more keys fixes the three known verbs and
+ * leaves the mechanism that hid them fully intact.
+ *
+ * So when no known key matches, fall back to the payload's own shape: a single
+ * unambiguous array of records. Deliberately narrow — it requires EXACTLY ONE
+ * top-level array-of-objects, so a payload carrying rows plus some incidental
+ * array (`{task, warnings: []}`) still resolves to nothing here and is handled
+ * by the single-record branches, exactly as before. An unlisted collection key
+ * now degrades to "found it anyway" instead of "found nothing".
+ *
+ * @param rec - the envelope `data` object.
+ * @returns the matching entry, or `undefined` when the payload carries none.
+ *
+ * @task T12067
+ * @task gh#1405
+ */
+function pickCollectionEntry(rec: Record<string, unknown>): CollectionEntry | undefined {
   for (const key of COLLECTION_KEYS) {
     const value = rec[key];
-    if (Array.isArray(value)) return value;
+    if (Array.isArray(value)) return { key, rows: value };
+  }
+
+  const candidates = Object.entries(rec).filter(
+    ([, value]) =>
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.every((row) => row !== null && typeof row === 'object' && !Array.isArray(row)),
+  );
+  if (candidates.length === 1) {
+    const [key, value] = candidates[0] as [string, unknown[]];
+    return { key, rows: value };
   }
   return undefined;
+}
+
+/** Rows only — for the callers that do not care which key carried them. */
+function pickCollection(rec: Record<string, unknown>): unknown[] | undefined {
+  return pickCollectionEntry(rec)?.rows;
+}
+
+/**
+ * The property that identifies a record in the given collection.
+ *
+ * Lives here rather than in `@cleocode/contracts` because that package is
+ * types-and-const-data only (arch gate 10); the registry is the data, this is
+ * the lookup.
+ *
+ * @param key - The collection key the rows were found under.
+ * @returns The identity property name.
+ */
+function identityFieldFor(key: string): string {
+  return (
+    (COLLECTION_IDENTITY_FIELDS as Record<string, string | undefined>)[key] ??
+    DEFAULT_IDENTITY_FIELD
+  );
+}
+
+/**
+ * Read a record's identity, honouring the per-collection identity field.
+ *
+ * @param row - A record from a resolved collection.
+ * @param key - The collection key it came from.
+ * @returns The identity string, or `undefined` when the record carries none.
+ */
+function identityOf(row: unknown, key: string): string | undefined {
+  if (row === null || typeof row !== 'object') return undefined;
+  const value = (row as Record<string, unknown>)[identityFieldFor(key)];
+  return typeof value === 'string' ? value : undefined;
 }
 
 /**
@@ -89,12 +173,15 @@ function extractIds(data: unknown): string[] {
     if (typeof id === 'string') return [id];
   }
 
-  // 2. List payloads — {tasks}, {items} (SDK ListResponse), {results} (find).
-  const collection = pickCollection(rec);
-  if (collection) {
-    return collection
-      .map((t) => (t && typeof t === 'object' ? (t as Record<string, unknown>)['id'] : undefined))
-      .filter((id): id is string => typeof id === 'string');
+  // 2. List payloads — {tasks}, {items}, {results}, {sagas}, {worktrees}, ...
+  // Projected through the collection's OWN identity field: `worktrees` identify
+  // by `path` and `backups` by `backupId`, and projecting `id` unconditionally
+  // dropped every row of both (gh#1405).
+  const entry = pickCollectionEntry(rec);
+  if (entry) {
+    return entry.rows
+      .map((row) => identityOf(row, entry.key))
+      .filter((id): id is string => id !== undefined);
   }
 
   // 3. Bare id
@@ -163,12 +250,15 @@ function extractCount(data: unknown): number {
  * Each column is sized to the widest cell up to the title cap so the
  * output remains scannable in a 132-col terminal.
  */
-function renderTableList(tasks: Array<Record<string, unknown>>): string {
+function renderTableList(
+  tasks: Array<Record<string, unknown>>,
+  identityField: string = DEFAULT_IDENTITY_FIELD,
+): string {
   if (tasks.length === 0) return '';
 
   const COL_TITLE_MAX = 60;
   const rows = tasks.map((t) => ({
-    id: typeof t['id'] === 'string' ? t['id'] : '',
+    id: typeof t[identityField] === 'string' ? (t[identityField] as string) : '',
     status: typeof t['status'] === 'string' ? t['status'] : '',
     priority: typeof t['priority'] === 'string' ? t['priority'] : '',
     title: truncateString(typeof t['title'] === 'string' ? t['title'] : '', COL_TITLE_MAX),
@@ -246,11 +336,36 @@ function renderTableGeneric(data: Record<string, unknown>): string {
  */
 export type OutputEmptyReason = 'no-renderable-records' | 'no-renderable-ids' | 'silent-mode';
 
+/**
+ * A projection mode that cannot answer for this payload, and must REFUSE.
+ *
+ * Distinct from an empty result on purpose (gh#1402 / gh#1405): "no rows
+ * matched" and "this collection has no identity I can project" are different
+ * facts, and an empty stream rendered them identically. The documented ID
+ * pipeline (`--output id | while read id`) then looped zero times and looked
+ * exactly like an empty project.
+ *
+ * @task gh#1405
+ */
+export interface OutputModeRefusal {
+  /** Typed code for the envelope. */
+  code: 'E_OUTPUT_IDENTITY_UNDECLARED';
+  /** Operator-facing explanation. */
+  message: string;
+  /** What to do instead. */
+  fix: string;
+}
+
 export interface OutputModeResult {
   /** Bytes to write to stdout (no trailing newline added by the renderer). */
   text: string | null;
   /** Machine-readable reason when a renderer has no success text to emit. */
   emptyReason?: OutputEmptyReason;
+  /**
+   * Set when the mode must fail rather than emit. The caller turns this into a
+   * typed error envelope + non-zero exit; it never writes `text`.
+   */
+  refusal?: OutputModeRefusal;
 }
 
 export class UnsupportedRendererError extends Error {
@@ -286,10 +401,10 @@ export function renderSummary(data: unknown): OutputModeResult {
   }
   const rec = data as Record<string, unknown>;
 
-  // 1. List shapes — {tasks}, {items} (SDK ListResponse), {results} (find).
-  const collection = pickCollection(rec);
-  if (collection) {
-    return renderSummaryList(collection);
+  // 1. List shapes — {tasks}, {items}, {results}, {sagas}, {worktrees}, ...
+  const entry = pickCollectionEntry(rec);
+  if (entry) {
+    return renderSummaryList(entry.rows, identityFieldFor(entry.key));
   }
 
   // 2. Single nested task ({task: {id, status, title}}) — e.g. `cleo show`.
@@ -307,22 +422,28 @@ export function renderSummary(data: unknown): OutputModeResult {
 }
 
 /** Render a single record line: `<id> [<status>] <title-truncated-60>`. */
-function renderSummaryRow(record: Record<string, unknown>): string {
-  const id = typeof record['id'] === 'string' ? record['id'] : '';
+function renderSummaryRow(
+  record: Record<string, unknown>,
+  identityField: string = DEFAULT_IDENTITY_FIELD,
+): string {
+  const id = typeof record[identityField] === 'string' ? (record[identityField] as string) : '';
   const status = typeof record['status'] === 'string' ? record['status'] : '';
   const title = truncateString(typeof record['title'] === 'string' ? record['title'] : '', 60);
   return `${id} [${status}] ${title}`;
 }
 
 /** Render a list of records, one line each. Skips rows lacking an id. */
-function renderSummaryList(rows: unknown[]): OutputModeResult {
+function renderSummaryList(
+  rows: unknown[],
+  identityField: string = DEFAULT_IDENTITY_FIELD,
+): OutputModeResult {
   if (rows.length === 0) return { text: '', emptyReason: 'no-renderable-records' };
   const lines: string[] = [];
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
     const rec = row as Record<string, unknown>;
-    if (typeof rec['id'] !== 'string') continue;
-    lines.push(renderSummaryRow(rec));
+    if (typeof rec[identityField] !== 'string') continue;
+    lines.push(renderSummaryRow(rec, identityField));
   }
   return lines.length === 0
     ? { text: '', emptyReason: 'no-renderable-records' }
@@ -474,9 +595,35 @@ export function renderOutputMode(mode: OutputMode, data: unknown): OutputModeRes
   switch (mode) {
     case 'id': {
       const ids = extractIds(data);
-      return ids.length === 0
-        ? { text: '', emptyReason: 'no-renderable-ids' }
-        : { text: ids.join('\n') };
+      if (ids.length > 0) return { text: ids.join('\n') };
+
+      // Rows are PRESENT but none yielded an identity. That is a gap in the
+      // identity registry, not an empty result, and emitting an empty stream
+      // here is what made gh#1402 read as "this project has no sagas". An
+      // empty collection still emits nothing and exits 0 — zero rows is a
+      // truthful empty stream.
+      const entry =
+        data && typeof data === 'object'
+          ? pickCollectionEntry(data as Record<string, unknown>)
+          : undefined;
+      if (entry && entry.rows.length > 0) {
+        return {
+          text: null,
+          refusal: {
+            code: 'E_OUTPUT_IDENTITY_UNDECLARED',
+            message:
+              `--output id cannot project the ${entry.rows.length} record(s) under ` +
+              `"${entry.key}": no record carries "${identityFieldFor(entry.key)}". ` +
+              'Refusing to emit an empty stream, which would be indistinguishable ' +
+              'from a result set with no rows.',
+            fix:
+              `Declare the identity for "${entry.key}" in COLLECTION_IDENTITY_FIELDS ` +
+              '(packages/contracts/src/collection-keys.ts), or use ' +
+              `--field /data/${entry.key} to project the field you need.`,
+          },
+        };
+      }
+      return { text: '', emptyReason: 'no-renderable-ids' };
     }
     case 'count': {
       return { text: String(extractCount(data)) };
@@ -484,9 +631,12 @@ export function renderOutputMode(mode: OutputMode, data: unknown): OutputModeRes
     case 'table': {
       if (data && typeof data === 'object') {
         const rec = data as Record<string, unknown>;
-        const collection = pickCollection(rec);
-        if (collection) {
-          const text = renderTableList(collection as Array<Record<string, unknown>>);
+        const entry = pickCollectionEntry(rec);
+        if (entry) {
+          const text = renderTableList(
+            entry.rows as Array<Record<string, unknown>>,
+            identityFieldFor(entry.key),
+          );
           // An empty TSV is zero bytes, and the REASON still travels — to
           // stderr, via the caller. Losing it here would trade one defect for
           // another: a silent empty stream with no way to tell "no rows" from
