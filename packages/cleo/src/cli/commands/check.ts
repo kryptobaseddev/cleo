@@ -676,6 +676,20 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-ai-sdk-surface.mjs',
         description: 'No unreviewed module reaches the AI SDK at runtime',
       },
+      {
+        // gh#1421: gates 14 and 15 check the VERB half of
+        // `cleo <verb> --field <pointer>` and stop there. The pointer is the
+        // half that carries data back, and CLEO-INJECTION.md was telling every
+        // spawned agent to read `cleo verify` with `--field
+        // /data/task/verification` — the nested READ shape, on a verb that
+        // returns the FLAT mutate record. Gate 14 was green throughout,
+        // because the verb exists.
+        id: 'gate-23',
+        task: 'T12192',
+        script: 'scripts/lint-injection-field-pointers.mjs',
+        description:
+          'Every `--field` pointer in CLEO-INJECTION.md resolves against its op contract',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];
