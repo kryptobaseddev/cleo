@@ -287,6 +287,16 @@ const validateChangelogCommand = defineCommand({
  * @epic T9492
  * @spec SPEC-T9345 §4.2
  */
+/**
+ * Exit code for a blocked release plan — `E_VALIDATION` (6) in the CLI's
+ * canonical code-to-exit mapping. The envelope carries `E_READINESS_GATE_FAILED`
+ * as its `codeName`; the numeric code is what the shell and the
+ * `release-prepare.yml` workflow see, and gh#1366 is about those two agreeing.
+ *
+ * @task gh#1366
+ */
+const READINESS_GATE_EXIT_CODE = 6;
+
 const planCommand = defineCommand({
   meta: {
     name: 'plan',
@@ -343,13 +353,49 @@ const planCommand = defineCommand({
     },
   },
   async run({ args }) {
-    // T10459 — release-readiness gate
+    // T10459 — release-readiness gate.
+    //
+    // gh#1366: the readiness result is a VALUE and must be branched on. The
+    // previous code awaited this call and fell through on failure, under a
+    // comment asserting the callee "exits on failure" — it never did. So a
+    // failed gate still planned the release and wrote `success: true`, while
+    // the exitCode it had set surfaced as rc=1 at the process boundary. Two
+    // readings of one run that disagree, and BOTH are consumed by automation:
+    // release-prepare.yml gates on the exit code, CLEO-INJECTION.md tells
+    // every agent to gate on the envelope.
     if (args['skip-readiness'] !== true) {
       const { runSpawnReadinessHygieneCli } = await import(
         '@cleocode/core/hygiene/validate-spawn-readiness.js'
       );
-      await runSpawnReadinessHygieneCli();
-      // If we reach here, all gates passed (runSpawnReadinessHygieneCli exits on failure)
+      const readiness = await runSpawnReadinessHygieneCli();
+      if (readiness.hasBlockingFailure) {
+        const failed = readiness.gates.filter((g) => !g.passed && g.severity === 'error');
+        const timedOut = failed.filter((g) => g.reason === 'timeout').map((g) => g.name);
+        cliError(
+          `Release readiness failed: ${readiness.blockingGates.join(', ')}. No plan was written.`,
+          READINESS_GATE_EXIT_CODE,
+          {
+            name: 'E_READINESS_GATE_FAILED',
+            // gh#1367: a gate that timed out found nothing wrong — telling the
+            // operator to go repair the artifact would send them after a defect
+            // that does not exist.
+            fix:
+              timedOut.length > 0
+                ? `${timedOut.join(', ')} timed out rather than finding a problem — re-run, raise the gate timeout, or pass --skip-readiness.`
+                : 'Fix the gates listed above, or pass --skip-readiness to bypass the preflight (emergency use only).',
+            details: {
+              gates: failed.map((g) => ({
+                name: g.name,
+                reason: g.reason ?? 'validation',
+                message: g.message,
+              })),
+              checkedAt: readiness.checkedAt,
+            },
+          },
+          { operation: 'release.plan' },
+        );
+        process.exit(READINESS_GATE_EXIT_CODE);
+      }
     }
     await dispatchFromCli(
       'mutate',

@@ -37,29 +37,48 @@ const CHANGESET_DIR = process.env.CLEO_LINT_CHANGESET_DIR ?? join(REPO_ROOT, '.c
 // been built and `dist/changesets/index.js` exists. For local dev we fall
 // back to telling the user to build first rather than spinning up a TS
 // loader (avoids tsx/ts-node coupling).
+//
+// gh#1367: import the DEEP changesets module, not the `dist/index.js` barrel.
+// This script's runtime is ~96% module loading and ~4% actual parsing, and the
+// barrel drags the full 1266-module core graph in to reach one function.
+// Measured 2026-09-14 over 315 entries:
+//
+//   parse 315 entries                  65.9 ms   (0.21 ms/entry)
+//   `dist/index.js` (barrel) import   1750.4 ms
+//   `dist/changesets/index.js` import  605.4 ms
+//
+// The same substitution on the ntfs-3g mount the repo used to live on takes the
+// whole script from 346.7 s to ~36 s, because every avoided module is a FUSE
+// round-trip. This is the same cost that arch gate 19 ratchets in the CLI.
 
 const corePkgRoot = join(REPO_ROOT, 'packages/core');
-const corePkgDist = join(corePkgRoot, 'dist/index.js');
+const changesetsDist = join(corePkgRoot, 'dist/changesets/index.js');
 
-if (!existsSync(corePkgDist)) {
+if (!existsSync(changesetsDist)) {
   process.stderr.write(
-    `lint-changesets: @cleocode/core has not been built — run 'pnpm run build' first.\n`,
+    `lint-changesets: @cleocode/core has not been built — ${changesetsDist} is missing. ` +
+      `Run 'pnpm run build' first.\n`,
   );
   process.exit(2);
 }
 
-// Dynamic import the built `@cleocode/core` bundle and pull the
-// `parseChangesetFile` (per-file) helper off it. Per-file parsing lets us
-// collect every error in one pass rather than bailing on the first one.
-/**
- * @type {{
- *   changesets: {
- *     parseChangesetFile: (path: string) => unknown;
- *   };
- * }}
- */
-const coreMod = await import(`file://${corePkgDist}`);
-const { parseChangesetFile } = coreMod.changesets;
+// Per-file parsing lets us collect every error in one pass rather than bailing
+// on the first one.
+/** @type {{ parseChangesetFile: (path: string) => unknown }} */
+const changesetsMod = await import(`file://${changesetsDist}`);
+const { parseChangesetFile } = changesetsMod;
+
+if (typeof parseChangesetFile !== 'function') {
+  // A renamed or moved export must fail loudly here. Left unchecked it would
+  // throw once per entry inside the loop below and be collected as N invalid
+  // changesets — a tooling break wearing the costume of a content failure,
+  // which is the whole defect this file is being changed for.
+  process.stderr.write(
+    `lint-changesets: ${changesetsDist} does not export parseChangesetFile — ` +
+      `the build layout changed and this gate cannot validate anything.\n`,
+  );
+  process.exit(2);
+}
 
 // ─── Run ──────────────────────────────────────────────────────────────────────
 
