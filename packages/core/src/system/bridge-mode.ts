@@ -7,7 +7,7 @@
  * where one sibling silently ignored the gate.
  *
  * Behaviour:
- *   - `'cli'`  — AGENTS.md gets a `cleo memory digest --brief` directive; no `.md` files written.
+ *   - `'cli'`  — AGENTS.md gets a `cleo memory digest` directive; no `.md` files written.
  *   - `'file'` — legacy `@.cleo/memory-bridge.md` + `@.cleo/nexus-bridge.md` injection.
  *
  * The resolver never throws. On any read/parse failure it returns the safe

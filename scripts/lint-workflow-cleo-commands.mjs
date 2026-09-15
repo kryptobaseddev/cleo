@@ -39,7 +39,11 @@
 
 import { globSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { extractRootSubCommands } from './lint-injection-commands.mjs';
+import {
+  extractRootSubCommands,
+  findFlagViolations,
+  makeFlagChecker,
+} from './lint-injection-commands.mjs';
 
 const REPO_ROOT = process.cwd();
 
@@ -203,6 +207,51 @@ function stripPlaceholders(source) {
   return source.replace(/\{\{[A-Z_]+\}\}/g, 'PLACEHOLDER');
 }
 
+/**
+ * The shell text of a workflow's `run:` blocks, with every other line blanked.
+ *
+ * Blanking rather than dropping keeps line numbers aligned with the file, so a
+ * violation points at the step an operator can actually open. Comment lines are
+ * blanked too, matching {@link extractWorkflowCleoCommands}: gate 15 has always
+ * held that a `#` line documenting a removed verb is not a broken step, and the
+ * same must hold for a removed flag — `worktree-cleanup.yml`'s header comment
+ * explains that `--pr` never existed, and a gate that failed on the
+ * explanation would force the explanation to be deleted.
+ *
+ * @param yamlText - the workflow source (placeholders already blanked).
+ * @returns text of the same line count, containing only `run:` shell.
+ * @task T12191
+ */
+export function extractRunBlockText(yamlText) {
+  const lines = yamlText.split('\n');
+  const out = new Array(lines.length).fill('');
+  let blockIndent = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const indent = line.length - line.trimStart().length;
+
+    if (blockIndent !== null) {
+      if (line.trim() === '') continue;
+      if (indent > blockIndent) {
+        if (!/^\s*#/.test(line)) out[i] = line;
+        continue;
+      }
+      blockIndent = null;
+    }
+
+    const runKey = line.match(/^(\s*)(?:-\s+)?run:[ \t]*(.*)$/);
+    if (!runKey) continue;
+    const rest = runKey[2].trim();
+    if (rest === '' || rest === '|' || rest === '>' || /^[|>][-+]?\d*$/.test(rest)) {
+      blockIndent = indent;
+    } else {
+      out[i] = rest;
+    }
+  }
+  return out.join('\n');
+}
+
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   const asJson = process.argv.includes('--json');
@@ -227,13 +276,27 @@ if (isMain) {
   const registry = loadRegistry(neededSubs);
 
   const violations = docs.flatMap((d) => findWorkflowViolations(d.rel, d.text, registry));
+
+  // T12191 (GH #1373) — the verb half is not the whole call site. `cleo init
+  // --yes` sat in `worktree-cleanup.yml` since PR #868 doing nothing, and
+  // `release-rollback.yml.tmpl` passed `--reason "${REASON}"` to a command with
+  // no such flag, so the operator's rollback reason was parsed as a stray
+  // positional and never reached the database — while the step reported
+  // success every time. Both are shipped templates, so both went to every
+  // consuming project.
+  const checker = makeFlagChecker(REPO_ROOT);
+  for (const d of docs) {
+    for (const v of findFlagViolations(extractRunBlockText(d.text), checker)) {
+      violations.push({ file: d.rel, ...v });
+    }
+  }
   const checked = docs.reduce((n, d) => n + extractWorkflowCleoCommands(d.text).length, 0);
 
   if (asJson) {
     process.stdout.write(`${JSON.stringify({ checked, violations }, null, 2)}\n`);
   } else if (violations.length > 0) {
     process.stderr.write(
-      `lint-workflow-cleo-commands: FAIL — ${violations.length} workflow step(s) invoke a command that does not exist.\n\n`,
+      `lint-workflow-cleo-commands: FAIL — ${violations.length} workflow step(s) invoke a command, sub-command or flag that does not exist.\n\n`,
     );
     for (const v of violations) {
       process.stderr.write(`  ✗ ${v.file}:${v.line}  ${v.raw}\n      ${v.reason}\n`);
@@ -245,7 +308,7 @@ if (isMain) {
     );
   } else {
     process.stdout.write(
-      `lint-workflow-cleo-commands: OK — ${checked} cleo invocation(s) across ${files.length} workflow file(s) all resolve.\n`,
+      `lint-workflow-cleo-commands: OK — ${checked} cleo invocation(s) across ${files.length} workflow file(s) all resolve, flags included.\n`,
     );
   }
   process.exit(violations.length > 0 ? 1 : 0);

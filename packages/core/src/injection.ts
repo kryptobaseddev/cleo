@@ -196,8 +196,16 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
       agentsMdLines.push('@.cleo/nexus-bridge.md');
     }
   } else if (bridgeMode === 'cli') {
-    // cli mode: inject a directive instructing agents to query live context
-    agentsMdLines.push('# Run: cleo memory digest --brief');
+    // cli mode: inject a directive instructing agents to query live context.
+    //
+    // gh#1373: the directive used to read `cleo memory digest --brief`.
+    // `digest` declares no `--brief` — its flags are `--hygiene`, `--limit`,
+    // `--json` — and citty parses non-strictly, so the flag was absorbed and
+    // discarded. The command still produced a digest because a digest is what
+    // it does by default, which is precisely why nothing ever reported it:
+    // this line wrote a nonexistent flag into the AGENTS.md of every project
+    // using cli bridge mode, and the output looked correct every time.
+    agentsMdLines.push('# Run: cleo memory digest');
   }
   // 'disabled' mode: no bridge injection at all (T9425).
 

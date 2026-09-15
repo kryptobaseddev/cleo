@@ -175,7 +175,7 @@ export interface SharingConfig {
 /**
  * Memory bridge injection mode.
  *
- * - `'cli'`      — AGENTS.md receives a `cleo memory digest --brief` CLI directive instead of
+ * - `'cli'`      — AGENTS.md receives a `cleo memory digest` CLI directive instead of
  *                  `@.cleo/memory-bridge.md`. The bridge markdown file is NOT written on refresh.
  *                  This is the default for new installations (T999). Also surfaced to operators
  *                  as the `digest` mode in `cleo setup` (T9425) — the wire value stays `'cli'`
@@ -207,7 +207,7 @@ export interface BrainMemoryBridgeConfig {
   /**
    * Injection mode for the memory and nexus bridges (default: `'cli'`).
    *
-   * `'cli'`  — AGENTS.md gets a `cleo memory digest --brief` directive; no `.md` files written.
+   * `'cli'`  — AGENTS.md gets a `cleo memory digest` directive; no `.md` files written.
    * `'file'` — legacy `@.cleo/memory-bridge.md` + `@.cleo/nexus-bridge.md` injection.
    *
    * @defaultValue 'cli'

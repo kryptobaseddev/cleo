@@ -43,7 +43,7 @@ describe('buildTasksAddSuggestedNext (T9921)', () => {
 describe('buildTasksAddBatchSuggestedNext (T9921)', () => {
   it('returns 2 entries referencing the defaultParent param', () => {
     const out = buildTasksAddBatchSuggestedNext({ defaultParent: 'T9999' }, {});
-    expect(out).toEqual(['cleo list --parent T9999', 'cleo orchestrate ready --epic T9999']);
+    expect(out).toEqual(['cleo list --parent T9999', 'cleo orchestrate ready T9999']);
   });
 
   it('returns [] when defaultParent is absent', () => {

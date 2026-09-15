@@ -31,7 +31,7 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 4. `cleo next` — what to work on (~300 tokens)
 5. `cleo focus {id}` — **preferred orient call** — single envelope with identity + scope + blockers + ready wave + docs + brain context (≤ 1 500 tokens, replaces 8 calls)
 6. `cleo show {id} --full` — the full task record (~400 tokens). Bare `cleo show {id}` is an MVI projection, NOT the full record — see the `_withheld` note under Task Discovery before you act on a field's absence.
-7. `cleo orchestrate start --epic TXXX` — for epics with ≥ 5 children (~300 tokens, auto-inits LOOM)
+7. `cleo orchestrate start <epicId>` — for epics with ≥ 5 children (~300 tokens, auto-inits LOOM)
 <!-- /CLEO-INJECTION:section=session-start -->
 
 <!-- CLEO-INJECTION:section=work-loop -->
@@ -53,7 +53,7 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | You just ran `cleo complete <id>` for a non-trivial task | Run `cleo memory observe "..." --title "..."` with what you learned |
 | Task acceptance criterion contains "test" | Propose an `AcceptanceGate` with `kind:"test"` via `cleo req add` |
 | Session token budget ≈ 80% consumed | Run `cleo session end --note "..."` and hand off |
-| Multiple related tasks ready in parallel | Run `cleo orchestrate ready --epic <id>` for the wave set |
+| Multiple related tasks ready in parallel | Run `cleo orchestrate ready <epicId>` for the wave set |
 | About to call `cleo complete` | First: check gates via `cleo show <id>` → run tests → then complete |
 | Writing a canonical doc (spec/adr/research/handoff/note/llm-readme) | Use `cleo docs add --type <kind> --slug <kebab-handle>` — NEVER raw fs write to `.cleo/adrs/`, `.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` |
 | Reading an ADR/spec/research note/handoff | `cleo docs fetch <slug>` — never grep the filesystem for canonical docs |
@@ -145,7 +145,7 @@ CLEO has **three distinct relationship systems**. Do not conflate them.
 | LLM status | `cleo memory llm-status` | 50 |
 | Ground-truth promote | `cleo memory verify <id>` (owner only) | 50 |
 
-Memory context: `cleo memory digest --brief` gives a live project memory summary (default mode). Legacy file mode: set `brain.memoryBridge.mode = "file"` in config to restore `@.cleo/memory-bridge.md` injection.
+Memory context: `cleo memory digest` gives a live project memory summary (this is the default mode; there is no `--brief` flag). Legacy file mode: set `brain.memoryBridge.mode = "file"` in config to restore `@.cleo/memory-bridge.md` injection.
 <!-- /CLEO-INJECTION:section=memory -->
 
 <!-- CLEO-INJECTION:section=data-location -->
@@ -215,7 +215,7 @@ silently substituting `git grep`.
 | Goal | Command |
 |------|---------|
 | Initialize epic pipeline | `cleo orchestrate start <epicId>` (auto-inits LOOM research stage) |
-| Get parallel-safe wave | `cleo orchestrate ready --epic <id>` |
+| Get parallel-safe wave | `cleo orchestrate ready <epicId>` |
 | Get spawn prompt for a task | `cleo orchestrate spawn <taskId>` |
 | Spawn without worktree (opt-out) | `cleo orchestrate spawn <taskId> --no-worktree` |
 | Multi-agent IVTR loop | `cleo orchestrate ivtr <taskId> --start` |
@@ -420,7 +420,7 @@ Architectural decisions belong in the BRAIN decision-store (`.cleo/brain.db` →
 
 **Legacy fallback (last resort only):** `grep -r "D0xx" .cleo/adrs/` then `grep -r "D0xx" .cleo/agent-outputs/`. These are legacy sources being migrated to the decision-store. Prefer BRAIN decisions when available.
 
-Check outcome status (pending/accepted/superseded) and fetch sibling decisions from same epic via `cleo memory decision-find --epic <epicId>`.
+Check outcome status (pending/accepted/superseded). `decision-find` has **no epic filter** — it searches by QUERY text only, so scope it with the epic id as the query (`cleo memory decision-find "<epicId>"`) and read `source_table`/`source_rowid` to confirm provenance.
 
 Budget: 3 JIT calls per task phase. More = task is underspecified.
 <!-- /CLEO-INJECTION:section=memory-jit -->
