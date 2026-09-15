@@ -1648,6 +1648,7 @@ export {
   clearToolCache,
   computeCacheKey,
   defaultMaxConcurrent,
+  isEntryUsable,
   listValidToolNames,
   type ReleaseSlotFn,
   type ResolutionSource,
@@ -1659,7 +1660,9 @@ export {
   resolveToolCommand,
   runToolCached,
   semaphoreDir,
+  TOOL_RUN_IDENTITY_FIELDS,
   type ToolCacheEntry,
+  type ToolRunIdentity,
   type ToolRunResult,
   writeCacheEntry,
 } from './tasks/index.js';

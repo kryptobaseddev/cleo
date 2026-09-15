@@ -71,7 +71,12 @@ function plant(projectRoot: string, key: string, fields: Record<string, unknown>
   writeFileSync(
     join(dir, `${key}.json`),
     JSON.stringify({
-      schemaVersion: 1,
+      // schemaVersion 2 and a live executionRoot are deliberate: a planted
+      // entry must be refused for the reason ITS OWN test names, not because
+      // it tripped the schema gate or the missing-tree gate on the way in.
+      // A fixture that fails early passes the test vacuously (gh#1419).
+      schemaVersion: 2,
+      executionRoot: projectRoot,
       key,
       canonical: 'lint',
       displayName: 'lint',
@@ -194,13 +199,17 @@ describe('gh#1404 — the key really is command-only when the git fields are nul
     const cmd = shCommand('exit 0');
     // This is the property that makes the entry permanent, asserted directly
     // rather than inferred from behaviour.
-    expect(computeCacheKey(cmd, null, null)).toBe(computeCacheKey(cmd, null, null));
-    expect(computeCacheKey(cmd, 'head-one', null)).not.toBe(computeCacheKey(cmd, 'head-two', null));
+    expect(computeCacheKey(cmd, null, null, '/tmp/uk-root')).toBe(
+      computeCacheKey(cmd, null, null, '/tmp/uk-root'),
+    );
+    expect(computeCacheKey(cmd, 'head-one', null, '/tmp/uk-root')).not.toBe(
+      computeCacheKey(cmd, 'head-two', null, '/tmp/uk-root'),
+    );
   });
 
   it('only a command change rotates it', () => {
-    expect(computeCacheKey(shCommand('exit 0'), null, null)).not.toBe(
-      computeCacheKey(shCommand('exit 1'), null, null),
+    expect(computeCacheKey(shCommand('exit 0'), null, null, '/tmp/uk-root')).not.toBe(
+      computeCacheKey(shCommand('exit 1'), null, null, '/tmp/uk-root'),
     );
   });
 });

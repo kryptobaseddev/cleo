@@ -137,28 +137,29 @@ describe('computeCacheKey', () => {
     args: ['hi'],
     source: 'language-default',
   };
+  const ROOT = '/tmp/cleo-key-root-a';
 
   it('differs for different HEAD shas', () => {
-    const a = computeCacheKey(cmd, 'abc', 'x');
-    const b = computeCacheKey(cmd, 'def', 'x');
+    const a = computeCacheKey(cmd, 'abc', 'x', ROOT);
+    const b = computeCacheKey(cmd, 'def', 'x', ROOT);
     expect(a).not.toBe(b);
   });
 
   it('differs for different dirty fingerprints', () => {
-    const a = computeCacheKey(cmd, 'abc', 'x');
-    const b = computeCacheKey(cmd, 'abc', 'y');
+    const a = computeCacheKey(cmd, 'abc', 'x', ROOT);
+    const b = computeCacheKey(cmd, 'abc', 'y', ROOT);
     expect(a).not.toBe(b);
   });
 
   it('differs for different args', () => {
-    const a = computeCacheKey(cmd, 'abc', null);
-    const b = computeCacheKey({ ...cmd, args: ['bye'] }, 'abc', null);
+    const a = computeCacheKey(cmd, 'abc', null, ROOT);
+    const b = computeCacheKey({ ...cmd, args: ['bye'] }, 'abc', null, ROOT);
     expect(a).not.toBe(b);
   });
 
   it('is stable for identical inputs', () => {
-    const a = computeCacheKey(cmd, 'abc', 'x');
-    const b = computeCacheKey({ ...cmd }, 'abc', 'x');
+    const a = computeCacheKey(cmd, 'abc', 'x', ROOT);
+    const b = computeCacheKey({ ...cmd }, 'abc', 'x', ROOT);
     expect(a).toBe(b);
   });
 });
@@ -709,14 +710,14 @@ describe('runToolCached — lock contention fail-fast (T12025)', () => {
     // Pre-compute the exact cache path that runToolCached will target.
     const headVal = await captureHead(dir);
     const dirtyVal = await captureDirtyFingerprint(dir);
-    const key = computeCacheKey(cmd, headVal, dirtyVal);
+    const key = computeCacheKey(cmd, headVal, dirtyVal, dir);
     const cachePath = cacheEntryPath(dir, key);
 
     // Ensure the cache directory exists so the write succeeds.
     mkdirSync(join(dir, '.cleo', 'cache', 'evidence'), { recursive: true });
 
     // Write the pending entry so runToolCached doesn't re-create it.
-    writeFileSync(cachePath, JSON.stringify({ schemaVersion: 1, key, pending: true }));
+    writeFileSync(cachePath, JSON.stringify({ schemaVersion: 2, key, pending: true }));
 
     // Hold the lock ourselves — simulates another process running the tool.
     const release = await acquireLock(cachePath, { retries: 0 });
