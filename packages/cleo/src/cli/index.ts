@@ -52,6 +52,7 @@ import { lazyCommand } from './lazy-command.js';
 import { didYouMean } from './lib/did-you-mean.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { isInteractiveInvocation } from './lib/interactive-commands.js';
+import { normalizeGlobalValueFlags } from './lib/strict-args.js';
 import { resolveFormat } from './middleware/output-format.js';
 import { resolveOutputMode, setOutputMode } from './output-context.js';
 import { setProjectionOptOut } from './projection-context.js';
@@ -360,7 +361,16 @@ async function startCli(): Promise<void> {
   // sentinel positional so that validation passes; the value is never used
   // because run() short-circuits to the describe envelope first. Skipped on the
   // help/version fast-path.
-  const dispatchArgv = describeFlag && !isHelpOrVersion ? [...argv, '__cleo_describe__'] : argv;
+  //
+  // GH #1438 — the global scan above reads `--output id`, but citty parses
+  // `strict: false`, where an undeclared `--output` is a BOOLEAN and its value
+  // stays positional. `find`'s optional `query` is the first positional, so
+  // `cleo find --status pending --output id` searched for "id" and returned a
+  // confident subset. Hand citty the `--flag=value` form so the value binds to
+  // the flag; the scan still sees the original vector.
+  const normalizedArgv = normalizeGlobalValueFlags(argv);
+  const dispatchArgv =
+    describeFlag && !isHelpOrVersion ? [...normalizedArgv, '__cleo_describe__'] : normalizedArgv;
 
   await runMainWithLafsEnvelope(main, dispatchArgv, customShowUsage);
 }
