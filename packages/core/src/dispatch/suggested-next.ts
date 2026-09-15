@@ -120,7 +120,13 @@ export function buildTasksAddBatchSuggestedNext(
 ): string[] {
   const parentId = (params as TasksAddBatchParamsShape).defaultParent;
   if (typeof parentId !== 'string' || parentId.length === 0) return [];
-  return [`cleo list --parent ${parentId}`, `cleo orchestrate ready --epic ${parentId}`];
+  // gh#1373: `--epic` is not a flag on `orchestrate ready` — the command takes
+  // EPICID as a POSITIONAL (`USAGE orchestrate ready [OPTIONS] <EPICID>`). mri
+  // defaults an undeclared flag to boolean, so `--epic T9` set a no-op `true`
+  // and `T9` fell through to the positional: the suggestion worked by accident.
+  // CLEO emitting its own unrunnable-by-design advice is worse than a stale
+  // doc, because an agent reads a `suggestedNext` as authoritative.
+  return [`cleo list --parent ${parentId}`, `cleo orchestrate ready ${parentId}`];
 }
 
 /**

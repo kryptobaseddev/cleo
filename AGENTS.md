@@ -1,7 +1,7 @@
 <!-- CAAMP:START -->
 @~/.agents/AGENTS.md
 @.cleo/project-context.json
-# Run: cleo memory digest --brief
+# Run: cleo memory digest
 <!-- CAAMP:END -->
 
 # CLEO Project Rules (MANDATORY)

@@ -5,9 +5,16 @@
 # The worktree path is resolved from the task ID encoded in the PR branch name
 # (e.g. `task/T9805` → task ID `T9805`).
 #
-# Council verdict D009 integration: `cleo worktree destroy --pr <num>` calls
-# `destroyWorktree`, which removes the sentinel index entry and appends an
+# Council verdict D009 integration: `cleo worktree destroy <taskId> --reason <r>`
+# calls `destroyWorktree`, which removes the sentinel index entry and appends an
 # audit-log record to `.cleo/audit/worktree-lifecycle.jsonl`.
+#
+# gh#1373: this comment used to read `cleo worktree destroy --pr <num>`. There is
+# no `--pr` flag and never has been — `destroy` takes the task ID as a POSITIONAL,
+# which is the form the job body below has always used. citty would have absorbed
+# `--pr` silently, so the wrong form here was never going to be caught by running
+# it; it was caught by joining the documented flags against the command's own
+# `args` declaration.
 #
 # T10106 (Saga T10099 E-CI-PARITY-AUDIT) — added `push: branches: [main]`
 # trigger so direct main-branch pushes (release branches, admin merges,
