@@ -296,12 +296,26 @@ describe('--field pointer pairing (gh#1373 PR, bug found by cleo-dev)', () => {
     expect(out[0].verb).toBeNull();
   });
 
-  it('the real template pairs its verify pointers to verify', () => {
+  it('the real template attributes verification pointers to verify, never to show', () => {
+    // Asserts the PROPERTY, not a snapshot of the template's current pointers.
+    //
+    // The first version of this test listed the exact pointers the template
+    // happened to contain. That broke the moment another lane corrected line
+    // 279 in a parallel PR — the assertion was pinning live documentation that
+    // somebody else owned, so a correct edit elsewhere failed my test. A test
+    // over a document that other people edit must assert what has to stay
+    // true, not what is true today.
     const out = extractDocumentedPointers(read(INJECTION));
-    expect(out.filter((d) => d.verb === 'verify').map((d) => d.pointer)).toEqual([
-      '/data/task/verification',
-      '/data/task',
-    ]);
+
+    expect(out.length).toBeGreaterThan(0); // guards a regex matching nothing
+    expect(out.filter((d) => d.verb === 'verify').length).toBeGreaterThan(0);
+
+    // The mis-pairing this PR fixes credited a verification pointer to the
+    // EARLIER `cleo show` on line 279. Whatever that line is reworded to, a
+    // verification pointer must never come back attributed to `show`.
+    const showPointers = out.filter((d) => d.verb === 'show').map((d) => d.pointer);
+    expect(showPointers.some((p) => p.includes('verification'))).toBe(false);
+
     expect(out.filter((d) => d.verb === null)).toEqual([]);
   });
 });
