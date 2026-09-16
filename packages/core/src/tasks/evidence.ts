@@ -308,15 +308,22 @@ export async function validateAtom(
   /** T12107: sha of a sibling `commit:` atom in the same evidence string. */
   siblingCommitSha?: string,
 ): Promise<AtomValidation> {
+  // gh#1365: resolve the tree under test ONCE, here, and pass it down as a
+  // required parameter. Resolving inside each validator would centralise the
+  // logic but still let two of them resolve independently and drift — which is
+  // exactly how gh#1419 happened (a revalidation key derived from one root
+  // while the validation answered about another). A required parameter makes
+  // that divergence unrepresentable rather than merely discouraged.
+  const executionRoot = resolveEvidenceExecutionRoot(projectRoot);
   switch (parsed.kind) {
     case 'commit':
-      return validateCommit(parsed.sha, projectRoot, taskId);
+      return validateCommit(parsed.sha, projectRoot, executionRoot, taskId);
     case 'files':
-      return validateFiles(parsed.paths, projectRoot, taskId, siblingCommitSha);
+      return validateFiles(parsed.paths, projectRoot, executionRoot, taskId, siblingCommitSha);
     case 'test-run':
-      return validateTestRun(parsed.path, projectRoot);
+      return validateTestRun(parsed.path, projectRoot, executionRoot);
     case 'tool':
-      return validateTool(parsed.tool, projectRoot);
+      return validateTool(parsed.tool, projectRoot, executionRoot);
     case 'url':
       return validateUrl(parsed.url);
     case 'note':
@@ -500,6 +507,11 @@ async function findReachableIntegrationBranch(
 async function validateCommit(
   sha: string,
   projectRoot: string,
+  /**
+   * The repo the evidence is ABOUT. Required, never resolved internally
+   * (gh#1365) — see the note at the `validateAtom` dispatch.
+   */
+  executionRoot: string,
   taskId?: string,
 ): Promise<AtomValidation> {
   if (!/^[0-9a-f]{7,40}$/i.test(sha)) {
@@ -509,7 +521,7 @@ async function validateCommit(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
-  const exists = await runCommand('git', ['cat-file', '-e', `${sha}^{commit}`], projectRoot);
+  const exists = await runCommand('git', ['cat-file', '-e', `${sha}^{commit}`], executionRoot);
   if (exists.exitCode !== 0) {
     return {
       ok: false,
@@ -520,7 +532,7 @@ async function validateCommit(
   // T-WT-3: resolve effective HEAD — uses task/<taskId> branch when it exists,
   // falls back to "HEAD" when taskId is absent or the branch does not yet exist.
   // This is env-var-independent: it does not rely on CLEO_WORKTREE_ROOT / ALS.
-  const effectiveHead = await getEffectiveHead(projectRoot, taskId);
+  const effectiveHead = await getEffectiveHead(executionRoot, taskId);
 
   // T12028 / gh#1116: resolve integration branches for reachability fallbacks.
   // Loaded once and reused by both the effective-head fallback and the
@@ -552,7 +564,7 @@ async function validateCommit(
     // that merge through a non-main branch can use commits on that branch
     // as evidence without synthetic task-branch scaffolding.
     const reachableIntegrationBranch = taskId
-      ? await findReachableIntegrationBranch(sha, integrationBranches, projectRoot)
+      ? await findReachableIntegrationBranch(sha, integrationBranches, executionRoot)
       : null;
     if (reachableIntegrationBranch === null) {
       const branchList = integrationBranches.join(', ');
@@ -581,7 +593,11 @@ async function validateCommit(
   // commit (early-init edge case handled by the HEAD ancestry check above).
   if (taskId) {
     const branchRef = `task/${taskId}`;
-    const branchExists = await runCommand('git', ['rev-parse', '--verify', branchRef], projectRoot);
+    const branchExists = await runCommand(
+      'git',
+      ['rev-parse', '--verify', branchRef],
+      executionRoot,
+    );
     if (branchExists.exitCode === 0) {
       const onBranch = await runCommand(
         'git',
@@ -1272,6 +1288,8 @@ async function gitShowFileContentAtCommit(
 async function validateFiles(
   paths: string[],
   projectRoot: string,
+  /** The repo the evidence is ABOUT. Required, never resolved internally (gh#1365). */
+  executionRoot: string,
   taskId?: string,
   commitSha?: string,
 ): Promise<AtomValidation> {
@@ -1284,14 +1302,20 @@ async function validateFiles(
   }
   const files: Array<{ path: string; sha256: string }> = [];
   for (const p of paths) {
-    const abs = isAbsolute(p) ? p : resolvePath(projectRoot, p);
+    // gh#1365: the file belongs to the repo under test. Resolving it against
+    // the CLEO store root reported "File removed since verify" for a file that
+    // was present, 5,176 bytes, in the project — a false negative that then
+    // surfaced as E_EVIDENCE_STALE. Execution root first, store root second so
+    // an absolute or store-relative path keeps working.
+    const fromExecution = isAbsolute(p) ? p : resolvePath(executionRoot, p);
+    const abs = existsSync(fromExecution) ? fromExecution : resolvePath(projectRoot, p);
     let content: Buffer | null = null;
 
     // T12107 (gh#1195): the sibling commit is the evidence anchor — check its
     // tree FIRST. A file merged remotely but not yet present locally validates
     // here without waiting for a fast-forward.
     if (commitSha) {
-      content = await gitShowFileContentAtCommit(p, commitSha, projectRoot);
+      content = await gitShowFileContentAtCommit(p, commitSha, executionRoot);
     }
 
     if (content === null && existsSync(abs)) {
@@ -1310,7 +1334,7 @@ async function validateFiles(
     if (content === null && taskId) {
       // T11959: Git-show fallback for branch-only files (worktree context).
       // The file exists on the task branch but not yet at the canonical root.
-      content = await gitShowFileContent(p, taskId, projectRoot);
+      content = await gitShowFileContent(p, taskId, executionRoot);
     }
 
     if (content === null) {
@@ -1318,7 +1342,11 @@ async function validateFiles(
       // caller can tell a worktree-miss from a commit-tree-miss.
       const looked: string[] = [];
       if (commitSha) looked.push(`commit ${commitSha} tree`);
-      looked.push(`filesystem at ${projectRoot}`);
+      looked.push(
+        executionRoot === projectRoot
+          ? `filesystem at ${projectRoot}`
+          : `filesystem at ${executionRoot} and ${projectRoot}`,
+      );
       if (taskId) looked.push(`git refs task/${taskId}, main, HEAD`);
       return {
         ok: false,
@@ -1407,13 +1435,18 @@ export function resolveEvidenceExecutionRoot(
   return projectRoot;
 }
 
-async function validateTestRun(path: string, projectRoot: string): Promise<AtomValidation> {
+async function validateTestRun(
+  path: string,
+  projectRoot: string,
+  /** The repo the evidence is ABOUT. Required, never resolved internally (gh#1365). */
+  executionRoot: string,
+): Promise<AtomValidation> {
   // gh#1226: a relative test-run path names a report the caller just wrote,
   // in the caller's tree. Resolving it against the shared store root made a
   // report written in a worktree report "file does not exist". Try the
   // execution root first, then fall back to the store root so an absolute or
-  // store-relative path keeps working.
-  const executionRoot = resolveEvidenceExecutionRoot(projectRoot);
+  // store-relative path keeps working. gh#1365: the root arrives as a
+  // parameter now; it is NOT re-resolved here.
   let abs: string;
   if (isAbsolute(path)) {
     abs = path;
@@ -1498,7 +1531,12 @@ async function validateTestRun(path: string, projectRoot: string): Promise<AtomV
   };
 }
 
-async function validateTool(tool: string, projectRoot: string): Promise<AtomValidation> {
+async function validateTool(
+  tool: string,
+  projectRoot: string,
+  /** The repo the evidence is ABOUT. Required, never resolved internally (gh#1365). */
+  executionRoot: string,
+): Promise<AtomValidation> {
   const resolution = resolveToolCommand(tool, projectRoot);
 
   // T12083: the project has no such toolchain. This is a fact about the
@@ -1531,8 +1569,8 @@ async function validateTool(tool: string, projectRoot: string): Promise<AtomVali
   }
 
   // gh#1220/#1226/#1230: spawn in — and fingerprint against — the tree the
-  // operator actually invoked from, not the shared store root.
-  const executionRoot = resolveEvidenceExecutionRoot(projectRoot);
+  // operator actually invoked from, not the shared store root. gh#1365: the
+  // root arrives as a parameter now; it is NOT re-resolved here.
   const result = await runToolCached(resolution.command, projectRoot, { executionRoot });
 
   // T12025: wall-clock child-process deadline exceeded — the tool was
@@ -2368,7 +2406,11 @@ export async function revalidateEvidence(
         // (commitSha, headSha), both immutable git facts, so a hit is exactly
         // as sound as re-running the git spawns. See revalidation-cache.ts.
         const startedAt = Date.now();
-        const cached = await revalidateCommitAtom(atom.sha, projectRoot);
+        const cached = await revalidateCommitAtom(
+          atom.sha,
+          projectRoot,
+          resolveEvidenceExecutionRoot(projectRoot),
+        );
         if (!cached.check.ok) failed.push({ atom, reason: cached.check.reason });
         options?.onProgress?.(
           `commit:${atom.sha.slice(0, 7)} ${cached.check.ok ? 'ok' : 'FAILED'}` +
@@ -2513,11 +2555,23 @@ export async function revalidateEvidence(
 async function revalidateCommitAtom(
   sha: string,
   projectRoot: string,
+  /**
+   * The repo the evidence is ABOUT. Required (gh#1365).
+   *
+   * `head` below MUST come from this same root. gh#1419 — closed — was the
+   * tool-evidence cache key omitting the working directory, so a run in one
+   * worktree satisfied a gate verified in another. Deriving `head` (and
+   * therefore the revalidation key) from the store root while validating
+   * against a worktree would re-create that defect in this cache. The entry
+   * LOCATION stays under `projectRoot` because the store is shared; it is the
+   * KEY that must distinguish trees, and it does so via this head.
+   */
+  executionRoot: string,
 ): Promise<{ check: AtomValidation; fromCache: boolean }> {
-  const headResult = await runCommand('git', ['rev-parse', 'HEAD'], projectRoot);
+  const headResult = await runCommand('git', ['rev-parse', 'HEAD'], executionRoot);
   const head = headResult.exitCode === 0 ? headResult.stdout.trim() : null;
   if (!head) {
-    return { check: await validateCommit(sha, projectRoot), fromCache: false };
+    return { check: await validateCommit(sha, projectRoot, executionRoot), fromCache: false };
   }
   const key = computeCommitRevalidationKey(sha, head);
   const hit = readCommitRevalidationEntry(projectRoot, key);
@@ -2527,7 +2581,7 @@ async function revalidateCommitAtom(
       fromCache: true,
     };
   }
-  const check = await validateCommit(sha, projectRoot);
+  const check = await validateCommit(sha, projectRoot, executionRoot);
   if (check.ok && check.atom.kind === 'commit') {
     try {
       writeCommitRevalidationEntry(projectRoot, {

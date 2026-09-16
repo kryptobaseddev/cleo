@@ -486,6 +486,42 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
             command: `cleo ${opts.command} --field ${pointer}`,
           }))
         : undefined;
+      // gh#1420: a pointer miss must NEVER report that a MUTATION failed.
+      //
+      // Pointer resolution runs AFTER the operation. `buildEnvelopeForPointer`
+      // above hardcodes `success: true` because errors never reach this render
+      // path — so by the time we are here the operation has already succeeded,
+      // and the only open question is whether it was a mutation. Exiting 4 with
+      // `success:false` made a committed gate write indistinguishable from a
+      // rejected one, and the natural handling of that — `cleo verify … --field
+      // … || retry` — re-runs a write that landed (the gh#1301 shape, arriving
+      // from the opposite direction).
+      //
+      // ANY non-zero code triggers `||`, so the issue's fallback suggestion of
+      // "a distinct exit code" cannot fix its own repro. Only exit 0 does.
+      //
+      // The CQRS gateway is the SSoT for read-vs-mutate: every dispatch
+      // declares it and it rides on the response meta. NOT `OPERATION_BUCKETS`
+      // — that map answers "which bucket does this TASK mutation project into",
+      // holds six `tasks.*` entries, and omits `check.gate.set`, so using it
+      // here would classify `cleo verify` as a read and miss the one operation
+      // this defect is about, with every test still green.
+      //
+      // Reads keep exit 4: `cleo show` commits nothing, so there is no retry
+      // hazard and a hard failure is the honest answer for a bad pointer.
+      if (opts.responseMeta?.gateway === 'mutate') {
+        // stdout stays EMPTY. `--field` is a scalar-extract mode whose contract
+        // is "stdout is the value"; emitting the envelope here would hand
+        // `v=$(cleo … --field /bad)` a JSON blob that a caller consumes as an
+        // id. A confidently wrong-shaped answer is worse than none, and this
+        // channel has already cost an agent a task id once today.
+        process.stderr.write(
+          `E_FIELD_NOT_FOUND: pointer "${fieldCtx.field}" did not resolve. ` +
+            `The ${opts.operation ?? 'operation'} itself SUCCEEDED — do not retry it. ${fix}\n`,
+        );
+        return;
+      }
+
       cliError(`Pointer "${fieldCtx.field}" did not resolve`, 4, {
         name: 'E_FIELD_NOT_FOUND',
         fix,

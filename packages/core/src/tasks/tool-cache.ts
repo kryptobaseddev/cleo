@@ -98,7 +98,7 @@ export interface ToolCacheEntry {
   source: string;
   /** Git HEAD sha at execution time. */
   head: string | null;
-  /** sha256 of `git status --porcelain` (uncommitted tree fingerprint). */
+  /** sha256 of `git diff HEAD` — CONTENT of the uncommitted tracked changes (gh#1452). */
   dirtyFingerprint: string | null;
   /**
    * Absolute, symlink-resolved path of the tree the tool actually ran in.
@@ -837,7 +837,8 @@ export async function captureHead(projectRoot: string): Promise<string | null> {
 
 /**
  * Capture a fingerprint of the uncommitted TRACKED tree by sha256-hashing
- * `git status --porcelain=v1 --untracked-files=no`. Returns `null` for
+ * `git diff HEAD` over tracked paths (gh#1452 — see the note on the body for
+ * why NOT `git status --porcelain`). Returns `null` for
  * non-git roots.
  *
  * Two repos with identical tracked content but different uncommitted edits
@@ -873,34 +874,84 @@ export async function captureHead(projectRoot: string): Promise<string | null> {
  * @task T1534
  * @task T12112 (gh#1221)
  */
+/**
+ * Pathspec shared by the fingerprint command.
+ *
+ * CLEO's own runtime state is excluded so a tracked-and-modified CLEO file
+ * cannot self-invalidate the cache it is the key for.
+ */
+const FINGERPRINT_PATHSPEC: readonly string[] = [
+  '--',
+  '.',
+  ':(exclude).cleo/cache',
+  ':(exclude).cleo/cache/**',
+  ':(exclude).cleo/audit',
+  ':(exclude).cleo/audit/**',
+  ':(exclude).cleo/backups',
+  ':(exclude).cleo/backups/**',
+  ':(exclude).cleo/session-journals',
+  ':(exclude).cleo/session-journals/**',
+  ':(exclude).cleo/*.db',
+  ':(exclude).cleo/*.db-wal',
+  ':(exclude).cleo/*.db-shm',
+];
+
+/**
+ * Run `git` and hash its stdout as it arrives, without ever holding the whole
+ * output in memory.
+ *
+ * gh#1452: this exists instead of `spawnCmd` because `spawnCmd` accumulates
+ * stdout in a {@link TailBuffer} capped at {@link STREAM_TAIL_CAP_BYTES}
+ * (64 KiB) and **keeps only the tail**. That is correct for an error tail and
+ * catastrophic for a fingerprint: a diff longer than the cap would be hashed
+ * from its last 64 KiB only, so a change earlier in the diff would not move the
+ * key. Measured: 200 small changed files produce ~30 KB of diff, so a shared
+ * working tree reaches the cap at roughly 430 — precisely the large-dirty-tree
+ * case gh#1452 was reported from. A fix built on `spawnCmd` would pass on a
+ * small repo and fail exactly where it matters.
+ *
+ * @param args - argv after `git`.
+ * @param cwd - directory to run in.
+ * @returns 32 hex chars of sha256 over stdout, or `null` if git exited non-zero
+ *   or could not be spawned.
+ *
+ * @task T12218 (gh#1452)
+ */
+function hashGitStdout(args: readonly string[], cwd: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const hash = createHash('sha256');
+    const child = spawn('git', [...args], { cwd, stdio: ['ignore', 'pipe', 'ignore'] });
+    child.stdout?.on('data', (chunk: Buffer) => hash.update(chunk));
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => {
+      resolve(code === 0 ? hash.digest('hex').slice(0, 32) : null);
+    });
+  });
+}
+
 export async function captureDirtyFingerprint(projectRoot: string): Promise<string | null> {
-  const r = await spawnCmd(
-    'git',
-    [
-      'status',
-      '--porcelain=v1',
-      // gh#1221: untracked files are the tool's own output as often as they
-      // are the operator's input; including them made every tool invalidate
-      // its own cache entry. See the docblock TRADEOFF note.
-      '--untracked-files=no',
-      '--',
-      '.',
-      ':(exclude).cleo/cache',
-      ':(exclude).cleo/cache/**',
-      ':(exclude).cleo/audit',
-      ':(exclude).cleo/audit/**',
-      ':(exclude).cleo/backups',
-      ':(exclude).cleo/backups/**',
-      ':(exclude).cleo/session-journals',
-      ':(exclude).cleo/session-journals/**',
-      ':(exclude).cleo/*.db',
-      ':(exclude).cleo/*.db-wal',
-      ':(exclude).cleo/*.db-shm',
-    ],
-    projectRoot,
-  );
-  if (r.exitCode !== 0) return null;
-  return createHash('sha256').update(r.stdout).digest('hex').slice(0, 32);
+  // gh#1452: `git diff HEAD`, NOT `git status --porcelain`.
+  //
+  // Porcelain reports WHICH paths are dirty and never WHAT is in them, so it is
+  // a summary of dirtiness rather than an identity for it. Measured in a
+  // scratch repo — a broken edit and its fix to the same tracked file both
+  // produce ` M src.ts`, hashing to the identical fingerprint. The key
+  // therefore could not rotate when a failure's cause was fixed, and the stale
+  // FAILED entry was replayed indefinitely: the reported symptom was an
+  // identical error text with `(cached)` in ~700 ms across four task ids, with
+  // the only cure being to delete the cache file by hand.
+  //
+  // `--raw` is NOT an alternative, though it looks like one: for an UNSTAGED
+  // edit git reports the destination blob as `0000000`, so
+  // `:100644 100644 4b48dee 0000000 M\ta.txt` is byte-identical before and
+  // after the fix. It is the same summary defect one layer down.
+  //
+  // Still TRACKED-only (`diff HEAD` ignores untracked), so the deliberate
+  // gh#1221 tradeoff documented above is unchanged — including its escape
+  // hatch, `CLEO_EVIDENCE_FRESH=1`. Widening this to untracked content would
+  // trade a stale-FAILED bug for the every-tool-invalidates-its-own-cache bug
+  // that tradeoff exists to prevent.
+  return hashGitStdout(['diff', 'HEAD', ...FINGERPRINT_PATHSPEC], projectRoot);
 }
 
 // ---------------------------------------------------------------------------
