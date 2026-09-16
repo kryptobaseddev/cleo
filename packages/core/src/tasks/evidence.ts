@@ -43,7 +43,7 @@ import {
 import { CleoError } from '../errors.js';
 import { pushWarning } from '../output.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
-import { describeMemoryLimit } from './heavy-tool-limit.js';
+import { DISABLE_ENV, describeMemoryLimit } from './heavy-tool-limit.js';
 import {
   computeCommitRevalidationKey,
   readCommitRevalidationEntry,
@@ -1594,6 +1594,30 @@ async function validateTool(tool: string, projectRoot: string): Promise<AtomVali
     };
   }
 
+  // gh#1397: CLEO wraps `test` and `build` in a systemd scope of its own
+  // making (T12116). When that wrapper cannot start, `systemd-run` exits 1
+  // WITHOUT ever running the tool — and 1 is also what a suite with a failing
+  // test exits with, so the branch below reported "your tests failed" for a
+  // harness that never ran. Five occurrences of gh#1396 were diagnosed as a
+  // flaky suite for exactly this reason.
+  //
+  // The code this returns is not new: `E_EVIDENCE_TOOL_UNAVAILABLE` has always
+  // been the right answer. What was missing was a route into it, because the
+  // existing guard keys on `exitCode === null` and `systemd-run` itself starts
+  // perfectly well before failing.
+  if (result.harnessFailure !== null) {
+    return {
+      ok: false,
+      reason:
+        `Tool "${tool}" did NOT run. CLEO's own memory-confinement wrapper failed to ` +
+        `start it in ${result.executionRoot}: ${result.harnessFailure} ` +
+        `This is a CLEO harness failure, not a verdict on the tool — the suite never ` +
+        `executed, so this says nothing about whether it passes. Nothing was cached. ` +
+        `Set ${DISABLE_ENV}=1 to run the tool unconfined and get a real result.`,
+      codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE',
+    };
+  }
+
   if (result.exitCode === null) {
     return {
       ok: false,
@@ -1601,7 +1625,10 @@ async function validateTool(tool: string, projectRoot: string): Promise<AtomVali
         `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
         `could not be executed in ${result.executionRoot} — the process never started ` +
         `(binary missing, not executable, or spawn error). No signal was delivered, so ` +
-        `it did not run and get killed.`,
+        `it did not run and get killed.` +
+        // gh#1397: `spawnCmd` used to discard Node's error object, so this
+        // message could only list the three possibilities. It now names which.
+        (result.stderrTail ? ` Reason: ${result.stderrTail}` : ''),
       codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE',
     };
   }

@@ -48,7 +48,11 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { withLock } from '../store/lock.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
-import { withMemoryLimit } from './heavy-tool-limit.js';
+import {
+  confinementStartupFailure,
+  isSystemdRunCommand,
+  withMemoryLimit,
+} from './heavy-tool-limit.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
 import { type AcquireSlotOptions, acquireGlobalSlot } from './tool-semaphore.js';
 
@@ -187,6 +191,24 @@ export interface ToolRunResult {
    * @task T12112 (gh#1220)
    */
   executionRoot: string;
+  /**
+   * The diagnostic line from CLEO's own confinement wrapper when it failed to
+   * START the tool, else `null`.
+   *
+   * gh#1397: `systemd-run --scope` is transparent on success — it exits with
+   * the wrapped command's status — but exits `1` when it cannot create the
+   * transient unit, and `1` is also what a suite with a failing test exits
+   * with. "The harness never started" and "the suite ran and was red" are
+   * therefore identical in `exitCode`, and CLEO reported both as
+   * `E_EVIDENCE_TOOL_FAILED`: a fast red suite. Five occurrences of gh#1396
+   * produced no diagnosis for exactly this reason.
+   *
+   * Non-null means the tool did NOT run, so nothing is cached and the caller
+   * must report an unavailable harness rather than a failing tool.
+   *
+   * @task T12116 (gh#1397)
+   */
+  harnessFailure: string | null;
   /** Full cache entry — useful for audit / debugging. */
   entry: ToolCacheEntry;
 }
@@ -591,6 +613,15 @@ interface CommandResult {
   stderr: string;
   /** `true` when the wall-clock deadline was exceeded and the process was force-killed. */
   timedOut: boolean;
+  /**
+   * Node's spawn-error message (`ENOENT`, `EACCES`, `EAGAIN`, …) when the child
+   * could not be started at all, else `null`.
+   *
+   * gh#1397: the `error` handler used to take no argument and resolve
+   * `(null, null)`, discarding the one object that said WHY nothing started —
+   * the same defect gh#1381 fixed one event-handler over, for `signal`.
+   */
+  spawnError: string | null;
 }
 
 /**
@@ -741,19 +772,30 @@ function spawnCmd(
       if (forceKillTimer !== undefined) clearTimeout(forceKillTimer);
     };
 
+    let spawnError: string | null = null;
     const finalise = (exitCode: number | null, signal: NodeJS.Signals | null) => {
       clearTimers();
+      const stderr = stderrBuf.toString();
       resolve({
         exitCode,
         signal,
         stdout: stdoutBuf.toString(),
-        stderr: stderrBuf.toString(),
+        // gh#1397: a child that never started wrote nothing to stderr, so the
+        // spawn error IS the only diagnostic that exists. Folding it in here
+        // means every downstream consumer gets the reason without each one
+        // having to remember a second field.
+        stderr: spawnError !== null && stderr === '' ? spawnError : stderr,
         timedOut,
+        spawnError,
       });
     };
 
     // A genuine pre-start failure: ENOENT, EACCES, EAGAIN. No signal, no code.
-    child.on('error', () => {
+    // gh#1397: keep the reason. `(null, null)` says only "nothing ran"; the
+    // error object says which of missing / not-executable / out-of-resources
+    // it was, and the caller has no other source for that fact.
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      spawnError = err.code ? `${err.code}: ${err.message}` : err.message;
       finalise(null, null);
     });
     // gh#1381: `close` passes `(code, signal)` and exactly one is non-null.
@@ -1019,6 +1061,7 @@ export async function runToolCached(
         cacheHit: true,
         timedOut: false,
         lockBusy: false,
+        harnessFailure: null,
         executionRoot,
         entry: existing,
       };
@@ -1066,6 +1109,7 @@ export async function runToolCached(
               cacheHit: true,
               timedOut: false,
               lockBusy: false,
+              harnessFailure: null,
               executionRoot,
               entry: fresh,
             };
@@ -1081,7 +1125,12 @@ export async function runToolCached(
         // see. Denying swap is the point: the failure this guards against was
         // a throttle-and-thrash host freeze, not an OOM kill. Degrades to an
         // unwrapped spawn off Linux or without a user systemd manager.
-        const limited = withMemoryLimit(command.canonical, command.cmd, command.args);
+        const limited = withMemoryLimit(command.canonical, command.cmd, command.args, {
+          // The scope name's rootHash8 comes off the SAME execution root the
+          // cache key uses (T12112 / gh#1220), so the scope and the cache agree
+          // on what "the tree under test" means.
+          executionRoot,
+        });
         const startedAt = Date.now();
         const result = await spawnCmd(
           limited.cmd,
@@ -1106,6 +1155,7 @@ export async function runToolCached(
             cacheHit: false,
             timedOut: true,
             lockBusy: false,
+            harnessFailure: null,
             executionRoot,
             entry: {
               schemaVersion: 2,
@@ -1122,6 +1172,53 @@ export async function runToolCached(
               signal: result.signal,
               stdoutTail: '',
               stderrTail: '',
+              durationMs,
+              capturedAt: new Date().toISOString(),
+            },
+          };
+        }
+
+        // gh#1397: CLEO wrapped this spawn itself (T12116), so a failure of
+        // the WRAPPER is CLEO's own fault and not a verdict on the project's
+        // tool. Checked before the cache entry is built because, like the
+        // `timedOut` branch above, this run produced no result to cache — and
+        // caching one would serve a fabricated "your tests failed" from a
+        // key that cannot rotate until the tree changes.
+        // `limited.confined` OR the project's own pinned wrapper: post-detection
+        // (gh#1396) CLEO declines to wrap a command that is already
+        // `systemd-run`, so `confined` is false for exactly the project whose
+        // harness failures prompted gh#1397.
+        const harnessFailure = confinementStartupFailure(
+          result.stderr,
+          limited.confined || isSystemdRunCommand(command.cmd),
+        );
+        if (harnessFailure !== null) {
+          return {
+            exitCode: result.exitCode,
+            signal: result.signal,
+            stdoutTail: tailString(result.stdout, tailBytes),
+            stderrTail: tailString(result.stderr, tailBytes),
+            durationMs,
+            cacheHit: false,
+            timedOut: false,
+            lockBusy: false,
+            executionRoot,
+            harnessFailure,
+            entry: {
+              schemaVersion: 2,
+              key,
+              canonical: command.canonical,
+              displayName: command.displayName,
+              cmd: command.cmd,
+              args: command.args,
+              source: command.source,
+              head,
+              dirtyFingerprint,
+              executionRoot,
+              exitCode: null,
+              signal: result.signal,
+              stdoutTail: '',
+              stderrTail: tailString(result.stderr, tailBytes),
               durationMs,
               capturedAt: new Date().toISOString(),
             },
@@ -1186,6 +1283,7 @@ export async function runToolCached(
           timedOut: false,
           lockBusy: false,
           executionRoot,
+          harnessFailure: null,
           entry,
         };
       },
@@ -1210,6 +1308,7 @@ export async function runToolCached(
           cacheHit: false,
           timedOut: false,
           lockBusy: true,
+          harnessFailure: null,
           executionRoot,
           entry: {
             schemaVersion: 2,
