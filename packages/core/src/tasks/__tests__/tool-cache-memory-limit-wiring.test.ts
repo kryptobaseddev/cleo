@@ -76,6 +76,12 @@ vi.mock('../heavy-tool-limit.js', async (importOriginal) => {
         ],
         confined: true,
         memoryMaxMb: 4_096,
+        // T12221 (gh#1396): `LimitedCommand` gained an explicit unit name when
+        // `withMemoryLimit` started passing `--unit=`. This stub does not spawn
+        // systemd, so the value is inert here — but the field is required, and
+        // `__tests__` is excluded from tsconfig, so tsc would NOT have caught
+        // its absence.
+        unitName: 'cleo-tool-test-00000000-00000000.scope',
       };
     },
   };

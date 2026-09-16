@@ -47,6 +47,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { totalmem } from 'node:os';
 import { isHeavyTool } from './heavy-tool-env.js';
 import type { CanonicalTool } from './tool-resolver.js';
@@ -76,6 +77,17 @@ export interface LimitedCommand {
   readonly confined: boolean;
   /** Ceiling applied, in MiB; `null` when unconfined. */
   readonly memoryMaxMb: number | null;
+  /**
+   * The explicit transient-unit name this command runs under, or `null` when
+   * unconfined.
+   *
+   * Reported so a caller can stop or enumerate the scope. `suite-reaper.ts`
+   * already reaps via `systemctl --user stop <unitName>` and could never
+   * target a heavy-tool scope while the name was systemd's auto-generated one.
+   *
+   * @task T12221 (gh#1396)
+   */
+  readonly unitName: string | null;
 }
 
 /**
@@ -159,6 +171,59 @@ export function _resetConfinementCache(): void {
 }
 
 /**
+ * Build the transient-unit name a confined heavy tool runs under.
+ *
+ * `cleo-tool-<canonical>-<rootHash8>-<rand8>.scope`, e.g.
+ * `cleo-tool-test-3f9a21c4-b7e01d55.scope`. Each component earns its place:
+ *
+ * | Component     | Defends against                                   |
+ * |---------------|---------------------------------------------------|
+ * | `cleo-tool-`  | *(legibility)* `systemctl --user list-units 'cleo-tool-*'` enumerates exactly CLEO's heavy-tool scopes, distinct from `cleo-agent-*`. |
+ * | `<canonical>` | *(legibility)* an operator sees WHICH tool is stuck without opening anything. |
+ * | `<rootHash8>` | two worktrees of one repo, and two projects on one host — both have different execution roots, so each gets its own namespace and either can be reaped without touching the other. |
+ * | `<rand8>`     | two concurrent verifies of the same tool in the same tree, which differ in nothing else; and PID reuse, by not using the PID. |
+ *
+ * **Deliberately not the PID.** The PID is the component that makes systemd's
+ * auto-generated `run-p<pid>-i<id>` collide, and it defends nothing randomness
+ * does not. Including it out of familiarity would import the failure mode this
+ * name exists to remove.
+ *
+ * `rootHash8` is taken off the execution root — the same identity the cache key
+ * already uses (T12112 / gh#1220) — so the scope and the cache agree on what
+ * "the tree under test" means rather than each deciding separately.
+ *
+ * At ~38 characters of `[a-z0-9-]` this is far inside systemd's 256-byte unit
+ * name limit and uses only characters valid in a unit name.
+ *
+ * @param canonical - the heavy tool being run.
+ * @param executionRoot - absolute path of the tree the tool runs in.
+ * @returns a unit name ending in `.scope`.
+ *
+ * @task T12221 (gh#1396)
+ */
+export function buildToolScopeUnitName(canonical: CanonicalTool, executionRoot: string): string {
+  const rootHash8 = createHash('sha256').update(executionRoot).digest('hex').slice(0, 8);
+  const rand8 = randomBytes(4).toString('hex');
+  return `cleo-tool-${canonical}-${rootHash8}-${rand8}.scope`;
+}
+
+/**
+ * Is `cmd` a `systemd-run` invocation?
+ *
+ * Compares the basename so an absolute path (`/usr/bin/systemd-run`) is
+ * recognised as readily as the bare name a `testing.command` usually carries.
+ *
+ * @param cmd - the executable a resolved tool command starts with.
+ * @returns `true` when the command is itself systemd-run.
+ *
+ * @task T12221 (gh#1396)
+ */
+export function isSystemdRunCommand(cmd: string): boolean {
+  const base = cmd.split('/').pop() ?? cmd;
+  return base === 'systemd-run';
+}
+
+/**
  * Wrap a heavy tool command so the kernel bounds its whole process tree.
  *
  * Applied only to `test` and `build` — the canonicals that fork. Confining
@@ -194,6 +259,12 @@ export function withMemoryLimit(
     totalRamGib?: number;
     env?: NodeJS.ProcessEnv;
     available?: boolean;
+    /**
+     * Tree the tool runs in, used for the unit name's `rootHash8`. Defaults to
+     * `process.cwd()` so existing callers keep working; the tool-cache passes
+     * the execution root it already resolved.
+     */
+    executionRoot?: string;
   } = {},
 ): LimitedCommand {
   const env = opts.env ?? process.env;
@@ -202,21 +273,61 @@ export function withMemoryLimit(
   // the spawn deadline. Four independent literals agreeing by coincidence is
   // how a fifth heavy tool gets a long deadline and no memory bound.
   if (!isHeavyTool(canonical)) {
-    return { cmd, args, confined: false, memoryMaxMb: null };
+    return { cmd, args, confined: false, memoryMaxMb: null, unitName: null };
+  }
+
+  // gh#1396: do NOT wrap a command that already carries its own resource
+  // wrapper. `axiom-analytics` pins
+  //
+  //   testing.command = "systemd-run --user --scope --quiet -p MemoryMax=8G \
+  //                      -p MemorySwapMax=0 -- env … pnpm exec vitest run"
+  //
+  // and `parseCommandString` splits on whitespace, so `cmd` is literally
+  // `systemd-run`. Prepending a second one nests two transient scopes, and
+  // `systemd-run --scope` execs its payload rather than forking — so the inner
+  // client regenerates a unit name the outer has already registered.
+  // Measured: nested 5/5 collide with
+  // "Unit run-p<pid>-i<id>.scope was already loaded or has a fragment file";
+  // a single invocation, 0/6.
+  //
+  // The collision is the symptom. The defect is the double wrap, and declining
+  // it is the rule this codebase has already adopted twice for exactly this
+  // shape: `heapCapApplied()` in `bin/cleo.js` does not re-exec when an
+  // operator's own `NODE_OPTIONS` already sets a heap cap, and
+  // `mergeNodeOptions()` lets an existing explicit value outrank our default.
+  // A project whose test command IS `systemd-run -p MemoryMax=8G` has made
+  // that same explicit choice, and a second cap it did not ask for is the
+  // thing to avoid, not merely the name clash.
+  //
+  // Deliberately systemd-run-SPECIFIC. `env`, `nice`, `taskset` and `timeout`
+  // are all plausible leading tokens too, but none of them imposes the cgroup
+  // memory bound this function exists to apply, so treating them as
+  // "already confined" would silently drop the ceiling. Detecting general
+  // intent would be guessing; this detects our own mechanism only.
+  if (isSystemdRunCommand(cmd)) {
+    return { cmd, args, confined: false, memoryMaxMb: null, unitName: null };
   }
 
   const available = opts.available ?? cgroupConfinementAvailable(env);
   if (!available) {
-    return { cmd, args, confined: false, memoryMaxMb: null };
+    return { cmd, args, confined: false, memoryMaxMb: null, unitName: null };
   }
 
   const memoryMaxMb = resolveMemoryMaxMb(opts.totalRamGib ?? totalmem() / 1024 ** 3, env);
+  const unitName = buildToolScopeUnitName(canonical, opts.executionRoot ?? process.cwd());
 
   return {
     cmd: 'systemd-run',
     args: [
       '--user',
       '--scope',
+      // gh#1396: an EXPLICIT name. Without `--unit=` systemd generates
+      // `run-p<pid>-i<dbus-id>`, which is unstoppable by name (so
+      // `suite-reaper.ts` cannot target it) and collides outright when two
+      // systemd-run clients share a pid. `--scope` picks the unit TYPE and
+      // `--unit=` supplies its NAME; they are independent and compose, which
+      // the TSDoc here asserted otherwise for the whole life of this defect.
+      `--unit=${unitName}`,
       '--quiet',
       '--collect',
       '-p',
@@ -232,6 +343,7 @@ export function withMemoryLimit(
     ],
     confined: true,
     memoryMaxMb,
+    unitName,
   };
 }
 
@@ -273,4 +385,94 @@ export function describeMemoryLimit(
     `though an external kill looks identical. Raise it with ${MEMORY_MAX_ENV}=<megabytes>, ` +
     `reduce the tool's own worker count, or set ${DISABLE_ENV}=1 to run unconfined.`
   );
+}
+
+/**
+ * `systemd-run`'s own pre-exec failure diagnostics.
+ *
+ * Each of these is printed by `systemd-run` itself, BEFORE it execs the wrapped
+ * command, when it cannot create the transient unit. They are not produced by
+ * the tool being wrapped, because the tool never ran.
+ *
+ * Matched case-insensitively against the captured stderr. The list is
+ * deliberately narrow: every entry is a message `systemd-run` emits on the
+ * failure path, not a generic systemd string that could plausibly appear in a
+ * project's own test output.
+ *
+ * @task T12116 (gh#1397)
+ */
+const CONFINEMENT_STARTUP_MARKERS: readonly string[] = [
+  'failed to start transient scope unit',
+  'failed to start transient service unit',
+  'failed to connect to bus',
+  'failed to create bus connection',
+  'interactive authentication required',
+];
+
+/**
+ * Decide whether a non-zero exit came from CLEO's own confinement wrapper
+ * failing to start, rather than from the wrapped tool running and failing.
+ *
+ * ## Why this cannot be done with the exit code
+ *
+ * `systemd-run --scope` is transparent on success: it exits with the WRAPPED
+ * command's status. Measured on systemd 259 — a scope that starts and runs
+ * `sh -c 'exit 7'` makes `systemd-run` exit `7`. When it cannot create the
+ * unit it exits `1` and the wrapped command never runs.
+ *
+ * `1` is also the exit code of a test suite with a failing test. So the two
+ * outcomes CLEO most needs to tell apart — "the harness never started" and
+ * "the suite ran and was red" — are identical in the exit code, and differ
+ * only in stderr. That is the whole of gh#1397: not a missing error code
+ * ({@link validateTool} has had `E_EVIDENCE_TOOL_UNAVAILABLE` all along) but a
+ * missing route into it.
+ *
+ * ## Scope of the claim
+ *
+ * Returns the matched diagnostic line so the caller can quote the real reason
+ * rather than paraphrase it.
+ *
+ * Gated on whether the spawned command was a `systemd-run` invocation AT ALL —
+ * NOT on whether CLEO added it. Those two were the same question until
+ * double-wrap detection landed; now a project that pins its own
+ * `systemd-run` test command is spawned unconfined by CLEO, and a failure of
+ * ITS wrapper still means the suite never ran. Keying on
+ * {@link LimitedCommand.confined} alone would have reported exactly the
+ * gh#1396 project's harness failures as red suites — the defect this function
+ * exists to remove, reintroduced by the fix for its sibling.
+ *
+ * This is a stderr match, so it is not airtight: a project whose own test
+ * output contained one of these strings verbatim AND exited non-zero would be
+ * misreported. That is judged acceptable against the alternative, which is the
+ * status quo of reporting every harness failure as a red suite. The markers
+ * are `systemd-run`'s, the check is gated on CLEO having wrapped the call, and
+ * the returned message is quoted rather than asserted.
+ *
+ * @param stderr - captured stderr from the spawn.
+ * @param viaSystemdRun - whether the spawned command was a systemd-run invocation,
+ *   whether CLEO added it or the project pinned it.
+ * @returns the matched diagnostic line, or `null` when the wrapper started fine.
+ *
+ * @example
+ * ```ts
+ * confinementStartupFailure(
+ *   'Failed to start transient scope unit: Unit run-p1-i2.scope was already loaded.',
+ *   true,
+ * );
+ * // => 'Failed to start transient scope unit: Unit run-p1-i2.scope was already loaded.'
+ * confinementStartupFailure('2 tests failed', true);   // => null
+ * confinementStartupFailure('Failed to connect to bus', false); // => null (not systemd-run)
+ * ```
+ *
+ * @task T12116 (gh#1397)
+ */
+export function confinementStartupFailure(stderr: string, viaSystemdRun: boolean): string | null {
+  if (!viaSystemdRun || stderr === '') return null;
+  for (const line of stderr.split('\n')) {
+    const haystack = line.toLowerCase();
+    if (CONFINEMENT_STARTUP_MARKERS.some((m) => haystack.includes(m))) {
+      return line.trim();
+    }
+  }
+  return null;
 }
