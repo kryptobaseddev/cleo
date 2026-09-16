@@ -314,7 +314,25 @@ export function withMemoryLimit(
   }
 
   const memoryMaxMb = resolveMemoryMaxMb(opts.totalRamGib ?? totalmem() / 1024 ** 3, env);
-  const unitName = buildToolScopeUnitName(canonical, opts.executionRoot ?? process.cwd());
+  // CWD-OK: do NOT replace this with `resolveOrCwd(opts.executionRoot)`, which
+  // is what the project-root lint recommends. That helper falls back to
+  // `getProjectRoot()`, and `getProjectRoot()` DELIBERATELY collapses a git
+  // worktree to the main repo (paths.ts, step 2.5: "the canonical project root
+  // is the MAIN repo, not the worktree dir"). That is correct for locating
+  // state, and wrong here: every worktree of a repo would then hash to the same
+  // `rootHash8`, so two worktrees running `test` concurrently would build the
+  // same unit-name namespace — reintroducing a collision class inside the fix
+  // for a collision bug, and destroying the property this component exists to
+  // provide (see {@link buildToolScopeUnitName}).
+  //
+  // The production call site (`tool-cache.ts`) ALWAYS passes `executionRoot` —
+  // the same execution root the cache key uses — so this fallback is reached
+  // only by callers that do not identify a tree: tests, and any future
+  // in-process caller. For those, the process cwd is the best available answer
+  // and a wrong-but-unique namespace is harmless, whereas a collapsed one is
+  // not. Making `executionRoot` required would remove this line entirely and
+  // is the right follow-up.
+  const unitName = buildToolScopeUnitName(canonical, opts.executionRoot ?? process.cwd()); // CWD-OK: getProjectRoot() collapses worktrees to the main repo, which would give every worktree the same rootHash8 — see the note above
 
   return {
     cmd: 'systemd-run',
@@ -376,7 +394,10 @@ export function describeMemoryLimit(
   canonical: CanonicalTool,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const limited = withMemoryLimit(canonical, 'probe', [], { env });
+  // `executionRoot` is a stable sentinel, not a real path: this probe reads
+  // only `confined` and `memoryMaxMb` and discards the unit name, so making it
+  // read the process cwd would be a side effect with no consumer.
+  const limited = withMemoryLimit(canonical, 'probe', [], { env, executionRoot: 'probe' });
   if (!limited.confined || limited.memoryMaxMb === null) return '';
   return (
     ` This tool runs inside a memory-bounded systemd scope ` +
