@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.9.5] (2026-09-16)
+
+### Fixed
+
+- Do not wrap a command that is already systemd-run; name the scope we do create; a harness that never started no longer reports as a red suite (gh#1396, gh#1397) _(provenance: [T12221](https://github.com/kryptobaseddev/cleo/search?q=T12221&type=commits))_
+- **The evidence cache key now rotates on tracked CONTENT, not on the set of dirty paths.** `captureDirtyFingerprint` hashed `git status --porcelain` output, which records *which* files are dirty and never *what is in them* — so fixing a bug inside an already-dirty file could not rotate the key, and a stale FAILED tool result was replayed forever. Deliberately tracked-only: `--untracked-files=no` and its `CLEO_EVIDENCE_FRESH=1` escape hatch are unchanged, because including untracked output would re-break gh#1221 for every project whose tools write into the tree (gh#1452)
+- **`commit:` and `files:` atoms resolve against the repo under test.** `resolveEvidenceExecutionRoot` existed and was wired to the `tool:` path only, so a commit absent from the CLEO store's own repository read as “not found”, and a file present in the project read as “removed”. The execution root is now a required parameter rather than an internal resolve, so a caller cannot omit it (gh#1365)
+- **A `--field` pointer miss no longer reports that a MUTATION failed.** The write had already landed, but pointer-resolution failure replaced the envelope wholesale with `success:false` and exit 4 — so a caller doing `|| retry` retried a write that succeeded. Mutations now emit the diagnostic on stderr and exit 0 with empty stdout; reads are unchanged and still exit 4 (gh#1420)
+
 ## [2026.9.4] (2026-09-15)
 
 ### Fixed
