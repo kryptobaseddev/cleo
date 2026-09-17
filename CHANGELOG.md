@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.9.6] (2026-09-17)
+
+### Fixed
+
+- **`pr:` and `callsite-coverage:` atoms now resolve against the repo under test.** The gh#1365 fix shipped in v2026.9.5 threaded an execution root to four of the eleven arms of the `validateAtom` switch; `pr:` and `callsite-coverage:` sat on the same switch and kept the bare store root. Measured in production on v2026.9.5 with a CLEO root whose git repository lives in a subdirectory: `cleo verify --evidence "pr:712"` died on `fatal: not a git repository`. `pr:` is the arm that most needed it — the only atom that shells out to a tool doing its OWN repo discovery, so no resolver threaded inside CLEO can reach it, only its cwd can. `callsite-coverage:` failed in the more dangerous direction: `rg` over the store root reports a symbol UNCOVERED when it is covered, and a false negative on a coverage gate fails closed and looks like diligence. Evidence roots are now the pair `{ storeRoot, executionRoot }` rather than one parameter named `root`, because one word for two things relocates the ambiguity into a signature instead of removing it — each arm now declares which it is about, and a new arm cannot inherit a default because there is none. All eleven arms were audited: `decision:` and `satisfies:` correctly read the **store** root, so a blanket "thread the execution root everywhere" pass would have pointed CLEO's own records at the wrong database (gh#1365) _(provenance: [T12238](https://github.com/kryptobaseddev/cleo/search?q=T12238&type=commits))_
+
 ## [2026.9.5] (2026-09-16)
 
 ### Fixed

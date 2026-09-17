@@ -300,6 +300,43 @@ export type AtomValidation =
  * @task T12107
  * @adr ADR-051 §3
  */
+/**
+ * The two roots an evidence atom may be about, named so an arm cannot inherit
+ * the wrong one.
+ *
+ * gh#1365 was fixed once by threading a single `executionRoot` parameter, and
+ * the fix reached two of the switch's arms. The reason a single parameter could
+ * not close it is that **"root" is one word for two things**: the tree the
+ * evidence is ABOUT, and the store CLEO keeps its own records in. A parameter
+ * called `root` relocates that ambiguity into a signature rather than removing
+ * it, so the next arm silently picks whichever the author had in mind.
+ *
+ * With both fields named, every arm DECLARES what it is about by which field it
+ * reads. `decision:` reading {@link storeRoot} is self-documenting rather than
+ * an exception needing a comment; `pr:` reading both is obviously correct
+ * rather than obviously odd; and a new arm cannot inherit a default, because
+ * there is no default.
+ *
+ * The rule, stated once: **use the root that matches what the atom is about.**
+ * Evidence about the repository under test → {@link executionRoot}. Evidence
+ * about CLEO's own records → {@link storeRoot}.
+ *
+ * @task T12238 (gh#1365)
+ */
+export interface EvidenceRoots {
+  /**
+   * Where CLEO keeps its own state — `.cleo/`, the BRAIN db, project context,
+   * the evidence caches. NOT necessarily a git repository.
+   */
+  readonly storeRoot: string;
+  /**
+   * The repository the evidence is about. Differs from {@link storeRoot}
+   * whenever the CLEO root is a parent of, or a worktree sibling of, the git
+   * checkout — which is this fleet's normal multi-project layout.
+   */
+  readonly executionRoot: string;
+}
+
 export async function validateAtom(
   parsed: ParsedAtom,
   projectRoot: string,
@@ -314,16 +351,19 @@ export async function validateAtom(
   // exactly how gh#1419 happened (a revalidation key derived from one root
   // while the validation answered about another). A required parameter makes
   // that divergence unrepresentable rather than merely discouraged.
-  const executionRoot = resolveEvidenceExecutionRoot(projectRoot);
+  const roots: EvidenceRoots = {
+    storeRoot: projectRoot,
+    executionRoot: resolveEvidenceExecutionRoot(projectRoot),
+  };
   switch (parsed.kind) {
     case 'commit':
-      return validateCommit(parsed.sha, projectRoot, executionRoot, taskId);
+      return validateCommit(parsed.sha, roots, taskId);
     case 'files':
-      return validateFiles(parsed.paths, projectRoot, executionRoot, taskId, siblingCommitSha);
+      return validateFiles(parsed.paths, roots, taskId, siblingCommitSha);
     case 'test-run':
-      return validateTestRun(parsed.path, projectRoot, executionRoot);
+      return validateTestRun(parsed.path, roots);
     case 'tool':
-      return validateTool(parsed.tool, projectRoot, executionRoot);
+      return validateTool(parsed.tool, roots);
     case 'url':
       return validateUrl(parsed.url);
     case 'note':
@@ -331,11 +371,17 @@ export async function validateAtom(
     case 'loc-drop':
       return validateLocDrop(parsed.fromLines, parsed.toLines);
     case 'callsite-coverage':
-      return validateCallsiteCoverage(parsed.symbolName, parsed.relativeSourcePath, projectRoot);
+      // gh#1365 (T12238): `rg` searches the SOURCE tree. Resolved from the
+      // store root it searched the wrong directory and reported a symbol
+      // UNCOVERED when it was covered — a false negative, which fails closed
+      // and looks like diligence, so it would have been chased as a real gap.
+      return validateCallsiteCoverage(parsed.symbolName, parsed.relativeSourcePath, roots);
     case 'decision':
-      return validateDecision(parsed.decisionId, projectRoot);
+      // storeRoot is CORRECT here and must stay: a decision lives in the BRAIN
+      // db, which is CLEO's own record, not the repository's.
+      return validateDecision(parsed.decisionId, roots);
     case 'pr':
-      return validatePrAtom(parsed.prNumber, projectRoot);
+      return validatePrAtom(parsed.prNumber, roots);
     case 'satisfies': {
       // ADR-079-r2: 5-check validator pipeline shipped by T10507.
       // Delegates to the dedicated validator module to keep the dispatch
@@ -354,7 +400,8 @@ export async function validateAtom(
           versionPin: parsed.versionPin,
         },
         taskId,
-        projectRoot,
+        // A task/AC lookup is CLEO's own record — storeRoot.
+        roots.storeRoot,
       );
       if (!result.ok) {
         return { ok: false, reason: result.reason, codeName: result.codeName };
@@ -506,14 +553,10 @@ async function findReachableIntegrationBranch(
 
 async function validateCommit(
   sha: string,
-  projectRoot: string,
-  /**
-   * The repo the evidence is ABOUT. Required, never resolved internally
-   * (gh#1365) — see the note at the `validateAtom` dispatch.
-   */
-  executionRoot: string,
+  roots: EvidenceRoots,
   taskId?: string,
 ): Promise<AtomValidation> {
+  const { storeRoot: projectRoot, executionRoot } = roots;
   if (!/^[0-9a-f]{7,40}$/i.test(sha)) {
     return {
       ok: false,
@@ -1287,12 +1330,11 @@ async function gitShowFileContentAtCommit(
  */
 async function validateFiles(
   paths: string[],
-  projectRoot: string,
-  /** The repo the evidence is ABOUT. Required, never resolved internally (gh#1365). */
-  executionRoot: string,
+  roots: EvidenceRoots,
   taskId?: string,
   commitSha?: string,
 ): Promise<AtomValidation> {
+  const { storeRoot: projectRoot, executionRoot } = roots;
   if (paths.length === 0) {
     return {
       ok: false,
@@ -1435,12 +1477,8 @@ export function resolveEvidenceExecutionRoot(
   return projectRoot;
 }
 
-async function validateTestRun(
-  path: string,
-  projectRoot: string,
-  /** The repo the evidence is ABOUT. Required, never resolved internally (gh#1365). */
-  executionRoot: string,
-): Promise<AtomValidation> {
+async function validateTestRun(path: string, roots: EvidenceRoots): Promise<AtomValidation> {
+  const { storeRoot: projectRoot, executionRoot } = roots;
   // gh#1226: a relative test-run path names a report the caller just wrote,
   // in the caller's tree. Resolving it against the shared store root made a
   // report written in a worktree report "file does not exist". Try the
@@ -1531,12 +1569,8 @@ async function validateTestRun(
   };
 }
 
-async function validateTool(
-  tool: string,
-  projectRoot: string,
-  /** The repo the evidence is ABOUT. Required, never resolved internally (gh#1365). */
-  executionRoot: string,
-): Promise<AtomValidation> {
+async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomValidation> {
+  const { storeRoot: projectRoot, executionRoot } = roots;
   const resolution = resolveToolCommand(tool, projectRoot);
 
   // T12083: the project has no such toolchain. This is a fact about the
@@ -1850,8 +1884,11 @@ export const CALLSITE_COVERAGE_LABEL = 'callsite-coverage';
 async function validateCallsiteCoverage(
   symbolName: string,
   relativeSourcePath: string,
-  projectRoot: string,
+  roots: EvidenceRoots,
 ): Promise<AtomValidation> {
+  // gh#1365 (T12238): `rg` runs over the SOURCE tree, so this is evidence ABOUT
+  // the repository — executionRoot, not the store.
+  const projectRoot = roots.executionRoot;
   if (!symbolName || typeof symbolName !== 'string') {
     return {
       ok: false,
@@ -1961,7 +1998,11 @@ async function validateCallsiteCoverage(
  * @task T1875
  * @epic T1824
  */
-async function validateDecision(decisionId: string, projectRoot: string): Promise<AtomValidation> {
+async function validateDecision(decisionId: string, roots: EvidenceRoots): Promise<AtomValidation> {
+  // A decision lives in the BRAIN db — CLEO's OWN record, not the repository's.
+  // storeRoot is correct here; threading the execution root would point this at
+  // the wrong database (gh#1365 / T12238).
+  const projectRoot = roots.storeRoot;
   if (!decisionId || typeof decisionId !== 'string') {
     return {
       ok: false,
@@ -2052,7 +2093,7 @@ async function validateDecision(decisionId: string, projectRoot: string): Promis
  *
  * @task T9764
  */
-async function validatePrAtom(prNumber: number, projectRoot: string): Promise<AtomValidation> {
+async function validatePrAtom(prNumber: number, roots: EvidenceRoots): Promise<AtomValidation> {
   // Dynamic import keeps the verification module free of a static dependency
   // on the release subtree, mirroring the pattern used by validateDecision.
   const { resolvePrEvidenceAtom } = await import('../release/pr-evidence.js');
@@ -2062,8 +2103,15 @@ async function validatePrAtom(prNumber: number, projectRoot: string): Promise<At
   // one from agents/variable-substitution) is best-effort and non-throwing; on
   // a missing/malformed file `loaded` is false → pass null → cleocode default.
   const { loadProjectContext } = await import('../agents/variable-substitution.js');
-  const ctx = loadProjectContext(projectRoot);
-  const result = await resolvePrEvidenceAtom(prNumber, projectRoot, {
+  // `.cleo/project-context.json` is CLEO's own config — storeRoot.
+  const ctx = loadProjectContext(roots.storeRoot);
+  // gh#1365 (T12238): `pr:` is the only atom that shells out to a tool doing its
+  // OWN repo discovery. `gh` walks up from its cwd looking for a git repo; given
+  // the store root in a layout where the checkout is a subdirectory, it finds
+  // none before the mount point and fails with "not a git repository". No
+  // resolver threaded inside CLEO can reach that — only its cwd can. So this
+  // atom needs BOTH roots, and a swap would be as wrong as the original.
+  const result = await resolvePrEvidenceAtom(prNumber, roots, {
     projectContext: ctx.loaded ? ctx.context : null,
   });
   if (!result.ok) {
@@ -2406,11 +2454,10 @@ export async function revalidateEvidence(
         // (commitSha, headSha), both immutable git facts, so a hit is exactly
         // as sound as re-running the git spawns. See revalidation-cache.ts.
         const startedAt = Date.now();
-        const cached = await revalidateCommitAtom(
-          atom.sha,
-          projectRoot,
-          resolveEvidenceExecutionRoot(projectRoot),
-        );
+        const cached = await revalidateCommitAtom(atom.sha, {
+          storeRoot: projectRoot,
+          executionRoot: resolveEvidenceExecutionRoot(projectRoot),
+        });
         if (!cached.check.ok) failed.push({ atom, reason: cached.check.reason });
         options?.onProgress?.(
           `commit:${atom.sha.slice(0, 7)} ${cached.check.ok ? 'ok' : 'FAILED'}` +
@@ -2554,7 +2601,7 @@ export async function revalidateEvidence(
  */
 async function revalidateCommitAtom(
   sha: string,
-  projectRoot: string,
+  roots: EvidenceRoots,
   /**
    * The repo the evidence is ABOUT. Required (gh#1365).
    *
@@ -2566,12 +2613,12 @@ async function revalidateCommitAtom(
    * LOCATION stays under `projectRoot` because the store is shared; it is the
    * KEY that must distinguish trees, and it does so via this head.
    */
-  executionRoot: string,
 ): Promise<{ check: AtomValidation; fromCache: boolean }> {
+  const { storeRoot: projectRoot, executionRoot } = roots;
   const headResult = await runCommand('git', ['rev-parse', 'HEAD'], executionRoot);
   const head = headResult.exitCode === 0 ? headResult.stdout.trim() : null;
   if (!head) {
-    return { check: await validateCommit(sha, projectRoot, executionRoot), fromCache: false };
+    return { check: await validateCommit(sha, roots), fromCache: false };
   }
   const key = computeCommitRevalidationKey(sha, head);
   const hit = readCommitRevalidationEntry(projectRoot, key);
@@ -2581,7 +2628,7 @@ async function revalidateCommitAtom(
       fromCache: true,
     };
   }
-  const check = await validateCommit(sha, projectRoot, executionRoot);
+  const check = await validateCommit(sha, roots);
   if (check.ok && check.atom.kind === 'commit') {
     try {
       writeCommitRevalidationEntry(projectRoot, {
