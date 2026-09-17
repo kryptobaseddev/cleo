@@ -159,6 +159,71 @@ export const CLI_GLOBAL_FLAGS: readonly string[] = Object.freeze([
 ]);
 
 /**
+ * The subset of {@link CLI_GLOBAL_FLAGS} whose value is a SEPARATE argv token.
+ *
+ * The entry point's global scan consumes `--output id` / `--field /data/title`
+ * but leaves both tokens in the argv citty parses. citty 0.2.1 parses with
+ * `strict: false`, so an undeclared `--output` is read as a BOOLEAN and its
+ * value stays in the positional stream. On a command that declares a
+ * positional — `find`'s optional `query` is the reported case — the value was
+ * bound to that positional instead of the flag: `cleo find --status pending
+ * --output id` ran as a fuzzy search for `"id"` and returned a confident
+ * subset of the matches (GH #1438).
+ *
+ * Kept in this module beside {@link CLI_GLOBAL_FLAGS} so the two global-flag
+ * facts stay one import away from each other;
+ * `commands/__tests__/find-global-flag-swallow.test.ts` derives the value-taking
+ * set from `index.ts` source and fails if this list drifts from it.
+ *
+ * @task T12139
+ */
+export const CLI_GLOBAL_VALUE_FLAGS: readonly string[] = Object.freeze([
+  '--field',
+  '--fields',
+  '--mvi',
+  '--output',
+]);
+
+/**
+ * Rewrite value-taking global flags into their `--flag=value` form.
+ *
+ * The `=` form binds the value to the flag inside citty's parser, so the value
+ * never reaches the positional stream, while the flag and its value stay in the
+ * argv for the few commands that declare the same name (`find --fields`, and
+ * `export`/`inject`/`snapshot`'s `--output <path>`). Callers keep the ORIGINAL
+ * argv for the global scan — it matches the space form — and hand only the
+ * normalized vector to citty.
+ *
+ * Tokens already in `--flag=value` form, a value-taking flag at the end of argv
+ * with no value, and every non-global token pass through unchanged. Everything
+ * after a `--` terminator is positional by definition and is copied verbatim.
+ *
+ * @param argv - Raw argv tokens after the executable and script name.
+ * @returns A new argv vector with value-taking global flags normalized.
+ *
+ * @task T12139
+ */
+export function normalizeGlobalValueFlags(argv: readonly string[]): string[] {
+  const normalized: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (token === '--') {
+      normalized.push(...argv.slice(i));
+      break;
+    }
+    if (token !== undefined && CLI_GLOBAL_VALUE_FLAGS.includes(token) && i + 1 < argv.length) {
+      normalized.push(`${token}=${argv[i + 1]}`);
+      i++;
+      continue;
+    }
+    if (token !== undefined) {
+      normalized.push(token);
+    }
+  }
+  return normalized;
+}
+
+/**
  * Structured error thrown by {@link assertKnownFlags} when an unknown flag
  * is encountered in `rawArgs`. Carries the offending token, the command
  * context, and an array of Levenshtein-ranked suggestions so the calling
