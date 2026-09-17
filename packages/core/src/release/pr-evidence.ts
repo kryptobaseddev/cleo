@@ -46,6 +46,11 @@ import {
   PR_REQUIRED_WORKFLOWS_CONTEXT_KEY,
   PR_REQUIRED_WORKFLOWS_ENV_VAR,
 } from '@cleocode/contracts';
+import {
+  describeMissingGitWorkTree,
+  E_EVIDENCE_GIT_ROOT,
+  isGitWorkTree,
+} from '../git/work-tree.js';
 import type { EvidenceRoots } from '../tasks/evidence.js';
 
 import { isGhCliAvailable } from './github-pr.js';
@@ -81,7 +86,8 @@ export type PrAtomResolution =
         | 'E_EVIDENCE_INVALID'
         | 'E_EVIDENCE_INSUFFICIENT'
         | 'E_EVIDENCE_TESTS_FAILED'
-        | 'E_EVIDENCE_TOOL_FAILED';
+        | 'E_EVIDENCE_TOOL_FAILED'
+        | 'E_EVIDENCE_GIT_ROOT';
     };
 
 // ---------------------------------------------------------------------------
@@ -161,12 +167,18 @@ function writeCacheEntry(projectRoot: string, entry: PrCacheEntry): void {
  * malformed JSON). Returning a payload that fails {@link ghPrViewSchema}
  * also yields a `E_EVIDENCE_TOOL_FAILED` outcome.
  *
+ * A failure MAY carry `E_EVIDENCE_GIT_ROOT` instead, which is not a tool
+ * failure at all: the working directory is not a git work tree, so `gh` could
+ * never have discovered the repository it was asked about (gh#1462).
+ *
  * @task T9764
  */
 export type FetchGhPrPayload = (
   prNumber: number,
   cwd: string,
-) => Promise<{ ok: true; payload: unknown } | { ok: false; reason: string }>;
+) => Promise<
+  { ok: true; payload: unknown } | { ok: false; reason: string; codeName?: 'E_EVIDENCE_GIT_ROOT' }
+>;
 
 /**
  * Default `gh pr view` invocation. Calls `gh pr view <num> --json
@@ -176,6 +188,18 @@ export type FetchGhPrPayload = (
  * @task T9764
  */
 export const defaultFetchGhPrPayload: FetchGhPrPayload = async (prNumber: number, cwd: string) => {
+  // gh#1462: `gh` does its own repo discovery by walking up from its cwd. In a
+  // layout where the CLEO root is a PARENT of the checkout — and nothing found
+  // the child — `gh` reports "fatal: not a git repository", which surfaced as
+  // E_EVIDENCE_TOOL_FAILED and read as a broken gh or an unsatisfiable atom.
+  // Answer the layout question first, with a code that says so.
+  if (!isGitWorkTree(cwd)) {
+    return {
+      ok: false,
+      reason: describeMissingGitWorkTree(cwd),
+      codeName: E_EVIDENCE_GIT_ROOT,
+    };
+  }
   if (!isGhCliAvailable()) {
     return {
       ok: false,
@@ -908,7 +932,9 @@ export async function resolvePrEvidenceAtom(
     return {
       ok: false,
       reason: fetched.reason,
-      codeName: 'E_EVIDENCE_TOOL_FAILED',
+      // gh#1462: the default fetcher distinguishes "no work tree here" from
+      // "the tool ran and failed"; injected fetchers keep the old code.
+      codeName: fetched.codeName ?? 'E_EVIDENCE_TOOL_FAILED',
     };
   }
 
