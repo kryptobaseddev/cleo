@@ -106,7 +106,8 @@ if (!existsSync(studioDist)) {
   console.error(
     `::error::assert-cleo-tarball: studio-dist/client/ is MISSING at ${studioClient}. ` +
       `The SvelteKit adapter-node build places static assets in build/client/; ` +
-      `copy-studio-dist.mjs copies the full build/ tree, so client/ must be present. ` +
+      `copy-studio-dist.mjs copies that tree minus sourcemaps and the ONNX ` +
+      `wasm (gh#1472), so client/ must still be present. ` +
       `Re-run the Studio build and staging step.`,
   );
   failed = true;
