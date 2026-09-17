@@ -41,6 +41,12 @@ import {
 } from '@cleocode/contracts';
 
 import { CleoError } from '../errors.js';
+import {
+  describeMissingGitWorkTree,
+  E_EVIDENCE_GIT_ROOT,
+  findNestedGitWorkTree,
+  isGitWorkTree,
+} from '../git/work-tree.js';
 import { pushWarning } from '../output.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
 import { DISABLE_ENV, describeMemoryLimit } from './heavy-tool-limit.js';
@@ -529,21 +535,23 @@ function resolveIntegrationBranches(
  *
  * Checking the remote-tracking ref preserves verification after a merged local
  * integration branch has been cleaned up.
+ *
+ * @param executionRoot - The repo the evidence is about, never the store root.
  */
 async function findReachableIntegrationBranch(
   sha: string,
   branches: readonly string[],
-  projectRoot: string,
+  executionRoot: string,
 ): Promise<string | null> {
   for (const branch of branches) {
     const refs = [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`];
     for (const ref of refs) {
-      const exists = await runCommand('git', ['rev-parse', '--verify', ref], projectRoot);
+      const exists = await runCommand('git', ['rev-parse', '--verify', ref], executionRoot);
       if (exists.exitCode !== 0) continue;
       const reachable = await runCommand(
         'git',
         ['merge-base', '--is-ancestor', sha, ref],
-        projectRoot,
+        executionRoot,
       );
       if (reachable.exitCode === 0) return branch;
     }
@@ -562,6 +570,17 @@ async function validateCommit(
       ok: false,
       reason: `Invalid SHA format: "${sha}" (expected 7-40 hex chars)`,
       codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  // gh#1462: without a work tree every git call below fails, and the first one
+  // (`cat-file`) reported it as "Commit not found in repository" — which says
+  // the commit is absent, not that git never ran in a repository at all. Same
+  // distinction `pr:` needs, so it fails the same way.
+  if (!isGitWorkTree(executionRoot)) {
+    return {
+      ok: false,
+      reason: describeMissingGitWorkTree(executionRoot),
+      codeName: E_EVIDENCE_GIT_ROOT,
     };
   }
   const exists = await runCommand('git', ['cat-file', '-e', `${sha}^{commit}`], executionRoot);
@@ -591,7 +610,7 @@ async function validateCommit(
   const reachable = await runCommand(
     'git',
     ['merge-base', '--is-ancestor', sha, effectiveHead],
-    projectRoot,
+    executionRoot,
   );
   if (reachable.exitCode !== 0) {
     // DHQ-083 companion (a): when the commit is not reachable from the task
@@ -645,7 +664,7 @@ async function validateCommit(
       const onBranch = await runCommand(
         'git',
         ['merge-base', '--is-ancestor', sha, branchRef],
-        projectRoot,
+        executionRoot,
       );
       if (onBranch.exitCode !== 0) {
         // T11959 / DHQ-083 companion (a): also accept commits reachable from
@@ -657,7 +676,7 @@ async function validateCommit(
         const reachableIntegrationBranch = await findReachableIntegrationBranch(
           sha,
           integrationBranches,
-          projectRoot,
+          executionRoot,
         );
         if (reachableIntegrationBranch === null) {
           const branchList = integrationBranches.join(', ');
@@ -671,14 +690,16 @@ async function validateCommit(
     }
 
     // T9245: content-intersect check — diff MUST touch at least one AC file.
-    const intersectResult = await checkCommitContentIntersect(sha, taskId, projectRoot);
+    // gh#1462: the task row comes from the store, the diff from the repo under
+    // test — both roots, like every other mixed read on this switch.
+    const intersectResult = await checkCommitContentIntersect(sha, taskId, roots);
     if (!intersectResult.ok) {
       return intersectResult;
     }
   }
-  const short = await runCommand('git', ['rev-parse', '--short', sha], projectRoot);
+  const short = await runCommand('git', ['rev-parse', '--short', sha], executionRoot);
   const shortSha = short.stdout.trim() || sha.slice(0, 7);
-  const full = await runCommand('git', ['rev-parse', sha], projectRoot);
+  const full = await runCommand('git', ['rev-parse', sha], executionRoot);
   const fullSha = full.stdout.trim() || sha;
   return { ok: true, atom: { kind: 'commit', sha: fullSha, shortSha } };
 }
@@ -1131,31 +1152,30 @@ export function resolveCanonicalProjectRoot(projectRoot: string): string {
  * Fix (T-WT-2): This function calls `resolveCanonicalProjectRoot(projectRoot)`
  * to obtain the main repo root before opening `tasks.db`. The canonical main
  * DB is authoritative for all task metadata reads during gate verification.
- * Git operations (`gitShowFiles`) continue to use `projectRoot` as `cwd` —
- * git resolves commits correctly from any directory sharing the object store.
+ * Git operations (`gitShowFiles`) use `executionRoot` — the repo the evidence is
+ * about, which gh#1462 showed is not necessarily the store root.
  *
  * @param sha - Commit SHA whose diff is inspected.
  * @param taskId - CLEO task ID used to load AC file declarations.
- * @param projectRoot - Absolute path for git operations (may be worktree path).
- *   DB reads use `resolveCanonicalProjectRoot(projectRoot)` internally.
+ * @param roots - Store root for the task row, execution root for the diff.
  *
  * @internal
  * @task T9245
  * @task T-WT-2
+ * @task gh#1462
  * @adr ADR-051-worktree-extension
  */
 async function checkCommitContentIntersect(
   sha: string,
   taskId: string,
-  projectRoot: string,
+  roots: EvidenceRoots,
 ): Promise<AtomValidation> {
+  const { storeRoot, executionRoot } = roots;
   // BUG-C FIX (T-WT-2 / E-WORKTREE-IVTR): always read task metadata from the
-  // canonical (main) repository DB. When projectRoot is a worktree path the
+  // canonical (main) repository DB. When the store root is a worktree path the
   // worktree's tasks.db is a stale spawn-time snapshot; the main DB is the
-  // authoritative source for task.files and task.acceptance. git operations
-  // below (gitShowFiles) still use the original projectRoot — git shares its
-  // object store across worktrees, so any dir in the shared tree works.
-  const canonicalRoot = resolveCanonicalProjectRoot(projectRoot);
+  // authoritative source for task.files and task.acceptance.
+  const canonicalRoot = resolveCanonicalProjectRoot(storeRoot);
 
   // Best-effort load — DB unavailability MUST NOT block verify.
   let task: {
@@ -1195,7 +1215,7 @@ async function checkCommitContentIntersect(
    * is still reported; it just cannot fail the gate.
    */
   const enforcing = provenance === 'declared';
-  const diffFiles = await gitShowFiles(sha, projectRoot);
+  const diffFiles = await gitShowFiles(sha, executionRoot);
   const acPreview = `${acFiles.slice(0, 5).join(', ')}${acFiles.length > 5 ? '…' : ''}`;
   if (diffFiles.length === 0) {
     const reason =
@@ -1431,11 +1451,19 @@ interface VitestJsonLike {
  * pointing at a tmpdir, a non-git cwd) falls back to `projectRoot`, so
  * single-checkout behaviour is bit-for-bit unchanged.
  *
+ * gh#1462 added the other direction: when `projectRoot` is a PARENT of the
+ * checkout, neither the caller's cwd (which is that parent) nor `projectRoot`
+ * is a git work tree, and `gh`/`git` run there fail with "fatal: not a git
+ * repository". The checkout is a direct child in that layout, so it is used
+ * when exactly one child is a work tree; zero or several candidates keep
+ * `projectRoot` and the atom reports the layout problem distinctly.
+ *
  * @param projectRoot - Absolute CLEO store root.
  * @param cwd - Directory the CLI was invoked from. Defaults to `process.cwd()`.
  * @returns Absolute path of the tree to execute in.
  *
  * @task T12112 (gh#1220, gh#1226, gh#1230)
+ * @task gh#1462
  */
 export function resolveEvidenceExecutionRoot(
   projectRoot: string,
@@ -1449,17 +1477,17 @@ export function resolveEvidenceExecutionRoot(
   // whether it is honoured.
   cwd: string = process.cwd(), // CWD-OK: the caller's invocation dir is the subject, not a stand-in for the project root (gh#1220)
 ): string {
-  let toplevel: string;
+  let toplevel: string | null = null;
   try {
-    toplevel = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    toplevel =
+      execFileSync('git', ['rev-parse', '--show-toplevel'], {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim() || null;
   } catch {
-    return projectRoot; // not a git checkout — nothing better to offer
+    toplevel = null; // not a git checkout — try the store root and its children
   }
-  if (!toplevel) return projectRoot;
 
   const sameProject = (a: string, b: string): boolean => {
     const norm = (x: string): string => {
@@ -1473,7 +1501,20 @@ export function resolveEvidenceExecutionRoot(
   };
 
   // Only redirect when the caller's tree is a worktree OF this project.
-  if (sameProject(resolveCanonicalProjectRoot(toplevel), projectRoot)) return toplevel;
+  if (toplevel !== null && sameProject(resolveCanonicalProjectRoot(toplevel), projectRoot)) {
+    return toplevel;
+  }
+
+  // The ordinary single-project layout: the CLEO root IS the checkout.
+  if (isGitWorkTree(projectRoot)) return projectRoot;
+
+  // gh#1462: the CLEO root is a PARENT of the checkout. `gh` and `git` run
+  // from `projectRoot` fail with "fatal: not a git repository", which reads as
+  // a broken tool or an unsatisfiable atom. Use the one direct child that is a
+  // work tree; ambiguity is reported, not guessed.
+  const nested = findNestedGitWorkTree(projectRoot);
+  if (nested !== null) return nested;
+
   return projectRoot;
 }
 
