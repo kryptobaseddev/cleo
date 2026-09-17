@@ -160,9 +160,13 @@ describe('parseEvidence — pr atom (T9764)', () => {
 describe('resolvePrEvidenceAtom — happy path', () => {
   it('accepts a merged PR with all required checks SUCCESS', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.prNumber).toBe(357);
@@ -174,7 +178,11 @@ describe('resolvePrEvidenceAtom — happy path', () => {
 
   it('writes a cache entry on first success', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
-    await resolvePrEvidenceAtom(357, projectRoot, { fetchGhPrPayload: mockFetch });
+    await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      { fetchGhPrPayload: mockFetch },
+    );
 
     const cachePath = prCacheEntryPath(projectRoot, 357);
     expect(existsSync(cachePath)).toBe(true);
@@ -225,9 +233,13 @@ describe('resolvePrEvidenceAtom — happy path', () => {
       ],
     });
     fetchSpy.mockResolvedValue({ ok: true, payload });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(true);
   });
 
@@ -261,9 +273,13 @@ describe('resolvePrEvidenceAtom — happy path', () => {
       ],
     });
     fetchSpy.mockResolvedValue({ ok: true, payload });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.codeName).toBe('E_EVIDENCE_TESTS_FAILED');
@@ -285,9 +301,13 @@ describe('resolvePrEvidenceAtom — happy path', () => {
       ],
     });
     fetchSpy.mockResolvedValue({ ok: true, payload });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(true);
   });
 });
@@ -302,9 +322,13 @@ describe('resolvePrEvidenceAtom — failure paths', () => {
       ok: true,
       payload: makePrPayload({ state: 'OPEN', mergedAt: null }),
     });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.codeName).toBe('E_EVIDENCE_INSUFFICIENT');
@@ -316,9 +340,13 @@ describe('resolvePrEvidenceAtom — failure paths', () => {
       ok: true,
       payload: makePrPayload({ mergedAt: null }),
     });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.codeName).toBe('E_EVIDENCE_INSUFFICIENT');
@@ -351,9 +379,13 @@ describe('resolvePrEvidenceAtom — failure paths', () => {
       ],
     });
     fetchSpy.mockResolvedValue({ ok: true, payload });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.codeName).toBe('E_EVIDENCE_TESTS_FAILED');
@@ -387,9 +419,13 @@ describe('resolvePrEvidenceAtom — failure paths', () => {
       ],
     });
     fetchSpy.mockResolvedValue({ ok: true, payload });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.reason).toMatch(/still pending/);
@@ -408,11 +444,15 @@ describe('resolvePrEvidenceAtom — failure paths', () => {
       ],
     });
     fetchSpy.mockResolvedValue({ ok: true, payload });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: async () => ({ ok: false, reason: 'no branch protection' }),
-      bypassCache: true,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: async () => ({ ok: false, reason: 'no branch protection' }),
+        bypassCache: true,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     // gh#1198: the rejection names both sides and the source instead of
@@ -431,9 +471,13 @@ describe('resolvePrEvidenceAtom — failure paths', () => {
   });
 
   it('rejects invalid pr number (negative)', async () => {
-    const r = await resolvePrEvidenceAtom(-1, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      -1,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.codeName).toBe('E_EVIDENCE_INVALID');
@@ -445,9 +489,13 @@ describe('resolvePrEvidenceAtom — failure paths', () => {
       ok: false,
       reason: 'gh CLI is not available on PATH.',
     });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.codeName).toBe('E_EVIDENCE_TOOL_FAILED');
@@ -459,9 +507,13 @@ describe('resolvePrEvidenceAtom — failure paths', () => {
       ok: true,
       payload: { state: 'UNKNOWN_STATE' }, // not a valid PR state
     });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.codeName).toBe('E_EVIDENCE_TOOL_FAILED');
@@ -477,15 +529,23 @@ describe('resolvePrEvidenceAtom — cache', () => {
   it('returns cacheHit=true on second invocation with same mergedAt', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
 
-    const first = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const first = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(first.ok).toBe(true);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-    const second = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const second = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(second.ok).toBe(true);
     if (!second.ok) return;
     expect(second.cacheHit).toBe(true);
@@ -496,11 +556,19 @@ describe('resolvePrEvidenceAtom — cache', () => {
   it('bypasses cache when bypassCache=true', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
 
-    await resolvePrEvidenceAtom(357, projectRoot, { fetchGhPrPayload: mockFetch });
-    await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      bypassCache: true,
-    });
+    await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      { fetchGhPrPayload: mockFetch },
+    );
+    await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        bypassCache: true,
+      },
+    );
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
@@ -509,7 +577,11 @@ describe('resolvePrEvidenceAtom — cache', () => {
       ok: true,
       payload: makePrPayload({ mergedAt: '2026-05-20T17:14:35Z' }),
     });
-    await resolvePrEvidenceAtom(357, projectRoot, { fetchGhPrPayload: mockFetch });
+    await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      { fetchGhPrPayload: mockFetch },
+    );
 
     // Simulate a re-merge: mergedAt changes — different cache key → fetch again.
     fetchSpy.mockResolvedValueOnce({
@@ -643,11 +715,15 @@ describe('resolvePrEvidenceAtom — downstream repo with no CI (gh#1104)', () =>
       ok: true,
       payload: makePrPayload({ statusCheckRollup: [] }),
     });
-    const r = await resolvePrEvidenceAtom(20, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      projectContext: { release: { prRequiredWorkflows: [] } },
-      bypassCache: true,
-    });
+    const r = await resolvePrEvidenceAtom(
+      20,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        projectContext: { release: { prRequiredWorkflows: [] } },
+        bypassCache: true,
+      },
+    );
     expect(r.ok).toBe(true);
   });
 
@@ -663,11 +739,15 @@ describe('resolvePrEvidenceAtom — downstream repo with no CI (gh#1104)', () =>
       payload: makePrPayload({ statusCheckRollup: [] }),
     });
     delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
-    const r = await resolvePrEvidenceAtom(20, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: async () => ({ ok: false, reason: 'no branch protection' }),
-      bypassCache: true,
-    });
+    const r = await resolvePrEvidenceAtom(
+      20,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: async () => ({ ok: false, reason: 'no branch protection' }),
+        bypassCache: true,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     // NOT "required gates were not found" — that asserts the checks ran and did
@@ -684,11 +764,15 @@ describe('resolvePrEvidenceAtom — downstream repo with no CI (gh#1104)', () =>
   it("does not leak cleocode's own gate names into a foreign project's refusal", async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload({ statusCheckRollup: [] }) });
     delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
-    const r = await resolvePrEvidenceAtom(20, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: async () => ({ ok: false, reason: 'no workflows in this repo' }),
-      bypassCache: true,
-    });
+    const r = await resolvePrEvidenceAtom(
+      20,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: async () => ({ ok: false, reason: 'no workflows in this repo' }),
+        bypassCache: true,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     // The measured gh#1323 report: a repo with Actions removed entirely was
@@ -753,23 +837,31 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
       }),
     });
     const { fetcher } = makeProtectionFetcher({ ok: true, contexts: ['Repo CI'] });
-    const r = await resolvePrEvidenceAtom(96, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: fetcher,
-      bypassCache: true,
-    });
+    const r = await resolvePrEvidenceAtom(
+      96,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: fetcher,
+        bypassCache: true,
+      },
+    );
     expect(r.ok).toBe(true);
   });
 
   it('env var beats branch protection', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
     const { fetcher, spy } = makeProtectionFetcher({ ok: true, contexts: ['Nonexistent Gate'] });
-    const r = await resolvePrEvidenceAtom(96, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: fetcher,
-      env: { CLEO_PR_REQUIRED_WORKFLOWS: 'CI' },
-      bypassCache: true,
-    });
+    const r = await resolvePrEvidenceAtom(
+      96,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: fetcher,
+        env: { CLEO_PR_REQUIRED_WORKFLOWS: 'CI' },
+        bypassCache: true,
+      },
+    );
     expect(r.ok).toBe(true);
     expect(spy).not.toHaveBeenCalled();
   });
@@ -777,12 +869,16 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
   it('project-context beats branch protection', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
     const { fetcher, spy } = makeProtectionFetcher({ ok: true, contexts: ['Nonexistent Gate'] });
-    const r = await resolvePrEvidenceAtom(96, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: fetcher,
-      projectContext: { release: { prRequiredWorkflows: ['CI'] } },
-      bypassCache: true,
-    });
+    const r = await resolvePrEvidenceAtom(
+      96,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: fetcher,
+        projectContext: { release: { prRequiredWorkflows: ['CI'] } },
+        bypassCache: true,
+      },
+    );
     expect(r.ok).toBe(true);
     expect(spy).not.toHaveBeenCalled();
   });
@@ -793,11 +889,15 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
   it('still succeeds on a failed protection lookup when the project DECLARES its checks', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
     const { fetcher } = makeProtectionFetcher({ ok: false, reason: 'offline' });
-    const r = await resolvePrEvidenceAtom(96, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: fetcher,
-      bypassCache: true,
-    });
+    const r = await resolvePrEvidenceAtom(
+      96,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: fetcher,
+        bypassCache: true,
+      },
+    );
     expect(r.ok).toBe(true);
   });
 
@@ -805,11 +905,15 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
     delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
     const { fetcher } = makeProtectionFetcher({ ok: false, reason: 'offline' });
-    const r = await resolvePrEvidenceAtom(96, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: fetcher,
-      bypassCache: true,
-    });
+    const r = await resolvePrEvidenceAtom(
+      96,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: fetcher,
+        bypassCache: true,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.reason).toMatch(/Cannot determine the required checks/);
@@ -824,11 +928,15 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
     delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
     const { fetcher } = makeProtectionFetcher({ ok: true, contexts: ['Repo CI'] });
-    const r = await resolvePrEvidenceAtom(96, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: fetcher,
-      bypassCache: true,
-    });
+    const r = await resolvePrEvidenceAtom(
+      96,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: fetcher,
+        bypassCache: true,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.reason).toContain('source: branch protection for octo/repo@main');
@@ -846,14 +954,22 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
     });
     // Two different PR numbers so the PR-result cache never short-circuits;
     // the SECOND call must reuse the cached protection contexts.
-    const first = await resolvePrEvidenceAtom(96, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: fetcher,
-    });
-    const second = await resolvePrEvidenceAtom(97, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: fetcher,
-    });
+    const first = await resolvePrEvidenceAtom(
+      96,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: fetcher,
+      },
+    );
+    const second = await resolvePrEvidenceAtom(
+      97,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: fetcher,
+      },
+    );
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
     expect(spy).toHaveBeenCalledTimes(1);
@@ -888,11 +1004,15 @@ describe('resolvePrEvidenceAtom — missing-workflows rejection detail (gh#1198)
         ],
       }),
     });
-    const r = await resolvePrEvidenceAtom(102, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-      fetchGhBranchProtection: async () => ({ ok: false, reason: 'no branch protection' }),
-      bypassCache: true,
-    });
+    const r = await resolvePrEvidenceAtom(
+      102,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        fetchGhBranchProtection: async () => ({ ok: false, reason: 'no branch protection' }),
+        bypassCache: true,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.reason).toContain('Cannot accept pr atom for PR #102');
@@ -1002,9 +1122,13 @@ describe('parseEvidence — explicit-form pr atom (T9838)', () => {
 describe('resolvePrEvidenceAtom — implemented gate semantics (T9838)', () => {
   it('happy path: merged PR with passing CI satisfies all three gates', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
 
@@ -1027,9 +1151,13 @@ describe('resolvePrEvidenceAtom — implemented gate semantics (T9838)', () => {
       ok: true,
       payload: makePrPayload({ state: 'OPEN', mergedAt: null }),
     });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.codeName).toBe('E_EVIDENCE_INSUFFICIENT');
@@ -1068,9 +1196,13 @@ describe('resolvePrEvidenceAtom — implemented gate semantics (T9838)', () => {
       ],
     });
     fetchSpy.mockResolvedValue({ ok: true, payload });
-    const r = await resolvePrEvidenceAtom(357, projectRoot, {
-      fetchGhPrPayload: mockFetch,
-    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+      },
+    );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.codeName).toBe('E_EVIDENCE_TESTS_FAILED');
