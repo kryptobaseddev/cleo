@@ -817,7 +817,19 @@ jobs:
         with:
           node-version: '24.16.0'
       - name: Fetch base branch for diff
-        run: git fetch origin main --depth=1
+        # NO --depth here (gh#1469). `checkout` above pins fetch-depth: 0, and a
+        # `--depth=1` fetch RE-SHALLOWS that complete clone: origin/main still
+        # resolves as a ref, but `origin/main...HEAD` needs a merge base, and a
+        # depth-1 main has no ancestors — so the merge base exists only when
+        # main's tip is ALREADY an ancestor of HEAD.
+        #
+        # HEAD here is `refs/pull/N/merge`, which GitHub rebuilds on push and NOT
+        # when main moves. So this gate broke whenever main advanced while a PR
+        # sat — a race, affecting same-repo PRs identically. Measured on #1444:
+        # merge ref built against d1f64f56, main since moved to 77cd117f, result
+        # "fatal: no merge base", and the linter's full-scan fallback then
+        # reported 110 violations against a 3-file PR that added none.
+        run: git fetch origin main
       - name: Lint SSoT-EXEMPT comments in PR diff (strict — no new exemptions)
         # Diffs newly added lines in this PR against origin/main.
         # --strict: any new SSoT-EXEMPT comment fails the gate.
