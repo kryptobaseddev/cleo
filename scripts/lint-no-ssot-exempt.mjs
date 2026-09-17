@@ -48,6 +48,14 @@
  *   script scans all TypeScript files under `packages/` instead, applying
  *   baseline-mode checks to every SSoT-EXEMPT comment found.
  *
+ *   That fallback is BASELINE-ONLY. Under `--strict` it is unsound, because
+ *   strict mode rejects every SSoT-EXEMPT comment it is shown: scanning the
+ *   whole tree silently changes the question from "did this PR add an
+ *   exemption?" to "does the repo contain any exemption?", and in a repo that
+ *   legitimately contains them those have opposite answers. A git failure
+ *   would then be reported as a content violation, naming files the PR never
+ *   touched. So `--strict` refuses the fallback and exits 2 instead (gh#1469).
+ *
  * @task T10075
  * @epic T9837
  * @saga T9831 SG-ARCH-SOLID
@@ -111,12 +119,26 @@ const SCAN_EXTS = new Set(['.ts', '.tsx', '.mts']);
 // ============================================================================
 
 /**
+ * Why the most recent {@link getAddedLines} call could not produce a diff.
+ * `null` until a call fails. Read only after `getAddedLines` returns `null`.
+ *
+ * @type {string | null}
+ */
+let lastDiffFailure = null;
+
+/**
  * Get lines ADDED in this PR using `git diff --unified=0 --diff-filter=AM`.
  *
  * Returns:
- *   - `null`  — git is unavailable or the command failed (caller should fall back to full scan)
+ *   - `null`  — git is unavailable or the command failed (caller decides: baseline
+ *               mode falls back to a full scan, strict mode refuses — see gh#1469)
  *   - `[]`    — git ran successfully but no TS files were added/modified (clean PR, exit 0)
  *   - `[...]` — added lines found in the diff
+ *
+ * On failure the git stderr is recorded in {@link lastDiffFailure} so the caller
+ * can say WHY the base was unusable rather than only that it was. "cannot
+ * resolve origin/main" and "git is not installed" send an operator to different
+ * places, and a gate that cannot tell them apart sends them to neither.
  *
  * @param {string} baseRef - e.g. `origin/main`
  * @param {string} cwd
@@ -137,8 +159,11 @@ function getAddedLines(baseRef, cwd) {
     ],
     { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
   );
-  // git unavailable or command failed — signal caller to fall back
+  // git unavailable or command failed — signal caller to decide
   if (result.error || result.status !== 0) {
+    lastDiffFailure = String(
+      result.error?.message ?? result.stderr?.trim() ?? `git exited ${result.status}`,
+    );
     return null;
   }
   // Successfully ran but no TS changes in this PR — empty diff is valid
@@ -386,6 +411,62 @@ const CWD = process.cwd();
 // Collect lines to lint: prefer PR diff, fall back to full scan only on git failure.
 const diffResult = getAddedLines(BASE_REF, CWD);
 // null = git unavailable/failed; [] = clean diff (no TS changes); [...] = added lines
+
+// gh#1469: under --strict the full-scan fallback is not a degraded answer, it is
+// a DIFFERENT QUESTION. Strict mode rejects every exemption it is shown, so
+// scanning the whole tree turns "did this PR add one?" into "does the repo
+// contain one?" and fails on pre-existing comments in files the PR never
+// touched. Measured on PR #1444, whose three changed files contain zero
+// SSoT-EXEMPT comments: the gate failed naming
+// packages/core/src/system/safestop.ts:29, an exemption from T1571.
+//
+// What made the diff unresolvable is worth stating exactly, because two
+// plausible explanations are both wrong. The runner checkout is NOT shallow --
+// ci.yml pins `fetch-depth: 0` on purpose -- and this has nothing to do with
+// forks. The `git fetch origin main --depth=1` step that followed re-shallowed
+// the already-complete clone, and `A...HEAD` then needs a merge base that
+// exists only when main's tip is ALREADY an ancestor of HEAD. Measured, the
+// fetch being the only variable:
+//
+//   tip not an ancestor of HEAD -> is_shallow yes -> exit 128 "no merge base"
+//   tip IS  an ancestor of HEAD -> is_shallow yes -> exit 0
+//
+// The graft is necessary but NOT sufficient; the other half is which commit
+// HEAD is. On a pull_request event HEAD is `refs/pull/N/merge`, which GitHub
+// builds when the PR is opened or pushed and never refreshes when main moves.
+// So the gate breaks the moment main advances without a push to the PR --
+// measured on #1444, whose merge ref was built against d1f64f56 while main had
+// become 77cd117f. It is a RACE, not a property of the contribution: the same
+// PR passes before and fails after an unrelated merge, and a same-repo PR that
+// merely sits is affected identically.
+//
+// That fetch step is the real repair and is fixed alongside this guard; the
+// guard stays because a base that cannot resolve must never again be
+// reportable as a content violation, whatever the cause.
+//
+// Exit 2, not 1. "Your PR added an exemption" and "CI could not determine what
+// your PR added" are different facts and must not arrive as the same signal --
+// the first is the contributor's to fix, the second is ours. Before this, both
+// exited 1 and the codes were indistinguishable.
+if (STRICT && diffResult === null) {
+  console.error(
+    [
+      `lint-no-ssot-exempt: cannot resolve a diff against '${BASE_REF}'.`,
+      `  git said: ${lastDiffFailure ?? '(no detail)'}`,
+      '',
+      '  Refusing to fall back to a full packages/ scan in --strict mode: that',
+      '  would report every pre-existing exemption as new, and fail on files',
+      '  this change never touched.',
+      '',
+      `  Fix: fetch '${BASE_REF}' with enough history to reach a common ancestor.`,
+      '  A `git fetch <remote> <branch> --depth=1` re-shallows an otherwise complete',
+      '  clone, and a three-dot diff then has no merge base whenever the base tip is',
+      '  not already an ancestor of HEAD — i.e. whenever this branch is behind it.',
+    ].join('\n'),
+  );
+  process.exit(2);
+}
+
 const usingDiff = diffResult !== null;
 const linesToLint = usingDiff ? diffResult : scanAllPackageLines(CWD);
 
