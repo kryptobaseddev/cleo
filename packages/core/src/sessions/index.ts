@@ -17,6 +17,7 @@ import {
   type SessionStartParams,
   type SessionStatusParams,
 } from '@cleocode/contracts';
+import { trackBackgroundWork } from '../background-work.js';
 import { CleoError } from '../errors.js';
 import { sessionListItemNext, sessionStartNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -188,14 +189,17 @@ export async function startSession(
   // reconcile-on-start (re-read the authoritative project row → overwrite the
   // manifest so it can never drift into authority). Both swallow all errors — a
   // mirror failure NEVER fails session start (AC3/AC4). Fire-and-forget.
-  import('./session-manifest-mirror.js')
-    .then(async ({ mirrorSessionToManifest, reconcileSessionManifestOnStart }) => {
-      await mirrorSessionToManifest(projectRoot, session);
-      await reconcileSessionManifestOnStart(projectRoot, session.id);
-    })
-    .catch(() => {
-      /* mirror is best-effort — never block session start */
-    });
+  // T12217 (gh#1448): registered for teardown drain; still fire-and-forget.
+  trackBackgroundWork(
+    import('./session-manifest-mirror.js')
+      .then(async ({ mirrorSessionToManifest, reconcileSessionManifestOnStart }) => {
+        await mirrorSessionToManifest(projectRoot, session);
+        await reconcileSessionManifestOnStart(projectRoot, session.id);
+      })
+      .catch(() => {
+        /* mirror is best-effort — never block session start */
+      }),
+  );
 
   // T947 Step 2: open a corresponding llmtxt AgentSession for audit
   // receipts. Best-effort — peer-dep absence yields `null` and leaves
@@ -392,11 +396,14 @@ export async function endSession(projectRoot: string, params: SessionEndParams):
   // T11639: best-effort mirror the ENDED session into the GLOBAL session_manifest
   // (status/endedAt now reflect the close). Swallows all errors — NEVER fails
   // session end (AC3). Fire-and-forget.
-  import('./session-manifest-mirror.js')
-    .then(({ mirrorSessionToManifest }) => mirrorSessionToManifest(projectRoot, session))
-    .catch(() => {
-      /* mirror is best-effort — never block session end */
-    });
+  // T12217 (gh#1448): registered for teardown drain; still fire-and-forget.
+  trackBackgroundWork(
+    import('./session-manifest-mirror.js')
+      .then(({ mirrorSessionToManifest }) => mirrorSessionToManifest(projectRoot, session))
+      .catch(() => {
+        /* mirror is best-effort — never block session end */
+      }),
+  );
 
   // T947 Step 2: close the matching llmtxt AgentSession (if any) and
   // persist the ContributionReceipt to `.cleo/audit/receipts.jsonl`.

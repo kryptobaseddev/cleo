@@ -17,6 +17,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Session, SessionHandoffShowParams, Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
+import { trackBackgroundWork } from '../background-work.js';
 import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { insertHandoffEntry } from '../store/session-store.js';
@@ -294,13 +295,19 @@ export async function persistHandoff(
   // state event). Re-reads the authoritative project row → re-projects the mirror.
   // Swallows all errors — a mirror failure NEVER fails handoff persistence (AC3).
   // Fire-and-forget.
-  import('./session-manifest-mirror.js')
-    .then(({ reconcileSessionManifestOnStart }) =>
-      reconcileSessionManifestOnStart(projectRoot, sessionId),
-    )
-    .catch(() => {
-      /* mirror is best-effort — never block handoff persistence */
-    });
+  // T12217 (gh#1448): registered so teardown can drain it. Registration does
+  // NOT await and does NOT change the fire-and-forget semantics above — it only
+  // lets the shutdown sequence wait briefly instead of the exit backstop
+  // killing the `git` children this chain spawns.
+  trackBackgroundWork(
+    import('./session-manifest-mirror.js')
+      .then(({ reconcileSessionManifestOnStart }) =>
+        reconcileSessionManifestOnStart(projectRoot, sessionId),
+      )
+      .catch(() => {
+        /* mirror is best-effort — never block handoff persistence */
+      }),
+  );
 }
 
 /**

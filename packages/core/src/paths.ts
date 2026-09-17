@@ -36,6 +36,7 @@ import {
   resolveProjectByCwd as _pathsResolveProjectByCwd,
   resolveCanonicalCleoDir as _resolveCanonicalCleoDir,
 } from '@cleocode/paths';
+import { isShuttingDown, trackBackgroundWork } from './background-work.js';
 import { CleoError } from './errors.js';
 import { getPlatformPaths } from './system/platform-paths.js';
 
@@ -434,11 +435,27 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
     // side-effect does not pre-register the fixture project out from under the
     // test's explicit registration state. Off by default — production always
     // auto-registers on encounter.
-    if (process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'] !== '1') {
-      registerProjectOnEncounter(
-        project.projectRoot,
-        project.legacyUUID ?? project.projectId,
-      ).catch(() => {});
+    // T12217 (gh#1448): `isShuttingDown()` is checked ALONGSIDE the env var, not
+    // folded into it. The env var means "never register in this process" (a test
+    // hook); this means "stop registering, from now on" (teardown has begun).
+    if (process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'] !== '1' && !isShuttingDown()) {
+      // T12217 (gh#1448): registered so teardown can drain it. This callsite —
+      // NOT the session-lifecycle ones — is what a stack trace at spawn time
+      // named as the source of the unreaped `git` children that hold the loop
+      // open. Path resolution runs many times per command (measured: 5 paired
+      // `rev-parse --show-toplevel` + `remote get-url origin` spawns in a single
+      // `cleo memory observe`), so whichever pair is still in flight at exit
+      // shows up as `ProcessWrap` plus three `PipeWrap`.
+      //
+      // Registration does NOT await and does NOT change the fire-and-forget
+      // contract T11021 relies on: path resolution still cannot block on git,
+      // and a rejection still cannot escape.
+      trackBackgroundWork(
+        registerProjectOnEncounter(
+          project.projectRoot,
+          project.legacyUUID ?? project.projectId,
+        ).catch(() => {}),
+      );
     }
     try {
       const projectRoot = getProjectRoot(cwd);

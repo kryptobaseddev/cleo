@@ -52,6 +52,7 @@
  * @task T11568
  */
 
+import { drainBackgroundWork, markShuttingDown } from './background-work.js';
 import { closeLogger } from './logger.js';
 import { shutdownBrainWriter } from './memory/brain-writer-thread.js';
 import { resetEmbeddingQueue } from './memory/embedding-queue.js';
@@ -110,9 +111,43 @@ async function safely(label: string, step: () => Promise<void> | void): Promise<
  * @task T11568
  */
 export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
+  // T12217 (gh#1448): from here on, no NEW best-effort background work starts.
+  // Measured: the steps below resolve paths, each resolution re-enters
+  // `registerProjectOnEncounter`, and that spawns git children which then hold
+  // the loop open past the exit backstop. Suppressing at the source terminates;
+  // reordering the drain does not (see `markShuttingDown`).
+  markShuttingDown();
+
+  const outcomes: StepOutcome[] = [];
+
+  // 0. Drain registered fire-and-forget work (T12217 / gh#1448).
+  //
+  //    Session start, session end and handoff each start a best-effort
+  //    session-manifest mirror and deliberately do not await it (T11639 AC3/AC4
+  //    — a mirror failure must never block session start). That mirror resolves
+  //    a canonical project id, which spawns `git rev-parse --show-toplevel` and
+  //    `git remote get-url origin`. Nothing awaited the chain, so whatever was
+  //    still in flight at exit held the loop open as unreaped child processes:
+  //    measured as `[git] <defunct>` with the tally scaling at three pipes per
+  //    child, and VARYING run to run with how far each chain had got.
+  //
+  //    Drained FIRST, before `closeAllDatabases()` below, because the mirror
+  //    writes through the global handle — draining after the close would make
+  //    the work fail rather than finish.
+  //
+  //    This is an ordinary step, so it inherits the same per-step deadline as
+  //    every other one. It does not promise completion: a drain that blows its
+  //    budget is reported by the existing stalled-step message and the exit
+  //    backstop still fires. The change is from "abandoned silently" to
+  //    "awaited briefly, then abandoned loudly".
+  outcomes.push(
+    await safely('background-work', async () => {
+      await drainBackgroundWork();
+    }),
+  );
+
   // 1. BRAIN single-writer worker thread — the live MessagePort that hangs
   //    `cleo memory observe` / `cleo docs add` / any brain.db write path.
-  const outcomes: StepOutcome[] = [];
   outcomes.push(await safely('brain-writer', () => shutdownBrainWriter()));
 
   // 2. Embedding queue worker thread (T11655) — the second live MessagePort.
