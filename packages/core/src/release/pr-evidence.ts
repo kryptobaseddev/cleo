@@ -39,7 +39,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
 import {
   type GhPrViewPayload,
   ghPrViewSchema,
@@ -47,6 +46,7 @@ import {
   PR_REQUIRED_WORKFLOWS_CONTEXT_KEY,
   PR_REQUIRED_WORKFLOWS_ENV_VAR,
 } from '@cleocode/contracts';
+import type { EvidenceRoots } from '../tasks/evidence.js';
 
 import { isGhCliAvailable } from './github-pr.js';
 
@@ -548,7 +548,7 @@ function writeBranchProtectionCache(projectRoot: string, entry: BranchProtection
  * @task T12104 (gh#1192)
  */
 export async function resolveRequiredWorkflowsDetailed(
-  projectRoot: string,
+  roots: EvidenceRoots,
   opts: {
     /** Env (defaults to `process.env`). */
     readonly env?: NodeJS.ProcessEnv;
@@ -560,6 +560,9 @@ export async function resolveRequiredWorkflowsDetailed(
     readonly bypassProtectionCache?: boolean;
   } = {},
 ): Promise<RequiredWorkflowsResolution> {
+  // gh#1365 (T12238): caches under the store, `gh` in the repo — same split as
+  // the caller. `defaultFetchGhBranchProtection` shells `gh repo view` + `gh api`.
+  const { storeRoot: projectRoot, executionRoot } = roots;
   const syncTier = resolveSyncTier(opts.env ?? process.env, opts.projectContext);
   if (syncTier) return syncTier;
 
@@ -574,7 +577,7 @@ export async function resolveRequiredWorkflowsDetailed(
   }
 
   const fetcher = opts.fetchGhBranchProtection ?? defaultFetchGhBranchProtection;
-  const fetched = await fetcher(projectRoot);
+  const fetched = await fetcher(executionRoot);
   if (fetched.ok) {
     // Best-effort cache write — never fail the resolution because the cache
     // directory was read-only or full.
@@ -856,9 +859,25 @@ export interface ResolvePrEvidenceAtomOptions {
  */
 export async function resolvePrEvidenceAtom(
   prNumber: number,
-  projectRoot: string,
+  roots: EvidenceRoots,
   opts: ResolvePrEvidenceAtomOptions = {},
 ): Promise<PrAtomResolution> {
+  // gh#1365 (T12238). This atom needs BOTH roots and a swap would be as wrong
+  // as the original single root.
+  //
+  //   storeRoot     — the PR-result cache and branch-protection cache, which
+  //                   live under `.cleo/` and are CLEO's own records.
+  //   executionRoot — the cwd handed to `gh`. `gh` performs its OWN repo
+  //                   discovery by walking up from its cwd; given a store root
+  //                   whose git checkout is a subdirectory, it finds no
+  //                   repository before the mount point and fails with
+  //                   "fatal: not a git repository". No resolver threaded
+  //                   inside CLEO can reach that — only its cwd can.
+  //
+  // Measured in production on v2026.9.5: `cleo verify --evidence "pr:712"`
+  // failed with that exact git error, and the identical command succeeded on
+  // the first try with GIT_DIR/GIT_WORK_TREE set.
+  const { storeRoot: projectRoot, executionRoot } = roots;
   if (!Number.isInteger(prNumber) || prNumber <= 0) {
     return {
       ok: false,
@@ -884,7 +903,7 @@ export async function resolvePrEvidenceAtom(
   }
 
   const fetch = opts.fetchGhPrPayload ?? defaultFetchGhPrPayload;
-  const fetched = await fetch(prNumber, projectRoot);
+  const fetched = await fetch(prNumber, executionRoot);
   if (!fetched.ok) {
     return {
       ok: false,
@@ -922,7 +941,7 @@ export async function resolvePrEvidenceAtom(
     };
   }
 
-  const required = await resolveRequiredWorkflowsDetailed(projectRoot, {
+  const required = await resolveRequiredWorkflowsDetailed(roots, {
     env: opts.env,
     projectContext: opts.projectContext,
     fetchGhBranchProtection: opts.fetchGhBranchProtection,
