@@ -18,7 +18,7 @@ import { statSync } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, type NexusTaskSymbolsResult } from '@cleocode/contracts';
 import { getProjectRoot } from '@cleocode/core';
 import { getSymbolImpact } from '@cleocode/core/nexus';
 import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
@@ -2348,13 +2348,9 @@ const taskSymbolsCommand = defineCommand({
       process.exitCode = 1;
       return;
     }
-    const data = response.data as {
-      taskId: string;
-      count: number;
-      symbols: Array<{ kind: string; label: string; weight: number; matchStrategy: string }>;
-    };
+    const data = response.data as NexusTaskSymbolsResult;
     cliOutput(
-      { taskId, count: data.symbols.length, symbols: data.symbols, _durationMs: durationMs },
+      { ...data, taskId, count: data.symbols.length, _durationMs: durationMs },
       {
         command: 'nexus-task-symbols',
         operation: 'nexus.task-symbols',

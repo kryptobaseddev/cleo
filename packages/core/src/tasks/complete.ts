@@ -4,7 +4,13 @@
  * @epic T4454
  */
 
-import type { Task, TaskRecord, TaskRef, VerificationGate } from '@cleocode/contracts';
+import type {
+  KnowledgeCoverage,
+  Task,
+  TaskRecord,
+  TaskRef,
+  VerificationGate,
+} from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode, TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
 import { getRawConfigValue, loadConfig } from '../config.js';
@@ -13,6 +19,7 @@ import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
+import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import {
   type AutoCompleteWorktreeResult,
   maybeAutoCompleteWorktreeForTask,
@@ -129,6 +136,8 @@ export interface TaskCompletionReceiptSummary {
 
 /** Result of completing a task. */
 export interface CompleteTaskResult {
+  /** Coverage assessed after completion without asserting all runtime callers are known. */
+  knowledgeCoverage?: KnowledgeCoverage;
   task: Task;
   autoCompleted?: string[];
   unblockedTasks?: Array<Pick<TaskRef, 'id' | 'title'>>;
@@ -436,7 +445,11 @@ export async function completeTask(
   // fresh shell. The `cleo verify` E_ALREADY_DONE guard (ADR-051 §11.1
   // evidence immutability) is a different path and is NOT loosened.
   if (task.status === 'done') {
-    return { task, alreadyCompleted: true };
+    return {
+      task,
+      alreadyCompleted: true,
+      knowledgeCoverage: await assessKnowledgeCoverage(resolveOrCwd(cwd)),
+    };
   }
 
   // gh#1194 / T12106 — name the exact recovery so an agent that recorded
@@ -1261,6 +1274,7 @@ export async function completeTask(
       : undefined;
 
   return {
+    knowledgeCoverage: await assessKnowledgeCoverage(resolveOrCwd(cwd)),
     task,
     ...(autoCompleted.length > 0 && { autoCompleted }),
     ...(unblockedTasks.length > 0 && { unblockedTasks }),
@@ -1273,6 +1287,7 @@ export async function completeTask(
 // ---------------------------------------------------------------------------
 
 interface CompleteEngineSuccess {
+  knowledgeCoverage?: KnowledgeCoverage;
   task: TaskRecord;
   autoCompleted?: string[];
   unblockedTasks?: Array<{ id: string; title: string }>;
@@ -1401,6 +1416,7 @@ export async function taskComplete(
     if (result.alreadyCompleted) {
       return engineSuccess({
         task: result.task as TaskRecord,
+        knowledgeCoverage: result.knowledgeCoverage,
         alreadyDone: true,
         note: `Task ${taskId} is already done — complete was a no-op (idempotent).`,
       });
@@ -1439,6 +1455,7 @@ export async function taskComplete(
     );
 
     return engineSuccess({
+      knowledgeCoverage: result.knowledgeCoverage,
       task: result.task as TaskRecord,
       ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
       ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),

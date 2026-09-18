@@ -4402,7 +4402,28 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
-    params: [],
+    params: [
+      {
+        name: 'source',
+        type: 'string',
+        required: false,
+        description: 'Source of the reviewed backfill request.',
+      },
+      { name: 'kind', type: 'string', required: false, description: 'Backfill classification.' },
+      {
+        name: 'targetTable',
+        type: 'string',
+        required: false,
+        description: 'Derived brain_page_nodes target only.',
+      },
+      {
+        name: 'nodeIds',
+        type: 'array',
+        required: false,
+        description:
+          'Exact qualified graph node IDs to stage; all must resolve to missing, eligible typed sources.',
+      },
+    ],
   },
   {
     gateway: 'mutate',

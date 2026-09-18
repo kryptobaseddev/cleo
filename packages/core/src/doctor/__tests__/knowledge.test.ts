@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { KnowledgeRepairProposal } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
+import { scanBrainGraphOrphans, scanBrainNoise } from '../../memory/brain-doctor.js';
 import { getSymbolFullContext } from '../../nexus/living-brain.js';
 import { getBrainAccessor } from '../../store/memory-accessor.js';
 import { getBrainDb, getBrainNativeDb, resetBrainDbState } from '../../store/memory-sqlite.js';
@@ -83,6 +84,74 @@ describe('knowledge doctor transactional repair', () => {
       otherDb.prepare("SELECT invalid_at FROM main.brain_observations WHERE id = 'O-other'").get()
         ?.invalid_at,
     ).toBeTypeOf('string');
+  });
+
+  it('reports the full orphan count across both endpoints and preserves historical edges', async () => {
+    const db = getBrainNativeDb(root);
+    if (!db) throw new Error('Fixture database unavailable');
+    db.prepare(
+      "INSERT INTO main.brain_page_nodes (id, node_type, label) VALUES ('existing', 'observation', 'existing')",
+    ).run();
+    const insert = db.prepare(
+      "INSERT INTO main.brain_page_edges (from_id, to_id, edge_type) VALUES (?, ?, 'supersedes')",
+    );
+    for (let index = 0; index < 26; index++) insert.run(`missing-source-${index}`, 'existing');
+    insert.run('existing', 'missing-target-only');
+    const finding = scanBrainGraphOrphans(db);
+    expect(finding).toMatchObject({ pattern: 'orphan-edge', count: 27 });
+    expect(finding?.sampleIds).toHaveLength(5);
+    expect(finding?.sampleIds).toContain('existing->missing-target-only');
+    const memory = await scanBrainNoise(root);
+    expect(memory.findings.find((entry) => entry.pattern === 'orphan-edge')?.count).toBe(27);
+    const doctor = await runKnowledgeDoctor(root, { dryRun: true, budgetMs: 10000 });
+    expect(doctor.health.structure.status).toBe('findings');
+    expect(
+      doctor.health.findings.find((entry) => entry.id.startsWith('brain-orphan-edges:')),
+    ).toMatchObject({
+      repairClass: 'agent-resolvable',
+      state: 'unresolved',
+      recovery: null,
+      proposedAction: { operation: 'memory.backfill.run' },
+    });
+    expect(db.prepare('SELECT COUNT(*) AS total FROM main.brain_page_edges').get()?.total).toBe(27);
+  });
+
+  it('recognizes canonical task and Nexus endpoints without inventing brain stubs', () => {
+    const db = getBrainNativeDb(root);
+    if (!db) throw new Error('Fixture database unavailable');
+    db.prepare(
+      "INSERT INTO main.tasks_tasks (id, title, status, type) VALUES ('T-link', 'Evidence task', 'pending', 'task')",
+    ).run();
+    db.prepare(
+      "INSERT INTO main.brain_page_nodes (id, node_type, label) VALUES ('decision:D-link', 'decision', 'Evidence decision')",
+    ).run();
+    db.prepare(
+      "INSERT INTO main.nexus_nodes (id, kind, name, file_path, label) VALUES ('src/live.ts::work', 'function', 'work', 'src/live.ts', 'work')",
+    ).run();
+    const insert = db.prepare(
+      'INSERT INTO main.brain_page_edges (from_id, to_id, edge_type) VALUES (?, ?, ?)',
+    );
+    insert.run('task:T-link', 'src/live.ts::work', 'task_touches_symbol');
+    insert.run('decision:D-link', 'src/live.ts::work', 'code_reference');
+    insert.run('decision:D-link', 'src/live.ts::work', 'documents');
+    insert.run('decision:D-link', 'src/live.ts::work', 'mentions');
+    insert.run('decision:D-link', 'src/live.ts::work', 'conduit_mentions_symbol');
+    insert.run('src/live.ts::work', 'decision:D-link', 'modified_by');
+    expect(scanBrainGraphOrphans(db)).toBeNull();
+    insert.run('task:T-link', 'src/deleted.ts::work', 'task_touches_symbol');
+    expect(scanBrainGraphOrphans(db)).toMatchObject({
+      count: 1,
+      sampleIds: ['task:T-link->src/deleted.ts::work'],
+    });
+  });
+
+  it('reports a graph scan failure without a clean structural assessment', async () => {
+    const db = getBrainNativeDb(root);
+    if (!db) throw new Error('Fixture database unavailable');
+    db.exec('ALTER TABLE main.brain_page_edges RENAME TO broken_graph_fixture');
+    const result = await runKnowledgeDoctor(root, { dryRun: true, budgetMs: 10000 });
+    expect(result.health.structure.status).toBe('failed');
+    expect((await scanBrainNoise(root)).structure?.status).toBe('failed');
   });
 
   it('previews without changing substantive history or storing receipts', async () => {

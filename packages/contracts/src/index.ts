@@ -736,6 +736,7 @@ export type {
   DecisionCodeEvidenceResult,
   KnowledgeAuthority,
   KnowledgeAuthorityStatus,
+  KnowledgeBackfillOptions,
   KnowledgeCoverage,
   KnowledgeCoverageStatus,
   KnowledgeDiagnostic,

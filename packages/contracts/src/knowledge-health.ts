@@ -66,6 +66,12 @@ export interface TaskKnowledgeEvidence {
 
 /** Coverage is independent of impact severity and never implies complete runtime knowledge. */
 export interface KnowledgeCoverage {
+  /** Total reasons before an orientation response selects a bounded sample. */
+  reasonCount?: number;
+  /** Total references before an orientation response selects a bounded sample. */
+  evidenceCount?: number;
+  /** Supported command returning the detailed assessment omitted from orientation. */
+  detailsCommand?: string;
   /** Deferred maintenance state when the caller's bounded assessment cannot finish. */
   maintenanceState?: KnowledgeRepairState;
   /** Explicit supported next action when maintenance requires a separate invocation. */
@@ -134,6 +140,12 @@ export interface KnowledgeDiagnostic {
 
 /** Knowledge health keeps structure, semantics, extraction, and coverage separate. */
 export interface KnowledgeHealth {
+  /** Total repair findings when orientation omits the detailed repair matrix. */
+  findingCount?: number;
+  /** Counts by repair lifecycle state when detailed matrix rows are omitted. */
+  findingStates?: Partial<Record<KnowledgeRepairState, number>>;
+  /** Supported command returning the full diagnostics and repair matrix. */
+  detailsCommand?: string;
   /** Structural consistency of stored knowledge. */
   structure: KnowledgeDiagnostic;
   /** Semantic contradictions and authority conflicts. */
@@ -322,4 +334,23 @@ export interface DecisionCodeEvidenceResult {
   findings: KnowledgeRepairFinding[];
   /** Number of relationships inserted or refreshed; zero for previews/repeated calls. */
   applied: number;
+}
+
+/**
+ * Selection and provenance for staging a reversible derived graph-node repair.
+ * @remarks An explicit selection must resolve completely to missing, eligible source-backed nodes.
+ * @example
+ * ```ts
+ * const options: KnowledgeBackfillOptions = { nodeIds: ['observation:O-incident'] };
+ * ```
+ */
+export interface KnowledgeBackfillOptions {
+  /** Human-readable source of the reviewed repair request. */
+  source?: string;
+  /** Existing backfill classification retained in the repair ledger. */
+  kind?: string;
+  /** Only the derived brain_page_nodes target is supported by staged reconstruction. */
+  targetTable?: string;
+  /** Exact qualified graph node IDs; duplicates, missing sources and ineligible records are rejected. */
+  nodeIds?: readonly string[];
 }

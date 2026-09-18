@@ -15,9 +15,15 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { Session, SessionHandoffShowParams, Task } from '@cleocode/contracts';
+import type {
+  KnowledgeCoverage,
+  Session,
+  SessionHandoffShowParams,
+  Task,
+} from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { insertHandoffEntry } from '../store/session-store.js';
 import { getDecisionLog } from './decisions.js';
@@ -28,6 +34,8 @@ const execFileAsync = promisify(execFile);
  * Handoff data schema - structured state for session transition.
  */
 export interface HandoffData {
+  /** Assessment captured with this handoff; later corrections are presented separately. */
+  knowledgeCoverage?: KnowledgeCoverage;
   /** Last task being worked on */
   lastTask: string | null;
   /** Tasks completed in session */
@@ -114,6 +122,7 @@ export async function computeHandoff(
   // Compute handoff data
   const lastTaskId = session.taskWork?.taskId ?? null;
   const handoff: HandoffData = {
+    knowledgeCoverage: await assessKnowledgeCoverage(projectRoot),
     lastTask: lastTaskId,
     tasksCompleted: session.tasksCompleted ?? [],
     tasksCreated: session.tasksCreated ?? [],

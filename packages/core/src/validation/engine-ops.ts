@@ -16,11 +16,13 @@ import { randomUUID } from 'node:crypto';
 import type {
   EvidenceAtom,
   GateEvidence,
+  KnowledgeCoverage,
   TaskVerification,
   VerificationGate,
 } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { checkAndIncrementOverrideCap } from '../security/override-cap.js';
 import { enforceSharedEvidence } from '../security/shared-evidence-tracker.js';
 import { warnIfNoActiveSession } from '../sessions/session-enforcement.js';
@@ -284,6 +286,8 @@ export interface GateVerifyParams {
 }
 
 export interface GateVerifyResult {
+  /** Coverage assessed when evidence is recorded, independent of gate success. */
+  knowledgeCoverage?: KnowledgeCoverage;
   taskId: string;
   title?: string;
   status?: string;
@@ -786,6 +790,7 @@ export async function validateGateVerify(
 
     const missing = getMissingGates(verification, configGates);
     const result: GateVerifyResult = {
+      knowledgeCoverage: await assessKnowledgeCoverage(projectRoot),
       taskId,
       title: task.title,
       status: task.status,

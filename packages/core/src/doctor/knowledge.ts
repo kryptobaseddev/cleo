@@ -17,6 +17,7 @@ import type {
   KnowledgeRepairReceipt,
 } from '@cleocode/contracts';
 import { z } from 'zod';
+import { scanBrainGraphOrphans } from '../memory/brain-doctor.js';
 import { pruneObservationStubs, restoreObservationStubs } from '../memory/brain-stub-prune.js';
 import { linkDecisionToCodeEvidence } from '../memory/decision-cross-link.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
@@ -616,11 +617,53 @@ export async function runKnowledgeDoctor(
     result.stateHash = hash(JSON.stringify(state));
     if (Date.now() >= deadline)
       return defer('Knowledge state assessment exceeded the maintenance budget.');
+    const orphanFinding = scanBrainGraphOrphans(db);
+    const structuralEvidence: KnowledgeEvidenceRef[] = orphanFinding
+      ? [
+          {
+            id: 'brain_page_edges',
+            projectId: coverage.projectId,
+            source: 'memory',
+            revision: coverage.assessedRevision,
+            precision: 'project',
+          },
+        ]
+      : [];
     result.health.structure = {
-      status: 'clean',
-      reasons: ['Canonical knowledge records are readable.'],
-      evidence: [],
+      status: orphanFinding ? 'findings' : 'clean',
+      reasons: orphanFinding
+        ? [orphanFinding.description]
+        : [
+            'Canonical knowledge records are readable and every brain graph edge has both endpoints.',
+          ],
+      evidence: structuralEvidence,
     };
+    if (orphanFinding)
+      result.health.findings.push({
+        id: `brain-orphan-edges:${coverage.projectId}`,
+        projectId: coverage.projectId,
+        affectedRecordIds: orphanFinding.sampleIds,
+        description: orphanFinding.description,
+        evidence: structuralEvidence,
+        repairClass: 'agent-resolvable',
+        state: 'unresolved',
+        proposedAction: {
+          operation: 'memory.backfill.run',
+          arguments: { source: 'knowledge-doctor-orphan-review' },
+          prerequisites: [
+            'Capture a canonical backup before any graph repair.',
+            'Select exact qualified nodeIds for source-backed missing endpoints; exclude unrelated dispatch traces and quarantined noise.',
+            'Inspect staged candidate IDs and confirm each has an existing typed source record.',
+            'Approve only the reviewed staged run with memory.backfill.approve; retain missing-source history as unresolved.',
+          ],
+        },
+        verification: [
+          'Rerun memory.doctor and verify both endpoints for reconstructed graph references.',
+          'Preserve all historical edges; report any endpoints without backing records as unresolved.',
+          'Retain the staged run ID for memory.backfill.rollback and verify only reviewed nodes were inserted.',
+        ],
+        recovery: null,
+      });
     const decisionIds = new Set(state.decisions.map((row) => row.id));
     const dangling = state.decisions.filter(
       (row) => row.superseded_by && !decisionIds.has(row.superseded_by),
@@ -724,7 +767,12 @@ export async function runKnowledgeDoctor(
         });
     }
     if (options.taskId && Date.now() < deadline) {
-      const taskEvidence = await getTaskKnowledgeEvidence(options.taskId, projectRoot, coverage);
+      const taskEvidence = await getTaskKnowledgeEvidence(
+        options.taskId,
+        projectRoot,
+        coverage,
+        deadline,
+      );
       result.health.findings.push(...taskEvidence.findings);
       if (taskEvidence.files.length)
         result.health.findings.push({
