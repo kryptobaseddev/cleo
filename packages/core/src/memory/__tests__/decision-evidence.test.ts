@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
+import { runKnowledgeDoctor } from '../../doctor/knowledge.js';
 import { getBrainEntryCodeAnchors } from '../../nexus/living-brain.js';
 import { getBrainDb, getBrainNativeDb, resetBrainDbState } from '../../store/memory-sqlite.js';
 import { getNexusDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
@@ -73,6 +74,12 @@ describe('explicit decision code evidence', () => {
     const links = await queryCodeForMemory(root, 'decision:D448');
     expect(links.codeNodes.map((node) => node.nexusNodeId)).toEqual(['src/rush.ts']);
     expect(links.codeNodes[0]?.provenance?.precision).toBe('file');
+    const doctor = await runKnowledgeDoctor(root, { decisionId: 'D448', budgetMs: 10000 });
+    expect(doctor.health.findings).toContainEqual(
+      expect.objectContaining({
+        proposedAction: expect.objectContaining({ operation: 'memory.code.link' }),
+      }),
+    );
   });
   it('returns ambiguous candidates and missing-target findings instead of selecting a checkout', async () => {
     getBrainNativeDb(root)
