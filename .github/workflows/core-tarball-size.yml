@@ -50,19 +50,33 @@ jobs:
           cache: pnpm
 
       - name: Install workspace dependencies
-        # Install core + its transitive dependencies only (no studio or other consumers).
-        # `...@cleocode/core` = core and everything core depends on (leading `...`).
-        # The previous `--filter '!@cleocode/studio'` install + `@cleocode/core...`
-        # build filter was wrong: trailing `...` means "core and its dependents"
-        # (everything that depends on core, including studio), which caused the
-        # studio vite build to run and fail with missing @sveltejs/kit (T11976 / DHQ-079).
-        run: pnpm install --frozen-lockfile --filter '...@cleocode/core'
+        # Select core + its DEPENDENCIES. The ellipsis direction is the whole
+        # bug this step used to have, so it is spelled out here:
+        #
+        #   '@cleocode/core...'  (TRAILING)  = core and everything core DEPENDS ON
+        #   '...@cleocode/core'  (LEADING)   = core and everything that DEPENDS ON core
+        #
+        # T11976/DHQ-079 switched both filters to the LEADING form and wrote a
+        # comment asserting the opposite meaning. Measured in this workspace:
+        # the leading form selects 12 projects and omits paths, contracts, lafs,
+        # agents, git-shim, nexus, skills and utils — which is exactly the set
+        # `packages/brain` then failed to resolve (5x TS2307). The gate died in
+        # this step on every run and never reached its own size assertion:
+        # 47 runs, 47 failures, 0 successes, back to v2026.6.10.
+        #
+        # `!@cleocode/studio` is still required and is NOT redundant: core
+        # declares @cleocode/studio in optionalDependencies, so core -> studio ->
+        # brain -> core is a cycle and studio is pulled into the trailing-form
+        # selection too. Excluding it keeps the vite/@sveltejs/kit build out,
+        # which is the thing T11976 was correctly trying to avoid.
+        run: pnpm install --frozen-lockfile --filter '@cleocode/core...' --filter '!@cleocode/studio'
 
       # @cleocode/core's `files` includes `dist`, so it must be built before
       # `npm pack` reflects the real tarball contents.
       - name: Build @cleocode/core (+ deps)
-        # Same leading-... filter: build core and every package it depends on.
-        run: pnpm --filter '...@cleocode/core' run build
+        # Same trailing-... selection (16 projects), so paths/contracts/core are
+        # built BEFORE brain, which the cycle would otherwise schedule first.
+        run: pnpm --filter '@cleocode/core...' --filter '!@cleocode/studio' run build
 
       # Stage the P1 fallback binary so the gate measures the REAL shipped
       # tarball (with the linux-x64-gnu fallback bundled), not a stripped one.
