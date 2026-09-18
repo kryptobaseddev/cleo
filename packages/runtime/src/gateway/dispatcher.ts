@@ -47,6 +47,12 @@ import type {
   Middleware,
 } from '@cleocode/contracts/gateway';
 import { getLogger, getProjectRoot } from '@cleocode/core';
+// Deep import, not the barrel: this is a small dependency-free module, and
+// pulling it through the core barrel would load the full core module graph for
+// one function. Spelled WITHOUT `.js` because core's `./*` export maps to
+// `./dist/*.js`, so the extension is supplied by the pattern — adding it here
+// resolves to `dist/teardown-signal.js.js` and fails.
+import { registerTeardownAbort } from '@cleocode/core/teardown-signal';
 import { createDispatchMeta } from './meta.js';
 import { compose } from './pipeline.js';
 import { resolve, validateRequiredParams } from './registry.js';
@@ -267,6 +273,14 @@ export class Dispatcher {
         );
         deadline.unref();
 
+        // T12239: the deadline above is 10s and the exit backstop is 3s, so a
+        // dialectic in flight at teardown holds its TCPSocketWrap for up to
+        // seven seconds PAST the "event loop still alive" warning. Unrefing the
+        // TIMER does not unref the SOCKET. Register the controller so
+        // shutdownCliRuntime can cancel the fetch itself; if teardown has
+        // already begun this aborts immediately.
+        const unregisterAbort = registerTeardownAbort(controller);
+
         Promise.all([
           import('@cleocode/core/memory/dialectic-evaluator.js'),
           import('@cleocode/core/store/nexus-sqlite.js'),
@@ -302,7 +316,10 @@ export class Dispatcher {
             const log = getLogger('dialectic-hook');
             log.warn({ err }, 'dialectic-evaluator failed');
           })
-          .finally(() => clearTimeout(deadline));
+          .finally(() => {
+            clearTimeout(deadline);
+            unregisterAbort();
+          });
       });
     }
 
