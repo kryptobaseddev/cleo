@@ -35,7 +35,7 @@
  * and the release shipped a Studio-less CLI reporting success. `studio-dist`
  * alone is ~27 MB, so a tree missing it reads ~5 MB — far UNDER any ceiling.
  *
- * @task T12244
+ * @task T12252
  * @epic T12119
  */
 

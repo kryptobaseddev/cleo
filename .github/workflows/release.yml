@@ -442,7 +442,7 @@ jobs:
       # INSTALL-TIME budget only. It is not a remedy for npm publish latency
       # and must never be justified as one — see gh#1478 and the script's own
       # docblock.
-      - name: Assert @cleocode/cleo size budget (T12244)
+      - name: Assert @cleocode/cleo size budget (T12252)
         run: node packages/cleo/scripts/check-cleo-tarball-size.mjs
 
       # T12012: Hard gate — packed-install smoke test. Catches the class of

@@ -1,6 +1,6 @@
 ---
 id: cleo-size-budget
-tasks: [T12244]
+tasks: [T12252]
 kind: fix
 summary: The package users install finally has a size budget, and it has floors as well as a ceiling
 ---
