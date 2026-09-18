@@ -691,6 +691,7 @@ export type {
   GraphEdgeConfidenceLabel,
   GraphIndexAssessment,
   GraphIndexFileReport,
+  GraphIndexReferenceReport,
   GraphNode,
   GraphNodeKind,
   GraphPublicationRows,

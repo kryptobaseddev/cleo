@@ -410,8 +410,28 @@ export interface GraphIndexFileReport {
   size?: number;
 }
 
+/** An AST reference whose enclosing scope has no analyzed declaration in this generation. */
+export interface GraphIndexReferenceReport {
+  /** Explicit extraction limitation; this record is not a resolved graph relationship. */
+  kind: 'unmodeled-source';
+  /** Analyzed source file containing the reference. */
+  filePath: string;
+  /** Enclosing scope identifier extracted from syntax, without a graph declaration. */
+  sourceId: string;
+  /** Known callee or member declaration that the omitted relationship would target. */
+  targetId: string;
+  /** Callee or member name retained for independent source inspection. */
+  targetName: string;
+  /** The kind of static relationship omitted from the published graph. */
+  relationship: 'calls' | 'accesses';
+  /** Extraction and resolution provenance from the attempted relationship. */
+  reason: string;
+}
+
 /** Source provenance persisted with a complete published graph generation. */
 export interface GraphIndexAssessment {
+  /** Unmodeled AST scopes remain explicit limitations instead of fabricated declarations. */
+  references?: GraphIndexReferenceReport[];
   /** Explicit nested repository/worktree scope retained for subsequent rebuilds. */
   includedRepositories?: string[];
   /** Canonical root whose relative file paths this graph describes. */

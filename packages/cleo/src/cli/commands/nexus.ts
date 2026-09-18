@@ -279,10 +279,12 @@ const statusCommand = defineCommand({
     }
 
     try {
-      const [{ getNexusDb, nexusSchema }, { getIndexStats }] = await Promise.all([
-        import('@cleocode/core/store/nexus-sqlite' as string),
-        import('@cleocode/nexus/pipeline' as string),
-      ]);
+      const [{ getNexusDb, nexusSchema }, { getIndexStats }, { readKnowledgeIndexAssessment }] =
+        await Promise.all([
+          import('@cleocode/core/store/nexus-sqlite' as string),
+          import('@cleocode/nexus/pipeline' as string),
+          import('@cleocode/core/nexus/knowledge' as string),
+        ]);
 
       const projectId =
         projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
@@ -293,10 +295,11 @@ const statusCommand = defineCommand({
       };
 
       const stats = await getIndexStats(projectId, repoPath, db, tables);
+      const assessment = await readKnowledgeIndexAssessment(currentRoot);
       const durationMs = Date.now() - startTime;
 
       cliOutput(
-        { projectId, repoPath, ...stats },
+        { projectId, repoPath, ...stats, assessment },
         {
           command: 'nexus-status',
           operation: 'nexus.status',
@@ -1096,9 +1099,14 @@ const analyzeCommand = defineCommand({
       type: 'string',
       description: 'Override the project ID (default: auto-detected)',
     },
+    'include-repositories': {
+      type: 'string',
+      description:
+        'Comma-separated relative nested repository/worktree paths explicitly included in this project index',
+    },
     incremental: {
       type: 'boolean',
-      description: 'Only re-index files that have changed since the last run (faster)',
+      description: 'Skip unchanged indexes; atomically rebuild the full graph when sources change',
     },
   },
   async run({ args }) {
@@ -1110,13 +1118,18 @@ const analyzeCommand = defineCommand({
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
 
     humanInfo(`[nexus] Analyzing: ${repoPath}${isIncremental ? ' (incremental)' : ''}`);
-    if (!isIncremental) humanInfo('[nexus] Clearing existing index for project...');
+    if (!isIncremental)
+      humanInfo('[nexus] Staging replacement graph; current index remains available...');
 
     try {
       const result = await runNexusAnalysis({
         repoPath,
         projectIdOverride,
         incremental: isIncremental,
+        includedRepositories: args['include-repositories']
+          ?.split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean),
         onProgress:
           ctx.format === 'json'
             ? undefined
@@ -1140,6 +1153,7 @@ const analyzeCommand = defineCommand({
           relationCount: result.relationCount,
           fileCount: result.fileCount,
           durationMs: result.durationMs,
+          assessment: result.assessment,
         },
         {
           command: 'nexus-analyze',

@@ -29,6 +29,19 @@ const assessmentSchema = z.object({
   assessedRevision: z.string().nullable(),
   assessedAt: z.string(),
   includedRepositories: z.array(z.string()).optional(),
+  references: z
+    .array(
+      z.object({
+        kind: z.literal('unmodeled-source'),
+        filePath: z.string(),
+        sourceId: z.string(),
+        targetId: z.string(),
+        targetName: z.string(),
+        relationship: z.enum(['calls', 'accesses']),
+        reason: z.string(),
+      }),
+    )
+    .optional(),
   files: z.array(
     z.object({
       path: z.string(),
@@ -262,6 +275,14 @@ async function assessCoverage(projectRoot: string, projectId?: string): Promise<
           'stale',
           'The source revision differs from the indexed revision.',
         );
+      }
+      if (assessment.references?.length) {
+        recordKnowledgeGap(
+          coverage,
+          'partial',
+          `${assessment.references.length} AST references have unmodeled enclosing scopes; known callers are incomplete. Inspect assessment.references in cleo nexus status.`,
+        );
+        coverage.nextAction = 'cleo nexus status';
       }
       const analyzed = assessment.files.filter((file) => file.status === 'analyzed');
       if (analyzed.length > 500)

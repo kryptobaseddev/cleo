@@ -26,7 +26,11 @@ import { getDb } from '../../store/sqlite.js';
 import { tasks } from '../../store/tasks-schema.js';
 import { getSymbolContext } from '../context.js';
 import { getSymbolImpact } from '../impact.js';
-import { assessKnowledgeCoverage, KnowledgeSymbolAmbiguityError } from '../knowledge.js';
+import {
+  assessKnowledgeCoverage,
+  KnowledgeSymbolAmbiguityError,
+  readKnowledgeIndexAssessment,
+} from '../knowledge.js';
 import {
   getBrainEntryCodeAnchors,
   getSymbolFullContext,
@@ -366,6 +370,44 @@ describe('living-brain SDK', () => {
       const full = await reasonImpactOfChange('absent::symbol', projectRoot);
       expect(full.mergedRiskScore).toBe('UNKNOWN');
       expect(full.structural.riskLevel).toBe('UNKNOWN');
+    });
+
+    it('keeps unmodeled AST references inspectable and never infers complete caller coverage', async () => {
+      const native = getNexusNativeDb(projectRoot);
+      if (!native) throw new Error('Missing fixture database');
+      const references = [
+        {
+          kind: 'unmodeled-source',
+          filePath: FILE_PATH,
+          sourceId: `${FILE_PATH}::nested`,
+          targetId: SYMBOL_ID,
+          targetName: SYMBOL_NAME,
+          relationship: 'calls',
+          reason: 'AST scope lacks a declaration',
+        },
+      ];
+      native
+        .prepare(
+          "INSERT OR REPLACE INTO main._nexus_meta (key, value) VALUES ('graph_assessment', ?)",
+        )
+        .run(
+          JSON.stringify({
+            sourceRoot: projectRoot,
+            assessedRevision: null,
+            assessedAt: new Date().toISOString(),
+            files: [],
+            references,
+          }),
+        );
+      expect((await readKnowledgeIndexAssessment(projectRoot))?.references).toEqual(references);
+      const impact = await getSymbolImpact(SYMBOL_ID, 'fixture-project', projectRoot);
+      expect(impact.coverage.status).toBe('partial');
+      expect(impact.riskLevel).toBe('UNKNOWN');
+      expect(impact.coverage.reasons).toContain(
+        '1 AST references have unmodeled enclosing scopes; known callers are incomplete. Inspect assessment.references in cleo nexus status.',
+      );
+      expect(impact.coverage.nextAction).toBe('cleo nexus status');
+      expect(JSON.stringify(impact.impactByDepth)).toContain(CALLER_ID);
     });
 
     it('exposes malformed index diagnostics as failed rather than an empty healthy graph', async () => {

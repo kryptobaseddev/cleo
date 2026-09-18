@@ -1,15 +1,107 @@
 /**
  * Nexus analyze orchestrator — business logic extracted from `cleo nexus analyze`.
  *
- * Runs the code-intelligence pipeline, clears the existing index for full runs,
+ * Stages a replacement code graph and publishes it atomically,
  * refreshes the nexus-bridge, updates the multi-project registry, and sweeps
- * the git log for task–symbol links. All side-effects are best-effort and do
- * not fail the pipeline on error.
+ * the git log for task–symbol links. Post-publication hooks are best-effort.
  *
  * @module nexus/analyze-orchestrator
  * @epic T9833
  * @task T10062
  */
+
+import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import type { GraphIndexAssessment, GraphPublicationRows } from '@cleocode/contracts';
+import { sql } from 'drizzle-orm';
+import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { nexusNodes, nexusRelations } from '../store/schema/cleo-project/nexus-graph.js';
+import { readKnowledgeIndexAssessment } from './knowledge.js';
+
+/** Capture a source revision without confusing unversioned roots with a known revision. */
+function sourceRevision(repoPath: string): string | null {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      timeout: 1000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/** Preserve explicitly selected nested repository scope on routine reindexing. */
+function includedRepositoryScope(db: NodeSQLiteDatabase, repoPath: string): string[] {
+  return db
+    .values(sql`SELECT repositories.value
+    FROM main._nexus_meta, json_each(json_extract(_nexus_meta.value, '$.includedRepositories')) AS repositories
+    WHERE _nexus_meta.key = 'graph_assessment'
+      AND json_extract(_nexus_meta.value, '$.sourceRoot') = ${repoPath}`)
+    .map((row) => {
+      const repository = row[0];
+      if (typeof repository !== 'string') throw new Error('Invalid saved nested repository scope');
+      return repository;
+    });
+}
+
+/** Read the last committed graph generation without opening a write transaction. */
+function graphGeneration(db: NodeSQLiteDatabase): string | null {
+  const value = db.values(
+    sql`SELECT value FROM main._nexus_meta WHERE key = 'graph_generation'`,
+  )[0]?.[0];
+  return typeof value === 'string' ? value : null;
+}
+
+/**
+ * Atomically publish staged rows if the graph has not changed since assessment.
+ * Failed inserts, FTS repair, or stale generations roll back the entire replacement.
+ * Code placed in `packages/core/` per Package-Boundary Check — verified against AGENTS.md.
+ */
+export function publishNexusGraph(
+  db: NodeSQLiteDatabase,
+  rows: GraphPublicationRows,
+  expectedGeneration: string | null,
+): void {
+  db.transaction(
+    (tx) => {
+      if (graphGeneration(tx) !== expectedGeneration) {
+        throw new Error(
+          'Nexus graph changed during indexing; discard staged generation and retry.',
+        );
+      }
+      tx.delete(nexusRelations).run();
+      tx.delete(nexusNodes).run();
+      // The optional FTS shadow can contain orphaned rowids; reset it inside
+      // the same transaction so trigger failures restore the previous generation.
+      if (
+        tx.values(sql`SELECT name FROM main.sqlite_master WHERE name = 'nexus_symbols_fts'`)
+          .length > 0
+      ) {
+        tx.run(sql`DELETE FROM main.nexus_symbols_fts`);
+      }
+      for (let offset = 0; offset < rows.nodes.length; offset += 500) {
+        tx.insert(nexusNodes)
+          .values(rows.nodes.slice(offset, offset + 500))
+          .run();
+      }
+      for (let offset = 0; offset < rows.relations.length; offset += 500) {
+        tx.insert(nexusRelations)
+          .values(rows.relations.slice(offset, offset + 500))
+          .run();
+      }
+      if (rows.assessment) {
+        tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_assessment', ${JSON.stringify(rows.assessment)})
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
+      }
+      const generation = randomUUID();
+      tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_generation', ${generation})
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
+    },
+    { behavior: 'immediate' },
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,8 +113,10 @@ export interface NexusAnalysisParams {
   repoPath: string;
   /** Override the project ID (default: `base64url(repoPath).slice(0, 32)`). */
   projectIdOverride?: string;
-  /** When true, only re-index files that changed since the last run. */
+  /** When true, skip unchanged indexes and atomically rebuild changed generations. */
   incremental?: boolean;
+  /** Explicit relative paths of nested repositories authorized for source inclusion. */
+  includedRepositories?: readonly string[];
   /**
    * Progress callback invoked every 50 files (and on completion).
    * Omit for JSON output mode.
@@ -39,6 +133,8 @@ export interface NexusAnalysisResult {
   relationCount: number;
   fileCount: number;
   durationMs: number;
+  /** Committed per-file outcomes and source provenance. */
+  assessment: GraphIndexAssessment | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,8 +146,8 @@ export interface NexusAnalysisResult {
  *
  * This function:
  * 1. Derives the project ID.
- * 2. For full runs, clears the existing nexus index.
- * 3. Runs `@cleocode/nexus` pipeline.
+ * 2. Captures the current graph generation for concurrent-write detection.
+ * 3. Stages and atomically publishes the `@cleocode/nexus` pipeline output.
  * 4. Best-effort: refreshes `nexus-bridge.md`.
  * 5. Best-effort: updates the multi-project registry.
  * 6. Best-effort: sweeps the git log for task–symbol links.
@@ -82,51 +178,20 @@ export async function runNexusAnalysis(params: NexusAnalysisParams): Promise<Nex
     nexusRelations: nexusSchema.nexusRelations,
   };
 
-  if (!incremental) {
-    // ADR-090 · T11648: the graph is project-scoped (one project per `cleo.db`),
-    // so a non-incremental reindex clears the WHOLE graph table — the former
-    // `WHERE project_id = ?` predicate is dropped.
-    try {
-      db.delete(nexusSchema.nexusNodes).run();
-    } catch {
-      // table may be empty — ignore
-    }
-    try {
-      db.delete(nexusSchema.nexusRelations).run();
-    } catch {
-      // table may be empty — ignore
-    }
-    // T12074: clear the FTS shadow explicitly.
-    //
-    // `nexus_symbols_fts` is kept in sync by AFTER INSERT/DELETE/UPDATE
-    // triggers on `nexus_nodes`, keyed on `rowid`. When the shadow drifts —
-    // rows whose base row vanished by a path that did not fire the delete
-    // trigger — those orphaned rowids survive the clear above and then COLLIDE
-    // with the rebuild's `INSERT INTO nexus_symbols_fts(rowid, …)`, because
-    // the insert supplies an explicit rowid.
-    //
-    // The failure mode is severe and silent about its cause: the reindex has
-    // already emptied `nexus_nodes`/`nexus_relations`, so the collision leaves
-    // the project with a DESTROYED index and an `E_PIPELINE_FAILED` whose
-    // message is a bare "Failed query: insert into nexus_nodes" plus 8,500
-    // bound parameters. Observed on this repo 2026-08-06: a graph of 24,482
-    // nodes / 39,163 relations reduced to 500 / 0 by a single `cleo nexus
-    // analyze`, with 70 orphaned shadow rows as the only cause.
-    //
-    // That matters doubly because `analyze` is the repair command the agent
-    // protocol — and the stale-index error added in T12068 — tell agents to
-    // run. A repair path that can destroy the thing it repairs is worse than
-    // no repair path.
-    try {
-      const { sql } = await import('drizzle-orm');
-      db.run(sql`DELETE FROM nexus_symbols_fts`);
-    } catch {
-      // FTS shadow is optional (older schemas lack it) — ignore
-    }
-  }
+  const expectedGeneration = graphGeneration(db);
+  const assessedRevision = sourceRevision(repoPath);
+  const includedRepositories = params.includedRepositories ?? includedRepositoryScope(db, repoPath);
 
   const result = await runPipeline(repoPath, projectId, db, tables, onProgress, {
-    incremental,
+    incremental: incremental && expectedGeneration !== null,
+    assessedRevision,
+    includedRepositories,
+    publishGraph: (rows: GraphPublicationRows) => {
+      if (sourceRevision(repoPath) !== assessedRevision) {
+        throw new Error('Source revision changed during indexing; previous graph retained.');
+      }
+      publishNexusGraph(db, rows, expectedGeneration);
+    },
   });
 
   // Best-effort: refresh nexus-bridge.md
@@ -170,5 +235,6 @@ export async function runNexusAnalysis(params: NexusAnalysisParams): Promise<Nex
     relationCount: result.relationCount,
     fileCount: result.fileCount,
     durationMs: Date.now() - startTime,
+    assessment: await readKnowledgeIndexAssessment(),
   };
 }
