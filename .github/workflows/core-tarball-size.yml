@@ -49,34 +49,48 @@ jobs:
           node-version: '24'
           cache: pnpm
 
+      # This gate has failed on EVERY run since v2026.6.10 — 47 runs, 47
+      # failures, 0 successes — always in the build step, so it never once
+      # reached its own size assertion. Nobody knows whether @cleocode/core is
+      # under 30 MB.
+      #
+      # It failed for two reasons, and the first one hid the second.
+      #
+      # (1) The pnpm filter ellipsis was INVERTED. Trailing `pkg...` selects a
+      #     package and its DEPENDENCIES; leading `...pkg` selects it and its
+      #     DEPENDENTS. T11976/DHQ-079 switched both filters to the leading form
+      #     and wrote a comment asserting the opposite meaning, which is why it
+      #     survived 47 runs. Measured: the leading form selects 12 projects and
+      #     omits paths, contracts, lafs, agents, git-shim, nexus, skills and
+      #     utils — exactly what `packages/brain` reported as unresolvable.
+      #
+      # (2) Correcting the direction moved the failure rather than fixing it:
+      #     `packages/adapters` then could not resolve `@cleocode/caamp`. The
+      #     real obstacle is that NO pnpm filter expression can order this
+      #     graph, because it contains a genuine production cycle —
+      #     core -> adapters -> caamp -> core (pnpm names it in the log:
+      #     "There are cyclic workspace dependencies: core, adapters,
+      #     playbooks"). A topological sort does not exist, so pnpm picks an
+      #     arbitrary order and something always builds before its dependency.
+      #
+      # That cycle is precisely why this repo has `build.mjs`, a hand-ordered
+      # wave build with an explicit comment at its caamp wave about "breaking
+      # the build cycle". The release job builds with `pnpm run build`
+      # (= `node build.mjs`) for the same reason.
+      #
+      # So this gate now performs the SAME build the release performs, rather
+      # than a private approximation of it. That is also what makes the number
+      # it prints meaningful: a bespoke build measures a tarball nobody ships.
       - name: Install workspace dependencies
-        # Select core + its DEPENDENCIES. The ellipsis direction is the whole
-        # bug this step used to have, so it is spelled out here:
-        #
-        #   '@cleocode/core...'  (TRAILING)  = core and everything core DEPENDS ON
-        #   '...@cleocode/core'  (LEADING)   = core and everything that DEPENDS ON core
-        #
-        # T11976/DHQ-079 switched both filters to the LEADING form and wrote a
-        # comment asserting the opposite meaning. Measured in this workspace:
-        # the leading form selects 12 projects and omits paths, contracts, lafs,
-        # agents, git-shim, nexus, skills and utils — which is exactly the set
-        # `packages/brain` then failed to resolve (5x TS2307). The gate died in
-        # this step on every run and never reached its own size assertion:
-        # 47 runs, 47 failures, 0 successes, back to v2026.6.10.
-        #
-        # `!@cleocode/studio` is still required and is NOT redundant: core
-        # declares @cleocode/studio in optionalDependencies, so core -> studio ->
-        # brain -> core is a cycle and studio is pulled into the trailing-form
-        # selection too. Excluding it keeps the vite/@sveltejs/kit build out,
-        # which is the thing T11976 was correctly trying to avoid.
-        run: pnpm install --frozen-lockfile --filter '@cleocode/core...' --filter '!@cleocode/studio'
+        # Mirrors release.yml's prebuild install. `!@cleocode/studio` keeps the
+        # vite/@sveltejs/kit build out — the thing T11976 was correctly trying
+        # to avoid. build.mjs does not build studio, so nothing here needs it.
+        run: pnpm install --frozen-lockfile --filter '!@cleocode/studio'
 
       # @cleocode/core's `files` includes `dist`, so it must be built before
       # `npm pack` reflects the real tarball contents.
-      - name: Build @cleocode/core (+ deps)
-        # Same trailing-... selection (16 projects), so paths/contracts/core are
-        # built BEFORE brain, which the cycle would otherwise schedule first.
-        run: pnpm --filter '@cleocode/core...' --filter '!@cleocode/studio' run build
+      - name: Build workspace (wave-ordered, same as the release)
+        run: pnpm run build
 
       # Stage the P1 fallback binary so the gate measures the REAL shipped
       # tarball (with the linux-x64-gnu fallback bundled), not a stripped one.
