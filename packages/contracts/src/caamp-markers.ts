@@ -147,3 +147,25 @@ export const CAAMP_INJECTION_ACTIONS = [
   'updated',
   'intact',
 ] as const;
+
+/** A delivery defect that must remain visible rather than pretending instructions loaded. */
+export interface InstructionDeliveryFinding {
+  /** Defect found during deterministic reference expansion. */
+  kind: 'missing-reference' | 'cycle' | 'duplicate' | 'limit' | 'stale';
+  /** Referenced source path or managed destination. */
+  path: string;
+  /** Human-readable evidence for the finding. */
+  reason: string;
+}
+
+/** Self-contained instruction delivery with explicit static verification limits. */
+export interface InstructionDelivery {
+  /** Resolved content with no reliance on provider reference expansion. */
+  content: string;
+  /** Sources actually read during expansion. */
+  sources: string[];
+  /** Defects preventing trustworthy delivery. */
+  findings: InstructionDeliveryFinding[];
+  /** Static expansion is not a live provider behavior evaluation. */
+  liveEvaluation: 'unverified';
+}

@@ -3,6 +3,8 @@
  * Core type definitions
  */
 
+import type { InstructionDeliveryFinding } from '@cleocode/contracts/caamp-markers';
+
 // ── SkillLibrary Types (primary) ─────────────────────────────────────
 
 // Re-export SkillLibrary types as the primary catalog types
@@ -996,6 +998,10 @@ export type InjectionStatus = 'current' | 'outdated' | 'missing' | 'none';
  * @public
  */
 export interface InjectionCheckResult {
+  /** Deterministic delivery defects, independently of marker integrity. */
+  deliveryFindings?: InstructionDeliveryFinding[];
+  /** File inspection cannot establish live provider behavior. */
+  liveEvaluation?: 'unverified';
   /** Absolute path to the instruction file. */
   file: string;
   /** Provider ID that owns this instruction file. */

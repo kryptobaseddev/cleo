@@ -89,7 +89,7 @@ describe('ensureProviderInstructionFile() — registry default references', () =
   });
 
   it('uses registry defaults when references is omitted', async () => {
-    const result = await ensureProviderInstructionFile(KNOWN_PROVIDER_ID, testDir, {});
+    const result = await ensureProviderInstructionFile(KNOWN_PROVIDER_ID, testDir, { delivery: 'verified-references' });
 
     expect(result.providerId).toBe(KNOWN_PROVIDER_ID);
     expect(result.instructFile).toBe('CLAUDE.md');
@@ -105,6 +105,7 @@ describe('ensureProviderInstructionFile() — registry default references', () =
   it('explicit references take precedence over registry defaults', async () => {
     const explicit = ['@CUSTOM_FILE.md'];
     const result = await ensureProviderInstructionFile(KNOWN_PROVIDER_ID, testDir, {
+      delivery: 'verified-references',
       references: explicit,
     });
 
@@ -118,6 +119,7 @@ describe('ensureProviderInstructionFile() — registry default references', () =
 
   it('uses registry defaults when references is undefined (explicit)', async () => {
     const result = await ensureProviderInstructionFile(KNOWN_PROVIDER_ID, testDir, {
+      delivery: 'verified-references',
       references: undefined,
     });
 
@@ -129,12 +131,12 @@ describe('ensureProviderInstructionFile() — registry default references', () =
 
   it('throws for an unknown provider ID', async () => {
     await expect(
-      ensureProviderInstructionFile('no-such-provider-xyzzy', testDir, {}),
+      ensureProviderInstructionFile('no-such-provider-xyzzy', testDir, { delivery: 'verified-references' }),
     ).rejects.toThrow(/Unknown provider/);
   });
 
   it('writes file to correct location using registry instructFile', async () => {
-    const result = await ensureProviderInstructionFile(KNOWN_PROVIDER_ID, testDir, {});
+    const result = await ensureProviderInstructionFile(KNOWN_PROVIDER_ID, testDir, { delivery: 'verified-references' });
     // claude-code uses CLAUDE.md
     expect(result.filePath).toBe(join(testDir, 'CLAUDE.md'));
   });
