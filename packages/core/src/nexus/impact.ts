@@ -11,6 +11,7 @@
 import type {
   NexusImpactResult as ImpactOperationResult,
   KnowledgeCoverage,
+  NexusImpactParams,
   RiskTier,
 } from '@cleocode/contracts';
 import { eq, notInArray } from 'drizzle-orm';
@@ -279,23 +280,29 @@ export async function getSymbolImpact(
  * Runs BFS from the target symbol to find all symbols that would be affected
  * by changes to it, optionally with detailed reasons.
  *
+ * @param projectRoot - Explicit project root whose graph and coverage are assessed.
+ * @param params - Shared impact query, project identity, reasons, and depth options.
+ * @returns Impact result or structured symbol ambiguity/error details.
+ * @remarks Project binding is explicit and never falls back to the process working directory.
+ * @example
+ * ```ts
+ * const params: NexusImpactParams = { symbol: 'entryPoint', depth: 2 };
+ * const result = await nexusImpact('/workspace/project', params);
+ * ```
  * @task T1569
  */
 export async function nexusImpact(
-  symbol: string,
-  projectId?: string,
-  why?: boolean,
-  maxDepth?: number,
-  projectRoot = process.cwd(),
+  projectRoot: string,
+  params: NexusImpactParams,
 ): Promise<EngineResult<ImpactOperationResult>> {
   try {
-    const coverage = await assessKnowledgeCoverage(projectRoot, projectId);
-    const impact = await getSymbolImpact(symbol, coverage.projectId, projectRoot, {
-      why,
-      maxDepth,
+    const coverage = await assessKnowledgeCoverage(projectRoot, params.projectId);
+    const impact = await getSymbolImpact(params.symbol, coverage.projectId, projectRoot, {
+      why: params.why,
+      maxDepth: params.depth,
     });
     return engineSuccess({
-      query: symbol,
+      query: params.symbol,
       projectId: impact.projectId,
       coverage: impact.coverage,
       targetNodeId: impact.targetNodeId,
