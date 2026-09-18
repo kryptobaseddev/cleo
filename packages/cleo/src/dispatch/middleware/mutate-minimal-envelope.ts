@@ -78,6 +78,7 @@ const BASE_DATA_FIELDS = new Set([
   'insertedCount',
   'validatedCount',
   'validationFindings',
+  'knowledgeCoverage',
 ]);
 
 function decodePointerToken(token: string): string {

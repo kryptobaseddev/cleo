@@ -8,13 +8,23 @@
  * @task T1473
  */
 
+import type {
+  NexusImpactResult as ImpactOperationResult,
+  KnowledgeCoverage,
+  RiskTier,
+} from '@cleocode/contracts';
 import { eq, notInArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import { getNexusDb, getNexusNativeDb, nexusSchema } from '../store/nexus-sqlite.js';
-import { buildSymbolMissError } from './symbol-miss.js';
+import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
+import {
+  assessKnowledgeCoverage,
+  KnowledgeSymbolAmbiguityError,
+  recordKnowledgeGap,
+  resolveKnowledgeSymbol,
+} from './knowledge.js';
 
 /** Risk level classification for an impacted symbol. */
-export type NexusRiskLevel = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type NexusRiskLevel = RiskTier;
 
 /** A single impacted node at a given BFS depth. */
 export interface NexusImpactNode {
@@ -52,16 +62,18 @@ export interface NexusImpactOptions {
 export interface NexusImpactResult {
   /** Original symbol query. */
   query: string;
+  /** Coverage assessed independently of detected impact. */
+  coverage: KnowledgeCoverage;
   /** Project ID. */
   projectId: string;
   /** ID of the target node analyzed. */
-  targetNodeId: string;
+  targetNodeId: string | null;
   /** Name of the target node. */
-  targetName: unknown;
+  targetName: string | null;
   /** Kind of the target node. */
-  targetKind: unknown;
+  targetKind: string | null;
   /** File path of the target node. */
-  targetFilePath: unknown;
+  targetFilePath: string | null;
   /** Risk level classification. */
   riskLevel: NexusRiskLevel;
   /** Total impacted nodes (all depths). */
@@ -82,11 +94,11 @@ export interface NexusImpactResult {
  * breadth-first up to `maxDepth` levels. Returns per-depth layers with risk
  * classification.
  *
- * Throws with code `E_NOT_FOUND` when no symbol matches the query.
+ * Missing coverage returns UNKNOWN; ambiguous names return qualified candidates.
  *
  * @param symbolName - Symbol name to analyse (partial match).
  * @param projectId  - Nexus project ID.
- * @param _repoPath  - Absolute repository root path (reserved for future use).
+ * @param repoPath   - Absolute repository root path used for freshness checks.
  * @param opts       - Traversal options.
  * @returns Impact analysis result.
  *
@@ -97,73 +109,56 @@ export interface NexusImpactResult {
 export async function getSymbolImpact(
   symbolName: string,
   projectId: string,
-  _repoPath: string,
+  repoPath: string,
   opts: NexusImpactOptions = {},
 ): Promise<NexusImpactResult> {
-  const maxDepth = Math.min(opts.maxDepth ?? 3, 5);
-  const whyFlag = opts.why ?? false;
-
-  const { sortMatchingNodes } = await import('./symbol-ranking.js');
-  const db = await getNexusDb();
-
-  // Fetch only symbol nodes (exclude community/process structural nodes).
-  // ADR-090 · T11648: project-scoped DB — the former `project_id = ?` predicate
-  // is dropped; only the kind exclusion remains (indexed via idx_nexus_nodes_kind).
-  let projectSymbolNodes: Array<Record<string, unknown>> = [];
-  try {
-    projectSymbolNodes = db
-      .select()
-      .from(nexusSchema.nexusNodes)
-      .where(notInArray(nexusSchema.nexusNodes.kind, ['community', 'process']))
-      .all() as Array<Record<string, unknown>>;
-  } catch {
-    projectSymbolNodes = [];
-  }
-
-  const lowerSymbol = symbolName.toLowerCase();
-  const rawMatchingNodes = projectSymbolNodes.filter(
-    (n) => n['name'] != null && String(n['name']).toLowerCase().includes(lowerSymbol),
+  const maxDepth = Math.max(
+    1,
+    Math.min(Number.isFinite(opts.maxDepth) ? (opts.maxDepth ?? 3) : 3, 5),
   );
-  const matchingNodes = sortMatchingNodes(rawMatchingNodes, symbolName);
-
-  if (matchingNodes.length === 0) {
-    // T12068: distinguish "no such symbol" from "index predates the symbol".
-    throw buildSymbolMissError(symbolName, projectId, projectSymbolNodes);
+  const whyFlag = opts.why ?? false;
+  const coverage = await assessKnowledgeCoverage(repoPath, projectId);
+  const emptyResult: NexusImpactResult = {
+    query: symbolName,
+    projectId,
+    coverage,
+    targetNodeId: null,
+    targetName: null,
+    targetKind: null,
+    targetFilePath: null,
+    riskLevel: 'UNKNOWN',
+    totalImpactedNodes: 0,
+    maxDepth,
+    why: whyFlag,
+    impactByDepth: [],
+  };
+  if (coverage.status === 'failed' || coverage.status === 'missing') return emptyResult;
+  const db = await getNexusDb(repoPath);
+  const projectSymbolNodes = db
+    .select()
+    .from(nexusSchema.nexusNodes)
+    .where(notInArray(nexusSchema.nexusNodes.kind, ['community', 'process']))
+    .all();
+  const targetNode = resolveKnowledgeSymbol(symbolName, projectSymbolNodes);
+  if (!targetNode) {
+    recordKnowledgeGap(coverage, 'missing', `No indexed symbol matches '${symbolName}'.`);
+    return emptyResult;
   }
-
-  // Fetch all relations (project-scoped DB — ADR-090 · T11648: no `project_id`
-  // predicate). T11545: plasticity `weight` lives in the sibling
-  // `nexus_relation_weights` table — LEFT JOIN it and flatten so downstream reads
-  // `r['weight']` (NULL when the edge has never been strengthened).
-  let allRelations: Array<Record<string, unknown>> = [];
-  try {
-    const joined = db
-      .select()
-      .from(nexusSchema.nexusRelations)
-      .leftJoin(
-        nexusSchema.nexusRelationWeights,
-        eq(nexusSchema.nexusRelationWeights.relationId, nexusSchema.nexusRelations.id),
-      )
-      .all() as Array<{
-      nexus_relations: Record<string, unknown>;
-      nexus_relation_weights: Record<string, unknown> | null;
-    }>;
-    allRelations = joined.map((row) => ({
-      ...row.nexus_relations,
-      weight: row.nexus_relation_weights?.['weight'] ?? null,
-    }));
-  } catch {
-    allRelations = [];
-  }
-
-  const nodeById = new Map<string, Record<string, unknown>>();
-  for (const n of projectSymbolNodes) {
-    nodeById.set(String(n['id']), n);
-  }
-
-  const targetNode = matchingNodes[0];
-  const targetId = String(targetNode['id']);
-  const targetLabel = String(targetNode['name'] ?? targetNode['label'] ?? targetId);
+  const joined = db
+    .select()
+    .from(nexusSchema.nexusRelations)
+    .leftJoin(
+      nexusSchema.nexusRelationWeights,
+      eq(nexusSchema.nexusRelationWeights.relationId, nexusSchema.nexusRelations.id),
+    )
+    .all();
+  const allRelations = joined.map((row) => ({
+    ...row.nexus_relations,
+    weight: row.nexus_relation_weights?.weight ?? null,
+  }));
+  const nodeById = new Map(projectSymbolNodes.map((node) => [node.id, node]));
+  const targetId = targetNode.id;
+  const targetLabel = targetNode.name ?? targetNode.label;
 
   // Build reverse adjacency: targetId → [{ sourceId, type, weight }]
   const reverseAdj = new Map<
@@ -227,17 +222,23 @@ export async function getSymbolImpact(
 
   const totalImpact = visited.size - 1;
   const riskLevel: NexusRiskLevel =
-    totalImpact === 0
-      ? 'NONE'
-      : totalImpact <= 3
-        ? 'LOW'
-        : totalImpact <= 10
-          ? 'MEDIUM'
-          : totalImpact <= 25
-            ? 'HIGH'
-            : 'CRITICAL';
+    coverage.status !== 'current'
+      ? 'UNKNOWN'
+      : totalImpact === 0
+        ? 'NONE'
+        : totalImpact <= 3
+          ? 'LOW'
+          : totalImpact <= 10
+            ? 'MEDIUM'
+            : totalImpact <= 25
+              ? 'HIGH'
+              : 'CRITICAL';
 
-  const depthLabels = ['WILL BREAK (direct callers)', 'LIKELY AFFECTED', 'MAY NEED TESTING'];
+  const depthLabels = [
+    'DIRECT CALLERS (potentially affected)',
+    'LIKELY AFFECTED',
+    'MAY NEED TESTING',
+  ];
   const layers: NexusImpactLayer[] = impactByDepth.map((layer, i) => ({
     depth: i + 1,
     label: depthLabels[i] ?? `depth ${i + 1}`,
@@ -255,6 +256,7 @@ export async function getSymbolImpact(
   return {
     query: symbolName,
     projectId,
+    coverage,
     targetNodeId: targetId,
     targetName: targetNode['name'],
     targetKind: targetNode['kind'],
@@ -279,172 +281,44 @@ export async function getSymbolImpact(
  *
  * @task T1569
  */
-// SSoT-EXEMPT:engine-migration-T1569
 export async function nexusImpact(
   symbol: string,
-  // `projectId` unused since ADR-090 · T11648 (project-scoped graph DB); retained
-  // for the CLI dispatch signature.
-  _projectId?: string,
+  projectId?: string,
   why?: boolean,
-): Promise<
-  EngineResult<{
-    targetNodeId: string | null;
-    why: boolean;
-    affected: Array<{ nodeId: string; label: string; kind: string; reasons: string[] }>;
-    riskLevel: string;
-  }>
-> {
+  maxDepth?: number,
+  projectRoot = process.cwd(),
+): Promise<EngineResult<ImpactOperationResult>> {
   try {
-    await getNexusDb();
-    const db = getNexusNativeDb();
-
-    if (!db) {
-      return engineSuccess({
-        targetNodeId: null,
-        why: why ?? false,
-        affected: [],
-        riskLevel: 'NONE',
-      });
-    }
-
-    // ADR-090 · T11648: project-scoped graph DB — drop the `project_id` column +
-    // predicate (one project per DB).
-    const allNodes = db
-      .prepare(
-        `SELECT id, label, kind, file_path, name
-           FROM nexus_nodes
-          WHERE kind NOT IN ('community','process','file','folder')`,
-      )
-      .all() as Array<{
-      id: string;
-      label: string | null;
-      kind: string | null;
-      file_path: string | null;
-      name: string | null;
-    }>;
-
-    const lowerSymbol = symbol.toLowerCase();
-    const candidates = allNodes.filter((n) => {
-      const haystack = (n.name ?? n.label ?? '').toLowerCase();
-      return haystack.length > 0 && haystack.includes(lowerSymbol);
+    const coverage = await assessKnowledgeCoverage(projectRoot, projectId);
+    const impact = await getSymbolImpact(symbol, coverage.projectId, projectRoot, {
+      why,
+      maxDepth,
     });
-
-    candidates.sort((a, b) => {
-      const an = (a.name ?? a.label ?? '').toLowerCase();
-      const bn = (b.name ?? b.label ?? '').toLowerCase();
-      const exactA = an === lowerSymbol ? 0 : 1;
-      const exactB = bn === lowerSymbol ? 0 : 1;
-      if (exactA !== exactB) return exactA - exactB;
-      return an.length - bn.length;
-    });
-
-    const target = candidates[0];
-    if (!target) {
-      return engineSuccess({
-        targetNodeId: null,
-        why: why ?? false,
-        affected: [],
-        riskLevel: 'NONE',
-      });
-    }
-
-    // T11545: plasticity weight lives in the sibling `nexus_relation_weights`
-    // table (LEFT JOIN — edges never strengthened have no weights row → NULL).
-    const allRelations = db
-      .prepare(
-        `SELECT r.source_id AS source_id, r.target_id AS target_id, r.type AS type, w.weight AS weight
-           FROM nexus_relations r
-      LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
-          WHERE r.type IN ('calls','imports','accesses')`,
-      )
-      .all() as Array<{
-      source_id: string;
-      target_id: string;
-      type: string;
-      weight: number | null;
-    }>;
-
-    const reverseAdj = new Map<string, typeof allRelations>();
-    for (const rel of allRelations) {
-      const list = reverseAdj.get(rel.target_id);
-      if (list) {
-        list.push(rel);
-      } else {
-        reverseAdj.set(rel.target_id, [rel]);
-      }
-    }
-
-    const incomingCount = new Map<string, number>();
-    for (const rel of allRelations) {
-      incomingCount.set(rel.target_id, (incomingCount.get(rel.target_id) ?? 0) + 1);
-    }
-
-    const nodeById = new Map<string, (typeof allNodes)[0]>();
-    for (const n of allNodes) {
-      nodeById.set(n.id, n);
-    }
-
-    const visited = new Set<string>([target.id]);
-    const queue: Array<{ id: string; depth: number }> = [{ id: target.id, depth: 0 }];
-    const affected: Array<{ nodeId: string; label: string; kind: string; reasons: string[] }> = [];
-
-    while (queue.length > 0) {
-      const item = queue.shift();
-      if (!item) break;
-      if (item.depth >= 3) continue;
-
-      const callers = reverseAdj.get(item.id) ?? [];
-      for (const edge of callers) {
-        if (visited.has(edge.source_id)) continue;
-        visited.add(edge.source_id);
-        const depth = item.depth + 1;
-        const callerNode = nodeById.get(edge.source_id);
-        const reasons: string[] = [];
-
-        if (why) {
-          const calls = incomingCount.get(edge.source_id) ?? 0;
-          if (calls > 0) {
-            reasons.push(`called by ${calls} place${calls === 1 ? '' : 's'}`);
-          }
-          if (edge.weight != null && edge.weight > 0) {
-            reasons.push(`strength=${edge.weight.toFixed(3)} via ${edge.type}`);
-          } else {
-            reasons.push(`edge type ${edge.type} (weight=0 — no plasticity yet)`);
-          }
-          reasons.push(`depth=${depth} hop from target ${target.label ?? target.id}`);
-        }
-
-        affected.push({
-          nodeId: edge.source_id,
-          label: callerNode?.label ?? edge.source_id,
-          kind: callerNode?.kind ?? 'unknown',
-          reasons,
-        });
-
-        queue.push({ id: edge.source_id, depth });
-      }
-    }
-
-    let riskLevel = 'NONE';
-    if (affected.length > 0) {
-      if (affected.length > 10) {
-        riskLevel = 'CRITICAL';
-      } else if (affected.length > 5) {
-        riskLevel = 'HIGH';
-      } else if (affected.length > 2) {
-        riskLevel = 'MEDIUM';
-      } else {
-        riskLevel = 'LOW';
-      }
-    }
-
     return engineSuccess({
-      targetNodeId: target.id,
-      why: why ?? false,
-      affected,
-      riskLevel,
+      query: symbol,
+      projectId: impact.projectId,
+      coverage: impact.coverage,
+      targetNodeId: impact.targetNodeId,
+      targetLabel: impact.targetName,
+      why: impact.why,
+      riskLevel: impact.riskLevel,
+      totalImpact: impact.totalImpactedNodes,
+      maxDepth: impact.maxDepth,
+      affected: impact.impactByDepth.flatMap((layer) =>
+        layer.nodes.map((node) => ({
+          nodeId: node.nodeId,
+          label: node.name,
+          kind: node.kind,
+          filePath: node.filePath,
+          depth: layer.depth,
+          reasons: node.reasons,
+        })),
+      ),
     });
   } catch (error) {
+    if (error instanceof KnowledgeSymbolAmbiguityError) {
+      return engineError(error.code, error.message, { details: { candidates: error.candidates } });
+    }
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }

@@ -2,12 +2,29 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.6.0
-  lastReviewed: 2026-05-27
+  version: 2.7.0
+  lastReviewed: 2026-09-18
   stability: stable
 ---
 
 # CLEO Protocol Guide
+
+## Trustworthy project knowledge
+
+After confirming the assigned worktree, orient with briefing/focus. Check current
+coverage and sourced authority before acting on retrieved guidance. `UNKNOWN`
+impact is incomplete assessment; `NONE` is no detected impact in assessed static
+coverage, never proof of no runtime callers. Resolve ambiguous symbols explicitly.
+Preserve historical handoffs and follow sourced corrections separately.
+
+Consume repair findings as a matrix of scope, evidence, responsibility, operation,
+prerequisites, verification, and recovery. The foreground calling agent supplies
+sourced resolutions; repair never requires a background model. Escalate unresolved
+owner decisions, reject stale proposals, verify postconditions, and record useful
+incident learning with project/revision evidence. A failed diagnostic is not clean.
+Provider reference delivery must be verified or embedded self-contained; static
+instruction checks do not establish live Codex, Claude, or Kimi behavior.
+
 
 <!-- thin-pointer: full protocol is in CLEO-INJECTION.md (T9148) -->
 Full protocol content lives in `~/.cleo/templates/CLEO-INJECTION.md`.

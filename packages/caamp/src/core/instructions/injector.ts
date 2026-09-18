@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { CaampInjectionAction } from '@cleocode/contracts/caamp-markers';
 import { writeFileAtomic } from '@cleocode/core/tools/fs.js';
 import type { InjectionCheckResult, InjectionStatus, Provider } from '../../types.js';
@@ -25,7 +25,11 @@ import {
   reconcile,
   repairContent,
 } from './markers.js';
-import { buildInjectionContent, type InjectionTemplate } from './templates.js';
+import {
+  buildInjectionContent,
+  type InjectionTemplate,
+  resolveInstructionDelivery,
+} from './templates.js';
 
 export type { CaampBlock } from './markers.js';
 
@@ -558,9 +562,27 @@ export async function checkAllInjections(
     if (checked.has(filePath)) continue;
     checked.add(filePath);
 
-    const status = await checkInjection(filePath, expectedContent);
+    let status = await checkInjection(filePath, expectedContent);
+    const delivery = await resolveInstructionDelivery(`@${filePath}`, dirname(filePath));
+    if (expectedContent !== undefined && status === 'outdated') {
+      delivery.findings.push({
+        kind: 'stale',
+        path: filePath,
+        reason: 'Managed content differs from the expected version.',
+      });
+    }
+    if (existsSync(filePath) && parseBlocks(await readFile(filePath, 'utf8')).length > 1) {
+      delivery.findings.push({
+        kind: 'duplicate',
+        path: filePath,
+        reason: 'Multiple managed blocks are delivered.',
+      });
+    }
+    if (delivery.findings.length > 0 && status === 'current') status = 'outdated';
 
     results.push({
+      deliveryFindings: delivery.findings,
+      liveEvaluation: delivery.liveEvaluation,
       file: filePath,
       provider: provider.id,
       status,
@@ -644,6 +666,8 @@ export interface EnsureProviderInstructionFileOptions {
   content?: string[];
   /** Whether this is a global or project-level file. @defaultValue `"project"` */
   scope?: 'project' | 'global';
+  /** Embed resolved sources; reference-only delivery requires an explicitly verified provider. */
+  delivery?: 'self-contained' | 'verified-references';
 }
 
 /**
@@ -709,14 +733,40 @@ export async function ensureProviderInstructionFile(
       : join(projectDir, provider.instructFile);
 
   // Fall back to the registry default when the caller omits references.
-  const references = options.references ?? getProviderInstructionReferences(providerId);
+  let references = options.references ?? getProviderInstructionReferences(providerId);
+  let content = options.content;
+  // This generated project artifact does not exist before the first memory
+  // refresh. Its absence is a visible capability limit, not a broken user source.
+  if (
+    options.delivery !== 'verified-references' &&
+    references.includes('@.cleo/memory-bridge.md') &&
+    !existsSync(join(dirname(filePath), '.cleo', 'memory-bridge.md'))
+  ) {
+    references = references.filter((reference) => reference !== '@.cleo/memory-bridge.md');
+    content = [
+      ...(content ?? []),
+      'Project memory bridge unavailable. Run `cleo memory digest` to inspect current evidence.',
+    ];
+  }
 
   const template: InjectionTemplate = {
     references,
-    content: options.content,
+    content,
   };
 
-  const injectionContent = buildInjectionContent(template);
+  let injectionContent = buildInjectionContent(template);
+  // Provider registry entries declare references, not proof that the runtime loads them.
+  // Resolve by default for every provider; preserve existing files if resolution fails.
+  if (options.delivery !== 'verified-references') {
+    const delivery = await resolveInstructionDelivery(injectionContent, dirname(filePath));
+    const failures = delivery.findings.filter((finding) => finding.kind !== 'duplicate');
+    if (failures.length > 0) {
+      throw new Error(
+        `Instruction delivery failed: ${failures.map((finding) => `${finding.kind}: ${finding.path}`).join('; ')}`,
+      );
+    }
+    injectionContent = delivery.content;
+  }
   const action = await inject(filePath, injectionContent);
 
   return {

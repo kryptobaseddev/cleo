@@ -54,8 +54,9 @@ describe('CLEO-INJECTION.md — required section markers', () => {
     expect(injectionContent).toMatch(/^## Escalation/m);
   });
 
-  it('contains "Session Start" H2 section', () => {
-    expect(injectionContent).toMatch(/^## Session Start/m);
+  it('contains the universal evidence and repair protocol', () => {
+    expect(injectionContent).toMatch(/^## Universal protocol/m);
+    for (const rule of ['**Orient.**', '**Check authority and coverage.**', '**Inspect evidence.**', '**Act.**', '**Verify.**', '**Learn.**']) expect(injectionContent).toContain(rule);
   });
 
   it('contains "Work Loop" H2 section', () => {

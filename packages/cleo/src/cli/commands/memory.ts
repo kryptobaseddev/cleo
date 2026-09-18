@@ -154,7 +154,8 @@ const storeCommand = defineCommand({
 const findCommand = defineCommand({
   meta: {
     name: 'find',
-    description: 'Search BRAIN memory (all tables, or filter by --type pattern|learning)',
+    description:
+      'Search BRAIN memory (all tables, or filter by --type decision|pattern|learning|observation)',
   },
   args: {
     query: {
@@ -164,7 +165,12 @@ const findCommand = defineCommand({
     },
     type: {
       type: 'string',
-      description: 'Filter by memory type: pattern or learning (default: all)',
+      description:
+        'Filter by memory type: decision, pattern, learning, or observation (default: all)',
+    },
+    history: {
+      type: 'boolean',
+      description: 'Include superseded and invalidated memory as historical evidence',
     },
     'pattern-type': {
       type: 'string',
@@ -196,7 +202,27 @@ const findCommand = defineCommand({
     const query = args.query;
     const memType = args.type as string | undefined;
 
-    if (memType === 'pattern') {
+    if (
+      memType !== undefined &&
+      !['decision', 'pattern', 'learning', 'observation'].includes(memType)
+    ) {
+      cliError(
+        `Unknown memory type: ${memType}. Use decision, pattern, learning, or observation.`,
+        'E_VALIDATION',
+        { name: 'E_VALIDATION' },
+      );
+      process.exitCode = 1;
+      return;
+    }
+    if (args.agent !== undefined && memType !== undefined && memType !== 'observation') {
+      cliError('--agent can only be combined with --type observation.', 'E_VALIDATION', {
+        name: 'E_VALIDATION',
+      });
+      process.exitCode = 1;
+      return;
+    }
+
+    if (memType === 'pattern' && !args.history) {
       await dispatchFromCli(
         'query',
         'memory',
@@ -208,7 +234,7 @@ const findCommand = defineCommand({
         },
         { command: 'memory', operation: 'memory.find' },
       );
-    } else if (memType === 'learning') {
+    } else if (memType === 'learning' && !args.history) {
       await dispatchFromCli(
         'query',
         'memory',
@@ -230,6 +256,11 @@ const findCommand = defineCommand({
         {
           query,
           limit: args.limit !== undefined ? parseInt(args.limit, 10) : undefined,
+          includeHistory: args.history,
+          ...(memType === 'pattern' && { tables: ['patterns'] }),
+          ...(memType === 'learning' && { tables: ['learnings'] }),
+          ...(memType === 'decision' && { tables: ['decisions'] }),
+          ...(memType === 'observation' && { tables: ['observations'] }),
           // T418: forward agent filter when provided
           ...(args.agent !== undefined && { agent: args.agent }),
         },
@@ -1170,7 +1201,7 @@ const reflectCommand = defineCommand({
 /**
  * `cleo memory prune-stubs` — remove content-free observation stubs (T12073).
  *
- * Dry-run by default; `--apply` is required to delete. See
+ * Dry-run by default; `--apply` reversibly quarantines confirmed stubs. See
  * `packages/core/src/memory/brain-stub-prune.ts` for the rules and the
  * measurements that motivate them.
  */
@@ -1178,7 +1209,7 @@ const pruneStubsCommand = defineCommand({
   meta: {
     name: 'prune-stubs',
     description:
-      'Report (and with --apply, delete) content-free BRAIN observation stubs — ' +
+      'Report (and with --apply, quarantine) content-free BRAIN observation stubs — ' +
       'auto-hook task-start/complete records and the "status: undefined" artefact of T12071. ' +
       'These are short enough that BM25 length-normalisation ranks them ABOVE substantive ' +
       'memories, so they actively degrade recall. Dry-run by default.',
@@ -1186,7 +1217,7 @@ const pruneStubsCommand = defineCommand({
   args: {
     apply: {
       type: 'boolean',
-      description: 'Actually delete the matched rows (default: report only)',
+      description: 'Quarantine matched rows and return a recovery receipt (default: report only)',
     },
   },
   async run({ args }) {
@@ -1737,6 +1768,11 @@ const backfillRunCommand = makeMemorySubcommand({
       type: 'string',
       description: "Backfill kind (default: 'graph-backfill').",
     },
+    'node-ids': {
+      type: 'string',
+      description:
+        'Comma-separated exact qualified graph node IDs to stage; every ID must be eligible and missing.',
+    },
     'target-table': {
       type: 'string',
       description: "Target table (default: 'brain_page_nodes').",
@@ -1746,6 +1782,11 @@ const backfillRunCommand = makeMemorySubcommand({
   operation: 'backfill.run',
   output: { command: 'memory-backfill-run', operation: 'memory.backfill.run' },
   paramBuilder: (args) => ({
+    ...(args['node-ids'] !== undefined && {
+      nodeIds: String(args['node-ids'])
+        .split(',')
+        .map((id) => id.trim()),
+    }),
     ...(args['source'] !== undefined && { source: args['source'] as string }),
     ...(args['kind'] !== undefined && { kind: args['kind'] as string }),
     ...(args['target-table'] !== undefined && { targetTable: args['target-table'] as string }),

@@ -34,6 +34,7 @@ import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
 import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
+import { doctorKnowledgeSubcommand } from './doctor-knowledge.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
 import { doctorLegacyReaperCommand } from './doctor-legacy-reaper.js';
 import { doctorMalformedIdsCommand } from './doctor-malformed-ids.js';
@@ -238,6 +239,7 @@ function renderInvariantAuditHuman(result: InvariantAuditResult): void {
 export const doctorCommand = defineCommand({
   meta: { name: 'doctor', description: 'Run system diagnostics and health checks' },
   subCommands: {
+    knowledge: doctorKnowledgeSubcommand,
     // T10307 / Saga T10281 / Epic T10282 — DB-substrate walker
     'db-substrate': doctorDbSubstrateCommand,
     // T10309 / Saga T10281 / Epic T10282 — Legacy-backup walker

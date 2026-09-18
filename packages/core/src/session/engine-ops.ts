@@ -336,11 +336,22 @@ export async function taskCurrentGet(
 export async function taskStart(
   projectRoot: string,
   taskId: string,
-): Promise<EngineResult<{ taskId: string; previousTask: string | null }>> {
+): Promise<
+  EngineResult<
+    Pick<
+      import('../task-work/index.js').TaskStartResult,
+      'taskId' | 'previousTask' | 'knowledgeCoverage'
+    >
+  >
+> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
-    const result = await startTask(taskId, undefined, accessor);
-    return engineSuccess({ taskId: result.taskId, previousTask: result.previousTask });
+    const result = await startTask(taskId, projectRoot, accessor);
+    return engineSuccess({
+      taskId: result.taskId,
+      previousTask: result.previousTask,
+      knowledgeCoverage: result.knowledgeCoverage,
+    });
   } catch (err: unknown) {
     return toEngineError(err, 'E_NOT_INITIALIZED', 'Failed to start task');
   }

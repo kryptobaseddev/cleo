@@ -1,37 +1,35 @@
 # CLEO Protocol
 
-Version: 2.6.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.7.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
-## MANDATORY: Run `cleo briefing` BEFORE Any Other Tool
+## Universal protocol
 
-**HARD PROHIBITION**: BEFORE any tool use other than `cleo briefing`, the orchestrator
-MUST run `cleo briefing` first.
+1. **Orient.** Confirm the assigned project/worktree, then run `cleo briefing` and
+   `cleo focus <id>`. Follow explicit user scope and provider safety instructions.
+   Read relevant repository instructions before editing. A failed briefing is a
+   diagnostic, not evidence that the project has no history.
+2. **Check authority and coverage.** Distinguish current evidence, historical
+   guidance, conflicting claims, and missing knowledge. Fetch cited records and
+   their sourced successors. Recency or similarity alone does not establish authority.
+3. **Inspect evidence.** Before editing, inspect impact and its coverage. `UNKNOWN`
+   means assessment is incomplete; `NONE` means no impact detected in the assessed
+   graph. Static analysis cannot prove all runtime callers. Resolve ambiguous
+   symbols using qualified candidate identifiers and verify against source.
+4. **Act.** Use the repair matrix: scope, evidence, repair class, proposed operation,
+   prerequisites, verification, and recovery. Automatic repairs must be bounded and
+   reversible. The calling agent supplies sourced resolutions for ambiguous findings;
+   owner decisions stay explicit. No background LLM is required for repair.
+5. **Verify.** Run relevant checks, record validated evidence, then complete. Report
+   unresolved and failed findings and missing coverage rather than claiming success.
+6. **Learn.** Record actionable incident knowledge with source, project, revision,
+   observation, correction, and verification through `cleo memory observe`. Preserve
+   historical handoffs; present corrections separately. Avoid empty completion traces.
 
-Do NOT read `.cleo/agent-outputs/*.md`, `NEXT-SESSION-HANDOFF.md`,
-`HONEST-HANDOFF-*.md`, or ANY markdown file as a substitute for `cleo briefing`.
-These files are deprecated, go stale, and have historically caused orchestrators to
-act on false information. They contain redirect stubs — not state.
+Use `cleo <command> --help` and the `ct-cleo` skill for command details.
+Use `cleo show <id> --full` when focus is insufficient: the default projection
+withholds description and verification, listing them in `_withheld`.
 
-The ONLY canonical sources of session state are:
-- `cleo briefing` — structured handoff + next tasks + BRAIN context
-- `cleo focus <id>` — **primary orient surface** — single call replacing 8: identity, scope, blockers, ready wave, docs, git activity, brain context (≤ 1 500 tokens)
-- `cleo memory find "<query>"` — BRAIN memory lookup
-- `cleo show <taskId> --full` — individual task detail. **Use `--full`.** Bare `cleo show` returns an MVI projection that WITHHOLDS `description` and `verification`; withheld fields are named in `_withheld` (field → size), and a record with no `_withheld` key is complete.
-
-If you find yourself reading a markdown file for orientation, STOP. Run `cleo briefing`.
-
-## Session Start (cheapest-first)
-
-**FIRST COMMAND IS ALWAYS `cleo briefing`** — no exceptions.
-
-1. `cleo briefing` — canonical session context: handoff note, next tasks, BRAIN digest (~600 tokens)
-2. `cleo session status` — resume existing? (~200 tokens)
-3. `cleo current` — active task? (~100 tokens)
-4. `cleo next` — what to work on (~300 tokens)
-5. `cleo focus {id}` — **preferred orient call** — single envelope with identity + scope + blockers + ready wave + docs + brain context (≤ 1 500 tokens, replaces 8 calls)
-6. `cleo show {id} --full` — the full task record (~400 tokens). Bare `cleo show {id}` is an MVI projection, NOT the full record — see the `_withheld` note under Task Discovery before you act on a field's absence.
-7. `cleo orchestrate start <epicId>` — for epics with ≥ 5 children (~300 tokens, auto-inits LOOM)
 <!-- /CLEO-INJECTION:section=session-start -->
 
 <!-- CLEO-INJECTION:section=work-loop -->
@@ -39,8 +37,8 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 
 1. `cleo current` or `cleo next` → pick task
 2. `cleo focus {id}` → orient: identity + blockers + ready wave + docs + brain context (1 call ≤ 1 500 tokens)
-3. Do the work (code, test, document)
-4. `cleo complete {id}` → mark done
+3. Check authority, coverage, and source evidence; do the work
+4. Record verification evidence, then `cleo complete {id}` → mark done
 5. `cleo next` → continue or end session
 <!-- /CLEO-INJECTION:section=work-loop -->
 
@@ -54,7 +52,7 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | Task acceptance criterion contains "test" | Propose an `AcceptanceGate` with `kind:"test"` via `cleo req add` |
 | Session token budget ≈ 80% consumed | Run `cleo session end --note "..."` and hand off |
 | Multiple related tasks ready in parallel | Run `cleo orchestrate ready <epicId>` for the wave set |
-| About to call `cleo complete` | First: check gates via `cleo show <id>` → run tests → then complete |
+| About to call `cleo complete` | First: check gates via `cleo show <id> --full` → run tests → then complete |
 | Writing a canonical doc (spec/adr/research/handoff/note/llm-readme) | Use `cleo docs add --type <kind> --slug <kebab-handle>` — NEVER raw fs write to `.cleo/adrs/`, `.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` |
 | Reading an ADR/spec/research note/handoff | `cleo docs fetch <slug>` — never grep the filesystem for canonical docs |
 <!-- /CLEO-INJECTION:section=triggers -->
@@ -198,8 +196,9 @@ entry age, and the repair command. Read it — do not infer that nexus is broken
 Default ID = `base64url(path).slice(0,32)`.
 
 **Rule**: BEFORE editing any symbol, run `cleo nexus impact <symbol>`.
-HIGH/CRITICAL = stop and warn. If the index is stale, say that instead of
-silently substituting `git grep`.
+HIGH/CRITICAL requires reviewing affected callers before editing. For stale, partial,
+missing, or failed coverage, inspect source and report the remaining uncertainty.
+An empty footprint alone never establishes `NONE`.
 
 > Commands named here are asserted against the live CLI by
 > `scripts/lint-injection-commands.mjs` (T12069). Five commands previously
@@ -418,7 +417,7 @@ Architectural decisions belong in the BRAIN decision-store (`.cleo/brain.db` →
 
 **Decision IDs (D0xx, AGT-*) are NOT globally unique** — same ID can mean different things across documents. BRAIN decisions include source provenance (`source_table`, `source_rowid`) that disambiguates. Always verify the source when citing a decision ID.
 
-**Legacy fallback (last resort only):** `grep -r "D0xx" .cleo/adrs/` then `grep -r "D0xx" .cleo/agent-outputs/`. These are legacy sources being migrated to the decision-store. Prefer BRAIN decisions when available.
+**Historical fallback:** use `cleo docs list` and `cleo docs fetch <slug>` to inspect canonical documents. Preserve their provenance and do not promote historical text over sourced current guidance.
 
 Check outcome status (pending/accepted/superseded). `decision-find` has **no epic filter** — it searches by QUERY text only, so scope it with the epic id as the query (`cleo memory decision-find "<epicId>"`) and read `source_table`/`source_rowid` to confirm provenance.
 

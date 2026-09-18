@@ -164,23 +164,14 @@ describe('hook automation E2E', () => {
   // 3. PreToolUse dispatches and brain handler fires (observation created)
   // -------------------------------------------------------------------------
   describe('PreToolUse', () => {
-    it('fires brain observation when a tool starts', async () => {
+    it('does not persist content-free task-start observations', async () => {
       await handleToolStart(PROJECT_ROOT, {
         timestamp: TIMESTAMP,
         taskId: 'T168',
         taskTitle: 'E2E integration tests',
       });
 
-      expect(observeBrainMock).toHaveBeenCalledTimes(1);
-      expect(observeBrainMock).toHaveBeenCalledWith(
-        PROJECT_ROOT,
-        expect.objectContaining({
-          text: 'Started work on T168: E2E integration tests',
-          title: 'Task start: T168',
-          type: 'change',
-          sourceType: 'agent',
-        }),
-      );
+      expect(observeBrainMock).not.toHaveBeenCalled();
     });
   });
 
@@ -188,7 +179,7 @@ describe('hook automation E2E', () => {
   // 4. PostToolUse dispatches and brain handler fires (completion observation)
   // -------------------------------------------------------------------------
   describe('PostToolUse', () => {
-    it('fires brain observation when a tool completes', async () => {
+    it('does not persist content-free task-completion observations', async () => {
       await handleToolComplete(PROJECT_ROOT, {
         timestamp: TIMESTAMP,
         taskId: 'T168',
@@ -196,16 +187,7 @@ describe('hook automation E2E', () => {
         status: 'done',
       });
 
-      expect(observeBrainMock).toHaveBeenCalledTimes(1);
-      expect(observeBrainMock).toHaveBeenCalledWith(
-        PROJECT_ROOT,
-        expect.objectContaining({
-          text: 'Task T168 completed with status: done',
-          title: 'Task complete: T168',
-          type: 'change',
-          sourceType: 'agent',
-        }),
-      );
+      expect(observeBrainMock).not.toHaveBeenCalled();
     });
 
     it('triggers memory bridge refresh after tool completes', async () => {
@@ -512,7 +494,7 @@ describe('hook automation E2E', () => {
   // 11. Dedup: PostToolUse doesn't double-capture what session-hooks handles
   // -------------------------------------------------------------------------
   describe('dedup (no double-capture)', () => {
-    it('PostToolUse fires brain observation; SessionEnd does not (T527)', async () => {
+    it('task completion and session end do not duplicate lifecycle traces into memory', async () => {
       // Simulate a task completing then a session ending
       await handleToolComplete(PROJECT_ROOT, {
         timestamp: TIMESTAMP,
@@ -521,8 +503,8 @@ describe('hook automation E2E', () => {
         status: 'done',
       });
 
-      // PostToolUse (handleToolComplete) should have fired once
-      expect(observeBrainMock).toHaveBeenCalledTimes(1);
+      // Lifecycle metadata alone carries no actionable learning.
+      expect(observeBrainMock).not.toHaveBeenCalled();
       observeBrainMock.mockClear();
 
       await handleSessionEnd(PROJECT_ROOT, {
