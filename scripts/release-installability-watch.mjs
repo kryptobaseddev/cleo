@@ -29,7 +29,7 @@
  * six, hourly. A release that converges in 5 minutes is reported promptly
  * without a day-old issue being polled 144 times.
  *
- * @task T12243
+ * @task T12251
  * @epic T12119
  */
 

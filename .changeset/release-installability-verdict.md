@@ -1,6 +1,6 @@
 ---
 id: release-installability-verdict
-tasks: [T12243]
+tasks: [T12251]
 kind: fix
 summary: A release run can no longer report success over a package that does not exist on npm
 ---

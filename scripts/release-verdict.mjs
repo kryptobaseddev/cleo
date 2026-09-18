@@ -41,7 +41,7 @@
  *   infra       — the verdict could not be read. RED. Fails closed: a broken
  *                 verifier must never render as `installable`.
  *
- * @task T12243
+ * @task T12251
  * @epic T12119
  */
 
