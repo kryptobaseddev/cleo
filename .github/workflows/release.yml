@@ -97,6 +97,15 @@ jobs:
     needs: prebuild
     runs-on: ubuntu-latest
 
+    # Published so downstream jobs consume ONE derivation of these values.
+    # execute-payload used to re-derive `version` with a copy of the shell below
+    # that omitted the dist-tag branch entirely, so on workflow_dispatch the two
+    # could disagree and nothing would say so.
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      dist_tag: ${{ steps.version.outputs.dist_tag }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -739,7 +748,16 @@ jobs:
             [[ "$published_version" == "$VERSION" ]]
           }
 
-          publish_pkg() {
+          # gh#1479: record when each publish was CALLED and when it RETURNED.
+          # Three agents spent a night reconstructing @cleocode/cleo's 55m33s by
+          # extracting timestamps from a log ZIP; two `date -u` calls make it a
+          # subtraction. The comparison group is the point — 17 siblings
+          # converging in seconds is what made cleo's delay legible — so the
+          # SKIP branches are logged too, not just the interesting ones.
+          PUBLISH_LOG="/tmp/publish-timeline-$VERSION.tsv"
+          printf 'pkg\toutcome\tcall_ts\tdone_ts\n' > "$PUBLISH_LOG"
+
+          _publish_pkg_impl() {
             # $1 = directory name under packages/ (or an explicit relative path
             #      when it contains a slash).
             # $2 = npm name without @cleocode/ prefix (defaults to the last
@@ -758,14 +776,17 @@ jobs:
             local npm_name="${2:-$default_name}"
             echo "--- Publishing @cleocode/$npm_name (from $resolved_dir) ---"
             if [[ ! -d "$resolved_dir" ]]; then
+              PUBLISH_OUTCOME=SKIP-ABSENT
               echo "SKIP: $resolved_dir does not exist"
               return 0
             fi
             if [[ "$pkg_dir" == "adapters" ]] && [[ ! -d "$resolved_dir/dist" ]]; then
+              PUBLISH_OUTCOME=SKIP-NODIST
               echo "SKIP: no dist (may be type-only)"
               return 0
             fi
             if already_published "$npm_name"; then
+              PUBLISH_OUTCOME=SKIP-EXISTS
               echo "✓ SKIP: @cleocode/$npm_name@$VERSION already on npm (idempotent re-run)"
               return 0
             fi
@@ -799,25 +820,46 @@ jobs:
             done
             echo "$PUBLISH_OUTPUT"
             if [[ $PUBLISH_EXIT -eq 0 ]]; then
+              PUBLISH_OUTCOME=PUBLISHED
               echo "✓ PUBLISHED: @cleocode/$npm_name@$VERSION"
             else
               # Re-check after failure: distinguish between version-conflict 403
               # (already published — safe to skip) vs real OIDC/permission errors.
               if already_published "$npm_name"; then
+                PUBLISH_OUTCOME=SKIP-RACE
                 echo "✓ SKIP-RACE: @cleocode/$npm_name@$VERSION was published concurrently or pre-exists"
               elif echo "$PUBLISH_OUTPUT" | grep -qi "cannot publish over the previously published"; then
                 # 403 "cannot publish over" — version exists but registry cache missed our pre-check
+                PUBLISH_OUTCOME=SKIP-CONFLICT
                 echo "✓ SKIP-CONFLICT: @cleocode/$npm_name@$VERSION already published (403 version conflict)"
               elif echo "$PUBLISH_OUTPUT" | grep -qi "OIDC\|trusted publish\|403\|401\|Unauthorized\|Forbidden"; then
+                PUBLISH_OUTCOME=FAIL-OIDC
                 echo "✗ FAIL: @cleocode/$npm_name publish failed — possible OIDC/permission error"
                 echo "  Error detail: $(echo "$PUBLISH_OUTPUT" | grep -i 'OIDC\|403\|401\|error\|npm ERR' | head -5)"
                 FAILED_PKGS+=("$npm_name")
               else
+                PUBLISH_OUTCOME=FAIL
                 echo "✗ FAIL: @cleocode/$npm_name publish failed"
                 FAILED_PKGS+=("$npm_name")
               fi
             fi
             popd > /dev/null
+          }
+
+          # Timing wrapper (gh#1479). Deliberately a WRAPPER rather than a line
+          # added to each of the eight outcome branches: a wrapper cannot miss a
+          # branch, and a branch that forgets to set PUBLISH_OUTCOME shows up as
+          # UNKNOWN rather than vanishing from the table.
+          publish_pkg() {
+            local name="${2:-${1##*/}}"
+            local call_ts done_ts
+            PUBLISH_OUTCOME=UNKNOWN
+            call_ts=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+            _publish_pkg_impl "$@"
+            local rc=$?
+            done_ts=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+            printf '%s\t%s\t%s\t%s\n' "$name" "$PUBLISH_OUTCOME" "$call_ts" "$done_ts" >> "$PUBLISH_LOG"
+            return $rc
           }
 
           # Publish in dependency order:
@@ -866,6 +908,23 @@ jobs:
           # single-artifact target (1, via R8/R10 internalization). This
           # reverses the 2026-05-05 Issue #102 / PR #103 addition of studio.
 
+          # gh#1479 — emit the timeline BEFORE the failure gate, so a failing
+          # publish still leaves the record of what happened and when.
+          {
+            echo "### npm publish timeline — v$VERSION"
+            echo ""
+            echo "\`npm publish\` returning 0 means ACCEPTED, not published. The gap between"
+            echo "\`returned\` here and the package becoming installable is what the post-deploy"
+            echo "job measures; the sibling rows are the comparison group that makes an"
+            echo "outlier legible (gh#1478)."
+            echo ""
+            echo "| package | outcome | publish call (UTC) | returned (UTC) |"
+            echo "|---|---|---|---|"
+            tail -n +2 "$PUBLISH_LOG" | awk -F'\t' '{printf "| `%s` | %s | %s | %s |\n", $1,$2,$3,$4}'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "--- publish timeline ---"
+          cat "$PUBLISH_LOG"
+
           if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
             echo "::error::Real publish failures for: ${FAILED_PKGS[*]}"
             echo ""
@@ -888,6 +947,18 @@ jobs:
             exit 1
           fi
           echo "✓ All packages published or skipped (idempotent re-run safe)"
+          echo "  (accepted by npm — installability is decided by the post-deploy job)"
+
+      # Consumed by release-verdict to render the call -> created -> delay table
+      # alongside the registry's own creation timestamps (gh#1479).
+      - name: Upload publish timeline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-timeline-${{ steps.version.outputs.version }}
+          path: /tmp/publish-timeline-*.tsv
+          if-no-files-found: warn
+          retention-days: 30
 
   # ── Post-Deploy Execution Payload ──────────────────────────────────────────
   # T1403: execute-payload job — runs AFTER all packages have been published.
@@ -904,20 +975,42 @@ jobs:
   #   3. Writes a smoke-<VERSION>.txt artifact confirming end-to-end execution.
   #   4. Uploads both as a GitHub Actions artifact for audit/traceability.
   #
-  # Failure behavior:
-  #   - Registry verify failures exit 1 (step fails the job).
-  #   - Job failure does NOT block the release — continue-on-error: true
-  #     so a transient npm propagation delay never rolls back a good publish.
-  #   - Owner is notified via the failed job annotation in the Actions UI.
+  # Failure behavior (rewritten — gh#1474, gh#1416):
+  #   - This job's verdict is BINDING. `continue-on-error: true` was removed.
+  #
+  #     It was there so "a transient npm propagation delay never rolls back a
+  #     good publish", and that concern is real — but nothing here CAN roll
+  #     anything back. By the time this job starts, the tag, the GitHub Release
+  #     and all 18 `npm publish` calls are done and irreversible. This workflow
+  #     triggers on tag push, so a red gates no merge and blocks no required
+  #     check. The mask bought nothing and cost everything: v2026.9.6 and
+  #     v2026.9.7 both recorded `{"verified": false, "reason": "metadata 404"}`
+  #     for @cleocode/cleo in their own artifacts, and both runs concluded
+  #     `success`.
+  #
+  #   - A run conclusion is stamped once and never revised, while @cleocode/cleo
+  #     has taken anywhere from 4m55s to 2h55m to become installable. So the run
+  #     cannot be the durable answer to "is this version installable?" It answers
+  #     the bounded question "did THIS RUN prove installability inside its
+  #     budget?" — permanently true either way. The live answer lives in the
+  #     tracking issue opened by release-verdict and closed by
+  #     release-installability-watch.yml.
+  #
+  #   - Three outcomes, not two. `pending` (published, not yet installable) and
+  #     `defect` (a package is wrong or missing) share a red but differ in
+  #     annotation title, step summary and follow-up. See scripts/release-verdict.mjs.
 
   execute-payload:
     name: Post-Deploy Execution Payload
     runs-on: ubuntu-latest
     needs: [release]
-    # Don't block the release on transient registry propagation delays.
-    # The job failure is visible in the Actions UI and the artifact captures
-    # which packages failed verification so the issue can be investigated.
-    continue-on-error: true
+    # Consumed by release-verdict, which runs `if: always()` and must be able to
+    # read these even though this job now FAILS in the pending/defect cases.
+    outputs:
+      verdict: ${{ steps.payload.outputs.verdict }}
+      pending_pkgs: ${{ steps.payload.outputs.pending_pkgs }}
+      converged: ${{ steps.payload.outputs.converged }}
+      total: ${{ steps.payload.outputs.total }}
     # Must exceed POSTDEPLOY_TIMEOUT_MS below, or the runner kills the job
     # mid-poll and the artifacts never get written — a worse outcome than a
     # clean "not installable at deadline" failure (gh#1377).
@@ -929,7 +1022,7 @@ jobs:
     # previous wording stated the requirement in prose only, which is the same
     # shape as every other "by convention" enforcement in this repo (gh#1394,
     # gh#1412) — a rule nothing checks.
-    timeout-minutes: 40
+    timeout-minutes: 25
 
     steps:
       - name: Checkout code
@@ -940,20 +1033,11 @@ jobs:
         with:
           node-version: '24'
 
-      # Resolve version using the same logic as the release job.
-      - name: Get version
-        id: version
-        env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          if [[ -n "$INPUT_VERSION" ]]; then
-            VERSION="$INPUT_VERSION"
-          else
-            VERSION="${REF_NAME#v}"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Post-deploy payload target: v$VERSION"
+      # NOTE: there is deliberately no `Get version` step here. It used to
+      # re-derive VERSION with a copy of the release job's shell that dropped
+      # the dist-tag branch, so this job could not know whether it was verifying
+      # a `latest`, `beta` or `dev` release. Both values now come from
+      # needs.release.outputs.
 
       # Run the post-deploy payload script:
       #   1. Verify all @cleocode/* packages at VERSION are on npm
@@ -961,27 +1045,46 @@ jobs:
       #   3. Write smoke-<VERSION>.txt
       # Uses --output-dir so artifacts land in a predictable path for upload.
       - name: Run execute-payload
+        id: payload
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          # npm's tarball CDN lags its metadata CDN. Measured on v2026.9.2:
-          # four packages served metadata 200 while their tarballs were still
-          # 404, for 177-217s; @cleocode/cleo was still 404 at +5min. The old
-          # ~3s retry budget could not span that.
+          VERSION: ${{ needs.release.outputs.version }}
+          DIST_TAG: ${{ needs.release.outputs.dist_tag }}
+          # HOW LONG THIS RUNNER WAITS — not a prediction of npm's queue.
           #
-          # Raised 900000 -> 1800000 after v2026.9.3 (gh#1409). That release
-          # failed post-deploy on a GOOD release: @cleocode/cleo's tarball
-          # became fetchable at 16:28:39Z, the 900s deadline fell at 16:28:08Z
-          # — a correct red, issued 31 seconds too early. The budget was sized
-          # from the 17 fast packages (slowest converged at +337s) rather than
-          # from the one that actually gates `npm i -g`: @cleocode/cleo is
-          # 22.2 MB packed, 2.5x the next largest, and took ~920s. A budget
-          # derived from the distribution is wrong for the outlier that decides
-          # whether the release is usable.
-          POSTDEPLOY_TIMEOUT_MS: '1800000'
+          # budget-basis: 2026-09-18 p100-sibling=377s factor=2.4x
+          #
+          # The previous comment derived 1800000 from a size->propagation causal
+          # claim ("@cleocode/cleo is 22.2 MB packed, 2.5x the next largest").
+          # That claim is FALSIFIED (gh#1478). Do not re-derive this number from
+          # package size:
+          #   - Six releases at a byte-identical 80.6 MB / 1059 files spanned
+          #     4m55s .. 55m11s. Size varied by zero; the delay varied 11x.
+          #   - v2026.9.7 cut the package to 32.1 MB / 728 files and took
+          #     2h55m09s — 3.2x LONGER than the 80.6 MB v2026.9.6.
+          #   - In the v2026.9.7 run itself, @cleocode/core (42.8 MB, 5319
+          #     files — larger, and 7x the file count) converged in 3m47s while
+          #     @cleocode/cleo took 175m. Same run, same token, same minute.
+          # Packed size is now 10.17 MB, so the old comment's premise is stale
+          # twice over.
+          #
+          # Nor is the budget derived from the outlier: 55m and 2h55m both
+          # exceed any workable JOB CAP, so no poll budget fits inside a job at
+          # all. That is what release-installability-watch.yml exists for.
+          #
+          # What IS predictable is the sibling distribution: 17 of 18 packages
+          # converged within 246s on v2026.9.7, and the worst sibling on record
+          # is @cleocode/contracts at 377s. 900000ms is 2.4x that.
+          #
+          # Lowering 1800000 -> 900000 changes no outcome on the record: four of
+          # the six measured releases converged under 15 minutes (4m55s, 9m00s,
+          # 9m59s, 11m02s) and two converged under neither budget (55m11s,
+          # 2h55m09s). Same green, same handoff — half the runner time, and the
+          # handoff starts 15 minutes sooner.
+          POSTDEPLOY_TIMEOUT_MS: '900000'
           POSTDEPLOY_INTERVAL_MS: '15000'
           # Mirrors `timeout-minutes` above. Bound to it by
           # scripts/lint-postdeploy-budget.mjs; asserted against the budget below.
-          POSTDEPLOY_JOB_CAP_MINUTES: '40'
+          POSTDEPLOY_JOB_CAP_MINUTES: '25'
         run: |
           # Fail fast if the poll budget meets or exceeds the job cap. In that
           # configuration the runner kills the job mid-poll, so the step never
@@ -996,10 +1099,36 @@ jobs:
           fi
           echo "budget ${POSTDEPLOY_TIMEOUT_MS}ms < cap ${CAP_MS}ms — ok"
           ARTIFACT_DIR="/tmp/postdeploy-artifacts"
+          echo "artifact_dir=$ARTIFACT_DIR" >> "$GITHUB_ENV"
+
+          # The verdict must reach release-verdict even when this step fails,
+          # which is now the whole point of the step. Capture the exit code,
+          # publish the outputs, THEN propagate — and fail closed to `infra` if
+          # the summary is missing or unparseable, so a broken verifier can
+          # never render as `installable`.
+          set +e
           node scripts/execute-payload.mjs \
             --version "$VERSION" \
+            --dist-tag "$DIST_TAG" \
             --output-dir "$ARTIFACT_DIR"
-          echo "artifact_dir=$ARTIFACT_DIR" >> "$GITHUB_ENV"
+          EP_EXIT=$?
+          set -e
+
+          node -e '
+            const fs = require("node:fs");
+            let s = {};
+            try { s = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch {}
+            const out = [
+              `verdict=${s.verdict ?? "infra"}`,
+              `pending_pkgs=${(s.pendingPackages ?? []).join(",")}`,
+              `converged=${s.stats?.verified ?? 0}`,
+              `total=${s.stats?.total ?? 0}`,
+            ].join("\n") + "\n";
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, out);
+            process.stdout.write(out);
+          ' "$ARTIFACT_DIR/deploy-summary-$VERSION.json" || echo "verdict=infra" >> "$GITHUB_OUTPUT"
+
+          exit $EP_EXIT
 
       # Upload both artifacts regardless of whether execute-payload succeeded.
       # The deploy-summary JSON captures pass/fail per-package so failures
@@ -1008,7 +1137,67 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: postdeploy-${{ steps.version.outputs.version }}
+          name: postdeploy-${{ needs.release.outputs.version }}
           path: /tmp/postdeploy-artifacts/
           if-no-files-found: warn
           retention-days: 30
+
+  # ── Release Verdict ─────────────────────────────────────────────────────────
+  # The single place that decides what this run CLAIMS, and the only job whose
+  # conclusion an operator should read (gh#1474, gh#1416).
+  #
+  # Deliberately appended at the END of this file. scripts/lint-postdeploy-budget.mjs
+  # locates the post-deploy job with indexOf('Post-Deploy Execution Payload'),
+  # which matches the COMMENT BANNER above that job — not its `name:` — and then
+  # takes the FIRST `timeout-minutes:` after it. A job carrying its own
+  # `timeout-minutes` inserted between that banner and line ~963 would silently
+  # retarget the linter onto the wrong number. Appending here is safe.
+  release-verdict:
+    name: Release Verdict
+    runs-on: ubuntu-latest
+    needs: [release, execute-payload]
+    if: always()
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write   # opens/updates the installability tracking issue
+      actions: write  # kicks the watcher immediately rather than waiting for cron
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Download post-deploy artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: postdeploy-${{ needs.release.outputs.version }}
+          path: /tmp/postdeploy-artifacts
+        continue-on-error: true
+
+      - name: Download publish timeline
+        uses: actions/download-artifact@v4
+        with:
+          name: publish-timeline-${{ needs.release.outputs.version }}
+          path: /tmp/publish-timeline
+        continue-on-error: true
+
+      - name: Render verdict
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          DIST_TAG: ${{ needs.release.outputs.dist_tag }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          PAYLOAD_RESULT: ${{ needs.execute-payload.result }}
+          VERDICT: ${{ needs.execute-payload.outputs.verdict }}
+          PENDING_PKGS: ${{ needs.execute-payload.outputs.pending_pkgs }}
+          CONVERGED: ${{ needs.execute-payload.outputs.converged }}
+          TOTAL: ${{ needs.execute-payload.outputs.total }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          POSTDEPLOY_DIR: /tmp/postdeploy-artifacts
+          PUBLISH_TIMELINE_DIR: /tmp/publish-timeline
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/release-verdict.mjs
