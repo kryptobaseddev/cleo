@@ -20,7 +20,7 @@ import { getNexusDb, getNexusNativeDb, resetNexusDbState } from '../../store/nex
 import { getDb } from '../../store/sqlite.js';
 import { tasks } from '../../store/tasks-schema.js';
 import { nexusTaskSymbols } from '../api-contracts.js';
-import { getSymbolImpact } from '../impact.js';
+import { getSymbolImpact, nexusImpact } from '../impact.js';
 import { assessKnowledgeCoverage, KnowledgeSymbolAmbiguityError } from '../knowledge.js';
 import { getSymbolFullContext, getTaskCodeImpact } from '../living-brain.js';
 import { getTaskKnowledgeEvidence } from '../task-evidence.js';
@@ -267,6 +267,21 @@ describe('preserved audit failure modes against synthetic project stores', () =>
   }
 
   it('probes 2/15: an absent graph returns UNKNOWN rather than zero-impact assurance', async () => {
+    const operation = await nexusImpact(root, {
+      symbol: 'entryPoint',
+      projectId: 'synthetic-project',
+      why: true,
+      depth: 2,
+    });
+    expect(operation.success).toBe(true);
+    expect(operation.data).toMatchObject({
+      query: 'entryPoint',
+      projectId: 'synthetic-project',
+      why: true,
+      maxDepth: 2,
+      riskLevel: 'UNKNOWN',
+      coverage: { status: 'missing' },
+    });
     const impact = await getSymbolImpact('entryPoint', 'synthetic-project', root);
     expect(impact.riskLevel).toBe('UNKNOWN');
     expect(impact.coverage.status).toBe('missing');

@@ -1916,7 +1916,7 @@ export class MemoryHandler implements DomainHandler {
             const kind = paramString(params, 'kind');
             const targetTable = paramString(params, 'targetTable');
             const nodeIds = paramStringArray(params, 'nodeIds');
-            if (params['nodeIds'] !== undefined && !nodeIds)
+            if (params?.['nodeIds'] !== undefined && !nodeIds)
               throw new Error('nodeIds must be an array of qualified graph IDs.');
             const result = await stagedBackfillRun(projectRoot, {
               source,
