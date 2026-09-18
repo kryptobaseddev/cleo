@@ -12,6 +12,7 @@
 import type { SQL } from 'drizzle-orm';
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { memoryEligibilityClause } from '../memory/eligibility.js';
 import { getBrainDb } from './memory-sqlite.js';
 import { jsonbText } from './schema/jsonb.js';
 import type {
@@ -111,6 +112,8 @@ export class BrainDataAccessor {
       outcome?: (typeof brainSchema.BRAIN_OUTCOME_TYPES)[number];
       contextTaskId?: string;
       limit?: number;
+      /** Include invalidated and superseded records for historical inspection. */
+      includeHistory?: boolean;
       /**
        * T1830: when false (default), AGT-* agent dispatch rows
        * (`decision_category = 'agent_dispatch'`) are excluded from results.
@@ -119,7 +122,9 @@ export class BrainDataAccessor {
       includeAgentDispatch?: boolean;
     } = {},
   ): Promise<BrainDecisionRow[]> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = params.includeHistory
+      ? []
+      : [sql.raw(memoryEligibilityClause('decisions').replace(/^ AND /, ''))];
 
     if (params.type) {
       conditions.push(eq(brainSchema.brainDecisions.type, params.type));
@@ -188,9 +193,13 @@ export class BrainDataAccessor {
       impact?: (typeof brainSchema.BRAIN_IMPACT_LEVELS)[number];
       minFrequency?: number;
       limit?: number;
+      /** Include invalidated and superseded records for historical inspection. */
+      includeHistory?: boolean;
     } = {},
   ): Promise<BrainPatternRow[]> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = params.includeHistory
+      ? []
+      : [sql.raw(memoryEligibilityClause('patterns').replace(/^ AND /, ''))];
 
     if (params.type) {
       conditions.push(eq(brainSchema.brainPatterns.type, params.type));
@@ -247,9 +256,16 @@ export class BrainDataAccessor {
   }
 
   async findLearnings(
-    params: { minConfidence?: number; actionable?: boolean; limit?: number } = {},
+    params: {
+      minConfidence?: number;
+      actionable?: boolean;
+      limit?: number;
+      includeHistory?: boolean;
+    } = {},
   ): Promise<BrainLearningRow[]> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = params.includeHistory
+      ? []
+      : [sql.raw(memoryEligibilityClause('learnings').replace(/^ AND /, ''))];
 
     if (params.minConfidence !== undefined) {
       conditions.push(gte(brainSchema.brainLearnings.confidence, params.minConfidence));
@@ -311,9 +327,13 @@ export class BrainDataAccessor {
       /** T417: filter by agent provenance name (Wave 8 mental models). */
       agent?: string;
       limit?: number;
+      /** Include invalidated and superseded records for historical inspection. */
+      includeHistory?: boolean;
     } = {},
   ): Promise<BrainObservationRow[]> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = params.includeHistory
+      ? []
+      : [sql.raw(memoryEligibilityClause('observations').replace(/^ AND /, ''))];
 
     if (params.type) {
       conditions.push(eq(brainSchema.brainObservations.type, params.type));

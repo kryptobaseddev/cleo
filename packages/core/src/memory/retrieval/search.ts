@@ -20,6 +20,7 @@ import type {
 import { memoryFindHitNext } from '../../mvi-helpers.js';
 import { hybridSearch, searchBrain } from '../brain-search.js';
 import { searchSimilar } from '../brain-similarity.js';
+import { isCurrentMemoryEntry, memoryEligibilityClause } from '../eligibility.js';
 import { getCurrentSessionId } from './get-current-session-id.js';
 import { incrementCitationCounts } from './increment-citation-counts.js';
 import { logRetrieval } from './log-retrieval.js';
@@ -62,6 +63,72 @@ export async function searchBrainCompact(
   projectRoot: string,
   params: SearchBrainCompactParams,
 ): Promise<SearchBrainCompactResult> {
+  if (params.agent && params.tables?.some((table) => table !== 'observations'))
+    throw new Error('Agent provenance filtering only supports observations');
+  const result = await searchBrainCompactCurrent(projectRoot, params);
+  if (
+    params.includeHistory ||
+    params.agent ||
+    (params.tables && !params.tables.includes('decisions')) ||
+    !params.query.trim()
+  )
+    return result;
+  const historical = await searchBrain(projectRoot, params.query, {
+    tables: ['decisions'],
+    limit: Math.max(params.limit ?? 10, 10),
+    includeHistory: true,
+    peerId: params.peerId,
+    includeGlobal: params.includeGlobal,
+  });
+  const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+  const accessor = await getBrainAccessor(projectRoot);
+  for (const match of historical.decisions) {
+    let decision = await accessor.getDecision(match.id);
+    const seen = new Set<string>();
+    while (decision?.supersededBy && !seen.has(decision.id) && seen.size < 32) {
+      seen.add(decision.id);
+      decision = await accessor.getDecision(decision.supersededBy);
+    }
+    if (!decision || decision.id === match.id || !isCurrentMemoryEntry(decision)) continue;
+    if (
+      params.peerId &&
+      decision.peerId !== params.peerId &&
+      !(params.includeGlobal !== false && decision.peerId === 'global')
+    )
+      continue;
+    const date = decision.createdAt ?? '';
+    if (
+      (params.since && date < params.since) ||
+      (params.dateStart && date < params.dateStart) ||
+      (params.dateEnd && date > params.dateEnd)
+    )
+      continue;
+    const existing = result.results.find(
+      (hit) => hit.id === decision.id && hit.type === 'decision',
+    );
+    if (existing) {
+      existing.matchedHistoricalIds = [...(existing.matchedHistoricalIds ?? []), match.id];
+    } else {
+      result.results.unshift({
+        id: decision.id,
+        type: 'decision',
+        title: decision.decision.slice(0, 80),
+        date,
+        matchedHistoricalIds: [match.id],
+        _next: memoryFindHitNext(decision.id),
+      });
+    }
+  }
+  result.results = result.results.slice(0, params.limit ?? 10);
+  result.total = result.results.length;
+  result.tokensEstimated = result.total * 50;
+  return result;
+}
+
+async function searchBrainCompactCurrent(
+  projectRoot: string,
+  params: SearchBrainCompactParams,
+): Promise<SearchBrainCompactResult> {
   const {
     query,
     limit,
@@ -74,6 +141,7 @@ export async function searchBrainCompact(
     includeGlobal,
     mode,
     since,
+    includeHistory = false,
   } = params;
 
   if (!query?.trim()) {
@@ -97,45 +165,60 @@ export async function searchBrainCompact(
 
     // Determine which tables to query
     const targetTables =
-      tables && tables.length > 0 ? tables : ['observations', 'learnings', 'patterns', 'decisions'];
-    const sinceClause = since ? ` AND created_at >= '${since}'` : '';
-    const dateStartClause = dateStart ? ` AND created_at >= '${dateStart}'` : '';
-    const dateEndClause = dateEnd ? ` AND created_at <= '${dateEnd}'` : '';
-    const perTableLimit = effectiveLimit * 2;
-
+      tables && tables.length > 0
+        ? tables
+        : (['observations', 'learnings', 'patterns', 'decisions'] as const);
     const results: BrainCompactHit[] = [];
-
     for (const table of targetTables) {
-      let sql: string;
-
-      if (table === 'observations') {
-        sql = `SELECT id, title, created_at FROM brain_observations WHERE 1=1${sinceClause}${dateStartClause}${dateEndClause} ORDER BY created_at DESC LIMIT ${perTableLimit}`;
-      } else if (table === 'learnings') {
-        sql = `SELECT id, insight AS title, created_at FROM brain_learnings WHERE 1=1${sinceClause}${dateStartClause}${dateEndClause} ORDER BY created_at DESC LIMIT ${perTableLimit}`;
-      } else if (table === 'patterns') {
-        sql = `SELECT id, pattern AS title, extracted_at AS created_at FROM brain_patterns WHERE 1=1${since ? ` AND extracted_at >= '${since}'` : ''}${dateStart ? ` AND extracted_at >= '${dateStart}'` : ''}${dateEnd ? ` AND extracted_at <= '${dateEnd}'` : ''} ORDER BY extracted_at DESC LIMIT ${perTableLimit}`;
-      } else {
-        // decisions
-        sql = `SELECT id, decision AS title, created_at FROM brain_decisions WHERE 1=1${sinceClause}${dateStartClause}${dateEndClause} ORDER BY created_at DESC LIMIT ${perTableLimit}`;
-      }
-
-      try {
-        const rows = nativeDb.prepare(sql).all() as Array<{
-          id: string;
-          title: string;
-          created_at: string;
-        }>;
-        for (const row of rows) {
-          results.push({
-            id: row.id,
-            type: table.replace(/s$/, '') as 'observation' | 'learning' | 'pattern' | 'decision',
-            title: (row.title ?? '').slice(0, 80),
-            date: row.created_at ?? '',
-            relevance: 0,
-          });
+      const titleColumn =
+        table === 'decisions'
+          ? 'decision'
+          : table === 'learnings'
+            ? 'insight'
+            : table === 'patterns'
+              ? 'pattern'
+              : 'title';
+      const dateColumn = table === 'patterns' ? 'extracted_at' : 'created_at';
+      const filters: string[] = [];
+      const values: string[] = [];
+      for (const lower of [since, dateStart]) {
+        if (lower) {
+          filters.push(`${dateColumn} >= ?`);
+          values.push(lower);
         }
-      } catch {
-        // table missing or DB error — skip
+      }
+      if (dateEnd) {
+        filters.push(`${dateColumn} <= ?`);
+        values.push(dateEnd);
+      }
+      const dates = filters.length ? ` AND ${filters.join(' AND ')}` : '';
+      const rows = nativeDb
+        .prepare(
+          `SELECT id, ${titleColumn} AS title, ${dateColumn} AS created_at FROM main.brain_${table} WHERE 1=1${memoryEligibilityClause(table, undefined, includeHistory)}${dates} ORDER BY ${dateColumn} DESC LIMIT ?`,
+        )
+        .all(...values, effectiveLimit * 2);
+      for (const row of rows) {
+        if (
+          typeof row.id !== 'string' ||
+          typeof row.title !== 'string' ||
+          typeof row.created_at !== 'string'
+        ) {
+          throw new Error(`Invalid source row in brain_${table}`);
+        }
+        results.push({
+          id: row.id,
+          type:
+            table === 'decisions'
+              ? 'decision'
+              : table === 'patterns'
+                ? 'pattern'
+                : table === 'learnings'
+                  ? 'learning'
+                  : 'observation',
+          title: row.title.slice(0, 80),
+          date: row.created_at,
+          relevance: 0,
+        });
       }
     }
 
@@ -151,7 +234,10 @@ export async function searchBrainCompact(
   }
 
   // ----- RRF path (default or mode=hybrid) -----
-  if ((useRRF && !agentFilter && mode !== 'lexical') || (mode === 'hybrid' && !agentFilter)) {
+  if (
+    !includeHistory &&
+    ((useRRF && !agentFilter && mode !== 'lexical') || (mode === 'hybrid' && !agentFilter))
+  ) {
     // Run FTS (for dates + table-level data) and RRF fusion in parallel.
     // FTS gives us row-level dates; RRF gives us the fused ranking order.
     const [ftsResult, rrfResults] = await Promise.all([
@@ -160,12 +246,7 @@ export async function searchBrainCompact(
         tables,
         peerId,
         includeGlobal,
-      }).catch(() => ({
-        decisions: [],
-        patterns: [],
-        learnings: [],
-        observations: [],
-      })),
+      }),
       hybridSearch(query, projectRoot, { limit: effectiveLimit * 2 }),
     ]);
 
@@ -278,6 +359,7 @@ export async function searchBrainCompact(
     tables: effectiveTables,
     peerId,
     includeGlobal,
+    includeHistory,
   });
 
   // Project full results to compact format.
@@ -417,12 +499,7 @@ export async function retrieveWithBudget(
   // -------------------------------------------------------------------------
   const [ftsResult, vecResults, graphNeighbors] = await Promise.all([
     // A. FTS5
-    searchBrain(projectRoot, query, { limit: 30 }).catch(() => ({
-      decisions: [],
-      patterns: [],
-      learnings: [],
-      observations: [],
-    })),
+    searchBrain(projectRoot, query, { limit: 30 }),
     // B. Vector KNN (degrades gracefully when unavailable)
     searchSimilar(query, projectRoot, 20).catch(
       () => [] as ReturnType<typeof searchSimilar> extends Promise<infer T> ? T : never[],

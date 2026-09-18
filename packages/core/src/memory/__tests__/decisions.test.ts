@@ -479,6 +479,41 @@ describe('storeDecision ADR write-gate hook (T1828)', () => {
     await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
+  it('stores a sourced accepted ADR without a dialectic call outside the test-env bypass', async () => {
+    delete process.env['CLEO_ENV'];
+    const evaluate = vi.fn().mockRejectedValue(new Error('No model credentials'));
+    vi.doMock('../dialectic-evaluator.js', () => ({ evaluateDialectic: evaluate }));
+    const { storeDecision } = await import('../decisions.js');
+    const decision = await storeDecision(tempDir, {
+      type: 'architecture',
+      decision: 'Caller-sourced correction remains independent of synthesis',
+      rationale: 'Owner directive recorded in the tracked source file',
+      confidence: 'high',
+      adrPath: 'docs/owner-directive.md',
+      confirmationState: 'accepted',
+      decidedBy: 'owner',
+    });
+    expect(decision.confirmationState).toBe('accepted');
+    expect(decision.adrPath).toBe('docs/owner-directive.md');
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it('retains optional dialectic evaluation when explicitly requested', async () => {
+    delete process.env['CLEO_ENV'];
+    const evaluate = vi.fn().mockResolvedValue({ globalTraits: [], peerInsights: [] });
+    vi.doMock('../dialectic-evaluator.js', () => ({ evaluateDialectic: evaluate }));
+    const { storeDecision } = await import('../decisions.js');
+    await storeDecision(tempDir, {
+      type: 'architecture',
+      decision: 'Evaluate this proposal explicitly',
+      rationale: 'Caller requested optional semantic review',
+      confidence: 'high',
+      adrPath: 'docs/proposal.md',
+      validateWithLlm: true,
+    });
+    expect(evaluate).toHaveBeenCalledOnce();
+  });
+
   it('should succeed for ADR-typed write when CLEO_ENV=test (env skip)', async () => {
     const { storeDecision } = await import('../decisions.js');
     const { closeBrainDb } = await import('../../store/memory-sqlite.js');

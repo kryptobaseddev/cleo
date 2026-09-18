@@ -13,6 +13,7 @@ import { getBrainAccessor } from '../store/memory-accessor.js';
 import { typedAll } from '../store/typed-query.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 import type { BrainKnnRow } from './brain-row-types.js';
+import { isCurrentMemoryEntry } from './eligibility.js';
 
 // ============================================================================
 // Types
@@ -111,7 +112,7 @@ export async function searchSimilar(
       switch (entryType) {
         case 'observation': {
           const entry = await accessor.getObservation(row.id);
-          if (entry) {
+          if (entry && isCurrentMemoryEntry(entry)) {
             results.push({
               id: row.id,
               distance: row.distance,
@@ -124,7 +125,7 @@ export async function searchSimilar(
         }
         case 'decision': {
           const entry = await accessor.getDecision(row.id);
-          if (entry) {
+          if (entry && isCurrentMemoryEntry(entry)) {
             results.push({
               id: row.id,
               distance: row.distance,
@@ -137,7 +138,7 @@ export async function searchSimilar(
         }
         case 'pattern': {
           const entry = await accessor.getPattern(row.id);
-          if (entry) {
+          if (entry && isCurrentMemoryEntry(entry)) {
             results.push({
               id: row.id,
               distance: row.distance,
@@ -150,7 +151,7 @@ export async function searchSimilar(
         }
         case 'learning': {
           const entry = await accessor.getLearning(row.id);
-          if (entry) {
+          if (entry && isCurrentMemoryEntry(entry)) {
             results.push({
               id: row.id,
               distance: row.distance,
