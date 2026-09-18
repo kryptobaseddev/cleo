@@ -261,7 +261,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
 
   impact: async (params) => {
     if (!params.symbol) return lafsError('E_INVALID_INPUT', 'symbol is required', 'impact');
-    return wrapCoreResult(await nexusImpact(params.symbol, params.projectId, params.why), 'impact');
+    return wrapCoreResult(await nexusImpact(getProjectRoot(), params), 'impact');
   },
 
   'full-context': async (params) => {
@@ -1189,12 +1189,11 @@ async function handleImpact(
   }
   const projectId = typeof params.projectId === 'string' ? params.projectId : undefined;
   const depth = typeof params.depth === 'number' ? params.depth : undefined;
-  const result = await nexusImpact(
-    params.symbol,
+  const result = await nexusImpact(getProjectRoot(), {
+    symbol: params.symbol,
     projectId,
-    params.why === true,
+    why: params.why === true,
     depth,
-    getProjectRoot(),
-  );
+  });
   return wrapResult(result, 'query', 'nexus', operation, startTime);
 }

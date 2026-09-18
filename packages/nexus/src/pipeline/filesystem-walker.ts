@@ -217,13 +217,17 @@ export async function walkRepositoryPaths(
 
   // Collect all relative paths via native glob
   const relativePaths: string[] = [];
-  for await (const relPath of fs.glob('**/*', {
+  for await (const entry of fs.glob('**/*', {
     cwd: repoPath,
-    exclude: (name) => {
-      const normalized = name.replace(/\\/g, '/');
-      const nestedRepository = existsSync(path.join(repoPath, name, '.git'));
+    withFileTypes: true,
+    exclude: (candidate) => {
+      const absolutePath = path.join(candidate.parentPath, candidate.name);
+      const normalized = path.relative(repoPath, absolutePath).replace(/\\/g, '/');
+      const nestedRepository =
+        (candidate.isDirectory() || candidate.isSymbolicLink()) &&
+        existsSync(path.join(absolutePath, '.git'));
       const excluded =
-        DEFAULT_EXCLUDED_DIRS.has(path.basename(name)) ||
+        DEFAULT_EXCLUDED_DIRS.has(candidate.name) ||
         (nestedRepository && !includedRepositories.includes(normalized));
       if (excluded)
         onFileReport?.({
@@ -237,10 +241,14 @@ export async function walkRepositoryPaths(
     },
   })) {
     // Normalise to forward slashes
+    const relPath = path.relative(repoPath, path.join(entry.parentPath, entry.name));
     const normalised = relPath.replace(/\\/g, '/');
-    if (
-      !(await isExcluded(normalised, (await fs.stat(path.join(repoPath, relPath))).isDirectory()))
-    ) {
+    // Native directory entries avoid a serial stat for every source; metadata
+    // and content hashes are still captured by the bounded batches below.
+    const isDirectory = entry.isSymbolicLink()
+      ? (await fs.stat(path.join(repoPath, relPath))).isDirectory()
+      : entry.isDirectory();
+    if (!(await isExcluded(normalised, isDirectory))) {
       relativePaths.push(normalised);
     } else {
       onFileReport?.({ path: normalised, status: 'excluded', reason: 'Ignore rule' });
