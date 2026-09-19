@@ -14,7 +14,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getBrainAccessor } from '../../store/memory-accessor.js';
 import { resetBrainDbState } from '../../store/memory-sqlite.js';
@@ -36,6 +36,16 @@ import {
 // ============================================================================
 // Test setup
 // ============================================================================
+
+// Explicit fixture cwd takes effect after clearing the shared setup project pins.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('Agent Execution Learning', () => {
   let tempDir: string;
