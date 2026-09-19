@@ -151,6 +151,13 @@ function stubAdapter(over: Partial<DhqAdapter> = {}): DhqAdapter & {
   };
 }
 
+// Resolve diagnostic state and verification commands from the synthetic project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 describe('runSelfImprove — green / dry-run / default-OFF', () => {
   it('green run: golden match ⇒ no regression, no DHQ, no PR', async () => {
     const adapter = stubAdapter();

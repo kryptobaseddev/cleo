@@ -100,6 +100,13 @@ function fakeGenerator(output: FixGenOutput): FixGenerator {
   return { propose: vi.fn(async () => output) };
 }
 
+// Resolve diagnostic state and verification commands from the synthetic project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 describe('fix-gen — pure helpers', () => {
   it('fixPatchPath sanitizes the scenario and resolves against cwd', () => {
     // `/`, `.`, `.`, `/` → 4 dashes; no traversal escapes the cwd. T12084: the
