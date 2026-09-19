@@ -38,6 +38,7 @@ import {
   nexusFullContext,
   reasonImpactOfChange,
 } from '../living-brain.js';
+import { resolveSourceRoots } from '../source-roots.js';
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -211,6 +212,10 @@ describe('living-brain SDK', () => {
 
   describe('trustworthy knowledge coverage', () => {
     it('detects a newly staged source file missing from the recorded generation', async () => {
+      writeFileSync(
+        join(projectRoot, '.cleo/project-info.json'),
+        JSON.stringify({ projectId: 'fixture-parent-id', projectHash: 'fixture-parent-hash' }),
+      );
       const sourceRoot = join(projectRoot, 'source-checkout');
       mkdirSync(sourceRoot);
       execFileSync('git', ['init', '--quiet', sourceRoot]);
@@ -237,6 +242,12 @@ describe('living-brain SDK', () => {
         cwd: sourceRoot,
         encoding: 'utf8',
       }).trim();
+      const sourceRoots = await resolveSourceRoots({
+        projectId: 'fixture-parent-id',
+        projectRoot,
+        sourceRoot,
+      });
+      expect(sourceRoots.roots[0]?.revision).toBe(revision);
       const stat = statSync(join(sourceRoot, 'current.ts'));
       const native = getNexusNativeDb(projectRoot);
       if (!native) throw new Error('Missing fixture database');
@@ -246,6 +257,7 @@ describe('living-brain SDK', () => {
         )
         .run(
           JSON.stringify({
+            sourceRoots,
             sourceRoot,
             assessedRevision: revision,
             assessedAt: new Date().toISOString(),
