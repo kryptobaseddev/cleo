@@ -258,6 +258,12 @@ describe.skipIf(!HAS_BUNDLE)('mutation exit and persistence contract (T12258)', 
       expect(reread.status, reread.stderr || reread.stdout).toBe(0);
       expect(reread.stdout.trim()).toBe(expected);
     }
+    const phase = runCli(['update', 'T002', '--phase', 'verification', '--output', 'silent']);
+    expect(phase.status, phase.stderr || phase.stdout).toBe(0);
+    expect(runCli(['show', 'T002', '--field', '/data/task/phase']).stdout.trim()).toBe(
+      'verification',
+    );
+
     for (const noAutoComplete of [true, false]) {
       const updated = runCli([
         'update',

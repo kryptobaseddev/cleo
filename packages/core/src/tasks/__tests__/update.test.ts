@@ -66,6 +66,60 @@ describe('updateTask', () => {
     }
   });
 
+  it.each([
+    'engine',
+    'operation',
+  ] as const)('%s wrapper preserves supported field updates', async (wrapper) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Field forwarding fixture',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'research',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const updates = [
+      { input: { phase: 'verification' }, expected: { phase: 'verification' } },
+      { input: { title: 'Revised title' }, expected: { title: 'Revised title' } },
+      { input: { description: 'Detailed outcome' }, expected: { description: 'Detailed outcome' } },
+      { input: { priority: 'high' }, expected: { priority: 'high' } },
+      {
+        input: { notes: 'An evidence note' },
+        expected: { notes: [expect.stringMatching(/: An evidence note$/)] },
+      },
+      { input: { size: 'small' }, expected: { size: 'small' } },
+      { input: { labels: ['first'] }, expected: { labels: ['first'] } },
+      { input: { addLabels: ['second'] }, expected: { labels: ['first', 'second'] } },
+      { input: { removeLabels: ['first'] }, expected: { labels: ['second'] } },
+      { input: { files: ['one.ts'] }, expected: { files: ['one.ts'] } },
+      { input: { addFiles: ['two.ts'] }, expected: { files: ['one.ts', 'two.ts'] } },
+      { input: { removeFiles: ['one.ts'] }, expected: { files: ['two.ts'] } },
+      {
+        input: { blockedBy: 'Awaiting external input' },
+        expected: { blockedBy: 'Awaiting external input' },
+      },
+      { input: { clearBlockedBy: true }, expected: { blockedBy: undefined } },
+      { input: { kind: 'research' }, expected: { kind: 'research' } },
+      { input: { scope: 'unit' }, expected: { scope: 'unit' } },
+      { input: { severity: 'P2' }, expected: { severity: 'P2' } },
+      {
+        input: { acceptance: ['literal a|b', 'verified output', 'fresh read'] },
+        expected: { acceptance: ['literal a|b', 'verified output', 'fresh read'] },
+      },
+    ];
+    for (const { input, expected } of updates) {
+      if (wrapper === 'engine') {
+        const result = await taskUpdate(env.tempDir, 'T001', input);
+        expect(result.success).toBe(true);
+      } else {
+        await tasksUpdateOp(env.tempDir, { taskId: 'T001', ...input });
+      }
+      expect(await accessor.loadSingleTask('T001')).toMatchObject(expected);
+    }
+  });
+
   it('updates task title', async () => {
     await seedTasks(accessor, [
       {

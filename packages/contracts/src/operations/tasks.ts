@@ -1500,6 +1500,8 @@ export interface TasksUpdateQueryParams {
   description?: string;
   status?: string;
   priority?: string;
+  /** Project-defined task phase, persisted independently of pipelineStage. */
+  phase?: string;
   notes?: string;
   labels?: string[];
   addLabels?: string[];
@@ -2440,6 +2442,7 @@ export const TASKS_UPDATE_INPUT_SCHEMA: JsonSchema = {
       enum: ['pending', 'active', 'blocked', 'done', 'cancelled'],
     },
     priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+    phase: { type: 'string' },
     notes: { type: 'string' },
     labels: { type: 'array', items: { type: 'string' } },
     addLabels: { type: 'array', items: { type: 'string' } },
