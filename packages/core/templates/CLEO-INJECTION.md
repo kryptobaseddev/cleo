@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.10.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.11.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## MANDATORY: Run `cleo briefing` BEFORE Any Other Tool
@@ -102,6 +102,8 @@ only — dependencies, ordering, cross-reference, evidence, supersession, proven
 ## Task Discovery
 
 Task search is lexical by default. Use `cleo find "query" --fuzzy` only when approximate character-subsequence matches are wanted. Check each result's `match.kind`, `match.fields`, and reason before treating it as related work or duplicate evidence. Fuzzy provenance survives compact output; scalar/human modes explain it on stderr. `--in title|description|notes|id` restricts the searched field. Semantic retrieval is a separate, explicitly identified capability.
+
+Compact SDK list/find records also carry `_withheld`: omission names and original UTF-8 sizes are recorded before fields are discarded, then retained through later CLI projections. Use full records to inspect those values; absence is not emptiness.
 
 List/find default to excluding archived rows; `--include-archive` applies the same filters to archives. Inspect `data.population` before inferring completeness; `truncated: true` includes nonzero offsets. Budgets cannot silently remove population facts or their rows.
 
