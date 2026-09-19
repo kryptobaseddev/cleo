@@ -131,14 +131,17 @@ function consolidatedIsEmpty(nativeDb: DatabaseSync, scope: DualScope): boolean 
 
 /** Recover only the inserted resources recorded by this staging operation. */
 async function rollbackBothScopes(plan: ExodusPlan): Promise<ExodusRecoveryResult> {
-  const { openDualScopeDbAtPath } = await import('../dual-scope-db.js');
+  const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
   const scopes: ExodusRecoveryResult['scopes'] = [];
   for (const scope of ['project', 'global'] as const) {
     const dbPath = scope === 'project' ? plan.projectDbPath : plan.globalDbPath;
     let handle: DualScopeDbHandle | null = null;
     try {
-      handle = await openDualScopeDbAtPath(scope, dbPath, undefined, { dedicated: true });
-      const native = handle.db.$client as DatabaseSync;
+      handle =
+        scope === 'project'
+          ? await openDualScopeDbAtPath('project', dbPath, undefined, { dedicated: true })
+          : await openDualScopeDbAtPath('global', dbPath, undefined, { dedicated: true });
+      const native = getDualScopeNativeDb(handle);
       const rowsReverted = rollbackExodusReceipts(native, plan.stagingDir);
       scopes.push({ scope, dbPath, status: 'rolled_back', rowsReverted });
     } catch (error) {
@@ -164,14 +167,17 @@ async function sealTargets(
   plan: ExodusPlan,
   consumed: readonly LegacyDbDescriptor[],
 ): Promise<Partial<Record<ExodusScope, string>>> {
-  const { openDualScopeDbAtPath } = await import('../dual-scope-db.js');
+  const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
   const identities: Partial<Record<ExodusScope, string>> = {};
   for (const scope of ['project', 'global'] as const) {
     if (!consumed.some((source) => source.targetScope === scope)) continue;
     const path = scope === 'project' ? plan.projectDbPath : plan.globalDbPath;
-    const handle = await openDualScopeDbAtPath(scope, path, undefined, { dedicated: true });
+    const handle =
+      scope === 'project'
+        ? await openDualScopeDbAtPath('project', path, undefined, { dedicated: true })
+        : await openDualScopeDbAtPath('global', path, undefined, { dedicated: true });
     try {
-      identities[scope] = sealExodusDatabase(handle.db.$client as DatabaseSync);
+      identities[scope] = sealExodusDatabase(getDualScopeNativeDb(handle));
     } finally {
       handle.close();
     }

@@ -8,7 +8,10 @@ const identitySchema = z.array(
   z.tuple([z.enum(['null', 'integer', 'real', 'text', 'blob']), z.string()]),
 );
 
-/** A copy whose effects cannot be recovered must abort the source transaction. */
+/**
+ * A copy whose effects cannot be recovered must abort the source transaction.
+ * @remarks The migration caller retains its staging journal for explicit recovery.
+ */
 export class ExodusRecoveryError extends Error {}
 
 function identityValues(encoded: string): SQLInputValue[] {
@@ -80,7 +83,18 @@ function ensureReceipts(db: DatabaseSync, schema: string): void {
   )`);
 }
 
-/** Whether an existing staging journal has durable ownership on this target. */
+/**
+ * Inspect durable ownership for an existing staging operation.
+ *
+ * @param db - Exact target database connection.
+ * @param operation - Existing Exodus staging-directory identity.
+ * @returns Whether this target records the operation.
+ * @remarks A staging journal alone cannot prove ownership of target rows.
+ * @example
+ * ```ts
+ * hasExodusRecovery(db, stagingDirectory);
+ * ```
+ */
 export function hasExodusRecovery(db: DatabaseSync, operation: string): boolean {
   const present = db
     .prepare(
@@ -99,7 +113,18 @@ export function hasExodusRecovery(db: DatabaseSync, operation: string): boolean 
   );
 }
 
-/** Register the existing staging operation on the exact target before copy. */
+/**
+ * Register the staging operation on the exact target before copying.
+ *
+ * @param db - Exact target database connection.
+ * @param operation - Existing Exodus staging-directory identity.
+ * @param schema - Target schema containing the receipt tables.
+ * @remarks Call within the source transaction so operation ownership commits with its rows.
+ * @example
+ * ```ts
+ * prepareExodusRecovery(db, stagingDirectory, 'main');
+ * ```
+ */
 export function prepareExodusRecovery(db: DatabaseSync, operation: string, schema = 'main'): void {
   ensureReceipts(db, schema);
   db.exec(`CREATE TABLE IF NOT EXISTS ${identifier(schema)}._exodus_recovery_operations (
@@ -217,11 +242,21 @@ function handoffSnapshot(db: DatabaseSync, schema: string) {
 }
 
 /**
- * Execute an INSERT with exact inserted-row receipts in the caller's existing
- * transaction. A savepoint rolls back both rows and receipts on any failure.
- * Ignored rows produce no receipts. SQLite authorizes read-only guards; handoff
- * mirror changes receive before/after receipts. Other write effects are refused. The operation is the existing
- * Exodus staging-journal directory, not a separate repair engine.
+ * Insert rows with transactional ownership and effect receipts.
+ *
+ * @param db - Target connection inside the source transaction.
+ * @param schema - Target schema receiving rows.
+ * @param table - Target table with a stable declared primary key.
+ * @param insertSql - Migration INSERT statement whose effects are assessed.
+ * @param operation - Existing Exodus staging-directory identity.
+ * @param sourceDb - Source database identity recorded as provenance.
+ * @param sourceTable - Original source table name.
+ * @returns Number of directly inserted rows.
+ * @remarks Rows and receipts share a savepoint. Ignored rows have no receipt. Read-only guard triggers and recorded handoff mirrors are supported; other effects are refused.
+ * @example
+ * ```ts
+ * insertWithExodusReceipts(db, 'main', 'tasks_tasks', insertSql, stagingDirectory, sourcePath, 'tasks');
+ * ```
  */
 export function insertWithExodusReceipts(
   db: DatabaseSync,
@@ -306,10 +341,16 @@ export function insertWithExodusReceipts(
 }
 
 /**
- * Roll back only unchanged rows owned by this staging operation. Every affected
- * row is checked before any delete; mismatches reject the whole scope. Receipts
- * stay durable and change state in the same transaction as their guarded delete.
- * Unrelated tables, inserts and updates are outside the recovery resource set.
+ * Recover unchanged resources owned by one staging operation.
+ *
+ * @param db - Exact target database connection.
+ * @param operation - Existing Exodus staging-directory identity.
+ * @returns Number of reverted inserted rows and mirror effects.
+ * @remarks All owned resources are checked before any mutation. Conflicts refuse the whole target scope; unrelated resources remain intact. Separate database files are not one atomic transaction.
+ * @example
+ * ```ts
+ * rollbackExodusReceipts(db, stagingDirectory);
+ * ```
  */
 export function rollbackExodusReceipts(db: DatabaseSync, operation: string): number {
   const present = db
@@ -435,7 +476,17 @@ export function rollbackExodusReceipts(db: DatabaseSync, operation: string): num
   }
 }
 
-/** Commit a fresh cutover token to this exact database generation before its marker. */
+/**
+ * Commit a fresh cutover token before publishing its marker.
+ *
+ * @param db - Exact target database connection after migration verification.
+ * @returns Persisted token identifying this verified cutover.
+ * @remarks The marker and target token must agree; replacing or restoring the file invalidates an old marker.
+ * @example
+ * ```ts
+ * const token = sealExodusDatabase(db);
+ * ```
+ */
 export function sealExodusDatabase(db: DatabaseSync): string {
   if (db.isTransaction)
     throw new ExodusRecoveryError('Exodus sealing requires a dedicated idle handle');
@@ -456,7 +507,18 @@ export function sealExodusDatabase(db: DatabaseSync): string {
   }
 }
 
-/** Verify a marker's cutover token against the existing caller's database handle. */
+/**
+ * Check a marker against the current database cutover identity.
+ *
+ * @param db - Existing caller connection to the target database.
+ * @param token - Cutover token read from the completion marker.
+ * @returns Whether the current database stores the expected cutover token.
+ * @remarks This read never creates missing identity state and does not trust a pathname alone.
+ * @example
+ * ```ts
+ * hasExodusDatabaseIdentity(db, marker.databaseIdentity);
+ * ```
+ */
 export function hasExodusDatabaseIdentity(db: DatabaseSync, token: string): boolean {
   const present = db
     .prepare(

@@ -127,7 +127,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { getLogger } from '../../logger.js';
 import { getCleoVersion } from '../../scaffold/ensure-config.js';
 import type { DualScopeDbHandle } from '../dual-scope-db.js';
-import { openDualScopeDbAtPath } from '../dual-scope-db.js';
+import { getDualScopeNativeDb, openDualScopeDbAtPath } from '../dual-scope-db.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import {
   buildEpochToIsoExpr,
@@ -1033,22 +1033,8 @@ export async function runExodusMigrate(
       dedicated: true,
     });
 
-    // Extract the raw DatabaseSync from the Drizzle wrapper ($client pattern).
-    function extractNativeDb(handle: { db: unknown }): DatabaseSync {
-      const drizzleHandle = handle.db as Record<string, unknown>;
-      const client = drizzleHandle['$client'];
-      if (client && typeof (client as Record<string, unknown>)['prepare'] === 'function') {
-        return client as DatabaseSync;
-      }
-      // Fallback: the handle itself may be a DatabaseSync (unlikely but safe)
-      if (typeof (drizzleHandle as unknown as Record<string, unknown>)['prepare'] === 'function') {
-        return drizzleHandle as unknown as DatabaseSync;
-      }
-      throw new Error('Could not extract native DatabaseSync from dual-scope DB handle');
-    }
-
-    const projectNative = extractNativeDb(projectHandle);
-    const globalNative = extractNativeDb(globalHandle);
+    const projectNative = getDualScopeNativeDb(projectHandle);
+    const globalNative = getDualScopeNativeDb(globalHandle);
     if (
       journal.tables.some((entry) => entry.status === 'done') &&
       (!hasExodusRecovery(projectNative, stagingDir) ||
