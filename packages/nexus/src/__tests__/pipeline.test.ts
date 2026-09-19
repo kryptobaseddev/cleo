@@ -244,6 +244,22 @@ describe('isolated shared extraction (T12262)', () => {
           parserExecution: execution, parserLimits: { signal: controller.signal }, publishGraph(rows) { publications.push(rows); },
         }), /cancel before publication/);
         assert.equal(publications.length, 1);
+        const busy = new URL('./busy.cjs', import.meta.url);
+        writeFileSync(busy, "process.send({type:'ready',heapBytes:require('node:v8').getHeapStatistics().heap_size_limit}); process.on('message',()=>{process.send({type:'progress',filesProcessed:1}); while(true){};});");
+        let entered = false;
+        const deadlinePool = createWorkerPool(busy, 1, { timeoutMs: 300, workerHeapMb: 32 }, actual);
+        await assert.rejects(deadlinePool.dispatch([1], () => {entered = true;}), /E_PARSE_WORKER_TIMEOUT/);
+        assert.equal(entered, true, 'deadline must interrupt a running process, not just its startup');
+        await deadlinePool.terminate();
+        const cancel = new AbortController();
+        const cancelPool = createWorkerPool(busy, 1, { timeoutMs: 5000, workerHeapMb: 32, signal: cancel.signal }, actual);
+        await assert.rejects(cancelPool.dispatch([1], () => {setTimeout(() => cancel.abort(), 50);}), /E_PARSE_CANCELLED/);
+        await cancelPool.terminate();
+        const allocate = new URL('./allocate.cjs', import.meta.url);
+        writeFileSync(allocate, "process.send({type:'ready',heapBytes:require('node:v8').getHeapStatistics().heap_size_limit}); process.on('message',()=>{const retained=[];while(true) retained.push(new Array(100000).fill('retained'));});");
+        const heapPool = createWorkerPool(allocate, 1, { workerHeapMb: 16 }, actual);
+        await assert.rejects(heapPool.dispatch([1]), /OOM|heap|memory/i);
+        await heapPool.terminate();
 
       `,
       );
