@@ -158,7 +158,8 @@ function identityOf(row: unknown, key: string): string | undefined {
  *   1. `data.task.id` — single-task mutate ops (`add`, `update`, ...).
  *   2. `data.{tasks,items,results}[].id` — list / find responses
  *      ({@link COLLECTION_KEYS}).
- *   3. `data.id` — bare id payloads (e.g. `cleo session start`).
+ *   3. `data.created/updated/deleted` — canonical mutation ID arrays.
+ *   4. `data.id` — bare id payloads (e.g. `cleo session start`).
  *
  * @returns id strings in the same order they appeared in the envelope.
  *          Empty array when no id can be located.
@@ -185,7 +186,24 @@ function extractIds(data: unknown): string[] {
       .filter((id): id is string => id !== undefined);
   }
 
-  // 3. Bare id
+  // Minimal mutation envelopes contain string IDs, not record collections.
+  // Do not consume the deprecated `ids` alias or unrelated string arrays.
+  const created = rec['created'];
+  const updated = rec['updated'];
+  const deleted = rec['deleted'];
+  if (
+    typeof rec['count'] === 'number' &&
+    Array.isArray(created) &&
+    Array.isArray(updated) &&
+    Array.isArray(deleted)
+  ) {
+    const affected = [...created, ...updated, ...deleted];
+    if (affected.every((id): id is string => typeof id === 'string')) {
+      return [...new Set(affected)];
+    }
+  }
+
+  // 4. Bare id
   const id = rec['id'];
   if (typeof id === 'string') return [id];
 

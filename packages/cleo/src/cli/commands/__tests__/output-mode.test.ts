@@ -16,6 +16,39 @@ import { describe, expect, it } from 'vitest';
 import { renderOutputMode, renderSummary } from '../../renderers/output-mode.js';
 
 describe('renderOutputMode — id', () => {
+  it.each([
+    'created',
+    'updated',
+    'deleted',
+  ] as const)('extracts canonical %s mutation IDs without relying on the deprecated alias', (bucket) => {
+    const data = {
+      count: 1,
+      created: [],
+      updated: [],
+      deleted: [],
+      [bucket]: ['T12258'],
+      ids: ['stale-alias'],
+    };
+    expect(renderOutputMode('id', data)).toEqual({ text: 'T12258' });
+  });
+
+  it('emits affected mutation IDs once, preserving operation and bucket order', () => {
+    expect(
+      renderOutputMode('id', {
+        count: 3,
+        created: ['T9', 'T2'],
+        updated: ['T2', 'T7'],
+        deleted: [],
+      }),
+    ).toEqual({ text: 'T9\nT2\nT7' });
+  });
+
+  it('preserves empty mutation results and list identity precedence', () => {
+    const empty = { count: 0, created: [], updated: [], deleted: [] };
+    expect(renderOutputMode('id', empty)).toMatchObject({ text: '' });
+    expect(renderOutputMode('id', { ...empty, tasks: [{ id: 'T4' }] })).toEqual({ text: 'T4' });
+  });
+
   it('extracts id from a single-task envelope ({task: {id}})', () => {
     const out = renderOutputMode('id', { task: { id: 'T9930', title: 'x', priority: 'medium' } });
     expect(out.text).toBe('T9930');
