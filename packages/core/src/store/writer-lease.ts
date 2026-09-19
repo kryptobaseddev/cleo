@@ -1261,6 +1261,30 @@ function makeNoopHandle(scope: LeaseScope, lane: LeaseLane): LeaseHandle {
   };
 }
 
+/** Release only this cold-open claim, refusing another native transaction when scoped. */
+function releaseColdOpenClaim(
+  nativeDb: DatabaseSync,
+  scope: LeaseScope,
+  lane: LeaseLane,
+  holderId: string,
+  epoch: number,
+  guardTransaction: boolean,
+): void {
+  if (guardTransaction) nativeDb.exec('BEGIN IMMEDIATE');
+  try {
+    nativeDb
+      .prepare(
+        `UPDATE ${WRITER_LEASES_TABLE} SET active = 0, reentrancy_depth = 0 ` +
+          `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
+      )
+      .run(scope, lane, holderId, epoch);
+    if (guardTransaction) nativeDb.exec('COMMIT');
+  } catch (error) {
+    if (guardTransaction) nativeDb.exec('ROLLBACK');
+    throw error;
+  }
+}
+
 /**
  * Primary surface: acquire → run `fn` → release (always, even on throw).
  *
@@ -1403,6 +1427,14 @@ function ensureColdOpenLeaseTables(nativeDb: DatabaseSync): void {
  *   degrade to running `fn` (busy_timeout still serializes the migrate write-txn).
  * - `require` → throw {@link LeaseUnavailableError} if the row cannot be taken.
  *
+ * @typeParam T - Actual result of the admitted migration callback.
+ * @remarks Scoped callbacks receive one original deadline and must cooperate at
+ * their own asynchronous boundaries. A committed callback result survives later
+ * cancellation; cancellation never grants degraded migration permission.
+ * @example
+ * ```ts
+ * const result = await withColdOpenLease('project', native, migrate, options);
+ * ```
  * @param scope - The cleo.db scope being cold-opened.
  * @param nativeDb - The native handle the cold-open just created (pragmas applied).
  * @param fn - The cold-open body to run while holding the lease.
@@ -1418,8 +1450,9 @@ export async function withColdOpenLease<T>(
   scope: LeaseScope,
   nativeDb: DatabaseSync,
   fn: () => Promise<T>,
-  opts?: { priority?: number; ttlMs?: number },
+  opts?: Pick<LeaseAcquireOptions, 'priority' | 'ttlMs' | 'execution'>,
 ): Promise<T> {
+  opts?.execution?.assertActive();
   const mode = effectiveMode();
 
   // `off` mode — pure pass-through. busy_timeout=30000 on the connection still
@@ -1442,49 +1475,51 @@ export async function withColdOpenLease<T>(
   // Bounded acquire window — never wait longer than the lease TTL. busy_timeout on
   // the IMMEDIATE lock backstops every individual claim attempt.
   const acquireWindowMs = Math.min(ACQUIRE_DEADLINE_MS, Math.max(1, ttlMs));
-  const deadline = Date.now() + acquireWindowMs;
+  const deadline = Math.min(Date.now() + acquireWindowMs, opts?.execution?.deadlineAt ?? Infinity);
   let enqueued = false;
   let epoch: number | null = null;
-  for (;;) {
-    epoch = tryClaimOnce(nativeDb, scope, lane, holderId, ttlMs);
-    if (epoch !== null) {
-      if (enqueued) dequeueWaiter(nativeDb, scope, lane, holderId);
-      break;
-    }
-    if (!enqueued) {
-      enqueueWaiter(nativeDb, scope, lane, holderId, priority, ttlMs);
-      enqueued = true;
-    }
-    if (Date.now() >= deadline) {
-      if (enqueued) dequeueWaiter(nativeDb, scope, lane, holderId);
-      if (mode === 'require') {
-        throw new LeaseUnavailableError(
-          scope,
-          lane,
-          'cold-open: live holder did not release within deadline',
-        );
-      }
-      // local/supervisor: degrade to today's behaviour — run the cold-open under
-      // busy_timeout, which still serializes the migrate write-txn.
-      log().warn(
-        { scope },
-        'cold-open writer-lease acquire deadline exceeded; proceeding under ' +
-          'busy_timeout fallback (degraded)',
-      );
-      return fn();
-    }
-    await sleepAsync(CLAIM_RETRY_DELAY_MS);
-  }
-
-  // Held — run the cold-open body, then free the row (epoch-guarded) on the way out.
   try {
+    for (;;) {
+      opts?.execution?.assertActive();
+      epoch = tryClaimOnce(nativeDb, scope, lane, holderId, ttlMs, opts?.execution);
+      if (epoch !== null) {
+        if (enqueued) dequeueWaiter(nativeDb, scope, lane, holderId, opts?.execution !== undefined);
+        break;
+      }
+      if (!enqueued) {
+        opts?.execution?.assertActive();
+        enqueueWaiter(nativeDb, scope, lane, holderId, priority, ttlMs);
+        enqueued = true;
+      }
+      if (Date.now() >= deadline) {
+        if (enqueued) dequeueWaiter(nativeDb, scope, lane, holderId, opts?.execution !== undefined);
+        opts?.execution?.assertActive();
+        if (mode === 'require' || opts?.execution) {
+          throw new LeaseUnavailableError(
+            scope,
+            lane,
+            'cold-open: live holder did not release within deadline',
+          );
+        }
+        // local/supervisor: degrade to today's behaviour — run the cold-open under
+        // busy_timeout, which still serializes the migrate write-txn.
+        log().warn(
+          { scope },
+          'cold-open writer-lease acquire deadline exceeded; proceeding under ' +
+            'busy_timeout fallback (degraded)',
+        );
+        return fn();
+      }
+      await sleepAsync(Math.min(CLAIM_RETRY_DELAY_MS, Math.max(0, deadline - Date.now())));
+    }
+
+    // Retain an actual committed callback result even if cancellation arrives afterwards.
+    opts?.execution?.assertActive();
     return await fn();
   } finally {
-    nativeDb
-      .prepare(
-        `UPDATE ${WRITER_LEASES_TABLE} SET active = 0, reentrancy_depth = 0 ` +
-          `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
-      )
-      .run(scope, lane, holderId, epoch);
+    if (enqueued) dequeueWaiter(nativeDb, scope, lane, holderId, opts?.execution !== undefined);
+    if (epoch !== null) {
+      releaseColdOpenClaim(nativeDb, scope, lane, holderId, epoch, opts?.execution !== undefined);
+    }
   }
 }
