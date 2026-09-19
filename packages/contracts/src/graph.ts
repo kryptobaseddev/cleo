@@ -410,22 +410,92 @@ export interface GraphIndexFileReport {
   size?: number;
 }
 
+/** Original-source range; native parser indexes count UTF-16 code units, not UTF-8 bytes. */
+export interface GraphSourceSpan {
+  /** Inclusive start offset in original source. */
+  startIndex: number;
+  /** Exclusive end offset in original source. */
+  endIndex: number;
+  /** One-based start line. */
+  startLine: number;
+  /** One-based end line. */
+  endLine: number;
+  /** Zero-based start column in UTF-16 units. */
+  startColumn: number;
+  /** Zero-based end column in UTF-16 units. */
+  endColumn: number;
+  /** Explicit index encoding prevents byte/character confusion. */
+  offsetEncoding: 'utf16';
+}
+
+/** A binding introduced by syntax in an explicitly supported lexical model. */
+export interface GraphLexicalBinding {
+  /** Stable declaration identity, distinct from its visible name. */
+  id: string;
+  /** Identifier visible in the declaring scope. */
+  name: string;
+  /** Scope that owns the binding. */
+  scopeId: string;
+  /** Value binding category; type-only imports remain explicitly marked. */
+  kind: 'function' | 'class' | 'local' | 'parameter' | 'catch' | 'import';
+  /** Original declaration range. */
+  span: GraphSourceSpan;
+  /** Callable/class target established by syntax, absent for unknown local values. */
+  targetId?: string;
+  /** Literal import source, before repository resolution. */
+  importSource?: string;
+  /** Imported name; '*' identifies a namespace import. */
+  importedName?: string;
+  /** True when this declaration cannot provide a runtime value. */
+  typeOnly?: boolean;
+}
+
+/** One scope in a per-file lexical model, qualified by its containing scopes. */
+export interface GraphLexicalScope {
+  /** Unique scope identity. */
+  id: string;
+  /** Lexical parent; omitted only for the module. */
+  parentId?: string;
+  /** Scope semantics used for shadowing and var hoisting. */
+  kind: 'module' | 'function' | 'class' | 'block' | 'catch';
+  /** Nearest declared callable/class identity for reference ownership. */
+  ownerId: string;
+  /** Original syntax range. */
+  span: GraphSourceSpan;
+}
+
+/** Lexical lookup evidence; an unknown local value is never a global-name fallback. */
+export interface GraphLexicalResolution {
+  /** Outcome before repository import/member resolution. */
+  kind: 'resolved' | 'import' | 'shadowed' | 'ambiguous' | 'unbound';
+  /** Binding candidates in the nearest declaring scope, without arbitrary selection. */
+  bindings: GraphLexicalBinding[];
+  /** Why these bindings or their absence produced the outcome. */
+  reason: string;
+}
+
 /** An AST reference whose enclosing scope has no analyzed declaration in this generation. */
 export interface GraphIndexReferenceReport {
   /** Explicit extraction limitation; this record is not a resolved graph relationship. */
-  kind: 'unmodeled-source';
+  kind: 'unmodeled-source' | 'ambiguous' | 'external' | 'dynamic' | 'shadowed' | 'unresolved';
   /** Analyzed source file containing the reference. */
   filePath: string;
   /** Enclosing scope identifier extracted from syntax, without a graph declaration. */
   sourceId: string;
-  /** Known callee or member declaration that the omitted relationship would target. */
-  targetId: string;
+  /** Known target, absent when syntax cannot establish one. */
+  targetId?: string;
   /** Callee or member name retained for independent source inspection. */
   targetName: string;
   /** The kind of static relationship omitted from the published graph. */
   relationship: 'calls' | 'accesses';
   /** Extraction and resolution provenance from the attempted relationship. */
   reason: string;
+  /** Original reference range; absent only on historical reports. */
+  span?: GraphSourceSpan;
+  /** Candidate identities retained without asserting an authoritative target. */
+  candidateIds?: string[];
+  /** Source generation tying anonymous and span identities to the analyzed bytes. */
+  generation?: string;
 }
 
 /** Source provenance persisted with a complete published graph generation. */
