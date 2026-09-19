@@ -146,6 +146,8 @@ export function _resolveMainRepoFromGitlink(gitlinkDir: string): string | null {
  * @param candidate - Absolute path to the directory being considered as the
  *   project root (parent of the `.cleo/` directory).
  * @returns `true` when the candidate is a recognised CLEO project root.
+ * @remarks This validates existing markers without creating directories or opening
+ * stores. Git-link worktrees resolve through their parent instead of becoming roots.
  *
  * @example
  * ```typescript

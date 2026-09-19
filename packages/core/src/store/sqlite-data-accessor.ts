@@ -192,6 +192,7 @@ export function captureTaskAccessorScope(
 
 /**
  * Bind all asynchronous accessor methods, including transaction ports, to one project.
+ * @typeParam T - Concrete accessor contract retained by the scoped wrapper.
  * @param accessor - Canonical, safety-wrapped, or transaction accessor to bind.
  * @param scope - Immutable project scope captured at construction.
  * @returns An accessor preserving method arguments, results and receiver semantics.
