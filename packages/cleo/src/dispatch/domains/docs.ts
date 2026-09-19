@@ -843,7 +843,11 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     const projectRoot = getProjectRoot();
     return worktreeScope.run(
-      { worktreeRoot: projectRoot, projectHash: generateProjectHash(projectRoot) },
+      {
+        ...worktreeScope.getStore(),
+        worktreeRoot: projectRoot,
+        projectHash: generateProjectHash(projectRoot),
+      },
       async () => {
         const projectionCapture = await captureDocumentProjection(
           projectRoot,
@@ -2207,20 +2211,30 @@ export class DocsHandler implements DomainHandler {
     }
 
     try {
-      if (operation in _docsTypedHandler.operations) {
-        const envelope = await typedDispatch(
-          _docsTypedHandler,
-          operation as keyof DocsTypedOps & string,
-          params ?? {},
-        );
-        return docsEnvelopeToResponse(envelope, 'query', operation, startTime);
-      }
+      const projectRoot = getProjectRoot();
+      return await worktreeScope.run(
+        {
+          ...worktreeScope.getStore(),
+          worktreeRoot: projectRoot,
+          projectHash: generateProjectHash(projectRoot),
+        },
+        async () => {
+          if (operation in _docsTypedHandler.operations) {
+            const envelope = await typedDispatch(
+              _docsTypedHandler,
+              operation as keyof DocsTypedOps & string,
+              params ?? {},
+            );
+            return docsEnvelopeToResponse(envelope, 'query', operation, startTime);
+          }
 
-      return {
-        meta: dispatchMeta('query', 'docs', operation, startTime),
-        success: true,
-        data: await dispatchDocsLegacyQuery(operation, params ?? {}),
-      };
+          return {
+            meta: dispatchMeta('query', 'docs', operation, startTime),
+            success: true,
+            data: await dispatchDocsLegacyQuery(operation, params ?? {}),
+          };
+        },
+      );
     } catch (error) {
       return handleErrorResult('query', 'docs', operation, error, startTime);
     }
@@ -2244,20 +2258,30 @@ export class DocsHandler implements DomainHandler {
     }
 
     try {
-      if (operation in _docsTypedHandler.operations) {
-        const envelope = await typedDispatch(
-          _docsTypedHandler,
-          operation as keyof DocsTypedOps & string,
-          params ?? {},
-        );
-        return docsEnvelopeToResponse(envelope, 'mutate', operation, startTime);
-      }
+      const projectRoot = getProjectRoot();
+      return await worktreeScope.run(
+        {
+          ...worktreeScope.getStore(),
+          worktreeRoot: projectRoot,
+          projectHash: generateProjectHash(projectRoot),
+        },
+        async () => {
+          if (operation in _docsTypedHandler.operations) {
+            const envelope = await typedDispatch(
+              _docsTypedHandler,
+              operation as keyof DocsTypedOps & string,
+              params ?? {},
+            );
+            return docsEnvelopeToResponse(envelope, 'mutate', operation, startTime);
+          }
 
-      return {
-        meta: dispatchMeta('mutate', 'docs', operation, startTime),
-        success: true,
-        data: await dispatchDocsLegacyMutate(operation, params ?? {}),
-      };
+          return {
+            meta: dispatchMeta('mutate', 'docs', operation, startTime),
+            success: true,
+            data: await dispatchDocsLegacyMutate(operation, params ?? {}),
+          };
+        },
+      );
     } catch (error) {
       return handleErrorResult('mutate', 'docs', operation, error, startTime);
     }
