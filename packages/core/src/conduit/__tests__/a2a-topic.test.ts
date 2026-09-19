@@ -69,6 +69,13 @@ function makeCredential(agentId: string): AgentCredential {
 // LocalTransport topic tests
 // ============================================================================
 
+// Each scenario selects its SQLite store through its synthetic working directory.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 describe('LocalTransport — A2A Topic Operations (T1252)', () => {
   beforeEach(async () => {
     originalCwd = process.cwd();
