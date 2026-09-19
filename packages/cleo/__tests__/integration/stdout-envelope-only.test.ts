@@ -284,5 +284,68 @@ describe.skipIf(!HAS_BUNDLE)('mutation exit and persistence contract (T12258)', 
       expect(reread.status, reread.stderr || reread.stdout).toBe(0);
       expect(reread.stdout.trim()).toBe(String(noAutoComplete));
     }
+    const creationReason = 'Independent critical incident repair';
+    const created = runCli([
+      'add',
+      '--title',
+      'Waiver provenance fixture',
+      '--description',
+      'Synthetic task with durable critical-priority authorization',
+      '--type',
+      'task',
+      '--parent',
+      'T002',
+      '--priority',
+      'critical',
+      '--depends-waiver',
+      creationReason,
+      '--acceptance',
+      'original criterion|verified audit|fresh read',
+      '--files',
+      'src/repair.ts',
+    ]);
+    expect(created.status, created.stderr || created.stdout).toBe(0);
+    expect(runCli(['show', 'T003', '--field', '/data/task/files']).stdout.trim()).toBe(
+      '["src/repair.ts"]',
+    );
+    const creationAudit = runCli(['log', '--task', 'T003', '--operation', 'task_created']);
+    expect(creationAudit.status, creationAudit.stderr || creationAudit.stdout).toBe(0);
+    expect(JSON.parse(creationAudit.stdout).data.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId: 'T003',
+          details: expect.objectContaining({ dependsWaiver: creationReason }),
+        }),
+      ]),
+    );
+    const updateReason = 'Critical scope independently verified';
+    const updated = runCli([
+      'update',
+      'T003',
+      '--priority',
+      'critical',
+      '--depends-waiver',
+      updateReason,
+      '--acceptance',
+      'approved criterion|verified audit|fresh read',
+      '--reason',
+      'Owner approved correction',
+      '--output',
+      'silent',
+    ]);
+    expect(updated.status, updated.stderr || updated.stdout).toBe(0);
+    const updateAudit = runCli(['log', '--task', 'T003', '--operation', 'task_updated']);
+    expect(updateAudit.status, updateAudit.stderr || updateAudit.stdout).toBe(0);
+    expect(JSON.parse(updateAudit.stdout).data.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId: 'T003',
+          details: expect.objectContaining({
+            dependsWaiver: updateReason,
+            reason: 'Owner approved correction',
+          }),
+        }),
+      ]),
+    );
   }, 60_000);
 });
