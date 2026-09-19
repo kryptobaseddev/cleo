@@ -18,7 +18,7 @@
  *
  * The store owns ONLY reactive board state + the orchestration of the seam
  * (command vs subscription vs hydration). Lane resolution stays in the shared
- * `@cleocode/core/tasks` SSoT so Studio and the TUI bucket identically.
+ * `@cleocode/core/tasks/agent-lifecycle-lane` SSoT so Studio and the TUI bucket identically.
  *
  * ## Rune discipline (Svelte-5, NOT Svelte-4 stores)
  *
@@ -45,7 +45,7 @@ import {
   type AgentLifecycleLane,
   type AgentLifecycleSignal,
   resolveAgentLifecycleLane,
-} from '@cleocode/core/tasks';
+} from '@cleocode/core/tasks/agent-lifecycle-lane';
 import type { BoardCard, BoardLane } from '$lib/components/board/board-types.js';
 import {
   type BoardCommandClient,
