@@ -234,6 +234,7 @@ export interface CommonExtractionResult {
  * @param rootNode - Parsed tree-sitter AST root node
  * @param filePath - File path relative to repo root
  * @param sourceGeneration - SHA-256 of original source bytes, distinct from publication identity.
+ * @param publicationGeneration - Preallocated graph publication identity, when publishing.
  * @returns Uniform extraction result
  */
 function runExtractor(
@@ -241,11 +242,18 @@ function runExtractor(
   rootNode: Parser.SyntaxNode,
   filePath: string,
   sourceGeneration: string,
+  publicationGeneration?: string,
 ): CommonExtractionResult {
   const node = rootNode;
   const model =
     language === 'typescript' || language === 'javascript'
-      ? buildLexicalScopeModel(rootNode, filePath, sourceGeneration, language)
+      ? buildLexicalScopeModel(
+          rootNode,
+          filePath,
+          sourceGeneration,
+          language,
+          publicationGeneration,
+        )
       : undefined;
 
   let result: CommonExtractionResult;
@@ -281,6 +289,7 @@ function runExtractor(
  * @param source - Original Unicode source text.
  * @param filePath - Repository-relative source path used for symbol identities.
  * @param limits - Native source-byte and synchronous parsing deadline limits.
+ * @param publicationGeneration - Optional immutable publication identity passed by the pipeline.
  * @returns Declarations, references, imports, heritage and access evidence.
  * @remarks Static extraction does not establish complete runtime-call discovery.
  * @example
@@ -292,6 +301,7 @@ export function extractOriginalSource(
   source: string,
   filePath: string,
   limits?: ParserExecutionLimits,
+  publicationGeneration?: string,
 ): CommonExtractionResult {
   const language = detectLanguageFromPath(filePath);
   const grammarKey = language
@@ -310,6 +320,7 @@ export function extractOriginalSource(
     tree.rootNode,
     filePath,
     createHash('sha256').update(source).digest('hex'),
+    publicationGeneration,
   );
 }
 
@@ -412,6 +423,8 @@ function emitDefinesEdges(
 
 /** Options for the sequential parse loop. */
 export interface ParseLoopOptions {
+  /** Immutable graph publication identity shared by direct and worker extraction. */
+  publicationGeneration?: string;
   /** Per-file native source/deadline limits and caller cancellation. */
   parserLimits?: ParserExecutionLimits;
   /** Existing runtime process containment; Nexus never imports core. */
@@ -502,6 +515,7 @@ async function runParallelParseLoop(
     path: string;
     content: string;
     limits?: Omit<ParserExecutionLimits, 'signal'>;
+    publicationGeneration?: string;
   }> = [];
 
   for (let i = 0; i < parseableFiles.length; i++) {
@@ -517,7 +531,12 @@ async function runParallelParseLoop(
         throw new Error('Source changed between scanning and parsing');
       }
       const { signal: _signal, ...limits } = options.parserLimits ?? {};
-      workerInputs.push({ path: file.path, content: bytes.toString('utf8'), limits });
+      workerInputs.push({
+        path: file.path,
+        content: bytes.toString('utf8'),
+        limits,
+        publicationGeneration: options.publicationGeneration,
+      });
     } catch (error) {
       options.parserLimits?.signal?.throwIfAborted();
       throw new Error(
@@ -849,6 +868,7 @@ export async function runParseLoop(
         rootNode,
         file.path,
         createHash('sha256').update(source).digest('hex'),
+        options.publicationGeneration,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

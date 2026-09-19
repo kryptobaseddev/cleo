@@ -195,7 +195,7 @@ describe('isolated shared extraction (T12262)', () => {
           { path: 'unicode.py', content: 'def 読む():\\n    return obj.値\\n読む()\\n' },
           { path: 'unicode.go', content: 'package main\\nfunc 読む(){ obj.値() }\\nfunc main(){読む()}\\n' },
           { path: 'unicode.rs', content: 'fn 読む(){ obj.値(); } fn main(){読む();}' },
-          { path: 'lexical.ts', content: '// 😀\\nimport { orgNameTaken } from "./production"; const hooks={beforeCreateOrganization:(input)=>orgNameTaken(input.name)}; function mock(orgNameTaken){return orgNameTaken();}' },
+          { path: 'lexical.ts', publicationGeneration: '44444444-4444-4444-8444-444444444444', content: '// 😀\\nimport { orgNameTaken } from "./production"; const hooks={beforeCreateOrganization:(input)=>orgNameTaken(input.name)}; function mock(orgNameTaken){return orgNameTaken();} [()=>orgNameTaken()];' },
           { path: 'too-large.ts', content: 'const 文 = "🌱";', limits: { maxSourceBytes: 1 } },
           { path: 'invalid.ts', content: 'export function broken( {' },
         ];
@@ -220,12 +220,15 @@ describe('isolated shared extraction (T12262)', () => {
           assert.match(reports.find(report => report.path === 'too-large.ts').reason, /E_PARSE_SIZE/);
           assert.match(reports.find(report => report.path === 'invalid.ts').reason, /E_PARSE_SYNTAX/);
           const lexicalInput = inputs.find(input => input.path === 'lexical.ts');
-          const direct = extractOriginalSource(lexicalInput.content, lexicalInput.path);
+          const direct = extractOriginalSource(lexicalInput.content, lexicalInput.path, undefined, lexicalInput.publicationGeneration);
           const json = value => JSON.parse(JSON.stringify(value));
           assert.deepEqual(symbols.filter(symbol => symbol.filePath === lexicalInput.path), json(direct.definitions));
           assert.deepEqual(calls.filter(call => call.filePath === lexicalInput.path), json(direct.calls));
           assert.deepEqual(accesses.filter(access => access.filePath === lexicalInput.path), json(direct.accesses));
           assert.equal(direct.calls.find(call => call.sourceId === 'lexical.ts::mock').lexical.kind, 'shadowed');
+          assert.ok(direct.definitions.some(node => node.id.includes('#' + lexicalInput.publicationGeneration + '>')));
+          assert.ok(direct.calls.every(call => call.publicationGeneration === lexicalInput.publicationGeneration));
+          assert.notEqual(direct.calls[0].generation, lexicalInput.publicationGeneration);
           assert.equal(results.reduce((sum, result) => sum + result.fileCount, 0), 6);
           assert.equal(results.reduce((sum, result) => sum + result.skippedCount, 0), 2);
         } finally { await pool.terminate(); }
@@ -925,6 +928,38 @@ describe('runPipeline', () => {
         expect.objectContaining({ sourceId: 'main.ts', targetId: 'module:pg', type: 'imports' }),
       ]),
     );
+  });
+
+  it('allocates one publication identity before anonymous extraction and preserves the source hash separately', async () => {
+    writeFile(tmpDir, 'anonymous.ts', '// 😀\nexport const callbacks=[()=>missing()];');
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    await runPipeline(
+      tmpDir,
+      'project',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      { publishGraph },
+    );
+    const rows = publishGraph.mock.calls[0]![0];
+    expect(rows.generation).toMatch(/^[a-f0-9-]{36}$/);
+    expect(rows.assessment?.generation).toBe(rows.generation);
+    const anonymous = rows.nodes.find((node) => node.name?.startsWith('<anonymous@'));
+    expect(anonymous?.id).toContain(`#${rows.generation}>`);
+    const sourceHash = rows.assessment?.files.find(
+      (file) => file.path === 'anonymous.ts',
+    )?.contentHash;
+    expect(sourceHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(sourceHash).not.toBe(rows.generation);
+    expect(anonymous?.metaJson).toContain(`"sourceGeneration":"${sourceHash}"`);
+    expect(anonymous?.metaJson).toContain(`"publicationGeneration":"${rows.generation}"`);
+    expect(rows.assessment?.references?.[0]).toMatchObject({
+      generation: sourceHash,
+      publicationGeneration: rows.generation,
+    });
   });
 
   it('publishes every unresolved lexical call/access with original evidence', async () => {

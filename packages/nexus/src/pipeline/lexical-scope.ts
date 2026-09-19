@@ -29,6 +29,8 @@ export interface LexicalScopeModel {
   language: 'typescript' | 'javascript';
   /** Caller-supplied generation identity for the analyzed source. */
   generation: string;
+  /** Publication identity allocated before extraction; absent on standalone source analysis. */
+  publicationGeneration?: string;
   /** Lexical scope inventory. */
   scopes: readonly GraphLexicalScope[];
   /** Binding inventory including locals that have no known callable target. */
@@ -124,6 +126,7 @@ function objectPath(node: Parser.SyntaxNode): string[] {
  * @param filePath - Repository-relative source identity.
  * @param generation - Explicit source generation; required for anonymous identity.
  * @param language - Supported lexical language, never inferred for another grammar.
+ * @param publicationGeneration - Optional preallocated publication identity for anonymous symbols.
  * @returns The scope, declaration and binding model shared by reference extractors.
  * @remarks This models lexical bindings, not runtime values, dynamic dispatch or
  * closure invocation. Unknown locals block global fallback. Duplicate nearest
@@ -139,10 +142,12 @@ export function buildLexicalScopeModel(
   filePath: string,
   generation: string,
   language: string,
+  publicationGeneration?: string,
 ): LexicalScopeModel {
   if (language !== 'typescript' && language !== 'javascript')
     throw new Error(`E_SCOPE_LANGUAGE: lexical bindings unsupported for ${language}`);
   if (!generation) throw new Error('Lexical source generation is required');
+  if (publicationGeneration === '') throw new Error('Publication generation cannot be empty');
   const moduleId = `${filePath}::__file__`;
   const moduleScope: GraphLexicalScope = {
     id: moduleId,
@@ -270,7 +275,7 @@ export function buildLexicalScopeModel(
       const anonymous = !explicitName;
       const name =
         explicitName ??
-        `<anonymous@${node.startIndex}:${node.endIndex}#${encodeURIComponent(generation)}>`;
+        `<anonymous@${node.startIndex}:${node.endIndex}#${encodeURIComponent(publicationGeneration ?? generation)}>`;
       const path = objectPath(node);
       if (node.type === 'method_definition') path.push(segment(name));
       const localName = path.length > 0 ? path.join('.') : segment(name);
@@ -422,6 +427,7 @@ export function buildLexicalScopeModel(
   return {
     language,
     generation,
+    publicationGeneration,
     scopes,
     bindings,
     declarations,

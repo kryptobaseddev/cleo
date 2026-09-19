@@ -298,6 +298,7 @@ export async function resolveCalls(
               relationship: 'calls',
               span: call.span,
               generation: call.generation,
+              publicationGeneration: call.publicationGeneration,
               lexical: call.lexical,
               member:
                 call.callForm === 'member' ||
