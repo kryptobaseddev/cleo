@@ -21,7 +21,12 @@ import type {
 } from '@cleocode/contracts/jobs';
 import { and, eq, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from './sqlite.js';
-import { BACKGROUND_JOB_STATUSES, type BackgroundJobRow, type BackgroundJobStatus, backgroundJobs } from './tasks-schema.js';
+import {
+  BACKGROUND_JOB_STATUSES,
+  type BackgroundJobRow,
+  type BackgroundJobStatus,
+  backgroundJobs,
+} from './tasks-schema.js';
 
 export type { BackgroundJobStatus };
 
