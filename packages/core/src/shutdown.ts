@@ -57,6 +57,7 @@ import { shutdownBrainWriter } from './memory/brain-writer-thread.js';
 import { resetEmbeddingQueue } from './memory/embedding-queue.js';
 import { type StepOutcome, withDeadline } from './shutdown-deadline.js';
 import { closeAllDatabases } from './store/sqlite.js';
+import { markShuttingDown } from './teardown-signal.js';
 
 /**
  * Run a teardown step under a deadline, swallowing both errors and stalls.
@@ -110,6 +111,15 @@ async function safely(label: string, step: () => Promise<void> | void): Promise<
  * @task T11568
  */
 export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
+  // 0. Declare teardown and abort registered in-flight background work, BEFORE
+  //    anything is closed (T12239). The dialectic hook in the runtime gateway
+  //    bounds its LLM call at 10s while the exit backstop fires at 3s, so a
+  //    dialectic still in flight holds a TCPSocketWrap for up to seven seconds
+  //    PAST the "event loop still alive 3000ms after teardown" warning. Closing
+  //    the writer first and cancelling second would abort that work only after
+  //    the resources it might touch are already gone.
+  markShuttingDown();
+
   // 1. BRAIN single-writer worker thread — the live MessagePort that hangs
   //    `cleo memory observe` / `cleo docs add` / any brain.db write path.
   const outcomes: StepOutcome[] = [];

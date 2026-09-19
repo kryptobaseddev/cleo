@@ -322,8 +322,11 @@ class BrainWriterManager {
    * result envelope payload (shape depends on op kind).
    */
   async enqueue(op: BrainWriteOp): Promise<BrainWriteResult> {
-    if (this.shuttingDown) {
-      throw new Error('brain-writer is shutting down — no new writes accepted');
+    // Defence in depth (T12239 AC3). The instance flag alone misses a manager
+    // captured BEFORE teardown and used after — `getManager()` returns a
+    // reference, and nothing stops a caller holding it across a shutdown.
+    if (this.shuttingDown || isBrainWriterShuttingDown()) {
+      throw new BrainWriterShutDownError(op.kind);
     }
 
     await this.ensureWorker();
@@ -517,7 +520,66 @@ async function executeInline(op: BrainWriteOp): Promise<BrainWriteResult> {
 
 let _manager: BrainWriterManager | null = null;
 
-function getManager(): BrainWriterManager {
+/**
+ * Process-lifetime teardown latch (T12239 AC3).
+ *
+ * `shutdownBrainWriter()` sets `_manager = null`, which discards that manager's
+ * `shuttingDown` flag along with it. A write arriving afterwards therefore
+ * constructs a FRESH manager whose `shuttingDown` is `false`, so
+ * `ensureWorker()`'s guard passes and a worker realm is spawned *after*
+ * teardown — holding a MessagePort that keeps the event loop alive until the
+ * 3-second backstop fires. That is the "event loop still alive 3000ms after
+ * teardown" every mutating command pays (gh#1448, gh#1454, gh#1457, gh#1466).
+ *
+ * The flag has to live at MODULE scope precisely because the manager it would
+ * otherwise live on is the thing being discarded.
+ */
+let _brainWriterShutDown = false;
+
+/**
+ * Whether the brain writer has been shut down for this process.
+ *
+ * @returns `true` once `shutdownBrainWriter()` has begun.
+ */
+export function isBrainWriterShuttingDown(): boolean {
+  return _brainWriterShutDown;
+}
+
+/**
+ * Raised when a brain write is attempted after teardown has begun.
+ *
+ * Deliberately NOT a `CleoError`: it is always caught one frame up in
+ * `enqueueBrainWrite`, which routes the op to `runInline`, so it must never
+ * reach a LAFS envelope. (`scripts/lint-cleo-errors.mjs` scans only the `tasks`
+ * and `validation` trees, so it does not apply here — stated so nobody
+ * "corrects" this to a CleoError and turns a handled fallback into a
+ * user-visible failure.)
+ */
+export class BrainWriterShutDownError extends Error {
+  readonly codeName = 'E_BRAIN_WRITER_SHUTDOWN' as const;
+
+  constructor(kind: BrainWriteOp['kind']) {
+    super(
+      `E_BRAIN_WRITER_SHUTDOWN: brain writer is shut down; refusing to spawn a worker ` +
+        `realm for a late '${kind}' write. The op runs inline instead.`,
+    );
+    this.name = 'BrainWriterShutDownError';
+  }
+}
+
+function getManager(kind: BrainWriteOp['kind'] = 'observe'): BrainWriterManager {
+  // Guard ACQUISITION, not just `ensureWorker`. There is exactly one
+  // acquisition site and it terminates; work-START sites are an open set that
+  // grows with every new fire-and-forget caller, which is why the earlier
+  // T12217 attempt could not converge.
+  //
+  // This also closes a listener leak that was never on the ticket: the block
+  // below registers `process.on('exit')` plus two `process.once` handlers EVERY
+  // time `_manager` is null, so each teardown -> late-write cycle added three
+  // more.
+  if (_brainWriterShutDown) {
+    throw new BrainWriterShutDownError(kind);
+  }
   if (!_manager) {
     _manager = new BrainWriterManager();
     // Best-effort flush on process exit.
@@ -577,15 +639,26 @@ export async function enqueueBrainWrite(op: BrainWriteOp): Promise<BrainWriteRes
     }
 
     try {
-      return await getManager().enqueue(op);
+      return await getManager(op.kind).enqueue(op);
     } catch (err) {
       // Worker was unavailable (tests, esbuild bundle, etc.). Fall back to
-      // inline mode — still serialized via the inline mutex.
+      // inline mode — still serialized via the inline mutex. The write is NOT
+      // lost in either branch.
       const msg = err instanceof Error ? err.message : String(err);
-      getLogger('brain-writer').debug(
-        { err: msg },
-        'Brain writer-thread unavailable — falling back to inline serialized executor',
-      );
+      if (err instanceof BrainWriterShutDownError) {
+        // Distinct level on purpose. "No worker file in a bundle" is normal and
+        // belongs at debug; "a write arrived after teardown" is a design smell
+        // that should be countable in the field rather than buried with it.
+        getLogger('brain-writer').warn(
+          { event: 'post-teardown-inline-write', kind: op.kind, codeName: err.codeName },
+          'Brain write arrived after shutdown — running inline, no worker realm spawned',
+        );
+      } else {
+        getLogger('brain-writer').debug(
+          { err: msg },
+          'Brain writer-thread unavailable — falling back to inline serialized executor',
+        );
+      }
       return await runInline(op);
     }
   } finally {
@@ -598,6 +671,11 @@ export async function enqueueBrainWrite(op: BrainWriteOp): Promise<BrainWriteRes
  * @internal
  */
 export async function shutdownBrainWriter(): Promise<void> {
+  // Latch BEFORE the first await. `_manager.shutdown()` has a grace period it
+  // waits out, and a write landing inside that window must be refused too —
+  // otherwise the exact race this guard exists for reopens for the duration of
+  // the shutdown itself.
+  _brainWriterShutDown = true;
   if (_manager) {
     await _manager.shutdown();
     _manager = null;
@@ -611,6 +689,11 @@ export async function shutdownBrainWriter(): Promise<void> {
  */
 export function _resetBrainWriterForTests(): void {
   _manager = null;
+  // MANDATORY, not tidiness. Every suite that touches the brain writer calls
+  // `shutdownBrainWriter()` then this in `afterEach`; without clearing the
+  // latch, the first teardown would leave every subsequent test in the file
+  // running against a permanently shut-down writer.
+  _brainWriterShutDown = false;
   inlineQueueTail = Promise.resolve();
   _brainBatches.clear();
 }
