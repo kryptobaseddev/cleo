@@ -1500,6 +1500,8 @@ export interface TasksUpdateQueryParams {
   description?: string;
   status?: string;
   priority?: string;
+  /** Project-defined task phase, persisted independently of pipelineStage. */
+  phase?: string;
   notes?: string;
   labels?: string[];
   addLabels?: string[];
@@ -1536,6 +1538,8 @@ export interface TasksUpdateQueryParams {
   dependsWaiver?: string;
   /** Set the blockedBy free-text reason. @task T9241 (gh#1106) */
   blockedBy?: string;
+  /** Disable automatic parent completion when true; false restores automatic completion. */
+  noAutoComplete?: boolean;
   /** Clear the blockedBy free-text reason (set to undefined). @task T9241 */
   clearBlockedBy?: boolean;
   /** Set related tasks (replaces existing). @task T9327 */
@@ -2438,6 +2442,7 @@ export const TASKS_UPDATE_INPUT_SCHEMA: JsonSchema = {
       enum: ['pending', 'active', 'blocked', 'done', 'cancelled'],
     },
     priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+    phase: { type: 'string' },
     notes: { type: 'string' },
     labels: { type: 'array', items: { type: 'string' } },
     addLabels: { type: 'array', items: { type: 'string' } },
@@ -2463,6 +2468,7 @@ export const TASKS_UPDATE_INPUT_SCHEMA: JsonSchema = {
     dependsWaiver: { type: 'string' },
     blockedBy: { type: 'string' },
     clearBlockedBy: { type: 'boolean' },
+    noAutoComplete: { type: 'boolean' },
     relates: {
       type: 'array',
       items: {

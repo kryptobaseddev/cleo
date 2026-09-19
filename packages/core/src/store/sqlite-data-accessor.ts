@@ -11,6 +11,8 @@
  * @epic T4454
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { DatabaseSync } from 'node:sqlite';
 import {
   ARCHIVE_REASON_TOMBSTONE,
   type ArchiveReasonValue,
@@ -18,7 +20,18 @@ import {
   type Task,
   type TaskStatus,
 } from '@cleocode/contracts';
-import { and, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+  like,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm';
 import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnSessionDelete } from './cross-db-cleanup.js';
 import type {
@@ -36,7 +49,9 @@ import {
   batchUpdateDependencies,
   loadDependenciesForTasks,
   loadRelationsForTasks,
+  parseLabels,
   updateDependencies,
+  updateTaskLabels,
   upsertSession,
   upsertTask,
 } from './db-helpers.js';
@@ -153,6 +168,11 @@ export async function setMetaValue(
     .run();
 }
 
+// One queue per shared native handle, independent of accessor identity. These
+// hold coordination state only; the ProjectStore remains the owner of handles.
+const taskTransactionQueue = new WeakMap<DatabaseSync, Promise<void>>();
+const taskTransactionContext = new AsyncLocalStorage<ReadonlySet<DatabaseSync>>();
+
 // ---- Accessor factory ----
 
 /**
@@ -175,12 +195,12 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     return new Set(rows.map((r) => r.id));
   }
 
-  // Per-accessor transaction nesting depth (T9814).
-  // Tracks how many DataAccessor.transaction() calls are active on this
-  // accessor instance. Used to choose BEGIN IMMEDIATE (outer, depth=0) vs
-  // SAVEPOINT (nested, depth>0) so we preserve BEGIN IMMEDIATE locking
-  // semantics at the outermost level while enabling batch-insert nesting.
-  let _txDepth = 0;
+  async function requireNativeDb() {
+    await getDb(cwd);
+    const nativeDb = getNativeTasksDb(cwd);
+    if (!nativeDb) throw new Error('Native database not initialized');
+    return nativeDb;
+  }
 
   const accessor: DataAccessor = {
     engine: 'sqlite' as const,
@@ -251,7 +271,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       // Wrap all upserts + dependency updates in a single transaction.
       // Retry on SQLITE_BUSY contention via runInImmediateTx (gh#391).
-      const nativeDb = getNativeTasksDb();
+      const nativeDb = await requireNativeDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
@@ -387,15 +407,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     // ---- Fine-grained task operations (T5034) ----
 
     async upsertSingleTask(task: Task): Promise<void> {
-      const db = await getDb(cwd);
-      const row = taskToRow(task);
-      // gh#391: wrap multi-statement write (task row + dependency rows) in
-      // a retry loop. SQLite implicitly auto-commits each statement, but
-      // concurrent writers can still observe SQLITE_BUSY mid-sequence.
-      await withWriteRetry(async () => {
-        await upsertTask(db, row);
-        await updateDependencies(db, task.id, task.depends ?? []);
-      });
+      await accessor.transaction((tx) => tx.upsertSingleTask(task));
     },
 
     async addRelation(
@@ -826,8 +838,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async getAncestorChain(taskId: string): Promise<Task[]> {
-      const nativeDb = getNativeTasksDb();
-      if (!nativeDb) return [];
+      const nativeDb = await requireNativeDb();
 
       const idRows = nativeDb
         .prepare(
@@ -865,8 +876,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async getSubtree(rootId: string): Promise<Task[]> {
-      const nativeDb = getNativeTasksDb();
-      if (!nativeDb) return [];
+      const nativeDb = await requireNativeDb();
 
       // Get IDs from the CTE, then load via Drizzle for proper conversion
       const idRows = nativeDb
@@ -924,8 +934,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async getDependencyChain(taskId: string): Promise<string[]> {
-      const nativeDb = getNativeTasksDb();
-      if (!nativeDb) return [];
+      const nativeDb = await requireNativeDb();
 
       const rows = nativeDb
         .prepare(
@@ -974,7 +983,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     // ---- Position helpers (T024/T025) ----
 
     async getNextPosition(parentId: string | null): Promise<number> {
-      const nativeDb = getNativeTasksDb();
+      const nativeDb = await requireNativeDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
@@ -998,7 +1007,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       fromPosition: number,
       delta: number,
     ): Promise<void> {
-      const nativeDb = getNativeTasksDb();
+      const nativeDb = await requireNativeDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
@@ -1021,53 +1030,30 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
     async updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void> {
       const db = await getDb(cwd);
-      const updateRow: Record<string, unknown> = {
-        updatedAt: fields.updatedAt ?? new Date().toISOString(),
-      };
-
-      // Copy only provided fields
-      const fieldMap: Array<[keyof TaskFieldUpdates, string]> = [
-        ['title', 'title'],
-        ['description', 'description'],
-        ['status', 'status'],
-        ['priority', 'priority'],
-        ['type', 'type'],
-        ['parentId', 'parentId'],
-        ['phase', 'phase'],
-        ['size', 'size'],
-        ['position', 'position'],
-        ['positionVersion', 'positionVersion'],
-        ['labelsJson', 'labelsJson'],
-        ['notesJson', 'notesJson'],
-        ['acceptanceJson', 'acceptanceJson'],
-        ['filesJson', 'filesJson'],
-        ['origin', 'origin'],
-        ['blockedBy', 'blockedBy'],
-        ['epicLifecycle', 'epicLifecycle'],
-        ['noAutoComplete', 'noAutoComplete'],
-        ['completedAt', 'completedAt'],
-        ['cancelledAt', 'cancelledAt'],
-        ['cancellationReason', 'cancellationReason'],
-        ['verificationJson', 'verificationJson'],
-        ['createdBy', 'createdBy'],
-        ['modifiedBy', 'modifiedBy'],
-        ['sessionId', 'sessionId'],
-        ['assignee', 'assignee'],
-        ['pipelineStage', 'pipelineStage'],
-      ];
-
-      for (const [key, col] of fieldMap) {
-        if (fields[key] !== undefined) {
-          updateRow[col] = fields[key];
+      const nativeDb = await requireNativeDb();
+      if (!taskTransactionContext.getStore()?.has(nativeDb) || !nativeDb.isTransaction) {
+        return accessor.transaction((tx) => tx.updateTaskFields(taskId, fields));
+      }
+      // TaskFieldUpdates uses the schema's field names. Reject unsupported runtime
+      // input before Drizzle can silently omit it; no second field map can drift.
+      const columns = getTableColumns(schema.tasks);
+      for (const key of Object.keys(fields)) {
+        if (!Object.hasOwn(columns, key) || key === 'id' || key === 'createdAt') {
+          throw new Error(`Unsupported task update field: ${key}`);
         }
       }
+      const updateRow = { ...fields, updatedAt: fields.updatedAt ?? new Date().toISOString() };
 
       // gh#391: this is the chokepoint for `cleo update <id> --add-labels`.
       // Parallel invocations from a single shell used to lose ~50% of writes
       // to SQLITE_BUSY; withWriteRetry recovers them.
-      await withWriteRetry(() =>
+      const result = await withWriteRetry(() =>
         db.update(schema.tasks).set(updateRow).where(eq(schema.tasks.id, taskId)).run(),
       );
+      if (Number(result.changes) !== 1) throw new Error(`Task not found: ${taskId}`);
+      if (fields.labelsJson !== undefined) {
+        await updateTaskLabels(db, taskId, parseLabels(fields.labelsJson));
+      }
     },
 
     async transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T> {
@@ -1081,19 +1067,31 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         throw new Error('Native database not initialized');
       }
 
-      // Nested-transaction support (T9814 — batch insert):
-      // - Outermost call (depth=0): use BEGIN IMMEDIATE — preserves the
-      //   RESERVED lock semantics that callers and tests depend on.
-      // - Nested calls (depth>0): use SAVEPOINT — creates a logical
-      //   checkpoint inside the already-open transaction.
-      const isOuter = _txDepth === 0;
+      // Async context distinguishes true nesting from independent concurrent
+      // callers. The native handle is shared across accessor instances.
+      const context = taskTransactionContext.getStore();
+      if (!context?.has(nativeDb)) {
+        const previous = taskTransactionQueue.get(nativeDb) ?? Promise.resolve();
+        const released = Promise.withResolvers<void>();
+        const tail = previous.then(() => released.promise);
+        taskTransactionQueue.set(nativeDb, tail);
+        await previous;
+        try {
+          return await taskTransactionContext.run(new Set([...(context ?? []), nativeDb]), () =>
+            withWriteRetry(() => accessor.transaction(fn)),
+          );
+        } finally {
+          released.resolve();
+          if (taskTransactionQueue.get(nativeDb) === tail) taskTransactionQueue.delete(nativeDb);
+        }
+      }
+      const isOuter = !nativeDb.isTransaction;
       const spName = isOuter ? null : `_cleo_tx_${(_txSavepointCounter++).toString(36)}`;
       if (isOuter) {
         nativeDb.prepare('BEGIN IMMEDIATE').run();
       } else {
         nativeDb.prepare(`SAVEPOINT ${spName}`).run();
       }
-      _txDepth++;
       try {
         const tx: TransactionAccessor = {
           async upsertSingleTask(task: Task): Promise<void> {
@@ -1308,7 +1306,6 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         };
 
         const result = await fn(tx);
-        _txDepth--;
         if (isOuter) {
           nativeDb.prepare('COMMIT').run();
         } else {
@@ -1316,7 +1313,6 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         }
         return result;
       } catch (err) {
-        _txDepth--;
         try {
           if (isOuter) {
             nativeDb.prepare('ROLLBACK').run();
@@ -1368,7 +1364,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     // ---- Agent task claiming ----
 
     async claimTask(taskId: string, agentId: string): Promise<void> {
-      const nativeDb = getNativeTasksDb();
+      const nativeDb = await requireNativeDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
@@ -1401,7 +1397,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async unclaimTask(taskId: string): Promise<void> {
-      const nativeDb = getNativeTasksDb();
+      const nativeDb = await requireNativeDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
