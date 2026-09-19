@@ -156,8 +156,8 @@ describe('knowledge truth survives the budget middleware T12199', () => {
     });
     expect(output.data).not.toHaveProperty('examples');
   });
-  it('returns unsuccessful validation when mandatory truth cannot fit', async () => {
-    const output = await createBudgetEnforcement()(request(1), async () => response());
+  it.each([0, 1])('rejects budget %s when mandatory truth cannot fit', async (budget) => {
+    const output = await createBudgetEnforcement()(request(budget), async () => response());
     expect(output.success).toBe(false);
     expect(output.error).toMatchObject({
       code: BUDGET_EXCEEDED_CODE,
