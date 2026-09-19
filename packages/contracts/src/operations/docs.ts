@@ -30,6 +30,7 @@
  * @see packages/contracts/src/operations/index.ts
  */
 
+import { z } from 'zod';
 import type { AttachmentKind } from '../attachment.js';
 import { BUILTIN_DOC_KIND_VALUES, type BuiltinDocKind } from '../docs-taxonomy.js';
 import type { BackgroundJobStatus, OperationExecutionIdentity } from '../jobs.js';
@@ -494,6 +495,79 @@ export interface DocsProjectionProposal {
   readonly observation: DocAttachmentObservationPayload;
 }
 
+/** Strict persisted input validator for the one supported document projection operation. */
+export const DOCS_PROJECTION_PROPOSAL_SCHEMA = z
+  .object({
+    version: z.literal(1),
+    operation: z.literal('docs.projection'),
+    identity: z
+      .object({
+        projectId: z.string().min(1),
+        projectRoot: z.string().min(1),
+        actor: z.string().min(1),
+        operation: z.literal('docs.projection'),
+        idempotencyKey: z.string().min(1),
+      })
+      .strict(),
+    source: z
+      .object({
+        attachmentId: z.string().min(1),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/),
+        ownerId: z.string().min(1),
+        ownerType: z.enum(['task', 'session', 'observation', 'decision', 'learning', 'pattern']),
+        label: z.string().min(1),
+      })
+      .strict(),
+    observation: z
+      .object({
+        kind: z.literal('doc-attachment'),
+        attachmentId: z.string().min(1),
+        ownerId: z.string().min(1),
+        addedAt: z.string().min(1),
+        slug: z.string().optional(),
+        type: z.string().optional(),
+      })
+      .strict(),
+  })
+  .strict() satisfies z.ZodType<DocsProjectionProposal>;
+
+/** Verifiable result retained in the existing durable job result column. */
+export const DOCS_PROJECTION_RECEIPT_SCHEMA = z
+  .object({
+    version: z.literal(1),
+    sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+    graph: z.enum(['completed', 'disabled']),
+    observationId: z.string().min(1),
+    verifiedAt: z.string().min(1),
+    actor: z.string().min(1),
+  })
+  .strict();
+
+/** Domain verification record; this is not a cross-database atomic repair receipt. */
+export type DocsProjectionReceipt = z.infer<typeof DOCS_PROJECTION_RECEIPT_SCHEMA>;
+
+/** Truthful bounded observation of optional work following an accepted canonical attachment. */
+export interface DocsProjectionOutcome {
+  /** Captured project identity. */
+  projectId: string;
+  /** Captured explicit repository root. */
+  projectRoot: string;
+  /** Completed verification, resumable pending work, or an observed failure. */
+  status: 'completed' | 'pending' | 'failed';
+  /** Current proof, incomplete proof, missing preparation or an observed diagnostic failure. */
+  coverage: 'current' | 'partial' | 'missing' | 'failed';
+  /** Durable pending/claimed job when preparation committed. */
+  jobId?: string;
+  /** Actual verified receipt when available. */
+  receipt?: DocsProjectionReceipt;
+  /** Explicit failures or unresolved-outcome details. */
+  diagnostics: string[];
+  /** Original shared deadline. */
+  deadlineAt: number;
+  /** True when foreground observation crossed the deadline; no preemption is implied. */
+  deadlineExceeded: boolean;
+}
+
 /** Durable preparation result; does not assert that optional projections completed. */
 export interface DocsProjectionPreparation {
   /** Existing durable job identity for explicit inspection and later execution. */
@@ -526,6 +600,8 @@ export interface DocsGraphProjectionResult {
  * Result of `docs.add`.
  */
 export interface DocsAddResult {
+  /** Optional projection coverage; canonical attachment acceptance remains independent. */
+  projection?: DocsProjectionOutcome;
   /** Newly-created or existing attachment ID. */
   attachmentId: string;
   /** SHA-256 hash of the attached content. */
