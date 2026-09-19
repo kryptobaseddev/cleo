@@ -168,6 +168,8 @@ export interface EvidenceValidationContext {
   gates: readonly VerificationGate[];
   /** Canonical criteria read for this verification operation. */
   criteria: ReadonlyArray<Pick<AcRow, 'id' | 'text' | 'updatedAt'>>;
+  /** Verified PR merge whose immutable artifact bytes must be inspected. */
+  artifactCommitSha?: string;
 }
 
 /** Explicit criterion link to inspected artifacts and validated results in one gate receipt. */

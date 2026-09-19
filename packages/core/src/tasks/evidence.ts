@@ -188,8 +188,8 @@ export type ParsedAtom =
       /**
        * Pull-request atom — references a GitHub PR by number. Validation
        * resolves the PR via `gh pr view` and checks state=MERGED plus
-       * all required-workflow checks green. Satisfies `implemented`,
-       * `testsPassed`, and `qaPassed` simultaneously (T9838).
+       * all required-workflow checks green. This provides provenance;
+       * task criteria, artifacts, testing and review require separate proof.
        *
        * @task T9764
        * @task T9838
@@ -347,6 +347,13 @@ export async function validateAtom(
   siblingCommitSha?: string,
   context?: EvidenceValidationContext,
 ): Promise<AtomValidation> {
+  if (parsed.kind === 'pr' && (!Number.isInteger(parsed.prNumber) || parsed.prNumber <= 0)) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INVALID',
+      reason: 'PR number must be a positive integer.',
+    };
+  }
   // gh#1365: resolve the tree under test ONCE, here, and pass it down as a
   // required parameter. Resolving inside each validator would centralise the
   // logic but still let two of them resolve independently and drift — which is
@@ -361,7 +368,13 @@ export async function validateAtom(
     case 'commit':
       return validateCommit(parsed.sha, roots, taskId);
     case 'files':
-      return validateFiles(parsed.paths, roots, taskId, siblingCommitSha);
+      return validateFiles(
+        parsed.paths,
+        roots,
+        taskId,
+        context?.artifactCommitSha ?? siblingCommitSha,
+        Boolean(context?.artifactCommitSha),
+      );
     case 'test-run':
       return validateTestRun(parsed.path, roots);
     case 'tool':
@@ -1335,6 +1348,7 @@ async function validateFiles(
   roots: EvidenceRoots,
   taskId?: string,
   commitSha?: string,
+  requireCommitArtifact = false,
 ): Promise<AtomValidation> {
   const { storeRoot: projectRoot, executionRoot } = roots;
   if (paths.length === 0) {
@@ -1360,6 +1374,13 @@ async function validateFiles(
     // here without waiting for a fast-forward.
     if (commitSha) {
       content = await gitShowFileContentAtCommit(p, commitSha, executionRoot);
+    }
+    if (requireCommitArtifact && content === null) {
+      return {
+        ok: false,
+        codeName: 'E_EVIDENCE_INSUFFICIENT',
+        reason: `Cannot inspect ${p} at PR merge ${commitSha}; fetch that commit before recording evidence. Current checkout bytes cannot substitute.`,
+      };
     }
 
     if (content === null && existsSync(abs)) {
@@ -2187,12 +2208,11 @@ function isDocumentArtifact(path: string): boolean {
 function classifyEvidenceTask(
   context: EvidenceValidationContext,
 ): 'code' | 'documentation' | 'research' {
-  if (context.task.kind === 'bug') return 'code';
   if (context.task.kind === 'research' || context.task.kind === 'spike') return 'research';
-  if (
-    context.task.labels?.some((label) => label === 'docs' || label === 'documentation') ||
-    (context.task.files?.length && context.task.files.every(isDocumentArtifact))
-  )
+  if (context.task.files?.length && context.task.files.every(isDocumentArtifact))
+    return 'documentation';
+  if (context.task.kind === 'bug') return 'code';
+  if (context.task.labels?.some((label) => label === 'docs' || label === 'documentation'))
     return 'documentation';
   return 'code';
 }
@@ -2207,13 +2227,28 @@ export function checkTaskEvidenceContext(
     atom.kind === 'files' ? atom.files.map((file) => file.path) : [],
   );
   const prAtoms = atoms.filter((atom) => atom.kind === 'pr');
+  if (prAtoms.length > 1)
+    return 'Record one PR and its merge-pinned artifacts per verification attempt; multiple merge identities are ambiguous.';
   for (const atom of prAtoms) {
     if (atom.taskId !== context.task.id || !atom.changedPaths?.length)
       return 'PR provenance lacks verified task scope; re-verify with current task context.';
     if (gate === 'implemented' && !filePaths.some((path) => atom.changedPaths?.includes(path)))
       return `PR #${atom.prNumber} requires files evidence for an artifact actually changed by that PR.`;
+    if (
+      gate === 'implemented' &&
+      classifyEvidenceTask(context) === 'code' &&
+      atom.changedPaths.every(isDocumentArtifact)
+    )
+      return 'Documentation-only PR evidence cannot implement the current code task.';
   }
   if (!['implemented', 'testsPassed', 'qaPassed'].includes(gate)) return null;
+  if (
+    classifyEvidenceTask(context) === 'code' &&
+    (gate === 'testsPassed' || gate === 'qaPassed') &&
+    !atoms.some((atom) => atom.kind === 'test-run' || (atom.kind === 'tool' && !atom.notApplicable))
+  ) {
+    return `Code task ${context.task.id} requires an actual verification result for ${gate}; absence of a toolchain is not a passing result.`;
+  }
   const linked = atoms.filter(
     (atom): atom is Extract<EvidenceAtom, { kind: 'satisfies' }> =>
       atom.kind === 'satisfies' && atom.targetTaskId === context.task.id,
@@ -2561,6 +2596,47 @@ export async function revalidateEvidence(
   taskId?: string,
   options?: RevalidateOptions,
 ): Promise<RevalidationResult> {
+  if (taskId && gate && !evidence.override) {
+    const { getTaskAccessor } = await import('../store/data-accessor.js');
+    const accessor = await getTaskAccessor(resolveCanonicalProjectRoot(projectRoot));
+    const task = await accessor.loadSingleTask(taskId);
+    if (!task) throw new CleoError(ExitCode.NOT_FOUND, `Evidence task ${taskId} is missing`);
+    const context: EvidenceValidationContext = {
+      task,
+      gates: [gate],
+      criteria: await accessor.getAcRows(taskId),
+    };
+    let reason = checkTaskEvidenceContext(context, gate, evidence.atoms);
+    if (
+      !reason &&
+      !(
+        classifyEvidenceTask(context) !== 'code' &&
+        isDecisionOnlyImplementation(task.verification?.evidence?.implemented) &&
+        DECISION_ONLY_INAPPLICABLE_GATES.includes(gate)
+      )
+    ) {
+      reason = checkGateEvidenceMinimum(gate, evidence.atoms);
+    }
+    if (!reason && evidence.scope) {
+      if (evidence.scope.taskId !== taskId || evidence.scope.gate !== gate)
+        reason = 'Evidence scope does not match the current task and gate.';
+      for (const link of evidence.scope.criteria) {
+        const criterion = context.criteria.find((row) => row.id === link.criterionId);
+        if (
+          !criterion ||
+          createHash('sha256').update(criterion.text).digest('hex') !== link.criterionHash
+        )
+          reason = `Criterion ${link.criterionId} changed after verification; record fresh evidence.`;
+      }
+    }
+    if (reason)
+      return {
+        stillValid: false,
+        failedAtoms: [
+          { atom: evidence.atoms[0] ?? { kind: 'note', note: 'missing evidence' }, reason },
+        ],
+      };
+  }
   // T9245: critical-gate override rejection.
   // When the gate is `implemented` or `testsPassed`, evidence that has no
   // non-override hard atom is rejected outright. We define "override-only"
@@ -2626,13 +2702,22 @@ export async function revalidateEvidence(
         const siblingCommit = evidence.atoms.find(
           (a): a is Extract<EvidenceAtom, { kind: 'commit' }> => a.kind === 'commit',
         );
-        const siblingCommitSha = siblingCommit?.sha;
+        const siblingPr = evidence.atoms.find((atom) => atom.kind === 'pr');
+        const siblingCommitSha = siblingPr?.mergeCommitSha ?? siblingCommit?.sha;
+        const executionRoot = resolveEvidenceExecutionRoot(projectRoot);
         for (const f of atom.files) {
-          const abs = isAbsolute(f.path) ? f.path : resolvePath(projectRoot, f.path);
+          const abs = isAbsolute(f.path) ? f.path : resolvePath(executionRoot, f.path);
           let content: Buffer | null = null;
 
           if (siblingCommitSha) {
-            content = await gitShowFileContentAtCommit(f.path, siblingCommitSha, projectRoot);
+            content = await gitShowFileContentAtCommit(f.path, siblingCommitSha, executionRoot);
+          }
+          if (siblingPr && content === null) {
+            failed.push({
+              atom,
+              reason: `Cannot inspect ${f.path} at recorded PR merge ${siblingCommitSha}; current checkout bytes cannot substitute.`,
+            });
+            continue;
           }
           if (!content && existsSync(abs)) {
             content = await readFile(abs);
@@ -2641,7 +2726,7 @@ export async function revalidateEvidence(
             // T11959: git-show fallback — file may have been on task branch at
             // verify time and is now on main after merge, or it may still only
             // exist on the branch. Use the same resolution path as validateFiles.
-            content = await gitShowFileContent(f.path, taskId, projectRoot);
+            content = await gitShowFileContent(f.path, taskId, executionRoot);
           }
 
           if (!content) {
