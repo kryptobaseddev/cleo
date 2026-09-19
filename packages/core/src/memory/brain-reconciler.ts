@@ -167,6 +167,10 @@ async function applySupersessionPass(
  * @param projectRoot - Absolute project root.
  * @param options - Candidate threshold, audit session, and dry-run behavior.
  * @returns Candidates plus legacy zero-valued consolidation counters.
+ * @example
+ * ```ts
+ * const candidates = await runReconciler(projectRoot, { dryRun: true });
+ * ```
  */
 export async function runReconciler(
   projectRoot: string,

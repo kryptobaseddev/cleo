@@ -333,6 +333,10 @@ export interface EvidenceRoots {
  *   present in the local checkout.
  * @param context - Current task, gate and acceptance criteria used to validate scoped proof.
  * @returns Validation outcome with canonicalised form on success
+ * @example
+ * ```ts
+ * const result = await validateAtom(parsedAtom, projectRoot, task.id, undefined, context);
+ * ```
  *
  * @task T832
  * @task T11959

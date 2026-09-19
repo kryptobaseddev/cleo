@@ -170,8 +170,7 @@ const NEXUS_GLOBAL_ATTACH_ALIAS = 'nexus_global';
  *
  * @param cwd - Optional working directory used to resolve the owning project
  *   root (forwarded to {@link resolveDualScopeDbPath}('project', cwd)).
- * @param cwd - Explicit project root, or the ambient canonical project when omitted.
- * @returns Project-bound Nexus graph database.
+ * @returns Project-bound Nexus graph database path.
  * @task T307
  * @epic T299
  * @task T11648 (ADR-090 runtime read half — route graph reads to project scope)
@@ -742,6 +741,8 @@ function runNexusMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase, dbPa
  * Uses a promise guard so concurrent callers wait for the same initialization to
  * complete (migrations are async).
  *
+ * @param cwd - Explicit project root, or the ambient canonical project when omitted.
+ * @returns Project-bound Nexus graph database.
  * @task T307
  * @task T11524 (E6-L4 — dual-scope chokepoint delegation)
  * @task T11578 (AC3 — prefixed `nexus_*` tables)
