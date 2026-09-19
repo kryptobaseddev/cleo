@@ -17,6 +17,8 @@ export interface ParseWorkerInput {
   content: string;
   /** Serializable native parser bounds. */
   limits?: Omit<ParserExecutionLimits, 'signal'>;
+  /** Immutable graph publication identity, allocated by the owning pipeline. */
+  publicationGeneration?: string;
 }
 
 /** Per-worker results use exactly the same extractor capabilities as sequential parsing. */
@@ -73,7 +75,12 @@ function receive(message: IncomingMessage): void {
   }
   for (const file of message.files) {
     try {
-      const extracted = extractOriginalSource(file.content, file.path, file.limits);
+      const extracted = extractOriginalSource(
+        file.content,
+        file.path,
+        file.limits,
+        file.publicationGeneration,
+      );
       accumulated.symbols.push(...extracted.definitions);
       accumulated.imports.push(...extracted.imports);
       accumulated.heritage.push(...extracted.heritage);

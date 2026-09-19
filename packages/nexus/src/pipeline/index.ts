@@ -149,7 +149,7 @@ export { CALLABLE_KINDS, CLASS_KINDS, createSymbolTable } from './symbol-table.j
 export type { WorkerPool } from './workers/worker-pool.js';
 export { createWorkerPool } from './workers/worker-pool.js';
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import type {
   GraphIndexFileReport,
@@ -530,6 +530,7 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   options?.parserLimits?.signal?.throwIfAborted();
   const startTime = Date.now();
+  const publicationGeneration = randomUUID();
   const isIncremental = options?.incremental === true;
   const graph: KnowledgeGraph = createKnowledgeGraph();
 
@@ -654,6 +655,7 @@ export async function runPipeline(
     {
       tsconfigPaths,
       namedImportMap,
+      publicationGeneration,
       onProgress,
       parserLimits: options?.parserLimits,
       parserExecution: options?.parserExecution,
@@ -770,7 +772,9 @@ export async function runPipeline(
       );
     }
     const publication = graph.preparePublication();
+    publication.generation = publicationGeneration;
     publication.assessment = {
+      generation: publicationGeneration,
       references: referenceReports,
       sourceRoot: repoPath,
       includedRepositories: [...(options.includedRepositories ?? [])],
