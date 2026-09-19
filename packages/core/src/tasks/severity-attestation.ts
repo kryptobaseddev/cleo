@@ -28,7 +28,6 @@
  * @adr ADR-054 (draft)
  */
 
-import { existsSync } from 'node:fs';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -37,6 +36,7 @@ import {
   type SeverityAttestation,
   type SignedSeverityAttestation,
 } from '@cleocode/contracts';
+import { z } from 'zod';
 import { CleoError } from '../errors.js';
 import { getCleoIdentity, signAuditLine } from '../identity/cleo-identity.js';
 import { getCleoDirAbsolute, getConfigPath } from '../paths.js';
@@ -66,31 +66,43 @@ export const LEGACY_BUG_SEVERITY_AUDIT_FILE = 'bug-severity.jsonl';
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+const authorityConfigSchema = z.object({
+  ownerPubkeys: z.array(z.string().regex(/^[a-fA-F0-9]{64}$/)).optional(),
+});
+
 /**
- * Load the owner-pubkey allowlist from `.cleo/config.json`. Returns an empty
- * array when the file is missing, malformed, or does not declare the field.
+ * Read the project's opt-in severity signer allowlist.
  *
- * @param cwd - Optional working directory override (defaults to `process.cwd()`).
- * @internal
+ * @param cwd - Explicit project root, otherwise the current project.
+ * @returns Authorized keys; absent config or an absent/empty field returns an empty list.
+ * @throws CleoError when configured authority cannot be read or validated.
+ * @remarks An unreadable or malformed authority is not permission for every signer.
+ * @example
+ * ```ts
+ * const owners = await loadOwnerPubkeys(projectRoot);
+ * ```
  */
 export async function loadOwnerPubkeys(cwd?: string): Promise<string[]> {
   const configPath = getConfigPath(cwd);
-  if (!existsSync(configPath)) {
-    return [];
+  let raw: string;
+  try {
+    raw = await readFile(configPath, 'utf-8');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return [];
+    throw new CleoError(ExitCode.CONFIG_ERROR, 'Cannot read project severity authority', {
+      details: { field: 'ownerPubkeys' },
+      cause: error,
+      fix: 'Restore readable project authority before changing task severity.',
+    });
   }
   try {
-    const raw = await readFile(configPath, 'utf-8');
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) {
-      return [];
-    }
-    const list = (parsed as { ownerPubkeys?: unknown }).ownerPubkeys;
-    if (!Array.isArray(list)) {
-      return [];
-    }
-    return list.filter((v): v is string => typeof v === 'string' && v.length === 64);
-  } catch {
-    return [];
+    return authorityConfigSchema.parse(JSON.parse(raw)).ownerPubkeys ?? [];
+  } catch (error) {
+    throw new CleoError(ExitCode.CONFIG_ERROR, 'Invalid project severity authority configuration', {
+      details: { field: 'ownerPubkeys' },
+      cause: error,
+      fix: 'Restore valid project configuration and an array of Ed25519 public keys.',
+    });
   }
 }
 
@@ -192,8 +204,8 @@ export async function prepareSignedSeverityAttestation(
   options?: AppendSeverityAttestationOptions,
 ): Promise<SignedSeverityAttestation> {
   const cwd = options?.cwd;
-  const id = await getCleoIdentity(cwd);
   const owners = await loadOwnerPubkeys(cwd);
+  const id = await getCleoIdentity(cwd);
   if (owners.length > 0 && !owners.includes(id.pubkeyHex)) {
     throw new CleoError(
       ExitCode.NEXUS_PERMISSION_DENIED,

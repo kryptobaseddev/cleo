@@ -1,7 +1,7 @@
 /** Task control policies and atomic decision evidence across public entry points. */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { SeverityAttestation, TasksAddParams } from '@cleocode/contracts';
@@ -12,7 +12,7 @@ import { addTask, toTaskAddOptions } from '../add.js';
 import * as duplicateDetector from '../duplicate-detector.js';
 import { tasksAddOp, tasksUpdateOp } from '../ops.js';
 import { addTaskWithSessionScope } from '../session-scope.js';
-import { canonicalAttestationJson } from '../severity-attestation.js';
+import { canonicalAttestationJson, loadOwnerPubkeys } from '../severity-attestation.js';
 import { taskUpdate, updateTask } from '../update.js';
 
 let env: TestDbEnv;
@@ -63,6 +63,39 @@ afterEach(async () => {
 });
 
 describe('canonical task mutation controls', () => {
+  it.each([
+    '{',
+    'null',
+    '[]',
+    '{"ownerPubkeys":null}',
+    '{"ownerPubkeys":"owner"}',
+    '{"ownerPubkeys":["invalid"]}',
+  ])('reports malformed authority rather than allowing all signers: %s', async (raw) => {
+    await writeFile(join(env.cleoDir, 'config.json'), raw);
+    await expect(loadOwnerPubkeys(env.tempDir)).rejects.toThrow('severity authority');
+    expect(freshRead()).toEqual({ tasks: [], audit: [] });
+  });
+
+  it('retains opt-in behavior when the authority configuration file is absent', async () => {
+    const path = join(env.cleoDir, 'config.json');
+    await rename(path, `${path}.saved`);
+    expect(await loadOwnerPubkeys(env.tempDir)).toEqual([]);
+  });
+
+  it('reports unreadable authority rather than treating it as an absent allowlist', async () => {
+    const configPath = join(env.cleoDir, 'config.json');
+    await rename(configPath, `${configPath}.saved`);
+    await mkdir(configPath);
+    await expect(loadOwnerPubkeys(env.tempDir)).rejects.toThrow('severity authority');
+    expect(freshRead()).toEqual({ tasks: [], audit: [] });
+  });
+
+  it('rejects configured malformed authority on the public mutation path', async () => {
+    await configureOwners(['invalid']);
+    await expect(tasksAddOp(env.tempDir, input)).rejects.toThrow('severity authority');
+    expect(freshRead()).toEqual({ tasks: [], audit: [] });
+  });
+
   it.each([
     'sdk',
     'engine',
