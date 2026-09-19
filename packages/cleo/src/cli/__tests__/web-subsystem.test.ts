@@ -7,9 +7,24 @@
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const processMocks = vi.hoisted(() => ({
+  build: vi.fn(() => {
+    throw new Error('Unexpected build process launch');
+  }),
+  spawn: vi.fn(() => {
+    throw new Error('Stopped before fixture server spawn');
+  }),
+}));
+vi.mock(import('node:child_process'), async (importOriginal) => {
+  const actual = await importOriginal();
+  const guarded = { ...actual, execFileSync: processMocks.build, spawn: processMocks.spawn };
+  return { ...guarded, default: guarded };
+});
+
 import {
   createWebSubsystem,
   getWebPaths,
@@ -39,9 +54,9 @@ describe('createWebSubsystem (T11506 R6-T1)', () => {
     expect(typeof sub.shutdown).toBe('function');
   });
 
-  it('healthProbe returns stopped state before start (T11506 AC3)', () => {
+  it('healthProbe returns stopped state before start (T11506 AC3)', async () => {
     const sub = createWebSubsystem({ port: WEB_DEFAULT_PORT, host: WEB_DEFAULT_HOST });
-    const health = sub.healthProbe();
+    const health = await sub.healthProbe();
     expect(health.state).toBe('stopped');
     expect(health.child_id).toBe(WEB_SUBSYSTEM_NAME);
     expect(health.pid).toBe(0);
@@ -54,11 +69,11 @@ describe('createWebSubsystem (T11506 R6-T1)', () => {
     expect(sub.name).toBe(WEB_SUBSYSTEM_NAME);
   });
 
-  it('accepts custom port and host options', () => {
+  it('accepts custom port and host options', async () => {
     // Just verify it constructs without error — actual binding is IO.
     const sub = createWebSubsystem({ port: 4567, host: '0.0.0.0' });
     expect(sub.name).toBe(WEB_SUBSYSTEM_NAME);
-    const health = sub.healthProbe();
+    const health = await sub.healthProbe();
     expect(health.state).toBe('stopped');
   });
 });
@@ -113,6 +128,9 @@ describe('resolveStudioDir package layouts (T12255)', () => {
     packageRoot = join(fixture, 'node_modules', '@cleocode', 'cleo');
     vi.stubEnv('CLEO_STUDIO_DIR', '');
     vi.stubEnv('CLEO_ROOT', join(fixture, 'project'));
+    vi.stubEnv('CLEO_HOME', join(fixture, 'cleo-home'));
+    processMocks.build.mockClear();
+    processMocks.spawn.mockClear();
   });
 
   afterEach(() => {
@@ -154,9 +172,9 @@ describe('resolveStudioDir package layouts (T12255)', () => {
     expect(resolveStudioDir(moduleUrl())).toBe(expected);
   });
 
-  it('falls back to an explicit development project when the bundle is missing', () => {
-    const expected = buildAt(join(fixture, 'project', 'packages', 'studio', 'build'));
-    expect(resolveStudioDir(moduleUrl())).toBe(expected);
+  it('does not select an ambient project build for an installed CLI', () => {
+    buildAt(join(fixture, 'project', 'packages', 'studio', 'build'));
+    expect(resolveStudioDir(moduleUrl())).toBeUndefined();
   });
 
   it('requires an entry file instead of accepting an empty bundled directory', () => {
@@ -164,8 +182,56 @@ describe('resolveStudioDir package layouts (T12255)', () => {
     expect(resolveStudioDir(moduleUrl())).toBeUndefined();
   });
 
-  it('uses the development fallback when the module URL cannot name a file', () => {
-    const expected = buildAt(join(fixture, 'project', 'packages', 'studio', 'build'));
-    expect(resolveStudioDir('https://invalid.example/entry.js')).toBe(expected);
+  it('does not infer source ownership when the module URL cannot name a file', () => {
+    buildAt(join(fixture, 'project', 'packages', 'studio', 'build'));
+    expect(resolveStudioDir('https://invalid.example/entry.js')).toBeUndefined();
+  });
+  function sourceCheckout(): string {
+    const root = join(fixture, 'source');
+    packageRoot = join(root, 'packages', 'cleo');
+    for (const path of [
+      'packages/cleo/src/cli/web-subsystem.ts',
+      'pnpm-workspace.yaml',
+      'build.mjs',
+      'packages/studio/package.json',
+      'packages/studio/src/app.html',
+    ]) {
+      const file = join(root, path);
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, 'synthetic source marker');
+    }
+    return root;
+  }
+
+  it('resolves a development build only from the executing source checkout', () => {
+    const root = sourceCheckout();
+    const expected = buildAt(join(root, 'packages', 'studio', 'build'));
+    buildAt(join(fixture, 'project', 'packages', 'studio', 'build'));
+    expect(resolveStudioDir(moduleUrl())).toBe(expected);
+  });
+
+  it('reports a missing installed bundle before any build or server process', async () => {
+    await expect(createWebSubsystem({}, moduleUrl()).start()).rejects.toThrow(
+      'Packaged Studio bundle is missing',
+    );
+    expect(processMocks.build).not.toHaveBeenCalled();
+    expect(processMocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('preserves source auto-build in its own checkout, not the active project', async () => {
+    const root = sourceCheckout();
+    processMocks.build.mockImplementationOnce(() => {
+      buildAt(join(root, 'packages', 'studio', 'build'));
+      throw new Error('Synthetic build failure');
+    });
+    await expect(createWebSubsystem({}, moduleUrl()).start()).rejects.toThrow(
+      'Studio build failed',
+    );
+    expect(processMocks.build).toHaveBeenCalledWith(
+      'pnpm',
+      ['--filter', '@cleocode/studio', 'run', 'build'],
+      expect.objectContaining({ cwd: root, timeout: 120_000 }),
+    );
+    expect(processMocks.spawn).not.toHaveBeenCalled();
   });
 });
