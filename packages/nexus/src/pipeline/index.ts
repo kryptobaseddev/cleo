@@ -149,10 +149,17 @@ export { CALLABLE_KINDS, CLASS_KINDS, createSymbolTable } from './symbol-table.j
 export type { WorkerPool } from './workers/worker-pool.js';
 export { createWorkerPool } from './workers/worker-pool.js';
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
-import { eq } from 'drizzle-orm';
+import type {
+  GraphIndexFileReport,
+  GraphIndexReferenceReport,
+  GraphPublicationRows,
+} from '@cleocode/contracts';
+import { sql } from 'drizzle-orm';
 import { resolveCalls } from './call-processor.js';
 import { detectCommunities } from './community-processor.js';
+import type { ExtractedCall } from './extractors/typescript-extractor.js';
 import type { ScannedFile } from './filesystem-walker.js';
 import { walkRepositoryPaths } from './filesystem-walker.js';
 import { buildHeritageMap, processHeritage } from './heritage-processor.js';
@@ -165,7 +172,7 @@ import type { KnowledgeGraph, NexusDbInsert, NexusTables } from './knowledge-gra
 import { createKnowledgeGraph } from './knowledge-graph.js';
 import { runParseLoop } from './parse-loop.js';
 import { detectProcesses } from './process-processor.js';
-import { resolveAccesses } from './processors/access-processor.js';
+import { type ExtractedAccess, resolveAccesses } from './processors/access-processor.js';
 import { createResolutionContext } from './resolution-context.js';
 import { processStructure } from './structure-processor.js';
 
@@ -178,25 +185,21 @@ import { processStructure } from './structure-processor.js';
  */
 export interface PipelineOptions {
   /**
-   * When `true`, only re-index files that have changed since the last
-   * full or incremental index run. Uses file mtime comparison against
-   * the `indexed_at` timestamp stored in `nexus_nodes`.
-   *
-   * Incremental mode:
-   * 1. Reads all existing `nexus_nodes.file_path` + `indexed_at` rows for
-   *    the project to build a map of `filePath → lastIndexedAt`.
-   * 2. Scans the filesystem for current file mtimes.
-   * 3. Identifies changed files (mtime > lastIndexedAt) and new files.
-   * 4. Identifies deleted files (present in DB but absent from filesystem).
-   * 5. Atomically deletes all nodes + relations whose `file_path` matches a
-   *    changed-or-deleted file.
-   * 6. Re-parses only the changed/new files.
-   * 7. Runs heritage + call resolution on the full graph (needs complete
-   *    picture because deferred calls cross file boundaries).
+   * When `true`, skip publication when indexed source files are unchanged.
+   * Otherwise rebuild a complete staged generation so cross-file resolution
+   * includes unchanged callers. No live rows are deleted during analysis.
+   * A caller-supplied `publishGraph` provides atomic replacement and recovery.
    *
    * @default false
    */
   incremental?: boolean;
+  /** Explicit relative paths of nested repositories authorized for inclusion. */
+  includedRepositories?: readonly string[];
+  /** Revision captured by the owning project before indexing. */
+  assessedRevision?: string | null;
+
+  /** Publish a validated complete generation atomically using the owning store. */
+  publishGraph?: (rows: GraphPublicationRows) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +273,10 @@ export interface PipelineResult {
   fileCount: number;
   /** Wall-clock milliseconds for the full pipeline run. */
   durationMs: number;
+  /** File outcomes that distinguish exclusion, extraction limits, and failures. */
+  files?: GraphIndexFileReport[];
+  /** AST references retained as explicit extraction limitations, not graph edges. */
+  references?: GraphIndexReferenceReport[];
   /** Number of EXTENDS edges emitted by the heritage processor. */
   extendsCount: number;
   /** Number of IMPLEMENTS edges emitted by the heritage processor. */
@@ -305,8 +312,8 @@ export interface PipelineResult {
 /**
  * Return freshness statistics for the code intelligence index of a project.
  *
- * Safe to call even if the project has never been indexed — returns
- * `{ indexed: false, ... }` in that case.
+ * An empty readable graph returns `{ indexed: false, ... }`. Database failures
+ * propagate so callers cannot mistake a diagnostic failure for missing coverage.
  *
  * @param _projectId - Unused since ADR-090 · T11648 (project-scoped graph DB);
  *   retained for call-site compatibility with `runPipeline`.
@@ -320,7 +327,12 @@ export async function getIndexStats(
   db: NexusDbReadInsert,
   tables: NexusTables,
 ): Promise<IndexStats> {
-  type NodeRow = { filePath: string | null; indexedAt: string };
+  type NodeRow = {
+    filePath: string | null;
+    indexedAt: string;
+    kind: string;
+    contentHash: string | null;
+  };
 
   // Column accessors — DrizzleTableRef declares string-indexed Column properties
   // so eq() / db.select() can take them directly without per-call casts (T9767).
@@ -329,26 +341,15 @@ export async function getIndexStats(
 
   // ADR-090 · T11648: the graph tables are PROJECT-scoped (one project per
   // `cleo.db`), so these queries no longer filter by `project_id`.
-  let rows: NodeRow[] = [];
-  try {
-    const raw = await db
-      .select({
-        filePath: nodesTable['filePath'],
-        indexedAt: nodesTable['indexedAt'],
-      })
-      .from(tables.nexusNodes);
-    rows = raw as NodeRow[];
-  } catch {
-    // Table may not exist yet
-    return {
-      indexed: false,
-      nodeCount: 0,
-      relationCount: 0,
-      fileCount: 0,
-      lastIndexedAt: null,
-      staleFileCount: -1,
-    };
-  }
+  const raw = await db
+    .select({
+      kind: nodesTable['kind'],
+      filePath: nodesTable['filePath'],
+      indexedAt: nodesTable['indexedAt'],
+      contentHash: sql`json_extract(${nodesTable['metaJson']}, '$.contentHash')`,
+    })
+    .from(tables.nexusNodes);
+  const rows = raw as NodeRow[];
 
   if (rows.length === 0) {
     return {
@@ -362,8 +363,8 @@ export async function getIndexStats(
   }
 
   // Count distinct file nodes (filePath !== null)
-  const fileRows = rows.filter((r) => r.filePath !== null);
-  const fileCount = fileRows.length;
+  const fileRows = rows.filter((r) => r.kind === 'file' && r.filePath !== null);
+  const fileCount = new Set(fileRows.map((row) => row.filePath)).size;
 
   // Find most recent indexedAt
   let lastIndexedAt: string | null = null;
@@ -374,27 +375,23 @@ export async function getIndexStats(
   }
 
   // Count relations
-  let relationCount = 0;
-  try {
-    const relRows = await db.select({ id: relationsTable['id'] }).from(tables.nexusRelations);
-    relationCount = (relRows as unknown[]).length;
-  } catch {
-    // ignore
-  }
+  const relRows = await db.select({ id: relationsTable['id'] }).from(tables.nexusRelations);
+  const relationCount = relRows.length;
 
   // Check stale files — compare filesystem mtime against indexedAt
   let staleFileCount = 0;
   const filePathMap = new Map<string, string>();
   for (const row of fileRows) {
-    if (row.filePath) filePathMap.set(row.filePath, row.indexedAt);
+    if (row.filePath) filePathMap.set(row.filePath, row.contentHash ?? '');
   }
 
-  for (const [relPath, indexedAt] of filePathMap) {
+  for (const [relPath, contentHash] of filePathMap) {
     const absPath = relPath.startsWith('/') ? relPath : `${repoPath}/${relPath}`;
     try {
-      const stat = await fs.stat(absPath);
-      const mtimeIso = stat.mtime.toISOString();
-      if (mtimeIso > indexedAt) staleFileCount++;
+      const currentHash = createHash('sha256')
+        .update(await fs.readFile(absPath))
+        .digest('hex');
+      if (!contentHash || currentHash !== contentHash) staleFileCount++;
     } catch {
       // File deleted — counts as stale
       staleFileCount++;
@@ -416,78 +413,74 @@ export async function getIndexStats(
 // ---------------------------------------------------------------------------
 
 /** Internal: get existing indexed file paths and their indexedAt timestamps. */
-async function getIndexedFileMtimes(
+async function getIndexedFileHashes(
   _projectId: string,
   db: NexusDbReadInsert,
   tables: NexusTables,
 ): Promise<Map<string, string>> {
-  type Row = { filePath: string | null; indexedAt: string };
+  type Row = { filePath: string | null; contentHash: string | null; kind: string };
   const nodesTable = tables.nexusNodes;
-  try {
-    // ADR-090 · T11648: project-scoped graph DB — no `project_id` predicate.
-    const rows = await db
-      .select({
-        filePath: nodesTable['filePath'],
-        indexedAt: nodesTable['indexedAt'],
-      })
-      .from(tables.nexusNodes);
-    const map = new Map<string, string>();
-    for (const row of rows as Row[]) {
-      if (row.filePath) map.set(row.filePath, row.indexedAt);
-    }
-    return map;
-  } catch {
-    return new Map();
+  // ADR-090 · T11648: project-scoped graph DB — no `project_id` predicate.
+  const rows = await db
+    .select({
+      kind: nodesTable['kind'],
+      filePath: nodesTable['filePath'],
+      indexedAt: nodesTable['indexedAt'],
+      contentHash: sql`json_extract(${nodesTable['metaJson']}, '$.contentHash')`,
+    })
+    .from(tables.nexusNodes);
+  const map = new Map<string, string>();
+  for (const row of rows as Row[]) {
+    if (row.kind === 'file' && row.filePath) map.set(row.filePath, row.contentHash ?? '');
   }
-}
-
-/**
- * Internal: delete all nodes and relations whose filePath matches a changed
- * or deleted file, wrapped in a transaction for atomicity.
- */
-async function deleteStaleEntries(
-  _projectId: string,
-  stalePaths: string[],
-  db: NexusDbReadInsert,
-  tables: NexusTables,
-): Promise<void> {
-  if (stalePaths.length === 0) return;
-
-  const nodesTable = tables.nexusNodes;
-  const relationsTable = tables.nexusRelations;
-
-  // Delete in chunks to avoid SQLite parameter limits (999 per statement)
-  const CHUNK = 200;
-  for (let i = 0; i < stalePaths.length; i += CHUNK) {
-    const chunk = stalePaths.slice(i, i + CHUNK);
-    // Delete nodes for these file paths (project-scoped DB — ADR-090 · T11648:
-    // no `project_id` predicate).
-    for (const filePath of chunk) {
-      try {
-        await (db as NexusDbReadInsert)
-          .delete(tables.nexusNodes)
-          .where(eq(nodesTable['filePath'], filePath));
-      } catch {
-        // ignore — node may not exist for this file
-      }
-    }
-    // Relations are soft-referenced — orphaned relations are pruned on next full index.
-    // For incremental, we only delete relations where sourceId starts with a stale path.
-    for (const filePath of chunk) {
-      try {
-        await (db as NexusDbReadInsert)
-          .delete(tables.nexusRelations)
-          .where(eq(relationsTable['sourceId'], filePath));
-      } catch {
-        // ignore
-      }
-    }
-  }
+  return map;
 }
 
 // ---------------------------------------------------------------------------
 // Pipeline entry point
 // ---------------------------------------------------------------------------
+
+/** Keep AST-proven but unmodeled source scopes as diagnostics, never invented graph declarations. */
+function retainAnalyzedReferences(
+  graph: KnowledgeGraph,
+  calls: readonly ExtractedCall[],
+  accesses: readonly ExtractedAccess[],
+): GraphIndexReferenceReport[] {
+  const syntaxScopes = new Map<string, string>();
+  for (const call of calls) syntaxScopes.set(`calls\0${call.sourceId}`, call.filePath);
+  for (const access of accesses) syntaxScopes.set(`accesses\0${access.sourceId}`, access.filePath);
+  const reports: GraphIndexReferenceReport[] = [];
+  let retained = 0;
+  for (const relation of graph.relations) {
+    const filePath = syntaxScopes.get(`${relation.type}\0${relation.source}`);
+    const file = filePath ? graph.nodes.get(filePath) : undefined;
+    const target = graph.nodes.get(relation.target);
+    if (
+      (relation.type === 'calls' || relation.type === 'accesses') &&
+      !graph.nodes.has(relation.source) &&
+      target &&
+      filePath &&
+      file?.kind === 'file' &&
+      file.filePath === filePath
+    ) {
+      reports.push({
+        kind: 'unmodeled-source',
+        filePath,
+        sourceId: relation.source,
+        targetId: relation.target,
+        targetName: target.name,
+        relationship: relation.type,
+        reason: `AST enclosing scope has no analyzed declaration; ${relation.reason ?? 'static reference'}`,
+      });
+      continue;
+    }
+    // Unexpected missing sources, missing targets, and non-reference relations
+    // stay in the graph so strict publication validation still rejects them.
+    graph.relations[retained++] = relation;
+  }
+  graph.relations.length = retained;
+  return reports;
+}
 
 /**
  * Run the full code intelligence ingestion pipeline for a repository.
@@ -495,9 +488,9 @@ async function deleteStaleEntries(
  * Executes Phase 1 (filesystem walk) and Phase 2 (structure processing),
  * then flushes all nodes and relations to the database.
  *
- * When `options.incremental` is `true`, only re-indexes files that have
- * changed since the last run (detected via mtime comparison). Unchanged
- * files are left in the database as-is.
+ * When `options.incremental` is `true`, unchanged indexes are skipped.
+ * Changed indexes rebuild in memory and publish through `publishGraph` so
+ * unchanged callers remain available for cross-file resolution.
  *
  * @param repoPath - Absolute path to the repository root
  * @param projectId - Project registry ID (from project_registry.project_id)
@@ -535,38 +528,29 @@ export async function runPipeline(
 
   // Phase 1: Scan repository filesystem
   process.stderr.write('[nexus] Phase 1: Scanning filesystem...\n');
-  const files = await walkRepositoryPaths(repoPath, onProgress);
+  const reports = new Map<string, GraphIndexFileReport>();
+  const files = await walkRepositoryPaths(
+    repoPath,
+    onProgress,
+    (report) => reports.set(report.path, report),
+    options?.includedRepositories,
+  );
+  const scannedFiles = new Map(files.map((file) => [file.path, file]));
   process.stderr.write(`[nexus] Found ${files.length} files\n`);
 
-  // Incremental mode: detect changed/new/deleted files, prune stale DB entries,
-  // then proceed with only the changed/new subset.
-  let filesToParse: ScannedFile[] = files;
+  // Incremental mode detects whether a complete replacement is needed.
+  const filesToParse: ScannedFile[] = files;
   if (isIncremental) {
     process.stderr.write('[nexus] Incremental mode: computing changed files...\n');
     const readableDb = db as NexusDbReadInsert;
-    const indexedMtimes = await getIndexedFileMtimes(projectId, readableDb, tables);
+    const indexedMtimes = await getIndexedFileHashes(projectId, readableDb, tables);
 
     // If no files indexed yet, run full parse
     if (indexedMtimes.size > 0) {
-      // Build current filesystem mtime map
-      const currentMtimes = new Map<string, string>();
-      for (const file of files) {
-        const absPath = file.path.startsWith('/') ? file.path : `${repoPath}/${file.path}`;
-        try {
-          const stat = await fs.stat(absPath);
-          currentMtimes.set(file.path, stat.mtime.toISOString());
-        } catch {
-          // File disappeared between walk and stat — skip
-        }
-      }
-
-      // Find changed/new files
+      // Content fingerprints detect edits even when size and timestamps are preserved.
       const changedPaths = new Set<string>();
       for (const file of files) {
-        const currentMtime = currentMtimes.get(file.path);
-        if (!currentMtime) continue; // Couldn't stat — skip
-        const indexedAt = indexedMtimes.get(file.path);
-        if (!indexedAt || currentMtime > indexedAt) {
+        if (!file.contentHash || indexedMtimes.get(file.path) !== file.contentHash) {
           changedPaths.add(file.path);
         }
       }
@@ -586,17 +570,9 @@ export async function runPipeline(
       if (changedPaths.size === 0) {
         process.stderr.write('[nexus] Incremental: no changes detected — index is up to date.\n');
         // Return stats from existing index (no writes needed)
-        let existingNodeCount = 0;
-        let existingRelationCount = 0;
-        try {
-          // ADR-090 · T11648: project-scoped graph DB — no `project_id` predicate.
-          const nr = await readableDb.select().from(tables.nexusNodes);
-          existingNodeCount = (nr as unknown[]).length;
-          const rr = await readableDb.select().from(tables.nexusRelations);
-          existingRelationCount = (rr as unknown[]).length;
-        } catch {
-          /* ignore */
-        }
+        const existingNodeCount = (await readableDb.select().from(tables.nexusNodes)).length;
+        const existingRelationCount = (await readableDb.select().from(tables.nexusRelations))
+          .length;
         return {
           nodeCount: existingNodeCount,
           relationCount: existingRelationCount,
@@ -618,20 +594,16 @@ export async function runPipeline(
         };
       }
 
-      // Delete stale nodes + relations for changed/deleted files (atomic)
-      process.stderr.write('[nexus] Incremental: pruning stale index entries...\n');
-      await deleteStaleEntries(projectId, [...changedPaths], readableDb, tables);
-
-      // Restrict parse to changed/new files only
-      filesToParse = files.filter((f) => changedPaths.has(f.path));
-      process.stderr.write(`[nexus] Incremental: re-parsing ${filesToParse.length} files\n`);
+      // Cross-file resolution needs the complete symbol table. Rebuild a staged
+      // generation when anything changed; never delete from the usable index here.
+      process.stderr.write('[nexus] Incremental: rebuilding changed generation in staging\n');
     } else {
       process.stderr.write('[nexus] Incremental: no existing index — running full parse\n');
     }
   }
 
   // Phase 2: Build File + Folder nodes with CONTAINS edges
-  // Use all files for structure (needed for folder nodes), but only parse changed files.
+  // Include all files so the replacement graph has complete structure.
   process.stderr.write('[nexus] Phase 2: Building file structure...\n');
   processStructure(isIncremental ? filesToParse : files, graph);
 
@@ -662,8 +634,8 @@ export async function runPipeline(
   }
 
   // Phase 3: Parse loop — extract symbols, imports, heritage, calls
-  // In incremental mode, only `filesToParse` (the changed/new subset) is parsed.
-  // Heritage + call resolution still runs on the full in-memory graph so
+  // A changed incremental index also parses every file.
+  // Heritage + call resolution runs on the full in-memory graph so
   // cross-file call edges across the changed/unchanged boundary are preserved.
   process.stderr.write('[nexus] Phase 3: Parsing files...\n');
   const { allHeritage, allCalls, allAccesses, barrelMap } = await runParseLoop(
@@ -672,7 +644,20 @@ export async function runPipeline(
     symbolTable,
     importCtx,
     repoPath,
-    { tsconfigPaths, namedImportMap, onProgress },
+    {
+      tsconfigPaths,
+      namedImportMap,
+      onProgress,
+      onFileReport: (report) => {
+        const file = scannedFiles.get(report.path);
+        reports.set(report.path, {
+          ...report,
+          mtimeMs: file?.mtimeMs,
+          size: file?.size,
+          contentHash: file?.contentHash,
+        });
+      },
+    },
   );
 
   // Phase 3c: Heritage resolution — emit EXTENDS + IMPLEMENTS edges
@@ -707,6 +692,13 @@ export async function runPipeline(
     `[nexus] Accesses: tier1=${accessResult.tier1Count}, tier3=${accessResult.tier3Count}, unresolved=${accessResult.unresolvedCount}\n`,
   );
 
+  const referenceReports = retainAnalyzedReferences(graph, allCalls, allAccesses);
+  if (referenceReports.length > 0) {
+    process.stderr.write(
+      `[nexus] Partial scope coverage: ${referenceReports.length} AST references retained as diagnostics because their enclosing declarations were not analyzed.\n`,
+    );
+  }
+
   // Phase 5: Community detection (Louvain)
   process.stderr.write('[nexus] Phase 5: Detecting communities...\n');
   const communityResult = await detectCommunities(graph);
@@ -723,7 +715,53 @@ export async function runPipeline(
 
   // Flush all nodes and relations to Drizzle
   process.stderr.write('[nexus] Flushing to database...\n');
-  await graph.flush(projectId, db, tables);
+  if (options?.publishGraph) {
+    const failed = [...reports.values()].filter((report) => report.status === 'failed');
+    if (failed.length > 0) {
+      throw new Error(
+        `Index generation failed for ${failed.length} file(s); previous graph retained: ${failed.map((report) => `${report.path}: ${report.reason}`).join('; ')}`,
+      );
+    }
+    // Refuse a generation built from files edited, removed, or renamed while
+    // parsing. Its timestamp must never make mixed source revisions look fresh.
+    const finalScanFailures: GraphIndexFileReport[] = [];
+    const currentFiles = await walkRepositoryPaths(
+      repoPath,
+      undefined,
+      (report) => {
+        if (report.status === 'failed') finalScanFailures.push(report);
+      },
+      options.includedRepositories,
+    );
+    const currentPaths = new Set(currentFiles.map((file) => file.path));
+    const changedPaths = [
+      ...currentFiles
+        .filter((file) => {
+          const original = scannedFiles.get(file.path);
+          return !original || original.contentHash !== file.contentHash;
+        })
+        .map((file) => file.path),
+      ...files.filter((file) => !currentPaths.has(file.path)).map((file) => file.path),
+      ...finalScanFailures.map((file) => file.path),
+    ];
+    if (changedPaths.length > 0) {
+      throw new Error(
+        `Source files changed during indexing; previous graph retained: ${changedPaths.slice(0, 20).join(', ')}${changedPaths.length > 20 ? ` (and ${changedPaths.length - 20} more)` : ''}`,
+      );
+    }
+    const publication = graph.preparePublication();
+    publication.assessment = {
+      references: referenceReports,
+      sourceRoot: repoPath,
+      includedRepositories: [...(options.includedRepositories ?? [])],
+      assessedRevision: options.assessedRevision ?? null,
+      assessedAt: new Date(startTime).toISOString(),
+      files: [...reports.values()],
+    };
+    options.publishGraph(publication);
+  } else {
+    await graph.flush(projectId, db, tables);
+  }
 
   const durationMs = Date.now() - startTime;
   process.stderr.write(
@@ -735,6 +773,8 @@ export async function runPipeline(
     relationCount: graph.relations.length,
     fileCount: files.length,
     durationMs,
+    files: [...reports.values()],
+    references: referenceReports,
     extendsCount: heritageResult.extendsCount,
     implementsCount: heritageResult.implementsCount,
     callsTier1Count: callResult.tier1Count,

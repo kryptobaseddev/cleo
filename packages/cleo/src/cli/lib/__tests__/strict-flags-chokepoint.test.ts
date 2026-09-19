@@ -13,6 +13,7 @@
  * @task T12139
  */
 
+import { runCommand } from 'citty';
 import { describe, expect, it, vi } from 'vitest';
 import { assertKnownFlags, CLI_GLOBAL_FLAGS, UnknownFlagError } from '../strict-args.js';
 
@@ -104,6 +105,59 @@ describe('the chokepoint actually reaches the guard (T12139)', () => {
 });
 
 describe('lazy-command wiring (T12139)', () => {
+  it('validates child flags against the resolved child schema before any hooks', async () => {
+    const { lazyCommand } = await import('../../lazy-command.js');
+    const childRun = vi.fn();
+    const parentSetup = vi.fn();
+    const wrapper = lazyCommand({ name: 'doctor', description: 'fixture' }, async () => ({
+      args: {},
+      setup: parentSetup,
+      subCommands: async () => ({
+        knowledge: async () => ({
+          args: async () => ({
+            task: { type: 'string' as const },
+            fix: { type: 'boolean' as const },
+          }),
+          run: childRun,
+        }),
+      }),
+    }));
+    await runCommand(wrapper, { rawArgs: ['knowledge', '--task', 'T448'] });
+    expect(parentSetup).toHaveBeenCalledOnce();
+    expect(childRun).toHaveBeenCalledOnce();
+  });
+
+  it('rejects unknown child flags before parent setup or child mutations', async () => {
+    const { lazyCommand } = await import('../../lazy-command.js');
+    const childSetup = vi.fn();
+    const childRun = vi.fn();
+    const parentSetup = vi.fn();
+    const wrapper = lazyCommand({ name: 'doctor', description: 'fixture' }, async () => ({
+      args: {},
+      setup: parentSetup,
+      subCommands: {
+        knowledge: {
+          args: { fix: { type: 'boolean' as const } },
+          setup: childSetup,
+          run: childRun,
+        },
+      },
+    }));
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('__exit__');
+    });
+    try {
+      await expect(
+        runCommand(wrapper, { rawArgs: ['knowledge', '--fix', '--task-id', 'T448'] }),
+      ).rejects.toThrow('__exit__');
+      expect(parentSetup).not.toHaveBeenCalled();
+      expect(childSetup).not.toHaveBeenCalled();
+      expect(childRun).not.toHaveBeenCalled();
+    } finally {
+      exit.mockRestore();
+    }
+  });
+
   it('validates before delegating to the loaded command run', async () => {
     const { lazyCommand } = await import('../../lazy-command.js');
     const run = vi.fn();

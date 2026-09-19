@@ -3,7 +3,7 @@
  *
  * Verifies the new AGENTS.md hub injection architecture:
  * 1. Provider files (CLAUDE.md, GEMINI.md) reference @AGENTS.md
- * 2. Project AGENTS.md references @~/.agents/AGENTS.md (global hub)
+ * 2. Project AGENTS.md embeds resolved global guidance
  * 3. Global ~/.agents/AGENTS.md references @~/.cleo/templates/CLEO-INJECTION.md
  * 4. No references to @.cleo/templates/AGENT-INJECTION.md anywhere
  * 5. No CLEO:START markers anywhere (CAAMP uses CAAMP:START/END)
@@ -41,6 +41,12 @@ vi.mock('@cleocode/caamp', () => {
   ];
 
   return {
+    resolveInstructionDelivery: vi.fn(async (content: string) => ({
+      content: content.replace(/^@.*$/gm, '# CLEO Protocol — resolved fixture'),
+      sources: [],
+      findings: [],
+      liveEvaluation: 'unverified',
+    })),
     getInstalledProviders: vi.fn(() => providers),
     // injectAll writes @AGENTS.md into provider instruction files
     injectAll: vi.fn(
@@ -165,29 +171,29 @@ describe('E2E: injection chain validation (T4694)', () => {
     await rm(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
-  it('initProject creates provider files referencing @AGENTS.md', async () => {
+  it('initProject creates provider files with self-contained protocol', async () => {
     await initProject({ name: 'chain-test' });
 
     // CLAUDE.md should exist and reference @AGENTS.md
     const claudePath = join(testDir, 'CLAUDE.md');
     expect(existsSync(claudePath)).toBe(true);
     const claudeContent = await readFile(claudePath, 'utf-8');
-    expect(claudeContent).toContain('@AGENTS.md');
+    expect(claudeContent).toContain('# CLEO Protocol');
 
     // GEMINI.md should exist and reference @AGENTS.md
     const geminiPath = join(testDir, 'GEMINI.md');
     expect(existsSync(geminiPath)).toBe(true);
     const geminiContent = await readFile(geminiPath, 'utf-8');
-    expect(geminiContent).toContain('@AGENTS.md');
+    expect(geminiContent).toContain('# CLEO Protocol');
   });
 
-  it('AGENTS.md references @~/.agents/AGENTS.md (global hub)', async () => {
+  it('AGENTS.md embeds resolved global guidance', async () => {
     await initProject({ name: 'chain-test' });
 
     const agentsPath = join(testDir, 'AGENTS.md');
     expect(existsSync(agentsPath)).toBe(true);
     const agentsContent = await readFile(agentsPath, 'utf-8');
-    expect(agentsContent).toContain('@~/.agents/AGENTS.md');
+    expect(agentsContent).toContain('# CLEO Protocol');
   });
 
   it('no references to @.cleo/templates/AGENT-INJECTION.md in generated files', async () => {
@@ -238,17 +244,17 @@ describe('E2E: injection chain validation (T4694)', () => {
     expect(createdStr).toContain('AGENTS.md');
   });
 
-  it('injection chain: provider -> AGENTS.md -> ~/.agents/AGENTS.md -> CLEO-INJECTION.md', async () => {
+  it('injection chain resolves into self-contained provider and project files', async () => {
     await initProject({ name: 'chain-test' });
 
     // Verify the full chain:
     // CLAUDE.md -> @AGENTS.md (via injectAll)
     const claudeContent = await readFile(join(testDir, 'CLAUDE.md'), 'utf-8');
-    expect(claudeContent).toContain('@AGENTS.md');
+    expect(claudeContent).toContain('# CLEO Protocol');
 
     // AGENTS.md -> @~/.agents/AGENTS.md (project hub references global hub)
     const agentsContent = await readFile(join(testDir, 'AGENTS.md'), 'utf-8');
-    expect(agentsContent).toContain('@~/.agents/AGENTS.md');
+    expect(agentsContent).toContain('# CLEO Protocol');
 
     // Neither should reference the old AGENT-INJECTION.md pattern
     expect(claudeContent).not.toContain('AGENT-INJECTION.md');
@@ -267,7 +273,7 @@ describe('E2E: injection chain validation (T4694)', () => {
     const agentsPath = join(testDir, 'AGENTS.md');
     expect(existsSync(agentsPath)).toBe(true);
     const agentsContent = await readFile(agentsPath, 'utf-8');
-    expect(agentsContent).toContain('@~/.agents/AGENTS.md');
+    expect(agentsContent).toContain('# CLEO Protocol');
   });
 
   it('updateDocs refreshes injection without full reinit', async () => {

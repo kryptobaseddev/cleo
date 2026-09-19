@@ -17,7 +17,7 @@
  *    which tasks touched those nodes?
  *
  * Design constraints:
- * - All substrate errors are caught and produce empty collections — never throws.
+ * - Substrate errors are recorded in coverage; ambiguity returns qualified candidates.
  * - conduit.db absence is a graceful no-op: conduitThreads returns [].
  * - All return shapes are defined in packages/contracts/src/nexus-living-brain-ops.ts.
  * - REUSES existing primitives: T1067 bridge, T1066 edge writers, existing
@@ -42,11 +42,20 @@ import type {
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { reasonWhySymbol } from '../memory/brain-reasoning.js';
+import { isCurrentDecisionCodeEvidence } from '../memory/decision-cross-link.js';
 import { EDGE_TYPES } from '../memory/edge-types.js';
+import { graphMemoryAuthority, memoryEligibilityClause } from '../memory/eligibility.js';
 import { getConduitDbPath } from '../store/conduit-sqlite.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
 import { typedAll, typedGet } from '../store/typed-query.js';
+import {
+  assessKnowledgeCoverage,
+  KnowledgeSymbolAmbiguityError,
+  recordKnowledgeGap,
+  resolveKnowledgeSymbol,
+} from './knowledge.js';
+import { getTaskKnowledgeEvidence } from './task-evidence.js';
 import { getSymbolsForTask, getTasksForSymbol } from './tasks-bridge.js';
 
 // ---------------------------------------------------------------------------
@@ -70,6 +79,7 @@ interface RawNexusRelation {
 }
 
 interface RawBrainEdge {
+  provenance: string | null;
   from_id: string;
   to_id: string;
   edge_type: string;
@@ -120,7 +130,7 @@ function toRiskTier(riskLevel: ImpactResult['riskLevel'] | undefined): RiskTier 
     case 'low':
       return 'LOW';
     default:
-      return 'NONE';
+      return 'UNKNOWN';
   }
 }
 
@@ -128,6 +138,7 @@ function toRiskTier(riskLevel: ImpactResult['riskLevel'] | undefined): RiskTier 
  * Return the highest risk tier from an array.
  */
 function maxRiskTier(tiers: RiskTier[]): RiskTier {
+  if (tiers.length === 0 || tiers.includes('UNKNOWN')) return 'UNKNOWN';
   const order: RiskTier[] = ['NONE', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
   let max = 0;
   for (const t of tiers) {
@@ -151,7 +162,7 @@ function maxRiskTier(tiers: RiskTier[]): RiskTier {
  * - **SENTIENT**: Tier-2 proposals whose sourceId matches this symbol
  * - **CONDUIT**: message threads mentioning this symbol (empty if conduit.db absent)
  *
- * All substrate failures produce empty collections — never throws.
+ * Substrate failures are exposed through coverage; ambiguous names are rejected.
  *
  * @param symbolId - Nexus node ID or symbol name (partial match accepted for nexus lookup)
  * @param projectRoot - Absolute path to project root
@@ -161,7 +172,9 @@ export async function getSymbolFullContext(
   symbolId: string,
   projectRoot: string,
 ): Promise<SymbolFullContext> {
+  const coverage = await assessKnowledgeCoverage(projectRoot);
   const result: SymbolFullContext = {
+    coverage,
     symbolId,
     nexus: null,
     brainMemories: [],
@@ -174,31 +187,25 @@ export async function getSymbolFullContext(
   // ---- NEXUS substrate ----
   let resolvedSymbolId = symbolId;
   try {
-    await getNexusDb();
-    const nexusNative = getNexusNativeDb();
+    await getNexusDb(projectRoot);
+    const nexusNative = getNexusNativeDb(projectRoot);
     if (nexusNative) {
-      // Try exact match on id first; fall back to name lookup.
-      // ADR-090 · T11648: project-scoped graph — `project_id` column dropped.
-      let symbolNode = typedGet<RawNexusNode>(
+      const candidates = typedAll<RawNexusNode>(
         nexusNative.prepare(
-          `SELECT id, kind, name, file_path, label, community_id
-           FROM nexus_nodes WHERE id = ? LIMIT 1`,
+          `SELECT id, kind, name, file_path, label, community_id FROM nexus_nodes`,
         ),
-        symbolId,
       );
-
-      if (!symbolNode) {
-        // Fuzzy match on name (case-insensitive)
-        symbolNode = typedGet<RawNexusNode>(
-          nexusNative.prepare(
-            `SELECT id, kind, name, file_path, label, community_id
-             FROM nexus_nodes
-             WHERE LOWER(name) = LOWER(?) AND kind NOT IN ('community', 'process', 'folder')
-             LIMIT 1`,
-          ),
-          symbolId,
-        );
-      }
+      const selected = resolveKnowledgeSymbol(
+        symbolId,
+        candidates.map((node) => ({
+          id: node.id,
+          name: node.name,
+          label: node.label,
+          kind: node.kind,
+          filePath: node.file_path,
+        })),
+      );
+      const symbolNode = candidates.find((node) => node.id === selected?.id);
 
       if (symbolNode) {
         resolvedSymbolId = symbolNode.id;
@@ -306,6 +313,8 @@ export async function getSymbolFullContext(
       }
     }
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     console.warn(
       '[living-brain] NEXUS substrate error:',
       err instanceof Error ? err.message : String(err),
@@ -332,7 +341,7 @@ export async function getSymbolFullContext(
       // brain → symbol edges (from_id is brain node, to_id is symbol)
       const brainToSymbolEdges = typedAll<RawBrainEdge>(
         brainNative.prepare(
-          `SELECT from_id, to_id, edge_type, weight
+          `SELECT from_id, to_id, edge_type, weight, provenance
            FROM brain_page_edges
            WHERE to_id = ? AND edge_type IN (${placeholders})
            LIMIT 100`,
@@ -344,7 +353,7 @@ export async function getSymbolFullContext(
       // symbol → observation edges (from_id is symbol/file, to_id is brain node)
       const symbolToBrainEdges = typedAll<RawBrainEdge>(
         brainNative.prepare(
-          `SELECT from_id, to_id, edge_type, weight
+          `SELECT from_id, to_id, edge_type, weight, provenance
            FROM brain_page_edges
            WHERE from_id = ? AND edge_type = ?
            LIMIT 100`,
@@ -358,6 +367,7 @@ export async function getSymbolFullContext(
       const edgeByBrainId = new Map<string, RawBrainEdge>();
 
       for (const edge of brainToSymbolEdges) {
+        if (!isCurrentDecisionCodeEvidence(brainNative, edge.provenance)) continue;
         brainNodeIds.add(edge.from_id);
         edgeByBrainId.set(edge.from_id, edge);
       }
@@ -378,6 +388,14 @@ export async function getSymbolFullContext(
         const edge = edgeByBrainId.get(nodeId);
 
         if (brainNode && edge) {
+          const authority = graphMemoryAuthority(brainNative, brainNode.id, brainNode.node_type);
+          if (authority === 'historical') continue;
+          if (authority === 'unverified')
+            recordKnowledgeGap(
+              coverage,
+              'partial',
+              `Graph memory source is unverified: ${brainNode.id}`,
+            );
           // Filter out conduit_mentions_symbol — those go to conduitThreads
           if (edge.edge_type === EDGE_TYPES.CONDUIT_MENTIONS_SYMBOL) {
             result.conduitThreads.push({
@@ -386,6 +404,7 @@ export async function getSymbolFullContext(
             });
           } else {
             result.brainMemories.push({
+              authority,
               nodeId: brainNode.id,
               nodeType: brainNode.node_type,
               label: brainNode.label,
@@ -398,6 +417,8 @@ export async function getSymbolFullContext(
       }
     }
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     console.warn(
       '[living-brain] BRAIN substrate error:',
       err instanceof Error ? err.message : String(err),
@@ -414,6 +435,8 @@ export async function getSymbolFullContext(
       matchStrategy: r.matchStrategy,
     }));
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     console.warn(
       '[living-brain] TASKS substrate error:',
       err instanceof Error ? err.message : String(err),
@@ -461,6 +484,8 @@ export async function getSymbolFullContext(
       }
     }
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     console.warn(
       '[living-brain] SENTIENT substrate error:',
       err instanceof Error ? err.message : String(err),
@@ -481,6 +506,8 @@ export async function getSymbolFullContext(
     // Non-fatal: conduit check is best-effort
   }
 
+  if (!result.nexus)
+    recordKnowledgeGap(coverage, 'missing', `No indexed symbol matches '${symbolId}'.`);
   return result;
 }
 
@@ -499,7 +526,7 @@ export async function getSymbolFullContext(
  * - Queries brain decisions linked to this task via brain_memory_links
  * - Computes aggregate risk tier
  *
- * All substrate failures produce empty collections — never throws.
+ * Substrate failures are exposed through coverage; ambiguous names are rejected.
  *
  * @param taskId - Task ID (e.g., 'T001')
  * @param projectRoot - Absolute path to project root
@@ -509,90 +536,32 @@ export async function getTaskCodeImpact(
   taskId: string,
   projectRoot: string,
 ): Promise<TaskCodeImpact> {
+  const coverage = await assessKnowledgeCoverage(projectRoot);
   const result: TaskCodeImpact = {
+    coverage,
     taskId,
     files: [],
     symbols: [],
-    blastRadius: { totalAffected: 0, maxRisk: 'NONE', symbolsAnalyzed: 0 },
+    blastRadius: { totalAffected: 0, maxRisk: 'UNKNOWN', symbolsAnalyzed: 0 },
     brainObservations: [],
     decisions: [],
-    riskScore: 'NONE',
+    riskScore: 'UNKNOWN',
   };
 
-  // ---- Resolve files from tasks.db ----
-  let filesJson: string | null = null;
-  try {
-    const { getDb } = await import('../store/sqlite.js');
-    const { eq } = await import('drizzle-orm');
-    const { tasks: tasksTable } = await import('../store/tasks-schema.js');
-    const tasksDb = await getDb(projectRoot);
-
-    const rows = await tasksDb
-      .select({ filesJson: tasksTable.filesJson })
-      .from(tasksTable)
-      .where(eq(tasksTable.id, taskId))
-      .all();
-
-    if (rows[0]?.filesJson) {
-      filesJson = rows[0].filesJson;
-    }
-  } catch {
-    // Fallback: try to get files from brain_page_edges task edges
-  }
-
-  if (!filesJson) {
-    // Try to infer from task_touches_symbol edges
-    try {
-      await getBrainDb(projectRoot);
-      const brainNative = getBrainNativeDb(projectRoot);
-      await getNexusDb();
-      const nexusNative = getNexusNativeDb();
-
-      if (brainNative && nexusNative) {
-        const taskEdges = typedAll<{ to_id: string }>(
-          brainNative.prepare(
-            `SELECT to_id FROM brain_page_edges
-             WHERE from_id = ? AND edge_type = ?
-             LIMIT 100`,
-          ),
-          `task:${taskId}`,
-          EDGE_TYPES.TASK_TOUCHES_SYMBOL,
-        );
-
-        const filePaths = new Set<string>();
-        for (const edge of taskEdges) {
-          const node = typedGet<{ file_path: string | null }>(
-            nexusNative.prepare(`SELECT file_path FROM nexus_nodes WHERE id = ? LIMIT 1`),
-            edge.to_id,
-          );
-          if (node?.file_path) filePaths.add(node.file_path);
-        }
-        if (filePaths.size > 0) {
-          filesJson = JSON.stringify(Array.from(filePaths));
-        }
-      }
-    } catch {
-      // Give up on file resolution
-    }
-  }
-
-  if (filesJson) {
-    try {
-      const parsed = JSON.parse(filesJson);
-      if (Array.isArray(parsed)) {
-        result.files = parsed.filter((f): f is string => typeof f === 'string');
-      }
-    } catch {
-      // malformed JSON
-    }
-  }
+  const taskEvidence = await getTaskKnowledgeEvidence(taskId, projectRoot, coverage);
+  result.files = taskEvidence.files.map((file) => file.path);
+  result.findings = taskEvidence.findings;
 
   // ---- Symbols via T1067 bridge ----
   let symbolIds: string[] = [];
+  const evidenceBySymbol = new Map<string, import('@cleocode/contracts').SymbolReference>();
   try {
-    const symbolRefs = await getSymbolsForTask(taskId, projectRoot);
+    const symbolRefs = await getSymbolsForTask(taskId, projectRoot, taskEvidence);
+    for (const ref of symbolRefs) evidenceBySymbol.set(ref.nexusNodeId, ref);
     symbolIds = symbolRefs.map((s) => s.nexusNodeId);
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     console.warn(
       '[living-brain] getSymbolsForTask failed:',
       err instanceof Error ? err.message : String(err),
@@ -602,8 +571,8 @@ export async function getTaskCodeImpact(
   // ---- Impact BFS per symbol ----
   if (symbolIds.length > 0) {
     try {
-      await getNexusDb();
-      const nexusNative = getNexusNativeDb();
+      await getNexusDb(projectRoot);
+      const nexusNative = getNexusNativeDb(projectRoot);
 
       if (nexusNative) {
         const { analyzeImpact } = await import('@cleocode/nexus');
@@ -661,29 +630,21 @@ export async function getTaskCodeImpact(
           const node = allNodes.find((n) => n.id === symbolId);
           if (!node) continue;
 
-          let impactResult: ImpactResult;
-          try {
-            impactResult = analyzeImpact(symbolId, graphNodes, graphRelations);
-          } catch {
-            impactResult = {
-              target: symbolId,
-              riskLevel: 'low',
-              summary: '',
-              affectedByDepth: {
-                depth1_willBreak: [],
-                depth2_likelyAffected: [],
-                depth3_mayNeedTesting: [],
-              },
-              totalAffected: 0,
-            };
-          }
+          const impactResult = analyzeImpact(symbolId, graphNodes, graphRelations);
 
           symbolEntries.push({
             nexusNodeId: symbolId,
+            precision: evidenceBySymbol.get(symbolId)?.precision ?? 'file',
+            evidence: evidenceBySymbol.get(symbolId)?.evidence ?? [],
             label: node.name ?? node.label,
             kind: node.kind,
             filePath: node.file_path,
-            riskLevel: toRiskTier(impactResult.riskLevel),
+            riskLevel:
+              coverage.status !== 'current'
+                ? 'UNKNOWN'
+                : impactResult.totalAffected === 0
+                  ? 'NONE'
+                  : toRiskTier(impactResult.riskLevel),
             totalAffected: impactResult.totalAffected,
             directCallers: impactResult.affectedByDepth.depth1_willBreak.length,
           });
@@ -698,6 +659,8 @@ export async function getTaskCodeImpact(
         result.riskScore = result.blastRadius.maxRisk;
       }
     } catch (err) {
+      if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+      recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
       console.warn(
         '[living-brain] blast radius analysis failed:',
         err instanceof Error ? err.message : String(err),
@@ -709,8 +672,8 @@ export async function getTaskCodeImpact(
   try {
     await getBrainDb(projectRoot);
     const brainNative = getBrainNativeDb(projectRoot);
-    await getNexusDb();
-    const nexusNative = getNexusNativeDb();
+    await getNexusDb(projectRoot);
+    const nexusNative = getNexusNativeDb(projectRoot);
 
     if (brainNative && nexusNative && result.files.length > 0) {
       for (const filePath of result.files) {
@@ -724,7 +687,7 @@ export async function getTaskCodeImpact(
         // Find modified_by edges from this file node to observation nodes
         const modEdges = typedAll<RawBrainEdge>(
           brainNative.prepare(
-            `SELECT from_id, to_id, edge_type, weight
+            `SELECT from_id, to_id, edge_type, weight, provenance
              FROM brain_page_edges
              WHERE from_id = ? AND edge_type = ?
              LIMIT 20`,
@@ -736,7 +699,7 @@ export async function getTaskCodeImpact(
         // Also check reverse (observation → file via modified_by)
         const modByEdges = typedAll<RawBrainEdge>(
           brainNative.prepare(
-            `SELECT from_id, to_id, edge_type, weight
+            `SELECT from_id, to_id, edge_type, weight, provenance
              FROM brain_page_edges
              WHERE to_id = ? AND edge_type = 'modified_by'
              LIMIT 20`,
@@ -770,6 +733,8 @@ export async function getTaskCodeImpact(
       }
     }
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     console.warn(
       '[living-brain] brain observations query failed:',
       err instanceof Error ? err.message : String(err),
@@ -794,7 +759,9 @@ export async function getTaskCodeImpact(
 
       for (const link of linkRows) {
         const decisionRow = typedGet<RawDecision>(
-          brainNative.prepare(`SELECT id, decision FROM brain_decisions WHERE id = ? LIMIT 1`),
+          brainNative.prepare(
+            `SELECT id, decision FROM main.brain_decisions AS source WHERE id = ?${memoryEligibilityClause('decisions', 'source')} LIMIT 1`,
+          ),
           link.memory_id,
         );
 
@@ -808,12 +775,32 @@ export async function getTaskCodeImpact(
       }
     }
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     console.warn(
       '[living-brain] decisions query failed:',
       err instanceof Error ? err.message : String(err),
     );
   }
 
+  if (result.symbols.length === 0) {
+    recordKnowledgeGap(
+      coverage,
+      coverage.maintenanceState === 'pending' ? 'partial' : 'missing',
+      coverage.maintenanceState === 'pending'
+        ? 'Task evidence assessment is deferred; zero matches do not establish missing evidence.'
+        : 'No task evidence has been resolved to indexed symbols.',
+    );
+  }
+  if (symbolIds.length > 50)
+    recordKnowledgeGap(coverage, 'partial', 'Impact is bounded to 50 task symbols.');
+  if (result.symbols.length < Math.min(symbolIds.length, 50)) {
+    recordKnowledgeGap(coverage, 'partial', 'Some task-linked symbols are absent from the graph.');
+  }
+  if (coverage.status !== 'current') {
+    result.riskScore = 'UNKNOWN';
+    result.blastRadius.maxRisk = 'UNKNOWN';
+  }
   return result;
 }
 
@@ -829,7 +816,7 @@ export async function getTaskCodeImpact(
  * - tasksForNodes: for each code node, which tasks touched it (T1067 reverse-lookup)
  * - plasticitySignal: sum of weights on all anchoring edges
  *
- * All substrate failures produce empty collections — never throws.
+ * Substrate failures are exposed through coverage; ambiguous names are rejected.
  *
  * @param entryId - Brain entry node ID (format: '<type>:<source-id>')
  * @param projectRoot - Absolute path to project root
@@ -856,8 +843,8 @@ export async function getBrainEntryCodeAnchors(
   try {
     await getBrainDb(projectRoot);
     const brainNative = getBrainNativeDb(projectRoot);
-    await getNexusDb();
-    const nexusNative = getNexusNativeDb();
+    await getNexusDb(projectRoot);
+    const nexusNative = getNexusNativeDb(projectRoot);
 
     if (!brainNative || !nexusNative) return result;
 
@@ -866,7 +853,7 @@ export async function getBrainEntryCodeAnchors(
     // brain entry → code node edges
     const anchorEdges = typedAll<RawBrainEdge>(
       brainNative.prepare(
-        `SELECT from_id, to_id, edge_type, weight
+        `SELECT from_id, to_id, edge_type, weight, provenance
          FROM brain_page_edges
          WHERE from_id = ? AND edge_type IN (${placeholders})
          LIMIT 100`,
@@ -878,6 +865,7 @@ export async function getBrainEntryCodeAnchors(
     let totalWeight = 0;
 
     for (const edge of anchorEdges) {
+      if (!isCurrentDecisionCodeEvidence(brainNative, edge.provenance)) continue;
       // Verify the target exists in nexus
       const nexusNode = typedGet<RawNexusNode>(
         nexusNative.prepare(
@@ -946,7 +934,7 @@ export async function getBrainEntryCodeAnchors(
  * 2. `getTasksForSymbol(symbolId)` — tasks that touch this symbol
  * 3. Brain observations/decisions via `code_reference`, `modified_by`, `documents` edges
  *
- * All substrate failures produce empty collections — never throws.
+ * Substrate failures are exposed through coverage; ambiguous names are rejected.
  *
  * @param symbolId - Nexus node ID or symbol name (partial match accepted)
  * @param projectRoot - Absolute path to project root
@@ -958,52 +946,55 @@ export async function reasonImpactOfChange(
   symbolId: string,
   projectRoot: string,
 ): Promise<ImpactFullReport> {
+  const coverage = await assessKnowledgeCoverage(projectRoot);
   const result: ImpactFullReport = {
+    coverage,
     symbolId,
     structural: {
       directCallers: 0,
       likelyAffected: 0,
       mayNeedTesting: 0,
       totalAffected: 0,
-      riskLevel: 'NONE',
+      riskLevel: 'UNKNOWN',
     },
     openTasks: [],
     brainRiskNotes: [],
-    mergedRiskScore: 'NONE',
+    mergedRiskScore: 'UNKNOWN',
     narrative: `No impact data available for symbol '${symbolId}'.`,
   };
 
   // ---- Resolve nexus node ID (may be a name) ----
   let resolvedId = symbolId;
   try {
-    await getNexusDb();
-    const nexusNative = getNexusNativeDb();
+    await getNexusDb(projectRoot);
+    const nexusNative = getNexusNativeDb(projectRoot);
     if (nexusNative) {
-      // ADR-090 · T11648: project-scoped graph — `project_id` column dropped
-      // (the stray `weight` column never existed on nexus_nodes; removed too).
-      let nexusNode = typedGet<RawNexusNode>(
+      const candidates = typedAll<RawNexusNode>(
         nexusNative.prepare(
-          `SELECT id, kind, name, file_path, label, community_id
-           FROM nexus_nodes WHERE id = ? LIMIT 1`,
+          `SELECT id, kind, name, file_path, label, community_id FROM nexus_nodes`,
         ),
+      );
+      const nexusNode = resolveKnowledgeSymbol(
         symbolId,
+        candidates.map((node) => ({
+          id: node.id,
+          name: node.name,
+          label: node.label,
+          kind: node.kind,
+          filePath: node.file_path,
+        })),
       );
       if (!nexusNode) {
-        nexusNode = typedGet<RawNexusNode>(
-          nexusNative.prepare(
-            `SELECT id, kind, name, file_path, label, community_id
-             FROM nexus_nodes
-             WHERE LOWER(name) = LOWER(?) AND kind NOT IN ('community', 'process', 'folder')
-             LIMIT 1`,
-          ),
-          symbolId,
-        );
+        recordKnowledgeGap(coverage, 'missing', `No indexed symbol matches '${symbolId}'.`);
+        return result;
       }
       if (nexusNode) {
         resolvedId = nexusNode.id;
       }
     }
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     console.warn(
       '[living-brain] reasonImpactOfChange nexus resolve failed:',
       err instanceof Error ? err.message : String(err),
@@ -1012,8 +1003,8 @@ export async function reasonImpactOfChange(
 
   // ---- Structural blast radius via analyzeImpact ----
   try {
-    await getNexusDb();
-    const nexusNative = getNexusNativeDb();
+    await getNexusDb(projectRoot);
+    const nexusNative = getNexusNativeDb(projectRoot);
 
     if (nexusNative) {
       const { analyzeImpact } = await import('@cleocode/nexus');
@@ -1063,32 +1054,24 @@ export async function reasonImpactOfChange(
         confidence: r.confidence ?? 1.0,
       }));
 
-      let impactResult: ImpactResult;
-      try {
-        impactResult = analyzeImpact(resolvedId, graphNodes, graphRelations);
-      } catch {
-        impactResult = {
-          target: resolvedId,
-          riskLevel: 'low',
-          summary: '',
-          affectedByDepth: {
-            depth1_willBreak: [],
-            depth2_likelyAffected: [],
-            depth3_mayNeedTesting: [],
-          },
-          totalAffected: 0,
-        };
-      }
+      const impactResult = analyzeImpact(resolvedId, graphNodes, graphRelations);
 
       result.structural = {
         directCallers: impactResult.affectedByDepth.depth1_willBreak.length,
         likelyAffected: impactResult.affectedByDepth.depth2_likelyAffected.length,
         mayNeedTesting: impactResult.affectedByDepth.depth3_mayNeedTesting.length,
         totalAffected: impactResult.totalAffected,
-        riskLevel: toRiskTier(impactResult.riskLevel),
+        riskLevel:
+          coverage.status !== 'current'
+            ? 'UNKNOWN'
+            : impactResult.totalAffected === 0
+              ? 'NONE'
+              : toRiskTier(impactResult.riskLevel),
       };
     }
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     console.warn(
       '[living-brain] reasonImpactOfChange structural analysis failed:',
       err instanceof Error ? err.message : String(err),
@@ -1104,6 +1087,8 @@ export async function reasonImpactOfChange(
       weight: r.weight,
     }));
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     console.warn(
       '[living-brain] reasonImpactOfChange open-tasks lookup failed:',
       err instanceof Error ? err.message : String(err),
@@ -1128,7 +1113,7 @@ export async function reasonImpactOfChange(
       // Brain nodes → symbol (brain references this symbol)
       const brainToSymbolEdges = typedAll<RawBrainEdge>(
         brainNative.prepare(
-          `SELECT from_id, to_id, edge_type, weight
+          `SELECT from_id, to_id, edge_type, weight, provenance
            FROM brain_page_edges
            WHERE to_id = ? AND edge_type IN (${placeholders})
            LIMIT 50`,
@@ -1140,7 +1125,7 @@ export async function reasonImpactOfChange(
       // symbol → brain nodes (symbol points to observations)
       const symbolToBrainEdges = typedAll<RawBrainEdge>(
         brainNative.prepare(
-          `SELECT from_id, to_id, edge_type, weight
+          `SELECT from_id, to_id, edge_type, weight, provenance
            FROM brain_page_edges
            WHERE from_id = ? AND edge_type = ?
            LIMIT 50`,
@@ -1153,6 +1138,7 @@ export async function reasonImpactOfChange(
 
       const processEdges = (edges: RawBrainEdge[], isReverse: boolean) => {
         for (const edge of edges) {
+          if (!isCurrentDecisionCodeEvidence(brainNative, edge.provenance)) continue;
           const nodeId = isReverse ? edge.from_id : edge.to_id;
           if (seenIds.has(nodeId)) continue;
           seenIds.add(nodeId);
@@ -1165,7 +1151,16 @@ export async function reasonImpactOfChange(
             nodeId,
           );
           if (brainNode) {
+            const authority = graphMemoryAuthority(brainNative, brainNode.id, brainNode.node_type);
+            if (authority === 'historical') continue;
+            if (authority === 'unverified')
+              recordKnowledgeGap(
+                coverage,
+                'partial',
+                `Graph memory source is unverified: ${brainNode.id}`,
+              );
             const riskNote: BrainRiskNote = {
+              authority,
               nodeId: brainNode.id,
               nodeType: brainNode.node_type,
               label: brainNode.label,
@@ -1181,6 +1176,8 @@ export async function reasonImpactOfChange(
       processEdges(symbolToBrainEdges, false);
     }
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     console.warn(
       '[living-brain] reasonImpactOfChange brain risk notes failed:',
       err instanceof Error ? err.message : String(err),
@@ -1209,7 +1206,7 @@ export async function reasonImpactOfChange(
   const riskNoteCount = result.brainRiskNotes.length;
 
   result.narrative =
-    `Changing ${symLabel} will break ${d1} direct caller${d1 !== 1 ? 's' : ''} (d=1)` +
+    `Static analysis of ${symLabel} identifies ${d1} direct caller${d1 !== 1 ? 's' : ''} (d=1)` +
     (d2 > 0 ? `, likely affect ${d2} at d=2` : '') +
     (openCount > 0
       ? `, and is referenced in ${openCount} open task${openCount !== 1 ? 's' : ''}`
@@ -1219,6 +1216,11 @@ export async function reasonImpactOfChange(
       : '') +
     `. Merged risk: ${result.mergedRiskScore}.`;
 
+  if (coverage.status !== 'current') {
+    result.mergedRiskScore = 'UNKNOWN';
+    result.structural.riskLevel = 'UNKNOWN';
+    result.narrative = `Impact cannot be fully assessed for ${symLabel}. Coverage: ${coverage.status}. ${coverage.reasons.join(' ')}`;
+  }
   return result;
 }
 
@@ -1235,6 +1237,9 @@ export async function nexusFullContext(
     const result = await getSymbolFullContext(symbolId, projectRoot);
     return engineSuccess(result);
   } catch (error) {
+    if (error instanceof KnowledgeSymbolAmbiguityError) {
+      return engineError(error.code, error.message, { details: { candidates: error.candidates } });
+    }
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
@@ -1248,6 +1253,9 @@ export async function nexusTaskFootprint(
     const result = await getTaskCodeImpact(taskId, projectRoot);
     return engineSuccess(result);
   } catch (error) {
+    if (error instanceof KnowledgeSymbolAmbiguityError) {
+      return engineError(error.code, error.message, { details: { candidates: error.candidates } });
+    }
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
@@ -1261,6 +1269,9 @@ export async function nexusBrainAnchors(
     const result = await getBrainEntryCodeAnchors(entryId, projectRoot);
     return engineSuccess(result);
   } catch (error) {
+    if (error instanceof KnowledgeSymbolAmbiguityError) {
+      return engineError(error.code, error.message, { details: { candidates: error.candidates } });
+    }
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
@@ -1274,6 +1285,9 @@ export async function nexusImpactFull(
     const result = await reasonImpactOfChange(symbolId, projectRoot);
     return engineSuccess(result);
   } catch (error) {
+    if (error instanceof KnowledgeSymbolAmbiguityError) {
+      return engineError(error.code, error.message, { details: { candidates: error.candidates } });
+    }
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
@@ -1287,6 +1301,9 @@ export async function nexusWhy(
     const result = await reasonWhySymbol(symbolId, projectRoot);
     return engineSuccess(result);
   } catch (error) {
+    if (error instanceof KnowledgeSymbolAmbiguityError) {
+      return engineError(error.code, error.message, { details: { candidates: error.candidates } });
+    }
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }

@@ -12,6 +12,13 @@
  * @epic T1042
  */
 
+import type {
+  KnowledgeAuthorityStatus,
+  KnowledgeCoverage,
+  KnowledgeEvidenceRef,
+  KnowledgeRepairFinding,
+} from './knowledge-health.js';
+
 // ---------------------------------------------------------------------------
 // Sub-interfaces — each substrate's projection
 // ---------------------------------------------------------------------------
@@ -59,6 +66,8 @@ export interface NexusContext {
  * references a code symbol via one of the cross-substrate edge types.
  */
 export interface BrainMemoryRef {
+  /** Canonical source authority; missing legacy source records remain unverified. */
+  authority?: KnowledgeAuthorityStatus;
   /** Brain page node ID (e.g., 'observation:abc123'). */
   nodeId: string;
   /** Node type. */
@@ -135,6 +144,8 @@ export interface PlasticityMeasure {
  * Returned by {@link getSymbolFullContext}.
  */
 export interface SymbolFullContext {
+  /** Evidence coverage; omitted only by legacy producers that have not assessed it. */
+  coverage?: KnowledgeCoverage;
   /** Symbol identifier (nexus node ID or name). */
   symbolId: string;
   /** Nexus code graph context: callers, callees, community, process. */
@@ -157,11 +168,15 @@ export interface SymbolFullContext {
  * Returned by {@link getTaskCodeImpact}.
  */
 export interface TaskCodeImpact {
+  /** Unresolved evidence and path interpretations that require caller action. */
+  findings?: KnowledgeRepairFinding[];
+  /** Evidence coverage, independent of risk; absent legacy coverage is not current. */
+  coverage?: KnowledgeCoverage;
   /** Task ID. */
   taskId: string;
-  /** Files listed in the task's files_json array. */
+  /** Files associated by task metadata, verification, commits, or canonical attachments. */
   files: string[];
-  /** Symbols in those files (from NEXUS). */
+  /** Symbols in those files; file-level evidence does not prove each symbol changed. */
   symbols: SymbolImpactEntry[];
   /** Aggregate blast radius across all symbols. */
   blastRadius: BlastRadiusSummary;
@@ -177,6 +192,10 @@ export interface TaskCodeImpact {
  * Impact entry for a single symbol in a task's footprint.
  */
 export interface SymbolImpactEntry {
+  /** Precision of the task association, independent of graph impact. */
+  precision?: 'file' | 'symbol';
+  /** Historical evidence supporting the task association. */
+  evidence?: KnowledgeEvidenceRef[];
   /** Nexus node ID. */
   nexusNodeId: string;
   /** Display label. */
@@ -219,8 +238,12 @@ export interface DecisionRef {
 
 /**
  * Risk tier for a symbol's impact analysis.
+ *
+ * UNKNOWN means missing coverage prevents assessment. NONE is reserved for an
+ * assessed graph with no detected impact; static analysis cannot prove that all
+ * runtime callers have been discovered. UNKNOWN is not an ordinal severity.
  */
-export type RiskTier = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type RiskTier = 'UNKNOWN' | 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 // ---------------------------------------------------------------------------
 // T1069 — Extended Code Reasoning types
@@ -230,6 +253,8 @@ export type RiskTier = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
  * A single step in a code reasoning trace chain.
  */
 export interface ReasonTraceStep {
+  /** Authority of the underlying memory source when this is a memory step. */
+  authority?: KnowledgeAuthorityStatus;
   /** Step type discriminant. */
   type: 'decision' | 'observation' | 'task' | 'symbol';
   /** ID of this entry (brain ID, task ID, or nexus node ID). */
@@ -246,6 +271,8 @@ export interface ReasonTraceStep {
  * Returned by {@link reasonWhySymbol}.
  */
 export interface CodeReasonTrace {
+  /** Evidence coverage; missing reasoning is distinct from an assessed absence. */
+  coverage?: KnowledgeCoverage;
   /** The nexus symbol ID queried. */
   symbolId: string;
   /** Human-readable narrative summarizing the trace. */
@@ -258,6 +285,8 @@ export interface CodeReasonTrace {
  * A brain risk note associated with a symbol change.
  */
 export interface BrainRiskNote {
+  /** Canonical source authority, independent of graph proximity. */
+  authority?: KnowledgeAuthorityStatus;
   /** Brain node ID. */
   nodeId: string;
   /** Node type (observation, decision, etc.). */
@@ -276,6 +305,8 @@ export interface BrainRiskNote {
  * Returned by {@link reasonImpactOfChange}.
  */
 export interface ImpactFullReport {
+  /** Evidence coverage, independent of merged risk. */
+  coverage?: KnowledgeCoverage;
   /** The nexus symbol ID analyzed. */
   symbolId: string;
   /** Structural blast radius from analyzeImpact BFS. */

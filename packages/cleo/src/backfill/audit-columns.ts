@@ -26,7 +26,8 @@
 
 import { execFileSync } from 'node:child_process';
 import type { Session, Task } from '@cleocode/contracts';
-import { getTaskAccessor, reconstructLineage } from '@cleocode/core/internal';
+import { reconstructLineage } from '@cleocode/core/audit/reconstruct';
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
 
 // ---------------------------------------------------------------------------
 // Types

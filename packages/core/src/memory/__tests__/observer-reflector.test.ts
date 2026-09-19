@@ -386,8 +386,8 @@ describe('runReflector', () => {
     expect(result.ran).toBe(true);
     expect(result.patternsStored).toBe(2);
     expect(result.learningsStored).toBe(2);
-    expect(result.supersededIds).toContain('O-001');
-    expect(result.supersededIds).toContain('O-002');
+    expect(result.supersededIds).toEqual([]);
+    expect(result.proposedSupersededIds).toEqual(['O-001', 'O-002']);
 
     expect(mockStorePattern).toHaveBeenCalledTimes(2);
     expect(mockStorePattern).toHaveBeenCalledWith(

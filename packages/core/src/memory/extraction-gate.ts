@@ -3,7 +3,7 @@
  *
  * Wraps all memory writes with three ordered checks:
  *   A. Content-hash deduplication (always runs — fast, no embedding needed)
- *   B. Cosine similarity deduplication (runs when embedding is available; skipped for trusted sources)
+ *   B. Similarity candidate discovery (runs when embedding is available; skipped for trusted sources)
  *   C. Confidence threshold enforcement (always runs)
  *
  * Trusted sources (manual, owner) bypass Check B but still run A and C.
@@ -25,7 +25,6 @@ import type {
 } from '../store/schema/memory-schema.js';
 import { isEmbeddingAvailable } from './brain-embedding.js';
 import { searchSimilar } from './brain-similarity.js';
-import { addGraphEdge } from './graph-auto-populate.js';
 
 // ============================================================================
 // Types
@@ -81,13 +80,15 @@ export interface GateResult {
   reason: string;
   /** Cosine distance to the nearest match (when similarity check ran). */
   similarity?: number;
+  /** Similar or conflicting records requiring sourced caller review; never automatic authority. */
+  candidateIds?: string[];
 }
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-/** Cosine distance below which two entries are considered exact duplicates. */
+/** Cosine distance below which two entries are flagged as potential duplicate candidates. */
 const DUPLICATE_THRESHOLD = 0.15;
 
 /** Cosine distance below which two entries are considered closely related. */
@@ -180,51 +181,8 @@ function hasContradictingPolarity(existingText: string, newText: string): boolea
 }
 
 /**
- * Mark an existing entry as invalid (superseded).
- * Sets the invalid_at column to now on whichever typed table owns the entry.
- *
- * Determined by ID prefix conventions:
- *   D...  → brain_decisions
- *   P...  → brain_patterns
- *   L...  → brain_learnings
- *   O... / CM-... → brain_observations
- */
-async function invalidateEntry(projectRoot: string, entryId: string): Promise<void> {
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-
-  try {
-    const { getBrainNativeDb, getBrainDb } = await import('../store/memory-sqlite.js');
-    await getBrainDb(projectRoot);
-    const nativeDb = getBrainNativeDb(projectRoot);
-    if (!nativeDb) return;
-
-    // Route by ID prefix to correct table
-    if (entryId.startsWith('D-') || /^D\d/.test(entryId)) {
-      nativeDb
-        .prepare('UPDATE brain_decisions SET invalid_at = ? WHERE id = ? AND invalid_at IS NULL')
-        .run(now, entryId);
-    } else if (entryId.startsWith('P-') || /^P\d/.test(entryId)) {
-      nativeDb
-        .prepare('UPDATE brain_patterns SET invalid_at = ? WHERE id = ? AND invalid_at IS NULL')
-        .run(now, entryId);
-    } else if (entryId.startsWith('L-') || /^L\d/.test(entryId)) {
-      nativeDb
-        .prepare('UPDATE brain_learnings SET invalid_at = ? WHERE id = ? AND invalid_at IS NULL')
-        .run(now, entryId);
-    } else {
-      // O-, O[base36], CM- → observations
-      nativeDb
-        .prepare('UPDATE brain_observations SET invalid_at = ? WHERE id = ? AND invalid_at IS NULL')
-        .run(now, entryId);
-    }
-  } catch {
-    // Best-effort — invalidation failure must not block the primary write
-  }
-}
-
-/**
  * Increment the citation_count of an existing entry by 1.
- * Routes by the same ID-prefix convention as invalidateEntry.
+ * Routes to the canonical typed table using the record identifier.
  */
 async function incrementCitationCount(projectRoot: string, entryId: string): Promise<void> {
   try {
@@ -354,7 +312,7 @@ export async function checkHashDedup(
  * Checks (in order):
  *   A0. Title-prefix blocklist (T993) — rejects known-noise titles before any DB work
  *   A. Content-hash deduplication (always; degrades to observations-only when DB unavailable)
- *   B. Cosine similarity deduplication + contradiction detection (skipped for trusted sources)
+ *   B. Similarity and contradiction candidates (skipped for trusted sources)
  *   C. Confidence threshold >= 0.40 (always)
  *
  * The gate NEVER stores the entry itself — it only decides whether the caller
@@ -419,12 +377,12 @@ export async function verifyCandidate(
           const nearest = similar[0];
 
           if (nearest.distance < DUPLICATE_THRESHOLD) {
-            // Near-identical — merge into existing
-            incrementCitationCount(projectRoot, nearest.id).catch(() => undefined);
+            // Similarity cannot establish that two claims are interchangeable.
             return {
-              action: 'merged',
-              id: nearest.id,
-              reason: `near-duplicate of ${nearest.id} (cosine distance=${nearest.distance.toFixed(3)})`,
+              action: 'stored',
+              id: null,
+              candidateIds: [nearest.id],
+              reason: `potential-duplicate of ${nearest.id} (cosine distance=${nearest.distance.toFixed(3)})`,
               similarity: nearest.distance,
             };
           }
@@ -432,16 +390,12 @@ export async function verifyCandidate(
           if (nearest.distance < SIMILAR_THRESHOLD) {
             // Related — check for contradiction
             if (hasContradictingPolarity(nearest.text, candidate.text)) {
-              // New text supersedes old — invalidate old entry
-              await invalidateEntry(projectRoot, nearest.id);
-
-              // Record supersession graph edge (fire-and-forget)
-              // Note: we don't have the new entry's ID yet so we'll skip the edge here.
-              // The caller should add the supersedes edge after storage using the returned existingId.
+              // Preserve both claims until the caller supplies sourced authority.
               return {
                 action: 'stored',
                 id: null,
-                reason: `contradiction-supersedes ${nearest.id}`,
+                reason: `potential-contradiction ${nearest.id}`,
+                candidateIds: [nearest.id],
                 similarity: nearest.distance,
               };
             }
@@ -597,7 +551,7 @@ export async function storeVerifiedCandidate(
  * For 'merged', increments the existing entry's citation_count (already done inside verifyCandidate).
  * For 'pending' and 'rejected', returns the GateResult with no storage.
  *
- * After storage, adds a supersedes edge when the gate returned a contradiction reason.
+ * Similarity findings remain review candidates and never create supersession edges.
  *
  * @param projectRoot - Project root for brain.db access
  * @param candidate - Candidate to verify and store
@@ -615,19 +569,6 @@ export async function verifyAndStore(
 
   try {
     const newId = await storeVerifiedCandidate(projectRoot, candidate);
-
-    // If this was a contradiction supersession, add a graph edge (best-effort)
-    if (gateResult.reason.startsWith('contradiction-supersedes ')) {
-      const oldId = gateResult.reason.replace('contradiction-supersedes ', '');
-      addGraphEdge(
-        projectRoot,
-        `observation:${newId}`,
-        `observation:${oldId}`,
-        'supersedes',
-        1.0,
-        'extraction-gate',
-      ).catch(() => undefined);
-    }
 
     return { ...gateResult, id: newId };
   } catch (err) {

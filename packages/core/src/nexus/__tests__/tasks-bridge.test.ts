@@ -140,6 +140,25 @@ describe('tasks-bridge', () => {
       expect(result.linked).toBe(0);
     });
 
+    it('persists file precision and reports the same limit on reverse task references', async () => {
+      await linkTaskToSymbols('T-precision', JSON.stringify(['src/file.ts']), projectRoot);
+      const db = getBrainNativeDb(projectRoot);
+      const row = db
+        ?.prepare(
+          "SELECT provenance, to_id FROM main.brain_page_edges WHERE from_id = 'task:T-precision' LIMIT 1",
+        )
+        .get();
+      expect(typeof row?.provenance).toBe('string');
+      if (typeof row?.provenance !== 'string' || typeof row.to_id !== 'string')
+        throw new Error('Missing persisted relation');
+      expect(JSON.parse(row.provenance)).toMatchObject({
+        precision: 'file',
+        filePath: 'src/file.ts',
+      });
+      const references = await getTasksForSymbol(row.to_id, projectRoot);
+      expect(references.find((ref) => ref.taskId === 'T-precision')?.precision).toBe('file');
+    });
+
     it('should be idempotent for duplicate links', async () => {
       const filesJson = JSON.stringify(['src/file.ts']);
 
