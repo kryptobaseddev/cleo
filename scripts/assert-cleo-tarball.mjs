@@ -68,6 +68,33 @@ let failed = false;
 
 console.log('[assert-cleo-tarball] Checking packages/cleo/package.json files[] entries...');
 for (const entry of filesEntries) {
+  // npm's `files[]` is a pattern list, not a path list. A leading `!` marks an
+  // EXCLUSION, so there is nothing on disk for it to point at and resolving it
+  // as a path yields nonsense like `packages/cleo/!dist/**/*.js.map`.
+  //
+  // This gate asserts "everything promised is present". An exclusion promises
+  // ABSENCE, which is the opposite claim and cannot be checked here — a file
+  // matching it existing on disk is exactly the normal case, since the whole
+  // point is that it exists in the build tree and is kept out of the package.
+  // The corresponding positive assertion lives in
+  // `packages/cleo/scripts/check-cleo-tarball-size.mjs`, which runs `npm pack
+  // --dry-run` and fails if any `.map` actually reached the package — i.e. it
+  // verifies the exclusion against npm's own resolution instead of guessing.
+  if (entry.startsWith('!')) {
+    console.log(`  SKIP  ${entry}  (exclusion pattern — asserted by check-cleo-tarball-size.mjs)`);
+    continue;
+  }
+
+  // A glob cannot be existsSync'd either. Only literal paths are checkable
+  // here; anything containing `*` is reported rather than silently passed,
+  // because a silent pass is how this gate would stop covering a real entry.
+  if (entry.includes('*')) {
+    console.warn(
+      `  WARN  ${entry}  (glob — not checkable by existsSync; presence is NOT asserted for it)`,
+    );
+    continue;
+  }
+
   const absPath = join(CLEO_PKG_DIR, entry);
   if (!existsSync(absPath)) {
     console.error(
