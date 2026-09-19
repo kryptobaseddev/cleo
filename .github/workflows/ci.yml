@@ -1753,8 +1753,8 @@ jobs:
         run: |
           node scripts/assert-cleo-tarball.mjs
           node packages/cleo/scripts/check-cleo-tarball-size.mjs
-      - name: Verify isolated packed installation and CLI version
-        # Linux runtime only. Studio routes and embeddings are separate acceptance evidence.
+      - name: Verify isolated packed CLI, Studio task readback and native embedding
+        # Linux runtime only; every required runtime stage must pass.
         run: node scripts/packed-install-smoke.mjs
       - name: Retain tarballs, hashes, manifest and diagnostics
         if: always()
@@ -1766,6 +1766,14 @@ jobs:
             ${{ runner.temp }}/cleo-packed-evidence/**/manifest.json
             ${{ runner.temp }}/cleo-packed-evidence/**/*.log
             ${{ runner.temp }}/cleo-packed-evidence/**/version.txt
+            ${{ runner.temp }}/cleo-packed-evidence/**/runtime.json
+            ${{ runner.temp }}/cleo-packed-evidence/**/cleanup.json
+            ${{ runner.temp }}/cleo-packed-evidence/**/embedding.json
+            ${{ runner.temp }}/cleo-packed-evidence/**/model-manifest.json
+            ${{ runner.temp }}/cleo-packed-evidence/**/*.stdout
+            ${{ runner.temp }}/cleo-packed-evidence/**/*.stderr
+            ${{ runner.temp }}/cleo-packed-evidence/**/*.body
+            ${{ runner.temp }}/cleo-packed-evidence/**/*.jsonl
             ${{ runner.temp }}/cleo-packed-evidence/**/app/package*.json
           if-no-files-found: warn
           retention-days: 14
