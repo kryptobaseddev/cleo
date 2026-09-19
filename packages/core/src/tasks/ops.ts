@@ -24,15 +24,14 @@ import type {
   EngineResult,
   TaskKind,
   TaskPriority,
-  TaskScope,
   TaskSeverity,
-  TaskSize,
   TaskStatus,
+  TasksAddParams,
   TasksOps,
   TasksUpdateQueryParams,
   TaskType,
 } from '@cleocode/contracts';
-import { type AddTaskResult, addTask } from './add.js';
+import { type AddTaskResult, addTask, toTaskAddOptions } from './add.js';
 import { type AddBatchResult, type AddBatchTaskSpec, tasksAddBatchOp } from './add-batch.js';
 import { type ArchiveTasksResult, archiveTasks } from './archive.js';
 import { type CompleteTaskResult, completeTask } from './complete.js';
@@ -181,55 +180,9 @@ export async function tasksSliceOp(
  */
 export async function tasksAddOp(
   projectRoot: string,
-  params: {
-    title: string;
-    description?: string;
-    /** Canonical wire field for parent task ID (ADR-057 D2). */
-    parent?: string;
-    depends?: string[];
-    priority?: TaskPriority;
-    labels?: string[];
-    type?: TaskType;
-    acceptance?: string[];
-    phase?: string;
-    size?: TaskSize;
-    notes?: string;
-    files?: string[];
-    dryRun?: boolean;
-    /** Task kind axis — intent of work (T944/T9072). */
-    kind?: TaskKind;
-    scope?: TaskScope;
-    severity?: TaskSeverity;
-    /**
-     * Bypass the BRAIN duplicate-detection rejection guard (T1633).
-     * Audited to `.cleo/audit/duplicate-bypass.jsonl`.
-     */
-    forceDuplicate?: boolean;
-  },
+  params: TasksAddParams,
 ): Promise<AddTaskResult> {
-  return addTask(
-    {
-      title: params.title,
-      description: params.description,
-      // ADR-057 D2: wire field `parent` maps to Core internal `parentId`
-      parentId: params.parent,
-      depends: params.depends,
-      priority: params.priority,
-      labels: params.labels,
-      type: params.type,
-      acceptance: params.acceptance,
-      phase: params.phase,
-      size: params.size,
-      notes: params.notes,
-      files: params.files,
-      dryRun: params.dryRun,
-      kind: params.kind,
-      scope: params.scope,
-      severity: params.severity,
-      forceDuplicate: params.forceDuplicate,
-    },
-    projectRoot,
-  );
+  return addTask(toTaskAddOptions(params), projectRoot);
 }
 
 /**

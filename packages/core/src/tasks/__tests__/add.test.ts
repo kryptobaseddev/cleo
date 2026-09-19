@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import type { Task } from '@cleocode/contracts';
+import type { Task, TasksAddParams } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -25,6 +25,9 @@ import {
   validateTaskType,
   validateTitle,
 } from '../add.js';
+
+import { tasksAddOp } from '../ops.js';
+import { addTaskWithSessionScope } from '../session-scope.js';
 
 describe('normalizeAcceptance', () => {
   it('trims acceptance arrays and drops empty entries', () => {
@@ -235,6 +238,31 @@ describe('addTask (integration)', () => {
     delete process.env['CLEO_DIR'];
     resetDbState();
     await env.cleanup();
+  });
+
+  it.each([
+    'engine',
+    'operation',
+  ] as const)('forwards creation waiver through the %s entry point', async (entryPoint) => {
+    const params: TasksAddParams = {
+      title: 'Entry point waiver fixture',
+      description: 'Preserve original reason through public creation inputs',
+      type: 'saga',
+      priority: 'critical',
+      dependsWaiver: 'Critical restoration without prerequisite work',
+    };
+    if (entryPoint === 'engine') {
+      const result = await addTaskWithSessionScope(env.tempDir, params);
+      expect(result.success).toBe(true);
+    } else {
+      await tasksAddOp(env.tempDir, params);
+    }
+    const entries = await accessor.queryAuditLog({ actions: ['task_created'] });
+    expect(entries).toHaveLength(1);
+    expect(JSON.parse(entries[0]!.detailsJson!)).toMatchObject({
+      dependsWaiver: params.dependsWaiver,
+    });
+    expect((await accessor.queryTasks({})).tasks[0]?.priority).toBe('critical');
   });
 
   it('persists creation dependency-waiver provenance in the task audit', async () => {
