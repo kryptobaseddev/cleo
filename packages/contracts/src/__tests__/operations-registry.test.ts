@@ -40,6 +40,19 @@ describe('operations-registry', () => {
     }
   });
 
+  it('registers docs.status as a read-only, session-independent query', () => {
+    const matches = OPERATIONS.filter(
+      (operation) => operation.domain === 'docs' && operation.operation === 'status',
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatchObject({
+      gateway: 'query',
+      idempotent: true,
+      sessionRequired: false,
+      requiredParams: [],
+    });
+  });
+
   it('defineOp is an identity function', () => {
     const def = OPERATIONS[0];
     expect(defineOp(def)).toBe(def);

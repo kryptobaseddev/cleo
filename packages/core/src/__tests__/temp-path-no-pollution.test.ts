@@ -64,6 +64,9 @@ vi.mock('@cleocode/caamp', () => {
   });
 
   return {
+    resolveInstructionDelivery: vi.fn<typeof import('@cleocode/caamp').resolveInstructionDelivery>(
+      async (content) => ({ content, sources: [], findings: [], liveEvaluation: 'unverified' }),
+    ),
     getInstalledProviders: vi.fn(() => []),
     inject: fakeInject,
     injectAll: vi.fn(async () => new Map()),

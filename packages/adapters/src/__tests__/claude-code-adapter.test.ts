@@ -17,7 +17,7 @@ import {
   ClaudeCodeSpawnProvider,
   createClaudeCodeAdapter as createAdapter,
 } from '@cleocode/adapters';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('ClaudeCodeAdapter — integration', () => {
   let adapter: ClaudeCodeAdapter;
@@ -155,9 +155,19 @@ describe('ClaudeCodeInstallProvider — integration', () => {
     install = new ClaudeCodeInstallProvider();
     testDir = join(tmpdir(), `cleo-adapter-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
+    const fixtureHome = join(testDir, 'fixture-home');
+    vi.stubEnv('HOME', fixtureHome);
+    vi.stubEnv('USERPROFILE', fixtureHome);
+    vi.stubEnv('CLEO_HOME', join(fixtureHome, '.cleo'));
+    mkdirSync(join(fixtureHome, '.cleo', 'templates'), { recursive: true });
+    writeFileSync(
+      join(fixtureHome, '.cleo', 'templates', 'CLEO-INJECTION.md'),
+      'Fixture protocol: inspect authority and coverage.',
+    );
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     try {
       rmSync(testDir, { recursive: true, force: true });
     } catch {
@@ -165,15 +175,15 @@ describe('ClaudeCodeInstallProvider — integration', () => {
     }
   });
 
-  it('creates CLAUDE.md with @-references', async () => {
+  it('creates CLAUDE.md with embedded protocol', async () => {
     await install.ensureInstructionReferences(testDir);
     const content = readFileSync(join(testDir, 'CLAUDE.md'), 'utf-8');
-    // Structure check: must be a non-empty @~/... path pointing to CLEO-INJECTION.md (OS-agnostic)
-    expect(content).toMatch(/@~\/.+\/CLEO-INJECTION\.md/);
-    expect(content).toContain('@.cleo/memory-bridge.md');
+    expect(content).toContain('Fixture protocol: inspect authority and coverage.');
+    expect(content).toContain('Project memory bridge unavailable.');
+    expect(content).not.toContain('@.cleo/memory-bridge.md');
   });
 
-  it('appends missing references to existing CLAUDE.md', async () => {
+  it('embeds protocol while preserving existing CLAUDE.md', async () => {
     const existing = '# Project\n@AGENTS.md\n';
     writeFileSync(join(testDir, 'CLAUDE.md'), existing, 'utf-8');
 
@@ -181,23 +191,24 @@ describe('ClaudeCodeInstallProvider — integration', () => {
     const content = readFileSync(join(testDir, 'CLAUDE.md'), 'utf-8');
     expect(content).toContain('# Project');
     expect(content).toContain('@AGENTS.md');
-    // Structure check: must be a non-empty @~/... path pointing to CLEO-INJECTION.md (OS-agnostic)
-    expect(content).toMatch(/@~\/.+\/CLEO-INJECTION\.md/);
-    expect(content).toContain('@.cleo/memory-bridge.md');
+    expect(content).toContain('Fixture protocol: inspect authority and coverage.');
+    expect(content).toContain('Project memory bridge unavailable.');
+    expect(content).not.toContain('@.cleo/memory-bridge.md');
   });
 
   it('is idempotent — calling twice does not duplicate the CAAMP block', async () => {
     // First call creates the CAAMP-managed block
     await install.ensureInstructionReferences(testDir);
     const firstContent = readFileSync(join(testDir, 'CLAUDE.md'), 'utf-8');
-    const firstCount = (firstContent.match(/@~\/.+\/CLEO-INJECTION\.md/g) ?? []).length;
+    const firstCount = (firstContent.match(/<!-- CAAMP:START -->/g) ?? []).length;
     expect(firstCount).toBe(1);
 
     // Second call must be idempotent — CAAMP detects existing block and returns 'intact'
     await install.ensureInstructionReferences(testDir);
     const secondContent = readFileSync(join(testDir, 'CLAUDE.md'), 'utf-8');
-    const secondCount = (secondContent.match(/@~\/.+\/CLEO-INJECTION\.md/g) ?? []).length;
+    const secondCount = (secondContent.match(/<!-- CAAMP:START -->/g) ?? []).length;
     expect(secondCount).toBe(1);
+    expect(secondContent).toBe(firstContent);
   });
 
   it('install returns expected shape', async () => {
