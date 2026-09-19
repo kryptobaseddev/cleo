@@ -89,6 +89,8 @@ export interface ExtractedAccess {
   span?: GraphSourceSpan;
   /** Source content generation, distinct from the eventual publication generation. */
   generation?: string;
+  /** Immutable publication identity, distinct from source-content generation. */
+  publicationGeneration?: string;
   /** Nearest receiver binding; an unknown local must block unrelated global candidates. */
   lexical?: GraphLexicalResolution;
   /** Computed or complex receiver expressions without a statically established target. */
@@ -349,6 +351,7 @@ export function extractAccesses(
             ? {
                 span: lexicalModel.spanOf(node),
                 generation: lexicalModel.generation,
+                publicationGeneration: lexicalModel.publicationGeneration,
                 lexical: receiverName
                   ? lexicalModel.resolve(receiverName, node.startIndex)
                   : undefined,
@@ -498,6 +501,7 @@ export async function resolveAccesses(
             relationship: 'accesses',
             span: access.span,
             generation: access.generation,
+            publicationGeneration: access.publicationGeneration,
             lexical: access.lexical,
             member: true,
             dynamic: access.dynamic,

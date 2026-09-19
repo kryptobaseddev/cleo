@@ -490,7 +490,13 @@ export function createSymbolTable(): SymbolTable {
 /** Original lexical reference shared by call and property-access resolvers. */
 export type LexicalReferenceSite = Pick<
   GraphIndexReferenceReport,
-  'filePath' | 'sourceId' | 'targetName' | 'relationship' | 'span' | 'generation'
+  | 'filePath'
+  | 'sourceId'
+  | 'targetName'
+  | 'relationship'
+  | 'span'
+  | 'generation'
+  | 'publicationGeneration'
 > & {
   /** Binding of the free callee or member receiver. */
   lexical?: GraphLexicalResolution;
@@ -545,6 +551,7 @@ export function resolveLexicalReference(
       relationship: site.relationship,
       span: site.span,
       generation: site.generation,
+      publicationGeneration: site.publicationGeneration,
       candidateIds: [...new Set(candidates)].sort(),
       reason,
     },
