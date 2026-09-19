@@ -212,6 +212,30 @@ describe('updateTask', () => {
     expect((await accessor.getAcRows('T001')).map((row) => row.text)).toEqual(expected);
   });
 
+  it('requires authorization to clear locked criteria and leaves absent criteria unchanged', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Locked clear fixture',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'implementation',
+        acceptance: ['original'],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await expect(
+      updateTask({ taskId: 'T001', acceptance: [] }, env.tempDir, accessor),
+    ).rejects.toMatchObject({ code: ExitCode.AC_LOCKED });
+    expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual(['original']);
+    await updateTask(
+      { taskId: 'T001', title: 'Unrelated title change', acceptance: undefined },
+      env.tempDir,
+      accessor,
+    );
+    expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual(['original']);
+  });
+
   it.each(['[]', '["  ", ""]'])('keeps explicit empty input as an AC clear: %s', async (raw) => {
     await seedTasks(accessor, [
       {
