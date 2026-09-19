@@ -214,6 +214,53 @@ describe('task CLI command alias normalization (T1472)', () => {
     );
   });
 
+  it('parses the documented archive flag and forwards the canonical field', async () => {
+    expect(listCommand.args).toHaveProperty('include-archive');
+    const rawArgs = ['--parent', 'T100', '--include-archive'];
+    const args = parseArgs(rawArgs, listCommand.args);
+    const run = listCommand.run;
+    if (!run) throw new Error('listCommand.run is missing');
+    await run({ args, rawArgs });
+    expect(mocks.dispatchRaw).toHaveBeenCalledWith(
+      'query',
+      'tasks',
+      'list',
+      expect.objectContaining({ includeArchive: true }),
+    );
+  });
+
+  it.each([
+    '1.5',
+    '-1',
+    'not-a-number',
+  ])('preserves invalid list limit %s for domain rejection', async (limit) => {
+    const rawArgs = ['--parent', 'T100', '--limit', limit];
+    const args = parseArgs(rawArgs, listCommand.args);
+    const run = listCommand.run;
+    if (!run) throw new Error('listCommand.run is missing');
+    await run({ args, rawArgs });
+    expect(mocks.dispatchRaw).toHaveBeenCalledWith(
+      'query',
+      'tasks',
+      'list',
+      expect.objectContaining({ limit: Number(limit) }),
+    );
+  });
+
+  it('retains the existing camel-case archive flag as a compatibility alias', async () => {
+    const rawArgs = ['--parent', 'T100', '--includeArchive'];
+    const args = parseArgs(rawArgs, listCommand.args);
+    const run = listCommand.run;
+    if (!run) throw new Error('listCommand.run is missing');
+    await run({ args, rawArgs });
+    expect(mocks.dispatchRaw).toHaveBeenCalledWith(
+      'query',
+      'tasks',
+      'list',
+      expect.objectContaining({ includeArchive: true }),
+    );
+  });
+
   it('normalizes list --parent-id to parent', async () => {
     await invokeList({ 'parent-id': 'T100' });
 
