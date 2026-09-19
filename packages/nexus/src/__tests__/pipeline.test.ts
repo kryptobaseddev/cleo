@@ -23,8 +23,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 import type { GraphIndexFileReport, GraphPublicationRows } from '@cleocode/contracts';
+import type { GraphSourceRootAssessment } from '@cleocode/contracts/graph';
 import { buildSync } from 'esbuild';
 import Parser from 'tree-sitter';
 import TypeScript from 'tree-sitter-typescript';
@@ -928,6 +930,178 @@ describe('runPipeline', () => {
         expect.objectContaining({ sourceId: 'main.ts', targetId: 'module:pg', type: 'imports' }),
       ]),
     );
+  });
+
+  it.each([
+    'resolve',
+    'reject',
+  ])('waits for a delayed publisher to %s before reporting an outcome', async (outcome) => {
+    writeFile(tmpDir, 'main.ts', 'export const current = true;');
+    const native = new DatabaseSync(':memory:');
+    native.exec(`
+      CREATE TABLE nodes (id TEXT PRIMARY KEY, payload TEXT);
+      CREATE TABLE relations (id TEXT PRIMARY KEY, source TEXT, target TEXT);
+      CREATE TABLE generation (id TEXT PRIMARY KEY);
+      INSERT INTO nodes VALUES ('old-source', 'original'), ('old-target', 'original');
+      INSERT INTO relations VALUES ('old-edge', 'old-source', 'old-target');
+      INSERT INTO generation VALUES ('previous-generation');
+    `);
+    const inventory = () =>
+      JSON.stringify({
+        nodes: native.prepare('SELECT * FROM nodes ORDER BY id').all(),
+        relations: native.prepare('SELECT * FROM relations ORDER BY id').all(),
+        generation: native.prepare('SELECT * FROM generation').all(),
+      });
+    const before = inventory();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    // The old implementation discards the publisher promise. Keep its deliberate
+    // rejection observed so the oracle fails on premature success, not process noise.
+    const gate = release.promise.catch((error: Error) => {
+      throw error;
+    });
+    void gate.catch(() => {});
+    const settled = vi.fn();
+    const output = vi.spyOn(process.stderr, 'write');
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live graph write during staging');
+    });
+    const callback = vi.fn((rows: GraphPublicationRows) => {
+      entered.resolve();
+      const publication = gate.then(() => {
+        native.prepare('UPDATE generation SET id = ?').run(rows.generation!);
+      });
+      void publication.catch(() => {});
+      return publication;
+    });
+    const running = runPipeline(
+      tmpDir,
+      'project',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      { publishGraph: callback },
+    ).then(
+      (result) => {
+        settled('fulfilled');
+        return { result, error: null };
+      },
+      (error: Error) => {
+        settled('rejected');
+        return { result: null, error };
+      },
+    );
+    try {
+      await entered.promise;
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(settled).not.toHaveBeenCalled();
+      expect(output.mock.calls.some((call) => String(call[0]).includes('Pipeline complete:'))).toBe(
+        false,
+      );
+      expect(inventory()).toBe(before);
+      if (outcome === 'reject') release.reject(new Error('publisher precondition rejected'));
+      else release.resolve();
+      const completion = await running;
+      expect(callback).toHaveBeenCalledOnce();
+      expect(insert).not.toHaveBeenCalled();
+      if (outcome === 'reject') {
+        expect(completion.error?.message).toBe('publisher precondition rejected');
+        expect(completion.result).toBeNull();
+        expect(inventory()).toBe(before);
+        expect(
+          output.mock.calls.some((call) => String(call[0]).includes('Pipeline complete:')),
+        ).toBe(false);
+      } else {
+        expect(completion.error).toBeNull();
+        expect(completion.result?.fileCount).toBe(1);
+        expect(native.prepare('SELECT id FROM generation').get()?.id).toBe(
+          callback.mock.calls[0]?.[0].generation,
+        );
+        expect(
+          output.mock.calls.some((call) => String(call[0]).includes('Pipeline complete:')),
+        ).toBe(true);
+      }
+    } finally {
+      release.resolve();
+      await running;
+      await gate.catch(() => {});
+      output.mockRestore();
+      native.close();
+    }
+  });
+
+  it('reports committed publication success when cancellation arrives after commit', async () => {
+    writeFile(tmpDir, 'main.ts', 'export const current = true;');
+    const controller = new AbortController();
+    const native = new DatabaseSync(':memory:');
+    native.exec('CREATE TABLE generation (id TEXT PRIMARY KEY)');
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live graph write during staging');
+    });
+    try {
+      const result = await runPipeline(
+        tmpDir,
+        'project',
+        { insert },
+        { nexusNodes: stubTable(), nexusRelations: stubTable() },
+        undefined,
+        {
+          parserLimits: { signal: controller.signal },
+          async publishGraph(rows) {
+            await Promise.resolve();
+            native.prepare('INSERT INTO generation VALUES (?)').run(rows.generation!);
+            controller.abort(new Error('arrived after commit'));
+          },
+        },
+      );
+      expect(native.prepare('SELECT id FROM generation').get()?.id).toMatch(/^[a-f0-9-]{36}$/);
+      expect(result.fileCount).toBe(1);
+      expect(controller.signal.aborted).toBe(true);
+      expect(insert).not.toHaveBeenCalled();
+    } finally {
+      native.close();
+    }
+  });
+
+  it('retains supplied source-root provenance in the staged assessment', async () => {
+    writeFile(tmpDir, 'main.ts', 'export const current = true;');
+    const sourceRoots: GraphSourceRootAssessment = Object.freeze({
+      projectId: 'stable-parent',
+      projectRoot: join(tmpDir, 'identity'),
+      sourceRoot: tmpDir,
+      assessedAt: '2026-09-19T00:00:00.000Z',
+      roots: Object.freeze([
+        Object.freeze({
+          requestedPath: tmpDir,
+          canonicalPath: tmpDir,
+          graphPrefix: '',
+          explicitlyIncluded: false,
+          revision: null,
+          status: 'unversioned',
+          diagnostics: Object.freeze(['Identity root is not a Git repository.']),
+        }),
+      ]),
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live graph write');
+    });
+    const options = { sourceRoots, publishGraph };
+    const running = runPipeline(
+      tmpDir,
+      'stable-parent',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      options,
+    );
+    options.sourceRoots = { ...sourceRoots, projectId: 'changed-after-call' };
+    await running;
+    expect(publishGraph.mock.calls[0]?.[0].assessment?.sourceRoots).toEqual(sourceRoots);
+    expect(publishGraph.mock.calls[0]?.[0].assessment?.sourceRoots?.projectId).toBe(
+      'stable-parent',
+    );
+    expect(insert).not.toHaveBeenCalled();
   });
 
   it('allocates one publication identity before anonymous extraction and preserves the source hash separately', async () => {
