@@ -189,6 +189,8 @@ it('retains population and emitted rows together or rejects an insufficient budg
     gateway: 'query',
     domain: 'tasks',
     operation: 'find',
+    source: 'cli',
+    requestId: 'population-budget',
     params: { _budget: 1 },
   };
   const response = await createBudgetEnforcement()(request, async () => ({
