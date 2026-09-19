@@ -17,7 +17,10 @@
  * @module pipeline/symbol-table
  */
 
-import type { GraphNodeKind } from '@cleocode/contracts';
+import type { GraphNode, GraphNodeKind } from '@cleocode/contracts';
+import type { GraphIndexReferenceReport, GraphLexicalResolution } from '@cleocode/contracts/graph';
+import type { BarrelExportMap, NamedImportMap } from './import-processor.js';
+import { resolveBarrelCandidates } from './import-processor.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -132,13 +135,16 @@ export interface SymbolTable {
 
   /**
    * Tier 1 — Look up a symbol by file path and name.
-   * Returns the node ID of the first matching definition, or undefined.
+   * Returns a target only when exactly one distinct identity matches.
    */
   lookupExact(filePath: string, name: string): string | undefined;
 
+  /** Resolve an explicit qualified identity without a global-name search. */
+  lookupById(nodeId: string): SymbolDefinition | undefined;
+
   /**
    * Tier 1 — Look up a symbol by file path and name, returning the full definition.
-   * Returns first matching definition. Use `lookupExactAll` for overloads.
+   * Returns a definition only for one distinct identity. Use `lookupExactAll` for candidates.
    */
   lookupExactFull(filePath: string, name: string): SymbolDefinition | undefined;
 
@@ -231,6 +237,7 @@ export function createSymbolTable(): SymbolTable {
   // Structure: FilePath -> (SymbolName -> SymbolDefinition[])
   // Array allows overloaded methods (same name, different signatures) to coexist.
   const fileIndex = new Map<string, Map<string, SymbolDefinition[]>>();
+  const identities = new Map<string, SymbolDefinition>();
 
   // 2. Eagerly-populated Callable Index — maintained on add().
   // Structure: SymbolName -> [Callable Definitions]
@@ -309,6 +316,8 @@ export function createSymbolTable(): SymbolTable {
       ...(metadata?.ownerId !== undefined ? { ownerId: metadata.ownerId } : {}),
     };
 
+    identities.set(nodeId, def);
+
     // A. Add to File Index (shared reference — zero additional memory per index)
     if (!fileIndex.has(filePath)) {
       fileIndex.set(filePath, new Map());
@@ -366,11 +375,12 @@ export function createSymbolTable(): SymbolTable {
   // ---------------------------------------------------------------------------
 
   function lookupExact(filePath: string, name: string): string | undefined {
-    return fileIndex.get(filePath)?.get(name)?.[0]?.nodeId;
+    return lookupExactFull(filePath, name)?.nodeId;
   }
 
   function lookupExactFull(filePath: string, name: string): SymbolDefinition | undefined {
-    return fileIndex.get(filePath)?.get(name)?.[0];
+    const candidates = fileIndex.get(filePath)?.get(name) ?? [];
+    return new Set(candidates.map((item) => item.nodeId)).size === 1 ? candidates[0] : undefined;
   }
 
   function lookupExactAll(filePath: string, name: string): SymbolDefinition[] {
@@ -450,6 +460,7 @@ export function createSymbolTable(): SymbolTable {
 
   function clear(): void {
     fileIndex.clear();
+    identities.clear();
     callableByName.clear();
     fieldByOwner.clear();
     methodByOwner.clear();
@@ -461,6 +472,7 @@ export function createSymbolTable(): SymbolTable {
   return {
     add,
     lookupExact,
+    lookupById: (nodeId) => identities.get(nodeId),
     lookupExactFull,
     lookupExactAll,
     lookupCallableByName,
@@ -473,4 +485,161 @@ export function createSymbolTable(): SymbolTable {
     getStats,
     clear,
   };
+}
+
+/** Original lexical reference shared by call and property-access resolvers. */
+export type LexicalReferenceSite = Pick<
+  GraphIndexReferenceReport,
+  'filePath' | 'sourceId' | 'targetName' | 'relationship' | 'span' | 'generation'
+> & {
+  /** Binding of the free callee or member receiver. */
+  lexical?: GraphLexicalResolution;
+  /** True for a member reference, where the binding describes its receiver. */
+  member: boolean;
+  /** Computed callee or receiver requiring runtime evidence. */
+  dynamic?: boolean;
+};
+
+/** A supported lexical/import target or a retained unresolved disposition. */
+export type LexicalReferenceResult =
+  | {
+      /** Proven target identity. */ targetId: string;
+      /** Source of the static binding evidence. */ tier: 'same-file' | 'import-scoped';
+      /** Resolution explanation retained on the relationship. */ reason: string;
+    }
+  | { /** Explicit disposition without a fabricated target. */ report: GraphIndexReferenceReport };
+
+/**
+ * Resolve shared lexical evidence before considering names from other scopes.
+ * @param site - Original reference and nearest lexical binding.
+ * @param symbols - Indexed declarations with qualified identities.
+ * @param nodes - AST declaration nodes used to verify exported targets.
+ * @param imports - Explicit source-module bindings from import processing.
+ * @param barrels - Re-export graph; ambiguity and cycles remain unresolved.
+ * @returns A static target or an auditable unresolved reference report.
+ * @remarks Unknown local values and globals never establish a production edge.
+ * Runtime member dispatch is supported only for an explicit namespace import.
+ * @example
+ * ```ts
+ * const result = resolveLexicalReference(site, symbols, graph.nodes, imports, barrels);
+ * if ('report' in result) references.push(result.report);
+ * ```
+ */
+export function resolveLexicalReference(
+  site: LexicalReferenceSite,
+  symbols: SymbolTable,
+  nodes: ReadonlyMap<string, GraphNode>,
+  imports: NamedImportMap,
+  barrels: BarrelExportMap,
+): LexicalReferenceResult {
+  const report = (
+    kind: GraphIndexReferenceReport['kind'],
+    reason: string,
+    candidates: string[] = [],
+  ): LexicalReferenceResult => ({
+    report: {
+      kind,
+      filePath: site.filePath,
+      sourceId: site.sourceId,
+      targetName: site.targetName,
+      relationship: site.relationship,
+      span: site.span,
+      generation: site.generation,
+      candidateIds: [...new Set(candidates)].sort(),
+      reason,
+    },
+  });
+  const lexical = site.lexical;
+  if (site.dynamic)
+    return report('dynamic', 'Computed or complex expression requires runtime evidence');
+  if (lexical?.kind === 'ambiguous')
+    return report(
+      'ambiguous',
+      lexical.reason,
+      lexical.bindings.map((binding) => binding.id),
+    );
+  if (lexical?.kind === 'shadowed')
+    return report(
+      'shadowed',
+      lexical.reason,
+      lexical.bindings.map((binding) => binding.id),
+    );
+  if (lexical?.kind === 'resolved') {
+    const targetId = lexical.bindings[0]?.targetId;
+    if (!site.member && targetId && symbols.lookupById(targetId) && nodes.has(targetId))
+      return { targetId, tier: 'same-file', reason: lexical.reason };
+    return report(
+      site.member ? 'dynamic' : 'unresolved',
+      site.member
+        ? 'Receiver binding is known, but member dispatch is not statically established'
+        : 'Lexical declaration is absent from the indexed symbol inventory',
+      targetId ? [targetId] : [],
+    );
+  }
+  if (lexical?.kind === 'import') {
+    const binding = lexical.bindings[0];
+    const imported = imports.get(site.filePath)?.get(binding.name);
+    if (!imported)
+      return report(
+        binding.importSource?.startsWith('.') ? 'unresolved' : 'external',
+        `Explicit import ${binding.importSource ?? '(missing source)'} has no resolved repository binding`,
+      );
+    if (site.member && binding.importedName !== '*')
+      return report('dynamic', 'Imported receiver does not establish a runtime member target');
+    if (!site.member && binding.importedName === '*')
+      return report('unresolved', 'A module namespace is not a callable binding');
+    const exportedName = site.member ? site.targetName : imported.exportedName;
+    const direct = symbols
+      .lookupExactAll(imported.sourcePath, exportedName)
+      .filter((candidate) => !candidate.ownerId && nodes.get(candidate.nodeId)?.exported);
+    if (direct.length > 0) {
+      const ids = [...new Set(direct.map((candidate) => candidate.nodeId))];
+      if (ids.length === 1)
+        return {
+          targetId: ids[0],
+          tier: 'import-scoped',
+          reason: `Explicit lexical import from ${imported.sourcePath}`,
+        };
+      return report(
+        'ambiguous',
+        'Imported module has multiple exported declaration candidates',
+        ids,
+      );
+    }
+    const traced = resolveBarrelCandidates(imported.sourcePath, exportedName, barrels, (entry) =>
+      symbols
+        .lookupExactAll(entry.canonicalFile, entry.canonicalName)
+        .some((candidate) => !candidate.ownerId && nodes.get(candidate.nodeId)?.exported === true),
+    );
+    const candidates = traced.candidates
+      .flatMap((entry) => symbols.lookupExactAll(entry.canonicalFile, entry.canonicalName))
+      .filter((candidate) => !candidate.ownerId && nodes.get(candidate.nodeId)?.exported);
+    const ids = [...new Set(candidates.map((candidate) => candidate.nodeId))];
+    if (traced.incomplete.length > 0)
+      return report('unresolved', traced.incomplete.join('; '), ids);
+    if (ids.length === 1)
+      return {
+        targetId: ids[0],
+        tier: 'import-scoped',
+        reason: `Explicit lexical import through ${imported.sourcePath}`,
+      };
+    return report(
+      ids.length > 1 ? 'ambiguous' : 'unresolved',
+      ids.length > 1
+        ? 'Multiple re-export paths provide the imported name'
+        : 'Imported binding has no proven exported declaration',
+      ids,
+    );
+  }
+  const candidates = [
+    ...symbols.lookupExactAll(site.filePath, site.targetName),
+    ...symbols.lookupCallableByName(site.targetName),
+  ];
+  const ids = [...new Set(candidates.map((candidate) => candidate.nodeId))];
+  return report(
+    ids.length > 1 ? 'ambiguous' : 'unresolved',
+    lexical?.reason ??
+      'Receiver or binding is not statically established; global names are candidates only',
+    ids,
+  );
 }
