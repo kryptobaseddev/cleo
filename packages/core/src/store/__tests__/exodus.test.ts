@@ -574,7 +574,8 @@ describe('T11531 regression — runExodusMigrate copies all tables from all sour
       },
     });
 
-    vi.mock('../dual-scope-db.js', () => ({
+    vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
       openDualScopeDb: vi.fn(),
       openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),
@@ -862,7 +863,8 @@ describe('T11532 regression — runExodusMigrate: unprefixed source → prefixed
       },
     });
 
-    vi.mock('../dual-scope-db.js', () => ({
+    vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
       openDualScopeDb: vi.fn(),
       openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),
@@ -1171,7 +1173,8 @@ describe('T11533 regression — FK-defer: child rows survive when copied before 
       },
     });
 
-    vi.mock('../dual-scope-db.js', () => ({
+    vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
       openDualScopeDb: vi.fn(),
       openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),
@@ -1295,7 +1298,8 @@ describe('T11533 regression — NOT NULL coalesce: rows with NULL in target-only
       },
     });
 
-    vi.mock('../dual-scope-db.js', () => ({
+    vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
       openDualScopeDb: vi.fn(),
       openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),
@@ -1588,7 +1592,8 @@ describe('T11546 regression — epoch→ISO coercion: INTEGER epoch source → t
       },
     });
 
-    vi.mock('../dual-scope-db.js', () => ({
+    vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
       openDualScopeDb: vi.fn(),
       openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),
@@ -1697,7 +1702,8 @@ describe('T11546 regression — epoch→ISO coercion: INTEGER epoch source → t
       },
     });
 
-    vi.mock('../dual-scope-db.js', () => ({
+    vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
       openDualScopeDb: vi.fn(),
       openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),
@@ -1853,7 +1859,8 @@ describe('T11547 regression — enum normalization in migrate layer', () => {
       },
     });
 
-    vi.mock('../dual-scope-db.js', () => ({
+    vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
       openDualScopeDb: vi.fn(),
       openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),
@@ -2175,7 +2182,8 @@ describe('T11548 regression — final enum coverage: transport/conventional_type
       },
     });
 
-    vi.mock('../dual-scope-db.js', () => ({
+    vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
       openDualScopeDb: vi.fn(),
       openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),
@@ -2682,7 +2690,8 @@ describe('T11549 regression — zero-loss final mile: confidence/decision_catego
       },
     });
 
-    vi.mock('../dual-scope-db.js', () => ({
+    vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
       openDualScopeDb: vi.fn(),
       openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),
@@ -3000,7 +3009,8 @@ describe('T11550 regression — agent_credentials/brain_release_links from tasks
       },
     });
 
-    vi.mock('../dual-scope-db.js', () => ({
+    vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
       openDualScopeDb: vi.fn(),
       openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),
