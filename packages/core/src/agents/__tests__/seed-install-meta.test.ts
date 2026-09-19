@@ -86,11 +86,14 @@ describe('ensureSeedAgentsInstalled — meta-agent + substitution (T1239)', () =
   let env: TmpEnv;
 
   beforeEach(() => {
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     vi.resetModules();
     env = makeTmpEnv();
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     env.cleanup();
     vi.doUnmock('../../paths.js');
     vi.resetModules();

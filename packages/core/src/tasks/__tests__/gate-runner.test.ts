@@ -9,9 +9,9 @@
  * @epic T768
  */
 
-import { rm } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   CommandGate,
   FileGate,
@@ -20,23 +20,20 @@ import type {
   ManualGate,
   TestGate,
 } from '@cleocode/contracts';
-import { beforeAll, describe, expect, it } from 'vitest';
-import { getProjectRoot } from '../../paths.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runGates } from '../gate-runner.js';
 
 // ─── Setup ────────────────────────────────────────────────────────────────
 
-const thisDir = dirname(fileURLToPath(import.meta.url));
-const projectRoot = getProjectRoot();
-const testDir = resolve(thisDir, '.gate-runner-test');
+let projectRoot: string;
 
 beforeAll(async () => {
-  // Create test directory
-  try {
-    await rm(testDir, { recursive: true, force: true });
-  } catch {
-    // Ignore
-  }
+  projectRoot = await mkdtemp(join(tmpdir(), 'cleo-gate-runner-'));
+  await writeFile(join(projectRoot, 'package.json'), JSON.stringify({ name: 'gate-fixture' }));
+});
+
+afterAll(async () => {
+  await rm(projectRoot, { recursive: true, force: true });
 });
 
 // ─── Gate Kind Tests ────────────────────────────────────────────────────────
@@ -86,7 +83,7 @@ describe('gate-runner — test gate', () => {
 
 describe('gate-runner — file gate', () => {
   it('validates file existence', async () => {
-    // Use an existing file from the project
+    // Verify the actual file created in the isolated gate project
     const existingFile = join(projectRoot, 'package.json');
 
     const gates: FileGate[] = [
