@@ -414,7 +414,7 @@ export async function maybeRunExodusOnOpen(
   // Gate on the committed MARKER rather than (only) the source-file existsSync,
   // so a re-appearing or stranded legacy DB can NEVER re-arm exodus-on-open even
   // if the consolidated base table momentarily reads empty (DHQ-052 · T11662).
-  if (hasExodusCompleteMarker(scope, cwd)) {
+  if (hasExodusCompleteMarker(scope, cwd, dbPath)) {
     return {
       outcome: 'skipped',
       reason: 'exodus completion marker present — scope already migrated (cutover sealed)',
@@ -567,7 +567,7 @@ export async function maybeRunExodusOnOpen(
         // so it is logged but does not flip the outcome to 'aborted'.
         try {
           const consumed = plan.sources.filter((s) => existsSync(s.path));
-          const archiveResult = archiveMigratedSources(consumed, cwd);
+          const archiveResult = archiveMigratedSources(consumed, cwd, plan);
           log.info(
             {
               scope,
