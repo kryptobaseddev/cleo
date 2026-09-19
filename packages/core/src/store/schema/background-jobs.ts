@@ -104,5 +104,7 @@ export const backgroundJobs = sqliteTable(
 
 // === TYPE EXPORTS ===
 
+/** Persisted active-table row, including explicit lease ownership and unresolved legacy fields. */
 export type BackgroundJobRow = typeof backgroundJobs.$inferSelect;
+/** Insert shape for a new active job; historical rows are preserved by additive defaults. */
 export type NewBackgroundJobRow = typeof backgroundJobs.$inferInsert;

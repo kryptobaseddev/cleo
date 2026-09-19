@@ -1,474 +1,956 @@
 /**
- * Background Job Manager for Long-Running Operations
+ * Existing durable job store and executor facade.
  *
- * Operations that may take >30s support async execution. This module
- * provides a job manager backed by a SQLite DurableJobStore so that job
- * state survives process restart.  Any job recorded as `running` in the
- * database at construction time is immediately transitioned to `orphaned`
- * so that humans/agents can triage it — no silent retry.
+ * Opening a client never changes ownership. Each mutation uses a SQLite write
+ * transaction and an expiring owner/epoch fence. Legacy unowned rows remain
+ * inspectable; they require explicit recovery rather than guessed ownership.
  *
- * @remarks
- * Relocated from `packages/cleo/src/dispatch/lib/background-jobs.ts` into
- * `@cleocode/core/store` (R3-K1 · T11455 · SG-RUNTIME-UNIFICATION). This is
- * Drizzle DB-access logic, so it belongs in `@cleocode/core` — the package that
- * owns the consolidated SQLite schema, the single Drizzle instance, and the DB
- * handle types. Hosting it here means there is exactly ONE `drizzle-orm`
- * instance backing the query builders (no dual peer-hashed instance / `tsc -b`
- * `SQL<unknown>` nominal mismatch). `@cleocode/runtime/gateway` imports the
- * accessor from here and declares no `drizzle-orm` dependency of its own.
+ * The active table is background_jobs (epoch-ms timestamps). The separate
+ * tasks_background_jobs history is retained without rebinding or conversion.
+ * Job fences protect job metadata, not arbitrary mutations inside an executor.
  *
- * @task T641
- * @task T11455
+ * @task T12263
  */
-
-import { randomUUID } from 'node:crypto';
-import { eq, inArray } from 'drizzle-orm';
+import { createHash, randomUUID } from 'node:crypto';
+import type {
+  BackgroundJobExecutionContext,
+  BackgroundJobFailureCode,
+  BackgroundJobLease,
+  BackgroundJobStoreOptions,
+  BackgroundJobSubmission,
+} from '@cleocode/contracts/jobs';
+import { and, eq, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from './sqlite.js';
-import {
-  type BackgroundJobRow,
-  type BackgroundJobStatus,
-  backgroundJobs,
-  type NewBackgroundJobRow,
-} from './tasks-schema.js';
+import { BACKGROUND_JOB_STATUSES, type BackgroundJobRow, type BackgroundJobStatus, backgroundJobs } from './tasks-schema.js';
 
-// Re-export for callers that import the type from this module.
 export type { BackgroundJobStatus };
 
-/**
- * Background job representation returned by public API methods.
- *
- * Timestamps are ISO-8601 strings so callers do not need to know that the
- * database stores them as integer milliseconds.
- */
+/** Inspectable durable job, including unresolved legacy scope and ownership. */
 export interface BackgroundJob {
-  /** Unique job identifier (UUID v4). */
+  /** Unique persisted job ID. */
   id: string;
-  /** Operation name, e.g. "nexus.analyze". */
+  /** Supported operation name. */
   operation: string;
-  /** Current lifecycle status. */
+  /** Persisted lifecycle status; cancellation requests are separate. */
   status: BackgroundJobStatus;
-  /** ISO-8601 timestamp of when the job started. */
+  /** ISO-8601 creation time. */
   startedAt: string;
-  /** ISO-8601 timestamp of when the job finished; undefined while running. */
+  /** ISO-8601 terminal time, if committed. */
   completedAt?: string;
-  /** JSON-serialised result; undefined on failure or while running. */
+  /** Existing executor result surface. */
   result?: unknown;
-  /** Error message; undefined on success or while running. */
+  /** Persisted executor error, when failed. */
   error?: string;
-  /** Progress 0-100; undefined until reported. */
+  /** Last reported percentage. */
   progress?: number;
-  /** Agent or session that claimed this job; undefined if unclaimed. */
+  /** Actor display identity, distinct from the unique lease owner. */
   claimedBy?: string;
+  /** Explicit project identity; null discloses unresolved legacy scope. */
+  projectId: string | null;
+  /** Unique owner of the current claim; null on legacy unowned rows. */
+  ownerId: string | null;
+  /** Current lease expiration in epoch milliseconds. */
+  leaseExpiresAt: number | null;
+  /** Last heartbeat in epoch milliseconds. */
+  heartbeatAt: number;
+  /** Monotonic claim fence. */
+  fencingEpoch: number;
+  /** Number of issued execution claims. */
+  attempts: number;
+  /** Persisted cancellation request; does not assert executor termination. */
+  cancellationRequestedAt: number | null;
+  /** Last fenced JSON checkpoint bytes. */
+  checkpointJson: string | null;
+  /** Last checkpoint timestamp in epoch milliseconds. */
+  checkpointAt: number | null;
+  /** Project/operation-scoped retry key. */
+  idempotencyKey: string | null;
+  /** SHA-256 of immutable proposal bytes. */
+  proposalHash: string | null;
+  /** Ownership assessment at read time, independent of lifecycle status. */
+  ownership: 'current' | 'expired' | 'legacy-unknown' | 'terminal';
+  /** Explicit diagnostic failure, when result decoding or local persistence failed. */
+  diagnosticError?: string;
 }
 
-/**
- * Configuration for {@link BackgroundJobManager}.
- */
-export interface BackgroundJobManagerConfig {
-  /** Maximum number of concurrently *running* jobs. Default: 10. */
+/** Configuration for the existing executor facade. */
+export interface BackgroundJobManagerConfig extends BackgroundJobStoreOptions {
+  /** Maximum running jobs observed in this client's project scope. */
   maxJobs?: number;
-  /** How long (ms) to retain completed/failed/cancelled jobs. Default: 3 600 000 (1 h). */
+  /** Former retention window. @deprecated Job evidence is retained regardless of age. */
   retentionMs?: number;
 }
 
-// ---------------------------------------------------------------------------
-// Row ↔ domain model helpers
-// ---------------------------------------------------------------------------
+/**
+ * Stable refusal of an unsafe ownership, retry, or transaction operation.
+ * @remarks A refusal preserves the current owner's work and reports no committed transition.
+ */
+export class BackgroundJobError extends Error {
+  /** Machine-readable refusal reason. */
+  readonly code: BackgroundJobFailureCode;
 
-/** Convert a {@link BackgroundJobRow} (from DB) to the public {@link BackgroundJob}. */
+  /**
+   * Construct an explicit job-store refusal.
+   * @param code - Stable failure category.
+   * @param message - Human-readable reason and required correction.
+   * @remarks This error never establishes successful job execution.
+   * @example
+   * ```ts
+   * throw new BackgroundJobError('E_JOB_LEASE_LOST', 'Reclaim expired work first');
+   * ```
+   */
+  constructor(code: BackgroundJobFailureCode, message: string) {
+    super(message);
+    this.name = 'BackgroundJobError';
+    this.code = code;
+  }
+}
+
 function rowToJob(row: BackgroundJobRow): BackgroundJob {
+  const terminal = row.status !== 'running' && row.status !== 'pending';
   const job: BackgroundJob = {
     id: row.id,
     operation: row.operation,
-    status: row.status as BackgroundJobStatus,
+    status: row.status,
     startedAt: new Date(row.startedAt).toISOString(),
+    projectId: row.projectId,
+    ownerId: row.ownerId,
+    leaseExpiresAt: row.leaseExpiresAt,
+    heartbeatAt: row.heartbeatAt,
+    fencingEpoch: row.fencingEpoch,
+    attempts: row.attempts,
+    cancellationRequestedAt: row.cancellationRequestedAt,
+    checkpointJson: row.checkpointJson,
+    checkpointAt: row.checkpointAt,
+    idempotencyKey: row.idempotencyKey,
+    proposalHash: row.proposalHash,
+    ownership: terminal
+      ? 'terminal'
+      : row.ownerId === null || row.leaseExpiresAt === null
+        ? 'legacy-unknown'
+        : row.leaseExpiresAt <= Date.now()
+          ? 'expired'
+          : 'current',
   };
-
-  if (row.completedAt !== null && row.completedAt !== undefined) {
-    job.completedAt = new Date(row.completedAt).toISOString();
-  }
-
-  if (row.result !== null && row.result !== undefined) {
+  if (row.completedAt !== null) job.completedAt = new Date(row.completedAt).toISOString();
+  if (row.result !== null) {
     try {
-      job.result = JSON.parse(row.result) as unknown;
+      job.result = JSON.parse(row.result);
     } catch {
       job.result = row.result;
+      job.diagnosticError = 'Stored job result is not valid JSON';
     }
   }
-
-  if (row.error !== null && row.error !== undefined) {
-    job.error = row.error;
-  }
-
-  if (row.progress !== null && row.progress !== undefined) {
-    job.progress = row.progress;
-  }
-
-  if (row.claimedBy !== null && row.claimedBy !== undefined) {
-    job.claimedBy = row.claimedBy;
-  }
-
+  if (row.error !== null) job.error = row.error;
+  if (row.progress !== null) job.progress = row.progress;
+  if (row.claimedBy !== null) job.claimedBy = row.claimedBy;
   return job;
 }
 
-// ---------------------------------------------------------------------------
-// DurableJobStore — thin Drizzle-backed persistence layer
-// ---------------------------------------------------------------------------
-
-type TasksDb = NodeSQLiteDatabase;
-
-/**
- * Drizzle-backed persistence layer for background jobs.
- *
- * On construction the store scans for `running` rows left by a prior
- * process and marks them `orphaned`.  All reads and writes go through
- * Drizzle — no raw SQL strings.
- *
- * @task T641
- */
-export class DurableJobStore {
-  readonly #db: TasksDb;
-
-  constructor(db: TasksDb) {
-    this.#db = db;
-    this.#orphanStaleJobs();
-  }
-
-  /**
-   * Transition all `running` rows to `orphaned`.
-   *
-   * Called once at startup so abandoned jobs surface via {@link listJobs}
-   * rather than being silently retried.
-   */
-  #orphanStaleJobs(): void {
-    const now = Date.now();
-    this.#db
-      .update(backgroundJobs)
-      .set({
-        status: 'orphaned',
-        completedAt: now,
-        error: 'process-exited-before-completion',
-      })
-      .where(eq(backgroundJobs.status, 'running'))
-      .run();
-  }
-
-  /**
-   * Insert a new job row with `running` status.
-   *
-   * @param id        - UUID for the job
-   * @param operation - Operation name
-   * @param now       - Current timestamp in ms
-   */
-  insert(id: string, operation: string, now: number): void {
-    const row: NewBackgroundJobRow = {
-      id,
-      operation,
-      status: 'running',
-      startedAt: now,
-      heartbeatAt: now,
-    };
-    this.#db.insert(backgroundJobs).values(row).run();
-  }
-
-  /**
-   * Retrieve a single job by ID.  Returns `undefined` if not found.
-   */
-  get(id: string): BackgroundJob | undefined {
-    const rows = this.#db.select().from(backgroundJobs).where(eq(backgroundJobs.id, id)).all();
-    const row = rows[0];
-    return row === undefined ? undefined : rowToJob(row);
-  }
-
-  /**
-   * Retrieve all jobs, optionally filtered by status.
-   */
-  list(status?: string): BackgroundJob[] {
-    const rows = status
-      ? this.#db
-          .select()
-          .from(backgroundJobs)
-          .where(eq(backgroundJobs.status, status as BackgroundJobStatus))
-          .all()
-      : this.#db.select().from(backgroundJobs).all();
-    return rows.map(rowToJob);
-  }
-
-  /**
-   * Mark a job as `complete` with an optional result payload.
-   */
-  complete(id: string, result: unknown, now: number): void {
-    this.#db
-      .update(backgroundJobs)
-      .set({
-        status: 'complete',
-        completedAt: now,
-        result: result !== undefined ? JSON.stringify(result) : null,
-        progress: 100,
-        heartbeatAt: now,
-      })
-      .where(eq(backgroundJobs.id, id))
-      .run();
-  }
-
-  /**
-   * Mark a job as `failed` with an error message.
-   */
-  fail(id: string, error: string, now: number): void {
-    this.#db
-      .update(backgroundJobs)
-      .set({
-        status: 'failed',
-        completedAt: now,
-        error,
-        heartbeatAt: now,
-      })
-      .where(eq(backgroundJobs.id, id))
-      .run();
-  }
-
-  /**
-   * Mark a job as `cancelled`.
-   */
-  cancel(id: string, now: number): void {
-    this.#db
-      .update(backgroundJobs)
-      .set({
-        status: 'cancelled',
-        completedAt: now,
-        heartbeatAt: now,
-      })
-      .where(eq(backgroundJobs.id, id))
-      .run();
-  }
-
-  /**
-   * Update the progress (0-100) and heartbeat of a running job.
-   */
-  progress(id: string, progress: number, now: number): void {
-    this.#db
-      .update(backgroundJobs)
-      .set({
-        progress: Math.max(0, Math.min(100, progress)),
-        heartbeatAt: now,
-      })
-      .where(eq(backgroundJobs.id, id))
-      .run();
-  }
-
-  /**
-   * Delete terminal (complete/failed/cancelled/orphaned) jobs whose
-   * `completedAt` is older than `cutoffMs`.
-   *
-   * @returns Number of rows deleted.
-   */
-  purgeOlderThan(cutoffMs: number): number {
-    const terminalStatuses: BackgroundJobStatus[] = ['complete', 'failed', 'cancelled', 'orphaned'];
-    const rows = this.#db
-      .select({ id: backgroundJobs.id, completedAt: backgroundJobs.completedAt })
-      .from(backgroundJobs)
-      .where(inArray(backgroundJobs.status, terminalStatuses))
-      .all();
-
-    const staleIds = rows
-      .filter(
-        (r) => r.completedAt !== null && r.completedAt !== undefined && r.completedAt < cutoffMs,
-      )
-      .map((r) => r.id);
-
-    if (staleIds.length === 0) {
-      return 0;
-    }
-
-    this.#db.delete(backgroundJobs).where(inArray(backgroundJobs.id, staleIds)).run();
-    return staleIds.length;
+function requireText(value: string, field: string): void {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new BackgroundJobError('E_JOB_INPUT_INVALID', `${field} must be a nonempty string`);
   }
 }
 
-// ---------------------------------------------------------------------------
-// BackgroundJobManager — public façade (same interface as before T641)
-// ---------------------------------------------------------------------------
+function requireJson(value: string): void {
+  try {
+    JSON.parse(value);
+  } catch {
+    throw new BackgroundJobError(
+      'E_JOB_INPUT_INVALID',
+      'Proposal/checkpoint must contain valid JSON bytes',
+    );
+  }
+}
 
 /**
- * Manages background jobs for long-running operations.
- *
- * Backed by a {@link DurableJobStore} so job state persists across process
- * restarts.  The public interface is identical to the previous in-memory
- * implementation so the job-manager accessor does not change.
- *
- * @task T641
+ * Drizzle-backed ownership of the established active job table.
+ * @remarks Sync methods refuse an already-owned native transaction before writing.
+ * No method infers a missing legacy lease to be expired. Rows are never age-pruned.
+ * @example
+ * ```ts
+ * const jobs = new DurableJobStore(db, { projectId: 'project-uuid' });
+ * const lease = jobs.insert('job-uuid', 'doctor.knowledge', Date.now());
+ * if (lease) jobs.complete(lease.jobId, { verified: true }, Date.now());
+ * ```
+ */
+export class DurableJobStore {
+  readonly #db: NodeSQLiteDatabase;
+  readonly #ownerId = randomUUID();
+  readonly #options: BackgroundJobStoreOptions;
+  readonly #grants = new Map<string, BackgroundJobLease>();
+  /** Positive lease duration used for claims and heartbeats. */
+  readonly leaseMs: number;
+
+  /**
+   * Open a client without changing persisted work.
+   * @param db - Existing canonical database handle; no new connection is opened.
+   * @param options - Explicit scope, actor, and lease duration.
+   * @remarks Unscoped legacy callers retain visible null project identity.
+   * @example
+   * ```ts
+   * const store = new DurableJobStore(db, { projectId: 'project-uuid', leaseMs: 30000 });
+   * ```
+   */
+  constructor(db: NodeSQLiteDatabase, options: BackgroundJobStoreOptions = {}) {
+    this.#db = db;
+    this.#options = Object.freeze({ ...options });
+    this.leaseMs = options.leaseMs ?? 30_000;
+    if (!Number.isSafeInteger(this.leaseMs) || this.leaseMs <= 0) {
+      throw new BackgroundJobError(
+        'E_JOB_INPUT_INVALID',
+        'leaseMs must be a positive safe integer',
+      );
+    }
+    if (options.projectId !== undefined) requireText(options.projectId, 'projectId');
+  }
+
+  #scope() {
+    return this.#options.projectId === undefined
+      ? undefined
+      : eq(backgroundJobs.projectId, this.#options.projectId);
+  }
+
+  #row(id: string): BackgroundJobRow | undefined {
+    return this.#db
+      .select()
+      .from(backgroundJobs)
+      .where(and(eq(backgroundJobs.id, id), this.#scope()))
+      .get();
+  }
+
+  #write<T>(operation: () => T): T {
+    // BEGIN outside the rollback scope: failure must never roll back another caller.
+    try {
+      this.#db.run(sql`BEGIN IMMEDIATE`);
+    } catch (error) {
+      if (error instanceof Error && /within a transaction/i.test(String(error.cause ?? error))) {
+        throw new BackgroundJobError(
+          'E_JOB_TRANSACTION_OWNED',
+          'Job write refused: another caller owns the native transaction',
+        );
+      }
+      throw error;
+    }
+    try {
+      const value = operation();
+      this.#db.run(sql`COMMIT`);
+      return value;
+    } catch (error) {
+      this.#db.run(sql`ROLLBACK`);
+      throw error;
+    }
+  }
+
+  #owned(id: string): BackgroundJobRow {
+    const grant = this.#grants.get(id);
+    const row = this.#row(id);
+    if (
+      !grant ||
+      !row ||
+      row.status !== 'running' ||
+      row.ownerId !== this.#ownerId ||
+      row.ownerId !== grant.ownerId ||
+      row.fencingEpoch !== grant.epoch ||
+      row.leaseExpiresAt === null ||
+      row.leaseExpiresAt <= Date.now()
+    ) {
+      throw new BackgroundJobError(
+        'E_JOB_LEASE_LOST',
+        `Job ${id} is not owned by this unexpired attempt`,
+      );
+    }
+    return row;
+  }
+
+  #grant(row: BackgroundJobRow): BackgroundJobLease {
+    if (row.ownerId === null || row.leaseExpiresAt === null) {
+      throw new BackgroundJobError(
+        'E_JOB_LEASE_LOST',
+        'Cannot issue a grant for unowned legacy work',
+      );
+    }
+    return Object.freeze({
+      jobId: row.id,
+      ownerId: row.ownerId,
+      epoch: row.fencingEpoch,
+      expiresAt: row.leaseExpiresAt,
+    });
+  }
+
+  /**
+   * Create a leased job, or return the existing immutable scoped submission.
+   * @param id - Proposed UUID for a new job.
+   * @param operation - Supported operation identifier.
+   * @param now - Event timestamp in epoch milliseconds.
+   * @param submission - Optional scoped immutable retry contract.
+   * @param maxRunning - Optional running-job limit checked atomically with creation.
+   * @returns Grant for new work, or null when an identical submission already exists.
+   * @remarks A repeated submission never acquires ownership or re-executes by itself.
+   * @example
+   * ```ts
+   * const grant = store.insert(id, 'doctor.knowledge', Date.now(), submission);
+   * ```
+   */
+  insert(
+    id: string,
+    operation: string,
+    now: number,
+    submission?: BackgroundJobSubmission,
+    maxRunning?: number,
+  ): BackgroundJobLease | null {
+    if (maxRunning !== undefined && (!Number.isSafeInteger(maxRunning) || maxRunning < 1)) {
+      throw new BackgroundJobError(
+        'E_JOB_INPUT_INVALID',
+        'Running-job limit must be a positive safe integer',
+      );
+    }
+    requireText(id, 'id');
+    requireText(operation, 'operation');
+    if (submission) {
+      requireText(submission.projectId, 'projectId');
+      requireText(submission.idempotencyKey, 'idempotencyKey');
+      requireJson(submission.proposalJson);
+      if (
+        this.#options.projectId !== undefined &&
+        this.#options.projectId !== submission.projectId
+      ) {
+        throw new BackgroundJobError(
+          'E_JOB_SCOPE_MISMATCH',
+          'Submission project differs from the store scope',
+        );
+      }
+    }
+    const proposalHash = submission
+      ? createHash('sha256').update(submission.proposalJson).digest('hex')
+      : null;
+    const row = this.#write(() => {
+      if (submission) {
+        const prior = this.#db
+          .select()
+          .from(backgroundJobs)
+          .where(
+            and(
+              eq(backgroundJobs.projectId, submission.projectId),
+              eq(backgroundJobs.operation, operation),
+              eq(backgroundJobs.idempotencyKey, submission.idempotencyKey),
+            ),
+          )
+          .get();
+        if (prior) {
+          if (prior.proposalHash !== proposalHash)
+            throw new BackgroundJobError(
+              'E_JOB_IDEMPOTENCY_CONFLICT',
+              'Retry key was already used with different immutable proposal bytes',
+            );
+          return null;
+        }
+      }
+      if (maxRunning !== undefined) {
+        const count =
+          this.#db
+            .select({ count: sql<number>`count(*)` })
+            .from(backgroundJobs)
+            .where(and(this.#scope(), eq(backgroundJobs.status, 'running')))
+            .get()?.count ?? 0;
+        if (count >= maxRunning)
+          throw new BackgroundJobError(
+            'E_JOB_INPUT_INVALID',
+            `Maximum concurrent jobs reached (${maxRunning})`,
+          );
+      }
+      return this.#db
+        .insert(backgroundJobs)
+        .values({
+          id,
+          operation,
+          status: 'running',
+          startedAt: now,
+          heartbeatAt: now,
+          claimedBy: this.#options.actor ?? null,
+          projectId: submission?.projectId ?? this.#options.projectId ?? null,
+          ownerId: this.#ownerId,
+          leaseExpiresAt: Date.now() + this.leaseMs,
+          fencingEpoch: 1,
+          attempts: 1,
+          proposalHash,
+          idempotencyKey: submission?.idempotencyKey ?? null,
+        })
+        .returning()
+        .get();
+    });
+    if (!row) return null;
+    const grant = this.#grant(row);
+    this.#grants.set(id, grant);
+    return grant;
+  }
+
+  /**
+   * Find an existing immutable submission without claiming it.
+   * @param operation - Exact supported operation.
+   * @param submission - Project and retry identity.
+   * @returns Persisted job, or undefined.
+   * @remarks Input conflict validation is performed by insert before coalescing.
+   * @example
+   * ```ts
+   * const prior = store.findSubmission('doctor.knowledge', submission);
+   * ```
+   */
+  findSubmission(
+    operation: string,
+    submission: BackgroundJobSubmission,
+  ): BackgroundJob | undefined {
+    const row = this.#db
+      .select()
+      .from(backgroundJobs)
+      .where(
+        and(
+          this.#scope(),
+          eq(backgroundJobs.projectId, submission.projectId),
+          eq(backgroundJobs.operation, operation),
+          eq(backgroundJobs.idempotencyKey, submission.idempotencyKey),
+        ),
+      )
+      .get();
+    return row ? rowToJob(row) : undefined;
+  }
+
+  /**
+   * Read a job with scope and ownership disclosed.
+   * @param id - Job identity.
+   * @returns Job or undefined.
+   * @remarks A missing or expired lease is never represented as current ownership.
+   * @example
+   * ```ts
+   * const job = store.get(id);
+   * ```
+   */
+  get(id: string): BackgroundJob | undefined {
+    const row = this.#row(id);
+    return row ? rowToJob(row) : undefined;
+  }
+
+  /**
+   * List visible jobs.
+   * @param status - Optional lifecycle filter.
+   * @returns Matching scoped jobs.
+   * @remarks Project-scoped clients exclude other projects and unscoped legacy rows.
+   * @example
+   * ```ts
+   * const jobs = store.list('running');
+   * ```
+   */
+  list(status?: string): BackgroundJob[] {
+    if (
+      status !== undefined &&
+      !BACKGROUND_JOB_STATUSES.some((candidate) => candidate === status)
+    ) {
+      throw new BackgroundJobError('E_JOB_INPUT_INVALID', `Unsupported job status: ${status}`);
+    }
+    return this.#db
+      .select()
+      .from(backgroundJobs)
+      .where(
+        and(
+          this.#scope(),
+          status ? eq(backgroundJobs.status, status as BackgroundJobStatus) : undefined,
+        ),
+      )
+      .all()
+      .map(rowToJob);
+  }
+
+  /**
+   * Reclaim only an explicitly expired lease, fencing the prior attempt.
+   * @param id - Existing job identity.
+   * @param now - Claim timestamp.
+   * @returns New attempt's lease.
+   * @remarks Preserves checkpoint and cancellation request. Terminal and legacy-unowned rows are refused.
+   * @example
+   * ```ts
+   * const lease = store.claim(expiredJob.id, Date.now());
+   * ```
+   */
+  claim(id: string, now: number): BackgroundJobLease {
+    const row = this.#write(() => {
+      const prior = this.#row(id);
+      if (
+        !prior ||
+        prior.status !== 'running' ||
+        prior.ownerId === null ||
+        prior.leaseExpiresAt === null ||
+        prior.leaseExpiresAt > Date.now()
+      ) {
+        throw new BackgroundJobError(
+          'E_JOB_NOT_RECLAIMABLE',
+          'Only explicitly expired running ownership may be reclaimed',
+        );
+      }
+      if (
+        !Number.isSafeInteger(prior.fencingEpoch + 1) ||
+        !Number.isSafeInteger(prior.attempts + 1)
+      ) {
+        throw new BackgroundJobError(
+          'E_JOB_INPUT_INVALID',
+          'Claim counter exhausted; explicit recovery is required',
+        );
+      }
+      return this.#db
+        .update(backgroundJobs)
+        .set({
+          ownerId: this.#ownerId,
+          claimedBy: this.#options.actor ?? null,
+          fencingEpoch: prior.fencingEpoch + 1,
+          attempts: prior.attempts + 1,
+          heartbeatAt: now,
+          leaseExpiresAt: Date.now() + this.leaseMs,
+        })
+        .where(eq(backgroundJobs.id, id))
+        .returning()
+        .get();
+    });
+    if (!row) throw new BackgroundJobError('E_JOB_LEASE_LOST', 'Claimed job disappeared');
+    const grant = this.#grant(row);
+    this.#grants.set(id, grant);
+    return grant;
+  }
+
+  /**
+   * Renew an owned lease and observe persisted cancellation.
+   * @param id - Owned job identity.
+   * @param now - Heartbeat timestamp.
+   * @returns Current job including cancellation request.
+   * @remarks Expired attempts cannot revive themselves through heartbeat.
+   * @example
+   * ```ts
+   * const job = store.heartbeat(id, Date.now());
+   * ```
+   */
+  heartbeat(id: string, now: number): BackgroundJob {
+    return this.#write(() => {
+      this.#owned(id);
+      const row = this.#db
+        .update(backgroundJobs)
+        .set({ heartbeatAt: now, leaseExpiresAt: Date.now() + this.leaseMs })
+        .where(eq(backgroundJobs.id, id))
+        .returning()
+        .get();
+      if (!row) throw new BackgroundJobError('E_JOB_LEASE_LOST', 'Heartbeat target disappeared');
+      return rowToJob(row);
+    });
+  }
+
+  /**
+   * Persist a checkpoint under the current attempt fence.
+   * @param id - Owned job identity.
+   * @param valueJson - Valid serialized checkpoint bytes.
+   * @param now - Checkpoint timestamp.
+   * @remarks Writes atomically with ownership verification; does not authorize domain writes.
+   * @example
+   * ```ts
+   * store.checkpoint(id, JSON.stringify({ nextFile: 8 }), Date.now());
+   * ```
+   */
+  checkpoint(id: string, valueJson: string, now: number): void {
+    requireJson(valueJson);
+    this.#write(() => {
+      this.#owned(id);
+      this.#db
+        .update(backgroundJobs)
+        .set({ checkpointJson: valueJson, checkpointAt: now })
+        .where(eq(backgroundJobs.id, id))
+        .run();
+    });
+  }
+
+  /**
+   * Request cancellation without claiming that execution has stopped.
+   * @param id - Visible job identity.
+   * @param now - Request timestamp.
+   * @returns Whether running work has a persisted cancellation request.
+   * @remarks Terminal results are preserved when cancellation arrives after commit.
+   * @example
+   * ```ts
+   * const requested = store.requestCancel(id, Date.now());
+   * ```
+   */
+  requestCancel(id: string, now: number): boolean {
+    return this.#write(() => {
+      const row = this.#row(id);
+      if (!row || row.status !== 'running') return false;
+      if (row.cancellationRequestedAt === null)
+        this.#db
+          .update(backgroundJobs)
+          .set({ cancellationRequestedAt: now })
+          .where(eq(backgroundJobs.id, id))
+          .run();
+      return true;
+    });
+  }
+
+  /**
+   * Commit actual executor success under ownership.
+   * @param id - Job identity.
+   * @param result - Actual outcome.
+   * @param now - Completion timestamp.
+   * @remarks An earlier cancellation request does not erase work already committed.
+   * @example
+   * ```ts
+   * store.complete(id, { verified: true }, Date.now());
+   * ```
+   */
+  complete(id: string, result: unknown, now: number): void {
+    const resultJson = result === undefined ? null : JSON.stringify(result);
+    this.#write(() => {
+      this.#owned(id);
+      this.#db
+        .update(backgroundJobs)
+        .set({
+          status: 'complete',
+          completedAt: now,
+          result: resultJson,
+          progress: 100,
+          heartbeatAt: now,
+        })
+        .where(eq(backgroundJobs.id, id))
+        .run();
+    });
+    this.#grants.delete(id);
+  }
+
+  /**
+   * Commit actual executor failure under ownership.
+   * @param id - Job identity.
+   * @param error - Failure message.
+   * @param now - Failure timestamp.
+   * @remarks Stale owners cannot replace a newer attempt's outcome.
+   * @example
+   * ```ts
+   * store.fail(id, 'Verification failed', Date.now());
+   * ```
+   */
+  fail(id: string, error: string, now: number): void {
+    this.#write(() => {
+      this.#owned(id);
+      this.#db
+        .update(backgroundJobs)
+        .set({ status: 'failed', completedAt: now, error, heartbeatAt: now })
+        .where(eq(backgroundJobs.id, id))
+        .run();
+    });
+    this.#grants.delete(id);
+  }
+
+  /**
+   * Acknowledge an executor's cancellation.
+   * @param id - Owned job identity.
+   * @param now - Acknowledgement timestamp.
+   * @remarks Requires a persisted cancellation request and current ownership.
+   * @example
+   * ```ts
+   * store.cancel(id, Date.now());
+   * ```
+   */
+  cancel(id: string, now: number): void {
+    this.#write(() => {
+      const row = this.#owned(id);
+      if (row.cancellationRequestedAt === null)
+        throw new BackgroundJobError(
+          'E_JOB_INPUT_INVALID',
+          'Cancellation must be requested before acknowledgement',
+        );
+      this.#db
+        .update(backgroundJobs)
+        .set({ status: 'cancelled', completedAt: now, heartbeatAt: now })
+        .where(eq(backgroundJobs.id, id))
+        .run();
+    });
+    this.#grants.delete(id);
+  }
+
+  /**
+   * Update an owned attempt's progress.
+   * @param id - Job identity.
+   * @param progress - Finite percentage, clamped to zero through one hundred.
+   * @param now - Observation timestamp.
+   * @remarks Progress does not renew an expired lease or overwrite another owner.
+   * @example
+   * ```ts
+   * store.progress(id, 50, Date.now());
+   * ```
+   */
+  progress(id: string, progress: number, now: number): void {
+    if (!Number.isFinite(progress))
+      throw new BackgroundJobError('E_JOB_INPUT_INVALID', 'Progress must be finite');
+    this.#write(() => {
+      this.#owned(id);
+      this.#db
+        .update(backgroundJobs)
+        .set({ progress: Math.max(0, Math.min(100, progress)), heartbeatAt: now })
+        .where(eq(backgroundJobs.id, id))
+        .run();
+    });
+  }
+
+  /**
+   * Retain historical job evidence regardless of age.
+   * @param _cutoffMs - Former deletion threshold, retained for API compatibility.
+   * @returns Zero; any future deletion requires explicit evidence-aware recovery policy.
+   * @remarks No automatic or age-only pruning is performed.
+   * @example
+   * ```ts
+   * const removed = store.purgeOlderThan(Date.now()); // 0
+   * ```
+   */
+  purgeOlderThan(_cutoffMs: number): number {
+    return 0;
+  }
+}
+
+/**
+ * Existing executor facade with persisted ownership and cooperative cancellation.
+ * @remarks Executors must use a separately authorized transactional service for
+ * domain changes and receipts; this class fences only job metadata/checkpoints.
+ * @example
+ * ```ts
+ * const manager = new BackgroundJobManager(db, { projectId: 'project-uuid' });
+ * const id = await manager.startJob('inspect', async ({ signal }) => ({ cancelled: signal.aborted }));
+ * ```
  */
 export class BackgroundJobManager {
   readonly #store: DurableJobStore;
-  readonly #abortControllers: Map<string, AbortController>;
+  readonly #abortControllers = new Map<string, AbortController>();
+  readonly #heartbeatTimers = new Map<string, ReturnType<typeof setInterval>>();
+  readonly #diagnostics = new Map<string, string>();
   readonly #maxJobs: number;
-  readonly #retentionMs: number;
-  #cleanupTimer: ReturnType<typeof setInterval> | null;
 
-  constructor(db: TasksDb, config?: BackgroundJobManagerConfig) {
-    this.#store = new DurableJobStore(db);
-    this.#abortControllers = new Map();
+  /**
+   * Open the existing facade.
+   * @param db - Canonical store.
+   * @param config - Scope and lease configuration.
+   * @remarks Construction does not orphan or execute persisted work.
+   * @example
+   * ```ts
+   * const manager = new BackgroundJobManager(db, { projectId: 'project-uuid' });
+   * ```
+   */
+  constructor(db: NodeSQLiteDatabase, config?: BackgroundJobManagerConfig) {
+    this.#store = new DurableJobStore(db, config);
     this.#maxJobs = config?.maxJobs ?? 10;
-    this.#retentionMs = config?.retentionMs ?? 3_600_000; // 1 hour default
-    this.#cleanupTimer = null;
-
-    // Start periodic cleanup every 5 minutes
-    this.#cleanupTimer = setInterval(() => this.cleanup(), 300_000);
-    // Don't prevent process exit
-    if (this.#cleanupTimer.unref) {
-      this.#cleanupTimer.unref();
-    }
   }
 
   /**
-   * Start a new background job.
-   *
-   * @param operation - The operation identifier (e.g. "nexus.analyze")
-   * @param executor  - Async function to execute in the background
-   * @returns The job ID
-   * @throws Error if the maximum number of concurrent running jobs is reached
+   * Start new work or coalesce an identical immutable submission.
+   * @param operation - Supported operation.
+   * @param executor - Existing executor, now given cancellation and checkpoint capabilities.
+   * @param submission - Optional scoped retry identity.
+   * @returns New or already persisted job identity.
+   * @remarks Repeated submissions never invoke a second executor.
+   * @example
+   * ```ts
+   * const id = await manager.startJob('inspect', async () => ({ verified: true }), submission);
+   * ```
    */
-  async startJob(operation: string, executor: () => Promise<unknown>): Promise<string> {
-    // Check concurrent job limit (only count running jobs)
-    const runningCount = this.listJobs('running').length;
-    if (runningCount >= this.#maxJobs) {
-      throw new Error(
-        `Maximum concurrent jobs reached (${this.#maxJobs}). Cancel or wait for existing jobs to complete.`,
-      );
+  async startJob(
+    operation: string,
+    executor: (context: BackgroundJobExecutionContext) => Promise<unknown>,
+    submission?: BackgroundJobSubmission,
+  ): Promise<string> {
+    const id = randomUUID();
+    const lease = this.#store.insert(id, operation, Date.now(), submission, this.#maxJobs);
+    if (!lease) {
+      const existing = submission && this.#store.findSubmission(operation, submission);
+      if (!existing)
+        throw new BackgroundJobError('E_JOB_LEASE_LOST', 'Coalesced job is unavailable');
+      return existing.id;
     }
-
-    const jobId = randomUUID();
-    const abortController = new AbortController();
-    const now = Date.now();
-
-    this.#store.insert(jobId, operation, now);
-    this.#abortControllers.set(jobId, abortController);
-
-    // Execute async — do not await
-    void this.#executeJob(jobId, executor, abortController.signal);
-
-    return jobId;
+    this.#launch(lease, executor);
+    return id;
   }
 
   /**
-   * Get a specific job by ID.
-   *
-   * @returns The job or `undefined` if not found.
+   * Explicitly resume expired ownership using the same existing executor facade.
+   * @param id - Expired job identity.
+   * @param executor - Executor capable of resuming its persisted checkpoint.
+   * @returns Identity of the resumed job.
+   * @remarks The earlier owner is fenced before a replacement executor can run.
+   * @example
+   * ```ts
+   * await manager.resumeJob(id, async ({ checkpoint }) => { checkpoint('{}'); });
+   * ```
    */
-  getJob(jobId: string): BackgroundJob | undefined {
-    return this.#store.get(jobId);
+  async resumeJob(
+    id: string,
+    executor: (context: BackgroundJobExecutionContext) => Promise<unknown>,
+  ): Promise<string> {
+    const lease = this.#store.claim(id, Date.now());
+    this.#launch(lease, executor);
+    return id;
+  }
+
+  #launch(
+    lease: BackgroundJobLease,
+    executor: (context: BackgroundJobExecutionContext) => Promise<unknown>,
+  ): void {
+    const controller = new AbortController();
+    this.#abortControllers.set(lease.jobId, controller);
+    if (this.#store.get(lease.jobId)?.cancellationRequestedAt !== null) controller.abort();
+    const timer = setInterval(
+      () => {
+        try {
+          const job = this.#store.heartbeat(lease.jobId, Date.now());
+          if (job.cancellationRequestedAt !== null) controller.abort();
+        } catch (error) {
+          this.#diagnostics.set(
+            lease.jobId,
+            error instanceof Error ? error.message : String(error),
+          );
+          controller.abort();
+        }
+      },
+      Math.max(1, Math.floor(this.#store.leaseMs / 3)),
+    );
+    timer.unref();
+    this.#heartbeatTimers.set(lease.jobId, timer);
+    void this.#executeJob(lease, executor, controller.signal);
   }
 
   /**
-   * List all jobs, optionally filtered by status.
-   *
-   * @param status - Optional status filter string.
-   * @returns Array of matching jobs.
+   * Read persisted state and local diagnostic failures.
+   * @param id - Job identity.
+   * @returns Job or undefined.
+   * @remarks Persistence errors are disclosed separately from a committed outcome.
+   * @example
+   * ```ts
+   * const job = manager.getJob(id);
+   * ```
+   */
+  getJob(id: string): BackgroundJob | undefined {
+    const job = this.#store.get(id);
+    const error = this.#diagnostics.get(id);
+    if (job && error) job.diagnosticError = error;
+    return job;
+  }
+  /**
+   * List persisted scoped jobs.
+   * @param status - Optional lifecycle filter.
+   * @returns Matching jobs.
+   * @remarks Includes cancellation requests and local diagnostic failures.
+   * @example
+   * ```ts
+   * const jobs = manager.listJobs('running');
+   * ```
    */
   listJobs(status?: string): BackgroundJob[] {
-    return this.#store.list(status);
+    return this.#store.list(status).map((job) => this.getJob(job.id) ?? job);
   }
 
   /**
-   * Cancel a running job.
-   *
-   * @returns `true` if the job was cancelled; `false` if not found or not running.
+   * Request cancellation of visible running work.
+   * @param id - Job identity.
+   * @returns Whether the request was recorded, not proof of termination.
+   * @remarks Other owners observe the durable request on heartbeat.
+   * @example
+   * ```ts
+   * const requested = manager.cancelJob(id);
+   * ```
    */
-  cancelJob(jobId: string): boolean {
-    const job = this.#store.get(jobId);
-    if (!job || job.status !== 'running') {
-      return false;
-    }
-
-    const controller = this.#abortControllers.get(jobId);
-    if (controller) {
-      controller.abort();
-      this.#abortControllers.delete(jobId);
-    }
-
-    this.#store.cancel(jobId, Date.now());
+  cancelJob(id: string): boolean {
+    const requested = this.#store.requestCancel(id, Date.now());
+    if (requested) this.#abortControllers.get(id)?.abort();
+    return requested;
+  }
+  /**
+   * Report progress from an owned executor.
+   * @param id - Job identity.
+   * @param progress - Finite percentage.
+   * @returns Whether the job exists and is running.
+   * @remarks A visible job owned by another attempt is explicitly refused.
+   * @example
+   * ```ts
+   * manager.updateProgress(id, 50);
+   * ```
+   */
+  updateProgress(id: string, progress: number): boolean {
+    const job = this.#store.get(id);
+    if (!job || job.status !== 'running') return false;
+    this.#store.progress(id, progress, Date.now());
     return true;
   }
-
   /**
-   * Update the progress of a running job (0-100).
-   *
-   * @returns `true` if updated; `false` if the job is not found or not running.
-   */
-  updateProgress(jobId: string, progress: number): boolean {
-    const job = this.#store.get(jobId);
-    if (!job || job.status !== 'running') {
-      return false;
-    }
-    this.#store.progress(jobId, progress, Date.now());
-    return true;
-  }
-
-  /**
-   * Delete completed/failed/cancelled/orphaned jobs past the retention window.
-   *
-   * @returns Number of jobs removed.
+   * Preserve historical evidence.
+   * @returns Zero rows removed.
+   * @remarks Age alone never authorizes deletion of job evidence.
+   * @example
+   * ```ts
+   * const removed = manager.cleanup(); // 0
+   * ```
    */
   cleanup(): number {
-    const cutoff = Date.now() - this.#retentionMs;
-    return this.#store.purgeOlderThan(cutoff);
+    return 0;
   }
 
   /**
-   * Destroy the manager: cancel all in-process running jobs and stop the
-   * cleanup timer.  Does NOT purge DB rows — orphaned jobs must be reviewed.
+   * Request cancellation only for this manager's executors and stop its timers.
+   * @remarks Does not claim non-cooperative executors stopped or alter another owner.
+   * @example
+   * ```ts
+   * manager.destroy(); // inspect persisted cancellation/completion separately
+   * ```
    */
   destroy(): void {
-    const now = Date.now();
-    for (const runningJob of this.listJobs('running')) {
-      const controller = this.#abortControllers.get(runningJob.id);
-      if (controller) {
-        controller.abort();
+    for (const [id, controller] of this.#abortControllers) {
+      try {
+        this.#store.requestCancel(id, Date.now());
+      } catch (error) {
+        this.#diagnostics.set(id, error instanceof Error ? error.message : String(error));
       }
-      // Persist orphaned status for any jobs still running in this process
-      this.#store.fail(runningJob.id, 'manager-destroyed', now);
+      controller.abort();
     }
-
-    this.#abortControllers.clear();
-
-    if (this.#cleanupTimer) {
-      clearInterval(this.#cleanupTimer);
-      this.#cleanupTimer = null;
-    }
+    for (const timer of this.#heartbeatTimers.values()) clearInterval(timer);
+    this.#heartbeatTimers.clear();
   }
 
-  /**
-   * Execute a job's executor function and persist the outcome.
-   */
   async #executeJob(
-    jobId: string,
-    executor: () => Promise<unknown>,
+    lease: BackgroundJobLease,
+    executor: (context: BackgroundJobExecutionContext) => Promise<unknown>,
     signal: AbortSignal,
   ): Promise<void> {
-    const job = this.#store.get(jobId);
-    if (!job) {
-      return;
-    }
-
     try {
-      const result = await executor();
-
-      // Check if cancelled during execution
       if (signal.aborted) {
+        this.#store.cancel(lease.jobId, Date.now());
         return;
       }
-
-      this.#store.complete(jobId, result, Date.now());
+      const result = await executor({
+        signal,
+        lease,
+        checkpoint: (value) => this.#store.checkpoint(lease.jobId, value, Date.now()),
+      });
+      // A resolved executor reports actual completion, even if cancellation arrived
+      // after its commit. Only an acknowledged abort establishes cancelled status.
+      this.#store.complete(lease.jobId, result, Date.now());
     } catch (error) {
-      // Check if this was a cancellation
-      if (signal.aborted) {
-        return;
+      try {
+        if (signal.aborted && error instanceof Error && error.name === 'AbortError')
+          this.#store.cancel(lease.jobId, Date.now());
+        else
+          this.#store.fail(
+            lease.jobId,
+            error instanceof Error ? error.message : String(error),
+            Date.now(),
+          );
+      } catch (persistenceError) {
+        this.#diagnostics.set(
+          lease.jobId,
+          persistenceError instanceof Error ? persistenceError.message : String(persistenceError),
+        );
       }
-
-      const message = error instanceof Error ? error.message : String(error);
-      this.#store.fail(jobId, message, Date.now());
     } finally {
-      this.#abortControllers.delete(jobId);
+      const timer = this.#heartbeatTimers.get(lease.jobId);
+      if (timer) clearInterval(timer);
+      this.#heartbeatTimers.delete(lease.jobId);
+      this.#abortControllers.delete(lease.jobId);
     }
   }
 }
