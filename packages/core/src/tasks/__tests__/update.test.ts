@@ -4,13 +4,16 @@
  * @epic T4454
  */
 
+import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Task, TasksUpdateQueryParams } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import * as taskSqlite from '../../store/sqlite.js';
 import { resetDbState } from '../../store/sqlite.js';
+import { queryAuditLog } from '../../system/audit.js';
 import { tasksUpdateOp } from '../ops.js';
 import { taskUpdate, updateTask } from '../update.js';
 
@@ -37,6 +40,7 @@ describe('updateTask', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     delete process.env['CLEO_DIR'];
     resetDbState();
     await env.cleanup();
@@ -304,6 +308,41 @@ describe('updateTask', () => {
         expect(persisted?.relates ?? []).toEqual(expect.arrayContaining(relates ?? []));
       }
     }
+  });
+
+  it('reads committed audit receipts from the modern store without a legacy tasks.db', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Audit read fixture',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await updateTask(
+      { taskId: 'T001', title: 'Verified audit read', reason: 'Explicit correction' },
+      env.tempDir,
+      accessor,
+    );
+    expect(existsSync(join(env.cleoDir, 'tasks.db'))).toBe(false);
+    const audit = await queryAuditLog(env.tempDir, { taskId: 'T001', operation: 'task_updated' });
+    expect(audit.pagination.total).toBe(1);
+    expect(audit.entries).toEqual([
+      expect.objectContaining({
+        taskId: 'T001',
+        details: expect.objectContaining({ reason: 'Explicit correction' }),
+      }),
+    ]);
+    expect(
+      (await queryAuditLog(env.tempDir, { taskId: 'T001', operation: 'task_updated', offset: 1 }))
+        .entries,
+    ).toEqual([]);
+  });
+
+  it('surfaces audit diagnostic read failure instead of empty successful history', async () => {
+    vi.spyOn(taskSqlite, 'getDb').mockRejectedValueOnce(new Error('Injected audit read failure'));
+    await expect(queryAuditLog(env.tempDir)).rejects.toThrow('Injected audit read failure');
   });
 
   it('persists dependency-waiver provenance with the critical-priority mutation', async () => {
