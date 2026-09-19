@@ -69,9 +69,13 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { LeaseLane, LeaseScope } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { getLogger } from '../logger.js';
-import { worktreeScope } from '../paths.js';
 import { observeOperation } from './background-ops.js';
-import { openDualScopeDb, openDualScopeDbAtPath, resolveDualScopeDbPath } from './dual-scope-db.js';
+import {
+  getDualScopeNativeDb,
+  openDualScopeDb,
+  openDualScopeDbAtPath,
+  resolveDualScopeDbPath,
+} from './dual-scope-db.js';
 import {
   assertWriterLeaseActiveIndexPresent,
   WRITER_LEASES_ACTIVE_INDEX,
@@ -271,9 +275,14 @@ export interface LeaseTarget {
  * Resolver that yields the native handle + path for a scope's `cleo.db`. When
  * `dbPath` is supplied the resolver MUST open THAT file (an explicit-path lease,
  * e.g. a second project's cleo.db); otherwise it resolves the cwd-default
- * canonical path for the scope.
+ * canonical path for the scope. Scoped callers forward their original lifetime;
+ * a custom resolver must honor it to promise no late native opens.
  */
-export type NativeDbResolver = (scope: LeaseScope, dbPath?: string) => Promise<LeaseTarget>;
+export type NativeDbResolver = (
+  scope: LeaseScope,
+  dbPath?: string,
+  execution?: OperationExecutionContext,
+) => Promise<LeaseTarget>;
 
 /**
  * Default resolver: route through the dual-scope chokepoint so the lease
@@ -283,23 +292,21 @@ export type NativeDbResolver = (scope: LeaseScope, dbPath?: string) => Promise<L
  * the cached path-aware opener is used so the lease row lands in THAT file (the
  * multi-project-in-one-process case — Finding 1).
  */
-const defaultNativeDbResolver: NativeDbResolver = async (scope, dbPath) => {
-  let handle: { db: unknown; dbPath: string };
-  if (dbPath !== undefined && dbPath !== resolveDualScopeDbPath(scope)) {
-    // Explicit non-canonical path → open (cached) at that exact file.
-    handle =
-      scope === 'project'
-        ? await openDualScopeDbAtPath('project', dbPath)
-        : await openDualScopeDbAtPath('global', dbPath);
-  } else {
-    handle =
-      scope === 'project' ? await openDualScopeDb('project') : await openDualScopeDb('global');
-  }
-  const native = (handle.db as unknown as { $client: DatabaseSync }).$client;
-  // `handle.dbPath` is the path this open resolved; fall back to the scope→path
-  // resolver defensively (the handle always carries it in practice).
-  const resolvedPath = handle.dbPath ?? dbPath ?? resolveDualScopeDbPath(scope);
-  return { native, dbPath: resolvedPath };
+const defaultNativeDbResolver: NativeDbResolver = async (scope, dbPath, execution) => {
+  execution?.assertActive();
+  const explicit =
+    dbPath !== undefined && (execution !== undefined || dbPath !== resolveDualScopeDbPath(scope));
+  // Scoped leases already carry the exact database resource. Forward their lifetime
+  // directly through the existing opener API, avoiding the paths routing module's
+  // nexus/store dependency chain. Legacy canonical opens retain their exodus hook.
+  const handle = explicit
+    ? scope === 'project'
+      ? await openDualScopeDbAtPath('project', dbPath, undefined, { execution })
+      : await openDualScopeDbAtPath('global', dbPath, undefined, { execution })
+    : scope === 'project'
+      ? await openDualScopeDb('project', undefined, { execution })
+      : await openDualScopeDb('global', undefined, { execution });
+  return { native: getDualScopeNativeDb(handle), dbPath: handle.dbPath };
 };
 
 /** Observe native resolution within the shared budget without pretending its opener was preempted. */
@@ -309,20 +316,7 @@ async function resolveLeaseTarget(
   execution?: OperationExecutionContext,
 ): Promise<LeaseTarget> {
   execution?.assertActive();
-  const inherited = worktreeScope.getStore()?.execution;
-  if (inherited && execution && inherited !== execution) {
-    throw new Error('Writer native resolution cannot replace its captured execution context');
-  }
-  const pending = execution
-    ? worktreeScope.run(
-        {
-          worktreeRoot: execution.identity.projectRoot,
-          projectHash: execution.identity.projectId,
-          execution,
-        },
-        () => _nativeDbResolver(scope, dbPath),
-      )
-    : _nativeDbResolver(scope, dbPath);
+  const pending = _nativeDbResolver(scope, dbPath, execution);
   if (!execution) return pending;
   const observed = await observeOperation(execution, pending);
   if (!observed.settled) {
@@ -353,15 +347,19 @@ let _nativeDbResolver: NativeDbResolver = defaultNativeDbResolver;
  */
 export function _setNativeDbResolverForTest(
   resolver:
-    | ((scope: LeaseScope, dbPath?: string) => Promise<DatabaseSync | LeaseTarget>)
+    | ((
+        scope: LeaseScope,
+        dbPath?: string,
+        execution?: OperationExecutionContext,
+      ) => Promise<DatabaseSync | LeaseTarget>)
     | undefined,
 ): void {
   if (resolver === undefined) {
     _nativeDbResolver = defaultNativeDbResolver;
     return;
   }
-  _nativeDbResolver = async (scope, dbPath) => {
-    const out = await resolver(scope, dbPath);
+  _nativeDbResolver = async (scope, dbPath, execution) => {
+    const out = await resolver(scope, dbPath, execution);
     // Adapt a bare native handle to a LeaseTarget with a stable synthetic path.
     return 'native' in out ? out : { native: out, dbPath: dbPath ?? scopePathToken(scope) };
   };

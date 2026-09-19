@@ -18,8 +18,9 @@ import type {
   BackgroundJobLease,
   BackgroundJobStoreOptions,
   BackgroundJobSubmission,
+  OperationExecutionContext,
 } from '@cleocode/contracts/jobs';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, ne, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from './sqlite.js';
 import {
   BACKGROUND_JOB_STATUSES,
@@ -211,6 +212,57 @@ function requireRunningLimit(maxRunning?: number): void {
       'E_JOB_INPUT_INVALID',
       'Running-job limit must be a positive safe integer',
     );
+}
+
+/**
+ * Revalidate captured job ownership inside the domain's existing write transaction.
+ * @param db - The same transaction handle that will perform the domain mutation.
+ * @param execution - Captured lifetime and optional immutable job fence.
+ * @throws BackgroundJobError when ownership, scope, proposal, cancellation or file identity changed.
+ * @remarks This read does not start a transaction or authorize arbitrary work. Callers
+ * must own the surrounding write transaction and independently validate their domain
+ * preconditions. Keeping this check inside that transaction fences concurrent claims
+ * and permits domain mutations and receipts to compose in one atomic unit.
+ * @example
+ * ```ts
+ * db.transaction(tx => { assertOperationWriteFence(tx, execution); writePreparedRows(tx); });
+ * ```
+ */
+export function assertOperationWriteFence(
+  db: Pick<NodeSQLiteDatabase, 'select'>,
+  execution: OperationExecutionContext,
+): void {
+  execution.assertActive();
+  const fence = execution.writeFence;
+  if (!fence) return;
+  const row = db
+    .select({ proposalJson: sql<string | null>`${backgroundJobs.proposalJson}` })
+    .from(sql`main.${backgroundJobs}`)
+    .where(
+      and(
+        eq(backgroundJobs.id, fence.lease.jobId),
+        eq(backgroundJobs.status, 'running'),
+        eq(backgroundJobs.ownerId, fence.lease.ownerId),
+        eq(backgroundJobs.fencingEpoch, fence.lease.epoch),
+        gt(backgroundJobs.leaseExpiresAt, Date.now()),
+        isNull(backgroundJobs.cancellationRequestedAt),
+        eq(backgroundJobs.projectId, execution.identity.projectId),
+        eq(backgroundJobs.operation, execution.identity.operation),
+        eq(backgroundJobs.idempotencyKey, execution.identity.idempotencyKey),
+        eq(backgroundJobs.proposalHash, fence.proposalHash),
+        sql`EXISTS (SELECT 1 FROM pragma_database_list WHERE name = 'main' AND file = ${fence.dbPath})`,
+      ),
+    )
+    .get();
+  if (
+    !row?.proposalJson ||
+    createHash('sha256').update(row.proposalJson).digest('hex') !== fence.proposalHash
+  ) {
+    throw new BackgroundJobError(
+      'E_JOB_LEASE_LOST',
+      'Domain write refused: job authority or proposal no longer matches the captured attempt',
+    );
+  }
 }
 
 /**

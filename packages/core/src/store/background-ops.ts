@@ -162,6 +162,24 @@ export function createOperationExecutionContext(
   const deadlineAt = Math.min(Date.now() + budgetMs, options.deadlineAt ?? Infinity);
   if (!Number.isSafeInteger(deadlineAt))
     throw new TypeError('Operation deadline exceeds safe range');
+  const writeFence = options.writeFence
+    ? Object.freeze({
+        ...options.writeFence,
+        lease: Object.freeze({ ...options.writeFence.lease }),
+      })
+    : undefined;
+  if (
+    writeFence &&
+    (!isAbsolute(writeFence.dbPath) ||
+      !/^[a-f0-9]{64}$/.test(writeFence.proposalHash) ||
+      !writeFence.lease.jobId?.trim() ||
+      !writeFence.lease.ownerId?.trim() ||
+      !Number.isSafeInteger(writeFence.lease.epoch) ||
+      writeFence.lease.epoch < 1 ||
+      !Number.isSafeInteger(writeFence.lease.expiresAt) ||
+      writeFence.lease.expiresAt <= 0)
+  )
+    throw new TypeError('Invalid operation write fence');
   const callerSignal = options.signal;
   const controller = new AbortController();
   let bytes = 0;
@@ -232,6 +250,7 @@ export function createOperationExecutionContext(
   schedule();
   return Object.freeze({
     identity: Object.freeze({ ...identity }),
+    ...(writeFence ? { writeFence } : {}),
     deadlineAt,
     signal: controller.signal,
     resources,
@@ -335,6 +354,7 @@ export function transferOperationContext(
   return Object.freeze({
     transfer: Object.freeze({
       identity: context.identity,
+      ...(context.writeFence ? { writeFence: context.writeFence } : {}),
       deadlineAt: context.deadlineAt,
       cancellation,
     }),
@@ -373,6 +393,7 @@ export function receiveOperationContext(
   const controller = new AbortController();
   const context = createOperationExecutionContext(transfer.identity, {
     deadlineAt: transfer.deadlineAt,
+    writeFence: transfer.writeFence,
     budgetMs: Math.max(0, transfer.deadlineAt - Date.now()),
     signal: controller.signal,
     resources: { maxBytes: 0, maxItems: 0 },

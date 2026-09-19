@@ -446,3 +446,60 @@ describe('captured worker scope transfer', () => {
     }
   });
 });
+
+describe('captured domain write fence transfer', () => {
+  it('captures deeply immutable authority without resetting it in another realm', () => {
+    const writeFence = {
+      dbPath: '/tmp/synthetic/cleo.db',
+      proposalHash: 'a'.repeat(64),
+      lease: { jobId: 'job-a', ownerId: 'owner-a', epoch: 2, expiresAt: Date.now() + 1000 },
+    };
+    const expected = structuredClone(writeFence);
+    const context = createOperationExecutionContext(
+      {
+        projectId: 'A',
+        projectRoot: '/tmp/synthetic',
+        actor: 'fixture',
+        operation: 'docs.projection',
+        idempotencyKey: 'fence-transfer',
+      },
+      { writeFence },
+    );
+    writeFence.lease.ownerId = 'forged';
+    writeFence.proposalHash = 'b'.repeat(64);
+    const link = transferOperationContext(context, { items: 1 });
+    const receiver = receiveOperationContext(structuredClone(link.transfer));
+    try {
+      expect(context.writeFence).toEqual(expected);
+      expect(receiver.writeFence).toEqual(expected);
+      expect(Object.isFrozen(receiver.writeFence)).toBe(true);
+      expect(Object.isFrozen(receiver.writeFence?.lease)).toBe(true);
+      expect(receiver.deadlineAt).toBe(context.deadlineAt);
+    } finally {
+      receiver.close();
+      link.release();
+      context.close();
+    }
+  });
+
+  it('rejects malformed authority before admitting an operation', () => {
+    expect(() =>
+      createOperationExecutionContext(
+        {
+          projectId: 'A',
+          projectRoot: '/tmp/synthetic',
+          actor: 'fixture',
+          operation: 'docs.projection',
+          idempotencyKey: 'invalid-fence',
+        },
+        {
+          writeFence: {
+            dbPath: 'relative.db',
+            proposalHash: 'not-a-hash',
+            lease: { jobId: 'j', ownerId: 'o', epoch: 0, expiresAt: 1 },
+          },
+        },
+      ),
+    ).toThrow('Invalid operation write fence');
+  });
+});
