@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.10.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.11.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## MANDATORY: Run `cleo briefing` BEFORE Any Other Tool
@@ -75,6 +75,16 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | Create N tasks atomically | `cleo add-batch --file tasks.json --parent <epicId>` (file is a top-level JSON array of task objects) |
 | Preview batch before inserting | `cleo add-batch --file tasks.json --parent <epicId> --dry-run` |
 | Batch from stdin | `echo '[...]' \| cleo add-batch --file - --parent <epicId>` |
+
+Acceptance input is normalized consistently across add, update, batch, and saga
+creation: use arrays of strings in JSON parameters, or a JSON-array string / the
+documented pipe-delimited form for `--acceptance`. Array entries preserve literal
+pipes and quoted unions. Strings are trimmed and blank strings omitted; nonstring
+entries or malformed explicit JSON arrays reject the whole mutation. An explicit
+`[]` on update requests a clear; omitted acceptance stays unchanged. Normalized
+criteria still obey policy and immutability, including `--reason` for locked
+changes. Invalid stored criteria are diagnostic failures; never split historical
+records without original-input provenance and a guarded repair receipt.
 
 `cleo add-batch` inserts all tasks in a single transaction — ANY failure rolls back ALL inserts.
 Use `--dry-run` first; the projected mutation envelope reports `/data/count` and
