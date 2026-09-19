@@ -117,8 +117,10 @@ export interface ObserveBrainParams {
   provenanceChain?: string[] | null;
   /**
    * T992: Internal flag — when true, bypasses the verifyAndStore gate.
-   * Set only by storeVerifiedCandidate in extraction-gate.ts to avoid
-   * infinite recursion (gate → storeVerifiedCandidate → observeBrain → gate).
+   * Set by storeVerifiedCandidate in extraction-gate.ts to avoid recursion,
+   * or by the prepared docs projection executor after authentic canonical
+   * source validation. That executor requires its persisted proposal and a
+   * current job fence at the actual observation transaction boundary.
    * External callers MUST NOT set this flag.
    */
   _skipGate?: boolean;
