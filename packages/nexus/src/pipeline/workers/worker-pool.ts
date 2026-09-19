@@ -21,7 +21,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
-import type { ParserExecutionLimits } from '@cleocode/contracts';
+import type {
+  ParserExecutionLimits,
+  ParserExecutionPort,
+  ParserProcessHandle,
+} from '@cleocode/contracts';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -59,6 +63,7 @@ export interface WorkerPool {
 
 /** Messages sent FROM worker threads back to the pool. */
 type WorkerOutgoingMessage =
+  | { type: 'ready'; heapBytes: number }
   | { type: 'progress'; filesProcessed: number }
   | { type: 'sub-batch-done' }
   | { type: 'error'; error: string }
@@ -91,6 +96,7 @@ const SUB_BATCH_TIMEOUT_MS = 5_000;
  *   script. The file must exist (checked synchronously before spawning).
  * @param poolSize - Override pool size. Defaults to `cpu count - 1` (max 8).
  * @param limits - Per-file wall deadline, caller cancellation and V8 heap bound.
+ * @param execution - Runtime process port; avoids inherited worker heap overrides.
  * @returns A WorkerPool instance.
  * @throws If the worker script file is not found on disk.
  */
@@ -98,6 +104,7 @@ export function createWorkerPool(
   workerUrl: URL,
   poolSize?: number,
   limits: ParserExecutionLimits = {},
+  execution?: ParserExecutionPort,
 ): WorkerPool {
   // Validate worker script exists before spawning — avoids uncaught
   // MODULE_NOT_FOUND crashes inside worker threads when running from src/.
@@ -121,31 +128,24 @@ export function createWorkerPool(
   // V8's process-level flags silently override Worker.resourceLimits. A claimed
   // per-worker ceiling would otherwise be false even when resourceLimits reports it.
   const inheritedFlags = `${process.env['NODE_OPTIONS'] ?? ''} ${process.execArgv.join(' ')}`;
-  if (/--max[-_]old[-_]space[-_]size|--max[-_]semi[-_]space[-_]size/.test(inheritedFlags)) {
+  if (
+    !execution &&
+    /--max[-_]old[-_]space[-_]size|--max[-_]semi[-_]space[-_]size/.test(inheritedFlags)
+  ) {
     throw new Error('E_PARSE_WORKER_HEAP_OVERRIDE: inherited V8 heap flags override worker limits');
   }
   limits.signal?.throwIfAborted();
-  const workers: Worker[] = [];
+  const workers: Array<Worker | ParserProcessHandle> = [];
   let active = false;
   let terminated = false;
   let termination: Promise<void> | undefined;
   const terminate = (): Promise<void> => {
     terminated = true;
-    termination ??= Promise.all(workers.map((worker) => worker.terminate())).then(() => undefined);
+    termination ??= Promise.all(
+      workers.map((worker) => (worker instanceof Worker ? worker.terminate() : worker.stop())),
+    ).then(() => undefined);
     return termination;
   };
-
-  for (let i = 0; i < size; i++) {
-    workers.push(
-      new Worker(workerUrl, {
-        resourceLimits: {
-          maxOldGenerationSizeMb: workerHeapMb,
-          maxYoungGenerationSizeMb: 16,
-          stackSizeMb: 4,
-        },
-      }),
-    );
-  }
 
   /**
    * Dispatch `items` to worker `workers[workerIndex]`, streaming sub-batches
@@ -157,10 +157,18 @@ export function createWorkerPool(
     workerProgress: number[],
     onProgress?: (filesProcessed: number) => void,
   ): Promise<TResult> {
-    const worker = workers[workerIndex];
-
+    const owned = workers[workerIndex];
+    const worker = owned instanceof Worker ? owned : owned.child;
     return new Promise<TResult>((resolve, reject) => {
+      const send = (message: object) => {
+        if (owned instanceof Worker) owned.postMessage(message);
+        else
+          owned.child.send(message, (error) => {
+            if (error) errorHandler(error);
+          });
+      };
       let settled = false;
+      let ready = owned instanceof Worker;
       let subBatchTimer: ReturnType<typeof setTimeout> | null = null;
       let subBatchIdx = 0;
 
@@ -194,18 +202,28 @@ export function createWorkerPool(
         const start = subBatchIdx * SUB_BATCH_SIZE;
         if (start >= chunk.length) {
           // All sub-batches sent — flush to collect accumulated result
-          worker.postMessage({ type: 'flush' });
+          send({ type: 'flush' });
           return;
         }
         const subBatch = chunk.slice(start, start + SUB_BATCH_SIZE);
         subBatchIdx++;
         resetSubBatchTimer();
-        worker.postMessage({ type: 'sub-batch', files: subBatch });
+        send({ type: 'sub-batch', files: subBatch });
       };
 
       const handler = (msg: WorkerOutgoingMessage) => {
         if (settled) return;
-        if (msg.type === 'progress') {
+        if (msg.type === 'ready') {
+          ready = true;
+          if (
+            !Number.isFinite(msg.heapBytes) ||
+            msg.heapBytes > (workerHeapMb + 32) * 1024 * 1024
+          ) {
+            errorHandler(
+              new Error('E_PARSE_WORKER_HEAP_OVERRIDE: actual V8 heap exceeds requested bound'),
+            );
+          }
+        } else if (msg.type === 'progress') {
           workerProgress[workerIndex] = msg.filesProcessed;
           if (onProgress) {
             const total = workerProgress.reduce((a, b) => a + b, 0);
@@ -218,6 +236,10 @@ export function createWorkerPool(
           cleanup();
           reject(new Error(`Worker ${workerIndex} error: ${msg.error}`));
         } else if (msg.type === 'result') {
+          if (!ready) {
+            errorHandler(new Error('Parser did not verify its effective heap limit'));
+            return;
+          }
           settled = true;
           cleanup();
           resolve(msg.data as TResult);
@@ -273,6 +295,25 @@ export function createWorkerPool(
     if (active) throw new Error('Parser worker pool already has an active dispatch');
     if (items.length === 0) return [];
     active = true;
+    try {
+      for (let i = workers.length; i < Math.min(size, items.length); i++) {
+        workers.push(
+          execution
+            ? execution.spawn(workerPath, { ...limits, workerHeapMb })
+            : new Worker(workerUrl, {
+                resourceLimits: {
+                  maxOldGenerationSizeMb: workerHeapMb,
+                  maxYoungGenerationSizeMb: 16,
+                  stackSizeMb: 4,
+                },
+              }),
+        );
+      }
+    } catch (error) {
+      await terminate();
+      active = false;
+      throw error;
+    }
 
     // Distribute items evenly across workers
     const chunkSize = Math.ceil(items.length / size);
