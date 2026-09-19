@@ -1,5 +1,6 @@
 /** Regression coverage for staged Nexus graph replacement and recovery. */
 import { execFileSync } from 'node:child_process';
+import { renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,8 +8,27 @@ import { DatabaseSync } from 'node:sqlite';
 import type { GraphPublicationRows } from '@cleocode/contracts';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { publishNexusGraph } from '../analyze-orchestrator.js';
+import { worktreeScope } from '../../paths.js';
+import { createOperationExecutionContext } from '../../store/background-ops.js';
+import { getNexusDb } from '../../store/nexus-sqlite.js';
+import { publishNexusGraph, runNexusAnalysis } from '../analyze-orchestrator.js';
+import { assessKnowledgeCoverage, readKnowledgeIndexAssessment } from '../knowledge.js';
+import * as sourceRootsModule from '../source-roots.js';
 import { resolveSourceRoots } from '../source-roots.js';
+
+vi.mock('../../store/nexus-sqlite.js', async () => ({
+  getNexusDb: vi.fn(async () => drizzle({ client: native })),
+  getNexusNativeDb: vi.fn(() => native),
+  nexusSchema: await import('../../store/schema/cleo-project/nexus-graph.js'),
+}));
+vi.mock('../../resources/spawn-wrapper.js', () => ({ createParserExecutionPort: () => undefined }));
+vi.mock('@cleocode/core/internal', () => ({
+  refreshNexusBridge: vi.fn(),
+  nexusUpdateIndexStats: vi.fn(),
+}));
+vi.mock('@cleocode/core/nexus', () => ({
+  runGitLogTaskLinker: async () => ({ commitsProcessed: 0 }),
+}));
 
 let native: DatabaseSync;
 
@@ -519,5 +539,432 @@ describe('explicit owned source-root provenance', () => {
     await expect(
       resolveSourceRoots({ projectId: 'parent', projectRoot: parent, signal: AbortSignal.abort() }),
     ).rejects.toThrow();
+  });
+});
+
+describe('analysis root provenance integration', () => {
+  let parent: string;
+  beforeEach(async () => {
+    parent = await mkdtemp(join(tmpdir(), 'analysis-owned-roots-'));
+    await mkdir(join(parent, '.cleo'));
+    await writeFile(
+      join(parent, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'stable-parent-id', projectHash: 'stable-parent-hash' }),
+    );
+    await fixtureRepository(join(parent, 'app'), 'export function source() { return 1; }');
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    await rm(parent, { recursive: true, force: true });
+  });
+
+  const inventory = () =>
+    JSON.stringify({
+      nodes: native.prepare('SELECT * FROM nexus_nodes ORDER BY id').all(),
+      relations: native.prepare('SELECT * FROM nexus_relations ORDER BY id').all(),
+      meta: native.prepare('SELECT * FROM _nexus_meta ORDER BY key').all(),
+      fts: native.prepare('SELECT * FROM nexus_symbols_fts ORDER BY name').all(),
+    });
+
+  it('publishes and canonically reads each included revision while retaining explicit parent identity', async () => {
+    vi.stubEnv('CLEO_DIR', join(parent, 'wrong/.cleo'));
+    vi.stubEnv('CLEO_ROOT', join(parent, 'wrong'));
+    const result = await runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] });
+    const revision = fixtureGit(join(parent, 'app'), 'rev-parse', 'HEAD');
+    expect(result.projectId).toBe('stable-parent-id');
+    expect(result.assessment?.sourceRoots).toMatchObject({
+      projectId: 'stable-parent-id',
+      projectRoot: parent,
+      roots: [
+        expect.objectContaining({ graphPrefix: '', revision: null, status: 'unversioned' }),
+        expect.objectContaining({ graphPrefix: 'app', revision, status: 'available' }),
+      ],
+    });
+    expect(await readKnowledgeIndexAssessment(parent)).toEqual(result.assessment);
+    expect(getNexusDb).toHaveBeenCalledWith(parent);
+    expect(worktreeScope.getStore()).toBeUndefined();
+  });
+
+  it('retains a distinct identity parent for an explicitly analyzed included repository', async () => {
+    const result = await runNexusAnalysis({ projectRoot: parent, repoPath: join(parent, 'app') });
+    expect(result.projectId).toBe('stable-parent-id');
+    expect(result.assessment?.sourceRoots).toMatchObject({
+      projectRoot: parent,
+      sourceRoot: join(parent, 'app'),
+    });
+  });
+
+  it('rebuilds unchanged source contents after an empty commit or included-root configuration change', async () => {
+    const first = await runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] });
+    const unchanged = await runNexusAnalysis({ repoPath: parent, incremental: true });
+    expect(unchanged.incremental).toBe(true);
+    expect(unchanged.assessment?.generation).toBe(first.assessment?.generation);
+    fixtureGit(
+      join(parent, 'app'),
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '--quiet',
+      '-m',
+      'revision only',
+    );
+    const next = await runNexusAnalysis({ repoPath: parent, incremental: true });
+    expect(next.incremental).toBe(false);
+    expect(next.assessment?.generation).not.toBe(first.assessment?.generation);
+    expect(next.assessment?.sourceRoots?.roots[1]?.revision).toBe(
+      fixtureGit(join(parent, 'app'), 'rev-parse', 'HEAD'),
+    );
+    await fixtureRepository(join(parent, 'other'), 'export const other = true;');
+    const changed = await runNexusAnalysis({
+      repoPath: parent,
+      includedRepositories: ['app', 'other'],
+      incremental: true,
+    });
+    expect(changed.incremental).toBe(false);
+    expect(changed.assessment?.generation).not.toBe(next.assessment?.generation);
+    expect(changed.assessment?.sourceRoots?.roots.map((root) => root.graphPrefix)).toEqual([
+      '',
+      'app',
+      'other',
+    ]);
+  });
+
+  it.each([
+    'revision',
+    'file',
+  ])('rechecks an incremental no-op after a concurrent %s change', async (change) => {
+    await runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] });
+    const before = inventory();
+    let changed = false;
+    await expect(
+      runNexusAnalysis({
+        repoPath: parent,
+        incremental: true,
+        onProgress() {
+          if (changed) return;
+          changed = true;
+          if (change === 'revision')
+            fixtureGit(
+              join(parent, 'app'),
+              '-c',
+              'user.name=Fixture',
+              '-c',
+              'user.email=fixture@example.invalid',
+              '-c',
+              'commit.gpgsign=false',
+              'commit',
+              '--allow-empty',
+              '--quiet',
+              '-m',
+              'during unchanged scan',
+            );
+          else writeFileSync(join(parent, 'app/same.ts'), 'export const changed = true;');
+        },
+      }),
+    ).rejects.toThrow(/revision changed|Source files changed/);
+    expect(inventory()).toBe(before);
+  });
+
+  it('retains the complete prior graph when an included revision changes during analysis', async () => {
+    const before = inventory();
+    let changed = false;
+    await expect(
+      runNexusAnalysis({
+        repoPath: parent,
+        includedRepositories: ['app'],
+        onProgress() {
+          if (changed) return;
+          changed = true;
+          fixtureGit(
+            join(parent, 'app'),
+            '-c',
+            'user.name=Fixture',
+            '-c',
+            'user.email=fixture@example.invalid',
+            '-c',
+            'commit.gpgsign=false',
+            'commit',
+            '--allow-empty',
+            '--quiet',
+            '-m',
+            'concurrent revision',
+          );
+        },
+      }),
+    ).rejects.toThrow('revision changed');
+    expect(inventory()).toBe(before);
+  });
+
+  it.each([
+    'edit',
+    'add',
+    'rename',
+    'delete',
+  ])('refuses an uncommitted %s made during the final Git check', async (change) => {
+    const before = inventory();
+    const actual = sourceRootsModule.resolveSourceRoots;
+    let calls = 0;
+    vi.spyOn(sourceRootsModule, 'resolveSourceRoots').mockImplementation(async (request) => {
+      const observed = await actual(request);
+      if (++calls === 2) {
+        const file = join(parent, 'app/same.ts');
+        if (change === 'edit') writeFileSync(file, 'export const changed = true;');
+        if (change === 'add')
+          writeFileSync(join(parent, 'app/added.ts'), 'export const added = true;');
+        if (change === 'rename') renameSync(file, join(parent, 'app/renamed.ts'));
+        if (change === 'delete') unlinkSync(file);
+      }
+      return observed;
+    });
+    await expect(
+      runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] }),
+    ).rejects.toThrow('Source files changed');
+    expect(inventory()).toBe(before);
+  });
+
+  it('retains root diagnostics and refuses malformed stored revision evidence', async () => {
+    const result = await runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] });
+    expect(result.assessment?.sourceRoots?.roots[0]?.diagnostics).not.toHaveLength(0);
+    const assessment = result.assessment!;
+    const sourceRoots = assessment.sourceRoots!;
+    native.prepare("UPDATE _nexus_meta SET value=? WHERE key='graph_assessment'").run(
+      JSON.stringify({
+        ...assessment,
+        sourceRoots: {
+          ...sourceRoots,
+          roots: sourceRoots.roots.map((root) => ({ ...root, revision: 'fabricated' })),
+        },
+      }),
+    );
+    await expect(readKnowledgeIndexAssessment(parent)).rejects.toThrow();
+  });
+
+  it('marks an included empty commit stale through canonical coverage while preserving parent identity', async () => {
+    await runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] });
+    fixtureGit(
+      join(parent, 'app'),
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '--quiet',
+      '-m',
+      'coverage revision',
+    );
+    const coverage = await assessKnowledgeCoverage(parent);
+    expect(coverage.projectId).toBe('stable-parent-id');
+    expect(coverage.status).toBe('stale');
+    expect(coverage.reasons).toContain(
+      `Source ownership or revision changed: ${join(parent, 'app')}`,
+    );
+    expect(
+      coverage.evidence.some((evidence) => evidence.id === 'source_root:app' && evidence.revision),
+    ).toBe(true);
+  });
+
+  it('preserves the inherited execution and deadline, rejecting cancellation before publication', async () => {
+    const controller = new AbortController();
+    const context = createOperationExecutionContext(
+      {
+        projectId: 'stable-parent-id',
+        projectRoot: parent,
+        actor: 'test',
+        operation: 'nexus.analyze',
+        idempotencyKey: 'scoped',
+      },
+      { budgetMs: 5000, signal: controller.signal },
+    );
+    const before = inventory();
+    const actual = sourceRootsModule.resolveSourceRoots;
+    let calls = 0;
+    vi.spyOn(sourceRootsModule, 'resolveSourceRoots').mockImplementation(async (request) => {
+      expect(worktreeScope.getStore()?.execution).toBe(context);
+      expect(request.deadline).toBe(context.deadlineAt);
+      const observed = await actual(request);
+      if (++calls === 2) controller.abort();
+      return observed;
+    });
+    try {
+      await expect(
+        worktreeScope.run(
+          { worktreeRoot: parent, projectHash: 'stable-parent-hash', execution: context },
+          () => runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] }),
+        ),
+      ).rejects.toThrow(/cancelled/i);
+      expect(calls).toBe(2);
+      expect(inventory()).toBe(before);
+    } finally {
+      context.close();
+    }
+  });
+
+  it.each([
+    'root',
+    'identity',
+    'deadline',
+  ])('rejects incompatible or expired captured execution: %s', async (mismatch) => {
+    const context = createOperationExecutionContext(
+      {
+        projectId: mismatch === 'identity' ? 'other-project' : 'stable-parent-id',
+        projectRoot: mismatch === 'root' ? join(parent, 'wrong') : parent,
+        actor: 'test',
+        operation: 'nexus.analyze',
+        idempotencyKey: 'scope-refusal',
+      },
+      { budgetMs: mismatch === 'deadline' ? 0 : 5000 },
+    );
+    const before = inventory();
+    try {
+      await expect(
+        worktreeScope.run(
+          {
+            worktreeRoot: context.identity.projectRoot,
+            projectHash: 'fixture',
+            execution: context,
+          },
+          () => runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] }),
+        ),
+      ).rejects.toThrow(/scope|deadline/i);
+      expect(inventory()).toBe(before);
+    } finally {
+      context.close();
+    }
+  });
+
+  it('rejects an included root replaced with a symlink before publication', async () => {
+    const actual = sourceRootsModule.resolveSourceRoots;
+    const before = inventory();
+    let calls = 0;
+    vi.spyOn(sourceRootsModule, 'resolveSourceRoots').mockImplementation(async (request) => {
+      if (++calls === 2) {
+        renameSync(join(parent, 'app'), join(parent, 'moved'));
+        await symlink(join(parent, 'moved'), join(parent, 'app'), 'dir');
+      }
+      return actual(request);
+    });
+    await expect(
+      runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] }),
+    ).rejects.toThrow('Ambiguous symlink ownership');
+    expect(inventory()).toBe(before);
+  });
+
+  it('refuses unavailable stable identity and an unbound explicit identity', async () => {
+    await rm(join(parent, '.cleo/project-info.json'));
+    const before = inventory();
+    for (const projectIdOverride of [undefined, 'unbound-id']) {
+      await expect(
+        runNexusAnalysis({ repoPath: parent, projectIdOverride, includedRepositories: ['app'] }),
+      ).rejects.toThrow('Stable project identity is unavailable');
+      expect(inventory()).toBe(before);
+    }
+  });
+
+  it('validates explicit and saved identities against their project binding', async () => {
+    await expect(
+      runNexusAnalysis({
+        repoPath: parent,
+        projectIdOverride: 'other-project',
+        includedRepositories: ['app'],
+      }),
+    ).rejects.toThrow('Explicit analysis identity differs');
+    const result = await runNexusAnalysis({
+      repoPath: parent,
+      projectIdOverride: 'stable-parent-id',
+      includedRepositories: ['app'],
+    });
+    await rm(join(parent, '.cleo/project-info.json'));
+    expect(
+      (
+        await runNexusAnalysis({
+          repoPath: parent,
+          incremental: true,
+          includedRepositories: ['app'],
+        })
+      ).projectId,
+    ).toBe('stable-parent-id');
+    const roots = result.assessment!.sourceRoots!;
+    native.prepare("UPDATE _nexus_meta SET value=? WHERE key='graph_assessment'").run(
+      JSON.stringify({
+        ...result.assessment,
+        sourceRoots: { ...roots, projectRoot: join(parent, 'foreign-parent') },
+      }),
+    );
+    const before = inventory();
+    await expect(
+      runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] }),
+    ).rejects.toThrow('Stored graph ownership differs');
+    expect(inventory()).toBe(before);
+  });
+
+  it('refuses parent identity changes after staging and retains the complete graph', async () => {
+    await runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] });
+    const before = inventory();
+    await expect(
+      runNexusAnalysis({
+        repoPath: parent,
+        includedRepositories: ['app'],
+        onProgress: () =>
+          writeFileSync(
+            join(parent, '.cleo/project-info.json'),
+            JSON.stringify({
+              projectId: 'rebound-project',
+              projectHash: 'rebound-hash',
+            }),
+          ),
+      }),
+    ).rejects.toThrow(/identity/);
+    expect(inventory()).toBe(before);
+  });
+
+  it('retains historical descriptors but refuses current coverage for mismatched project binding', async () => {
+    const result = await runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] });
+    for (const invalid of [
+      { projectRoot: join(parent, 'foreign-parent') },
+      { projectId: 'foreign-id' },
+    ]) {
+      native.prepare("UPDATE _nexus_meta SET value=? WHERE key='graph_assessment'").run(
+        JSON.stringify({
+          ...result.assessment,
+          sourceRoots: { ...result.assessment!.sourceRoots!, ...invalid },
+        }),
+      );
+      expect(await readKnowledgeIndexAssessment(parent)).not.toBeNull();
+      const coverage = await assessKnowledgeCoverage(parent);
+      expect(coverage.status).toBe('failed');
+      expect(coverage.reasons.join(' ')).toContain('Recorded source ownership differs');
+    }
+  });
+
+  it('surfaces malformed parent metadata instead of silently deriving another identity', async () => {
+    await writeFile(join(parent, '.cleo/project-info.json'), '{broken');
+    const before = inventory();
+    await expect(
+      runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] }),
+    ).rejects.toThrow();
+    expect(inventory()).toBe(before);
+  });
+
+  it('keeps legacy assessments readable and explicitly incomplete without fabricating roots', async () => {
+    const result = await runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] });
+    const { sourceRoots: _historicalRoots, ...legacy } = result.assessment!;
+    native
+      .prepare("UPDATE _nexus_meta SET value=? WHERE key='graph_assessment'")
+      .run(JSON.stringify(legacy));
+    expect((await readKnowledgeIndexAssessment(parent))?.sourceRoots).toBeUndefined();
+    const coverage = await assessKnowledgeCoverage(parent, 'stable-parent-id');
+    expect(coverage.status).toBe('partial');
+    expect(coverage.reasons).toContain(
+      'Legacy generation has no verified per-root ownership or revision observations.',
+    );
   });
 });

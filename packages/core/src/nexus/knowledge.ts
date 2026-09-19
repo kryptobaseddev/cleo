@@ -7,7 +7,7 @@
 
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type {
@@ -19,13 +19,85 @@ import type {
 import { legacyProjectId } from '@cleocode/paths';
 import { min } from 'drizzle-orm';
 import { z } from 'zod';
+import { worktreeScope } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import { getNexusDb, getNexusNativeDb, nexusSchema } from '../store/nexus-sqlite.js';
+import { generateProjectHash } from './hash.js';
+import { resolveSourceRoots } from './source-roots.js';
 
 const execFileAsync = promisify(execFile);
 
+const sourceRootSchema = z
+  .object({
+    requestedPath: z.string().refine(isAbsolute, 'Root path must be absolute'),
+    canonicalPath: z.string().refine(isAbsolute, 'Canonical path must be absolute').nullable(),
+    graphPrefix: z.string(),
+    explicitlyIncluded: z.boolean(),
+    revision: z
+      .string()
+      .regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/)
+      .nullable(),
+    status: z.enum(['available', 'unversioned', 'missing', 'failed', 'pending']),
+    diagnostics: z.array(z.string()),
+  })
+  .superRefine((root, context) => {
+    if (
+      root.explicitlyIncluded !== (root.graphPrefix !== '') ||
+      isAbsolute(root.graphPrefix) ||
+      root.graphPrefix.split('/').includes('..') ||
+      root.graphPrefix.includes('\\') ||
+      (root.explicitlyIncluded &&
+        root.canonicalPath !== null &&
+        root.canonicalPath !== root.requestedPath)
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Invalid root graph prefix or inclusion ownership',
+      });
+    if (
+      root.status === 'available'
+        ? !root.revision || !root.canonicalPath
+        : root.revision !== null || !root.diagnostics.length
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Root status requires a revision or explicit diagnostic',
+      });
+    if (root.status === 'unversioned' && root.explicitlyIncluded)
+      context.addIssue({
+        code: 'custom',
+        message: 'An explicitly included repository cannot be unversioned',
+      });
+  });
+
+const sourceRootsSchema = z
+  .object({
+    projectId: z.string().min(1),
+    projectRoot: z.string().refine(isAbsolute),
+    sourceRoot: z.string().refine(isAbsolute),
+    assessedAt: z.iso.datetime(),
+    roots: z.array(sourceRootSchema).min(1),
+  })
+  .superRefine((assessment, context) => {
+    const prefixes = new Set<string>();
+    const canonical = new Set<string>();
+    for (const root of assessment.roots) {
+      if (
+        prefixes.has(root.graphPrefix) ||
+        (root.canonicalPath !== null && canonical.has(root.canonicalPath)) ||
+        resolve(assessment.sourceRoot, root.graphPrefix) !== root.requestedPath
+      )
+        context.addIssue({ code: 'custom', message: 'Duplicate or mismatched root ownership' });
+      prefixes.add(root.graphPrefix);
+      if (root.canonicalPath) canonical.add(root.canonicalPath);
+    }
+    if (assessment.roots[0]?.graphPrefix !== '')
+      context.addIssue({ code: 'custom', message: 'Source root must be the first observation' });
+  });
+
 const assessmentSchema = z.object({
   generation: z.uuid().optional(),
+  sourceRoots: sourceRootsSchema.optional(),
   sourceRoot: z.string(),
   assessedRevision: z.string().nullable(),
   assessedAt: z.string(),
@@ -101,7 +173,19 @@ export async function readKnowledgeIndexAssessment(
     .get();
   if (!row) return null;
   if (typeof row.value !== 'string') throw new Error('Graph assessment metadata is not text.');
-  return assessmentSchema.parse(JSON.parse(row.value));
+  const assessment = assessmentSchema.parse(JSON.parse(row.value));
+  if (assessment.sourceRoots) {
+    const prefixes = assessment.sourceRoots.roots
+      .filter((root) => root.explicitlyIncluded)
+      .map((root) => root.graphPrefix);
+    if (
+      assessment.sourceRoots.sourceRoot !== assessment.sourceRoot ||
+      assessment.sourceRoots.roots[0]?.revision !== assessment.assessedRevision ||
+      JSON.stringify(prefixes) !== JSON.stringify(assessment.includedRepositories ?? [])
+    )
+      throw new Error('Root observations disagree with graph source scope or revision.');
+  }
+  return assessment;
 }
 
 /**
@@ -206,6 +290,22 @@ export async function assessKnowledgeCoverage(
   projectId?: string,
   budgetMs = 2000,
 ): Promise<KnowledgeCoverage> {
+  const capturedRoot = resolve(projectRoot);
+  const inherited = worktreeScope.getStore();
+  if (inherited?.execution && resolve(inherited.execution.identity.projectRoot) !== capturedRoot)
+    throw new Error('Coverage project differs from captured execution scope.');
+  return worktreeScope.run(
+    { ...inherited, worktreeRoot: capturedRoot, projectHash: generateProjectHash(capturedRoot) },
+    () => assessScopedCoverage(capturedRoot, projectId, budgetMs),
+  );
+}
+
+/** Retain captured path ownership through assessment and its deferred response. */
+async function assessScopedCoverage(
+  projectRoot: string,
+  projectId: string | undefined,
+  budgetMs: number,
+): Promise<KnowledgeCoverage> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deferred = new Promise<KnowledgeCoverage>((resolveDeferred) => {
     timer = setTimeout(
@@ -231,7 +331,10 @@ export async function assessKnowledgeCoverage(
     );
   });
   try {
-    return await Promise.race([assessCoverage(projectRoot, projectId), deferred]);
+    return await Promise.race([
+      assessCoverage(projectRoot, projectId, Date.now() + Math.max(0, budgetMs)),
+      deferred,
+    ]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
@@ -244,7 +347,11 @@ export async function assessKnowledgeCoverage(
  * recorded files look fresh. At most 500 files are checked; a larger graph keeps
  * that limit explicit. Missing and failed graphs are never assessed as current.
  */
-async function assessCoverage(projectRoot: string, projectId?: string): Promise<KnowledgeCoverage> {
+async function assessCoverage(
+  projectRoot: string,
+  projectId: string | undefined,
+  deadline: number,
+): Promise<KnowledgeCoverage> {
   const info = getProjectInfoSync(projectRoot);
   const coverage: KnowledgeCoverage = {
     status: 'partial',
@@ -256,15 +363,6 @@ async function assessCoverage(projectRoot: string, projectId?: string): Promise<
     evidence: [],
     limitations: ['Static analysis cannot prove that all runtime callers have been discovered.'],
   };
-  try {
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
-      cwd: projectRoot,
-      timeout: 500,
-    });
-    coverage.assessedRevision = stdout.trim() || null;
-  } catch {
-    coverage.reasons.push('The assessed Git revision could not be established.');
-  }
   try {
     const db = await getNexusDb(projectRoot);
     const table = nexusSchema.nexusNodes;
@@ -282,25 +380,86 @@ async function assessCoverage(projectRoot: string, projectId?: string): Promise<
     if (assessment) {
       coverage.indexedRevision = assessment.assessedRevision;
       const sourceRoot = resolve(assessment.sourceRoot);
-      try {
-        const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
-          cwd: sourceRoot,
-          timeout: 500,
-        });
-        coverage.assessedRevision = stdout.trim() || null;
-      } catch {
-        coverage.assessedRevision = null;
+      if (!assessment.sourceRoots) {
+        try {
+          const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
+            cwd: sourceRoot,
+            timeout: 500,
+          });
+          coverage.assessedRevision = stdout.trim() || null;
+        } catch {
+          coverage.assessedRevision = null;
+        }
+        coverage.status =
+          coverage.indexedRevision && coverage.assessedRevision ? 'current' : 'partial';
+        if (!coverage.indexedRevision || !coverage.assessedRevision) {
+          coverage.reasons.push('The source or index revision could not be established.');
+        } else if (coverage.indexedRevision !== coverage.assessedRevision) {
+          recordKnowledgeGap(
+            coverage,
+            'stale',
+            'The source revision differs from the indexed revision.',
+          );
+        }
+      } else {
+        const verifiedIdentity = projectId ?? (info?.projectId || info?.projectHash);
+        if (
+          assessment.sourceRoots.projectRoot !== realpathSync(projectRoot) ||
+          (verifiedIdentity !== undefined && verifiedIdentity !== assessment.sourceRoots.projectId)
+        )
+          throw new Error('Recorded source ownership differs from the requested project binding.');
+        coverage.projectId = assessment.sourceRoots.projectId;
+        coverage.status = 'current';
       }
-      coverage.status =
-        coverage.indexedRevision && coverage.assessedRevision ? 'current' : 'partial';
-      if (!coverage.indexedRevision || !coverage.assessedRevision) {
-        coverage.reasons.push('The source or index revision could not be established.');
-      } else if (coverage.indexedRevision !== coverage.assessedRevision) {
+      if (!assessment.sourceRoots) {
         recordKnowledgeGap(
           coverage,
-          'stale',
-          'The source revision differs from the indexed revision.',
+          'partial',
+          'Legacy generation has no verified per-root ownership or revision observations.',
         );
+      } else {
+        const observed = await resolveSourceRoots({
+          projectId: assessment.sourceRoots.projectId,
+          projectRoot: assessment.sourceRoots.projectRoot,
+          sourceRoot,
+          deadline,
+          includedRepositories:
+            assessment.includedRepositories ??
+            assessment.sourceRoots.roots
+              .filter((root) => root.explicitlyIncluded)
+              .map((root) => root.graphPrefix),
+        });
+        coverage.assessedRevision = observed.roots[0]?.revision ?? null;
+        if (observed.roots.length !== assessment.sourceRoots.roots.length)
+          recordKnowledgeGap(coverage, 'stale', 'Configured source-root population changed.');
+        for (const root of observed.roots) {
+          const indexed = assessment.sourceRoots.roots.find(
+            (candidate) => candidate.graphPrefix === root.graphPrefix,
+          );
+          if (
+            !indexed ||
+            indexed.canonicalPath !== root.canonicalPath ||
+            indexed.revision !== root.revision
+          )
+            recordKnowledgeGap(
+              coverage,
+              'stale',
+              `Source ownership or revision changed: ${root.requestedPath}`,
+            );
+          if (root.status !== 'available')
+            recordKnowledgeGap(
+              coverage,
+              root.status === 'failed' || root.status === 'missing' ? 'failed' : 'partial',
+              `${root.requestedPath}: ${root.diagnostics.join('; ')}`,
+            );
+          coverage.evidence.push({
+            id: `source_root:${root.graphPrefix || '.'}`,
+            projectId: coverage.projectId,
+            source: 'index',
+            revision: indexed?.revision ?? null,
+            precision: 'project',
+          });
+        }
       }
       if (assessment.references?.length) {
         recordKnowledgeGap(
