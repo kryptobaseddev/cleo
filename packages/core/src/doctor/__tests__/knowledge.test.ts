@@ -18,6 +18,7 @@ import { getBrainDb, getBrainNativeDb, resetBrainDbState } from '../../store/mem
 import { getNexusDb, getNexusNativeDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
 import { closeAllDatabases, getDb } from '../../store/sqlite.js';
 import {
+  applyPreparedKnowledgeRepair,
   listKnowledgeRepairReceipts,
   prepareKnowledgeRepair,
   runKnowledgeDoctor,
@@ -506,6 +507,7 @@ describe('durable sourced knowledge repair preparation', () => {
 
   afterEach(async () => {
     context?.close();
+    vi.useRealTimers();
     await closeAllDatabases();
     resetBrainDbState();
     resetNexusDbState();
@@ -528,6 +530,331 @@ describe('durable sourced knowledge repair preparation', () => {
       ),
     );
   }
+
+  it('applies prepared quarantine, scoped receipt and job completion atomically with fresh-process readback', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const receipt = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    expect(receipt).toMatchObject({
+      state: 'repaired',
+      attempt: 1,
+      execution: {
+        identity: context.identity,
+        jobId: pending.jobId,
+        proposalHash: pending.proposalHash,
+        fencingEpoch: 1,
+        generation: null,
+      },
+    });
+    expect(receipt.execution?.resources[0]).toMatchObject({ id: 'O-prepared', role: 'affected' });
+    expect(receipt.execution?.resources[0]?.afterHash).not.toBe(
+      receipt.execution?.resources[0]?.beforeHash,
+    );
+    const state = persisted();
+    expect(state.jobs[0]).toMatchObject({ status: 'complete', attempts: 1 });
+    expect(state.observation.invalid_at).toEqual(expect.any(String));
+    expect(JSON.parse(state.receipts[0].value).receipt).toEqual(receipt);
+    const events = getBrainNativeDb(root)!
+      .prepare(
+        "SELECT key,value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_event:%' ORDER BY key",
+      )
+      .all();
+    expect(events).toHaveLength(3);
+    expect(await applyPreparedKnowledgeRepair(context, pending.jobId)).toEqual(receipt);
+    expect(persisted().jobs[0].attempts).toBe(1);
+    expect(
+      getBrainNativeDb(root)!
+        .prepare("SELECT key FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_event:%'")
+        .all(),
+    ).toHaveLength(3);
+  });
+
+  it.each([
+    'source',
+    'generation',
+    'identity',
+  ] as const)('refuses prepared %s drift without changing source authority', async (change) => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const db = getBrainNativeDb(root)!;
+    if (change === 'source')
+      db.exec(
+        "UPDATE main.brain_observations SET narrative='Useful new evidence' WHERE id='O-prepared'",
+      );
+    if (change === 'generation')
+      db.prepare("INSERT INTO main._nexus_meta(key,value) VALUES ('graph_assessment',?)").run('{}');
+    if (change === 'identity')
+      writeFileSync(
+        join(root, '.cleo/project-info.json'),
+        JSON.stringify({ projectId: 'other', projectRoot: root }),
+      );
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    expect(persisted().observation.invalid_at).toBeNull();
+    expect(persisted().receipts).toEqual([]);
+  });
+
+  it.each([
+    'domain-receipt',
+    'terminal-job',
+    'lifecycle',
+  ] as const)('rolls back actual repair and receipt on %s persistence fault', async (fault) => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const db = getBrainNativeDb(root)!;
+    if (fault === 'terminal-job')
+      db.exec(
+        "CREATE TEMP TRIGGER reject_terminal BEFORE UPDATE OF status ON main.background_jobs WHEN NEW.status='complete' BEGIN SELECT RAISE(ABORT,'terminal receipt fault'); END",
+      );
+    else
+      db.exec(
+        `CREATE TEMP TRIGGER reject_repair BEFORE INSERT ON main._nexus_meta WHEN NEW.key LIKE '${fault === 'domain-receipt' ? 'knowledge_repair:' : 'knowledge_repair_event:'}%' BEGIN SELECT RAISE(ABORT,'repair receipt fault'); END`,
+      );
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    const state = persisted();
+    expect(state.jobs[0]).toMatchObject({ status: 'running', attempts: 1 });
+    expect(state.observation.invalid_at).toBeNull();
+    expect(state.receipts).toEqual([]);
+    expect(
+      db
+        .prepare("SELECT key FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_event:%'")
+        .all(),
+    ).toEqual([]);
+  });
+
+  it('uses existing sourced authority rules through the prepared transaction and retains historical text', async () => {
+    const db = getBrainNativeDb(root)!;
+    db.exec(`INSERT INTO main.brain_decisions(id,type,decision,rationale,confidence,confirmation_state)
+      VALUES ('D-old','architecture','Old rule','Historical evidence','high','accepted'),
+      ('D-new','architecture','New rule','Sourced correction','high','accepted')`);
+    const directive = 'Replace "Old rule" with "New rule".';
+    db.prepare("UPDATE main.brain_observations SET narrative=? WHERE id='O-prepared'").run(
+      directive,
+    );
+    const report = await runKnowledgeDoctor(root, { dryRun: true, budgetMs: 10000 });
+    proposal = {
+      ...proposal,
+      expectedStateHash: report.stateHash,
+      action: {
+        operation: 'knowledge.supersede-decision',
+        arguments: { previousId: 'D-old', successorId: 'D-new' },
+        prerequisites: [],
+      },
+      evidence: [
+        {
+          id: 'O-prepared',
+          projectId: 'repair-A',
+          source: 'memory',
+          revision: null,
+          precision: 'record',
+          excerpt: directive,
+          contentHash: createHash('sha256').update(directive).digest('hex'),
+        },
+      ],
+    };
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const receipt = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    expect(receipt.state).toBe('repaired');
+    expect(
+      db.prepare("SELECT decision,superseded_by FROM main.brain_decisions WHERE id='D-old'").get(),
+    ).toMatchObject({ decision: 'Old rule', superseded_by: 'D-new' });
+    expect(
+      db.prepare("SELECT supersedes FROM main.brain_decisions WHERE id='D-new'").get()?.supersedes,
+    ).toBe('D-old');
+    const source = receipt.execution?.resources.find((resource) => resource.role === 'source');
+    expect(source?.id).toBe('O-prepared');
+    expect(source?.afterHash).toBe(source?.beforeHash);
+    expect(
+      receipt.execution?.resources.filter((resource) => resource.role === 'affected'),
+    ).toHaveLength(2);
+    expect(persisted().jobs[0].status).toBe('complete');
+  });
+
+  it('does not treat authentic JSON bytes as proof that the declared affected resources are complete', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    // A public generic outbox can persist arbitrary operation input; the domain
+    // must independently validate its claimed action scope before writing.
+    const store = new DurableJobStore(await getDb(root), { projectId: 'repair-A' });
+    const otherContext = createOperationExecutionContext(
+      { ...context.identity, idempotencyKey: 'incomplete-resources' },
+      { budgetMs: 10000 },
+    );
+    try {
+      const malformed = {
+        ...pending.proposal,
+        resources: [],
+        id: 'incomplete-resources',
+        identity: otherContext.identity,
+      };
+      store.defer('incomplete-job', 'doctor.knowledge', Date.now(), {
+        projectId: 'repair-A',
+        idempotencyKey: 'incomplete-resources',
+        proposalJson: JSON.stringify(malformed),
+      });
+      await expect(applyPreparedKnowledgeRepair(otherContext, 'incomplete-job')).rejects.toThrow(
+        'resource or generation changed',
+      );
+      expect(persisted().observation.invalid_at).toBeNull();
+      expect(persisted().receipts).toEqual([]);
+    } finally {
+      otherContext.close();
+    }
+  });
+
+  it('allows a later explicit bounded attempt without expiring the immutable prepared proposal', async () => {
+    const identity = context.identity;
+    context.close();
+    context = createOperationExecutionContext(identity);
+    const originalDeadline = context.deadlineAt;
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(originalDeadline + 10000);
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    expect(persisted().jobs[0]).toMatchObject({ status: 'pending', attempts: 0 });
+    context.close();
+    context = createOperationExecutionContext(identity);
+    expect(context.deadlineAt - Date.now()).toBe(2000);
+    const receipt = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    expect(receipt).toMatchObject({
+      state: 'repaired',
+      execution: { proposalHash: pending.proposalHash },
+    });
+    expect(persisted().jobs[0]).toMatchObject({ status: 'complete', attempts: 1 });
+    expect(persisted().jobs[0].proposal_json).toBe(JSON.stringify(pending.proposal));
+  });
+
+  it('does not renew the deadline after claim within one foreground attempt', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const originalDeadline = context.deadlineAt;
+    const claim = DurableJobStore.prototype.claim;
+    vi.spyOn(DurableJobStore.prototype, 'claim').mockImplementation(function (
+      this: DurableJobStore,
+      ...args
+    ) {
+      const lease = claim.apply(this, args);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(originalDeadline + 1);
+      return lease;
+    });
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    expect(context.deadlineAt).toBe(originalDeadline);
+    expect(persisted().observation.invalid_at).toBeNull();
+    expect(persisted().receipts).toEqual([]);
+  });
+
+  it('retains the original deadline and rolls back when cancellation arrives after claiming', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const claim = DurableJobStore.prototype.claim;
+    vi.spyOn(DurableJobStore.prototype, 'claim').mockImplementation(function (
+      this: DurableJobStore,
+      ...args
+    ) {
+      const lease = claim.apply(this, args);
+      context.close();
+      return lease;
+    });
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    expect(persisted().jobs[0]).toMatchObject({ status: 'running', attempts: 1 });
+    expect(persisted().observation.invalid_at).toBeNull();
+    expect(persisted().receipts).toEqual([]);
+  });
+
+  it('rechecks complete resource images after claim, including fields absent from the old state digest', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const claim = DurableJobStore.prototype.claim;
+    vi.spyOn(DurableJobStore.prototype, 'claim').mockImplementation(function (
+      this: DurableJobStore,
+      ...args
+    ) {
+      const lease = claim.apply(this, args);
+      getBrainNativeDb(root)!.exec(
+        "UPDATE main.brain_observations SET type='change' WHERE id='O-prepared'",
+      );
+      return lease;
+    });
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow(
+      'resource or generation changed',
+    );
+    expect(persisted().observation.invalid_at).toBeNull();
+    expect(persisted().receipts).toEqual([]);
+    expect(
+      getBrainNativeDb(root)!
+        .prepare("SELECT type FROM main.brain_observations WHERE id='O-prepared'")
+        .get()?.type,
+    ).toBe('change');
+  });
+
+  it('refuses a stolen lease after claim without writing a repair receipt', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const taskDb = await getDb(root);
+    const claim = DurableJobStore.prototype.claim;
+    const spy = vi.spyOn(DurableJobStore.prototype, 'claim').mockImplementationOnce(function (
+      this: DurableJobStore,
+      ...args
+    ) {
+      const lease = claim.apply(this, args);
+      getBrainNativeDb(root)!
+        .prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?')
+        .run(pending.jobId);
+      claim.call(
+        new DurableJobStore(taskDb, { projectId: context.identity.projectId }),
+        pending.jobId,
+        Date.now(),
+      );
+      return lease;
+    });
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow('not owned');
+    spy.mockRestore();
+    expect(persisted().jobs[0]).toMatchObject({ status: 'running', attempts: 2 });
+    expect(persisted().observation.invalid_at).toBeNull();
+    expect(persisted().receipts).toEqual([]);
+  });
+
+  it('does not borrow or roll back a caller transaction through the prepared service', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const db = getBrainNativeDb(root)!;
+    db.exec("BEGIN; INSERT INTO main._nexus_meta(key,value) VALUES ('caller-owned','kept')");
+    try {
+      await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow(
+        'another caller owns',
+      );
+      expect(
+        db.prepare("SELECT value FROM main._nexus_meta WHERE key='caller-owned'").get()?.value,
+      ).toBe('kept');
+      db.exec('ROLLBACK');
+      expect(persisted().jobs[0].status).toBe('pending');
+      expect(persisted().observation.invalid_at).toBeNull();
+    } finally {
+      // The explicit successful rollback above must leave the shared handle usable.
+      expect(db.prepare('SELECT 1 AS ready').get()?.ready).toBe(1);
+    }
+  });
+
+  it('returns the verified committed receipt when cancellation arrives after the atomic commit', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const apply = DurableJobStore.prototype.completeAtomically;
+    vi.spyOn(DurableJobStore.prototype, 'completeAtomically').mockImplementation(function (
+      this: DurableJobStore,
+      ...args
+    ) {
+      const receipt = apply.apply(this, args);
+      context.close();
+      return receipt;
+    });
+    expect(await applyPreparedKnowledgeRepair(context, pending.jobId)).toMatchObject({
+      state: 'repaired',
+    });
+    expect(context.signal.aborted).toBe(true);
+    expect(persisted().jobs[0].status).toBe('complete');
+    expect(persisted().observation.invalid_at).not.toBeNull();
+  });
+
+  it('captures repair scope before awaits despite contradictory ROOT and DIR changes', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const applying = applyPreparedKnowledgeRepair(context, pending.jobId);
+    const other = join(root, 'other');
+    vi.stubEnv('CLEO_ROOT', other);
+    vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    expect(await applying).toMatchObject({ state: 'repaired', projectId: 'repair-A' });
+    expect(persisted().jobs[0].status).toBe('complete');
+    expect(() => readFileSync(join(other, '.cleo/cleo.db'))).toThrow();
+  });
 
   it('persists the exact scoped proposal before execution and verifies it from a fresh process', async () => {
     const result = await prepareKnowledgeRepair(context, proposal);
@@ -679,7 +1006,10 @@ describe('durable sourced knowledge repair preparation', () => {
 
   it('reports durable preparation if cancellation arrives immediately after its commit', async () => {
     const original = DurableJobStore.prototype.defer;
-    vi.spyOn(DurableJobStore.prototype, 'defer').mockImplementation(function (...args) {
+    vi.spyOn(DurableJobStore.prototype, 'defer').mockImplementation(function (
+      this: DurableJobStore,
+      ...args
+    ) {
       const result = original.apply(this, args);
       context.close();
       return result;
