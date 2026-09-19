@@ -11,6 +11,8 @@
  *
  * Signed attestation lines are appended to
  * `.cleo/audit/severity-attestation.jsonl` (one JSON object per line).  The
+ * Task mutations persist signed assertions atomically in the task audit instead.
+ * Standalone JSONL assertions do not prove a task mutation committed. The
  * previous path `.cleo/audit/bug-severity.jsonl` was bug-command-specific;
  * callers that still write to the old path will see a one-time deprecation
  * notice emitted to stderr — migration to the new path is separate cleanup.
@@ -19,7 +21,7 @@
  *
  * If `.cleo/config.json` declares an `ownerPubkeys` array, only identities
  * whose Ed25519 public key (hex) appears in that list may assert a severity.
- * Signers outside the allowlist receive an error with `code: 'E_OWNER_ONLY'`.
+ * Signers outside the allowlist receive a permission error naming `E_OWNER_ONLY`.
  * When the allowlist is absent or empty, any identity may sign (opt-in policy).
  *
  * @task T9071
@@ -135,7 +137,6 @@ export interface AppendSeverityAttestationOptions {
  * is not in the configured `ownerPubkeys` allowlist (allowlist enforcement is
  * only active when the list is non-empty).
  *
- * @param taskId  - Task ID, if already assigned at attestation time.
  * @param record  - Attestation fields (excluding `signerPub` which is derived
  *                  from the local CLEO identity).
  * @param options - Optional overrides (e.g. `cwd`).
@@ -176,6 +177,14 @@ export async function appendSignedSeverityAttestation(
  * @param record - Assertion to bind to the project identity.
  * @param options - Explicit project used for both identity and owner policy.
  * @returns Signed assertion ready for atomic audit persistence.
+ * @remarks Preparation creates no committed task evidence; persist in the task transaction.
+ * @example
+ * ```ts
+ * const assertion = await prepareSignedSeverityAttestation({
+ *   timestamp: new Date().toISOString(), taskId: 'T001',
+ *   title: 'Restore service', severity: 'P1',
+ * }, { cwd: projectRoot });
+ * ```
  * @throws CleoError with permission exit code when the signer is not allowed.
  */
 export async function prepareSignedSeverityAttestation(

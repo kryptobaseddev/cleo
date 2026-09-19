@@ -1543,7 +1543,7 @@ export interface TasksUpdateQueryParams {
   scope?: string;
   /**
    * Severity level — valid for any kind (T9073). Orthogonal to priority.
-   * Appends a signed attestation to `.cleo/audit/severity-attestation.jsonl`.
+   * Persists a signed project-identity assertion in the task transaction audit.
    */
   severity?: string;
   /**
@@ -1640,7 +1640,7 @@ export interface TasksCompleteQueryParams {
   /**
    * Reason for waiving the `E_CLEO_DEPENDENCY` gate when this task's own work
    * is done but its `depends` edges point at not-yet-terminal tasks (a stale or
-   * over-specified dependency). Recorded to `.cleo/audit/depends-waiver.jsonl`.
+   * over-specified dependency). Recorded with the task mutation in its transaction audit.
    *
    * @task T11954 (DHQ-071)
    */
