@@ -71,3 +71,13 @@ export interface BatchParseResult {
   /** Total symbols found across all files. */
   totalSymbols: number;
 }
+
+/** Bounds for one native parser invocation; cancellation is cooperative in-process. */
+export interface ParserExecutionLimits {
+  /** Maximum UTF-8 source bytes; defaults to 512 KiB. */
+  maxSourceBytes?: number;
+  /** Native parsing deadline in milliseconds; defaults to 1000. */
+  timeoutMs?: number;
+  /** Caller cancellation, checked before parsing and between native input reads. */
+  signal?: AbortSignal;
+}
