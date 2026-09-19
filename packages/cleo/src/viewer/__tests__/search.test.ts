@@ -17,7 +17,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createAttachmentStore } from '@cleocode/core/internal';
+import { closeAllDatabases, createAttachmentStore } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('llmtxt/similarity', () => ({
@@ -32,6 +32,8 @@ let prevCleoHome: string | undefined;
 let prevCwd: string;
 
 beforeEach(async () => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   tmpProjectRoot = await mkdtemp(join(tmpdir(), 'cleo-viewer-search-'));
   prevCleoHome = process.env.CLEO_HOME;
   process.env.CLEO_HOME = join(tmpProjectRoot, 'cleo-home');
@@ -43,10 +45,12 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await closeAllDatabases();
   process.chdir(prevCwd);
   if (prevCleoHome === undefined) delete process.env.CLEO_HOME;
   else process.env.CLEO_HOME = prevCleoHome;
   await rm(tmpProjectRoot, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 async function fetchJson(host: string, port: number, path: string) {
