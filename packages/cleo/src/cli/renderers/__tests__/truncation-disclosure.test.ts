@@ -242,4 +242,40 @@ describe('population disclosure at the actual renderer funnel', () => {
     );
     expect(stdout.mock.calls.flat().join('')).not.toContain('population matched=');
   });
+  it.each([
+    'id',
+    'count',
+    'table',
+    'silent',
+    'human',
+  ] as const)('explains explicit fuzzy row identity and fields on %s', (mode) => {
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    if (mode === 'human') setFormatContext({ format: 'human', source: 'flag', quiet: false });
+    else setOutputMode(mode);
+    cliOutput(
+      {
+        results: [
+          {
+            id: 'T7',
+            title: 'unrelated',
+            status: 'pending',
+            match: {
+              kind: 'fuzzy',
+              fields: ['description'],
+              terms: [],
+              reason: 'Explicit subsequence',
+            },
+          },
+        ],
+        total: 1,
+        searchType: 'fuzzy',
+      },
+      { command: 'find', operation: 'tasks.find' },
+    );
+    expect(stderr.mock.calls.flat().join('')).toContain('searchType=fuzzy');
+    expect(stderr.mock.calls.flat().join('')).toContain(
+      'match id=T7 kind=fuzzy fields=description',
+    );
+  });
 });

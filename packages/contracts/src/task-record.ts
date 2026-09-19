@@ -10,6 +10,18 @@
 
 import type { TaskVerification } from './task.js';
 
+/** Per-result retrieval basis; never implies semantic or runtime-call completeness. */
+export interface TaskMatch {
+  /** Actual reason this row matched, including explicitly requested fuzzy fallback. */
+  kind: 'lexical' | 'fuzzy' | 'exact' | 'id' | 'filter';
+  /** Source fields that support this match. */
+  fields: Array<'title' | 'description' | 'notes' | 'id'>;
+  /** Query terms present literally in those fields (empty for fuzzy-only matches). */
+  terms: string[];
+  /** Human-readable ranking basis without exposing hidden source content. */
+  reason: string;
+}
+
 /** A single task relation entry (string-widened version). */
 export interface TaskRecordRelation {
   taskId: string;
@@ -41,6 +53,8 @@ export interface TaskRecordRelationCounts {
 
 /** String-widened Task for JSON serialization in dispatch/LAFS layer. */
 export interface TaskRecord {
+  /** Search provenance when this full record is returned by task search. */
+  match?: TaskMatch;
   id: string;
   title: string;
   description: string;
@@ -108,6 +122,8 @@ export interface TaskRecord {
  * @task T091
  */
 export interface MinimalTaskRecord {
+  /** Search provenance when this record is a search result. */
+  match?: TaskMatch;
   id: string;
   title: string;
   status: string;

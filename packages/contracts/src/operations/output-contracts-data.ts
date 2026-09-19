@@ -237,13 +237,19 @@ const tasksFindOutputContract: OperationOutputContract = {
       total: { type: 'number', description: 'Total matching tasks.' },
       population: taskPopulationSchema,
       query: { type: 'string', description: 'The query string that was searched.' },
-      searchType: { type: 'string', description: 'Kind of search performed (fts, semantic, ...).' },
+      searchType: {
+        type: 'string',
+        description:
+          'Requested matching mode: lexical (default), fuzzy (explicit opt-in), exact, id, or filter.',
+      },
     },
   },
   fieldPointers: [
     '/data/results/0/id',
     '/data/results/0/title',
     '/data/results/0/status',
+    '/data/results/0/match',
+    '/data/searchType',
     '/data/total',
     '/data/population/matched',
     '/data/population/returned',
