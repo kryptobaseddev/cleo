@@ -87,12 +87,11 @@ import {
   publishDocs,
   publishDocsAsPr,
   rankDocs,
+  readAuditLog,
   recordPublication,
   releaseReservedSlug,
   reserveSlugForDispatch,
   resolveAttachmentBackend,
-  resolveCanonicalCleoDir,
-  resolveProjectByCwd,
   runDocsImport,
   SlugCollisionError,
   SUPERSEDE_NOT_FOUND_CODE,
@@ -103,9 +102,11 @@ import {
   syncFromGit,
   updateDocBySlug,
   validateDocBody,
+  verifyAuditTrail,
   writeAuditEntry,
   writeChangesetEntry,
 } from '@cleocode/core/internal';
+import { resolveCleoDir } from '@cleocode/core/paths.js';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
@@ -800,7 +801,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     }
 
     const cwd = getProjectRoot();
-    const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(cwd));
+    const cleoDir = resolveCleoDir(cwd);
 
     // Derive storage path for blob kinds
     let storagePath: string | undefined;
@@ -2024,6 +2025,7 @@ const QUERY_OPS = new Set<string>([
   'list',
   'fetch',
   'generate',
+  'llm-output',
   'export',
   'search',
   'find',
@@ -2031,6 +2033,7 @@ const QUERY_OPS = new Set<string>([
   'rank',
   'versions',
   'status',
+  'audit',
 ]);
 const MUTATE_OPS = new Set<string>([
   'add',
@@ -2098,6 +2101,12 @@ async function dispatchDocsLegacyQuery(
         name: typeof params['name'] === 'string' ? params['name'] : undefined,
         projectRoot,
       });
+    case 'audit':
+      if (params['verify'] === true) return verifyAuditTrail(projectRoot);
+      if (typeof params['slug'] !== 'string' || !params['slug']) {
+        throw new Error('Document audit requires slug or verify');
+      }
+      return readAuditLog(projectRoot, params['slug']);
     case 'status': {
       const model = createDocsReadModel();
       return model.status(projectRoot);
@@ -2114,6 +2123,13 @@ async function dispatchDocsLegacyMutate(
   const projectRoot = getProjectRoot();
   switch (operation) {
     case 'publish': {
+      if (params['target'] === 'pr') return dispatchDocsLegacyMutate('publish-pr', params);
+      if (params['target'] !== undefined && params['target'] !== 'file') {
+        throw new Error('Publication target must be file or pr');
+      }
+      if (!params['ownerId'] || !params['toPath']) {
+        throw new Error('File publication requires ownerId and toPath');
+      }
       const result = await publishDocs({
         ownerId: String(params['ownerId']),
         toPath: String(params['toPath']),
@@ -2146,6 +2162,7 @@ async function dispatchDocsLegacyMutate(
       return result;
     }
     case 'publish-pr': {
+      if (!params['slugOrId']) throw new Error('PR publication requires slugOrId');
       const prResult = await publishDocsAsPr({
         slugOrId: String(params['slugOrId']),
         ...(typeof params['slug'] === 'string' ? { slug: params['slug'] } : {}),
@@ -2328,6 +2345,7 @@ export class DocsHandler implements DomainHandler {
         'list',
         'fetch',
         'generate',
+        'llm-output',
         'export',
         'search',
         'find',
@@ -2335,6 +2353,7 @@ export class DocsHandler implements DomainHandler {
         'rank',
         'versions',
         'status',
+        'audit',
       ],
       mutate: ['add', 'remove', 'update', 'supersede', 'publish', 'publish-pr', 'sync', 'import'],
     };

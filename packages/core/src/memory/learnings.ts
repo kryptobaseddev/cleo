@@ -14,7 +14,6 @@ import { createHash, randomBytes } from 'node:crypto';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { upsertGraphNode } from './graph-auto-populate.js';
 import { computeLearningQuality } from './quality-scoring.js';
-import { detectSupersession, supersedeMemory } from './temporal-supersession.js';
 
 /** Parameters for storing a new learning. */
 export interface StoreLearningParams {
@@ -236,33 +235,8 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
     /* best-effort */
   });
 
-  // T738: Auto-fire detectSupersession only for high-trust writes.
-  // Speculative/agent confidence learnings rely on sleep-consolidation dedup instead.
-  // Only 'owner' or 'task-outcome' sourceConfidence triggers write-time supersession.
-  // Cast needed: TS narrows sourceConfidence to 'agent'|'speculative' above, but the
-  // type is BrainSourceConfidence which includes 'owner'|'task-outcome' for other callers.
-  if ((sourceConfidence as string) === 'owner' || (sourceConfidence as string) === 'task-outcome') {
-    detectSupersession(projectRoot, {
-      id: saved.id,
-      text: saved.insight,
-      createdAt: saved.createdAt ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
-    })
-      .then((candidates) => {
-        for (const candidate of candidates) {
-          supersedeMemory(
-            projectRoot,
-            candidate.existingId,
-            saved.id,
-            'auto:learning-supersedes — high overlap detected at store time',
-          ).catch(() => {
-            /* best-effort */
-          });
-        }
-      })
-      .catch(() => {
-        /* best-effort */
-      });
-  }
+  // Similarity identifies reconciliation candidates; it cannot establish authority.
+  // Replacement requires an explicit sourced operation from the calling agent.
 
   return {
     ...saved,

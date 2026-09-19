@@ -4,7 +4,13 @@
  * @epic T4454
  */
 
-import type { Task, TaskRecord, TaskRef, VerificationGate } from '@cleocode/contracts';
+import type {
+  KnowledgeCoverage,
+  Task,
+  TaskRecord,
+  TaskRef,
+  VerificationGate,
+} from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode, TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
 import { getRawConfigValue, loadConfig } from '../config.js';
@@ -13,6 +19,7 @@ import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
+import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import {
   type AutoCompleteWorktreeResult,
   maybeAutoCompleteWorktreeForTask,
@@ -129,6 +136,8 @@ export interface TaskCompletionReceiptSummary {
 
 /** Result of completing a task. */
 export interface CompleteTaskResult {
+  /** Coverage assessed after completion without asserting all runtime callers are known. */
+  knowledgeCoverage?: KnowledgeCoverage;
   task: Task;
   autoCompleted?: string[];
   unblockedTasks?: Array<Pick<TaskRef, 'id' | 'title'>>;
@@ -280,6 +289,16 @@ function projectRootForGate(cwd: string | undefined): string {
  * @task T10509
  */
 type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings'>;
+
+/** Parent rollups must satisfy their own criteria without inheriting child waivers. */
+async function canAutoCompleteParent(
+  parent: Task,
+  accessor: DataAccessor,
+  tx: TransactionAccessor,
+): Promise<boolean> {
+  if (parent.noAutoComplete) return false;
+  return (await computeAcCoverage(parent.id, { ...accessor, ...tx })).ok;
+}
 
 async function enforceAcCoverageGate(
   options: CompleteTaskOptions,
@@ -436,7 +455,11 @@ export async function completeTask(
   // fresh shell. The `cleo verify` E_ALREADY_DONE guard (ADR-051 §11.1
   // evidence immutability) is a different path and is NOT loosened.
   if (task.status === 'done') {
-    return { task, alreadyCompleted: true };
+    return {
+      task,
+      alreadyCompleted: true,
+      knowledgeCoverage: await assessKnowledgeCoverage(resolveOrCwd(cwd)),
+    };
   }
 
   // gh#1194 / T12106 — name the exact recovery so an agent that recorded
@@ -788,31 +811,8 @@ export async function completeTask(
         // decision and status='done'/autoclose updates commit or roll back as
         // one atomic unit.
         //
-        // ---- T10644: Auto-bind ACs when all verification gates are green ----
-        // Workers often complete all 3 gates (implemented/testsPassed/qaPassed)
-        // but skip the AC evidence binding step. When all gates are green, we
-        // auto-create `coverage` bindings for any ACs lacking bindings so the
-        // complete gate passes without manual SQL injection by the Prime.
-        if (task.verification?.passed === true) {
-          const acRows = await acc.getAcRows(options.taskId);
-          if (acRows.length > 0) {
-            const acIds = acRows.map((ac) => ac.id);
-            const bindings = await acc.getAcBindings(acIds);
-            const boundAcIds = new Set(bindings.map((b: any) => b.acId));
-            const unbound = acRows.filter((ac) => !boundAcIds.has(ac.id));
-            if (unbound.length > 0) {
-              await tx.insertAcBindings(
-                unbound.map((ac) => ({
-                  id: `auto-coverage-${ac.id.slice(0, 8)}`,
-                  evidenceAtomId: 'auto-coverage-verification-passed',
-                  acId: ac.id,
-                  bindingType: 'coverage' as const,
-                })),
-              );
-            }
-          }
-        }
-
+        // Gate status does not establish which criteria were proved. Require
+        // explicit bindings; retain historical auto-coverage rows as history.
         await enforceAcCoverageGate(options, projectRootForGate(cwd), tx);
 
         // Auto-advance pipelineStage: IVTR execution stages → release (T719)
@@ -922,7 +922,7 @@ export async function completeTask(
                   } as typeof acc)
                 : true;
 
-              if (epicEvidencePassed) {
+              if (epicEvidencePassed && (await canAutoCompleteParent(parent, acc, tx))) {
                 parent.status = 'done';
                 parent.completedAt = now;
                 parent.updatedAt = now;
@@ -979,7 +979,11 @@ export async function completeTask(
                   '[complete] suppressing coordination-parent auto-close: un-waived cancelled children require `cleo complete --waive-cancelled-children`',
                 );
               }
-              if (allCpDone && !cpHasCancelledChild) {
+              if (
+                allCpDone &&
+                !cpHasCancelledChild &&
+                (await canAutoCompleteParent(coordinationParent, acc, tx))
+              ) {
                 // Synthesize verification evidence from children's gate state.
                 // The overlay adds the current task (not yet in DB) as done so
                 // buildRollupEvidence sees the post-write view.
@@ -1050,7 +1054,7 @@ export async function completeTask(
             if (m.id === task.id) return true;
             return m.status === 'done' || m.status === 'cancelled';
           });
-          if (!allMembersTerminal) continue;
+          if (!allMembersTerminal || !(await canAutoCompleteParent(saga, acc, tx))) continue;
 
           // Synthesize evidence + flip the saga to terminal. The saga write
           // joins `autoCompletedTasks` so the transaction below upserts it
@@ -1261,6 +1265,7 @@ export async function completeTask(
       : undefined;
 
   return {
+    knowledgeCoverage: await assessKnowledgeCoverage(resolveOrCwd(cwd)),
     task,
     ...(autoCompleted.length > 0 && { autoCompleted }),
     ...(unblockedTasks.length > 0 && { unblockedTasks }),
@@ -1273,6 +1278,7 @@ export async function completeTask(
 // ---------------------------------------------------------------------------
 
 interface CompleteEngineSuccess {
+  knowledgeCoverage?: KnowledgeCoverage;
   task: TaskRecord;
   autoCompleted?: string[];
   unblockedTasks?: Array<{ id: string; title: string }>;
@@ -1401,6 +1407,7 @@ export async function taskComplete(
     if (result.alreadyCompleted) {
       return engineSuccess({
         task: result.task as TaskRecord,
+        knowledgeCoverage: result.knowledgeCoverage,
         alreadyDone: true,
         note: `Task ${taskId} is already done — complete was a no-op (idempotent).`,
       });
@@ -1439,6 +1446,7 @@ export async function taskComplete(
     );
 
     return engineSuccess({
+      knowledgeCoverage: result.knowledgeCoverage,
       task: result.task as TaskRecord,
       ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
       ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),

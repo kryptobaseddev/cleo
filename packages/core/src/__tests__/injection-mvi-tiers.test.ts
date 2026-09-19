@@ -34,7 +34,7 @@ describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
     it('has version 2.6.0 (T882 spawn prompt rebuild — Spawn Prompt Contents section)', () => {
       // v2.6.0 (T882): documents the canonical spawn prompt contract + tier system.
       // v2.5.0 (T832/ADR-051) introduced evidence-based gate verification.
-      expect(content).toContain('Version: 2.6.0');
+      expect(content).toContain('Version: 2.7.0');
     });
 
     it('declares CLI-only dispatch', () => {
@@ -45,7 +45,7 @@ describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
 
   describe('Contains essential sections', () => {
     it('includes Session Start sequence', () => {
-      expect(content).toContain('## Session Start');
+      expect(content).toContain('## Universal protocol');
       expect(content).toContain('cleo briefing');
       expect(content).toContain('cleo session status');
       expect(content).toContain('cleo current');

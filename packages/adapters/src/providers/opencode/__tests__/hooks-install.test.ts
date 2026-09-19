@@ -13,10 +13,10 @@
  * @epic T1000
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenCodeInstallProvider } from '../install.js';
 
 describe('OpenCodeInstallProvider — PreCompact hook templates', () => {
@@ -24,9 +24,19 @@ describe('OpenCodeInstallProvider — PreCompact hook templates', () => {
 
   beforeEach(() => {
     projectDir = mkdtempSync(join(tmpdir(), 'cleo-opencode-install-'));
+    const fixtureHome = join(projectDir, 'fixture-home');
+    vi.stubEnv('HOME', fixtureHome);
+    vi.stubEnv('USERPROFILE', fixtureHome);
+    vi.stubEnv('CLEO_HOME', join(fixtureHome, '.cleo'));
+    mkdirSync(join(fixtureHome, '.cleo', 'templates'), { recursive: true });
+    writeFileSync(
+      join(fixtureHome, '.cleo', 'templates', 'CLEO-INJECTION.md'),
+      'Fixture protocol: inspect authority and coverage.',
+    );
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(projectDir, { recursive: true, force: true });
   });
 

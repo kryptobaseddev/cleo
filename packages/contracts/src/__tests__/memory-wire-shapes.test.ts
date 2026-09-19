@@ -58,6 +58,7 @@ type AssertEquals1<T extends 1> = T;
 // ─── Search: BrainCompactHit shape pin ──────────────────────────────
 
 type _BrainCompactHitShape = {
+  matchedHistoricalIds?: string[];
   id: string;
   type: 'decision' | 'pattern' | 'learning' | 'observation';
   title: string;
@@ -73,6 +74,7 @@ type _AssertBrainCompactHitPinned = AssertEquals1<Equals<BrainCompactHit, _Brain
 // ─── Search: SearchBrainCompactParams shape pin ─────────────────────
 
 type _SearchBrainCompactParamsShape = {
+  includeHistory?: boolean;
   query: string;
   limit?: number;
   tables?: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>;

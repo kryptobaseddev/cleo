@@ -77,4 +77,21 @@ describe('cleo find --label (T9904)', () => {
     const dispatchedParams = mockDispatchRaw.mock.calls[0]![3] as Record<string, unknown>;
     expect('label' in dispatchedParams).toBe(false);
   });
+  it('forwards explicit fuzzy and field selection without truncating decimal pagination', async () => {
+    await findCommand.run?.({
+      args: { query: 'deadline', fuzzy: true, in: 'notes', limit: '1.5', _: [] },
+      rawArgs: [],
+      cmd: findCommand,
+    });
+    expect(mockDispatchRaw).toHaveBeenCalledWith(
+      'query',
+      'tasks',
+      'find',
+      expect.objectContaining({ query: 'deadline', fuzzy: true, field: 'notes', limit: 1.5 }),
+    );
+  });
+  it('does not opt a default search into fuzzy fallback', async () => {
+    await findCommand.run?.({ args: { query: 'deadline', _: [] }, rawArgs: [], cmd: findCommand });
+    expect(mockDispatchRaw.mock.calls[0][3]).not.toHaveProperty('fuzzy');
+  });
 });

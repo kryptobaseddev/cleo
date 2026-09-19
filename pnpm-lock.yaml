@@ -670,6 +670,9 @@ importers:
       graphology-types:
         specifier: ^0.24.8
         version: 0.24.8
+      ignore:
+        specifier: 7.0.5
+        version: 7.0.5
       tree-sitter:
         specifier: 0.21.1
         version: 0.21.1

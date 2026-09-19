@@ -426,6 +426,8 @@ describe("validateInstructionIntegrity()", () => {
   it("reports no issues for current files", async () => {
     const { validateInstructionIntegrity } = await import("../../src/core/skills/integrity.js");
 
+    await writeFile(join(testDir, "AGENTS.md"), "# Current project instructions\n");
+
     await writeFile(
       join(testDir, "GOOD.md"),
       "<!-- CAAMP:START -->\n@AGENTS.md\n<!-- CAAMP:END -->\n",

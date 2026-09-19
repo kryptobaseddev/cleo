@@ -467,3 +467,14 @@ describe('applyMutateProjection — unknown ops + edge cases', () => {
     expect(applyMutateProjection(42, 'tasks.add', 'mvi')).toBe(42);
   });
 });
+
+it('preserves uncertainty in compact completion envelopes', () => {
+  const knowledgeCoverage = { status: 'missing', reasons: ['No graph evidence'] };
+  const result = applyMutateProjection(
+    { task: FULL_TASK, knowledgeCoverage },
+    'tasks.complete',
+    'mvi',
+  );
+  expect(result).toMatchObject({ updated: [FULL_TASK.id], knowledgeCoverage });
+  expect(result).not.toHaveProperty('task.description');
+});

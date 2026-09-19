@@ -499,6 +499,8 @@ export async function memoryFind(
     query: string;
     limit?: number;
     tables?: string[];
+    /** Explicit historical search, including superseded records. */
+    includeHistory?: boolean;
     dateStart?: string;
     dateEnd?: string;
     /** T418: filter results to observations produced by a specific agent. */
@@ -507,6 +509,19 @@ export async function memoryFind(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
+    if (
+      params.tables?.some(
+        (table) => !['decisions', 'patterns', 'learnings', 'observations'].includes(table),
+      )
+    ) {
+      return {
+        success: false,
+        error: {
+          code: 'E_INVALID_INPUT',
+          message: 'Unsupported memory table; use decisions, patterns, learnings, or observations.',
+        },
+      };
+    }
     const root = resolveRoot(projectRoot);
     const result = await searchBrainCompact(root, {
       query: params.query,
@@ -517,6 +532,7 @@ export async function memoryFind(
       dateStart: params.dateStart,
       dateEnd: params.dateEnd,
       agent: params.agent,
+      includeHistory: params.includeHistory,
     });
     return { success: true, data: result };
   } catch (error) {

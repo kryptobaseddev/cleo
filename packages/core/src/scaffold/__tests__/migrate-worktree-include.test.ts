@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrateWorktreeIncludeFile } from '../migrate-worktree-include.js';
 
 function makeTmpProject(): string {
@@ -26,10 +26,14 @@ describe('migrateWorktreeIncludeFile (T9983)', () => {
   let projectRoot: string;
 
   beforeEach(() => {
+    // Read the legacy include file under the explicit synthetic project.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     projectRoot = makeTmpProject();
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(projectRoot, { recursive: true, force: true });
   });
 

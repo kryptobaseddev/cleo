@@ -10,6 +10,24 @@
 
 import type { TaskVerification } from './task.js';
 
+/** Omitted source fields and their UTF-8 serialized sizes on partial records. */
+export interface RecordProjectionDisclosure {
+  /** Absence means this projection did not omit any source fields. */
+  _withheld?: Record<string, number>;
+}
+
+/** Per-result retrieval basis; never implies semantic or runtime-call completeness. */
+export interface TaskMatch {
+  /** Actual reason this row matched, including explicitly requested fuzzy fallback. */
+  kind: 'lexical' | 'fuzzy' | 'exact' | 'id' | 'filter';
+  /** Source fields that support this match. */
+  fields: Array<'title' | 'description' | 'notes' | 'id'>;
+  /** Query terms present literally in those fields (empty for fuzzy-only matches). */
+  terms: string[];
+  /** Human-readable ranking basis without exposing hidden source content. */
+  reason: string;
+}
+
 /** A single task relation entry (string-widened version). */
 export interface TaskRecordRelation {
   taskId: string;
@@ -40,7 +58,9 @@ export interface TaskRecordRelationCounts {
 }
 
 /** String-widened Task for JSON serialization in dispatch/LAFS layer. */
-export interface TaskRecord {
+export interface TaskRecord extends RecordProjectionDisclosure {
+  /** Search provenance when this full record is returned by task search. */
+  match?: TaskMatch;
   id: string;
   title: string;
   description: string;
@@ -107,7 +127,9 @@ export interface TaskRecord {
  * task readiness without N+1 show calls.
  * @task T091
  */
-export interface MinimalTaskRecord {
+export interface MinimalTaskRecord extends RecordProjectionDisclosure {
+  /** Search provenance when this record is a search result. */
+  match?: TaskMatch;
   id: string;
   title: string;
   status: string;

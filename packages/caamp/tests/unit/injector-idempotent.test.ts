@@ -233,6 +233,7 @@ describe("inject() idempotency", () => {
 describe("ensureProviderInstructionFile()", () => {
   it("creates instruction file for a known provider", async () => {
     const result = await ensureProviderInstructionFile("claude-code", testDir, {
+      delivery: 'verified-references',
       references: ["@AGENTS.md"],
     });
 
@@ -248,11 +249,13 @@ describe("ensureProviderInstructionFile()", () => {
 
   it("is idempotent on repeated calls", async () => {
     const first = await ensureProviderInstructionFile("claude-code", testDir, {
+      delivery: 'verified-references',
       references: ["@AGENTS.md"],
     });
     expect(first.action).toBe("created");
 
     const second = await ensureProviderInstructionFile("claude-code", testDir, {
+      delivery: 'verified-references',
       references: ["@AGENTS.md"],
     });
     expect(second.action).toBe("intact");
@@ -260,10 +263,12 @@ describe("ensureProviderInstructionFile()", () => {
 
   it("updates when references change", async () => {
     await ensureProviderInstructionFile("claude-code", testDir, {
+      delivery: 'verified-references',
       references: ["@AGENTS.md"],
     });
 
     const result = await ensureProviderInstructionFile("claude-code", testDir, {
+      delivery: 'verified-references',
       references: ["@AGENTS.md", "@.cleo/project-context.json"],
     });
     expect(result.action).toBe("updated");
@@ -272,6 +277,7 @@ describe("ensureProviderInstructionFile()", () => {
   it("throws for unknown provider", async () => {
     await expect(
       ensureProviderInstructionFile("nonexistent-provider", testDir, {
+      delivery: 'verified-references',
         references: ["@AGENTS.md"],
       }),
     ).rejects.toThrow('Unknown provider: "nonexistent-provider"');
@@ -279,6 +285,7 @@ describe("ensureProviderInstructionFile()", () => {
 
   it("includes content blocks when provided", async () => {
     const result = await ensureProviderInstructionFile("claude-code", testDir, {
+      delivery: 'verified-references',
       references: ["@AGENTS.md"],
       content: ["# Custom Section", "Extra info"],
     });
@@ -292,6 +299,7 @@ describe("ensureProviderInstructionFile()", () => {
   it("uses provider instructFile from registry (not hardcoded)", async () => {
     // gemini-cli should use GEMINI.md per registry
     const result = await ensureProviderInstructionFile("gemini-cli", testDir, {
+      delivery: 'verified-references',
       references: ["@AGENTS.md"],
     });
     expect(result.instructFile).toBe("GEMINI.md");
@@ -307,7 +315,7 @@ describe("ensureAllProviderInstructionFiles()", () => {
     const results = await ensureAllProviderInstructionFiles(
       ["cursor", "windsurf"],
       testDir,
-      { references: ["@AGENTS.md"] },
+      { delivery: 'verified-references', references: ["@AGENTS.md"] },
     );
 
     // Both cursor and windsurf use AGENTS.md — should deduplicate
@@ -319,7 +327,7 @@ describe("ensureAllProviderInstructionFiles()", () => {
     const results = await ensureAllProviderInstructionFiles(
       ["claude-code", "gemini-cli"],
       testDir,
-      { references: ["@AGENTS.md"] },
+      { delivery: 'verified-references', references: ["@AGENTS.md"] },
     );
 
     expect(results.length).toBe(2);
@@ -332,7 +340,7 @@ describe("ensureAllProviderInstructionFiles()", () => {
       ensureAllProviderInstructionFiles(
         ["claude-code", "fake-provider"],
         testDir,
-        { references: ["@AGENTS.md"] },
+        { delivery: 'verified-references', references: ["@AGENTS.md"] },
       ),
     ).rejects.toThrow('Unknown provider: "fake-provider"');
   });

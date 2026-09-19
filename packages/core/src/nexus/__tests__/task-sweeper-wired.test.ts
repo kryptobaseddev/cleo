@@ -25,6 +25,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { EDGE_TYPES } from '../../memory/edge-types.js';
 import { closeBrainDb, getBrainDb, getBrainNativeDb } from '../../store/memory-sqlite.js';
 import { closeNexusDb, getNexusDb, getNexusNativeDb } from '../../store/nexus-sqlite.js';
+import { getDb } from '../../store/sqlite.js';
+import { tasks } from '../../store/tasks-schema.js';
 import { runGitLogTaskLinker } from '../tasks-bridge.js';
 
 // ---------------------------------------------------------------------------
@@ -73,6 +75,16 @@ async function makeGitRepoWithTaskCommits(dir: string, commitCount: number): Pro
     files.push(relPath);
     git(dir, 'add', relPath);
     git(dir, 'commit', '-m', `feat(${taskId}): implement module ${i}`);
+    const taskDb = await getDb(dir);
+    taskDb
+      .insert(tasks)
+      .values({
+        id: taskId,
+        title: `Module ${i}`,
+        type: 'task',
+        filesJson: JSON.stringify([relPath]),
+      })
+      .run();
   }
 
   return files;
@@ -110,22 +122,6 @@ beforeEach(async () => {
   // Close any previously-open DB connections so each test starts fresh.
   closeBrainDb();
   closeNexusDb();
-  // Open nexus DB and clear the last_task_linker_commit so each test sees
-  // the full git history (no stale "since" hash from a previous test).
-  await getNexusDb();
-  const nexusNative = getNexusNativeDb();
-  if (nexusNative) {
-    try {
-      nexusNative
-        .prepare(`DELETE FROM nexus_schema_meta WHERE key = ?`)
-        .run('last_task_linker_commit');
-    } catch {
-      // Table may not exist yet
-    }
-  }
-  // Close again so the test body opens the DB fresh (important for getBrainDb
-  // which takes projectRoot — we don't want a stale singleton open).
-  closeNexusDb();
 });
 
 afterEach(() => {
@@ -153,9 +149,9 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     // Seed nexus_nodes so there are symbols to link against.
     // In a real analyze run, runPipeline would populate these.
     await getBrainDb(repoDir);
-    await getNexusDb();
+    await getNexusDb(repoDir);
 
-    const nexusNative = getNexusNativeDb()!;
+    const nexusNative = getNexusNativeDb(repoDir)!;
     expect(nexusNative).toBeDefined();
 
     // Insert nexus symbols for the files touched in commits
@@ -179,20 +175,27 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     expect(result.lastCommitHash).not.toBeNull();
 
     // Verify brain_page_edges has task_touches_symbol edges (at least one per task)
-    const brainNative = getBrainNativeDb()!;
+    const brainNative = getBrainNativeDb(repoDir)!;
     const rows = brainNative
       .prepare(
-        `SELECT from_id, to_id, edge_type FROM brain_page_edges
+        `SELECT from_id, to_id, edge_type, provenance FROM main.brain_page_edges
            WHERE edge_type = ?`,
       )
       .all(EDGE_TYPES.TASK_TOUCHES_SYMBOL) as Array<{
       from_id: string;
       to_id: string;
       edge_type: string;
+      provenance: string;
     }>;
 
     // Each commit touches one file which has one symbol → 3 edges minimum
-    expect(rows.length).toBeGreaterThanOrEqual(3);
+    expect(rows).toHaveLength(3);
+    for (const row of rows)
+      expect(JSON.parse(row.provenance)).toMatchObject({
+        source: 'git-log-file-match',
+        precision: 'file',
+        commitRefs: [expect.stringMatching(/^[a-f0-9]{40}$/)],
+      });
 
     // Verify all three task IDs are present
     const taskIds = new Set(rows.map((r) => r.from_id));
@@ -209,9 +212,9 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     await makeGitRepoWithTaskCommits(repoDir, 2);
 
     await getBrainDb(repoDir);
-    await getNexusDb();
+    await getNexusDb(repoDir);
 
-    const nexusNative = getNexusNativeDb()!;
+    const nexusNative = getNexusNativeDb(repoDir)!;
     for (let i = 1; i <= 2; i++) {
       nexusNative
         .prepare(
@@ -227,7 +230,7 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     const result1 = await runGitLogTaskLinker(repoDir);
     const result2 = await runGitLogTaskLinker(repoDir);
 
-    const brainNative = getBrainNativeDb()!;
+    const brainNative = getBrainNativeDb(repoDir)!;
     const edgeCount = (
       brainNative
         .prepare(`SELECT COUNT(*) as cnt FROM brain_page_edges WHERE edge_type = ?`)
@@ -244,6 +247,21 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     expect(edgeCount).toBe(result1.linked);
   }, 30_000);
 
+  it('keeps independent project commit checkpoints isolated', async () => {
+    const first = join(tmpDir, 'first');
+    const second = join(tmpDir, 'second');
+    for (const repo of [first, second]) {
+      mkdirSync(join(repo, '.cleo'), { recursive: true });
+      await makeGitRepoWithTaskCommits(repo, 1);
+    }
+    const initial = await runGitLogTaskLinker(first);
+    const independent = await runGitLogTaskLinker(second);
+    expect(initial.commitsProcessed).toBe(1);
+    expect(independent.commitsProcessed).toBe(1);
+    expect((await runGitLogTaskLinker(first)).commitsProcessed).toBe(0);
+    expect((await runGitLogTaskLinker(second)).commitsProcessed).toBe(0);
+  });
+
   it('handles a non-git directory gracefully — no error thrown, warning routed to envelope', async () => {
     // Arrange: plain directory, not a git repo
     const plainDir = join(tmpDir, 'plain-dir');
@@ -252,7 +270,7 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     writeFile(plainDir, 'src/index.ts');
 
     await getBrainDb(plainDir);
-    await getNexusDb();
+    await getNexusDb(plainDir);
 
     // T9771: warnings now flow through LAFS `WarningCollector` rather than
     // console.warn. Capture them via an explicit collector bound through

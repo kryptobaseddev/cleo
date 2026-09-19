@@ -43,6 +43,90 @@ describe('epic auto-complete', () => {
     await env.cleanup();
   });
 
+  it.each([
+    'epic',
+    'task',
+    'saga',
+  ] as const)('leaves a %s parent with an unproven criterion open after its last child completes', async (parentType) => {
+    await seedTasks(accessor, [
+      { id: 'T901', title: 'Parent scope', type: parentType, status: 'active' },
+      {
+        id: 'T902',
+        title: 'Finished child',
+        type: parentType === 'saga' ? 'epic' : parentType === 'task' ? 'subtask' : 'task',
+        parentId: 'T901',
+        status: 'active',
+      },
+    ]);
+    await accessor.transaction(async (tx) => {
+      await tx.insertAcRows([
+        {
+          id: 'parent-unproven-ac',
+          taskId: 'T901',
+          ordinal: 1,
+          text: 'Actual integrated behavior verified',
+        },
+        { id: 'child-waived-ac', taskId: 'T902', ordinal: 1, text: 'Child-only waiver' },
+      ]);
+    });
+    const result = await completeTask(
+      { taskId: 'T902', waiveAc: 'AC1', waiveReason: 'Only the child criterion is waived' },
+      env.tempDir,
+      accessor,
+    );
+    expect(result.task.status).toBe('done');
+    expect(result.autoCompleted ?? []).not.toContain('T901');
+    expect((await accessor.loadSingleTask('T901'))?.status).toBe('active');
+    expect((await accessor.getAcRows('T901'))[0]?.text).toBe('Actual integrated behavior verified');
+  });
+
+  it.each([
+    false,
+    true,
+  ])('does not manufacture criterion proof from green gates (legacy binding=%s)', async (legacyBinding) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T905',
+        title: 'Unproven task',
+        status: 'active',
+        verification: {
+          passed: true,
+          round: 1,
+          gates: { implemented: true, testsPassed: true, qaPassed: true },
+          failureLog: [],
+        },
+      },
+    ]);
+    await accessor.transaction(async (tx) => {
+      await tx.insertAcRows([
+        { id: 'unproven-ac', taskId: 'T905', ordinal: 1, text: 'Actual fix verified' },
+      ]);
+      if (legacyBinding)
+        await tx.insertAcBindings([
+          {
+            id: 'legacy-auto-binding',
+            acId: 'unproven-ac',
+            evidenceAtomId: 'auto-coverage-verification-passed',
+            bindingType: 'coverage',
+          },
+        ]);
+    });
+    await expect(completeTask({ taskId: 'T905' }, env.tempDir, accessor)).rejects.toThrow(
+      'acceptance criterion/criteria have no evidence bindings',
+    );
+    expect((await accessor.loadSingleTask('T905'))?.status).toBe('active');
+    expect((await accessor.getAcBindings(['unproven-ac'])).length).toBe(legacyBinding ? 1 : 0);
+  });
+
+  it('honors the saga noAutoComplete opt-out', async () => {
+    await seedTasks(accessor, [
+      { id: 'T901', title: 'Manual saga', type: 'saga', status: 'active', noAutoComplete: true },
+      { id: 'T902', title: 'Finished epic', type: 'epic', parentId: 'T901', status: 'active' },
+    ]);
+    await completeTask({ taskId: 'T902' }, env.tempDir, accessor);
+    expect((await accessor.loadSingleTask('T901'))?.status).toBe('active');
+  });
+
   it('does NOT auto-complete epic when only one of two subtasks is completed (bug T585)', async () => {
     await seedTasks(accessor, [
       {

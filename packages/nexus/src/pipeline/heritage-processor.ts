@@ -88,7 +88,7 @@ const EMPTY_SET: ReadonlySet<string> = new Set();
  * Derive a synthetic stub node ID for unresolvable parent types.
  *
  * This keeps EXTENDS/IMPLEMENTS edges pointing at something unique-and-stable
- * without fabricating a real graph node. The prefix `__heritage__` makes stubs
+ * as an explicitly unresolved reference node. The prefix `__heritage__` makes references
  * easy to filter in downstream consumers that only want resolved edges.
  */
 function stubId(name: string): string {
@@ -109,13 +109,23 @@ function resolveParentId(
   parentName: string,
   fromFile: string,
   ctx: ResolutionContext,
-): { id: string; confidence: number } {
+): {
+  id: string;
+  confidence: number;
+  resolution?: 'unresolved' | 'ambiguous';
+  candidates?: string[];
+} {
   const resolved = ctx.resolve(parentName, fromFile);
 
   if (resolved && resolved.candidates.length > 0) {
     // Tier 3 with multiple candidates is ambiguous — use stub rather than guess
     if (resolved.tier === 'global' && resolved.candidates.length > 1) {
-      return { id: stubId(parentName), confidence: TIER_CONFIDENCE.global };
+      return {
+        id: `${stubId(parentName)}:${fromFile}`,
+        confidence: TIER_CONFIDENCE.global,
+        resolution: 'ambiguous',
+        candidates: resolved.candidates.map((candidate) => candidate.nodeId),
+      };
     }
     return {
       id: resolved.candidates[0].nodeId,
@@ -124,7 +134,7 @@ function resolveParentId(
   }
 
   // Unresolved — external type; use stub at global-tier confidence
-  return { id: stubId(parentName), confidence: TIER_CONFIDENCE.global };
+  return { id: stubId(parentName), confidence: TIER_CONFIDENCE.global, resolution: 'unresolved' };
 }
 
 /**
@@ -302,7 +312,27 @@ export function processHeritage(
     }
 
     // Resolve parent via tiered lookup
-    const { id: parentId, confidence: parentConf } = resolveParentId(h.parentName, h.filePath, ctx);
+    const parent = resolveParentId(h.parentName, h.filePath, ctx);
+    const { id: parentId, confidence: parentConf } = parent;
+    if (parent.resolution && !graph.nodes.has(parentId)) {
+      graph.addNode({
+        id: parentId,
+        kind: h.kind === 'implements' ? 'interface' : 'class',
+        name: h.parentName,
+        filePath: '',
+        startLine: 0,
+        endLine: 0,
+        language: '',
+        exported: false,
+        isExternal: parent.resolution === 'unresolved',
+        meta: {
+          resolution: parent.resolution,
+          referenceKind: 'heritage',
+          candidates: parent.candidates ?? [],
+          sourceAnalyzed: false,
+        },
+      });
+    }
 
     // Child confidence is 0.95 (same-file lookup — we know it's there)
     const childConf = TIER_CONFIDENCE['same-file'];

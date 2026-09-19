@@ -24,7 +24,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { detectStrayCleoDb, resolveWorktreeFilePath, resolveWorktreeRouting } from '@cleocode/core';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface Fixture {
   readonly mainRepo: string;
@@ -64,10 +64,14 @@ function buildFixture(): Fixture {
 
 describe('T10389 — worktree-aware routing helpers', () => {
   beforeEach(() => {
+    // This fixture exercises discovery from its explicit synthetic cwd.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     fixture = buildFixture();
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(fixture.mainRepo, { recursive: true, force: true });
     rmSync(fixture.worktreeDir, { recursive: true, force: true });
   });

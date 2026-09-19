@@ -1,37 +1,47 @@
 # CLEO Protocol
 
-Version: 2.6.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.13.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
-## MANDATORY: Run `cleo briefing` BEFORE Any Other Tool
+## Universal protocol
 
-**HARD PROHIBITION**: BEFORE any tool use other than `cleo briefing`, the orchestrator
-MUST run `cleo briefing` first.
+1. **Orient.** Confirm the assigned project/worktree, then run `cleo briefing` and
+   `cleo focus <id>`. Follow explicit user scope and provider safety instructions.
+   Read relevant repository instructions before editing. A failed briefing is a
+   diagnostic, not evidence that the project has no history.
+2. **Check authority and coverage.** Distinguish current evidence, historical
+   guidance, conflicting claims, and missing knowledge. Fetch cited records and
+   their sourced successors. Recency or similarity alone does not establish authority.
+3. **Inspect evidence.** Before editing, inspect impact and its coverage. `UNKNOWN`
+   means assessment is incomplete; `NONE` means no impact detected in the assessed
+   graph. Static analysis cannot prove all runtime callers. Resolve ambiguous
+   symbols using qualified candidate identifiers and verify against source.
+4. **Act.** Use the repair matrix: scope, evidence, repair class, proposed operation,
+   prerequisites, verification, and recovery. Automatic repairs must be bounded and
+   reversible. The calling agent supplies sourced resolutions for ambiguous findings;
+   owner decisions stay explicit. No background LLM is required for repair.
+5. **Verify.** Run relevant checks, record validated evidence, then complete. Report
+   unresolved and failed findings and missing coverage rather than claiming success.
+6. **Learn.** Record actionable incident knowledge with source, project, revision,
+   observation, correction, and verification through `cleo memory observe`. Preserve
+   historical handoffs; present corrections separately. Avoid empty completion traces.
 
-Do NOT read `.cleo/agent-outputs/*.md`, `NEXT-SESSION-HANDOFF.md`,
-`HONEST-HANDOFF-*.md`, or ANY markdown file as a substitute for `cleo briefing`.
-These files are deprecated, go stale, and have historically caused orchestrators to
-act on false information. They contain redirect stubs — not state.
+Use `cleo <command> --help` and the `ct-cleo` skill for command details.
+Use `cleo show <id> --full` when focus is insufficient: the default projection
+withholds description and verification, listing them in `_withheld`.
 
-The ONLY canonical sources of session state are:
-- `cleo briefing` — structured handoff + next tasks + BRAIN context
-- `cleo focus <id>` — **primary orient surface** — single call replacing 8: identity, scope, blockers, ready wave, docs, git activity, brain context (≤ 1 500 tokens)
-- `cleo memory find "<query>"` — BRAIN memory lookup
-- `cleo show <taskId> --full` — individual task detail. **Use `--full`.** Bare `cleo show` returns an MVI projection that WITHHOLDS `description` and `verification`; withheld fields are named in `_withheld` (field → size), and a record with no `_withheld` key is complete.
+Projection markers include omitted empty/null fields and survive repeated projection.
+`_withheld` maps omitted fields to UTF-8 content bytes (JSON bytes for structured
+values). A record without `_withheld` is complete. Budgeting preserves coverage,
+diagnostic failures, authority corrections and pending repair facts before examples.
+A read budget too small for mandatory facts fails explicitly; request narrower scope
+or more budget. Never treat this failure as clean coverage.
 
-If you find yourself reading a markdown file for orientation, STOP. Run `cleo briefing`.
+An impossible internal mutation budget rejects before execution. If a successful
+mutation's actual receipt exceeds a viable budget, its success and complete receipt
+remain available with `_budgetEnforcement.withinBudget: false`; overflow does not
+mean rollback. Inspect the receipt before retrying a mutation.
 
-## Session Start (cheapest-first)
-
-**FIRST COMMAND IS ALWAYS `cleo briefing`** — no exceptions.
-
-1. `cleo briefing` — canonical session context: handoff note, next tasks, BRAIN digest (~600 tokens)
-2. `cleo session status` — resume existing? (~200 tokens)
-3. `cleo current` — active task? (~100 tokens)
-4. `cleo next` — what to work on (~300 tokens)
-5. `cleo focus {id}` — **preferred orient call** — single envelope with identity + scope + blockers + ready wave + docs + brain context (≤ 1 500 tokens, replaces 8 calls)
-6. `cleo show {id} --full` — the full task record (~400 tokens). Bare `cleo show {id}` is an MVI projection, NOT the full record — see the `_withheld` note under Task Discovery before you act on a field's absence.
-7. `cleo orchestrate start <epicId>` — for epics with ≥ 5 children (~300 tokens, auto-inits LOOM)
 <!-- /CLEO-INJECTION:section=session-start -->
 
 <!-- CLEO-INJECTION:section=work-loop -->
@@ -39,8 +49,8 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 
 1. `cleo current` or `cleo next` → pick task
 2. `cleo focus {id}` → orient: identity + blockers + ready wave + docs + brain context (1 call ≤ 1 500 tokens)
-3. Do the work (code, test, document)
-4. `cleo complete {id}` → mark done
+3. Check authority, coverage, and source evidence; do the work
+4. Record verification evidence, then `cleo complete {id}` → mark done
 5. `cleo next` → continue or end session
 <!-- /CLEO-INJECTION:section=work-loop -->
 
@@ -54,7 +64,7 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | Task acceptance criterion contains "test" | Propose an `AcceptanceGate` with `kind:"test"` via `cleo req add` |
 | Session token budget ≈ 80% consumed | Run `cleo session end --note "..."` and hand off |
 | Multiple related tasks ready in parallel | Run `cleo orchestrate ready <epicId>` for the wave set |
-| About to call `cleo complete` | First: check gates via `cleo show <id>` → run tests → then complete |
+| About to call `cleo complete` | First: check gates via `cleo show <id> --full` → run tests → then complete |
 | Writing a canonical doc (spec/adr/research/handoff/note/llm-readme) | Use `cleo docs add --type <kind> --slug <kebab-handle>` — NEVER raw fs write to `.cleo/adrs/`, `.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` |
 | Reading an ADR/spec/research note/handoff | `cleo docs fetch <slug>` — never grep the filesystem for canonical docs |
 <!-- /CLEO-INJECTION:section=triggers -->
@@ -70,6 +80,16 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | Create N tasks atomically | `cleo add-batch --file tasks.json --parent <epicId>` (file is a top-level JSON array of task objects) |
 | Preview batch before inserting | `cleo add-batch --file tasks.json --parent <epicId> --dry-run` |
 | Batch from stdin | `echo '[...]' \| cleo add-batch --file - --parent <epicId>` |
+
+Acceptance input is normalized consistently across add, update, batch, and saga
+creation: use arrays of strings in JSON parameters, or a JSON-array string / the
+documented pipe-delimited form for `--acceptance`. Array entries preserve literal
+pipes and quoted unions. Strings are trimmed and blank strings omitted; nonstring
+entries or malformed explicit JSON arrays reject the whole mutation. An explicit
+`[]` on update requests a clear; omitted acceptance stays unchanged. Normalized
+criteria still obey policy and immutability, including `--reason` for locked
+changes. Invalid stored criteria are diagnostic failures; never split historical
+records without original-input provenance and a guarded repair receipt.
 
 `cleo add-batch` inserts all tasks in a single transaction — ANY failure rolls back ALL inserts.
 Use `--dry-run` first; the projected mutation envelope reports `/data/count` and
@@ -95,6 +115,12 @@ only — dependencies, ordering, cross-reference, evidence, supersession, proven
 
 <!-- CLEO-INJECTION:section=task-discovery -->
 ## Task Discovery
+
+Task search is lexical by default. Use `cleo find "query" --fuzzy` only when approximate character-subsequence matches are wanted. Check each result's `match.kind`, `match.fields`, and reason before treating it as related work or duplicate evidence. Fuzzy provenance survives compact output; scalar/human modes explain it on stderr. `--in title|description|notes|id` restricts the searched field. Semantic retrieval is a separate, explicitly identified capability.
+
+Compact SDK list/find records also carry `_withheld`: omission names and original UTF-8 sizes are recorded before fields are discarded, then retained through later CLI projections. Use full records to inspect those values; absence is not emptiness.
+
+List/find default to excluding archived rows; `--include-archive` applies the same filters to archives. Inspect `data.population` before inferring completeness; `truncated: true` includes nonzero offsets. Budgets cannot silently remove population facts or their rows.
 
 **Use `cleo focus` to orient on a task. Use `cleo find` for discovery. NEVER `cleo list` for browsing.**
 
@@ -198,8 +224,9 @@ entry age, and the repair command. Read it — do not infer that nexus is broken
 Default ID = `base64url(path).slice(0,32)`.
 
 **Rule**: BEFORE editing any symbol, run `cleo nexus impact <symbol>`.
-HIGH/CRITICAL = stop and warn. If the index is stale, say that instead of
-silently substituting `git grep`.
+HIGH/CRITICAL requires reviewing affected callers before editing. For stale, partial,
+missing, or failed coverage, inspect source and report the remaining uncertainty.
+An empty footprint alone never establishes `NONE`.
 
 > Commands named here are asserted against the live CLI by
 > `scripts/lint-injection-commands.mjs` (T12069). Five commands previously
@@ -268,8 +295,8 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 | Need | Flag | Example |
 |------|------|---------|
 | Scalar extract | `--field <jsonpointer>` | mutate: `id=$(cleo add 'X' --acceptance "..." --field /data/created/0)` · read: `st=$(cleo show T123 --field /data/task/status)` |
-| ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id --limit 0 \| while read c; do …; done` — **`--limit 0` means EVERY match on BOTH `list` and `find`** (gh#1302, fixed). REQUIRED on `list`, which otherwise stops at 10 silently while `--output count` reports the true total. On `find`, `--all` is the same thing with a name. |
-| Affected count | `--output count` | `cleo list --parent EPIC --status pending --output count` |
+| ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id --limit 0 \| while read c; do …; done` — **`--limit 0` means EVERY match on BOTH `list` and `find`** (gh#1302, fixed). Without it, list returns a page of 10 and find a page of 20. `--output count` counts the returned rows, agreeing with IDs/table. `data.population` separates matched/returned counts and archive scope; scalar modes disclose these facts on stderr. |
+| Returned/affected count | `--output count` | `cleo list --parent EPIC --status pending --output count` |
 | TSV (no header) | `--output table` | `cleo list --parent EPIC --output table` |
 | Silent (exit-code only) | `--output silent` | `cleo update T123 --status done --output silent` |
 | 1-line per record | `--summary` | `cleo list --parent EPIC --summary` |
@@ -325,7 +352,9 @@ Every gate takes `cleo verify T### --gate <gate> --evidence "<atoms>"`:
 | `securityPassed` | `tool:security-scan` |
 | `cleanupDone` | `note:removed dead branches` |
 
-A retroactive `pr:<number>` atom (PR MERGED + CI green) satisfies `implemented` + `testsPassed` + `qaPassed` at once — record it against each of the three.
+A merged PR and green CI provide provenance. For `implemented`, pair `pr:<number>` with `files:<changed-paths>`; CLEO checks task linkage, complete changed-file coverage, and the actual merge commit's bytes. Documentation-only PRs cannot implement a code-fix task. Documentation and research tasks may use appropriate documentary artifacts.
+
+When a task has canonical acceptance criteria, name the criteria proved by each implementation, test, or review result using existing syntax such as `satisfies:T1234#AC1`. Example: `cleo verify T1234 --gate implemented --evidence "pr:42;files:src/fix.ts;satisfies:T1234#AC1"`. Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links. The receipt retains criterion hashes, artifact paths, and result references; changed criteria require fresh evidence. A valid child completion leaves any parent with unproven criteria open, and a child waiver does not waive parent criteria.
 
 ### 2. Then complete
 
@@ -346,7 +375,7 @@ cleo memory observe "..." --title "..."
 ```bash
 CLEO_OWNER_OVERRIDE=1 \
 CLEO_OWNER_OVERRIDE_REASON="incident 1234 hotfix" \
-  cleo verify T### --all --evidence "note:owner-approved"
+  cleo verify T### --gate cleanupDone --evidence "note:owner-approved"
 ```
 
 All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
@@ -357,7 +386,9 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ### `pr:<number>` retroactive atom (T9764)
 
-Accepts IFF PR `state=MERGED` AND required-workflow checks are `SUCCESS`/`SKIPPED`. Single atom satisfies `implemented` + `testsPassed` + `qaPassed` simultaneously (T9838). Cache under `.cleo/cache/evidence/pr-<num>.json`. **`pr:` is INERT in a repo with no required workflows (gh#1224).** If the project has no `.github/workflows/` — or branch protection lists no required checks — every `pr:` atom is refused with "required gates were not found on this PR", because the checks it looks for never ran. This is exactly the situation in which an agent reaches for `pr:`, so check before you rely on it. Either declare the real check names in `.cleo/project-context.json` → `release.prRequiredWorkflows` (an explicit empty array `[]` means "this repo requires none", and then a MERGED PR alone satisfies the atom), or use `CLEO_PR_REQUIRED_WORKFLOWS`. With neither set, CLEO falls back to a built-in list of ITS OWN gate names (`CI`, `Lockfile Check`, `Contracts Dep Lint`) which will not match your project. In a CI-less repo the honest path is `commit:<sha>;note:<why>` for `implemented` plus `tool:test` / `tool:lint` for the rest.
+`pr:` records merge provenance, not task completion by itself. CLEO verifies actual `mergeCommit` identity, task relationship and changed files; incomplete file inventories or unavailable merge artifacts remain unverified. Fetch the actual merge commit before recording its `files:` evidence. Task `files` declarations must intersect the PR diff; prose path mentions do not establish scope. Explicit research/spike work and declared documentation scope retain documentary evidence paths.
+
+Required check names come from explicit configuration or the target repository's protection rules. An explicit `release.prRequiredWorkflows: []` declares that no checks are required; it does not prove testing or review. Cache under `.cleo/cache/evidence/pr-<num>.json` stores merge provenance and changed-file inventory; obsolete cache versions are rejected. Use `tool:test` or `test-run:<json>` for testing and appropriate QA tools for review, each linked to the criteria it actually verifies.
 
 ### Anti-patterns to avoid
 
@@ -418,7 +449,7 @@ Architectural decisions belong in the BRAIN decision-store (`.cleo/brain.db` →
 
 **Decision IDs (D0xx, AGT-*) are NOT globally unique** — same ID can mean different things across documents. BRAIN decisions include source provenance (`source_table`, `source_rowid`) that disambiguates. Always verify the source when citing a decision ID.
 
-**Legacy fallback (last resort only):** `grep -r "D0xx" .cleo/adrs/` then `grep -r "D0xx" .cleo/agent-outputs/`. These are legacy sources being migrated to the decision-store. Prefer BRAIN decisions when available.
+**Historical fallback:** use `cleo docs list` and `cleo docs fetch <slug>` to inspect canonical documents. Preserve their provenance and do not promote historical text over sourced current guidance.
 
 Check outcome status (pending/accepted/superseded). `decision-find` has **no epic filter** — it searches by QUERY text only, so scope it with the epic id as the query (`cleo memory decision-find "<epicId>"`) and read `source_table`/`source_rowid` to confirm provenance.
 

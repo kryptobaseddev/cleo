@@ -134,6 +134,28 @@ export interface DualScopeDbHandle<TScope extends DualScope = DualScope> {
 }
 
 /**
+ * Obtain the native connection owned by an already-open dual-scope handle.
+ *
+ * Validates the driver's runtime client instead of casting the schema-typed
+ * Drizzle database, whose public type does not expose `$client`.
+ *
+ * @param handle - Exact cached or dedicated handle whose connection is required.
+ * @returns Its native SQLite connection; ownership remains with the handle.
+ * @throws When the driver exposes no native SQLite connection.
+ * @remarks Dedicated migration handles retain independent connection ownership.
+ * @example
+ * ```ts
+ * const native = getDualScopeNativeDb(handle);
+ * native.prepare('SELECT 1').get();
+ * ```
+ */
+export function getDualScopeNativeDb(handle: DualScopeDbHandle): DatabaseSync {
+  const db = handle.db;
+  if ('$client' in db && db.$client instanceof getDatabaseSyncCtor()) return db.$client;
+  throw new Error(`No native SQLite connection for ${handle.scope}::${handle.dbPath}`);
+}
+
+/**
  * Options for {@link openDualScopeDbAtPath}.
  *
  * @task T11782 (FIX D — dedicated migrate connection)

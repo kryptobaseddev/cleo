@@ -18,11 +18,12 @@ import { statSync } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, type NexusTaskSymbolsResult } from '@cleocode/contracts';
 import { getProjectRoot } from '@cleocode/core';
 import { getSymbolImpact } from '@cleocode/core/nexus';
 import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
 import { exportNexusGraph } from '@cleocode/core/nexus/export.js';
+import { KnowledgeSymbolAmbiguityError } from '@cleocode/core/nexus/knowledge.js';
 import { runNexusWiki } from '@cleocode/core/nexus/wiki-orchestrator.js';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
@@ -278,10 +279,12 @@ const statusCommand = defineCommand({
     }
 
     try {
-      const [{ getNexusDb, nexusSchema }, { getIndexStats }] = await Promise.all([
-        import('@cleocode/core/store/nexus-sqlite' as string),
-        import('@cleocode/nexus/pipeline' as string),
-      ]);
+      const [{ getNexusDb, nexusSchema }, { getIndexStats }, { readKnowledgeIndexAssessment }] =
+        await Promise.all([
+          import('@cleocode/core/store/nexus-sqlite' as string),
+          import('@cleocode/nexus/pipeline' as string),
+          import('@cleocode/core/nexus/knowledge' as string),
+        ]);
 
       const projectId =
         projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
@@ -292,10 +295,11 @@ const statusCommand = defineCommand({
       };
 
       const stats = await getIndexStats(projectId, repoPath, db, tables);
+      const assessment = await readKnowledgeIndexAssessment(currentRoot);
       const durationMs = Date.now() - startTime;
 
       cliOutput(
-        { projectId, repoPath, ...stats },
+        { projectId, repoPath, ...stats, assessment },
         {
           command: 'nexus-status',
           operation: 'nexus.status',
@@ -867,7 +871,7 @@ const clustersCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_CLUSTERS_FAILED' },
+        { name: response.error?.code ?? 'E_CLUSTERS_FAILED', details: response.error?.details },
         { operation: 'nexus.clusters', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -913,7 +917,7 @@ const flowsCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_FLOWS_FAILED' },
+        { name: response.error?.code ?? 'E_FLOWS_FAILED', details: response.error?.details },
         { operation: 'nexus.flows', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -969,7 +973,7 @@ const contextCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_CONTEXT_FAILED' },
+        { name: response.error?.code ?? 'E_CONTEXT_FAILED', details: response.error?.details },
         { operation: 'nexus.context', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -1040,6 +1044,20 @@ const impactCommand = defineCommand({
         err instanceof Error && 'code' in err ? (err as { code?: string }).code : undefined;
       const msg = err instanceof Error ? err.message : String(err);
       const durationMs = Date.now() - startTime;
+      if (err instanceof KnowledgeSymbolAmbiguityError) {
+        cliError(
+          err.message,
+          6,
+          {
+            name: err.code,
+            details: { candidates: err.candidates },
+            fix: 'Use one of the exact candidate identifiers.',
+          },
+          { operation: 'nexus.impact', duration_ms: durationMs },
+        );
+        process.exitCode = 6;
+        return;
+      }
       if (code === 'E_NOT_FOUND') {
         cliError(
           msg,
@@ -1081,9 +1099,14 @@ const analyzeCommand = defineCommand({
       type: 'string',
       description: 'Override the project ID (default: auto-detected)',
     },
+    'include-repositories': {
+      type: 'string',
+      description:
+        'Comma-separated relative nested repository/worktree paths explicitly included in this project index',
+    },
     incremental: {
       type: 'boolean',
-      description: 'Only re-index files that have changed since the last run (faster)',
+      description: 'Skip unchanged indexes; atomically rebuild the full graph when sources change',
     },
   },
   async run({ args }) {
@@ -1095,13 +1118,18 @@ const analyzeCommand = defineCommand({
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
 
     humanInfo(`[nexus] Analyzing: ${repoPath}${isIncremental ? ' (incremental)' : ''}`);
-    if (!isIncremental) humanInfo('[nexus] Clearing existing index for project...');
+    if (!isIncremental)
+      humanInfo('[nexus] Staging replacement graph; current index remains available...');
 
     try {
       const result = await runNexusAnalysis({
         repoPath,
         projectIdOverride,
         incremental: isIncremental,
+        includedRepositories: args['include-repositories']
+          ?.split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean),
         onProgress:
           ctx.format === 'json'
             ? undefined
@@ -1125,6 +1153,7 @@ const analyzeCommand = defineCommand({
           relationCount: result.relationCount,
           fileCount: result.fileCount,
           durationMs: result.durationMs,
+          assessment: result.assessment,
         },
         {
           command: 'nexus-analyze',
@@ -1169,7 +1198,10 @@ const projectsListCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_PROJECTS_LIST_FAILED' },
+        {
+          name: response.error?.code ?? 'E_PROJECTS_LIST_FAILED',
+          details: response.error?.details,
+        },
         { operation: 'nexus.projects.list', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -1221,7 +1253,7 @@ const projectsRegisterCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_REGISTER_FAILED' },
+        { name: response.error?.code ?? 'E_REGISTER_FAILED', details: response.error?.details },
         { operation: 'nexus.projects.register', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -1265,7 +1297,7 @@ const projectsRemoveCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_REMOVE_FAILED' },
+        { name: response.error?.code ?? 'E_REMOVE_FAILED', details: response.error?.details },
         { operation: 'nexus.projects.remove', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -1329,7 +1361,10 @@ const projectsScanCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_PROJECTS_SCAN_FAILED' },
+        {
+          name: response.error?.code ?? 'E_PROJECTS_SCAN_FAILED',
+          details: response.error?.details,
+        },
         { operation: 'nexus.projects.scan', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -1611,7 +1646,7 @@ const refreshBridgeCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_BRIDGE_FAILED' },
+        { name: response.error?.code ?? 'E_BRIDGE_FAILED', details: response.error?.details },
         { operation: 'nexus.refresh-bridge', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -1749,7 +1784,7 @@ const diffCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_DIFF_FAILED' },
+        { name: response.error?.code ?? 'E_DIFF_FAILED', details: response.error?.details },
         { operation: 'nexus.diff', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -1886,7 +1921,7 @@ const routeMapCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_ROUTE_MAP_FAILED' },
+        { name: response.error?.code ?? 'E_ROUTE_MAP_FAILED', details: response.error?.details },
         { operation: 'nexus.route-map', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -1946,7 +1981,7 @@ const shapeCheckCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_SHAPE_CHECK_FAILED' },
+        { name: response.error?.code ?? 'E_SHAPE_CHECK_FAILED', details: response.error?.details },
         { operation: 'nexus.shape-check', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -2002,7 +2037,7 @@ const fullContextCommand = defineCommand({
       cliError(
         response.error?.message ?? 'Unknown error',
         1,
-        { name: response.error?.code ?? 'E_FULL_CONTEXT_FAILED' },
+        { name: response.error?.code ?? 'E_FULL_CONTEXT_FAILED', details: response.error?.details },
         { operation: 'nexus.full-context' },
       );
       process.exitCode = 1;
@@ -2048,7 +2083,10 @@ const taskFootprintCommand = defineCommand({
       cliError(
         response.error?.message ?? 'Unknown error',
         1,
-        { name: response.error?.code ?? 'E_TASK_FOOTPRINT_FAILED' },
+        {
+          name: response.error?.code ?? 'E_TASK_FOOTPRINT_FAILED',
+          details: response.error?.details,
+        },
         { operation: 'nexus.task-footprint' },
       );
       process.exitCode = 1;
@@ -2094,7 +2132,10 @@ const brainAnchorsCommand = defineCommand({
       cliError(
         response.error?.message ?? 'Unknown error',
         1,
-        { name: response.error?.code ?? 'E_BRAIN_ANCHORS_FAILED' },
+        {
+          name: response.error?.code ?? 'E_BRAIN_ANCHORS_FAILED',
+          details: response.error?.details,
+        },
         { operation: 'nexus.brain-anchors' },
       );
       process.exitCode = 1;
@@ -2144,7 +2185,7 @@ const whyCommand = defineCommand({
       cliError(
         response.error?.message ?? 'Unknown error',
         1,
-        { name: response.error?.code ?? 'E_WHY_FAILED' },
+        { name: response.error?.code ?? 'E_WHY_FAILED', details: response.error?.details },
         { operation: 'nexus.why' },
       );
       process.exitCode = 1;
@@ -2190,7 +2231,7 @@ const impactFullCommand = defineCommand({
       cliError(
         response.error?.message ?? 'Unknown error',
         1,
-        { name: response.error?.code ?? 'E_IMPACT_FULL_FAILED' },
+        { name: response.error?.code ?? 'E_IMPACT_FULL_FAILED', details: response.error?.details },
         { operation: 'nexus.impact-full' },
       );
       process.exitCode = 1;
@@ -2244,7 +2285,7 @@ const conduitScanCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_CONDUIT_SCAN_FAILED' },
+        { name: response.error?.code ?? 'E_CONDUIT_SCAN_FAILED', details: response.error?.details },
         { operation: 'nexus.conduit-scan', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -2301,19 +2342,15 @@ const taskSymbolsCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_TASK_SYMBOLS_FAILED' },
+        { name: response.error?.code ?? 'E_TASK_SYMBOLS_FAILED', details: response.error?.details },
         { operation: 'nexus.task-symbols', duration_ms: durationMs },
       );
       process.exitCode = 1;
       return;
     }
-    const data = response.data as {
-      taskId: string;
-      count: number;
-      symbols: Array<{ kind: string; label: string; weight: number; matchStrategy: string }>;
-    };
+    const data = response.data as NexusTaskSymbolsResult;
     cliOutput(
-      { taskId, count: data.symbols.length, symbols: data.symbols, _durationMs: durationMs },
+      { ...data, taskId, count: data.symbols.length, _durationMs: durationMs },
       {
         command: 'nexus-task-symbols',
         operation: 'nexus.task-symbols',
@@ -2424,7 +2461,10 @@ const contractsSyncCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_CONTRACTS_SYNC_FAILED' },
+        {
+          name: response.error?.code ?? 'E_CONTRACTS_SYNC_FAILED',
+          details: response.error?.details,
+        },
         { operation: 'nexus.contracts.sync', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -2476,7 +2516,10 @@ const contractsShowCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_CONTRACTS_SHOW_FAILED' },
+        {
+          name: response.error?.code ?? 'E_CONTRACTS_SHOW_FAILED',
+          details: response.error?.details,
+        },
         { operation: 'nexus.contracts.show', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -2531,7 +2574,10 @@ const contractsLinkTasksCommand = defineCommand({
       cliError(
         msg,
         1,
-        { name: response.error?.code ?? 'E_CONTRACTS_LINK_FAILED' },
+        {
+          name: response.error?.code ?? 'E_CONTRACTS_LINK_FAILED',
+          details: response.error?.details,
+        },
         { operation: 'nexus.contracts.link-tasks', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -2687,7 +2733,7 @@ const hotPathsCommand = defineCommand({
       cliError(
         response.error?.message ?? 'Unknown error',
         1,
-        { name: response.error?.code ?? 'E_HOT_PATHS_FAILED' },
+        { name: response.error?.code ?? 'E_HOT_PATHS_FAILED', details: response.error?.details },
         { operation: 'nexus.hot-paths', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -2739,7 +2785,7 @@ const hotNodesCommand = defineCommand({
       cliError(
         response.error?.message ?? 'Unknown error',
         1,
-        { name: response.error?.code ?? 'E_HOT_NODES_FAILED' },
+        { name: response.error?.code ?? 'E_HOT_NODES_FAILED', details: response.error?.details },
         { operation: 'nexus.hot-nodes', duration_ms: durationMs },
       );
       process.exitCode = 1;
@@ -2792,7 +2838,7 @@ const coldSymbolsCommand = defineCommand({
       cliError(
         response.error?.message ?? 'Unknown error',
         1,
-        { name: response.error?.code ?? 'E_COLD_SYMBOLS_FAILED' },
+        { name: response.error?.code ?? 'E_COLD_SYMBOLS_FAILED', details: response.error?.details },
         { operation: 'nexus.cold-symbols', duration_ms: durationMs },
       );
       process.exitCode = 1;

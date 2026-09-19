@@ -29,6 +29,17 @@ import {
   resolveProjectPath,
 } from '../paths.js';
 
+// Exercise cwd and registry discovery, not the global setup's project override.
+// HOME/XDG/TMP and the database-open guard remain isolated for every test.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('getCleoHome', () => {
   const origEnv = process.env['CLEO_HOME'];
 

@@ -28,6 +28,7 @@
  * @see T1148 W8 M7 gate — `cleo memory doctor --assert-clean` must exit 0 before Sentient v1
  */
 
+import type { KnowledgeDiagnostic } from '@cleocode/contracts';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 
 // ============================================================================
@@ -92,6 +93,12 @@ export interface BrainDoctorResult {
    * This is the condition checked by `cleo memory doctor --assert-clean`.
    */
   isClean: boolean;
+  /** Structural scan completeness, independent of extraction and semantic authority. */
+  structure?: KnowledgeDiagnostic;
+  /** Semantic reconciliation is not performed by this structural scanner. */
+  semantics?: KnowledgeDiagnostic;
+  /** Extraction health is reported separately and does not establish semantic correctness. */
+  extraction?: KnowledgeDiagnostic;
   /** ISO 8601 timestamp when the scan completed. */
   scannedAt: string;
   /**
@@ -151,6 +158,53 @@ function sampleIds(rows: readonly { id?: string | null }[]): string[] {
 // ============================================================================
 
 /**
+ * Count all graph edges with a missing endpoint while retaining a bounded sample.
+ * @param db - Canonical native brain handle for the explicitly selected project.
+ * @returns An exact orphan-edge finding, or null when both endpoints exist for every edge.
+ * @remarks A single statement keeps the total and sample consistent. Query failures propagate;
+ * this read-only assessment neither removes history nor invents missing records.
+ * @example
+ * ```ts
+ * const finding = scanBrainGraphOrphans(nativeDb);
+ * ```
+ */
+export function scanBrainGraphOrphans(
+  db: NonNullable<ReturnType<typeof getBrainNativeDb>>,
+): BrainNoiseEntry | null {
+  const rows = db
+    .prepare(`
+    SELECT e.from_id || '->' || e.to_id AS id, COUNT(*) OVER () AS total
+    FROM main.brain_page_edges e
+    LEFT JOIN main.brain_page_nodes src ON src.id = e.from_id
+    LEFT JOIN main.brain_page_nodes dst ON dst.id = e.to_id
+    LEFT JOIN main.tasks_tasks task_source
+      ON e.edge_type = 'task_touches_symbol' AND e.from_id = 'task:' || task_source.id
+    LEFT JOIN main.nexus_nodes code_target
+      ON e.edge_type IN ('code_reference', 'task_touches_symbol', 'mentions', 'documents', 'conduit_mentions_symbol') AND code_target.id = e.to_id
+    LEFT JOIN main.nexus_nodes code_source
+      ON e.edge_type = 'modified_by' AND code_source.id = e.from_id
+    WHERE (src.id IS NULL AND task_source.id IS NULL AND code_source.id IS NULL)
+       OR (dst.id IS NULL AND code_target.id IS NULL)
+    ORDER BY e.from_id, e.to_id
+    LIMIT 5
+  `)
+    .all();
+  if (rows.length === 0) return null;
+  const count = rows[0]?.total;
+  if (typeof count !== 'number') throw new Error('Invalid graph orphan count');
+  const samples = rows.map((row) => {
+    if (typeof row.id !== 'string') throw new Error('Invalid graph orphan identifier');
+    return row.id;
+  });
+  return {
+    pattern: 'orphan-edge',
+    count,
+    sampleIds: samples,
+    description: `${count} brain graph edges have a missing source or target node; inspect backed records before reconstructing derived nodes. Preserve unresolved historical edges.`,
+  };
+}
+
+/**
  * Run a read-only noise scan over `.cleo/brain.db` and return a structured
  * findings report.
  *
@@ -173,22 +227,16 @@ function sampleIds(rows: readonly { id?: string | null }[]): string[] {
  * ```
  *
  * @task T1262
+ * @remarks Structural failures remain explicit; semantic authority is not inferred from structural cleanliness.
  */
 export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorResult> {
   // Initialize brain.db connection (required before getBrainNativeDb() is callable)
   await getBrainDb(projectRoot);
   const db = getBrainNativeDb(projectRoot);
   const findings: BrainNoiseEntry[] = [];
+  const errors: string[] = [];
 
-  if (!db) {
-    // brain.db not available — return clean scan (cannot detect noise without DB)
-    return {
-      totalScanned: 0,
-      findings: [],
-      isClean: true,
-      scannedAt: new Date().toISOString(),
-    };
-  }
+  if (!db) throw new Error('BRAIN database unavailable: structural health was not assessed');
 
   try {
     // ── 1. Total scanned (union of all typed tables) ────────────────────────
@@ -196,11 +244,12 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
     let totalScanned = 0;
     for (const table of tables) {
       try {
-        const row = db.prepare(`SELECT COUNT(*) as c FROM ${table}`).get() as
+        const row = db.prepare(`SELECT COUNT(*) as c FROM main.${table}`).get() as
           | { c: number }
           | undefined;
         totalScanned += row?.c ?? 0;
-      } catch {
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
         // Table may not exist in all installations — skip silently.
       }
     }
@@ -208,13 +257,14 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
     // ── 2. missing-type ─────────────────────────────────────────────────────
     {
       const rows: { id?: string | null }[] = [];
-      for (const table of tables) {
+      for (const table of tables.filter((table) => table !== 'brain_learnings')) {
         try {
           const res = db
-            .prepare(`SELECT id FROM ${table} WHERE type IS NULL OR type = '' LIMIT 20`)
+            .prepare(`SELECT id FROM main.${table} WHERE type IS NULL OR type = '' LIMIT 20`)
             .all() as { id?: string | null }[];
           rows.push(...res);
-        } catch {
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
           // skip
         }
       }
@@ -235,10 +285,11 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
       for (const table of tables) {
         try {
           const res = db
-            .prepare(`SELECT id FROM ${table} WHERE provenance IS NULL LIMIT 20`)
+            .prepare(`SELECT id FROM main.${table} WHERE provenance_class IS NULL LIMIT 20`)
             .all() as { id?: string | null }[];
           rows.push(...res);
-        } catch {
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
           // skip — provenance column may not exist in all schema versions
         }
       }
@@ -256,15 +307,16 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
     // ── 4. low-confidence ────────────────────────────────────────────────────
     {
       const rows: { id?: string | null }[] = [];
-      for (const table of tables) {
+      for (const table of ['brain_learnings']) {
         try {
           const res = db
             .prepare(
-              `SELECT id FROM ${table} WHERE confidence IS NOT NULL AND confidence < ? LIMIT 20`,
+              `SELECT id FROM main.${table} WHERE confidence IS NOT NULL AND confidence < ? LIMIT 20`,
             )
             .all(LOW_CONFIDENCE_THRESHOLD) as { id?: string | null }[];
           rows.push(...res);
-        } catch {
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
           // skip — confidence column may not exist
         }
       }
@@ -288,14 +340,15 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
         try {
           const res = db
             .prepare(
-              `SELECT id FROM ${table}
+              `SELECT id FROM main.${table}
                WHERE verified = 0
-                 AND created_at < ?
+                 AND ${table === 'brain_patterns' ? 'extracted_at' : 'created_at'} < ? AND citation_count = 0
                LIMIT 20`,
             )
             .all(staleIso) as { id?: string | null }[];
           rows.push(...res);
-        } catch {
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
           // skip — schema may differ
         }
       }
@@ -316,16 +369,17 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
         try {
           const res = db
             .prepare(
-              `SELECT id FROM ${table}
-               WHERE content IN (
-                 SELECT content FROM ${table}
-                 WHERE content IS NOT NULL
-                 GROUP BY content HAVING COUNT(*) > 1
+              `SELECT id FROM main.${table}
+               WHERE content_hash IN (
+                 SELECT content_hash FROM main.${table}
+                 WHERE content_hash IS NOT NULL
+                 GROUP BY content_hash HAVING COUNT(*) > 1
                ) LIMIT 20`,
             )
             .all() as { id?: string | null }[];
           rows.push(...res);
-        } catch {
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
           // skip — content column may not exist in all tables
         }
       }
@@ -339,25 +393,10 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
       }
     }
     try {
-      const rows = db
-        .prepare(
-          `SELECT e.id FROM brain_edges e
-             LEFT JOIN brain_nodes src ON src.id = e.source_id
-             LEFT JOIN brain_nodes tgt ON tgt.id = e.target_id
-             WHERE src.id IS NULL OR tgt.id IS NULL
-             LIMIT 20`,
-        )
-        .all() as { id?: string | null }[];
-      if (rows.length > 0) {
-        findings.push({
-          pattern: 'orphan-edge',
-          count: rows.length,
-          sampleIds: sampleIds(rows),
-          description:
-            'Brain graph edges pointing to non-existent nodes — referential integrity violation.',
-        });
-      }
-    } catch {
+      const orphanFinding = scanBrainGraphOrphans(db);
+      if (orphanFinding) findings.push(orphanFinding);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
       // brain_edges / brain_nodes may not exist
     }
 
@@ -370,19 +409,40 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
     return {
       totalScanned,
       findings,
-      isClean: findings.length === 0,
+      isClean: findings.length === 0 && errors.length === 0,
+      structure: {
+        status: errors.length ? 'failed' : findings.length ? 'findings' : 'clean',
+        reasons: [...errors, ...findings.map((finding) => finding.description)],
+        evidence: [],
+      },
+      semantics: {
+        status: 'unavailable',
+        reasons: [
+          'Structural scans do not establish semantic authority; inspect explicit conflicts and sourced replacements.',
+        ],
+        evidence: [],
+      },
+      extraction: {
+        status: !autoExtractHealth
+          ? 'unavailable'
+          : autoExtractHealth.healthy
+            ? 'clean'
+            : 'findings',
+        reasons: !autoExtractHealth
+          ? ['Extraction metrics could not be assessed.']
+          : autoExtractHealth.healthy
+            ? []
+            : [
+                'Extraction production is below the expected ratio; this does not mean the structural scan failed.',
+              ],
+        evidence: [],
+      },
       scannedAt: new Date().toISOString(),
       autoExtractHealth,
       provenanceDistribution,
     };
-  } catch {
-    // Return a minimal clean result on unexpected errors rather than crashing.
-    return {
-      totalScanned: 0,
-      findings: [],
-      isClean: true,
-      scannedAt: new Date().toISOString(),
-    };
+  } catch (error) {
+    throw new Error('BRAIN structural assessment failed', { cause: error });
   }
 }
 

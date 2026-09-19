@@ -13,6 +13,7 @@ import type {
   TaskSeverity,
   TaskSize,
   TaskStatus,
+  TasksUpdateQueryParams,
   TaskType,
 } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
@@ -26,8 +27,10 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { enforceAcceptanceImmutability } from './ac-immutability.js';
 import { applyAcPlan, planAcUpdate, rebuildChildProjectionAc } from './ac-table.js';
+import { normalizeAcceptance } from './acceptance-input.js';
 import {
   normalizePriority,
+  validateDependencyWaiver,
   validateLabels,
   validateSize,
   validateStatus,
@@ -120,6 +123,8 @@ export interface UpdateTaskOptions {
   clearBlockedBy?: boolean;
   parentId?: string | null;
   noAutoComplete?: boolean;
+  /** Justification recorded atomically in the task audit log for a critical-priority update. */
+  dependsWaiver?: string;
   /** RCASD-IVTR+C pipeline stage transition target. Must be >= current stage. @task T060 */
   pipelineStage?: string;
   /**
@@ -176,6 +181,9 @@ export async function updateTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<UpdateTaskResult> {
+  if (options.acceptance !== undefined) {
+    options = { ...options, acceptance: normalizeAcceptance(options.acceptance) };
+  }
   const acc = accessor ?? (await getTaskAccessor(cwd));
   const task = await acc.loadSingleTask(options.taskId);
   if (!task) {
@@ -185,6 +193,8 @@ export async function updateTask(
   }
 
   await requireActiveSession('tasks.update', cwd);
+
+  validateDependencyWaiver(options.priority, options.dependsWaiver);
 
   const changes: string[] = [];
   const now = new Date().toISOString();
@@ -230,9 +240,10 @@ export async function updateTask(
   // T1590 — AC-immutability guard. Once a task has entered the
   // implementation pipeline stage (or any later stage), changes to
   // `acceptance` require an explicit operator `--reason`, which is
-  // appended to `.cleo/audit/ac-changes.jsonl`. Without a reason, the
+  // recorded in the transactional task_updated audit. The legacy JSONL
+  // stream records authorization attempts only. Without a reason, the
   // attempt is rejected with E_AC_LOCKED.
-  enforceAcceptanceImmutability({
+  const acceptanceAuthorization = enforceAcceptanceImmutability({
     task,
     newAcceptance: options.acceptance,
     reason: options.reason,
@@ -701,7 +712,15 @@ export async function updateTask(
       action: 'task_updated',
       taskId: options.taskId,
       actor: 'system',
-      details: { changes, title: task.title },
+      details: {
+        changes,
+        title: task.title,
+        ...(options.reason !== undefined ? { reason: options.reason } : {}),
+        ...(acceptanceAuthorization
+          ? { acceptanceOverride: { ...acceptanceAuthorization, status: 'committed' } }
+          : {}),
+        ...(options.dependsWaiver !== undefined ? { dependsWaiver: options.dependsWaiver } : {}),
+      },
       before: null,
       after: { changes, title: task.title },
     });
@@ -713,6 +732,30 @@ export async function updateTask(
 // ---------------------------------------------------------------------------
 // EngineResult-returning wrapper (T1568 / ADR-057 / ADR-058)
 // ---------------------------------------------------------------------------
+
+/**
+ * Map the canonical task-update wire contract to the core update options.
+ *
+ * Forward all declared fields so operation and engine wrappers cannot silently
+ * discard accepted inputs. Only the parent alias and existing enum boundaries
+ * require translation; domain validation remains in {@link updateTask}.
+ *
+ * @param params - Canonical operation input, including the task identity.
+ * @returns Core update options with parent mapped to parentId.
+ */
+export function toTaskUpdateOptions(params: TasksUpdateQueryParams): UpdateTaskOptions {
+  const { parent, ...fields } = params;
+  return {
+    ...fields,
+    parentId: parent,
+    status: params.status as TaskStatus | undefined,
+    priority: params.priority as TaskPriority | undefined,
+    size: params.size as TaskSize | undefined,
+    kind: params.kind as TaskKind | undefined,
+    scope: params.scope as TaskScope | undefined,
+    severity: params.severity as TaskSeverity | undefined,
+  };
+}
 
 /**
  * Update a task's fields, wrapped in EngineResult.
@@ -728,75 +771,12 @@ export async function updateTask(
 export async function taskUpdate(
   projectRoot: string,
   taskId: string,
-  updates: {
-    title?: string;
-    description?: string;
-    status?: string;
-    priority?: string;
-    notes?: string;
-    labels?: string[];
-    addLabels?: string[];
-    removeLabels?: string[];
-    depends?: string[];
-    addDepends?: string[];
-    removeDepends?: string[];
-    acceptance?: string[];
-    parent?: string | null;
-    type?: string;
-    size?: string;
-    files?: string[];
-    addFiles?: string[];
-    removeFiles?: string[];
-    pipelineStage?: string;
-    kind?: string;
-    scope?: string;
-    severity?: string;
-    reason?: string;
-    /** Set the blockedBy free-text reason. @task T9241 (gh#1106) */
-    blockedBy?: string;
-    clearBlockedBy?: boolean;
-    /** @task T9327 */
-    relates?: Array<{ taskId: string; type: string; reason?: string }>;
-    /** @task T9327 */
-    addRelates?: Array<{ taskId: string; type: string; reason?: string }>;
-    /** @task T9327 */
-    removeRelates?: string[];
-  },
+  updates: Omit<TasksUpdateQueryParams, 'taskId'>,
 ): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
     const result = await updateTask(
-      {
-        taskId,
-        title: updates.title,
-        description: updates.description,
-        status: updates.status as TaskStatus | undefined,
-        priority: updates.priority as TaskPriority | undefined,
-        notes: updates.notes,
-        labels: updates.labels,
-        addLabels: updates.addLabels,
-        removeLabels: updates.removeLabels,
-        depends: updates.depends,
-        addDepends: updates.addDepends,
-        removeDepends: updates.removeDepends,
-        acceptance: updates.acceptance,
-        parentId: updates.parent,
-        type: updates.type as TaskType | undefined,
-        size: updates.size as TaskSize | undefined,
-        files: updates.files,
-        addFiles: updates.addFiles,
-        removeFiles: updates.removeFiles,
-        pipelineStage: updates.pipelineStage,
-        kind: updates.kind as TaskKind | undefined,
-        scope: updates.scope as TaskScope | undefined,
-        severity: updates.severity as TaskSeverity | undefined,
-        reason: updates.reason,
-        relates: updates.relates,
-        addRelates: updates.addRelates,
-        removeRelates: updates.removeRelates,
-        blockedBy: updates.blockedBy,
-        clearBlockedBy: updates.clearBlockedBy,
-      },
+      toTaskUpdateOptions({ ...updates, taskId }),
       projectRoot,
       accessor,
     );

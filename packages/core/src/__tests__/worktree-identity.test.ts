@@ -20,11 +20,22 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalizePath } from '@cleocode/paths';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getCleoDirAbsolute } from '../paths.js';
 import { getProjectInfo, getProjectInfoSync } from '../project-info.js';
 import { spawnWorktree, teardownWorktree } from '../sentient/worktree-dispatch.js';
+
+// Resolve identity from each synthetic repository/gitlink, without the setup
+// project's explicit override taking precedence over the supplied path.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 // ---------------------------------------------------------------------------
 // Fixture helpers

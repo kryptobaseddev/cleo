@@ -12,12 +12,15 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let projectRoot: string;
 
 describe('doctor --migrate-worktree-include (T9983)', () => {
   beforeEach(() => {
+    // This fixture exercises discovery from its explicit synthetic cwd.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     projectRoot = join(
       tmpdir(),
       `cleo-doctor-migrate-worktreeinclude-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -27,6 +30,7 @@ describe('doctor --migrate-worktree-include (T9983)', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(projectRoot, { recursive: true, force: true });
   });
 

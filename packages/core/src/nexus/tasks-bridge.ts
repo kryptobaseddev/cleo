@@ -1,7 +1,7 @@
 /**
- * TASKS → NEXUS Bridge — links tasks to code symbols they touched.
+ * TASKS → NEXUS Bridge — associates tasks with symbols in evidenced files.
  *
- * Enables the question: "Which tasks modified this symbol?" — answering
+ * Provides file-level associations, never proof that every symbol changed,
  * through git-log sweeping (extract task IDs from commit messages) and
  * cross-reference with nexus_nodes via file paths and symbol names.
  *
@@ -20,6 +20,7 @@ import type {
   GitLogLinkerResult,
   LinkTaskResult,
   SymbolReference,
+  TaskKnowledgeEvidence,
   TaskReference,
 } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/lafs';
@@ -27,6 +28,8 @@ import { EDGE_TYPES } from '../memory/edge-types.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
 import { typedAll, typedGet } from '../store/typed-query.js';
+import { recordKnowledgeGap } from './knowledge.js';
+import { getTaskKnowledgeEvidence } from './task-evidence.js';
 
 // ============================================================================
 // Types
@@ -68,12 +71,19 @@ interface GitCommitRow {
  * @param taskId - Task ID (e.g., 'T001')
  * @param filesJson - JSON string array of file paths from task.files_json
  * @param projectRoot - Absolute path to project root
- * @returns Result summary with count of edges created
+ * @param commitRefs - Explicit commits supplying the file association, when available.
+ * @returns Result summary with count of edges created or an explicit failure state.
+ * @remarks Persisted file evidence associates symbols with the file; it does not prove each symbol changed.
+ * @example
+ * ```ts
+ * const result = await linkTaskToSymbols('T448', '["src/rush.ts"]', projectRoot, commitRefs);
+ * ```
  */
 export async function linkTaskToSymbols(
   taskId: string,
   filesJson: string,
   projectRoot: string,
+  commitRefs: readonly string[] = [],
 ): Promise<LinkTaskResult> {
   try {
     // Parse files_json safely
@@ -84,7 +94,7 @@ export async function linkTaskToSymbols(
         files = parsed.filter((f) => typeof f === 'string');
       }
     } catch {
-      // malformed JSON — treat as empty
+      throw new Error('Task file evidence is not valid JSON.');
     }
 
     if (files.length === 0) {
@@ -98,19 +108,12 @@ export async function linkTaskToSymbols(
 
     // Ensure DBs are initialized
     await getBrainDb(projectRoot);
-    await getNexusDb();
+    await getNexusDb(projectRoot);
 
     const brainNative = getBrainNativeDb(projectRoot);
-    const nexusNative = getNexusNativeDb();
+    const nexusNative = getNexusNativeDb(projectRoot);
 
-    if (!brainNative || !nexusNative) {
-      return {
-        linked: 0,
-        taskId,
-        filesProcessed: 0,
-        symbolsFound: 0,
-      };
-    }
+    if (!brainNative || !nexusNative) throw new Error('Task symbol stores are unavailable.');
 
     let edgesCreated = 0;
     let symbolsFound = 0;
@@ -133,27 +136,28 @@ export async function linkTaskToSymbols(
 
       // Write task_touches_symbol edges to brain_page_edges
       for (const symbol of symbols) {
-        try {
-          brainNative
-            .prepare(
-              `INSERT INTO brain_page_edges
+        brainNative
+          .prepare(
+            `INSERT INTO brain_page_edges
                (from_id, to_id, edge_type, weight, provenance, created_at)
                VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(from_id, to_id, edge_type) DO NOTHING`,
-            )
-            .run(
-              taskNodeId,
-              symbol.id,
-              EDGE_TYPES.TASK_TOUCHES_SYMBOL,
-              1.0,
-              'git-log-file-match',
-              now,
-            );
+          )
+          .run(
+            taskNodeId,
+            symbol.id,
+            EDGE_TYPES.TASK_TOUCHES_SYMBOL,
+            1.0,
+            JSON.stringify({
+              source: 'git-log-file-match',
+              precision: 'file',
+              filePath,
+              commitRefs: [...commitRefs].sort(),
+            }),
+            now,
+          );
 
-          edgesCreated++;
-        } catch {
-          // Ignore duplicate or constraint errors
-        }
+        edgesCreated++;
       }
     }
 
@@ -177,6 +181,8 @@ export async function linkTaskToSymbols(
       },
     });
     return {
+      status: 'failed',
+      reason: err instanceof Error ? err.message : String(err),
       linked: 0,
       taskId,
       filesProcessed: 0,
@@ -224,6 +230,7 @@ export async function getTasksForSymbol(
       label: r.label,
       weight: r.weight,
       matchStrategy: 'git-log-file-match',
+      precision: 'file',
     }));
   } catch (err) {
     // T9771: route task-symbol-lookup failure to LAFS meta.warnings.
@@ -254,16 +261,21 @@ export async function getTasksForSymbol(
 export async function getSymbolsForTask(
   taskId: string,
   projectRoot: string,
+  taskEvidence?: TaskKnowledgeEvidence,
 ): Promise<SymbolReference[]> {
+  const evidence = taskEvidence ?? (await getTaskKnowledgeEvidence(taskId, projectRoot));
   try {
     // Ensure both DBs are initialized
     await getBrainDb(projectRoot);
-    await getNexusDb();
+    await getNexusDb(projectRoot);
 
     const brainNative = getBrainNativeDb(projectRoot);
-    const nexusNative = getNexusNativeDb();
+    const nexusNative = getNexusNativeDb(projectRoot);
 
-    if (!brainNative || !nexusNative) return [];
+    if (!brainNative || !nexusNative) {
+      recordKnowledgeGap(evidence.coverage, 'failed', 'Task symbol stores are unavailable.');
+      return [];
+    }
 
     const taskNodeId = `task:${taskId}`;
 
@@ -277,8 +289,6 @@ export async function getSymbolsForTask(
       EDGE_TYPES.TASK_TOUCHES_SYMBOL,
     );
 
-    if (edgeRows.length === 0) return [];
-
     // Hydrate symbol details from nexus
     const results: SymbolReference[] = [];
     for (const edge of edgeRows) {
@@ -290,19 +300,68 @@ export async function getSymbolsForTask(
       );
 
       if (symbol) {
+        const currentFile = evidence.files.find((file) => file.path === symbol.file_path);
+        if (
+          evidence.coverage.evidence.some((ref) => ref.id === 'graph_assessment') &&
+          !currentFile
+        ) {
+          recordKnowledgeGap(
+            evidence.coverage,
+            'partial',
+            `Historical derived link requires evidence revalidation: ${symbol.id}`,
+          );
+          continue;
+        }
         results.push({
           nexusNodeId: symbol.id,
           label: symbol.label,
           kind: symbol.kind,
           filePath: symbol.file_path,
           weight: edge.weight,
-          matchStrategy: 'git-log-file-match',
+          matchStrategy: 'legacy-file-association',
+          precision: 'file',
+          evidence: evidence.files.find((file) => file.path === symbol.file_path)?.evidence ?? [],
         });
       }
     }
 
+    const known = new Set(results.map((symbol) => symbol.nexusNodeId));
+    for (const file of evidence.files) {
+      const nodes = typedAll<RawNexusNode>(
+        nexusNative.prepare(
+          `SELECT id, label, file_path, kind FROM nexus_nodes WHERE file_path = ?
+         AND kind NOT IN ('file', 'folder', 'community', 'process')`,
+        ),
+        file.path,
+      );
+      if (!nodes.length)
+        recordKnowledgeGap(
+          evidence.coverage,
+          'partial',
+          `Evidence file has no indexed symbols: ${file.path}`,
+        );
+      for (const node of nodes) {
+        if (known.has(node.id)) continue;
+        known.add(node.id);
+        results.push({
+          nexusNodeId: node.id,
+          label: node.label,
+          kind: node.kind,
+          filePath: node.file_path,
+          weight: 1,
+          matchStrategy: 'explicit-file-evidence',
+          precision: 'file',
+          evidence: file.evidence,
+        });
+      }
+    }
     return results;
   } catch (err) {
+    recordKnowledgeGap(
+      evidence.coverage,
+      'failed',
+      err instanceof Error ? err.message : String(err),
+    );
     // T9771: route task-symbol-lookup failure to LAFS meta.warnings.
     pushWarning({
       code: 'W_TASKS_BRIDGE_FAILED',
@@ -326,7 +385,7 @@ export async function getSymbolsForTask(
  * extracts task IDs matching pattern /T\d+/, and calls linkTaskToSymbols
  * for each task × touched files pair.
  *
- * Idempotent: stores the last-synced commit hash in nexus_schema_meta
+ * Idempotent: stores the last-synced commit hash in main._nexus_meta
  * so subsequent runs skip already-processed commits.
  *
  * @param projectRoot - Absolute path to project root
@@ -340,10 +399,10 @@ export async function runGitLogTaskLinker(
   try {
     // Ensure DBs are initialized
     await getBrainDb(projectRoot);
-    await getNexusDb();
+    await getNexusDb(projectRoot);
 
     const brainNative = getBrainNativeDb(projectRoot);
-    const nexusNative = getNexusNativeDb();
+    const nexusNative = getNexusNativeDb(projectRoot);
 
     if (!brainNative || !nexusNative) {
       return {
@@ -358,10 +417,10 @@ export async function runGitLogTaskLinker(
     let since = sinceCommit;
 
     if (!since) {
-      // Try to read last-synced commit from nexus_schema_meta
+      // Try to read last-synced commit from main._nexus_meta
       try {
         const meta = nexusNative
-          .prepare(`SELECT value FROM nexus_schema_meta WHERE key = ?`)
+          .prepare(`SELECT value FROM main._nexus_meta WHERE key = ?`)
           .get('last_task_linker_commit') as { value: string } | undefined;
 
         if (meta?.value) {
@@ -437,6 +496,7 @@ export async function runGitLogTaskLinker(
 
     // Extract task IDs from commit messages and aggregate by task
     const taskFiles = new Map<string, Set<string>>();
+    const taskCommits = new Map<string, Set<string>>();
 
     for (const commit of commits) {
       const taskMatch = commit.subject.match(/T\d+/);
@@ -444,7 +504,9 @@ export async function runGitLogTaskLinker(
         const taskId = taskMatch[0];
         if (!taskFiles.has(taskId)) {
           taskFiles.set(taskId, new Set());
+          taskCommits.set(taskId, new Set());
         }
+        taskCommits.get(taskId)?.add(commit.hash);
         for (const file of commit.files) {
           taskFiles.get(taskId)!.add(file);
         }
@@ -458,24 +520,25 @@ export async function runGitLogTaskLinker(
         taskId,
         JSON.stringify(Array.from(files)),
         projectRoot,
+        [...(taskCommits.get(taskId) ?? [])],
       );
       totalEdges += result.linked;
     }
 
-    // Store the newest (HEAD) commit hash for idempotency (nexus_schema_meta lives in nexus.db).
+    // Store the newest (HEAD) commit hash for idempotency (main._nexus_meta is project-scoped).
     // git log returns commits newest-first, so commits[0] is HEAD.
     // On the next run, `HEAD..HEAD` returns nothing → 0 commits processed.
     const lastCommit = commits[0].hash;
     try {
       nexusNative
         .prepare(
-          `INSERT INTO nexus_schema_meta (key, value)
+          `INSERT INTO main._nexus_meta (key, value)
            VALUES (?, ?)
            ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
         )
         .run('last_task_linker_commit', lastCommit);
     } catch {
-      // Ignore if nexus_schema_meta doesn't support this
+      // Ignore if main._nexus_meta doesn't support this
     }
 
     return {
