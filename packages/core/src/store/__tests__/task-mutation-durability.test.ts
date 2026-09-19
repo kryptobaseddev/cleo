@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { TransactionAccessor } from '../data-accessor.js';
 import { closeDb, getDbPath, getNativeTasksDb } from '../sqlite.js';
-import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
+import { createSqliteDataAccessor, setMetaValue } from '../sqlite-data-accessor.js';
 
 function task(id: string, title: string, overrides: Partial<Task> = {}): Task {
   return {
@@ -134,6 +135,164 @@ describe('task mutation durability', () => {
     expect(persisted(projectA, 'SELECT id, title FROM tasks_tasks ORDER BY id')).toBe(
       '[{"id":"T2","title":"Committed"}]',
     );
+  });
+
+  it.each(['commit', 'abort'])('expires inherited transaction ownership after %s', async (end) => {
+    const store = await createSqliteDataAccessor(projectA);
+    const launch = Promise.withResolvers<void>();
+    let delayed = Promise.resolve();
+    await store
+      .transaction(async () => {
+        delayed = launch.promise.then(() => store.upsertSingleTask(task('T3', 'Independent')));
+        if (end === 'abort') throw new DOMException('cancelled', 'AbortError');
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') throw error;
+      });
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const failing = store
+      .transaction(async (tx) => {
+        await tx.upsertSingleTask(task('T4', 'Must rollback'));
+        entered.resolve();
+        await release.promise;
+        throw new Error('unrelated rollback');
+      })
+      .catch((error) => error.message);
+    await entered.promise;
+    launch.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release.resolve();
+    expect(await failing).toBe('unrelated rollback');
+    await delayed;
+    expect(persisted(projectA, 'SELECT id, title FROM tasks_tasks ORDER BY id')).toBe(
+      '[{"id":"T3","title":"Independent"}]',
+    );
+  });
+
+  it('serializes sibling savepoints and preserves awaited nested rollback', async () => {
+    const store = await createSqliteDataAccessor(projectA);
+    await store.transaction(async (tx) => {
+      await tx.upsertSingleTask(task('T1', 'Outer'));
+      const outcomes = await Promise.allSettled([
+        store.transaction(async (inner) => {
+          await inner.upsertSingleTask(task('T2', 'Successful sibling'));
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }),
+        store.transaction(async (inner) => {
+          await inner.upsertSingleTask(task('T3', 'Cancelled sibling'));
+          await store.transaction(async (deep) => {
+            await deep.upsertSingleTask(task('T4', 'Cancelled descendant'));
+          });
+          throw new DOMException('cancelled', 'AbortError');
+        }),
+      ]);
+      expect(outcomes.map((result) => result.status)).toEqual(['fulfilled', 'rejected']);
+    });
+    expect(persisted(projectA, 'SELECT id FROM tasks_tasks ORDER BY id')).toBe(
+      '[{"id":"T1"},{"id":"T2"}]',
+    );
+  });
+
+  it.each([
+    'independent',
+    'parent',
+  ])('queues standalone writes from an %s caller behind another scope', async (origin) => {
+    const store = await createSqliteDataAccessor(projectA);
+    await store.upsertSingleTask(task('T1', 'First', { position: 1 }));
+    await store.upsertSingleTask(task('T2', 'Second'));
+    const scenario = async () => {
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const failing = store
+        .transaction(async (tx) => {
+          await tx.upsertSingleTask(task('T4', 'Must rollback'));
+          entered.resolve();
+          await release.promise;
+          throw new Error('other scope rollback');
+        })
+        .catch((error) => error.message);
+      await entered.promise;
+      const writes = Promise.all([
+        store.addRelation('T1', 'T2', 'related'),
+        store.shiftPositions(null, 1, 2),
+        store.claimTask('T1', 'agent-committed'),
+        store.appendLog({ id: 'durable-audit', action: 'test', taskId: 'T1' }),
+        store.setMetaValue('accessor-marker', 'durable'),
+        setMetaValue(projectA, 'exported-marker', 'durable'),
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      release.resolve();
+      expect(await failing).toBe('other scope rollback');
+      await writes;
+    };
+    if (origin === 'parent') await store.transaction(scenario);
+    else await scenario();
+    expect(persisted(projectA, 'SELECT task_id, related_to FROM tasks_task_relations')).toBe(
+      '[{"task_id":"T1","related_to":"T2"}]',
+    );
+    expect(persisted(projectA, "SELECT position, assignee FROM tasks_tasks WHERE id = 'T1'")).toBe(
+      '[{"position":3,"assignee":"agent-committed"}]',
+    );
+    expect(persisted(projectA, "SELECT id FROM main.audit_log WHERE id = 'durable-audit'")).toBe(
+      '[{"id":"durable-audit"}]',
+    );
+    expect(await store.getMetaValue('accessor-marker')).toBe('durable');
+    expect(await store.getMetaValue('exported-marker')).toBe('durable');
+  });
+
+  it('queues transaction-port writes behind a failing sibling savepoint', async () => {
+    const store = await createSqliteDataAccessor(projectA);
+    await store.transaction(async (tx) => {
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const failed = store
+        .transaction(async (inner) => {
+          await inner.upsertSingleTask(task('T1', 'Rolled back sibling'));
+          entered.resolve();
+          await release.promise;
+          throw new Error('sibling rollback');
+        })
+        .catch((error) => error.message);
+      await entered.promise;
+      const kept = tx.upsertSingleTask(task('T2', 'Kept port write'));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      release.resolve();
+      expect(await failed).toBe('sibling rollback');
+      await kept;
+    });
+    expect(persisted(projectA, 'SELECT id FROM tasks_tasks')).toBe('[{"id":"T2"}]');
+  });
+
+  it('rejects joining a native transaction whose caller has no accessor ownership', async () => {
+    const store = await createSqliteDataAccessor(projectA);
+    const native = getNativeTasksDb(projectA)!;
+    native.exec('BEGIN IMMEDIATE');
+    try {
+      await expect(store.upsertSingleTask(task('T1', 'Must reject'))).rejects.toThrow(
+        'without an active task-accessor owner',
+      );
+    } finally {
+      native.exec('ROLLBACK');
+    }
+    expect(persisted(projectA, 'SELECT id FROM tasks_tasks')).toBe('[]');
+  });
+
+  it('rejects writes through a transaction port after its scope ends', async () => {
+    const store = await createSqliteDataAccessor(projectA);
+    const captured = Promise.withResolvers<TransactionAccessor>();
+    await store.transaction(async (tx) => {
+      captured.resolve(tx);
+    });
+    const expired = await captured.promise;
+    await expect(expired.setMetaValue('escaped', 'must not exist')).rejects.toThrow(
+      'Transaction scope has ended',
+    );
+    await expect(expired.upsertSingleTask(task('T1', 'Escaped'))).rejects.toThrow(
+      'Transaction scope has ended',
+    );
+    expect(await store.getMetaValue('escaped')).toBeNull();
+    expect(persisted(projectA, 'SELECT id FROM tasks_tasks')).toBe('[]');
   });
 
   it('rolls back a standalone upsert when its dependency insertion fails', async () => {
@@ -281,6 +440,45 @@ describe('task mutation durability', () => {
     expect(persisted(projectA, "SELECT title FROM tasks_tasks WHERE id = 'T1'")).toBe(
       '[{"title":"Original"}]',
     );
+  });
+
+  it('rolls back SDK task, acceptance and dependency changes when relation insertion fails', async () => {
+    const { createTask, updateTask } = await import('../tasks-sqlite.js');
+    await createTask(task('T1', 'Original', { acceptance: ['Original criterion'] }), projectA);
+    await createTask(task('T2', 'Related target'), projectA);
+    getNativeTasksDb(projectA)!.exec(
+      "CREATE TRIGGER fail_relation BEFORE INSERT ON tasks_task_relations BEGIN SELECT RAISE(ABORT, 'relation failure'); END",
+    );
+    await expect(
+      updateTask(
+        'T1',
+        {
+          title: 'Rejected',
+          acceptance: ['Rejected criterion'],
+          depends: ['T2'],
+          relates: [{ taskId: 'T2', type: 'related' }],
+        },
+        projectA,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      createTask(
+        task('T3', 'Rejected creation', {
+          acceptance: ['Rejected criterion'],
+          depends: ['T2'],
+          relates: [{ taskId: 'T2', type: 'related' }],
+        }),
+        projectA,
+      ),
+    ).rejects.toThrow();
+    expect(persisted(projectA, 'SELECT id, title FROM tasks_tasks ORDER BY id')).toBe(
+      '[{"id":"T1","title":"Original"},{"id":"T2","title":"Related target"}]',
+    );
+    expect(persisted(projectA, 'SELECT text FROM tasks_task_acceptance_criteria')).toBe(
+      '[{"text":"Original criterion"}]',
+    );
+    expect(persisted(projectA, 'SELECT task_id FROM tasks_task_dependencies')).toBe('[]');
+    expect(persisted(projectA, 'SELECT task_id FROM tasks_task_relations')).toBe('[]');
   });
 
   it('doctor detects equal-count content drift and propagates a failed diagnostic query', async () => {
