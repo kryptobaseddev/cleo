@@ -27,11 +27,21 @@ import {
   type ReleasePlan,
 } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { closeDb, getDb, resetDbState } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 import { DEFAULT_OPEN_WORKFLOW, type ReleaseOpenRunner, releaseOpen } from '../open.js';
+
+// Explicit project roots belong to each synthetic fixture, not the setup pin.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 let testDir: string;
 

@@ -30,6 +30,16 @@ import {
   saveCheckpoint,
 } from '../backfill.js';
 
+// Explicit project roots belong to each synthetic fixture, not the setup pin.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as {
   DatabaseSync: new (
