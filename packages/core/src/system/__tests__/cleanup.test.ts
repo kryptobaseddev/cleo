@@ -1,7 +1,7 @@
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanupSystem } from '../cleanup.js';
 
 async function insertAuditRows(
@@ -33,6 +33,13 @@ async function countAuditRows(projectRoot: string): Promise<number> {
   const rows = await db.select().from(auditLog);
   return rows.length;
 }
+
+// Scope cleanup and durable session reads to the explicitly seeded fixture.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('cleanupSystem logs target', () => {
   let tempDir: string;
