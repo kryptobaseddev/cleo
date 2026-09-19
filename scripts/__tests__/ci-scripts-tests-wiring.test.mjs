@@ -39,6 +39,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const CI_YML = path.join(REPO_ROOT, '.github/workflows/ci.yml');
@@ -151,5 +152,58 @@ describe('gh#1403 — the helper reads blocks, not the whole file', () => {
   it('does not bleed one job into the next', () => {
     const changes = jobBlock(ci, 'changes');
     expect(changes).not.toMatch(/vitest run --project=scripts/);
+  });
+});
+
+describe('T12273 package artifact checks reach the required PR and merge-group gate', () => {
+  const workflow = parseYaml(ci);
+  const job = workflow.jobs['packed-artifact'];
+  it('runs on both PR and merge-group events with relevant source/script/workflow inputs', () => {
+    expect(workflow.on).toHaveProperty('pull_request');
+    expect(workflow.on).toHaveProperty('merge_group');
+    expect(job.if).toBe(
+      "needs.changes.outputs.code == 'true' || needs.changes.outputs.scripts == 'true' || needs.changes.outputs.workflows == 'true'",
+    );
+    expect(workflow.jobs.ci.needs).toContain('packed-artifact');
+    expect(job['continue-on-error']).toBeUndefined();
+  });
+  it('executes classifier, npm fixtures and wiring tests without changed-sibling selection', () => {
+    const run = job.steps.find(
+      (step) => step.name === 'Run package classifier and actual npm fixture regressions',
+    ).run;
+    for (const path of [
+      'packages/caamp/tests/unit/package-artifact.test.ts',
+      'scripts/__tests__/assert-cleo-tarball.test.mjs',
+      'scripts/__tests__/ci-scripts-tests-wiring.test.mjs',
+    ])
+      expect(run).toContain(path);
+    expect(run).toContain('--maxWorkers=2');
+    expect(run).not.toContain('SELECTED');
+  });
+  it('stages actual Studio output before invoking both gates and packed installation', () => {
+    const runs = job.steps.map((step) => step.run ?? '').join('\n');
+    for (const command of [
+      'pnpm run build',
+      'pnpm --filter @cleocode/studio run build',
+      'node packages/cleo/scripts/copy-studio-dist.mjs',
+      'node scripts/assert-cleo-tarball.mjs',
+      'node packages/cleo/scripts/check-cleo-tarball-size.mjs',
+      'node scripts/packed-install-smoke.mjs',
+    ])
+      expect(runs).toContain(command);
+    expect(runs.indexOf('copy-studio-dist.mjs')).toBeLessThan(
+      runs.indexOf('node scripts/assert-cleo-tarball.mjs'),
+    );
+    expect(runs.indexOf('node scripts/assert-cleo-tarball.mjs')).toBeLessThan(
+      runs.indexOf('node scripts/packed-install-smoke.mjs'),
+    );
+    expect(job.env.CARGO_BUILD_JOBS).toBe('2');
+  });
+  it('retains diagnostic evidence even when a packed check fails', () => {
+    const upload = job.steps.find((step) => step.uses === 'actions/upload-artifact@v4');
+    expect(upload.if).toBe('always()');
+    for (const part of ['tarballs/*.tgz', 'manifest.json', '**/*.log'])
+      expect(upload.with.path).toContain(part);
+    expect(upload.with['retention-days']).toBeGreaterThan(0);
   });
 });
