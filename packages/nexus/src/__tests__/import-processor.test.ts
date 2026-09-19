@@ -12,9 +12,12 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  type BarrelExportMap,
   buildImportResolutionContext,
   type ExtractedImport,
   processExtractedImports,
+  resolveBarrelBinding,
+  resolveBarrelCandidates,
 } from '../pipeline/import-processor.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { processStructure } from '../pipeline/structure-processor.js';
@@ -168,5 +171,61 @@ describe('processExtractedImports — T1062 Recovery', () => {
       confidence: 1,
     });
     expect(() => graph.preparePublication()).toThrow('Invalid graph relationship');
+  });
+});
+
+describe('barrel candidate preservation (T12264)', () => {
+  it('refuses first-wildcard selection and retains both candidate bindings', () => {
+    const map: BarrelExportMap = new Map([
+      [
+        'index.ts',
+        new Map([
+          ['*0', { canonicalFile: 'a.ts', canonicalName: '*' }],
+          ['*1', { canonicalFile: 'b.ts', canonicalName: '*' }],
+        ]),
+      ],
+    ]);
+    expect(resolveBarrelBinding('index.ts', 'shared', map)).toBeNull();
+    expect(resolveBarrelCandidates('index.ts', 'shared', map)).toEqual({
+      candidates: [
+        { canonicalFile: 'a.ts', canonicalName: 'shared' },
+        { canonicalFile: 'b.ts', canonicalName: 'shared' },
+      ],
+      incomplete: [],
+    });
+  });
+  it('bounds wildcard cycles including converging branches without losing diagnostics', () => {
+    const map: BarrelExportMap = new Map([
+      [
+        'root.ts',
+        new Map([
+          ['*0', { canonicalFile: 'b.ts', canonicalName: '*' }],
+          ['*1', { canonicalFile: 'c.ts', canonicalName: '*' }],
+        ]),
+      ],
+      ['b.ts', new Map([['*0', { canonicalFile: 'd.ts', canonicalName: '*' }]])],
+      ['c.ts', new Map([['*0', { canonicalFile: 'd.ts', canonicalName: '*' }]])],
+      ['d.ts', new Map([['*0', { canonicalFile: 'c.ts', canonicalName: '*' }]])],
+    ]);
+    expect(() => resolveBarrelBinding('root.ts', 'shared', map)).not.toThrow();
+    expect(resolveBarrelBinding('root.ts', 'shared', map)).toBeNull();
+    const result = resolveBarrelCandidates('root.ts', 'shared', map);
+    expect(result.candidates).toEqual([]);
+    expect(result.incomplete.some((reason) => reason.includes('Cyclic'))).toBe(true);
+  });
+  it('honors explicit named exports over wildcard branches', () => {
+    const map: BarrelExportMap = new Map([
+      [
+        'index.ts',
+        new Map([
+          ['shared', { canonicalFile: 'a.ts', canonicalName: 'actual' }],
+          ['*0', { canonicalFile: 'b.ts', canonicalName: '*' }],
+        ]),
+      ],
+    ]);
+    expect(resolveBarrelBinding('index.ts', 'shared', map)).toEqual({
+      canonicalFile: 'a.ts',
+      canonicalName: 'actual',
+    });
   });
 });
