@@ -11,9 +11,10 @@ import type { Task, TasksUpdateQueryParams } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import * as taskAccessors from '../../store/data-accessor.js';
 import * as taskSqlite from '../../store/sqlite.js';
 import { resetDbState } from '../../store/sqlite.js';
-import { queryAuditLog } from '../../system/audit.js';
+import { auditData, queryAuditLog } from '../../system/audit.js';
 import { tasksUpdateOp } from '../ops.js';
 import { taskUpdate, updateTask } from '../update.js';
 
@@ -308,6 +309,76 @@ describe('updateTask', () => {
         expect(persisted?.relates ?? []).toEqual(expect.arrayContaining(relates ?? []));
       }
     }
+  });
+
+  it('audits task and session data from the modern store without legacy files', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: '',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await accessor.upsertSingleSession({
+      id: 'ses_global',
+      name: 'Global fixture',
+      status: 'ended',
+      scope: { type: 'global' },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: new Date().toISOString(),
+    });
+    await accessor.upsertSingleSession({
+      id: 'ses_invalid_epic',
+      name: 'Missing epic fixture',
+      status: 'ended',
+      scope: { type: 'epic' },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: new Date().toISOString(),
+    });
+    expect(existsSync(join(env.cleoDir, 'tasks.db'))).toBe(false);
+    expect(existsSync(join(env.cleoDir, 'sessions.json'))).toBe(false);
+    const tasks = await auditData(env.tempDir, { scope: 'tasks' });
+    expect(tasks.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: 'tasks',
+          severity: 'error',
+          message: 'Task T001 missing title',
+        }),
+      ]),
+    );
+    const sessions = await auditData(env.tempDir, { scope: 'sessions' });
+    expect(sessions.issues).toEqual([
+      expect.objectContaining({
+        category: 'sessions',
+        severity: 'warning',
+        message: 'Session ses_invalid_epic missing scope epicId',
+      }),
+    ]);
+  });
+
+  it.each([
+    'tasks',
+    'sessions',
+  ])('reports %s diagnostic read failures explicitly', async (scope) => {
+    vi.spyOn(taskAccessors, 'getTaskAccessor').mockResolvedValueOnce({
+      ...accessor,
+      async queryTasks() {
+        throw new Error('Injected task read failure');
+      },
+      async loadSessions() {
+        throw new Error('Injected session read failure');
+      },
+    });
+    const audit = await auditData(env.tempDir, { scope });
+    expect(audit.summary.errors).toBe(1);
+    expect(audit.issues[0]).toMatchObject({
+      category: scope,
+      severity: 'error',
+      message: expect.stringContaining('Injected'),
+    });
   });
 
   it('reads committed audit receipts from the modern store without a legacy tasks.db', async () => {

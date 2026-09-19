@@ -32,20 +32,15 @@ export async function auditData(
   const cleoDir = join(projectRoot, '.cleo');
   const scope = opts?.scope ?? 'all';
   const issues: AuditIssue[] = [];
+  const { dbExists } = await import('../store/sqlite.js');
+  const hasStore = dbExists(projectRoot);
 
   if (scope === 'all' || scope === 'tasks') {
-    const tasksDbPath = join(cleoDir, 'tasks.db');
-    if (existsSync(tasksDbPath)) {
+    if (hasStore) {
       try {
         const accessor = await getTaskAccessor(projectRoot);
         const queryResult = await accessor.queryTasks({});
-        const tasks: Array<{
-          id: string;
-          status: string;
-          title: string;
-          parentId?: string | null;
-          depends?: string[];
-        }> = queryResult.tasks ?? [];
+        const tasks = queryResult.tasks;
 
         const idSet = new Set<string>();
         for (const t of tasks) {
@@ -101,19 +96,23 @@ export async function auditData(
         issues.push({
           severity: 'error',
           category: 'tasks',
-          message: `Failed to read tasks.db: ${err}`,
+          message: `Failed to read task data from cleo.db: ${err}`,
         });
       }
+    } else {
+      issues.push({
+        severity: 'error',
+        category: 'tasks',
+        message: 'Project store cleo.db not found',
+      });
     }
   }
 
   if (scope === 'all' || scope === 'sessions') {
-    const sessPath = join(cleoDir, 'sessions.json');
-    if (existsSync(sessPath)) {
+    if (hasStore) {
       try {
-        const data = JSON.parse(readFileSync(sessPath, 'utf-8'));
-        const sessions: Array<{ id: string; scope?: { rootTaskId?: string } }> =
-          data.sessions ?? [];
+        const accessor = await getTaskAccessor(projectRoot);
+        const sessions = await accessor.loadSessions();
 
         const sessionIds = new Set<string>();
         for (const s of sessions) {
@@ -128,11 +127,13 @@ export async function auditData(
         }
 
         for (const s of sessions) {
-          if (!s.scope?.rootTaskId) {
+          const requiredScopeField =
+            s.scope.type === 'epic' ? 'epicId' : s.scope.type === 'task' ? 'rootTaskId' : undefined;
+          if (requiredScopeField && !s.scope[requiredScopeField]) {
             issues.push({
               severity: 'warning',
               category: 'sessions',
-              message: `Session ${s.id} missing scope rootTaskId`,
+              message: `Session ${s.id} missing scope ${requiredScopeField}`,
             });
           }
         }
@@ -140,9 +141,15 @@ export async function auditData(
         issues.push({
           severity: 'error',
           category: 'sessions',
-          message: `Failed to parse sessions.json: ${err}`,
+          message: `Failed to read session data from cleo.db: ${err}`,
         });
       }
+    } else {
+      issues.push({
+        severity: 'error',
+        category: 'sessions',
+        message: 'Project store cleo.db not found',
+      });
     }
   }
 
