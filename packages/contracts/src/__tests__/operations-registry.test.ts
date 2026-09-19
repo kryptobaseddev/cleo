@@ -20,6 +20,19 @@ describe('operations-registry', () => {
     expect(JSON.stringify(OPERATIONS)).toMatchSnapshot();
   });
 
+  it('declares deletion force and cascade as distinct optional boolean controls', () => {
+    const deletion = OPERATIONS.find(
+      (operation) => operation.domain === 'tasks' && operation.operation === 'delete',
+    );
+    expect(deletion?.requiredParams).toEqual(['taskId']);
+    expect(deletion?.params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'force', type: 'boolean', required: false }),
+        expect.objectContaining({ name: 'cascade', type: 'boolean', required: false }),
+      ]),
+    );
+  });
+
   it('OPERATIONS count is consistent', () => {
     expect(OPERATIONS.length).toBeGreaterThan(0);
     const queryCount = OPERATIONS.filter((o) => o.gateway === 'query').length;

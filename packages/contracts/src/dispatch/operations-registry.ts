@@ -2936,6 +2936,18 @@ export const OPERATIONS: OperationDef[] = [
         description: 'taskId parameter',
         cli: { positional: true },
       },
+      {
+        name: 'force',
+        type: 'boolean',
+        required: false,
+        description: 'Allow dependents and orphan children unless cascade is enabled',
+      },
+      {
+        name: 'cascade',
+        type: 'boolean',
+        required: false,
+        description: 'Archive all descendants with the selected task',
+      },
     ] satisfies ParamDef[],
   },
   {

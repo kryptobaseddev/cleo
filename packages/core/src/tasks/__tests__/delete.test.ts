@@ -9,6 +9,7 @@ import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/t
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { addTask } from '../add.js';
 import { deleteTask, taskDelete } from '../delete.js';
+import { tasksDeleteOp } from '../ops.js';
 
 describe('deleteTask', () => {
   let env: TestDbEnv;
@@ -70,6 +71,40 @@ describe('deleteTask', () => {
       expect(tasks[0]?.parentId).toBeUndefined();
       expect(archive?.archivedTasks.map((task) => task.id)).toEqual(['T001']);
     }
+  });
+
+  it('the canonical operation rejects unguarded parents and forwards explicit cascade', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Parent',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Child',
+        parentId: 'T001',
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await expect(tasksDeleteOp(env.tempDir, { taskId: 'T001' })).rejects.toThrow(/children/i);
+    expect((await accessor.queryTasks({})).tasks.map((task) => task.id).sort()).toEqual([
+      'T001',
+      'T002',
+    ]);
+    const result = await tasksDeleteOp(env.tempDir, { taskId: 'T001', cascade: true });
+    expect(result.cascadeDeleted).toEqual(['T002']);
+    expect((await accessor.queryTasks({})).tasks).toEqual([]);
+    expect((await accessor.loadArchive())?.archivedTasks.map((task) => task.id).sort()).toEqual([
+      'T001',
+      'T002',
+    ]);
   });
 
   it('deletes a leaf task (moves to archive)', async () => {

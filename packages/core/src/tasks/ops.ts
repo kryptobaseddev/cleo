@@ -27,6 +27,7 @@ import type {
   TaskSeverity,
   TaskStatus,
   TasksAddParams,
+  TasksDeleteQueryParams,
   TasksOps,
   TasksUpdateQueryParams,
   TaskType,
@@ -262,18 +263,9 @@ export async function tasksCompleteOp(
  */
 export async function tasksDeleteOp(
   projectRoot: string,
-  params: {
-    taskId: string;
-    force?: boolean;
-  },
+  params: TasksDeleteQueryParams,
 ): Promise<DeleteTaskResult> {
-  return deleteTask(
-    {
-      taskId: params.taskId,
-      force: params.force,
-    },
-    projectRoot,
-  );
+  return deleteTask(params, projectRoot);
 }
 
 /**
