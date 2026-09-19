@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.17.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.17.1 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -274,7 +274,7 @@ Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantb
 | List valid doc kinds | `cleo docs list-types` |
 | Generate llms.txt summary | `cleo docs generate --for <taskId>` |
 
-Use repo-relative paths within the current repo/worktree, never arbitrary absolute paths from `/tmp` or another checkout. Publish tracked copies with `cleo docs publish --for <ownerId> --to <repo-relative-path>`. Before batch writes, run `cleo add-batch --dry-run` and check `/data/insertedCount` = 0. `cleo docs list-types` and `DocKindRegistry` define runtime kinds; prefer them over stale lists.
+Use repo-relative paths within the current repo/worktree, never arbitrary external absolute paths from `/tmp` or another checkout. Publish tracked copies with `cleo docs publish --for <ownerId> --to <repo-relative-path>`. Before batch writes, run `cleo add-batch --dry-run` and check `/data/insertedCount` = 0. `cleo docs list-types` and `DocKindRegistry` define runtime kinds; prefer them over stale lists.
 <!-- /CLEO-INJECTION:section=documents -->
 <!-- CLEO-INJECTION:section=human-render -->
 ## Human Render Contract (ADR-077)
@@ -297,7 +297,7 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 | Suppress stderr | `--quiet` | `cleo add-batch --file f.json --parent T1 --quiet --output id` |
 | Force full record | `--full` | `cleo show T123 --full` |
 
-**READ and MUTATE envelopes NEST DIFFERENTLY.** Mutation records are FLAT; reads nest them: `cleo show` uses `/data/task/status`, NEVER `/data/status`. `--field` resolves projected `description`/`acceptance`/`verification` without `--full`. Unresolvable pointers fail with `E_FIELD_NOT_FOUND` and valid pointers; use those instead of guessing. `cleo verify` returns the full `verification` object, so no confirmation read is needed; its MUTATE pointer is `/data/verification`, never `/data/task/...` (gh#1420).
+**READ and MUTATE envelopes NEST DIFFERENTLY.** Mutation records are FLAT; reads nest them: `cleo show` uses `/data/task/status`, NEVER `/data/status`. `--field` resolves projected `description`/`acceptance`/`verification` without `--full`. Unresolvable pointers fail with `E_FIELD_NOT_FOUND` and valid pointers; use those instead of guessing. `cleo verify` returns the full `verification` object, so no confirmation read is needed; its MUTATE extractor is `--field /data/verification`, never `/data/task/...` (gh#1420).
 
 Mutations (`add`, `add-batch`, `update`, `complete`, `delete`) return `{count, created[], updated[], deleted[], ids[]}` (T9931). Use `/data/created/0` for create/add-batch, `/data/updated/0` for update/complete, `/data/deleted/0` for delete, `/data/count` for counts. `--output id` emits affected IDs once in created/updated/deleted order. `ids[]` is a deprecated alias; `--full` restores full records. Deletion is a soft archive: `cleo delete <id> --cascade` includes descendants; `--force` alone orphans children and permits dependents. Without either, parents with children are rejected. Receipts retain every affected ID, including cascaded children. Rejected output parsing: `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`.
 <!-- /CLEO-INJECTION:section=output-contract -->
