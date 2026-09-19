@@ -37,6 +37,7 @@ const ENV_KEYS = [
   'XDG_CONFIG_HOME',
   'CLEO_HOME',
   'CLEO_DIR',
+  'CLEO_ROOT',
   'CLEO_CONFIG_HOME',
   'HOME',
 ];
@@ -69,6 +70,7 @@ function makeTempRoot(): { root: string; projectRoot: string } {
   process.env['CLEO_HOME'] = join(root, 'cleo-home');
   process.env['HOME'] = root;
   delete process.env['CLEO_DIR'];
+  delete process.env['CLEO_ROOT'];
   delete process.env['CLEO_CONFIG_HOME'];
 
   _resetCleoPlatformPathsCache();
