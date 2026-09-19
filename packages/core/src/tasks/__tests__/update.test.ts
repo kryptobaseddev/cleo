@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
+import { tasksUpdateOp } from '../ops.js';
 import { taskUpdate, updateTask } from '../update.js';
 
 describe('updateTask', () => {
@@ -38,6 +39,31 @@ describe('updateTask', () => {
     delete process.env['CLEO_DIR'];
     resetDbState();
     await env.cleanup();
+  });
+
+  it.each([
+    'engine',
+    'operation',
+  ] as const)('%s wrapper durably forwards noAutoComplete', async (wrapper) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Auto-complete fixture',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    for (const noAutoComplete of [true, false]) {
+      if (wrapper === 'engine') {
+        const result = await taskUpdate(env.tempDir, 'T001', { noAutoComplete });
+        expect(result.success).toBe(true);
+      } else {
+        const result = await tasksUpdateOp(env.tempDir, { taskId: 'T001', noAutoComplete });
+        expect(result.changes).toContain('noAutoComplete');
+      }
+      expect((await accessor.loadSingleTask('T001'))?.noAutoComplete).toBe(noAutoComplete);
+    }
   });
 
   it('updates task title', async () => {

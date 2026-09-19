@@ -13,6 +13,7 @@ import type {
   TaskSeverity,
   TaskSize,
   TaskStatus,
+  TasksUpdateQueryParams,
   TaskType,
 } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
@@ -715,6 +716,30 @@ export async function updateTask(
 // ---------------------------------------------------------------------------
 
 /**
+ * Map the canonical task-update wire contract to the core update options.
+ *
+ * Forward all declared fields so operation and engine wrappers cannot silently
+ * discard accepted inputs. Only the parent alias and existing enum boundaries
+ * require translation; domain validation remains in {@link updateTask}.
+ *
+ * @param params - Canonical operation input, including the task identity.
+ * @returns Core update options with parent mapped to parentId.
+ */
+export function toTaskUpdateOptions(params: TasksUpdateQueryParams): UpdateTaskOptions {
+  const { parent, ...fields } = params;
+  return {
+    ...fields,
+    parentId: parent,
+    status: params.status as TaskStatus | undefined,
+    priority: params.priority as TaskPriority | undefined,
+    size: params.size as TaskSize | undefined,
+    kind: params.kind as TaskKind | undefined,
+    scope: params.scope as TaskScope | undefined,
+    severity: params.severity as TaskSeverity | undefined,
+  };
+}
+
+/**
  * Update a task's fields, wrapped in EngineResult.
  *
  * @param projectRoot - Absolute path to the project root
@@ -728,75 +753,12 @@ export async function updateTask(
 export async function taskUpdate(
   projectRoot: string,
   taskId: string,
-  updates: {
-    title?: string;
-    description?: string;
-    status?: string;
-    priority?: string;
-    notes?: string;
-    labels?: string[];
-    addLabels?: string[];
-    removeLabels?: string[];
-    depends?: string[];
-    addDepends?: string[];
-    removeDepends?: string[];
-    acceptance?: string[];
-    parent?: string | null;
-    type?: string;
-    size?: string;
-    files?: string[];
-    addFiles?: string[];
-    removeFiles?: string[];
-    pipelineStage?: string;
-    kind?: string;
-    scope?: string;
-    severity?: string;
-    reason?: string;
-    /** Set the blockedBy free-text reason. @task T9241 (gh#1106) */
-    blockedBy?: string;
-    clearBlockedBy?: boolean;
-    /** @task T9327 */
-    relates?: Array<{ taskId: string; type: string; reason?: string }>;
-    /** @task T9327 */
-    addRelates?: Array<{ taskId: string; type: string; reason?: string }>;
-    /** @task T9327 */
-    removeRelates?: string[];
-  },
+  updates: Omit<TasksUpdateQueryParams, 'taskId'>,
 ): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
     const result = await updateTask(
-      {
-        taskId,
-        title: updates.title,
-        description: updates.description,
-        status: updates.status as TaskStatus | undefined,
-        priority: updates.priority as TaskPriority | undefined,
-        notes: updates.notes,
-        labels: updates.labels,
-        addLabels: updates.addLabels,
-        removeLabels: updates.removeLabels,
-        depends: updates.depends,
-        addDepends: updates.addDepends,
-        removeDepends: updates.removeDepends,
-        acceptance: updates.acceptance,
-        parentId: updates.parent,
-        type: updates.type as TaskType | undefined,
-        size: updates.size as TaskSize | undefined,
-        files: updates.files,
-        addFiles: updates.addFiles,
-        removeFiles: updates.removeFiles,
-        pipelineStage: updates.pipelineStage,
-        kind: updates.kind as TaskKind | undefined,
-        scope: updates.scope as TaskScope | undefined,
-        severity: updates.severity as TaskSeverity | undefined,
-        reason: updates.reason,
-        relates: updates.relates,
-        addRelates: updates.addRelates,
-        removeRelates: updates.removeRelates,
-        blockedBy: updates.blockedBy,
-        clearBlockedBy: updates.clearBlockedBy,
-      },
+      toTaskUpdateOptions({ ...updates, taskId }),
       projectRoot,
       accessor,
     );

@@ -29,6 +29,7 @@ import type {
   TaskSize,
   TaskStatus,
   TasksOps,
+  TasksUpdateQueryParams,
   TaskType,
 } from '@cleocode/contracts';
 import { type AddTaskResult, addTask } from './add.js';
@@ -40,7 +41,7 @@ import { type FindTasksResult, findTasks } from './find.js';
 import { type ListTasksResult, listTasks } from './list.js';
 import { showTask, type TaskDetail } from './show.js';
 import { coreTaskSlice } from './task-data.js';
-import { type UpdateTaskResult, updateTask } from './update.js';
+import { toTaskUpdateOptions, type UpdateTaskResult, updateTask } from './update.js';
 
 // ---------------------------------------------------------------------------
 // Query ops
@@ -265,68 +266,9 @@ export type { AddBatchResult, AddBatchTaskSpec };
  */
 export async function tasksUpdateOp(
   projectRoot: string,
-  params: {
-    taskId: string;
-    title?: string;
-    description?: string;
-    status?: TaskStatus;
-    priority?: TaskPriority;
-    notes?: string;
-    labels?: string[];
-    addLabels?: string[];
-    removeLabels?: string[];
-    depends?: string[];
-    addDepends?: string[];
-    removeDepends?: string[];
-    acceptance?: string[];
-    /** Canonical wire field for parent task ID (ADR-057 D2). */
-    parent?: string | null;
-    type?: TaskType;
-    size?: TaskSize;
-    files?: string[];
-    /** Add files incrementally. @task T9242 */
-    addFiles?: string[];
-    /** Remove files incrementally. @task T9242 */
-    removeFiles?: string[];
-    pipelineStage?: string;
-    kind?: TaskKind;
-    scope?: TaskScope;
-    /** Severity level — valid for any role (T9073). Orthogonal to priority. */
-    severity?: TaskSeverity;
-    /** Clear the blockedBy free-text reason. @task T9241 */
-    clearBlockedBy?: boolean;
-  },
+  params: TasksUpdateQueryParams,
 ): Promise<UpdateTaskResult> {
-  return updateTask(
-    {
-      taskId: params.taskId,
-      title: params.title,
-      description: params.description,
-      status: params.status,
-      priority: params.priority,
-      notes: params.notes,
-      labels: params.labels,
-      addLabels: params.addLabels,
-      removeLabels: params.removeLabels,
-      depends: params.depends,
-      addDepends: params.addDepends,
-      removeDepends: params.removeDepends,
-      acceptance: params.acceptance,
-      // ADR-057 D2: wire field `parent` maps to Core internal `parentId`
-      parentId: params.parent,
-      type: params.type,
-      size: params.size,
-      files: params.files,
-      addFiles: params.addFiles,
-      removeFiles: params.removeFiles,
-      pipelineStage: params.pipelineStage,
-      kind: params.kind,
-      scope: params.scope,
-      severity: params.severity,
-      clearBlockedBy: params.clearBlockedBy,
-    },
-    projectRoot,
-  );
+  return updateTask(toTaskUpdateOptions(params), projectRoot);
 }
 
 /**
