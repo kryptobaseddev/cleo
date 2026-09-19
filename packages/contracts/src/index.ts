@@ -2338,6 +2338,7 @@ export type {
   SessionNote,
   // T9071 — system-wide severity attestation primitive
   SeverityAttestation,
+  SignedSeverityAttestation,
   Task,
   TaskCreate,
   // T944 new axes (T9072: renamed TaskRole → TaskKind)

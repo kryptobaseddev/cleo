@@ -91,6 +91,17 @@ criteria still obey policy and immutability, including `--reason` for locked
 changes. Invalid stored criteria are diagnostic failures; never split historical
 records without original-input provenance and a guarded repair receipt.
 
+
+Explicit `critical` priority on add/update requires a dependency or a nonempty
+`--depends-waiver`; updates check the resulting dependency set. CLI flags, JSON
+params, and SDK calls share this policy. Explicit severity changes use the
+project's signing identity: a nonempty `ownerPubkeys` allowlist restricts signers;
+an absent or empty list keeps the existing opt-in policy. Unreadable or malformed
+authority is an explicit configuration failure. Committed severity,
+duplicate-bypass, and dependency-waiver evidence lives in the task transaction
+audit. Historical filesystem attestations alone do not prove a task committed.
+Dry-run creates no committed attestation; failed writes leave no committed receipt.
+
 `cleo add-batch` inserts all tasks in a single transaction — ANY failure rolls back ALL inserts.
 Use `--dry-run` first; the projected mutation envelope reports `/data/count` and
 `/data/wouldCreate` as the predicted create count while `/data/insertedCount` remains `0`.

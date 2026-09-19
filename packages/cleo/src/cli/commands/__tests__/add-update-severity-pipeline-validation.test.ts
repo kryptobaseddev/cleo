@@ -304,7 +304,6 @@ describe('cleo update --pipeline-stage validation (T10341)', () => {
 
   it.each([
     { 'pipeline-stage': 'implementation' },
-    { priority: 'critical' },
   ])('preserves failed diagnostic reads for %j', async (args) => {
     const failure = {
       success: false,

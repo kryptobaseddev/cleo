@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { TASKS_UPDATE_INPUT_SCHEMA } from '../../operations/tasks.js';
+import { TASKS_ADD_INPUT_SCHEMA, TASKS_UPDATE_INPUT_SCHEMA } from '../../operations/tasks.js';
 import { OPERATIONS } from '../operations-registry.js';
 
 function findOp(gateway: 'query' | 'mutate', operation: string) {
@@ -27,6 +27,36 @@ function findOp(gateway: 'query' | 'mutate', operation: string) {
     (o) => o.domain === 'tasks' && o.gateway === gateway && o.operation === operation,
   );
 }
+
+describe('T12261 — task control metadata matches accepted input', () => {
+  it.each([
+    ['add', TASKS_ADD_INPUT_SCHEMA],
+    ['update', TASKS_UPDATE_INPUT_SCHEMA],
+  ] as const)('enumerates the complete %s input surface', (operation, schema) => {
+    const definition = findOp('mutate', operation);
+    expect((definition?.params ?? []).map((param) => param.name).sort()).toEqual(
+      Object.keys(schema.properties ?? {}).sort(),
+    );
+  });
+
+  it('describes critical waiver and signed-severity controls on both mutation paths', () => {
+    for (const operation of ['add', 'update']) {
+      const definition = findOp('mutate', operation);
+      expect(definition?.params).toContainEqual(
+        expect.objectContaining({ name: 'dependsWaiver', type: 'string' }),
+      );
+      expect(definition?.params).toContainEqual(
+        expect.objectContaining({ name: 'severity', enum: ['P0', 'P1', 'P2', 'P3'] }),
+      );
+    }
+    expect(findOp('mutate', 'add')?.params).toContainEqual(
+      expect.objectContaining({ name: 'forceDuplicate', type: 'boolean' }),
+    );
+    expect(findOp('mutate', 'update')?.params).toContainEqual(
+      expect.objectContaining({ name: 'noAutoComplete', type: 'boolean' }),
+    );
+  });
+});
 
 describe('T11784 — tasks.update OperationDef params parity', () => {
   const update = findOp('mutate', 'update');

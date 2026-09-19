@@ -741,13 +741,13 @@ export type CancelledTask = Task & {
 };
 
 /**
- * Shape of a signed severity attestation line appended to the audit log.
+ * Severity assertion signed with the project identity.
  *
- * The attestation is produced whenever a task's `--severity` flag is
- * explicitly set.  It is signed with the project's CLEO Ed25519 identity and
- * appended to `.cleo/audit/severity-attestation.jsonl` as a single JSON line
- * (stable / sorted-key serialisation so verifiers can reconstruct the signed
- * payload).
+ * Explicit severity changes through CLI, params, or SDK receive signed
+ * assertions bound to the actual task ID in the same transaction as the task
+ * audit. Standalone legacy JSONL assertions remain historical evidence and
+ * do not establish that a task mutation committed. Sorted-key serialization
+ * lets verifiers reconstruct the signed payload.
  *
  * Renamed from the earlier `BugSeverityAttestation` (which was scoped only to
  * `cleo bug`).  The new name reflects that severity attestation is a
@@ -770,6 +770,17 @@ export interface SeverityAttestation {
   taskId?: string;
   /** Signer's Ed25519 public key (hex, 64 hex characters). */
   signerPub: string;
+}
+
+/** Signed severity assertion; task audit persistence establishes commit provenance. */
+export interface SignedSeverityAttestation extends SeverityAttestation {
+  /** Ed25519 signature of the canonical assertion, excluding this signature field. */
+  _sig: {
+    /** Hex-encoded signature. */
+    sig: string;
+    /** Hex-encoded signing public key, matching signerPub. */
+    pub: string;
+  };
 }
 
 /** Phase status. */
