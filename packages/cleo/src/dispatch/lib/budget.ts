@@ -11,7 +11,7 @@
  * @epic T11285 EP-MVI-PRIMITIVE
  */
 
-import { MVI_TRUTH_FIELDS } from '@cleocode/core/dispatch/mvi-projection.js';
+import { MVI_TRUTH_FIELDS } from '@cleocode/core/dispatch/mvi-projection';
 import type { BudgetEnforcementResult } from '@cleocode/lafs';
 import { applyBudgetEnforcement, BUDGET_EXCEEDED_CODE, checkBudget } from '@cleocode/lafs';
 import type { _ProtoEnvelopeStub } from './proto-envelope.js';
