@@ -140,6 +140,87 @@ describe('processHeritage', () => {
     expect(edges[0]!.confidence).toBeLessThanOrEqual(0.95);
   });
 
+  it('publishes a closed graph for external Error heritage with explicit unresolved metadata', () => {
+    const graph = createKnowledgeGraph();
+    const ctx = createResolutionContext();
+    const child = makeNode('script.ts::BasisAlignError', 'class', 'BasisAlignError', 'script.ts');
+    graph.addNode(child);
+    ctx.symbols.add('script.ts', 'BasisAlignError', child.id, 'class');
+    processHeritage(
+      [
+        {
+          filePath: 'script.ts',
+          typeName: 'BasisAlignError',
+          typeNodeId: child.id,
+          kind: 'extends',
+          parentName: 'Error',
+        },
+      ],
+      graph,
+      ctx,
+    );
+    const publication = graph.preparePublication();
+    expect(publication.relations).toHaveLength(1);
+    const external = graph.nodes.get('__heritage__Error');
+    expect(external).toMatchObject({
+      filePath: '',
+      isExternal: true,
+      meta: { resolution: 'unresolved', sourceAnalyzed: false },
+    });
+    expect(publication.nodes.find((node) => node.id === '__heritage__Error')?.metaJson).toContain(
+      'unresolved',
+    );
+  });
+
+  it('retains ambiguous heritage candidates without choosing a local definition', () => {
+    const graph = createKnowledgeGraph();
+    const ctx = createResolutionContext();
+    const child = makeNode('child.ts::Child', 'class', 'Child', 'child.ts');
+    graph.addNode(child);
+    ctx.symbols.add('child.ts', 'Child', child.id, 'class');
+    ctx.symbols.add('one.ts', 'Base', 'one.ts::Base', 'class');
+    ctx.symbols.add('two.ts', 'Base', 'two.ts::Base', 'class');
+    processHeritage(
+      [
+        {
+          filePath: 'child.ts',
+          typeName: 'Child',
+          typeNodeId: child.id,
+          kind: 'extends',
+          parentName: 'Base',
+        },
+      ],
+      graph,
+      ctx,
+    );
+    const target = graph.nodes.get(graph.relations[0]?.target ?? '');
+    expect(target?.meta).toMatchObject({
+      resolution: 'ambiguous',
+      candidates: ['one.ts::Base', 'two.ts::Base'],
+    });
+    expect(() => graph.preparePublication()).not.toThrow();
+  });
+
+  it('maps synthetic file-scope call/access endpoints only to verified canonical file nodes', () => {
+    const graph = createKnowledgeGraph();
+    graph.addNode(makeNode('script.ts', 'file', 'script.ts', 'script.ts'));
+    graph.addNode(makeNode('script.ts::run', 'function', 'run', 'script.ts'));
+    graph.addRelation({
+      source: 'script.ts::__file__',
+      target: 'script.ts::run',
+      type: 'calls',
+      confidence: 1,
+    });
+    expect(graph.preparePublication().relations[0]?.sourceId).toBe('script.ts');
+    graph.addRelation({
+      source: 'missing.ts::__file__',
+      target: 'script.ts::run',
+      type: 'accesses',
+      confidence: 1,
+    });
+    expect(() => graph.preparePublication()).toThrow('Invalid graph relationship');
+  });
+
   it('skips record when child type not found in symbol table', () => {
     const graph = createKnowledgeGraph();
     const ctx = createResolutionContext();
