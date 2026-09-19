@@ -25,6 +25,7 @@ import { getNexusDb, getNexusNativeDb, nexusSchema } from '../store/nexus-sqlite
 const execFileAsync = promisify(execFile);
 
 const assessmentSchema = z.object({
+  generation: z.uuid().optional(),
   sourceRoot: z.string(),
   assessedRevision: z.string().nullable(),
   assessedAt: z.string(),
@@ -32,13 +33,38 @@ const assessmentSchema = z.object({
   references: z
     .array(
       z.object({
-        kind: z.literal('unmodeled-source'),
+        kind: z.enum([
+          'unmodeled-source',
+          'ambiguous',
+          'external',
+          'dynamic',
+          'shadowed',
+          'unresolved',
+        ]),
         filePath: z.string(),
         sourceId: z.string(),
-        targetId: z.string(),
+        targetId: z.string().optional(),
         targetName: z.string(),
         relationship: z.enum(['calls', 'accesses']),
         reason: z.string(),
+        candidateIds: z.array(z.string()).optional(),
+        generation: z.string().optional(),
+        publicationGeneration: z.uuid().optional(),
+        span: z
+          .object({
+            startIndex: z.number().int().nonnegative(),
+            endIndex: z.number().int().nonnegative(),
+            startLine: z.number().int().positive(),
+            endLine: z.number().int().positive(),
+            startColumn: z.number().int().nonnegative(),
+            endColumn: z.number().int().nonnegative(),
+            offsetEncoding: z.literal('utf16'),
+          })
+          .refine(
+            (span) => span.endIndex >= span.startIndex && span.endLine >= span.startLine,
+            'Reference span must be an ordered original source range',
+          )
+          .optional(),
       }),
     )
     .optional(),
@@ -280,7 +306,7 @@ async function assessCoverage(projectRoot: string, projectId?: string): Promise<
         recordKnowledgeGap(
           coverage,
           'partial',
-          `${assessment.references.length} AST references have unmodeled enclosing scopes; known callers are incomplete. Inspect assessment.references in cleo nexus status.`,
+          `${assessment.references.length} unresolved or unmodeled static references remain; known callers are incomplete. Inspect assessment.references in cleo nexus status.`,
         );
         coverage.nextAction = 'cleo nexus status';
       }
