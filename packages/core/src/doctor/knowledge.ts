@@ -5,7 +5,7 @@
  * against AGENTS.md. No repair reasoning is delegated to a background model.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -16,14 +16,26 @@ import type {
   KnowledgeRepairProposal,
   KnowledgeRepairReceipt,
 } from '@cleocode/contracts';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
+import type {
+  KnowledgePreparedRepairProposal,
+  KnowledgeRepairPreparation,
+  KnowledgeRepairResource,
+} from '@cleocode/contracts/knowledge-health';
 import { z } from 'zod';
+import { loadProjectInfo } from '../config/registry.js';
 import { scanBrainGraphOrphans } from '../memory/brain-doctor.js';
 import { pruneObservationStubs, restoreObservationStubs } from '../memory/brain-stub-prune.js';
 import { linkDecisionToCodeEvidence } from '../memory/decision-cross-link.js';
-import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
+import { generateProjectHash } from '../nexus/hash.js';
+import { assessKnowledgeCoverage, readKnowledgeIndexAssessment } from '../nexus/knowledge.js';
 import { getTaskKnowledgeEvidence } from '../nexus/task-evidence.js';
+import { worktreeScope } from '../paths.js';
+import { DurableJobStore } from '../store/background-jobs.js';
+import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
+import { getDb } from '../store/sqlite.js';
 
 const evidenceSchema = z.object({
   id: z.string(),
@@ -107,6 +119,35 @@ const storedRepairSchema = z.object({
     .nullable(),
 });
 
+const preparedProposalSchema = proposalSchema
+  .extend({
+    version: z.literal(1),
+    identity: z
+      .object({
+        projectId: z.string().min(1),
+        projectRoot: z.string().min(1),
+        actor: z.string().min(1),
+        operation: z.literal('doctor.knowledge'),
+        idempotencyKey: z.string().min(1),
+      })
+      .strict(),
+    databasePath: z.string().min(1),
+    sourceRoot: z.string().min(1),
+    expectedGeneration: z.string().nullable(),
+    assessmentHash: z.string().regex(/^[a-f0-9]{64}$/),
+    resources: z.array(
+      z
+        .object({
+          kind: z.enum(['decision', 'observation', 'file']),
+          id: z.string().min(1),
+          role: z.enum(['affected', 'source']),
+          beforeHash: z.string().regex(/^[a-f0-9]{64}$/),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
 /**
  * Validation error preserving a stable repair failure code for CLI envelopes.
  * @remarks Stale proposals and failed source validation never apply a mutation.
@@ -173,6 +214,212 @@ function readState(db: DatabaseSync) {
 
 function stateHash(db: DatabaseSync): string {
   return hash(JSON.stringify(readState(db)));
+}
+
+/** Capture exact row identities and complete images without broadening the existing action. */
+function repairResources(
+  db: DatabaseSync,
+  proposal: KnowledgeRepairProposal,
+  projectRoot: string,
+): KnowledgeRepairResource[] {
+  const resources: KnowledgeRepairResource[] = [];
+  const capture = (kind: 'decision' | 'observation', id: string, role: 'affected' | 'source') => {
+    if (resources.some((resource) => resource.kind === kind && resource.id === id)) return;
+    const row =
+      kind === 'decision'
+        ? db.prepare('SELECT * FROM main.brain_decisions WHERE id = ?').get(id)
+        : db.prepare('SELECT * FROM main.brain_observations WHERE id = ?').get(id);
+    if (!row) throw new KnowledgeRepairError('E_REPAIR_SOURCE', `Missing ${kind} resource ${id}`);
+    resources.push({ kind, id, role, beforeHash: hash(JSON.stringify(row)) });
+  };
+  if (proposal.action.operation === 'knowledge.quarantine-stubs') {
+    for (const id of pruneObservationStubs(db, false).candidateIds ?? [])
+      capture('observation', id, 'affected');
+  } else if (proposal.action.operation === 'knowledge.supersede-decision') {
+    const previousId = proposal.action.arguments.previousId;
+    const successorId = proposal.action.arguments.successorId;
+    if (
+      typeof previousId !== 'string' ||
+      typeof successorId !== 'string' ||
+      previousId === successorId
+    )
+      throw new KnowledgeRepairError(
+        'E_REPAIR_INPUT',
+        'Distinct previousId and successorId are required.',
+      );
+    const state = readState(db);
+    const previous = state.decisions.find((row) => row.id === previousId);
+    const successor = state.decisions.find((row) => row.id === successorId);
+    if (!previous || !successor)
+      throw new KnowledgeRepairError('E_REPAIR_SOURCE', 'Missing authority record.');
+    validateAuthoritySources(db, proposal, previous, successor, projectRoot);
+    capture('decision', previousId, 'affected');
+    capture('decision', successorId, 'affected');
+    for (const source of proposal.evidence) {
+      if (source.source === 'file') {
+        resources.push({
+          kind: 'file',
+          id: source.id,
+          role: 'source',
+          beforeHash: hash(readFileSync(resolve(projectRoot, source.id), 'utf8')),
+        });
+      } else if (source.source === 'memory') {
+        const kind = state.decisions.some((row) => row.id === source.id)
+          ? 'decision'
+          : 'observation';
+        capture(kind, source.id, 'source');
+      }
+    }
+  } else
+    throw new KnowledgeRepairError(
+      'E_REPAIR_INPUT',
+      'Rollback uses its retained receipt, not a new authority proposal.',
+    );
+  return resources.sort(
+    (left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id),
+  );
+}
+
+/**
+ * Prepare a sourced existing knowledge repair without starting an executor.
+ * @param context - Captured project, actor, retry identity, cancellation and shared deadline.
+ * @param input - Existing supported proposal whose revision and state must still match.
+ * @returns Authentic immutable pending work or the identical existing submission.
+ * @throws KnowledgeRepairError when scope, source evidence or preconditions are invalid.
+ * @remarks The existing job store commits proposal bytes and their digest atomically.
+ * Cancellation is cooperative at guarded boundaries; admitted synchronous SQLite work
+ * cannot be preempted by a timer. Preparation never changes authority or quarantine.
+ * @example
+ * ```ts
+ * const pending = await prepareKnowledgeRepair(context, report.proposals[0]);
+ * ```
+ */
+export async function prepareKnowledgeRepair(
+  context: OperationExecutionContext,
+  input: KnowledgeRepairProposal,
+): Promise<KnowledgeRepairPreparation> {
+  context.assertActive();
+  const proposal = proposalSchema.parse(input);
+  if (
+    context.identity.operation !== 'doctor.knowledge' ||
+    proposal.projectId !== context.identity.projectId ||
+    proposal.id !== context.identity.idempotencyKey
+  )
+    throw new KnowledgeRepairError(
+      'E_REPAIR_SCOPE',
+      'Repair proposal and captured operation identity must match.',
+    );
+  return worktreeScope.run(
+    {
+      worktreeRoot: context.identity.projectRoot,
+      projectHash: generateProjectHash(context.identity.projectRoot),
+      execution: context,
+    },
+    async () => {
+      const root = context.identity.projectRoot;
+      const info = await loadProjectInfo(root);
+      context.assertActive();
+      if (
+        !info ||
+        info.projectId !== context.identity.projectId ||
+        (info.projectRoot !== undefined && info.projectRoot !== root)
+      )
+        throw new KnowledgeRepairError(
+          'E_REPAIR_SCOPE',
+          'Canonical project metadata differs from the captured repair scope.',
+        );
+      const taskDb = await getDb(root);
+      context.assertActive();
+      const store = new DurableJobStore(taskDb, {
+        projectId: context.identity.projectId,
+        actor: context.identity.actor,
+      });
+      // Existing exact submissions remain inspectable even after a later repair changes source state.
+      const prior = store.findSubmission(context.identity.operation, {
+        projectId: context.identity.projectId,
+        idempotencyKey: context.identity.idempotencyKey,
+        proposalJson: JSON.stringify(proposal),
+      });
+      if (prior) {
+        if (
+          !prior.proposalJson ||
+          !prior.proposalHash ||
+          hash(prior.proposalJson) !== prior.proposalHash
+        )
+          throw new KnowledgeRepairError(
+            'E_REPAIR_SOURCE',
+            'Existing job lacks authentic prepared input.',
+          );
+        const prepared = preparedProposalSchema.parse(JSON.parse(prior.proposalJson));
+        if (
+          JSON.stringify(proposalSchema.parse(prepared)) !== JSON.stringify(proposal) ||
+          JSON.stringify(prepared.identity) !==
+            JSON.stringify(preparedProposalSchema.shape.identity.parse(context.identity))
+        )
+          throw new KnowledgeRepairError(
+            'E_REPAIR_ID_REUSED',
+            'Retry identity already belongs to different immutable inputs.',
+          );
+        return {
+          jobId: prior.id,
+          jobStatus: prior.status,
+          proposalHash: prior.proposalHash,
+          proposal: prepared,
+          deadlineAt: context.deadlineAt,
+          deadlineExceeded: Date.now() >= context.deadlineAt,
+        };
+      }
+      const coverage = await assessKnowledgeCoverage(
+        root,
+        context.identity.projectId,
+        Math.max(0, context.deadlineAt - Date.now()),
+      );
+      context.assertActive();
+      if (coverage.maintenanceState === 'pending' || coverage.status === 'failed')
+        throw new KnowledgeRepairError('E_REPAIR_ASSESSMENT', coverage.reasons.join('; '));
+      await getBrainDb(root);
+      const assessment = await readKnowledgeIndexAssessment(root);
+      context.assertActive();
+      const db = getBrainNativeDb(root);
+      if (!db)
+        throw new KnowledgeRepairError('E_REPAIR_STORE', 'Project knowledge store is unavailable.');
+      if (
+        proposal.expectedRevision !== coverage.assessedRevision ||
+        proposal.expectedStateHash !== stateHash(db)
+      )
+        throw new KnowledgeRepairError(
+          'E_REPAIR_STALE',
+          'Repair preconditions changed; reassess before preparation.',
+        );
+      const resources = repairResources(db, proposal, root);
+      const prepared: KnowledgePreparedRepairProposal = preparedProposalSchema.parse({
+        ...proposal,
+        version: 1,
+        identity: context.identity,
+        databasePath: resolveDualScopeDbPath('project', root),
+        sourceRoot: assessment?.sourceRoot ?? root,
+        expectedGeneration: assessment?.generation ?? null,
+        assessmentHash: hash(JSON.stringify(assessment)),
+        resources,
+      });
+      const proposalJson = JSON.stringify(prepared);
+      context.consume({ bytes: Buffer.byteLength(proposalJson, 'utf8'), items: resources.length });
+      context.assertActive();
+      const job = store.defer(randomUUID(), context.identity.operation, Date.now(), {
+        projectId: context.identity.projectId,
+        idempotencyKey: context.identity.idempotencyKey,
+        proposalJson,
+      });
+      return {
+        jobId: job.id,
+        jobStatus: job.status,
+        proposalHash: hash(proposalJson),
+        proposal: prepared,
+        deadlineAt: context.deadlineAt,
+        deadlineExceeded: Date.now() >= context.deadlineAt,
+      };
+    },
+  );
 }
 
 function readReceipt(db: DatabaseSync, id: string) {

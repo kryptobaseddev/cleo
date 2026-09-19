@@ -1,17 +1,27 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { KnowledgeRepairProposal } from '@cleocode/contracts';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import { scanBrainGraphOrphans, scanBrainNoise } from '../../memory/brain-doctor.js';
+import { generateProjectHash } from '../../nexus/hash.js';
 import { getSymbolFullContext } from '../../nexus/living-brain.js';
+import { DurableJobStore } from '../../store/background-jobs.js';
+import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { getBrainAccessor } from '../../store/memory-accessor.js';
 import { getBrainDb, getBrainNativeDb, resetBrainDbState } from '../../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
-import { listKnowledgeRepairReceipts, runKnowledgeDoctor } from '../knowledge.js';
+import { closeAllDatabases, getDb } from '../../store/sqlite.js';
+import {
+  listKnowledgeRepairReceipts,
+  prepareKnowledgeRepair,
+  runKnowledgeDoctor,
+} from '../knowledge.js';
 
 describe('knowledge doctor transactional repair', () => {
   let root: string;
@@ -449,5 +459,249 @@ describe('knowledge doctor transactional repair', () => {
     });
     expect((await (await getBrainAccessor(root)).getDecision('D001'))?.supersededBy).toBeNull();
     expect(await listKnowledgeRepairReceipts(root)).toEqual([]);
+  });
+});
+
+describe('durable sourced knowledge repair preparation', () => {
+  let root: string;
+  let context: OperationExecutionContext;
+  let proposal: KnowledgeRepairProposal;
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), 'cleo-repair-preparation-'));
+    mkdirSync(join(root, '.cleo'));
+    vi.stubEnv('CLEO_ROOT', root);
+    vi.stubEnv('CLEO_DIR', join(root, '.cleo'));
+    vi.stubEnv('CLEO_HOME', join(root, 'home'));
+    writeFileSync(
+      join(root, '.cleo/project-info.json'),
+      JSON.stringify({
+        projectId: 'repair-A',
+        projectHash: generateProjectHash(root),
+        projectRoot: root,
+      }),
+    );
+    await getBrainDb(root);
+    await getNexusDb(root);
+    const db = getBrainNativeDb(root)!;
+    db.prepare(
+      "INSERT INTO main.brain_observations (id,type,title,narrative) VALUES ('O-prepared','discovery','Task complete: T123','Task T123 completed with status: undefined')",
+    ).run();
+    await getDb(root);
+    const report = await runKnowledgeDoctor(root, { dryRun: true, budgetMs: 10000 });
+    expect(report.health.coverage.projectId).toBe('repair-A');
+    expect(report.proposals).toHaveLength(1);
+    proposal = report.proposals[0]!;
+    context = createOperationExecutionContext(
+      {
+        projectId: 'repair-A',
+        projectRoot: root,
+        actor: 'preparation-test',
+        operation: 'doctor.knowledge',
+        idempotencyKey: proposal.id,
+      },
+      { budgetMs: 10000 },
+    );
+  });
+
+  afterEach(async () => {
+    context?.close();
+    await closeAllDatabases();
+    resetBrainDbState();
+    resetNexusDbState();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    removeTempDirSync(root);
+  });
+
+  function persisted() {
+    return JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          "import {DatabaseSync} from 'node:sqlite';const db=new DatabaseSync(process.argv[1],{readOnly:true});process.stdout.write(JSON.stringify({jobs:db.prepare('SELECT id,status,proposal_json,proposal_hash,attempts FROM main.background_jobs').all(),observation:db.prepare(\"SELECT invalid_at,narrative FROM main.brain_observations WHERE id='O-prepared'\").get(),receipts:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair:%'\").all()}));db.close();",
+          join(root, '.cleo/cleo.db'),
+        ],
+        { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] },
+      ),
+    );
+  }
+
+  it('persists the exact scoped proposal before execution and verifies it from a fresh process', async () => {
+    const result = await prepareKnowledgeRepair(context, proposal);
+    expect(result).toMatchObject({
+      jobStatus: 'pending',
+      deadlineAt: context.deadlineAt,
+      deadlineExceeded: false,
+    });
+    expect(result.proposal).toMatchObject({
+      projectId: 'repair-A',
+      identity: { projectRoot: root, actor: 'preparation-test' },
+      databasePath: join(root, '.cleo/cleo.db'),
+      expectedGeneration: null,
+    });
+    expect(result.proposal.resources).toEqual([
+      {
+        kind: 'observation',
+        id: 'O-prepared',
+        role: 'affected',
+        beforeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
+    ]);
+    const state = persisted();
+    expect(state.jobs).toHaveLength(1);
+    expect(state.jobs[0]).toMatchObject({
+      id: result.jobId,
+      status: 'pending',
+      attempts: 0,
+      proposal_hash: result.proposalHash,
+    });
+    expect(JSON.parse(state.jobs[0].proposal_json)).toEqual(result.proposal);
+    expect(createHash('sha256').update(state.jobs[0].proposal_json).digest('hex')).toBe(
+      result.proposalHash,
+    );
+    expect(state.observation.invalid_at).toBeNull();
+    expect(state.receipts).toEqual([]);
+  });
+
+  it('retains original immutable inputs on exact retry and refuses conflicting key reuse', async () => {
+    const first = await prepareKnowledgeRepair(context, proposal);
+    getBrainNativeDb(root)!
+      .prepare(
+        "UPDATE main.brain_observations SET narrative='Changed after preparation' WHERE id='O-prepared'",
+      )
+      .run();
+    const repeated = await prepareKnowledgeRepair(context, proposal);
+    expect(repeated.jobId).toBe(first.jobId);
+    expect(repeated.proposal).toEqual(first.proposal);
+    await expect(
+      prepareKnowledgeRepair(context, { ...proposal, findingId: 'different-finding' }),
+    ).rejects.toThrow('different immutable inputs');
+    expect(persisted().jobs).toHaveLength(1);
+  });
+
+  it('captures proposal and explicit project before awaits despite mutable input and ROOT/DIR', async () => {
+    const pending = prepareKnowledgeRepair(context, proposal);
+    proposal.findingId = 'mutated-after-start';
+    const other = join(root, 'other');
+    vi.stubEnv('CLEO_ROOT', other);
+    vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    const result = await pending;
+    expect(result.proposal.findingId).not.toBe('mutated-after-start');
+    expect(result.proposal.identity.projectRoot).toBe(root);
+    expect(persisted().jobs).toHaveLength(1);
+    expect(() => readFileSync(join(other, '.cleo/cleo.db'))).toThrow();
+  });
+
+  it('rejects stale source state without inserting pending work', async () => {
+    getBrainNativeDb(root)!
+      .prepare(
+        "UPDATE main.brain_observations SET narrative='Useful incident detail' WHERE id='O-prepared'",
+      )
+      .run();
+    await expect(prepareKnowledgeRepair(context, proposal)).rejects.toThrow(
+      'preconditions changed',
+    );
+    expect(persisted().jobs).toEqual([]);
+  });
+
+  it('rolls back an injected pending insert failure without changing source or fabricating receipts', async () => {
+    getBrainNativeDb(root)!.exec(
+      "CREATE TEMP TRIGGER reject_prepared_job AFTER INSERT ON main.background_jobs BEGIN SELECT RAISE(ABORT,'proposal persistence fault'); END",
+    );
+    await expect(prepareKnowledgeRepair(context, proposal)).rejects.toThrow();
+    const state = persisted();
+    expect(state.jobs).toEqual([]);
+    expect(state.observation.invalid_at).toBeNull();
+    expect(state.receipts).toEqual([]);
+  });
+
+  it('refuses cancelled preparation before any durable pending work', async () => {
+    context.close();
+    await expect(prepareKnowledgeRepair(context, proposal)).rejects.toThrow();
+    expect(persisted().jobs).toEqual([]);
+  });
+
+  it('refuses borrowed transactions without rolling back the caller', async () => {
+    const db = getBrainNativeDb(root)!;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare(
+        "UPDATE main.brain_observations SET title='caller-owned' WHERE id='O-prepared'",
+      ).run();
+      // Use a proposal reflecting the caller's uncommitted image, so transaction refusal,
+      // rather than the stale-source precondition, is the independent oracle.
+      const state = {
+        decisions: db
+          .prepare(
+            'SELECT id, decision, rationale, invalid_at, superseded_by, supersedes, confirmation_state FROM main.brain_decisions ORDER BY id',
+          )
+          .all(),
+        observations: db
+          .prepare(
+            'SELECT id, title, narrative, invalid_at, verified FROM main.brain_observations ORDER BY id',
+          )
+          .all(),
+      };
+      proposal.expectedStateHash = createHash('sha256').update(JSON.stringify(state)).digest('hex');
+      await expect(prepareKnowledgeRepair(context, proposal)).rejects.toThrow(
+        'another caller owns',
+      );
+      expect(
+        db.prepare("SELECT title FROM main.brain_observations WHERE id='O-prepared'").get()?.title,
+      ).toBe('caller-owned');
+    } finally {
+      db.exec('ROLLBACK');
+    }
+    expect(persisted().jobs).toEqual([]);
+  });
+
+  it('captures exact published generation provenance in the immutable plan', async () => {
+    const assessment = {
+      generation: '52c225b0-7ec5-4519-befe-dedb34b6d712',
+      sourceRoot: root,
+      assessedRevision: null,
+      assessedAt: '2026-09-19T00:00:00.000Z',
+      files: [],
+    };
+    getBrainNativeDb(root)!
+      .prepare("INSERT INTO main._nexus_meta(key,value) VALUES ('graph_assessment',?)")
+      .run(JSON.stringify(assessment));
+    const result = await prepareKnowledgeRepair(context, proposal);
+    expect(result.proposal.expectedGeneration).toBe(assessment.generation);
+    expect(result.proposal.sourceRoot).toBe(root);
+    expect(result.proposal.assessmentHash).toBe(
+      createHash('sha256').update(JSON.stringify(assessment)).digest('hex'),
+    );
+  });
+
+  it('reports durable preparation if cancellation arrives immediately after its commit', async () => {
+    const original = DurableJobStore.prototype.defer;
+    vi.spyOn(DurableJobStore.prototype, 'defer').mockImplementation(function (...args) {
+      const result = original.apply(this, args);
+      context.close();
+      return result;
+    });
+    const result = await prepareKnowledgeRepair(context, proposal);
+    expect(result.jobStatus).toBe('pending');
+    expect(persisted().jobs[0].id).toBe(result.jobId);
+    expect(persisted().observation.invalid_at).toBeNull();
+  });
+
+  it('rejects a conflicting canonical project identity before preparing work', async () => {
+    writeFileSync(
+      join(root, '.cleo/project-info.json'),
+      JSON.stringify({
+        projectId: 'different-project',
+        projectHash: generateProjectHash(root),
+        projectRoot: root,
+      }),
+    );
+    await expect(prepareKnowledgeRepair(context, proposal)).rejects.toThrow(
+      'Canonical project metadata differs',
+    );
+    expect(persisted().jobs).toEqual([]);
   });
 });
