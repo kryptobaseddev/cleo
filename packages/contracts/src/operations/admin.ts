@@ -24,6 +24,8 @@
  * @see packages/cleo/src/dispatch/domains/admin.ts
  */
 
+import type { BackgroundJobStatus } from '../jobs.js';
+
 // ============================================================================
 // Shared primitive types
 // ============================================================================
@@ -1759,10 +1761,14 @@ export interface AdminJobCancelParams {
 
 /** Result of `admin.job.cancel`. */
 export interface AdminJobCancelResult {
-  /** The job ID that was cancelled. */
+  /** The inspected job identity. */
   jobId: string;
-  /** Whether the cancellation succeeded. */
+  /** Whether this call recorded or reaffirmed a request for running work. */
+  cancellationRequested: boolean;
+  /** Whether the executor has acknowledged terminal cancellation. */
   cancelled: boolean;
+  /** Persisted lifecycle state observed after the request. */
+  status: BackgroundJobStatus;
 }
 
 // ---------------------------------------------------------------------------

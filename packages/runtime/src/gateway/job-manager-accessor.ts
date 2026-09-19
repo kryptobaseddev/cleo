@@ -24,9 +24,10 @@ let _instance: BackgroundJobManager | null = null;
 /**
  * Register the process-wide {@link BackgroundJobManager} singleton.
  *
- * @param manager - The manager instance to expose to gateway consumers.
+ * @param manager - The manager to expose, or null to unregister a stopped host.
+ * @remarks Hosts unregister before closing their store; absence is reported explicitly.
  */
-export function setJobManager(manager: BackgroundJobManager): void {
+export function setJobManager(manager: BackgroundJobManager | null): void {
   _instance = manager;
 }
 
