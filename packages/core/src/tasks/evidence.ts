@@ -28,6 +28,7 @@ import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 
 import type {
   EvidenceAtom,
+  EvidenceValidationContext,
   GateEvidence,
   EvidenceAtomInput as ParsedEvidenceAtom,
   VerificationGate,
@@ -344,6 +345,7 @@ export async function validateAtom(
   taskId?: string,
   /** T12107: sha of a sibling `commit:` atom in the same evidence string. */
   siblingCommitSha?: string,
+  context?: EvidenceValidationContext,
 ): Promise<AtomValidation> {
   // gh#1365: resolve the tree under test ONCE, here, and pass it down as a
   // required parameter. Resolving inside each validator would centralise the
@@ -381,7 +383,7 @@ export async function validateAtom(
       // db, which is CLEO's own record, not the repository's.
       return validateDecision(parsed.decisionId, roots);
     case 'pr':
-      return validatePrAtom(parsed.prNumber, roots);
+      return validatePrAtom(parsed.prNumber, roots, context);
     case 'satisfies': {
       // ADR-079-r2: 5-check validator pipeline shipped by T10507.
       // Delegates to the dedicated validator module to keep the dispatch
@@ -2093,7 +2095,18 @@ async function validateDecision(decisionId: string, roots: EvidenceRoots): Promi
  *
  * @task T9764
  */
-async function validatePrAtom(prNumber: number, roots: EvidenceRoots): Promise<AtomValidation> {
+async function validatePrAtom(
+  prNumber: number,
+  roots: EvidenceRoots,
+  context?: EvidenceValidationContext,
+): Promise<AtomValidation> {
+  if (!context) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: 'PR evidence requires current task, gate, and acceptance-criterion context.',
+    };
+  }
   // Dynamic import keeps the verification module free of a static dependency
   // on the release subtree, mirroring the pattern used by validateDecision.
   const { resolvePrEvidenceAtom } = await import('../release/pr-evidence.js');
@@ -2117,6 +2130,38 @@ async function validatePrAtom(prNumber: number, roots: EvidenceRoots): Promise<A
   if (!result.ok) {
     return { ok: false, reason: result.reason, codeName: result.codeName };
   }
+  if (result.changedFileCount !== result.changedPaths.length || result.changedPaths.length === 0) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `PR #${prNumber} changed-file coverage is incomplete or empty (${result.changedPaths.length}/${result.changedFileCount}); inspect the full diff before recording evidence.`,
+    };
+  }
+  const declaredFiles = context.task.files ?? [];
+  const taskMention = new RegExp(`(^|[^A-Za-z0-9])${context.task.id}([^A-Za-z0-9]|$)`);
+  const explicitlyLinked = taskMention.test(
+    `${result.title}\n${result.body}\n${result.headRefName}`,
+  );
+  const scopeIntersects =
+    declaredFiles.length > 0 && diffIntersectsAc(result.changedPaths, declaredFiles);
+  if ((!explicitlyLinked && !scopeIntersects) || (declaredFiles.length > 0 && !scopeIntersects)) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
+      reason: `PR #${prNumber} does not establish a relationship to task ${context.task.id}. Changed artifacts: ${result.changedPaths.join(', ')}. Declare task files or cite the exact task in the PR; declared scope must intersect the diff.`,
+    };
+  }
+  if (
+    context.gates.includes('implemented') &&
+    classifyEvidenceTask(context) === 'code' &&
+    result.changedPaths.every(isDocumentArtifact)
+  ) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
+      reason: `PR #${prNumber} changes only documentation and cannot implement code task ${context.task.id}. Changed artifacts: ${result.changedPaths.join(', ')}.`,
+    };
+  }
   return {
     ok: true,
     atom: {
@@ -2126,8 +2171,74 @@ async function validatePrAtom(prNumber: number, roots: EvidenceRoots): Promise<A
       mergedAt: result.mergedAt,
       successCount: result.successCount,
       totalChecks: result.totalChecks,
+      changedPaths: result.changedPaths,
+      taskId: context.task.id,
     },
   };
+}
+
+function isDocumentArtifact(path: string): boolean {
+  return (
+    /\.(md|mdx|rst|adoc|txt)$/i.test(path) ||
+    /(?:^|\/)(README|LICENSE|CHANGELOG)(?:\.[^/]*)?$/i.test(path)
+  );
+}
+
+function classifyEvidenceTask(
+  context: EvidenceValidationContext,
+): 'code' | 'documentation' | 'research' {
+  if (context.task.kind === 'bug') return 'code';
+  if (context.task.kind === 'research' || context.task.kind === 'spike') return 'research';
+  if (
+    context.task.labels?.some((label) => label === 'docs' || label === 'documentation') ||
+    (context.task.files?.length && context.task.files.every(isDocumentArtifact))
+  )
+    return 'documentation';
+  return 'code';
+}
+
+/** Require explicit criterion linkage to inspected artifacts and real gate results. */
+export function checkTaskEvidenceContext(
+  context: EvidenceValidationContext,
+  gate: VerificationGate,
+  atoms: EvidenceAtom[],
+): string | null {
+  const filePaths = atoms.flatMap((atom) =>
+    atom.kind === 'files' ? atom.files.map((file) => file.path) : [],
+  );
+  const prAtoms = atoms.filter((atom) => atom.kind === 'pr');
+  for (const atom of prAtoms) {
+    if (atom.taskId !== context.task.id || !atom.changedPaths?.length)
+      return 'PR provenance lacks verified task scope; re-verify with current task context.';
+    if (gate === 'implemented' && !filePaths.some((path) => atom.changedPaths?.includes(path)))
+      return `PR #${atom.prNumber} requires files evidence for an artifact actually changed by that PR.`;
+  }
+  if (!['implemented', 'testsPassed', 'qaPassed'].includes(gate)) return null;
+  const linked = atoms.filter(
+    (atom): atom is Extract<EvidenceAtom, { kind: 'satisfies' }> =>
+      atom.kind === 'satisfies' && atom.targetTaskId === context.task.id,
+  );
+  if (context.criteria.length > 0 && linked.length === 0)
+    return `Task ${context.task.id} requires explicit criterion linkage: add satisfies:${context.task.id}#AC<n> alongside artifacts and verification results.`;
+  for (const atom of linked) {
+    if (!context.criteria.some((criterion) => criterion.id === atom.resolvedAcUuid))
+      return `Criterion ${atom.resolvedAcUuid ?? atom.targetAcAlias} is not in the current task criteria.`;
+  }
+  if (
+    linked.length > 0 &&
+    gate === 'implemented' &&
+    filePaths.length === 0 &&
+    !atoms.some((atom) => atom.kind === 'decision')
+  )
+    return 'Criterion implementation evidence requires inspected files or a sourced research decision.';
+  if (
+    classifyEvidenceTask(context) === 'code' &&
+    gate === 'implemented' &&
+    atoms.some((atom) => atom.kind === 'decision') &&
+    !atoms.some((atom) => atom.kind === 'commit' || atom.kind === 'pr')
+  )
+    return 'A research decision alone cannot implement a code-fix task.';
+  return null;
 }
 
 /**
@@ -2293,6 +2404,8 @@ export function composeGateEvidence(
   capturedBy: string,
   override?: boolean,
   overrideReason?: string,
+  context?: EvidenceValidationContext,
+  gate?: VerificationGate,
 ): GateEvidence {
   const result: GateEvidence = {
     atoms,
@@ -2302,6 +2415,42 @@ export function composeGateEvidence(
   if (override) {
     result.override = true;
     if (overrideReason) result.overrideReason = overrideReason;
+  }
+  if (context && gate) {
+    const linkedIds = new Set(
+      atoms.flatMap((atom) =>
+        atom.kind === 'satisfies' && atom.targetTaskId === context.task.id && atom.resolvedAcUuid
+          ? [atom.resolvedAcUuid]
+          : [],
+      ),
+    );
+    const artifactPaths = atoms.flatMap((atom) =>
+      atom.kind === 'files' ? atom.files.map((file) => file.path) : [],
+    );
+    const resultAtomIndices = atoms.flatMap((atom, index) => {
+      if (gate === 'implemented')
+        return atom.kind === 'commit' || atom.kind === 'pr' || atom.kind === 'decision'
+          ? [index]
+          : [];
+      return atom.kind === 'tool' || atom.kind === 'test-run' ? [index] : [];
+    });
+    result.scope = {
+      taskId: context.task.id,
+      gate,
+      classification: classifyEvidenceTask(context),
+      criteria: context.criteria
+        .filter((criterion) => linkedIds.has(criterion.id))
+        .map((criterion) => ({
+          criterionId: criterion.id,
+          criterionHash: createHash('sha256').update(criterion.text).digest('hex'),
+          artifactPaths: artifactPaths.length
+            ? artifactPaths
+            : (context.task.verification?.evidence?.implemented?.scope?.criteria.find(
+                (link) => link.criterionId === criterion.id,
+              )?.artifactPaths ?? []),
+          resultAtomIndices,
+        })),
+    };
   }
   return result;
 }
