@@ -10,7 +10,17 @@ function includesValue<T>(filter: T | T[] | undefined, value: T): boolean {
   );
 }
 
-/** Apply identical eligibility to ordinary and archived task rows. */
+/**
+ * Apply identical eligibility to ordinary and archived task rows.
+ * @param task - Candidate task from either storage population.
+ * @param filters - Axis, parent, label and phase eligibility constraints.
+ * @returns Whether the candidate satisfies every supplied constraint.
+ * @remarks Archive inclusion is handled by the population reader, before pagination.
+ * @example
+ * ```ts
+ * const eligible = matchesTaskFilters(task, { parentId: "T001" });
+ * ```
+ */
 export function matchesTaskFilters(task: Task, filters: TaskQueryFilters): boolean {
   return (
     includesValue(filters.status, task.status) &&
@@ -25,7 +35,18 @@ export function matchesTaskFilters(task: Task, filters: TaskQueryFilters): boole
   );
 }
 
-/** Read the full eligible population before matching or pagination. */
+/**
+ * Read the full eligible population before matching or pagination.
+ * @param accessor - Project-bound canonical task store.
+ * @param filters - Eligibility constraints; pagination fields are deliberately ignored.
+ * @param includeArchive - Include archived storage rows with the same filters.
+ * @returns Eligible task rows deduplicated by task identity.
+ * @remarks Archive read errors propagate; they must not imply an empty population.
+ * @example
+ * ```ts
+ * const tasks = await readTaskPopulation(accessor, { parentId: "T001" }, true);
+ * ```
+ */
 export async function readTaskPopulation(
   accessor: DataAccessor,
   filters: TaskQueryFilters,
@@ -45,7 +66,20 @@ export async function readTaskPopulation(
   return [...unique.values()];
 }
 
-/** Slice once and retain explicit match, returned, pagination and archive facts. */
+/**
+ * Slice once and retain explicit match, returned, pagination and archive facts.
+ * @typeParam T - Eligible row shape retained without projection.
+ * @param rows - Entire matched population in presentation order.
+ * @param limit - Non-negative page size; zero returns all rows after offset.
+ * @param offset - Non-negative count of initial matched rows to skip.
+ * @param archive - Archive inclusion policy used when assembling the population.
+ * @returns Selected rows and matched-versus-returned population facts.
+ * @remarks Invalid or fractional bounds are rejected rather than rounded or defaulted.
+ * @example
+ * ```ts
+ * const page = paginateTaskPopulation(tasks, 10, 0, "excluded");
+ * ```
+ */
 export function paginateTaskPopulation<T>(
   rows: T[],
   limit: number,

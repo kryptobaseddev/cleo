@@ -28,6 +28,10 @@ import { cliOutput } from '../renderers/index.js';
 
 const listArgs = {
   ...paramsToCittyArgs(getOperationParams('query', 'tasks', 'list')),
+  includeArchive: {
+    type: 'boolean',
+    description: 'Compatibility alias for --include-archive',
+  },
   'parent-id': {
     type: 'string',
     description: 'Alias for --parent (legacy parentId compatibility)',
@@ -79,6 +83,7 @@ export const listCommand = defineCommand({
     const params = registryParamsToDispatchPayload(declaredParams, args as Record<string, unknown>);
 
     // CLI-only compatibility alias — not a registry param, so forwarded here.
+    if (args['includeArchive'] !== undefined) params['includeArchive'] ??= args['includeArchive'];
     if (args['parent-id'] !== undefined) params['parent'] ??= args['parent-id'];
 
     // GH #1242 — `--all` is the discoverable spelling of `--limit 0`. Set it

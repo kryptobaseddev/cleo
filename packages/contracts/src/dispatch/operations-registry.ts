@@ -293,6 +293,7 @@ export const OPERATIONS: OperationDef[] = [
         type: 'boolean',
         required: false,
         description: 'Include archived rows under the same filters',
+        cli: { flag: 'include-archive' },
       },
       { name: 'parent', type: 'string', required: false, description: 'Filter by parent task ID' },
       { name: 'status', type: 'string', required: false, description: 'Filter by task status' },

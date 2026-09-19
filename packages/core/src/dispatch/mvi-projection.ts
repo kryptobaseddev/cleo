@@ -193,6 +193,16 @@ const GENERIC_MVI_FIELDS: ReadonlySet<string> = new Set([
 
 /**
  * Retain omission provenance when an SDK constructs its own compact shape.
+ * @typeParam Source - Original record shape before compact rendering.
+ * @typeParam Projected - Caller-selected compact record shape.
+ * @param source - Original record, including prior omission metadata.
+ * @param projected - Compact fields and any synthetic fields to retain.
+ * @returns Compact record with mandatory truth and exact omission metadata.
+ * @example
+ * ```ts
+ * const compact = discloseProjection({ id: "T001", notes: "details" }, { id: "T001" });
+ * ```
+ * @remarks
  * Uses the same field accounting, mandatory truth and prior-omission rules as
  * dispatch projection. Synthetic fields remain present; source fields omitted
  * by successive projections remain named with their original byte sizes.

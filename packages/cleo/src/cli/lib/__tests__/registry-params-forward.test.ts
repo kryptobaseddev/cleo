@@ -77,9 +77,9 @@ describe('registryParamsToDispatchPayload (T12120)', () => {
     expect(payload['limit']).toBe(0);
   });
 
-  it('drops an unparseable number rather than forwarding NaN', () => {
+  it('preserves an invalid number for domain rejection instead of silently using defaults', () => {
     const payload = registryParamsToDispatchPayload(listParams, { limit: 'abc' });
-    expect(payload).not.toHaveProperty('limit');
+    expect(payload['limit']).toBeNaN();
   });
 
   it('maps a CLI flag spelling back to its canonical param name', () => {
