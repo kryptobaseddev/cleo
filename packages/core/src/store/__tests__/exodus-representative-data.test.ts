@@ -84,7 +84,8 @@ describe('exodus real-data parity gate (T11551 · DHQ-045)', () => {
       },
     });
 
-    vi.mock('../dual-scope-db.js', () => ({
+    vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
       openDualScopeDb: vi.fn(),
       openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),

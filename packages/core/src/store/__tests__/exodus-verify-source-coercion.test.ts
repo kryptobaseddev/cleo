@@ -57,7 +57,8 @@ vi.mock('../../logger.js', () => ({
 
 // runExodusMigrate (FIX D) opens the TARGET DBs on a dedicated connection via
 // openDualScopeDbAtPath — wire it to the pre-built fixture handles.
-vi.mock('../dual-scope-db.js', () => ({
+vi.mock('../dual-scope-db.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../dual-scope-db.js')>()),
   openDualScopeDb: vi.fn(),
   openDualScopeDbAtPath: vi.fn(),
   resolveDualScopeDbPath: vi.fn(),
