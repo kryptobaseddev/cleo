@@ -50,6 +50,13 @@ function setupBlockedProject(): { projectRoot: string; cleoDir: string } {
   return { projectRoot, cleoDir };
 }
 
+// Read and write the selected project's manifest and bridge fixtures.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'cleo-bridge-warn-'));
 });

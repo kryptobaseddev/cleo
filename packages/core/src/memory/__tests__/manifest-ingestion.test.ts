@@ -12,7 +12,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDb } from '../../store/sqlite.js';
 import { ingestLooseAgentOutputs, ingestRcasdDirectories } from '../manifest-ingestion.js';
 
@@ -47,6 +47,13 @@ async function setupTestProject(): Promise<{
 
   return { root, db, cleanup };
 }
+
+// Read and write the selected project's manifest and bridge fixtures.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('manifest-ingestion', () => {
   describe('ingestRcasdDirectories', () => {

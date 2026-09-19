@@ -54,6 +54,7 @@ const ENV_KEYS = [
   'CLEO_HOME',
   'HOME',
   'CLEO_DIR',
+  'CLEO_ROOT',
 ];
 
 function saveEnv(): void {

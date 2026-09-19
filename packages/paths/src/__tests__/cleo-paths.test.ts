@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import envPaths from 'env-paths';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetCleoPlatformPathsCache,
   canonicalizePath,
@@ -24,12 +24,14 @@ describe('cleo-paths', () => {
   let originalCleoHome: string | undefined;
 
   beforeEach(() => {
+    vi.stubEnv('CLEO_CONFIG_HOME', undefined);
     originalCleoHome = process.env['CLEO_HOME'];
     delete process.env['CLEO_HOME'];
     _resetCleoPlatformPathsCache();
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     if (originalCleoHome === undefined) {
       delete process.env['CLEO_HOME'];
     } else {
@@ -66,6 +68,7 @@ describe('cleo-paths', () => {
 
   it('getCleoTemplatesTildePath returns ~-prefixed path under home', () => {
     delete process.env['CLEO_HOME'];
+    vi.stubEnv('XDG_DATA_HOME', join(homedir(), '.local', 'share'));
     const tilde = getCleoTemplatesTildePath();
     expect(tilde.startsWith('~/')).toBe(true);
     expect(tilde.endsWith('/templates')).toBe(true);
