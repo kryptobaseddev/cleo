@@ -25,7 +25,7 @@ import type {
   GuardedToolSurface,
   SkillExecuteInput,
 } from '@cleocode/contracts/tools/skill-executor';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultSkillRunner, SkillExecutorAdapter } from '../skill-executor-adapter.js';
 
 // ---------------------------------------------------------------------------
@@ -85,12 +85,15 @@ function makeGuardSpy(): { tools: GuardedToolSurface; calls: string[] } {
 }
 
 beforeEach(() => {
+  // Exercise the explicit CLEO_PROJECT_ROOT fixture fallback.
+  vi.stubEnv('CLEO_ROOT', undefined);
   projectRoot = mkdtempSync(join(tmpdir(), 'cleo-skill-adapter-'));
   prevProjectRoot = process.env['CLEO_PROJECT_ROOT'];
   process.env['CLEO_PROJECT_ROOT'] = projectRoot;
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   if (prevProjectRoot === undefined) {
     delete process.env['CLEO_PROJECT_ROOT'];
   } else {

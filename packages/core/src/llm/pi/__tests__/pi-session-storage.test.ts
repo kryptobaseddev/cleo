@@ -49,6 +49,13 @@ function fixedNow(): string {
   return new Date(Date.UTC(2026, 5, 8, 0, 0, clockTick)).toISOString();
 }
 
+// Scope cleanup and durable session reads to the explicitly seeded fixture.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(async () => {
   testRoot = join(
     tmpdir(),
