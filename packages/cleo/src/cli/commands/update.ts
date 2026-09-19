@@ -19,7 +19,7 @@
  * @epic T4454
  */
 
-import { ExitCode, TASK_SEVERITIES } from '@cleocode/contracts';
+import { ExitCode, TASK_SEVERITIES, type TaskRecord } from '@cleocode/contracts';
 import {
   appendSignedSeverityAttestation,
   INPUT_CONTRACTS,
@@ -30,7 +30,12 @@ import {
   validateOperationInput,
 } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli, dispatchRaw, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
+import {
+  dispatchFromCli,
+  dispatchRaw,
+  handleRawError,
+  maybeEmitDescribe,
+} from '../../dispatch/adapters/cli.js';
 import { collectMutateInput } from '../lib/collect-input.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -429,9 +434,11 @@ export const updateCommand = defineCommand({
       const showResponse = await dispatchRaw('query', 'tasks', 'show', {
         taskId: args.taskId,
       });
-      const existingTask = showResponse.success
-        ? (showResponse.data as Record<string, unknown> | undefined)
-        : undefined;
+      if (!showResponse.success) {
+        handleRawError(showResponse, { command: 'update', operation: 'tasks.show' });
+        return;
+      }
+      const existingTask = showResponse.data as TaskRecord | undefined;
       const currentStage =
         typeof existingTask?.['pipelineStage'] === 'string'
           ? (existingTask['pipelineStage'] as string)
@@ -530,10 +537,12 @@ export const updateCommand = defineCommand({
       const showResponse = await dispatchRaw('query', 'tasks', 'show', {
         taskId: args.taskId,
       });
-      const existingTask = showResponse.success
-        ? (showResponse.data as Record<string, unknown> | undefined)
-        : undefined;
-      const existingDepends = existingTask?.['depends'] as unknown[] | undefined;
+      if (!showResponse.success) {
+        handleRawError(showResponse, { command: 'update', operation: 'tasks.show' });
+        return;
+      }
+      const existingTask = showResponse.data as TaskRecord | undefined;
+      const existingDepends = existingTask?.depends;
       const hasDependencies = Array.isArray(existingDepends) && existingDepends.length > 0;
 
       if (!hasDependencies) {

@@ -196,16 +196,22 @@ describe.skipIf(!HAS_BUNDLE)('mutation exit and persistence contract (T12258)', 
     ['human', ['--human']],
     ['json', ['--json']],
   ] as const)('rejected mutations exit unsuccessfully in %s mode', (mode, flags) => {
-    const result = runCli(['update', 'T999999', '--title', 'Rejected mutation', ...flags]);
-    expect(result.status).toBe(4);
-    if (mode === 'silent' || mode === 'human') {
-      expect(result.stdout).toBe('');
-      expect(result.stderr).toContain('Task not found');
-    } else {
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        success: false,
-        error: { code: 4 },
-      });
+    for (const mutation of [
+      ['--title', 'Rejected mutation'],
+      ['--pipeline-stage', 'implementation'],
+      ['--priority', 'critical'],
+    ]) {
+      const result = runCli(['update', 'T999999', ...mutation, ...flags]);
+      expect(result.status).toBe(4);
+      if (mode === 'silent' || mode === 'human') {
+        expect(result.stdout).toBe('');
+        expect(result.stderr).toContain('Task not found');
+      } else {
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          success: false,
+          error: { code: 4 },
+        });
+      }
     }
   });
 
