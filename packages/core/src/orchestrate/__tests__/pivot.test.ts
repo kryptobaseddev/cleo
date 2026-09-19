@@ -26,6 +26,8 @@ describe('pivotTask', () => {
   let accessor: DataAccessor;
 
   beforeEach(async () => {
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     env = await createTestDb();
     accessor = env.accessor;
   });
@@ -33,6 +35,7 @@ describe('pivotTask', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     await env.cleanup();
+    vi.unstubAllEnvs();
   });
 
   // ---------------------------------------------------------------------------
