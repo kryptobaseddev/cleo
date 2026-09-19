@@ -13,6 +13,7 @@ import type {
   ObserveBrainResult,
 } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
+import { generateProjectHash } from '../../nexus/hash.js';
 import { worktreeScope } from '../../paths.js';
 import {
   sessionExistsInTasksDb,
@@ -152,7 +153,7 @@ export async function observeBrain(
       return worktreeScope.run(
         {
           worktreeRoot: execution.identity.projectRoot,
-          projectHash: execution.identity.projectId,
+          projectHash: generateProjectHash(execution.identity.projectRoot),
           execution,
         },
         () => observeBrain(projectRoot, captured, execution),

@@ -174,14 +174,24 @@ describe('scoped source worker execution (T12265)', () => {
       logLevel: 'silent',
     });
     const { worktreeScope } = await import('../../paths.js');
+    const { generateProjectHash } = await import('../../nexus/hash.js');
     const { getDb, closeAllDatabases } = await import('../../store/sqlite.js');
     const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const { DurableJobStore } = await import('../../store/background-jobs.js');
     const { createOperationExecutionContext, bindOperationWriteFence, transferOperationContext } =
       await import('../../store/background-ops.js');
-    const db = await worktreeScope.run({ worktreeRoot: project }, () => getDb(project));
-    await worktreeScope.run({ worktreeRoot: project }, () => getBrainDb(project));
-    const native = worktreeScope.run({ worktreeRoot: project }, () => getBrainNativeDb(project))!;
+    const db = await worktreeScope.run(
+      { worktreeRoot: project, projectHash: generateProjectHash(project) },
+      () => getDb(project),
+    );
+    await worktreeScope.run(
+      { worktreeRoot: project, projectHash: generateProjectHash(project) },
+      () => getBrainDb(project),
+    );
+    const native = worktreeScope.run(
+      { worktreeRoot: project, projectHash: generateProjectHash(project) },
+      () => getBrainNativeDb(project),
+    )!;
     const jobs = new DurableJobStore(db, { projectId: 'A', actor: 'fixture' });
     const proposalJson = JSON.stringify({ document: 'source 😀', project: 'A' });
     const job = jobs.defer('worker-proof', 'docs.projection', Date.now(), {
