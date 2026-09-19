@@ -30,7 +30,12 @@ import { existsSync } from 'node:fs';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import type { SeverityAttestation } from '@cleocode/contracts';
+import {
+  ExitCode,
+  type SeverityAttestation,
+  type SignedSeverityAttestation,
+} from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 import { getCleoIdentity, signAuditLine } from '../identity/cleo-identity.js';
 import { getCleoDirAbsolute, getConfigPath } from '../paths.js';
 
@@ -97,7 +102,7 @@ export async function loadOwnerPubkeys(cwd?: string): Promise<string[]> {
  */
 export function canonicalAttestationJson(record: SeverityAttestation): string {
   const sortedKeys = (Object.keys(record) as Array<keyof SeverityAttestation>).sort();
-  const ordered: Record<string, unknown> = {};
+  const ordered: Record<string, string | undefined> = {};
   for (const key of sortedKeys) {
     ordered[key] = record[key];
   }
@@ -126,7 +131,7 @@ export interface AppendSeverityAttestationOptions {
  * Append a signed severity attestation to
  * `.cleo/audit/severity-attestation.jsonl`.
  *
- * Throws a shaped error with `code: 'E_OWNER_ONLY'` when the signer's pubkey
+ * Throws a permission error naming `E_OWNER_ONLY` when the signer's pubkey
  * is not in the configured `ownerPubkeys` allowlist (allowlist enforcement is
  * only active when the list is non-empty).
  *
@@ -135,8 +140,7 @@ export interface AppendSeverityAttestationOptions {
  *                  from the local CLEO identity).
  * @param options - Optional overrides (e.g. `cwd`).
  *
- * @throws `Error` with `code: 'E_OWNER_ONLY'` when the allowlist rejects the
- *   signer.
+ * @throws CleoError with permission exit code when the allowlist rejects the signer.
  *
  * @example
  * ```ts
@@ -155,23 +159,39 @@ export async function appendSignedSeverityAttestation(
   options?: AppendSeverityAttestationOptions,
 ): Promise<void> {
   const cwd = options?.cwd;
-  const id = await getCleoIdentity();
-  const owners = await loadOwnerPubkeys(cwd);
-
-  if (owners.length > 0 && !owners.includes(id.pubkeyHex)) {
-    const err = new Error(
-      `E_OWNER_ONLY: severity attestation requires an owner-allowlisted identity (pub=${id.pubkeyHex.slice(0, 8)}…). Add your public key to .cleo/config.json "ownerPubkeys" array to authorise.`,
-    );
-    (err as Error & { code?: string }).code = 'E_OWNER_ONLY';
-    throw err;
-  }
-
-  const full: SeverityAttestation = { ...record, signerPub: id.pubkeyHex };
-  const canonical = canonicalAttestationJson(full);
-  const sig = await signAuditLine(id, canonical);
-
-  const line = `${JSON.stringify({ ...full, _sig: sig })}\n`;
+  const signed = await prepareSignedSeverityAttestation(record, options);
+  const line = `${JSON.stringify(signed)}\n`;
   const auditPath = join(getCleoDirAbsolute(cwd), 'audit', SEVERITY_ATTESTATION_AUDIT_FILE);
   await mkdir(dirname(auditPath), { recursive: true });
   await appendFile(auditPath, line, { encoding: 'utf-8' });
+}
+
+/**
+ * Authorize and sign a severity assertion without appending a filesystem log.
+ *
+ * Task mutations persist this result in their task transaction, binding the
+ * signature to the assigned task ID. The established owner allowlist is opt-in:
+ * absent or empty lists permit the local identity; nonempty lists restrict it.
+ *
+ * @param record - Assertion to bind to the project identity.
+ * @param options - Explicit project used for both identity and owner policy.
+ * @returns Signed assertion ready for atomic audit persistence.
+ * @throws CleoError with permission exit code when the signer is not allowed.
+ */
+export async function prepareSignedSeverityAttestation(
+  record: Omit<SeverityAttestation, 'signerPub'>,
+  options?: AppendSeverityAttestationOptions,
+): Promise<SignedSeverityAttestation> {
+  const cwd = options?.cwd;
+  const id = await getCleoIdentity(cwd);
+  const owners = await loadOwnerPubkeys(cwd);
+  if (owners.length > 0 && !owners.includes(id.pubkeyHex)) {
+    throw new CleoError(
+      ExitCode.NEXUS_PERMISSION_DENIED,
+      `E_OWNER_ONLY: severity attestation requires an owner-allowlisted identity (pub=${id.pubkeyHex.slice(0, 8)}…).`,
+      { details: { field: 'severity' }, fix: 'Use an identity authorized by the project owner.' },
+    );
+  }
+  const full: SeverityAttestation = { ...record, signerPub: id.pubkeyHex };
+  return { ...full, _sig: await signAuditLine(id, canonicalAttestationJson(full)) };
 }

@@ -772,6 +772,17 @@ export interface SeverityAttestation {
   signerPub: string;
 }
 
+/** Signed severity assertion; task audit persistence establishes commit provenance. */
+export interface SignedSeverityAttestation extends SeverityAttestation {
+  /** Ed25519 signature of the canonical assertion, excluding this signature field. */
+  _sig: {
+    /** Hex-encoded signature. */
+    sig: string;
+    /** Hex-encoded signing public key, matching signerPub. */
+    pub: string;
+  };
+}
+
 /** Phase status. */
 export type PhaseStatus = 'pending' | 'active' | 'completed';
 
