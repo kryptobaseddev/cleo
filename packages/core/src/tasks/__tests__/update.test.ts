@@ -15,6 +15,7 @@ import type { DataAccessor } from '../../store/data-accessor.js';
 import * as taskAccessors from '../../store/data-accessor.js';
 import * as taskSqlite from '../../store/sqlite.js';
 import { resetDbState } from '../../store/sqlite.js';
+import { tasks } from '../../store/tasks-schema.js';
 import { auditData, queryAuditLog } from '../../system/audit.js';
 import { tasksUpdateOp } from '../ops.js';
 import { taskUpdate, updateTask } from '../update.js';
@@ -210,6 +211,51 @@ describe('updateTask', () => {
     );
     expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual(expected);
     expect((await accessor.getAcRows('T001')).map((row) => row.text)).toEqual(expected);
+  });
+
+  it.each([
+    'not-json',
+    '{}',
+    '1',
+    'null',
+    '"text"',
+    '["valid", 3]',
+    '["valid", false]',
+    '["valid", {}]',
+  ])('reports invalid historical acceptance explicitly without rewriting it: %s', async (raw) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Historical acceptance fixture',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const db = await taskSqlite.getDb(env.tempDir);
+    await db.update(tasks).set({ acceptanceJson: raw });
+    await expect(accessor.loadSingleTask('T001')).rejects.toThrow(
+      'Invalid stored acceptance for task T001',
+    );
+    expect((await db.select({ raw: tasks.acceptanceJson }).from(tasks))[0]?.raw).toBe(raw);
+  });
+
+  it('preserves valid historical strings and structured gates without read-time normalization', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Historical gate fixture',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const raw =
+      '[ "  literal a|b  ", {"kind":"manual","description":"Historical review", "prompt":"Review the original evidence", "reference":"original"} ]';
+    const db = await taskSqlite.getDb(env.tempDir);
+    await db.update(tasks).set({ acceptanceJson: raw });
+    expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual(JSON.parse(raw));
+    expect((await db.select({ raw: tasks.acceptanceJson }).from(tasks))[0]?.raw).toBe(raw);
   });
 
   it('requires authorization to clear locked criteria and leaves absent criteria unchanged', async () => {
