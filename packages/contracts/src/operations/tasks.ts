@@ -1440,6 +1440,8 @@ export interface TasksAddParams {
    */
   parentSource?: 'explicit' | 'session-inference';
   depends?: string[];
+  /** Justification preserved in the creation audit for a critical-priority task. */
+  dependsWaiver?: string;
   priority?: string;
   labels?: string[];
   type?: TaskType; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 // ssot-exempt-ok: pre-existing exempt, narrowed string→TaskType (T10328)
@@ -1500,6 +1502,8 @@ export interface TasksUpdateQueryParams {
   description?: string;
   status?: string;
   priority?: string;
+  /** Project-defined task phase, persisted independently of pipelineStage. */
+  phase?: string;
   notes?: string;
   labels?: string[];
   addLabels?: string[];
@@ -1536,6 +1540,8 @@ export interface TasksUpdateQueryParams {
   dependsWaiver?: string;
   /** Set the blockedBy free-text reason. @task T9241 (gh#1106) */
   blockedBy?: string;
+  /** Disable automatic parent completion when true; false restores automatic completion. */
+  noAutoComplete?: boolean;
   /** Clear the blockedBy free-text reason (set to undefined). @task T9241 */
   clearBlockedBy?: boolean;
   /** Set related tasks (replaces existing). @task T9327 */
@@ -2273,6 +2279,7 @@ export const TASKS_ADD_INPUT_SCHEMA: JsonSchema = {
     description: { type: 'string' },
     parent: { type: 'string' },
     depends: { type: 'array', items: { type: 'string' } },
+    dependsWaiver: { type: 'string', minLength: 1 },
     priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
     labels: { type: 'array', items: { type: 'string' } },
     type: { type: 'string', enum: ['saga', 'epic', 'task', 'subtask'] },
@@ -2438,6 +2445,7 @@ export const TASKS_UPDATE_INPUT_SCHEMA: JsonSchema = {
       enum: ['pending', 'active', 'blocked', 'done', 'cancelled'],
     },
     priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+    phase: { type: 'string' },
     notes: { type: 'string' },
     labels: { type: 'array', items: { type: 'string' } },
     addLabels: { type: 'array', items: { type: 'string' } },
@@ -2463,6 +2471,7 @@ export const TASKS_UPDATE_INPUT_SCHEMA: JsonSchema = {
     dependsWaiver: { type: 'string' },
     blockedBy: { type: 'string' },
     clearBlockedBy: { type: 'boolean' },
+    noAutoComplete: { type: 'boolean' },
     relates: {
       type: 'array',
       items: {

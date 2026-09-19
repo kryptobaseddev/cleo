@@ -281,6 +281,16 @@ function projectRootForGate(cwd: string | undefined): string {
  */
 type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings'>;
 
+/** Parent rollups must satisfy their own criteria without inheriting child waivers. */
+async function canAutoCompleteParent(
+  parent: Task,
+  accessor: DataAccessor,
+  tx: TransactionAccessor,
+): Promise<boolean> {
+  if (parent.noAutoComplete) return false;
+  return (await computeAcCoverage(parent.id, { ...accessor, ...tx })).ok;
+}
+
 async function enforceAcCoverageGate(
   options: CompleteTaskOptions,
   projectRoot: string,
@@ -788,31 +798,8 @@ export async function completeTask(
         // decision and status='done'/autoclose updates commit or roll back as
         // one atomic unit.
         //
-        // ---- T10644: Auto-bind ACs when all verification gates are green ----
-        // Workers often complete all 3 gates (implemented/testsPassed/qaPassed)
-        // but skip the AC evidence binding step. When all gates are green, we
-        // auto-create `coverage` bindings for any ACs lacking bindings so the
-        // complete gate passes without manual SQL injection by the Prime.
-        if (task.verification?.passed === true) {
-          const acRows = await acc.getAcRows(options.taskId);
-          if (acRows.length > 0) {
-            const acIds = acRows.map((ac) => ac.id);
-            const bindings = await acc.getAcBindings(acIds);
-            const boundAcIds = new Set(bindings.map((b: any) => b.acId));
-            const unbound = acRows.filter((ac) => !boundAcIds.has(ac.id));
-            if (unbound.length > 0) {
-              await tx.insertAcBindings(
-                unbound.map((ac) => ({
-                  id: `auto-coverage-${ac.id.slice(0, 8)}`,
-                  evidenceAtomId: 'auto-coverage-verification-passed',
-                  acId: ac.id,
-                  bindingType: 'coverage' as const,
-                })),
-              );
-            }
-          }
-        }
-
+        // Gate status does not establish which criteria were proved. Require
+        // explicit bindings; retain historical auto-coverage rows as history.
         await enforceAcCoverageGate(options, projectRootForGate(cwd), tx);
 
         // Auto-advance pipelineStage: IVTR execution stages → release (T719)
@@ -922,7 +909,7 @@ export async function completeTask(
                   } as typeof acc)
                 : true;
 
-              if (epicEvidencePassed) {
+              if (epicEvidencePassed && (await canAutoCompleteParent(parent, acc, tx))) {
                 parent.status = 'done';
                 parent.completedAt = now;
                 parent.updatedAt = now;
@@ -979,7 +966,11 @@ export async function completeTask(
                   '[complete] suppressing coordination-parent auto-close: un-waived cancelled children require `cleo complete --waive-cancelled-children`',
                 );
               }
-              if (allCpDone && !cpHasCancelledChild) {
+              if (
+                allCpDone &&
+                !cpHasCancelledChild &&
+                (await canAutoCompleteParent(coordinationParent, acc, tx))
+              ) {
                 // Synthesize verification evidence from children's gate state.
                 // The overlay adds the current task (not yet in DB) as done so
                 // buildRollupEvidence sees the post-write view.
@@ -1050,7 +1041,7 @@ export async function completeTask(
             if (m.id === task.id) return true;
             return m.status === 'done' || m.status === 'cancelled';
           });
-          if (!allMembersTerminal) continue;
+          if (!allMembersTerminal || !(await canAutoCompleteParent(saga, acc, tx))) continue;
 
           // Synthesize evidence + flip the saga to terminal. The saga write
           // joins `autoCompletedTasks` so the transaction below upserts it

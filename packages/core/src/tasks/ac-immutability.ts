@@ -47,13 +47,15 @@ export const AC_CHANGES_AUDIT_FILE = '.cleo/audit/ac-changes.jsonl';
 /**
  * One line of the AC-changes audit log.
  *
- * Each successful override of the immutability guard appends exactly one
- * record. The file is append-only — readers MUST treat the JSONL stream
- * as the canonical history.
+ * New records describe authorization attempts, not committed mutations.
+ * Committed overrides live in the transactional task_updated audit details.
+ * Historical records without status remain preserved and have unverified commit status.
  *
  * @task T1590
  */
 export interface AcceptanceChangeAuditEntry {
+  /** Lifecycle meaning; absent on legacy records whose commit status is unverified. */
+  status?: 'authorization-attempt' | 'committed';
   /** ISO-8601 timestamp at which the override was recorded. */
   timestamp: string;
   /** Task whose acceptance criteria were modified. */
@@ -172,6 +174,7 @@ function isAcceptanceEmpty(acceptance: AcceptanceItem[] | undefined | null): boo
  *    entry is appended to `.cleo/audit/ac-changes.jsonl`.
  *
  * @param options - {@link EnforceAcceptanceImmutabilityOptions}.
+ * @returns Authorization snapshot for the transaction audit, or undefined when no override applies.
  * @throws CleoError(AC_LOCKED) when the AC are locked and no reason is given.
  *
  * @example
@@ -186,7 +189,9 @@ function isAcceptanceEmpty(acceptance: AcceptanceItem[] | undefined | null): boo
  *
  * @task T1590
  */
-export function enforceAcceptanceImmutability(options: EnforceAcceptanceImmutabilityOptions): void {
+export function enforceAcceptanceImmutability(
+  options: EnforceAcceptanceImmutabilityOptions,
+): AcceptanceChangeAuditEntry | undefined {
   const { task, newAcceptance, reason, projectRoot } = options;
 
   // No AC change → guard does not apply.
@@ -230,8 +235,8 @@ export function enforceAcceptanceImmutability(options: EnforceAcceptanceImmutabi
     );
   }
 
-  // Override path: append audit entry.
-  appendAcceptanceChangeAudit({
+  // Record authorization separately from the eventual transaction outcome.
+  return appendAcceptanceChangeAudit({
     projectRoot: resolveOrCwd(projectRoot),
     taskId: task.id,
     stage: task.pipelineStage ?? '',
@@ -245,9 +250,8 @@ export function enforceAcceptanceImmutability(options: EnforceAcceptanceImmutabi
  * Append a single {@link AcceptanceChangeAuditEntry} to
  * `.cleo/audit/ac-changes.jsonl`.
  *
- * Errors are deliberately swallowed (best-effort write) so audit failures
- * never block a legitimate operator-approved update. The path mirrors
- * `force-bypass.jsonl` and `contract-violations.jsonl` (ADR-039).
+ * This legacy stream records authorization attempts only. Its best-effort
+ * write cannot replace the required transactional task_updated receipt.
  *
  * @task T1590
  */
@@ -258,23 +262,25 @@ function appendAcceptanceChangeAudit(input: {
   reason: string;
   oldAcceptance: AcceptanceItem[];
   newAcceptance: AcceptanceItem[];
-}): void {
+}): AcceptanceChangeAuditEntry {
+  const entry: AcceptanceChangeAuditEntry = {
+    status: 'authorization-attempt',
+    timestamp: new Date().toISOString(),
+    taskId: input.taskId,
+    stage: input.stage,
+    reason: input.reason,
+    // Deep-copy AC arrays so later mutation of the source object cannot
+    // retroactively rewrite the audit record.
+    oldAcceptance: JSON.parse(JSON.stringify(input.oldAcceptance)) as AcceptanceItem[],
+    newAcceptance: JSON.parse(JSON.stringify(input.newAcceptance)) as AcceptanceItem[],
+    agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+  };
   try {
     const filePath = join(input.projectRoot, AC_CHANGES_AUDIT_FILE);
     mkdirSync(dirname(filePath), { recursive: true });
-    const entry: AcceptanceChangeAuditEntry = {
-      timestamp: new Date().toISOString(),
-      taskId: input.taskId,
-      stage: input.stage,
-      reason: input.reason,
-      // Deep-copy AC arrays so later mutation of the source object cannot
-      // retroactively rewrite the audit record.
-      oldAcceptance: JSON.parse(JSON.stringify(input.oldAcceptance)) as AcceptanceItem[],
-      newAcceptance: JSON.parse(JSON.stringify(input.newAcceptance)) as AcceptanceItem[],
-      agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
-    };
     appendFileSync(filePath, `${JSON.stringify(entry)}\n`, { encoding: 'utf-8' });
   } catch {
-    // non-fatal — audit writes must never block the operation
+    // Advisory attempt only; commit provenance is written inside the task transaction.
   }
+  return entry;
 }

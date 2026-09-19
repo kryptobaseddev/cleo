@@ -68,7 +68,17 @@ describe('projectMvi', () => {
     // a field that exists on the record is either present in the envelope or
     // explicitly named as withheld. See WITHHELD_KEY.
     expect(Object.keys(out).sort()).toEqual(
-      ['_withheld', 'id', 'kind', 'parentId', 'priority', 'status', 'title', 'type'].sort(),
+      [
+        '_withheld',
+        'id',
+        'kind',
+        'parentId',
+        'priority',
+        'scope',
+        'status',
+        'title',
+        'type',
+      ].sort(),
     );
     expect(out.id).toBe('T9922');
     expect(out.title).toBe('MVI projection default');
@@ -120,9 +130,6 @@ describe('projectMvi', () => {
       priority: 'medium',
       type: 'task',
       kind: 'work',
-      description: '',
-      verification: null,
-      acceptance: [],
     };
     const out = projectMvi(stub, 'task') as Record<string, unknown>;
     expect(out).not.toHaveProperty(WITHHELD_KEY);
@@ -245,7 +252,6 @@ describe('applyProjectionPlan — the exact `cleo show` path (T12121 · GH #1243
         priority: 'medium',
         type: 'task',
         kind: 'work',
-        description: null,
       },
     };
     const out = applyProjectionPlan(data, 'tasks.show', 'mvi') as {
@@ -406,20 +412,18 @@ describe('projectMVI generalized projector (T11351)', () => {
 
   it('honors a real token budget — reduces output below the budget', () => {
     const estimator = new TokenEstimator();
-    const before = estimator.estimate(projectMvi(FULL_TASK, 'task'));
+    const verboseTitle = { ...FULL_TASK, title: 'Long title '.repeat(400) };
+    const before = estimator.estimate(projectMvi(verboseTitle, 'task'));
     // Pick a budget well below the full MVI field-set estimate.
     const budget = Math.max(1, Math.floor(before / 2));
-    const reduced = projectMVI(FULL_TASK, { kind: 'task', budget });
+    const reduced = projectMVI(verboseTitle, { kind: 'task', budget });
     expect(estimator.estimate(reduced)).toBeLessThanOrEqual(budget);
     // id stays routable through reduction.
     expect(reduced).toHaveProperty('id', 'T9922');
   });
 
-  it('keeps id as the last-resort minimum under a tiny budget', () => {
-    const reduced = projectMVI(FULL_TASK, { kind: 'task', budget: 1 });
-    expect(reduced).toHaveProperty('id', 'T9922');
-    // Everything else dropped to honor the budget.
-    expect(Object.keys(reduced)).toEqual(['id']);
+  it('rejects tiny budgets that cannot carry the required disclosure', () => {
+    expect(() => projectMVI(FULL_TASK, { kind: 'task', budget: 1 })).toThrow(/budget/i);
   });
 
   it('an unknown-kind over-budget record both avoids leak AND fits the budget', () => {
@@ -430,7 +434,7 @@ describe('projectMVI generalized projector (T11351)', () => {
       status: 'open',
       bulk: 'q'.repeat(8000),
     };
-    const budget = 8;
+    const budget = 80;
     const projected = projectMVI(weird, { kind: 'unknown', budget });
     expect(projected).not.toHaveProperty('bulk');
     expect(estimator.estimate(projected)).toBeLessThanOrEqual(budget);
@@ -448,5 +452,54 @@ describe('projectMVI generalized projector (T11351)', () => {
     expect(projectMVI(42 as never, { kind: 'task' })).toBe(42);
     const arr = [{ id: 'A' }] as never;
     expect(projectMVI(arr, { kind: 'task' })).toBe(arr);
+  });
+});
+
+describe('truthful projection boundaries T12199', () => {
+  it('measures omitted Unicode as UTF-8 bytes', () => {
+    expect(projectMvi({ id: 'T1', description: 'é😀漢' }, 'task')).toMatchObject({
+      _withheld: { description: 9 },
+    });
+  });
+  it('retains previous omission facts across repeated projection', () => {
+    const first = projectMvi({ id: 'T1', description: 'Original text' }, 'task');
+    expect(projectMvi(first, 'task')).toEqual(first);
+  });
+  it('discloses omitted empty and null fields', () => {
+    expect(
+      projectMvi({ id: 'T1', description: '', acceptance: [], verification: null }, 'task'),
+    ).toMatchObject({ _withheld: { description: 0, acceptance: 2, verification: 4 } });
+  });
+  it('rejects a budget that would remove the mandatory omission disclosure', () => {
+    expect(() =>
+      projectMVI({ id: 'T1', description: 'Text' }, { kind: 'task', budget: 1 }),
+    ).toThrow(/budget/i);
+  });
+  it('keeps coverage, failure diagnostics and repair state before examples', () => {
+    const record = {
+      id: 'T1',
+      title: 'x'.repeat(1000),
+      coverage: {
+        status: 'failed',
+        projectId: 'p',
+        reasons: ['Git unavailable'],
+        limitations: ['Static analysis'],
+      },
+      knowledgeHealth: {
+        findingCount: 2,
+        findingStates: { pending: 2 },
+        detailsCommand: 'cleo doctor knowledge',
+      },
+      sourceDiagnostics: { git: { status: 'failed', reasons: ['No repository'] } },
+    };
+    const result = projectMVI(record, { kind: 'unknown', budget: 180 });
+    expect(result).toMatchObject({
+      id: 'T1',
+      coverage: record.coverage,
+      knowledgeHealth: record.knowledgeHealth,
+      sourceDiagnostics: record.sourceDiagnostics,
+      _withheld: { title: 1000 },
+    });
+    expect(new TokenEstimator().estimate(result)).toBeLessThanOrEqual(180);
   });
 });

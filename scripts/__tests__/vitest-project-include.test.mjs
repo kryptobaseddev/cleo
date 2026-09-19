@@ -28,8 +28,18 @@
  * @task T12067
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { glob } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -170,5 +180,90 @@ describe('@cleocode/cleo test quarantine (T12067)', () => {
   it('is referenced by the cleo vitest config', () => {
     const config = readFileSync(join(repoRoot, 'packages/cleo/vitest.config.ts'), 'utf-8');
     expect(config).toContain('CLEO_TEST_QUARANTINE');
+  });
+});
+
+describe('test runtime store isolation (T9579)', () => {
+  it('replaces inherited host roots before imports and keeps sentinels untouched', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-isolation-host-sentinel-'));
+    const names = [
+      'HOME',
+      'USERPROFILE',
+      'TMPDIR',
+      'TMP',
+      'TEMP',
+      'XDG_DATA_HOME',
+      'XDG_CONFIG_HOME',
+      'XDG_CACHE_HOME',
+      'CLEO_HOME',
+      'CLEO_CONFIG_HOME',
+      'CLEO_ROOT',
+      'CLEO_DIR',
+      'AGENTS_HOME',
+      'NEXUS_HOME',
+      'NEXUS_CACHE_DIR',
+    ];
+    const env = { ...process.env };
+    for (const name of names) {
+      const sentinel = join(root, name);
+      mkdirSync(sentinel);
+      writeFileSync(join(sentinel, 'sentinel'), 'preserve original bytes');
+      env[name] = sentinel;
+    }
+    let isolated;
+    try {
+      const script = `
+        await import(${JSON.stringify(new URL('../../vitest.setup.ts', import.meta.url).href)});
+        delete process.env.VITEST;
+        const { mkdirSync, writeFileSync } = await import('node:fs');
+        const { join } = await import('node:path');
+        const roots = Object.fromEntries(${JSON.stringify(names)}.map(name => [name, process.env[name]]));
+        for (const path of Object.values(roots)) {
+          mkdirSync(path, { recursive: true });
+          writeFileSync(join(path, 'probe'), 'isolated write');
+        }
+        process.stdout.write(JSON.stringify(roots));
+      `;
+      const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+        env,
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 10000,
+      });
+      expect(child.status, child.stderr).toBe(0);
+      isolated = JSON.parse(child.stdout);
+      for (const name of names) {
+        expect(isolated[name]).not.toBe(env[name]);
+        expect(readdirSync(env[name])).toEqual(['sentinel']);
+        expect(readFileSync(join(env[name], 'sentinel'), 'utf8')).toBe('preserve original bytes');
+      }
+      expect(isolated.CLEO_DIR).toBe(join(isolated.CLEO_ROOT, '.cleo'));
+    } finally {
+      if (isolated?.CLEO_HOME !== env.CLEO_HOME && isolated?.CLEO_HOME)
+        rmSync(isolated.CLEO_HOME, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('allows only the exact sandbox for global SQLite while rejecting an outside host-like path', async () => {
+    const { openNativeDatabase } = await import('../../packages/core/src/store/sqlite-native.ts');
+    const outside = mkdtempSync(join(dirname(process.env.CLEO_HOME), 'cleo-outside-fork-'));
+    const allowed = join(process.env.CLEO_HOME, 'isolation-guard-probe.db');
+    try {
+      expect(process.env.CLEO_TEST_ALLOWED_DB_ROOTS).toBe(process.env.CLEO_HOME);
+      expect(() => openNativeDatabase(join(outside, 'host.db'))).toThrow('test isolation guard');
+      expect(existsSync(join(outside, 'host.db'))).toBe(false);
+      const db = openNativeDatabase(allowed);
+      db.close();
+      expect(existsSync(allowed)).toBe(true);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+      for (const suffix of ['', '-wal', '-shm']) rmSync(`${allowed}${suffix}`, { force: true });
+    }
+  });
+
+  it('delivers an absolute setup path through the shared defaults', async () => {
+    const { MEMORY_SAFE_TEST_DEFAULTS } = await import('../../vitest.memory-safe.ts');
+    expect(MEMORY_SAFE_TEST_DEFAULTS.setupFiles).toEqual([join(repoRoot, 'vitest.setup.ts')]);
   });
 });

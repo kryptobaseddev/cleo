@@ -302,6 +302,29 @@ describe('cleo update --pipeline-stage validation (T10341)', () => {
     expect(mockDispatchFromCli).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    { 'pipeline-stage': 'implementation' },
+    { priority: 'critical' },
+  ])('preserves failed diagnostic reads for %j', async (args) => {
+    const failure = {
+      success: false,
+      error: {
+        code: 'E_DB_READ_FAILED',
+        message: 'Diagnostic task read unavailable',
+        exitCode: 84,
+      },
+      meta: { requestId: 'failed-read', timestamp: '2026-09-19T00:00:00Z', duration_ms: 1 },
+    };
+    mockDispatchRaw.mockResolvedValue(failure);
+    await invokeUpdate('T001', args);
+    expect(mockHandleRawError).toHaveBeenCalledWith(failure, {
+      command: 'update',
+      operation: 'tasks.show',
+    });
+    expect(mockDispatchFromCli).not.toHaveBeenCalled();
+    expect(mockCliError).not.toHaveBeenCalled();
+  });
+
   it('does NOT validate pipeline-stage when flag is absent', async () => {
     await invokeUpdate('T001', { title: 'just a title change' });
 

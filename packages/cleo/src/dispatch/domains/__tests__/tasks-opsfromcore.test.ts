@@ -7,7 +7,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const dispatchSourcePath = resolve(testDir, '../tasks.ts');
@@ -44,6 +44,67 @@ describe('tasks dispatch OpsFromCore inference', () => {
     expect(opsSource).toContain("readonly add: TaskCoreOperation<'add'>;");
     expect(opsSource).toContain(
       "readonly 'sync.links.remove': TaskCoreOperation<'sync.links.remove'>;",
+    );
+  });
+});
+
+vi.mock('@cleocode/runtime/gateway', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/runtime/gateway')>();
+  return { ...actual, addTaskWithSessionScope: vi.fn(), taskUpdate: vi.fn() };
+});
+vi.mock('../../../../../core/src/paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../../core/src/paths.js')>();
+  return { ...actual, getProjectRoot: vi.fn(() => '/mock/project') };
+});
+
+import { addTaskWithSessionScope, taskUpdate } from '@cleocode/runtime/gateway';
+import { TasksHandler } from '../tasks.js';
+
+describe('canonical task input forwarding', () => {
+  let handler: TasksHandler;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    handler = new TasksHandler();
+  });
+  it.each([
+    true,
+    false,
+  ])('update - retains explicit auto-complete %s, phase and waiver fields', async (noAutoComplete) => {
+    vi.mocked(taskUpdate).mockResolvedValue({
+      success: false,
+      error: { code: 'E_TEST', message: 'Boundary-only fixture' },
+    });
+    const input = {
+      taskId: 'T001',
+      noAutoComplete,
+      phase: 'verification',
+      priority: 'critical',
+      dependsWaiver: 'Independent restoration',
+    };
+    await handler.mutate('update', input);
+    const { taskId, ...updates } = input;
+    expect(taskUpdate).toHaveBeenCalledWith(
+      '/mock/project',
+      taskId,
+      expect.objectContaining(updates),
+    );
+  });
+
+  it('add - retains creation dependency-waiver provenance', async () => {
+    vi.mocked(addTaskWithSessionScope).mockResolvedValue({
+      success: false,
+      error: { code: 'E_TEST', message: 'Boundary-only fixture' },
+    });
+    const input = {
+      title: 'Critical task',
+      description: 'Create with sourced waiver',
+      priority: 'critical',
+      dependsWaiver: 'Independent restoration',
+    };
+    await handler.mutate('add', input);
+    expect(addTaskWithSessionScope).toHaveBeenCalledWith(
+      '/mock/project',
+      expect.objectContaining(input),
     );
   });
 });

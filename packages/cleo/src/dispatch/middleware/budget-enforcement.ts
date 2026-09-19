@@ -32,7 +32,7 @@ import type { DispatchError, DispatchRequest, DispatchResponse, Middleware } fro
 /**
  * Resolve the {@link BudgetPolicy} for a request, if any.
  *
- * A per-request override carried as `req.params._budget` (a positive number)
+ * A per-request override carried as `req.params._budget` (a non-negative number)
  * wins — used by integration tests and any internal caller that wants to drive
  * the chokepoint without a registered policy. Otherwise the canonical
  * `<domain>.<operation>` policy from {@link BUDGET_POLICIES} applies.
@@ -42,7 +42,7 @@ import type { DispatchError, DispatchRequest, DispatchResponse, Middleware } fro
  */
 function resolvePolicy(req: DispatchRequest): BudgetPolicy | undefined {
   const override = req.params?.['_budget'];
-  if (typeof override === 'number' && override > 0) {
+  if (typeof override === 'number' && Number.isFinite(override) && override >= 0) {
     const modeOverride = req.params?.['_budgetMode'];
     const mode =
       modeOverride === 'error' || modeOverride === 'truncate' ? modeOverride : 'truncate';
