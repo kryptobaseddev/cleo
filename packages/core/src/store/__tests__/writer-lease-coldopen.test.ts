@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createOperationExecutionContext } from '../background-ops.js';
 import {
   _resetDualScopeDbCache,
   insertIdempotent,
@@ -650,4 +651,95 @@ describe('T14 — T5158 regression: concurrent cold-open writers serialize (loca
     expect(counterValue(verify)).toBeLessThan(WRITERS);
     verify.close();
   }, 60_000);
+});
+
+describe('captured cold-open lease lifetime', () => {
+  function context(budgetMs = 2000) {
+    return createOperationExecutionContext(
+      {
+        projectId: 'cold',
+        projectRoot: testRoot,
+        actor: 'fixture',
+        operation: 'docs.projection',
+        idempotencyKey: 'cold-open',
+      },
+      { budgetMs },
+    );
+  }
+
+  it('refuses expired scope before cold-open bootstrap mutations', async () => {
+    const native = new DatabaseSync(join(testRoot, 'empty.db'));
+    const execution = context(0);
+    try {
+      await expect(
+        withColdOpenLease('project', native, async () => 'forbidden', { execution }),
+      ).rejects.toThrow();
+      expect(native.prepare('SELECT name FROM sqlite_master').all()).toEqual([]);
+    } finally {
+      execution.close();
+      native.close();
+    }
+  });
+
+  it('cancels a genuinely contended cold-open without executing its migration callback', async () => {
+    const native = new DatabaseSync(join(testRoot, 'contended.db'));
+    let release = () => {};
+    let entered = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const holder = withColdOpenLease('project', native, async () => {
+      entered();
+      await gate;
+    });
+    await ready;
+    const execution = context(25);
+    let writes = 0;
+    try {
+      await expect(
+        withColdOpenLease(
+          'project',
+          native,
+          async () => {
+            writes += 1;
+          },
+          { execution },
+        ),
+      ).rejects.toThrow();
+      expect(writes).toBe(0);
+      expect(countActive(native, 'project', 'tasks')).toBe(1);
+      expect(countRows(native, WRITER_QUEUE_TABLE)).toBe(0);
+    } finally {
+      execution.close();
+      release();
+      await holder;
+      native.close();
+    }
+  });
+
+  it('preserves a completed migration result if cancellation follows its synchronous commit', async () => {
+    const native = new DatabaseSync(join(testRoot, 'committed.db'));
+    const execution = context();
+    try {
+      const result = await withColdOpenLease(
+        'project',
+        native,
+        async () => {
+          native.exec("CREATE TABLE proof (value TEXT); INSERT INTO proof VALUES ('committed')");
+          execution.close();
+          return 'committed';
+        },
+        { execution },
+      );
+      expect(result).toBe('committed');
+      expect(native.prepare('SELECT value FROM proof').get()?.value).toBe('committed');
+      expect(countActive(native, 'project', 'tasks')).toBe(0);
+    } finally {
+      execution.close();
+      native.close();
+    }
+  });
 });

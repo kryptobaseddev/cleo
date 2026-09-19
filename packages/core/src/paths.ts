@@ -28,6 +28,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 // _resolveProjectByCwdFromNexus actually opens a database.
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { E_CWD_WALKUP_FORBIDDEN, ExitCode } from '@cleocode/contracts';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import {
   computeCanonicalProjectId as _computeCanonicalProjectId,
   getCanonicalTemplatesTildePath as _getCanonicalTemplatesTildePath,
@@ -88,6 +89,8 @@ function _getDatabaseSyncCtor(): new (
  * @public
  */
 export interface WorktreeScope {
+  /** Optional captured operation lifetime for guarded asynchronous storage work. */
+  readonly execution?: OperationExecutionContext;
   /**
    * Absolute path to the worktree directory (value of `CLEO_WORKTREE_ROOT`).
    */
