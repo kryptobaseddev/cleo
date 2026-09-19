@@ -14,6 +14,8 @@ import { maybeRefreshMemoryBridge } from './memory-bridge-refresh.js';
 
 /**
  * Handle PreToolUse (maps to task.start in CLEO, canonical: was onToolStart)
+ * @param _projectRoot - Project identity retained for the hook interface; no memory row is emitted.
+ * @param _payload - Lifecycle payload retained for the hook interface.
  */
 export async function handleToolStart(
   _projectRoot: string,
@@ -27,6 +29,7 @@ export async function handleToolStart(
  *
  * T138: Refresh memory bridge after task completion.
  * No background LLM is required for task completion.
+ * @param _payload - Completion payload retained for the hook interface.
  */
 export async function handleToolComplete(
   projectRoot: string,
