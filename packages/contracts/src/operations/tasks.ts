@@ -1660,10 +1660,14 @@ export interface TasksCompleteQueryResult {
   unblockedTasks?: Array<Pick<TaskRef, 'id' | 'title'>>;
 }
 
-// tasks.delete (dispatch-level params)
+/** Canonical task deletion controls shared by dispatch and core wrappers. */
 export interface TasksDeleteQueryParams {
+  /** Task to move into the archive. */
   taskId: string;
+  /** Allow dependents and orphan children unless cascade is explicitly enabled. */
   force?: boolean;
+  /** Archive the entire descendant subtree rather than orphaning children. */
+  cascade?: boolean;
 }
 /**
  * Result of `tasks.delete` — deletion confirmation with cascade details.
