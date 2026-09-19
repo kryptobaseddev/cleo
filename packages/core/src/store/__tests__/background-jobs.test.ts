@@ -18,6 +18,14 @@ const migration = readFileSync(
   new URL(`../../../migrations/drizzle-tasks/${migrationName}/migration.sql`, import.meta.url),
   'utf8',
 );
+const pendingMigrationName = '20260919184500_t12265-durable-pending-proposals';
+const pendingMigration = readFileSync(
+  new URL(
+    `../../../migrations/drizzle-tasks/${pendingMigrationName}/migration.sql`,
+    import.meta.url,
+  ),
+  'utf8',
+);
 const baseSchema = `CREATE TABLE background_jobs (
   id TEXT PRIMARY KEY, operation TEXT NOT NULL, status TEXT NOT NULL,
   started_at INTEGER NOT NULL, completed_at INTEGER, result TEXT, error TEXT,
@@ -75,6 +83,7 @@ beforeEach(() => {
   native = new DatabaseSync(path);
   native.exec(baseSchema);
   native.exec(migration);
+  native.exec(pendingMigration);
   db = drizzle({ client: native });
 });
 afterEach(() => {
@@ -356,6 +365,11 @@ it('discovers and journals the additive migration through a fresh canonical proj
         .get(migrationName),
     ).toBeDefined();
     expect(
+      inspection
+        .prepare('SELECT name FROM main.__drizzle_migrations WHERE name=?')
+        .get(pendingMigrationName),
+    ).toBeDefined();
+    expect(
       inspection.prepare('SELECT COUNT(*) AS n FROM main.tasks_background_jobs').get()?.n,
     ).toBe(0);
   } finally {
@@ -368,6 +382,8 @@ it('upgrades populated active rows through the migration runner without touching
   const folder = join(root, 'migrations');
   mkdirSync(join(folder, migrationName), { recursive: true });
   writeFileSync(join(folder, migrationName, 'migration.sql'), migration);
+  mkdirSync(join(folder, pendingMigrationName), { recursive: true });
+  writeFileSync(join(folder, pendingMigrationName, 'migration.sql'), pendingMigration);
   try {
     history.exec(baseSchema);
     history.exec(
@@ -392,10 +408,18 @@ it('upgrades populated active rows through the migration runner without touching
     expect(history.prepare('SELECT * FROM tasks_background_jobs').all()).toEqual(beforeCanonical);
     expect(
       history
-        .prepare('SELECT owner_id,lease_expires_at,fencing_epoch,attempts FROM background_jobs')
+        .prepare(
+          'SELECT owner_id,lease_expires_at,fencing_epoch,attempts,proposal_json FROM background_jobs',
+        )
         .get(),
-    ).toEqual({ owner_id: null, lease_expires_at: null, fencing_epoch: 0, attempts: 0 });
-    expect(history.prepare('SELECT COUNT(*) AS n FROM main.__drizzle_migrations').get()?.n).toBe(1);
+    ).toEqual({
+      owner_id: null,
+      lease_expires_at: null,
+      fencing_epoch: 0,
+      attempts: 0,
+      proposal_json: null,
+    });
+    expect(history.prepare('SELECT COUNT(*) AS n FROM main.__drizzle_migrations').get()?.n).toBe(2);
   } finally {
     history.close();
   }
