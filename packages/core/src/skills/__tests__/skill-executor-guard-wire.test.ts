@@ -24,7 +24,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ExecuteShellResult } from '@cleocode/contracts/tools/atomic';
 import type { SkillExecuteInput } from '@cleocode/contracts/tools/skill-executor';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SkillExecutorAdapter } from '../../skills/skill-executor-adapter.js';
 import { createToolGuard, GuardDeniedError } from '../../tools/index.js';
 
@@ -46,12 +46,15 @@ function createFixtureSkill(id: string): void {
 }
 
 beforeEach(() => {
+  // Exercise the explicit CLEO_PROJECT_ROOT fixture fallback.
+  vi.stubEnv('CLEO_ROOT', undefined);
   projectRoot = mkdtempSync(join(tmpdir(), 'cleo-tools-wire-'));
   prevProjectRoot = process.env['CLEO_PROJECT_ROOT'];
   process.env['CLEO_PROJECT_ROOT'] = projectRoot;
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   if (prevProjectRoot === undefined) {
     delete process.env['CLEO_PROJECT_ROOT'];
   } else {
