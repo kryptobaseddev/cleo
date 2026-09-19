@@ -253,3 +253,33 @@ export function validatePackageArtifact(
     ],
   };
 }
+
+/**
+ * Reject declaration and stray JavaScript output absent from the published CLI bundle.
+ *
+ * @param files - Actual selected package files, not a development directory listing.
+ * @returns Concrete build-shape failures; this does not load the bundle.
+ * @example
+ * ```ts
+ * assertCleoShippedBuildShape([{ path: 'dist/cli/index.js', size: 1 }]); // []
+ * ```
+ */
+export function assertCleoShippedBuildShape(files: readonly PackageArtifactFile[]): string[] {
+  const reasons: string[] = [];
+  const dist = files.filter((file) => file.path.startsWith('dist/'));
+  const declarations = dist.filter(
+    (file) => file.path.endsWith('.d.ts') || file.path.endsWith('.d.ts.map'),
+  );
+  if (declarations.length)
+    reasons.push(
+      `${declarations.length} declaration file(s) under dist/ — the esbuild bundle emits none`,
+    );
+  const stray = dist.filter(
+    (file) => file.path.endsWith('.js') && file.path !== 'dist/cli/index.js',
+  );
+  if (stray.length)
+    reasons.push(
+      `${stray.length} .js file(s) under dist/ outside the declared entry dist/cli/index.js, e.g. ${stray[0]?.path}`,
+    );
+  return reasons;
+}

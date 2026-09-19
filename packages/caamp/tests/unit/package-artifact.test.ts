@@ -10,6 +10,7 @@ import type {
 } from '@cleocode/contracts/package-artifact';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  assertCleoShippedBuildShape,
   CLEO_ARTIFACT_BUDGETS,
   CLEO_ARTIFACT_REQUIREMENTS,
   classifyPackageFilesEntry,
@@ -419,5 +420,19 @@ describe('independent real npm-packed fixtures', () => {
     expect(result.issues).toContainEqual(
       expect.objectContaining({ code: 'missing', subject: 'studio-manifest' }),
     );
+  });
+});
+
+describe('published CLI build shape', () => {
+  it('accepts the declared CLI bundle and Studio resources', () => {
+    expect(assertCleoShippedBuildShape(fixture().files)).toEqual([]);
+  });
+  it.each([
+    'dist/cli/index.d.ts',
+    'dist/cli/index.d.ts.map',
+    'dist/extra.js',
+    'dist/nested/index.js',
+  ])('rejects development output %s', (path) => {
+    expect(assertCleoShippedBuildShape([...fixture().files, { path, size: 1 }])).not.toEqual([]);
   });
 });

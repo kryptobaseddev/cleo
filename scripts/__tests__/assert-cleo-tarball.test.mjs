@@ -1,0 +1,115 @@
+/** Independent npm-produced fixtures exercise both operational packaging wrappers. */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Source tests exercise the real CAAMP leaf. Built export/install checks remain separate.
+vi.mock('@cleocode/caamp', () => import('../../packages/caamp/src/core/artifacts/validation.ts'));
+
+import { checkCleoTarball } from '../../packages/cleo/scripts/check-cleo-tarball-size.mjs';
+import { assertCleoTarball } from '../assert-cleo-tarball.mjs';
+
+const required = [
+  'dist/cli/index.js',
+  'studio-dist/index.js',
+  'studio-dist/handler.js',
+  'studio-dist/server/index.js',
+  'studio-dist/server/manifest.js',
+  'studio-dist/client/_app/immutable/entry/start.fixture.js',
+  'studio-dist/client/_app/immutable/entry/app.fixture.js',
+];
+let root;
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), 'cleo-package-wrappers-'));
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  rmSync(root, { recursive: true, force: true });
+});
+
+function put(path, bytes = 'export const fixture = true;\n') {
+  mkdirSync(dirname(join(root, path)), { recursive: true });
+  writeFileSync(join(root, path), bytes);
+}
+function manifest(files = ['dist', 'studio-dist', '!dist/**/*.map']) {
+  put('package.json', JSON.stringify({ name: 'cleo-wrapper-fixture', version: '1.0.0', files }));
+}
+function complete() {
+  manifest();
+  for (const path of required) put(path);
+}
+
+describe('real npm inventory through release wrappers', () => {
+  it('accepts tiny complete content and preserves the negated files entry', () => {
+    complete();
+    put('dist/cli/index.js.map', 'excluded map');
+    expect(assertCleoTarball(root)).toBe(true);
+    expect(checkCleoTarball(root)).toBe(true);
+    expect(console.error).not.toHaveBeenCalled();
+    const receipt = JSON.parse(console.log.mock.calls[0][0]);
+    expect(receipt.inventory.source).toBe('npm-pack-dry-run');
+    expect(receipt.runtime).toBe('not-assessed');
+    expect(receipt.inventory.tarballSha256).toBeUndefined();
+    expect(receipt.inventory.files.some((file) => file.path.endsWith('.map'))).toBe(false);
+  });
+
+  it('rejects empty directories that previously passed existence checks', () => {
+    manifest();
+    mkdirSync(join(root, 'dist/cli'), { recursive: true });
+    mkdirSync(join(root, 'studio-dist/client/_app'), { recursive: true });
+    expect(assertCleoTarball(root)).toBe(false);
+    expect(console.error.mock.calls.flat().join(' ')).toContain('Required resource');
+  });
+
+  it('rejects missing server content despite padding above both old floors', () => {
+    complete();
+    rmSync(join(root, 'studio-dist/server/manifest.js'));
+    for (let index = 0; index < 601; index++)
+      put(`studio-dist/padding/${index}.dat`, Buffer.alloc(40_000, 65));
+    expect(checkCleoTarball(root)).toBe(false);
+    const receipt = JSON.parse(console.log.mock.calls[0][0]);
+    expect(receipt.unpackedBytes).toBeGreaterThan(20 * 1024 * 1024);
+    expect(receipt.inventory.files.length).toBeGreaterThan(600);
+    expect(receipt.issues.filter((issue) => issue.code === 'budget')).toEqual([]);
+    expect(receipt.issues).toContainEqual(
+      expect.objectContaining({ code: 'missing', subject: 'studio-manifest' }),
+    );
+  });
+
+  it('rejects required resources excluded by npm despite complete staging', () => {
+    complete();
+    manifest(['dist', 'studio-dist', '!studio-dist/server/manifest.js']);
+    expect(assertCleoTarball(root)).toBe(false);
+  });
+
+  it('retains declaration/stray JavaScript build-shape rejection', () => {
+    complete();
+    put('dist/cli/index.d.ts', 'export declare const fixture: boolean;');
+    put('dist/not-shipped.js');
+    expect(checkCleoTarball(root)).toBe(false);
+    expect(console.error.mock.calls.flat().join(' ')).toContain('E_DEV_TREE');
+  });
+
+  it('retains actual selected sourcemap rejection', () => {
+    complete();
+    put('studio-dist/server/index.js.map', '{}');
+    expect(checkCleoTarball(root)).toBe(false);
+    expect(console.error.mock.calls.flat().join(' ')).toContain('forbidden');
+  });
+
+  it('retains literal staging promises beyond the semantic entrypoints', () => {
+    complete();
+    manifest(['dist', 'studio-dist', 'missing-promised.json']);
+    expect(assertCleoTarball(root)).toBe(false);
+    expect(console.error.mock.calls.flat().join(' ')).toContain('missing-promised.json');
+  });
+
+  it('rejects malformed files declarations instead of skipping validation', () => {
+    manifest([]);
+    expect(() => assertCleoTarball(root)).toThrow('nonempty array');
+    expect(() => checkCleoTarball(root)).toThrow('nonempty array');
+  });
+});

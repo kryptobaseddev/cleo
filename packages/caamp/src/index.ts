@@ -29,6 +29,13 @@ export {
   selectProvidersByMinimumPriority,
   updateInstructionsSingleOperation,
 } from './core/advanced/orchestration.js';
+export {
+  assertCleoShippedBuildShape,
+  CLEO_ARTIFACT_BUDGETS,
+  CLEO_ARTIFACT_REQUIREMENTS,
+  classifyPackageFilesEntry,
+  validatePackageArtifact,
+} from './core/artifacts/validation.js';
 // Exclusivity / CAAMP-wide configuration (ADR-035 §D7)
 export {
   DEFAULT_EXCLUSIVITY_MODE,
