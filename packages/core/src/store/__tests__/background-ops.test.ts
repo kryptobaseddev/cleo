@@ -11,10 +11,18 @@
  * @task T10490
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addTask } from '../../tasks/add.js';
+import { _resetTeardownSignalForTests, markShuttingDown } from '../../teardown-signal.js';
 import {
   awaitBackgroundOps,
+  createOperationExecutionContext,
+  observeOperation,
   pendingBackgroundOpCount,
   trackBackgroundOp,
 } from '../background-ops.js';
@@ -98,5 +106,200 @@ describe('addTask background ops are flushed at the test boundary (T10490)', () 
     );
     await awaitBackgroundOps();
     expect(pendingBackgroundOpCount()).toBe(0);
+  });
+});
+
+describe('captured operation execution lifetime (T12265)', () => {
+  const scopes: OperationExecutionContext[] = [];
+  const identity = {
+    projectId: 'project-A',
+    projectRoot: '/synthetic/project-A',
+    actor: 'foreground-agent',
+    operation: 'docs.projection',
+    idempotencyKey: 'attachment-hash',
+  };
+  function scope(options: Parameters<typeof createOperationExecutionContext>[1] = {}) {
+    const context = createOperationExecutionContext(identity, options);
+    scopes.push(context);
+    return context;
+  }
+  afterEach(() => {
+    for (const context of scopes.splice(0)) context.close();
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    _resetTeardownSignalForTests();
+  });
+
+  it('pins A before a paused stage and ignores a later ambient B root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-operation-scope-'));
+    const a = new DatabaseSync(join(root, 'a.db'));
+    const b = new DatabaseSync(join(root, 'b.db'));
+    a.exec('CREATE TABLE evidence(project TEXT, actor TEXT)');
+    b.exec('CREATE TABLE evidence(project TEXT, actor TEXT)');
+    const accepted = { ...identity, projectRoot: join(root, 'a') };
+    const context = createOperationExecutionContext(accepted);
+    scopes.push(context);
+    const ready = Promise.withResolvers<void>();
+    const work = (async () => {
+      await ready.promise;
+      context.assertActive();
+      const db = context.identity.projectRoot === join(root, 'a') ? a : b;
+      db.prepare('INSERT INTO evidence VALUES (?,?)').run(
+        context.identity.projectId,
+        context.identity.actor,
+      );
+    })();
+    accepted.projectRoot = join(root, 'b');
+    accepted.actor = 'wrong-agent';
+    vi.stubEnv('CLEO_ROOT', join(root, 'b'));
+    ready.resolve();
+    try {
+      await work;
+      expect(a.prepare('SELECT * FROM evidence').all()).toEqual([
+        { project: 'project-A', actor: 'foreground-agent' },
+      ]);
+      expect(b.prepare('SELECT * FROM evidence').all()).toEqual([]);
+      expect(Object.isFrozen(context.identity)).toBe(true);
+      expect(Object.isFrozen(context)).toBe(true);
+    } finally {
+      a.close();
+      b.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    'caller',
+    'teardown',
+    'close',
+  ] as const)('refuses paused guarded writes after %s cancellation', async (kind) => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('CREATE TABLE evidence(id TEXT)');
+    const caller = new AbortController();
+    const context = scope({ signal: caller.signal });
+    const ready = Promise.withResolvers<void>();
+    const work = (async () => {
+      await ready.promise;
+      context.assertActive();
+      db.prepare('INSERT INTO evidence VALUES (?)').run('late');
+    })();
+    const observation = observeOperation(context, work);
+    if (kind === 'caller') caller.abort();
+    else if (kind === 'teardown') markShuttingDown();
+    else context.close();
+    expect(await observation).toMatchObject({ settled: false });
+    ready.resolve();
+    try {
+      await expect(work).rejects.toThrow(/cancelled|closed/);
+      expect(db.prepare('SELECT * FROM evidence').all()).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('shares the default two seconds across phases and checks time without a timer turn', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    const context = scope();
+    expect(context.deadlineAt).toBe(102_000);
+    vi.setSystemTime(101_200);
+    expect(context.remainingMs()).toBe(800);
+    context.assertActive();
+    vi.setSystemTime(102_000);
+    expect(() => context.assertActive()).toThrow('deadline');
+    expect(context.signal.aborted).toBe(true);
+    expect(context.remainingMs()).toBe(0);
+  });
+
+  it('honors an earlier enclosing deadline and zero budget without admitting work', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(5000);
+    const context = scope({ budgetMs: 9000, deadlineAt: 5100 });
+    expect(context.deadlineAt).toBe(5100);
+    expect(scope({ budgetMs: 0 }).signal.aborted).toBe(true);
+  });
+
+  it('reports an uncooperative promise unresolved, then fences its late stage', async () => {
+    vi.useFakeTimers();
+    const context = scope({ budgetMs: 20 });
+    const work = Promise.withResolvers<string>();
+    const observation = observeOperation(context, work.promise);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await observation).toEqual({
+      settled: false,
+      reason: 'E_OPERATION_DEADLINE',
+      deadlineExceeded: true,
+    });
+    work.resolve('actually continued');
+    expect(await work.promise).toBe('actually continued');
+    expect(() => context.assertActive()).toThrow('deadline');
+  });
+
+  it('reports a synchronous overrun without discarding its committed result', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const context = scope({ budgetMs: 10 });
+    const db = new DatabaseSync(':memory:');
+    db.exec('CREATE TABLE evidence(id TEXT)');
+    const work = Promise.resolve().then(() => {
+      context.assertActive();
+      db.exec("INSERT INTO evidence VALUES ('committed')");
+      // Synchronous elapsed time: no cancellation timer has had a chance to run.
+      vi.setSystemTime(1020);
+      return { committed: true };
+    });
+    try {
+      expect(await observeOperation(context, work)).toEqual({
+        settled: true,
+        success: true,
+        value: { committed: true },
+        deadlineExceeded: true,
+      });
+      context.close();
+      expect(db.prepare('SELECT id FROM evidence').all()).toEqual([{ id: 'committed' }]);
+      expect(() => context.assertActive()).toThrow('closed');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('preserves settled rejection diagnostics and closes escaped capabilities', async () => {
+    const context = scope();
+    const failure = new Error('projection unavailable');
+    expect(await observeOperation(context, Promise.reject(failure))).toEqual({
+      settled: true,
+      success: false,
+      error: failure,
+      deadlineExceeded: false,
+    });
+    context.close();
+    expect(() => context.consume({ items: 1 })).toThrow('closed');
+    context.close();
+  });
+
+  it('accounts aggregate resources across stages and freezes caller limits', () => {
+    const resources = { maxBytes: 5, maxItems: 2 };
+    const context = scope({ resources });
+    resources.maxBytes = 1000;
+    context.consume({ bytes: 3, items: 1 });
+    context.consume({ bytes: 2, items: 1 });
+    expect(() => context.consume({ bytes: 1 })).toThrow('resource');
+    expect(context.signal.aborted).toBe(true);
+    expect(context.resources.maxBytes).toBe(5);
+    expect(Object.isFrozen(context.resources)).toBe(true);
+  });
+
+  it('rejects invalid input and already cancelled work without opening resources', () => {
+    expect(() => createOperationExecutionContext({ ...identity, projectRoot: 'relative' })).toThrow(
+      'absolute',
+    );
+    expect(() => scope({ budgetMs: -1 })).toThrow('budget');
+    expect(() => scope({ resources: { maxItems: Number.NaN } })).toThrow('limits');
+    const caller = new AbortController();
+    caller.abort();
+    const context = scope({ signal: caller.signal });
+    expect(() => context.assertActive()).toThrow('cancelled');
+    markShuttingDown();
+    expect(() => scope().assertActive()).toThrow('teardown');
   });
 });

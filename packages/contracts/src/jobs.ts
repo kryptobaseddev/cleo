@@ -78,6 +78,8 @@ export interface BackgroundJobStoreOptions {
 
 /** Capabilities delivered to the existing executor, not a new execution engine. */
 export interface BackgroundJobExecutionContext {
+  /** Optional shared foreground scope; persisted lease remains independently required. */
+  readonly execution?: OperationExecutionContext;
   /** Cooperative cancellation signal, including remote persisted requests. */
   signal: AbortSignal;
   /** Current attempt fence; does not authorize arbitrary domain mutations. */
@@ -94,3 +96,110 @@ export type BackgroundJobFailureCode =
   | 'E_JOB_LEASE_LOST'
   | 'E_JOB_NOT_RECLAIMABLE'
   | 'E_JOB_TRANSACTION_OWNED';
+
+/** Immutable routing and provenance captured before asynchronous operation work. */
+export interface OperationExecutionIdentity {
+  /** Stable project identifier; never inferred again during execution. */
+  readonly projectId: string;
+  /** Absolute repository/project root associated with this accepted operation. */
+  readonly projectRoot: string;
+  /** Foreground caller responsible for the operation. */
+  readonly actor: string;
+  /** Exact supported operation name. */
+  readonly operation: string;
+  /** Retry identity scoped to this project and operation. */
+  readonly idempotencyKey: string;
+}
+
+/** Cooperative accounting limits; these are not process memory or CPU isolation. */
+export interface OperationResourceLimits {
+  /** Maximum aggregate bytes admitted through guarded stages. */
+  readonly maxBytes?: number;
+  /** Maximum aggregate items admitted through guarded stages. */
+  readonly maxItems?: number;
+}
+
+/** Increment charged before a guarded stage starts work. */
+export interface OperationResourceUsage {
+  /** Bytes the stage intends to process. */
+  readonly bytes?: number;
+  /** Items the stage intends to process. */
+  readonly items?: number;
+}
+
+/** Inputs for one operation lifetime; nested stages receive the same context. */
+export interface OperationExecutionOptions {
+  /** Shared foreground budget; defaults to two seconds and may be zero. */
+  readonly budgetMs?: number;
+  /** Earlier absolute deadline inherited from an enclosing invocation. */
+  readonly deadlineAt?: number;
+  /** Optional caller cancellation, forwarded into the operation signal. */
+  readonly signal?: AbortSignal;
+  /** Optional admission limits; omitted dimensions are not bounded here. */
+  readonly resources?: OperationResourceLimits;
+}
+
+/** Reasons why an operation must not admit a new guarded stage. */
+export type OperationExecutionStopCode =
+  | 'E_OPERATION_CANCELLED'
+  | 'E_OPERATION_DEADLINE'
+  | 'E_OPERATION_CLOSED'
+  | 'E_OPERATION_RESOURCE_LIMIT';
+
+/**
+ * Capabilities shared by foreground assessment, waiting, mutation and verification.
+ * @remarks This context fences cooperating boundaries only. It does not authorize a
+ * repair or preempt arbitrary callbacks, synchronous SQLite, CPU work or processes.
+ */
+export interface OperationExecutionContext {
+  /** Frozen routing/provenance captured at operation acceptance. */
+  readonly identity: OperationExecutionIdentity;
+  /** One absolute deadline; stages must not create replacement budgets. */
+  readonly deadlineAt: number;
+  /** Cancellation from the caller, teardown, deadline, resource limit or close. */
+  readonly signal: AbortSignal;
+  /** Frozen declared admission limits. */
+  readonly resources: OperationResourceLimits;
+  /** Milliseconds still available; checks wall time even if timers cannot run. */
+  readonly remainingMs: () => number;
+  /** Reject new handles/writes at a cooperating boundary after cancellation. */
+  readonly assertActive: () => void;
+  /** Charge a stage's bytes/items atomically before admitting its work. */
+  readonly consume: (usage: OperationResourceUsage) => void;
+  /** Invalidate future guarded work and release listeners/timers; never undo commits. */
+  readonly close: () => void;
+}
+
+/**
+ * Observation of a bounded wait, separate from the underlying operation's receipt.
+ * @typeParam T - Value produced if the supplied promise settles during observation.
+ */
+export type OperationWaitResult<T> =
+  | {
+      /** The supplied promise settled before observation ended. */
+      readonly settled: true;
+      /** Successful outcome. */
+      readonly success: true;
+      /** Actual result, retained even when synchronous work exceeded its budget. */
+      readonly value: T;
+      /** Wall time exceeded the shared deadline; no preemption is claimed. */
+      readonly deadlineExceeded: boolean;
+    }
+  | {
+      /** The supplied promise rejected before observation ended. */
+      readonly settled: true;
+      /** Failed outcome. */
+      readonly success: false;
+      /** Actual diagnostic from the supplied work. */
+      readonly error: Error;
+      /** Wall time exceeded the shared deadline. */
+      readonly deadlineExceeded: boolean;
+    }
+  | {
+      /** Observation ended; this does not mean the supplied work stopped. */
+      readonly settled: false;
+      /** Reason the observer returned while work remained unresolved. */
+      readonly reason: OperationExecutionStopCode;
+      /** Wall time reached the shared deadline. */
+      readonly deadlineExceeded: boolean;
+    };
