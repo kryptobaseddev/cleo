@@ -15,7 +15,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   appendSignedSeverityAttestation,
   SEVERITY_ATTESTATION_AUDIT_FILE,
@@ -62,9 +62,11 @@ async function readAttestationLines(cwd: string): Promise<Record<string, unknown
 describe('T9073 — severity attestation fires for any role', () => {
   beforeEach(async () => {
     tempDir = await setupTempCleoDir();
+    vi.stubEnv('CLEO_DIR', join(tempDir, '.cleo'));
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await rm(tempDir, { recursive: true, force: true });
   });
 
