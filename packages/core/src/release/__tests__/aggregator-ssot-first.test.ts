@@ -18,7 +18,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChangesetEntry } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { writeChangesetEntry } from '../../changesets/writer.js';
 import {
   changesetFileExists,
@@ -28,6 +28,16 @@ import {
 } from '../changesets-aggregator.js';
 
 let projectRoot: string;
+
+// Explicit release fixtures must resolve their own project store and documents.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 beforeEach(() => {
   projectRoot = mkdtempSync(join(tmpdir(), 'cleo-ssot-first-'));

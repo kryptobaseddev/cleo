@@ -35,7 +35,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyConduitSchema,
   attachAgentToProject,
@@ -87,6 +87,16 @@ const EXPECTED_PREFIXED_TABLES = [
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
+
+// Explicit cwd selects the synthetic project after clearing default project pins.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('conduit-sqlite', () => {
   let tmpRoot: string;

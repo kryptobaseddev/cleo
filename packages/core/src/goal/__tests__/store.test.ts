@@ -20,7 +20,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { GoalKind } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb } from '../../store/sqlite.js';
 import {
   appendCriteria,
@@ -38,6 +38,16 @@ const OWNER_A: GoalOwner = { sessionId: 'ses_A', agentId: 'agent-A' };
 const OWNER_B: GoalOwner = { sessionId: 'ses_B', agentId: 'agent-B' };
 const FUZZY: GoalKind = { kind: 'fuzzy' };
 const TASK_GOAL: GoalKind = { kind: 'task-completion', targetTaskId: 'T123' };
+
+// Explicit fixture cwd must select its own project rather than the setup pin.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 beforeEach(() => {
   projectRoot = mkdtempSync(join(tmpdir(), 'cleo-goal-store-'));

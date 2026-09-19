@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { parseReleasePlan } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { closeDb, getDb, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
@@ -97,6 +97,16 @@ function writeChangeset(slug: string, content: string): void {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${slug}.md`), content, 'utf8');
 }
+
+// Explicit release fixtures must resolve their own project store and documents.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'cleo-plan-agg-'));

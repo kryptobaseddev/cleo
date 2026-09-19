@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OrchestratePlanResult } from '@cleocode/contracts/operations/orchestrate';
 import { orchestratePlan, orchestrateReady } from '@cleocode/core/internal';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 
 // ---------------------------------------------------------------------------
@@ -125,6 +125,16 @@ async function seedTasks(testRoot: string, tasks: Array<Record<string, unknown>>
     await createTask(task as Parameters<typeof createTask>[0], testRoot);
   }
 }
+
+// Explicit fixture cwd takes effect after clearing the shared setup project pins.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('orchestratePlan (T889 / W3-6)', () => {
   beforeEach(async () => {
