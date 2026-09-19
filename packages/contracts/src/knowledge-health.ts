@@ -5,6 +5,8 @@
  * against AGENTS.md. These contracts contain no runtime implementation.
  */
 
+import type { BackgroundJobStatus, OperationExecutionIdentity } from './jobs.js';
+
 /** Availability and freshness of the evidence used for an assessment. */
 export type KnowledgeCoverageStatus = 'current' | 'stale' | 'partial' | 'missing' | 'failed';
 
@@ -222,6 +224,52 @@ export interface KnowledgeRepairProposal {
   action: KnowledgeRepairAction;
   /** Explicit sources supplied by the caller, without requiring LLM credentials. */
   evidence: [KnowledgeEvidenceRef, ...KnowledgeEvidenceRef[]];
+}
+
+/** One exact resource whose captured image constrains a supported repair. */
+export interface KnowledgeRepairResource {
+  /** Canonical resource family; no arbitrary SQL table or filesystem action. */
+  kind: 'decision' | 'observation' | 'file';
+  /** Stable record identity or project-relative canonical source path. */
+  id: string;
+  /** Whether this resource changes or only supplies supporting evidence. */
+  role: 'affected' | 'source';
+  /** SHA-256 of the complete stored row or original UTF-8 source bytes. */
+  beforeHash: string;
+}
+
+/** Existing sourced proposal enriched with immutable, independently captured execution scope. */
+export interface KnowledgePreparedRepairProposal extends KnowledgeRepairProposal {
+  /** Version of this authenticated preparation shape. */
+  version: 1;
+  /** Project, actor and immutable retry identity captured before any await. */
+  identity: OperationExecutionIdentity;
+  /** Exact database file containing the resources and durable pending job. */
+  databasePath: string;
+  /** Published analysis source root, or the project root for an unindexed scope. */
+  sourceRoot: string;
+  /** Published generation observed at preparation; null explicitly means absent. */
+  expectedGeneration: string | null;
+  /** Digest of the full validated index assessment, including explicit absence. */
+  assessmentHash: string;
+  /** Exact affected rows and authority sources, retained across retries. */
+  resources: KnowledgeRepairResource[];
+}
+
+/** Durable preparation outcome; no executor is started by this result. */
+export interface KnowledgeRepairPreparation {
+  /** Existing durable job identity to inspect or explicitly resume. */
+  jobId: string;
+  /** Current observed job status, never inferred from successful command execution. */
+  jobStatus: BackgroundJobStatus;
+  /** SHA-256 of the immutable prepared proposal bytes. */
+  proposalHash: string;
+  /** Exact validated inputs retained in the existing job store. */
+  proposal: KnowledgePreparedRepairProposal;
+  /** Original caller deadline shared across all foreground stages. */
+  deadlineAt: number;
+  /** Whether preparation committed after that deadline; committed work is retained. */
+  deadlineExceeded: boolean;
 }
 
 /** Durable, reversible record of an attempted repair and its verified outcome. */
