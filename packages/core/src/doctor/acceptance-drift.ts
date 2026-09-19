@@ -98,7 +98,9 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SQLOutputValue } from 'node:sqlite';
+import { acceptanceItemSchema } from '@cleocode/contracts';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
+import { acItemToText } from '../tasks/ac-table.js';
 
 /** The dual-scope store filename (ADR-068). */
 const LIVE_STORE_FILENAME = 'cleo.db';
@@ -142,7 +144,9 @@ export type AcceptanceDriftKind =
   | 'legacy-children-omitted'
   /** Both populated and disagreeing by something other than the child
    *  projections. */
-  | 'count-mismatch';
+  | 'count-mismatch'
+  /** Equal populations carry different criterion text or ordering. */
+  | 'content-mismatch';
 
 /** One task whose acceptance stores disagree. */
 export interface AcceptanceDriftEntry {
@@ -154,7 +158,7 @@ export interface AcceptanceDriftEntry {
   readonly kind: AcceptanceDriftKind;
   /** Number of entries in `acceptance_json`. */
   readonly jsonCount: number;
-  /** Rows in `tasks_task_acceptance_criteria` with `kind='text'`. */
+  /** Non-child rows in `tasks_task_acceptance_criteria` (text or evidence-bound). */
   readonly textRowCount: number;
   /** Rows with `kind='child_task'` — container projections, not text. */
   readonly childRowCount: number;
@@ -273,6 +277,8 @@ interface ScanRow {
   readonly json_n: number;
   readonly text_n: number;
   readonly child_n: number;
+  readonly acceptance_json: string;
+  readonly row_texts_json: string;
 }
 
 /** Narrow a column to `string`, or `null` when it is absent or another type. */
@@ -310,6 +316,8 @@ function toScanRow(record: Record<string, SQLOutputValue>): ScanRow {
   const jsonN = columnAsCount(record['json_n']);
   const textN = columnAsCount(record['text_n']);
   const childN = columnAsCount(record['child_n']);
+  const acceptanceJson = columnAsStringOrNull(record['acceptance_json']);
+  const rowTextsJson = columnAsStringOrNull(record['row_texts_json']);
 
   // Name the offending column. An error that says only "the shape is wrong"
   // sends the reader to the SQL when the problem is one value in one row —
@@ -319,9 +327,19 @@ function toScanRow(record: Record<string, SQLOutputValue>): ScanRow {
     ['json_n', jsonN],
     ['text_n', textN],
     ['child_n', childN],
+    ['acceptance_json', acceptanceJson],
+    ['row_texts_json', rowTextsJson],
   ].find(([, value]) => value === null)?.[0];
 
-  if (bad !== undefined || id === null || jsonN === null || textN === null || childN === null) {
+  if (
+    bad !== undefined ||
+    id === null ||
+    jsonN === null ||
+    textN === null ||
+    childN === null ||
+    acceptanceJson === null ||
+    rowTextsJson === null
+  ) {
     throw new Error(
       `acceptance-drift: scan column "${String(bad)}" had an unexpected type ` +
         `(got ${typeof record[String(bad)]}) for task ${String(record['id'] ?? '<unknown>')}. ` +
@@ -339,6 +357,8 @@ function toScanRow(record: Record<string, SQLOutputValue>): ScanRow {
     json_n: jsonN,
     text_n: textN,
     child_n: childN,
+    acceptance_json: acceptanceJson,
+    row_texts_json: rowTextsJson,
   };
 }
 
@@ -355,6 +375,8 @@ export function classifyAcceptanceDrift(row: {
   jsonCount: number;
   textRowCount: number;
   childRowCount: number;
+  /** Whether persisted criterion text and ordering agree when assessed. */
+  contentMatches?: boolean;
 }): AcceptanceDriftKind | null {
   const { jsonCount, textRowCount, childRowCount } = row;
   const expected = textRowCount + childRowCount;
@@ -365,7 +387,7 @@ export function classifyAcceptanceDrift(row: {
   // The live convention: the JSON column carries every criterion, text and
   // child projection alike. Measured at 607/608 for tasks created since the
   // convention settled in 2026-06.
-  if (jsonCount === expected) return null;
+  if (jsonCount === expected) return row.contentMatches === false ? 'content-mismatch' : null;
 
   if (jsonCount > 0 && expected === 0) return 'json-never-projected';
 
@@ -408,6 +430,7 @@ export function scanAcceptanceDrift(projectRoot: string): AcceptanceDriftScanRes
     'rows-unreadable': 0,
     'legacy-children-omitted': 0,
     'count-mismatch': 0,
+    'content-mismatch': 0,
   };
 
   if (!existsSync(storePath)) {
@@ -441,8 +464,13 @@ export function scanAcceptanceDrift(projectRoot: string): AcceptanceDriftScanRes
                        OR t.acceptance_json IN ('', '[]', 'null')
                      THEN 0
                      ELSE json_array_length(t.acceptance_json) END AS json_n,
-                COALESCE(SUM(CASE WHEN c.kind = 'text' THEN 1 ELSE 0 END), 0) AS text_n,
-                COALESCE(SUM(CASE WHEN c.kind = 'child_task' THEN 1 ELSE 0 END), 0) AS child_n
+                COALESCE(SUM(CASE WHEN c.kind IN ('text', 'evidence_bound') THEN 1 ELSE 0 END), 0) AS text_n,
+                COALESCE(SUM(CASE WHEN c.kind = 'child_task' THEN 1 ELSE 0 END), 0) AS child_n,
+                CASE WHEN t.acceptance_json IS NULL OR t.acceptance_json IN ('', 'null')
+                     THEN '[]' ELSE t.acceptance_json END AS acceptance_json,
+                (SELECT json_group_array(text) FROM
+                  (SELECT c2.text FROM main.tasks_task_acceptance_criteria c2
+                   WHERE c2.task_id = t.id ORDER BY c2.ordinal)) AS row_texts_json
            FROM main.tasks_tasks t
            LEFT JOIN main.tasks_task_acceptance_criteria c ON c.task_id = t.id
           GROUP BY t.id`,
@@ -462,7 +490,26 @@ export function scanAcceptanceDrift(projectRoot: string): AcceptanceDriftScanRes
 
       if (jsonCount !== totalRows) rawDisagreements += 1;
 
-      const kind = classifyAcceptanceDrift({ jsonCount, textRowCount, childRowCount });
+      // Validate persisted payloads rather than silently coercing malformed
+      // records into empty arrays. The canonical formatter preserves structured
+      // gates while comparing their serialized representation to row text.
+      const legacy = acceptanceItemSchema
+        .array()
+        .parse(JSON.parse(row.acceptance_json))
+        .map(acItemToText);
+      const projected = acceptanceItemSchema
+        .array()
+        .parse(JSON.parse(row.row_texts_json))
+        .map(acItemToText);
+      const contentMatches =
+        legacy.length === projected.length &&
+        legacy.every((text, index) => text === projected[index]);
+      const kind = classifyAcceptanceDrift({
+        jsonCount,
+        textRowCount,
+        childRowCount,
+        contentMatches,
+      });
       if (kind === null) continue;
 
       byKind[kind] += 1;

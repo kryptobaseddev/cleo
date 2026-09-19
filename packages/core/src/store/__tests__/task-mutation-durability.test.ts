@@ -281,6 +281,40 @@ describe('task mutation durability', () => {
     );
   });
 
+  it('doctor detects equal-count content drift and propagates a failed diagnostic query', async () => {
+    const a = await createSqliteDataAccessor(projectA);
+    await a.transaction(async (tx) => {
+      await tx.upsertSingleTask(task('T1', 'Drifting', { acceptance: ['Expected criterion'] }));
+      await tx.insertAcRows([
+        { id: 'drift-ac', taskId: 'T1', ordinal: 1, text: 'Different criterion' },
+      ]);
+    });
+    const { scanAcceptanceDrift } = await import('../../doctor/acceptance-drift.js');
+    const scan = scanAcceptanceDrift(projectA);
+    expect(scan.unbaselined).toMatchObject([
+      { taskId: 'T1', kind: 'content-mismatch', jsonCount: 1, textRowCount: 1 },
+    ]);
+    getNativeTasksDb(projectA)!.exec(
+      'ALTER TABLE tasks_task_acceptance_criteria RENAME TO unavailable_criteria',
+    );
+    expect(() => scanAcceptanceDrift(projectA)).toThrow(/no such table/);
+  });
+
+  it('doctor preserves literal pipes and accepts matching criteria with ordinal gaps', async () => {
+    const a = await createSqliteDataAccessor(projectA);
+    await a.transaction(async (tx) => {
+      await tx.upsertSingleTask(
+        task('T1', 'Agrees', { acceptance: ['Type "left | right"', 'Second criterion'] }),
+      );
+      await tx.insertAcRows([
+        { id: 'first-ac', taskId: 'T1', ordinal: 5, text: 'Type "left | right"' },
+        { id: 'second-ac', taskId: 'T1', ordinal: 9, text: 'Second criterion' },
+      ]);
+    });
+    const { scanAcceptanceDrift } = await import('../../doctor/acceptance-drift.js');
+    expect(scanAcceptanceDrift(projectA).entries).toEqual([]);
+  });
+
   it('rejects an update that addresses no row', async () => {
     const a = await createSqliteDataAccessor(projectA);
     await expect(a.updateTaskFields('T404', { title: 'Never persisted' })).rejects.toThrow(
