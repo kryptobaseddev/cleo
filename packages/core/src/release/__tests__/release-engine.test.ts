@@ -21,7 +21,7 @@ import {
   resetDbState,
 } from '@cleocode/core/internal';
 import { join } from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 
 /** Per-test isolated temp directory. Assigned in beforeEach, cleaned in afterEach. */
@@ -66,6 +66,9 @@ async function setupTestDb(): Promise<void> {
 
 describe('Release Engine', () => {
   beforeEach(async () => {
+    // Resolve each explicitly supplied fixture root, including independent projects.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-release-engine-'));
     // T9583/T11262: validateProjectRoot legacy-fallback requires `.cleo/` +
     // `.git/` siblings, and the canonical resolveCleoDir SSoT now requires the
@@ -78,6 +81,7 @@ describe('Release Engine', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     resetDbState();
     await rm(TEST_ROOT, { recursive: true, force: true });
   });
