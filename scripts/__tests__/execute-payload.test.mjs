@@ -183,14 +183,191 @@ describe('gh#1377 — the package list comes from the SSoT, and an empty scan fa
 });
 
 describe('arg parsing', () => {
-  it('reads --version and --output-dir', () => {
-    expect(parseArgs(['--version', '2026.9.2', '--output-dir', '/tmp/x'])).toEqual({
+  it('reads --version, --output-dir and --dist-tag', () => {
+    expect(
+      parseArgs(['--version', '2026.9.2', '--output-dir', '/tmp/x', '--dist-tag', 'beta']),
+    ).toEqual({
       version: '2026.9.2',
       outputDir: '/tmp/x',
+      distTag: 'beta',
     });
   });
 
   it('defaults the output dir', () => {
     expect(parseArgs(['--version', '2026.9.2']).outputDir).toBe('/tmp/postdeploy-artifacts');
+  });
+
+  // `--dist-tag` has NO default on purpose. The release job owns the
+  // version -> tag derivation; a default here would silently reinstate the
+  // second copy that let this job verify `latest` during a `beta` release.
+  it('leaves --dist-tag empty rather than guessing it', () => {
+    expect(parseArgs(['--version', '2026.9.2-beta.1']).distTag).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gh#1474 — the dist-tag rung, resolved tarball URLs, and the verdict split
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a fetch stub answering FOUR endpoints independently: per-version
+ * metadata, tarball, and the dist-tags document.
+ *
+ * Four, not two, on purpose. A stub that conflates any of them would pass
+ * against the pre-fix code and therefore would not be a regression test —
+ * which is the discipline the gh#1377 harness above already established.
+ *
+ * @param {{ metadata?: number; tarball?: number; servedVersion?: string;
+ *   distTags?: Record<string, string>; tarballUrl?: string }} opts
+ * @returns {typeof fetch}
+ */
+function stubFetch4({
+  metadata = 200,
+  tarball = 200,
+  servedVersion = '2026.9.8',
+  distTags = { latest: '2026.9.8' },
+  tarballUrl,
+} = {}) {
+  // @ts-expect-error - minimal Response shape
+  return async (url, init) => {
+    const u = String(url);
+    if (u.includes('/-/package/')) {
+      return { ok: true, status: 200, json: async () => distTags };
+    }
+    if (u.includes('/-/') || u.endsWith('.tgz')) {
+      return { ok: tarball >= 200 && tarball < 300, status: tarball };
+    }
+    return {
+      ok: metadata >= 200 && metadata < 300,
+      status: metadata,
+      json: async () => ({
+        version: servedVersion,
+        dist: {
+          ...(tarballUrl ? { tarball: tarballUrl } : {}),
+          fileCount: 728,
+          unpackedSize: 32054520,
+        },
+      }),
+    };
+  };
+}
+
+describe('gh#1474 — dist-tags is a third document and nothing checked it', () => {
+  it('REGRESSION: metadata 200 + tarball 200 + STALE dist-tag is NOT installable', async () => {
+    // This is the state nothing in the pipeline could see before. `npm i -g
+    // @cleocode/cleo` resolves through dist-tags, so both prior rungs can be
+    // green while the command every user types still returns the old version.
+    const v = await checkPackage(
+      'cleo',
+      '2026.9.8',
+      stubFetch4({ distTags: { latest: '2026.9.7' } }),
+      'latest',
+    );
+    expect(v.state).toBe('pending');
+    expect(v.rung).toBe('dist-tag');
+    expect(v.detail).toContain('2026.9.7');
+  });
+
+  it('a stale tag is PENDING, never mismatch — waiting can fix it', async () => {
+    const v = await checkPackage(
+      'cleo',
+      '2026.9.8',
+      stubFetch4({ distTags: { latest: '2026.9.7' } }),
+      'latest',
+    );
+    expect(v.state).not.toBe('mismatch');
+  });
+
+  it('a --tag beta release does NOT require `latest` to move', async () => {
+    // The false-alarm regression. On a prerelease, `latest` is SUPPOSED to
+    // stay behind; demanding it would fail every beta.
+    const v = await checkPackage(
+      'cleo',
+      '2026.9.8-beta.1',
+      stubFetch4({
+        servedVersion: '2026.9.8-beta.1',
+        distTags: { latest: '2026.9.7', beta: '2026.9.8-beta.1' },
+      }),
+      'beta',
+    );
+    expect(v.state).toBe('ok');
+    expect(v.rung).toBe('installable');
+  });
+
+  it('omitting distTag skips rung 3 entirely (back-compat)', async () => {
+    const v = await checkPackage('cleo', '2026.9.8', stubFetch4({ distTags: { latest: 'old' } }));
+    expect(v.state).toBe('ok');
+  });
+});
+
+describe('gh#1474 — the tarball URL is resolved, not reconstructed', () => {
+  it('uses dist.tarball even when it is not the conventional URL', async () => {
+    /** @type {string[]} */
+    const hit = [];
+    const odd = 'https://registry.npmjs.org/@cleocode/cleo/-/RELOCATED-2026.9.8.tgz';
+    // @ts-expect-error - minimal Response shape
+    const spy = async (url, init) => {
+      const u = String(url);
+      hit.push(u);
+      if (u.includes('/-/package/')) {
+        return { ok: true, status: 200, json: async () => ({ latest: '2026.9.8' }) };
+      }
+      if (u.endsWith('.tgz')) return { ok: true, status: 200, _m: init?.method };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ version: '2026.9.8', dist: { tarball: odd } }),
+      };
+    };
+    const v = await checkPackage('cleo', '2026.9.8', spy, 'latest');
+    expect(v.state).toBe('ok');
+    // The conventional URL would be .../cleo-2026.9.8.tgz — prove we did not
+    // build it ourselves.
+    expect(hit).toContain(odd);
+    expect(hit.some((u) => u.endsWith('/cleo-2026.9.8.tgz'))).toBe(false);
+  });
+
+  it('falls back to the conventional URL when dist carries no tarball', async () => {
+    const v = await checkPackage(
+      'cleo',
+      '2026.9.8',
+      stubFetch4({ tarballUrl: undefined }),
+      'latest',
+    );
+    expect(v.state).toBe('ok');
+  });
+
+  it('carries fileCount and unpackedSize forward from rung 1', async () => {
+    const v = await checkPackage('cleo', '2026.9.8', stubFetch4(), 'latest');
+    expect(v.fileCount).toBe(728);
+    expect(v.unpackedSize).toBe(32054520);
+  });
+});
+
+describe('gh#1474 — pending and defect are different facts', () => {
+  it('a timeout marks the package pending, NOT a defect', async () => {
+    const results = await verifyAll(['cleo'], '2026.9.8', {
+      timeoutMs: 0,
+      intervalMs: 1,
+      distTag: 'latest',
+      fetchImpl: stubFetch4({ metadata: 404 }),
+      sleepImpl: async () => {},
+    });
+    expect(results[0].ok).toBe(false);
+    expect(results[0].defect).toBeUndefined();
+    expect(results[0].rung).toBe('metadata');
+  });
+
+  it('a WRONG SERVED VERSION marks the package a defect', async () => {
+    // Terminal on the first pass: waiting cannot turn a wrong answer right.
+    const results = await verifyAll(['cleo'], '2026.9.8', {
+      timeoutMs: 60_000,
+      intervalMs: 1,
+      distTag: 'latest',
+      fetchImpl: stubFetch4({ servedVersion: '2026.9.7' }),
+      sleepImpl: async () => {},
+    });
+    expect(results[0].ok).toBe(false);
+    expect(results[0].defect).toBe(true);
   });
 });
