@@ -7,10 +7,16 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { buildSync } from 'esbuild';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BackgroundJobManager, DurableJobStore } from '../background-jobs.js';
+import {
+  assertOperationWriteFence,
+  BackgroundJobManager,
+  DurableJobStore,
+} from '../background-jobs.js';
+import { createOperationExecutionContext } from '../background-ops.js';
 import { migrateSanitized } from '../migration-manager.js';
 import { getDb, resetDbState } from '../sqlite.js';
 
@@ -64,7 +70,8 @@ beforeAll(() => {
     join(bundleRoot, 'client.mjs'),
     `
     import { DatabaseSync } from 'node:sqlite';
-    import { drizzle } from 'drizzle-orm/node-sqlite';
+    import { sql } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-sqlite';
     import { DurableJobStore } from './jobs.mjs';
     const native = new DatabaseSync(process.argv[2]);
     native.exec('PRAGMA busy_timeout=3000');
@@ -647,5 +654,141 @@ describe('authentic durable pending work (T12265)', () => {
     await owner.resumeJob(pending, executor);
     await flushed();
     expect(owner.getJob(pending)?.status).toBe('complete');
+  });
+});
+
+describe('domain writes fenced by persisted job authority', () => {
+  function prepare() {
+    const store = new DurableJobStore(db, { projectId: request.projectId, actor: 'fixture' });
+    const job = store.defer('guarded-job', 'docs.projection', Date.now(), request);
+    const lease = store.claim(job.id, Date.now());
+    const context = createOperationExecutionContext(
+      {
+        projectId: request.projectId,
+        projectRoot: root,
+        actor: 'fixture',
+        operation: 'docs.projection',
+        idempotencyKey: request.idempotencyKey,
+      },
+      {
+        writeFence: {
+          dbPath: path,
+          proposalHash: createHash('sha256').update(request.proposalJson).digest('hex'),
+          lease,
+        },
+      },
+    );
+    native.exec('CREATE TABLE guarded_domain (id TEXT PRIMARY KEY)');
+    return { store, context };
+  }
+
+  it('composes a checked domain mutation with its receipt in one caller-owned transaction', () => {
+    const { context } = prepare();
+    try {
+      db.transaction((tx) => {
+        assertOperationWriteFence(tx, context);
+        tx.run(sql`INSERT INTO guarded_domain VALUES ('committed')`);
+        tx.run(
+          sql`UPDATE main.background_jobs SET checkpoint_json = '{"verified":"committed"}' WHERE id='guarded-job'`,
+        );
+      });
+      const fresh = new DatabaseSync(path, { readOnly: true });
+      try {
+        expect(fresh.prepare('SELECT id FROM guarded_domain').get()?.id).toBe('committed');
+        expect(
+          fresh.prepare('SELECT checkpoint_json FROM background_jobs WHERE id=?').get('guarded-job')
+            ?.checkpoint_json,
+        ).toBe('{"verified":"committed"}');
+      } finally {
+        fresh.close();
+      }
+    } finally {
+      context.close();
+    }
+  });
+
+  it.each([
+    'cancel',
+    'expire',
+    'steal',
+    'proposal',
+    'project',
+    'retry',
+    'file',
+  ] as const)('rejects %s before any domain write', (kind) => {
+    const { store, context } = prepare();
+    let guarded = context;
+    try {
+      if (kind === 'cancel') store.requestCancel('guarded-job', Date.now());
+      if (kind === 'expire' || kind === 'steal')
+        native.exec("UPDATE background_jobs SET lease_expires_at=0 WHERE id='guarded-job'");
+      if (kind === 'steal')
+        new DurableJobStore(db, { projectId: request.projectId }).claim('guarded-job', Date.now());
+      if (kind === 'proposal')
+        native.exec("UPDATE background_jobs SET proposal_json='{}' WHERE id='guarded-job'");
+      if (kind === 'project')
+        native.exec("UPDATE background_jobs SET project_id='other-project' WHERE id='guarded-job'");
+      if (kind === 'retry')
+        native.exec(
+          "UPDATE background_jobs SET idempotency_key='other-key' WHERE id='guarded-job'",
+        );
+      if (kind === 'file')
+        guarded = createOperationExecutionContext(context.identity, {
+          writeFence: { ...context.writeFence!, dbPath: join(root, 'different.db') },
+        });
+      expect(() =>
+        db.transaction((tx) => {
+          assertOperationWriteFence(tx, guarded);
+          tx.run(sql`INSERT INTO guarded_domain VALUES ('forbidden')`);
+        }),
+      ).toThrow('Domain write refused');
+      expect(native.prepare('SELECT * FROM guarded_domain').all()).toEqual([]);
+    } finally {
+      guarded.close();
+      context.close();
+    }
+  });
+
+  it('does not accept a same-named temporary table shadowing cancelled main authority', () => {
+    const { context } = prepare();
+    native.exec('CREATE TEMP TABLE background_jobs AS SELECT * FROM main.background_jobs');
+    native.exec(
+      "UPDATE main.background_jobs SET cancellation_requested_at=1 WHERE id='guarded-job'",
+    );
+    try {
+      expect(() =>
+        db.transaction((tx) => {
+          assertOperationWriteFence(tx, context);
+          tx.run(sql`INSERT INTO guarded_domain VALUES ('forbidden')`);
+        }),
+      ).toThrow('Domain write refused');
+      expect(native.prepare('SELECT * FROM guarded_domain').all()).toEqual([]);
+    } finally {
+      context.close();
+      native.exec('DROP TABLE temp.background_jobs');
+    }
+  });
+
+  it('rolls back both domain mutation and receipt when receipt persistence fails', () => {
+    const { context } = prepare();
+    native.exec(
+      "CREATE TRIGGER fail_guarded_receipt BEFORE UPDATE OF checkpoint_json ON background_jobs BEGIN SELECT RAISE(ABORT,'receipt fault'); END",
+    );
+    try {
+      expect(() =>
+        db.transaction((tx) => {
+          assertOperationWriteFence(tx, context);
+          tx.run(sql`INSERT INTO guarded_domain VALUES ('rolled-back')`);
+          tx.run(sql`UPDATE main.background_jobs SET checkpoint_json='{}' WHERE id='guarded-job'`);
+        }),
+      ).toThrow();
+      expect(native.prepare('SELECT * FROM guarded_domain').all()).toEqual([]);
+      expect(
+        native.prepare('SELECT checkpoint_json FROM background_jobs WHERE id=?').get('guarded-job')
+          ?.checkpoint_json,
+      ).toBeNull();
+    } finally {
+      context.close();
+    }
   });
 });
