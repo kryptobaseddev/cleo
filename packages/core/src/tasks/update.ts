@@ -48,6 +48,7 @@ import {
 } from './epic-enforcement.js';
 import { resolveHierarchyPolicy } from './hierarchy-policy.js';
 import { validatePipelineTransition } from './pipeline-stage.js';
+import { prepareSignedSeverityAttestation } from './severity-attestation.js';
 
 const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'status'>> = [
   'title',
@@ -620,6 +621,20 @@ export async function updateTask(
 
   // Wrap writes in a transaction for TOCTOU safety (T023)
   await acc.transaction(async (tx) => {
+    const severityAttestation =
+      options.severity === undefined
+        ? undefined
+        : await prepareSignedSeverityAttestation(
+            {
+              timestamp: now,
+              title: task.title,
+              severity: options.severity,
+              taskId: task.id,
+              ...(task.parentId ? { epic: task.parentId } : {}),
+            },
+            { cwd },
+          );
+
     await tx.upsertSingleTask(task);
 
     // T9514: persist relates mutations to task_relations table.
@@ -715,6 +730,9 @@ export async function updateTask(
       details: {
         changes,
         title: task.title,
+        ...(severityAttestation
+          ? { severityAttestation: { ...severityAttestation, status: 'committed' } }
+          : {}),
         ...(options.reason !== undefined ? { reason: options.reason } : {}),
         ...(acceptanceAuthorization
           ? { acceptanceOverride: { ...acceptanceAuthorization, status: 'committed' } }
@@ -742,6 +760,11 @@ export async function updateTask(
  *
  * @param params - Canonical operation input, including the task identity.
  * @returns Core update options with parent mapped to parentId.
+ * @remarks Entry points share this boundary; CLI parsing does not establish authorization.
+ * @example
+ * ```ts
+ * toTaskUpdateOptions({ taskId: 'T001', severity: 'P1' });
+ * ```
  */
 export function toTaskUpdateOptions(params: TasksUpdateQueryParams): UpdateTaskOptions {
   const { parent, ...fields } = params;

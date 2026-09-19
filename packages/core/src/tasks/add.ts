@@ -44,6 +44,7 @@ import {
 } from './ac-table.js';
 import { normalizeAcceptance } from './acceptance-input.js';
 
+import type { DuplicateBypassAuditEntry } from './duplicate-bypass-audit.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import {
   findEpicAncestor,
@@ -52,6 +53,7 @@ import {
 } from './epic-enforcement.js';
 import { resolveHierarchyPolicy } from './hierarchy-policy.js';
 import { resolveDefaultPipelineStage, validatePipelineStage } from './pipeline-stage.js';
+import { prepareSignedSeverityAttestation } from './severity-attestation.js';
 
 export { normalizeAcceptance } from './acceptance-input.js';
 
@@ -170,6 +172,11 @@ export interface AddTaskResult {
  * Translate canonical creation input into core options without dropping fields.
  * @param params - Canonical task creation input.
  * @returns Core options with the parent alias and enum boundaries resolved.
+ * @remarks Entry points share this boundary; CLI parsing does not establish authorization.
+ * @example
+ * ```ts
+ * toTaskAddOptions({ title: 'Fix persistence', description: 'Verify durable task writes' });
+ * ```
  */
 export function toTaskAddOptions(params: TasksAddParams): AddTaskOptions {
   const { parent, ...fields } = params;
@@ -190,6 +197,11 @@ export function toTaskAddOptions(params: TasksAddParams): AddTaskOptions {
  * @param justification - Original reason, retained verbatim in transaction audit details.
  * @param dependencies - Effective dependencies after applying the requested changes.
  * @throws CleoError for invalid waivers or critical mutations without dependencies.
+ * @remarks Entry points share this boundary; CLI parsing does not establish authorization.
+ * @example
+ * ```ts
+ * validateDependencyWaiver('critical', 'Independent restoration', []);
+ * ```
  */
 export function validateDependencyWaiver(
   priority: string | undefined,
@@ -1297,7 +1309,9 @@ export async function addTask(
 
   // BRAIN-powered duplicate detection (T1633) — query active tasks for semantic similarity.
   // Runs before the exact-title duplicate check so warnings/rejections surface early.
-  // Skip on dry-run (no data written) and skip when forceDuplicate bypasses rejection.
+  // Capture the decision now; persist committed provenance with the task.
+  let duplicateBypass: DuplicateBypassAuditEntry | undefined;
+  // Skip on dry-run (no data written).
   if (!options.dryRun) {
     const { checkDuplicatesBounded, buildWarnMessage, buildRejectMessage } = await import(
       './duplicate-detector.js'
@@ -1328,19 +1342,14 @@ export async function addTask(
     }
 
     if (dupCheck.shouldReject && options.forceDuplicate) {
-      // User forced past the rejection — audit the bypass
-      const { appendDuplicateBypassAudit } = await import('./duplicate-bypass-audit.js');
-      await appendDuplicateBypassAudit(
-        {
-          incomingTitle: options.title,
-          incomingDescription: options.description ?? '',
-          matchedCandidates: dupCheck.candidates,
-          maxScore: dupCheck.maxScore,
-          timestamp: new Date().toISOString(),
-          agent: 'system',
-        },
-        resolveOrCwd(cwd),
-      );
+      duplicateBypass = {
+        incomingTitle: options.title,
+        incomingDescription: options.description ?? '',
+        matchedCandidates: dupCheck.candidates,
+        maxScore: dupCheck.maxScore,
+        timestamp: new Date().toISOString(),
+        agent: 'system',
+      };
     }
 
     if (dupCheck.shouldWarn) {
@@ -1556,6 +1565,20 @@ export async function addTask(
   const createdAcceptanceCriteriaIds: string[] = [];
   const reopenedAncestorIds: string[] = [];
   await dataAccessor.transaction(async (tx: TransactionAccessor) => {
+    const severityAttestation =
+      options.severity === undefined
+        ? undefined
+        : await prepareSignedSeverityAttestation(
+            {
+              timestamp: now,
+              title: task.title,
+              severity: options.severity,
+              taskId,
+              ...(parentId ? { epic: parentId } : {}),
+            },
+            { cwd },
+          );
+
     // Position shuffling via bulk SQL update (T025)
     if (options.position !== undefined) {
       await dataAccessor.shiftPositions(parentId, options.position, 1);
@@ -1661,12 +1684,32 @@ export async function addTask(
         title: options.title,
         status,
         priority,
+        ...(severityAttestation
+          ? { severityAttestation: { ...severityAttestation, status: 'committed' } }
+          : {}),
+        ...(options.forceDuplicate
+          ? {
+              forceDuplicate: {
+                ...duplicateBypass,
+                requested: true,
+                bypassed: duplicateBypass !== undefined,
+                status: 'committed',
+              },
+            }
+          : {}),
         ...(options.dependsWaiver !== undefined ? { dependsWaiver: options.dependsWaiver } : {}),
       },
       before: null,
       after: { title: options.title, status, priority },
     });
   });
+
+  if (duplicateBypass) {
+    // Compatibility mirror only; the task transaction contains authoritative evidence.
+    const { appendDuplicateBypassAudit } = await import('./duplicate-bypass-audit.js');
+    const committedBypass = { ...duplicateBypass, taskId, status: 'committed' };
+    await appendDuplicateBypassAudit(committedBypass, resolveOrCwd(cwd));
+  }
 
   // T10538 / design-point 5: surface the ancestor reopen on the add result so
   // the operator is never surprised by a parent silently transitioning out of
