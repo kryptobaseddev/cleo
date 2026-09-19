@@ -194,8 +194,6 @@ export async function updateTask(
 
   await requireActiveSession('tasks.update', cwd);
 
-  validateDependencyWaiver(options.priority, options.dependsWaiver);
-
   const changes: string[] = [];
   const now = new Date().toISOString();
   const originalParentId = task.parentId ?? null;
@@ -385,6 +383,8 @@ export async function updateTask(
     task.depends = (task.depends ?? []).filter((d) => !toRemove.has(d));
     changes.push('depends');
   }
+
+  validateDependencyWaiver(options.priority, options.dependsWaiver, task.depends ?? []);
 
   if (options.notes !== undefined) {
     const timestampedNote = `${new Date()

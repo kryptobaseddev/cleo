@@ -294,6 +294,29 @@ describe('addTask (integration)', () => {
     expect((await accessor.queryTasks({})).tasks[0]?.priority).toBe('critical');
   });
 
+  it.each([
+    'engine',
+    'operation',
+  ] as const)('rejects critical creation without dependencies or a waiver through %s', async (entryPoint) => {
+    const input: TasksAddParams = {
+      title: 'Critical policy fixture',
+      description: 'Canonical input must enforce dependency policy',
+      type: 'saga',
+      priority: 'critical',
+    };
+    if (entryPoint === 'engine') {
+      const result = await addTaskWithSessionScope(env.tempDir, input);
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('declare at least one dependency');
+    } else {
+      await expect(tasksAddOp(env.tempDir, input)).rejects.toThrow(
+        'declare at least one dependency',
+      );
+    }
+    expect((await accessor.queryTasks({})).tasks).toEqual([]);
+    expect(await accessor.queryAuditLog({ actions: ['task_created'] })).toEqual([]);
+  });
+
   it('persists creation dependency-waiver provenance in the task audit', async () => {
     const dependsWaiver = 'Independent critical restoration';
     const result = await addTask(

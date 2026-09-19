@@ -185,14 +185,16 @@ export function toTaskAddOptions(params: TasksAddParams): AddTaskOptions {
 }
 
 /**
- * Validate a dependency-policy waiver before task mutation.
+ * Enforce the established explicit-critical dependency policy before mutation.
  * @param priority - Explicit requested priority; waivers require critical.
  * @param justification - Original reason, retained verbatim in transaction audit details.
- * @throws CleoError for empty reasons or non-critical mutations.
+ * @param dependencies - Effective dependencies after applying the requested changes.
+ * @throws CleoError for invalid waivers or critical mutations without dependencies.
  */
 export function validateDependencyWaiver(
   priority: string | undefined,
   justification: string | undefined,
+  dependencies: readonly string[],
 ): void {
   if (
     justification !== undefined &&
@@ -207,6 +209,13 @@ export function validateDependencyWaiver(
         details: { field: 'dependsWaiver' },
         fix: 'Supply a non-empty --depends-waiver with --priority critical, or omit the waiver',
       },
+    );
+  }
+  if (priority === 'critical' && dependencies.length === 0 && justification === undefined) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      'Critical tasks must declare at least one dependency or supply a dependency waiver',
+      { details: { field: 'depends' }, fix: 'Supply --depends or a non-empty --depends-waiver' },
     );
   }
 }
@@ -809,7 +818,7 @@ export async function addTask(
   const normalizedAcceptance = normalizeAcceptance(options.acceptance);
   // Validate title (early-exit — can't proceed without a title)
   validateTitle(options.title);
-  validateDependencyWaiver(options.priority, options.dependsWaiver);
+  validateDependencyWaiver(options.priority, options.dependsWaiver, options.depends ?? []);
 
   // Skip session enforcement for dry-run — no data is written
   if (!options.dryRun) {
