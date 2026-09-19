@@ -5,7 +5,6 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getTaskPath } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface AuditIssue {
@@ -208,13 +207,14 @@ export interface LogQueryData {
 /**
  * Query audit_log from SQLite with optional filters and pagination.
  *
- * Reads from the canonical tasks.db audit_log table. Includes dispatch-level
+ * Reads from the canonical project cleo.db task audit table. Includes dispatch-level
  * fields (domain, requestId, durationMs, success, source, gateway, errorMessage)
  * when present.
  *
  * @param projectRoot - Absolute path to the project root
  * @param filters - Optional filter and pagination parameters
  * @returns Paginated log entries with metadata
+ * @throws Propagates database and malformed audit-payload errors to the caller.
  *
  * @task T4837
  * @task T4844
@@ -239,94 +239,85 @@ export async function queryAuditLog(
     pagination: { total: 0, offset, limit, hasMore: false },
   };
 
-  try {
-    const dbPath = getTaskPath(projectRoot);
-    if (!existsSync(dbPath)) return emptyResult;
+  const { dbExists, getDb } = await import('../store/sqlite.js');
+  if (!dbExists(projectRoot)) return emptyResult;
+  const { auditLog } = await import('../store/tasks-schema.js');
+  const { sql } = await import('drizzle-orm');
+  // Missing history is distinct from a failed read. Let DB and JSON errors
+  // reach the dispatch error envelope instead of claiming an empty result.
+  const db = await getDb(projectRoot);
 
-    const { getDb } = await import('../store/sqlite.js');
-    const { auditLog } = await import('../store/tasks-schema.js');
-    const { sql } = await import('drizzle-orm');
-
-    const db = await getDb(projectRoot);
-
-    try {
-      const conditions: ReturnType<typeof sql>[] = [];
-      if (filters?.operation) {
-        conditions.push(
-          sql`(${auditLog.action} = ${filters.operation} OR ${auditLog.operation} = ${filters.operation})`,
-        );
-      }
-      if (filters?.taskId) {
-        conditions.push(sql`${auditLog.taskId} = ${filters.taskId}`);
-      }
-      if (filters?.since) {
-        conditions.push(sql`${auditLog.timestamp} >= ${filters.since}`);
-      }
-      if (filters?.until) {
-        conditions.push(sql`${auditLog.timestamp} <= ${filters.until}`);
-      }
-
-      const whereClause = conditions.length > 0 ? sql.join(conditions, sql` AND `) : sql`1=1`;
-
-      const countResult = await db.all<{ cnt: number }>(
-        sql`SELECT count(*) as cnt FROM ${auditLog} WHERE ${whereClause}`,
-      );
-      const total = countResult[0]?.cnt ?? 0;
-
-      if (total === 0) {
-        return { entries: [], pagination: { total: 0, offset, limit, hasMore: false } };
-      }
-
-      const rows = await db.all<{
-        id: string;
-        timestamp: string;
-        action: string;
-        task_id: string;
-        actor: string;
-        details_json: string | null;
-        before_json: string | null;
-        after_json: string | null;
-        domain: string | null;
-        operation: string | null;
-        session_id: string | null;
-        request_id: string | null;
-        duration_ms: number | null;
-        success: number | null;
-        source: string | null;
-        gateway: string | null;
-        error_message: string | null;
-      }>(
-        sql`SELECT * FROM ${auditLog}
-            WHERE ${whereClause}
-            ORDER BY ${auditLog.timestamp} DESC
-            LIMIT ${limit} OFFSET ${offset}`,
-      );
-
-      const entries = rows.map((row) => ({
-        operation: row.operation ?? row.action,
-        taskId: row.task_id,
-        timestamp: row.timestamp,
-        actor: row.actor,
-        details: row.details_json ? JSON.parse(row.details_json) : {},
-        before: row.before_json ? JSON.parse(row.before_json) : undefined,
-        after: row.after_json ? JSON.parse(row.after_json) : undefined,
-        ...(row.domain != null && {
-          domain: row.domain,
-          sessionId: row.session_id,
-          requestId: row.request_id,
-          durationMs: row.duration_ms,
-          success: row.success === 1,
-          source: row.source,
-          gateway: row.gateway,
-          error: row.error_message,
-        }),
-      }));
-
-      return { entries, pagination: { total, offset, limit, hasMore: offset + limit < total } };
-    } catch {
-      return emptyResult;
-    }
-  } catch {
-    return emptyResult;
+  const conditions: ReturnType<typeof sql>[] = [];
+  if (filters?.operation) {
+    conditions.push(
+      sql`(${auditLog.action} = ${filters.operation} OR ${auditLog.operation} = ${filters.operation})`,
+    );
   }
+  if (filters?.taskId) {
+    conditions.push(sql`${auditLog.taskId} = ${filters.taskId}`);
+  }
+  if (filters?.since) {
+    conditions.push(sql`${auditLog.timestamp} >= ${filters.since}`);
+  }
+  if (filters?.until) {
+    conditions.push(sql`${auditLog.timestamp} <= ${filters.until}`);
+  }
+
+  const whereClause = conditions.length > 0 ? sql.join(conditions, sql` AND `) : sql`1=1`;
+
+  const countResult = await db.all<{ cnt: number }>(
+    sql`SELECT count(*) as cnt FROM ${auditLog} WHERE ${whereClause}`,
+  );
+  const total = countResult[0]?.cnt ?? 0;
+
+  if (total === 0) {
+    return { entries: [], pagination: { total: 0, offset, limit, hasMore: false } };
+  }
+
+  const rows = await db.all<{
+    id: string;
+    timestamp: string;
+    action: string;
+    task_id: string;
+    actor: string;
+    details_json: string | null;
+    before_json: string | null;
+    after_json: string | null;
+    domain: string | null;
+    operation: string | null;
+    session_id: string | null;
+    request_id: string | null;
+    duration_ms: number | null;
+    success: number | null;
+    source: string | null;
+    gateway: string | null;
+    error_message: string | null;
+  }>(
+    sql`SELECT * FROM ${auditLog}
+        WHERE ${whereClause}
+        ORDER BY ${auditLog.timestamp} DESC
+        LIMIT ${limit} OFFSET ${offset}`,
+  );
+
+  const entries = rows.map((row) => ({
+    operation: row.operation ?? row.action,
+    taskId: row.task_id,
+    timestamp: row.timestamp,
+    actor: row.actor,
+    details: row.details_json ? JSON.parse(row.details_json) : {},
+    before: row.before_json ? JSON.parse(row.before_json) : undefined,
+    after: row.after_json ? JSON.parse(row.after_json) : undefined,
+    ...(row.domain != null && {
+      domain: row.domain,
+      sessionId: row.session_id,
+      requestId: row.request_id,
+      durationMs: row.duration_ms,
+      success: row.success === 1,
+      source: row.source,
+      gateway: row.gateway,
+      error: row.error_message,
+    }),
+  }));
+
+  return { entries, pagination: { total, offset, limit, hasMore: offset + limit < total } };
 }

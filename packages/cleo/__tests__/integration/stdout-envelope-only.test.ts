@@ -305,9 +305,9 @@ describe.skipIf(!HAS_BUNDLE)('mutation exit and persistence contract (T12258)', 
       'src/repair.ts',
     ]);
     expect(created.status, created.stderr || created.stdout).toBe(0);
-    expect(runCli(['show', 'T003', '--field', '/data/task/files']).stdout.trim()).toBe(
-      '["src/repair.ts"]',
-    );
+    expect(JSON.parse(runCli(['show', 'T003', '--field', '/data/task/files']).stdout)).toEqual([
+      'src/repair.ts',
+    ]);
     const creationAudit = runCli(['log', '--task', 'T003', '--operation', 'task_created']);
     expect(creationAudit.status, creationAudit.stderr || creationAudit.stdout).toBe(0);
     expect(JSON.parse(creationAudit.stdout).data.entries).toEqual(
