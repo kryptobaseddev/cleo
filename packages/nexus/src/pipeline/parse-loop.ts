@@ -32,9 +32,15 @@
  * @module pipeline/parse-loop
  */
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import type { GraphNode, GraphNodeKind, GraphRelation } from '@cleocode/contracts';
+import type {
+  GraphIndexFileReport,
+  GraphNode,
+  GraphNodeKind,
+  GraphRelation,
+} from '@cleocode/contracts';
 import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import { extractGo } from './extractors/go-extractor.js';
 import { extractPython } from './extractors/python-extractor.js';
@@ -388,6 +394,9 @@ function emitDefinesEdges(
 
 /** Options for the sequential parse loop. */
 export interface ParseLoopOptions {
+  /** Report extraction availability and failures for trustworthy graph publication. */
+  onFileReport?: (report: GraphIndexFileReport) => void;
+
   /** Optional tsconfig path aliases for import resolution. */
   tsconfigPaths?: TsconfigPaths | null;
   /** Named import map to populate (for Tier 2a resolution in later waves). */
@@ -707,7 +716,14 @@ export async function runParseLoop(
   const PARSEABLE_LANGUAGES = new Set(['typescript', 'javascript', 'python', 'go', 'rust']);
   const parseableFiles = files.filter((f) => {
     const lang = detectLanguageFromPath(f.path);
-    return lang !== null && PARSEABLE_LANGUAGES.has(lang);
+    const supported = lang !== null && PARSEABLE_LANGUAGES.has(lang);
+    if (!supported)
+      options.onFileReport?.({
+        path: f.path,
+        status: 'unsupported',
+        reason: 'No symbol extractor for this language',
+      });
+    return supported;
   });
 
   const total = parseableFiles.length;
@@ -723,7 +739,7 @@ export async function runParseLoop(
   const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
   const useWorkers = total >= WORKER_FILE_THRESHOLD || totalBytes >= WORKER_BYTE_THRESHOLD;
 
-  if (useWorkers) {
+  if (useWorkers && !options.onFileReport) {
     process.stderr.write(
       `[nexus] Parallel parse: ${total} files, ${Math.round(totalBytes / 1024)}KB total — spawning worker pool\n`,
     );
@@ -756,6 +772,13 @@ export async function runParseLoop(
 
   const parser = getParser();
   if (!parser) {
+    for (const file of parseableFiles) {
+      options.onFileReport?.({
+        path: file.path,
+        status: 'failed',
+        reason: 'tree-sitter native module unavailable',
+      });
+    }
     process.stderr.write(
       '[nexus] WARNING: tree-sitter native module not available — parse loop skipped.\n',
     );
@@ -790,6 +813,11 @@ export async function runParseLoop(
     // Load grammar
     const grammar = loadGrammar(grammarKey);
     if (!grammar) {
+      options.onFileReport?.({
+        path: file.path,
+        status: 'failed',
+        reason: `No grammar for ${lang}`,
+      });
       process.stderr.write(`[nexus] SKIP: no grammar for ${lang} (file: ${file.path})\n`);
       continue;
     }
@@ -798,9 +826,17 @@ export async function runParseLoop(
     let source: string;
     try {
       const absPath = file.path.startsWith('/') ? file.path : `${repoPath}/${file.path}`;
-      source = await fs.readFile(absPath, 'utf-8');
+      const bytes = await fs.readFile(absPath);
+      if (
+        file.contentHash &&
+        createHash('sha256').update(bytes).digest('hex') !== file.contentHash
+      ) {
+        throw new Error('Source changed between scanning and parsing');
+      }
+      source = bytes.toString('utf-8');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      options.onFileReport?.({ path: file.path, status: 'failed', reason: `read: ${msg}` });
       process.stderr.write(`[nexus] SKIP read error: ${file.path}: ${msg}\n`);
       continue;
     }
@@ -809,6 +845,11 @@ export async function runParseLoop(
     // Files larger than this use a regex fallback for imports and re-exports only.
     const sanitized = sanitizeForParsing(source);
     if (sanitized.length > TREE_SITTER_MAX_CHARS) {
+      options.onFileReport?.({
+        path: file.path,
+        status: 'oversized',
+        reason: 'Symbol extraction exceeds tree-sitter size limit; imports only',
+      });
       // Regex-based fallback: extract re-exports and imports for barrel tracing.
       // Symbol definitions, heritage, and calls are skipped for oversized files.
       try {
@@ -835,6 +876,7 @@ export async function runParseLoop(
       rootNode = tree.rootNode;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      options.onFileReport?.({ path: file.path, status: 'failed', reason: `parse: ${msg}` });
       process.stderr.write(`[nexus] SKIP parse error: ${file.path}: ${msg}\n`);
       continue;
     }
@@ -845,9 +887,12 @@ export async function runParseLoop(
       extracted = runExtractor(lang, rootNode, file.path);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      options.onFileReport?.({ path: file.path, status: 'failed', reason: `extract: ${msg}` });
       process.stderr.write(`[nexus] SKIP extract error: ${file.path}: ${msg}\n`);
       continue;
     }
+
+    options.onFileReport?.({ path: file.path, status: 'analyzed' });
 
     // Register in SymbolTable
     registerInSymbolTable(extracted.definitions, symbolTable);

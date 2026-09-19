@@ -8,11 +8,15 @@
  * @epic T1042
  */
 
+import type { KnowledgeEvidenceRef } from './knowledge-health.js';
+
 /**
  * A single task reference in a symbol context.
  * Used by getTasksForSymbol() reverse-lookup queries.
  */
 export interface TaskReference {
+  /** File association does not prove that this individual symbol changed. */
+  precision?: 'file' | 'symbol';
   /** Task ID (e.g., 'T001'). */
   taskId: string;
   /** Display label for the task. */
@@ -28,6 +32,10 @@ export interface TaskReference {
  * Used by getSymbolsForTask() forward-lookup queries.
  */
 export interface SymbolReference {
+  /** File scope means association only, not proof that this symbol changed. */
+  precision?: 'file' | 'symbol';
+  /** Explicit sources supporting this relationship. */
+  evidence?: KnowledgeEvidenceRef[];
   /** Nexus node ID (format: '<filePath>::<name>' or '<filePath>'). */
   nexusNodeId: string;
   /** Display label for the symbol (file path or function name). */
@@ -46,6 +54,10 @@ export interface SymbolReference {
  * Result from linkTaskToSymbols() operation.
  */
 export interface LinkTaskResult {
+  /** Explicit failure state; omitted on successful legacy results. */
+  status?: 'complete' | 'failed';
+  /** Observable persistence or input failure, when present. */
+  reason?: string;
   /** Number of task_touches_symbol edges created or found. */
   linked: number;
   /** Task ID that was linked. */

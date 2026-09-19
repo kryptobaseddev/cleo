@@ -20,8 +20,34 @@
  *                              loaded its full tree, but only that one tree.
  */
 
-import type { CommandDef } from 'citty';
-import { assertKnownFlags, type CittyArgsSchema, UnknownFlagError } from './lib/strict-args.js';
+import type { CommandDef, Resolvable } from 'citty';
+import { assertKnownFlags, UnknownFlagError } from './lib/strict-args.js';
+
+/** Resolve Citty's supported value, promise, and factory command declarations. */
+async function resolveCommandValue<T>(value: Resolvable<T> | undefined): Promise<T | undefined> {
+  return typeof value === 'function' ? (value as () => T | Promise<T>)() : value;
+}
+
+/** Preflight the selected command path before any setup or child mutation executes. */
+async function validateCommandPath(
+  command: CommandDef,
+  rawArgs: string[],
+  label: string,
+): Promise<void> {
+  const schema = await resolveCommandValue(command.args);
+  const children = await resolveCommandValue(command.subCommands);
+  // Match Citty's own dispatch rule: the first non-flag token selects the child.
+  const childIndex = rawArgs.findIndex((argument) => !argument.startsWith('-'));
+  const childName = rawArgs[childIndex];
+  const child =
+    childName && children?.[childName] ? await resolveCommandValue(children[childName]) : undefined;
+  if (child) {
+    assertKnownFlags(rawArgs.slice(0, childIndex), schema, label);
+    await validateCommandPath(child, rawArgs.slice(childIndex + 1), `${label} ${childName}`);
+  } else {
+    assertKnownFlags(rawArgs, schema, label);
+  }
+}
 
 /**
  * Build a lazy wrapper around a command loader.
@@ -41,18 +67,49 @@ export function lazyCommand(
     return promise;
   };
 
+  const validate = async (cmd: CommandDef, rawArgs: string[]): Promise<void> => {
+    try {
+      await validateCommandPath(cmd, rawArgs, meta.name);
+    } catch (err) {
+      if (err instanceof UnknownFlagError) {
+        // Render through the same path `docs` has used since T10359, so the
+        // error contract is identical whichever command produced it. The
+        // renderer is imported dynamically: this branch is the error path,
+        // and `lazy-command.ts` is on the hot startup path for EVERY
+        // invocation — an eager import would charge the renderer's load cost
+        // to the 99.9% of calls that pass valid flags.
+        const { cliError } = await import('./renderers/index.js');
+        const { ExitCode } = await import('@cleocode/contracts');
+        cliError(err.message, ExitCode.VALIDATION_ERROR, {
+          name: err.code,
+          fix: err.fix,
+          // `knownFlags` is the command's full accepted surface — the
+          // did-you-mean suggestions alone do not tell a caller what IS
+          // valid, only what is close to what they typed.
+          alternatives: err.knownFlags.map((f) => ({
+            action: `${err.command} ${f}`,
+            command: `cleo ${err.command} ${f}`,
+          })),
+        });
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+  };
+
   return {
     meta,
-    args: (async () => {
+    args: async () => {
       const cmd = await load();
-      return cmd.args ?? {};
-    }) as unknown as CommandDef['args'],
-    subCommands: (async () => {
+      return (await resolveCommandValue(cmd.args)) ?? {};
+    },
+    subCommands: async () => {
       const cmd = await load();
-      return cmd.subCommands ?? {};
-    }) as unknown as CommandDef['subCommands'],
+      return (await resolveCommandValue(cmd.subCommands)) ?? {};
+    },
     async setup(ctx) {
       const cmd = await load();
+      await validate(cmd, ctx.rawArgs);
       if (typeof cmd.setup === 'function') await cmd.setup({ ...ctx, cmd });
     },
     async cleanup(ctx) {
@@ -62,54 +119,7 @@ export function lazyCommand(
     async run(ctx) {
       const cmd = await load();
 
-      // T12139 (GH #1245) — strict unknown-flag validation for EVERY command
-      // that reaches this chokepoint.
-      //
-      // citty's parseArgs is called with `strict: false` and no public knob, so
-      // an unknown flag is silently absorbed as a positional. That is how
-      // `cleo list --severity P0` returned all 3,173 tasks: the flag did not
-      // exist, nothing rejected it, and the unfiltered result was
-      // indistinguishable from a successful narrow query.
-      //
-      // `assertKnownFlags` has existed since T10359 and produces exactly the
-      // error contract wanted here — typed `E_UNKNOWN_FLAG`, Levenshtein
-      // did-you-mean, `--` terminator and `=value` handling. It was wired to
-      // ONE command (`docs`). This applies it generically instead.
-      //
-      // MUST pass the LOADED `cmd.args`, never this wrapper's `args` thunk.
-      // The wrapper exposes `args` as an async function so the module stays
-      // unloaded until needed, and `assertKnownFlags` deliberately bails out
-      // on a resolvable schema rather than throwing — so handing it the thunk
-      // would produce a guard that silently guards NOTHING, reintroducing the
-      // exact defect this validation exists to remove. Do not "simplify" this
-      // to `ctx.cmd.args` or to the wrapper's own `args`.
-      try {
-        assertKnownFlags(ctx.rawArgs, cmd.args as CittyArgsSchema, meta.name);
-      } catch (err) {
-        if (err instanceof UnknownFlagError) {
-          // Render through the same path `docs` has used since T10359, so the
-          // error contract is identical whichever command produced it. The
-          // renderer is imported dynamically: this branch is the error path,
-          // and `lazy-command.ts` is on the hot startup path for EVERY
-          // invocation — an eager import would charge the renderer's load cost
-          // to the 99.9% of calls that pass valid flags.
-          const { cliError } = await import('./renderers/index.js');
-          const { ExitCode } = await import('@cleocode/contracts');
-          cliError(err.message, ExitCode.VALIDATION_ERROR, {
-            name: err.code,
-            fix: err.fix,
-            // `knownFlags` is the command's full accepted surface — the
-            // did-you-mean suggestions alone do not tell a caller what IS
-            // valid, only what is close to what they typed.
-            alternatives: err.knownFlags.map((f) => ({
-              action: `${meta.name} ${f}`,
-              command: `cleo ${meta.name} ${f}`,
-            })),
-          });
-          process.exit(ExitCode.VALIDATION_ERROR);
-        }
-        throw err;
-      }
+      await validate(cmd, ctx.rawArgs);
 
       // Pass the LOADED cmd as ctx.cmd so parent run blocks that introspect
       // `cmd.subCommands` (e.g. `firstArg in cmd.subCommands`) see the real

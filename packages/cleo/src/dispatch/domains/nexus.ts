@@ -19,7 +19,6 @@
  * @task T1440 — Core-derived OpsFromCore inference
  */
 
-import type { NexusImpactResult } from '@cleocode/contracts/operations/nexus';
 import type { nexus as coreNexus } from '@cleocode/core';
 import {
   getBrainNativeDb,
@@ -262,7 +261,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
 
   impact: async (params) => {
     if (!params.symbol) return lafsError('E_INVALID_INPUT', 'symbol is required', 'impact');
-    return wrapCoreResult(await nexusImpact(params.symbol, params.projectId, params.why), 'impact');
+    return wrapCoreResult(await nexusImpact(getProjectRoot(), params), 'impact');
   },
 
   'full-context': async (params) => {
@@ -1146,9 +1145,6 @@ function handleTopEntriesFromNexus(
   return wrapResult({ success: true, data }, 'query', 'nexus', operation, startTime);
 }
 
-/** Edge kinds treated as 'callers-of' when walking the reverse adjacency. */
-const IMPACT_REVERSE_TYPES = new Set<string>(['calls', 'imports', 'accesses']);
-
 /**
  * A single affected-symbol entry in the impact report.
  */
@@ -1175,74 +1171,13 @@ export interface NexusImpactAffectedSymbol {
   reasons: string[];
 }
 
-/**
- * Internal shape — a single relation row used for BFS traversal.
- *
- * @internal
- */
-interface ImpactRelationRow {
-  source_id: string;
-  target_id: string;
-  type: string;
-  weight: number | null;
-}
-
-/**
- * Internal shape — a single node row used for target resolution and display.
- *
- * @internal
- */
-interface ImpactNodeRow {
-  id: string;
-  label: string | null;
-  kind: string | null;
-  file_path: string | null;
-  name: string | null;
-  // `project_id` DROPPED (ADR-090 · T11648) — graph is project-scoped.
-}
-
-/**
- * Compute a RiskLevel bucket from a raw impact count.
- *
- * NONE: 0, LOW: 1-3, MEDIUM: 4-10, HIGH: 11-25, CRITICAL: 26+.
- *
- * @internal
- */
-function riskLevelFor(totalImpact: number): NexusImpactResult['riskLevel'] {
-  if (totalImpact === 0) return 'NONE';
-  if (totalImpact <= 3) return 'LOW';
-  if (totalImpact <= 10) return 'MEDIUM';
-  if (totalImpact <= 25) return 'HIGH';
-  return 'CRITICAL';
-}
-
-/**
- * Execute the `nexus.impact` query against nexus.db.
- *
- * Walks the reverse call/import/access graph (BFS) up to `maxDepth` levels
- * from a resolved target symbol and returns affected symbols. When the
- * caller passes `why=true`, each affected symbol includes `reasons[]`
- * path-strings explaining why it is impactful (caller count, edge strength,
- * edge type, hop depth).
- *
- * When nexus.db is uninitialized or the target symbol cannot be resolved,
- * returns a successful envelope with `targetNodeId=null` and `affected=[]`.
- *
- * @param operation - The operation name ('impact').
- * @param params - { symbol: string; why?: boolean; depth?: number; projectId?: string }.
- * @param startTime - Milliseconds-since-epoch for meta timing.
- * @returns DispatchResponse with LAFS envelope carrying `NexusImpactResult`.
- *
- * @task T1013
- * @epic T1006
- */
+/** Execute impact through the same core coverage and symbol resolution service as the CLI. */
 async function handleImpact(
   operation: string,
   params: Record<string, unknown> | undefined,
   startTime: number,
 ): Promise<DispatchResponse> {
-  const symbolName = params?.symbol as string | undefined;
-  if (!symbolName) {
+  if (typeof params?.symbol !== 'string' || !params.symbol) {
     return errorResult(
       'query',
       'nexus',
@@ -1252,218 +1187,13 @@ async function handleImpact(
       startTime,
     );
   }
-  const why = params?.why === true;
-  const rawDepth = params?.depth;
-  const maxDepth = Math.min(
-    typeof rawDepth === 'number' && Number.isFinite(rawDepth) && rawDepth > 0 ? rawDepth : 3,
-    5,
-  );
-  const projectIdParam = params?.projectId as string | undefined;
-  const projectId =
-    projectIdParam ?? Buffer.from(getProjectRoot()).toString('base64url').slice(0, 32);
-
-  try {
-    const { getNexusDb } = await import('@cleocode/core/store/nexus-sqlite' as string);
-    await getNexusDb();
-    const db = getNexusNativeDb();
-    if (!db) {
-      return wrapResult(
-        {
-          success: true,
-          data: {
-            query: symbolName,
-            projectId,
-            targetNodeId: null,
-            targetLabel: null,
-            why,
-            riskLevel: 'NONE' as const,
-            totalImpact: 0,
-            maxDepth,
-            affected: [],
-          } satisfies NexusImpactResult,
-        },
-        'query',
-        'nexus',
-        operation,
-        startTime,
-      );
-    }
-
-    // Resolve the target symbol. Prefer exact `name`/`label` matches, then
-    // case-insensitive LIKE. Structural nodes (file, folder, community,
-    // process) never have callers so they are excluded from resolution.
-    let allNodes: ImpactNodeRow[] = [];
-    try {
-      // ADR-090 · T11648: the project-scope graph DB has one project, so the
-      // former `project_id` column + predicate are dropped.
-      const rawRows = db
-        .prepare(
-          `SELECT id, label, kind, file_path, name
-             FROM nexus_nodes
-            WHERE kind NOT IN ('community','process','file','folder')`,
-        )
-        .all();
-      allNodes = rawRows.map((raw) => {
-        const r = raw as Record<string, unknown>;
-        return {
-          id: String(r['id'] ?? ''),
-          label: r['label'] != null ? String(r['label']) : null,
-          kind: r['kind'] != null ? String(r['kind']) : null,
-          file_path: r['file_path'] != null ? String(r['file_path']) : null,
-          name: r['name'] != null ? String(r['name']) : null,
-        };
-      });
-    } catch {
-      allNodes = [];
-    }
-
-    const lowerSymbol = symbolName.toLowerCase();
-    const candidates = allNodes.filter((n) => {
-      const haystack = (n.name ?? n.label ?? '').toLowerCase();
-      return haystack.length > 0 && haystack.includes(lowerSymbol);
-    });
-
-    // Prefer exact matches, then shortest labels (closer to the intent).
-    candidates.sort((a, b) => {
-      const an = (a.name ?? a.label ?? '').toLowerCase();
-      const bn = (b.name ?? b.label ?? '').toLowerCase();
-      const exactA = an === lowerSymbol ? 0 : 1;
-      const exactB = bn === lowerSymbol ? 0 : 1;
-      if (exactA !== exactB) return exactA - exactB;
-      return an.length - bn.length;
-    });
-
-    const target = candidates[0];
-    if (!target) {
-      return wrapResult(
-        {
-          success: true,
-          data: {
-            query: symbolName,
-            projectId,
-            targetNodeId: null,
-            targetLabel: null,
-            why,
-            riskLevel: 'NONE' as const,
-            totalImpact: 0,
-            maxDepth,
-            affected: [],
-          } satisfies NexusImpactResult,
-        },
-        'query',
-        'nexus',
-        operation,
-        startTime,
-      );
-    }
-
-    // Load all callable relations for the project and build a reverse
-    // adjacency index: targetId -> list of { source_id, type, weight }.
-    let allRelations: ImpactRelationRow[] = [];
-    try {
-      // ADR-090 · T11648: project-scoped graph (no `project_id`). T11545: the
-      // plasticity `weight` lives in the sibling `nexus_relation_weights` table —
-      // LEFT JOIN it (NULL when the edge was never strengthened).
-      const rawRows = db
-        .prepare(
-          `SELECT r.source_id AS source_id, r.target_id AS target_id, r.type AS type, w.weight AS weight
-             FROM nexus_relations r
-        LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
-            WHERE r.type IN ('calls','imports','accesses')`,
-        )
-        .all();
-      allRelations = rawRows.map((raw) => {
-        const r = raw as Record<string, unknown>;
-        return {
-          source_id: String(r['source_id'] ?? ''),
-          target_id: String(r['target_id'] ?? ''),
-          type: String(r['type'] ?? ''),
-          weight: r['weight'] != null ? Number(r['weight']) : null,
-        };
-      });
-    } catch {
-      allRelations = [];
-    }
-
-    const reverseAdj = new Map<string, ImpactRelationRow[]>();
-    for (const rel of allRelations) {
-      if (!IMPACT_REVERSE_TYPES.has(rel.type)) continue;
-      const list = reverseAdj.get(rel.target_id);
-      if (list) {
-        list.push(rel);
-      } else {
-        reverseAdj.set(rel.target_id, [rel]);
-      }
-    }
-
-    // Collect incoming counts per node — used for "called by N places" reason.
-    const incomingCount = new Map<string, number>();
-    for (const rel of allRelations) {
-      if (!IMPACT_REVERSE_TYPES.has(rel.type)) continue;
-      incomingCount.set(rel.target_id, (incomingCount.get(rel.target_id) ?? 0) + 1);
-    }
-
-    // Build a node-by-id lookup for display.
-    const nodeById = new Map<string, ImpactNodeRow>();
-    for (const n of allNodes) nodeById.set(n.id, n);
-
-    // BFS upstream from target.
-    const targetId = target.id;
-    const visited = new Set<string>([targetId]);
-    const queue: Array<{ id: string; depth: number }> = [{ id: targetId, depth: 0 }];
-    const affected: NexusImpactAffectedSymbol[] = [];
-
-    while (queue.length > 0) {
-      const item = queue.shift();
-      if (!item) break;
-      if (item.depth >= maxDepth) continue;
-
-      const callers = reverseAdj.get(item.id) ?? [];
-      for (const edge of callers) {
-        if (visited.has(edge.source_id)) continue;
-        visited.add(edge.source_id);
-        const depth = item.depth + 1;
-        const callerNode = nodeById.get(edge.source_id);
-        const reasons: string[] = [];
-        if (why) {
-          const calls = incomingCount.get(edge.source_id) ?? 0;
-          if (calls > 0) {
-            reasons.push(`called by ${calls} place${calls === 1 ? '' : 's'}`);
-          }
-          if (edge.weight != null && edge.weight > 0) {
-            reasons.push(`strength=${edge.weight.toFixed(3)} via ${edge.type}`);
-          } else {
-            reasons.push(`edge type ${edge.type} (weight=0 — no plasticity yet)`);
-          }
-          reasons.push(`depth=${depth} hop from target ${target.label ?? target.id}`);
-        }
-        affected.push({
-          nodeId: edge.source_id,
-          label: callerNode?.label ?? edge.source_id,
-          kind: callerNode?.kind ?? 'unknown',
-          filePath: callerNode?.file_path ?? null,
-          depth,
-          reasons,
-        });
-        queue.push({ id: edge.source_id, depth });
-      }
-    }
-
-    const totalImpact = affected.length;
-    const data: NexusImpactResult = {
-      query: symbolName,
-      projectId,
-      targetNodeId: target.id,
-      targetLabel: target.label ?? target.name ?? target.id,
-      why,
-      riskLevel: riskLevelFor(totalImpact),
-      totalImpact,
-      maxDepth,
-      affected,
-    };
-
-    return wrapResult({ success: true, data }, 'query', 'nexus', operation, startTime);
-  } catch (dbErr) {
-    return handleErrorResult('query', 'nexus', operation, dbErr, startTime);
-  }
+  const projectId = typeof params.projectId === 'string' ? params.projectId : undefined;
+  const depth = typeof params.depth === 'number' ? params.depth : undefined;
+  const result = await nexusImpact(getProjectRoot(), {
+    symbol: params.symbol,
+    projectId,
+    why: params.why === true,
+    depth,
+  });
+  return wrapResult(result, 'query', 'nexus', operation, startTime);
 }
