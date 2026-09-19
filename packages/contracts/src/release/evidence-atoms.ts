@@ -104,6 +104,12 @@ export const ghPrViewSchema = z
     state: z.enum(['OPEN', 'CLOSED', 'MERGED']),
     mergedAt: z.string().nullable(),
     headRefOid: z.string().optional(),
+    mergeCommit: z.object({ oid: z.string() }).nullable().optional(),
+    title: z.string().optional(),
+    body: z.string().optional(),
+    headRefName: z.string().optional(),
+    files: z.array(z.object({ path: z.string() })).optional(),
+    changedFiles: z.number().int().nonnegative().optional(),
     mergeable: z.string().optional(),
     statusCheckRollup: z
       .array(

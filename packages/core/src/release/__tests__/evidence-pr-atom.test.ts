@@ -61,7 +61,13 @@ function makePrPayload(overrides: Record<string, unknown> = {}): unknown {
     state: 'MERGED',
     mergedAt: '2026-05-20T17:14:35Z',
     mergeable: 'MERGEABLE',
-    headRefOid: 'a'.repeat(40),
+    headRefOid: 'b'.repeat(40),
+    mergeCommit: { oid: 'a'.repeat(40) },
+    title: 'fix(T12254): proof',
+    body: 'Task T12254',
+    headRefName: 'task/T12254',
+    files: [{ path: 'src/fix.ts' }],
+    changedFiles: 1,
     statusCheckRollup: [
       {
         __typename: 'CheckRun',
@@ -188,7 +194,7 @@ describe('resolvePrEvidenceAtom — happy path', () => {
     expect(existsSync(cachePath)).toBe(true);
     const entry = JSON.parse(readFileSync(cachePath, 'utf-8'));
     expect(entry).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       prNumber: 357,
       mergedAt: '2026-05-20T17:14:35Z',
     });
@@ -526,6 +532,17 @@ describe('resolvePrEvidenceAtom — failure paths', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolvePrEvidenceAtom — cache', () => {
+  it('rejects a head SHA when the actual merge identity is absent', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload({ mergeCommit: null }) });
+    const result = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      { fetchGhPrPayload: mockFetch },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('head commit cannot substitute');
+  });
+
   it('returns cacheHit=true on second invocation with same mergedAt', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
 

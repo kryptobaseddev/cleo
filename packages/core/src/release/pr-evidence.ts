@@ -73,6 +73,13 @@ export type PrAtomResolution =
       successCount: number;
       totalChecks: number;
       cacheHit: boolean;
+      /** PR title and body are historical assertions used for explicit task linkage. */
+      title: string;
+      body: string;
+      headRefName: string;
+      /** Complete changed-file inventory; count mismatch is reported by contextual validation. */
+      changedPaths: string[];
+      changedFileCount: number;
     }
   | {
       ok: false;
@@ -108,7 +115,12 @@ export function prCacheEntryPath(projectRoot: string, prNumber: number): string 
  * @task T9764
  */
 interface PrCacheEntry {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
+  readonly title: string;
+  readonly body: string;
+  readonly headRefName: string;
+  readonly changedPaths: string[];
+  readonly changedFileCount: number;
   readonly key: string;
   readonly prNumber: number;
   readonly mergeCommitSha: string;
@@ -127,7 +139,19 @@ function readCacheEntry(projectRoot: string, prNumber: number): PrCacheEntry | n
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Partial<PrCacheEntry>;
-    if (parsed.schemaVersion !== 1) return null;
+    if (parsed.schemaVersion !== 2) return null;
+    if (
+      typeof parsed.title !== 'string' ||
+      typeof parsed.body !== 'string' ||
+      typeof parsed.headRefName !== 'string'
+    )
+      return null;
+    if (
+      !Array.isArray(parsed.changedPaths) ||
+      !parsed.changedPaths.every((path) => typeof path === 'string')
+    )
+      return null;
+    if (!Number.isInteger(parsed.changedFileCount)) return null;
     if (typeof parsed.prNumber !== 'number' || parsed.prNumber !== prNumber) return null;
     if (typeof parsed.mergedAt !== 'string' || parsed.mergedAt === '') return null;
     if (typeof parsed.mergeCommitSha !== 'string' || parsed.mergeCommitSha === '') return null;
@@ -192,7 +216,7 @@ export const defaultFetchGhPrPayload: FetchGhPrPayload = async (prNumber: number
         'view',
         String(prNumber),
         '--json',
-        'state,mergedAt,mergeable,headRefOid,statusCheckRollup',
+        'state,mergedAt,mergeable,headRefOid,mergeCommit,title,body,headRefName,files,changedFiles,statusCheckRollup',
       ],
       {
         encoding: 'utf-8',
@@ -898,6 +922,11 @@ export async function resolvePrEvidenceAtom(
         successCount: cached.successCount,
         totalChecks: cached.totalChecks,
         cacheHit: true,
+        title: cached.title,
+        body: cached.body,
+        headRefName: cached.headRefName,
+        changedPaths: cached.changedPaths,
+        changedFileCount: cached.changedFileCount,
       };
     }
   }
@@ -990,9 +1019,24 @@ export async function resolvePrEvidenceAtom(
     };
   }
 
-  const mergeCommitSha = payload.headRefOid ?? '';
+  const mergeCommitSha = payload.mergeCommit?.oid;
+  if (!mergeCommitSha || !/^[0-9a-f]{40}$/i.test(mergeCommitSha)) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `PR #${prNumber} has no verified merge commit identity; its head commit cannot substitute.`,
+    };
+  }
+  const changes = {
+    title: payload.title ?? '',
+    body: payload.body ?? '',
+    headRefName: payload.headRefName ?? '',
+    changedPaths: payload.files?.map((file) => file.path) ?? [],
+    changedFileCount: payload.changedFiles ?? -1,
+  };
   const entry: PrCacheEntry = {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    ...changes,
     key: buildCacheKey(prNumber, payload.mergedAt),
     prNumber,
     mergeCommitSha,
@@ -1018,5 +1062,6 @@ export async function resolvePrEvidenceAtom(
     successCount: rollupResult.successCount,
     totalChecks: rollupResult.totalChecks,
     cacheHit: false,
+    ...changes,
   };
 }
