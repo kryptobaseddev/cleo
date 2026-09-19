@@ -92,6 +92,36 @@ export function createBudgetEnforcement(): Middleware {
       if ('_budgetMode' in req.params) delete req.params['_budgetMode'];
     }
 
+    // Reject budgets that cannot carry even an empty envelope before a write.
+    // The actual result size is only known after execution; overflow then must
+    // preserve the successful mutation and its receipt rather than imply rollback.
+    if (policy && req.gateway === 'mutate') {
+      const meta: DispatchResponse['meta'] = {
+        gateway: req.gateway,
+        domain: req.domain,
+        operation: req.operation,
+        source: req.source,
+        requestId: req.requestId,
+        timestamp: new Date().toISOString(),
+        duration_ms: 0,
+      };
+      const minimum = enforceBudget(
+        { success: true, meta, data: {} },
+        { budget: policy.budget, mode: 'error' },
+      );
+      if (minimum.exceeded) {
+        return {
+          success: false,
+          meta,
+          data: null,
+          error: budgetExceededError({
+            budget: policy.budget,
+            estimatedTokens: minimum.enforcement.estimatedTokens,
+          }),
+        };
+      }
+    }
+
     const response = await next();
 
     // Only enforce on successful responses with a payload and a policy.
@@ -99,7 +129,10 @@ export function createBudgetEnforcement(): Middleware {
       return response;
     }
 
-    const options: EnforceBudgetOptions = { budget: policy.budget, mode: policy.mode };
+    const options: EnforceBudgetOptions = {
+      budget: policy.budget,
+      mode: req.gateway === 'mutate' ? 'error' : policy.mode,
+    };
     const { response: enforced, exceeded } = enforceBudget(
       // Bridge the canonical DispatchResponse into the Record shape enforceBudget
       // consumes. Field names (meta/data/success) match 1:1.
@@ -110,6 +143,12 @@ export function createBudgetEnforcement(): Middleware {
     // Carry the (possibly truncated) data + the _budgetEnforcement meta back.
     const enforcedData = enforced['data'];
     const enforcedMeta = (enforced['meta'] ?? response.meta) as DispatchResponse['meta'];
+
+    if (exceeded && req.gateway === 'mutate') {
+      // Existing budget metadata reports withinBudget:false and the actual
+      // estimate. Keep all committed-result data; never claim budget compliance.
+      return { ...response, meta: enforcedMeta };
+    }
 
     if (exceeded) {
       // Overflow that truncation could not (or was told not to) resolve.
