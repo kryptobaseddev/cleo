@@ -362,6 +362,78 @@ export interface GraphRelation {
   reason?: string;
 }
 
+/** Insert row shape for nexus_nodes. */
+export interface NexusNodeInsertRow {
+  id: string;
+  kind: GraphNodeKind;
+  label: string;
+  name: string | null;
+  filePath: string | null;
+  startLine: number | null;
+  endLine: number | null;
+  language: string | null;
+  isExported: boolean;
+  parentId: string | null;
+  parametersJson: string | null;
+  returnType: string | null;
+  docSummary: string | null;
+  communityId: string | null;
+  metaJson: string | null;
+  indexedAt: string;
+}
+
+/** Insert row shape for nexus_relations. */
+export interface NexusRelationInsertRow {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  type: GraphRelationType;
+  confidence: number;
+  reason: string | null;
+  step: number | null;
+  indexedAt: string;
+}
+
+/** Observed outcome for one file or explicitly excluded directory during indexing. */
+export interface GraphIndexFileReport {
+  /** Path relative to the assessed source root. */
+  path: string;
+  /** Extraction or exclusion outcome; unsupported and oversized imply partial coverage. */
+  status: 'analyzed' | 'excluded' | 'unsupported' | 'oversized' | 'failed';
+  /** Explanation for skipped or failed extraction. */
+  reason?: string;
+  /** Filesystem modification time captured before parsing. */
+  mtimeMs?: number;
+  /** SHA-256 of the bytes analyzed; detects edits even when filesystem metadata is preserved. */
+  contentHash?: string;
+  /** File size captured before parsing. */
+  size?: number;
+}
+
+/** Source provenance persisted with a complete published graph generation. */
+export interface GraphIndexAssessment {
+  /** Explicit nested repository/worktree scope retained for subsequent rebuilds. */
+  includedRepositories?: string[];
+  /** Canonical root whose relative file paths this graph describes. */
+  sourceRoot: string;
+  /** Git revision captured at assessment; null when no revision is available. */
+  assessedRevision: string | null;
+  /** ISO timestamp of the assessment. */
+  assessedAt: string;
+  /** Explicit extraction/exclusion outcomes, including partial coverage. */
+  files: GraphIndexFileReport[];
+}
+
+/** Validated rows staged before an atomic graph publication. */
+export interface GraphPublicationRows {
+  /** Source provenance and coverage belonging to this generation. */
+  assessment?: GraphIndexAssessment;
+  /** Complete replacement node generation. */
+  nodes: NexusNodeInsertRow[];
+  /** Complete replacement relationship generation. */
+  relations: NexusRelationInsertRow[];
+}
+
 // ---------------------------------------------------------------------------
 // Impact analysis result
 // ---------------------------------------------------------------------------
@@ -385,12 +457,14 @@ export interface ImpactResult {
   /**
    * Overall risk classification based on the number and type of affected nodes.
    *
-   * - `low`: 0–3 direct dependants, no cross-module spread
+   * - `unknown`: target missing or evidence insufficient
+   * - `none`: assessed target with no detected static dependants
+   * - `low`: 1–3 direct dependants, no cross-module spread
    * - `medium`: 4–9 direct dependants, or limited cross-module spread
    * - `high`: 10+ direct dependants, or significant cross-module spread
    * - `critical`: Exported symbol with high cross-module usage
    */
-  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  riskLevel: 'unknown' | 'none' | 'low' | 'medium' | 'high' | 'critical';
   /** Human-readable summary of the impact analysis outcome. */
   summary: string;
   /** Nodes affected at each traversal depth. */

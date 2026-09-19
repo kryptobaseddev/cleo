@@ -31,6 +31,20 @@ import type {
   ImpactResult,
 } from '@cleocode/contracts';
 
+/** Ambiguous short symbol names require an exact graph identifier. */
+export class ImpactSymbolAmbiguityError extends Error {
+  /** Stable code for CLI/SDK callers. */
+  readonly code = 'E_AMBIGUOUS_SYMBOL';
+  /** Candidate records retain exact IDs and source paths. */
+  readonly candidates: GraphNode[];
+  /** Create a resolvable ambiguity failure without choosing a checkout. */
+  constructor(target: string, candidates: GraphNode[]) {
+    super(`Symbol '${target}' is ambiguous; use an exact candidate identifier.`);
+    this.name = 'ImpactSymbolAmbiguityError';
+    this.candidates = candidates;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
@@ -118,6 +132,7 @@ function classifyRisk(
 ): ImpactResult['riskLevel'] {
   const directCount = depth1.length;
   const total = directCount + depth2.length + depth3.length;
+  if (total === 0) return 'none';
 
   // Check for cross-module usage: relations that cross file boundaries
   const targetFilePath = targetNode.filePath;
@@ -158,7 +173,7 @@ function composeSummary(
 ): string {
   const riskLabel = riskLevel.toUpperCase();
   if (totalCount === 0) {
-    return `${target}: no dependants found — risk ${riskLabel}`;
+    return `${target}: no static dependants found — risk ${riskLabel}. Static analysis cannot prove all runtime callers.`;
   }
   return (
     `${target}: ${depth1Count} direct dependant(s), ` +
@@ -253,24 +268,18 @@ export function analyzeImpact(
 
   // Build a fast lookup map for nodes
   const nodeById = new Map<string, GraphNode>();
-  const nodeByName = new Map<string, GraphNode>();
-  for (const node of nodes) {
-    nodeById.set(node.id, node);
-    // First occurrence wins for name lookup (class beats method of same name)
-    if (!nodeByName.has(node.name)) {
-      nodeByName.set(node.name, node);
-    }
-  }
+  for (const node of nodes) nodeById.set(node.id, node);
+  const exact = nodeById.get(target);
+  const candidates = exact ? [exact] : nodes.filter((node) => node.name === target);
+  if (candidates.length > 1) throw new ImpactSymbolAmbiguityError(target, candidates);
+  const targetNode = candidates[0];
 
-  // Resolve target — name first, then ID
-  const targetNode = nodeByName.get(target) ?? nodeById.get(target);
-
-  // Return a zero-impact result if the target is not found
+  // Missing coverage cannot establish low or zero impact.
   if (!targetNode) {
     return {
       target,
-      riskLevel: 'low',
-      summary: `${target}: not found in graph`,
+      riskLevel: 'unknown',
+      summary: `${target}: target is absent from the graph; impact is unknown. Static analysis cannot prove all runtime callers.`,
       affectedByDepth: {
         depth1_willBreak: [],
         depth2_likelyAffected: [],
