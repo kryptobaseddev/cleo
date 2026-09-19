@@ -6,7 +6,11 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { SeverityAttestation, TasksAddParams } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getCleoIdentity, verifyAuditLine } from '../../identity/cleo-identity.js';
+import {
+  getCleoIdentity,
+  getCleoIdentityPath,
+  verifyAuditLine,
+} from '../../identity/cleo-identity.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { addTask, toTaskAddOptions } from '../add.js';
 import * as duplicateDetector from '../duplicate-detector.js';
@@ -202,7 +206,29 @@ describe('canonical task mutation controls', () => {
     expect(JSON.parse(stored.audit[0].details_json).dependsWaiver).toBe('Independent restoration');
   });
 
+  it('rejects restricted severity without provisioning an unauthorized missing identity', async () => {
+    vi.stubEnv('CLEO_IDENTITY_SEED', undefined);
+    await configureOwners(['00'.repeat(32)]);
+    const identityPath = getCleoIdentityPath(env.tempDir);
+    expect(existsSync(identityPath)).toBe(false);
+    await expect(tasksAddOp(env.tempDir, input)).rejects.toThrow('E_OWNER_ONLY');
+    expect(existsSync(identityPath)).toBe(false);
+    expect(freshRead()).toEqual({ tasks: [], audit: [] });
+  });
+
+  it('preserves an existing signing key byte-for-byte after denied authorization', async () => {
+    vi.stubEnv('CLEO_IDENTITY_SEED', undefined);
+    await getCleoIdentity(env.tempDir);
+    const identityPath = getCleoIdentityPath(env.tempDir);
+    const before = await readFile(identityPath);
+    await configureOwners(['00'.repeat(32)]);
+    await expect(tasksAddOp(env.tempDir, input)).rejects.toThrow('E_OWNER_ONLY');
+    expect(await readFile(identityPath)).toEqual(before);
+    expect(freshRead()).toEqual({ tasks: [], audit: [] });
+  });
+
   it('keeps dry-run severity assertions out of task state and committed evidence', async () => {
+    vi.stubEnv('CLEO_IDENTITY_SEED', undefined);
     await configureOwners(['00'.repeat(32)]);
     await addTask(
       { ...toTaskAddOptions(input), severity: 'P1', dryRun: true },
@@ -210,10 +236,13 @@ describe('canonical task mutation controls', () => {
       env.accessor,
     );
     expect(freshRead()).toEqual({ tasks: [], audit: [] });
+    expect(existsSync(getCleoIdentityPath(env.tempDir))).toBe(false);
     expect(existsSync(join(env.cleoDir, 'audit/severity-attestation.jsonl'))).toBe(false);
   });
 
   it('rolls back task, criteria, dependency waiver, and signed decision when receipt persistence fails', async () => {
+    vi.stubEnv('CLEO_IDENTITY_SEED', undefined);
+    expect(existsSync(getCleoIdentityPath(env.tempDir))).toBe(false);
     const db = new DatabaseSync(join(env.cleoDir, 'cleo.db'));
     try {
       db.exec(
@@ -232,6 +261,12 @@ describe('canonical task mutation controls', () => {
           env.accessor,
         ),
       ).rejects.toMatchObject({ cause: { message: 'fixture receipt fault' } });
+      // Unrestricted first-use identity provisioning is independent project setup.
+      // Task rollback must not delete a signing key that may already be in use.
+      expect(existsSync(getCleoIdentityPath(env.tempDir))).toBe(true);
+      const identityBytes = await readFile(getCleoIdentityPath(env.tempDir));
+      await getCleoIdentity(env.tempDir);
+      expect(await readFile(getCleoIdentityPath(env.tempDir))).toEqual(identityBytes);
       expect(freshRead()).toEqual({ tasks: [], audit: [] });
       expect(
         db.prepare('SELECT COUNT(*) AS n FROM main.tasks_task_acceptance_criteria').get()?.n,

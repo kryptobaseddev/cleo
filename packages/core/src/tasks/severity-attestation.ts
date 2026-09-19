@@ -38,7 +38,7 @@ import {
 } from '@cleocode/contracts';
 import { z } from 'zod';
 import { CleoError } from '../errors.js';
-import { getCleoIdentity, signAuditLine } from '../identity/cleo-identity.js';
+import { getCleoIdentity, readCleoIdentity, signAuditLine } from '../identity/cleo-identity.js';
 import { getCleoDirAbsolute, getConfigPath } from '../paths.js';
 
 export type { SeverityAttestation };
@@ -190,6 +190,9 @@ export async function appendSignedSeverityAttestation(
  * @param options - Explicit project used for both identity and owner policy.
  * @returns Signed assertion ready for atomic audit persistence.
  * @remarks Preparation creates no committed task evidence; persist in the task transaction.
+ * Restricted authority never provisions an unknown signer. With opt-in unrestricted
+ * authority, first-use key provisioning is independent persistent project setup;
+ * a later task rollback does not delete or roll back that signing identity.
  * @example
  * ```ts
  * const assertion = await prepareSignedSeverityAttestation({
@@ -205,11 +208,11 @@ export async function prepareSignedSeverityAttestation(
 ): Promise<SignedSeverityAttestation> {
   const cwd = options?.cwd;
   const owners = await loadOwnerPubkeys(cwd);
-  const id = await getCleoIdentity(cwd);
-  if (owners.length > 0 && !owners.includes(id.pubkeyHex)) {
+  const id = owners.length > 0 ? await readCleoIdentity(cwd) : await getCleoIdentity(cwd);
+  if (id === null || (owners.length > 0 && !owners.includes(id.pubkeyHex))) {
     throw new CleoError(
       ExitCode.NEXUS_PERMISSION_DENIED,
-      `E_OWNER_ONLY: severity attestation requires an owner-allowlisted identity (pub=${id.pubkeyHex.slice(0, 8)}…).`,
+      `E_OWNER_ONLY: severity attestation requires an owner-allowlisted identity (pub=${id?.pubkeyHex.slice(0, 8) ?? 'unconfigured'}…).`,
       { details: { field: 'severity' }, fix: 'Use an identity authorized by the project owner.' },
     );
   }
