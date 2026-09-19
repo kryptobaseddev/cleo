@@ -18,7 +18,18 @@ import {
   type Task,
   type TaskStatus,
 } from '@cleocode/contracts';
-import { and, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+  like,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm';
 import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnSessionDelete } from './cross-db-cleanup.js';
 import type {
@@ -175,6 +186,13 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     return new Set(rows.map((r) => r.id));
   }
 
+  async function requireNativeDb() {
+    await getDb(cwd);
+    const nativeDb = getNativeTasksDb(cwd);
+    if (!nativeDb) throw new Error('Native database not initialized');
+    return nativeDb;
+  }
+
   // Per-accessor transaction nesting depth (T9814).
   // Tracks how many DataAccessor.transaction() calls are active on this
   // accessor instance. Used to choose BEGIN IMMEDIATE (outer, depth=0) vs
@@ -251,7 +269,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       // Wrap all upserts + dependency updates in a single transaction.
       // Retry on SQLITE_BUSY contention via runInImmediateTx (gh#391).
-      const nativeDb = getNativeTasksDb();
+      const nativeDb = await requireNativeDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
@@ -826,8 +844,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async getAncestorChain(taskId: string): Promise<Task[]> {
-      const nativeDb = getNativeTasksDb();
-      if (!nativeDb) return [];
+      const nativeDb = await requireNativeDb();
 
       const idRows = nativeDb
         .prepare(
@@ -865,8 +882,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async getSubtree(rootId: string): Promise<Task[]> {
-      const nativeDb = getNativeTasksDb();
-      if (!nativeDb) return [];
+      const nativeDb = await requireNativeDb();
 
       // Get IDs from the CTE, then load via Drizzle for proper conversion
       const idRows = nativeDb
@@ -924,8 +940,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async getDependencyChain(taskId: string): Promise<string[]> {
-      const nativeDb = getNativeTasksDb();
-      if (!nativeDb) return [];
+      const nativeDb = await requireNativeDb();
 
       const rows = nativeDb
         .prepare(
@@ -974,7 +989,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     // ---- Position helpers (T024/T025) ----
 
     async getNextPosition(parentId: string | null): Promise<number> {
-      const nativeDb = getNativeTasksDb();
+      const nativeDb = await requireNativeDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
@@ -998,7 +1013,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       fromPosition: number,
       delta: number,
     ): Promise<void> {
-      const nativeDb = getNativeTasksDb();
+      const nativeDb = await requireNativeDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
@@ -1021,53 +1036,23 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
     async updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void> {
       const db = await getDb(cwd);
-      const updateRow: Record<string, unknown> = {
-        updatedAt: fields.updatedAt ?? new Date().toISOString(),
-      };
-
-      // Copy only provided fields
-      const fieldMap: Array<[keyof TaskFieldUpdates, string]> = [
-        ['title', 'title'],
-        ['description', 'description'],
-        ['status', 'status'],
-        ['priority', 'priority'],
-        ['type', 'type'],
-        ['parentId', 'parentId'],
-        ['phase', 'phase'],
-        ['size', 'size'],
-        ['position', 'position'],
-        ['positionVersion', 'positionVersion'],
-        ['labelsJson', 'labelsJson'],
-        ['notesJson', 'notesJson'],
-        ['acceptanceJson', 'acceptanceJson'],
-        ['filesJson', 'filesJson'],
-        ['origin', 'origin'],
-        ['blockedBy', 'blockedBy'],
-        ['epicLifecycle', 'epicLifecycle'],
-        ['noAutoComplete', 'noAutoComplete'],
-        ['completedAt', 'completedAt'],
-        ['cancelledAt', 'cancelledAt'],
-        ['cancellationReason', 'cancellationReason'],
-        ['verificationJson', 'verificationJson'],
-        ['createdBy', 'createdBy'],
-        ['modifiedBy', 'modifiedBy'],
-        ['sessionId', 'sessionId'],
-        ['assignee', 'assignee'],
-        ['pipelineStage', 'pipelineStage'],
-      ];
-
-      for (const [key, col] of fieldMap) {
-        if (fields[key] !== undefined) {
-          updateRow[col] = fields[key];
+      // TaskFieldUpdates uses the schema's field names. Reject unsupported runtime
+      // input before Drizzle can silently omit it; no second field map can drift.
+      const columns = getTableColumns(schema.tasks);
+      for (const key of Object.keys(fields)) {
+        if (!Object.hasOwn(columns, key) || key === 'id' || key === 'createdAt') {
+          throw new Error(`Unsupported task update field: ${key}`);
         }
       }
+      const updateRow = { ...fields, updatedAt: fields.updatedAt ?? new Date().toISOString() };
 
       // gh#391: this is the chokepoint for `cleo update <id> --add-labels`.
       // Parallel invocations from a single shell used to lose ~50% of writes
       // to SQLITE_BUSY; withWriteRetry recovers them.
-      await withWriteRetry(() =>
+      const result = await withWriteRetry(() =>
         db.update(schema.tasks).set(updateRow).where(eq(schema.tasks.id, taskId)).run(),
       );
+      if (Number(result.changes) !== 1) throw new Error(`Task not found: ${taskId}`);
     },
 
     async transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T> {
@@ -1368,7 +1353,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     // ---- Agent task claiming ----
 
     async claimTask(taskId: string, agentId: string): Promise<void> {
-      const nativeDb = getNativeTasksDb();
+      const nativeDb = await requireNativeDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
@@ -1401,7 +1386,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async unclaimTask(taskId: string): Promise<void> {
-      const nativeDb = getNativeTasksDb();
+      const nativeDb = await requireNativeDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
