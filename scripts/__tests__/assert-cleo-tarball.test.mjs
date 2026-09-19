@@ -9,7 +9,12 @@ vi.mock('@cleocode/caamp', () => import('../../packages/caamp/src/core/artifacts
 
 import { checkCleoTarball } from '../../packages/cleo/scripts/check-cleo-tarball-size.mjs';
 import { assertCleoTarball } from '../assert-cleo-tarball.mjs';
-import { packedEnvironment, runPackedCommand } from '../packed-install-smoke.mjs';
+import {
+  assertPackedTaskResponse,
+  assertPackedVersion,
+  packedEnvironment,
+  runPackedCommand,
+} from '../packed-install-smoke.mjs';
 
 const required = [
   'dist/cli/index.js',
@@ -147,5 +152,32 @@ describe('packed operational execution', () => {
       'KIMI_HOME',
     ])
       expect(env[key].startsWith(root + '/')).toBe(true);
+  });
+});
+
+describe('independent installed response oracles', () => {
+  it('requires an exact successful version envelope, not arbitrary nonempty stdout', () => {
+    expect(assertPackedVersion('{"success":true,"data":{"version":"2026.9.8"}}', '2026.9.8')).toBe(
+      '2026.9.8',
+    );
+    for (const output of [
+      '2026.9.8',
+      '{"success":false,"data":{"version":"2026.9.8"}}',
+      '{"success":true,"data":{"version":"wrong"}}',
+      '{"success":true,"data":{"version":"2026.9.8"}}\nnoise',
+    ])
+      expect(() => assertPackedVersion(output, '2026.9.8')).toThrow();
+  });
+  it('requires canonical task identity and content, not merely HTTP success or an unrelated row', () => {
+    expect(() =>
+      assertPackedTaskResponse({ tasks: [{ id: 'T002', title: 'expected' }] }, 'T002', 'expected'),
+    ).not.toThrow();
+    for (const body of [
+      { tasks: [] },
+      { tasks: [{ id: 'T001', title: 'expected' }] },
+      { tasks: [{ id: 'T002', title: 'wrong' }] },
+      { error: 'tasks.db unavailable' },
+    ])
+      expect(() => assertPackedTaskResponse(body, 'T002', 'expected')).toThrow();
   });
 });
