@@ -8,6 +8,9 @@
  * @task T9054
  */
 
+import { resolve } from 'node:path';
+import { getProjectRoot, worktreeScope } from '../project-scope.js';
+
 // Re-export the interface and all related types from contracts
 export type {
   ArchiveFields,
@@ -78,16 +81,31 @@ export function assertTestEnv(dbPath: string): void {
  * ALL accessors returned are safety-enabled by default via SafetyDataAccessor wrapper.
  * Use CLEO_DISABLE_SAFETY=true to bypass (emergency only).
  *
+ * @param cwd - Explicit owning project root, captured before asynchronous initialization.
+ * @returns A safety-enabled accessor bound to that root for its lifetime.
+ * @remarks Later ambient project changes cannot redirect initialization or method calls.
+ * @example
+ * ```ts
+ * const store = await createDataAccessor('/projects/example');
+ * const task = await store.loadSingleTask('T001');
+ * ```
  * @task T9054 — engine parameter dropped; CLEO is SQLite-only (ADR-006).
  */
 export async function createDataAccessor(
   cwd?: string,
 ): Promise<import('@cleocode/contracts').DataAccessor> {
-  const { createSqliteDataAccessor } = await import('./sqlite-data-accessor.js');
-  const inner = await createSqliteDataAccessor(cwd);
-
-  const { wrapWithSafety } = await import('./safety-data-accessor.js');
-  return wrapWithSafety(inner, cwd);
+  const root = resolve(cwd ?? getProjectRoot());
+  const inherited = worktreeScope.getStore();
+  const captured = inherited ? { ...inherited } : undefined;
+  captured?.execution?.assertActive();
+  const { createSqliteDataAccessor, captureTaskAccessorScope, bindTaskAccessorScope } =
+    await import('./sqlite-data-accessor.js');
+  const scope = captureTaskAccessorScope(root, captured);
+  return worktreeScope.run(scope, async () => {
+    const inner = await createSqliteDataAccessor(root);
+    const { wrapWithSafety } = await import('./safety-data-accessor.js');
+    return bindTaskAccessorScope(wrapWithSafety(inner, root), scope);
+  });
 }
 
 /**
@@ -98,7 +116,7 @@ export async function createDataAccessor(
  * gitnexus graph to misclassify it as a universal key (T9054).
  *
  * @param cwd - Optional project root (defaults to process.cwd() resolution).
- * @returns DataAccessor backed by tasks.db (ADR-006, ADR-068).
+ * @returns DataAccessor backed by the consolidated project cleo.db (ADR-068).
  */
 // SSoT-EXEMPT: factory function — signature is (cwd?: string) by design, not a dispatch operation (ADR-057 D5)
 export async function getTaskAccessor(
