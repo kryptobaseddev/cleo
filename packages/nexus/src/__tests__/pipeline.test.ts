@@ -16,7 +16,10 @@ import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { GraphIndexFileReport, GraphPublicationRows } from '@cleocode/contracts';
+import Parser from 'tree-sitter';
+import TypeScript from 'tree-sitter-typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseOriginalSource } from '../code/parser.js';
 import type { ScannedFile } from '../pipeline/filesystem-walker.js';
 import { walkRepositoryPaths } from '../pipeline/filesystem-walker.js';
 import { runPipeline } from '../pipeline/index.js';
@@ -60,6 +63,74 @@ function writeFile(root: string, relPath: string, content = 'x'): void {
 // ---------------------------------------------------------------------------
 // Language detection
 // ---------------------------------------------------------------------------
+
+describe('bounded original parser capacity (T12262)', () => {
+  function sourceOfLength(length: number): string {
+    const head = 'import { 源 } from "./資料🌱";\n/*';
+    const tail = '*/\nexport function 解析(入力: string) { return 源(入力); }\n解析("🌱");\n';
+    return head + 'x'.repeat(length - head.length - tail.length) + tail;
+  }
+
+  function nativeParser(): Parser {
+    const parser = new Parser();
+    parser.setLanguage(TypeScript.typescript);
+    return parser;
+  }
+
+  it.each([
+    32766, 32767, 32768, 65536, 262144,
+  ])('preserves original identifiers, imports and UTF-16 tail spans at %i units', (length) => {
+    const source = sourceOfLength(length);
+    const tree = parseOriginalSource(nativeParser(), source);
+    expect(tree.rootNode.hasError).toBe(false);
+    expect(tree.rootNode.endIndex).toBe(length);
+    const declaration = tree.rootNode.descendantsOfType('function_declaration')[0];
+    expect(declaration.childForFieldName('name')?.text).toBe('解析');
+    expect(tree.rootNode.descendantsOfType('import_statement')[0].text).toBe(
+      'import { 源 } from "./資料🌱";',
+    );
+    const call = tree.rootNode.descendantsOfType('call_expression').at(-1);
+    expect(call?.text).toBe('解析("🌱")');
+    expect(call?.startIndex).toBe(source.lastIndexOf('解析('));
+    expect(call?.endIndex).toBe(source.lastIndexOf('解析(') + '解析("🌱")'.length);
+    expect(call?.startIndex).not.toBe(Buffer.byteLength(source.slice(0, call?.startIndex), 'utf8'));
+  });
+
+  it('retains the real default-buffer failure as a native negative control', () => {
+    expect(() => nativeParser().parse(sourceOfLength(32767))).not.toThrow();
+    expect(() => nativeParser().parse(sourceOfLength(32768))).toThrow('Invalid argument');
+  });
+
+  it('preserves an astral surrogate pair across the input chunk boundary', () => {
+    const source = '/*' + 'x'.repeat(4093) + '🌱*/\nconst 文 = "資料🌱";';
+    expect(source.charCodeAt(4095)).toBe(0xd83c);
+    const tree = parseOriginalSource(nativeParser(), source);
+    expect(tree.rootNode.hasError).toBe(false);
+    expect(tree.rootNode.text).toBe(source);
+    expect(tree.rootNode.descendantsOfType('identifier').map((node) => node.text)).toContain('文');
+  });
+
+  it('rejects excess source bytes and pre-cancelled work without corrupting parser reuse', () => {
+    const parser = nativeParser();
+    const source = 'const 文 = "🌱";';
+    expect(() => parseOriginalSource(parser, source, { maxSourceBytes: source.length })).toThrow(
+      'E_PARSE_SIZE',
+    );
+    const controller = new AbortController();
+    controller.abort(new Error('controlled cancellation'));
+    expect(() => parseOriginalSource(parser, source, { signal: controller.signal })).toThrow(
+      'controlled cancellation',
+    );
+    expect(parseOriginalSource(parser, source).rootNode.hasError).toBe(false);
+  });
+
+  it('enforces the native deadline and resets timed-out parser state', () => {
+    const parser = nativeParser();
+    const source = 'const x = 1;\n'.repeat(20000);
+    expect(() => parseOriginalSource(parser, source, { timeoutMs: 0.001 })).toThrow();
+    expect(parseOriginalSource(parser, 'const 文 = 1;').rootNode.hasError).toBe(false);
+  });
+});
 
 describe('source evidence fidelity', () => {
   it('honors escaped Git patterns, directory-only rules, and nested negation', async () => {
