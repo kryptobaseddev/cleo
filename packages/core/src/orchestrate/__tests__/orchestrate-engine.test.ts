@@ -28,7 +28,7 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let TEST_ROOT: string;
 let CLEO_DIR: string;
@@ -110,6 +110,9 @@ const SAMPLE_TASKS = [
 
 describe('Orchestrate Engine', () => {
   beforeEach(async () => {
+    // Explicit cwd must resolve this fixture rather than the shared setup project.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-orch-'));
     CLEO_DIR = join(TEST_ROOT, '.cleo');
     // validateProjectRoot requires .git/ sibling (legacy-fallback path).
@@ -139,6 +142,7 @@ describe('Orchestrate Engine', () => {
     // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
     // briefly after close(). 5 retries × 500 ms = 2.5 s max wait (T9182).
     await rm(TEST_ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+    vi.unstubAllEnvs();
   });
 
   describe('orchestrateStatus', () => {
