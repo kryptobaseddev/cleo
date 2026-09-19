@@ -12,6 +12,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   mkdirSync,
   mkdtempSync,
@@ -904,6 +905,51 @@ describe('runPipeline', () => {
 
   afterEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('reports only observed fingerprints before incremental owner validation', async () => {
+    const source = 'export const unchanged = true;';
+    writeFile(tmpDir, 'main.ts', source);
+    const nodes = stubTable();
+    const relations = stubTable();
+    const persisted = [
+      {
+        kind: 'file',
+        filePath: 'main.ts',
+        contentHash: createHash('sha256').update(source).digest('hex'),
+      },
+    ];
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const db = {
+      insert,
+      select: () => ({
+        from: async (table: DrizzleTableRef) => (table === nodes ? persisted : []),
+      }),
+    };
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    const output = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const result = await runPipeline(
+        tmpDir,
+        'project',
+        db,
+        { nexusNodes: nodes, nexusRelations: relations },
+        undefined,
+        { incremental: true, publishGraph },
+      );
+      expect(result.nodeCount).toBe(1);
+      expect(result.relationCount).toBe(0);
+      expect(publishGraph).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+      const text = output.mock.calls.map((call) => String(call[0])).join('');
+      expect(text).toContain('no source fingerprint changes; returning existing graph statistics');
+      expect(text).not.toContain('index is up to date');
+      expect(text).not.toContain('Pipeline complete:');
+    } finally {
+      output.mockRestore();
+    }
   });
 
   it('stages a validated complete generation without inserting live rows', async () => {

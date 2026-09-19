@@ -10,32 +10,87 @@
  * @task T10062
  */
 
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { realpath } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import type {
   GraphIndexAssessment,
+  GraphIndexFileReport,
   GraphPublicationRows,
   ParserExecutionLimits,
 } from '@cleocode/contracts';
+import type { GraphSourceRootAssessment } from '@cleocode/contracts/graph';
+import type { ScannedFile } from '@cleocode/nexus/pipeline';
 import { sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { z } from 'zod';
+import { worktreeScope } from '../paths.js';
+import { getProjectInfo } from '../project-info.js';
 import { createParserExecutionPort } from '../resources/spawn-wrapper.js';
 import { nexusNodes, nexusRelations } from '../store/schema/cleo-project/nexus-graph.js';
+import { generateProjectHash } from './hash.js';
 import { readKnowledgeIndexAssessment } from './knowledge.js';
+import { resolveSourceRoots } from './source-roots.js';
 
-/** Capture a source revision without confusing unversioned roots with a known revision. */
-function sourceRevision(repoPath: string): string | null {
+/** Compare ownership and observed revisions without treating observation time as a change. */
+function rootFingerprint(roots: GraphSourceRootAssessment): string {
+  return JSON.stringify({
+    projectId: roots.projectId,
+    projectRoot: roots.projectRoot,
+    sourceRoot: roots.sourceRoot,
+    roots: roots.roots.map((root) => ({
+      requestedPath: root.requestedPath,
+      canonicalPath: root.canonicalPath,
+      graphPrefix: root.graphPrefix,
+      explicitlyIncluded: root.explicitlyIncluded,
+      revision: root.revision,
+      status: root.status,
+      diagnostics: root.diagnostics,
+    })),
+  });
+}
+
+/** Fail closed when a required root observation did not finish successfully. */
+function requireObservedRoots(roots: GraphSourceRootAssessment): void {
+  const failed = roots.roots.filter(
+    (root) => root.status !== 'available' && root.status !== 'unversioned',
+  );
+  if (failed.length)
+    throw new Error(
+      `Source-root observation incomplete; previous graph retained: ${failed.map((root) => `${root.requestedPath}: ${root.diagnostics.join('; ')}`).join(' | ')}`,
+    );
+}
+
+/** Verify persisted parent identity without promoting a legacy path hash into authority. */
+async function readAnalysisIdentity(
+  projectRoot: string,
+  previousRoots: GraphSourceRootAssessment | undefined,
+  projectIdOverride: string | undefined,
+): Promise<string> {
+  const canonicalParent = await realpath(projectRoot);
+  if (previousRoots && previousRoots.projectRoot !== canonicalParent)
+    throw new Error(
+      'Stored graph ownership differs from the current project root; previous graph retained.',
+    );
+  let projectId: string | undefined;
   try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      timeout: 1000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return null;
+    const info = await getProjectInfo(projectRoot);
+    projectId = info.projectId || info.projectHash;
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+    projectId = previousRoots?.projectId;
   }
+  if (!projectId)
+    throw new Error(
+      'Stable project identity is unavailable; initialize this project or restore its verified project identity.',
+    );
+  if (previousRoots && previousRoots.projectId !== projectId)
+    throw new Error(
+      'Stored graph identity differs from the current project identity; previous graph retained.',
+    );
+  if (projectIdOverride !== undefined && projectIdOverride !== projectId)
+    throw new Error('Explicit analysis identity differs from the verified project identity.');
+  return projectId;
 }
 
 /** Preserve explicitly selected nested repository scope on routine reindexing. */
@@ -155,7 +210,9 @@ export interface NexusAnalysisParams {
   parserLimits?: ParserExecutionLimits;
   /** Absolute path to the repository to analyze. */
   repoPath: string;
-  /** Override the project ID (default: `base64url(repoPath).slice(0, 32)`). */
+  /** Stable identity parent; defaults to repoPath and can differ from the analyzed source. */
+  projectRoot?: string;
+  /** Explicit existing identity override; otherwise require persisted parent identity. */
   projectIdOverride?: string;
   /** When true, skip unchanged indexes and atomically rebuild changed generations. */
   incremental?: boolean;
@@ -189,7 +246,7 @@ export interface NexusAnalysisResult {
  * Run the nexus code-intelligence pipeline on a repository.
  *
  * This function:
- * 1. Derives the project ID.
+ * 1. Captures the existing parent identity and explicit source roots.
  * 2. Captures the current graph generation for concurrent-write detection.
  * 3. Stages and atomically publishes the `@cleocode/nexus` pipeline output.
  * 4. Best-effort: refreshes `nexus-bridge.md`.
@@ -198,47 +255,170 @@ export interface NexusAnalysisResult {
  *
  * @param params - Analysis configuration
  * @returns Pipeline result with node/relation/file counts and duration
- * @throws {Error} When the pipeline itself fails (best-effort steps never throw)
+ * @throws {Error} When identity, source preconditions or the pipeline fail.
+ * @remarks Root revisions and file hashes are optimistic preconditions, not a
+ * filesystem lock. Publication uses the owning store's synchronous generation CAS;
+ * optional post-publication hooks cannot replace its committed result.
+ * @example
+ * ```ts
+ * const result = await runNexusAnalysis({ repoPath: '/identity', includedRepositories: ['app'] });
+ * ```
  */
 export async function runNexusAnalysis(params: NexusAnalysisParams): Promise<NexusAnalysisResult> {
-  const { repoPath, projectIdOverride, incremental = false, onProgress } = params;
+  const captured = {
+    ...params,
+    parserLimits: params.parserLimits ? { ...params.parserLimits } : undefined,
+    includedRepositories: params.includedRepositories
+      ? [...params.includedRepositories]
+      : undefined,
+  };
+  const projectRoot = resolve(captured.projectRoot ?? captured.repoPath);
+  const inherited = worktreeScope.getStore();
+  if (inherited?.execution && resolve(inherited.execution.identity.projectRoot) !== projectRoot)
+    throw new Error('Analysis project differs from captured execution scope.');
+  return worktreeScope.run(
+    { ...inherited, worktreeRoot: projectRoot, projectHash: generateProjectHash(projectRoot) },
+    () => runScopedNexusAnalysis(captured, projectRoot),
+  );
+}
 
+/** Keep the entire asynchronous analysis bound to its captured identity parent. */
+async function runScopedNexusAnalysis(
+  params: NexusAnalysisParams,
+  projectRoot: string,
+): Promise<NexusAnalysisResult> {
+  const { projectIdOverride, incremental = false, onProgress } = params;
+  const execution = worktreeScope.getStore()?.execution;
+  execution?.assertActive();
+  const signals = [params.parserLimits?.signal, execution?.signal].filter(
+    (signal): signal is AbortSignal => signal !== undefined,
+  );
+  const signal = signals.length ? AbortSignal.any(signals) : undefined;
+  signal?.throwIfAborted();
   const startTime = Date.now();
 
   // SSoT-EXEMPT:pipeline-progress — requires direct DB handle access and a
   // progress callback that is CLI-only. Extracted here to keep the core
   // runnable without the CLI layer, but the DB/pipeline imports still happen
   // via dynamic imports so the CLI controls when heavy deps are loaded.
-  const [{ getNexusDb, nexusSchema }, { runPipeline }] = await Promise.all([
+  const [{ getNexusDb, nexusSchema }, { runPipeline, walkRepositoryPaths }] = await Promise.all([
     import('@cleocode/core/store/nexus-sqlite' as string),
     import('@cleocode/nexus/pipeline' as string),
   ]);
 
-  const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
-
-  const db = await getNexusDb();
+  const db = await getNexusDb(projectRoot);
+  const expectedGeneration = graphGeneration(db);
+  const previousAssessment = await readKnowledgeIndexAssessment(projectRoot);
+  const projectId = await readAnalysisIdentity(
+    projectRoot,
+    previousAssessment?.sourceRoots,
+    projectIdOverride,
+  );
+  if (execution && execution.identity.projectId !== projectId)
+    throw new Error('Analysis identity differs from captured execution scope.');
   const tables = {
     nexusNodes: nexusSchema.nexusNodes,
     nexusRelations: nexusSchema.nexusRelations,
   };
 
-  const expectedGeneration = graphGeneration(db);
-  const assessedRevision = sourceRevision(repoPath);
-  const includedRepositories = params.includedRepositories ?? includedRepositoryScope(db, repoPath);
+  const requestedSource = resolve(params.repoPath);
+  const includedRepositories =
+    params.includedRepositories ?? includedRepositoryScope(db, requestedSource);
+  const rootRequest = {
+    projectId,
+    projectRoot,
+    sourceRoot: requestedSource,
+    includedRepositories,
+    signal,
+    ...(execution ? { deadline: execution.deadlineAt } : {}),
+  };
+  const sourceRoots = await resolveSourceRoots(rootRequest);
+  requireObservedRoots(sourceRoots);
+  execution?.assertActive();
+  const repoPath = sourceRoots.sourceRoot;
+  const assessedRevision = sourceRoots.roots[0]?.revision ?? null;
+  const unchangedRoots =
+    previousAssessment?.sourceRoots !== undefined &&
+    rootFingerprint(previousAssessment.sourceRoots) === rootFingerprint(sourceRoots);
+  const useIncremental = incremental && expectedGeneration !== null && unchangedRoots;
+  let committedAssessment: GraphIndexAssessment | null = null;
+
+  const recheckRoots = async (): Promise<void> => {
+    execution?.assertActive();
+    if (
+      (await readAnalysisIdentity(
+        projectRoot,
+        previousAssessment?.sourceRoots,
+        projectIdOverride,
+      )) !== projectId
+    )
+      throw new Error('Project identity changed during indexing; previous graph retained.');
+    const currentRoots = await resolveSourceRoots(rootRequest);
+    requireObservedRoots(currentRoots);
+    execution?.assertActive();
+    signal?.throwIfAborted();
+    if (rootFingerprint(currentRoots) !== rootFingerprint(sourceRoots))
+      throw new Error(
+        'Source ownership or revision changed during indexing; previous graph retained.',
+      );
+  };
+  const recheckFiles = async (assessment: GraphIndexAssessment): Promise<void> => {
+    // Git observation yields. Reuse the full walker after it so an edit,
+    // addition, rename or deletion during that await cannot publish stale bytes.
+    const failures: string[] = [];
+    const currentFiles = await walkRepositoryPaths(
+      repoPath,
+      undefined,
+      (report: GraphIndexFileReport) => {
+        if (report.status === 'failed') failures.push(report.path);
+      },
+      includedRepositories,
+    );
+    const recorded = new Map(
+      assessment.files
+        .filter((file) => file.contentHash)
+        .map((file) => [file.path, file.contentHash]),
+    );
+    if (
+      failures.length ||
+      currentFiles.length !== recorded.size ||
+      currentFiles.some(
+        (file: ScannedFile) => !file.contentHash || recorded.get(file.path) !== file.contentHash,
+      )
+    )
+      throw new Error('Source files changed before publication; previous graph retained.');
+  };
 
   const result = await runPipeline(repoPath, projectId, db, tables, onProgress, {
     parserExecution: createParserExecutionPort(),
-    parserLimits: params.parserLimits,
-    incremental: incremental && expectedGeneration !== null,
+    parserLimits: { ...params.parserLimits, signal },
+    incremental: useIncremental,
     assessedRevision,
+    sourceRoots,
     includedRepositories,
-    publishGraph: (rows: GraphPublicationRows) => {
-      if (sourceRevision(repoPath) !== assessedRevision) {
-        throw new Error('Source revision changed during indexing; previous graph retained.');
-      }
+    publishGraph: async (rows: GraphPublicationRows) => {
+      await recheckRoots();
+      if (
+        !rows.assessment?.sourceRoots ||
+        rootFingerprint(rows.assessment.sourceRoots) !== rootFingerprint(sourceRoots)
+      )
+        throw new Error('Staged source ownership does not match the assessed roots.');
+      await recheckFiles(rows.assessment);
+      execution?.assertActive();
+      signal?.throwIfAborted();
       publishNexusGraph(db, rows, expectedGeneration);
+      committedAssessment = rows.assessment;
     },
   });
+
+  if (!committedAssessment && previousAssessment) {
+    // Incremental no-op still needs current provenance: Git or source bytes can
+    // change while the pipeline scans without ever invoking the publisher.
+    await recheckRoots();
+    await recheckFiles(previousAssessment);
+    execution?.assertActive();
+    signal?.throwIfAborted();
+  }
 
   // Best-effort: refresh nexus-bridge.md
   try {
@@ -276,11 +456,11 @@ export async function runNexusAnalysis(params: NexusAnalysisParams): Promise<Nex
   return {
     projectId,
     repoPath,
-    incremental,
+    incremental: useIncremental,
     nodeCount: result.nodeCount,
     relationCount: result.relationCount,
     fileCount: result.fileCount,
     durationMs: Date.now() - startTime,
-    assessment: await readKnowledgeIndexAssessment(),
+    assessment: committedAssessment ?? previousAssessment,
   };
 }
