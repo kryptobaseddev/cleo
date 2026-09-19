@@ -61,7 +61,10 @@ describe('getGlobalAgentRegistryDbPath', () => {
 
   it('TC-020: returns a path that starts with the mocked getCleoHome() value', async () => {
     const cleoHome = makeTmpDir('path-tc020');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { getGlobalAgentRegistryDbPath } = await import('../agent-registry-store.js');
     const result = getGlobalAgentRegistryDbPath();
@@ -73,7 +76,10 @@ describe('getGlobalAgentRegistryDbPath', () => {
 
   it('returns path ending with cleo.db (E6-L5 consolidation)', async () => {
     const cleoHome = makeTmpDir('path-filename');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { getGlobalAgentRegistryDbPath } = await import('../agent-registry-store.js');
     const result = getGlobalAgentRegistryDbPath();
@@ -94,7 +100,10 @@ describe('getAgentRegistryDbPath (deprecated alias)', () => {
 
   it('with no args returns the global path', async () => {
     const cleoHome = makeTmpDir('deprecated-path-noargs');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { getAgentRegistryDbPath, getGlobalAgentRegistryDbPath } = await import(
       '../agent-registry-store.js'
@@ -104,7 +113,10 @@ describe('getAgentRegistryDbPath (deprecated alias)', () => {
 
   it('with a cwd argument THROWS a migration error', async () => {
     const cleoHome = makeTmpDir('deprecated-path-cwd');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { getAgentRegistryDbPath } = await import('../agent-registry-store.js');
     expect(() => getAgentRegistryDbPath('/some/project')).toThrow('T310');
@@ -134,7 +146,10 @@ describe('ensureGlobalAgentRegistryDb', () => {
   });
 
   it('TC-021: creates the consolidated cleo.db on fresh install', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const {
       ensureGlobalAgentRegistryDb,
@@ -151,7 +166,10 @@ describe('ensureGlobalAgentRegistryDb', () => {
   });
 
   it('TC-022: is idempotent — second call returns action="exists"', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -170,7 +188,10 @@ describe('ensureGlobalAgentRegistryDb', () => {
 
   it('creates global cleo home directory if it does not exist', async () => {
     const nestedHome = join(cleoHome, 'deep', 'nested');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => nestedHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => nestedHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -207,7 +228,10 @@ describe('agents table schema', () => {
   });
 
   it('TC-023: agents table contains requires_reauth column', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -236,7 +260,10 @@ describe('agents table schema', () => {
   });
 
   it('agents table has is_active column from former migration 000003', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -283,7 +310,10 @@ describe('cloud-sync tables', () => {
   });
 
   it('TC-024: users, organization, accounts, sessions, verifications, claim_codes, org_agent_keys all present with zero rows', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -339,7 +369,10 @@ describe('identity catalog tables', () => {
   });
 
   it('TC-025: capabilities and skills tables are present', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -361,7 +394,10 @@ describe('identity catalog tables', () => {
   });
 
   it('TC-026: agent_capabilities and agent_skills junction tables are present', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -383,7 +419,10 @@ describe('identity catalog tables', () => {
   });
 
   it('TC-027: agent_connections table is present with correct columns', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -437,7 +476,10 @@ describe('project-local tables absent from global signaldock.db', () => {
   });
 
   it('conversations, messages, delivery_jobs, dead_letters tables are NOT present', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -485,7 +527,10 @@ describe('checkGlobalAgentRegistryDbHealth', () => {
   });
 
   it('returns exists=false when DB does not exist', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { checkGlobalAgentRegistryDbHealth } = await import('../agent-registry-store.js');
     const health = await checkGlobalAgentRegistryDbHealth();
@@ -496,7 +541,10 @@ describe('checkGlobalAgentRegistryDbHealth', () => {
   });
 
   it('returns exists=true with correct table count after ensureGlobalAgentRegistryDb', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const {
       ensureGlobalAgentRegistryDb,
@@ -528,7 +576,10 @@ describe('checkAgentRegistryDbHealth (deprecated alias)', () => {
 
   it('with cwd argument THROWS migration error', async () => {
     const cleoHome = makeTmpDir('deprecated-health-cwd');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { checkAgentRegistryDbHealth } = await import('../agent-registry-store.js');
     await expect(checkAgentRegistryDbHealth('/some/project')).rejects.toThrow('T310');
@@ -536,7 +587,10 @@ describe('checkAgentRegistryDbHealth (deprecated alias)', () => {
 
   it('with no args forwards to global health check', async () => {
     const cleoHome = makeTmpDir('deprecated-health-noargs');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { checkAgentRegistryDbHealth } = await import('../agent-registry-store.js');
     const health = await checkAgentRegistryDbHealth();
@@ -556,7 +610,10 @@ describe('ensureAgentRegistryDb (deprecated alias)', () => {
 
   it('with cwd argument THROWS migration error', async () => {
     const cleoHome = makeTmpDir('deprecated-ensure-cwd');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureAgentRegistryDb } = await import('../agent-registry-store.js');
     await expect(ensureAgentRegistryDb('/some/project')).rejects.toThrow('T310');
@@ -564,7 +621,10 @@ describe('ensureAgentRegistryDb (deprecated alias)', () => {
 
   it('with no args forwards to ensureGlobalAgentRegistryDb', async () => {
     const cleoHome = makeTmpDir('deprecated-ensure-noargs');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -601,14 +661,20 @@ describe('getGlobalAgentRegistryNativeDb', () => {
   });
 
   it('returns null before ensureGlobalAgentRegistryDb is called', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { getGlobalAgentRegistryNativeDb } = await import('../agent-registry-store.js');
     expect(getGlobalAgentRegistryNativeDb()).toBeNull();
   });
 
   it('returns a DatabaseSync handle after ensureGlobalAgentRegistryDb', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const {
       ensureGlobalAgentRegistryDb,
@@ -636,7 +702,10 @@ describe('exported constants', () => {
 
   it('GLOBAL_AGENT_REGISTRY_DB_FILENAME is "signaldock.db"', async () => {
     const cleoHome = makeTmpDir('constants');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { GLOBAL_AGENT_REGISTRY_DB_FILENAME } = await import('../agent-registry-store.js');
     expect(GLOBAL_AGENT_REGISTRY_DB_FILENAME).toBe('signaldock.db');
@@ -644,7 +713,10 @@ describe('exported constants', () => {
 
   it('GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION is "2026.4.12"', async () => {
     const cleoHome = makeTmpDir('constants2');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION } = await import('../agent-registry-store.js');
     expect(GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION).toBe('2026.4.12');
@@ -652,7 +724,10 @@ describe('exported constants', () => {
 
   it('AGENT_REGISTRY_SCHEMA_VERSION deprecated alias equals GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION', async () => {
     const cleoHome = makeTmpDir('constants3');
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { AGENT_REGISTRY_SCHEMA_VERSION, GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION } = await import(
       '../agent-registry-store.js'
