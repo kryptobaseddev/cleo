@@ -116,6 +116,36 @@ describe('task mutation durability', () => {
     ).toBe('[]');
   });
 
+  it('does not roll back another concurrent caller after that caller reports success', async () => {
+    const a = await createSqliteDataAccessor(projectA);
+    const b = await createSqliteDataAccessor(projectA);
+    const failed = a.transaction(async (tx) => {
+      await tx.upsertSingleTask(task('T1', 'Rolled back'));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      throw new Error('first caller failure');
+    });
+    const succeeded = b.transaction(async (tx) => {
+      await tx.upsertSingleTask(task('T2', 'Committed'));
+    });
+    const outcomes = await Promise.allSettled([failed, succeeded]);
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(['rejected', 'fulfilled']);
+    expect(persisted(projectA, 'SELECT id, title FROM tasks_tasks ORDER BY id')).toBe(
+      '[{"id":"T2","title":"Committed"}]',
+    );
+  });
+
+  it('rolls back a standalone upsert when its dependency insertion fails', async () => {
+    const a = await createSqliteDataAccessor(projectA);
+    await a.upsertSingleTask(task('T1', 'Dependency'));
+    getNativeTasksDb(projectA)!.exec(
+      "CREATE TRIGGER fail_dep BEFORE INSERT ON tasks_task_dependencies BEGIN SELECT RAISE(ABORT, 'injected write failure'); END",
+    );
+    await expect(
+      a.upsertSingleTask(task('T2', 'Must rollback', { depends: ['T1'] })),
+    ).rejects.toThrow();
+    expect(persisted(projectA, "SELECT id FROM tasks_tasks WHERE id = 'T2'")).toBe('[]');
+  });
+
   it('rejects an update that addresses no row', async () => {
     const a = await createSqliteDataAccessor(projectA);
     await expect(a.updateTaskFields('T404', { title: 'Never persisted' })).rejects.toThrow(
