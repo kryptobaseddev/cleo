@@ -92,8 +92,6 @@ import {
   releaseReservedSlug,
   reserveSlugForDispatch,
   resolveAttachmentBackend,
-  resolveCanonicalCleoDir,
-  resolveProjectByCwd,
   runDocsImport,
   SlugCollisionError,
   SUPERSEDE_NOT_FOUND_CODE,
@@ -108,6 +106,7 @@ import {
   writeAuditEntry,
   writeChangesetEntry,
 } from '@cleocode/core/internal';
+import { resolveCleoDir } from '@cleocode/core/paths.js';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
@@ -802,7 +801,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     }
 
     const cwd = getProjectRoot();
-    const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(cwd));
+    const cleoDir = resolveCleoDir(cwd);
 
     // Derive storage path for blob kinds
     let storagePath: string | undefined;
