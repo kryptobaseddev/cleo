@@ -1,8 +1,9 @@
 /**
  * `pr:<number>` evidence-atom validator.
  *
- * Resolves a GitHub pull request via the `gh` CLI and decides whether the PR
- * satisfies the `implemented`, `testsPassed`, and `qaPassed` gates (T9838).
+ * Resolves merge identity, checks and changed-file provenance via the `gh`
+ * CLI. The task evidence service separately validates task scope and criteria;
+ * this resolver does not establish implementation, testing or review.
  * Closes the release-verb dogfood gap (T9764): tasks that ship via the
  * standard PR + admin-merge flow previously had no zero-friction way to record
  * evidence retroactively —

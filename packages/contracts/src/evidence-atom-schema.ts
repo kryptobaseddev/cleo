@@ -193,10 +193,9 @@ export const decisionAtomSchema = z.object({
 });
 
 /**
- * `pr:<number>` atom — references a GitHub PR by number. Satisfies BOTH
- * `testsPassed` and `qaPassed` simultaneously when the PR is MERGED and every
- * required-workflow check is green (T9764). Extended in T9838 to satisfy
- * `implemented` because the merge commit IS the landing artifact.
+ * `pr:<number>` atom — references merged PR provenance. Contextual validation
+ * checks task relationship and changed artifacts. Implementation also needs
+ * inspected file evidence; testing and review require actual result atoms.
  *
  * Format: `pr:<positive integer>` (e.g. `pr:357`).
  *

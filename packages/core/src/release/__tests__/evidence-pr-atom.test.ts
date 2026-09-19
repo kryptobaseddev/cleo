@@ -1130,7 +1130,7 @@ describe('parseEvidence — explicit-form pr atom (T9838)', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolvePrEvidenceAtom — implemented gate semantics (T9838)', () => {
-  it('happy path: merged PR with passing CI satisfies all three gates', async () => {
+  it('merged PR with passing CI records provenance but does not satisfy task gates', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
     const r = await resolvePrEvidenceAtom(
       357,
