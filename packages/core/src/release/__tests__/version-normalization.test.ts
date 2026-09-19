@@ -20,9 +20,16 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { causeChainMessages, releaseReconcileV2 } from '../reconcile.js';
 import { normalizeVersion } from '../version.js';
+
+// Release round-trips use each scenario's explicit fixture project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('normalizeVersion (gh#1440)', () => {
   it('adds the v prefix to a bare version', () => {

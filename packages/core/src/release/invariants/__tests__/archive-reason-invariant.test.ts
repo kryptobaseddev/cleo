@@ -28,7 +28,7 @@ import {
   ArchiveReasonTombstoneError,
   assertArchiveReason,
 } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
 import {
   ARCHIVE_REASON_INVARIANT_ID,
@@ -86,6 +86,13 @@ function seedGitRepo(args: {
 // ---------------------------------------------------------------------------
 // Registry tests
 // ---------------------------------------------------------------------------
+
+// Validate release state from each explicitly initialized fixture project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('release.invariants registry', () => {
   beforeEach(() => {
