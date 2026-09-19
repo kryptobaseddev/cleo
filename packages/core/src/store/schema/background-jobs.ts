@@ -5,7 +5,7 @@
  */
 
 import type { BackgroundJobStatus } from '@cleocode/contracts/jobs';
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 
 /**
  * Background job status enum values.
@@ -39,8 +39,9 @@ export type { BackgroundJobStatus };
 /**
  * Durable background job row stored in tasks.db.
  *
- * Jobs survive process restart; any row with `status='running'` at startup
- * is transitioned to `status='orphaned'` so humans/agents can triage them.
+ * This is the established active runtime table. The separately retained
+ * tasks_background_jobs history uses a different timestamp encoding; no implicit
+ * cutover or historical repair is performed here. Opening a client preserves rows.
  *
  * @task T641
  */
@@ -67,12 +68,37 @@ export const backgroundJobs = sqliteTable(
     heartbeatAt: integer('heartbeat_at').notNull(),
     /** Agent or session ID that claimed this job; NULL if unclaimed. */
     claimedBy: text('claimed_by'),
+    /** Explicit project identity; NULL denotes unresolved legacy scope. */
+    projectId: text('project_id'),
+    /** Unique current client identity; NULL denotes unowned legacy work. */
+    ownerId: text('owner_id'),
+    /** Epoch-ms lease expiration; NULL must not be inferred as expired ownership. */
+    leaseExpiresAt: integer('lease_expires_at'),
+    /** Monotonic attempt fence; older owners cannot publish results. */
+    fencingEpoch: integer('fencing_epoch').notNull().default(0),
+    /** Number of issued execution claims. */
+    attempts: integer('attempts').notNull().default(0),
+    /** Epoch-ms cancellation request; not proof the executor has stopped. */
+    cancellationRequestedAt: integer('cancellation_requested_at'),
+    /** JSON checkpoint retained across an expired-attempt reclaim. */
+    checkpointJson: text('checkpoint_json'),
+    /** Last fenced checkpoint timestamp, in epoch milliseconds. */
+    checkpointAt: integer('checkpoint_at'),
+    /** Caller retry identity, scoped by project and operation. */
+    idempotencyKey: text('idempotency_key'),
+    /** SHA-256 of the immutable submitted proposal bytes. */
+    proposalHash: text('proposal_hash'),
   },
   (table) => [
     index('idx_background_jobs_status').on(table.status),
     index('idx_background_jobs_operation').on(table.operation),
     index('idx_background_jobs_claimed_by').on(table.claimedBy),
     index('idx_background_jobs_started_at').on(table.startedAt),
+    unique('uq_background_jobs_scoped_idempotency').on(
+      table.projectId,
+      table.operation,
+      table.idempotencyKey,
+    ),
   ],
 );
 

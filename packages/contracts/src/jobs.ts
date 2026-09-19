@@ -57,13 +57,13 @@ export interface BackgroundJobSubmission {
 /** Persisted execution ownership; the epoch fences earlier attempts. */
 export interface BackgroundJobLease {
   /** Job to which this grant belongs. */
-  jobId: string;
+  readonly jobId: string;
   /** Unique store-client identity, independent of actor display labels. */
-  ownerId: string;
+  readonly ownerId: string;
   /** Monotonically increasing claim epoch. */
-  epoch: number;
+  readonly epoch: number;
   /** Expiration observed when this grant was issued, in epoch milliseconds. */
-  expiresAt: number;
+  readonly expiresAt: number;
 }
 
 /** Configuration for a client of the existing durable job store. */
