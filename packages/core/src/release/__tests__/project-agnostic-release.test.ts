@@ -14,8 +14,18 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getPushMode, loadReleaseConfig, validateReleaseConfig } from '../release-config.js';
+
+// Each explicit cwd belongs to this test's synthetic project, not the setup pin.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
