@@ -21,6 +21,7 @@
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import type { DecisionCodeEvidenceLink } from '@cleocode/contracts';
 import { getConduitDbPath } from '../store/conduit-sqlite.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
@@ -29,6 +30,11 @@ import { brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js
 import { applyPerfPragmas } from '../store/sqlite-pragmas.js';
 import { typedAll } from '../store/typed-query.js';
 import { withWriterLease } from '../store/writer-lease.js';
+import {
+  isCurrentDecisionCodeEvidence,
+  linkDecisionToCodeEvidence,
+  readDecisionCodeEvidence,
+} from './decision-cross-link.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -78,6 +84,8 @@ export interface MemoriesForCodeResult {
     qualityScore: number;
     edgeWeight: number;
     matchStrategy: string;
+    /** Explicit verified source provenance when this is a sourced decision relation. */
+    provenance?: DecisionCodeEvidenceLink;
   }>;
 }
 
@@ -93,6 +101,8 @@ export interface CodeForMemoryResult {
     kind: string;
     edgeWeight: number;
     matchStrategy: string;
+    /** Explicit verified source provenance when this is a sourced decision relation. */
+    provenance?: DecisionCodeEvidenceLink;
   }>;
 }
 
@@ -242,12 +252,22 @@ export async function linkMemoryToCode(
   memoryId: string,
   codeSymbol: string,
 ): Promise<boolean> {
+  if (memoryId.startsWith('decision:')) {
+    const result = await linkDecisionToCodeEvidence(projectRoot, memoryId, {
+      symbols: [codeSymbol],
+      apply: true,
+    });
+    return (
+      result.links.some((link) => link.targetId === codeSymbol) &&
+      !result.findings.some((finding) => finding.state === 'failed')
+    );
+  }
   try {
     const brainDb = await getBrainDb(projectRoot);
 
     // Ensure nexus.db is initialized so we can verify the target node exists
-    await getNexusDb();
-    const nexusNative = getNexusNativeDb();
+    await getNexusDb(projectRoot);
+    const nexusNative = getNexusNativeDb(projectRoot);
 
     if (!nexusNative) return false;
 
@@ -338,7 +358,7 @@ export async function linkObservationToModifiedFiles(
     const brainNative = getBrainNativeDb(projectRoot);
     if (!brainNative) return 0;
 
-    const nexusDb = nexusNative ?? getNexusNativeDb();
+    const nexusDb = nexusNative ?? getNexusNativeDb(projectRoot);
     if (!nexusDb) return 0;
 
     const filesArray = JSON.parse(filesModifiedJson) as string[];
@@ -411,7 +431,7 @@ export async function linkObservationToMentionedSymbols(
     const brainNative = getBrainNativeDb(projectRoot);
     if (!brainNative) return 0;
 
-    const nexusDb = nexusNative ?? getNexusNativeDb();
+    const nexusDb = nexusNative ?? getNexusNativeDb(projectRoot);
     if (!nexusDb) return 0;
 
     // Load all nexus node names into memory
@@ -447,7 +467,10 @@ export async function linkObservationToMentionedSymbols(
 
     // Write mentions edges
     for (const name of matches) {
-      const nexusNode = nexusNames.find((n) => n.name === name);
+      const matches = nexusNames.filter((node) => node.name === name);
+      const qualified = matches.filter((node) => text.includes(node.id));
+      const nexusNode =
+        qualified.length === 1 ? qualified[0] : matches.length === 1 ? matches[0] : undefined;
       if (!nexusNode) continue;
 
       try {
@@ -504,7 +527,7 @@ export async function linkDecisionToSymbols(
     const brainNative = getBrainNativeDb(projectRoot);
     if (!brainNative) return 0;
 
-    const nexusDb = nexusNative ?? getNexusNativeDb();
+    const nexusDb = nexusNative ?? getNexusNativeDb(projectRoot);
     if (!nexusDb) return 0;
 
     // Load all nexus node names into memory
@@ -540,7 +563,10 @@ export async function linkDecisionToSymbols(
 
     // Write documents edges
     for (const name of matches) {
-      const nexusNode = nexusNames.find((n) => n.name === name);
+      const matches = nexusNames.filter((node) => node.name === name);
+      const qualified = matches.filter((node) => contextText.includes(node.id));
+      const nexusNode =
+        qualified.length === 1 ? qualified[0] : matches.length === 1 ? matches[0] : undefined;
       if (!nexusNode) continue;
 
       try {
@@ -592,8 +618,8 @@ export async function autoLinkMemories(projectRoot: string): Promise<AutoLinkRes
     await getBrainDb(projectRoot);
     const brainNative = getBrainNativeDb(projectRoot);
 
-    await getNexusDb();
-    const nexusNative = getNexusNativeDb();
+    await getNexusDb(projectRoot);
+    const nexusNative = getNexusNativeDb(projectRoot);
 
     if (!brainNative || !nexusNative) return result;
 
@@ -906,14 +932,19 @@ export async function queryMemoriesForCode(
       symbol,
     );
 
-    result.memories = rows.map((r) => ({
-      nodeId: r.id,
-      nodeType: r.node_type,
-      label: r.label,
-      qualityScore: r.quality_score,
-      edgeWeight: r.weight,
-      matchStrategy: r.provenance?.replace('auto:', '') ?? 'manual',
-    }));
+    result.memories = rows
+      .filter((row) => isCurrentDecisionCodeEvidence(brainNative, row.provenance))
+      .map((r) => ({
+        nodeId: r.id,
+        nodeType: r.node_type,
+        label: r.label,
+        qualityScore: r.quality_score,
+        edgeWeight: r.weight,
+        matchStrategy: readDecisionCodeEvidence(r.provenance)
+          ? 'explicit-decision-evidence'
+          : (r.provenance?.replace('auto:', '') ?? 'manual'),
+        provenance: readDecisionCodeEvidence(r.provenance) ?? undefined,
+      }));
   } catch (err) {
     console.warn('[graph-memory-bridge] queryMemoriesForCode failed:', err);
   }
@@ -945,8 +976,8 @@ export async function queryCodeForMemory(
     await getBrainDb(projectRoot);
     const brainNative = getBrainNativeDb(projectRoot);
 
-    await getNexusDb();
-    const nexusNative = getNexusNativeDb();
+    await getNexusDb(projectRoot);
+    const nexusNative = getNexusNativeDb(projectRoot);
 
     if (!brainNative || !nexusNative) return result;
 
@@ -973,6 +1004,7 @@ export async function queryCodeForMemory(
 
     // Fetch nexus node metadata for each target (read-only)
     for (const edge of brainEdges) {
+      if (!isCurrentDecisionCodeEvidence(brainNative, edge.provenance)) continue;
       const nexusNode = nexusNative
         .prepare('SELECT id, label, file_path, kind FROM nexus_nodes WHERE id = ? LIMIT 1')
         .get(edge.to_id) as
@@ -986,7 +1018,10 @@ export async function queryCodeForMemory(
           filePath: nexusNode.file_path,
           kind: nexusNode.kind,
           edgeWeight: edge.weight,
-          matchStrategy: edge.provenance?.replace('auto:', '') ?? 'manual',
+          matchStrategy: readDecisionCodeEvidence(edge.provenance)
+            ? 'explicit-decision-evidence'
+            : (edge.provenance?.replace('auto:', '') ?? 'manual'),
+          provenance: readDecisionCodeEvidence(edge.provenance) ?? undefined,
         });
       }
     }
@@ -1003,6 +1038,8 @@ export async function queryCodeForMemory(
 
 /** A single code-memory link for display. */
 export interface CodeLinkEntry {
+  /** Explicit sourced relation metadata, when present. */
+  provenance?: DecisionCodeEvidenceLink;
   /** Brain memory node ID. */
   brainNodeId: string;
   /** Brain node type. */
@@ -1039,13 +1076,14 @@ export async function listCodeLinks(projectRoot: string, limit = 100): Promise<C
     await getBrainDb(projectRoot);
     const brainNative = getBrainNativeDb(projectRoot);
 
-    await getNexusDb();
-    const nexusNative = getNexusNativeDb();
+    await getNexusDb(projectRoot);
+    const nexusNative = getNexusNativeDb(projectRoot);
 
     if (!brainNative || !nexusNative) return entries;
 
     // Fetch all code_reference edges with brain node metadata
     interface RawRow {
+      provenance: string | null;
       from_id: string;
       to_id: string;
       weight: number;
@@ -1056,7 +1094,7 @@ export async function listCodeLinks(projectRoot: string, limit = 100): Promise<C
 
     const rows = typedAll<RawRow>(
       brainNative.prepare(`
-        SELECT e.from_id, e.to_id, e.weight, e.created_at,
+        SELECT e.from_id, e.to_id, e.weight, e.created_at, e.provenance,
                n.node_type, n.label
         FROM brain_page_edges e
         JOIN brain_page_nodes n ON n.id = e.from_id
@@ -1068,6 +1106,7 @@ export async function listCodeLinks(projectRoot: string, limit = 100): Promise<C
     );
 
     for (const row of rows) {
+      if (!isCurrentDecisionCodeEvidence(brainNative, row.provenance)) continue;
       const nexusNode = nexusNative
         .prepare('SELECT id, label, file_path, kind FROM nexus_nodes WHERE id = ? LIMIT 1')
         .get(row.to_id) as
@@ -1075,6 +1114,7 @@ export async function listCodeLinks(projectRoot: string, limit = 100): Promise<C
         | undefined;
 
       entries.push({
+        provenance: readDecisionCodeEvidence(row.provenance) ?? undefined,
         brainNodeId: row.from_id,
         brainNodeType: row.node_type,
         brainNodeLabel: row.label,
@@ -1322,8 +1362,8 @@ export async function linkConduitMessagesToSymbols(
       const brainNative = getBrainNativeDb(projectRoot);
 
       // Ensure nexus.db is available for symbol lookup
-      await getNexusDb();
-      const nexusNative = getNexusNativeDb();
+      await getNexusDb(projectRoot);
+      const nexusNative = getNexusNativeDb(projectRoot);
 
       if (!brainNative || !nexusNative) return result;
 

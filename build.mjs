@@ -126,6 +126,7 @@ const ROOT_FLATS = [
   'cleo.ts',
   'contracts.ts',
   'internal.ts',
+  'paths.ts',
   // R10-L2 (T11581) — thin submodule re-exports of internalized workspace
   // packages, exposed as @cleocode/core/<pkg> subpaths (batteries-included
   // prep). Each `export * from '@cleocode/<pkg>'` bundles to a flat dist file;

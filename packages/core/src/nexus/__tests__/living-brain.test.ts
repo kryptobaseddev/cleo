@@ -11,18 +11,28 @@
  * brain.db + tasks.db data, asserts >0 rows across substrates where seeded.
  */
 
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
+import { reasonWhySymbol } from '../../memory/brain-reasoning.js';
 import { EDGE_TYPES } from '../../memory/edge-types.js';
 import { getBrainDb, getBrainNativeDb, resetBrainDbState } from '../../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
+import { getDb } from '../../store/sqlite.js';
+import { tasks } from '../../store/tasks-schema.js';
+import { getSymbolContext } from '../context.js';
+import { getSymbolImpact } from '../impact.js';
+import { assessKnowledgeCoverage, KnowledgeSymbolAmbiguityError } from '../knowledge.js';
 import {
   getBrainEntryCodeAnchors,
   getSymbolFullContext,
   getTaskCodeImpact,
+  nexusFullContext,
+  reasonImpactOfChange,
 } from '../living-brain.js';
 
 // ---------------------------------------------------------------------------
@@ -195,6 +205,188 @@ describe('living-brain SDK', () => {
     removeTempDirSync(projectRoot);
   });
 
+  describe('trustworthy knowledge coverage', () => {
+    it('detects a newly staged source file missing from the recorded generation', async () => {
+      const sourceRoot = join(projectRoot, 'source-checkout');
+      mkdirSync(sourceRoot);
+      execFileSync('git', ['init', '--quiet', sourceRoot]);
+      const source = 'export const current = 1;';
+      writeFileSync(join(sourceRoot, 'current.ts'), source);
+      execFileSync('git', ['add', 'current.ts'], { cwd: sourceRoot });
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.name=Fixture',
+          '-c',
+          'user.email=fixture@example.invalid',
+          'commit',
+          '--quiet',
+          '--no-gpg-sign',
+          '--no-verify',
+          '-m',
+          'fixture',
+        ],
+        { cwd: sourceRoot },
+      );
+      const revision = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: sourceRoot,
+        encoding: 'utf8',
+      }).trim();
+      const stat = statSync(join(sourceRoot, 'current.ts'));
+      const native = getNexusNativeDb(projectRoot);
+      if (!native) throw new Error('Missing fixture database');
+      native
+        .prepare(
+          "INSERT OR REPLACE INTO main._nexus_meta (key, value) VALUES ('graph_assessment', ?)",
+        )
+        .run(
+          JSON.stringify({
+            sourceRoot,
+            assessedRevision: revision,
+            assessedAt: new Date().toISOString(),
+            files: [
+              {
+                path: 'current.ts',
+                status: 'analyzed',
+                size: stat.size,
+                mtimeMs: stat.mtimeMs,
+                contentHash: createHash('sha256').update(source).digest('hex'),
+              },
+            ],
+          }),
+        );
+      expect((await assessKnowledgeCoverage(projectRoot)).status).toBe('current');
+      writeFileSync(join(sourceRoot, 'new-caller.ts'), 'export const caller = 2;');
+      execFileSync('git', ['add', 'new-caller.ts'], { cwd: sourceRoot });
+      const coverage = await assessKnowledgeCoverage(projectRoot);
+      expect(coverage.status).toBe('partial');
+      expect(coverage.reasons).toContain('Unindexed files exist in the configured source root.');
+    });
+
+    it('discovers T448-style verification files when task.files is empty and preserves file precision', async () => {
+      mkdirSync(join(projectRoot, 'src'), { recursive: true });
+      writeFileSync(join(projectRoot, FILE_PATH), 'export function testFunction() {}');
+      const db = await getDb(projectRoot);
+      db.insert(tasks)
+        .values({
+          id: 'T448',
+          title: 'rushDueAt verification evidence',
+          type: 'epic',
+          filesJson: '[]',
+          verificationJson: JSON.stringify({
+            passed: true,
+            round: 1,
+            gates: {},
+            lastAgent: null,
+            lastUpdated: null,
+            failureLog: [],
+            evidence: {
+              implemented: {
+                atoms: [{ kind: 'files', files: [{ path: FILE_PATH, sha256: 'abc' }] }],
+                capturedAt: new Date().toISOString(),
+                capturedBy: 'test',
+              },
+            },
+          }),
+        })
+        .run();
+      const footprint = await getTaskCodeImpact('T448', projectRoot);
+      expect(footprint.files).toContain(FILE_PATH);
+      expect(footprint.symbols).toContainEqual(
+        expect.objectContaining({
+          nexusNodeId: SYMBOL_ID,
+          precision: 'file',
+          evidence: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'T448:verification:implemented',
+              source: 'verification',
+              precision: 'file',
+            }),
+          ]),
+        }),
+      );
+      expect(footprint.findings).toEqual([]);
+      const repeated = await getTaskCodeImpact('T448', projectRoot);
+      expect(repeated.symbols.map((entry) => entry.nexusNodeId)).toEqual(
+        footprint.symbols.map((entry) => entry.nexusNodeId),
+      );
+    });
+
+    it('accepts qualified identifiers in impact without matching only the short name', async () => {
+      const impact = await getSymbolImpact(SYMBOL_ID, 'fixture-project', projectRoot);
+      expect(impact.targetNodeId).toBe(SYMBOL_ID);
+      expect(impact.totalImpactedNodes).toBe(1);
+      expect(impact.coverage.projectId).toBe('fixture-project');
+      expect(
+        (await getSymbolContext(SYMBOL_ID, 'fixture-project', projectRoot)).results[0]?.nodeId,
+      ).toBe(SYMBOL_ID);
+      expect((await reasonWhySymbol(SYMBOL_NAME, projectRoot)).chain.length).toBeGreaterThan(0);
+    });
+
+    it('returns qualified candidates for ambiguous names across all symbol entry points', async () => {
+      const native = getNexusNativeDb();
+      if (!native) throw new Error('Missing fixture database');
+      const otherId = 'other-checkout/test-file.ts::testFunction';
+      native
+        .prepare(`INSERT INTO nexus_nodes (id, kind, name, label, file_path)
+        VALUES (?, 'function', ?, ?, 'other-checkout/test-file.ts')`)
+        .run(otherId, SYMBOL_NAME, SYMBOL_NAME);
+      await expect(
+        getSymbolImpact(SYMBOL_NAME, 'fixture-project', projectRoot),
+      ).rejects.toBeInstanceOf(KnowledgeSymbolAmbiguityError);
+      await expect(
+        getSymbolContext(SYMBOL_NAME, 'fixture-project', projectRoot),
+      ).rejects.toBeInstanceOf(KnowledgeSymbolAmbiguityError);
+      await expect(reasonWhySymbol(SYMBOL_NAME, projectRoot)).rejects.toBeInstanceOf(
+        KnowledgeSymbolAmbiguityError,
+      );
+      const context = await nexusFullContext(SYMBOL_NAME, projectRoot);
+      expect(context.success).toBe(false);
+      if (!context.success) {
+        expect(context.error.code).toBe('E_AMBIGUOUS_SYMBOL');
+        expect(context.error.details).toMatchObject({
+          candidates: expect.arrayContaining([
+            expect.objectContaining({ id: SYMBOL_ID }),
+            expect.objectContaining({ id: otherId }),
+          ]),
+        });
+      }
+      await expect(reasonImpactOfChange(SYMBOL_NAME, projectRoot)).rejects.toBeInstanceOf(
+        KnowledgeSymbolAmbiguityError,
+      );
+      expect((await getSymbolFullContext(SYMBOL_ID, projectRoot)).nexus?.symbolId).toBe(SYMBOL_ID);
+    });
+
+    it('returns UNKNOWN and missing coverage for an absent symbol', async () => {
+      const impact = await getSymbolImpact('absent::symbol', 'fixture-project', projectRoot);
+      expect(impact.targetNodeId).toBeNull();
+      expect(impact.riskLevel).toBe('UNKNOWN');
+      expect(impact.coverage.status).toBe('missing');
+      const full = await reasonImpactOfChange('absent::symbol', projectRoot);
+      expect(full.mergedRiskScore).toBe('UNKNOWN');
+      expect(full.structural.riskLevel).toBe('UNKNOWN');
+    });
+
+    it('exposes malformed index diagnostics as failed rather than an empty healthy graph', async () => {
+      const native = getNexusNativeDb();
+      if (!native) throw new Error('Missing fixture database');
+      native
+        .prepare(
+          `INSERT OR REPLACE INTO _nexus_meta (key, value) VALUES ('graph_assessment', '{broken')`,
+        )
+        .run();
+      const coverage = await assessKnowledgeCoverage(projectRoot);
+      expect(coverage.status).toBe('failed');
+      expect(coverage.reasons.some((reason) => reason.includes('Graph assessment failed'))).toBe(
+        true,
+      );
+      const impact = await getSymbolImpact(SYMBOL_ID, 'fixture-project', projectRoot);
+      expect(impact.riskLevel).toBe('UNKNOWN');
+      expect(impact.coverage.status).toBe('failed');
+    });
+  });
+
   // -------------------------------------------------------------------------
   // getSymbolFullContext
   // -------------------------------------------------------------------------
@@ -280,12 +472,12 @@ describe('living-brain SDK', () => {
       expect(impact.symbols.length).toBeGreaterThanOrEqual(0); // depends on getSymbolsForTask resolution
     });
 
-    it('returns riskScore based on blast radius (NONE if no symbols found)', async () => {
+    it('reports UNKNOWN when legacy graph freshness is unverified', async () => {
       const impact = await getTaskCodeImpact(TASK_ID, projectRoot);
 
-      // Risk score must be a valid RiskTier
-      const validTiers = ['NONE', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-      expect(validTiers).toContain(impact.riskScore);
+      expect(impact.riskScore).toBe('UNKNOWN');
+      expect(impact.coverage?.status).not.toBe('current');
+      expect(impact.coverage?.reasons.length).toBeGreaterThan(0);
     });
 
     it('returns empty decisions array gracefully when no brain_memory_links exist', async () => {
@@ -388,7 +580,8 @@ describe('living-brain SDK', () => {
         const impact = await getTaskCodeImpact('T001', emptyRoot);
         expect(impact).toBeDefined();
         expect(impact.symbols).toEqual([]);
-        expect(impact.riskScore).toBe('NONE');
+        expect(impact.riskScore).toBe('UNKNOWN');
+        expect(impact.coverage?.status).not.toBe('current');
       } finally {
         resetBrainDbState();
         resetNexusDbState();

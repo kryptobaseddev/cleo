@@ -13,12 +13,12 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import { getProjectRoot } from '@cleocode/core';
 import {
   type MergedConfig,
   type ResolveScope,
   resolveCleoConfig,
 } from '@cleocode/core/config/registry';
+import { getProjectRoot } from '@cleocode/core/paths.js';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';
 
