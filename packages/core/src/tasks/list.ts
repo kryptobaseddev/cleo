@@ -5,6 +5,7 @@
  */
 
 import type {
+  RecordProjectionDisclosure,
   Task,
   TaskKind,
   TaskPopulation,
@@ -15,6 +16,7 @@ import type {
   TaskType,
 } from '@cleocode/contracts';
 import type { LAFSPage } from '@cleocode/lafs';
+import { discloseProjection } from '../dispatch/mvi-projection.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { NextDirectives } from '../mvi-helpers.js';
@@ -40,7 +42,7 @@ export { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL }; // saga-l
 const TASK_LIST_DEFAULT_LIMIT = 10;
 
 /** Compact task representation — minimal fields for list responses. */
-export interface CompactTask {
+export interface CompactTask extends RecordProjectionDisclosure {
   id: string;
   title: string;
   status: string;
@@ -53,15 +55,18 @@ export interface CompactTask {
 
 /** Convert a full Task to compact representation with _next directives. */
 export function toCompact(task: Task): CompactTask {
-  return {
-    id: task.id,
-    title: task.title,
-    status: task.status,
-    priority: task.priority,
-    type: task.type,
-    parentId: task.parentId,
-    _next: taskListItemNext(task.id),
-  };
+  return discloseProjection(
+    { ...task },
+    {
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      type: task.type,
+      parentId: task.parentId,
+      _next: taskListItemNext(task.id),
+    },
+  );
 }
 
 /** Filter options for listing tasks. */

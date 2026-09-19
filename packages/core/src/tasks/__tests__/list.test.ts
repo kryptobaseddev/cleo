@@ -5,10 +5,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { projectMvi } from '../../dispatch/mvi-projection.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { findTasks } from '../find.js';
-import { listTasks } from '../list.js';
+import { findTasks, taskFind } from '../find.js';
+import { listTasks, taskList, toCompact } from '../list.js';
 
 describe('listTasks', () => {
   let env: TestDbEnv;
@@ -430,5 +431,58 @@ describe('listTasks', () => {
         /non-negative integers/,
       );
     }
+  });
+  it.each([
+    'compact',
+    'lowFind',
+    'sdkFind',
+    'sdkList',
+  ] as const)('discloses upstream SDK omissions for %s before fields are lost (T12199)', async (surface) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T880',
+        title: 'disclosure fixture',
+        description: '解析🌱',
+        acceptance: ['preserve authority', 'verify actual scope'],
+        notes: ['historical evidence'],
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const source = await accessor.loadSingleTask('T880');
+    if (!source) throw new Error('fixture missing');
+    const direct = toCompact(source);
+    const low = await findTasks({ query: 'disclosure' }, env.tempDir, accessor);
+    const sdkFind = await taskFind(env.tempDir, 'disclosure');
+    const sdkList = await taskList(env.tempDir, { compact: true });
+    expect(sdkFind.success).toBe(true);
+    expect(sdkList.success).toBe(true);
+    const rows = {
+      compact: direct,
+      lowFind: low.results[0],
+      sdkFind: sdkFind.data?.results[0],
+      sdkList: sdkList.data?.tasks[0],
+    };
+    for (const row of [rows[surface]]) {
+      if (!row) throw new Error('projection lost fixture');
+      expect(row).not.toHaveProperty('description');
+      expect(row).not.toHaveProperty('acceptance');
+      expect(row._withheld?.description).toBe(Buffer.byteLength('解析🌱', 'utf8'));
+      expect(row._withheld?.acceptance).toBe(
+        Buffer.byteLength(JSON.stringify(source.acceptance), 'utf8'),
+      );
+      for (const key of Object.keys(source)) {
+        if (!Object.hasOwn(row, key)) expect(row._withheld).toHaveProperty(key);
+      }
+      for (const key of Object.keys(row._withheld ?? {}))
+        expect(Object.hasOwn(row, key)).toBe(false);
+      const projected = projectMvi({ ...row }, 'task');
+      expect(projected._withheld).toMatchObject(row._withheld ?? {});
+    }
+    expect(sdkFind.data?.results[0]._withheld).toHaveProperty('score');
+    const full = await taskFind(env.tempDir, 'disclosure', 0, { verbose: true });
+    expect(full.data?.results[0]).toHaveProperty('description', '解析🌱');
+    expect(full.data?.results[0]).not.toHaveProperty('_withheld');
   });
 });
