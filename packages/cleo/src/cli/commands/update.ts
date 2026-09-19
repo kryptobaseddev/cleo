@@ -174,9 +174,10 @@ export const updateCommand = defineCommand({
       type: 'string',
       description: 'Alias for --parent (legacy parentId compatibility)',
     },
-    'no-auto-complete': {
+    'auto-complete': {
       type: 'boolean',
-      description: 'Disable auto-complete for epic',
+      description: 'Enable auto-complete for epic',
+      negativeDescription: 'Disable auto-complete for epic',
     },
     'pipeline-stage': {
       type: 'string',
@@ -503,7 +504,8 @@ export const updateCommand = defineCommand({
     if (args['clear-blocked-by'] === true) params['clearBlockedBy'] = true;
     if (args.parent !== undefined) params['parent'] = args.parent;
     if (args['parent-id'] !== undefined) params['parent'] = params['parent'] ?? args['parent-id'];
-    if (args['no-auto-complete'] === true) params['noAutoComplete'] = true;
+    // citty strips --no- and sets the positive boolean to false.
+    if (args['auto-complete'] !== undefined) params['noAutoComplete'] = !args['auto-complete'];
     if (args['pipeline-stage'] !== undefined) params['pipelineStage'] = args['pipeline-stage'];
     // T944/T9072: --kind is canonical
     if (args.kind !== undefined) params['kind'] = args.kind;

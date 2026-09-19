@@ -25,10 +25,11 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -47,6 +48,58 @@ const CLI_BUNDLE = resolve(__filename, '..', '..', '..', 'dist', 'cli', 'index.j
  * so it always runs there.
  */
 const HAS_BUNDLE = existsSync(CLI_BUNDLE);
+let sandbox: string;
+let project: string;
+let guardPath: string;
+let childEnv: NodeJS.ProcessEnv;
+
+beforeAll(() => {
+  sandbox = mkdtempSync(resolve(tmpdir(), 'cleo-cli-mutation-isolation-'));
+  project = resolve(sandbox, 'project');
+  mkdirSync(resolve(project, '.cleo'), { recursive: true });
+  guardPath = resolve(sandbox, 'guard.mjs');
+  // Guard the child before any CLI import: no host browsers, model requests,
+  // subprocess descendants, or bound listeners even if a hook is added later.
+  writeFileSync(
+    guardPath,
+    `
+    import childProcess from 'node:child_process';
+    import net from 'node:net';
+    import { syncBuiltinESMExports } from 'node:module';
+    const deny = () => { throw new Error('Isolated CLI test forbids process/network/listener access'); };
+    for (const name of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) {
+      childProcess[name] = deny;
+    }
+    net.Socket.prototype.connect = deny;
+    net.Server.prototype.listen = deny;
+    globalThis.fetch = deny;
+    syncBuiltinESMExports();
+  `,
+  );
+  childEnv = {
+    PATH: process.env['PATH'],
+    HOME: resolve(sandbox, 'home'),
+    USERPROFILE: resolve(sandbox, 'home'),
+    XDG_DATA_HOME: resolve(sandbox, 'data'),
+    XDG_CONFIG_HOME: resolve(sandbox, 'config'),
+    XDG_CACHE_HOME: resolve(sandbox, 'cache'),
+    XDG_RUNTIME_DIR: resolve(sandbox, 'runtime'),
+    CLEO_HOME: resolve(sandbox, 'cleo'),
+    CLEO_CONFIG_HOME: resolve(sandbox, 'cleo-config'),
+    CLEO_ROOT: project,
+    CLEO_DIR: resolve(project, '.cleo'),
+    CLEO_HEADLESS: '1',
+    NO_COLOR: '1',
+    CI: '1',
+  };
+  for (const directory of ['home', 'data', 'config', 'cache', 'runtime', 'cleo', 'cleo-config']) {
+    mkdirSync(resolve(sandbox, directory), { recursive: true });
+  }
+});
+
+afterAll(() => {
+  if (sandbox) rmSync(sandbox, { recursive: true, force: true });
+});
 
 /**
  * Spawn the CLI in a child Node process and capture stdout + stderr.
@@ -62,13 +115,16 @@ function runCli(args: readonly string[]): {
 } {
   const result = spawnSync(
     process.execPath,
-    ['--disable-warning=ExperimentalWarning', CLI_BUNDLE, ...args],
+    ['--disable-warning=ExperimentalWarning', '--import', guardPath, CLI_BUNDLE, ...args],
     {
       encoding: 'utf-8',
-      env: { ...process.env, NO_COLOR: '1', CI: '1' },
+      cwd: project,
+      env: childEnv,
       timeout: 30_000,
     },
   );
+  if (result.error) throw result.error;
+  if (result.signal) throw new Error(`CLI terminated by ${result.signal}`);
   return {
     status: result.status,
     stdout: result.stdout ?? '',
@@ -129,3 +185,78 @@ describe.skipIf(!HAS_BUNDLE)(
     });
   },
 );
+
+describe.skipIf(!HAS_BUNDLE)('mutation exit and persistence contract (T12258)', () => {
+  it.each([
+    ['envelope', ['--output', 'envelope']],
+    ['id', ['--output', 'id']],
+    ['table', ['--output', 'table']],
+    ['count', ['--output', 'count']],
+    ['silent', ['--output', 'silent']],
+    ['human', ['--human']],
+    ['json', ['--json']],
+  ] as const)('rejected mutations exit unsuccessfully in %s mode', (mode, flags) => {
+    const result = runCli(['update', 'T999999', '--title', 'Rejected mutation', ...flags]);
+    expect(result.status).toBe(4);
+    if (mode === 'silent' || mode === 'human') {
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('Task not found');
+    } else {
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        success: false,
+        error: { code: 4 },
+      });
+    }
+  });
+
+  it('persists both auto-complete flag values across fresh CLI processes', () => {
+    const started = runCli([
+      'session',
+      'start',
+      '--scope',
+      'global',
+      '--name',
+      'Isolated CLI test',
+    ]);
+    expect(started.status, started.stderr || started.stdout).toBe(0);
+    const saga = runCli([
+      'saga',
+      'create',
+      '--title',
+      'Isolated mutation program',
+      '--description',
+      'Synthetic fixture for fresh-process persistence verification',
+      '--acceptance',
+      'a|b|c|d|e',
+    ]);
+    expect(saga.status, saga.stderr || saga.stdout).toBe(0);
+    const epic = runCli([
+      'add',
+      '--type',
+      'epic',
+      '--parent',
+      'T001',
+      '--title',
+      'Isolated mutation epic',
+      '--description',
+      'Synthetic fixture for fresh-process persistence verification',
+      '--acceptance',
+      'a|b|c|d|e',
+    ]);
+    expect(epic.status, epic.stderr || epic.stdout).toBe(0);
+    expect(runCli(['show', 'T002', '--field', '/data/task/title']).stdout.trim()).toBe(
+      'Isolated mutation epic',
+    );
+
+    for (const [flag, expected] of [
+      ['--no-auto-complete', 'true'],
+      ['--auto-complete', 'false'],
+    ] as const) {
+      const updated = runCli(['update', 'T002', flag, '--output', 'silent']);
+      expect(updated.status, updated.stderr || updated.stdout).toBe(0);
+      const reread = runCli(['show', 'T002', '--field', '/data/task/noAutoComplete']);
+      expect(reread.status, reread.stderr || reread.stdout).toBe(0);
+      expect(reread.stdout.trim()).toBe(expected);
+    }
+  }, 60_000);
+});
