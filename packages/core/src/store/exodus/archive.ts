@@ -55,17 +55,24 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   renameSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { z } from 'zod';
 import { getLogger } from '../../logger.js';
 import { getCleoHome, resolveCleoDir } from '../../paths.js';
 import { getCleoVersion } from '../../scaffold/ensure-config.js';
-import type { ExodusScope, LegacyDbDescriptor } from './types.js';
+import type { ExodusPlan, ExodusScope, LegacyDbDescriptor } from './types.js';
 
 const log = getLogger('exodus-archive');
+const markerIdentity = z.object({
+  version: z.literal(1),
+  scope: z.enum(['project', 'global']),
+  targetDbPath: z.string().optional(),
+});
 
 /** Per-scope archive directory name (sibling of the migrated DBs). */
 const ARCHIVE_DIR_NAME = '_archive' as const;
@@ -86,9 +93,11 @@ const SIDECAR_SUFFIXES = ['-wal', '-shm'] as const;
  *
  * @param scope - Target scope.
  * @param cwd   - Working directory used to resolve the project `.cleo/` dir.
+ * @param targetDbPath - Explicit target database; its directory owns metadata, overriding discovery.
  * @returns Absolute path to the scope's base directory.
  */
-function scopeBaseDir(scope: ExodusScope, cwd: string | undefined): string {
+function scopeBaseDir(scope: ExodusScope, cwd: string | undefined, targetDbPath?: string): string {
+  if (targetDbPath !== undefined) return dirname(targetDbPath);
   return scope === 'project' ? resolveCleoDir(cwd) : getCleoHome();
 }
 
@@ -97,10 +106,11 @@ function scopeBaseDir(scope: ExodusScope, cwd: string | undefined): string {
  *
  * @param scope - Target scope.
  * @param cwd   - Working directory used to resolve the project `.cleo/` dir.
+ * @param targetDbPath - Explicit target database; its directory owns metadata, overriding discovery.
  * @returns Absolute path to `<scopeBase>/_archive/`.
  */
-export function exodusArchiveDir(scope: ExodusScope, cwd?: string): string {
-  return join(scopeBaseDir(scope, cwd), ARCHIVE_DIR_NAME);
+export function exodusArchiveDir(scope: ExodusScope, cwd?: string, targetDbPath?: string): string {
+  return join(scopeBaseDir(scope, cwd, targetDbPath), ARCHIVE_DIR_NAME);
 }
 
 /**
@@ -108,10 +118,17 @@ export function exodusArchiveDir(scope: ExodusScope, cwd?: string): string {
  *
  * @param scope - Target scope.
  * @param cwd   - Working directory used to resolve the project `.cleo/` dir.
+ * @param targetDbPath - Explicit target database; its directory owns metadata, overriding discovery.
  * @returns Absolute path to `<scopeBase>/exodus-complete`.
  */
-export function exodusMarkerPath(scope: ExodusScope, cwd?: string): string {
-  return join(scopeBaseDir(scope, cwd), MARKER_FILENAME_BY_SCOPE[scope]);
+export function exodusMarkerPath(scope: ExodusScope, cwd?: string, targetDbPath?: string): string {
+  // Preserve the installed canonical cleo.db marker name, while distinct
+  // explicitly opened database resources cannot certify each other's cutover.
+  const marker =
+    targetDbPath !== undefined && basename(targetDbPath) !== 'cleo.db'
+      ? `${basename(targetDbPath)}.${MARKER_FILENAME_BY_SCOPE[scope]}`
+      : MARKER_FILENAME_BY_SCOPE[scope];
+  return join(scopeBaseDir(scope, cwd, targetDbPath), marker);
 }
 
 /**
@@ -131,6 +148,8 @@ export interface ExodusCompleteMarker {
   readonly completedAt: string;
   /** Logical names of the legacy sources that were archived (provenance). */
   readonly archivedSources: readonly string[];
+  /** Exact target certified by new markers; absent on legacy version-1 markers. */
+  readonly targetDbPath?: string;
 }
 
 /**
@@ -143,14 +162,29 @@ export interface ExodusCompleteMarker {
  *
  * @param scope - Target scope.
  * @param cwd   - Working directory used to resolve the project `.cleo/` dir.
+ * @param targetDbPath - Explicit target database; its directory owns metadata, overriding discovery.
  * @returns Whether `<scopeBase>/exodus-complete` exists.
  */
-export function hasExodusCompleteMarker(scope: ExodusScope, cwd?: string): boolean {
+export function hasExodusCompleteMarker(
+  scope: ExodusScope,
+  cwd?: string,
+  targetDbPath?: string,
+): boolean {
+  let markerPath: string;
   try {
-    return existsSync(exodusMarkerPath(scope, cwd));
-  } catch {
+    markerPath = exodusMarkerPath(scope, cwd, targetDbPath);
+  } catch (error) {
+    if (targetDbPath) throw error;
     return false;
   }
+  if (!existsSync(markerPath)) return false;
+  const marker = markerIdentity.parse(JSON.parse(readFileSync(markerPath, 'utf8')));
+  return (
+    marker.scope === scope &&
+    (!targetDbPath ||
+      !marker.targetDbPath ||
+      resolve(marker.targetDbPath) === resolve(targetDbPath))
+  );
 }
 
 /**
@@ -163,6 +197,7 @@ export function hasExodusCompleteMarker(scope: ExodusScope, cwd?: string): boole
  * @param scope           - Scope being certified as migrated.
  * @param archivedSources - Logical names of the sources archived for this scope.
  * @param cwd             - Working directory used to resolve the project dir.
+ * @param targetDbPath - Explicit target database; its directory owns metadata, overriding discovery.
  * @returns The marker's absolute path.
  *
  * @task T11777
@@ -171,9 +206,10 @@ export function writeExodusCompleteMarker(
   scope: ExodusScope,
   archivedSources: readonly string[],
   cwd?: string,
+  targetDbPath?: string,
 ): string {
-  const markerPath = exodusMarkerPath(scope, cwd);
-  const baseDir = scopeBaseDir(scope, cwd);
+  const markerPath = exodusMarkerPath(scope, cwd, targetDbPath);
+  const baseDir = scopeBaseDir(scope, cwd, targetDbPath);
   mkdirSync(baseDir, { recursive: true });
 
   const marker: ExodusCompleteMarker = {
@@ -182,6 +218,7 @@ export function writeExodusCompleteMarker(
     cleoVersion: getCleoVersion(),
     completedAt: new Date().toISOString(),
     archivedSources: [...archivedSources],
+    targetDbPath: resolve(targetDbPath ?? join(baseDir, 'cleo.db')),
   };
 
   const tmpPath = `${markerPath}.tmp`;
@@ -246,17 +283,22 @@ function moveFileInto(srcPath: string, destDir: string): string {
  *
  * @param source - The descriptor for the source DB to archive.
  * @param cwd    - Working directory used to resolve the project dir.
+ * @param targetDbPath - Explicit target database; its directory owns metadata, overriding discovery.
  * @returns A {@link ArchivedSourceResult} describing what happened.
  *
  * @task T11777
  */
-export function archiveSourceDb(source: LegacyDbDescriptor, cwd?: string): ArchivedSourceResult {
+export function archiveSourceDb(
+  source: LegacyDbDescriptor,
+  cwd?: string,
+  targetDbPath?: string,
+): ArchivedSourceResult {
   // Idempotent no-op: nothing to archive (already archived or fresh install).
   if (!existsSync(source.path)) {
     return { name: source.name, sourcePath: source.path, archivedTo: null, action: 'absent' };
   }
 
-  const destDir = exodusArchiveDir(source.targetScope, cwd);
+  const destDir = exodusArchiveDir(source.targetScope, cwd, targetDbPath);
   const archivedTo = moveFileInto(source.path, destDir);
 
   // Archive sidecars alongside the DB (best-effort — they may not exist).
@@ -311,6 +353,7 @@ export interface ArchiveMigratedSourcesResult {
  *
  * @param consumed - Source descriptors the migration consumed + validated.
  * @param cwd      - Working directory used to resolve the project dir.
+ * @param targets - Verified migration target resources; prevents metadata writes to unrelated projects.
  * @returns A {@link ArchiveMigratedSourcesResult} with per-source + per-scope outcomes.
  *
  * @task T11777
@@ -318,19 +361,23 @@ export interface ArchiveMigratedSourcesResult {
 export function archiveMigratedSources(
   consumed: readonly LegacyDbDescriptor[],
   cwd?: string,
+  targets?: Pick<ExodusPlan, 'projectDbPath' | 'globalDbPath'>,
 ): ArchiveMigratedSourcesResult {
   const results: ArchivedSourceResult[] = [];
   const scopes = new Set<ExodusScope>();
 
   for (const source of consumed) {
     scopes.add(source.targetScope);
-    results.push(archiveSourceDb(source, cwd));
+    const target =
+      source.targetScope === 'project' ? targets?.projectDbPath : targets?.globalDbPath;
+    results.push(archiveSourceDb(source, cwd, target));
   }
 
   const markersWritten: ExodusScope[] = [];
   for (const scope of scopes) {
     const archivedForScope = consumed.filter((s) => s.targetScope === scope).map((s) => s.name);
-    writeExodusCompleteMarker(scope, archivedForScope, cwd);
+    const target = scope === 'project' ? targets?.projectDbPath : targets?.globalDbPath;
+    writeExodusCompleteMarker(scope, archivedForScope, cwd, target);
     markersWritten.push(scope);
   }
 

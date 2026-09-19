@@ -205,3 +205,19 @@ export interface ExodusStatusResult {
  * refuses cross-version migration unless `--force-cross-version` is passed.
  */
 export const EXODUS_TARGET_SCHEMA_VERSION = 'drizzle-v1.0.0-rc.3/dual-scope/2026-05' as const;
+
+/** Exact-target outcomes of guarded recovery for an existing staging journal. */
+export interface ExodusRecoveryResult {
+  /** Existing staging-journal identity whose inserted rows are being reverted. */
+  readonly operationId: string;
+  /** True only when every target completed its guarded recovery. */
+  readonly complete: boolean;
+  /** Independently committed target outcomes; a failed scope retains its rows and receipts. */
+  readonly scopes: Array<{
+    scope: ExodusScope;
+    dbPath: string;
+    status: 'rolled_back' | 'failed';
+    rowsReverted: number;
+    error?: string;
+  }>;
+}
