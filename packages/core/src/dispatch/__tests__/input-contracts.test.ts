@@ -95,3 +95,22 @@ describe('tasks.update noAutoComplete schema (T12258)', () => {
     expect(validateOperationInput(contract, { taskId: 'T12258', noAutoComplete }).ok).toBe(false);
   });
 });
+
+it('accepts dependency waiver provenance in canonical creation input', () => {
+  const contract = INPUT_CONTRACTS['tasks.add'];
+  if (!contract) throw new Error('tasks.add missing');
+  expect(
+    validateOperationInput(contract, {
+      title: 'Independent critical repair',
+      priority: 'critical',
+      dependsWaiver: 'No prerequisites',
+    }).ok,
+  ).toBe(true);
+  expect(
+    validateOperationInput(contract, {
+      title: 'Independent critical repair',
+      priority: 'critical',
+      dependsWaiver: '',
+    }).ok,
+  ).toBe(false);
+});

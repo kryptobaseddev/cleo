@@ -1440,6 +1440,8 @@ export interface TasksAddParams {
    */
   parentSource?: 'explicit' | 'session-inference';
   depends?: string[];
+  /** Justification preserved in the creation audit for a critical-priority task. */
+  dependsWaiver?: string;
   priority?: string;
   labels?: string[];
   type?: TaskType; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 // ssot-exempt-ok: pre-existing exempt, narrowed string→TaskType (T10328)
@@ -2277,6 +2279,7 @@ export const TASKS_ADD_INPUT_SCHEMA: JsonSchema = {
     description: { type: 'string' },
     parent: { type: 'string' },
     depends: { type: 'array', items: { type: 'string' } },
+    dependsWaiver: { type: 'string', minLength: 1 },
     priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
     labels: { type: 'array', items: { type: 'string' } },
     type: { type: 'string', enum: ['saga', 'epic', 'task', 'subtask'] },
