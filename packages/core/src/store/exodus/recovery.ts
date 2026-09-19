@@ -1,5 +1,5 @@
 /** Durable, resource-scoped recovery for Exodus INSERTs (T12260). */
-import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
+import { constants, type DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { z } from 'zod';
 
 const RECEIPTS = '_exodus_recovery_rows';
@@ -42,19 +42,6 @@ function tableShape(db: DatabaseSync, schema: string, table: string) {
   if (typeof sql !== 'string' || /CREATE\s+VIRTUAL\s+TABLE/i.test(sql)) {
     throw new ExodusRecoveryError(`Exodus recovery requires an ordinary table: ${schema}.${table}`);
   }
-  const triggers = db
-    .prepare(
-      `SELECT name FROM ${identifier(schema)}.sqlite_master WHERE type='trigger' AND tbl_name=?`,
-    )
-    .all(table);
-  const tempTriggers = db
-    .prepare("SELECT name FROM temp.sqlite_master WHERE type='trigger' AND tbl_name=?")
-    .all(table);
-  if (triggers.length || tempTriggers.length) {
-    throw new ExodusRecoveryError(
-      `Exodus recovery cannot certify trigger side effects: ${schema}.${table}`,
-    );
-  }
   const columns = db
     .prepare(`PRAGMA ${identifier(schema)}.table_xinfo(${identifier(table)})`)
     .all();
@@ -63,15 +50,10 @@ function tableShape(db: DatabaseSync, schema: string, table: string) {
       throw new ExodusRecoveryError('Invalid Exodus column metadata');
     return column.name;
   });
-  const rowid = /\bWITHOUT\s+ROWID\b/i.test(sql)
-    ? undefined
-    : ['_rowid_', 'rowid', 'oid'].find((name) => !names.includes(name));
-  const keys = rowid
-    ? [rowid]
-    : columns
-        .filter((column) => Number(column.pk) > 0)
-        .sort((a, b) => Number(a.pk) - Number(b.pk))
-        .map((column) => String(column.name));
+  const keys = columns
+    .filter((column) => Number(column.pk) > 0)
+    .sort((a, b) => Number(a.pk) - Number(b.pk))
+    .map((column) => String(column.name));
   if (!keys.length)
     throw new ExodusRecoveryError(
       `Exodus recovery needs a stable row identity: ${schema}.${table}`,
@@ -90,6 +72,9 @@ function ensureReceipts(db: DatabaseSync, schema: string): void {
     table_sql TEXT NOT NULL,
     identity_json TEXT NOT NULL,
     row_json TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'insert' CHECK(kind IN ('insert','handoff_update')),
+    before_row_json TEXT,
+    before_value TEXT,
     state TEXT NOT NULL DEFAULT 'committed' CHECK(state IN ('committed','rolled_back'))
   )`);
 }
@@ -138,10 +123,101 @@ export function prepareExodusRecovery(db: DatabaseSync, operation: string, schem
 }
 
 /**
+ * Compile on the dedicated migration handle under SQLite's effect authorizer.
+ * Guard triggers are read-only. The only supported extra mutation is the
+ * canonical session handoff mirror, whose complete changed-row set is captured
+ * below. Extension/UDF functions are refused because their effects are opaque.
+ * These dedicated handles are created by Exodus without an existing authorizer;
+ * the temporary policy is always removed before receipt statements execute.
+ */
+function inspectEffects(
+  db: DatabaseSync,
+  sql: string,
+  schema: string,
+  table: string,
+  action: number,
+): boolean {
+  const builtins = new Set(
+    db
+      .prepare('PRAGMA function_list')
+      .all()
+      .filter((row) => row.builtin === 1)
+      .map((row) => row.name),
+  );
+  let mirrorsHandoff = false;
+  let refusal: string | undefined;
+  db.setAuthorizer((code, name, column, dbName, trigger) => {
+    if (
+      code === constants.SQLITE_FUNCTION &&
+      (!builtins.has(column) || column === 'load_extension')
+    ) {
+      refusal = `opaque function ${String(column)}`;
+      return constants.SQLITE_DENY;
+    }
+    if (
+      [constants.SQLITE_INSERT, constants.SQLITE_UPDATE, constants.SQLITE_DELETE].includes(code)
+    ) {
+      if (!trigger && code === action && dbName === schema && name === table)
+        return constants.SQLITE_OK;
+      if (
+        trigger &&
+        action === constants.SQLITE_INSERT &&
+        code === constants.SQLITE_UPDATE &&
+        dbName === schema &&
+        name === 'tasks_sessions' &&
+        column === 'handoff_json'
+      ) {
+        mirrorsHandoff = true;
+        return constants.SQLITE_OK;
+      }
+      refusal = `untracked trigger side effects: ${String(dbName)}.${String(name)} ${String(column)}`;
+      return constants.SQLITE_DENY;
+    }
+    return constants.SQLITE_OK;
+  });
+  try {
+    db.prepare(sql);
+  } catch (error) {
+    throw new ExodusRecoveryError(
+      refusal ?? (error instanceof Error ? error.message : String(error)),
+      { cause: error },
+    );
+  } finally {
+    db.setAuthorizer(null);
+  }
+  return mirrorsHandoff;
+}
+
+function handoffSnapshot(db: DatabaseSync, schema: string) {
+  const shape = tableShape(db, schema, 'tasks_sessions');
+  const rows = db
+    .prepare(
+      `SELECT ${shape.identity} AS identity_json,${shape.row} AS row_json,${image(['handoff_json'])} AS handoff_value FROM ${identifier(schema)}.tasks_sessions`,
+    )
+    .all();
+  return {
+    shape,
+    rows: new Map(
+      rows.map((row) => {
+        if (
+          typeof row.identity_json !== 'string' ||
+          typeof row.row_json !== 'string' ||
+          typeof row.handoff_value !== 'string'
+        )
+          throw new ExodusRecoveryError('Invalid handoff row image');
+        if (identityValues(row.identity_json).includes(null))
+          throw new ExodusRecoveryError('Exodus recovery cannot own a nullable primary key');
+        return [row.identity_json, { row: row.row_json, value: row.handoff_value }];
+      }),
+    ),
+  };
+}
+
+/**
  * Execute an INSERT with exact inserted-row receipts in the caller's existing
  * transaction. A savepoint rolls back both rows and receipts on any failure.
- * Ignored rows produce no receipts. Triggers/virtual tables are refused because
- * RETURNING cannot certify their side effects. The operation is the existing
+ * Ignored rows produce no receipts. SQLite authorizes read-only guards; handoff
+ * mirror changes receive before/after receipts. Other write effects are refused. The operation is the existing
  * Exodus staging-journal directory, not a separate repair engine.
  */
 export function insertWithExodusReceipts(
@@ -168,14 +244,15 @@ export function insertWithExodusReceipts(
     const record = db.prepare(`INSERT INTO ${identifier(schema)}.${identifier(RECEIPTS)}
       (operation_id,target_db,target_table,source_db,source_table,table_sql,identity_json,row_json)
       VALUES (?,?,?,?,?,?,?,?)`);
+    const statement = `${insertSql} RETURNING ${shape.identity} AS identity_json, ${shape.row} AS row_json`;
+    const mirrorsHandoff = inspectEffects(db, statement, schema, table, constants.SQLITE_INSERT);
+    const before = mirrorsHandoff ? handoffSnapshot(db, schema) : undefined;
     let inserted = 0;
-    for (const row of db
-      .prepare(
-        `${insertSql} RETURNING ${shape.identity} AS identity_json, ${shape.row} AS row_json`,
-      )
-      .iterate()) {
+    for (const row of db.prepare(statement).iterate()) {
       if (typeof row.identity_json !== 'string' || typeof row.row_json !== 'string')
         throw new ExodusRecoveryError('Invalid Exodus returned row image');
+      if (identityValues(row.identity_json).includes(null))
+        throw new ExodusRecoveryError('Exodus recovery cannot own a nullable primary key');
       record.run(
         operation,
         target,
@@ -187,6 +264,32 @@ export function insertWithExodusReceipts(
         row.row_json,
       );
       inserted++;
+    }
+    if (before) {
+      const after = handoffSnapshot(db, schema);
+      for (const [identity, current] of after.rows) {
+        const previous = before.rows.get(identity);
+        if (!previous)
+          throw new ExodusRecoveryError('Handoff mirror unexpectedly inserted a session');
+        if (previous.row === current.row) continue;
+        db.prepare(`INSERT INTO ${identifier(schema)}.${identifier(RECEIPTS)}
+          (operation_id,target_db,target_table,source_db,source_table,table_sql,identity_json,row_json,kind,before_row_json,before_value)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+          operation,
+          target,
+          'tasks_sessions',
+          sourceDb,
+          sourceTable,
+          before.shape.sql,
+          identity,
+          current.row,
+          'handoff_update',
+          previous.row,
+          previous.value,
+        );
+      }
+      if (after.rows.size !== before.rows.size)
+        throw new ExodusRecoveryError('Handoff mirror unexpectedly removed a session');
     }
     db.exec('RELEASE exodus_copy_receipts');
     return inserted;
@@ -244,6 +347,7 @@ export function rollbackExodusReceipts(db: DatabaseSync, operation: string): num
         .all()
         .map((row) => JSON.stringify(row)),
     );
+    const simulated = new Map<string, string | null>();
     const guarded = rows.map((receipt) => {
       if (
         receipt.target_db !== target ||
@@ -262,23 +366,52 @@ export function rollbackExodusReceipts(db: DatabaseSync, operation: string): num
       if (values.length !== shape.keys.length)
         throw new ExodusRecoveryError('Exodus row identity shape changed');
       const predicate = `${shape.keys.map((key) => `${identifier(key)} IS ?`).join(' AND ')} AND ${shape.row}=?`;
-      const count = db
-        .prepare(
-          `SELECT count(*) AS n FROM main.${identifier(receipt.target_table)} WHERE ${predicate}`,
-        )
-        .get(...values, receipt.row_json)?.n;
-      if (count !== 1)
+      const key = JSON.stringify([receipt.target_table, receipt.identity_json]);
+      if (!simulated.has(key)) {
+        const actual = db
+          .prepare(
+            `SELECT ${shape.row} AS row_json FROM main.${identifier(receipt.target_table)} WHERE ${shape.keys.map((name) => `${identifier(name)} IS ?`).join(' AND ')}`,
+          )
+          .all(...values);
+        if (actual.length !== 1 || typeof actual[0]?.row_json !== 'string')
+          throw new ExodusRecoveryError(
+            `Exodus recovery row changed or missing: ${receipt.target_table}`,
+          );
+        simulated.set(key, actual[0].row_json);
+      }
+      if (simulated.get(key) !== receipt.row_json)
         throw new ExodusRecoveryError(
           `Exodus recovery row changed or missing: ${receipt.target_table} receipt ${String(receipt.id)}`,
         );
+      if (receipt.kind === 'handoff_update') {
+        if (
+          receipt.target_table !== 'tasks_sessions' ||
+          typeof receipt.before_row_json !== 'string' ||
+          typeof receipt.before_value !== 'string'
+        )
+          throw new ExodusRecoveryError('Invalid handoff recovery receipt');
+        simulated.set(key, receipt.before_row_json);
+      } else if (receipt.kind === 'insert') simulated.set(key, null);
+      else throw new ExodusRecoveryError('Unsupported Exodus recovery effect');
       return { receipt, predicate, values };
     });
     for (const { receipt, predicate, values } of guarded) {
-      const deleted = db
-        .prepare(`DELETE FROM main.${identifier(String(receipt.target_table))} WHERE ${predicate}`)
-        .run(...values, receipt.row_json);
-      if (Number(deleted.changes) !== 1)
-        throw new ExodusRecoveryError('Exodus guarded delete did not remove exactly one row');
+      const sql =
+        receipt.kind === 'handoff_update'
+          ? `UPDATE main.tasks_sessions SET handoff_json=? WHERE ${predicate}`
+          : `DELETE FROM main.${identifier(String(receipt.target_table))} WHERE ${predicate}`;
+      inspectEffects(
+        db,
+        sql,
+        'main',
+        String(receipt.target_table),
+        receipt.kind === 'handoff_update' ? constants.SQLITE_UPDATE : constants.SQLITE_DELETE,
+      );
+      const before =
+        receipt.kind === 'handoff_update' ? identityValues(String(receipt.before_value)) : [];
+      const changed = db.prepare(sql).run(...before, ...values, receipt.row_json);
+      if (Number(changed.changes) !== 1)
+        throw new ExodusRecoveryError('Exodus guarded recovery did not affect exactly one row');
       db.prepare(`UPDATE main.${identifier(RECEIPTS)} SET state='rolled_back' WHERE id=?`).run(
         receipt.id,
       );

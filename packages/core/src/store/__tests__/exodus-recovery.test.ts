@@ -58,15 +58,13 @@ it('preserves pre-existing rows and unrelated later writes in the same table', (
   });
 });
 
-it('uses rowid identity so identical unrelated duplicates survive', () => {
+it('refuses implicit rowid ownership before copying because VACUUM can renumber identical rows', () => {
   db.exec("CREATE TABLE duplicates(value TEXT); INSERT INTO duplicates VALUES('same')");
-  insert("INSERT INTO duplicates VALUES('same')", 'duplicates');
-  db.exec("INSERT INTO duplicates VALUES('same')");
-  expect(rollbackExodusReceipts(db, operation)).toBe(1);
-  expect(db.prepare('SELECT rowid FROM duplicates ORDER BY rowid').all()).toEqual([
-    { rowid: 1 },
-    { rowid: 3 },
-  ]);
+  expect(() => insert("INSERT INTO duplicates VALUES('same')", 'duplicates')).toThrow(
+    /stable row identity/,
+  );
+  db.exec("INSERT INTO duplicates VALUES('same'); DELETE FROM duplicates WHERE rowid=1; VACUUM");
+  expect(db.prepare('SELECT value FROM duplicates').all()).toEqual([{ value: 'same' }]);
 });
 
 it('captures Unicode, embedded NUL, blobs, NULL and exact large integer values', () => {
@@ -152,4 +150,29 @@ it('commits cross-scope receipts on the database that owns their affected rows',
   } finally {
     target.close();
   }
+});
+
+it('records every session changed by a handoff mirror and reverses prior inserts in order', () => {
+  db.exec(
+    "CREATE TABLE tasks_sessions(id TEXT PRIMARY KEY,handoff_json TEXT); CREATE TABLE handoffs(id INTEGER PRIMARY KEY,handoff_json TEXT); CREATE TRIGGER mirror AFTER INSERT ON handoffs BEGIN UPDATE tasks_sessions SET handoff_json=new.handoff_json; END; INSERT INTO tasks_sessions VALUES('unrelated-session','before')",
+  );
+  insert("INSERT INTO tasks_sessions VALUES('owned-session',NULL)", 'tasks_sessions');
+  insert("INSERT INTO handoffs VALUES(1,'after')", 'handoffs');
+  expect(db.prepare('SELECT handoff_json FROM tasks_sessions').all()).toEqual([
+    { handoff_json: 'after' },
+    { handoff_json: 'after' },
+  ]);
+  expect(rollbackExodusReceipts(db, operation)).toBe(4);
+  expect(db.prepare('SELECT * FROM tasks_sessions').all()).toEqual([
+    { id: 'unrelated-session', handoff_json: 'before' },
+  ]);
+});
+
+it('refuses recovery that would orphan an unrelated referencing row', () => {
+  db.exec('CREATE TABLE child(id INTEGER PRIMARY KEY,parent INTEGER REFERENCES records(id))');
+  insert("INSERT INTO records VALUES(1,'owned',NULL,NULL)");
+  db.exec('INSERT INTO child VALUES(1,1)');
+  expect(() => rollbackExodusReceipts(db, operation)).toThrow(/orphan unrelated/);
+  expect(db.prepare('SELECT id FROM records').all()).toEqual([{ id: 1 }]);
+  expect(db.prepare('SELECT state FROM _exodus_recovery_rows').get()?.state).toBe('committed');
 });
