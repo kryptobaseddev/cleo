@@ -7,6 +7,8 @@
  * @task T149
  */
 
+import type { ChildProcess } from 'node:child_process';
+
 /** Kind of code symbol extracted from AST. */
 export type CodeSymbolKind =
   | 'function'
@@ -82,4 +84,27 @@ export interface ParserExecutionLimits {
   workerHeapMb?: number;
   /** Caller cancellation, checked before parsing and between native input reads. */
   signal?: AbortSignal;
+}
+
+/** Owned parser process and the limits actually established by its launcher. */
+export interface ParserProcessHandle {
+  /** Child with an IPC channel; never shared with unrelated parser work. */
+  child: ChildProcess;
+  /** Requested V8 old-generation ceiling, verified again inside the child. */
+  heapMb: number;
+  /** Native-memory containment is not inferred from a configured cgroup command. */
+  nativeMemory: 'unverified';
+  /** Kill owned execution and wait until it has exited. */
+  stop(): Promise<void>;
+}
+
+/** Dependency-inverted access to the existing runtime process containment service. */
+export interface ParserExecutionPort {
+  /**
+   * Launch a parser executable with bounded managed heap and owned cancellation.
+   * @param scriptPath - Absolute parser module path.
+   * @param limits - Caller limits and cancellation.
+   * @returns Owned execution handle; native memory remains explicitly unverified.
+   */
+  spawn(scriptPath: string, limits: ParserExecutionLimits): ParserProcessHandle;
 }

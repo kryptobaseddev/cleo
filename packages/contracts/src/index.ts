@@ -213,6 +213,8 @@ export type {
   CodeSymbolKind,
   ParseResult,
   ParserExecutionLimits,
+  ParserExecutionPort,
+  ParserProcessHandle,
 } from './code-symbol.js';
 // === Conduit Protocol (agent-to-agent communication) ===
 export type {

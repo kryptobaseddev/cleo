@@ -67,6 +67,8 @@
 
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import type { ParserExecutionPort } from '@cleocode/contracts';
+import { registerTeardownAbort } from '../teardown-signal.js';
 
 // ---------------------------------------------------------------------------
 // Public types (cross-package shapes live in packages/contracts/; these are
@@ -456,5 +458,78 @@ export function spawnWrapped(
     pid: child.pid,
     mode: built.mode,
     unitName: built.unitName,
+  };
+}
+
+/**
+ * Create the parser's process-execution port using the canonical spawn service.
+ * @returns A launcher with per-process V8 limits and teardown cancellation.
+ * @remarks Explicit Node argv overrides inherited NODE_OPTIONS heap flags while
+ * preserving loader guards. Configured cgroup memory is not claimed as observed
+ * native-memory containment. The parser verifies its actual V8 limit at startup.
+ * @example
+ * ```ts
+ * const parserExecution = createParserExecutionPort();
+ * ```
+ */
+export function createParserExecutionPort(): ParserExecutionPort {
+  return {
+    spawn(scriptPath, limits) {
+      const heapMb = limits.workerHeapMb ?? 128;
+      if (!Number.isSafeInteger(heapMb) || heapMb < 8 || heapMb > 512) {
+        throw new RangeError('Parser worker heap must be an integer from 8 to 512 MiB');
+      }
+      limits.signal?.throwIfAborted();
+      const controller = new AbortController();
+      const deregister = registerTeardownAbort(controller);
+      if (controller.signal.aborted) {
+        deregister();
+        controller.signal.throwIfAborted();
+      }
+      const owned = spawnWrapped(
+        process.execPath,
+        [`--max-old-space-size=${heapMb}`, '--max-semi-space-size=8', scriptPath],
+        {
+          stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+          detached: process.platform !== 'win32',
+          env: process.env,
+        },
+        { scopeClass: 'tool', resources: { memoryMax: `${Math.max(256, heapMb * 2)}M` } },
+      );
+      const { child } = owned;
+      // Drain diagnostics to avoid blocking a child on a full stderr pipe.
+      child.stderr?.on('data', () => undefined);
+      let exited = false;
+      const closed = new Promise<void>((resolve) => {
+        child.once('close', () => {
+          exited = true;
+          resolve();
+        });
+      });
+      const stop = async (): Promise<void> => {
+        if (!exited && child.pid) {
+          try {
+            if (process.platform === 'win32') child.kill('SIGKILL');
+            else process.kill(-child.pid, 'SIGKILL');
+          } catch (error) {
+            if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH')
+              throw error;
+          }
+        }
+        await closed;
+      };
+      const abort = () => {
+        void stop().catch(() => undefined);
+      };
+      limits.signal?.addEventListener('abort', abort, { once: true });
+      controller.signal.addEventListener('abort', abort, { once: true });
+      child.once('close', () => {
+        limits.signal?.removeEventListener('abort', abort);
+        controller.signal.removeEventListener('abort', abort);
+        deregister();
+      });
+      if (limits.signal?.aborted || controller.signal.aborted) abort();
+      return { child, heapMb, nativeMemory: 'unverified', stop };
+    },
   };
 }
