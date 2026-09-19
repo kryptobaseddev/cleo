@@ -2,8 +2,8 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.6.0
-  lastReviewed: 2026-05-27
+  version: 2.7.0
+  lastReviewed: 2026-09-19
   stability: stable
 ---
 
@@ -36,6 +36,20 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 | Attach doc to task | `cleo docs add T### file.md --type note --slug handle` |
 | Read a doc | `cleo docs fetch <slug>` |
 | Browse docs | `cleo docs list --task T###` |
+
+## Read completeness before editing
+
+Use `cleo show <id> --full` to inspect task fields before editing them. Compact
+records name every omitted field in `_withheld`, including empty or null values;
+the size is UTF-8 content bytes for strings and serialized JSON bytes otherwise.
+Repeated projection retains earlier omissions. A record without `_withheld` is
+complete at the record projection boundary; an envelope can separately report
+omitted records or fields. Never overwrite a field because a compact read omitted it.
+
+Coverage, failure diagnostics, authority corrections, and pending repair facts
+survive budgeting before examples. If mandatory facts cannot fit, the operation
+rejects the budget. Request a narrower scope or a larger budget, and do not treat
+that failure as clean coverage or absent impact.
 
 ## Skill-Specific Extensions
 
