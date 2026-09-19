@@ -76,6 +76,8 @@ export default defineConfig({
     // SSR runner cannot inline CJS when noExternal forces bundling — every route
     // crashes via +layout.server.ts → @cleocode/core → @cleocode/caamp →
     // @cleocode/cant. Mark it external so Node.js resolves it natively.
-    external: ['loro-crdt', 'llmtxt', '@cleocode/cant'],
+    // Keep core's native/model assets relative to its installed package.
+    // The CLI already declares core as a runtime dependency.
+    external: ['loro-crdt', 'llmtxt', '@cleocode/cant', '@cleocode/core'],
   },
 });
