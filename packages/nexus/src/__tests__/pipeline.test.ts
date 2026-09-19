@@ -15,7 +15,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import type { GraphIndexFileReport, GraphPublicationRows } from '@cleocode/contracts';
+import { buildSync } from 'esbuild';
 import Parser from 'tree-sitter';
 import TypeScript from 'tree-sitter-typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -63,6 +65,80 @@ function writeFile(root: string, relPath: string, content = 'x'): void {
 // ---------------------------------------------------------------------------
 // Language detection
 // ---------------------------------------------------------------------------
+
+describe('bounded parser workers (T12262)', () => {
+  it('proves heap exhaustion, per-file deadlines, cancellation and quiet termination in a clean process', () => {
+    const directory = makeTempDir();
+    try {
+      const poolPath = join(directory, 'pool.mjs');
+      buildSync({
+        entryPoints: [new URL('../pipeline/workers/worker-pool.ts', import.meta.url).pathname],
+        outfile: poolPath,
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+      });
+      const probePath = join(directory, 'probe.mjs');
+      writeFileSync(
+        probePath,
+        `
+        import assert from 'node:assert/strict';
+        import { writeFileSync } from 'node:fs';
+        import { createWorkerPool } from './pool.mjs';
+        function fixture(body) {
+          const url = new URL('./fixture.mjs', import.meta.url);
+          writeFileSync(url, "import {parentPort,resourceLimits} from 'node:worker_threads'; import {getHeapStatistics} from 'node:v8';\\n" + body);
+          return url;
+        }
+        let pool = createWorkerPool(fixture(\`
+          let count = 0;
+          parentPort.on('message', message => {
+            if (message.type === 'sub-batch') {
+              if (message.files.length !== 1) throw new Error('unbounded batch');
+              count++; parentPort.postMessage({ type: 'sub-batch-done' });
+            } else parentPort.postMessage({ type: 'result', data: { count, heap: getHeapStatistics().heap_size_limit } });
+          });
+        \`), 1, { workerHeapMb: 32 });
+        try {
+          const [result] = await pool.dispatch([1,2,3]);
+          assert.equal(result.count, 3);
+          assert.ok(result.heap < 64 * 1024 * 1024, 'actual V8 ceiling, not merely reported configuration');
+        } finally { await pool.terminate(); }
+        pool = createWorkerPool(fixture("parentPort.on('message', () => { while(true) {} });"), 1, { timeoutMs: 100 });
+        await assert.rejects(pool.dispatch([1]), /E_PARSE_WORKER_TIMEOUT/);
+        await assert.rejects(pool.dispatch([2]), /terminated/);
+        await pool.terminate();
+        const controller = new AbortController();
+        pool = createWorkerPool(fixture("parentPort.on('message', () => { while(true) {} });"), 1, { signal: controller.signal });
+        const pending = pool.dispatch([1]);
+        await assert.rejects(pool.dispatch([2]), /active dispatch/);
+        setTimeout(() => controller.abort(), 100);
+        await assert.rejects(pending, /E_PARSE_CANCELLED/);
+        await pool.terminate();
+        pool = createWorkerPool(fixture("parentPort.on('message', () => { const retained = []; while(true) retained.push(new Array(100000).fill('retained')); });"), 1, { workerHeapMb: 16 });
+        await assert.rejects(pool.dispatch([1]), /memory|heap|OOM/i);
+        await assert.rejects(pool.dispatch([2]), /terminated/);
+        await pool.terminate();
+        process.env.NODE_OPTIONS = '--max-old-space-size=1024';
+        assert.throws(() => createWorkerPool(new URL('./fixture.mjs', import.meta.url)), /E_PARSE_WORKER_HEAP_OVERRIDE/);
+      `,
+      );
+      execFileSync(process.execPath, [probePath], {
+        timeout: 20000,
+        env: {
+          PATH: process.env['PATH'],
+          HOME: directory,
+          TMPDIR: directory,
+          TMP: directory,
+          TEMP: directory,
+        },
+        stdio: 'pipe',
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('bounded original parser capacity (T12262)', () => {
   function sourceOfLength(length: number): string {

@@ -78,6 +78,8 @@ export interface ParserExecutionLimits {
   maxSourceBytes?: number;
   /** Native parsing deadline in milliseconds; defaults to 1000. */
   timeoutMs?: number;
+  /** Per-worker V8 old-generation heap ceiling in MiB; excludes native allocations. */
+  workerHeapMb?: number;
   /** Caller cancellation, checked before parsing and between native input reads. */
   signal?: AbortSignal;
 }

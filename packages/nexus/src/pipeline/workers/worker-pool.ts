@@ -7,12 +7,11 @@
  *
  * Key design decisions:
  * - Pool size: `os.cpus().length - 1` (leave 1 core for main thread), max 8
- * - Files split into sub-batches of 1500 per postMessage call to bound IPC
+ * - Files sent one at a time per worker to bound IPC
  *   memory per message (structured clone is O(data))
- * - 30-second timeout per sub-batch — fails fast on pathological files
+ * - Per-file wall deadline terminates a stuck worker
  * - Falls back to sequential if worker script is not found (e.g. running
  *   from source without a build)
- * - Retry once on worker crash before falling back to sequential
  *
  * @task T540
  * @module pipeline/workers/worker-pool
@@ -22,6 +21,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
+import type { ParserExecutionLimits } from '@cleocode/contracts';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -72,13 +72,13 @@ type WorkerOutgoingMessage =
  * Max files per postMessage call.
  * Bounds peak structured-clone memory per sub-batch.
  */
-const SUB_BATCH_SIZE = 1500;
+const SUB_BATCH_SIZE = 1;
 
 /**
  * Per sub-batch timeout in milliseconds.
  * If a sub-batch takes longer than this, likely a pathological file.
  */
-const SUB_BATCH_TIMEOUT_MS = 30_000;
+const SUB_BATCH_TIMEOUT_MS = 5_000;
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -90,10 +90,15 @@ const SUB_BATCH_TIMEOUT_MS = 30_000;
  * @param workerUrl - `import.meta.resolve(...)` URL pointing to the worker
  *   script. The file must exist (checked synchronously before spawning).
  * @param poolSize - Override pool size. Defaults to `cpu count - 1` (max 8).
+ * @param limits - Per-file wall deadline, caller cancellation and V8 heap bound.
  * @returns A WorkerPool instance.
  * @throws If the worker script file is not found on disk.
  */
-export function createWorkerPool(workerUrl: URL, poolSize?: number): WorkerPool {
+export function createWorkerPool(
+  workerUrl: URL,
+  poolSize?: number,
+  limits: ParserExecutionLimits = {},
+): WorkerPool {
   // Validate worker script exists before spawning — avoids uncaught
   // MODULE_NOT_FOUND crashes inside worker threads when running from src/.
   const workerPath = fileURLToPath(workerUrl);
@@ -102,10 +107,44 @@ export function createWorkerPool(workerUrl: URL, poolSize?: number): WorkerPool 
   }
 
   const size = poolSize ?? Math.min(8, Math.max(1, os.cpus().length - 1));
+  const timeoutMs = limits.timeoutMs ?? SUB_BATCH_TIMEOUT_MS;
+  const workerHeapMb = limits.workerHeapMb ?? 128;
+  if (!Number.isSafeInteger(size) || size < 1 || size > 8) {
+    throw new RangeError('Parser pool size must be an integer from 1 to 8');
+  }
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new RangeError('Parser worker timeout must be positive and finite');
+  }
+  if (!Number.isSafeInteger(workerHeapMb) || workerHeapMb < 8 || workerHeapMb > 512) {
+    throw new RangeError('Parser worker heap must be an integer from 8 to 512 MiB');
+  }
+  // V8's process-level flags silently override Worker.resourceLimits. A claimed
+  // per-worker ceiling would otherwise be false even when resourceLimits reports it.
+  const inheritedFlags = `${process.env['NODE_OPTIONS'] ?? ''} ${process.execArgv.join(' ')}`;
+  if (/--max[-_]old[-_]space[-_]size|--max[-_]semi[-_]space[-_]size/.test(inheritedFlags)) {
+    throw new Error('E_PARSE_WORKER_HEAP_OVERRIDE: inherited V8 heap flags override worker limits');
+  }
+  limits.signal?.throwIfAborted();
   const workers: Worker[] = [];
+  let active = false;
+  let terminated = false;
+  let termination: Promise<void> | undefined;
+  const terminate = (): Promise<void> => {
+    terminated = true;
+    termination ??= Promise.all(workers.map((worker) => worker.terminate())).then(() => undefined);
+    return termination;
+  };
 
   for (let i = 0; i < size; i++) {
-    workers.push(new Worker(workerUrl));
+    workers.push(
+      new Worker(workerUrl, {
+        resourceLimits: {
+          maxOldGenerationSizeMb: workerHeapMb,
+          maxYoungGenerationSizeMb: 16,
+          stackSizeMb: 4,
+        },
+      }),
+    );
   }
 
   /**
@@ -130,6 +169,7 @@ export function createWorkerPool(workerUrl: URL, poolSize?: number): WorkerPool 
           clearTimeout(subBatchTimer);
           subBatchTimer = null;
         }
+        limits.signal?.removeEventListener('abort', abortHandler);
         worker.removeListener('message', handler);
         worker.removeListener('error', errorHandler);
         worker.removeListener('exit', exitHandler);
@@ -143,11 +183,11 @@ export function createWorkerPool(workerUrl: URL, poolSize?: number): WorkerPool 
             cleanup();
             reject(
               new Error(
-                `Worker ${workerIndex} sub-batch timed out after ${SUB_BATCH_TIMEOUT_MS / 1000}s (chunk: ${chunk.length} items).`,
+                `E_PARSE_WORKER_TIMEOUT: Worker ${workerIndex} file timed out after ${timeoutMs}ms.`,
               ),
             );
           }
-        }, SUB_BATCH_TIMEOUT_MS);
+        }, timeoutMs);
       };
 
       const sendNextSubBatch = () => {
@@ -204,6 +244,18 @@ export function createWorkerPool(workerUrl: URL, poolSize?: number): WorkerPool 
         }
       };
 
+      const abortHandler = () => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          reject(new Error('E_PARSE_CANCELLED: caller cancelled parser work'));
+        }
+      };
+      limits.signal?.addEventListener('abort', abortHandler, { once: true });
+      if (limits.signal?.aborted) {
+        abortHandler();
+        return;
+      }
       worker.on('message', handler);
       worker.once('error', errorHandler);
       worker.once('exit', exitHandler);
@@ -212,11 +264,15 @@ export function createWorkerPool(workerUrl: URL, poolSize?: number): WorkerPool 
     });
   }
 
-  const dispatch = <TInput, TResult>(
+  const dispatch = async <TInput, TResult>(
     items: TInput[],
     onProgress?: (filesProcessed: number) => void,
   ): Promise<TResult[]> => {
-    if (items.length === 0) return Promise.resolve([]);
+    limits.signal?.throwIfAborted();
+    if (terminated) throw new Error('Parser worker pool is terminated');
+    if (active) throw new Error('Parser worker pool already has an active dispatch');
+    if (items.length === 0) return [];
+    active = true;
 
     // Distribute items evenly across workers
     const chunkSize = Math.ceil(items.length / size);
@@ -231,12 +287,15 @@ export function createWorkerPool(workerUrl: URL, poolSize?: number): WorkerPool 
       dispatchToWorker<TInput, TResult>(chunk, i, workerProgress, onProgress),
     );
 
-    return Promise.all(promises);
-  };
-
-  const terminate = async (): Promise<void> => {
-    await Promise.all(workers.map((w) => w.terminate()));
-    workers.length = 0;
+    try {
+      return await Promise.all(promises);
+    } catch (error) {
+      // Do not return while another worker can still mutate or allocate.
+      await terminate();
+      throw error;
+    } finally {
+      active = false;
+    }
   };
 
   return { dispatch, terminate, size };
