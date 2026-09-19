@@ -29,7 +29,7 @@ import type { Task, TaskRollupPayload } from '@cleocode/contracts';
 import { resetDbState } from '@cleocode/core/store/sqlite';
 import { addTask } from '@cleocode/core/tasks/add';
 import type { RequestEvent } from '@sveltejs/kit';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ProjectContext } from '$lib/server/project-context.js';
 import { _toLegacyRow, GET as getTasks } from '../+server.js';
 import {
@@ -38,6 +38,12 @@ import {
   _toPipelineRow,
   GET as getPipeline,
 } from '../pipeline/+server.js';
+
+beforeAll(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterAll(() => vi.unstubAllEnvs());
 
 /**
  * Minimal fake of the SvelteKit RequestEvent that the route handlers
@@ -281,6 +287,8 @@ describe('GET /api/tasks end-to-end (T948)', () => {
         description: 'Child task with full acceptance',
         parentId: epic.task.id,
         priority: 'critical',
+        dependsWaiver:
+          'Independent route fixture: critical priority is tested without prerequisite tasks',
         acceptance,
       },
       tempDir,
