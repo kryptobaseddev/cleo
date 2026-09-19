@@ -236,9 +236,10 @@ export async function updateTask(
   // T1590 — AC-immutability guard. Once a task has entered the
   // implementation pipeline stage (or any later stage), changes to
   // `acceptance` require an explicit operator `--reason`, which is
-  // appended to `.cleo/audit/ac-changes.jsonl`. Without a reason, the
+  // recorded in the transactional task_updated audit. The legacy JSONL
+  // stream records authorization attempts only. Without a reason, the
   // attempt is rejected with E_AC_LOCKED.
-  enforceAcceptanceImmutability({
+  const acceptanceAuthorization = enforceAcceptanceImmutability({
     task,
     newAcceptance: options.acceptance,
     reason: options.reason,
@@ -710,6 +711,10 @@ export async function updateTask(
       details: {
         changes,
         title: task.title,
+        ...(options.reason !== undefined ? { reason: options.reason } : {}),
+        ...(acceptanceAuthorization
+          ? { acceptanceOverride: { ...acceptanceAuthorization, status: 'committed' } }
+          : {}),
         ...(options.dependsWaiver !== undefined ? { dependsWaiver: options.dependsWaiver } : {}),
       },
       before: null,

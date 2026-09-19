@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
@@ -118,6 +118,104 @@ describe('updateTask', () => {
       }
       expect(await accessor.loadSingleTask('T001')).toMatchObject(expected);
     }
+  });
+
+  it.each([
+    false,
+    true,
+  ])('records committed acceptance overrides only after a successful transaction (fault=%s)', async (failAudit) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Locked acceptance fixture',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'implementation',
+        acceptance: ['original criterion'],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const faultAccessor: DataAccessor = {
+      ...accessor,
+      async transaction(callback) {
+        return accessor.transaction((tx) =>
+          callback({
+            ...tx,
+            async appendLog(entry) {
+              if (failAudit) throw new Error('Injected override audit failure');
+              return tx.appendLog(entry);
+            },
+          }),
+        );
+      },
+    };
+    const mutation = updateTask(
+      {
+        taskId: 'T001',
+        acceptance: ['approved criterion'],
+        reason: 'Owner approved scope correction',
+      },
+      env.tempDir,
+      faultAccessor,
+    );
+    if (failAudit) await expect(mutation).rejects.toThrow('Injected override audit failure');
+    else await mutation;
+    const entries = await accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] });
+    if (failAudit) {
+      expect(entries).toEqual([]);
+      expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual(['original criterion']);
+    } else {
+      expect(entries).toHaveLength(1);
+      expect(JSON.parse(entries[0]!.detailsJson!)).toMatchObject({
+        reason: 'Owner approved scope correction',
+        acceptanceOverride: {
+          status: 'committed',
+          oldAcceptance: ['original criterion'],
+          newAcceptance: ['approved criterion'],
+          reason: 'Owner approved scope correction',
+          stage: 'implementation',
+        },
+      });
+    }
+    const attempt = JSON.parse(
+      (await readFile(join(env.tempDir, '.cleo/audit/ac-changes.jsonl'), 'utf8')).trim(),
+    );
+    expect(attempt.status).toBe('authorization-attempt');
+  });
+
+  it('retains committed override provenance when the advisory filesystem audit cannot be written', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Audit filesystem failure fixture',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'implementation',
+        acceptance: ['original'],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await writeFile(join(env.tempDir, '.cleo/audit'), 'Block advisory audit directory');
+    await updateTask(
+      {
+        taskId: 'T001',
+        acceptance: ['approved'],
+        reason: 'Approved despite unavailable advisory stream',
+      },
+      env.tempDir,
+      accessor,
+    );
+    const entries = await accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] });
+    expect(entries).toHaveLength(1);
+    expect(JSON.parse(entries[0]!.detailsJson!)).toMatchObject({
+      acceptanceOverride: {
+        status: 'committed',
+        reason: 'Approved despite unavailable advisory stream',
+        oldAcceptance: ['original'],
+        newAcceptance: ['approved'],
+      },
+    });
+    expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual(['approved']);
   });
 
   it('persists dependency-waiver provenance with the critical-priority mutation', async () => {
