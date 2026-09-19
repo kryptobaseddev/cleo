@@ -25,6 +25,7 @@ import { addTask } from '../../tasks/add.js';
 import { _resetTeardownSignalForTests, markShuttingDown } from '../../teardown-signal.js';
 import {
   awaitBackgroundOps,
+  bindOperationWriteFence,
   createOperationExecutionContext,
   observeOperation,
   pendingBackgroundOpCount,
@@ -502,4 +503,36 @@ describe('captured domain write fence transfer', () => {
       ),
     ).toThrow('Invalid operation write fence');
   });
+});
+
+it('binding claimed authority shares the original deadline, cancellation and aggregate admission', () => {
+  const context = createOperationExecutionContext(
+    {
+      projectId: 'A',
+      projectRoot: '/tmp/synthetic',
+      actor: 'fixture',
+      operation: 'docs.projection',
+      idempotencyKey: 'binding',
+    },
+    { resources: { maxItems: 1 } },
+  );
+  const bound = bindOperationWriteFence(context, {
+    dbPath: '/tmp/synthetic/cleo.db',
+    proposalHash: 'a'.repeat(64),
+    lease: { jobId: 'job', ownerId: 'owner', epoch: 1, expiresAt: Date.now() + 1000 },
+  });
+  try {
+    expect(bound.deadlineAt).toBe(context.deadlineAt);
+    expect(bound.signal).toBe(context.signal);
+    expect(() => bindOperationWriteFence(bound, bound.writeFence!)).toThrow(
+      'immutable write fence',
+    );
+    context.consume({ items: 1 });
+    expect(() => bound.consume({ items: 1 })).toThrow();
+    expect(context.signal.aborted).toBe(true);
+    expect(() => bindOperationWriteFence(bound, bound.writeFence!)).toThrow();
+  } finally {
+    bound.close();
+    context.close();
+  }
 });

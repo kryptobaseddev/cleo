@@ -30,6 +30,7 @@
 
 import { isAbsolute } from 'node:path';
 import type {
+  BackgroundJobWriteFence,
   OperationExecutionContext,
   OperationExecutionIdentity,
   OperationExecutionOptions,
@@ -162,24 +163,7 @@ export function createOperationExecutionContext(
   const deadlineAt = Math.min(Date.now() + budgetMs, options.deadlineAt ?? Infinity);
   if (!Number.isSafeInteger(deadlineAt))
     throw new TypeError('Operation deadline exceeds safe range');
-  const writeFence = options.writeFence
-    ? Object.freeze({
-        ...options.writeFence,
-        lease: Object.freeze({ ...options.writeFence.lease }),
-      })
-    : undefined;
-  if (
-    writeFence &&
-    (!isAbsolute(writeFence.dbPath) ||
-      !/^[a-f0-9]{64}$/.test(writeFence.proposalHash) ||
-      !writeFence.lease.jobId?.trim() ||
-      !writeFence.lease.ownerId?.trim() ||
-      !Number.isSafeInteger(writeFence.lease.epoch) ||
-      writeFence.lease.epoch < 1 ||
-      !Number.isSafeInteger(writeFence.lease.expiresAt) ||
-      writeFence.lease.expiresAt <= 0)
-  )
-    throw new TypeError('Invalid operation write fence');
+  const writeFence = captureWriteFence(options.writeFence);
   const callerSignal = options.signal;
   const controller = new AbortController();
   let bytes = 0;
@@ -266,6 +250,52 @@ export function createOperationExecutionContext(
       stop('E_OPERATION_CLOSED', 'Operation scope is closed');
     },
   });
+}
+
+/** Copy and validate an optional authority reference without admitting work. */
+function captureWriteFence(input?: BackgroundJobWriteFence): BackgroundJobWriteFence | undefined {
+  const writeFence = input
+    ? Object.freeze({
+        ...input,
+        lease: Object.freeze({ ...input.lease }),
+      })
+    : undefined;
+  if (
+    writeFence &&
+    (!isAbsolute(writeFence.dbPath) ||
+      !/^[a-f0-9]{64}$/.test(writeFence.proposalHash) ||
+      !writeFence.lease.jobId?.trim() ||
+      !writeFence.lease.ownerId?.trim() ||
+      !Number.isSafeInteger(writeFence.lease.epoch) ||
+      writeFence.lease.epoch < 1 ||
+      !Number.isSafeInteger(writeFence.lease.expiresAt) ||
+      writeFence.lease.expiresAt <= 0)
+  )
+    throw new TypeError('Invalid operation write fence');
+  return writeFence;
+}
+
+/**
+ * Bind a newly claimed job fence without replacing the caller's lifetime or budget.
+ * @param context - Original captured operation whose accounting remains authoritative.
+ * @param writeFence - Persisted attempt reference to check at domain write boundaries.
+ * @returns Immutable scoped view sharing the original deadline, cancellation and accounting.
+ * @throws Error if the scope is inactive, already fenced, or the reference is malformed.
+ * @remarks This does not renew a lease or authorize mutation. Binding changes only
+ * the immutable authority reference; closing either view invalidates both.
+ * @example
+ * ```ts
+ * const guarded = bindOperationWriteFence(context, fence);
+ * await existingDomainOperation(guarded);
+ * ```
+ */
+export function bindOperationWriteFence(
+  context: OperationExecutionContext,
+  writeFence: BackgroundJobWriteFence,
+): OperationExecutionContext {
+  context.assertActive();
+  if (context.writeFence) throw new Error('Operation already has an immutable write fence');
+  return Object.freeze({ ...context, writeFence: captureWriteFence(writeFence) });
 }
 
 /**
