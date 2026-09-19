@@ -21,6 +21,7 @@ import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type { DocsGraphProjectionResult } from '@cleocode/contracts/operations/docs';
 import { resolveCleoConfig } from '../config/registry.js';
 import { getLogger } from '../logger.js';
+import { generateProjectHash } from '../nexus/hash.js';
 import { worktreeScope } from '../paths.js';
 import { assertOperationWriteFence } from '../store/background-jobs.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
@@ -194,7 +195,7 @@ export async function upsertGraphNode(
     ? worktreeScope.run(
         {
           worktreeRoot: context.identity.projectRoot,
-          projectHash: context.identity.projectId,
+          projectHash: generateProjectHash(context.identity.projectRoot),
           execution: context,
         },
         write,
@@ -273,7 +274,7 @@ export async function addGraphEdge(
     ? worktreeScope.run(
         {
           worktreeRoot: context.identity.projectRoot,
-          projectHash: context.identity.projectId,
+          projectHash: generateProjectHash(context.identity.projectRoot),
           execution: context,
         },
         write,

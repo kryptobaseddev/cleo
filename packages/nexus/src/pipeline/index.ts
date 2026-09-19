@@ -586,7 +586,9 @@ export async function runPipeline(
       );
 
       if (changedPaths.size === 0) {
-        process.stderr.write('[nexus] Incremental: no changes detected — index is up to date.\n');
+        process.stderr.write(
+          '[nexus] Incremental: no source fingerprint changes; returning existing graph statistics.\n',
+        );
         // Return stats from existing index (no writes needed)
         const existingNodeCount = (await readableDb.select().from(tables.nexusNodes)).length;
         const existingRelationCount = (await readableDb.select().from(tables.nexusRelations))

@@ -28,9 +28,10 @@
  * @see ADR-058 — Dispatch type inference
  */
 
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { BlobAttachment, DocAttachmentObservationPayload } from '@cleocode/contracts';
+import type { BlobAttachment } from '@cleocode/contracts';
 import { DocKindRegistry } from '@cleocode/contracts';
 import type {
   DocsAddParams,
@@ -55,6 +56,10 @@ import type {
 } from '@cleocode/contracts/operations/docs';
 import { LLM_OUTPUT_MODES } from '@cleocode/contracts/operations/docs';
 import { pushWarning } from '@cleocode/core';
+import {
+  captureDocumentProjection,
+  projectDocumentAttachment,
+} from '@cleocode/core/docs/projection';
 import type {
   AttachmentRef,
   ExportDocumentOptions,
@@ -81,7 +86,6 @@ import {
   isLifecycleStatus,
   listDocVersions,
   makeClassifierForScanRoot,
-  memoryObserve,
   mergeDocs,
   parseChangesetFrontmatter,
   publishDocs,
@@ -106,7 +110,8 @@ import {
   writeAuditEntry,
   writeChangesetEntry,
 } from '@cleocode/core/internal';
-import { resolveCleoDir } from '@cleocode/core/paths.js';
+import { generateProjectHash } from '@cleocode/core/nexus/hash';
+import { resolveCleoDir, worktreeScope } from '@cleocode/core/paths.js';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
@@ -398,63 +403,6 @@ function compareByOrderBy(
   }
   // newest — descending by createdAt (ISO 8601 lexicographic == chronological)
   return (a, b) => b.createdAt.localeCompare(a.createdAt);
-}
-
-// ─── Doc-attachment memory observation helper (T9976) ─────────────────────────
-
-/**
- * Build the observation title for a doc-attachment memory entry.
- *
- * Uses the slug when available (human-readable, FTS-searchable) or falls
- * back to the attachment ID so the entry is always addressable.
- *
- * @param slug         - Slug recorded for the attachment, if any.
- * @param attachmentId - Fallback attachment ID.
- */
-function docObservationTitle(slug: string | undefined, attachmentId: string): string {
-  return `Doc attached: ${slug ?? attachmentId}`;
-}
-
-/**
- * Emit a memory observation for a successful `docs.add` operation.
- *
- * The observation is fire-and-forget — a failure to write to brain.db
- * MUST NOT fail the docs add operation. The structured payload stored
- * in the narrative allows `cleo memory verify` to round-trip against
- * the docs store.
- *
- * The title `"Doc attached: <slug|attachmentId>"` lands in the FTS
- * index so `cleo memory find '<slug>'` surfaces the entry.
- *
- * @param payload - Structured doc-attachment payload (T9976).
- * @param projectRoot - Project root path for brain.db resolution.
- *
- * @task T9976
- */
-function emitDocAttachmentObservation(
-  payload: DocAttachmentObservationPayload,
-  projectRoot: string,
-): void {
-  const title = docObservationTitle(payload.slug, payload.attachmentId);
-  const narrative = JSON.stringify(payload);
-  // Fire-and-forget — never await, never throw from the caller.
-  // `_skipGate: true` bypasses the dedup extraction-gate (unique structured payload).
-  // `sourceType: 'manual'` is intentional: avoids the mental-model queue (which
-  // has a 5-second flush interval) by NOT setting `agent`. The mental-model queue
-  // is only entered when `isMentalModelObservation` returns true, which requires
-  // both a recognized type (feature/discovery/etc.) AND an agent name. Using
-  // `sourceType: 'manual'` writes synchronously via `observeBrain`.
-  memoryObserve(
-    {
-      text: narrative,
-      title,
-      type: 'feature',
-      sourceType: 'manual',
-    },
-    projectRoot,
-  ).catch(() => {
-    /* Best-effort — never fail docs add on brain.db write errors. */
-  });
 }
 
 // ─── Typed inner handler ──────────────────────────────────────────────────────
@@ -893,778 +841,763 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       );
     }
 
-    // T10159 (Saga T9855 / Epic T10157) — resolve the literal `AUTO` token
-    // BEFORE shape validation. The slug `adr-AUTO-saga-fix` carries an
-    // uppercase `AUTO` placeholder that would otherwise fail the strict
-    // lowercase-kebab regex. `allocateAutoSlug` atomically scans the
-    // `attachments` table for the kind's existing numeric portion (e.g.
-    // adr-077-...) and substitutes the next available number into the
-    // slug. Non-AUTO slugs pass through unchanged.
-    let slug: string | undefined;
-    if (rawSlug !== undefined) {
-      let candidate = rawSlug as string;
-      if (typeof candidate === 'string' && candidate.includes(AUTO_TOKEN)) {
-        const allocated = await allocateAutoSlugForDispatch(getProjectRoot(), {
-          kind: typeof rawType === 'string' ? rawType : '',
-          rawSlug: candidate,
-        });
-        candidate = allocated.resolvedSlug;
-      }
-      const check = validateSlug(candidate);
-      if (!check.valid) {
-        return lafsError('E_INVALID_SLUG', check.reason, 'add');
-      }
-      slug = candidate;
-    }
-
-    // T9637 — validate type against the closed taxonomy set.
-    let type: DocsType | undefined;
-    if (rawType !== undefined) {
-      if (!validateDocsType(rawType)) {
-        return lafsError(
-          'E_INVALID_TYPE',
-          `type must be one of: ${registeredKindList()} — got '${String(rawType)}'`,
-          'add',
+    const projectRoot = getProjectRoot();
+    return worktreeScope.run(
+      {
+        ...worktreeScope.getStore(),
+        worktreeRoot: projectRoot,
+        projectHash: generateProjectHash(projectRoot),
+      },
+      async () => {
+        const projectionCapture = await captureDocumentProjection(
+          projectRoot,
+          rawAttachedBy ?? 'cleo-docs-add',
+          randomUUID(),
         );
-      }
-      type = rawType;
-    }
-
-    // T10367 (Saga T10288 · Epic T10290 · E2.2) — changeset DocKind delegation.
-    //
-    // The `changeset` kind is `canonicalHome: 'ssot-first'` in `.cleo/canon.yml`
-    // and the WriterRegistry (T10366) names `writeChangesetEntry` as the sole
-    // writer. `cleo docs add --type changeset` therefore MUST flow through
-    // the dual-write transaction in `packages/core/src/changesets/writer.ts`
-    // instead of the generic attachment-store path below — otherwise the
-    // bytes land in the SSoT blob store BUT skip the `.changeset/<slug>.md`
-    // file mirror that the release-plan aggregator + human reviewers read.
-    //
-    // Contract:
-    //   - File body MUST carry a valid changeset frontmatter (id, tasks,
-    //     kind, summary). Missing frontmatter → E_REQUIRES_CHANGESET_VERB
-    //     with a fix hint pointing at `cleo changeset add` for guided
-    //     authoring (the CLI flag-prompt surface is the friendlier path
-    //     when the operator only has free-form prose).
-    //   - When --slug is provided alongside --type changeset, it MUST match
-    //     the frontmatter `id`. The frontmatter is canonical; --slug is
-    //     redundant but accepted for symmetry with the rest of `docs add`.
-    //   - On success the LAFS envelope mirrors what `cleo changeset add`
-    //     emits — `slug`, `attachmentId`, `sha256`, plus `type: 'changeset'`
-    //     and `kind: 'blob'` (the SSoT blob kind).
-    //
-    // The file branch below is bypassed entirely in this path — there is
-    // exactly ONE writer for the `changeset` kind (the SG-DOCS-INTEGRITY
-    // invariant). Side-effects (memory observation, llmtxt graph mint, v2
-    // mirror) are NOT replayed here because `writeChangesetEntry` already
-    // owns the canonical write surface and downstream consumers read from
-    // the SSoT blob via the same code path either verb invoked.
-    if (type === 'changeset') {
-      if (!filePath) {
-        return lafsError(
-          'E_INVALID_INPUT',
-          'changeset writes require a --file path (URL attachments are not supported for changesets)',
-          'add',
-        );
-      }
-      const absPath = resolve(filePath);
-      let bytes: Buffer;
-      try {
-        bytes = await readFile(absPath);
-      } catch {
-        return lafsError('E_FILE_ERROR', `Cannot read file: ${absPath}`, 'add');
-      }
-      const parsed = parseChangesetFrontmatter(bytes.toString('utf-8'));
-      if (!parsed.ok) {
-        // Map the discriminated parser failure to a single envelope code.
-        // E_REQUIRES_CHANGESET_VERB tells the operator that this kind has
-        // a dedicated CLI verb for guided authoring — `cleo changeset add`
-        // prompts for every required field. The `details.parserError`
-        // field carries the raw failure shape so agents can post-process
-        // without re-running the parser.
-        let message: string;
-        if (parsed.error === 'missing-frontmatter') {
-          message =
-            'changeset file is missing the `---`-fenced YAML frontmatter. ' +
-            'Required fields: id, tasks, kind, summary.';
-        } else if (parsed.error === 'missing-required') {
-          message = `changeset frontmatter is missing required fields: ${parsed.missing.join(', ')}.`;
-        } else if (parsed.error === 'yaml-invalid') {
-          const lineHint = parsed.line !== undefined ? ` (line ${parsed.line})` : '';
-          message = `changeset frontmatter YAML is invalid${lineHint}: ${parsed.parserMessage}`;
-        } else {
-          // schema-invalid
-          message = `changeset frontmatter failed schema validation: ${parsed.issues.join('; ')}`;
-        }
-        return {
-          success: false,
-          error: {
-            code: 'E_REQUIRES_CHANGESET_VERB',
-            message,
-            details: {
-              fix: 'Use `cleo changeset add --slug <id> --tasks <T####> --kind <kind> --summary <text>` for guided authoring.',
-              parserError: parsed.error,
-              ...(parsed.error === 'missing-required' ? { missing: parsed.missing } : {}),
-              ...(parsed.error === 'schema-invalid' ? { issues: parsed.issues } : {}),
-            },
-          },
-        };
-      }
-
-      // If --slug was also provided, cross-check against the frontmatter id.
-      // The frontmatter wins — but a mismatch is almost always an operator
-      // bug (typo in either surface) so we fail loud rather than silently
-      // discard the flag.
-      if (slug !== undefined && slug !== parsed.entry.id) {
-        return {
-          success: false,
-          error: {
-            code: 'E_SLUG_MISMATCH',
-            message: `--slug '${slug}' does not match changeset frontmatter id '${parsed.entry.id}'. The frontmatter is canonical — drop --slug or align it.`,
-          },
-        };
-      }
-
-      const outcome = await writeChangesetEntry(parsed.entry, {
-        projectRoot: getProjectRoot(),
-        attachedBy:
-          typeof rawAttachedBy === 'string' && rawAttachedBy.length > 0
-            ? rawAttachedBy
-            : 'cleo-docs-add',
-      });
-      if (!outcome.ok) {
-        const err = outcome.error;
-        if (err.code === 'E_SLUG_PATTERN_MISMATCH') {
-          const hint = err.example ? ` (example: ${err.example})` : '';
-          return lafsError('E_SLUG_PATTERN_MISMATCH', `${err.message}${hint}`, 'add');
-        }
-        if (err.code === 'E_INVALID_ENTRY') {
-          return lafsError('E_INVALID_INPUT', err.message, 'add');
-        }
-        if (err.code === 'E_FILE_WRITE_FAILED') {
-          return lafsError('E_FILE_ERROR', err.message, 'add');
-        }
-        // T10388 — uniform E_SLUG_RESERVED shape across both writers. The
-        // changeset writer now reserves slugs through the central allocator
-        // BEFORE any filesystem or DB mutation; collisions surface here with
-        // 3 suggested alternatives. The legacy E_SSOT_WRITE_FAILED code is
-        // retained in `details.aliases` for one release of back-compat so
-        // downstream consumers grepping for the old code can still match.
-        if (err.code === 'E_SLUG_RESERVED') {
-          return {
-            success: false,
-            error: {
-              code: 'E_SLUG_RESERVED',
-              message: err.message,
-              details: {
-                suggestions: err.suggestions,
-                aliases: err.aliases,
-              },
-            },
-          };
-        }
-        // E_SSOT_WRITE_FAILED — bubble up so the operator can see the
-        // underlying store error. The writer has already rolled back the
-        // `.changeset/<slug>.md` file at this point.
-        return lafsError('E_SSOT_WRITE_FAILED', err.message, 'add');
-      }
-
-      // T9976 — emit structured memory observation for the changeset write,
-      // matching the regular docs-add behaviour. Fire-and-forget; the
-      // observation is best-effort and never fails the dispatch envelope.
-      const changesetPayload: DocAttachmentObservationPayload = {
-        kind: 'doc-attachment',
-        attachmentId: outcome.result.attachmentId,
-        ownerId: outcome.result.ownerId,
-        addedAt: new Date().toISOString(),
-        slug: outcome.result.slug,
-        type: 'changeset',
-      };
-      emitDocAttachmentObservation(changesetPayload, getProjectRoot());
-
-      // T11139 — audit trail
-      try {
-        writeAuditEntry(getProjectRoot(), {
-          op: 'docs.add',
-          slug: outcome.result.slug,
-          type: 'changeset',
-          attachmentId: outcome.result.attachmentId,
-          sha256: outcome.result.sha256,
-          summary: `Added changeset '${outcome.result.slug}'`,
-        });
-      } catch {
-        /* best-effort */
-      }
-
-      return lafsSuccess<DocsAddResult>(
-        {
-          attachmentId: outcome.result.attachmentId,
-          sha256: outcome.result.sha256,
-          // writeChangesetEntry returns a freshly-minted ref so refCount is 1
-          // (or more if the same content was already addressed by another
-          // owner). The store sets the canonical value; mirroring it here
-          // keeps the envelope shape identical to the file/url branches.
-          refCount: 1,
-          kind: 'blob',
-          ownerId: outcome.result.ownerId,
-          ownerType: 'task',
-          // Cast: core returns 'llmtxt' (Wave C — legacy backend retired for mirror store).
-          attachmentBackend:
-            (await currentAttachmentBackend()) as DocsAddResult['attachmentBackend'],
-          slug: outcome.result.slug,
-          type: 'changeset',
-        },
-        'add',
-      );
-    }
-
-    // T10360 — when `--type adr` is set AND `--slug` is omitted, auto-allocate
-    // the slug via the ADR chokepoint. The allocator probes the docs SSoT for
-    // the highest existing ADR number, increments by 1, and reserves
-    // `adr-NNN-<kebab-title>` via the T10392 reserveSlug chokepoint. The
-    // returned slug is consumed by the imminent `attachmentStore.put` call
-    // (same handshake as explicit `--slug` callers).
-    //
-    // `--title` is the canonical kebab-source. We validated its presence at
-    // the CLI layer; here we re-check defensively for non-CLI callers
-    // (HTTP, programmatic) so the error contract stays uniform.
-    let adrNumber: number | undefined;
-    if (type === 'adr' && slug === undefined) {
-      if (typeof rawTitle !== 'string' || rawTitle.trim().length === 0) {
-        return lafsError(
-          'E_VALIDATION',
-          'title is required when type=adr and slug is omitted — the allocator needs ' +
-            'a title to assemble adr-NNN-<kebab-title>',
-          'add',
-        );
-      }
-      const allocation = await allocateAdrSlug(getProjectRoot(), { title: rawTitle });
-      if (!allocation.ok) {
-        return lafsError(allocation.code, allocation.message, 'add');
-      }
-      slug = allocation.slug;
-      adrNumber = allocation.number;
-    }
-
-    // T9788 — when the registered kind requires an entityId, enforce the
-    // kind's slug pattern on top of the shape check above. We accept a
-    // missing slug (the store will assign one) but reject mismatches
-    // with `E_SLUG_PATTERN_MISMATCH` + an example so the operator can fix
-    // the input on retry.
-    if (type !== undefined && slug !== undefined) {
-      const patternCheck = getDocKindRegistry().validateSlug(type, slug);
-      if (!patternCheck.ok) {
-        // Release the auto-allocated reservation so it doesn't leak.
-        if (adrNumber !== undefined) releaseReservedSlug(slug);
-        const exampleHint = patternCheck.example ? ` (example: ${patternCheck.example})` : '';
-        return lafsError('E_SLUG_PATTERN_MISMATCH', `${patternCheck.error}${exampleHint}`, 'add');
-      }
-    }
-
-    // T10386 (Saga T10288 · Epic T10289) — central slug-allocator chokepoint.
-    //
-    // Every writer that intends to attach a slug MUST call reserveSlug()
-    // BEFORE attachmentStore.put. The allocator surfaces a uniform
-    // E_SLUG_RESERVED envelope (with 3 derived suggestions) across both
-    // writers (cleo docs add + cleo changeset add) so the operator sees the
-    // same shape regardless of which CLI verb tripped the collision.
-    //
-    // The `kind` arg to reserveSlug() does NOT partition the namespace
-    // (T10390 / E1.5 decision: global namespace). When --type is omitted we
-    // pass the empty string; the value is reserved for future per-kind
-    // suggestion derivation but does not affect uniqueness today.
-    //
-    // The post-write `E_SLUG_TAKEN` mapping in the catch blocks below
-    // remains as a back-compat alias for ONE release (E_SLUG_TAKEN was the
-    // docs-only error code shipped by T9636/T9637 before the allocator
-    // collapsed both writers onto a single error shape). Downstream
-    // consumers grepping for the legacy code can match
-    // `details.aliases: ['E_SLUG_TAKEN']` until E2 deprecates the alias.
-    // T10360 — when adrNumber is set, allocateAdrSlug() already reserved the
-    // slug via reserveSlug() internally; skip the second chokepoint call to
-    // avoid double-reservation. For all other paths the chokepoint runs.
-    if (slug !== undefined && adrNumber === undefined) {
-      const reservation = await reserveSlugForDispatch(getProjectRoot(), {
-        kind: type ?? '',
-        slug,
-      });
-      if (!reservation.ok) {
-        return {
-          success: false,
-          error: {
-            code: 'E_SLUG_RESERVED',
-            message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', slug ?? ''),
-            fix: `cleo docs update ${slug ?? '<slug>'} --file <your-file>`,
-            details: {
-              suggestions: reservation.suggestions,
-              aliases: ['E_SLUG_TAKEN'],
-            },
-          },
-        };
-      }
-    }
-
-    const extras: { slug?: string; type?: string } = {};
-    if (slug !== undefined) extras.slug = slug;
-    if (type !== undefined) extras.type = type;
-
-    const labels = parseLabels(rawLabels);
-    const attachedBy = rawAttachedBy ?? 'human';
-    const ownerType = inferOwnerType(ownerId);
-    const store = createAttachmentStore();
-
-    if (filePath) {
-      // Local file attachment
-      const absPath = resolve(filePath);
-      let bytes: Buffer;
-      try {
-        bytes = await readFile(absPath);
-      } catch {
-        return lafsError('E_FILE_ERROR', `Cannot read file: ${absPath}`, 'add');
-      }
-
-      // T10160 — body schema validation per DocKind.
-      //
-      // Runs only when --type is supplied and the kind declares a
-      // non-empty `requiredSections` in the canonical doc-kind taxonomy.
-      // `strict: true` → missing sections fail the write with
-      // `E_DOC_SCHEMA_MISMATCH`. Default (advisory) → a warning surfaces
-      // through the AsyncLocalStorage warning collector so the envelope's
-      // `meta.warnings` carries it; the write proceeds.
-      //
-      // URL attachments are skipped — there are no local bytes to scan.
-      // Project-level extensions are picked up via `DocKindRegistry.load`
-      // so a kind declared in `.cleo/docs-config.json` with
-      // `requiredSections` participates in the same validator.
-      if (type !== undefined) {
-        const bodyText = bytes.toString('utf-8');
-        let registry: DocKindRegistry | undefined;
         try {
-          registry = DocKindRegistry.load(getProjectRoot());
-        } catch {
-          // Malformed extension config — fall back to built-ins-only.
-          // `cleo check canon docs` surfaces the underlying diagnostic.
-          registry = undefined;
-        }
-        const check = validateDocBody(type, bodyText, registry);
-        if (!check.ok) {
-          const missingList = check.missing.join(', ');
-          if (strictMode === true) {
-            return lafsError(
-              'E_DOC_SCHEMA_MISMATCH',
-              `body for kind '${type}' is missing required section(s): ${missingList}`,
-              'add',
-              `Add the missing H2 section(s) — '## ${check.missing[0] ?? ''}' — then retry. ` +
-                `Pass --strict=false (default) to surface as an advisory warning instead of an error.`,
+          // T10159 (Saga T9855 / Epic T10157) — resolve the literal `AUTO` token
+          // BEFORE shape validation. The slug `adr-AUTO-saga-fix` carries an
+          // uppercase `AUTO` placeholder that would otherwise fail the strict
+          // lowercase-kebab regex. `allocateAutoSlug` atomically scans the
+          // `attachments` table for the kind's existing numeric portion (e.g.
+          // adr-077-...) and substitutes the next available number into the
+          // slug. Non-AUTO slugs pass through unchanged.
+          let slug: string | undefined;
+          if (rawSlug !== undefined) {
+            let candidate = rawSlug as string;
+            if (typeof candidate === 'string' && candidate.includes(AUTO_TOKEN)) {
+              const allocated = await allocateAutoSlugForDispatch(projectRoot, {
+                kind: typeof rawType === 'string' ? rawType : '',
+                rawSlug: candidate,
+              });
+              candidate = allocated.resolvedSlug;
+            }
+            const check = validateSlug(candidate);
+            if (!check.valid) {
+              return lafsError('E_INVALID_SLUG', check.reason, 'add');
+            }
+            slug = candidate;
+          }
+
+          // T9637 — validate type against the closed taxonomy set.
+          let type: DocsType | undefined;
+          if (rawType !== undefined) {
+            if (!validateDocsType(rawType)) {
+              return lafsError(
+                'E_INVALID_TYPE',
+                `type must be one of: ${registeredKindList()} — got '${String(rawType)}'`,
+                'add',
+              );
+            }
+            type = rawType;
+          }
+
+          // T10367 (Saga T10288 · Epic T10290 · E2.2) — changeset DocKind delegation.
+          //
+          // The `changeset` kind is `canonicalHome: 'ssot-first'` in `.cleo/canon.yml`
+          // and the WriterRegistry (T10366) names `writeChangesetEntry` as the sole
+          // writer. `cleo docs add --type changeset` therefore MUST flow through
+          // the dual-write transaction in `packages/core/src/changesets/writer.ts`
+          // instead of the generic attachment-store path below — otherwise the
+          // bytes land in the SSoT blob store BUT skip the `.changeset/<slug>.md`
+          // file mirror that the release-plan aggregator + human reviewers read.
+          //
+          // Contract:
+          //   - File body MUST carry a valid changeset frontmatter (id, tasks,
+          //     kind, summary). Missing frontmatter → E_REQUIRES_CHANGESET_VERB
+          //     with a fix hint pointing at `cleo changeset add` for guided
+          //     authoring (the CLI flag-prompt surface is the friendlier path
+          //     when the operator only has free-form prose).
+          //   - When --slug is provided alongside --type changeset, it MUST match
+          //     the frontmatter `id`. The frontmatter is canonical; --slug is
+          //     redundant but accepted for symmetry with the rest of `docs add`.
+          //   - On success the LAFS envelope mirrors what `cleo changeset add`
+          //     emits — `slug`, `attachmentId`, `sha256`, plus `type: 'changeset'`
+          //     and `kind: 'blob'` (the SSoT blob kind).
+          //
+          // The file branch below is bypassed entirely in this path — there is
+          // exactly ONE canonical writer for the `changeset` kind. Optional graph and
+          // sourced-observation work is prepared only after its accepted attachment,
+          // using the same captured projection service as the other add branches.
+          if (type === 'changeset') {
+            if (!filePath) {
+              return lafsError(
+                'E_INVALID_INPUT',
+                'changeset writes require a --file path (URL attachments are not supported for changesets)',
+                'add',
+              );
+            }
+            const absPath = resolve(filePath);
+            let bytes: Buffer;
+            try {
+              bytes = await readFile(absPath);
+            } catch {
+              return lafsError('E_FILE_ERROR', `Cannot read file: ${absPath}`, 'add');
+            }
+            const parsed = parseChangesetFrontmatter(bytes.toString('utf-8'));
+            if (!parsed.ok) {
+              // Map the discriminated parser failure to a single envelope code.
+              // E_REQUIRES_CHANGESET_VERB tells the operator that this kind has
+              // a dedicated CLI verb for guided authoring — `cleo changeset add`
+              // prompts for every required field. The `details.parserError`
+              // field carries the raw failure shape so agents can post-process
+              // without re-running the parser.
+              let message: string;
+              if (parsed.error === 'missing-frontmatter') {
+                message =
+                  'changeset file is missing the `---`-fenced YAML frontmatter. ' +
+                  'Required fields: id, tasks, kind, summary.';
+              } else if (parsed.error === 'missing-required') {
+                message = `changeset frontmatter is missing required fields: ${parsed.missing.join(', ')}.`;
+              } else if (parsed.error === 'yaml-invalid') {
+                const lineHint = parsed.line !== undefined ? ` (line ${parsed.line})` : '';
+                message = `changeset frontmatter YAML is invalid${lineHint}: ${parsed.parserMessage}`;
+              } else {
+                // schema-invalid
+                message = `changeset frontmatter failed schema validation: ${parsed.issues.join('; ')}`;
+              }
+              return {
+                success: false,
+                error: {
+                  code: 'E_REQUIRES_CHANGESET_VERB',
+                  message,
+                  details: {
+                    fix: 'Use `cleo changeset add --slug <id> --tasks <T####> --kind <kind> --summary <text>` for guided authoring.',
+                    parserError: parsed.error,
+                    ...(parsed.error === 'missing-required' ? { missing: parsed.missing } : {}),
+                    ...(parsed.error === 'schema-invalid' ? { issues: parsed.issues } : {}),
+                  },
+                },
+              };
+            }
+
+            // If --slug was also provided, cross-check against the frontmatter id.
+            // The frontmatter wins — but a mismatch is almost always an operator
+            // bug (typo in either surface) so we fail loud rather than silently
+            // discard the flag.
+            if (slug !== undefined && slug !== parsed.entry.id) {
+              return {
+                success: false,
+                error: {
+                  code: 'E_SLUG_MISMATCH',
+                  message: `--slug '${slug}' does not match changeset frontmatter id '${parsed.entry.id}'. The frontmatter is canonical — drop --slug or align it.`,
+                },
+              };
+            }
+
+            const outcome = await writeChangesetEntry(parsed.entry, {
+              projectRoot,
+              attachedBy:
+                typeof rawAttachedBy === 'string' && rawAttachedBy.length > 0
+                  ? rawAttachedBy
+                  : 'cleo-docs-add',
+            });
+            if (!outcome.ok) {
+              const err = outcome.error;
+              if (err.code === 'E_SLUG_PATTERN_MISMATCH') {
+                const hint = err.example ? ` (example: ${err.example})` : '';
+                return lafsError('E_SLUG_PATTERN_MISMATCH', `${err.message}${hint}`, 'add');
+              }
+              if (err.code === 'E_INVALID_ENTRY') {
+                return lafsError('E_INVALID_INPUT', err.message, 'add');
+              }
+              if (err.code === 'E_FILE_WRITE_FAILED') {
+                return lafsError('E_FILE_ERROR', err.message, 'add');
+              }
+              // T10388 — uniform E_SLUG_RESERVED shape across both writers. The
+              // changeset writer now reserves slugs through the central allocator
+              // BEFORE any filesystem or DB mutation; collisions surface here with
+              // 3 suggested alternatives. The legacy E_SSOT_WRITE_FAILED code is
+              // retained in `details.aliases` for one release of back-compat so
+              // downstream consumers grepping for the old code can still match.
+              if (err.code === 'E_SLUG_RESERVED') {
+                return {
+                  success: false,
+                  error: {
+                    code: 'E_SLUG_RESERVED',
+                    message: err.message,
+                    details: {
+                      suggestions: err.suggestions,
+                      aliases: err.aliases,
+                    },
+                  },
+                };
+              }
+              // E_SSOT_WRITE_FAILED — bubble up so the operator can see the
+              // underlying store error. The writer has already rolled back the
+              // `.changeset/<slug>.md` file at this point.
+              return lafsError('E_SSOT_WRITE_FAILED', err.message, 'add');
+            }
+
+            const projection =
+              projectionCapture.status === 'ready'
+                ? await projectDocumentAttachment(projectionCapture.context, {
+                    attachmentId: outcome.result.attachmentId,
+                    sha256: outcome.result.sha256,
+                    ownerId: outcome.result.ownerId,
+                    ownerType: 'task',
+                    label: outcome.result.slug,
+                  })
+                : projectionCapture.outcome;
+
+            // T11139 — audit trail
+            try {
+              writeAuditEntry(projectRoot, {
+                op: 'docs.add',
+                slug: outcome.result.slug,
+                type: 'changeset',
+                attachmentId: outcome.result.attachmentId,
+                sha256: outcome.result.sha256,
+                summary: `Added changeset '${outcome.result.slug}'`,
+              });
+            } catch {
+              /* best-effort */
+            }
+
+            return lafsSuccess<DocsAddResult>(
               {
-                kind: type,
-                missing: check.missing,
-                strict: true,
+                projection,
+                attachmentId: outcome.result.attachmentId,
+                sha256: outcome.result.sha256,
+                // writeChangesetEntry returns a freshly-minted ref so refCount is 1
+                // (or more if the same content was already addressed by another
+                // owner). The store sets the canonical value; mirroring it here
+                // keeps the envelope shape identical to the file/url branches.
+                refCount: 1,
+                kind: 'blob',
+                ownerId: outcome.result.ownerId,
+                ownerType: 'task',
+                // Cast: core returns 'llmtxt' (Wave C — legacy backend retired for mirror store).
+                attachmentBackend:
+                  (await currentAttachmentBackend()) as DocsAddResult['attachmentBackend'],
+                slug: outcome.result.slug,
+                type: 'changeset',
               },
-            );
-          }
-          // Advisory mode — push a warning and continue.
-          pushWarning({
-            code: 'W_DOC_SCHEMA_MISMATCH',
-            message: `body for kind '${type}' is missing required section(s): ${missingList}. Add '--strict' to fail on schema violations.`,
-          });
-        }
-      }
-
-      const mime = mimeFromPath(absPath);
-      const attachment: Omit<LocalFileAttachment, 'sha256'> = {
-        kind: 'local-file',
-        path: absPath,
-        mime,
-        size: bytes.length,
-        ...(description ? { description } : {}),
-        ...(labels ? { labels } : {}),
-      };
-
-      let meta: Awaited<ReturnType<typeof store.put>>;
-      try {
-        meta = await store.put(
-          bytes,
-          attachment,
-          ownerType,
-          ownerId,
-          attachedBy,
-          undefined,
-          extras,
-        );
-      } catch (err) {
-        // Release any reservation held by the allocator (explicit reserveSlug
-        // OR auto-allocated ADR slug T10360) so retries do not see a stale
-        // claim. Safe on any thrown error path because releaseReservedSlug()
-        // is a no-op for un-reserved slugs.
-        if (slug !== undefined) releaseReservedSlug(slug);
-        if (err instanceof SlugCollisionError) {
-          // T10386 — late-bound collision (cross-process race won by another
-          // writer between reserveSlug() and put()). Surface the SAME
-          // E_SLUG_RESERVED envelope as the early-bound chokepoint path so
-          // operators see one uniform shape, with the legacy `E_SLUG_TAKEN`
-          // code retained under `details.aliases` for one release of
-          // back-compat.
-          return {
-            success: false,
-            error: {
-              code: 'E_SLUG_RESERVED',
-              message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
-              fix: `cleo docs update ${err.slug ?? '<slug>'} --file <your-file>`,
-              details: {
-                suggestions: err.suggestions,
-                aliases: ['E_SLUG_TAKEN'],
-              },
-            },
-          };
-        }
-        throw err;
-      }
-
-      // T10360 — `attachmentStore.put` only consumes the reservation when
-      // `CLEO_STRICT_SLUG_ALLOCATOR=1`. In non-strict mode (current default)
-      // the auto-allocated slug would otherwise leak in the in-process
-      // reservedSlugs set indefinitely. Consume defensively here.
-      if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
-
-      // T947 Wave C — llmtxt mirror is now the canonical blob storage path.
-      // The legacy store write above remains for slug/refcount/lifecycle
-      // support in tasks.db; the mirror keeps manifest.db in sync.
-      let backend: AttachmentBackend = 'llmtxt';
-      try {
-        const blobMirror = createAttachmentBlobStore(getProjectRoot());
-        const mirrorResult = await blobMirror.put(ownerId, {
-          name: absPath.split(/[\\/]/).pop() ?? meta.sha256.slice(0, 12),
-          data: new Uint8Array(bytes),
-          contentType: mime,
-        });
-        backend = mirrorResult.backend;
-      } catch {
-        // Mirror write is best-effort — never fail docs add on it.
-        backend = await currentAttachmentBackend();
-      }
-
-      // T945 Stage A — mint `llmtxt:<sha256>` graph node + `embeds` edge
-      // from owner to blob. Best-effort: wrapped in fire-and-forget so
-      // graph-layer failure never blocks the attachment write path.
-      import('@cleocode/core/internal')
-        .then(({ ensureLlmtxtNode }) =>
-          ensureLlmtxtNode(
-            getProjectRoot(),
-            meta.sha256,
-            `${ownerType}:${ownerId}`,
-            absPath.split('/').pop() ?? meta.sha256.slice(0, 12),
-          ),
-        )
-        .catch(() => {
-          /* Graph population is best-effort — never fail docs add. */
-        });
-
-      // T9976 — emit structured memory observation for docs.add (fire-and-forget).
-      const filePayload: DocAttachmentObservationPayload = {
-        kind: 'doc-attachment',
-        attachmentId: meta.id,
-        ownerId,
-        addedAt: new Date().toISOString(),
-        ...(slug !== undefined ? { slug } : {}),
-        ...(type !== undefined ? { type } : {}),
-      };
-      emitDocAttachmentObservation(filePayload, getProjectRoot());
-
-      // T11139 — audit trail
-      try {
-        writeAuditEntry(getProjectRoot(), {
-          op: 'docs.add',
-          slug,
-          type,
-          attachmentId: meta.id,
-          sha256: meta.sha256,
-          ownerId,
-          summary: `Added doc '${slug ?? meta.sha256.slice(0, 12)}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
-        });
-      } catch {
-        /* best-effort */
-      }
-
-      return lafsSuccess<DocsAddResult>(
-        {
-          attachmentId: meta.id,
-          sha256: meta.sha256,
-          refCount: meta.refCount,
-          kind: 'local-file',
-          ownerId,
-          ownerType,
-          // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
-          attachmentBackend: backend as DocsAddResult['attachmentBackend'],
-          ...(slug !== undefined ? { slug } : {}),
-          ...(type !== undefined ? { type } : {}),
-          ...(adrNumber !== undefined ? { adrNumber } : {}),
-        },
-        'add',
-      );
-    }
-
-    // T10965 — inline content attachment. Authored on the CLI or piped via
-    // stdin (`--content -`) with no backing file. Stored as a content-
-    // addressed `blob` attachment so it flows through the EXACT same write
-    // surface as a file-sourced add: tasks.db row (slug/refcount/lifecycle),
-    // manifest.db mirror, graph node, memory observation, and audit trail.
-    if (hasContent) {
-      const bytes = Buffer.from(inlineContent, 'utf-8');
-
-      // T10160 — body schema validation per DocKind (mirrors the file branch;
-      // there are real bytes to scan here, unlike URL attachments).
-      if (type !== undefined) {
-        let registry: DocKindRegistry | undefined;
-        try {
-          registry = DocKindRegistry.load(getProjectRoot());
-        } catch {
-          registry = undefined;
-        }
-        const check = validateDocBody(type, inlineContent, registry);
-        if (!check.ok) {
-          const missingList = check.missing.join(', ');
-          if (strictMode === true) {
-            // Release any allocator reservation so a rejected write does not
-            // leak the slug claim.
-            if (slug !== undefined) releaseReservedSlug(slug);
-            return lafsError(
-              'E_DOC_SCHEMA_MISMATCH',
-              `body for kind '${type}' is missing required section(s): ${missingList}`,
               'add',
-              `Add the missing H2 section(s) — '## ${check.missing[0] ?? ''}' — then retry. ` +
-                `Pass --strict=false (default) to surface as an advisory warning instead of an error.`,
-              { kind: type, missing: check.missing, strict: true },
             );
           }
-          pushWarning({
-            code: 'W_DOC_SCHEMA_MISMATCH',
-            message: `body for kind '${type}' is missing required section(s): ${missingList}. Add '--strict' to fail on schema violations.`,
-          });
-        }
-      }
 
-      // The `blob` kind's `sha256`/`storageKey`/`size` are computed at the
-      // AttachmentStore chokepoint (T11262/T11280) — pass placeholders.
-      const mime = 'text/markdown';
-      const attachment: Omit<BlobAttachment, 'sha256' | 'storageKey' | 'size'> = {
-        kind: 'blob',
-        mime,
-        ...(description ? { description } : {}),
-        ...(labels ? { labels } : {}),
-      };
+          // T10360 — when `--type adr` is set AND `--slug` is omitted, auto-allocate
+          // the slug via the ADR chokepoint. The allocator probes the docs SSoT for
+          // the highest existing ADR number, increments by 1, and reserves
+          // `adr-NNN-<kebab-title>` via the T10392 reserveSlug chokepoint. The
+          // returned slug is consumed by the imminent `attachmentStore.put` call
+          // (same handshake as explicit `--slug` callers).
+          //
+          // `--title` is the canonical kebab-source. We validated its presence at
+          // the CLI layer; here we re-check defensively for non-CLI callers
+          // (HTTP, programmatic) so the error contract stays uniform.
+          let adrNumber: number | undefined;
+          if (type === 'adr' && slug === undefined) {
+            if (typeof rawTitle !== 'string' || rawTitle.trim().length === 0) {
+              return lafsError(
+                'E_VALIDATION',
+                'title is required when type=adr and slug is omitted — the allocator needs ' +
+                  'a title to assemble adr-NNN-<kebab-title>',
+                'add',
+              );
+            }
+            const allocation = await allocateAdrSlug(projectRoot, { title: rawTitle });
+            if (!allocation.ok) {
+              return lafsError(allocation.code, allocation.message, 'add');
+            }
+            slug = allocation.slug;
+            adrNumber = allocation.number;
+          }
 
-      let meta: Awaited<ReturnType<typeof store.put>>;
-      try {
-        meta = await store.put(
-          bytes,
-          attachment as Omit<BlobAttachment, 'sha256'>,
-          ownerType,
-          ownerId,
-          attachedBy,
-          undefined,
-          extras,
-        );
-      } catch (err) {
-        if (slug !== undefined) releaseReservedSlug(slug);
-        if (err instanceof SlugCollisionError) {
-          return {
-            success: false,
-            error: {
-              code: 'E_SLUG_RESERVED',
-              message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
-              fix: `cleo docs update ${err.slug ?? '<slug>'} --content "..."`,
-              details: {
-                suggestions: err.suggestions,
-                aliases: ['E_SLUG_TAKEN'],
+          // T9788 — when the registered kind requires an entityId, enforce the
+          // kind's slug pattern on top of the shape check above. We accept a
+          // missing slug (the store will assign one) but reject mismatches
+          // with `E_SLUG_PATTERN_MISMATCH` + an example so the operator can fix
+          // the input on retry.
+          if (type !== undefined && slug !== undefined) {
+            const patternCheck = getDocKindRegistry().validateSlug(type, slug);
+            if (!patternCheck.ok) {
+              // Release the auto-allocated reservation so it doesn't leak.
+              if (adrNumber !== undefined) releaseReservedSlug(slug);
+              const exampleHint = patternCheck.example ? ` (example: ${patternCheck.example})` : '';
+              return lafsError(
+                'E_SLUG_PATTERN_MISMATCH',
+                `${patternCheck.error}${exampleHint}`,
+                'add',
+              );
+            }
+          }
+
+          // T10386 (Saga T10288 · Epic T10289) — central slug-allocator chokepoint.
+          //
+          // Every writer that intends to attach a slug MUST call reserveSlug()
+          // BEFORE attachmentStore.put. The allocator surfaces a uniform
+          // E_SLUG_RESERVED envelope (with 3 derived suggestions) across both
+          // writers (cleo docs add + cleo changeset add) so the operator sees the
+          // same shape regardless of which CLI verb tripped the collision.
+          //
+          // The `kind` arg to reserveSlug() does NOT partition the namespace
+          // (T10390 / E1.5 decision: global namespace). When --type is omitted we
+          // pass the empty string; the value is reserved for future per-kind
+          // suggestion derivation but does not affect uniqueness today.
+          //
+          // The post-write `E_SLUG_TAKEN` mapping in the catch blocks below
+          // remains as a back-compat alias for ONE release (E_SLUG_TAKEN was the
+          // docs-only error code shipped by T9636/T9637 before the allocator
+          // collapsed both writers onto a single error shape). Downstream
+          // consumers grepping for the legacy code can match
+          // `details.aliases: ['E_SLUG_TAKEN']` until E2 deprecates the alias.
+          // T10360 — when adrNumber is set, allocateAdrSlug() already reserved the
+          // slug via reserveSlug() internally; skip the second chokepoint call to
+          // avoid double-reservation. For all other paths the chokepoint runs.
+          if (slug !== undefined && adrNumber === undefined) {
+            const reservation = await reserveSlugForDispatch(projectRoot, {
+              kind: type ?? '',
+              slug,
+            });
+            if (!reservation.ok) {
+              return {
+                success: false,
+                error: {
+                  code: 'E_SLUG_RESERVED',
+                  message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', slug ?? ''),
+                  fix: `cleo docs update ${slug ?? '<slug>'} --file <your-file>`,
+                  details: {
+                    suggestions: reservation.suggestions,
+                    aliases: ['E_SLUG_TAKEN'],
+                  },
+                },
+              };
+            }
+          }
+
+          const extras: { slug?: string; type?: string } = {};
+          if (slug !== undefined) extras.slug = slug;
+          if (type !== undefined) extras.type = type;
+
+          const labels = parseLabels(rawLabels);
+          const attachedBy = rawAttachedBy ?? 'human';
+          const ownerType = inferOwnerType(ownerId);
+          const store = createAttachmentStore();
+
+          if (filePath) {
+            // Local file attachment
+            const absPath = resolve(filePath);
+            let bytes: Buffer;
+            try {
+              bytes = await readFile(absPath);
+            } catch {
+              return lafsError('E_FILE_ERROR', `Cannot read file: ${absPath}`, 'add');
+            }
+
+            // T10160 — body schema validation per DocKind.
+            //
+            // Runs only when --type is supplied and the kind declares a
+            // non-empty `requiredSections` in the canonical doc-kind taxonomy.
+            // `strict: true` → missing sections fail the write with
+            // `E_DOC_SCHEMA_MISMATCH`. Default (advisory) → a warning surfaces
+            // through the AsyncLocalStorage warning collector so the envelope's
+            // `meta.warnings` carries it; the write proceeds.
+            //
+            // URL attachments are skipped — there are no local bytes to scan.
+            // Project-level extensions are picked up via `DocKindRegistry.load`
+            // so a kind declared in `.cleo/docs-config.json` with
+            // `requiredSections` participates in the same validator.
+            if (type !== undefined) {
+              const bodyText = bytes.toString('utf-8');
+              let registry: DocKindRegistry | undefined;
+              try {
+                registry = DocKindRegistry.load(projectRoot);
+              } catch {
+                // Malformed extension config — fall back to built-ins-only.
+                // `cleo check canon docs` surfaces the underlying diagnostic.
+                registry = undefined;
+              }
+              const check = validateDocBody(type, bodyText, registry);
+              if (!check.ok) {
+                const missingList = check.missing.join(', ');
+                if (strictMode === true) {
+                  return lafsError(
+                    'E_DOC_SCHEMA_MISMATCH',
+                    `body for kind '${type}' is missing required section(s): ${missingList}`,
+                    'add',
+                    `Add the missing H2 section(s) — '## ${check.missing[0] ?? ''}' — then retry. ` +
+                      `Pass --strict=false (default) to surface as an advisory warning instead of an error.`,
+                    {
+                      kind: type,
+                      missing: check.missing,
+                      strict: true,
+                    },
+                  );
+                }
+                // Advisory mode — push a warning and continue.
+                pushWarning({
+                  code: 'W_DOC_SCHEMA_MISMATCH',
+                  message: `body for kind '${type}' is missing required section(s): ${missingList}. Add '--strict' to fail on schema violations.`,
+                });
+              }
+            }
+
+            const mime = mimeFromPath(absPath);
+            const attachment: Omit<LocalFileAttachment, 'sha256'> = {
+              kind: 'local-file',
+              path: absPath,
+              mime,
+              size: bytes.length,
+              ...(description ? { description } : {}),
+              ...(labels ? { labels } : {}),
+            };
+
+            let meta: Awaited<ReturnType<typeof store.put>>;
+            try {
+              meta = await store.put(
+                bytes,
+                attachment,
+                ownerType,
+                ownerId,
+                attachedBy,
+                projectRoot,
+                extras,
+              );
+            } catch (err) {
+              // Release any reservation held by the allocator (explicit reserveSlug
+              // OR auto-allocated ADR slug T10360) so retries do not see a stale
+              // claim. Safe on any thrown error path because releaseReservedSlug()
+              // is a no-op for un-reserved slugs.
+              if (slug !== undefined) releaseReservedSlug(slug);
+              if (err instanceof SlugCollisionError) {
+                // T10386 — late-bound collision (cross-process race won by another
+                // writer between reserveSlug() and put()). Surface the SAME
+                // E_SLUG_RESERVED envelope as the early-bound chokepoint path so
+                // operators see one uniform shape, with the legacy `E_SLUG_TAKEN`
+                // code retained under `details.aliases` for one release of
+                // back-compat.
+                return {
+                  success: false,
+                  error: {
+                    code: 'E_SLUG_RESERVED',
+                    message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
+                    fix: `cleo docs update ${err.slug ?? '<slug>'} --file <your-file>`,
+                    details: {
+                      suggestions: err.suggestions,
+                      aliases: ['E_SLUG_TAKEN'],
+                    },
+                  },
+                };
+              }
+              throw err;
+            }
+
+            // T10360 — `attachmentStore.put` only consumes the reservation when
+            // `CLEO_STRICT_SLUG_ALLOCATOR=1`. In non-strict mode (current default)
+            // the auto-allocated slug would otherwise leak in the in-process
+            // reservedSlugs set indefinitely. Consume defensively here.
+            if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
+
+            // T947 Wave C — llmtxt mirror is now the canonical blob storage path.
+            // The legacy store write above remains for slug/refcount/lifecycle
+            // support in tasks.db; the mirror keeps manifest.db in sync.
+            let backend: AttachmentBackend = 'llmtxt';
+            try {
+              const blobMirror = createAttachmentBlobStore(projectRoot);
+              const mirrorResult = await blobMirror.put(ownerId, {
+                name: absPath.split(/[\\/]/).pop() ?? meta.sha256.slice(0, 12),
+                data: new Uint8Array(bytes),
+                contentType: mime,
+              });
+              backend = mirrorResult.backend;
+            } catch {
+              // Mirror write is best-effort — never fail docs add on it.
+              backend = await currentAttachmentBackend();
+            }
+
+            const projection =
+              projectionCapture.status === 'ready'
+                ? await projectDocumentAttachment(projectionCapture.context, {
+                    attachmentId: meta.id,
+                    sha256: meta.sha256,
+                    ownerId,
+                    ownerType,
+                    label: absPath.split(/[\\/]/).pop() ?? meta.sha256.slice(0, 12),
+                  })
+                : projectionCapture.outcome;
+
+            // T11139 — audit trail
+            try {
+              writeAuditEntry(projectRoot, {
+                op: 'docs.add',
+                slug,
+                type,
+                attachmentId: meta.id,
+                sha256: meta.sha256,
+                ownerId,
+                summary: `Added doc '${slug ?? meta.sha256.slice(0, 12)}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
+              });
+            } catch {
+              /* best-effort */
+            }
+
+            return lafsSuccess<DocsAddResult>(
+              {
+                projection,
+                attachmentId: meta.id,
+                sha256: meta.sha256,
+                refCount: meta.refCount,
+                kind: 'local-file',
+                ownerId,
+                ownerType,
+                // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
+                attachmentBackend: backend as DocsAddResult['attachmentBackend'],
+                ...(slug !== undefined ? { slug } : {}),
+                ...(type !== undefined ? { type } : {}),
+                ...(adrNumber !== undefined ? { adrNumber } : {}),
               },
-            },
-          };
-        }
-        throw err;
-      }
+              'add',
+            );
+          }
 
-      if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
+          // T10965 — inline content attachment. Authored on the CLI or piped via
+          // stdin (`--content -`) with no backing file. Stored as a content-
+          // addressed `blob` attachment so it flows through the EXACT same write
+          // surface as a file-sourced add: tasks.db row (slug/refcount/lifecycle),
+          // manifest.db mirror, graph node, memory observation, and audit trail.
+          if (hasContent) {
+            const bytes = Buffer.from(inlineContent, 'utf-8');
 
-      // T947 Wave C — manifest.db blob mirror. Use the slug (or sha prefix)
-      // as the blob name so `blobList`/`publishDocs` see a stable handle.
-      const blobName = slug ?? meta.sha256.slice(0, 12);
-      let backend: AttachmentBackend = 'llmtxt';
-      try {
-        const blobMirror = createAttachmentBlobStore(getProjectRoot());
-        const mirrorResult = await blobMirror.put(ownerId, {
-          name: blobName,
-          data: new Uint8Array(bytes),
-          contentType: mime,
-        });
-        backend = mirrorResult.backend;
-      } catch {
-        backend = await currentAttachmentBackend();
-      }
+            // T10160 — body schema validation per DocKind (mirrors the file branch;
+            // there are real bytes to scan here, unlike URL attachments).
+            if (type !== undefined) {
+              let registry: DocKindRegistry | undefined;
+              try {
+                registry = DocKindRegistry.load(projectRoot);
+              } catch {
+                registry = undefined;
+              }
+              const check = validateDocBody(type, inlineContent, registry);
+              if (!check.ok) {
+                const missingList = check.missing.join(', ');
+                if (strictMode === true) {
+                  // Release any allocator reservation so a rejected write does not
+                  // leak the slug claim.
+                  if (slug !== undefined) releaseReservedSlug(slug);
+                  return lafsError(
+                    'E_DOC_SCHEMA_MISMATCH',
+                    `body for kind '${type}' is missing required section(s): ${missingList}`,
+                    'add',
+                    `Add the missing H2 section(s) — '## ${check.missing[0] ?? ''}' — then retry. ` +
+                      `Pass --strict=false (default) to surface as an advisory warning instead of an error.`,
+                    { kind: type, missing: check.missing, strict: true },
+                  );
+                }
+                pushWarning({
+                  code: 'W_DOC_SCHEMA_MISMATCH',
+                  message: `body for kind '${type}' is missing required section(s): ${missingList}. Add '--strict' to fail on schema violations.`,
+                });
+              }
+            }
 
-      // T945 Stage A — mint `llmtxt:<sha256>` node + `embeds` edge.
-      import('@cleocode/core/internal')
-        .then(({ ensureLlmtxtNode }) =>
-          ensureLlmtxtNode(getProjectRoot(), meta.sha256, `${ownerType}:${ownerId}`, blobName),
-        )
-        .catch(() => {
-          /* Graph population is best-effort — never fail docs add. */
-        });
+            // The `blob` kind's `sha256`/`storageKey`/`size` are computed at the
+            // AttachmentStore chokepoint (T11262/T11280) — pass placeholders.
+            const mime = 'text/markdown';
+            const attachment: Omit<BlobAttachment, 'sha256' | 'storageKey' | 'size'> = {
+              kind: 'blob',
+              mime,
+              ...(description ? { description } : {}),
+              ...(labels ? { labels } : {}),
+            };
 
-      // T9976 — structured memory observation (fire-and-forget).
-      const contentPayload: DocAttachmentObservationPayload = {
-        kind: 'doc-attachment',
-        attachmentId: meta.id,
-        ownerId,
-        addedAt: new Date().toISOString(),
-        ...(slug !== undefined ? { slug } : {}),
-        ...(type !== undefined ? { type } : {}),
-      };
-      emitDocAttachmentObservation(contentPayload, getProjectRoot());
+            let meta: Awaited<ReturnType<typeof store.put>>;
+            try {
+              meta = await store.put(
+                bytes,
+                attachment as Omit<BlobAttachment, 'sha256'>,
+                ownerType,
+                ownerId,
+                attachedBy,
+                projectRoot,
+                extras,
+              );
+            } catch (err) {
+              if (slug !== undefined) releaseReservedSlug(slug);
+              if (err instanceof SlugCollisionError) {
+                return {
+                  success: false,
+                  error: {
+                    code: 'E_SLUG_RESERVED',
+                    message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
+                    fix: `cleo docs update ${err.slug ?? '<slug>'} --content "..."`,
+                    details: {
+                      suggestions: err.suggestions,
+                      aliases: ['E_SLUG_TAKEN'],
+                    },
+                  },
+                };
+              }
+              throw err;
+            }
 
-      // T11139 — audit trail.
-      try {
-        writeAuditEntry(getProjectRoot(), {
-          op: 'docs.add',
-          slug,
-          type,
-          attachmentId: meta.id,
-          sha256: meta.sha256,
-          ownerId,
-          summary: `Added inline doc '${slug ?? meta.sha256.slice(0, 12)}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
-        });
-      } catch {
-        /* best-effort */
-      }
+            if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
 
-      return lafsSuccess<DocsAddResult>(
-        {
-          attachmentId: meta.id,
-          sha256: meta.sha256,
-          refCount: meta.refCount,
-          kind: 'blob',
-          ownerId,
-          ownerType,
-          // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
-          attachmentBackend: backend as DocsAddResult['attachmentBackend'],
-          ...(slug !== undefined ? { slug } : {}),
-          ...(type !== undefined ? { type } : {}),
-          ...(adrNumber !== undefined ? { adrNumber } : {}),
-        },
-        'add',
-      );
-    }
+            // T947 Wave C — manifest.db blob mirror. Use the slug (or sha prefix)
+            // as the blob name so `blobList`/`publishDocs` see a stable handle.
+            const blobName = slug ?? meta.sha256.slice(0, 12);
+            let backend: AttachmentBackend = 'llmtxt';
+            try {
+              const blobMirror = createAttachmentBlobStore(projectRoot);
+              const mirrorResult = await blobMirror.put(ownerId, {
+                name: blobName,
+                data: new Uint8Array(bytes),
+                contentType: mime,
+              });
+              backend = mirrorResult.backend;
+            } catch {
+              backend = await currentAttachmentBackend();
+            }
 
-    // URL attachment — store metadata without caching bytes
-    if (url) {
-      const attachment: Omit<UrlAttachment, never> = {
-        kind: 'url',
-        url,
-        ...(description ? { description } : {}),
-        ...(labels ? { labels } : {}),
-      };
+            const projection =
+              projectionCapture.status === 'ready'
+                ? await projectDocumentAttachment(projectionCapture.context, {
+                    attachmentId: meta.id,
+                    sha256: meta.sha256,
+                    ownerId,
+                    ownerType,
+                    label: blobName,
+                  })
+                : projectionCapture.outcome;
 
-      // For URL-only attachments, use the URL as content so we have a sha256
-      const urlBytes = Buffer.from(url, 'utf-8');
-      let meta: Awaited<ReturnType<typeof store.put>>;
-      try {
-        meta = await store.put(
-          urlBytes,
-          attachment,
-          ownerType,
-          ownerId,
-          attachedBy,
-          undefined,
-          extras,
-        );
-      } catch (err) {
-        // Release any allocator reservation on the failure path (see file
-        // branch above for the rationale).
-        if (slug !== undefined) releaseReservedSlug(slug);
-        if (err instanceof SlugCollisionError) {
-          // T10386 — uniform E_SLUG_RESERVED shape across both writers.
-          // Legacy `E_SLUG_TAKEN` is preserved under `details.aliases` for
-          // one release of back-compat.
-          return {
-            success: false,
-            error: {
-              code: 'E_SLUG_RESERVED',
-              message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
-              fix: `cleo docs update ${err.slug ?? '<slug>'} --file <your-file>`,
-              details: {
-                suggestions: err.suggestions,
-                aliases: ['E_SLUG_TAKEN'],
+            // T11139 — audit trail.
+            try {
+              writeAuditEntry(projectRoot, {
+                op: 'docs.add',
+                slug,
+                type,
+                attachmentId: meta.id,
+                sha256: meta.sha256,
+                ownerId,
+                summary: `Added inline doc '${slug ?? meta.sha256.slice(0, 12)}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
+              });
+            } catch {
+              /* best-effort */
+            }
+
+            return lafsSuccess<DocsAddResult>(
+              {
+                projection,
+                attachmentId: meta.id,
+                sha256: meta.sha256,
+                refCount: meta.refCount,
+                kind: 'blob',
+                ownerId,
+                ownerType,
+                // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
+                attachmentBackend: backend as DocsAddResult['attachmentBackend'],
+                ...(slug !== undefined ? { slug } : {}),
+                ...(type !== undefined ? { type } : {}),
+                ...(adrNumber !== undefined ? { adrNumber } : {}),
               },
-            },
-          };
+              'add',
+            );
+          }
+
+          // URL attachment — store metadata without caching bytes
+          if (url) {
+            const attachment: Omit<UrlAttachment, never> = {
+              kind: 'url',
+              url,
+              ...(description ? { description } : {}),
+              ...(labels ? { labels } : {}),
+            };
+
+            // For URL-only attachments, use the URL as content so we have a sha256
+            const urlBytes = Buffer.from(url, 'utf-8');
+            let meta: Awaited<ReturnType<typeof store.put>>;
+            try {
+              meta = await store.put(
+                urlBytes,
+                attachment,
+                ownerType,
+                ownerId,
+                attachedBy,
+                projectRoot,
+                extras,
+              );
+            } catch (err) {
+              // Release any allocator reservation on the failure path (see file
+              // branch above for the rationale).
+              if (slug !== undefined) releaseReservedSlug(slug);
+              if (err instanceof SlugCollisionError) {
+                // T10386 — uniform E_SLUG_RESERVED shape across both writers.
+                // Legacy `E_SLUG_TAKEN` is preserved under `details.aliases` for
+                // one release of back-compat.
+                return {
+                  success: false,
+                  error: {
+                    code: 'E_SLUG_RESERVED',
+                    message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
+                    fix: `cleo docs update ${err.slug ?? '<slug>'} --file <your-file>`,
+                    details: {
+                      suggestions: err.suggestions,
+                      aliases: ['E_SLUG_TAKEN'],
+                    },
+                  },
+                };
+              }
+              throw err;
+            }
+
+            // T10360 — consume the auto-allocated reservation (see file-path branch).
+            if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
+
+            const backend: AttachmentBackend = await currentAttachmentBackend();
+            const projection =
+              projectionCapture.status === 'ready'
+                ? await projectDocumentAttachment(projectionCapture.context, {
+                    attachmentId: meta.id,
+                    sha256: meta.sha256,
+                    ownerId,
+                    ownerType,
+                    label: url,
+                  })
+                : projectionCapture.outcome;
+
+            // T11139 — audit trail
+            try {
+              writeAuditEntry(projectRoot, {
+                op: 'docs.add',
+                slug,
+                type,
+                attachmentId: meta.id,
+                sha256: meta.sha256,
+                ownerId,
+                summary: `Added URL doc '${slug ?? url}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
+              });
+            } catch {
+              /* best-effort */
+            }
+
+            return lafsSuccess<DocsAddResult>(
+              {
+                projection,
+                attachmentId: meta.id,
+                sha256: meta.sha256,
+                refCount: meta.refCount,
+                kind: 'url',
+                url,
+                ownerId,
+                ownerType,
+                // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
+                attachmentBackend: backend as DocsAddResult['attachmentBackend'],
+                ...(slug !== undefined ? { slug } : {}),
+                ...(type !== undefined ? { type } : {}),
+                ...(adrNumber !== undefined ? { adrNumber } : {}),
+              },
+              'add',
+            );
+          }
+
+          // Should not reach here
+          return lafsError('E_INVALID_INPUT', 'Unreachable: no file or url', 'add');
+        } finally {
+          if (projectionCapture.status === 'ready') projectionCapture.context.close();
         }
-        throw err;
-      }
-
-      // T10360 — consume the auto-allocated reservation (see file-path branch).
-      if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
-
-      // T945 Stage A — mint `llmtxt:<sha256>` node + `embeds` edge for the
-      // URL attachment (the URL itself is the content-addressable identity).
-      import('@cleocode/core/internal')
-        .then(({ ensureLlmtxtNode }) =>
-          ensureLlmtxtNode(getProjectRoot(), meta.sha256, `${ownerType}:${ownerId}`, url),
-        )
-        .catch(() => {
-          /* Graph population is best-effort — never fail docs add. */
-        });
-
-      // URL writes stay in tasks.db; v2 focuses on local-file / blob kinds.
-      // Wave C — resolveAttachmentBackend() always returns 'llmtxt'.
-      const backend: AttachmentBackend = await currentAttachmentBackend();
-
-      // T9976 — emit structured memory observation for docs.add URL path (fire-and-forget).
-      const urlPayload: DocAttachmentObservationPayload = {
-        kind: 'doc-attachment',
-        attachmentId: meta.id,
-        ownerId,
-        addedAt: new Date().toISOString(),
-        ...(slug !== undefined ? { slug } : {}),
-        ...(type !== undefined ? { type } : {}),
-      };
-      emitDocAttachmentObservation(urlPayload, getProjectRoot());
-
-      // T11139 — audit trail
-      try {
-        writeAuditEntry(getProjectRoot(), {
-          op: 'docs.add',
-          slug,
-          type,
-          attachmentId: meta.id,
-          sha256: meta.sha256,
-          ownerId,
-          summary: `Added URL doc '${slug ?? url}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
-        });
-      } catch {
-        /* best-effort */
-      }
-
-      return lafsSuccess<DocsAddResult>(
-        {
-          attachmentId: meta.id,
-          sha256: meta.sha256,
-          refCount: meta.refCount,
-          kind: 'url',
-          url,
-          ownerId,
-          ownerType,
-          // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
-          attachmentBackend: backend as DocsAddResult['attachmentBackend'],
-          ...(slug !== undefined ? { slug } : {}),
-          ...(type !== undefined ? { type } : {}),
-          ...(adrNumber !== undefined ? { adrNumber } : {}),
-        },
-        'add',
-      );
-    }
-
-    // Should not reach here
-    return lafsError('E_INVALID_INPUT', 'Unreachable: no file or url', 'add');
+      },
+    );
   },
 
   // ── docs.remove ────────────────────────────────────────────────────────────
@@ -2278,20 +2211,30 @@ export class DocsHandler implements DomainHandler {
     }
 
     try {
-      if (operation in _docsTypedHandler.operations) {
-        const envelope = await typedDispatch(
-          _docsTypedHandler,
-          operation as keyof DocsTypedOps & string,
-          params ?? {},
-        );
-        return docsEnvelopeToResponse(envelope, 'query', operation, startTime);
-      }
+      const projectRoot = getProjectRoot();
+      return await worktreeScope.run(
+        {
+          ...worktreeScope.getStore(),
+          worktreeRoot: projectRoot,
+          projectHash: generateProjectHash(projectRoot),
+        },
+        async () => {
+          if (operation in _docsTypedHandler.operations) {
+            const envelope = await typedDispatch(
+              _docsTypedHandler,
+              operation as keyof DocsTypedOps & string,
+              params ?? {},
+            );
+            return docsEnvelopeToResponse(envelope, 'query', operation, startTime);
+          }
 
-      return {
-        meta: dispatchMeta('query', 'docs', operation, startTime),
-        success: true,
-        data: await dispatchDocsLegacyQuery(operation, params ?? {}),
-      };
+          return {
+            meta: dispatchMeta('query', 'docs', operation, startTime),
+            success: true,
+            data: await dispatchDocsLegacyQuery(operation, params ?? {}),
+          };
+        },
+      );
     } catch (error) {
       return handleErrorResult('query', 'docs', operation, error, startTime);
     }
@@ -2315,20 +2258,30 @@ export class DocsHandler implements DomainHandler {
     }
 
     try {
-      if (operation in _docsTypedHandler.operations) {
-        const envelope = await typedDispatch(
-          _docsTypedHandler,
-          operation as keyof DocsTypedOps & string,
-          params ?? {},
-        );
-        return docsEnvelopeToResponse(envelope, 'mutate', operation, startTime);
-      }
+      const projectRoot = getProjectRoot();
+      return await worktreeScope.run(
+        {
+          ...worktreeScope.getStore(),
+          worktreeRoot: projectRoot,
+          projectHash: generateProjectHash(projectRoot),
+        },
+        async () => {
+          if (operation in _docsTypedHandler.operations) {
+            const envelope = await typedDispatch(
+              _docsTypedHandler,
+              operation as keyof DocsTypedOps & string,
+              params ?? {},
+            );
+            return docsEnvelopeToResponse(envelope, 'mutate', operation, startTime);
+          }
 
-      return {
-        meta: dispatchMeta('mutate', 'docs', operation, startTime),
-        success: true,
-        data: await dispatchDocsLegacyMutate(operation, params ?? {}),
-      };
+          return {
+            meta: dispatchMeta('mutate', 'docs', operation, startTime),
+            success: true,
+            data: await dispatchDocsLegacyMutate(operation, params ?? {}),
+          };
+        },
+      );
     } catch (error) {
       return handleErrorResult('mutate', 'docs', operation, error, startTime);
     }

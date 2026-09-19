@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.17.1
+  version: 2.18.0
   lastReviewed: 2026-09-19
   stability: stable
 ---
@@ -59,6 +59,20 @@ List/find expose `data.population` with matched and returned counts, truncation,
 | Attach doc to task | `cleo docs add T### file.md --type note --slug handle` |
 | Read a doc | `cleo docs fetch <slug>` |
 | Browse docs | `cleo docs list --task T###` |
+
+## Document projection outcomes
+
+`cleo docs add` preserves accepted canonical bytes when optional graph or sourced
+observation work fails. Read `data.projection` for captured project identity,
+coverage, diagnostics, deadline, and any durable job or verification receipt.
+`pending` can mean a write outcome is still unresolved; retain the job reference
+and inspect it before explicit resume. Repeating the add is not a recovery step.
+The original two-second maintenance budget covers preparation through verification;
+timer expiry does not preempt synchronous SQLite work.
+
+Verify storage with `cleo docs fetch <slug>` and its JSON `data.bytesBase64` plus
+`data.metadata.sha256`. Keep canonical storage success, optional projection
+verification, and installed-provider workflow verification as separate evidence.
 
 ## Acceptance input and historical evidence
 
