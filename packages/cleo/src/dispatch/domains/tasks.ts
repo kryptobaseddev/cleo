@@ -430,7 +430,10 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   delete: async (params) => {
     const projectRoot = getProjectRoot();
-    return wrapCoreResult(await taskDelete(projectRoot, params.taskId, params.force), 'delete');
+    return wrapCoreResult(
+      await taskDelete(projectRoot, params.taskId, params.force, params.cascade),
+      'delete',
+    );
   },
 
   archive: async (params) => {

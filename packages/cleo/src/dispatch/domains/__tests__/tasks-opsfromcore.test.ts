@@ -50,14 +50,14 @@ describe('tasks dispatch OpsFromCore inference', () => {
 
 vi.mock('@cleocode/runtime/gateway', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@cleocode/runtime/gateway')>();
-  return { ...actual, addTaskWithSessionScope: vi.fn(), taskUpdate: vi.fn() };
+  return { ...actual, addTaskWithSessionScope: vi.fn(), taskUpdate: vi.fn(), taskDelete: vi.fn() };
 });
 vi.mock('../../../../../core/src/paths.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../../core/src/paths.js')>();
   return { ...actual, getProjectRoot: vi.fn(() => '/mock/project') };
 });
 
-import { addTaskWithSessionScope, taskUpdate } from '@cleocode/runtime/gateway';
+import { addTaskWithSessionScope, taskDelete, taskUpdate } from '@cleocode/runtime/gateway';
 import { TasksHandler } from '../tasks.js';
 
 describe('canonical task input forwarding', () => {
@@ -87,6 +87,23 @@ describe('canonical task input forwarding', () => {
       '/mock/project',
       taskId,
       expect.objectContaining(updates),
+    );
+  });
+
+  it.each([
+    { force: true, cascade: false },
+    { force: false, cascade: true },
+  ])('delete - forwards independent controls %j', async (controls) => {
+    vi.mocked(taskDelete).mockResolvedValue({
+      success: false,
+      error: { code: 'E_TEST', message: 'Boundary-only fixture' },
+    });
+    await handler.mutate('delete', { taskId: 'T001', ...controls });
+    expect(taskDelete).toHaveBeenCalledWith(
+      '/mock/project',
+      'T001',
+      controls.force,
+      controls.cascade,
     );
   });
 

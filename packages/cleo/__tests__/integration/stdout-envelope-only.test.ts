@@ -277,6 +277,51 @@ describe.skipIf(!HAS_BUNDLE)('mutation exit and persistence contract (T12258)', 
       expect(reread.stdout.trim()).toBe('archived');
     }, 60_000);
 
+    it.each([
+      'cascade',
+      'force',
+    ] as const)('enforces guarded %s deletion and retains affected IDs', (control) => {
+      const parentId = createFixtureEpic(`${control} deletion policy epic`);
+      const created = runCli([
+        'add',
+        '--type',
+        'task',
+        '--parent',
+        parentId,
+        '--title',
+        `${control} deletion policy child`,
+        '--description',
+        'Synthetic descendant for guarded deletion verification',
+        '--acceptance',
+        'blocked without authorization|correct affected IDs|fresh state',
+        '--output',
+        'id',
+      ]);
+      expect(created.status, created.stderr || created.stdout).toBe(0);
+      const childId = created.stdout.trim();
+      expect(childId).toMatch(/^T\d+$/);
+      const rejected = runCli(['delete', parentId, '--output', 'id']);
+      expect(rejected.status).not.toBe(0);
+      for (const taskId of [parentId, childId]) {
+        const unchanged = runCli(['show', taskId, '--field', '/data/task/status']);
+        expect(unchanged.status, unchanged.stderr || unchanged.stdout).toBe(0);
+        expect(unchanged.stdout.trim()).toBe('pending');
+      }
+      const deleted = runCli(['delete', parentId, `--${control}`, '--output', 'id']);
+      expect(deleted.status, deleted.stderr || deleted.stdout).toBe(0);
+      expect(deleted.stdout.trim().split('\n')).toEqual(
+        control === 'cascade' ? [parentId, childId] : [parentId],
+      );
+      expect(runCli(['show', parentId, '--field', '/data/task/status']).stdout.trim()).toBe(
+        'archived',
+      );
+      const child = runCli(['show', childId, '--verbose']);
+      expect(child.status, child.stderr || child.stdout).toBe(0);
+      const task = JSON.parse(child.stdout).data.task;
+      expect(task.status).toBe(control === 'cascade' ? 'archived' : 'pending');
+      if (control === 'force') expect(task.parentId ?? null).toBeNull();
+    }, 60_000);
+
     it('persists both auto-complete flag values', () => {
       const taskId = createFixtureEpic('Flag persistence epic');
       for (const [flag, expected] of [
