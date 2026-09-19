@@ -252,8 +252,8 @@ describe.skipIf(!HAS_BUNDLE)('mutation exit and persistence contract (T12258)', 
         'Synthetic fixture for fresh-process persistence verification',
         '--acceptance',
         'a|b|c|d|e',
-        '--field',
-        '/data/created/0',
+        '--output',
+        'id',
       ]);
       expect(epic.status, epic.stderr || epic.stdout).toBe(0);
       const taskId = epic.stdout.trim();
@@ -324,8 +324,8 @@ describe.skipIf(!HAS_BUNDLE)('mutation exit and persistence contract (T12258)', 
         'original criterion|verified audit|fresh read',
         '--files',
         'src/repair.ts',
-        '--field',
-        '/data/created/0',
+        '--output',
+        'id',
       ]);
       expect(created.status, created.stderr || created.stdout).toBe(0);
       const taskId = created.stdout.trim();
