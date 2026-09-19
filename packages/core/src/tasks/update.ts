@@ -29,6 +29,7 @@ import { enforceAcceptanceImmutability } from './ac-immutability.js';
 import { applyAcPlan, planAcUpdate, rebuildChildProjectionAc } from './ac-table.js';
 import {
   normalizePriority,
+  validateDependencyWaiver,
   validateLabels,
   validateSize,
   validateStatus,
@@ -189,21 +190,7 @@ export async function updateTask(
 
   await requireActiveSession('tasks.update', cwd);
 
-  if (
-    options.dependsWaiver !== undefined &&
-    (typeof options.dependsWaiver !== 'string' ||
-      options.dependsWaiver.trim().length === 0 ||
-      options.priority !== 'critical')
-  ) {
-    throw new CleoError(
-      ExitCode.VALIDATION_ERROR,
-      'Dependency waiver requires a non-empty justification and an explicit critical-priority update',
-      {
-        details: { field: 'dependsWaiver' },
-        fix: 'Supply a non-empty --depends-waiver with --priority critical, or omit the waiver',
-      },
-    );
-  }
+  validateDependencyWaiver(options.priority, options.dependsWaiver);
 
   const changes: string[] = [];
   const now = new Date().toISOString();

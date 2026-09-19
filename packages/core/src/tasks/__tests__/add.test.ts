@@ -237,6 +237,77 @@ describe('addTask (integration)', () => {
     await env.cleanup();
   });
 
+  it('persists creation dependency-waiver provenance in the task audit', async () => {
+    const dependsWaiver = 'Independent critical restoration';
+    const result = await addTask(
+      {
+        title: 'Creation waiver fixture',
+        description: 'Audit provenance verification',
+        priority: 'critical',
+        dependsWaiver,
+        skipContainmentInvariant: true,
+      },
+      env.tempDir,
+      accessor,
+    );
+    const entries = await accessor.queryAuditLog({
+      taskIds: [result.task.id],
+      actions: ['task_created'],
+    });
+    expect(entries).toHaveLength(1);
+    expect(JSON.parse(entries[0]!.detailsJson!)).toMatchObject({ dependsWaiver });
+  });
+
+  it.each([
+    { priority: 'critical' as const, dependsWaiver: '' },
+    { priority: 'high' as const, dependsWaiver: 'No critical-priority context' },
+  ])('rejects invalid creation waiver without inserting a task: %j', async (input) => {
+    await expect(
+      addTask(
+        {
+          title: 'Invalid waiver fixture',
+          description: 'Atomic input rejection verification',
+          skipContainmentInvariant: true,
+          ...input,
+        },
+        env.tempDir,
+        accessor,
+      ),
+    ).rejects.toThrow('Dependency waiver');
+    expect((await accessor.queryTasks({})).tasks).toEqual([]);
+  });
+
+  it('rolls back task creation when dependency-waiver audit persistence fails', async () => {
+    const faultAccessor: DataAccessor = {
+      ...accessor,
+      async transaction(callback) {
+        return accessor.transaction((tx) =>
+          callback({
+            ...tx,
+            async appendLog() {
+              throw new Error('Injected creation audit failure');
+            },
+          }),
+        );
+      },
+    };
+    await expect(
+      addTask(
+        {
+          title: 'Creation audit rollback fixture',
+          description: 'Audit failure rollback verification',
+          priority: 'critical',
+          dependsWaiver: 'Independent restoration',
+          skipContainmentInvariant: true,
+        },
+        env.tempDir,
+        faultAccessor,
+      ),
+    ).rejects.toThrow('Injected creation audit failure');
+    expect((await accessor.queryTasks({})).tasks).toEqual([]);
+    expect(await accessor.queryAuditLog({ actions: ['task_created'] })).toEqual([]);
+  });
+
   it('creates a task with default values', async () => {
     // DEBUG: verify CLEO_DIR and config are correct
     const { existsSync, readdirSync } = await import('node:fs');
