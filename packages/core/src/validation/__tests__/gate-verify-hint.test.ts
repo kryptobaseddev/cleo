@@ -26,7 +26,7 @@ import {
   resetDbState,
   validateGateVerify,
 } from '@cleocode/core/internal';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
@@ -167,6 +167,9 @@ function evidenceForAll(): string {
 
 describe('validateGateVerify — hint field (GH #94 / T919)', () => {
   beforeEach(async () => {
+    // Load config and evidence from this fixture's explicit project root.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     resetDbState();
     TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-gate-hint-'));
     await setupTestRoot();
@@ -178,6 +181,7 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     resetDbState();
     await rm(TEST_ROOT, { recursive: true, force: true });
   });
