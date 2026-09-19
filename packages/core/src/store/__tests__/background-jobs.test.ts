@@ -826,6 +826,25 @@ describe('domain writes fenced by persisted job authority', () => {
     }
   });
 
+  it('rejects a runtime Promise result and rolls back writes made before return', () => {
+    const { store, context } = prepare();
+    try {
+      expect(() =>
+        Reflect.apply(store.completeAtomically, store, [
+          context,
+          () => {
+            native.exec("INSERT INTO guarded_domain VALUES ('uncommitted')");
+            return Promise.resolve('{"verified":true}');
+          },
+        ]),
+      ).toThrow('must contain serialized JSON bytes');
+      expect(native.prepare('SELECT * FROM guarded_domain').all()).toEqual([]);
+      expect(store.get('guarded-job')?.status).toBe('running');
+    } finally {
+      context.close();
+    }
+  });
+
   it('does not borrow or roll back a transaction owned by another caller', () => {
     const { store, context } = prepare();
     native.exec("BEGIN; INSERT INTO guarded_domain VALUES ('caller')");
