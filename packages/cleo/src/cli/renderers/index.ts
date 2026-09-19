@@ -399,7 +399,10 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const outputMode = getOutputMode();
   const summary = getSummaryMode();
   const population = formatTaskPopulation(data);
-  if (population && (outputMode !== 'envelope' || summary || fieldCtx.field)) {
+  if (
+    population &&
+    (outputMode !== 'envelope' || summary || fieldCtx.field || ctx.format === 'human')
+  ) {
     process.stderr.write(`${population}\n`);
   }
 
