@@ -18,9 +18,28 @@ import type {
   TaskStatus,
   TaskType,
 } from '@cleocode/contracts';
+import { acceptanceItemSchema } from '@cleocode/contracts';
+import { z } from 'zod';
 import { safeParseJson, safeParseJsonArray } from './parsers.js';
 import type { SessionStatus } from './status-registry.js';
 import type { NewTaskRow, SessionRow, TaskRow } from './tasks-schema.js';
+
+// Validate with the canonical stored union, but retain the original values.
+// Parsing acceptanceItemSchema directly trims strings and strips object keys.
+const storedAcceptanceSchema = z.custom<NonNullable<Task['acceptance']>>(
+  (value) =>
+    Array.isArray(value) && value.every((item) => acceptanceItemSchema.safeParse(item).success),
+);
+
+/** Read stored acceptance without repairing or normalizing historical evidence. */
+function readStoredAcceptance(row: TaskRow): Task['acceptance'] {
+  if (row.acceptanceJson === null || row.acceptanceJson === undefined) return undefined;
+  try {
+    return storedAcceptanceSchema.parse(JSON.parse(row.acceptanceJson));
+  } catch (cause) {
+    throw new Error(`Invalid stored acceptance for task ${row.id}`, { cause });
+  }
+}
 
 /** Convert a database TaskRow to a domain Task object. */
 export function rowToTask(row: TaskRow): Task {
@@ -38,7 +57,8 @@ export function rowToTask(row: TaskRow): Task {
     description: row.description ?? '',
     labels: safeParseJsonArray(row.labelsJson),
     notes: safeParseJsonArray(row.notesJson),
-    acceptance: safeParseJsonArray(row.acceptanceJson),
+    // An explicit clear is a canonical empty array, not an omitted mutation.
+    acceptance: readStoredAcceptance(row),
     files: safeParseJsonArray(row.filesJson),
     depends: undefined, // Populated separately from task_dependencies
     origin: (row.origin as Task['origin']) ?? undefined,

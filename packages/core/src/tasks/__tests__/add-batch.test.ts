@@ -12,6 +12,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { sagaCreate } from '../../sagas/create.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
@@ -36,6 +37,84 @@ describe('addBatchTasks', () => {
     delete process.env['CLEO_DIR'];
     resetDbState();
     await env.cleanup();
+  });
+
+  it('batch and saga create preserve canonical literal arrays through the shared writer', async () => {
+    const input = [' literal a|b ', " mode: 'a'|'b' ", ' third ', ' fourth ', ' fifth ', '', '  '];
+    const expected = ['literal a|b', "mode: 'a'|'b'", 'third', 'fourth', 'fifth'];
+    const batch = await addBatchTasks(
+      {
+        tasks: [
+          {
+            title: 'Batch normalization fixture',
+            description: 'Literal array criteria survive the batch writer',
+            acceptance: input,
+            skipContainmentInvariant: true,
+          },
+        ],
+      },
+      accessor,
+      env.tempDir,
+    );
+    expect((await accessor.loadSingleTask(batch.tasks[0]!.task.id))?.acceptance).toEqual(expected);
+    expect((await accessor.getAcRows(batch.tasks[0]!.task.id)).map((row) => row.text)).toEqual(
+      expected,
+    );
+    const saga = await sagaCreate(env.tempDir, {
+      title: 'Canonical saga criteria',
+      description: 'Literal array criteria survive the saga wrapper',
+      acceptance: input,
+    });
+    expect(saga.success).toBe(true);
+    if (!saga.success) throw new Error(saga.error.message);
+    expect((await accessor.loadSingleTask(saga.data.task.id))?.acceptance).toEqual(expected);
+    expect((await accessor.getAcRows(saga.data.task.id)).map((row) => row.text)).toEqual(expected);
+  });
+
+  it.each([
+    false,
+    true,
+  ])('rejects mixed invalid criteria across an entire batch (dryRun=%s)', async (dryRun) => {
+    await expect(
+      addBatchTasks(
+        {
+          dryRun,
+          tasks: [
+            {
+              title: 'First valid task',
+              description: 'Must roll back when the next task is invalid',
+              acceptance: [' valid criterion '],
+              skipContainmentInvariant: true,
+            },
+            {
+              title: 'Invalid second task',
+              description: 'Invalid element rejects the complete operation',
+              acceptance: JSON.parse('["valid", false]'),
+              skipContainmentInvariant: true,
+            },
+          ],
+        },
+        accessor,
+        env.tempDir,
+      ),
+    ).rejects.toThrow('Acceptance criterion 2 must be a string');
+    expect((await accessor.queryTasks({})).tasks).toEqual([]);
+    expect(await accessor.getAcRows('T001')).toEqual([]);
+    expect(await accessor.queryAuditLog({ actions: ['task_created'] })).toEqual([]);
+  });
+
+  it('rejects invalid saga acceptance without saving a saga or AC rows', async () => {
+    const result = await sagaCreate(env.tempDir, {
+      title: 'Invalid saga criterion',
+      description: 'Saga rejection uses the canonical acceptance boundary',
+      acceptance: JSON.parse('["one", "two", "three", "four", null]'),
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: { message: 'Acceptance criterion 5 must be a string' },
+    });
+    expect((await accessor.queryTasks({})).tasks).toEqual([]);
+    expect(await accessor.getAcRows('T001')).toEqual([]);
   });
 
   // -------------------------------------------------------------------------

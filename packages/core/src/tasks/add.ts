@@ -42,6 +42,8 @@ import {
   childProjectionFreshnessFingerprint,
   childProjectionSourceKey,
 } from './ac-table.js';
+import { normalizeAcceptance } from './acceptance-input.js';
+
 import { createAcceptanceEnforcement } from './enforcement.js';
 import {
   findEpicAncestor,
@@ -50,6 +52,8 @@ import {
 } from './epic-enforcement.js';
 import { resolveHierarchyPolicy } from './hierarchy-policy.js';
 import { resolveDefaultPipelineStage, validatePipelineStage } from './pipeline-stage.js';
+
+export { normalizeAcceptance } from './acceptance-input.js';
 
 /**
  * Options for creating a task.
@@ -205,15 +209,6 @@ export function validateDependencyWaiver(
       },
     );
   }
-}
-
-/** Normalize AC arrays once so legacy JSON, AC rows, and projections stay aligned. */
-export function normalizeAcceptance(
-  acceptance: readonly string[] | undefined,
-): string[] | undefined {
-  if (!acceptance) return undefined;
-  const normalized = acceptance.map((item) => item.trim()).filter((item) => item.length > 0);
-  return normalized.length > 0 ? normalized : undefined;
 }
 
 /**
@@ -811,6 +806,7 @@ export async function addTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<AddTaskResult> {
+  const normalizedAcceptance = normalizeAcceptance(options.acceptance);
   // Validate title (early-exit — can't proceed without a title)
   validateTitle(options.title);
   validateDependencyWaiver(options.priority, options.dependsWaiver);
@@ -825,7 +821,6 @@ export async function addTask(
   // preventing the common failure mode where agents drop flags like --parent.
   const issues: ValidationIssue[] = [];
   const warnings: string[] = [];
-  const normalizedAcceptance = normalizeAcceptance(options.acceptance);
 
   // Anti-hallucination: title and description must be different (T5698)
   if (

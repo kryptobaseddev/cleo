@@ -5,6 +5,7 @@
  */
 
 import type { Task, TasksAddParams } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -33,7 +34,12 @@ describe('normalizeAcceptance', () => {
   it('trims acceptance arrays and drops empty entries', () => {
     expect(normalizeAcceptance([' first ', '', '  ', 'second'])).toEqual(['first', 'second']);
     expect(normalizeAcceptance(undefined)).toBeUndefined();
-    expect(normalizeAcceptance([' ', ''])).toBeUndefined();
+    expect(normalizeAcceptance([' ', ''])).toEqual([]);
+    expect(normalizeAcceptance([])).toEqual([]);
+    expect(normalizeAcceptance([' literal a|b ', "mode: 'a'|'b'"])).toEqual([
+      'literal a|b',
+      "mode: 'a'|'b'",
+    ]);
   });
 });
 
@@ -238,6 +244,29 @@ describe('addTask (integration)', () => {
     delete process.env['CLEO_DIR'];
     resetDbState();
     await env.cleanup();
+  });
+
+  it.each([
+    '["valid", 1]',
+    '["valid", null]',
+    '["valid", false]',
+    '["valid", {}]',
+    '["valid", []]',
+  ])('rejects invalid acceptance before saving any task: %s', async (raw) => {
+    await expect(
+      addTask(
+        {
+          title: 'Invalid acceptance fixture',
+          description: 'No partial criteria or task may survive',
+          acceptance: JSON.parse(raw),
+          skipContainmentInvariant: true,
+        },
+        env.tempDir,
+        accessor,
+      ),
+    ).rejects.toMatchObject({ code: ExitCode.VALIDATION_ERROR });
+    expect((await accessor.queryTasks({})).tasks).toEqual([]);
+    expect(await accessor.getAcRows('T001')).toEqual([]);
   });
 
   it.each([

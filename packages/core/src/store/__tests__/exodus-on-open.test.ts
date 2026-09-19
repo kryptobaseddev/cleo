@@ -543,7 +543,14 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     try {
       const { writeExodusCompleteMarker } = await import('../exodus/archive.js');
       // Seal the project cutover. The marker is the durable trigger-gate.
-      writeExodusCompleteMarker('project', ['tasks'], tmpDir);
+      const { sealExodusDatabase } = await import('../exodus/recovery.js');
+      writeExodusCompleteMarker(
+        'project',
+        ['tasks'],
+        tmpDir,
+        fx.projectDbPath,
+        sealExodusDatabase(projectDb),
+      );
 
       // The consolidated DB is EMPTY and a legacy source DB still exists on disk —
       // pre-T11777 this would re-arm the auto-migration. With the marker present

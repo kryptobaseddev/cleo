@@ -27,6 +27,7 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { enforceAcceptanceImmutability } from './ac-immutability.js';
 import { applyAcPlan, planAcUpdate, rebuildChildProjectionAc } from './ac-table.js';
+import { normalizeAcceptance } from './acceptance-input.js';
 import {
   normalizePriority,
   validateDependencyWaiver,
@@ -180,6 +181,9 @@ export async function updateTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<UpdateTaskResult> {
+  if (options.acceptance !== undefined) {
+    options = { ...options, acceptance: normalizeAcceptance(options.acceptance) };
+  }
   const acc = accessor ?? (await getTaskAccessor(cwd));
   const task = await acc.loadSingleTask(options.taskId);
   if (!task) {

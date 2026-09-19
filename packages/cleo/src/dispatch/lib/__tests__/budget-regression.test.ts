@@ -10,6 +10,9 @@
  * @epic T11394 E7-LAFS-CANONICAL
  */
 
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { ExitCode } from '@cleocode/contracts';
 import type { DispatchRequest, DispatchResponse } from '@cleocode/contracts/gateway';
 import { describe, expect, it } from 'vitest';
@@ -21,6 +24,28 @@ import { BUDGET_EXCEEDED_CODE, enforceBudget, isWithinBudget } from '../budget.j
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('budget chokepoint — import contract regression (T11424)', () => {
+  it('resolves the production core leaf with Node package exports, without source aliases', () => {
+    const source = readFileSync(new URL('../budget.ts', import.meta.url), 'utf8');
+    const specifier = source.match(/from '(@cleocode\/core\/[^']+)'/)?.[1];
+    if (!specifier) throw new Error('Budget bridge must import its core projection leaf');
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        'process.stdout.write(import.meta.resolve(process.argv[1]))',
+        specifier,
+      ],
+      {
+        cwd: fileURLToPath(new URL('../../../../', import.meta.url)),
+        encoding: 'utf8',
+        timeout: 10_000,
+      },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/\/core\/dist\/dispatch\/mvi-projection\.js$/);
+  });
+
   it('BUDGET_EXCEEDED_CODE is a non-empty string (resolves from @cleocode/lafs)', () => {
     expect(typeof BUDGET_EXCEEDED_CODE).toBe('string');
     expect(BUDGET_EXCEEDED_CODE.length).toBeGreaterThan(0);
