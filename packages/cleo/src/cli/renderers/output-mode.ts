@@ -280,6 +280,31 @@ export function taskPopulationFacts(data: unknown): TaskPopulation | undefined {
   };
 }
 
+/** Preserve explicit fuzzy retrieval explanations in scalar and human renderings. */
+export function formatTaskMatching(data: unknown): string | undefined {
+  if (!data || typeof data !== 'object' || !('searchType' in data)) return undefined;
+  if (typeof data.searchType !== 'string') return undefined;
+  const lines = [`cleo: searchType=${data.searchType}`];
+  if (data.searchType === 'fuzzy') {
+    for (const row of pickCollection(data as Record<string, unknown>) ?? []) {
+      if (!row || typeof row !== 'object' || !('match' in row) || !('id' in row)) continue;
+      const match = row.match;
+      if (
+        !match ||
+        typeof match !== 'object' ||
+        !('kind' in match) ||
+        !('fields' in match) ||
+        !Array.isArray(match.fields)
+      )
+        continue;
+      lines.push(
+        `cleo: match id=${String(row.id)} kind=${String(match.kind)} fields=${match.fields.filter((field) => typeof field === 'string').join(',')}`,
+      );
+    }
+  }
+  return lines.join('\n');
+}
+
 /** Preserve scope facts on stderr while scalar and row stdout remain pipeable. */
 export function formatTaskPopulation(data: unknown): string | undefined {
   const facts = taskPopulationFacts(data);

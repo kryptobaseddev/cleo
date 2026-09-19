@@ -114,6 +114,7 @@ import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs
 import { normalizeForHuman } from './normalizer.js';
 import {
   detectTruncation,
+  formatTaskMatching,
   formatTaskPopulation,
   formatTruncationWarning,
   renderOutputMode,
@@ -398,6 +399,13 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const fieldCtx = getFieldContext();
   const outputMode = getOutputMode();
   const summary = getSummaryMode();
+  const matching = formatTaskMatching(data);
+  if (
+    matching &&
+    (outputMode !== 'envelope' || summary || fieldCtx.field || ctx.format === 'human')
+  ) {
+    process.stderr.write(`${matching}\n`);
+  }
   const population = formatTaskPopulation(data);
   if (
     population &&
