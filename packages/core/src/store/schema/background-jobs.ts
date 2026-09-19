@@ -88,6 +88,8 @@ export const backgroundJobs = sqliteTable(
     idempotencyKey: text('idempotency_key'),
     /** SHA-256 of the immutable submitted proposal bytes. */
     proposalHash: text('proposal_hash'),
+    /** Exact immutable proposal bytes; NULL on historical submissions without recoverable payload. */
+    proposalJson: text('proposal_json'),
   },
   (table) => [
     index('idx_background_jobs_status').on(table.status),
