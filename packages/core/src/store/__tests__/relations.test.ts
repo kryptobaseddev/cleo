@@ -10,8 +10,18 @@ import type { Task } from '@cleocode/contracts';
 import { mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
+
+// Resolve explicit fixture cwd values independently of the shared setup project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('Task Relations Persistence (T5168)', () => {
   let testDir: string;

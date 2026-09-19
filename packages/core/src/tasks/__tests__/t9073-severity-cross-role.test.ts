@@ -15,7 +15,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   appendSignedSeverityAttestation,
   SEVERITY_ATTESTATION_AUDIT_FILE,
@@ -58,6 +58,16 @@ async function readAttestationLines(cwd: string): Promise<Record<string, unknown
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
+
+// Resolve explicit fixture cwd values independently of the shared setup project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('T9073 — severity attestation fires for any role', () => {
   beforeEach(async () => {
