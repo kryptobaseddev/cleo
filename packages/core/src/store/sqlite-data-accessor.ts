@@ -12,6 +12,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import {
   ARCHIVE_REASON_TOMBSTONE,
@@ -32,6 +33,13 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
+import { generateProjectHash } from '../nexus/hash.js';
+import {
+  getProjectRoot,
+  readProjectInfoAtDirectorySync,
+  type WorktreeScope,
+  worktreeScope,
+} from '../project-scope.js';
 import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnSessionDelete } from './cross-db-cleanup.js';
 import type {
@@ -148,18 +156,112 @@ function activeTransactionScope(native: DatabaseSync): TaskTransactionScope | un
   return undefined;
 }
 
+/**
+ * Capture one accessor's explicit project and compatible operation authority.
+ * @param projectRoot - Absolute root captured by the factory before awaiting.
+ * @param inherited - Caller scope captured at the same synchronous boundary.
+ * @returns Immutable scope retained for the accessor lifetime.
+ * @remarks A portable project ID is compared only with persisted identity, never
+ * with the path hash used by worktree routing. Ambient environment pins are not changed.
+ * @example
+ * ```ts
+ * const scope = captureTaskAccessorScope(getProjectRoot(), worktreeScope.getStore());
+ * ```
+ */
+export function captureTaskAccessorScope(
+  projectRoot: string,
+  inherited: WorktreeScope | undefined,
+): WorktreeScope {
+  const root = resolve(projectRoot);
+  const execution = inherited?.execution;
+  execution?.assertActive();
+  if (execution && resolve(execution.identity.projectRoot) !== root)
+    throw new Error('Task accessor project differs from captured execution ownership.');
+  const scope = Object.freeze({
+    ...inherited,
+    worktreeRoot: root,
+    projectHash: generateProjectHash(root),
+  });
+  if (execution) {
+    const info = readProjectInfoAtDirectorySync(root, join(root, '.cleo'));
+    if ((info.projectId || info.projectHash) !== execution.identity.projectId)
+      throw new Error('Task accessor identity differs from captured execution ownership.');
+  }
+  return scope;
+}
+
+/**
+ * Bind all asynchronous accessor methods, including transaction ports, to one project.
+ * @param accessor - Canonical, safety-wrapped, or transaction accessor to bind.
+ * @param scope - Immutable project scope captured at construction.
+ * @returns An accessor preserving method arguments, results and receiver semantics.
+ * @remarks The wrapper changes only worktree path scope. The existing transaction
+ * AsyncLocalStorage, savepoint queues and postcommit result semantics remain authoritative.
+ * A newly inherited execution cannot bypass a captured operation's cancellation or ownership.
+ * @example
+ * ```ts
+ * const bound = bindTaskAccessorScope(accessor, scope);
+ * await bound.upsertSingleTask(task);
+ * ```
+ */
+export function bindTaskAccessorScope<T extends DataAccessor | TransactionAccessor>(
+  accessor: T,
+  scope: WorktreeScope,
+): T {
+  return new Proxy(accessor, {
+    get(target, property) {
+      const value = target[property as keyof T];
+      if (typeof value !== 'function') return value;
+      return new Proxy(value, {
+        async apply(method, _receiver, args) {
+          const activeExecution = worktreeScope.getStore()?.execution;
+          if (scope.execution && activeExecution && scope.execution !== activeExecution)
+            throw new Error('Task accessor cannot replace another captured execution authority.');
+          const invocationScope = captureTaskAccessorScope(scope.worktreeRoot, {
+            ...scope,
+            execution: scope.execution ?? activeExecution,
+          });
+          return worktreeScope.run(invocationScope, () => Reflect.apply(method, target, args));
+        },
+      });
+    },
+  });
+}
+
 // ---- Accessor factory ----
 
 /**
  * Create a SQLite-backed DataAccessor.
  *
- * Opens (or creates) the SQLite database at `.cleo/tasks.db` and returns
+ * Opens (or creates) the consolidated SQLite database at `.cleo/cleo.db` and returns
  * a DataAccessor that materializes/dematerializes whole-file structures
  * from the relational tables.
  *
- * @param cwd - Working directory for path resolution (defaults to process.cwd())
+ * @param cwd - Explicit project root, or canonical root captured before initialization.
+ * @returns An accessor whose methods and transaction ports retain captured ownership.
+ * @remarks Later ambient scope changes cannot redirect this accessor's I/O. Active
+ * execution ownership is checked against persisted identity before method entry.
+ * @example
+ * ```ts
+ * const accessor = await createSqliteDataAccessor('/projects/example');
+ * const task = await accessor.loadSingleTask('T001');
+ * ```
  */
 export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccessor> {
+  const scope = captureTaskAccessorScope(
+    resolve(cwd ?? getProjectRoot()),
+    worktreeScope.getStore(),
+  );
+  return worktreeScope.run(scope, async () =>
+    bindTaskAccessorScope(await createOwnedSqliteDataAccessor(scope.worktreeRoot, scope), scope),
+  );
+}
+
+/** Construct the raw implementation inside its already captured project scope. */
+async function createOwnedSqliteDataAccessor(
+  cwd: string,
+  accessorScope: WorktreeScope,
+): Promise<DataAccessor> {
   // Eagerly initialize the database to ensure tables exist
   await getDb(cwd);
 
@@ -1350,7 +1452,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
                 },
               };
 
-              const result = await fn(tx);
+              const result = await fn(bindTaskAccessorScope(tx, accessorScope));
               await scope.pending;
               if (isOuter) {
                 nativeDb.prepare('COMMIT').run();

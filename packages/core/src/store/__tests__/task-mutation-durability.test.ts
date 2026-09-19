@@ -5,8 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TransactionAccessor } from '../data-accessor.js';
-import { closeDb, getDbPath, getNativeTasksDb } from '../sqlite.js';
+import { generateProjectHash } from '../../nexus/hash.js';
+import { worktreeScope } from '../../paths.js';
+import { createOperationExecutionContext } from '../background-ops.js';
+import { getTaskAccessor, type TransactionAccessor } from '../data-accessor.js';
+import { closeDb, getNativeTasksDb } from '../sqlite.js';
 import { createSqliteDataAccessor, setMetaValue } from '../sqlite-data-accessor.js';
 
 function task(id: string, title: string, overrides: Partial<Task> = {}): Task {
@@ -33,7 +36,7 @@ function persisted(project: string, query: string): string {
     process.stdout.write(JSON.stringify(db.prepare(process.argv[2]).all()));
     db.close();
   `,
-      getDbPath(project),
+      join(project, '.cleo/cleo.db'),
       query,
     ],
     { encoding: 'utf8', timeout: 10_000 },
@@ -63,6 +66,158 @@ describe('task mutation durability', () => {
     closeDb();
     vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
+  });
+
+  it.each([
+    ['direct SQLite', createSqliteDataAccessor],
+    ['canonical safety', getTaskAccessor],
+  ] as const)('captures explicit lifetime ownership with contradictory ambient pins: %s', async (_name, factory) => {
+    vi.stubEnv('CLEO_ROOT', projectA);
+    vi.stubEnv('CLEO_DIR', join(projectA, '.cleo'));
+    const a = await factory(projectA);
+    const b = await factory(projectB);
+    await a.upsertSingleTask(task('T1', 'A'));
+    await b.upsertSingleTask(task('T1', 'B'));
+    vi.stubEnv('CLEO_ROOT', projectB);
+    vi.stubEnv('CLEO_DIR', join(projectB, '.cleo'));
+    await Promise.all([
+      a.updateTaskFields('T1', { title: 'A durable' }),
+      b.updateTaskFields('T1', { title: 'B durable' }),
+    ]);
+    expect((await a.loadSingleTask('T1'))?.title).toBe('A durable');
+    expect((await b.loadSingleTask('T1'))?.title).toBe('B durable');
+    expect(persisted(projectA, 'SELECT title FROM tasks_tasks')).toBe('[{"title":"A durable"}]');
+    expect(persisted(projectB, 'SELECT title FROM tasks_tasks')).toBe('[{"title":"B durable"}]');
+  });
+
+  it.each([
+    ['direct SQLite', createSqliteDataAccessor],
+    ['canonical safety', getTaskAccessor],
+  ] as const)('captures the default project before factory awaits: %s', async (_name, factory) => {
+    vi.stubEnv('CLEO_ROOT', projectA);
+    vi.stubEnv('CLEO_DIR', join(projectA, '.cleo'));
+    const constructing = factory();
+    vi.stubEnv('CLEO_ROOT', projectB);
+    vi.stubEnv('CLEO_DIR', join(projectB, '.cleo'));
+    const store = await constructing;
+    await store.upsertSingleTask(task('T1', 'Captured A'));
+    expect(persisted(projectA, 'SELECT title FROM tasks_tasks')).toBe('[{"title":"Captured A"}]');
+  });
+
+  it('keeps transaction ports owned across nested project scopes and rolls back all task evidence', async () => {
+    const a = await getTaskAccessor(projectA);
+    const b = await getTaskAccessor(projectB);
+    await a.upsertSingleTask(task('T1', 'A'));
+    await b.upsertSingleTask(task('T1', 'B'));
+    await expect(
+      a.transaction(async (tx) => {
+        await worktreeScope.run(
+          { worktreeRoot: projectB, projectHash: generateProjectHash(projectB) },
+          async () => {
+            await tx.upsertSingleTask(
+              task('T2', 'Rolled back A child', {
+                parentId: 'T1',
+                depends: ['T1'],
+                acceptance: ['Must roll back'],
+              }),
+            );
+            await tx.insertAcRows([
+              { id: 'a-criterion', taskId: 'T2', ordinal: 1, text: 'Must roll back' },
+            ]);
+          },
+        );
+        throw new Error('ownership rollback probe');
+      }),
+    ).rejects.toThrow('ownership rollback probe');
+    expect(persisted(projectA, 'SELECT id,title FROM tasks_tasks')).toBe(
+      '[{"id":"T1","title":"A"}]',
+    );
+    expect(persisted(projectB, 'SELECT id,title FROM tasks_tasks')).toBe(
+      '[{"id":"T1","title":"B"}]',
+    );
+    for (const project of [projectA, projectB]) {
+      expect(persisted(project, 'SELECT task_id FROM tasks_task_dependencies')).toBe('[]');
+      expect(persisted(project, 'SELECT task_id FROM tasks_task_acceptance_criteria')).toBe('[]');
+    }
+  });
+
+  it('preserves portable execution identity and refuses foreign or expired authority', async () => {
+    await writeFile(
+      join(projectA, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'portable-a', projectHash: generateProjectHash(projectA) }),
+    );
+    const controller = new AbortController();
+    const context = createOperationExecutionContext(
+      {
+        projectId: 'portable-a',
+        projectRoot: projectA,
+        actor: 'test',
+        operation: 'task.update',
+        idempotencyKey: 'owned',
+      },
+      { budgetMs: 10000, signal: controller.signal },
+    );
+    const scope = {
+      worktreeRoot: projectA,
+      projectHash: generateProjectHash(projectA),
+      execution: context,
+    };
+    try {
+      await expect(worktreeScope.run(scope, () => getTaskAccessor(projectB))).rejects.toThrow(
+        /ownership|scope|project/i,
+      );
+      const store = await worktreeScope.run(scope, () => getTaskAccessor(projectA));
+      await store.upsertSingleTask(task('T1', 'Authorized A'));
+      controller.abort();
+      await expect(store.upsertSingleTask(task('T2', 'Expired'))).rejects.toThrow();
+      expect(persisted(projectA, 'SELECT title FROM tasks_tasks')).toBe(
+        '[{"title":"Authorized A"}]',
+      );
+    } finally {
+      context.close();
+    }
+  });
+
+  it('rejects unreadable or replaced identity under captured execution without writing', async () => {
+    const infoPath = join(projectA, '.cleo/project-info.json');
+    const context = createOperationExecutionContext(
+      {
+        projectId: 'portable-a',
+        projectRoot: projectA,
+        actor: 'test',
+        operation: 'task.update',
+        idempotencyKey: 'strict-identity',
+      },
+      { budgetMs: 10000 },
+    );
+    const scope = {
+      worktreeRoot: projectA,
+      projectHash: generateProjectHash(projectA),
+      execution: context,
+    };
+    try {
+      await expect(worktreeScope.run(scope, () => getTaskAccessor(projectA))).rejects.toThrow();
+      await writeFile(infoPath, '{broken');
+      await expect(worktreeScope.run(scope, () => getTaskAccessor(projectA))).rejects.toThrow();
+      await writeFile(
+        infoPath,
+        JSON.stringify({ projectId: 'portable-a', projectHash: generateProjectHash(projectA) }),
+      );
+      const store = await worktreeScope.run(scope, () => getTaskAccessor(projectA));
+      await store.upsertSingleTask(task('T1', 'Before identity replacement'));
+      await writeFile(
+        infoPath,
+        JSON.stringify({ projectId: 'portable-b', projectHash: generateProjectHash(projectA) }),
+      );
+      await expect(store.upsertSingleTask(task('T2', 'Wrong owner'))).rejects.toThrow(
+        /identity|ownership/,
+      );
+      await writeFile(infoPath, '{broken');
+      await expect(store.upsertSingleTask(task('T3', 'Unverifiable owner'))).rejects.toThrow();
+      expect(persisted(projectA, 'SELECT id FROM tasks_tasks')).toBe('[{"id":"T1"}]');
+    } finally {
+      context.close();
+    }
   });
 
   it('keeps interleaved project reads, position writes and claims bound to the addressed project', async () => {

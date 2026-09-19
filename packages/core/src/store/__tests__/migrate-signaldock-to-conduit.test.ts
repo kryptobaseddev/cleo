@@ -327,7 +327,8 @@ async function runMigration(
   home: string,
 ): Promise<import('../migrate-signaldock-to-conduit.js').MigrationResult> {
   vi.resetModules();
-  vi.doMock('../../paths.js', () => ({
+  vi.doMock('../../paths.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../paths.js')>()),
     getCleoHome: () => home,
     getProjectRoot: () => projectRoot,
     // E6-L3 (T11523): conduit consolidated into the project cleo.db; the path now
@@ -351,7 +352,8 @@ async function runMigration(
 
 async function getNeedsMigration(projectRoot: string, home: string): Promise<boolean> {
   vi.resetModules();
-  vi.doMock('../../paths.js', () => ({
+  vi.doMock('../../paths.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../paths.js')>()),
     getCleoHome: () => home,
     getProjectRoot: () => projectRoot,
     // E6-L3 (T11523): see runMigration mock — resolveCleoDir pins the project DB.
