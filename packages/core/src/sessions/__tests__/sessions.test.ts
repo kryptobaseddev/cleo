@@ -7,7 +7,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   endSession,
   gcSessions,
@@ -37,6 +37,9 @@ describe('Session lifecycle', () => {
   let cleoDir: string;
 
   beforeEach(async () => {
+    // Each test owns a fresh store at the explicitly supplied project root.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-test-'));
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
@@ -44,6 +47,7 @@ describe('Session lifecycle', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     // Close ALL SQLite connections before cleanup — Windows locks open files
     try {
       const { closeAllDatabases } = await import('../../store/sqlite.js');

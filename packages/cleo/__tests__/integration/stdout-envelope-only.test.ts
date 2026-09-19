@@ -215,137 +215,163 @@ describe.skipIf(!HAS_BUNDLE)('mutation exit and persistence contract (T12258)', 
     }
   });
 
-  it('persists both auto-complete flag values across fresh CLI processes', () => {
-    const started = runCli([
-      'session',
-      'start',
-      '--scope',
-      'global',
-      '--name',
-      'Isolated CLI test',
-    ]);
-    expect(started.status, started.stderr || started.stdout).toBe(0);
-    const saga = runCli([
-      'saga',
-      'create',
-      '--title',
-      'Isolated mutation program',
-      '--description',
-      'Synthetic fixture for fresh-process persistence verification',
-      '--acceptance',
-      'a|b|c|d|e',
-    ]);
-    expect(saga.status, saga.stderr || saga.stdout).toBe(0);
-    const epic = runCli([
-      'add',
-      '--type',
-      'epic',
-      '--parent',
-      'T001',
-      '--title',
-      'Isolated mutation epic',
-      '--description',
-      'Synthetic fixture for fresh-process persistence verification',
-      '--acceptance',
-      'a|b|c|d|e',
-    ]);
-    expect(epic.status, epic.stderr || epic.stdout).toBe(0);
-    expect(runCli(['show', 'T002', '--field', '/data/task/title']).stdout.trim()).toBe(
-      'Isolated mutation epic',
-    );
+  describe('fresh-process persistence', () => {
+    beforeAll(() => {
+      const started = runCli([
+        'session',
+        'start',
+        '--scope',
+        'global',
+        '--name',
+        'Isolated CLI test',
+      ]);
+      expect(started.status, started.stderr || started.stdout).toBe(0);
+      const saga = runCli([
+        'saga',
+        'create',
+        '--title',
+        'Isolated mutation program',
+        '--description',
+        'Synthetic fixture for fresh-process persistence verification',
+        '--acceptance',
+        'a|b|c|d|e',
+      ]);
+      expect(saga.status, saga.stderr || saga.stdout).toBe(0);
+    }, 60_000);
 
-    for (const [flag, expected] of [
-      ['--no-auto-complete', 'true'],
-      ['--auto-complete', 'false'],
-    ] as const) {
-      const updated = runCli(['update', 'T002', flag, '--output', 'silent']);
-      expect(updated.status, updated.stderr || updated.stdout).toBe(0);
-      const reread = runCli(['show', 'T002', '--field', '/data/task/noAutoComplete']);
-      expect(reread.status, reread.stderr || reread.stdout).toBe(0);
-      expect(reread.stdout.trim()).toBe(expected);
+    function createFixtureEpic(title: string): string {
+      const epic = runCli([
+        'add',
+        '--type',
+        'epic',
+        '--parent',
+        'T001',
+        '--title',
+        title,
+        '--description',
+        'Synthetic fixture for fresh-process persistence verification',
+        '--acceptance',
+        'a|b|c|d|e',
+        '--field',
+        '/data/created/0',
+      ]);
+      expect(epic.status, epic.stderr || epic.stdout).toBe(0);
+      const taskId = epic.stdout.trim();
+      expect(taskId).toMatch(/^T\d+$/);
+      expect(runCli(['show', taskId, '--field', '/data/task/title']).stdout.trim()).toBe(title);
+      return taskId;
     }
-    const phase = runCli(['update', 'T002', '--phase', 'verification', '--output', 'silent']);
-    expect(phase.status, phase.stderr || phase.stdout).toBe(0);
-    expect(runCli(['show', 'T002', '--field', '/data/task/phase']).stdout.trim()).toBe(
-      'verification',
-    );
 
-    for (const noAutoComplete of [true, false]) {
+    it('persists both auto-complete flag values', () => {
+      const taskId = createFixtureEpic('Flag persistence epic');
+      for (const [flag, expected] of [
+        ['--no-auto-complete', 'true'],
+        ['--auto-complete', 'false'],
+      ] as const) {
+        const updated = runCli(['update', taskId, flag, '--output', 'silent']);
+        expect(updated.status, updated.stderr || updated.stdout).toBe(0);
+        const reread = runCli(['show', taskId, '--field', '/data/task/noAutoComplete']);
+        expect(reread.status, reread.stderr || reread.stdout).toBe(0);
+        expect(reread.stdout.trim()).toBe(expected);
+      }
+    }, 60_000);
+
+    it('persists canonical JSON auto-complete values', () => {
+      const taskId = createFixtureEpic('JSON persistence epic');
+      for (const noAutoComplete of [true, false]) {
+        const updated = runCli([
+          'update',
+          taskId,
+          '--params',
+          JSON.stringify({ noAutoComplete }),
+          '--output',
+          'silent',
+        ]);
+        expect(updated.status, updated.stderr || updated.stdout).toBe(0);
+        const reread = runCli(['show', taskId, '--field', '/data/task/noAutoComplete']);
+        expect(reread.status, reread.stderr || reread.stdout).toBe(0);
+        expect(reread.stdout.trim()).toBe(String(noAutoComplete));
+      }
+    }, 60_000);
+
+    it('durably stores a quiet phase update', () => {
+      const taskId = createFixtureEpic('Phase persistence epic');
+      const phase = runCli(['update', taskId, '--phase', 'verification', '--output', 'silent']);
+      expect(phase.status, phase.stderr || phase.stdout).toBe(0);
+      expect(runCli(['show', taskId, '--field', '/data/task/phase']).stdout.trim()).toBe(
+        'verification',
+      );
+    }, 60_000);
+
+    it('durably records files and waiver and correction provenance', () => {
+      const parentId = createFixtureEpic('Audit provenance epic');
+      const creationReason = 'Independent critical incident repair';
+      const created = runCli([
+        'add',
+        '--title',
+        'Waiver provenance fixture',
+        '--description',
+        'Synthetic task with durable critical-priority authorization',
+        '--type',
+        'task',
+        '--parent',
+        parentId,
+        '--priority',
+        'critical',
+        '--depends-waiver',
+        creationReason,
+        '--acceptance',
+        'original criterion|verified audit|fresh read',
+        '--files',
+        'src/repair.ts',
+        '--field',
+        '/data/created/0',
+      ]);
+      expect(created.status, created.stderr || created.stdout).toBe(0);
+      const taskId = created.stdout.trim();
+      expect(taskId).toMatch(/^T\d+$/);
+      expect(JSON.parse(runCli(['show', taskId, '--field', '/data/task/files']).stdout)).toEqual([
+        'src/repair.ts',
+      ]);
+      const creationAudit = runCli(['log', '--task', taskId, '--operation', 'task_created']);
+      expect(creationAudit.status, creationAudit.stderr || creationAudit.stdout).toBe(0);
+      expect(JSON.parse(creationAudit.stdout).data.entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            taskId,
+            details: expect.objectContaining({ dependsWaiver: creationReason }),
+          }),
+        ]),
+      );
+      const updateReason = 'Critical scope independently verified';
       const updated = runCli([
         'update',
-        'T002',
-        '--params',
-        JSON.stringify({ noAutoComplete }),
+        taskId,
+        '--priority',
+        'critical',
+        '--depends-waiver',
+        updateReason,
+        '--acceptance',
+        'approved criterion|verified audit|fresh read',
+        '--reason',
+        'Owner approved correction',
         '--output',
         'silent',
       ]);
       expect(updated.status, updated.stderr || updated.stdout).toBe(0);
-      const reread = runCli(['show', 'T002', '--field', '/data/task/noAutoComplete']);
-      expect(reread.status, reread.stderr || reread.stdout).toBe(0);
-      expect(reread.stdout.trim()).toBe(String(noAutoComplete));
-    }
-    const creationReason = 'Independent critical incident repair';
-    const created = runCli([
-      'add',
-      '--title',
-      'Waiver provenance fixture',
-      '--description',
-      'Synthetic task with durable critical-priority authorization',
-      '--type',
-      'task',
-      '--parent',
-      'T002',
-      '--priority',
-      'critical',
-      '--depends-waiver',
-      creationReason,
-      '--acceptance',
-      'original criterion|verified audit|fresh read',
-      '--files',
-      'src/repair.ts',
-    ]);
-    expect(created.status, created.stderr || created.stdout).toBe(0);
-    expect(JSON.parse(runCli(['show', 'T003', '--field', '/data/task/files']).stdout)).toEqual([
-      'src/repair.ts',
-    ]);
-    const creationAudit = runCli(['log', '--task', 'T003', '--operation', 'task_created']);
-    expect(creationAudit.status, creationAudit.stderr || creationAudit.stdout).toBe(0);
-    expect(JSON.parse(creationAudit.stdout).data.entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          taskId: 'T003',
-          details: expect.objectContaining({ dependsWaiver: creationReason }),
-        }),
-      ]),
-    );
-    const updateReason = 'Critical scope independently verified';
-    const updated = runCli([
-      'update',
-      'T003',
-      '--priority',
-      'critical',
-      '--depends-waiver',
-      updateReason,
-      '--acceptance',
-      'approved criterion|verified audit|fresh read',
-      '--reason',
-      'Owner approved correction',
-      '--output',
-      'silent',
-    ]);
-    expect(updated.status, updated.stderr || updated.stdout).toBe(0);
-    const updateAudit = runCli(['log', '--task', 'T003', '--operation', 'task_updated']);
-    expect(updateAudit.status, updateAudit.stderr || updateAudit.stdout).toBe(0);
-    expect(JSON.parse(updateAudit.stdout).data.entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          taskId: 'T003',
-          details: expect.objectContaining({
-            dependsWaiver: updateReason,
-            reason: 'Owner approved correction',
+      const updateAudit = runCli(['log', '--task', taskId, '--operation', 'task_updated']);
+      expect(updateAudit.status, updateAudit.stderr || updateAudit.stdout).toBe(0);
+      expect(JSON.parse(updateAudit.stdout).data.entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            taskId,
+            details: expect.objectContaining({
+              dependsWaiver: updateReason,
+              reason: 'Owner approved correction',
+            }),
           }),
-        }),
-      ]),
-    );
-  }, 60_000);
+        ]),
+      );
+    }, 60_000);
+  });
 });

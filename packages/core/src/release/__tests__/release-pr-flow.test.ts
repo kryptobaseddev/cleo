@@ -32,6 +32,16 @@ vi.mock('../github-pr.js', () => ({
   formatManualPRInstructions: vi.fn().mockReturnValue('manual instructions'),
 }));
 
+// Config and metrics belong to the explicit synthetic root supplied by each test.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 let TEST_ROOT: string;
 let CLEO_DIR: string;
 
