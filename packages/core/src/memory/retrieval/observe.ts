@@ -310,7 +310,20 @@ export async function observeBrain(
     memoryTier,
   });
 
-  const id = `O-${Date.now().toString(36)}-${(observeSeq++ % 1000).toString(36)}`;
+  // A durable document proposal has one observation identity across lost replies,
+  // process restarts and lease epochs. No mutable attempt or clock enters the key.
+  const id = execution?.writeFence
+    ? `O-doc-${createHash('sha256')
+        .update(
+          JSON.stringify([
+            execution.identity.projectId,
+            execution.identity.operation,
+            execution.identity.idempotencyKey,
+            execution.writeFence.proposalHash,
+          ]),
+        )
+        .digest('hex')}`
+    : `O-${Date.now().toString(36)}-${(observeSeq++ % 1000).toString(36)}`;
   const accessor = await getBrainAccessor(projectRoot);
   execution?.assertActive();
 
@@ -340,6 +353,13 @@ export async function observeBrain(
       ...(origin != null ? { origin } : {}),
       ...(provenanceChain && provenanceChain.length > 0
         ? { provenanceChain: JSON.stringify(provenanceChain) }
+        : {}),
+      ...(execution?.writeFence
+        ? {
+            attachmentsJson: attachmentRefs?.length ? JSON.stringify(attachmentRefs) : null,
+            origin: origin ?? null,
+            provenanceChain: provenanceChain?.length ? JSON.stringify(provenanceChain) : null,
+          }
         : {}),
     },
     execution,
