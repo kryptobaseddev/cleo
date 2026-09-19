@@ -194,6 +194,8 @@ function stubDownstreamHappy(): void {
 let tmpDir = '';
 
 beforeEach(async () => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   vi.clearAllMocks();
   stubDownstreamHappy();
   // Clear override env vars between tests
@@ -214,6 +216,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   delete process.env['CLEO_OWNER_OVERRIDE'];
   delete process.env['CLEO_OWNER_OVERRIDE_REASON'];
   delete process.env['CLEO_AGENT_ROLE'];
