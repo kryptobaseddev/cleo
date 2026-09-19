@@ -9,6 +9,7 @@ vi.mock('@cleocode/caamp', () => import('../../packages/caamp/src/core/artifacts
 
 import { checkCleoTarball } from '../../packages/cleo/scripts/check-cleo-tarball-size.mjs';
 import { assertCleoTarball } from '../assert-cleo-tarball.mjs';
+import { packedEnvironment, runPackedCommand } from '../packed-install-smoke.mjs';
 
 const required = [
   'dist/cli/index.js',
@@ -27,6 +28,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -111,5 +113,39 @@ describe('real npm inventory through release wrappers', () => {
     manifest([]);
     expect(() => assertCleoTarball(root)).toThrow('nonempty array');
     expect(() => checkCleoTarball(root)).toThrow('nonempty array');
+  });
+});
+
+describe('packed operational execution', () => {
+  it('rejects a failed child even when it prints a plausible version', () => {
+    expect(() =>
+      runPackedCommand(process.execPath, [
+        '-e',
+        "process.stdout.write('2026.9.8'); process.exit(7)",
+      ]),
+    ).toThrow();
+    expect(runPackedCommand(process.execPath, ['-e', "process.stdout.write('fixture')"])).toBe(
+      'fixture',
+    );
+  });
+  it('does not inherit credentials, preloads, or host runtime aliases', () => {
+    vi.stubEnv('OPENAI_API_KEY', 'synthetic-must-not-copy');
+    vi.stubEnv('NODE_OPTIONS', '--import=/host/guard.mjs');
+    vi.stubEnv('CLEO_DIR', '/host/project/.cleo');
+    vi.stubEnv('TMPDIR', '/host/tmp');
+    const env = packedEnvironment(root);
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.NODE_OPTIONS).toBe('--max-old-space-size=2048');
+    expect(env.CLEO_DIR).toBe(join(root, 'project/.cleo'));
+    expect(env.TMPDIR).toBe(join(root, 'tmp'));
+    for (const key of [
+      'HOME',
+      'XDG_DATA_HOME',
+      'NEXUS_HOME',
+      'CLAUDE_CONFIG_DIR',
+      'CODEX_HOME',
+      'KIMI_HOME',
+    ])
+      expect(env[key].startsWith(root + '/')).toBe(true);
   });
 });
