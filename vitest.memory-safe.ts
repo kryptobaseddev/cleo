@@ -36,6 +36,7 @@
  */
 
 import { cpus, totalmem } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 /** Bytes per GiB. */
 const GB = 1024 ** 3;
@@ -92,6 +93,9 @@ export const MEMORY_SAFE_MAX_WORKERS = Math.max(
  * @task T12087
  */
 export const MEMORY_SAFE_TEST_DEFAULTS = {
+  // Every project spreads these defaults. An absolute setup path also works
+  // for direct package runs and does not depend on workspace inheritance.
+  setupFiles: [fileURLToPath(new URL('./vitest.setup.ts', import.meta.url))],
   pool: 'forks',
   isolate: true,
   maxWorkers: MEMORY_SAFE_MAX_WORKERS,

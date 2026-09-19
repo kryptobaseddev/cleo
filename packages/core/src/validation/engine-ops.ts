@@ -15,7 +15,7 @@
 import { randomUUID } from 'node:crypto';
 import type {
   EvidenceAtom,
-  GateEvidence,
+  EvidenceValidationContext,
   TaskVerification,
   VerificationGate,
 } from '@cleocode/contracts';
@@ -29,6 +29,7 @@ import {
   checkCallsiteCoverageAtom,
   checkEngineMigrationLocDrop,
   checkGateEvidenceMinimumDetailed,
+  checkTaskEvidenceContext,
   composeGateEvidence,
   DECISION_ONLY_INAPPLICABLE_GATES,
   isDecisionOnlyImplementation,
@@ -487,6 +488,11 @@ export async function validateGateVerify(
     } else if (isWriteRequiringEvidence) {
       // Determine target gates.
       const targets: VerificationGate[] = all ? configGates : [gate as VerificationGate];
+      const evidenceContext: EvidenceValidationContext = {
+        task,
+        gates: targets,
+        criteria: await accessor.getAcRows(taskId),
+      };
 
       if (!all && !VALID_GATES.includes(gate as VerificationGate)) {
         return engineError(
@@ -530,8 +536,13 @@ export async function validateGateVerify(
           const siblingCommitSha = parsed.atoms.find(
             (a): a is Extract<ParsedAtom, { kind: 'commit' }> => a.kind === 'commit',
           )?.sha;
-          for (const atom of parsed.atoms) {
-            const check = await validateAtom(atom, projectRoot, taskId, siblingCommitSha);
+          for (const atom of parsed.atoms.toSorted(
+            (a, b) => Number(b.kind === 'pr') - Number(a.kind === 'pr'),
+          )) {
+            const check = await validateAtom(atom, projectRoot, taskId, siblingCommitSha, {
+              ...evidenceContext,
+              artifactCommitSha: overrideAtoms.find((atom) => atom.kind === 'pr')?.mergeCommitSha,
+            });
             if (!check.ok) {
               return engineError(check.codeName, check.reason);
             }
@@ -604,9 +615,14 @@ export async function validateGateVerify(
         const siblingCommitSha = parsed.atoms.find(
           (a): a is Extract<ParsedAtom, { kind: 'commit' }> => a.kind === 'commit',
         )?.sha;
-        for (const atom of parsed.atoms) {
+        for (const atom of parsed.atoms.toSorted(
+          (a, b) => Number(b.kind === 'pr') - Number(a.kind === 'pr'),
+        )) {
           // T9178: pass taskId for branch-scope commit validation
-          const check = await validateAtom(atom, projectRoot, taskId, siblingCommitSha);
+          const check = await validateAtom(atom, projectRoot, taskId, siblingCommitSha, {
+            ...evidenceContext,
+            artifactCommitSha: validatedAtoms.find((atom) => atom.kind === 'pr')?.mergeCommitSha,
+          });
           if (!check.ok) {
             return engineError(check.codeName, check.reason);
           }
@@ -662,16 +678,21 @@ export async function validateGateVerify(
       }
 
       evidenceStored.push(...validatedAtoms);
-      const evidence: GateEvidence = composeGateEvidence(
-        validatedAtoms,
-        agentId,
-        override.override || undefined,
-        override.override ? override.reason : undefined,
-      );
-
       for (const targetGate of targets) {
+        const contextualFailure =
+          override.override && targetGate !== 'implemented' && targetGate !== 'testsPassed'
+            ? null
+            : checkTaskEvidenceContext(evidenceContext, targetGate, validatedAtoms);
+        if (contextualFailure) return engineError('E_EVIDENCE_CONTENT_MISMATCH', contextualFailure);
         verification.gates[targetGate] = true;
-        verification.evidence![targetGate] = evidence;
+        verification.evidence![targetGate] = composeGateEvidence(
+          validatedAtoms,
+          agentId,
+          override.override || undefined,
+          override.override ? override.reason : undefined,
+          evidenceContext,
+          targetGate,
+        );
       }
 
       verification.lastAgent = agent as never;

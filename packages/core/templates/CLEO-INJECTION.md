@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.6.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.8.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## MANDATORY: Run `cleo briefing` BEFORE Any Other Tool
@@ -17,7 +17,12 @@ The ONLY canonical sources of session state are:
 - `cleo briefing` — structured handoff + next tasks + BRAIN context
 - `cleo focus <id>` — **primary orient surface** — single call replacing 8: identity, scope, blockers, ready wave, docs, git activity, brain context (≤ 1 500 tokens)
 - `cleo memory find "<query>"` — BRAIN memory lookup
-- `cleo show <taskId> --full` — individual task detail. **Use `--full`.** Bare `cleo show` returns an MVI projection that WITHHOLDS `description` and `verification`; withheld fields are named in `_withheld` (field → size), and a record with no `_withheld` key is complete.
+- `cleo show <taskId> --full` — individual task detail. **Use `--full`.** Bare `cleo show` returns an MVI projection that WITHHOLDS `description` and `verification`; withheld fields are named in `_withheld` (field → UTF-8 content bytes; structured values use JSON bytes), and a record with no `_withheld` key is complete.
+
+Projection markers include omitted empty/null fields and survive repeated projection.
+Budgeting preserves coverage, diagnostic failures, authority corrections and pending
+repair facts before examples. A budget too small for mandatory facts fails explicitly;
+request narrower scope or more budget. Never treat this failure as clean coverage.
 
 If you find yourself reading a markdown file for orientation, STOP. Run `cleo briefing`.
 
@@ -325,7 +330,9 @@ Every gate takes `cleo verify T### --gate <gate> --evidence "<atoms>"`:
 | `securityPassed` | `tool:security-scan` |
 | `cleanupDone` | `note:removed dead branches` |
 
-A retroactive `pr:<number>` atom (PR MERGED + CI green) satisfies `implemented` + `testsPassed` + `qaPassed` at once — record it against each of the three.
+A merged PR and green CI provide provenance. For `implemented`, pair `pr:<number>` with `files:<changed-paths>`; CLEO checks task linkage, complete changed-file coverage, and the actual merge commit's bytes. Documentation-only PRs cannot implement a code-fix task. Documentation and research tasks may use appropriate documentary artifacts.
+
+When a task has canonical acceptance criteria, name the criteria proved by each implementation, test, or review result using existing syntax such as `satisfies:T1234#AC1`. Example: `cleo verify T1234 --gate implemented --evidence "pr:42;files:src/fix.ts;satisfies:T1234#AC1"`. Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links. The receipt retains criterion hashes, artifact paths, and result references; changed criteria require fresh evidence. A valid child completion leaves any parent with unproven criteria open, and a child waiver does not waive parent criteria.
 
 ### 2. Then complete
 
@@ -346,7 +353,7 @@ cleo memory observe "..." --title "..."
 ```bash
 CLEO_OWNER_OVERRIDE=1 \
 CLEO_OWNER_OVERRIDE_REASON="incident 1234 hotfix" \
-  cleo verify T### --all --evidence "note:owner-approved"
+  cleo verify T### --gate cleanupDone --evidence "note:owner-approved"
 ```
 
 All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
@@ -357,7 +364,9 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ### `pr:<number>` retroactive atom (T9764)
 
-Accepts IFF PR `state=MERGED` AND required-workflow checks are `SUCCESS`/`SKIPPED`. Single atom satisfies `implemented` + `testsPassed` + `qaPassed` simultaneously (T9838). Cache under `.cleo/cache/evidence/pr-<num>.json`. **`pr:` is INERT in a repo with no required workflows (gh#1224).** If the project has no `.github/workflows/` — or branch protection lists no required checks — every `pr:` atom is refused with "required gates were not found on this PR", because the checks it looks for never ran. This is exactly the situation in which an agent reaches for `pr:`, so check before you rely on it. Either declare the real check names in `.cleo/project-context.json` → `release.prRequiredWorkflows` (an explicit empty array `[]` means "this repo requires none", and then a MERGED PR alone satisfies the atom), or use `CLEO_PR_REQUIRED_WORKFLOWS`. With neither set, CLEO falls back to a built-in list of ITS OWN gate names (`CI`, `Lockfile Check`, `Contracts Dep Lint`) which will not match your project. In a CI-less repo the honest path is `commit:<sha>;note:<why>` for `implemented` plus `tool:test` / `tool:lint` for the rest.
+`pr:` records merge provenance, not task completion by itself. CLEO verifies actual `mergeCommit` identity, task relationship and changed files; incomplete file inventories or unavailable merge artifacts remain unverified. Fetch the actual merge commit before recording its `files:` evidence. Task `files` declarations must intersect the PR diff; prose path mentions do not establish scope. Explicit research/spike work and declared documentation scope retain documentary evidence paths.
+
+Required check names come from explicit configuration or the target repository's protection rules. An explicit `release.prRequiredWorkflows: []` declares that no checks are required; it does not prove testing or review. Cache under `.cleo/cache/evidence/pr-<num>.json` stores merge provenance and changed-file inventory; obsolete cache versions are rejected. Use `tool:test` or `test-run:<json>` for testing and appropriate QA tools for review, each linked to the criteria it actually verifies.
 
 ### Anti-patterns to avoid
 

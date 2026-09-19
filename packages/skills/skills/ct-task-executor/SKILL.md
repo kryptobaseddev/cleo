@@ -1,7 +1,11 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.1.0
+version: 2.2.0
+metadata:
+  version: 2.2.0
+  lastReviewed: 2026-09-19
+  stability: stable
 tier: 2
 core: true
 category: core
@@ -167,6 +171,9 @@ Write to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`:
 {{Description of what was created/modified}}
 
 ## Acceptance Criteria Verification
+
+Record each criterion's changed artifacts and actual verification results. A merged PR with green CI provides provenance; it cannot automatically satisfy implementation, testing and review. Use `pr:<number>;files:<changed-path>` for implementation and actual result atoms for test/review gates, with explicit `satisfies:T1234#AC1` links for canonical criteria. The PR must relate to the task; documentation-only changes cannot prove a code fix. Research and documentation tasks may use appropriately scoped documentary evidence. Fetch the merge commit before claiming its artifact bytes were inspected. Criterion edits require fresh evidence. A completed child does not establish that its parent's independent criteria were met.
+
 
 | Criterion | Status | Notes |
 |-----------|--------|-------|

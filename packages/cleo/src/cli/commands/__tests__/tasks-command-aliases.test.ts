@@ -8,6 +8,7 @@
  * @task T1472
  */
 
+import { parseArgs } from 'citty';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { addCommand } from '../add.js';
 import { listCommand } from '../list.js';
@@ -175,6 +176,40 @@ describe('task CLI command alias normalization (T1472)', () => {
         notes: 'canonical notes',
         taskId: 'T202',
       }),
+      { command: 'update' },
+    );
+  });
+
+  it.each([
+    ['--no-auto-complete', true],
+    ['--auto-complete', false],
+  ] as const)('parses %s into the durable noAutoComplete field', async (flag, expected) => {
+    const rawArgs = ['T200', flag];
+    const args = parseArgs(rawArgs, updateCommand.args);
+    const run = updateCommand.run;
+    if (!run) throw new Error('updateCommand.run is missing');
+    await run({ args, rawArgs });
+
+    expect(mocks.dispatchFromCli).toHaveBeenCalledWith(
+      'mutate',
+      'tasks',
+      'update',
+      { taskId: 'T200', noAutoComplete: expected },
+      { command: 'update' },
+    );
+  });
+
+  it('leaves auto-complete unchanged when neither flag is supplied', async () => {
+    const rawArgs = ['T200', '--title', 'Renamed task'];
+    const args = parseArgs(rawArgs, updateCommand.args);
+    const run = updateCommand.run;
+    if (!run) throw new Error('updateCommand.run is missing');
+    await run({ args, rawArgs });
+    expect(mocks.dispatchFromCli).toHaveBeenCalledWith(
+      'mutate',
+      'tasks',
+      'update',
+      { taskId: 'T200', title: 'Renamed task' },
       { command: 'update' },
     );
   });

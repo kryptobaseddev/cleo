@@ -62,6 +62,17 @@ function createBudgetExceededError(estimated: number, budget: number): LAFSError
 }
 
 /**
+ * Measure the UTF-8 content bytes disclosed for an omitted field.
+ * Strings use their content bytes; structured values use serialized JSON bytes.
+ * @param value - Original field value.
+ * @returns UTF-8 byte count, or zero for an undefined value.
+ */
+export function projectionFieldBytes<T>(value: T): number {
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return text === undefined ? 0 : new TextEncoder().encode(text).byteLength;
+}
+
+/**
  * Truncate a result to fit within a token budget.
  *
  * @param result - The result payload (object, array, or `null`)
@@ -78,6 +89,7 @@ function truncateResult(
   result: Record<string, unknown> | Record<string, unknown>[] | null,
   targetTokens: number,
   estimator: TokenEstimator,
+  requiredFields: readonly string[],
 ): { result: Record<string, unknown> | Record<string, unknown>[] | null; wasTruncated: boolean } {
   if (result === null) {
     return { result: null, wasTruncated: false };
@@ -90,21 +102,17 @@ function truncateResult(
     return { result, wasTruncated: false };
   }
 
-  // Calculate target size (conservative: assume 10% overhead)
-  const targetChars = Math.floor(targetTokens * 4 * 0.9);
-
   if (Array.isArray(result)) {
-    return truncateArray(result, targetChars, targetTokens, estimator);
+    return truncateArray(result, targetTokens, estimator);
   }
 
-  return truncateObject(result, targetChars, targetTokens, estimator);
+  return truncateObject(result, targetTokens, estimator, requiredFields);
 }
 
 /**
  * Truncate an array to fit within a token budget.
  *
  * @param arr - Array of result objects
- * @param targetChars - Target character count (used for sizing heuristic)
  * @param targetTokens - Target token budget
  * @param estimator - Token estimator instance
  * @returns Object containing the truncated array and a flag indicating if truncation occurred
@@ -116,7 +124,6 @@ function truncateResult(
  */
 function truncateArray(
   arr: Record<string, unknown>[],
-  targetChars: number,
   targetTokens: number,
   estimator: TokenEstimator,
 ): { result: Record<string, unknown>[]; wasTruncated: boolean } {
@@ -124,62 +131,38 @@ function truncateArray(
     return { result: arr, wasTruncated: false };
   }
 
-  // Binary search to find how many items fit
+  const withDisclosure = (count: number): Record<string, unknown>[] => {
+    if (count === 0)
+      return [{ _truncated: true, remainingItems: arr.length, reason: 'budget_exceeded' }];
+    const subset = arr.slice(0, count);
+    subset[count - 1] = {
+      ...subset[count - 1],
+      _truncated: true,
+      remainingItems: arr.length - count,
+    };
+    return subset;
+  };
+  // Include disclosure in every estimate; appending it afterward can exceed
+  // the budget even when a smaller honest subset would fit.
   let left = 0;
-  let right = arr.length;
-  let bestFit = 0;
-
+  let right = arr.length - 1;
+  let bestFit = -1;
   while (left <= right) {
     const mid = Math.floor((left + right) / 2);
-    const subset = arr.slice(0, mid);
-    const estimate = estimator.estimate(subset);
-
-    if (estimate <= targetTokens) {
+    if (estimator.estimate(withDisclosure(mid)) <= targetTokens) {
       bestFit = mid;
       left = mid + 1;
-    } else {
-      right = mid - 1;
-    }
+    } else right = mid - 1;
   }
-
-  // If we can fit all items, no truncation needed
-  if (bestFit >= arr.length) {
-    return { result: arr, wasTruncated: false };
-  }
-
-  // Create truncated result
-  const truncated = arr.slice(0, bestFit);
-
-  // If we couldn't fit any items, return minimal response
-  if (bestFit === 0 && arr.length > 0) {
-    return {
-      result: [{ _truncated: true, reason: 'budget_exceeded' }],
-      wasTruncated: true,
-    };
-  }
-
-  // Add truncation indicator to last element if it's an object
-  if (
-    bestFit > 0 &&
-    typeof truncated[bestFit - 1] === 'object' &&
-    truncated[bestFit - 1] !== null
-  ) {
-    const lastItem = truncated[bestFit - 1] as Record<string, unknown>;
-    truncated[bestFit - 1] = {
-      ...lastItem,
-      _truncated: true,
-      remainingItems: arr.length - bestFit,
-    };
-  }
-
-  return { result: truncated, wasTruncated: true };
+  return bestFit < 0
+    ? { result: arr, wasTruncated: false }
+    : { result: withDisclosure(bestFit), wasTruncated: true };
 }
 
 /**
  * Truncate an object to fit within a token budget.
  *
  * @param obj - Object to truncate
- * @param targetChars - Target character count (used for sizing heuristic)
  * @param targetTokens - Target token budget
  * @param estimator - Token estimator instance
  * @returns Object containing the truncated object and a flag indicating if truncation occurred
@@ -191,63 +174,48 @@ function truncateArray(
  */
 function truncateObject(
   obj: Record<string, unknown>,
-  targetChars: number,
   targetTokens: number,
   estimator: TokenEstimator,
+  requiredFields: readonly string[],
 ): { result: Record<string, unknown>; wasTruncated: boolean } {
-  const keys = Object.keys(obj);
-
-  if (keys.length === 0) {
-    return { result: obj, wasTruncated: false };
-  }
-
-  // Try to fit as many top-level properties as possible
-  let left = 0;
-  let right = keys.length;
-  let bestFit = 0;
-
-  while (left <= right) {
-    const mid = Math.floor((left + right) / 2);
-    const subsetKeys = keys.slice(0, mid);
-    const subset: Record<string, unknown> = {};
-    for (const key of subsetKeys) {
-      subset[key] = obj[key];
-    }
-    const estimate = estimator.estimate(subset);
-
-    if (estimate <= targetTokens) {
-      bestFit = mid;
-      left = mid + 1;
-    } else {
-      right = mid - 1;
+  const mandatory = new Set([
+    'id',
+    '_withheld',
+    '_truncated',
+    '_truncatedFields',
+    'remainingItems',
+    ...requiredFields,
+  ]);
+  const candidate = { ...obj };
+  const withheld: Record<string, number> = {};
+  const previous = obj['_withheld'];
+  if (previous && typeof previous === 'object' && !Array.isArray(previous)) {
+    for (const [key, size] of Object.entries(previous)) {
+      if (typeof size === 'number') withheld[key] = size;
     }
   }
-
-  // If we can fit all properties, no truncation needed
-  if (bestFit >= keys.length) {
-    return { result: obj, wasTruncated: false };
-  }
-
-  // Create truncated result
-  const subsetKeys = keys.slice(0, bestFit);
-  const truncated: Record<string, unknown> = {};
-  for (const key of subsetKeys) {
-    truncated[key] = obj[key];
-  }
-
-  // If we couldn't fit any properties, return minimal response
-  if (bestFit === 0) {
-    return {
-      result: { _truncated: true, reason: 'budget_exceeded' },
-      wasTruncated: true,
+  const droppable = Object.keys(obj).filter((key) => !mandatory.has(key));
+  const omitted = Array.isArray(obj['_truncatedFields'])
+    ? obj['_truncatedFields'].filter((field): field is string => typeof field === 'string')
+    : [];
+  for (const key of droppable.reverse()) {
+    withheld[key] = projectionFieldBytes(obj[key]);
+    delete candidate[key];
+    omitted.push(key);
+    const marked = {
+      ...candidate,
+      _withheld: { ...withheld },
+      _truncated: true,
+      _truncatedFields: [...omitted],
     };
+    if (estimator.estimate(marked) <= targetTokens) {
+      return { result: marked, wasTruncated: true };
+    }
   }
-
-  // Add truncation metadata
-  truncated._truncated = true;
-  truncated._truncatedFields = keys.slice(bestFit);
-
-  return { result: truncated, wasTruncated: true };
+  // Never emit a successful record that loses mandatory facts or disclosure.
+  // Keeping the original over-budget result makes the caller return its
+  // established E_MVI_BUDGET_EXCEEDED envelope.
+  return { result: obj, wasTruncated: false };
 }
 
 /**
@@ -318,7 +286,12 @@ export function applyBudgetEnforcement(
 
   // If truncation is enabled, try to truncate
   if (truncateOnExceed) {
-    const { result } = truncateResult(envelope.result, budget, estimator);
+    const { result } = truncateResult(
+      envelope.result,
+      budget,
+      estimator,
+      options.requiredFields ?? [],
+    );
     const truncatedEstimate = estimator.estimate(result);
 
     if (truncatedEstimate <= budget) {

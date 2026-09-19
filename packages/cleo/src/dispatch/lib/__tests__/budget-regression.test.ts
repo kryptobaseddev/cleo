@@ -10,7 +10,13 @@
  * @epic T11394 E7-LAFS-CANONICAL
  */
 
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { ExitCode } from '@cleocode/contracts';
+import type { DispatchRequest, DispatchResponse } from '@cleocode/contracts/gateway';
 import { describe, expect, it } from 'vitest';
+import { createBudgetEnforcement } from '../../middleware/budget-enforcement.js';
 import { BUDGET_EXCEEDED_CODE, enforceBudget, isWithinBudget } from '../budget.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -18,6 +24,28 @@ import { BUDGET_EXCEEDED_CODE, enforceBudget, isWithinBudget } from '../budget.j
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('budget chokepoint — import contract regression (T11424)', () => {
+  it('resolves the production core leaf with Node package exports, without source aliases', () => {
+    const source = readFileSync(new URL('../budget.ts', import.meta.url), 'utf8');
+    const specifier = source.match(/from '(@cleocode\/core\/[^']+)'/)?.[1];
+    if (!specifier) throw new Error('Budget bridge must import its core projection leaf');
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        'process.stdout.write(import.meta.resolve(process.argv[1]))',
+        specifier,
+      ],
+      {
+        cwd: fileURLToPath(new URL('../../../../', import.meta.url)),
+        encoding: 'utf8',
+        timeout: 10_000,
+      },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/\/core\/dist\/dispatch\/mvi-projection\.js$/);
+  });
+
   it('BUDGET_EXCEEDED_CODE is a non-empty string (resolves from @cleocode/lafs)', () => {
     expect(typeof BUDGET_EXCEEDED_CODE).toBe('string');
     expect(BUDGET_EXCEEDED_CODE.length).toBeGreaterThan(0);
@@ -79,5 +107,87 @@ describe('budget chokepoint — focus ≤ 1500 token enforcement (T11285)', () =
     const be = meta['_budgetEnforcement'] as Record<string, unknown>;
     expect(typeof be['estimatedTokens']).toBe('number');
     expect(be['budget']).toBe(1500);
+  });
+});
+
+describe('knowledge truth survives the budget middleware T12199', () => {
+  function request(budget: number): DispatchRequest {
+    return {
+      gateway: 'query',
+      domain: 'focus',
+      operation: 'show',
+      source: 'cli',
+      requestId: 'truth-budget',
+      params: { _budget: budget },
+    };
+  }
+  function response(): DispatchResponse {
+    return {
+      success: true,
+      meta: {
+        gateway: 'query',
+        domain: 'focus',
+        operation: 'show',
+        source: 'cli',
+        requestId: 'truth-budget',
+        timestamp: '2026-09-19T00:00:00Z',
+        duration_ms: 1,
+      },
+      data: {
+        identity: { id: 'T136' },
+        scope: { taskId: 'T136' },
+        examples: 'é😀'.repeat(3000),
+        coverage: {
+          status: 'failed',
+          projectId: 'axiom',
+          assessedRevision: null,
+          indexedRevision: null,
+          assessedAt: '2026-09-19T00:00:00Z',
+          reasons: ['Git unavailable'],
+          evidence: [],
+          limitations: ['Static callers cannot prove runtime completeness'],
+        },
+        knowledgeHealth: {
+          findingCount: 2,
+          findingStates: { pending: 2 },
+          detailsCommand: 'cleo doctor knowledge',
+        },
+        sourceDiagnostics: {
+          git: { status: 'failed', reasons: ['No included repository'], evidence: [] },
+        },
+      },
+    };
+  }
+  it('removes examples before current coverage, failure counts and pending repair facts', async () => {
+    const source = response();
+    const output = await createBudgetEnforcement()(request(240), async () => source);
+    expect(output.success).toBe(true);
+    expect(output.data).toMatchObject({
+      identity: { id: 'T136' },
+      scope: { taskId: 'T136' },
+      coverage: {
+        status: 'failed',
+        projectId: 'axiom',
+        reasons: ['Git unavailable'],
+        limitations: ['Static callers cannot prove runtime completeness'],
+      },
+      knowledgeHealth: {
+        findingCount: 2,
+        findingStates: { pending: 2 },
+        detailsCommand: 'cleo doctor knowledge',
+      },
+      sourceDiagnostics: { git: { status: 'failed', reasons: ['No included repository'] } },
+      _withheld: { examples: 18000 },
+    });
+    expect(output.data).not.toHaveProperty('examples');
+  });
+  it.each([0, 1])('rejects budget %s when mandatory truth cannot fit', async (budget) => {
+    const output = await createBudgetEnforcement()(request(budget), async () => response());
+    expect(output.success).toBe(false);
+    expect(output.error).toMatchObject({
+      code: BUDGET_EXCEEDED_CODE,
+      exitCode: ExitCode.VALIDATION_ERROR,
+    });
+    expect(output.data).toBeNull();
   });
 });

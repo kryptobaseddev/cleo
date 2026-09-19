@@ -19,7 +19,7 @@
  * @epic T4454
  */
 
-import { ExitCode, TASK_SEVERITIES } from '@cleocode/contracts';
+import { ExitCode, TASK_SEVERITIES, type TaskRecord } from '@cleocode/contracts';
 import {
   appendSignedSeverityAttestation,
   INPUT_CONTRACTS,
@@ -30,7 +30,12 @@ import {
   validateOperationInput,
 } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli, dispatchRaw, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
+import {
+  dispatchFromCli,
+  dispatchRaw,
+  handleRawError,
+  maybeEmitDescribe,
+} from '../../dispatch/adapters/cli.js';
 import { collectMutateInput } from '../lib/collect-input.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -174,9 +179,10 @@ export const updateCommand = defineCommand({
       type: 'string',
       description: 'Alias for --parent (legacy parentId compatibility)',
     },
-    'no-auto-complete': {
+    'auto-complete': {
       type: 'boolean',
-      description: 'Disable auto-complete for epic',
+      description: 'Enable auto-complete for epic',
+      negativeDescription: 'Disable auto-complete for epic',
     },
     'pipeline-stage': {
       type: 'string',
@@ -235,7 +241,7 @@ export const updateCommand = defineCommand({
      * Critical-priority tasks without declared dependencies silently break
      * wave-order spawning when downstream work assumes they are load-bearing.
      * Provide a justification string to waive the `--depends` requirement.
-     * The waiver is stored in task metadata for auditability.
+     * The waiver is stored in the task update audit log in the mutation transaction.
      *
      * @task T1856
      * @epic T1855
@@ -243,7 +249,7 @@ export const updateCommand = defineCommand({
     'depends-waiver': {
       type: 'string',
       description:
-        'Justification (string) to waive the "--depends required for critical priority" check. Only consulted when the task is being promoted to --priority critical AND no existing or new --depends are declared. Stored verbatim in task metadata as audit trail; ignored for non-critical updates. (gh-405 / T1856)',
+        'Non-empty justification to waive the dependency requirement for --priority critical. Stored verbatim in the transactional task update audit log. Rejected for non-critical updates. (gh-405 / T1856)',
     },
     /**
      * Related tasks — semantic relationships (non-dependency).
@@ -428,9 +434,11 @@ export const updateCommand = defineCommand({
       const showResponse = await dispatchRaw('query', 'tasks', 'show', {
         taskId: args.taskId,
       });
-      const existingTask = showResponse.success
-        ? (showResponse.data as Record<string, unknown> | undefined)
-        : undefined;
+      if (!showResponse.success) {
+        handleRawError(showResponse, { command: 'update', operation: 'tasks.show' });
+        return;
+      }
+      const existingTask = showResponse.data as TaskRecord | undefined;
       const currentStage =
         typeof existingTask?.['pipelineStage'] === 'string'
           ? (existingTask['pipelineStage'] as string)
@@ -503,7 +511,8 @@ export const updateCommand = defineCommand({
     if (args['clear-blocked-by'] === true) params['clearBlockedBy'] = true;
     if (args.parent !== undefined) params['parent'] = args.parent;
     if (args['parent-id'] !== undefined) params['parent'] = params['parent'] ?? args['parent-id'];
-    if (args['no-auto-complete'] === true) params['noAutoComplete'] = true;
+    // citty strips --no- and sets the positive boolean to false.
+    if (args['auto-complete'] !== undefined) params['noAutoComplete'] = !args['auto-complete'];
     if (args['pipeline-stage'] !== undefined) params['pipelineStage'] = args['pipeline-stage'];
     // T944/T9072: --kind is canonical
     if (args.kind !== undefined) params['kind'] = args.kind;
@@ -528,10 +537,12 @@ export const updateCommand = defineCommand({
       const showResponse = await dispatchRaw('query', 'tasks', 'show', {
         taskId: args.taskId,
       });
-      const existingTask = showResponse.success
-        ? (showResponse.data as Record<string, unknown> | undefined)
-        : undefined;
-      const existingDepends = existingTask?.['depends'] as unknown[] | undefined;
+      if (!showResponse.success) {
+        handleRawError(showResponse, { command: 'update', operation: 'tasks.show' });
+        return;
+      }
+      const existingTask = showResponse.data as TaskRecord | undefined;
+      const existingDepends = existingTask?.depends;
       const hasDependencies = Array.isArray(existingDepends) && existingDepends.length > 0;
 
       if (!hasDependencies) {
