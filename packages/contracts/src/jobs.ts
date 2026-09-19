@@ -66,6 +66,16 @@ export interface BackgroundJobLease {
   readonly expiresAt: number;
 }
 
+/** Immutable authority reference, revalidated against the job row inside each domain write transaction. */
+export interface BackgroundJobWriteFence {
+  /** Actual database file containing both the job row and guarded domain resources. */
+  readonly dbPath: string;
+  /** Authentic proposal digest; the executor must separately verify domain preconditions. */
+  readonly proposalHash: string;
+  /** Attempt ownership; copying this grant never substitutes for checking persisted state. */
+  readonly lease: BackgroundJobLease;
+}
+
 /** Configuration for a client of the existing durable job store. */
 export interface BackgroundJobStoreOptions {
   /** Explicit project scope; absent on legacy unscoped clients. */
@@ -129,6 +139,8 @@ export interface OperationResourceUsage {
 
 /** Inputs for one operation lifetime; nested stages receive the same context. */
 export interface OperationExecutionOptions {
+  /** Optional immutable job authority to revalidate at domain transaction boundaries. */
+  readonly writeFence?: BackgroundJobWriteFence;
   /** Shared foreground budget; defaults to two seconds and may be zero. */
   readonly budgetMs?: number;
   /** Earlier absolute deadline inherited from an enclosing invocation. */
@@ -141,6 +153,8 @@ export interface OperationExecutionOptions {
 
 /** Structured-cloneable execution scope for an already admitted worker stage. */
 export interface OperationExecutionTransfer {
+  /** Origin-issued job fence; receivers must validate it against their actual database. */
+  readonly writeFence?: BackgroundJobWriteFence;
   /** Captured routing and provenance; receiving realms must not resolve it again. */
   readonly identity: OperationExecutionIdentity;
   /** Original absolute deadline, never a new worker budget. */
@@ -170,6 +184,8 @@ export type OperationExecutionStopCode =
  * repair or preempt arbitrary callbacks, synchronous SQLite, CPU work or processes.
  */
 export interface OperationExecutionContext {
+  /** Optional job fence for domain writes; this value alone does not confer authority. */
+  readonly writeFence?: BackgroundJobWriteFence;
   /** Frozen routing/provenance captured at operation acceptance. */
   readonly identity: OperationExecutionIdentity;
   /** One absolute deadline; stages must not create replacement budgets. */
