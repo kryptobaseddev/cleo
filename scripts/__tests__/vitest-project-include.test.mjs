@@ -245,6 +245,23 @@ describe('test runtime store isolation (T9579)', () => {
     }
   });
 
+  it('allows only the exact sandbox for global SQLite while rejecting an outside host-like path', async () => {
+    const { openNativeDatabase } = await import('../../packages/core/src/store/sqlite-native.ts');
+    const outside = mkdtempSync(join(dirname(process.env.CLEO_HOME), 'cleo-outside-fork-'));
+    const allowed = join(process.env.CLEO_HOME, 'isolation-guard-probe.db');
+    try {
+      expect(process.env.CLEO_TEST_ALLOWED_DB_ROOTS).toBe(process.env.CLEO_HOME);
+      expect(() => openNativeDatabase(join(outside, 'host.db'))).toThrow('test isolation guard');
+      expect(existsSync(join(outside, 'host.db'))).toBe(false);
+      const db = openNativeDatabase(allowed);
+      db.close();
+      expect(existsSync(allowed)).toBe(true);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+      for (const suffix of ['', '-wal', '-shm']) rmSync(`${allowed}${suffix}`, { force: true });
+    }
+  });
+
   it('delivers an absolute setup path through the shared defaults', async () => {
     const { MEMORY_SAFE_TEST_DEFAULTS } = await import('../../vitest.memory-safe.ts');
     expect(MEMORY_SAFE_TEST_DEFAULTS.setupFiles).toEqual([join(repoRoot, 'vitest.setup.ts')]);
