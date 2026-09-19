@@ -55,6 +55,8 @@ const ENV_KEYS = [
   'CLEO_HOME',
   'HOME',
   'CLEO_DIR',
+  // Resolve the supplied projectRoot fixture instead of the default project pin.
+  'CLEO_ROOT',
 ];
 
 function saveEnv(): void {
