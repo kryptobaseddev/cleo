@@ -116,7 +116,8 @@ export async function readPublishedPackages(root = REPO_ROOT) {
  * @param {string} pkg - Short package name (e.g. "core").
  * @param {string} ver - Full version string (e.g. "2026.9.2").
  * @param {typeof fetch} [fetchImpl] - Injected for tests.
- * @returns {Promise<{ state: 'ok' | 'pending' | 'mismatch'; detail?: string }>}
+ * @returns {Promise<{ state: 'ok' | 'pending' | 'mismatch'; detail?: string;
+ *   tarball?: string; fileCount?: number; unpackedSize?: number }>}
  */
 export async function checkMetadata(pkg, ver, fetchImpl = fetch) {
   const url = `${REGISTRY}/@cleocode/${encodeURIComponent(pkg)}/${encodeURIComponent(ver)}`;
@@ -130,7 +131,7 @@ export async function checkMetadata(pkg, ver, fetchImpl = fetch) {
   if (res.status === 404) return { state: 'pending', detail: 'metadata 404' };
   if (!res.ok) return { state: 'pending', detail: `metadata HTTP ${res.status}` };
 
-  /** @type {{ version?: string }} */
+  /** @type {{ version?: string; dist?: { tarball?: string; fileCount?: number; unpackedSize?: number } }} */
   let body;
   try {
     body = await res.json();
@@ -143,7 +144,65 @@ export async function checkMetadata(pkg, ver, fetchImpl = fetch) {
       detail: `registry served version "${body.version}", expected "${ver}"`,
     };
   }
-  return { state: 'ok' };
+  // Carry `dist` forward. The tarball URL is RESOLVED here rather than
+  // reconstructed by convention downstream, and fileCount/unpackedSize come
+  // free — the size numbers this pipeline previously had to be told by hand.
+  return {
+    state: 'ok',
+    ...(body.dist?.tarball ? { tarball: body.dist.tarball } : {}),
+    ...(typeof body.dist?.fileCount === 'number' ? { fileCount: body.dist.fileCount } : {}),
+    ...(typeof body.dist?.unpackedSize === 'number'
+      ? { unpackedSize: body.dist.unpackedSize }
+      : {}),
+  };
+}
+
+/**
+ * Ask whether the dist-tag resolves to this version.
+ *
+ * `npm i -g @cleocode/cleo` — how every consumer installs — resolves through
+ * the packument's `dist-tags`, a THIRD document that propagates independently
+ * of the per-version metadata doc and of the tarball. Nothing checked it
+ * before, so the pipeline's strongest signal could be fully green while the
+ * command users actually type still resolved to the previous version.
+ *
+ * A stale tag is `pending`, NEVER `mismatch`: immediately after publish the tag
+ * legitimately lags, and on a `--tag beta` release `latest` is *supposed* to
+ * stay behind. Only `checkMetadata` can prove a wrong version, because only it
+ * is addressed by version.
+ *
+ * Uses the dedicated dist-tags endpoint (47 bytes) rather than the abbreviated
+ * packument (~553 KB for `cleo`) because this is on the poll path.
+ *
+ * @param {string} pkg - Short package name.
+ * @param {string} ver - Full version string.
+ * @param {string} distTag - The tag this release publishes under.
+ * @param {typeof fetch} [fetchImpl] - Injected for tests.
+ * @returns {Promise<{ state: 'ok' | 'pending'; detail?: string }>}
+ */
+export async function checkDistTag(pkg, ver, distTag, fetchImpl = fetch) {
+  const url = `${REGISTRY}/-/package/@cleocode%2f${encodeURIComponent(pkg)}/dist-tags`;
+  let res;
+  try {
+    res = await fetchImpl(url, { headers: { accept: 'application/json' } });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { state: 'pending', detail: `dist-tags unreachable: ${msg}` };
+  }
+  if (!res.ok) return { state: 'pending', detail: `dist-tags HTTP ${res.status}` };
+
+  /** @type {Record<string, string>} */
+  let tags;
+  try {
+    tags = await res.json();
+  } catch {
+    return { state: 'pending', detail: 'dist-tags body not JSON' };
+  }
+  if (tags[distTag] === ver) return { state: 'ok' };
+  return {
+    state: 'pending',
+    detail: `dist-tag "${distTag}" resolves to "${tags[distTag] ?? '(absent)'}", not "${ver}"`,
+  };
 }
 
 /**
@@ -155,11 +214,23 @@ export async function checkMetadata(pkg, ver, fetchImpl = fetch) {
  * @param {string} pkg - Short package name.
  * @param {string} ver - Full version string.
  * @param {typeof fetch} [fetchImpl] - Injected for tests.
+ * @param {string} [tarballUrl] - `dist.tarball` as RESOLVED by checkMetadata.
+ *   When absent the conventional URL is reconstructed and a warning is emitted:
+ *   the docblock above claims this is the URL npm resolves to, and a guess is
+ *   not a resolution. The convention also already depends on a hand-maintained
+ *   directory/name mapping (`packages/cleo-git-shim` -> `@cleocode/git-shim`).
  * @returns {Promise<{ state: 'ok' | 'pending'; detail?: string }>}
  */
-export async function checkTarball(pkg, ver, fetchImpl = fetch) {
+export async function checkTarball(pkg, ver, fetchImpl = fetch, tarballUrl) {
   const p = encodeURIComponent(pkg);
-  const url = `${REGISTRY}/@cleocode/${p}/-/${p}-${encodeURIComponent(ver)}.tgz`;
+  let url = tarballUrl;
+  if (!url) {
+    url = `${REGISTRY}/@cleocode/${p}/-/${p}-${encodeURIComponent(ver)}.tgz`;
+    console.warn(
+      `::warning::@cleocode/${pkg}@${ver}: metadata carried no dist.tarball; ` +
+        'falling back to the conventional URL.',
+    );
+  }
   try {
     const res = await fetchImpl(url, { method: 'HEAD' });
     if (res.ok) return { state: 'ok' };
@@ -171,18 +242,40 @@ export async function checkTarball(pkg, ver, fetchImpl = fetch) {
 }
 
 /**
- * Resolve one package to a terminal state: metadata must be present AND at the
- * expected version, and the tarball must be fetchable.
+ * Resolve one package to a terminal state across three rungs, in order:
+ *
+ *   1. `metadata`  — the per-version document exists and names this version.
+ *   2. `tarball`   — the bytes an install downloads are fetchable.
+ *   3. `dist-tag`  — `npm i @cleocode/<pkg>` (no version) resolves here.
+ *
+ * Each rung is a DIFFERENT document on npm's side and they propagate
+ * independently, so the rung a package stalls at is diagnostic and is recorded.
  *
  * @param {string} pkg - Short package name.
  * @param {string} ver - Full version string.
  * @param {typeof fetch} [fetchImpl] - Injected for tests.
- * @returns {Promise<{ state: 'ok' | 'pending' | 'mismatch'; detail?: string }>}
+ * @param {string} [distTag] - When given, rung 3 is checked.
+ * @returns {Promise<{ state: 'ok' | 'pending' | 'mismatch'; detail?: string;
+ *   rung?: string; fileCount?: number; unpackedSize?: number }>}
  */
-export async function checkPackage(pkg, ver, fetchImpl = fetch) {
+export async function checkPackage(pkg, ver, fetchImpl = fetch, distTag) {
   const meta = await checkMetadata(pkg, ver, fetchImpl);
-  if (meta.state !== 'ok') return meta;
-  return await checkTarball(pkg, ver, fetchImpl);
+  if (meta.state !== 'ok') return { ...meta, rung: 'metadata' };
+
+  const tar = await checkTarball(pkg, ver, fetchImpl, meta.tarball);
+  if (tar.state !== 'ok') return { ...tar, rung: 'tarball' };
+
+  if (distTag) {
+    const tag = await checkDistTag(pkg, ver, distTag, fetchImpl);
+    if (tag.state !== 'ok') return { ...tag, rung: 'dist-tag' };
+  }
+
+  return {
+    state: 'ok',
+    rung: 'installable',
+    ...(typeof meta.fileCount === 'number' ? { fileCount: meta.fileCount } : {}),
+    ...(typeof meta.unpackedSize === 'number' ? { unpackedSize: meta.unpackedSize } : {}),
+  };
 }
 
 /**
@@ -205,16 +298,17 @@ export async function verifyAll(packages, ver, opts = {}) {
     fetchImpl = fetch,
     log = () => {},
     sleepImpl = sleep,
+    distTag = undefined,
   } = opts;
 
-  /** @type {Map<string, { state: string; detail?: string; elapsedMs: number }>} */
+  /** @type {Map<string, { state: string; detail?: string; elapsedMs: number; rung?: string; fileCount?: number; unpackedSize?: number }>} */
   const settled = new Map();
   const started = Date.now();
   let pending = [...packages];
 
   while (pending.length > 0) {
     const results = await Promise.all(
-      pending.map(async (pkg) => ({ pkg, ...(await checkPackage(pkg, ver, fetchImpl)) })),
+      pending.map(async (pkg) => ({ pkg, ...(await checkPackage(pkg, ver, fetchImpl, distTag)) })),
     );
 
     /** @type {string[]} */
@@ -226,7 +320,14 @@ export async function verifyAll(packages, ver, opts = {}) {
       }
       // ok and mismatch are both terminal — a wrong version never becomes right.
       const elapsedMs = Date.now() - started;
-      settled.set(r.pkg, { state: r.state, detail: r.detail, elapsedMs });
+      settled.set(r.pkg, {
+        state: r.state,
+        detail: r.detail,
+        elapsedMs,
+        rung: r.rung,
+        fileCount: r.fileCount,
+        unpackedSize: r.unpackedSize,
+      });
       const secs = Math.round(elapsedMs / 1000);
       log(
         r.state === 'ok'
@@ -241,11 +342,12 @@ export async function verifyAll(packages, ver, opts = {}) {
     const elapsed = Date.now() - started;
     if (elapsed >= timeoutMs) {
       for (const pkg of pending) {
-        const last = await checkPackage(pkg, ver, fetchImpl);
+        const last = await checkPackage(pkg, ver, fetchImpl, distTag);
         settled.set(pkg, {
           state: 'timeout',
           detail: last.detail ?? 'still not installable at deadline',
           elapsedMs: elapsed,
+          rung: last.rung,
         });
         log(`  [FAIL] @cleocode/${pkg}@${ver}  ${last.detail ?? 'not installable'}`);
       }
@@ -265,6 +367,13 @@ export async function verifyAll(packages, ver, opts = {}) {
       ok: s?.state === 'ok',
       ...(s && s.state !== 'ok' ? { reason: s.detail } : {}),
       elapsedMs: s?.elapsedMs ?? 0,
+      ...(s?.rung ? { rung: s.rung } : {}),
+      ...(typeof s?.fileCount === 'number' ? { fileCount: s.fileCount } : {}),
+      ...(typeof s?.unpackedSize === 'number' ? { unpackedSize: s.unpackedSize } : {}),
+      // `mismatch` is a DEFECT (a wrong version never becomes right); `timeout`
+      // is PENDING (it may still arrive). The old shape collapsed both into
+      // `ok: false` and the caller could not tell them apart.
+      ...(s?.state === 'mismatch' ? { defect: true } : {}),
     };
   });
 }
@@ -279,13 +388,15 @@ export async function verifyAll(packages, ver, opts = {}) {
  * @returns {{ version: string; outputDir: string }}
  */
 export function parseArgs(argv) {
-  const result = { version: '', outputDir: '/tmp/postdeploy-artifacts' };
+  const result = { version: '', outputDir: '/tmp/postdeploy-artifacts', distTag: '' };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--version' && argv[i + 1]) {
       result.version = argv[++i];
     } else if (arg === '--output-dir' && argv[i + 1]) {
       result.outputDir = argv[++i];
+    } else if (arg === '--dist-tag' && argv[i + 1]) {
+      result.distTag = argv[++i];
     }
   }
   return result;
@@ -296,10 +407,18 @@ export function parseArgs(argv) {
  * @returns {Promise<number>} Process exit code.
  */
 export async function main() {
-  const { version, outputDir } = parseArgs(process.argv.slice(2));
+  const { version, outputDir, distTag } = parseArgs(process.argv.slice(2));
   if (!version) {
     console.error('ERROR: --version <VERSION> is required');
     return 1;
+  }
+  // Required, and deliberately NOT re-derived from the version string. The
+  // release job already owns that derivation; a second copy here is how this
+  // job previously came to disagree with the one that did the publishing.
+  if (!distTag) {
+    console.error('ERROR: --dist-tag <latest|beta|dev> is required');
+    console.error('Pass needs.release.outputs.dist_tag — do not re-derive it from the version.');
+    return 2;
   }
 
   const timeoutMs = Number(process.env.POSTDEPLOY_TIMEOUT_MS ?? 900_000);
@@ -339,6 +458,7 @@ export async function main() {
   const verifyResults = await verifyAll(packages, version, {
     timeoutMs,
     intervalMs,
+    distTag,
     log: (m) => console.log(m),
   });
 
@@ -359,19 +479,38 @@ export async function main() {
   }
 
   console.log('\nStep 2: Writing deployment summary artifact...');
+
+  // THE VERDICT. Three states, not two — `pending` and `defect` are different
+  // facts that previously shared one exit code and one `ok: false`:
+  //   installable — every package cleared all three rungs.
+  //   defect      — at least one package is WRONG (served another version).
+  //                 A wrong version never becomes right; do not wait for it.
+  //   pending     — published and accepted, not yet resolvable. May still land.
+  const defects = failures.filter((f) => f.defect === true);
+  const pendingPackages = failures.filter((f) => f.defect !== true).map((f) => f.pkg);
+  const verdict = defects.length > 0 ? 'defect' : failures.length > 0 ? 'pending' : 'installable';
+
   const summary = {
     version,
+    distTag,
+    verdict,
+    pendingPackages,
     timestamp: new Date().toISOString(),
     registry: REGISTRY,
-    verifiedBy: 'tarball HEAD + per-version metadata (gh#1377)',
+    verifiedBy: 'per-version metadata + resolved dist.tarball HEAD + dist-tag (gh#1377, gh#1474)',
     budgetMs: timeoutMs,
-    packages: verifyResults.map(({ pkg, ok, reason, elapsedMs }) => ({
-      name: `@cleocode/${pkg}`,
-      version,
-      verified: ok,
-      convergedAfterMs: elapsedMs,
-      ...(reason ? { reason } : {}),
-    })),
+    packages: verifyResults.map(
+      ({ pkg, ok, reason, elapsedMs, rung, fileCount, unpackedSize }) => ({
+        name: `@cleocode/${pkg}`,
+        version,
+        verified: ok,
+        convergedAfterMs: elapsedMs,
+        ...(rung ? { rung } : {}),
+        ...(typeof fileCount === 'number' ? { fileCount } : {}),
+        ...(typeof unpackedSize === 'number' ? { unpackedSize } : {}),
+        ...(reason ? { reason } : {}),
+      }),
+    ),
     stats: {
       total: packages.length,
       verified: passed.length,
@@ -386,7 +525,7 @@ export async function main() {
   console.log(`  Summary written to: ${summaryPath}`);
 
   console.log('\nStep 3: Post-deploy smoke...');
-  const verdict = failures.length === 0 ? 'PASS' : 'FAIL';
+  const smokeVerdict = failures.length === 0 ? 'PASS' : 'FAIL';
   const smokePath = path.join(outputDir, `smoke-${version}.txt`);
   await writeFile(
     smokePath,
@@ -399,7 +538,7 @@ export async function main() {
       '',
       // The old version wrote "PASS" here unconditionally, above the failure
       // check — so the artifact of a failing run still read PASS.
-      `${verdict}: execute-payload complete`,
+      `${smokeVerdict}: execute-payload complete`,
     ].join('\n'),
     'utf8',
   );

@@ -1,0 +1,68 @@
+name: Release Installability Watch
+
+# Answers "is this version installable NOW?" — the question a release run
+# structurally cannot answer (gh#1474, gh#1478).
+#
+# A run conclusion is stamped once and never revised, while @cleocode/cleo has
+# taken 4m55s, 55m11s and 2h55m09s to become installable across three
+# consecutive releases. Two of those exceed any workable job cap, so no poll
+# budget inside the release workflow can cover it — raising
+# POSTDEPLOY_TIMEOUT_MS just burns a runner for hours and still times out.
+#
+# This watcher is cheap by construction: with no open tracking issues it exits
+# in about ten seconds, which is what happens on almost every tick. It never
+# polls in-process — the cron tick IS the poll interval, and the script applies
+# an escalating per-issue cadence on top (every tick for the first hour, then
+# every ~30 min, then hourly).
+
+on:
+  schedule:
+    # Offset off :00/:30 to avoid the top-of-hour scheduling crush, matching
+    # the convention used by ci-phantom-cancel-watchdog.
+    - cron: '3-59/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to check right now (e.g. 2026.9.8). Omit to sweep all open trackers.'
+        required: false
+      dist_tag:
+        description: 'latest / beta / dev'
+        required: false
+        default: 'latest'
+      dry_run:
+        description: 'Report only — do not edit, comment on, or close any issue.'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: release-installability-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: watch open installability trackers
+    runs-on: ubuntu-latest
+    # One verification pass plus at most a few issue edits. Never a poll loop —
+    # if this job is running long, something is wrong with the script, not with
+    # npm.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # No `pnpm install`: the script and its one import are dependency-free by
+      # design, so this workflow cannot be broken by a lockfile change.
+      - name: Watch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WATCH_VERSION: ${{ github.event.inputs.version }}
+          WATCH_DIST_TAG: ${{ github.event.inputs.dist_tag }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: node scripts/release-installability-watch.mjs
