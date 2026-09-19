@@ -38,7 +38,8 @@ export function rowToTask(row: TaskRow): Task {
     description: row.description ?? '',
     labels: safeParseJsonArray(row.labelsJson),
     notes: safeParseJsonArray(row.notesJson),
-    acceptance: safeParseJsonArray(row.acceptanceJson),
+    // An explicit clear is a canonical empty array, not an omitted mutation.
+    acceptance: safeParseJson<Task['acceptance']>(row.acceptanceJson),
     files: safeParseJsonArray(row.filesJson),
     depends: undefined, // Populated separately from task_dependencies
     origin: (row.origin as Task['origin']) ?? undefined,

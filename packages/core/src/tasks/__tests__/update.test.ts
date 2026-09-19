@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Task, TasksUpdateQueryParams } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -187,6 +188,79 @@ describe('updateTask', () => {
       (await readFile(join(env.tempDir, '.cleo/audit/ac-changes.jsonl'), 'utf8')).trim(),
     );
     expect(attempt.status).toBe('authorization-attempt');
+  });
+
+  it('compares canonical criteria before immutability and stores literal arrays', async () => {
+    const expected = ['literal a|b', "mode: 'a'|'b'"];
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Canonical criteria',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'implementation',
+        acceptance: expected,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await updateTask(
+      { taskId: 'T001', acceptance: [' literal a|b ', '', " mode: 'a'|'b' ", '  '] },
+      env.tempDir,
+      accessor,
+    );
+    expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual(expected);
+    expect((await accessor.getAcRows('T001')).map((row) => row.text)).toEqual(expected);
+  });
+
+  it.each(['[]', '["  ", ""]'])('keeps explicit empty input as an AC clear: %s', async (raw) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Clear criteria fixture',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'research',
+        acceptance: ['original'],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await updateTask({ taskId: 'T001', acceptance: JSON.parse(raw) }, env.tempDir, accessor);
+    expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual([]);
+    expect(await accessor.getAcRows('T001')).toEqual([]);
+  });
+
+  it.each([
+    '["valid", 3]',
+    '["valid", null]',
+    '["valid", false]',
+    '["valid", {}]',
+    '["valid", []]',
+  ])('rejects invalid update criteria without saving other fields or partial rows: %s', async (raw) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Preserved title',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'research',
+        acceptance: ['original'],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const before = await accessor.loadSingleTask('T001');
+    const rows = await accessor.getAcRows('T001');
+    await expect(
+      updateTask(
+        { taskId: 'T001', title: 'Must not persist', acceptance: JSON.parse(raw) },
+        env.tempDir,
+        accessor,
+      ),
+    ).rejects.toMatchObject({ code: ExitCode.VALIDATION_ERROR });
+    expect(await accessor.loadSingleTask('T001')).toEqual(before);
+    expect(await accessor.getAcRows('T001')).toEqual(rows);
+    expect(await accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] })).toEqual(
+      [],
+    );
   });
 
   it('retains committed override provenance when the advisory filesystem audit cannot be written', async () => {
