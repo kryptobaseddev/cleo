@@ -255,3 +255,170 @@ describe('new edge types accept inserts', () => {
     }
   });
 });
+
+describe('scoped document graph projection', () => {
+  async function contextForRoot(signal?: AbortSignal) {
+    const { createOperationExecutionContext } = await import('../../store/background-ops.js');
+    return createOperationExecutionContext(
+      {
+        projectId: 'captured-project',
+        projectRoot: tempDir,
+        actor: 'fixture',
+        operation: 'docs.graph',
+        idempotencyKey: 'fixture-projection',
+      },
+      { signal, budgetMs: 10000 },
+    );
+  }
+
+  it('pins writes to captured A even when CLEO_DIR changes to B during config reads', async () => {
+    const registry = await import('../../config/registry.js');
+    const original = registry.resolveCleoConfig;
+    const otherDir = join(tempDir, 'other', '.cleo');
+    const spy = vi.spyOn(registry, 'resolveCleoConfig').mockImplementation(async (options) => {
+      const result = await original(options);
+      process.env['CLEO_DIR'] = otherDir;
+      return result;
+    });
+    const { ensureLlmtxtNodeScoped } = await import('../graph-auto-populate.js');
+    const { getBrainDb } = await import('../../store/memory-sqlite.js');
+    const { brainPageNodes, brainPageEdges } = await import('../../store/schema/memory-schema.js');
+    const { access } = await import('node:fs/promises');
+    const context = await contextForRoot();
+    try {
+      expect(await ensureLlmtxtNodeScoped(context, 'scoped-a', 'task:T945', 'A document')).toEqual({
+        status: 'completed',
+        projectId: 'captured-project',
+        projectRoot: tempDir,
+      });
+      process.env['CLEO_DIR'] = cleoDir;
+      const db = await getBrainDb(tempDir);
+      expect((await db.select().from(brainPageNodes)).map((row) => row.id)).toContain(
+        'llmtxt:scoped-a',
+      );
+      expect((await db.select().from(brainPageEdges)).map((row) => row.toId)).toContain(
+        'llmtxt:scoped-a',
+      );
+      await expect(access(otherDir)).rejects.toThrow();
+    } finally {
+      context.close();
+      spy.mockRestore();
+    }
+  });
+
+  it('reports disabled policy explicitly and rejects malformed policy', async () => {
+    const { ensureLlmtxtNodeScoped } = await import('../graph-auto-populate.js');
+    const context = await contextForRoot();
+    try {
+      await writeFile(
+        join(cleoDir, 'config.json'),
+        JSON.stringify({ brain: { autoCapture: false } }),
+      );
+      expect(
+        (await ensureLlmtxtNodeScoped(context, 'disabled', 'task:T945', 'Disabled')).status,
+      ).toBe('disabled');
+      await writeFile(join(cleoDir, 'config.json'), '{bad JSON');
+      await expect(ensureLlmtxtNodeScoped(context, 'bad', 'task:T945', 'Bad')).rejects.toThrow();
+      await writeFile(
+        join(cleoDir, 'config.json'),
+        JSON.stringify({ brain: { autoCapture: 'true' } }),
+      );
+      await expect(ensureLlmtxtNodeScoped(context, 'bad', 'task:T945', 'Bad')).rejects.toThrow(
+        'Invalid brain.autoCapture',
+      );
+    } finally {
+      context.close();
+    }
+  });
+
+  it('rejects cancellation after handle acquisition before any graph write', async () => {
+    const storage = await import('../../store/memory-sqlite.js');
+    const original = storage.getBrainDb;
+    const controller = new AbortController();
+    const context = await contextForRoot(controller.signal);
+    const spy = vi.spyOn(storage, 'getBrainDb').mockImplementation(async (root) => {
+      const db = await original(root);
+      controller.abort();
+      return db;
+    });
+    const { ensureLlmtxtNodeScoped } = await import('../graph-auto-populate.js');
+    const { brainPageNodes } = await import('../../store/schema/memory-schema.js');
+    try {
+      await expect(
+        ensureLlmtxtNodeScoped(context, 'cancelled', 'task:T945', 'Cancelled'),
+      ).rejects.toThrow();
+      expect(await (await original(tempDir)).select().from(brainPageNodes)).toHaveLength(0);
+    } finally {
+      context.close();
+      spy.mockRestore();
+    }
+  });
+
+  it('does not join an unrelated native transaction or falsely report committed projection', async () => {
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    await getBrainDb(tempDir);
+    const native = getBrainNativeDb(tempDir)!;
+    const { ensureLlmtxtNodeScoped } = await import('../graph-auto-populate.js');
+    const context = await contextForRoot();
+    native.exec('BEGIN');
+    try {
+      await expect(
+        ensureLlmtxtNodeScoped(context, 'unowned', 'task:T945', 'Unowned'),
+      ).rejects.toThrow();
+      expect(native.prepare('SELECT COUNT(*) AS n FROM brain_page_nodes').get()?.n).toBe(0);
+      native.exec('ROLLBACK');
+    } finally {
+      context.close();
+    }
+  });
+
+  it('surfaces an edge-write fault and resumes its committed node idempotently', async () => {
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    await getBrainDb(tempDir);
+    const native = getBrainNativeDb(tempDir)!;
+    const { ensureLlmtxtNodeScoped } = await import('../graph-auto-populate.js');
+    const { execFileSync } = await import('node:child_process');
+    const context = await contextForRoot();
+    native.exec(
+      "CREATE TRIGGER fail_projection BEFORE INSERT ON brain_page_edges BEGIN SELECT RAISE(ABORT, 'projection edge fault'); END",
+    );
+    try {
+      await expect(
+        ensureLlmtxtNodeScoped(context, 'resumable', 'task:T945', 'Resumable'),
+      ).rejects.toThrow();
+      const read = () =>
+        JSON.parse(
+          execFileSync(
+            process.execPath,
+            [
+              '--input-type=module',
+              '-e',
+              "import { DatabaseSync } from 'node:sqlite'; const db = new DatabaseSync(process.argv[1], { readOnly: true }); process.stdout.write(JSON.stringify([db.prepare('SELECT id FROM brain_page_nodes').all(), db.prepare('SELECT to_id FROM brain_page_edges').all()])); db.close();",
+              join(cleoDir, 'cleo.db'),
+            ],
+            { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] },
+          ),
+        );
+      expect(read()).toEqual([[{ id: 'llmtxt:resumable' }], []]);
+      native.exec('DROP TRIGGER fail_projection');
+      expect(
+        (await ensureLlmtxtNodeScoped(context, 'resumable', 'task:T945', 'Resumable')).status,
+      ).toBe('completed');
+      expect(read()).toEqual([[{ id: 'llmtxt:resumable' }], [{ to_id: 'llmtxt:resumable' }]]);
+    } finally {
+      context.close();
+    }
+  });
+
+  it('refuses escaped closed context before opening a handle', async () => {
+    const storage = await import('../../store/memory-sqlite.js');
+    const spy = vi.spyOn(storage, 'getBrainDb');
+    const { ensureLlmtxtNodeScoped } = await import('../graph-auto-populate.js');
+    const context = await contextForRoot();
+    context.close();
+    await expect(
+      ensureLlmtxtNodeScoped(context, 'closed', 'task:T945', 'Closed'),
+    ).rejects.toThrow();
+    expect(spy).not.toHaveBeenCalled();
+  });
+});

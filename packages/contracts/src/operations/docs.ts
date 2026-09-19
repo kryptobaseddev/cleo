@@ -32,6 +32,8 @@
 
 import type { AttachmentKind } from '../attachment.js';
 import { BUILTIN_DOC_KIND_VALUES, type BuiltinDocKind } from '../docs-taxonomy.js';
+import type { BackgroundJobStatus, OperationExecutionIdentity } from '../jobs.js';
+import type { DocAttachmentObservationPayload } from '../memory/observe.js';
 
 // ============================================================================
 // Shared Attachment Types (API wire format)
@@ -462,6 +464,62 @@ export interface DocsAddParams {
    * @saga T9855
    */
   strict?: boolean;
+}
+
+/** Canonical attachment and owner whose optional projections may be prepared. */
+export interface DocsProjectionSource {
+  /** Canonical attachment identity, never synthesized from a missing record. */
+  readonly attachmentId: string;
+  /** Expected canonical SHA-256; a changed source refuses preparation. */
+  readonly sha256: string;
+  /** Exact existing owner reference. */
+  readonly ownerId: string;
+  /** Kind of the referenced owner. */
+  readonly ownerType: AttachmentOwnerType;
+  /** Human-readable graph label captured before asynchronous work. */
+  readonly label: string;
+}
+
+/** Authentic domain inputs stored before any optional document projection executes. */
+export interface DocsProjectionProposal {
+  /** Version of the supported deterministic proposal shape. */
+  readonly version: 1;
+  /** Exact domain operation, independent of the caller's foreground operation. */
+  readonly operation: 'docs.projection';
+  /** Captured project, root and actor provenance. */
+  readonly identity: OperationExecutionIdentity;
+  /** Verified canonical source and owner. */
+  readonly source: DocsProjectionSource;
+  /** Sourced observation payload; preparation does not call a model. */
+  readonly observation: DocAttachmentObservationPayload;
+}
+
+/** Durable preparation result; does not assert that optional projections completed. */
+export interface DocsProjectionPreparation {
+  /** Existing durable job identity for explicit inspection and later execution. */
+  jobId: string;
+  /** Hash of the exact persisted proposal JSON bytes. */
+  proposalHash: string;
+  /** Owning project identity captured before asynchronous work. */
+  projectId: string;
+  /** Captured root used for canonical validation and pending storage. */
+  projectRoot: string;
+  /** Observed persisted lifecycle; preparation never schedules an executor. */
+  jobStatus: BackgroundJobStatus;
+  /** Absolute caller deadline, shared rather than reset by this stage. */
+  deadlineAt: number;
+  /** True if synchronous persistence returned after its admission deadline. */
+  deadlineExceeded: boolean;
+}
+
+/** Successful or policy-disabled optional graph projection of a canonical document. */
+export interface DocsGraphProjectionResult {
+  /** Explicit policy outcome; failures are not represented as successful completion. */
+  status: 'completed' | 'disabled';
+  /** Captured project identity owning the graph. */
+  projectId: string;
+  /** Captured absolute repository root used for all graph writes. */
+  projectRoot: string;
 }
 
 /**
