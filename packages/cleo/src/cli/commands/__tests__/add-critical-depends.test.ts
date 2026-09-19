@@ -1,203 +1,111 @@
-/**
- * Tests for T1856: mandatory --depends (or --depends-waiver) for critical-priority tasks.
- *
- * Guardrail #1 from T1855: `cleo add --priority critical` without a declared
- * dependency silently breaks wave-order spawning when downstream work assumes
- * the critical task is load-bearing. This guard enforces a dependency declaration
- * or an explicit waiver at the CLI layer, before dispatch.
- *
- * Coverage:
- *  1. Rejection: --priority critical without --depends or --depends-waiver → E_VALIDATION exit 6
- *  2. Normal: --priority critical with --depends → dispatches successfully
- *  3. Waiver: --priority critical with --depends-waiver → dispatches with waiver in params
- *
- * Tests mock the dispatcher layer so no real SQLite database is touched.
- *
- * @task T1856
- * @epic T1855
- */
-
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-// ---------------------------------------------------------------------------
-// Mock dispatch and renderer before importing the command under test
-// ---------------------------------------------------------------------------
-
-const mockDispatchRaw = vi.fn();
-const mockHandleRawError = vi.fn();
-const mockCliError = vi.fn();
-const mockCliOutput = vi.fn();
-
-vi.mock('../../../dispatch/adapters/cli.js', () => ({
-  dispatchRaw: (...args: unknown[]) => mockDispatchRaw(...args),
-  maybeEmitDescribe: () => false,
-  handleRawError: (...args: unknown[]) => mockHandleRawError(...args),
-}));
-
-vi.mock('../../renderers/index.js', () => ({
-  cliError: (...args: unknown[]) => mockCliError(...args),
-  cliOutput: (...args: unknown[]) => mockCliOutput(...args),
-}));
-
-// Mock Core inference — add.ts delegates to inferTaskAddParams (T1490)
-const mockInferTaskAddParams = vi.fn();
-vi.mock('@cleocode/core', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@cleocode/core')>();
-  return {
-    ...original,
-    inferTaskAddParams: (...args: unknown[]) => mockInferTaskAddParams(...args),
-  };
-});
-
-// ---------------------------------------------------------------------------
-// Import command after mocks are registered
-// ---------------------------------------------------------------------------
-
+/** CLI flags and params reach canonical task policy through the real dispatcher. */
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { runCommand } from 'citty';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from '../../../../../core/src/store/__tests__/test-db-helper.js';
+import { resetCliDispatcher } from '../../../dispatch/adapters/cli.js';
 import { addCommand } from '../add.js';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+vi.mock('../../renderers/index.js', async (original) => ({
+  ...(await original<typeof import('../../renderers/index.js')>()),
+  cliOutput: vi.fn(),
+  cliError: vi.fn(),
+  humanInfo: vi.fn(),
+  humanWarn: vi.fn(),
+}));
 
-/** Default inferTaskAddParams result — no inference, no files */
-const noInference = { inferredParent: undefined, files: undefined, acceptance: undefined };
+let env: TestDbEnv;
+beforeEach(async () => {
+  env = await createTestDb();
+  vi.stubEnv('CLEO_DIR', env.cleoDir);
+  vi.stubEnv('CLEO_PROJECT_ROOT', env.tempDir);
+  vi.stubEnv('CLEO_ROOT', env.tempDir);
+  vi.stubEnv('CLEO_IDENTITY_SEED', 'ab'.repeat(32));
+  // Existing grade mode awaits dispatch audit writes before fixture teardown.
+  vi.stubEnv('CLEO_SESSION_GRADE', 'true');
+  resetCliDispatcher();
+  vi.spyOn(process, 'exit').mockImplementation((code) => {
+    throw new Error(`process.exit(${code})`);
+  });
+});
+afterEach(async () => {
+  resetCliDispatcher();
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  await env.cleanup();
+});
 
-/** Invoke addCommand.run with the given args (title is required). */
-async function invokeAdd(title: string, extraArgs: Record<string, unknown> = {}): Promise<void> {
-  const runFn = addCommand.run as (ctx: {
-    args: Record<string, unknown>;
-    rawArgs: string[];
-  }) => Promise<void>;
-  await runFn({ args: { title, ...extraArgs }, rawArgs: [] });
-}
+const fixture = {
+  title: 'CLI control fixture',
+  description: 'Verify real dispatch policy',
+  type: 'saga',
+  priority: 'critical',
+};
+const flags = [
+  '--title',
+  fixture.title,
+  '--description',
+  fixture.description,
+  '--type',
+  fixture.type,
+  '--priority',
+  fixture.priority,
+];
 
-/** Build a standard success response for dispatchRaw. */
-function successResponse(id = 'T001'): Record<string, unknown> {
-  return {
-    success: true,
-    data: { id, title: 'Critical task' },
-    _meta: {
-      gateway: 'mutate',
-      domain: 'tasks',
-      operation: 'add',
-      timestamp: new Date().toISOString(),
-      duration_ms: 0,
-      source: 'cli',
-      requestId: 'r-test',
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-describe('cleo add --priority critical dependency guard (T1856)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockInferTaskAddParams.mockResolvedValue(noInference);
-    mockDispatchRaw.mockResolvedValue(successResponse());
-    // Prevent process.exit from killing the test runner
-    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null | undefined) => {
-      throw new Error(`process.exit(${_code})`);
-    });
+describe('canonical creation policy from CLI inputs', () => {
+  it.each([
+    'flags',
+    'params',
+  ] as const)('rejects critical creation with no prerequisites through %s', async (form) => {
+    const rawArgs = form === 'flags' ? flags : ['--params', JSON.stringify(fixture)];
+    await expect(runCommand(addCommand, { rawArgs })).rejects.toThrow('process.exit(6)');
+    expect((await env.accessor.queryTasks({})).tasks).toEqual([]);
+    expect(await env.accessor.queryAuditLog({ actions: ['task_created'] })).toEqual([]);
   });
 
-  // -------------------------------------------------------------------------
-  // 1. Rejection path
-  // -------------------------------------------------------------------------
+  it.each(['flags', 'params'] as const)('persists an explicit waiver through %s', async (form) => {
+    const reason = 'Independent critical recovery';
+    const rawArgs =
+      form === 'flags'
+        ? [...flags, '--depends-waiver', reason]
+        : ['--params', JSON.stringify({ ...fixture, dependsWaiver: reason })];
+    await runCommand(addCommand, { rawArgs });
+    expect((await env.accessor.queryTasks({})).tasks[0]?.priority).toBe('critical');
+    const entries = await env.accessor.queryAuditLog({ actions: ['task_created'] });
+    expect(entries).toHaveLength(1);
+    expect(JSON.parse(entries[0]!.detailsJson!)).toMatchObject({ dependsWaiver: reason });
+  });
 
-  it('rejects --priority critical without --depends or --depends-waiver (E_VALIDATION exit 6)', async () => {
-    await expect(invokeAdd('Critical task', { priority: 'critical' })).rejects.toThrow(
-      'process.exit(6)',
+  it('persists declared dependencies through flags', async () => {
+    await seedTasks(env.accessor, [{ id: 'T001' }]);
+    await runCommand(addCommand, { rawArgs: [...flags, '--depends', 'T001'] });
+    const created = (await env.accessor.queryTasks({})).tasks.find(
+      (task) => task.title === fixture.title,
     );
-
-    expect(mockCliError).toHaveBeenCalledOnce();
-    const [message, code, details] = mockCliError.mock.calls[0] as [
-      string,
-      string,
-      { name: string; fix: string },
-    ];
-    expect(code).toBe('E_VALIDATION');
-    expect(details.name).toBe('E_VALIDATION');
-    expect(message.toLowerCase()).toContain('critical-priority');
-    // Guidance must reference cleo find
-    expect(details.fix).toContain('cleo find');
-
-    // Dispatch must NOT have been called — validation aborts before dispatch
-    expect(mockDispatchRaw).not.toHaveBeenCalled();
+    expect(created?.depends).toEqual(['T001']);
   });
 
-  it('does NOT reject non-critical priority tasks missing --depends', async () => {
-    await invokeAdd('High task', { priority: 'high' });
-
-    expect(mockCliError).not.toHaveBeenCalled();
-    expect(mockDispatchRaw).toHaveBeenCalledOnce();
-  });
-
-  it('does NOT reject tasks with no priority flag (priority undefined)', async () => {
-    await invokeAdd('Normal task');
-
-    expect(mockCliError).not.toHaveBeenCalled();
-    expect(mockDispatchRaw).toHaveBeenCalledOnce();
-  });
-
-  // -------------------------------------------------------------------------
-  // 2. Normal path — --depends provided
-  // -------------------------------------------------------------------------
-
-  it('dispatches successfully when --priority critical and --depends is provided', async () => {
-    await invokeAdd('Critical task', { priority: 'critical', depends: 'T100,T200' });
-
-    expect(mockCliError).not.toHaveBeenCalled();
-    expect(mockDispatchRaw).toHaveBeenCalledOnce();
-
-    const [, , , params] = mockDispatchRaw.mock.calls[0] as [
-      unknown,
-      unknown,
-      unknown,
-      Record<string, unknown>,
-    ];
-    expect(params['priority']).toBe('critical');
-    expect(params['depends']).toEqual(['T100', 'T200']);
-    expect(params['dependsWaiver']).toBeUndefined();
-  });
-
-  // -------------------------------------------------------------------------
-  // 3. Waiver path — --depends-waiver provided
-  // -------------------------------------------------------------------------
-
-  it('dispatches successfully when --priority critical and --depends-waiver is provided', async () => {
-    await invokeAdd('Critical task', {
-      priority: 'critical',
-      'depends-waiver': 'Root-level critical task — no upstream dependency exists yet',
-    });
-
-    expect(mockCliError).not.toHaveBeenCalled();
-    expect(mockDispatchRaw).toHaveBeenCalledOnce();
-
-    const [, , , params] = mockDispatchRaw.mock.calls[0] as [
-      unknown,
-      unknown,
-      unknown,
-      Record<string, unknown>,
-    ];
-    expect(params['priority']).toBe('critical');
-    expect(params['depends']).toBeUndefined();
-    expect(params['dependsWaiver']).toBe(
-      'Root-level critical task — no upstream dependency exists yet',
-    );
-  });
-
-  it('does NOT set dependsWaiver when waiver flag is absent', async () => {
-    await invokeAdd('High task', { priority: 'high', depends: 'T100' });
-
-    const [, , , params] = mockDispatchRaw.mock.calls[0] as [
-      unknown,
-      unknown,
-      unknown,
-      Record<string, unknown>,
-    ];
-    expect(params['dependsWaiver']).toBeUndefined();
+  it.each([
+    'flags',
+    'params',
+  ] as const)('rejects unauthorized severity through %s', async (form) => {
+    const configPath = join(env.cleoDir, 'config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    await writeFile(configPath, JSON.stringify({ ...config, ownerPubkeys: ['00'.repeat(32)] }));
+    const rawArgs =
+      form === 'flags'
+        ? [...flags, '--depends-waiver', 'Independent work', '--severity', 'P1']
+        : [
+            '--params',
+            JSON.stringify({ ...fixture, dependsWaiver: 'Independent work', severity: 'P1' }),
+          ];
+    await expect(runCommand(addCommand, { rawArgs })).rejects.toThrow('process.exit(72)');
+    expect((await env.accessor.queryTasks({})).tasks).toEqual([]);
+    expect(await env.accessor.queryAuditLog({ actions: ['task_created'] })).toEqual([]);
   });
 });

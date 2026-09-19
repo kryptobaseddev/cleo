@@ -15,7 +15,6 @@
 
 import { ExitCode, TASK_SEVERITIES } from '@cleocode/contracts';
 import {
-  appendSignedSeverityAttestation,
   getProjectRoot,
   INPUT_CONTRACTS,
   inferTaskAddParams,
@@ -393,24 +392,7 @@ export const addCommand = defineCommand({
     // T1633: BRAIN duplicate-bypass flag
     if (args['force-duplicate'] !== undefined) params['forceDuplicate'] = args['force-duplicate'];
 
-    // T1856: Critical-priority tasks MUST declare dependencies or provide a waiver.
-    // Undeclared dependencies on critical tasks silently break wave-order spawning
-    // when downstream work assumes they are load-bearing (T1855 guardrail #1).
-    if (args.priority === 'critical' && !args.depends && args['depends-waiver'] === undefined) {
-      cliError(
-        'Critical-priority tasks must declare at least one dependency (--depends) or provide a waiver (--depends-waiver "<reason>").',
-        'E_VALIDATION',
-        {
-          name: 'E_VALIDATION',
-          fix:
-            'Add --depends <taskId> to declare a dependency, or use --depends-waiver "<reason>" ' +
-            'to waive the requirement. Use `cleo find "<topic>"` to discover candidate dependencies.',
-        },
-        { operation: 'tasks.add' },
-      );
-      process.exit(6);
-      return;
-    }
+    // Core enforces dependency policy and persists decision evidence for every input form.
     if (args['depends-waiver'] !== undefined) params['dependsWaiver'] = args['depends-waiver'];
 
     // T1490: Delegate file inference, acceptance parsing, and parent inference
@@ -464,28 +446,6 @@ export const addCommand = defineCommand({
       }
     }
     const parentInferenceMeta = inferred.parentInference;
-
-    // T9073 / T9071: fire signed severity attestation for any role.
-    // Severity is orthogonal to priority — no auto-mapping here.
-    // Skip for --dry-run; non-fatal outside CLEO project (falls through).
-    if (args.severity !== undefined && !args['dry-run']) {
-      try {
-        await appendSignedSeverityAttestation({
-          timestamp: new Date().toISOString(),
-          title: args.title,
-          severity: args.severity,
-          ...(params['parent'] !== undefined ? { epic: params['parent'] as string } : {}),
-        });
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        if (code === 'E_OWNER_ONLY') {
-          cliError((err as Error).message, 72, { name: 'E_OWNER_ONLY' });
-          process.exit(72);
-          return;
-        }
-        // Any other failure (e.g. not inside a CLEO project) is non-fatal.
-      }
-    }
 
     const response = await dispatchRaw('mutate', 'tasks', 'add', params);
 
