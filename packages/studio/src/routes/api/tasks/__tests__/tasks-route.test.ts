@@ -310,6 +310,23 @@ describe('GET /api/tasks end-to-end (T948)', () => {
     cleanupTempDirBestEffort(tempDir);
   });
 
+  it('rejects an unwaived critical task before the route fixture can be mutated', async () => {
+    await expect(
+      addTask(
+        {
+          title: 'Unwaived critical fixture',
+          description: 'Synthetic critical task without a prerequisite or authorized waiver',
+          parentId: seededIds[0],
+          priority: 'critical',
+          acceptance: ['Reject missing waiver', 'Preserve route fixture', 'Retain original tasks'],
+        },
+        tempDir,
+      ),
+    ).rejects.toThrow(
+      'Critical tasks must declare at least one dependency or supply a dependency waiver',
+    );
+  });
+
   /** Reusable context fixture for tests that need a real tasks.db. */
   function validCtx(): ProjectContext {
     return {
