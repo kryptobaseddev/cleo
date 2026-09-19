@@ -17,7 +17,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocsHandler } from '../../../dispatch/domains/docs.js';
 
 /** Shape of `attachments` rows we inspect during the supersede assertions. */
@@ -97,7 +97,8 @@ async function readBySlug(slug: string): Promise<AttachmentSupersedeRow | undefi
 describe('docs.supersede (T10162) — atomic lifecycle flip + lineage edge', () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-docs-supersede-'));
-    process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    vi.stubEnv('CLEO_DIR', join(tempDir, '.cleo'));
 
     fixtureOld = join(tempDir, 'old.md');
     fixtureNew = join(tempDir, 'new.md');
@@ -109,12 +110,12 @@ describe('docs.supersede (T10162) — atomic lifecycle flip + lineage edge', () 
   });
 
   afterEach(async () => {
-    const { closeDb, _resetSlugAllocatorState_TESTING_ONLY } = await import(
+    const { closeAllDatabases, _resetSlugAllocatorState_TESTING_ONLY } = await import(
       '@cleocode/core/internal'
     );
-    closeDb();
+    await closeAllDatabases();
     _resetSlugAllocatorState_TESTING_ONLY();
-    delete process.env['CLEO_DIR'];
+    vi.unstubAllEnvs();
     await rm(tempDir, { recursive: true, force: true });
   });
 

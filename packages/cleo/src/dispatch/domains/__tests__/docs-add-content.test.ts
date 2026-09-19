@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DocsAddResult } from '@cleocode/contracts/operations/docs';
+import type { DocsAddResult, DocsFetchResult } from '@cleocode/contracts/operations/docs';
 import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
 import { generateProjectHash } from '@cleocode/core/nexus/hash';
 import { worktreeScope } from '@cleocode/core/paths.js';
@@ -257,5 +257,37 @@ describe('docs.add --content inline authoring (T10965)', () => {
       release();
       await pending;
     }
+  });
+
+  it('keeps update, supersede, and fetch in their captured project across contradictory settings and awaits', async () => {
+    const handler = new DocsHandler();
+    for (const slug of ['operation-old', 'operation-new']) {
+      const added = await handler.mutate('add', {
+        ownerId: 'T968',
+        slug,
+        content: `${slug} initial\n`,
+      });
+      expect(added.success).toBe(true);
+    }
+    const other = join(tempDir, 'project-B');
+    vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    const update = handler.mutate('update', { slug: 'operation-new', content: 'Updated A π\n' });
+    vi.stubEnv('CLEO_ROOT', other);
+    expect(await update).toMatchObject({ success: true });
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    const supersede = handler.mutate('supersede', {
+      oldSlug: 'operation-old',
+      newSlug: 'operation-new',
+    });
+    vi.stubEnv('CLEO_ROOT', other);
+    expect(await supersede).toMatchObject({ success: true });
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    const query = handler.query('fetch', { attachmentRef: 'operation-new' });
+    vi.stubEnv('CLEO_ROOT', other);
+    const fetched = await query;
+    expect(fetched.success).toBe(true);
+    const data = fetched.data as DocsFetchResult;
+    expect(Buffer.from(data.bytesBase64!, 'base64').toString('utf8')).toBe('Updated A π\n');
+    await expect(access(other)).rejects.toThrow();
   });
 });
