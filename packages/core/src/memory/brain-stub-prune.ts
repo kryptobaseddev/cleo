@@ -242,6 +242,13 @@ function matchingRule(narrative: string, title: string): string {
  * @param nativeDb - Canonical project database handle.
  * @param receipt - Prior quarantine receipt with retained IDs and timestamp.
  * @returns Count of rows restored; mismatched preconditions are left unchanged.
+ * @remarks This helper checks retained IDs and invalidation timestamps. It does
+ * not compare source-content hashes; stronger resource guards belong to the
+ * repair lifecycle. Original observation content is retained by quarantine.
+ * @example
+ * ```ts
+ * const restoredCount = restoreObservationStubs(nativeDb, quarantineReceipt);
+ * ```
  */
 export function restoreObservationStubs(nativeDb: DatabaseSync, receipt: StubPruneResult): number {
   if (!receipt.quarantinedAt || !receipt.quarantinedIds?.length) return 0;

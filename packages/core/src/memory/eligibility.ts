@@ -19,6 +19,12 @@ import type {
  * @param alias - Trusted SQL alias used by the caller, never user input.
  * @param includeHistory - Include invalidated and superseded historical records.
  * @returns A conjunctive SQL fragment with no bind parameters.
+ * @remarks Append this clause to an existing WHERE condition. Explicit history
+ * retrieval returns an empty clause and preserves the original records.
+ * @example
+ * ```ts
+ * const clause = memoryEligibilityClause('decisions', 'decision');
+ * ```
  */
 export function memoryEligibilityClause(
   table: NonNullable<SearchBrainCompactParams['tables']>[number],
@@ -38,6 +44,12 @@ export function memoryEligibilityClause(
  *
  * @param entry - Canonical source record returned by a memory accessor.
  * @returns False when invalidation or explicit decision supersession retires the record.
+ * @remarks Eligibility follows recorded lifecycle state. It does not establish
+ * factual correctness or independently authorize a supersession.
+ * @example
+ * ```ts
+ * const eligible = isCurrentMemoryEntry(sourceRow);
+ * ```
  */
 export function isCurrentMemoryEntry(
   entry: BrainDecisionRow | BrainLearningRow | BrainObservationRow | BrainPatternRow,
@@ -55,7 +67,9 @@ export function isCurrentMemoryEntry(
  * @returns Current, historical, or unverified source authority.
  * @remarks A missing canonical source is unverified, never silently current.
  * @example
+ * ```ts
  * const authority = graphMemoryAuthority(db, 'decision:D001', 'decision');
+ * ```
  */
 export function graphMemoryAuthority(
   db: DatabaseSync,
