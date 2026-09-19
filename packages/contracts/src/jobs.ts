@@ -26,8 +26,8 @@
  *   - `cancelled` — explicitly cancelled by a caller
  *   - `orphaned`  — was `running` when the process exited; requires human/agent review
  *
- * Jobs survive process restart; any row with `status='running'` at startup
- * is transitioned to `status='orphaned'` so humans/agents can triage them.
+ * Opening a client preserves running work. Ownership expires only by its
+ * persisted lease; legacy rows without ownership require explicit recovery.
  *
  * @task T641
  * @remarks
@@ -43,3 +43,54 @@ export type BackgroundJobStatus =
   | 'failed'
   | 'cancelled'
   | 'orphaned';
+
+/** Immutable request used to coalesce a job within one project and operation. */
+export interface BackgroundJobSubmission {
+  /** Stable identity of the project owning the operation. */
+  projectId: string;
+  /** Caller-selected retry key, scoped to project and operation. */
+  idempotencyKey: string;
+  /** Exact serialized proposal bytes; changing them rejects retry-key reuse. */
+  proposalJson: string;
+}
+
+/** Persisted execution ownership; the epoch fences earlier attempts. */
+export interface BackgroundJobLease {
+  /** Job to which this grant belongs. */
+  jobId: string;
+  /** Unique store-client identity, independent of actor display labels. */
+  ownerId: string;
+  /** Monotonically increasing claim epoch. */
+  epoch: number;
+  /** Expiration observed when this grant was issued, in epoch milliseconds. */
+  expiresAt: number;
+}
+
+/** Configuration for a client of the existing durable job store. */
+export interface BackgroundJobStoreOptions {
+  /** Explicit project scope; absent on legacy unscoped clients. */
+  projectId?: string;
+  /** Human/agent identity recorded separately from the unique owner token. */
+  actor?: string;
+  /** Positive lease duration in milliseconds; defaults to 30 seconds. */
+  leaseMs?: number;
+}
+
+/** Capabilities delivered to the existing executor, not a new execution engine. */
+export interface BackgroundJobExecutionContext {
+  /** Cooperative cancellation signal, including remote persisted requests. */
+  signal: AbortSignal;
+  /** Current attempt fence; does not authorize arbitrary domain mutations. */
+  lease: BackgroundJobLease;
+  /** Persist JSON checkpoint bytes only while this attempt still owns the lease. */
+  checkpoint: (valueJson: string) => void;
+}
+
+/** Stable failures for scoped retry, lease ownership, and malformed job inputs. */
+export type BackgroundJobFailureCode =
+  | 'E_JOB_INPUT_INVALID'
+  | 'E_JOB_SCOPE_MISMATCH'
+  | 'E_JOB_IDEMPOTENCY_CONFLICT'
+  | 'E_JOB_LEASE_LOST'
+  | 'E_JOB_NOT_RECLAIMABLE'
+  | 'E_JOB_TRANSACTION_OWNED';
