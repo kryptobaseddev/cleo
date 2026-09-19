@@ -63,6 +63,13 @@ async function invoke(cmd: CittyCommand, args: RunArgs): Promise<void> {
 let tempRoot = '';
 let exitSpy: ReturnType<typeof vi.spyOn>;
 
+// Explicit fixture roots must not inherit the setup project's override.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
   tempRoot = mkdtempSync(join(tmpdir(), 'cleo-config-test-'));
   mkdirSync(join(tempRoot, '.cleo'), { recursive: true });
