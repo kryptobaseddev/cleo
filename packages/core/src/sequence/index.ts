@@ -11,7 +11,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { createDataAccessor, type DataAccessor } from '../store/data-accessor.js';
-import { setMetaValue } from '../store/sqlite-data-accessor.js';
+import { createSqliteDataAccessor, setMetaValue } from '../store/sqlite-data-accessor.js';
 import { schemaMeta } from '../store/tasks-schema.js';
 
 const SEQUENCE_META_KEY = 'task_id_sequence';
@@ -178,21 +178,12 @@ async function loadAllTasks(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Array<Pick<Task, 'id'>>> {
-  let localAccessor: DataAccessor | null = null;
   const activeAccessor = accessor ?? (await createDataAccessor(cwd));
-  if (!accessor) {
-    localAccessor = activeAccessor;
-  }
-
-  try {
-    const { tasks: activeTasks } = await activeAccessor.queryTasks({});
-    const archiveData = await activeAccessor.loadArchive();
-    return [...(activeTasks ?? []), ...(archiveData?.archivedTasks ?? [])];
-  } finally {
-    if (localAccessor) {
-      await localAccessor.close();
-    }
-  }
+  // Accessors borrow the ProjectStore handle. Closing a locally-created
+  // facade tears down every concurrent project client, not just this read.
+  const { tasks: activeTasks } = await activeAccessor.queryTasks({});
+  const archiveData = await activeAccessor.loadArchive();
+  return [...(activeTasks ?? []), ...(archiveData?.archivedTasks ?? [])];
 }
 
 // SSoT-EXEMPT:engine-migration-T1571
@@ -310,85 +301,102 @@ const MAX_ALLOC_RETRIES = 3;
  * @task T9814 — SAVEPOINT for nestability inside batch-insert outer transaction
  */
 export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<string> {
-  // Ensure DB is initialized (triggers migrations, seeds sequence counter)
-  const { getDb, getNativeDb } = await import('../store/sqlite.js');
-  await getDb(cwd);
-  const nativeDb = getNativeDb(cwd);
-  if (!nativeDb) {
-    throw new CleoError(
-      ExitCode.FILE_ERROR,
-      'Native database not available for atomic ID allocation',
-    );
-  }
+  const accessor = await createSqliteDataAccessor(cwd);
+  // Share the task transaction queue so a reservation cannot accidentally
+  // join another independent caller's transaction and disappear on rollback.
+  return accessor.transaction(async () => {
+    // Ensure DB is initialized (triggers migrations, seeds sequence counter)
+    const { getNativeDb } = await import('../store/sqlite.js');
+    const nativeDb = getNativeDb(cwd);
+    if (!nativeDb) {
+      throw new CleoError(
+        ExitCode.FILE_ERROR,
+        'Native database not available for atomic ID allocation',
+      );
+    }
 
-  // Use a SAVEPOINT so this can nest inside an outer transaction.
-  // The name includes a timestamp + retry count to guarantee uniqueness
-  // across concurrent calls within the same process.
-  const spName = `_cleo_seq_alloc_${Date.now()}_${retryCount}`;
-  nativeDb.prepare(`SAVEPOINT ${spName}`).run();
-  try {
-    // Increment counter atomically
-    nativeDb
-      .prepare(`
+    // Use a SAVEPOINT so this can nest inside an outer transaction.
+    // The name includes a timestamp + retry count to guarantee uniqueness
+    // across concurrent calls within the same process.
+    const spName = `_cleo_seq_alloc_${Date.now()}_${retryCount}`;
+    nativeDb.prepare(`SAVEPOINT ${spName}`).run();
+    try {
+      // Repair the lower bound inside the same synchronous savepoint as the
+      // allocation. Async repair+retry can rewind another caller's reservation
+      // before that caller inserts its task, issuing the same ID twice.
+      const inventory = nativeDb
+        .prepare(`
+      SELECT COALESCE(MAX(CAST(substr(id, 2) AS INTEGER)), 0) AS maximum
+      FROM tasks_tasks WHERE id GLOB 'T[0-9]*' AND substr(id, 2) NOT GLOB '*[^0-9]*'
+    `)
+        .get();
+      const maxStoredId = inventory?.maximum;
+      if (typeof maxStoredId !== 'number' || !Number.isSafeInteger(maxStoredId)) {
+        throw new Error('Task identity inventory failed during allocation');
+      }
+      // Increment counter atomically
+      nativeDb
+        .prepare(`
       UPDATE schema_meta
       SET value = json_set(value,
-        '$.counter', json_extract(value, '$.counter') + 1,
-        '$.lastId', 'T' || printf('%03d', json_extract(value, '$.counter') + 1),
+        '$.counter', MAX(json_extract(value, '$.counter'), ?) + 1,
+        '$.lastId', 'T' || printf('%03d', MAX(json_extract(value, '$.counter'), ?) + 1),
         '$.checksum', 'alloc-' || strftime('%s','now')
       )
       WHERE key = 'task_id_sequence'
     `)
-      .run();
+        .run(maxStoredId, maxStoredId);
 
-    // Read new counter value
-    const row = nativeDb
-      .prepare(`
+      // Read new counter value
+      const row = nativeDb
+        .prepare(`
       SELECT json_extract(value, '$.counter') AS counter
       FROM schema_meta WHERE key = 'task_id_sequence'
     `)
-      .get() as { counter: number } | undefined;
+        .get() as { counter: number } | undefined;
 
-    if (!row) {
-      throw new CleoError(ExitCode.FILE_ERROR, 'Sequence counter not found after increment');
-    }
-
-    const newId = `T${String(row.counter).padStart(3, '0')}`;
-
-    // Collision check: verify no existing task with this ID.
-    // T11578 · AC1: the runtime task rows now live in the PREFIXED consolidated
-    // table; the collision probe must read `tasks_tasks` (not the dead bare
-    // `tasks`) or it returns a false-negative and allocates an ID that already
-    // exists — overwriting a live row on the next upsert.
-    const existing = nativeDb.prepare('SELECT id FROM tasks_tasks WHERE id = ?').get(newId) as
-      | { id: string }
-      | undefined;
-
-    if (existing) {
-      // Counter was behind actual data — rollback to savepoint, repair, retry.
-      nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
-      nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
-
-      if (retryCount >= MAX_ALLOC_RETRIES) {
-        throw new CleoError(
-          ExitCode.ID_COLLISION,
-          `Failed to allocate unique task ID after ${MAX_ALLOC_RETRIES} retries (last attempted: ${newId})`,
-        );
+      if (!row) {
+        throw new CleoError(ExitCode.FILE_ERROR, 'Sequence counter not found after increment');
       }
 
-      await repairSequence(cwd);
-      return allocateNextTaskId(cwd, retryCount + 1);
-    }
+      const newId = `T${String(row.counter).padStart(3, '0')}`;
 
-    nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
-    return newId;
-  } catch (err) {
-    // Ensure savepoint is rolled back on any error
-    try {
-      nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
+      // Collision check: verify no existing task with this ID.
+      // T11578 · AC1: the runtime task rows now live in the PREFIXED consolidated
+      // table; the collision probe must read `tasks_tasks` (not the dead bare
+      // `tasks`) or it returns a false-negative and allocates an ID that already
+      // exists — overwriting a live row on the next upsert.
+      const existing = nativeDb.prepare('SELECT id FROM tasks_tasks WHERE id = ?').get(newId) as
+        | { id: string }
+        | undefined;
+
+      if (existing) {
+        // Counter was behind actual data — rollback to savepoint, repair, retry.
+        nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
+        nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
+
+        if (retryCount >= MAX_ALLOC_RETRIES) {
+          throw new CleoError(
+            ExitCode.ID_COLLISION,
+            `Failed to allocate unique task ID after ${MAX_ALLOC_RETRIES} retries (last attempted: ${newId})`,
+          );
+        }
+
+        await repairSequence(cwd);
+        return allocateNextTaskId(cwd, retryCount + 1);
+      }
+
       nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
-    } catch {
-      /* ignore rollback errors */
+      return newId;
+    } catch (err) {
+      // Ensure savepoint is rolled back on any error
+      try {
+        nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
+        nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
+      } catch {
+        /* ignore rollback errors */
+      }
+      throw err;
     }
-    throw err;
-  }
+  });
 }

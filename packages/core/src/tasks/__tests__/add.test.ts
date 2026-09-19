@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import type { Task } from '@cleocode/contracts';
+import type { Task, TasksAddParams } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -25,6 +25,9 @@ import {
   validateTaskType,
   validateTitle,
 } from '../add.js';
+
+import { tasksAddOp } from '../ops.js';
+import { addTaskWithSessionScope } from '../session-scope.js';
 
 describe('normalizeAcceptance', () => {
   it('trims acceptance arrays and drops empty entries', () => {
@@ -235,6 +238,102 @@ describe('addTask (integration)', () => {
     delete process.env['CLEO_DIR'];
     resetDbState();
     await env.cleanup();
+  });
+
+  it.each([
+    'engine',
+    'operation',
+  ] as const)('forwards creation waiver through the %s entry point', async (entryPoint) => {
+    const params: TasksAddParams = {
+      title: 'Entry point waiver fixture',
+      description: 'Preserve original reason through public creation inputs',
+      type: 'saga',
+      priority: 'critical',
+      dependsWaiver: 'Critical restoration without prerequisite work',
+    };
+    if (entryPoint === 'engine') {
+      const result = await addTaskWithSessionScope(env.tempDir, params);
+      expect(result.success).toBe(true);
+    } else {
+      await tasksAddOp(env.tempDir, params);
+    }
+    const entries = await accessor.queryAuditLog({ actions: ['task_created'] });
+    expect(entries).toHaveLength(1);
+    expect(JSON.parse(entries[0]!.detailsJson!)).toMatchObject({
+      dependsWaiver: params.dependsWaiver,
+    });
+    expect((await accessor.queryTasks({})).tasks[0]?.priority).toBe('critical');
+  });
+
+  it('persists creation dependency-waiver provenance in the task audit', async () => {
+    const dependsWaiver = 'Independent critical restoration';
+    const result = await addTask(
+      {
+        title: 'Creation waiver fixture',
+        description: 'Audit provenance verification',
+        priority: 'critical',
+        dependsWaiver,
+        skipContainmentInvariant: true,
+      },
+      env.tempDir,
+      accessor,
+    );
+    const entries = await accessor.queryAuditLog({
+      taskIds: [result.task.id],
+      actions: ['task_created'],
+    });
+    expect(entries).toHaveLength(1);
+    expect(JSON.parse(entries[0]!.detailsJson!)).toMatchObject({ dependsWaiver });
+  });
+
+  it.each([
+    { priority: 'critical' as const, dependsWaiver: '' },
+    { priority: 'high' as const, dependsWaiver: 'No critical-priority context' },
+  ])('rejects invalid creation waiver without inserting a task: %j', async (input) => {
+    await expect(
+      addTask(
+        {
+          title: 'Invalid waiver fixture',
+          description: 'Atomic input rejection verification',
+          skipContainmentInvariant: true,
+          ...input,
+        },
+        env.tempDir,
+        accessor,
+      ),
+    ).rejects.toThrow('Dependency waiver');
+    expect((await accessor.queryTasks({})).tasks).toEqual([]);
+  });
+
+  it('rolls back task creation when dependency-waiver audit persistence fails', async () => {
+    const faultAccessor: DataAccessor = {
+      ...accessor,
+      async transaction(callback) {
+        return accessor.transaction((tx) =>
+          callback({
+            ...tx,
+            async appendLog() {
+              throw new Error('Injected creation audit failure');
+            },
+          }),
+        );
+      },
+    };
+    await expect(
+      addTask(
+        {
+          title: 'Creation audit rollback fixture',
+          description: 'Audit failure rollback verification',
+          priority: 'critical',
+          dependsWaiver: 'Independent restoration',
+          skipContainmentInvariant: true,
+        },
+        env.tempDir,
+        faultAccessor,
+      ),
+    ).rejects.toThrow('Injected creation audit failure');
+    expect((await accessor.queryTasks({})).tasks).toEqual([]);
+    expect(await accessor.queryAuditLog({ actions: ['task_created'] })).toEqual([]);
   });
 
   it('creates a task with default values', async () => {
