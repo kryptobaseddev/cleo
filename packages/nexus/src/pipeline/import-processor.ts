@@ -556,10 +556,10 @@ export function resolveTypescriptImport(
 /**
  * Generate a stable node ID for a file node.
  *
- * Mirrors the convention used by the structure processor: `file:<relPath>`.
+ * Mirrors the structure processor's canonical file ID: the relative path.
  */
 function fileNodeId(filePath: string): string {
-  return `file:${filePath.replace(/\\/g, '/')}`;
+  return filePath.replace(/\\/g, '/');
 }
 
 /**

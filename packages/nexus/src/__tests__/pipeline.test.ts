@@ -11,9 +11,11 @@
  * @task T532
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { GraphIndexFileReport, GraphPublicationRows } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ScannedFile } from '../pipeline/filesystem-walker.js';
 import { walkRepositoryPaths } from '../pipeline/filesystem-walker.js';
@@ -58,6 +60,85 @@ function writeFile(root: string, relPath: string, content = 'x'): void {
 // ---------------------------------------------------------------------------
 // Language detection
 // ---------------------------------------------------------------------------
+
+describe('source evidence fidelity', () => {
+  it('honors escaped Git patterns, directory-only rules, and nested negation', async () => {
+    const root = makeTempDir();
+    try {
+      writeFile(
+        root,
+        '.gitignore',
+        String.raw`\#private.ts
+\!private.ts
+cache/
+*.tmp
+`,
+      );
+      writeFile(root, '#private.ts');
+      writeFile(root, '!private.ts');
+      writeFile(root, 'cache/hidden.ts');
+      writeFile(root, 'src/cache');
+      writeFile(root, 'src/.gitignore', '!keep.tmp');
+      writeFile(root, 'src/keep.tmp');
+      writeFile(root, 'src/drop.tmp');
+      const files = (await walkRepositoryPaths(root)).map((file) => file.path);
+      expect(files).toContain('src/cache');
+      expect(files).toContain('src/keep.tmp');
+      expect(files).not.toContain('src/drop.tmp');
+      expect(files).not.toContain('#private.ts');
+      expect(files).not.toContain('!private.ts');
+      expect(files).not.toContain('cache/hidden.ts');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uses Git repository and global excludes for an explicitly included nested repository', async () => {
+    const root = makeTempDir();
+    try {
+      const repo = join(root, 'app');
+      mkdirSync(repo);
+      execFileSync('git', ['init', '--quiet', repo]);
+      const globalExclude = join(root, 'global-ignore');
+      writeFile(root, 'global-ignore', 'global-secret.ts\n');
+      execFileSync('git', ['config', 'core.excludesFile', globalExclude], { cwd: repo });
+      writeFile(repo, '.git/info/exclude', 'repository-secret.ts\n');
+      writeFile(repo, 'global-secret.ts');
+      writeFile(repo, 'repository-secret.ts');
+      writeFile(repo, 'visible.ts');
+      const reports: GraphIndexFileReport[] = [];
+      const files = await walkRepositoryPaths(root, undefined, (report) => reports.push(report), [
+        'app',
+      ]);
+      expect(files.map((file) => file.path)).toContain('app/visible.ts');
+      expect(files.map((file) => file.path)).not.toContain('app/global-secret.ts');
+      expect(files.map((file) => file.path)).not.toContain('app/repository-secret.ts');
+      expect(
+        reports
+          .filter((report) => report.path.endsWith('-secret.ts'))
+          .map((report) => report.status),
+      ).toEqual(['excluded', 'excluded']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('detects content edits that preserve size and modification time', async () => {
+    const root = makeTempDir();
+    try {
+      writeFile(root, 'code.ts', 'export const x = 1;');
+      const before = await walkRepositoryPaths(root);
+      const stat = statSync(join(root, 'code.ts'));
+      writeFile(root, 'code.ts', 'export const x = 2;');
+      utimesSync(join(root, 'code.ts'), stat.atime, stat.mtime);
+      const after = await walkRepositoryPaths(root);
+      expect(before[0]?.size).toBe(after[0]?.size);
+      expect(before[0]?.contentHash).not.toBe(after[0]?.contentHash);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('detectLanguageFromPath', () => {
   it('detects TypeScript from .ts extension', () => {
@@ -132,6 +213,43 @@ describe('walkRepositoryPaths', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it('requires explicit inclusion for nested repositories and worktrees', async () => {
+    writeFile(tmpDir, 'src/main.ts');
+    writeFile(tmpDir, 'app/main.ts');
+    mkdirSync(join(tmpDir, '.cleo'));
+    execFileSync('git', [
+      'init',
+      '--quiet',
+      '--separate-git-dir',
+      join(tmpDir, '.cleo/git'),
+      join(tmpDir, 'app'),
+    ]);
+    const reports: GraphIndexFileReport[] = [];
+    const excluded = await walkRepositoryPaths(tmpDir, undefined, (report) => reports.push(report));
+    expect(excluded.map((file) => file.path)).not.toContain('app/main.ts');
+    expect(reports).toContainEqual({
+      path: 'app',
+      status: 'excluded',
+      reason: 'Nested repository requires explicit inclusion',
+    });
+    const included = await walkRepositoryPaths(tmpDir, undefined, undefined, ['app']);
+    expect(included.map((file) => file.path)).toContain('app/main.ts');
+  });
+
+  it('honors ordered negation and nested ignore files', async () => {
+    writeFile(tmpDir, '.gitignore', '*.generated.ts\n!keep.generated.ts\n');
+    writeFile(tmpDir, 'drop.generated.ts');
+    writeFile(tmpDir, 'keep.generated.ts');
+    writeFile(tmpDir, 'nested/.gitignore', 'private.ts\n');
+    writeFile(tmpDir, 'nested/private.ts');
+    writeFile(tmpDir, 'nested/public.ts');
+    const paths = (await walkRepositoryPaths(tmpDir)).map((file) => file.path);
+    expect(paths).toContain('keep.generated.ts');
+    expect(paths).toContain('nested/public.ts');
+    expect(paths).not.toContain('drop.generated.ts');
+    expect(paths).not.toContain('nested/private.ts');
+  });
+
   it('discovers files in nested directories', async () => {
     writeFile(tmpDir, 'src/index.ts');
     writeFile(tmpDir, 'src/utils/helpers.ts');
@@ -180,7 +298,7 @@ describe('walkRepositoryPaths', () => {
 
   it('excludes .git directory', async () => {
     writeFile(tmpDir, 'src/index.ts');
-    writeFile(tmpDir, '.git/HEAD', 'ref: refs/heads/main');
+    execFileSync('git', ['init', '--quiet', tmpDir]);
 
     const files = await walkRepositoryPaths(tmpDir);
     const paths = files.map((f) => f.path);
@@ -410,6 +528,16 @@ describe('createKnowledgeGraph', () => {
       language: 'typescript',
       exported: false,
     });
+    graph.addNode({
+      id: 'src/',
+      kind: 'folder',
+      name: 'src',
+      filePath: 'src/',
+      startLine: 1,
+      endLine: 1,
+      language: '',
+      exported: false,
+    });
     graph.addRelation({
       source: 'src/',
       target: 'src/foo.ts',
@@ -458,6 +586,161 @@ describe('runPipeline', () => {
 
   afterEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('stages a validated complete generation without inserting live rows', async () => {
+    writeFile(tmpDir, 'main.ts', "import pg from 'pg'; export function example() { return pg; }");
+    const insert = vi.fn(() => {
+      throw new Error('Live graph must not be mutated during staging');
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    await runPipeline(
+      tmpDir,
+      'project',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      { publishGraph },
+    );
+    expect(insert).not.toHaveBeenCalled();
+    expect(publishGraph).toHaveBeenCalledOnce();
+    expect(publishGraph.mock.calls[0]![0].assessment?.files).toEqual([
+      expect.objectContaining({ path: 'main.ts', status: 'analyzed' }),
+    ]);
+    expect(publishGraph.mock.calls[0]![0].relations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceId: 'main.ts', targetId: 'module:pg', type: 'imports' }),
+      ]),
+    );
+  });
+
+  it('retains AST-proven unmodeled scopes as diagnostics without inventing declarations', async () => {
+    writeFile(
+      tmpDir,
+      'main.ts',
+      `
+export function known() { return 1; }
+export function modeled() { return known(); }
+export default { async fetch() { return known(); } };
+export function outer() { const nested = () => known(); return nested(); }
+`,
+    );
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    const result = await runPipeline(
+      tmpDir,
+      'project',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      { publishGraph },
+    );
+    const generation = publishGraph.mock.calls[0]?.[0];
+    expect(generation).toBeDefined();
+    expect(generation?.assessment?.references).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'unmodeled-source',
+          filePath: 'main.ts',
+          sourceId: 'main.ts::fetch',
+          targetId: 'main.ts::known',
+          targetName: 'known',
+          relationship: 'calls',
+        }),
+        expect.objectContaining({ sourceId: 'main.ts::nested', targetId: 'main.ts::known' }),
+      ]),
+    );
+    expect(result.references).toEqual(generation?.assessment?.references);
+    expect(generation?.nodes.some((node) => node.id === 'main.ts::fetch')).toBe(false);
+    expect(generation?.relations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceId: 'main.ts::modeled',
+          targetId: 'main.ts::known',
+          type: 'calls',
+        }),
+      ]),
+    );
+    const ids = new Set(generation?.nodes.map((node) => node.id));
+    expect(
+      generation?.relations.every((edge) => ids.has(edge.sourceId) && ids.has(edge.targetId)),
+    ).toBe(true);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('retains the live graph when indexing is interrupted', async () => {
+    writeFile(tmpDir, 'main.ts', 'export function example() {}');
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    await expect(
+      runPipeline(
+        tmpDir,
+        'project',
+        { insert },
+        { nexusNodes: stubTable(), nexusRelations: stubTable() },
+        () => {
+          throw new Error('Cancelled');
+        },
+        { publishGraph },
+      ),
+    ).rejects.toThrow('Cancelled');
+    expect(insert).not.toHaveBeenCalled();
+    expect(publishGraph).not.toHaveBeenCalled();
+  });
+
+  it('rejects files added during staging before publishing mixed source state', async () => {
+    writeFile(tmpDir, 'main.ts', 'export function example() {}');
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    let progressCalls = 0;
+    await expect(
+      runPipeline(
+        tmpDir,
+        'project',
+        { insert },
+        { nexusNodes: stubTable(), nexusRelations: stubTable() },
+        () => {
+          progressCalls++;
+          if (progressCalls === 2) writeFile(tmpDir, 'added.ts', 'export function added() {}');
+        },
+        { publishGraph },
+      ),
+    ).rejects.toThrow('Source files changed');
+    expect(insert).not.toHaveBeenCalled();
+    expect(publishGraph).not.toHaveBeenCalled();
+  });
+
+  it('rejects source changes during staging even when size and timestamps are preserved', async () => {
+    writeFile(tmpDir, 'main.ts', 'export function example() { return 1; }');
+    const original = statSync(join(tmpDir, 'main.ts'));
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    let progressCalls = 0;
+    await expect(
+      runPipeline(
+        tmpDir,
+        'project',
+        { insert },
+        { nexusNodes: stubTable(), nexusRelations: stubTable() },
+        () => {
+          if (++progressCalls === 2) {
+            writeFile(tmpDir, 'main.ts', 'export function example() { return 2; }');
+            utimesSync(join(tmpDir, 'main.ts'), original.atime, original.mtime);
+          }
+        },
+        { publishGraph },
+      ),
+    ).rejects.toThrow('Source changed between scanning and parsing');
+    expect(insert).not.toHaveBeenCalled();
+    expect(publishGraph).not.toHaveBeenCalled();
   });
 
   it('returns counts from a simple repository', async () => {

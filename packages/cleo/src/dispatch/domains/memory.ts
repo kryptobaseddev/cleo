@@ -109,6 +109,7 @@ export class MemoryHandler implements DomainHandler {
                 query,
                 limit: paramNumber(params, 'limit'),
                 tables: paramStringArray(params, 'tables'),
+                includeHistory: paramBool(params, 'includeHistory'),
                 dateStart: paramString(params, 'dateStart'),
                 dateEnd: paramString(params, 'dateEnd'),
                 agent: paramString(params, 'agent'),

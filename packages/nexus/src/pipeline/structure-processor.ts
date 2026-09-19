@@ -99,6 +99,7 @@ export function processStructure(files: ScannedFile[], graph: KnowledgeGraph): v
           startLine: 1,
           endLine: 1,
           language: file.language ?? 'unknown',
+          meta: file.contentHash ? { contentHash: file.contentHash } : undefined,
           exported: false,
         };
       } else {

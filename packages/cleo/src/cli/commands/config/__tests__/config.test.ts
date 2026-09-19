@@ -34,6 +34,13 @@ vi.mock('@cleocode/core', async (importOriginal) => {
   };
 });
 
+// show/validate use the canonical deep export to avoid loading the core barrel.
+// Keep both entry points bound to the same isolated fixture while other commands migrate.
+vi.mock('@cleocode/core/paths.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('@cleocode/core/paths.js')>();
+  return { ...orig, getProjectRoot: () => currentProjectRoot };
+});
+
 // Import AFTER mocks are wired (vi.mock is hoisted, but the bindings the
 // commands close over are captured at import time).
 import { configDriftCheckCommand } from '../drift-check.js';

@@ -14,7 +14,6 @@ import { createHash, randomBytes } from 'node:crypto';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { upsertGraphNode } from './graph-auto-populate.js';
 import { computePatternQuality } from './quality-scoring.js';
-import { detectSupersession, supersedeMemory } from './temporal-supersession.js';
 
 /** Pattern types from ADR-009. */
 export type PatternType = 'workflow' | 'blocker' | 'success' | 'failure' | 'optimization';
@@ -251,31 +250,8 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     /* best-effort */
   });
 
-  // T738: Auto-fire detectSupersession only for high-trust writes.
-  // Agent/speculative confidence patterns rely on sleep-consolidation dedup instead.
-  // Only 'owner' or 'task-outcome' sourceConfidence triggers write-time supersession.
-  if ((sourceConfidence as string) === 'owner' || (sourceConfidence as string) === 'task-outcome') {
-    detectSupersession(projectRoot, {
-      id: saved.id,
-      text: saved.pattern + ' ' + saved.context,
-      createdAt: saved.extractedAt ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
-    })
-      .then((candidates) => {
-        for (const candidate of candidates) {
-          supersedeMemory(
-            projectRoot,
-            candidate.existingId,
-            saved.id,
-            'auto:pattern-supersedes — high overlap detected at store time',
-          ).catch(() => {
-            /* best-effort */
-          });
-        }
-      })
-      .catch(() => {
-        /* best-effort */
-      });
-  }
+  // Similarity identifies reconciliation candidates; it cannot establish authority.
+  // Replacement requires an explicit sourced operation from the calling agent.
 
   return {
     ...saved,

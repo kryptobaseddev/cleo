@@ -14,16 +14,25 @@
  */
 
 import type { CodeReasonTrace, ReasonTraceStep } from '@cleocode/contracts';
+import {
+  assessKnowledgeCoverage,
+  KnowledgeSymbolAmbiguityError,
+  recordKnowledgeGap,
+  resolveKnowledgeSymbol,
+} from '../nexus/knowledge.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
+import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
 import type { BrainDecisionRow } from '../store/schema/memory-schema.js';
 import { typedAll, typedGet } from '../store/typed-query.js';
 import type { BrainDecisionNode } from './brain-row-types.js';
 import { searchBrain } from './brain-search.js';
 import { searchSimilar } from './brain-similarity.js';
+import { isCurrentDecisionCodeEvidence } from './decision-cross-link.js';
 import { EDGE_TYPES } from './edge-types.js';
+import { graphMemoryAuthority } from './eligibility.js';
 
 // ============================================================================
 // Types
@@ -167,6 +176,7 @@ async function findDecisionsForTask(
 
 /** Raw row types for reasonWhySymbol internal queries. */
 interface RawBrainEdge {
+  provenance: string | null;
   from_id: string;
   to_id: string;
   edge_type: string;
@@ -209,13 +219,24 @@ export async function reasonWhySymbol(
   symbolId: string,
   projectRoot: string,
 ): Promise<CodeReasonTrace> {
+  const coverage = await assessKnowledgeCoverage(projectRoot);
   const emptyResult: CodeReasonTrace = {
+    coverage,
     symbolId,
     narrative: `No reasoning context found for symbol '${symbolId}'.`,
     chain: [],
   };
 
   try {
+    const graph = await getNexusDb(projectRoot);
+    const selected = resolveKnowledgeSymbol(
+      symbolId,
+      graph.select().from(nexusSchema.nexusNodes).all(),
+    );
+    if (!selected) {
+      recordKnowledgeGap(coverage, 'missing', `No indexed symbol matches '${symbolId}'.`);
+      return emptyResult;
+    }
     await getBrainDb(projectRoot);
     const brainNative = getBrainNativeDb(projectRoot);
     if (!brainNative) return emptyResult;
@@ -233,12 +254,12 @@ export async function reasonWhySymbol(
     // 1. Find brain nodes that reference this symbol (reverse edges)
     const reverseEdges = typedAll<RawBrainEdge>(
       brainNative.prepare(
-        `SELECT from_id, to_id, edge_type, weight
+        `SELECT from_id, to_id, edge_type, weight, provenance
          FROM brain_page_edges
          WHERE to_id = ? AND edge_type IN (${placeholders})
          LIMIT 30`,
       ),
-      symbolId,
+      selected.id,
       ...codeEdgeTypes,
     );
 
@@ -252,6 +273,7 @@ export async function reasonWhySymbol(
 
     // 2. Walk each brain node that references this symbol
     for (const edge of reverseEdges) {
+      if (!isCurrentDecisionCodeEvidence(brainNative, edge.provenance)) continue;
       const brainNodeId = edge.from_id;
       if (visitedBrainIds.has(brainNodeId)) continue;
       visitedBrainIds.add(brainNodeId);
@@ -264,6 +286,14 @@ export async function reasonWhySymbol(
         brainNodeId,
       );
       if (!brainNode) continue;
+      const authority = graphMemoryAuthority(brainNative, brainNode.id, brainNode.node_type);
+      if (authority === 'historical') continue;
+      if (authority === 'unverified')
+        recordKnowledgeGap(
+          coverage,
+          'partial',
+          `Graph memory source is unverified: ${brainNode.id}`,
+        );
 
       if (brainNode.node_type === 'decision') {
         // Fetch decision details including context_task_id
@@ -284,6 +314,7 @@ export async function reasonWhySymbol(
 
         chain.push({
           type: 'decision',
+          authority,
           id: brainNodeId,
           title: decRow?.decision ?? brainNode.label,
           refs,
@@ -296,6 +327,7 @@ export async function reasonWhySymbol(
         );
         chain.push({
           type: 'observation',
+          authority,
           id: brainNodeId,
           title: learnRow?.insight ?? brainNode.label,
           refs: [],
@@ -303,6 +335,7 @@ export async function reasonWhySymbol(
       } else {
         chain.push({
           type: 'observation',
+          authority,
           id: brainNodeId,
           title: brainNode.label,
           refs: [],
@@ -358,11 +391,14 @@ export async function reasonWhySymbol(
     }
 
     return {
+      coverage,
       symbolId,
       narrative,
       chain,
     };
   } catch (err) {
+    if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
+    recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
     const msg = err instanceof Error ? err.message : String(err);
     console.warn('[brain-reasoning] reasonWhySymbol failed:', msg);
     return emptyResult;
