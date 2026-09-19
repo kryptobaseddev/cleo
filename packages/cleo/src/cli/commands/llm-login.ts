@@ -643,7 +643,8 @@ function _findFreePort(): Promise<number> {
  * Attempt to open a URL in the default browser using the OS `open` / `xdg-open`
  * command. Silently swallows errors — headless environments are expected to fail.
  *
- * Exported so tests can mock it via `vi.spyOn` to prevent real browser launches.
+ * Tests must mock `node:child_process` before importing this module. Spying on
+ * this export does not replace calls through the local function binding.
  *
  * @internal
  */

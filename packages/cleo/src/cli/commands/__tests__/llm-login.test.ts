@@ -8,14 +8,16 @@
  * - unsupported provider returns E_NOT_IMPLEMENTED
  *
  * REGRESSION GUARD (T9579): node:child_process is mocked to prevent real
- * browser windows from opening during test runs. Every PKCE test asserts
- * that the spawn mock is NOT called.
+ * browser windows from opening during test runs. Interactive PKCE exercises
+ * the mocked launch and an in-memory HTTP server; headless flows forbid both.
  *
  * @task T9302
  * @task T9323
  * @task T9579
  */
 
+import { IncomingMessage, Server, ServerResponse } from 'node:http';
+import { Socket } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -31,6 +33,7 @@ vi.mock('node:child_process', () => ({
 }));
 
 const m = vi.hoisted(() => ({
+  createServer: vi.fn<typeof import('node:http').createServer>(),
   startDeviceCodeFlow: vi.fn(),
   pollForToken: vi.fn(),
   getKimiCodeDeviceCodeConfig: vi.fn(),
@@ -61,6 +64,11 @@ const m = vi.hoisted(() => ({
   buildAuthorizationUrl: vi.fn(),
   exchangePkceCode: vi.fn(),
   refreshPkceToken: vi.fn(),
+}));
+
+vi.mock('node:http', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:http')>()),
+  createServer: m.createServer,
 }));
 
 vi.mock('@cleocode/core/llm/oauth/device-code.js', () => ({
@@ -103,7 +111,8 @@ import { spawn } from 'node:child_process';
 import { runLlmLogin } from '../llm-login.js';
 
 // Typed reference to the mocked spawn for assertions.
-const spawnMock = spawn as ReturnType<typeof vi.fn>;
+const spawnMock = vi.mocked(spawn);
+const servers: Server[] = [];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -209,7 +218,35 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Reset the child_process spawn mock so each test starts clean.
   spawnMock.mockClear();
-  spawnMock.mockReturnValue({ unref: vi.fn() });
+  vi.stubEnv('CLEO_HEADLESS', '0');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => {
+      throw new Error('Unexpected network access in isolated login test');
+    }),
+  );
+  vi.spyOn(process.stdin, 'once').mockImplementation(() => {
+    throw new Error('Unexpected stdin listener in isolated login test');
+  });
+  vi.spyOn(process.stdin, 'resume').mockReturnValue(process.stdin);
+  vi.spyOn(process.stdin, 'pause').mockReturnValue(process.stdin);
+  vi.spyOn(process.stdin, 'setEncoding').mockReturnValue(process.stdin);
+  m.createServer.mockImplementation((...args) => {
+    const server = new Server();
+    const handler = args.find((arg) => typeof arg === 'function');
+    if (handler) server.on('request', handler);
+    vi.spyOn(server, 'listen').mockImplementation((...listenArgs) => {
+      const callback = listenArgs.find((arg) => typeof arg === 'function');
+      queueMicrotask(() => callback?.());
+      return server;
+    });
+    vi.spyOn(server, 'close').mockImplementation((callback) => {
+      callback?.();
+      return server;
+    });
+    servers.push(server);
+    return server;
+  });
   m.getKimiCodeDeviceCodeConfig.mockReturnValue(KIMI_CFG);
   m.getKimiCodeMshHeaders.mockReturnValue(MSH_HEADERS);
   m.addCredential.mockResolvedValue({ provider: 'kimi-code', label: 'oauth-login' });
@@ -231,6 +268,13 @@ beforeEach(() => {
 
 afterEach(() => {
   stderrSpy.mockRestore();
+  for (const server of servers.splice(0)) {
+    expect(server.listening).toBe(false);
+    server.removeAllListeners();
+  }
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 // ---------------------------------------------------------------------------
@@ -492,6 +536,7 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
 
     // Regression guard (T9579): headless path must NOT spawn a browser process.
     expect(spawnMock).not.toHaveBeenCalled();
+    expect(m.createServer).not.toHaveBeenCalled();
   });
 
   it('returns E_PKCE_EXCHANGE_FAILED when exchangePkceCode throws', async () => {
@@ -521,6 +566,7 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
 
     // Regression guard (T9579): headless path must NOT spawn a browser process.
     expect(spawnMock).not.toHaveBeenCalled();
+    expect(m.createServer).not.toHaveBeenCalled();
 
     stdinSpy.mockRestore();
   });
@@ -553,6 +599,7 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
 
     // Regression guard (T9579): headless path must NOT spawn a browser process.
     expect(spawnMock).not.toHaveBeenCalled();
+    expect(m.createServer).not.toHaveBeenCalled();
 
     stdinSpy.mockRestore();
   });
@@ -595,6 +642,7 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
 
     // Regression guard (T9579): headless path must NOT spawn a browser process.
     expect(spawnMock).not.toHaveBeenCalled();
+    expect(m.createServer).not.toHaveBeenCalled();
 
     stdinSpy.mockRestore();
   });
@@ -675,43 +723,49 @@ describe('runLlmLogin — T11774: redirect_uri consistency (Anthropic paste-back
     // Must NOT spawn a browser for the local callback server — that would send
     // the user to a localhost URL that Anthropic would reject.
     expect(spawnMock).not.toHaveBeenCalled();
+    expect(m.createServer).not.toHaveBeenCalled();
   });
 
-  it('loopback redirectUri still uses the local callback server (not forced to paste-back)', async () => {
-    // Use a provider profile with a loopback redirectUri to confirm the
-    // interactive callback-server path is NOT broken by the T11774 fix.
-    m.getProviderProfile.mockResolvedValue({
-      ...ANTHROPIC_PROFILE,
-      name: 'openai',
-      oauth: {
-        ...ANTHROPIC_PROFILE.oauth,
+  it('loopback redirectUri uses an isolated callback server and mocked browser launch', async () => {
+    m.exchangePkceCode.mockResolvedValue({
+      accessToken: 'isolated-openai-token',
+      expiresIn: 3600,
+      tokenType: 'bearer',
+    });
+    m.addCredential.mockResolvedValue({ provider: 'openai', label: 'oauth-login' });
+    const stdinSpy = vi.spyOn(process.stdin, 'once');
+
+    const pending = runLlmLogin('openai', {});
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledOnce());
+
+    const server = servers[0]!;
+    expect(server.listen).toHaveBeenCalledWith(1455, 'localhost', expect.any(Function));
+    expect(server.listening).toBe(false);
+    expect(stdinSpy).not.toHaveBeenCalled();
+    expect(spawnMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^(open|start|xdg-open)$/),
+      ['https://claude.ai/oauth/authorize?code_challenge=test'],
+      { detached: true, stdio: 'ignore' },
+    );
+    expect(spawnMock.mock.results[0]?.value.unref).toHaveBeenCalledOnce();
+
+    const authorizeArgs = m.buildAuthorizationUrl.mock.calls[0]![0];
+    const request = new IncomingMessage(new Socket());
+    request.url = `/auth/callback?code=isolated-code&state=${authorizeArgs.state}`;
+    const response = new ServerResponse(request);
+    server.emit('request', request, response);
+    const result = await pending;
+    request.destroy();
+    response.destroy();
+
+    expect(result.success).toBe(true);
+    expect(server.close).toHaveBeenCalledOnce();
+    expect(m.exchangePkceCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'isolated-code',
         redirectUri: 'http://localhost:1455/auth/callback',
-      },
-    });
-
-    // We do NOT mock stdin — the local callback server path does not read stdin.
-    // The test just needs to confirm the loopback detection works; we abort quickly
-    // by returning an error from buildAuthorizationUrl (the server starts but gets
-    // no callback so the test would hang otherwise). Instead, use headless to keep
-    // the test synchronous.
-    const stdinSpy = vi
-      .spyOn(process.stdin, 'once')
-      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
-        if (event === 'data') {
-          setTimeout(() => listener('not-a-url'), 0);
-        }
-        return process.stdin;
-      });
-
-    await runLlmLogin('openai', { headless: true }).catch(() => {
-      /* fast-exit via invalid stdin URL is expected */
-    });
-
-    stdinSpy.mockRestore();
-
-    // Loopback provider used headless flag so the paste-back URI is the loopback one.
-    const authorizeArgs = m.buildAuthorizationUrl.mock.calls[0]![0] as Record<string, string>;
-    expect(authorizeArgs.redirectUri).toBe('http://localhost:1455/auth/callback');
+      }),
+    );
   });
 });
 
@@ -740,6 +794,7 @@ describe('runLlmLogin — T9579 regression: no real browser spawn', () => {
     await runLlmLogin('kimi-code', {});
 
     expect(spawnMock).not.toHaveBeenCalled();
+    expect(m.createServer).not.toHaveBeenCalled();
   });
 
   it('anthropic PKCE headless flow never calls spawn', async () => {
@@ -765,6 +820,7 @@ describe('runLlmLogin — T9579 regression: no real browser spawn', () => {
     // in headless mode. A regression here means tests would open real browser
     // windows pointing at the mock auth URL.
     expect(spawnMock).not.toHaveBeenCalled();
+    expect(m.createServer).not.toHaveBeenCalled();
 
     stdinSpy.mockRestore();
   });
