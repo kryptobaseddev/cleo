@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.11.0
+  version: 2.12.0
   lastReviewed: 2026-09-19
   stability: stable
 ---
@@ -59,6 +59,17 @@ retain an empty acceptance array. Malformed stored criteria produce a diagnostic
 valid historical strings and structured gates are preserved without normalization.
 Do not infer historical splits from pipes alone: repairs need original input or
 explicit provenance, a snapshot, and a guarded receipt.
+
+## Task controls and committed evidence
+
+Explicit `critical` priority on add/update requires a dependency or a nonempty
+`--depends-waiver`; updates check the resulting dependency set. CLI flags, JSON
+params, and SDK calls share this policy. Explicit severity changes use the
+project's signing identity: a nonempty `ownerPubkeys` allowlist restricts signers;
+an absent or empty list keeps the existing opt-in policy. Committed severity,
+duplicate-bypass, and dependency-waiver evidence lives in the task transaction
+audit. Historical filesystem attestations alone do not prove a task committed.
+Dry-run creates no committed attestation; failed writes leave no committed receipt.
 
 ## Read completeness before editing
 
