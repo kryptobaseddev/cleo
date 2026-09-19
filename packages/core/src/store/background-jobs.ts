@@ -13,6 +13,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type {
+  AtomicJobMutation,
   BackgroundJobExecutionContext,
   BackgroundJobFailureCode,
   BackgroundJobLease,
@@ -232,16 +233,28 @@ export function assertOperationWriteFence(
   db: Pick<NodeSQLiteDatabase, 'select'>,
   execution: OperationExecutionContext,
 ): void {
+  assertOperationJobState(db, execution, 'running');
+}
+
+function assertOperationJobState(
+  db: Pick<NodeSQLiteDatabase, 'select'>,
+  execution: OperationExecutionContext,
+  status: 'running' | 'complete',
+  resultJson?: string,
+): void {
   execution.assertActive();
   const fence = execution.writeFence;
   if (!fence) return;
   const row = db
-    .select({ proposalJson: sql<string | null>`${backgroundJobs.proposalJson}` })
+    .select({
+      proposalJson: sql<string | null>`${backgroundJobs.proposalJson}`,
+      result: sql<string | null>`${backgroundJobs.result}`,
+    })
     .from(sql`main.${backgroundJobs}`)
     .where(
       and(
         eq(backgroundJobs.id, fence.lease.jobId),
-        eq(backgroundJobs.status, 'running'),
+        eq(backgroundJobs.status, status),
         eq(backgroundJobs.ownerId, fence.lease.ownerId),
         eq(backgroundJobs.fencingEpoch, fence.lease.epoch),
         gt(backgroundJobs.leaseExpiresAt, Date.now()),
@@ -256,7 +269,8 @@ export function assertOperationWriteFence(
     .get();
   if (
     !row?.proposalJson ||
-    createHash('sha256').update(row.proposalJson).digest('hex') !== fence.proposalHash
+    createHash('sha256').update(row.proposalJson).digest('hex') !== fence.proposalHash ||
+    (resultJson !== undefined && row.result !== resultJson)
   ) {
     throw new BackgroundJobError(
       'E_JOB_LEASE_LOST',
@@ -779,19 +793,62 @@ export class DurableJobStore {
     const resultJson = result === undefined ? null : JSON.stringify(result);
     this.#write(() => {
       this.#owned(id);
-      this.#db
-        .update(backgroundJobs)
-        .set({
-          status: 'complete',
-          completedAt: now,
-          result: resultJson,
-          progress: 100,
-          heartbeatAt: now,
-        })
-        .where(eq(backgroundJobs.id, id))
-        .run();
+      this.#completeRow(id, resultJson, now);
     });
     this.#grants.delete(id);
+  }
+
+  /**
+   * Persist terminal data inside the already-owned transaction.
+   * @param id - Job whose ownership was checked by the caller.
+   * @param resultJson - Serialized outcome, or null for the legacy empty result.
+   * @param now - Completion time in epoch milliseconds.
+   */
+  #completeRow(id: string, resultJson: string | null, now: number): void {
+    this.#db.run(sql`UPDATE main.background_jobs SET status='complete',
+      completed_at=${now}, result=${resultJson}, progress=100, heartbeat_at=${now}
+      WHERE id=${id}`);
+  }
+
+  /**
+   * Commit a synchronous domain mutation, its receipt and job completion atomically.
+   * @param execution - Captured context carrying this client's current claimed fence.
+   * @param mutation - Trusted synchronous domain operation returning JSON receipt bytes.
+   * @returns Exact receipt bytes committed with the domain changes and terminal job row.
+   * @throws BackgroundJobError when the transaction is borrowed, authority changed,
+   * cancellation was observed before commit, or receipt bytes are invalid.
+   * @remarks The store acquires its own write transaction; an ambient BEGIN confers
+   * no authority. Domain code must independently validate its proposal and operate
+   * only on the same SQLite database without transaction control or external effects.
+   * Guards are cooperative boundaries, not preemption. Cancellation observed after
+   * COMMIT cannot erase the committed result. Arbitrary async callbacks are unsupported.
+   * @example
+   * ```ts
+   * const receiptJson = store.completeAtomically(execution, () => applyPreparedRepair());
+   * ```
+   */
+  completeAtomically(execution: OperationExecutionContext, mutation: AtomicJobMutation): string {
+    execution.assertActive();
+    const fence = execution.writeFence;
+    if (!fence) {
+      throw new BackgroundJobError(
+        'E_JOB_LEASE_LOST',
+        'Atomic mutation requires a claimed job fence',
+      );
+    }
+    const resultJson = this.#write(() => {
+      this.#owned(fence.lease.jobId);
+      assertOperationWriteFence(this.#db, execution);
+      const receipt = mutation(execution);
+      requireJson(receipt);
+      assertOperationWriteFence(this.#db, execution);
+      this.#completeRow(fence.lease.jobId, receipt, Date.now());
+      assertOperationJobState(this.#db, execution, 'complete', receipt);
+      execution.assertActive();
+      return receipt;
+    });
+    this.#grants.delete(fence.lease.jobId);
+    return resultJson;
   }
 
   /**

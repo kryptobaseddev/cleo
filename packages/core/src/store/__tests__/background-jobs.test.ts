@@ -682,6 +682,203 @@ describe('domain writes fenced by persisted job authority', () => {
     return { store, context };
   }
 
+  it('commits domain rows, domain receipt and job outcome together, visible to a fresh process', () => {
+    const { store, context } = prepare();
+    native.exec('CREATE TABLE domain_receipts (id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
+    try {
+      const receipt = '{"verified":"atomic"}';
+      expect(
+        store.completeAtomically(context, (captured) => {
+          expect(captured).toBe(context);
+          native.prepare('INSERT INTO guarded_domain VALUES (?)').run('atomic');
+          native.prepare('INSERT INTO domain_receipts VALUES (?,?)').run('receipt', receipt);
+          return receipt;
+        }),
+      ).toBe(receipt);
+      const output = execFileSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `
+        import { DatabaseSync } from 'node:sqlite';
+        const db = new DatabaseSync(process.argv[1], {readOnly:true});
+        process.stdout.write(JSON.stringify({
+          rows: db.prepare('SELECT * FROM guarded_domain').all(),
+          receipts: db.prepare('SELECT * FROM domain_receipts').all(),
+          job: db.prepare('SELECT status,result FROM background_jobs').get()
+        }));
+        db.close();
+      `,
+          path,
+        ],
+        { encoding: 'utf8', timeout: 5000 },
+      );
+      expect(JSON.parse(output)).toEqual({
+        rows: [{ id: 'atomic' }],
+        receipts: [{ id: 'receipt', payload: receipt }],
+        job: { status: 'complete', result: receipt },
+      });
+      expect(() => store.completeAtomically(context, () => receipt)).toThrow(/not owned/);
+    } finally {
+      context.close();
+    }
+  });
+
+  it.each([
+    'domain-receipt',
+    'job-receipt',
+    'invalid-json',
+    'cancel',
+    'deadline',
+    'authority',
+  ] as const)('rolls back all owned changes on %s failure and leaves the attempt inspectable', (fault) => {
+    const { store, context } = prepare();
+    native.exec('CREATE TABLE domain_receipts (id TEXT PRIMARY KEY)');
+    if (fault === 'job-receipt')
+      native.exec(`CREATE TRIGGER fail_terminal BEFORE UPDATE OF status
+        ON background_jobs WHEN NEW.status='complete' BEGIN SELECT RAISE(ABORT,'terminal fault'); END`);
+    try {
+      expect(() =>
+        store.completeAtomically(context, () => {
+          native.exec("INSERT INTO guarded_domain VALUES ('atomic')");
+          native.exec("INSERT INTO domain_receipts VALUES ('receipt')");
+          if (fault === 'domain-receipt')
+            native.exec("INSERT INTO domain_receipts VALUES ('receipt')");
+          if (fault === 'cancel') context.close();
+          if (fault === 'deadline') {
+            vi.useFakeTimers();
+            vi.setSystemTime(context.deadlineAt + 1);
+          }
+          if (fault === 'authority')
+            native.exec('UPDATE background_jobs SET fencing_epoch=fencing_epoch+1');
+          return fault === 'invalid-json' ? 'not json' : '{"verified":true}';
+        }),
+      ).toThrow();
+      expect(native.prepare('SELECT * FROM guarded_domain').all()).toEqual([]);
+      expect(native.prepare('SELECT * FROM domain_receipts').all()).toEqual([]);
+      expect(store.get('guarded-job')).toMatchObject({
+        status: 'running',
+        fencingEpoch: 1,
+      });
+      expect(store.get('guarded-job')?.result).toBeUndefined();
+    } finally {
+      context.close();
+    }
+  });
+
+  it.each([
+    'cancel',
+    'expire',
+    'steal',
+    'missing-fence',
+  ] as const)('refuses %s before invoking an atomic domain mutation', (fault) => {
+    const { store, context } = prepare();
+    const unfenced = createOperationExecutionContext(context.identity);
+    const mutate = vi.fn(() => '{}');
+    try {
+      if (fault === 'cancel') store.requestCancel('guarded-job', Date.now());
+      if (fault === 'expire' || fault === 'steal')
+        native.exec('UPDATE background_jobs SET lease_expires_at=0');
+      if (fault === 'steal')
+        new DurableJobStore(db, { projectId: request.projectId }).claim('guarded-job', Date.now());
+      expect(() =>
+        store.completeAtomically(fault === 'missing-fence' ? unfenced : context, mutate),
+      ).toThrow();
+      expect(mutate).not.toHaveBeenCalled();
+      expect(store.get('guarded-job')?.status).toBe('running');
+    } finally {
+      context.close();
+      unfenced.close();
+    }
+  });
+
+  it.each([
+    'cancel',
+    'proposal',
+    'result',
+  ] as const)('rejects terminal trigger changes to %s and rolls back the complete unit', (fault) => {
+    const { store, context } = prepare();
+    const change =
+      fault === 'cancel'
+        ? 'cancellation_requested_at=1'
+        : fault === 'proposal'
+          ? "proposal_json='{}'"
+          : "result='{}'";
+    native.exec(`CREATE TRIGGER alter_terminal AFTER UPDATE OF status ON background_jobs
+        WHEN NEW.status='complete' BEGIN UPDATE background_jobs SET ${change} WHERE id=NEW.id; END`);
+    try {
+      expect(() =>
+        store.completeAtomically(context, () => {
+          native.exec("INSERT INTO guarded_domain VALUES ('forbidden')");
+          return '{"verified":true}';
+        }),
+      ).toThrow('Domain write refused');
+      expect(native.prepare('SELECT * FROM guarded_domain').all()).toEqual([]);
+      expect(store.get('guarded-job')).toMatchObject({
+        status: 'running',
+        cancellationRequestedAt: null,
+        proposalJson: request.proposalJson,
+      });
+      expect(store.get('guarded-job')?.result).toBeUndefined();
+    } finally {
+      context.close();
+    }
+  });
+
+  it('does not borrow or roll back a transaction owned by another caller', () => {
+    const { store, context } = prepare();
+    native.exec("BEGIN; INSERT INTO guarded_domain VALUES ('caller')");
+    const mutate = vi.fn(() => '{}');
+    try {
+      expect(() => store.completeAtomically(context, mutate)).toThrow('another caller owns');
+      expect(mutate).not.toHaveBeenCalled();
+      expect(native.prepare('SELECT id FROM guarded_domain').get()?.id).toBe('caller');
+      native.exec('ROLLBACK');
+      expect(native.prepare('SELECT * FROM guarded_domain').all()).toEqual([]);
+    } finally {
+      context.close();
+    }
+  });
+
+  it('reports committed success when cancellation arrives immediately after COMMIT', () => {
+    const { store, context } = prepare();
+    const run = db.run.bind(db);
+    vi.spyOn(db, 'run').mockImplementation((query) => {
+      const result = run(query);
+      if (
+        native.prepare("SELECT status FROM background_jobs WHERE id='guarded-job'").get()
+          ?.status === 'complete'
+      ) {
+        // A separate connection only sees the terminal row after COMMIT.
+        const fresh = new DatabaseSync(path, { readOnly: true });
+        try {
+          if (
+            fresh.prepare("SELECT status FROM background_jobs WHERE id='guarded-job'").get()
+              ?.status === 'complete'
+          )
+            context.close();
+        } finally {
+          fresh.close();
+        }
+      }
+      return result;
+    });
+    try {
+      expect(
+        store.completeAtomically(context, () => {
+          native.exec("INSERT INTO guarded_domain VALUES ('committed')");
+          return '{}';
+        }),
+      ).toBe('{}');
+      expect(context.signal.aborted).toBe(true);
+      expect(store.get('guarded-job')?.status).toBe('complete');
+      expect(native.prepare('SELECT id FROM guarded_domain').get()?.id).toBe('committed');
+    } finally {
+      context.close();
+    }
+  });
+
   it('composes a checked domain mutation with its receipt in one caller-owned transaction', () => {
     const { context } = prepare();
     try {
