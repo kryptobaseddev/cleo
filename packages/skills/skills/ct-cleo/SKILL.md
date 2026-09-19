@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.9.0
+  version: 2.12.0
   lastReviewed: 2026-09-19
   stability: stable
 ---
@@ -64,9 +64,13 @@ complete at the record projection boundary; an envelope can separately report
 omitted records or fields. Never overwrite a field because a compact read omitted it.
 
 Coverage, failure diagnostics, authority corrections, and pending repair facts
-survive budgeting before examples. If mandatory facts cannot fit, the operation
-rejects the budget. Request a narrower scope or a larger budget, and do not treat
-that failure as clean coverage or absent impact.
+survive budgeting before examples. Read operations reject budgets too small for
+mandatory facts; request a narrower scope or a larger budget. Internal mutation
+budgets that cannot hold the minimum envelope reject before execution. If a
+successful mutation's actual receipt exceeds a viable budget, success and the
+complete receipt are preserved with `_budgetEnforcement.withinBudget: false`.
+Inspect the receipt before retrying; overflow is not rollback or clean coverage.
+This internal budget contract does not add a `--token-budget` flag to add/update.
 
 ## Skill-Specific Extensions
 
