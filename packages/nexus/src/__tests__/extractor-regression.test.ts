@@ -1121,3 +1121,54 @@ describe('shared lexical scope model (T12264)', () => {
     );
   });
 });
+
+describe('lexical extraction ownership (T12264)', () => {
+  function extract(source: string) {
+    const parser = new TreeSitterParser();
+    parser.setLanguage(TypeScriptGrammar.typescript);
+    return extractTypeScript(parseOriginalSource(parser, source).rootNode, 'auth.ts', 'typescript');
+  }
+
+  it('retains nested declarations and exact object callback callers', () => {
+    const source = `import { orgNameTaken } from './production';
+function first(){ function local(){ return 1; } return local(); }
+function second(){ function local(){ return 2; } return local(); }
+const auth = { hooks: { beforeCreateOrganization: async (input) => orgNameTaken(input.name) } };`;
+    const result = extract(source);
+    const ids = result.definitions.map((node) => node.id);
+    expect(ids).toContain('auth.ts::first.local');
+    expect(ids).toContain('auth.ts::second.local');
+    expect(ids).toContain('auth.ts::auth.hooks.beforeCreateOrganization');
+    for (const name of ['first', 'second']) {
+      const call = result.calls.find(
+        (item) => item.calledName === 'local' && item.sourceId === `auth.ts::${name}`,
+      );
+      expect(call?.lexical?.kind).toBe('resolved');
+      expect(call?.lexical?.bindings[0].targetId).toBe(`auth.ts::${name}.local`);
+    }
+    const call = result.calls.find((item) => item.calledName === 'orgNameTaken');
+    expect(call?.sourceId).toBe('auth.ts::auth.hooks.beforeCreateOrganization');
+    expect(call?.lexical?.kind).toBe('import');
+    expect(source.slice(call?.span?.startIndex, call?.span?.endIndex)).toBe(
+      'orgNameTaken(input.name)',
+    );
+  });
+
+  it('retains local shadows and every dynamic call with original ranges', () => {
+    const source = `function testCase(){ const orgNameTaken=vi.fn(); orgNameTaken(); }
+function check(orgNameTaken){orgNameTaken();}
+const emoji='😀'; handlers[key](); (getHandler())(); (() => 1)();`;
+    const result = extract(source);
+    const shadows = result.calls.filter((item) => item.calledName === 'orgNameTaken');
+    expect(shadows).toHaveLength(2);
+    expect(shadows.map((item) => item.lexical?.bindings[0].kind)).toEqual(['local', 'parameter']);
+    expect(shadows.every((item) => item.lexical?.kind === 'shadowed')).toBe(true);
+    const dynamic = result.calls.filter((item) => item.dynamic);
+    expect(dynamic).toHaveLength(3);
+    expect(dynamic.map((item) => source.slice(item.span?.startIndex, item.span?.endIndex))).toEqual(
+      ['handlers[key]()', '(getHandler())()', '(() => 1)()'],
+    );
+    expect(result.calls.find((item) => item.calledName === 'getHandler')?.dynamic).toBe(false);
+    expect(new Set(result.calls.map((item) => item.generation)).size).toBe(1);
+  });
+});

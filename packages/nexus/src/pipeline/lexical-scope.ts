@@ -35,6 +35,8 @@ export interface LexicalScopeModel {
   bindings: readonly GraphLexicalBinding[];
   /** All nested and object callables/classes, not only module declarations. */
   declarations: readonly LexicalDeclaration[];
+  /** Retain an original AST range with explicit UTF-16 offset semantics. */
+  spanOf(node: Parser.SyntaxNode): GraphSourceSpan;
   /** Find the innermost scope covering an original UTF-16 offset. */
   scopeAt(offset: number): GraphLexicalScope;
   /** Resolve a visible name without consulting unrelated global declarations. */
@@ -423,6 +425,7 @@ export function buildLexicalScopeModel(
     scopes,
     bindings,
     declarations,
+    spanOf: span,
     scopeAt,
     resolve,
     ownerAt: (offset) => scopeAt(offset).ownerId,
