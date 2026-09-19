@@ -97,6 +97,8 @@ export function parseOriginalSource(
     if (!tree || performance.now() >= deadline)
       throw new Error('E_PARSE_TIMEOUT: native deadline exceeded');
     limits.signal?.throwIfAborted();
+    if (tree.rootNode.hasError)
+      throw new Error('E_PARSE_SYNTAX: native tree contains syntax errors');
     return tree;
   } finally {
     parsing = false;

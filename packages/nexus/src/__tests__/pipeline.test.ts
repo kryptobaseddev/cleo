@@ -160,6 +160,7 @@ describe('isolated shared extraction (T12262)', () => {
       );
       const entries = [
         ['worker', new URL('../pipeline/workers/parse-worker.ts', import.meta.url).pathname],
+        ['pipeline', new URL('../pipeline/index.ts', import.meta.url).pathname],
         ['pool', new URL('../pipeline/workers/worker-pool.ts', import.meta.url).pathname],
         [
           'provider',
@@ -181,6 +182,9 @@ describe('isolated shared extraction (T12262)', () => {
         `
         import assert from 'node:assert/strict';
         import { createWorkerPool } from './pool.mjs';
+        import { runPipeline } from './pipeline.mjs';
+        import { mkdirSync, copyFileSync, writeFileSync } from 'node:fs';
+        import { fileURLToPath } from 'node:url';
         import { createParserExecutionPort, _forceSystemdRunAvailable } from './provider.mjs';
         _forceSystemdRunAvailable(false);
         const inputs = [
@@ -190,6 +194,7 @@ describe('isolated shared extraction (T12262)', () => {
           { path: 'unicode.go', content: 'package main\\nfunc 読む(){ obj.値() }\\nfunc main(){読む()}\\n' },
           { path: 'unicode.rs', content: 'fn 読む(){ obj.値(); } fn main(){読む();}' },
           { path: 'too-large.ts', content: 'const 文 = "🌱";', limits: { maxSourceBytes: 1 } },
+          { path: 'invalid.ts', content: 'export function broken( {' },
         ];
         let childCount = 0;
         const actual = createParserExecutionPort();
@@ -210,9 +215,36 @@ describe('isolated shared extraction (T12262)', () => {
           }
           assert.ok(results.flatMap(result => result.imports).some(binding => binding.rawImportPath === './資料🌱'));
           assert.match(reports.find(report => report.path === 'too-large.ts').reason, /E_PARSE_SIZE/);
+          assert.match(reports.find(report => report.path === 'invalid.ts').reason, /E_PARSE_SYNTAX/);
           assert.equal(results.reduce((sum, result) => sum + result.fileCount, 0), 5);
-          assert.equal(results.reduce((sum, result) => sum + result.skippedCount, 0), 1);
+          assert.equal(results.reduce((sum, result) => sum + result.skippedCount, 0), 2);
         } finally { await pool.terminate(); }
+        mkdirSync(new URL('./workers/', import.meta.url));
+        copyFileSync(new URL('./worker.mjs', import.meta.url), new URL('./workers/parse-worker.js', import.meta.url));
+        writeFileSync(new URL('./package.json', import.meta.url), '{"type":"module"}');
+        const repo = new URL('./repo/', import.meta.url);
+        mkdirSync(repo);
+        writeFileSync(new URL('main.ts', repo), inputs[0].content);
+        const publications = [];
+        const noWrites = { insert() { throw new Error('unexpected live store mutation'); } };
+        const tables = { nexusNodes: {}, nexusRelations: {} };
+        await runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
+          parserExecution: execution, parserLimits: { workerHeapMb: 64 }, publishGraph(rows) { publications.push(rows); },
+        });
+        assert.equal(childCount, 3, 'production pipeline must use exactly one owned child for one file');
+        assert.equal(publications.length, 1);
+        assert.ok(publications[0].nodes.some(node => node.name === '解析'));
+        assert.equal(publications[0].assessment.files.find(file => file.path === 'main.ts').status, 'analyzed');
+        await assert.rejects(runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
+          parserExecution: execution, parserLimits: { maxSourceBytes: 1, workerHeapMb: 64 }, publishGraph(rows) { publications.push(rows); },
+        }), /E_PARSE_SIZE/);
+        assert.equal(publications.length, 1, 'failed file must not replace prior published generation');
+        const controller = new AbortController(); controller.abort(new Error('cancel before publication'));
+        await assert.rejects(runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
+          parserExecution: execution, parserLimits: { signal: controller.signal }, publishGraph(rows) { publications.push(rows); },
+        }), /cancel before publication/);
+        assert.equal(publications.length, 1);
+
       `,
       );
       execFileSync(process.execPath, [script], {
@@ -272,6 +304,12 @@ describe('bounded original parser capacity (T12262)', () => {
     expect(extracted.definitions.some((node) => node.name === '解析')).toBe(true);
     expect(extracted.imports[0].rawImportPath).toBe('./資料🌱');
     expect(extracted.calls.some((call) => call.calledName === '解析')).toBe(true);
+  });
+
+  it('rejects native syntax error trees rather than declaring complete extraction', () => {
+    expect(() => parseOriginalSource(nativeParser(), 'export function broken( {')).toThrow(
+      'E_PARSE_SYNTAX',
+    );
   });
 
   it('retains the real default-buffer failure as a native negative control', () => {
