@@ -49,6 +49,13 @@ function setupBlockedProject(): string {
   return projectRoot;
 }
 
+// Keep the configured blocked bridge path inside the selected fixture.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'cleo-nexus-bridge-warn-'));
 });
