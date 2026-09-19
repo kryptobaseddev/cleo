@@ -67,7 +67,7 @@ for (const [name, directory] of Object.entries(isolatedRoots)) {
 // A parent process cannot opt an ordinary unit-test fork into a real store.
 // Deliberate integration fixtures may set scoped overrides after setup.
 delete process.env.CLEO_TEST_ALLOW_PROJECT_DB;
-delete process.env.CLEO_TEST_ALLOWED_DB_ROOTS;
+process.env.CLEO_TEST_ALLOWED_DB_ROOTS = sandbox;
 process.env.CLEO_DISABLE_LOCAL_INFERENCE = '1';
 // Tests do not need real signaldock peer permission checks.
 if (!process.env.NEXUS_SKIP_PERMISSION_CHECK) {
