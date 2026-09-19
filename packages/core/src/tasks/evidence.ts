@@ -281,27 +281,6 @@ export type AtomValidation =
   | { ok: false; reason: string; codeName: string };
 
 /**
- * Validate a single parsed atom against the filesystem / git / tools.
- *
- * @param parsed - Parsed atom from {@link parseEvidence}
- * @param projectRoot - Absolute path to project root (for resolving files, git)
- * @param taskId - Optional CLEO task ID. When provided, enables branch-scope
- *   check (T9178), content-intersect check (T9245), worktree-aware HEAD
- *   resolution (T-WT-3), and git-show file fallback for branch-only files
- *   (T11959).
- * @param siblingCommitSha - Optional sha of a sibling `commit:` atom from the
- *   same evidence string. When provided, `files:` paths are resolved against
- *   that commit's tree FIRST (T12107 / gh#1195) before falling back to the
- *   worktree and git refs — covers a merged commit whose files are not yet
- *   present in the local checkout.
- * @returns Validation outcome with canonicalised form on success
- *
- * @task T832
- * @task T11959
- * @task T12107
- * @adr ADR-051 §3
- */
-/**
  * The two roots an evidence atom may be about, named so an arm cannot inherit
  * the wrong one.
  *
@@ -338,6 +317,28 @@ export interface EvidenceRoots {
   readonly executionRoot: string;
 }
 
+/**
+ * Validate a single parsed atom against the filesystem / git / tools.
+ *
+ * @param parsed - Parsed atom from {@link parseEvidence}
+ * @param projectRoot - Absolute path to project root (for resolving files, git)
+ * @param taskId - Optional CLEO task ID. When provided, enables branch-scope
+ *   check (T9178), content-intersect check (T9245), worktree-aware HEAD
+ *   resolution (T-WT-3), and git-show file fallback for branch-only files
+ *   (T11959).
+ * @param siblingCommitSha - Optional sha of a sibling `commit:` atom from the
+ *   same evidence string. When provided, `files:` paths are resolved against
+ *   that commit's tree FIRST (T12107 / gh#1195) before falling back to the
+ *   worktree and git refs — covers a merged commit whose files are not yet
+ *   present in the local checkout.
+ * @param context - Current task, gate and acceptance criteria used to validate scoped proof.
+ * @returns Validation outcome with canonicalised form on success
+ *
+ * @task T832
+ * @task T11959
+ * @task T12107
+ * @adr ADR-051 §3
+ */
 export async function validateAtom(
   parsed: ParsedAtom,
   projectRoot: string,
@@ -2217,7 +2218,18 @@ function classifyEvidenceTask(
   return 'code';
 }
 
-/** Require explicit criterion linkage to inspected artifacts and real gate results. */
+/**
+ * Require explicit criterion linkage to inspected artifacts and real gate results.
+ * @param context - Current task classification, requested gates and criterion records.
+ * @param gate - Individual gate whose evidence is being assessed.
+ * @param atoms - Independently validated artifacts, results and criterion references.
+ * @returns A refusal reason when proof is insufficient, otherwise null.
+ * @remarks PR state and CI provenance alone cannot establish every acceptance gate.
+ * @example
+ * ```ts
+ * const refusal = checkTaskEvidenceContext(context, "implemented", validatedAtoms);
+ * ```
+ */
 export function checkTaskEvidenceContext(
   context: EvidenceValidationContext,
   gate: VerificationGate,
@@ -2430,6 +2442,8 @@ export function checkGateEvidenceMinimumDetailed(
  * @param capturedBy - Agent identifier
  * @param override - True when CLEO_OWNER_OVERRIDE is set
  * @param overrideReason - Reason supplied with the override
+ * @param context - Task and criterion context used to capture durable proof bindings.
+ * @param gate - Gate associated with the captured result and artifact references.
  * @returns Canonical GateEvidence ready to persist
  *
  * @task T832
