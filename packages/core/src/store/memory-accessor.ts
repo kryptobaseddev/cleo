@@ -9,6 +9,7 @@
  * @task T5128
  */
 
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type { SQL } from 'drizzle-orm';
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
@@ -301,7 +302,38 @@ export class BrainDataAccessor {
   // Observations CRUD
   // =========================================================================
 
-  async addObservation(row: NewBrainObservationRow): Promise<BrainObservationRow> {
+  /**
+   * Insert and read back one observation with an optional guarded synchronous boundary.
+   * @param row - Complete observation payload, including its caller-selected identity.
+   * @param execution - Captured lifetime checked immediately before SQL execution.
+   * @returns The actual stored row after a committed insert.
+   * @throws Error if cancellation, an existing native transaction, or SQL prevents insertion.
+   * @remarks Scoped writes use one synchronous transaction and cannot join an unrelated
+   * native transaction. Cancellation during admitted synchronous SQL cannot preempt it;
+   * its committed row remains the result. Legacy callers retain their async path.
+   * @example
+   * ```ts
+   * const stored = await accessor.addObservation(row, execution);
+   * ```
+   */
+  async addObservation(
+    row: NewBrainObservationRow,
+    execution?: OperationExecutionContext,
+  ): Promise<BrainObservationRow> {
+    if (execution) {
+      execution.assertActive();
+      return this.db.transaction((tx) => {
+        execution.assertActive();
+        tx.insert(brainSchema.brainObservations).values(row).run();
+        const stored = tx
+          .select()
+          .from(brainSchema.brainObservations)
+          .where(eq(brainSchema.brainObservations.id, row.id))
+          .get();
+        if (!stored) throw new Error('Inserted observation could not be read back');
+        return stored;
+      });
+    }
     await this.db.insert(brainSchema.brainObservations).values(row);
     const result = await this.db
       .select()
