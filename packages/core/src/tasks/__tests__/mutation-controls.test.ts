@@ -208,6 +208,30 @@ describe('canonical task mutation controls', () => {
       db.close();
     }
   });
+  it('rolls back an update and its signed decision when audit persistence fails', async () => {
+    await seedTasks(env.accessor, [{ id: 'T001', severity: 'P0' }]);
+    const db = new DatabaseSync(join(env.cleoDir, 'cleo.db'));
+    try {
+      db.exec(
+        "CREATE TRIGGER refuse_update_receipt BEFORE INSERT ON main.audit_log WHEN NEW.action='task_updated' BEGIN SELECT RAISE(ABORT, 'fixture update receipt fault'); END",
+      );
+      await expect(
+        tasksUpdateOp(env.tempDir, {
+          taskId: 'T001',
+          severity: 'P3',
+          priority: 'critical',
+          dependsWaiver: 'Independent recovery',
+        }),
+      ).rejects.toMatchObject({ cause: { message: 'fixture update receipt fault' } });
+      const stored = freshRead();
+      expect(stored.tasks[0]).toMatchObject({ severity: 'P0', priority: 'medium' });
+      expect(stored.audit).toEqual([]);
+      expect(existsSync(join(env.cleoDir, 'audit/severity-attestation.jsonl'))).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
   it('retains duplicate bypass provenance only when the task transaction commits', async () => {
     vi.spyOn(duplicateDetector, 'checkDuplicatesBounded').mockResolvedValue({
       maxScore: 0.99,
