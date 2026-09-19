@@ -15,7 +15,14 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ExitCode } from '@cleocode/contracts';
 import type { DispatchRequest, DispatchResponse } from '@cleocode/contracts/gateway';
-import { describe, expect, it } from 'vitest';
+import {
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from '@cleocode/core/store/__tests__/test-db-helper';
+import { Dispatcher } from '@cleocode/runtime/gateway';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { TasksHandler } from '../../domains/tasks.js';
 import { createBudgetEnforcement } from '../../middleware/budget-enforcement.js';
 import { BUDGET_EXCEEDED_CODE, enforceBudget, isWithinBudget } from '../budget.js';
 
@@ -232,4 +239,70 @@ it('retains population and emitted rows together or rejects an insufficient budg
     },
   }));
   expect(response.success).toBe(false);
+});
+
+describe('mutation budget rejection precedes durable writes', () => {
+  let fixture: TestDbEnv;
+  let dispatcher: Dispatcher;
+  beforeEach(async () => {
+    fixture = await createTestDb();
+    vi.stubEnv('CLEO_ROOT', fixture.tempDir);
+    vi.stubEnv('CLEO_DIR', fixture.cleoDir);
+    await seedTasks(fixture.accessor, [
+      {
+        id: 'T001',
+        title: 'Original durable title',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    dispatcher = new Dispatcher({
+      handlers: new Map([['tasks', new TasksHandler()]]),
+      middlewares: [createBudgetEnforcement()],
+    });
+  });
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await fixture.cleanup();
+  });
+  it.each([
+    0, 1,
+  ])('rejects impossible internal budget %s before the real task handler commits', async (budget) => {
+    const output = await dispatcher.dispatch({
+      gateway: 'mutate',
+      domain: 'tasks',
+      operation: 'update',
+      source: 'cli',
+      requestId: 'impossible-mutation-budget',
+      params: { taskId: 'T001', title: 'Must not commit after rejection', _budget: budget },
+    });
+    expect(output.success).toBe(false);
+    expect(output.error?.code).toBe(BUDGET_EXCEEDED_CODE);
+    expect((await fixture.accessor.loadSingleTask('T001'))?.title).toBe('Original durable title');
+    expect(
+      await fixture.accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] }),
+    ).toEqual([]);
+  });
+  it('preserves committed success and complete receipt when the actual result exceeds a viable budget', async () => {
+    const description = 'Original evidence must survive budget overflow. '.repeat(200);
+    const output = await dispatcher.dispatch({
+      gateway: 'mutate',
+      domain: 'tasks',
+      operation: 'update',
+      source: 'cli',
+      requestId: 'committed-mutation-budget',
+      params: { taskId: 'T001', description, _budget: 500 },
+    });
+    expect(output.success).toBe(true);
+    expect(output.error).toBeUndefined();
+    expect(output.data).toMatchObject({ task: { id: 'T001', description } });
+    expect(output.meta).toMatchObject({
+      _budgetEnforcement: { budget: 500, withinBudget: false, truncated: false },
+    });
+    expect((await fixture.accessor.loadSingleTask('T001'))?.description).toBe(description);
+    expect(
+      await fixture.accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] }),
+    ).toHaveLength(1);
+  });
 });

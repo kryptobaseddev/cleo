@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.11.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.12.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## MANDATORY: Run `cleo briefing` BEFORE Any Other Tool
@@ -21,7 +21,7 @@ The ONLY canonical sources of session state are:
 
 Projection markers include omitted empty/null fields and survive repeated projection.
 Budgeting preserves coverage, diagnostic failures, authority corrections and pending
-repair facts before examples. A budget too small for mandatory facts fails explicitly;
+repair facts before examples. A read budget too small for mandatory facts fails explicitly;
 request narrower scope or more budget. Never treat this failure as clean coverage.
 
 If you find yourself reading a markdown file for orientation, STOP. Run `cleo briefing`.
@@ -37,6 +37,11 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 5. `cleo focus {id}` — **preferred orient call** — single envelope with identity + scope + blockers + ready wave + docs + brain context (≤ 1 500 tokens, replaces 8 calls)
 6. `cleo show {id} --full` — the full task record (~400 tokens). Bare `cleo show {id}` is an MVI projection, NOT the full record — see the `_withheld` note under Task Discovery before you act on a field's absence.
 7. `cleo orchestrate start <epicId>` — for epics with ≥ 5 children (~300 tokens, auto-inits LOOM)
+An impossible internal mutation budget rejects before execution. If a successful
+mutation's actual receipt exceeds a viable budget, its success and complete receipt
+remain available with `_budgetEnforcement.withinBudget: false`; overflow does not
+mean rollback. Inspect the receipt before retrying a mutation.
+
 <!-- /CLEO-INJECTION:section=session-start -->
 
 <!-- CLEO-INJECTION:section=work-loop -->
