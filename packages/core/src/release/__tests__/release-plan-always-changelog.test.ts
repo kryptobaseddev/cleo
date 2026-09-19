@@ -22,7 +22,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { closeDb, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
@@ -75,6 +75,16 @@ async function seedEpicWithChild(epicId: string, childId: string): Promise<void>
     await accessor.close();
   }
 }
+
+// Explicit release fixtures own their configuration, provenance store and documents.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'cleo-plan-always-cl-'));
