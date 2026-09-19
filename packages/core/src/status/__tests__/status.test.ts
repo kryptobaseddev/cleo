@@ -62,6 +62,7 @@ beforeEach(() => {
     'XDG_CONFIG_HOME',
     'CLEO_HOME',
     'CLEO_ROOT',
+    'CLEO_DIR',
     'CLEO_HARNESS',
     'CLAUDECODE',
     'CLEO_PI',
@@ -70,6 +71,7 @@ beforeEach(() => {
   }
   // `getProjectRoot()` honors CLEO_ROOT first; pin to the per-test root.
   process.env['CLEO_ROOT'] = testRoot;
+  process.env['CLEO_DIR'] = join(testRoot, '.cleo');
   process.env['CLEO_HOME'] = cleoHome;
   delete process.env['CLEO_HARNESS'];
   delete process.env['CLAUDECODE'];

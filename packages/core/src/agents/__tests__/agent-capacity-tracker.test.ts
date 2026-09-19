@@ -12,7 +12,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getAgentCapacity,
@@ -23,6 +23,13 @@ import {
   updateAgentSpecializations,
 } from '../agent-capacity-tracker.js';
 import { registerAgent, updateAgentStatus } from '../registry.js';
+
+// Each synthetic project owns its task and agent records.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('Agent Registry (T041)', () => {
   let tempDir: string;
