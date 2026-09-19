@@ -14,6 +14,8 @@
  */
 
 import { parentPort } from 'node:worker_threads';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
+import { receiveOperationContext } from '../store/background-ops.js';
 import { handleWriteOp } from './brain-writer-handlers.js';
 import type { WriterRequestEnvelope, WriterResponseEnvelope } from './brain-writer-thread.js';
 
@@ -29,8 +31,11 @@ const port = parentPort;
  * worker stays alive even when individual ops fail.
  */
 async function processEnvelope(envelope: WriterRequestEnvelope): Promise<void> {
+  let execution: OperationExecutionContext | undefined;
   try {
-    const result = await handleWriteOp(envelope.op);
+    execution = envelope.execution ? receiveOperationContext(envelope.execution) : undefined;
+    execution?.assertActive();
+    const result = await handleWriteOp(envelope.op, execution);
     const response: WriterResponseEnvelope = {
       seq: envelope.seq,
       ok: true,
@@ -44,6 +49,8 @@ async function processEnvelope(envelope: WriterRequestEnvelope): Promise<void> {
       error: err instanceof Error ? err.message : String(err),
     };
     port.postMessage(response);
+  } finally {
+    execution?.close();
   }
 }
 

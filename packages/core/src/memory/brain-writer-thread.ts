@@ -47,7 +47,12 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ObserveBrainParams, ObserveBrainResult } from '@cleocode/contracts';
+import type {
+  OperationExecutionContext,
+  OperationExecutionTransfer,
+} from '@cleocode/contracts/jobs';
 import { getLogger } from '../logger.js';
+import { transferOperationContext } from '../store/background-ops.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import type { NewBrainDecisionRow, NewBrainLearningRow } from '../store/schema/memory-schema.js';
 import {
@@ -175,6 +180,11 @@ export type BrainWriteResult =
 
 /** Outbound message envelope (main → worker). */
 export interface WriterRequestEnvelope {
+  /**
+   * Original admitted lifetime and job fence, serialized without renewing its budget.
+   * @defaultValue undefined — legacy unscoped operation.
+   */
+  execution?: OperationExecutionTransfer;
   seq: number;
   op: BrainWriteOp;
 }
@@ -245,12 +255,13 @@ class BrainWriterManager {
   private shuttingDown = false;
 
   /** Lazy-initialize the worker thread on first enqueue. */
-  private async ensureWorker(): Promise<void> {
+  private async ensureWorker(execution?: OperationExecutionContext): Promise<void> {
+    execution?.assertActive();
     if (this.workerReady || this.shuttingDown) return;
     if (this.workerInitError) throw this.workerInitError;
     if (this.initPromise) return this.initPromise;
 
-    this.initPromise = this.doInit();
+    this.initPromise = this.doInit(execution);
     try {
       await this.initPromise;
     } finally {
@@ -258,7 +269,8 @@ class BrainWriterManager {
     }
   }
 
-  private async doInit(): Promise<void> {
+  private async doInit(execution?: OperationExecutionContext): Promise<void> {
+    execution?.assertActive();
     const workerPath = resolveWorkerPath();
     if (!workerPath) {
       // Worker file unavailable (test sandbox, esbuild bundle). Fall back to
@@ -270,6 +282,9 @@ class BrainWriterManager {
     }
 
     const { Worker } = await import('node:worker_threads');
+    execution?.assertActive();
+    if (this.shuttingDown || isBrainWriterShuttingDown())
+      throw new BrainWriterShutDownError('observe');
     const worker = new Worker(workerPath);
 
     worker.on('message', (msg: WriterResponseEnvelope) => {
@@ -321,7 +336,12 @@ class BrainWriterManager {
    * Enqueue a write op. Returns a promise that resolves with the worker's
    * result envelope payload (shape depends on op kind).
    */
-  async enqueue(op: BrainWriteOp): Promise<BrainWriteResult> {
+  async enqueue(
+    op: BrainWriteOp,
+    execution?: OperationExecutionContext,
+    transfer?: OperationExecutionTransfer,
+  ): Promise<BrainWriteResult> {
+    execution?.assertActive();
     // Defence in depth (T12239 AC3). The instance flag alone misses a manager
     // captured BEFORE teardown and used after — `getManager()` returns a
     // reference, and nothing stops a caller holding it across a shutdown.
@@ -329,14 +349,21 @@ class BrainWriterManager {
       throw new BrainWriterShutDownError(op.kind);
     }
 
-    await this.ensureWorker();
+    await this.ensureWorker(execution);
+    execution?.assertActive();
+    if (this.shuttingDown || isBrainWriterShuttingDown())
+      throw new BrainWriterShutDownError(op.kind);
     const worker = this.worker;
     if (!worker) {
       throw new Error('brain-writer worker is not available');
     }
 
     const seq = ++this.seqCounter;
-    const envelope: WriterRequestEnvelope = { seq, op };
+    const envelope: WriterRequestEnvelope = {
+      seq,
+      op,
+      ...(transfer ? { execution: transfer } : {}),
+    };
 
     return new Promise<BrainWriteResult>((resolve, reject) => {
       this.pending.set(seq, { resolve, reject });
@@ -370,6 +397,13 @@ class BrainWriterManager {
       this.worker = null;
     }
     this.workerReady = false;
+    for (const pending of this.pending.values()) {
+      pending.reject(
+        new Error(
+          'Brain writer stopped before a result was observed; commit status remains unresolved',
+        ),
+      );
+    }
     this.pending.clear();
   }
 
@@ -424,7 +458,31 @@ const _brainBatches = new Map<string, BrainBatchState>();
  * @returns A release callback the caller MUST invoke (in a `finally`) when its
  *   write completes; the underlying row is freed only when the batch quiesces.
  */
-async function enterBrainBatchLease(dbPath: string): Promise<() => Promise<void>> {
+async function enterBrainBatchLease(
+  dbPath: string,
+  execution?: OperationExecutionContext,
+): Promise<() => Promise<void>> {
+  if (execution) {
+    execution.assertActive();
+    const handle = await acquireWriterLease(BRAIN_LEASE_SCOPE, BRAIN_LEASE_LANE, {
+      priority: 50,
+      dbPath,
+      execution,
+    });
+    return async () => {
+      await handle.release();
+      if (handle.cleanupPending) {
+        getLogger('brain-writer').warn(
+          {
+            event: 'scoped-lease-cleanup-pending',
+            dbPath,
+            jobId: execution.writeFence?.lease.jobId,
+          },
+          'Committed write outcome is unchanged; original lease cleanup requires TTL recovery',
+        );
+      }
+    };
+  }
   if (resolveLeaseMode() === 'off') {
     // No lease in off-mode — pass-through (busy_timeout serializes).
     return async () => {};
@@ -485,8 +543,11 @@ async function enterBrainBatchLease(dbPath: string): Promise<() => Promise<void>
  */
 let inlineQueueTail: Promise<unknown> = Promise.resolve();
 
-function runInline(op: BrainWriteOp): Promise<BrainWriteResult> {
-  const next = inlineQueueTail.then(() => executeInline(op));
+function runInline(
+  op: BrainWriteOp,
+  execution?: OperationExecutionContext,
+): Promise<BrainWriteResult> {
+  const next = inlineQueueTail.then(() => executeInline(op, execution));
   // Swallow rejection in the chain marker so failures don't break later writes.
   inlineQueueTail = next.catch(() => undefined);
   return next;
@@ -501,17 +562,23 @@ function runInline(op: BrainWriteOp): Promise<BrainWriteResult> {
  * The handler module is shared between the worker thread and this fallback,
  * so behaviour is identical except for the thread of execution.
  */
-async function executeInline(op: BrainWriteOp): Promise<BrainWriteResult> {
+async function executeInline(
+  op: BrainWriteOp,
+  execution?: OperationExecutionContext,
+): Promise<BrainWriteResult> {
+  execution?.assertActive();
+  if (execution && isBrainWriterShuttingDown()) throw new BrainWriterShutDownError(op.kind);
   // AC4 guard: a lease-less write must NOT open the brain WRITE handle. This is
   // enforcement, not convention — `enqueueBrainWrite` holds the batch lease before
   // it reaches here, so a held grant exists in every mode except `off` (exempt).
   assertWriterLeaseHeld(
     BRAIN_LEASE_SCOPE,
     BRAIN_LEASE_LANE,
-    resolveDualScopeDbPath(BRAIN_LEASE_SCOPE, op.projectRoot),
+    execution?.writeFence?.dbPath ?? resolveDualScopeDbPath(BRAIN_LEASE_SCOPE, op.projectRoot),
   );
   const { handleWriteOp } = await import('./brain-writer-handlers.js');
-  return handleWriteOp(op);
+  execution?.assertActive();
+  return handleWriteOp(op, execution);
 }
 
 // ============================================================================
@@ -561,7 +628,7 @@ export class BrainWriterShutDownError extends Error {
   constructor(kind: BrainWriteOp['kind']) {
     super(
       `E_BRAIN_WRITER_SHUTDOWN: brain writer is shut down; refusing to spawn a worker ` +
-        `realm for a late '${kind}' write. The op runs inline instead.`,
+        `realm for a late '${kind}' write. Scoped writes are refused.`,
     );
     this.name = 'BrainWriterShutDownError';
   }
@@ -623,24 +690,58 @@ function getManager(kind: BrainWriteOp['kind'] = 'observe'): BrainWriterManager 
  * ```
  *
  * @param op - The write op (discriminated by `kind`).
+ * @param execution - Optional original lifetime and validated document job authority.
+ * @throws Error when scoped admission, ownership, shutdown or worker execution fails.
+ * @remarks Scoped operations preserve their original budget and never retry an
+ * uncertain worker outcome inline. A received committed result survives later cancellation.
  * @returns Worker result for the op.
  */
-export async function enqueueBrainWrite(op: BrainWriteOp): Promise<BrainWriteResult> {
+export async function enqueueBrainWrite(
+  op: BrainWriteOp,
+  execution?: OperationExecutionContext,
+): Promise<BrainWriteResult> {
+  execution?.assertActive();
+  if (execution) {
+    if (
+      !execution.writeFence ||
+      execution.identity.operation !== 'docs.projection' ||
+      op.kind !== 'observe' ||
+      !op.params._skipGate ||
+      op.projectRoot !== execution.identity.projectRoot
+    ) {
+      throw new Error(
+        'Scoped brain writer requires a fenced, validated document observation in its captured project',
+      );
+    }
+    if (isBrainWriterShuttingDown()) throw new BrainWriterShutDownError(op.kind);
+    op = structuredClone(op);
+  }
+  const transfer = execution
+    ? transferOperationContext(execution, {
+        bytes: Buffer.byteLength(JSON.stringify(op), 'utf8'),
+        items: 1,
+      })
+    : undefined;
+  let releaseBatch: (() => Promise<void>) | undefined;
+
   // Seam 2 (AC4): hold the `brain` lease for the duration of this write. The lease
   // is batch-granular (acquire-once / drain-N / release) via the process-local
   // refcount — concurrent callers share one grant, freed when the batch quiesces.
   // The lease-less path is blocked at the write primitive by `assertWriterLeaseHeld`.
-  const dbPath = resolveDualScopeDbPath(BRAIN_LEASE_SCOPE, op.projectRoot);
-  const releaseBatch = await enterBrainBatchLease(dbPath);
+  const dbPath =
+    execution?.writeFence?.dbPath ?? resolveDualScopeDbPath(BRAIN_LEASE_SCOPE, op.projectRoot);
   try {
+    releaseBatch = await enterBrainBatchLease(dbPath, execution);
+    execution?.assertActive();
     // Bypass mode — log audit warn and run inline.
     if (bypassEnabled()) {
-      return await runInline(op);
+      return await runInline(op, execution);
     }
 
     try {
-      return await getManager(op.kind).enqueue(op);
+      return await getManager(op.kind).enqueue(op, execution, transfer?.transfer);
     } catch (err) {
+      if (execution) throw err; // Never replay an uncertain committed worker write inline.
       // Worker was unavailable (tests, esbuild bundle, etc.). Fall back to
       // inline mode — still serialized via the inline mutex. The write is NOT
       // lost in either branch.
@@ -659,10 +760,11 @@ export async function enqueueBrainWrite(op: BrainWriteOp): Promise<BrainWriteRes
           'Brain writer-thread unavailable — falling back to inline serialized executor',
         );
       }
-      return await runInline(op);
+      return await runInline(op, execution);
     }
   } finally {
-    await releaseBatch();
+    transfer?.release();
+    await releaseBatch?.();
   }
 }
 
