@@ -12,17 +12,31 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import type { GraphIndexFileReport, GraphPublicationRows } from '@cleocode/contracts';
+import { buildSync } from 'esbuild';
+import Parser from 'tree-sitter';
+import TypeScript from 'tree-sitter-typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseOriginalSource } from '../code/parser.js';
 import type { ScannedFile } from '../pipeline/filesystem-walker.js';
 import { walkRepositoryPaths } from '../pipeline/filesystem-walker.js';
 import { runPipeline } from '../pipeline/index.js';
 import type { DrizzleTableRef } from '../pipeline/knowledge-graph.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { detectLanguageFromPath, isIndexableFile } from '../pipeline/language-detection.js';
+import { extractOriginalSource } from '../pipeline/parse-loop.js';
 import { processStructure } from '../pipeline/structure-processor.js';
 
 /**
@@ -60,6 +74,279 @@ function writeFile(root: string, relPath: string, content = 'x'): void {
 // ---------------------------------------------------------------------------
 // Language detection
 // ---------------------------------------------------------------------------
+
+describe('bounded parser workers (T12262)', () => {
+  it('proves heap exhaustion, per-file deadlines, cancellation and quiet termination in a clean process', () => {
+    const directory = makeTempDir();
+    try {
+      const poolPath = join(directory, 'pool.mjs');
+      buildSync({
+        entryPoints: [new URL('../pipeline/workers/worker-pool.ts', import.meta.url).pathname],
+        outfile: poolPath,
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+      });
+      const probePath = join(directory, 'probe.mjs');
+      writeFileSync(
+        probePath,
+        `
+        import assert from 'node:assert/strict';
+        import { writeFileSync } from 'node:fs';
+        import { createWorkerPool } from './pool.mjs';
+        function fixture(body) {
+          const url = new URL('./fixture.mjs', import.meta.url);
+          writeFileSync(url, "import {parentPort,resourceLimits} from 'node:worker_threads'; import {getHeapStatistics} from 'node:v8';\\n" + body);
+          return url;
+        }
+        let pool = createWorkerPool(fixture(\`
+          let count = 0;
+          parentPort.on('message', message => {
+            if (message.type === 'sub-batch') {
+              if (message.files.length !== 1) throw new Error('unbounded batch');
+              count++; parentPort.postMessage({ type: 'sub-batch-done' });
+            } else parentPort.postMessage({ type: 'result', data: { count, heap: getHeapStatistics().heap_size_limit } });
+          });
+        \`), 1, { workerHeapMb: 32 });
+        try {
+          const [result] = await pool.dispatch([1,2,3]);
+          assert.equal(result.count, 3);
+          assert.ok(result.heap < 64 * 1024 * 1024, 'actual V8 ceiling, not merely reported configuration');
+        } finally { await pool.terminate(); }
+        pool = createWorkerPool(fixture("parentPort.on('message', () => { while(true) {} });"), 1, { timeoutMs: 100 });
+        await assert.rejects(pool.dispatch([1]), /E_PARSE_WORKER_TIMEOUT/);
+        await assert.rejects(pool.dispatch([2]), /terminated/);
+        await pool.terminate();
+        const controller = new AbortController();
+        pool = createWorkerPool(fixture("parentPort.on('message', () => { while(true) {} });"), 1, { signal: controller.signal });
+        const pending = pool.dispatch([1]);
+        await assert.rejects(pool.dispatch([2]), /active dispatch/);
+        setTimeout(() => controller.abort(), 100);
+        await assert.rejects(pending, /E_PARSE_CANCELLED/);
+        await pool.terminate();
+        pool = createWorkerPool(fixture("parentPort.on('message', () => { const retained = []; while(true) retained.push(new Array(100000).fill('retained')); });"), 1, { workerHeapMb: 16 });
+        await assert.rejects(pool.dispatch([1]), /memory|heap|OOM/i);
+        await assert.rejects(pool.dispatch([2]), /terminated/);
+        await pool.terminate();
+        process.env.NODE_OPTIONS = '--max-old-space-size=1024';
+        assert.throws(() => createWorkerPool(new URL('./fixture.mjs', import.meta.url)), /E_PARSE_WORKER_HEAP_OVERRIDE/);
+      `,
+      );
+      execFileSync(process.execPath, [probePath], {
+        timeout: 20000,
+        env: {
+          PATH: process.env['PATH'],
+          HOME: directory,
+          TMPDIR: directory,
+          TMP: directory,
+          TEMP: directory,
+        },
+        stdio: 'pipe',
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('isolated shared extraction (T12262)', () => {
+  it('preserves language capabilities and per-file failures through actual process IPC', () => {
+    const directory = makeTempDir();
+    try {
+      symlinkSync(
+        new URL('../../node_modules', import.meta.url).pathname,
+        join(directory, 'node_modules'),
+        'dir',
+      );
+      const entries = [
+        ['worker', new URL('../pipeline/workers/parse-worker.ts', import.meta.url).pathname],
+        ['pipeline', new URL('../pipeline/index.ts', import.meta.url).pathname],
+        ['pool', new URL('../pipeline/workers/worker-pool.ts', import.meta.url).pathname],
+        [
+          'provider',
+          new URL('../../../core/src/resources/spawn-wrapper.ts', import.meta.url).pathname,
+        ],
+      ];
+      for (const [name, entry] of entries)
+        buildSync({
+          entryPoints: [entry],
+          outfile: join(directory, `${name}.mjs`),
+          bundle: true,
+          packages: 'external',
+          platform: 'node',
+          format: 'esm',
+        });
+      const script = join(directory, 'probe.mjs');
+      writeFileSync(
+        script,
+        `
+        import assert from 'node:assert/strict';
+        import { createWorkerPool } from './pool.mjs';
+        import { runPipeline } from './pipeline.mjs';
+        import { mkdirSync, copyFileSync, writeFileSync } from 'node:fs';
+        import { fileURLToPath } from 'node:url';
+        import { createParserExecutionPort, _forceSystemdRunAvailable } from './provider.mjs';
+        _forceSystemdRunAvailable(false);
+        const inputs = [
+          { path: 'large.ts', content: '/*' + 'x'.repeat(65536) + '*/\\nimport { 源 } from "./資料🌱"; export function 解析(){return obj.値;} 解析();' },
+          { path: 'unicode.js', content: 'function 読む(){return obj.値;} 読む();' },
+          { path: 'unicode.py', content: 'def 読む():\\n    return obj.値\\n読む()\\n' },
+          { path: 'unicode.go', content: 'package main\\nfunc 読む(){ obj.値() }\\nfunc main(){読む()}\\n' },
+          { path: 'unicode.rs', content: 'fn 読む(){ obj.値(); } fn main(){読む();}' },
+          { path: 'too-large.ts', content: 'const 文 = "🌱";', limits: { maxSourceBytes: 1 } },
+          { path: 'invalid.ts', content: 'export function broken( {' },
+        ];
+        let childCount = 0;
+        const actual = createParserExecutionPort();
+        const execution = { spawn(path, limits) { childCount++; return actual.spawn(path, limits); } };
+        const pool = createWorkerPool(new URL('./worker.mjs', import.meta.url), 2, { workerHeapMb: 64 }, execution);
+        try {
+          const results = await pool.dispatch(inputs);
+          assert.equal(childCount, 2, 'extractor must not recursively enter worker dispatch');
+          const symbols = results.flatMap(result => result.symbols);
+          const calls = results.flatMap(result => result.calls);
+          const accesses = results.flatMap(result => result.accesses);
+          const reports = results.flatMap(result => result.reports);
+          for (const input of inputs.slice(0, 5)) {
+            assert.ok(symbols.some(symbol => symbol.filePath === input.path && ['解析','読む'].includes(symbol.name)), input.path + ' declaration');
+            assert.ok(calls.some(call => call.filePath === input.path && ['解析','読む'].includes(call.calledName)), input.path + ' caller');
+            assert.ok(accesses.some(access => access.filePath === input.path), input.path + ' access');
+            assert.equal(reports.find(report => report.path === input.path).status, 'analyzed');
+          }
+          assert.ok(results.flatMap(result => result.imports).some(binding => binding.rawImportPath === './資料🌱'));
+          assert.match(reports.find(report => report.path === 'too-large.ts').reason, /E_PARSE_SIZE/);
+          assert.match(reports.find(report => report.path === 'invalid.ts').reason, /E_PARSE_SYNTAX/);
+          assert.equal(results.reduce((sum, result) => sum + result.fileCount, 0), 5);
+          assert.equal(results.reduce((sum, result) => sum + result.skippedCount, 0), 2);
+        } finally { await pool.terminate(); }
+        mkdirSync(new URL('./workers/', import.meta.url));
+        copyFileSync(new URL('./worker.mjs', import.meta.url), new URL('./workers/parse-worker.js', import.meta.url));
+        writeFileSync(new URL('./package.json', import.meta.url), '{"type":"module"}');
+        const repo = new URL('./repo/', import.meta.url);
+        mkdirSync(repo);
+        writeFileSync(new URL('main.ts', repo), inputs[0].content);
+        const publications = [];
+        const noWrites = { insert() { throw new Error('unexpected live store mutation'); } };
+        const tables = { nexusNodes: {}, nexusRelations: {} };
+        await runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
+          parserExecution: execution, parserLimits: { workerHeapMb: 64 }, publishGraph(rows) { publications.push(rows); },
+        });
+        assert.equal(childCount, 3, 'production pipeline must use exactly one owned child for one file');
+        assert.equal(publications.length, 1);
+        assert.ok(publications[0].nodes.some(node => node.name === '解析'));
+        assert.equal(publications[0].assessment.files.find(file => file.path === 'main.ts').status, 'analyzed');
+        await assert.rejects(runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
+          parserExecution: execution, parserLimits: { maxSourceBytes: 1, workerHeapMb: 64 }, publishGraph(rows) { publications.push(rows); },
+        }), /E_PARSE_SIZE/);
+        assert.equal(publications.length, 1, 'failed file must not replace prior published generation');
+        const controller = new AbortController(); controller.abort(new Error('cancel before publication'));
+        await assert.rejects(runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
+          parserExecution: execution, parserLimits: { signal: controller.signal }, publishGraph(rows) { publications.push(rows); },
+        }), /cancel before publication/);
+        assert.equal(publications.length, 1);
+
+      `,
+      );
+      execFileSync(process.execPath, [script], {
+        timeout: 20000,
+        stdio: 'pipe',
+        env: {
+          PATH: process.env['PATH'],
+          NODE_OPTIONS: '--max-old-space-size=1024',
+          HOME: directory,
+          TMPDIR: directory,
+          TMP: directory,
+          TEMP: directory,
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('bounded original parser capacity (T12262)', () => {
+  function sourceOfLength(length: number): string {
+    const head = 'import { 源 } from "./資料🌱";\n/*';
+    const tail = '*/\nexport function 解析(入力: string) { return 源(入力); }\n解析("🌱");\n';
+    return head + 'x'.repeat(length - head.length - tail.length) + tail;
+  }
+
+  function nativeParser(): Parser {
+    const parser = new Parser();
+    parser.setLanguage(TypeScript.typescript);
+    return parser;
+  }
+
+  it.each([
+    32766, 32767, 32768, 65536, 262144,
+  ])('preserves original identifiers, imports and UTF-16 tail spans at %i units', (length) => {
+    const source = sourceOfLength(length);
+    const tree = parseOriginalSource(nativeParser(), source);
+    expect(tree.rootNode.hasError).toBe(false);
+    expect(tree.rootNode.endIndex).toBe(length);
+    const declaration = tree.rootNode.descendantsOfType('function_declaration')[0];
+    expect(declaration.childForFieldName('name')?.text).toBe('解析');
+    expect(tree.rootNode.descendantsOfType('import_statement')[0].text).toBe(
+      'import { 源 } from "./資料🌱";',
+    );
+    const call = tree.rootNode.descendantsOfType('call_expression').at(-1);
+    expect(call?.text).toBe('解析("🌱")');
+    expect(call?.startIndex).toBe(source.lastIndexOf('解析('));
+    expect(call?.endIndex).toBe(source.lastIndexOf('解析(') + '解析("🌱")'.length);
+    expect(call?.startIndex).not.toBe(Buffer.byteLength(source.slice(0, call?.startIndex), 'utf8'));
+  });
+
+  it.each([
+    32766, 32767, 32768, 65536, 262144,
+  ])('extracts tail declarations and calls from original %i-unit files', (length) => {
+    const extracted = extractOriginalSource(sourceOfLength(length), 'original.ts');
+    expect(extracted.definitions.some((node) => node.name === '解析')).toBe(true);
+    expect(extracted.imports[0].rawImportPath).toBe('./資料🌱');
+    expect(extracted.calls.some((call) => call.calledName === '解析')).toBe(true);
+  });
+
+  it('rejects native syntax error trees rather than declaring complete extraction', () => {
+    expect(() => parseOriginalSource(nativeParser(), 'export function broken( {')).toThrow(
+      'E_PARSE_SYNTAX',
+    );
+  });
+
+  it('retains the real default-buffer failure as a native negative control', () => {
+    expect(() => nativeParser().parse(sourceOfLength(32767))).not.toThrow();
+    expect(() => nativeParser().parse(sourceOfLength(32768))).toThrow('Invalid argument');
+  });
+
+  it('preserves an astral surrogate pair across the input chunk boundary', () => {
+    const source = '/*' + 'x'.repeat(4093) + '🌱*/\nconst 文 = "資料🌱";';
+    expect(source.charCodeAt(4095)).toBe(0xd83c);
+    const tree = parseOriginalSource(nativeParser(), source);
+    expect(tree.rootNode.hasError).toBe(false);
+    expect(tree.rootNode.text).toBe(source);
+    expect(tree.rootNode.descendantsOfType('identifier').map((node) => node.text)).toContain('文');
+  });
+
+  it('rejects excess source bytes and pre-cancelled work without corrupting parser reuse', () => {
+    const parser = nativeParser();
+    const source = 'const 文 = "🌱";';
+    expect(() => parseOriginalSource(parser, source, { maxSourceBytes: source.length })).toThrow(
+      'E_PARSE_SIZE',
+    );
+    const controller = new AbortController();
+    controller.abort(new Error('controlled cancellation'));
+    expect(() => parseOriginalSource(parser, source, { signal: controller.signal })).toThrow(
+      'controlled cancellation',
+    );
+    expect(parseOriginalSource(parser, source).rootNode.hasError).toBe(false);
+  });
+
+  it('enforces the native deadline and resets timed-out parser state', () => {
+    const parser = nativeParser();
+    const source = 'const x = 1;\n'.repeat(20000);
+    expect(() => parseOriginalSource(parser, source, { timeoutMs: 0.001 })).toThrow();
+    expect(parseOriginalSource(parser, 'const 文 = 1;').rootNode.hasError).toBe(false);
+  });
+});
 
 describe('source evidence fidelity', () => {
   it('honors escaped Git patterns, directory-only rules, and nested negation', async () => {

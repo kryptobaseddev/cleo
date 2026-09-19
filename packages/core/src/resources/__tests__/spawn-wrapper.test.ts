@@ -15,11 +15,16 @@
  * @epic T11992
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { _resetTeardownSignalForTests, markShuttingDown } from '../../teardown-signal.js';
 import {
   _forceSystemdRunAvailable,
   buildSpawnArgs,
   CLEO_SLICE,
+  createParserExecutionPort,
   DEFAULT_SCOPE_RESOURCES,
 } from '../spawn-wrapper.js';
 
@@ -269,5 +274,59 @@ describe('resource overrides', () => {
     const { props } = parseSystemdRunArgv(result.args);
     // Should end with 'M' (mebibytes).
     expect(props['MemoryMax']).toMatch(/^\d+M$/);
+  });
+});
+
+describe('contained parser execution port (T12262)', () => {
+  it('overrides inherited heap flags, preserves IPC and waits for cancellation exit', async () => {
+    _forceSystemdRunAvailable(false);
+    _resetTeardownSignalForTests();
+    const directory = mkdtempSync(join(tmpdir(), 'parser-port-'));
+    const path = join(directory, 'worker.cjs');
+    writeFileSync(
+      path,
+      "process.send({ heap: require('node:v8').getHeapStatistics().heap_size_limit }); setInterval(() => {}, 1000);",
+    );
+    const controller = new AbortController();
+    const handle = createParserExecutionPort().spawn(path, {
+      workerHeapMb: 32,
+      signal: controller.signal,
+    });
+    try {
+      const heap = await new Promise<number>((resolve, reject) => {
+        handle.child.once('error', reject);
+        handle.child.once('message', (message) => {
+          if (
+            typeof message !== 'object' ||
+            message === null ||
+            !('heap' in message) ||
+            typeof message.heap !== 'number'
+          )
+            reject(new Error('Missing actual heap evidence'));
+          else resolve(message.heap);
+        });
+      });
+      expect(heap).toBeLessThan(64 * 1024 * 1024);
+      expect(handle.nativeMemory).toBe('unverified');
+      controller.abort();
+      await handle.stop();
+      expect(handle.child.signalCode).toBe('SIGKILL');
+    } finally {
+      await handle.stop();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects work after runtime teardown and invalid requested heap caps', () => {
+    _resetTeardownSignalForTests();
+    expect(() => createParserExecutionPort().spawn('unused.mjs', { workerHeapMb: 1 })).toThrow(
+      'heap',
+    );
+    markShuttingDown();
+    try {
+      expect(() => createParserExecutionPort().spawn('unused.mjs', {})).toThrow('E_TEARDOWN');
+    } finally {
+      _resetTeardownSignalForTests();
+    }
   });
 });

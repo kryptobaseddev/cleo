@@ -17,7 +17,9 @@ import type {
   CodeSymbol,
   CodeSymbolKind,
   ParseResult,
+  ParserExecutionLimits,
 } from '@cleocode/contracts';
+import type Parser from 'tree-sitter';
 import { detectLanguage, type TreeSitterLanguage } from './tree-sitter-languages.js';
 
 // ---------------------------------------------------------------------------
@@ -40,6 +42,71 @@ function tryRequire(id: string): unknown {
   }
 }
 
+/**
+ * Parse original Unicode through bounded UTF-16 input chunks and a native deadline.
+ * @param parser - Configured native parser; the caller selects its grammar.
+ * @param source - Unmodified source text, retained for accurate node text and spans.
+ * @param limits - Per-file source size, native deadline and cooperative cancellation.
+ * @returns The native syntax tree retaining original UTF-16 source indexes.
+ * @remarks The native timeout bounds synchronous parsing; a JavaScript timer cannot
+ * preempt it. Cancellation in this realm is cooperative. Worker resource limits
+ * bound JavaScript heap separately and do not cap native allocations. The 4096-unit
+ * input chunks avoid the installed binding's default string-buffer limit without
+ * allocating a buffer proportional to the entire source. Surrogate pairs stay intact.
+ * @example
+ * ```ts
+ * const tree = parseOriginalSource(parser, 'const 解析 = "🌱";', { timeoutMs: 500 });
+ * ```
+ */
+export function parseOriginalSource(
+  parser: Pick<Parser, 'parse' | 'reset' | 'setTimeoutMicros'>,
+  source: string,
+  limits: ParserExecutionLimits = {},
+): Parser.Tree {
+  const maxSourceBytes = limits.maxSourceBytes ?? 512 * 1024;
+  const timeoutMs = limits.timeoutMs ?? 1000;
+  if (
+    !Number.isSafeInteger(maxSourceBytes) ||
+    maxSourceBytes <= 0 ||
+    !Number.isFinite(timeoutMs) ||
+    timeoutMs <= 0
+  ) {
+    throw new Error('E_PARSE_LIMIT: positive finite limits are required');
+  }
+  if (Buffer.byteLength(source, 'utf8') > maxSourceBytes) {
+    throw new Error(`E_PARSE_SIZE: source exceeds ${maxSourceBytes} UTF-8 bytes`);
+  }
+  limits.signal?.throwIfAborted();
+  const deadline = performance.now() + timeoutMs;
+  let parsing = true;
+  const input: Parser.Input = (offset) => {
+    if (parsing) {
+      limits.signal?.throwIfAborted();
+      if (performance.now() >= deadline)
+        throw new Error('E_PARSE_TIMEOUT: input deadline exceeded');
+    }
+    let end = Math.min(source.length, offset + 4096);
+    const last = source.charCodeAt(end - 1);
+    if (end < source.length && last >= 0xd800 && last <= 0xdbff) end--;
+    return source.slice(offset, end);
+  };
+  parser.reset();
+  parser.setTimeoutMicros(Math.max(1, Math.floor(timeoutMs * 1000)));
+  try {
+    const tree = parser.parse(input);
+    if (!tree || performance.now() >= deadline)
+      throw new Error('E_PARSE_TIMEOUT: native deadline exceeded');
+    limits.signal?.throwIfAborted();
+    if (tree.rootNode.hasError)
+      throw new Error('E_PARSE_SYNTAX: native tree contains syntax errors');
+    return tree;
+  } finally {
+    parsing = false;
+    parser.reset();
+    parser.setTimeoutMicros(0);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Parser singleton — lazy-loaded on first use
 // ---------------------------------------------------------------------------
@@ -48,14 +115,8 @@ function tryRequire(id: string): unknown {
 type ParserConstructor = new () => NativeParser;
 
 /** Minimal shape of the native tree-sitter Parser instance. */
-interface NativeParser {
+interface NativeParser extends Pick<Parser, 'parse' | 'reset' | 'setTimeoutMicros'> {
   setLanguage(lang: unknown): void;
-  parse(source: string): NativeTree;
-}
-
-/** Minimal shape of the parsed Tree. */
-interface NativeTree {
-  rootNode: SyntaxNode;
 }
 
 /** Minimal shape of a tree-sitter SyntaxNode. */
@@ -480,7 +541,7 @@ export function parseFile(filePath: string, projectRoot?: string): ParseResult {
   try {
     const parser = getParser();
     parser.setLanguage(grammar);
-    const tree = parser.parse(source);
+    const tree = parseOriginalSource(parser, source);
 
     const query = getQuery(grammar, queryKey, pattern);
     if (!query) {

@@ -9,6 +9,7 @@
  */
 
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { createParserExecutionPort } from '../resources/spawn-wrapper.js';
 
 /** Health classification for a diff result. */
 export type NexusDiffHealth =
@@ -151,7 +152,7 @@ export async function diffNexusIndex(
       nexusRelations: nexusSchema.nexusRelations,
     },
     undefined,
-    { incremental: true },
+    { incremental: true, parserExecution: createParserExecutionPort() },
   );
 
   let relationsAfter = 0;

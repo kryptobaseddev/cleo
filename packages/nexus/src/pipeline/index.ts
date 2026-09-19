@@ -155,6 +155,8 @@ import type {
   GraphIndexFileReport,
   GraphIndexReferenceReport,
   GraphPublicationRows,
+  ParserExecutionLimits,
+  ParserExecutionPort,
 } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import { resolveCalls } from './call-processor.js';
@@ -184,6 +186,10 @@ import { processStructure } from './structure-processor.js';
  * Options for `runPipeline` controlling full vs. incremental execution.
  */
 export interface PipelineOptions {
+  /** Per-file parser bounds and cancellation propagated into isolated execution. */
+  parserLimits?: ParserExecutionLimits;
+  /** Existing runtime process launcher; required for isolated production parsing. */
+  parserExecution?: ParserExecutionPort;
   /**
    * When `true`, skip publication when indexed source files are unchanged.
    * Otherwise rebuild a complete staged generation so cross-file resolution
@@ -522,6 +528,7 @@ export async function runPipeline(
   onProgress?: (current: number, total: number, filePath: string) => void,
   options?: PipelineOptions,
 ): Promise<PipelineResult> {
+  options?.parserLimits?.signal?.throwIfAborted();
   const startTime = Date.now();
   const isIncremental = options?.incremental === true;
   const graph: KnowledgeGraph = createKnowledgeGraph();
@@ -648,6 +655,8 @@ export async function runPipeline(
       tsconfigPaths,
       namedImportMap,
       onProgress,
+      parserLimits: options?.parserLimits,
+      parserExecution: options?.parserExecution,
       onFileReport: (report) => {
         const file = scannedFiles.get(report.path);
         reports.set(report.path, {
@@ -715,6 +724,7 @@ export async function runPipeline(
 
   // Flush all nodes and relations to Drizzle
   process.stderr.write('[nexus] Flushing to database...\n');
+  options?.parserLimits?.signal?.throwIfAborted();
   if (options?.publishGraph) {
     const failed = [...reports.values()].filter((report) => report.status === 'failed');
     if (failed.length > 0) {
@@ -758,6 +768,7 @@ export async function runPipeline(
       assessedAt: new Date(startTime).toISOString(),
       files: [...reports.values()],
     };
+    options.parserLimits?.signal?.throwIfAborted();
     options.publishGraph(publication);
   } else {
     await graph.flush(projectId, db, tables);

@@ -40,8 +40,12 @@ import type {
   GraphNode,
   GraphNodeKind,
   GraphRelation,
+  ParserExecutionLimits,
+  ParserExecutionPort,
 } from '@cleocode/contracts';
 import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import type Parser from 'tree-sitter';
+import { parseOriginalSource } from '../code/parser.js';
 import { extractGo } from './extractors/go-extractor.js';
 import { extractPython } from './extractors/python-extractor.js';
 import { extractRust } from './extractors/rust-extractor.js';
@@ -60,17 +64,12 @@ import type {
   NamedImportMap,
   TsconfigPaths,
 } from './import-processor.js';
-import {
-  buildBarrelExportMap,
-  extractImportsViaRegex,
-  extractReExportsViaRegex,
-  processExtractedImports,
-} from './import-processor.js';
+import { buildBarrelExportMap, processExtractedImports } from './import-processor.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import { detectLanguageFromPath } from './language-detection.js';
 import { type ExtractedAccess, extractAccesses } from './processors/access-processor.js';
 import type { SymbolTable } from './symbol-table.js';
-import type { ParseWorkerResult, WorkerParsedSymbol } from './workers/parse-worker.js';
+import type { ParseWorkerResult } from './workers/parse-worker.js';
 import { createWorkerPool } from './workers/worker-pool.js';
 
 // ---------------------------------------------------------------------------
@@ -98,9 +97,8 @@ import { createRequire } from 'node:module';
 const _require = createRequire(import.meta.url);
 
 /** Minimal NativeParser shape — mirrors code/parser.ts internals. */
-interface NativeParser {
+interface NativeParser extends Pick<Parser, 'parse' | 'reset' | 'setTimeoutMicros'> {
   setLanguage(lang: unknown): void;
-  parse(source: string): { rootNode: unknown };
 }
 
 type ParserConstructor = new () => NativeParser;
@@ -178,35 +176,6 @@ function loadGrammar(langKey: string): unknown | null {
 }
 
 // ---------------------------------------------------------------------------
-// Content sanitization
-// ---------------------------------------------------------------------------
-
-/**
- * Sanitize source content for tree-sitter parsing.
- *
- * tree-sitter 0.21.x Node.js bindings throw `Error: Invalid argument`
- * when source strings contain non-ASCII Unicode characters (e.g. em-dash
- * `—`, curly quotes, etc.) in comments. Since all structural elements that
- * nexus cares about (function names, export specifiers, import paths) are
- * ASCII, replacing non-ASCII characters with spaces is safe and preserves
- * line/column positions for line number reporting.
- *
- * @param content - Raw file content read from disk
- * @returns Content with non-ASCII characters replaced by spaces
- */
-function sanitizeForParsing(content: string): string {
-  // eslint-disable-next-line no-control-regex
-  return content.replace(/[^\x00-\x7F]/g, ' ');
-}
-
-/**
- * Hard limit for tree-sitter 0.21.x: native code uses a 15-bit byte-offset
- * counter that overflows at 32768 characters. Files larger than this use
- * regex-based fallback extraction.
- */
-const TREE_SITTER_MAX_CHARS = 32_767;
-
-// ---------------------------------------------------------------------------
 // Language key mapping
 // ---------------------------------------------------------------------------
 
@@ -239,12 +208,18 @@ function grammarKeyForLanguage(language: string): string | null {
  * `accesses` is populated by the access-processor after the language extractor
  * runs. It is optional here so existing extractors need not be modified.
  */
-interface CommonExtractionResult {
+export interface CommonExtractionResult {
+  /** Original declarations and qualified graph identities. */
   definitions: GraphNode[];
+  /** Imported bindings and source paths. */
   imports: ExtractedImport[];
+  /** Type inheritance evidence. */
   heritage: ExtractedHeritage[];
+  /** Static call evidence with unresolved references retained. */
   calls: ExtractedCall[];
+  /** Optional barrel re-export bindings. */
   reExports?: ExtractedReExport[];
+  /** Optional property access evidence. */
   accesses?: ExtractedAccess[];
 }
 
@@ -261,11 +236,10 @@ interface CommonExtractionResult {
  */
 function runExtractor(
   language: string,
-  rootNode: unknown,
+  rootNode: Parser.SyntaxNode,
   filePath: string,
 ): CommonExtractionResult {
-  // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
-  const node = rootNode as any;
+  const node = rootNode;
 
   let result: CommonExtractionResult;
 
@@ -293,6 +267,38 @@ function runExtractor(
   result.accesses = extractAccesses(node, filePath);
 
   return result;
+}
+
+/**
+ * Extract a file through the same native parser and language capabilities in either realm.
+ * @param source - Original Unicode source text.
+ * @param filePath - Repository-relative source path used for symbol identities.
+ * @param limits - Native source-byte and synchronous parsing deadline limits.
+ * @returns Declarations, references, imports, heritage and access evidence.
+ * @remarks Static extraction does not establish complete runtime-call discovery.
+ * @example
+ * ```ts
+ * const extracted = extractOriginalSource('export const 文 = 1;', 'source.ts');
+ * ```
+ */
+export function extractOriginalSource(
+  source: string,
+  filePath: string,
+  limits?: ParserExecutionLimits,
+): CommonExtractionResult {
+  const language = detectLanguageFromPath(filePath);
+  const grammarKey = language
+    ? filePath.endsWith('.tsx')
+      ? 'tsx'
+      : grammarKeyForLanguage(language)
+    : null;
+  const parser = getParser();
+  const grammar = grammarKey ? loadGrammar(grammarKey) : null;
+  if (!language || !grammarKey) throw new Error('Unsupported source language');
+  if (!parser || !grammar) throw new Error(`Parser or grammar unavailable: ${grammarKey}`);
+  parser.setLanguage(grammar);
+  const tree = parseOriginalSource(parser, source, limits);
+  return runExtractor(language, tree.rootNode, filePath);
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +400,10 @@ function emitDefinesEdges(
 
 /** Options for the sequential parse loop. */
 export interface ParseLoopOptions {
+  /** Per-file native source/deadline limits and caller cancellation. */
+  parserLimits?: ParserExecutionLimits;
+  /** Existing runtime process containment; Nexus never imports core. */
+  parserExecution?: ParserExecutionPort;
   /** Report extraction availability and failures for trustworthy graph publication. */
   onFileReport?: (report: GraphIndexFileReport) => void;
 
@@ -440,28 +450,6 @@ export interface ParseLoopResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Map a `WorkerParsedSymbol` to a `GraphNode` for consumption by the
- * knowledge graph. The worker's extraction mirrors the sequential extractor
- * in structure so this conversion is 1:1.
- */
-function workerSymbolToGraphNode(sym: WorkerParsedSymbol): GraphNode {
-  return {
-    id: sym.id,
-    kind: sym.kind as GraphNodeKind,
-    name: sym.name,
-    filePath: sym.filePath,
-    startLine: sym.startLine,
-    endLine: sym.endLine,
-    language: sym.language,
-    exported: sym.exported,
-    parameters: sym.parameters,
-    returnType: sym.returnType,
-    docSummary: sym.docSummary,
-    parent: sym.parent,
-  };
-}
-
-/**
  * Run the parse loop using a worker pool for parallel parsing.
  *
  * Called by `runParseLoop` when the file count or total bytes exceeds the
@@ -498,25 +486,40 @@ async function runParallelParseLoop(
 
   // Read all file contents first (sequential I/O, then dispatch in parallel)
   const total = parseableFiles.length;
-  const workerInputs: Array<{ path: string; content: string }> = [];
+  const workerInputs: Array<{
+    path: string;
+    content: string;
+    limits?: Omit<ParserExecutionLimits, 'signal'>;
+  }> = [];
 
   for (let i = 0; i < parseableFiles.length; i++) {
     const file = parseableFiles[i];
     try {
       const absPath = file.path.startsWith('/') ? file.path : `${repoPath}/${file.path}`;
-      const content = await fs.readFile(absPath, 'utf-8');
-      workerInputs.push({ path: file.path, content });
-    } catch {
-      // Skip unreadable files
+      options.parserLimits?.signal?.throwIfAborted();
+      const bytes = await fs.readFile(absPath);
+      if (
+        file.contentHash &&
+        createHash('sha256').update(bytes).digest('hex') !== file.contentHash
+      ) {
+        throw new Error('Source changed between scanning and parsing');
+      }
+      const { signal: _signal, ...limits } = options.parserLimits ?? {};
+      workerInputs.push({ path: file.path, content: bytes.toString('utf8'), limits });
+    } catch (error) {
+      options.parserLimits?.signal?.throwIfAborted();
+      throw new Error(
+        `Parser input unavailable: ${file.path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
-  let pool: ReturnType<typeof createWorkerPool>;
-  try {
-    pool = createWorkerPool(workerUrl);
-  } catch {
-    return null; // Worker script unavailable — fall back to sequential
-  }
+  const pool = createWorkerPool(
+    workerUrl,
+    undefined,
+    options.parserLimits,
+    options.parserExecution,
+  );
 
   let filesProcessedSoFar = 0;
 
@@ -532,11 +535,6 @@ async function runParallelParseLoop(
         }
       },
     );
-  } catch (err) {
-    await pool.terminate().catch(() => undefined);
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[nexus] Worker pool failed (${msg}), falling back to sequential.\n`);
-    return null;
   } finally {
     await pool.terminate().catch(() => undefined);
   }
@@ -548,17 +546,21 @@ async function runParallelParseLoop(
   const allParallelReExports: ExtractedReExportRecord[] = [];
   const allHeritage: ExtractedHeritage[] = [];
   const allCalls: ExtractedCall[] = [];
-  // Note: access extraction (Phase 3f) runs on the parsed AST in the main thread
-  // only. Workers do not transport ASTs, so parallel mode does not accumulate
-  // accesses via this path — the sequential fallback handles small repos and
-  // fixture tests. A future wave can add worker support for access extraction.
+  // Workers invoke the same extractor, including access records.
   const allParallelAccesses: ExtractedAccess[] = [];
 
   for (const workerResult of workerResults) {
+    for (const report of workerResult.reports) options.onFileReport?.(report);
+    const failed = workerResult.reports.filter((report) => report.status !== 'analyzed');
+    if (failed.length > 0)
+      throw new Error(
+        `Parser worker incomplete: ${failed.map((report) => `${report.path}: ${report.reason}`).join('; ')}`,
+      );
+    allParallelAccesses.push(...workerResult.accesses);
     // Register symbols into SymbolTable and add graph nodes
     const fileGraphNodes: Map<string, GraphNode[]> = new Map();
     for (const sym of workerResult.symbols) {
-      const graphNode = workerSymbolToGraphNode(sym);
+      const graphNode = sym;
       registerInSymbolTable([graphNode], symbolTable);
       graph.addNode(graphNode);
       // Group by filePath for defines edge emission below
@@ -573,43 +575,10 @@ async function runParallelParseLoop(
       emitDefinesEdges(filePath, nodes, graph);
     }
 
-    // Collect imports (including named bindings for Tier 2a resolution — T617)
-    for (const imp of workerResult.imports) {
-      allExtractedImports.push({
-        filePath: imp.filePath,
-        rawImportPath: imp.rawImportPath,
-        namedBindings: imp.namedBindings,
-      });
-    }
-
-    // Collect re-exports for barrel map construction (T617)
-    if (workerResult.reExports) {
-      for (const re of workerResult.reExports) {
-        allParallelReExports.push(re);
-      }
-    }
-
-    // Map heritage — worker uses same field names as sequential path
-    for (const h of workerResult.heritage) {
-      allHeritage.push({
-        filePath: h.filePath,
-        typeName: h.typeName,
-        typeNodeId: h.typeNodeId,
-        kind: h.kind,
-        parentName: h.parentName,
-      });
-    }
-
-    // Map calls from worker format to pipeline format
-    for (const c of workerResult.calls) {
-      allCalls.push({
-        filePath: c.filePath,
-        sourceId: c.sourceId,
-        calledName: c.calledName,
-        callForm: c.callForm,
-        receiverName: c.receiverName,
-      });
-    }
+    allExtractedImports.push(...workerResult.imports);
+    allParallelReExports.push(...workerResult.reExports);
+    allHeritage.push(...workerResult.heritage);
+    allCalls.push(...workerResult.calls);
   }
 
   if (onProgress && total > 0) {
@@ -648,7 +617,7 @@ async function runParallelParseLoop(
     );
     // Check if internal.ts had symbols or imports
     for (const wr of workerResults) {
-      const hasInternalSymbol = wr.symbols.some((s) => s.filePath.includes('core/src/internal'));
+      const hasInternalSymbol = wr.symbols.some((s) => s.filePath?.includes('core/src/internal'));
       const hasInternalImport = wr.imports.some((i) => i.filePath.includes('core/src/internal'));
       const hasInternalReExport = wr.reExports.some((r) =>
         r.filePath.includes('core/src/internal'),
@@ -737,9 +706,12 @@ export async function runParseLoop(
 
   // Wave H: Check thresholds for parallel dispatch
   const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
-  const useWorkers = total >= WORKER_FILE_THRESHOLD || totalBytes >= WORKER_BYTE_THRESHOLD;
+  const useWorkers =
+    Boolean(options.parserExecution) ||
+    total >= WORKER_FILE_THRESHOLD ||
+    totalBytes >= WORKER_BYTE_THRESHOLD;
 
-  if (useWorkers && !options.onFileReport) {
+  if (useWorkers && (options.parserExecution || !options.onFileReport)) {
     process.stderr.write(
       `[nexus] Parallel parse: ${total} files, ${Math.round(totalBytes / 1024)}KB total — spawning worker pool\n`,
     );
@@ -750,17 +722,18 @@ export async function runParseLoop(
         symbolTable,
         importCtx,
         repoPath,
-        { tsconfigPaths, namedImportMap, onProgress },
+        { ...options, tsconfigPaths, namedImportMap, onProgress },
       );
       if (parallelResult !== null) {
         process.stderr.write('[nexus] Parallel parse complete.\n');
         return parallelResult;
       }
+      if (options.parserExecution) throw new Error('Isolated parser executable unavailable');
       // Worker unavailable — fall through to sequential
       process.stderr.write('[nexus] Worker script not found — using sequential parse.\n');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[nexus] Parallel parse error (${msg}) — using sequential parse.\n`);
+      throw new Error(`Parallel parser failed; generation not published: ${msg}`);
     }
   }
 
@@ -793,6 +766,7 @@ export async function runParseLoop(
   let filesProcessed = 0;
 
   for (const file of parseableFiles) {
+    options.parserLimits?.signal?.throwIfAborted();
     filesProcessed++;
 
     // Progress reporting (every file for small repos, every 10 for larger ones)
@@ -841,42 +815,16 @@ export async function runParseLoop(
       continue;
     }
 
-    // tree-sitter 0.21.x has a hard limit of 32767 chars per file (15-bit offset counter).
-    // Files larger than this use a regex fallback for imports and re-exports only.
-    const sanitized = sanitizeForParsing(source);
-    if (sanitized.length > TREE_SITTER_MAX_CHARS) {
-      options.onFileReport?.({
-        path: file.path,
-        status: 'oversized',
-        reason: 'Symbol extraction exceeds tree-sitter size limit; imports only',
-      });
-      // Regex-based fallback: extract re-exports and imports for barrel tracing.
-      // Symbol definitions, heritage, and calls are skipped for oversized files.
-      try {
-        const regexReExports = extractReExportsViaRegex(source, file.path);
-        for (const re of regexReExports) {
-          allReExports.push(re);
-        }
-        const regexImports = extractImportsViaRegex(source, file.path);
-        for (const imp of regexImports) {
-          allExtractedImports.push(imp);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[nexus] SKIP regex fallback error: ${file.path}: ${msg}\n`);
-      }
-      continue;
-    }
-
     // Parse with tree-sitter
-    let rootNode: unknown;
+    let rootNode: Parser.SyntaxNode;
     try {
       parser.setLanguage(grammar);
-      const tree = parser.parse(sanitized);
+      const tree = parseOriginalSource(parser, source, options.parserLimits);
       rootNode = tree.rootNode;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       options.onFileReport?.({ path: file.path, status: 'failed', reason: `parse: ${msg}` });
+      options.parserLimits?.signal?.throwIfAborted();
       process.stderr.write(`[nexus] SKIP parse error: ${file.path}: ${msg}\n`);
       continue;
     }
