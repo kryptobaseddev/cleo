@@ -69,6 +69,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { LeaseLane, LeaseScope } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { getLogger } from '../logger.js';
+import { worktreeScope } from '../paths.js';
 import { observeOperation } from './background-ops.js';
 import { openDualScopeDb, openDualScopeDbAtPath, resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
@@ -308,7 +309,20 @@ async function resolveLeaseTarget(
   execution?: OperationExecutionContext,
 ): Promise<LeaseTarget> {
   execution?.assertActive();
-  const pending = _nativeDbResolver(scope, dbPath);
+  const inherited = worktreeScope.getStore()?.execution;
+  if (inherited && execution && inherited !== execution) {
+    throw new Error('Writer native resolution cannot replace its captured execution context');
+  }
+  const pending = execution
+    ? worktreeScope.run(
+        {
+          worktreeRoot: execution.identity.projectRoot,
+          projectHash: execution.identity.projectId,
+          execution,
+        },
+        () => _nativeDbResolver(scope, dbPath),
+      )
+    : _nativeDbResolver(scope, dbPath);
   if (!execution) return pending;
   const observed = await observeOperation(execution, pending);
   if (!observed.settled) {

@@ -191,7 +191,11 @@ export async function upsertGraphNode(
   };
   return context
     ? worktreeScope.run(
-        { worktreeRoot: context.identity.projectRoot, projectHash: context.identity.projectId },
+        {
+          worktreeRoot: context.identity.projectRoot,
+          projectHash: context.identity.projectId,
+          execution: context,
+        },
         write,
       )
     : write();
@@ -266,7 +270,11 @@ export async function addGraphEdge(
   };
   return context
     ? worktreeScope.run(
-        { worktreeRoot: context.identity.projectRoot, projectHash: context.identity.projectId },
+        {
+          worktreeRoot: context.identity.projectRoot,
+          projectHash: context.identity.projectId,
+          execution: context,
+        },
         write,
       )
     : write();

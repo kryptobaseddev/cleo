@@ -720,6 +720,61 @@ describe('captured cold-open lease lifetime', () => {
     }
   });
 
+  it('cancels the actual default resolver before a contended cold opener can migrate later', async () => {
+    const target = join(testRoot, 'default-resolver.db');
+    const holderNative = new DatabaseSync(target);
+    let release = () => {};
+    let entered = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const holder = withColdOpenLease('project', holderNative, async () => {
+      entered();
+      await gate;
+    });
+    await ready;
+    const execution = context(30);
+    _setNativeDbResolverForTest(undefined);
+    try {
+      await expect(
+        acquireWriterLease('project', 'brain', { dbPath: target, execution }),
+      ).rejects.toThrow();
+      expect(holderNative.isOpen).toBe(true);
+      release();
+      await holder;
+      // The abandoned canonical initializer resumes after the lease releases.
+      // Observe beyond its polling interval to detect a late migration/publication.
+      await new Promise<void>((resolve) => setTimeout(resolve, 120));
+      const fresh = new DatabaseSync(target, { readOnly: true });
+      try {
+        expect(
+          fresh
+            .prepare("SELECT count(*) AS count FROM sqlite_master WHERE name='tasks_tasks'")
+            .get()?.count,
+        ).toBe(0);
+        expect(fresh.prepare('SELECT count(*) AS count FROM main._writer_queue').get()?.count).toBe(
+          0,
+        );
+      } finally {
+        fresh.close();
+      }
+      const retry = await openDualScopeDbAtPath('project', target);
+      expect(retry.isOpen).toBe(true);
+      expect(
+        retry.db.$client.prepare("SELECT name FROM sqlite_master WHERE name='tasks_tasks'").get()
+          ?.name,
+      ).toBe('tasks_tasks');
+    } finally {
+      execution.close();
+      release();
+      await holder;
+      holderNative.close();
+    }
+  });
+
   it('preserves a completed migration result if cancellation follows its synchronous commit', async () => {
     const native = new DatabaseSync(join(testRoot, 'committed.db'));
     const execution = context();
