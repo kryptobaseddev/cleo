@@ -964,6 +964,8 @@ export function resolveBarrelBinding(
   exportedName: string,
   barrelMap: BarrelExportMap,
 ): BarrelExportEntry | null {
+  // Direct declarations are candidate-enumerator inputs, not barrel resolutions.
+  if (!barrelMap.has(barrelFile)) return null;
   const result = resolveBarrelCandidates(barrelFile, exportedName, barrelMap);
   return result.incomplete.length === 0 && result.candidates.length === 1
     ? result.candidates[0]

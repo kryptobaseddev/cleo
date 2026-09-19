@@ -23,6 +23,7 @@ import {
   type ExtractedReExportRecord,
   loadWorkspacePackages,
   resolveBarrelBinding,
+  resolveBarrelCandidates,
   resolveTypescriptImport,
 } from '../pipeline/import-processor.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
@@ -190,6 +191,12 @@ describe('resolveBarrelBinding', () => {
     const barrelMap: BarrelExportMap = new Map();
     const result = resolveBarrelBinding('src/index.ts', 'findTasks', barrelMap);
     expect(result).toBeNull();
+    // The separate candidate API must still offer the direct source to the AST
+    // declaration oracle; restoring barrel semantics must not hide imports.
+    expect(resolveBarrelCandidates('src/index.ts', 'findTasks', barrelMap)).toEqual({
+      candidates: [{ canonicalFile: 'src/index.ts', canonicalName: 'findTasks' }],
+      incomplete: [],
+    });
   });
 
   it('follows transitive chain: barrel A re-exports from barrel B which has canonical', () => {
