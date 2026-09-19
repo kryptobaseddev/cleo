@@ -73,6 +73,21 @@ it.each([
     });
     expect(existsSync(join(cleoDir, 'tasks.db'))).toBe(abort);
     expect(existsSync(join(cleoDir, 'exodus-complete'))).toBe(!abort);
+    if (!abort) {
+      handle.close();
+      rmSync(target);
+      rmSync(`${target}-wal`, { force: true });
+      rmSync(`${target}-shm`, { force: true });
+      const replacement = new DatabaseSync(target);
+      try {
+        replacement.exec('CREATE TABLE tasks_tasks(id TEXT PRIMARY KEY)');
+        const reopened = await maybeRunExodusOnOpen('project', target, replacement, root);
+        expect(reopened.outcome, reopened.reason).toBe('aborted');
+        expect(reopened.reason).toMatch(/generation/);
+      } finally {
+        replacement.close();
+      }
+    }
   } finally {
     handle.close();
     vi.unstubAllEnvs();
