@@ -10,6 +10,12 @@
 
 import type { TaskVerification } from './task.js';
 
+/** Omitted source fields and their UTF-8 serialized sizes on partial records. */
+export interface RecordProjectionDisclosure {
+  /** Absence means this projection did not omit any source fields. */
+  _withheld?: Record<string, number>;
+}
+
 /** Per-result retrieval basis; never implies semantic or runtime-call completeness. */
 export interface TaskMatch {
   /** Actual reason this row matched, including explicitly requested fuzzy fallback. */
@@ -52,7 +58,7 @@ export interface TaskRecordRelationCounts {
 }
 
 /** String-widened Task for JSON serialization in dispatch/LAFS layer. */
-export interface TaskRecord {
+export interface TaskRecord extends RecordProjectionDisclosure {
   /** Search provenance when this full record is returned by task search. */
   match?: TaskMatch;
   id: string;
@@ -121,7 +127,7 @@ export interface TaskRecord {
  * task readiness without N+1 show calls.
  * @task T091
  */
-export interface MinimalTaskRecord {
+export interface MinimalTaskRecord extends RecordProjectionDisclosure {
   /** Search provenance when this record is a search result. */
   match?: TaskMatch;
   id: string;
