@@ -121,6 +121,8 @@ export interface UpdateTaskOptions {
   clearBlockedBy?: boolean;
   parentId?: string | null;
   noAutoComplete?: boolean;
+  /** Justification recorded atomically in the task audit log for a critical-priority update. */
+  dependsWaiver?: string;
   /** RCASD-IVTR+C pipeline stage transition target. Must be >= current stage. @task T060 */
   pipelineStage?: string;
   /**
@@ -186,6 +188,22 @@ export async function updateTask(
   }
 
   await requireActiveSession('tasks.update', cwd);
+
+  if (
+    options.dependsWaiver !== undefined &&
+    (typeof options.dependsWaiver !== 'string' ||
+      options.dependsWaiver.trim().length === 0 ||
+      options.priority !== 'critical')
+  ) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      'Dependency waiver requires a non-empty justification and an explicit critical-priority update',
+      {
+        details: { field: 'dependsWaiver' },
+        fix: 'Supply a non-empty --depends-waiver with --priority critical, or omit the waiver',
+      },
+    );
+  }
 
   const changes: string[] = [];
   const now = new Date().toISOString();
@@ -702,7 +720,11 @@ export async function updateTask(
       action: 'task_updated',
       taskId: options.taskId,
       actor: 'system',
-      details: { changes, title: task.title },
+      details: {
+        changes,
+        title: task.title,
+        ...(options.dependsWaiver !== undefined ? { dependsWaiver: options.dependsWaiver } : {}),
+      },
       before: null,
       after: { changes, title: task.title },
     });

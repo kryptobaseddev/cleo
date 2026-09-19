@@ -120,6 +120,86 @@ describe('updateTask', () => {
     }
   });
 
+  it('persists dependency-waiver provenance with the critical-priority mutation', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Waiver fixture',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const dependsWaiver = 'Independent incident repair with no prerequisite work';
+    const result = await taskUpdate(env.tempDir, 'T001', { priority: 'critical', dependsWaiver });
+    expect(result.success).toBe(true);
+    expect((await accessor.loadSingleTask('T001'))?.priority).toBe('critical');
+    const entries = await accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] });
+    expect(entries).toHaveLength(1);
+    expect(JSON.parse(entries[0]!.detailsJson!)).toMatchObject({ dependsWaiver });
+  });
+
+  it.each([
+    { priority: 'critical', dependsWaiver: '   ' },
+    { priority: 'high', dependsWaiver: 'Not a critical-priority waiver' },
+  ])('rejects unsupported dependency waivers without changing the task: %j', async (input) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Waiver rejection fixture',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const result = await taskUpdate(env.tempDir, 'T001', input);
+    expect(result.success).toBe(false);
+    expect((await accessor.loadSingleTask('T001'))?.priority).toBe('medium');
+    expect(await accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] })).toEqual(
+      [],
+    );
+  });
+
+  it('rolls back the priority change when dependency-waiver audit persistence fails', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Audit rollback fixture',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const faultAccessor: DataAccessor = {
+      ...accessor,
+      async transaction(callback) {
+        return accessor.transaction((tx) =>
+          callback({
+            ...tx,
+            async appendLog() {
+              throw new Error('Injected audit persistence failure');
+            },
+          }),
+        );
+      },
+    };
+    await expect(
+      updateTask(
+        {
+          taskId: 'T001',
+          priority: 'critical',
+          dependsWaiver: 'Urgent independent repair',
+        },
+        env.tempDir,
+        faultAccessor,
+      ),
+    ).rejects.toThrow('Injected audit persistence failure');
+    expect((await accessor.loadSingleTask('T001'))?.priority).toBe('medium');
+    expect(await accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] })).toEqual(
+      [],
+    );
+  });
+
   it('updates task title', async () => {
     await seedTasks(accessor, [
       {
