@@ -22,6 +22,7 @@ import type { DocsGraphProjectionResult } from '@cleocode/contracts/operations/d
 import { resolveCleoConfig } from '../config/registry.js';
 import { getLogger } from '../logger.js';
 import { worktreeScope } from '../paths.js';
+import { assertOperationWriteFence } from '../store/background-jobs.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
 import type { BrainEdgeType, BrainNodeType } from '../store/schema/memory-schema.js';
 import { brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
@@ -176,8 +177,8 @@ export async function upsertGraphNode(
           },
         });
       if (context) {
-        db.transaction(() => {
-          context.assertActive();
+        db.transaction((tx) => {
+          assertOperationWriteFence(tx, context);
           query.run();
         });
       } else {
@@ -256,8 +257,8 @@ export async function addGraphEdge(
         })
         .onConflictDoNothing();
       if (context) {
-        db.transaction(() => {
-          context.assertActive();
+        db.transaction((tx) => {
+          assertOperationWriteFence(tx, context);
           query.run();
         });
       } else {
