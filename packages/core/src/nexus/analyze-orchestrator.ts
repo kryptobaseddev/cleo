@@ -12,9 +12,14 @@
 
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import type { GraphIndexAssessment, GraphPublicationRows } from '@cleocode/contracts';
+import type {
+  GraphIndexAssessment,
+  GraphPublicationRows,
+  ParserExecutionLimits,
+} from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { createParserExecutionPort } from '../resources/spawn-wrapper.js';
 import { nexusNodes, nexusRelations } from '../store/schema/cleo-project/nexus-graph.js';
 import { readKnowledgeIndexAssessment } from './knowledge.js';
 
@@ -109,6 +114,8 @@ export function publishNexusGraph(
 
 /** Parameters for {@link runNexusAnalysis}. */
 export interface NexusAnalysisParams {
+  /** Per-file parser bounds and cancellation; native RSS containment is unverified. */
+  parserLimits?: ParserExecutionLimits;
   /** Absolute path to the repository to analyze. */
   repoPath: string;
   /** Override the project ID (default: `base64url(repoPath).slice(0, 32)`). */
@@ -183,6 +190,8 @@ export async function runNexusAnalysis(params: NexusAnalysisParams): Promise<Nex
   const includedRepositories = params.includedRepositories ?? includedRepositoryScope(db, repoPath);
 
   const result = await runPipeline(repoPath, projectId, db, tables, onProgress, {
+    parserExecution: createParserExecutionPort(),
+    parserLimits: params.parserLimits,
     incremental: incremental && expectedGeneration !== null,
     assessedRevision,
     includedRepositories,
