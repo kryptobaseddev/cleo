@@ -256,6 +256,7 @@ export async function getTasksForSymbol(
  *
  * @param taskId - Task ID (e.g., 'T001')
  * @param projectRoot - Absolute path to project root
+ * @param taskEvidence - Optional previously captured task evidence, retaining its file and symbol precision.
  * @returns Array of symbol references with edge metadata
  */
 export async function getSymbolsForTask(

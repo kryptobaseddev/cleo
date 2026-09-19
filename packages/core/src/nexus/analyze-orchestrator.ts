@@ -63,6 +63,16 @@ function graphGeneration(db: NodeSQLiteDatabase): string | null {
  * Atomically publish staged rows if the graph has not changed since assessment.
  * Failed inserts, FTS repair, or stale generations roll back the entire replacement.
  * Code placed in `packages/core/` per Package-Boundary Check — verified against AGENTS.md.
+ * @param db - Owning project graph database with the canonical schema installed.
+ * @param rows - Validated staged nodes, relations and source assessment to publish.
+ * @param expectedGeneration - Previously observed generation; null for the first publication.
+ * @remarks The transaction rejects stale generation preconditions and restores the
+ * prior live rows on failure. Successful replacement does not itself retain an
+ * independently recoverable historical generation.
+ * @example
+ * ```ts
+ * publishNexusGraph(db, stagedRows, expectedGeneration);
+ * ```
  */
 export function publishNexusGraph(
   db: NodeSQLiteDatabase,
