@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { parseReleasePlan } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { closeDb, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
@@ -130,6 +130,13 @@ async function planFixture(): Promise<{ changelog: string; releaseNotes: string 
     releaseNotes,
   };
 }
+
+// Release plans and provenance belong to each synthetic project directory.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'cleo-release-note-fixture-'));

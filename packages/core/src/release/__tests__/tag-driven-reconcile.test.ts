@@ -27,7 +27,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { releaseReconcileV2, synthesizePlanForReconcile } from '../reconcile.js';
 
 const _require = createRequire(import.meta.url);
@@ -182,6 +182,13 @@ afterEach(async () => {
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────────
+
+// Release plans and provenance belong to each synthetic project directory.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('tag-driven reconcile — T11977 / DHQ-080', () => {
   const VERSION = 'v2026.7.1';
