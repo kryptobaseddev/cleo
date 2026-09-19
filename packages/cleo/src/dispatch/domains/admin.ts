@@ -1059,11 +1059,20 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
         'job.cancel',
       );
     }
-    const cancelled = mgr.cancelJob(params.jobId);
-    if (!cancelled) {
-      return lafsError('E_NOT_FOUND', `Job ${params.jobId} not found or not running`, 'job.cancel');
+    const cancellationRequested = mgr.cancelJob(params.jobId);
+    const job = mgr.getJob(params.jobId);
+    if (!job) {
+      return lafsError('E_NOT_FOUND', `Job ${params.jobId} not found`, 'job.cancel');
     }
-    return lafsSuccess({ jobId: params.jobId, cancelled: true }, 'job.cancel');
+    return lafsSuccess(
+      {
+        jobId: params.jobId,
+        cancellationRequested,
+        cancelled: job.status === 'cancelled',
+        status: job.status,
+      },
+      'job.cancel',
+    );
   },
 
   safestop: async (params) => {
