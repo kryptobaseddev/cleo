@@ -193,10 +193,9 @@ export const decisionAtomSchema = z.object({
 });
 
 /**
- * `pr:<number>` atom — references a GitHub PR by number. Satisfies BOTH
- * `testsPassed` and `qaPassed` simultaneously when the PR is MERGED and every
- * required-workflow check is green (T9764). Extended in T9838 to satisfy
- * `implemented` because the merge commit IS the landing artifact.
+ * `pr:<number>` atom — references merged PR provenance. Contextual validation
+ * checks task relationship and changed artifacts. Implementation also needs
+ * inspected file evidence; testing and review require actual result atoms.
  *
  * Format: `pr:<positive integer>` (e.g. `pr:357`).
  *
@@ -449,8 +448,10 @@ export interface GateEvidenceRequirement {
  *   - `[decision, files]` — decision-only task: brain_decisions row +
  *                           research-note file (T1875).
  *   - `[decision, note]`  — decision-only task without research note.
- *   - `[pr]`              — merged-PR retroactive proof (T9838 extension
- *                           of T9764).
+ *   - `[pr, files]`       — merged-PR provenance with inspected artifacts.
+ *
+ * PR merge status and generic CI success do not prove tests or review for
+ * the task. Those gates require their own verified result atoms (T12254).
  *
  * ## Why is `qaPassed` listed as `['tool']` not `['tool', 'tool']`?
  *
@@ -473,11 +474,11 @@ export const GATE_EVIDENCE_REQUIREMENTS: Readonly<
       ['commit', 'note'],
       ['decision', 'files'],
       ['decision', 'note'],
-      ['pr'],
+      ['pr', 'files'],
     ],
   },
-  testsPassed: { oneOf: [['test-run'], ['tool'], ['pr']] },
-  qaPassed: { oneOf: [['tool'], ['pr']] },
+  testsPassed: { oneOf: [['test-run'], ['tool']] },
+  qaPassed: { oneOf: [['tool']] },
   documented: { oneOf: [['files'], ['url']] },
   securityPassed: { oneOf: [['tool'], ['note']] },
   cleanupDone: { oneOf: [['note']] },

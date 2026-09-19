@@ -144,12 +144,28 @@ const tasksShowOutputContract: OperationOutputContract = {
  *
  * Grounded in {@link TasksListResult}: `{ tasks: TaskOp[], total, filtered }`.
  */
+const taskPopulationSchema = {
+  type: 'object',
+  required: ['matched', 'returned', 'truncated', 'archive', 'limit', 'offset'],
+  properties: {
+    matched: { type: 'number', description: 'All rows matching the query before pagination.' },
+    returned: {
+      type: 'number',
+      description: 'Rows present in this response; also --output count.',
+    },
+    truncated: { type: 'boolean', description: 'Matching rows are omitted by this page.' },
+    archive: { type: 'string', enum: ['included', 'excluded', 'only'] },
+    limit: { type: ['number', 'null'] },
+    offset: { type: 'number' },
+  },
+} as const;
+
 const tasksListOutputContract: OperationOutputContract = {
   operation: 'tasks.list',
   shapeNote: 'Rows are under /data/tasks (an array); counts are /data/total and /data/filtered.',
   dataSchema: {
     type: 'object',
-    required: ['tasks', 'total', 'filtered'],
+    required: ['tasks', 'total', 'filtered', 'population'],
     additionalProperties: true,
     properties: {
       tasks: {
@@ -166,6 +182,7 @@ const tasksListOutputContract: OperationOutputContract = {
       },
       total: { type: 'number', description: 'Total tasks before filtering.' },
       filtered: { type: 'number', description: 'Number of tasks after filters applied.' },
+      population: taskPopulationSchema,
     },
   },
   fieldPointers: [
@@ -174,6 +191,9 @@ const tasksListOutputContract: OperationOutputContract = {
     '/data/tasks/0/status',
     '/data/total',
     '/data/filtered',
+    '/data/population/matched',
+    '/data/population/returned',
+    '/data/population/archive',
   ],
 };
 
@@ -198,7 +218,7 @@ const tasksFindOutputContract: OperationOutputContract = {
     'Use /data/results/0/id — NOT /data/0/id.',
   dataSchema: {
     type: 'object',
-    required: ['results', 'total'],
+    required: ['results', 'total', 'population'],
     additionalProperties: true,
     properties: {
       results: {
@@ -215,6 +235,7 @@ const tasksFindOutputContract: OperationOutputContract = {
         },
       },
       total: { type: 'number', description: 'Total matching tasks.' },
+      population: taskPopulationSchema,
       query: { type: 'string', description: 'The query string that was searched.' },
       searchType: { type: 'string', description: 'Kind of search performed (fts, semantic, ...).' },
     },
@@ -224,6 +245,9 @@ const tasksFindOutputContract: OperationOutputContract = {
     '/data/results/0/title',
     '/data/results/0/status',
     '/data/total',
+    '/data/population/matched',
+    '/data/population/returned',
+    '/data/population/archive',
   ],
 };
 

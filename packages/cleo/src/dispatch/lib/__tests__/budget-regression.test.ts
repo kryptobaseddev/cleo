@@ -10,7 +10,10 @@
  * @epic T11394 E7-LAFS-CANONICAL
  */
 
+import { ExitCode } from '@cleocode/contracts';
+import type { DispatchRequest, DispatchResponse } from '@cleocode/contracts/gateway';
 import { describe, expect, it } from 'vitest';
+import { createBudgetEnforcement } from '../../middleware/budget-enforcement.js';
 import { BUDGET_EXCEEDED_CODE, enforceBudget, isWithinBudget } from '../budget.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -80,4 +83,128 @@ describe('budget chokepoint — focus ≤ 1500 token enforcement (T11285)', () =
     expect(typeof be['estimatedTokens']).toBe('number');
     expect(be['budget']).toBe(1500);
   });
+});
+
+describe('knowledge truth survives the budget middleware T12199', () => {
+  function request(budget: number): DispatchRequest {
+    return {
+      gateway: 'query',
+      domain: 'focus',
+      operation: 'show',
+      source: 'cli',
+      requestId: 'truth-budget',
+      params: { _budget: budget },
+    };
+  }
+  function response(): DispatchResponse {
+    return {
+      success: true,
+      meta: {
+        gateway: 'query',
+        domain: 'focus',
+        operation: 'show',
+        source: 'cli',
+        requestId: 'truth-budget',
+        timestamp: '2026-09-19T00:00:00Z',
+        duration_ms: 1,
+      },
+      data: {
+        identity: { id: 'T136' },
+        scope: { taskId: 'T136' },
+        examples: 'é😀'.repeat(3000),
+        coverage: {
+          status: 'failed',
+          projectId: 'axiom',
+          assessedRevision: null,
+          indexedRevision: null,
+          assessedAt: '2026-09-19T00:00:00Z',
+          reasons: ['Git unavailable'],
+          evidence: [],
+          limitations: ['Static callers cannot prove runtime completeness'],
+        },
+        knowledgeHealth: {
+          findingCount: 2,
+          findingStates: { pending: 2 },
+          detailsCommand: 'cleo doctor knowledge',
+        },
+        sourceDiagnostics: {
+          git: { status: 'failed', reasons: ['No included repository'], evidence: [] },
+        },
+      },
+    };
+  }
+  it('removes examples before current coverage, failure counts and pending repair facts', async () => {
+    const source = response();
+    const output = await createBudgetEnforcement()(request(240), async () => source);
+    expect(output.success).toBe(true);
+    expect(output.data).toMatchObject({
+      identity: { id: 'T136' },
+      scope: { taskId: 'T136' },
+      coverage: {
+        status: 'failed',
+        projectId: 'axiom',
+        reasons: ['Git unavailable'],
+        limitations: ['Static callers cannot prove runtime completeness'],
+      },
+      knowledgeHealth: {
+        findingCount: 2,
+        findingStates: { pending: 2 },
+        detailsCommand: 'cleo doctor knowledge',
+      },
+      sourceDiagnostics: { git: { status: 'failed', reasons: ['No included repository'] } },
+      _withheld: { examples: 18000 },
+    });
+    expect(output.data).not.toHaveProperty('examples');
+  });
+  it.each([0, 1])('rejects budget %s when mandatory truth cannot fit', async (budget) => {
+    const output = await createBudgetEnforcement()(request(budget), async () => response());
+    expect(output.success).toBe(false);
+    expect(output.error).toMatchObject({
+      code: BUDGET_EXCEEDED_CODE,
+      exitCode: ExitCode.VALIDATION_ERROR,
+    });
+    expect(output.data).toBeNull();
+  });
+});
+
+it('retains population and emitted rows together or rejects an insufficient budget (T12200)', async () => {
+  const data = {
+    results: [{ id: 'T1', title: 'one' }],
+    population: {
+      matched: 3,
+      returned: 1,
+      truncated: true,
+      archive: 'excluded',
+      limit: 1,
+      offset: 0,
+    },
+    examples: 'example '.repeat(500),
+  };
+  const roomy = enforceBudget({ success: true, data }, 500);
+  expect(roomy.response.success).toBe(true);
+  expect(roomy.response.data).toMatchObject({ results: data.results, population: data.population });
+  const tiny = enforceBudget({ success: true, data }, 1);
+  expect(tiny.exceeded).toBe(true);
+  const request: DispatchRequest = {
+    gateway: 'query',
+    domain: 'tasks',
+    operation: 'find',
+    source: 'cli',
+    requestId: 'population-budget',
+    params: { _budget: 1 },
+  };
+  const response = await createBudgetEnforcement()(request, async () => ({
+    success: true,
+    data,
+    meta: {
+      gateway: 'query',
+      domain: 'tasks',
+      operation: 'find',
+      source: 'cli',
+      requestId: 'population-budget',
+      timestamp: new Date().toISOString(),
+      duration_ms: 0,
+    },
+  }));
+  expect(response.success).toBe(false);
 });

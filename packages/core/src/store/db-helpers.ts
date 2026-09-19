@@ -76,55 +76,14 @@ export async function upsertTask(
   }
 
   const values = archiveFields ? { ...row, ...archiveFields, status: 'archived' as const } : row;
-  // GH #401 / T9839: the `set` clause defines which columns are updated on
-  // ON CONFLICT (id) DO UPDATE. Any column omitted from this object is
-  // SILENTLY DROPPED on update — INSERT carries the field, but UPDATE does
-  // not. This caused a critical data-integrity bug where `severity`, `kind`,
-  // and `scope` (added by T944/T9072/T9073 but never appended to the SET
-  // clause) appeared to update in the response envelope while the underlying
-  // DB row was unchanged. Treat this list as load-bearing: any new column on
-  // the `tasks` table MUST be mirrored here.
-  const set: Record<string, unknown> = {
-    title: row.title,
-    description: row.description,
-    status: archiveFields ? 'archived' : row.status,
-    priority: row.priority,
-    type: row.type,
-    // T944 / GH #401: kind axis (DB col 'role') — must be in set clause
-    // so update persists changes. Undefined skips the column (preserves DB
-    // value); a concrete value overwrites it.
-    kind: row.kind,
-    // T944 / GH #401: scope axis — same persistence requirement.
-    scope: row.scope,
-    // T9073 / GH #401: severity — owner-write-only axis (nullable).
-    // Same undefined-skips-update semantics as the other axes.
-    severity: row.severity,
-    parentId: row.parentId,
-    phase: row.phase,
-    size: row.size,
-    position: row.position,
-    positionVersion: row.positionVersion,
-    labelsJson: row.labelsJson,
-    notesJson: row.notesJson,
-    acceptanceJson: row.acceptanceJson,
-    filesJson: row.filesJson,
-    origin: row.origin,
-    blockedBy: row.blockedBy,
-    epicLifecycle: row.epicLifecycle,
-    noAutoComplete: row.noAutoComplete,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    completedAt: row.completedAt,
-    cancelledAt: row.cancelledAt,
-    cancellationReason: row.cancellationReason,
-    verificationJson: row.verificationJson,
-    createdBy: row.createdBy,
-    modifiedBy: row.modifiedBy,
-    sessionId: row.sessionId,
-    // T060: pipeline stage name (RCASD-IVTR+C)
-    pipelineStage: row.pipelineStage ?? null,
-    assignee: row.assignee ?? null,
-    // Always include archive metadata so unarchive clears stale values (T5034)
+  // The canonical converter defines the write surface for both INSERT and
+  // conflict UPDATE. Destructuring identity prevents an upsert from moving a
+  // row; spreading the remaining fields prevents newly accepted fields from
+  // disappearing on conflict (GH #401 / T12198).
+  const { id: _identity, ...mutableRow } = row;
+  const set = {
+    ...mutableRow,
+    status: archiveFields ? ('archived' as const) : row.status,
     archivedAt: archiveFields?.archivedAt ?? null,
     archiveReason: archiveFields?.archiveReason ?? null,
     cycleTimeDays: archiveFields?.cycleTimeDays ?? null,

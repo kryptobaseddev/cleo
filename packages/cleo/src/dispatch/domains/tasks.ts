@@ -153,6 +153,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       limit: params.limit,
       offset: params.offset,
       compact: params.compact,
+      includeArchive: params.includeArchive,
     });
     if (!result.success) {
       return lafsError(
@@ -361,28 +362,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     const projectRoot = getProjectRoot();
     return wrapCoreResult(
       await addTaskWithSessionScope(projectRoot, {
-        title: params.title,
+        ...params,
         description: typeof params.description === 'string' ? params.description : undefined,
-        parent: params.parent,
-        // T12136: carry the CLI's inference decision through to core.
-        parentSource: params.parentSource,
-        depends: params.depends,
-        priority: params.priority,
-        labels: params.labels,
-        type: params.type,
-        acceptance: params.acceptance,
-        phase: params.phase,
-        size: params.size,
-        notes: params.notes,
-        files: params.files,
-        dryRun: params.dryRun,
-        parentSearch: params.parentSearch,
-        // T944/T9072: orthogonal axes — kind is the canonical wire field
-        kind: params.kind,
-        scope: params.scope,
-        severity: params.severity,
-        // T1633: BRAIN duplicate-bypass flag
-        forceDuplicate: params.forceDuplicate,
       }),
       'add',
     );
@@ -390,50 +371,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   update: async (params) => {
     const projectRoot = getProjectRoot();
-    return wrapCoreResult(
-      await taskUpdate(projectRoot, params.taskId, {
-        title: params.title,
-        description: params.description,
-        status: params.status,
-        priority: params.priority,
-        notes: params.notes,
-        labels: params.labels,
-        addLabels: params.addLabels,
-        removeLabels: params.removeLabels,
-        depends: params.depends,
-        addDepends: params.addDepends,
-        removeDepends: params.removeDepends,
-        acceptance: params.acceptance,
-        // ADR-057 D2: canonical wire field — no alias fallback
-        parent: params.parent,
-        type: params.type,
-        size: params.size,
-        // T1014: wire --files through dispatch to engine (parity with add).
-        files: params.files,
-        addFiles: params.addFiles,
-        removeFiles: params.removeFiles,
-        // T834 / ADR-051 Decision 4: wire --pipelineStage end-to-end.
-        pipelineStage: params.pipelineStage,
-        // T944/T9072: kind axis (renamed from role)
-        kind: params.kind,
-        scope: params.scope,
-        // T9073: severity — orthogonal to priority, valid for any kind
-        severity: params.severity,
-        // T1590: AC-immutability override reason
-        reason: params.reason,
-        // T9241 / gh#1106: set/clear the free-text blockedBy reason. The set
-        // path (`blockedBy`) was previously dropped here — only `clearBlockedBy`
-        // was forwarded — so `cleo update --blocked-by "..."` produced
-        // E_CLEO_NO_CHANGE. Both paths must be wired.
-        blockedBy: params.blockedBy,
-        clearBlockedBy: params.clearBlockedBy,
-        // T9327: relates mutations
-        relates: params.relates,
-        addRelates: params.addRelates,
-        removeRelates: params.removeRelates,
-      }),
-      'update',
-    );
+    const { taskId, ...updates } = params;
+    return wrapCoreResult(await taskUpdate(projectRoot, taskId, updates), 'update');
   },
 
   complete: async (params) => {

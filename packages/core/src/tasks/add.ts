@@ -15,6 +15,7 @@ import type {
   TaskSeverity,
   TaskSize,
   TaskStatus,
+  TasksAddParams,
   TaskType,
   TaskVerification,
 } from '@cleocode/contracts';
@@ -87,6 +88,8 @@ export interface AddTaskOptions {
   files?: string[];
   acceptance?: string[];
   depends?: string[];
+  /** Critical-priority justification committed with task_created audit provenance. */
+  dependsWaiver?: string;
   notes?: string;
   position?: number;
   addPhase?: boolean;
@@ -157,6 +160,51 @@ export interface AddTaskResult {
    * @saga T10538 (PM-Core V2 agent-trust)
    */
   reopenedAncestors?: string[];
+}
+
+/**
+ * Translate canonical creation input into core options without dropping fields.
+ * @param params - Canonical task creation input.
+ * @returns Core options with the parent alias and enum boundaries resolved.
+ */
+export function toTaskAddOptions(params: TasksAddParams): AddTaskOptions {
+  const { parent, ...fields } = params;
+  return {
+    ...fields,
+    parentId: parent,
+    priority: params.priority as TaskPriority | undefined,
+    size: params.size as TaskSize | undefined,
+    kind: params.kind as TaskKind | undefined,
+    scope: params.scope as TaskScope | undefined,
+    severity: params.severity as TaskSeverity | undefined,
+  };
+}
+
+/**
+ * Validate a dependency-policy waiver before task mutation.
+ * @param priority - Explicit requested priority; waivers require critical.
+ * @param justification - Original reason, retained verbatim in transaction audit details.
+ * @throws CleoError for empty reasons or non-critical mutations.
+ */
+export function validateDependencyWaiver(
+  priority: string | undefined,
+  justification: string | undefined,
+): void {
+  if (
+    justification !== undefined &&
+    (typeof justification !== 'string' ||
+      justification.trim().length === 0 ||
+      priority !== 'critical')
+  ) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      'Dependency waiver requires a non-empty justification and an explicit critical-priority mutation',
+      {
+        details: { field: 'dependsWaiver' },
+        fix: 'Supply a non-empty --depends-waiver with --priority critical, or omit the waiver',
+      },
+    );
+  }
 }
 
 /** Normalize AC arrays once so legacy JSON, AC rows, and projections stay aligned. */
@@ -765,6 +813,7 @@ export async function addTask(
 ): Promise<AddTaskResult> {
   // Validate title (early-exit — can't proceed without a title)
   validateTitle(options.title);
+  validateDependencyWaiver(options.priority, options.dependsWaiver);
 
   // Skip session enforcement for dry-run — no data is written
   if (!options.dryRun) {
@@ -1552,8 +1601,13 @@ export async function addTask(
       await tx.insertAcRows([parentChildAcRow]);
       createdAcceptanceCriteriaIds.push(parentChildAcRow.id);
 
+      // Re-read under the transaction: sibling creators may have appended
+      // their parent projection after the initial validation snapshot.
+      const currentParent = await dataAccessor.loadSingleTask(parentId);
+      if (!currentParent)
+        throw new CleoError(ExitCode.NOT_FOUND, `Parent task not found: ${parentId}`);
       const parentAcceptance = normalizeAcceptance([
-        ...(parentTaskForProjection.acceptance ?? []).map(acItemToText),
+        ...(currentParent.acceptance ?? []).map(acItemToText),
         parentChildAcText,
       ]);
       await tx.updateTaskFields(parentId, {
@@ -1566,15 +1620,19 @@ export async function addTask(
     // holds the unsatisfied child injected above. Mirrors coreTaskReopen:
     // status→pending, clear completedAt, preserve completion history in notes.
     for (const ancestor of ancestorsToReopen) {
+      const currentAncestor = await dataAccessor.loadSingleTask(ancestor.id);
+      if (!currentAncestor)
+        throw new CleoError(ExitCode.NOT_FOUND, `Ancestor task not found: ${ancestor.id}`);
+      if (currentAncestor.status !== 'done') continue;
       const reopened: Task = {
-        ...ancestor,
+        ...currentAncestor,
         status: 'pending',
         completedAt: undefined,
         updatedAt: now,
         notes: [
-          ...(ancestor.notes ?? []),
-          ...(ancestor.completedAt
-            ? [`[${now}] completion-history: completedAt=${ancestor.completedAt}`]
+          ...(currentAncestor.notes ?? []),
+          ...(currentAncestor.completedAt
+            ? [`[${now}] completion-history: completedAt=${currentAncestor.completedAt}`]
             : []),
           `[${now}] Reopened by add of child ${taskId} (done parent gained an unsatisfied child)`,
         ],
@@ -1595,7 +1653,12 @@ export async function addTask(
       action: 'task_created',
       taskId,
       actor: 'system',
-      details: { title: options.title, status, priority },
+      details: {
+        title: options.title,
+        status,
+        priority,
+        ...(options.dependsWaiver !== undefined ? { dependsWaiver: options.dependsWaiver } : {}),
+      },
       before: null,
       after: { title: options.title, status, priority },
     });

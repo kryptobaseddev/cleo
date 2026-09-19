@@ -896,6 +896,10 @@ jobs:
       - name: CLI package boundary gate (baseline mode — T9837e)
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-cli-package-boundary.mjs --check
+      - name: CLI startup barrel ratchet (T12076 / T12203 / gh#1439)
+        # This unconditional job gates CI on PRs and merge groups. Preserve
+        # the committed ratchet; never regenerate its baseline in CI.
+        run: node scripts/lint-cli-startup-barrel-imports.mjs
 
   dockind-writer-uniqueness:
     # T10369 / Epic T10290 / Saga T10288 SG-DOCS-INTEGRITY — DocKind Writer

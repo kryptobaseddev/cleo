@@ -2,8 +2,8 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.6.0
-  lastReviewed: 2026-05-27
+  version: 2.9.0
+  lastReviewed: 2026-09-19
   stability: stable
 ---
 
@@ -17,6 +17,8 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 · `task-discovery` · `task-relationships` · `session-commands` · `memory` · `nexus`
 · `orchestration` · `playbooks` · `documents` · `error-handling` · `pre-complete-gate`
 · `spawn-tiers` · `rules` · `memory-jit` · `escalation`
+
+List/find expose `data.population` with matched and returned counts, truncation, pagination, and archive eligibility. Count output equals emitted rows; use `--all` or `--limit 0` to enumerate all matches, and `--include-archive` to include archives under the same filters. Scalar/ID/table/summary modes preserve population facts on stderr. Do not treat a page as complete.
 
 ## Quick Reference
 
@@ -36,6 +38,20 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 | Attach doc to task | `cleo docs add T### file.md --type note --slug handle` |
 | Read a doc | `cleo docs fetch <slug>` |
 | Browse docs | `cleo docs list --task T###` |
+
+## Read completeness before editing
+
+Use `cleo show <id> --full` to inspect task fields before editing them. Compact
+records name every omitted field in `_withheld`, including empty or null values;
+the size is UTF-8 content bytes for strings and serialized JSON bytes otherwise.
+Repeated projection retains earlier omissions. A record without `_withheld` is
+complete at the record projection boundary; an envelope can separately report
+omitted records or fields. Never overwrite a field because a compact read omitted it.
+
+Coverage, failure diagnostics, authority corrections, and pending repair facts
+survive budgeting before examples. If mandatory facts cannot fit, the operation
+rejects the budget. Request a narrower scope or a larger budget, and do not treat
+that failure as clean coverage or absent impact.
 
 ## Skill-Specific Extensions
 
@@ -257,3 +273,7 @@ cite decisions by durable BRAIN decision IDs.
 **Migration rule:** When you encounter a decision ONLY in a markdown ledger
 (`.cleo/adrs/`, `.cleo/agent-outputs/`), store it in the BRAIN with
 `cleo memory store --type decision` and cite the BRAIN ID going forward.
+
+## Evidence must prove task criteria
+
+Merged PRs and passing CI are provenance. Implementation requires changed artifacts related to the task; testing and review require their own actual results. For tasks with canonical criteria, append explicit links such as `satisfies:T1234#AC1` to each relevant gate's evidence. Fetch the PR merge commit so artifact hashes can be inspected. A changed criterion invalidates its recorded proof. Completing a child preserves an open parent whose own criteria remain unproven; child waivers never transfer to parent criteria.
