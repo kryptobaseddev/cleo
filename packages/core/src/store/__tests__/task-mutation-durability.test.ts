@@ -53,6 +53,9 @@ describe('task mutation durability', () => {
     await mkdir(join(projectA, '.cleo'), { recursive: true });
     await mkdir(join(projectB, '.cleo'), { recursive: true });
     vi.stubEnv('CLEO_DIR', '.cleo');
+    // This fixture addresses two projects; a process-wide root pin overrides discovery.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_PROJECT_ROOT', undefined);
   });
   afterEach(async () => {
     const { awaitBackgroundOps } = await import('../background-ops.js');
@@ -553,7 +556,12 @@ describe('task mutation durability', () => {
         return { project, title, acceptance, id: result.task.id };
       }),
     );
-    expect(outcomes.map((outcome) => outcome.status)).toEqual(Array(8).fill('fulfilled'));
+    expect(
+      outcomes.map((outcome) => outcome.status),
+      outcomes
+        .flatMap((outcome) => (outcome.status === 'rejected' ? [String(outcome.reason)] : []))
+        .join('\n'),
+    ).toEqual(Array(8).fill('fulfilled'));
     const results = outcomes.flatMap((outcome) =>
       outcome.status === 'fulfilled' ? [outcome.value] : [],
     );
