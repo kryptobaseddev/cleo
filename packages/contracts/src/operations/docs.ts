@@ -33,7 +33,11 @@
 import { z } from 'zod';
 import type { AttachmentKind } from '../attachment.js';
 import { BUILTIN_DOC_KIND_VALUES, type BuiltinDocKind } from '../docs-taxonomy.js';
-import type { BackgroundJobStatus, OperationExecutionIdentity } from '../jobs.js';
+import type {
+  BackgroundJobStatus,
+  OperationExecutionContext,
+  OperationExecutionIdentity,
+} from '../jobs.js';
 import type { DocAttachmentObservationPayload } from '../memory/observe.js';
 
 // ============================================================================
@@ -548,8 +552,8 @@ export type DocsProjectionReceipt = z.infer<typeof DOCS_PROJECTION_RECEIPT_SCHEM
 
 /** Truthful bounded observation of optional work following an accepted canonical attachment. */
 export interface DocsProjectionOutcome {
-  /** Captured project identity. */
-  projectId: string;
+  /** Captured project identity, or null when canonical identity could not be read. */
+  projectId: string | null;
   /** Captured explicit repository root. */
   projectRoot: string;
   /** Completed verification, resumable pending work, or an observed failure. */
@@ -567,6 +571,21 @@ export interface DocsProjectionOutcome {
   /** True when foreground observation crossed the deadline; no preemption is implied. */
   deadlineExceeded: boolean;
 }
+
+/** Captured maintenance lifetime or an explicit unavailable identity diagnostic. */
+export type DocsProjectionCapture =
+  | {
+      /** A canonical stable project identity was read successfully. */
+      status: 'ready';
+      /** Original deadline and cancellation shared by every optional stage. */
+      context: OperationExecutionContext;
+    }
+  | {
+      /** No optional work may be admitted under a guessed identity. */
+      status: 'unavailable';
+      /** Diagnostic returned alongside accepted canonical bytes. */
+      outcome: DocsProjectionOutcome;
+    };
 
 /** Durable preparation result; does not assert that optional projections completed. */
 export interface DocsProjectionPreparation {

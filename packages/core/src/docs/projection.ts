@@ -4,25 +4,98 @@ import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import {
   DOCS_PROJECTION_PROPOSAL_SCHEMA,
   DOCS_PROJECTION_RECEIPT_SCHEMA,
+  type DocsProjectionCapture,
   type DocsProjectionOutcome,
   type DocsProjectionPreparation,
   type DocsProjectionProposal,
   type DocsProjectionReceipt,
   type DocsProjectionSource,
 } from '@cleocode/contracts/operations/docs';
+import { loadProjectInfo } from '../config/registry.js';
 import { enqueueBrainWrite } from '../memory/brain-writer-thread.js';
 import { ensureLlmtxtNodeScoped } from '../memory/graph-auto-populate.js';
+import { generateProjectHash } from '../nexus/hash.js';
 import { worktreeScope } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { assertOperationWriteFence, DurableJobStore } from '../store/background-jobs.js';
 import {
   bindOperationWriteFence,
+  createOperationExecutionContext,
   observeOperation,
   trackBackgroundOp,
 } from '../store/background-ops.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { getDb } from '../store/sqlite.js';
+
+/**
+ * Capture a canonical project identity and one optional-maintenance deadline before storage.
+ * @param projectRoot - Explicit root captured synchronously by the calling surface.
+ * @param actor - Foreground caller provenance.
+ * @param idempotencyKey - Immutable operation key; explicit resume reuses the prepared job identity.
+ * @param budgetMs - Shared foreground budget, defaulting to two seconds.
+ * @returns Captured scope or explicit missing coverage; no guessed project identity.
+ * @throws RangeError when the caller supplies an invalid foreground budget.
+ * @remarks The metadata read is read-only. Its elapsed time is charged to the same
+ * deadline; slow filesystem I/O is not claimed to be synchronously preempted. Missing,
+ * malformed or mismatched identity never prevents the independent canonical attachment write.
+ * @example
+ * ```ts
+ * const captured = await captureDocumentProjection(root, actor, invocationId);
+ * ```
+ */
+export async function captureDocumentProjection(
+  projectRoot: string,
+  actor: string,
+  idempotencyKey: string,
+  budgetMs = 2000,
+): Promise<DocsProjectionCapture> {
+  if (!Number.isSafeInteger(budgetMs) || budgetMs < 0)
+    throw new RangeError('Document projection budget must be a nonnegative safe integer');
+  const deadlineAt = Date.now() + budgetMs;
+  try {
+    const info = await worktreeScope.run(
+      { worktreeRoot: projectRoot, projectHash: generateProjectHash(projectRoot) },
+      () => loadProjectInfo(projectRoot),
+    );
+    if (!info || typeof info.projectId !== 'string' || !info.projectId.trim()) {
+      throw new Error('Canonical project-info lacks a stable projectId');
+    }
+    if (info.projectRoot !== undefined && info.projectRoot !== projectRoot) {
+      throw new Error('Canonical project-info root differs from the captured project root');
+    }
+    const context = createOperationExecutionContext(
+      {
+        projectId: info.projectId,
+        projectRoot,
+        actor,
+        operation: 'docs.projection',
+        idempotencyKey,
+      },
+      { budgetMs, deadlineAt },
+    );
+    try {
+      context.assertActive();
+    } catch (error) {
+      context.close();
+      throw error;
+    }
+    return { status: 'ready', context };
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      outcome: {
+        projectId: null,
+        projectRoot,
+        status: 'failed',
+        coverage: 'missing',
+        deadlineAt,
+        deadlineExceeded: Date.now() >= deadlineAt,
+        diagnostics: [error instanceof Error ? error.message : String(error)],
+      },
+    };
+  }
+}
 
 /** Load actual canonical evidence without changing it or admitting an executor. */
 async function readProjectionProposal(
@@ -98,7 +171,7 @@ export async function prepareDocumentProjection(
   return worktreeScope.run(
     {
       worktreeRoot: context.identity.projectRoot,
-      projectHash: context.identity.projectId,
+      projectHash: generateProjectHash(context.identity.projectRoot),
       execution: context,
     },
     async () => {
@@ -196,7 +269,7 @@ export async function resumeDocumentProjection(
   return worktreeScope.run(
     {
       worktreeRoot: context.identity.projectRoot,
-      projectHash: context.identity.projectId,
+      projectHash: generateProjectHash(context.identity.projectRoot),
       execution: context,
     },
     async () => {
@@ -243,7 +316,7 @@ export async function resumeDocumentProjection(
       return worktreeScope.run(
         {
           worktreeRoot: context.identity.projectRoot,
-          projectHash: context.identity.projectId,
+          projectHash: generateProjectHash(context.identity.projectRoot),
           execution,
         },
         async () => {

@@ -1,7 +1,7 @@
 /** Real canonical-source and durable-pending proofs for optional docs projection. */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { access, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
@@ -11,6 +11,7 @@ import { createAttachmentStore } from '../../store/attachment-store.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { closeAllDatabases, closeDb, getNativeDb } from '../../store/sqlite.js';
 import {
+  captureDocumentProjection,
   prepareDocumentProjection,
   projectDocumentAttachment,
   resumeDocumentProjection,
@@ -327,5 +328,74 @@ describe('captured document projection execution', () => {
       release();
       await pending;
     }
+  });
+});
+
+describe('canonical projection identity capture', () => {
+  it('rejects invalid budgets without emitting an invalid deadline', async () => {
+    await expect(captureDocumentProjection(root, 'foreground', 'key', Number.NaN)).rejects.toThrow(
+      RangeError,
+    );
+    expect(readPending()).toEqual([]);
+  });
+
+  it('captures the explicit root and charges metadata reads to the original deadline', async () => {
+    await writeFile(
+      join(root, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'portable-A', projectRoot: root }),
+    );
+    const before = Date.now();
+    const pending = captureDocumentProjection(root, 'foreground', 'invocation', 10000);
+    vi.stubEnv('CLEO_ROOT', join(root, 'B'));
+    vi.stubEnv('CLEO_DIR', join(root, 'B/.cleo'));
+    try {
+      const captured = await pending;
+      expect(captured.status).toBe('ready');
+      if (captured.status !== 'ready') throw new Error(captured.outcome.diagnostics.join(' '));
+      try {
+        expect(captured.context.identity).toMatchObject({
+          projectId: 'portable-A',
+          projectRoot: root,
+        });
+        expect(captured.context.deadlineAt).toBeLessThanOrEqual(before + 10010);
+      } finally {
+        captured.context.close();
+      }
+      await expect(access(join(root, 'B'))).rejects.toThrow();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each([
+    'missing',
+    'malformed',
+    'mismatched',
+    'expired',
+  ] as const)('reports %s identity or scope without creating optional work', async (mode) => {
+    if (mode !== 'missing')
+      await writeFile(
+        join(root, '.cleo/project-info.json'),
+        mode === 'malformed'
+          ? '{bad-json'
+          : JSON.stringify({
+              projectId: 'portable-A',
+              projectRoot: mode === 'mismatched' ? join(root, 'wrong') : root,
+            }),
+      );
+    const captured = await captureDocumentProjection(
+      root,
+      'foreground',
+      'invocation',
+      mode === 'expired' ? 0 : 2000,
+    );
+    expect(captured).toMatchObject({
+      status: 'unavailable',
+      outcome: { coverage: 'missing', projectId: null },
+    });
+    if (captured.status === 'unavailable')
+      expect(captured.outcome.diagnostics.length).toBeGreaterThan(0);
+    expect(readPending()).toEqual([]);
+    expect((await createAttachmentStore().get(source.sha256, root))?.bytes).toEqual(bytes);
   });
 });
