@@ -55,6 +55,20 @@ describe('T1138 — sqlite ExperimentalWarning suppression', () => {
   });
 
   it.skipIf(!CLI_DIST_AVAILABLE)(
+    'loads the built doctor knowledge command and its real package exports',
+    () => {
+      const result = spawnSync(process.execPath, [CLI_DIST, 'doctor', 'knowledge', '--help'], {
+        encoding: 'utf8',
+        timeout: 30000,
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain('knowledge');
+      expect(result.stdout).toContain('--resolve');
+    },
+  );
+
+  it.skipIf(!CLI_DIST_AVAILABLE)(
     'CLI invocation suppresses ExperimentalWarning for "SQLite is an experimental feature"',
     () => {
       // Run: `node dist/cli/index.js --version` and capture stderr.
