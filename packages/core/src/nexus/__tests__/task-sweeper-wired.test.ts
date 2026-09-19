@@ -117,6 +117,13 @@ afterAll(() => {
   rmSync(suiteDir, { recursive: true, force: true });
 });
 
+// Each synthetic project owns its task and agent records.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(async () => {
   tmpDir = mkdtempSync(join(suiteDir, 'test-'));
   // Close any previously-open DB connections so each test starts fresh.

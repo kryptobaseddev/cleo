@@ -8,16 +8,16 @@
  *   - captureBaseline: anti-gaming — commit from future / too recent → E_BASELINE_MUST_PREDATE_EXPERIMENT
  *   - captureBaseline: non-existent SHA → E_COMMIT_NOT_FOUND
  *
- * Uses the ACTUAL git repository at /mnt/projects/cleocode so commit SHA
- * validation is real. The env KMS adapter is used for signing (no keyfile
- * on disk required in CI).
+ * Uses a fresh local Git repository per test for real commit validation.
+ * Signed events remain inside that fixture. The env KMS adapter provides
+ * signing without a host keyfile or external service.
  *
  * @task T1021
  */
 
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -38,56 +38,21 @@ async function getHeadSha(repoRoot: string): Promise<string> {
   return stdout.trim();
 }
 
-/** Get an old commit SHA (first commit or HEAD~3) of a git repo. */
-async function getOldCommitSha(repoRoot: string): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD~3'], { cwd: repoRoot });
-    return stdout.trim();
-  } catch {
-    // Fall back to the first commit if history is short.
-    const { stdout } = await execFileAsync('git', ['rev-list', '--max-parents=0', 'HEAD'], {
-      cwd: repoRoot,
-    });
-    return stdout.trim();
-  }
+/** Create a real fixture commit with an explicitly controlled timestamp. */
+async function createFixtureCommit(timestamp: string): Promise<string> {
+  await writeFile(join(tmpDir, 'fixture.txt'), 'baseline fixture');
+  await execFileAsync('git', ['add', 'fixture.txt'], { cwd: tmpDir });
+  await execFileAsync('git', ['commit', '-m', 'test: baseline fixture'], {
+    cwd: tmpDir,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_DATE: timestamp,
+      GIT_COMMITTER_DATE: timestamp,
+    },
+  });
+  return getHeadSha(tmpDir);
 }
 
-// ---------------------------------------------------------------------------
-// Setup — use env adapter with a fixed seed
-// ---------------------------------------------------------------------------
-
-import { execFileSync } from 'node:child_process';
-import { getProjectRoot } from '../../paths.js';
-
-/**
- * Resolve the repository root dynamically so the test passes under any
- * checkout path (local dev: /mnt/projects/cleocode; CI: /home/runner/work/cleo/cleo).
- *
- * Uses `getProjectRoot()` instead of raw `git rev-parse` so that when tests
- * run inside a git worktree (where `.git` is a gitlink FILE), the main repo
- * path is returned rather than the worktree path. The worktree path is rejected
- * by `assertProjectInitialized` (T9092 guard — gitlink-only paths are invalid
- * project roots) which caused E_NOT_INITIALIZED failures in CI worktree builds.
- *
- * Falls back to process.cwd() only if CLEO project resolution also fails.
- */
-function resolveRepoRoot(): string {
-  try {
-    return getProjectRoot(process.cwd());
-  } catch {
-    // Last resort: try git rev-parse for non-CLEO environments.
-    try {
-      const out = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-      });
-      return out.trim();
-    } catch {
-      return process.cwd();
-    }
-  }
-}
-const REPO_ROOT = resolveRepoRoot();
 const TEST_SEED_HEX = crypto.randomBytes(32).toString('hex');
 
 let tmpDir: string;
@@ -96,6 +61,11 @@ const originalSeed = process.env['CLEO_SIGNING_SEED'];
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'cleo-baseline-test-'));
+  await mkdir(join(tmpDir, '.cleo'));
+  await execFileAsync('git', ['init', '--quiet'], { cwd: tmpDir });
+  await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpDir });
+  await execFileAsync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+  await execFileAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: tmpDir });
   // Wire the env KMS adapter so baseline.ts can load a signing identity.
   process.env['CLEO_KMS_ADAPTER'] = 'env';
   process.env['CLEO_SIGNING_SEED'] = TEST_SEED_HEX;
@@ -122,50 +92,7 @@ afterEach(async () => {
 
 describe('captureBaseline — success path', () => {
   it('captures a baseline for an old commit SHA and returns expected shape', async () => {
-    const commitSha = await getOldCommitSha(REPO_ROOT);
-
-    // Copy the repo's git dir into the tmp project so git commands work.
-    // Instead, pass REPO_ROOT as the projectRoot so git can reach the commit.
-    // We write the event log to a subfolder to avoid polluting the real audit log.
-    // Override: use the real repo root but redirect events to tmpDir.
-    // For simplicity, use REPO_ROOT as projectRoot (read-only for git, writable for .cleo/audit/).
-    // We'll create the .cleo/audit/ dir inside tmpDir and pass tmpDir.
-
-    // Create a minimal git repo in tmpDir that mirrors the main repo's history
-    // by using REPO_ROOT as the git directory. Use a worktree-style approach:
-    // set GIT_DIR + GIT_WORK_TREE env. Actually, the simplest approach is to
-    // use the real REPO_ROOT as projectRoot for git commands but write the
-    // audit log to tmpDir via a symlink trick. Instead, let's just use
-    // REPO_ROOT directly for the whole thing — the audit log will be written
-    // to REPO_ROOT/.cleo/audit/sentient-events.jsonl which already exists
-    // (or will be created). We clean up after.
-
-    // Actually, to avoid polluting the real project, we initialize a git repo
-    // inside tmpDir that has REPO_ROOT as a remote so we can resolve SHAs.
-    // Simpler: use execFile with GIT_DIR override.
-
-    // Simplest approach: use tmpDir for everything, init a git repo there,
-    // copy a few commits from the real repo via bundle, and run captureBaseline.
-    // For unit tests this is fine.
-
-    // Init a bare-enough git repo in tmpDir.
-    await execFileAsync('git', ['init', tmpDir], { cwd: tmpDir });
-    await execFileAsync('git', ['-C', tmpDir, 'remote', 'add', 'origin', REPO_ROOT], {
-      cwd: tmpDir,
-    });
-    // Fetch just enough history.
-    try {
-      await execFileAsync('git', ['-C', tmpDir, 'fetch', '--depth=10', 'origin', 'main'], {
-        cwd: tmpDir,
-        timeout: 30_000,
-      });
-      await execFileAsync('git', ['-C', tmpDir, 'checkout', 'FETCH_HEAD'], { cwd: tmpDir });
-    } catch {
-      // If fetch fails (e.g. offline), skip this test.
-      return;
-    }
-
-    const localSha = await getOldCommitSha(tmpDir);
+    const localSha = await createFixtureCommit('2000-01-01T00:00:00Z');
     const baseline = await captureBaseline(tmpDir, localSha);
 
     expect(baseline.kind).toBe('baseline');
@@ -178,16 +105,11 @@ describe('captureBaseline — success path', () => {
   }, 60_000);
 
   it('writes a baseline event to the sentient events log', async () => {
-    // Use the real REPO_ROOT but an old commit (guaranteed > 5s ago).
-    const commitSha = await getOldCommitSha(REPO_ROOT);
-
-    // We write to REPO_ROOT's audit log. The test creates the event and
-    // verifies it can be queried. We'll query by receiptId to avoid reading
-    // unrelated events from the real audit log.
-    const baseline = await captureBaseline(REPO_ROOT, commitSha);
+    const commitSha = await createFixtureCommit('2000-01-01T00:00:00Z');
+    const baseline = await captureBaseline(tmpDir, commitSha);
 
     // The event must be queryable by kind.
-    const events = await querySentientEvents(REPO_ROOT, {
+    const events = await querySentientEvents(tmpDir, {
       kind: 'baseline',
       after: new Date(Date.now() - 60_000).toISOString(),
     });
@@ -195,14 +117,11 @@ describe('captureBaseline — success path', () => {
     const found = events.find((e) => e.receiptId === baseline.receiptId);
     expect(found).toBeDefined();
     expect(found?.kind).toBe('baseline');
-
-    // Note: We intentionally leave this event in the log. It's an audit log —
-    // leftover entries are expected and do not affect other tests.
   }, 30_000);
 
   it('baseline event signature validates against the signer public key', async () => {
-    const commitSha = await getOldCommitSha(REPO_ROOT);
-    const baseline = await captureBaseline(REPO_ROOT, commitSha);
+    const commitSha = await createFixtureCommit('2000-01-01T00:00:00Z');
+    const baseline = await captureBaseline(tmpDir, commitSha);
 
     const { verifySignature } = await import('llmtxt/identity');
 
@@ -212,7 +131,7 @@ describe('captureBaseline — success path', () => {
     expect(identity.pubkeyHex).toBe(baseline.publicKey);
 
     // Query the event to get the full signed object.
-    const events = await querySentientEvents(REPO_ROOT, {
+    const events = await querySentientEvents(tmpDir, {
       kind: 'baseline',
       after: new Date(Date.now() - 60_000).toISOString(),
     });
@@ -244,15 +163,7 @@ describe('captureBaseline — success path', () => {
 
 describe('captureBaseline — anti-gaming guard', () => {
   it('rejects a commit that is too recent (< 5s old)', async () => {
-    // Create a minimal git repo in tmpDir with a brand-new commit.
-    await execFileAsync('git', ['init', tmpDir], { cwd: tmpDir });
-    await execFileAsync('git', ['-C', tmpDir, 'config', 'user.email', 'test@example.com']);
-    await execFileAsync('git', ['-C', tmpDir, 'config', 'user.name', 'Test']);
-    await writeFile(join(tmpDir, 'README.md'), 'hello');
-    await execFileAsync('git', ['-C', tmpDir, 'add', 'README.md']);
-    await execFileAsync('git', ['-C', tmpDir, 'commit', '-m', 'init']);
-
-    const headSha = await getHeadSha(tmpDir);
+    const headSha = await createFixtureCommit(new Date().toISOString());
 
     // This commit was just created — it is less than 5s old.
     await expect(captureBaseline(tmpDir, headSha)).rejects.toThrow(
@@ -262,11 +173,11 @@ describe('captureBaseline — anti-gaming guard', () => {
 
   it('rejects a non-existent commit SHA', async () => {
     const fakeSha = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
-    await expect(captureBaseline(REPO_ROOT, fakeSha)).rejects.toThrow(/E_COMMIT_NOT_FOUND/);
+    await expect(captureBaseline(tmpDir, fakeSha)).rejects.toThrow(/E_COMMIT_NOT_FOUND/);
   });
 
   it('rejects a malformed SHA (not hex)', async () => {
-    await expect(captureBaseline(REPO_ROOT, 'not-a-sha!!')).rejects.toThrow(
+    await expect(captureBaseline(tmpDir, 'not-a-sha!!')).rejects.toThrow(
       /Invalid commit SHA format/,
     );
   });
