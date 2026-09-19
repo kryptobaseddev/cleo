@@ -1552,8 +1552,13 @@ export async function addTask(
       await tx.insertAcRows([parentChildAcRow]);
       createdAcceptanceCriteriaIds.push(parentChildAcRow.id);
 
+      // Re-read under the transaction: sibling creators may have appended
+      // their parent projection after the initial validation snapshot.
+      const currentParent = await dataAccessor.loadSingleTask(parentId);
+      if (!currentParent)
+        throw new CleoError(ExitCode.NOT_FOUND, `Parent task not found: ${parentId}`);
       const parentAcceptance = normalizeAcceptance([
-        ...(parentTaskForProjection.acceptance ?? []).map(acItemToText),
+        ...(currentParent.acceptance ?? []).map(acItemToText),
         parentChildAcText,
       ]);
       await tx.updateTaskFields(parentId, {
@@ -1566,15 +1571,19 @@ export async function addTask(
     // holds the unsatisfied child injected above. Mirrors coreTaskReopen:
     // status→pending, clear completedAt, preserve completion history in notes.
     for (const ancestor of ancestorsToReopen) {
+      const currentAncestor = await dataAccessor.loadSingleTask(ancestor.id);
+      if (!currentAncestor)
+        throw new CleoError(ExitCode.NOT_FOUND, `Ancestor task not found: ${ancestor.id}`);
+      if (currentAncestor.status !== 'done') continue;
       const reopened: Task = {
-        ...ancestor,
+        ...currentAncestor,
         status: 'pending',
         completedAt: undefined,
         updatedAt: now,
         notes: [
-          ...(ancestor.notes ?? []),
-          ...(ancestor.completedAt
-            ? [`[${now}] completion-history: completedAt=${ancestor.completedAt}`]
+          ...(currentAncestor.notes ?? []),
+          ...(currentAncestor.completedAt
+            ? [`[${now}] completion-history: completedAt=${currentAncestor.completedAt}`]
             : []),
           `[${now}] Reopened by add of child ${taskId} (done parent gained an unsatisfied child)`,
         ],

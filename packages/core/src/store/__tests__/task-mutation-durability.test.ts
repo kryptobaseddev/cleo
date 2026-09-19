@@ -1,6 +1,6 @@
 /** Behavioral storage regressions for T12198. All stores are disposable. */
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
@@ -54,6 +54,8 @@ describe('task mutation durability', () => {
     vi.stubEnv('CLEO_DIR', '.cleo');
   });
   afterEach(async () => {
+    const { awaitBackgroundOps } = await import('../background-ops.js');
+    await awaitBackgroundOps();
     closeDb();
     vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
@@ -313,6 +315,86 @@ describe('task mutation durability', () => {
     });
     const { scanAcceptanceDrift } = await import('../../doctor/acceptance-drift.js');
     expect(scanAcceptanceDrift(projectA).entries).toEqual([]);
+  });
+
+  it('allocates durable unique IDs through concurrent public addTask calls across projects', async () => {
+    const { addTask } = await import('../../tasks/add.js');
+    const { createTask } = await import('../tasks-sqlite.js');
+    for (const project of [projectA, projectB]) {
+      await mkdir(join(project, '.git'));
+      await writeFile(
+        join(project, '.cleo', 'config.json'),
+        JSON.stringify({
+          enforcement: { session: { requiredForMutate: false }, acceptance: { mode: 'off' } },
+          lifecycle: { mode: 'off' },
+          verification: { enabled: false },
+        }),
+      );
+      await createTask(
+        task('T001', 'Parent', { type: 'epic', acceptance: ['Parent criterion'] }),
+        project,
+      );
+    }
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 8 }, async (_, index) => {
+        const project = index % 2 === 0 ? projectA : projectB;
+        const title = `Concurrent work ${index}`;
+        const acceptance = [`Criterion number ${index}`];
+        const result = await addTask(
+          {
+            title,
+            description: `Unique implementation ${index}`,
+            type: 'task',
+            parentId: 'T001',
+            acceptance,
+            depends: ['T001'],
+            forceDuplicate: true,
+          },
+          project,
+        );
+        return { project, title, acceptance, id: result.task.id };
+      }),
+    );
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(Array(8).fill('fulfilled'));
+    const results = outcomes.flatMap((outcome) =>
+      outcome.status === 'fulfilled' ? [outcome.value] : [],
+    );
+    for (const project of [projectA, projectB]) {
+      const created = results.filter((result) => result.project === project);
+      expect(new Set(created.map((result) => result.id)).size).toBe(4);
+      expect(persisted(project, 'SELECT COUNT(*) AS n FROM tasks_tasks')).toBe('[{"n":5}]');
+      for (const row of created) {
+        expect(row.id).toMatch(/^T[0-9]+$/);
+        expect(
+          persisted(
+            project,
+            `SELECT title, parent_id, acceptance_json FROM tasks_tasks WHERE id = '${row.id}'`,
+          ),
+        ).toBe(
+          JSON.stringify([
+            {
+              title: row.title,
+              parent_id: 'T001',
+              acceptance_json: JSON.stringify(row.acceptance),
+            },
+          ]),
+        );
+        expect(
+          persisted(
+            project,
+            `SELECT text FROM tasks_task_acceptance_criteria WHERE task_id = '${row.id}' ORDER BY ordinal`,
+          ),
+        ).toBe(JSON.stringify(row.acceptance.map((text) => ({ text }))));
+        expect(
+          persisted(
+            project,
+            `SELECT depends_on FROM tasks_task_dependencies WHERE task_id = '${row.id}'`,
+          ),
+        ).toBe('[{"depends_on":"T001"}]');
+      }
+      const { scanAcceptanceDrift } = await import('../../doctor/acceptance-drift.js');
+      expect(scanAcceptanceDrift(project).entries).toEqual([]);
+    }
   });
 
   it('rejects an update that addresses no row', async () => {
