@@ -11,7 +11,7 @@
  *   - resolver returns E_EVIDENCE_TOOL_FAILED when `gh` is missing
  *   - cache hit on re-call avoids invoking `gh`
  *   - cache invalidates when mergedAt changes
- *   - gate-evidence-minimum accepts `pr` for implemented, testsPassed, AND qaPassed (T9838)
+ *   - gate-evidence-minimum requires task proof beyond PR provenance (T12254)
  *   - validateAtom dispatches `pr` through to the resolver
  *   - branch-protection tier resolves required workflows from the TARGET repo (gh#1192 / T12104)
  *   - missing-workflows rejection prints both sides plus the list source (gh#1198 / T12104)
@@ -61,7 +61,13 @@ function makePrPayload(overrides: Record<string, unknown> = {}): unknown {
     state: 'MERGED',
     mergedAt: '2026-05-20T17:14:35Z',
     mergeable: 'MERGEABLE',
-    headRefOid: 'a'.repeat(40),
+    headRefOid: 'b'.repeat(40),
+    mergeCommit: { oid: 'a'.repeat(40) },
+    title: 'fix(T12254): proof',
+    body: 'Task T12254',
+    headRefName: 'task/T12254',
+    files: [{ path: 'src/fix.ts' }],
+    changedFiles: 1,
     statusCheckRollup: [
       {
         __typename: 'CheckRun',
@@ -188,7 +194,7 @@ describe('resolvePrEvidenceAtom — happy path', () => {
     expect(existsSync(cachePath)).toBe(true);
     const entry = JSON.parse(readFileSync(cachePath, 'utf-8'));
     expect(entry).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       prNumber: 357,
       mergedAt: '2026-05-20T17:14:35Z',
     });
@@ -526,6 +532,17 @@ describe('resolvePrEvidenceAtom — failure paths', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolvePrEvidenceAtom — cache', () => {
+  it('rejects a head SHA when the actual merge identity is absent', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload({ mergeCommit: null }) });
+    const result = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      { fetchGhPrPayload: mockFetch },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('head commit cannot substitute');
+  });
+
   it('returns cacheHit=true on second invocation with same mergedAt', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
 
@@ -1036,7 +1053,7 @@ describe('resolvePrEvidenceAtom — missing-workflows rejection detail (gh#1198)
 // Gate evidence minimums
 // ---------------------------------------------------------------------------
 
-describe('checkGateEvidenceMinimum — pr atom satisfies testsPassed + qaPassed + implemented (T9838)', () => {
+describe('checkGateEvidenceMinimum — PR provenance does not prove task outcomes (T12254)', () => {
   const prAtom: EvidenceAtom = {
     kind: 'pr',
     prNumber: 357,
@@ -1045,30 +1062,23 @@ describe('checkGateEvidenceMinimum — pr atom satisfies testsPassed + qaPassed 
     successCount: 4,
     totalChecks: 4,
   };
-
-  it('accepts pr atom for testsPassed', () => {
-    expect(checkGateEvidenceMinimum('testsPassed', [prAtom])).toBeNull();
+  it.each([
+    'implemented',
+    'testsPassed',
+    'qaPassed',
+  ] as const)('rejects merged PR plus green CI alone for %s', (gate) => {
+    expect(checkGateEvidenceMinimum(gate, [prAtom])).not.toBeNull();
   });
-
-  it('accepts pr atom for qaPassed', () => {
-    expect(checkGateEvidenceMinimum('qaPassed', [prAtom])).toBeNull();
-  });
-
-  it('T9838: accepts pr atom for implemented gate (merged PR IS the landing commit)', () => {
-    // T9838: a merged PR with a real mergeCommitSha IS the proof that the
-    // implementation landed on main. Eliminates the manual
-    // `commit:<sha>;files:...` backfill ritual that v5.91-v5.93 ships
-    // were stuck in.
-    expect(checkGateEvidenceMinimum('implemented', [prAtom])).toBeNull();
-  });
-
-  it('T9838: pr atom satisfies all three release-time gates simultaneously', () => {
-    // The motivating use case: after merging a PR, one `pr:<num>` atom
-    // should cover implemented + testsPassed + qaPassed in a single
-    // verify invocation.
-    expect(checkGateEvidenceMinimum('implemented', [prAtom])).toBeNull();
-    expect(checkGateEvidenceMinimum('testsPassed', [prAtom])).toBeNull();
-    expect(checkGateEvidenceMinimum('qaPassed', [prAtom])).toBeNull();
+  it('requires artifact evidence alongside PR provenance for implementation', () => {
+    expect(
+      checkGateEvidenceMinimum('implemented', [
+        prAtom,
+        {
+          kind: 'files',
+          files: [{ path: 'src/fix.ts', sha256: 'b'.repeat(64) }],
+        },
+      ]),
+    ).toBeNull();
   });
 });
 
@@ -1120,7 +1130,7 @@ describe('parseEvidence — explicit-form pr atom (T9838)', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolvePrEvidenceAtom — implemented gate semantics (T9838)', () => {
-  it('happy path: merged PR with passing CI satisfies all three gates', async () => {
+  it('merged PR with passing CI records provenance but does not satisfy task gates', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
     const r = await resolvePrEvidenceAtom(
       357,
@@ -1141,9 +1151,9 @@ describe('resolvePrEvidenceAtom — implemented gate semantics (T9838)', () => {
       successCount: r.successCount,
       totalChecks: r.totalChecks,
     };
-    expect(checkGateEvidenceMinimum('implemented', [atom])).toBeNull();
-    expect(checkGateEvidenceMinimum('testsPassed', [atom])).toBeNull();
-    expect(checkGateEvidenceMinimum('qaPassed', [atom])).toBeNull();
+    expect(checkGateEvidenceMinimum('implemented', [atom])).not.toBeNull();
+    expect(checkGateEvidenceMinimum('testsPassed', [atom])).not.toBeNull();
+    expect(checkGateEvidenceMinimum('qaPassed', [atom])).not.toBeNull();
   });
 
   it('non-merged (state=OPEN) PR yields no atom — gates remain unsatisfied', async () => {
