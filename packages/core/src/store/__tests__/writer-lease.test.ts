@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createOperationExecutionContext } from '../background-ops.js';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../dual-scope-db.js';
 import {
   _resetWriterLeaseStateForTest,
@@ -684,4 +685,162 @@ describe('Finding 3 — heartbeat does not throw when the native handle is close
     // No heartbeat tick crashed the process.
     expect(uncaught, JSON.stringify(uncaught.map(String))).toHaveLength(0);
   }, 20_000);
+});
+
+describe('shared operation lifetime during writer acquisition', () => {
+  function operation(budgetMs = 2000) {
+    return createOperationExecutionContext(
+      {
+        projectId: 'fixture',
+        projectRoot: testRoot,
+        actor: 'fixture',
+        operation: 'docs.projection',
+        idempotencyKey: 'lease',
+      },
+      { budgetMs },
+    );
+  }
+
+  it('rejects an expired scope before native resolution and requires pinned identity', async () => {
+    let opens = 0;
+    _setNativeDbResolverForTest(async () => {
+      opens += 1;
+      return projectNative;
+    });
+    const context = operation(0);
+    try {
+      await expect(
+        acquireWriterLease('project', 'brain', {
+          execution: context,
+          dbPath: join(testRoot, 'project', '.cleo', 'cleo.db'),
+        }),
+      ).rejects.toThrow();
+      expect(opens).toBe(0);
+    } finally {
+      context.close();
+    }
+    const live = operation();
+    try {
+      await expect(acquireWriterLease('project', 'brain', { execution: live })).rejects.toThrow(
+        'explicit database path',
+      );
+    } finally {
+      live.close();
+    }
+  });
+
+  it('reports an unresolved opener within budget and cannot claim a lease after it eventually settles', async () => {
+    let release = () => {};
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    _setNativeDbResolverForTest(async () => {
+      await pending;
+      return projectNative;
+    });
+    const context = operation(20);
+    try {
+      await expect(
+        acquireWriterLease('project', 'brain', {
+          dbPath: join(testRoot, 'project', '.cleo', 'cleo.db'),
+          execution: context,
+        }),
+      ).rejects.toThrow('native resolution remains unresolved');
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(countActive(projectNative, 'project', 'brain')).toBe(0);
+    } finally {
+      context.close();
+      release();
+    }
+  });
+
+  it('uses the original deadline and removes only its waiter without degraded permission', async () => {
+    const dbPath = join(testRoot, 'project', '.cleo', 'cleo.db');
+    const holder = await acquireWriterLease('project', 'brain', { dbPath, reentrant: false });
+    const context = operation(35);
+    try {
+      await expect(
+        acquireWriterLease('project', 'brain', { dbPath, reentrant: false, execution: context }),
+      ).rejects.toThrow();
+      expect(countActive(projectNative, 'project', 'brain')).toBe(1);
+      expect(countQueue(projectNative, 'project', 'brain')).toBe(0);
+    } finally {
+      context.close();
+      await holder.release();
+    }
+    expect(countActive(projectNative, 'project', 'brain')).toBe(0);
+  });
+
+  it('does not poison a different caller when the first scoped resolver is cancelled', async () => {
+    let release = () => {};
+    let entered = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let calls = 0;
+    _setNativeDbResolverForTest(async () => {
+      calls += 1;
+      if (calls === 1) {
+        entered();
+        await gate;
+      }
+      return projectNative;
+    });
+    const first = operation();
+    const second = operation();
+    const dbPath = join(testRoot, 'project', '.cleo', 'cleo.db');
+    const waiting = acquireWriterLease('project', 'brain', { dbPath, execution: first });
+    await ready;
+    const surviving = await acquireWriterLease('project', 'brain', { dbPath, execution: second });
+    first.close();
+    release();
+    try {
+      await expect(waiting).rejects.toThrow();
+      expect(countActive(projectNative, 'project', 'brain')).toBe(1);
+    } finally {
+      second.close();
+      await surviving.release();
+    }
+  });
+
+  it('rejects cancelled reentry without consuming the original holder reference', async () => {
+    const dbPath = join(testRoot, 'project', '.cleo', 'cleo.db');
+    const holder = await acquireWriterLease('project', 'brain', { dbPath });
+    const context = operation();
+    _setNativeDbResolverForTest(async () => {
+      context.close();
+      return projectNative;
+    });
+    await expect(
+      acquireWriterLease('project', 'brain', { dbPath, execution: context }),
+    ).rejects.toThrow();
+    expect(countActive(projectNative, 'project', 'brain')).toBe(1);
+    await holder.release();
+    expect(countActive(projectNative, 'project', 'brain')).toBe(0);
+  });
+
+  it('does not borrow or roll back an unrelated native transaction on scoped reentry', async () => {
+    const dbPath = join(testRoot, 'project', '.cleo', 'cleo.db');
+    const holder = await acquireWriterLease('project', 'brain', { dbPath });
+    const context = operation();
+    projectNative.exec(
+      "CREATE TABLE lease_owner_proof (value TEXT); BEGIN; INSERT INTO lease_owner_proof VALUES ('keep')",
+    );
+    try {
+      await expect(
+        acquireWriterLease('project', 'brain', { dbPath, execution: context }),
+      ).rejects.toThrow();
+      projectNative.exec('COMMIT');
+      expect(projectNative.prepare('SELECT value FROM lease_owner_proof').get()?.value).toBe(
+        'keep',
+      );
+    } finally {
+      context.close();
+      await holder.release();
+    }
+  });
 });

@@ -67,7 +67,9 @@ import { randomUUID } from 'node:crypto';
 import { resolve as resolvePath } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { LeaseLane, LeaseScope } from '@cleocode/contracts';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { getLogger } from '../logger.js';
+import { observeOperation } from './background-ops.js';
 import { openDualScopeDb, openDualScopeDbAtPath, resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
   assertWriterLeaseActiveIndexPresent,
@@ -117,6 +119,8 @@ export interface LeaseHandle {
 
 /** Options accepted by {@link withWriterLease} / {@link acquireWriterLease}. */
 export interface LeaseAcquireOptions {
+  /** Shared caller lifetime; scoped acquisition requires an explicit dbPath and never degrades after cancellation. */
+  execution?: OperationExecutionContext;
   /** Advisory priority — lower acquires sooner. `0` = highest. Default `100`. */
   priority?: number;
   /** Lease time-to-live in milliseconds. Default {@link DEFAULT_TTL_MS}. */
@@ -296,6 +300,27 @@ const defaultNativeDbResolver: NativeDbResolver = async (scope, dbPath) => {
   const resolvedPath = handle.dbPath ?? dbPath ?? resolveDualScopeDbPath(scope);
   return { native, dbPath: resolvedPath };
 };
+
+/** Observe native resolution within the shared budget without pretending its opener was preempted. */
+async function resolveLeaseTarget(
+  scope: LeaseScope,
+  dbPath: string,
+  execution?: OperationExecutionContext,
+): Promise<LeaseTarget> {
+  execution?.assertActive();
+  const pending = _nativeDbResolver(scope, dbPath);
+  if (!execution) return pending;
+  const observed = await observeOperation(execution, pending);
+  if (!observed.settled) {
+    throw new Error(
+      'Writer native resolution remains unresolved after operation cancellation; the opener may still finish',
+      { cause: observed.reason },
+    );
+  }
+  if (!observed.success) throw observed.error;
+  execution.assertActive();
+  return observed.value;
+}
 
 let _nativeDbResolver: NativeDbResolver = defaultNativeDbResolver;
 
@@ -757,6 +782,35 @@ export function hasActiveGrant(scope: LeaseScope, lane: LeaseLane, dbPath?: stri
   return entry !== undefined && entry.refcount > 0;
 }
 
+/** Increment only a live captured grant, refusing borrowed native transactions for scoped callers. */
+function incrementGrantDepth(
+  native: DatabaseSync,
+  scope: LeaseScope,
+  lane: LeaseLane,
+  entry: GrantEntry,
+  execution?: OperationExecutionContext,
+): void {
+  execution?.assertActive();
+  if (execution) native.exec('BEGIN IMMEDIATE');
+  try {
+    execution?.assertActive();
+    const result = native
+      .prepare(
+        `UPDATE ${WRITER_LEASES_TABLE} SET reentrancy_depth = reentrancy_depth + 1 ` +
+          `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
+      )
+      .run(scope, lane, entry.handle.holderId, entry.handle.epoch);
+    if (execution && Number(result.changes) !== 1) {
+      throw new LeaseUnavailableError(scope, lane, 'captured grant is no longer active');
+    }
+    execution?.assertActive();
+    if (execution) native.exec('COMMIT');
+  } catch (error) {
+    if (execution) native.exec('ROLLBACK');
+    throw error;
+  }
+}
+
 /**
  * AC4 guard. Assert this process holds the `(scope, lane)` writer lease before it
  * opens a dedicated WRITE handle. In `off` mode the assertion is a no-op (there is
@@ -790,10 +844,13 @@ function tryClaimOnce(
   lane: LeaseLane,
   holderId: string,
   ttlMs: number,
+  execution?: OperationExecutionContext,
 ): number | null {
+  execution?.assertActive();
   const now = Date.now();
   nativeDb.exec('BEGIN IMMEDIATE TRANSACTION');
   try {
+    execution?.assertActive();
     const active = nativeDb
       .prepare(
         `SELECT id, holder_id, holder_pid, epoch, heartbeat_at, ttl_ms, reentrancy_depth ` +
@@ -811,6 +868,7 @@ function tryClaimOnce(
             )
             .get(scope, lane) as { e: number } | undefined
         )?.e ?? 1;
+      execution?.assertActive();
       nativeDb
         .prepare(
           `INSERT INTO ${WRITER_LEASES_TABLE} ` +
@@ -825,6 +883,7 @@ function tryClaimOnce(
     if (active.holder_id === holderId) {
       // Same holder (defensive — same-process re-entrancy is handled by the memo
       // before reaching here). Bump the durable depth and re-assert the epoch.
+      execution?.assertActive();
       nativeDb
         .prepare(
           `UPDATE ${WRITER_LEASES_TABLE} SET reentrancy_depth = reentrancy_depth + 1, heartbeat_at = ? ` +
@@ -841,6 +900,7 @@ function tryClaimOnce(
     const stale = now - active.heartbeat_at > active.ttl_ms && !isPidAlive(active.holder_pid);
     if (stale) {
       const reclaimedEpoch = active.epoch + 1;
+      execution?.assertActive();
       nativeDb
         .prepare(
           `UPDATE ${WRITER_LEASES_TABLE} ` +
@@ -895,10 +955,19 @@ function dequeueWaiter(
   scope: LeaseScope,
   lane: LeaseLane,
   holderId: string,
+  guardTransaction = false,
 ): void {
-  nativeDb
-    .prepare(`DELETE FROM ${WRITER_QUEUE_TABLE} WHERE scope = ? AND lane = ? AND holder_id = ?`)
-    .run(scope, lane, holderId);
+  // Cleanup may run after cancellation, but it must never join another owner's transaction.
+  if (guardTransaction) nativeDb.exec('BEGIN IMMEDIATE');
+  try {
+    nativeDb
+      .prepare(`DELETE FROM ${WRITER_QUEUE_TABLE} WHERE scope = ? AND lane = ? AND holder_id = ?`)
+      .run(scope, lane, holderId);
+    if (guardTransaction) nativeDb.exec('COMMIT');
+  } catch (error) {
+    if (guardTransaction) nativeDb.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 // ── Acquire / release surface ─────────────────────────────────────────────────
@@ -915,6 +984,13 @@ function dequeueWaiter(
  * - `require` mode → throws {@link LeaseUnavailableError} if the row cannot be
  *   taken within the acquire window (`min(ACQUIRE_DEADLINE_MS, ttlMs)`).
  *
+ * @remarks A supplied execution context preserves its original deadline and requires
+ * an explicit database path. Cancellation never grants degraded write permission.
+ * Unsettled native resolution is reported explicitly; its opener is not preempted.
+ * @example
+ * ```ts
+ * const lease = await acquireWriterLease('project', 'brain', options);
+ * ```
  * @param scope - The cleo.db scope.
  * @param lane - The write lane within the scope.
  * @param opts - Priority / TTL / re-entrancy options.
@@ -927,6 +1003,10 @@ export async function acquireWriterLease(
   lane: LeaseLane,
   opts?: LeaseAcquireOptions,
 ): Promise<LeaseHandle> {
+  opts?.execution?.assertActive();
+  if (opts?.execution && !opts.dbPath) {
+    throw new TypeError('Scoped writer acquisition requires an explicit database path');
+  }
   const mode = effectiveMode();
   const reentrant = opts?.reentrant ?? true;
 
@@ -950,13 +1030,10 @@ export async function acquireWriterLease(
     if (existing) {
       existing.refcount += 1;
       try {
-        const { native } = await _nativeDbResolver(scope, dbPath);
-        native
-          .prepare(
-            `UPDATE ${WRITER_LEASES_TABLE} SET reentrancy_depth = reentrancy_depth + 1 ` +
-              `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
-          )
-          .run(scope, lane, existing.handle.holderId, existing.handle.epoch);
+        opts?.execution?.assertActive();
+        const { native } = await resolveLeaseTarget(scope, dbPath, opts?.execution);
+        opts?.execution?.assertActive();
+        incrementGrantDepth(native, scope, lane, existing, opts?.execution);
       } catch (err) {
         // Native resolver or depth-update failed — roll back the refcount
         // increment so the grant is not leaked. The caller receives the
@@ -972,7 +1049,8 @@ export async function acquireWriterLease(
     // (refcount++) instead of racing a second full claim that would spin the whole
     // acquire window and degrade to a lease-less write. Decided synchronously here
     // — no `await` has run since the memo check above, so the two checks are atomic.
-    const inflight = _inflightAcquire.get(key);
+    // Scoped callers must not inherit another caller's deadline or cancellation.
+    const inflight = opts?.execution ? undefined : _inflightAcquire.get(key);
     if (inflight) {
       const shared = await inflight;
       // Re-check the memo: the in-flight acquire may have already released (e.g.
@@ -981,13 +1059,10 @@ export async function acquireWriterLease(
       if (entry && entry.handle === shared) {
         entry.refcount += 1;
         try {
-          const { native } = await _nativeDbResolver(scope, dbPath);
-          native
-            .prepare(
-              `UPDATE ${WRITER_LEASES_TABLE} SET reentrancy_depth = reentrancy_depth + 1 ` +
-                `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
-            )
-            .run(scope, lane, entry.handle.holderId, entry.handle.epoch);
+          opts?.execution?.assertActive();
+          const { native } = await resolveLeaseTarget(scope, dbPath, opts?.execution);
+          opts?.execution?.assertActive();
+          incrementGrantDepth(native, scope, lane, entry, opts?.execution);
         } catch (err) {
           entry.refcount -= 1;
           throw err;
@@ -1003,7 +1078,7 @@ export async function acquireWriterLease(
   // it. Only the reentrant path participates; reentrant:false callers (test cross-
   // holder contention) deliberately bypass the memo + single-flight.
   const acquirePromise = performFirstAcquire(scope, dbPath, lane, mode, key, opts);
-  if (reentrant) {
+  if (reentrant && !opts?.execution) {
     _inflightAcquire.set(key, acquirePromise);
   }
   try {
@@ -1038,7 +1113,9 @@ async function performFirstAcquire(
   key: string,
   opts?: LeaseAcquireOptions,
 ): Promise<LeaseHandle> {
-  const { native } = await _nativeDbResolver(scope, dbPath);
+  opts?.execution?.assertActive();
+  const { native } = await resolveLeaseTarget(scope, dbPath, opts?.execution);
+  opts?.execution?.assertActive();
   // Defensive bootstrap assert: the partial-unique active index MUST exist or AC1
   // is unenforced. Cheap single-row sqlite_master lookup, runs on first acquire.
   assertWriterLeaseActiveIndexPresent(native);
@@ -1051,62 +1128,80 @@ async function performFirstAcquire(
   // not block for a grant longer than the lease itself would live. busy_timeout on
   // the IMMEDIATE lock still backstops every individual claim attempt.
   const acquireWindowMs = Math.min(ACQUIRE_DEADLINE_MS, Math.max(1, ttlMs));
-  const deadline = Date.now() + acquireWindowMs;
+  const deadline = Math.min(Date.now() + acquireWindowMs, opts?.execution?.deadlineAt ?? Infinity);
   let enqueued = false;
-  for (;;) {
-    const epoch = tryClaimOnce(native, scope, lane, holderId, ttlMs);
-    if (epoch !== null) {
-      if (enqueued) dequeueWaiter(native, scope, lane, holderId);
-      const handle = new InternalLeaseHandle({
-        scope,
-        lane,
-        epoch,
-        holderId,
-        dbPath,
-        nativeDb: native,
-        ttlMs,
-      });
-      _grantMemo.set(key, { handle, refcount: 1 });
-      return handle;
-    }
-
-    // Contended by a live holder. Enqueue once for ordering/aging, then back off.
-    if (!enqueued) {
-      enqueueWaiter(native, scope, lane, holderId, priority, ttlMs);
-      enqueued = true;
-    }
-
-    if (Date.now() >= deadline) {
-      if (enqueued) dequeueWaiter(native, scope, lane, holderId);
-      if (mode === 'require') {
-        throw new LeaseUnavailableError(scope, lane, 'live holder did not release within deadline');
-      }
-      // local: degrade to today's behaviour — proceed without a lease. busy_timeout
-      // on the connection still serializes the actual write. A no-op handle writes
-      // no row, starts no heartbeat, and is never memoized — so single-flight
-      // followers find no memo entry and acquire freshly.
-      const active = native
-        .prepare(
-          `SELECT holder_id, holder_pid, epoch, heartbeat_at, ttl_ms ` +
-            `FROM ${WRITER_LEASES_TABLE} WHERE scope = ? AND lane = ? AND active = 1`,
-        )
-        .get(scope, lane) as ActiveLeaseRow | undefined;
-      log().warn(
-        {
+  try {
+    for (;;) {
+      opts?.execution?.assertActive();
+      const epoch = tryClaimOnce(native, scope, lane, holderId, ttlMs, opts?.execution);
+      if (epoch !== null) {
+        if (enqueued) dequeueWaiter(native, scope, lane, holderId, opts?.execution !== undefined);
+        const handle = new InternalLeaseHandle({
           scope,
           lane,
+          epoch,
+          holderId,
           dbPath,
-          activeHolderId: active?.holder_id,
-          activeHolderPid: active?.holder_pid,
-          activeEpoch: active?.epoch,
-          activeHeartbeatAgeMs:
-            active === undefined ? undefined : Math.max(0, Date.now() - active.heartbeat_at),
-        },
-        'writer-lease acquire deadline exceeded; proceeding under busy_timeout fallback (degraded)',
-      );
-      return makeNoopHandle(scope, lane);
+          nativeDb: native,
+          ttlMs,
+        });
+        try {
+          opts?.execution?.assertActive();
+        } catch (error) {
+          handle.releaseRow();
+          throw error;
+        }
+        _grantMemo.set(key, { handle, refcount: 1 });
+        return handle;
+      }
+
+      // Contended by a live holder. Enqueue once for ordering/aging, then back off.
+      if (!enqueued) {
+        opts?.execution?.assertActive();
+        enqueueWaiter(native, scope, lane, holderId, priority, ttlMs);
+        enqueued = true;
+      }
+
+      if (Date.now() >= deadline) {
+        if (enqueued) dequeueWaiter(native, scope, lane, holderId, opts?.execution !== undefined);
+        opts?.execution?.assertActive();
+        if (mode === 'require' || opts?.execution) {
+          throw new LeaseUnavailableError(
+            scope,
+            lane,
+            'live holder did not release within deadline',
+          );
+        }
+        // local: degrade to today's behaviour — proceed without a lease. busy_timeout
+        // on the connection still serializes the actual write. A no-op handle writes
+        // no row, starts no heartbeat, and is never memoized — so single-flight
+        // followers find no memo entry and acquire freshly.
+        const active = native
+          .prepare(
+            `SELECT holder_id, holder_pid, epoch, heartbeat_at, ttl_ms ` +
+              `FROM ${WRITER_LEASES_TABLE} WHERE scope = ? AND lane = ? AND active = 1`,
+          )
+          .get(scope, lane) as ActiveLeaseRow | undefined;
+        log().warn(
+          {
+            scope,
+            lane,
+            dbPath,
+            activeHolderId: active?.holder_id,
+            activeHolderPid: active?.holder_pid,
+            activeEpoch: active?.epoch,
+            activeHeartbeatAgeMs:
+              active === undefined ? undefined : Math.max(0, Date.now() - active.heartbeat_at),
+          },
+          'writer-lease acquire deadline exceeded; proceeding under busy_timeout fallback (degraded)',
+        );
+        return makeNoopHandle(scope, lane);
+      }
+      await sleepAsync(Math.min(CLAIM_RETRY_DELAY_MS, Math.max(0, deadline - Date.now())));
     }
-    await sleepAsync(CLAIM_RETRY_DELAY_MS);
+  } finally {
+    // Cancellation removes only this operation's waiter; never another holder's grant.
+    if (enqueued) dequeueWaiter(native, scope, lane, holderId, opts?.execution !== undefined);
   }
 }
 
@@ -1176,6 +1271,14 @@ function makeNoopHandle(scope: LeaseScope, lane: LeaseLane): LeaseHandle {
  * - `require` mode → an unacquirable lease throws {@link LeaseUnavailableError}
  *   before `fn` runs.
  *
+ * @remarks A supplied execution context preserves its original deadline and requires
+ * an explicit database path. Cancellation never grants degraded write permission.
+ * Unsettled native resolution is reported explicitly; its opener is not preempted.
+ * @example
+ * ```ts
+ * const value = await withWriterLease('project', 'brain', write, options);
+ * ```
+ * @typeParam T - Result of the accepted write callback.
  * @param scope - The cleo.db scope.
  * @param lane - The write lane.
  * @param fn - The work to run while holding the lease; receives the handle.
@@ -1192,6 +1295,7 @@ export async function withWriterLease<T>(
 ): Promise<T> {
   const handle = await acquireWriterLease(scope, lane, opts);
   try {
+    opts?.execution?.assertActive();
     return await fn(handle);
   } finally {
     await handle.release();
