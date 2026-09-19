@@ -114,6 +114,12 @@ export const MVI_TRUTH_FIELDS: readonly string[] = [
   'indexedRevision',
   'assessedAt',
   'precision',
+  'population',
+  'match',
+  'searchType',
+  // A population count cannot outlive the rows it describes under a budget.
+  'tasks',
+  'results',
 ];
 const mandatoryFields = new Set(MVI_TRUTH_FIELDS);
 

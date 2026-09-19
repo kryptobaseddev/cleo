@@ -32,26 +32,11 @@ const listArgs = {
     type: 'string',
     description: 'Alias for --parent (legacy parentId compatibility)',
   },
-  // T12123 (GH #1242) — a DISCOVERABLE spelling of the `--limit 0` escape
-  // hatch. `options.limit === 0 ? undefined : ...` in core has always meant
-  // "no limit" and worked correctly, but it was documented nowhere: `--limit`'s
-  // help text said only "Maximum number of tasks to return". So the one flag
-  // that made complete enumeration possible was invisible to anyone who had
-  // not read the core source, while `--output id` silently returned a page of
-  // 10 against a match count of 1075.
-  //
-  // `--all` is the idiom to TEACH, and `--limit 0` is only a compatibility
-  // note — because `--limit 0` does NOT mean "no limit" everywhere. Measured
-  // on the same build (GH #1302): `cleo find "worktree" --limit 0` returns
-  // `{success: true, results: [], total: 260}` — zero rows, reported as
-  // success, with a `message` of "No matching tasks found" sitting beside a
-  // total of 260. Documenting `--limit 0` as the recommended path here would
-  // teach every agent a flag that silently returns nothing from `find`, which
-  // is worse than leaving it undocumented. `find --all` is filed to follow.
+  // Explicit complete enumeration uses the same limit semantics as find.
   all: {
     type: 'boolean',
     description:
-      'Return EVERY matching task instead of the default page of 10. Prefer this over --limit 0: --all means the same thing on every command, whereas --limit 0 is list-specific (cleo find reads it as zero results).',
+      'Return every matching task instead of the default page of 10; equivalent to --limit 0.',
   },
   // T9922 — MVI record projection opt-out flags (surfaced for --help).
   verbose: {
@@ -118,7 +103,15 @@ export const listCommand = defineCommand({
     const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
 
     if (tasks.length === 0) {
-      cliOutput(data, { command: 'list', message: 'No tasks found', operation: 'tasks.list' });
+      const matched = typeof data.filtered === 'number' ? data.filtered : 0;
+      cliOutput(data, {
+        command: 'list',
+        message:
+          matched > 0
+            ? `No rows on this page; ${matched} tasks matched. Adjust --offset or use --all.`
+            : 'No tasks found',
+        operation: 'tasks.list',
+      });
       process.exit(ExitCode.NO_DATA);
       return;
     }

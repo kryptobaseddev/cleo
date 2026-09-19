@@ -160,7 +160,15 @@ export const findCommand = defineCommand({
       return;
     }
     const total = (data?.total as number) ?? results.length;
-    const page = createPage({ total, limit, offset });
-    cliOutput(data, { command: 'find', operation: 'tasks.find', page });
+    const page =
+      response.page ??
+      (limit === 0 && !offset
+        ? { mode: 'none' as const }
+        : createPage({
+            total,
+            limit: limit === 0 ? Math.max(1, results.length) : (limit ?? 20),
+            offset,
+          }));
+    cliOutput(data, { command: 'find', operation: 'tasks.find', page, enumerateAllFlag: '--all' });
   },
 });
