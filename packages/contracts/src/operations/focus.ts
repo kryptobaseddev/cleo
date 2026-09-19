@@ -12,6 +12,11 @@
  * @epic T9964 E-ORIENT-V2
  */
 
+import type {
+  KnowledgeCoverage,
+  KnowledgeDiagnostic,
+  KnowledgeHealth,
+} from '../knowledge-health.js';
 import type { MviDigest } from '../mvi.js';
 import type { AttentionScopeKind } from './attention.js';
 import type { MemoryCompactHit } from './memory.js';
@@ -188,6 +193,12 @@ export interface FocusBrainContext {
  * @epic T9964
  */
 export interface FocusShowResult {
+  /** Assessed graph coverage; absence on legacy responses is not healthy coverage. */
+  coverage?: KnowledgeCoverage;
+  /** Bounded deterministic maintenance and sourced repair findings for the foreground caller. */
+  knowledgeHealth?: KnowledgeHealth;
+  /** Failed auxiliary reads are distinct from successfully empty sources. */
+  sourceDiagnostics?: Record<string, KnowledgeDiagnostic>;
   /** Core identity of the focused entity. */
   identity: FocusIdentity;
   /** Scope hierarchy (saga → epic → task) derived from ancestry. */

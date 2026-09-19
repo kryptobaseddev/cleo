@@ -19,11 +19,47 @@
  * @saga T11283 SG-COGNITIVE-SUBSTRATE
  */
 
-import { describe, expect, it } from 'vitest';
+import type { KnowledgeDoctorResult, KnowledgeRepairReceipt } from '@cleocode/contracts';
+import { listKnowledgeRepairReceipts, runKnowledgeDoctor } from '@cleocode/core/doctor/knowledge';
+import { computeBriefing } from '@cleocode/core/sessions/briefing';
+import { describe, expect, it, vi } from 'vitest';
 import { BUDGET_EXCEEDED_CODE } from '../../lib/budget.js';
 import { BRIEFING_TOKEN_CEILING, FOCUS_TOKEN_CEILING } from '../../lib/budget-ceilings.js';
 import type { DispatchRequest, DispatchResponse, DispatchResponseMeta } from '../../types.js';
 import { createBudgetEnforcement } from '../budget-enforcement.js';
+
+vi.mock('@cleocode/core/doctor/knowledge', () => ({
+  runKnowledgeDoctor: vi.fn(),
+  listKnowledgeRepairReceipts: vi.fn(),
+}));
+vi.mock('@cleocode/core/store/data-accessor', () => ({
+  getAccessor: vi.fn(),
+  createDataAccessor: vi.fn(),
+  getTaskAccessor: async () => ({
+    queryTasks: async () => ({
+      tasks: [
+        { id: 'T448', title: 'Verify current authority', status: 'pending', priority: 'high' },
+      ],
+      total: 1,
+    }),
+    getMetaValue: async () => null,
+    resolveCurrentSession: async () => null,
+    getActiveSession: async () => null,
+  }),
+}));
+vi.mock('@cleocode/core/store/memory-accessor', () => ({
+  getBrainAccessor: async () => ({
+    findDecisions: async () => [
+      {
+        id: 'D004',
+        confirmationState: 'accepted',
+        decision: 'Use the corrected owner directive.',
+        createdAt: '2026-09-18T00:00:00Z',
+      },
+    ],
+  }),
+}));
+vi.mock('@cleocode/core/sessions/handoff', () => ({ getLastHandoff: async () => null }));
 
 /** Build a bare dispatch request for a given domain/operation. */
 function req(domain: string, operation: string): DispatchRequest {
@@ -68,6 +104,116 @@ function overBudgetFocusData(): Record<string, unknown> {
 }
 
 describe('focus ≤1500 + briefing budgets enforced via live chokepoint (T11352)', () => {
+  it('keeps sourced current guidance, corrections, and tasks in a default briefing with hundreds of stale files', async () => {
+    const report: KnowledgeDoctorResult = {
+      health: {
+        coverage: {
+          status: 'stale',
+          projectId: 'fixture',
+          assessedRevision: null,
+          indexedRevision: null,
+          assessedAt: '2026-09-18T00:00:00Z',
+          evidence: [],
+          limitations: ['Static analysis cannot prove all runtime callers.'],
+          reasons: Array.from(
+            { length: 500 },
+            (_, index) => `Source changed after indexing: src/long-path/file-${index}.ts`,
+          ),
+        },
+        structure: { status: 'clean', reasons: [], evidence: [] },
+        semantics: {
+          status: 'findings',
+          reasons: ['Historical conflict corrected.'],
+          evidence: [],
+        },
+        extraction: { status: 'unavailable', reasons: ['No model configured.'], evidence: [] },
+        findings: [
+          {
+            id: 'stale-links',
+            projectId: 'fixture',
+            affectedRecordIds: Array.from({ length: 500 }, (_, index) => `source-${index}`),
+            description: 'Rebuild derived references.',
+            evidence: [],
+            repairClass: 'automatic',
+            state: 'pending',
+            proposedAction: null,
+            verification: ['References match sources.'],
+            recovery: null,
+          },
+        ],
+      },
+      stateHash: 'fixture',
+      proposals: [],
+      receipts: [],
+      dryRun: false,
+    };
+    const receipt: KnowledgeRepairReceipt = {
+      id: 'receipt-1',
+      proposalId: 'proposal-1',
+      findingId: 'authority-1',
+      projectId: 'fixture',
+      state: 'repaired',
+      attempt: 1,
+      startedAt: '2026-09-18T00:00:00Z',
+      completedAt: '2026-09-18T00:00:01Z',
+      recovery: {
+        snapshotId: 'snapshot-1',
+        restoreAction: { operation: 'knowledge.rollback', arguments: {}, prerequisites: [] },
+      },
+      action: {
+        operation: 'knowledge.supersede-decision',
+        arguments: { previousId: 'D001', successorId: 'D004' },
+        prerequisites: [],
+      },
+      verificationEvidence: [
+        {
+          id: 'docs/owner-directive.md',
+          projectId: 'fixture',
+          source: 'file',
+          revision: 'revision-1',
+          precision: 'record',
+          excerpt: 'long source excerpt '.repeat(2000),
+        },
+      ],
+      reasons: [],
+    };
+    vi.mocked(runKnowledgeDoctor).mockResolvedValueOnce(report);
+    vi.mocked(listKnowledgeRepairReceipts).mockResolvedValueOnce([receipt]);
+    const briefing = await computeBriefing('/fixture', { scope: 'global' });
+    const response: DispatchResponse = {
+      success: true,
+      data: briefing,
+      meta: meta('session', 'briefing.show'),
+    };
+    const result = await createBudgetEnforcement()(
+      req('session', 'briefing.show'),
+      async () => response,
+    );
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      knowledgeCoverage: {
+        status: 'stale',
+        reasonCount: 500,
+        detailsCommand: 'cleo doctor knowledge',
+      },
+      currentGuidance: [{ id: 'D004', title: 'Use the corrected owner directive.' }],
+      corrections: [
+        { previousId: 'D001', successorId: 'D004', evidence: [{ id: 'docs/owner-directive.md' }] },
+      ],
+      nextTasks: [expect.objectContaining({ id: 'T448' })],
+      knowledgeHealth: {
+        findingCount: 1,
+        findingStates: { pending: 1 },
+        extraction: { status: 'unavailable' },
+      },
+    });
+    expect(report.health.coverage.reasons).toHaveLength(500);
+    expect(receipt.verificationEvidence[0]?.excerpt).toHaveLength(40000);
+    expect(result.meta['_budgetEnforcement']).toMatchObject({
+      withinBudget: true,
+      truncated: false,
+    });
+  });
   it('focus.show routes through the chokepoint with the FOCUS_TOKEN_CEILING constant', async () => {
     const mw = createBudgetEnforcement();
     // Small payload → within budget, but enforcement meta still stamped.

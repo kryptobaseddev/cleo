@@ -13,8 +13,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CleoError } from '../../errors.js';
+import { mentalModelQueue } from '../../memory/mental-model-queue.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { startTask } from '../../task-work/index.js';
@@ -30,6 +31,7 @@ describe('pivotTask', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await env.cleanup();
   });
 
@@ -180,6 +182,15 @@ describe('pivotTask', () => {
   });
 
   it('appends one JSON line to .cleo/audit/pivots.jsonl per pivot', async () => {
+    // Exercise the real queue and persistence without waiting for two periodic
+    // five-second flushes at this test's ten-second timeout boundary.
+    const enqueue = mentalModelQueue.enqueue.bind(mentalModelQueue);
+    vi.spyOn(mentalModelQueue, 'enqueue').mockImplementation(async (projectRoot, params) => {
+      const pending = enqueue(projectRoot, params);
+      expect(mentalModelQueue.size()).toBeGreaterThan(0);
+      await mentalModelQueue.flush();
+      return pending;
+    });
     await seedTasks(accessor, [
       { id: 'T001', title: 'From', status: 'pending', priority: 'medium' },
       { id: 'T002', title: 'To', status: 'pending', priority: 'medium' },

@@ -17,6 +17,7 @@
  * @epic T1216
  */
 
+import { execFileSync } from 'node:child_process';
 import type { ReconstructResult } from '@cleocode/contracts';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { reconstructLineage } from '../reconstruct.js';
@@ -53,9 +54,16 @@ describe.skipIf(process.env['CI'] === 'true')('reconstructLineage — T991 ancho
   it('finds at least one direct commit mentioning T991', () => {
     expect(result.directCommits.length).toBeGreaterThanOrEqual(1);
     // The release commit is the canonical direct reference
+    // History was rewritten: the release commit changed SHA but retained this exact tree.
+    // Assert the immutable release artifact rather than an unreachable pre-rewrite commit.
     const releaseCommit = result.directCommits.find((c) => c.subject.includes('v2026.4.98'));
     expect(releaseCommit).toBeDefined();
-    expect(releaseCommit?.sha.slice(0, 8)).toBe('18128e3c');
+    if (!releaseCommit) throw new Error('Missing release anchor');
+    const tree = execFileSync('git', ['rev-parse', `${releaseCommit.sha}^{tree}`], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    }).trim();
+    expect(tree).toBe('31e715fab0226801c5a83e6c76ecfb8f0d6e5fda');
   });
 
   it('infers children T994 through T999 (the 6-child BRAIN-integrity cluster)', () => {

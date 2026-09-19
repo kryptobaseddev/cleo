@@ -341,7 +341,13 @@ export async function linkMemoryToCode(
  * @param filesModifiedJson - JSON array of file paths (may be null)
  * @param projectRoot - Absolute path to project root
  * @param nexusNative - Optional pre-loaded nexus database handle
- * @returns Count of edges written
+ * @returns Count of newly written edges; repeated calls preserve existing history.
+ * @remarks Only canonical file nodes are eligible. File evidence does not establish symbol-level changes;
+ * revision is explicitly unrecorded when the observation does not supply one.
+ * @example
+ * ```ts
+ * const written = await linkObservationToModifiedFiles(observationId, filePathsJson, projectRoot, undefined);
+ * ```
  */
 export async function linkObservationToModifiedFiles(
   obsId: string,
@@ -371,21 +377,32 @@ export async function linkObservationToModifiedFiles(
 
       // Find nexus node by exact file path match
       const nexusNode = nexusDb
-        .prepare('SELECT id FROM nexus_nodes WHERE file_path = ? LIMIT 1')
-        .get(filePath) as { id: string } | undefined;
+        .prepare("SELECT id FROM main.nexus_nodes WHERE id = ? AND file_path = ? AND kind = 'file'")
+        .get(filePath, filePath);
 
-      if (!nexusNode) continue;
+      if (typeof nexusNode?.id !== 'string') continue;
 
       // Write modified_by edge (file → observation)
       try {
-        brainNative
+        const inserted = brainNative
           .prepare(`
-            INSERT OR IGNORE INTO brain_page_edges
+            INSERT OR IGNORE INTO main.brain_page_edges
               (from_id, to_id, edge_type, weight, provenance, created_at)
-            VALUES (?, ?, 'modified_by', 1.0, 'auto:file-modify', ?)
+            VALUES (?, ?, 'modified_by', 1.0, ?, ?)
           `)
-          .run(nexusNode.id, obsId, now);
-        edgeCount++;
+          .run(
+            nexusNode.id,
+            obsId,
+            JSON.stringify({
+              source: 'observation.files_modified_json',
+              observationId: obsId,
+              precision: 'file',
+              filePath,
+              assessedRevision: null,
+            }),
+            now,
+          );
+        edgeCount += Number(inserted.changes);
       } catch (err) {
         console.warn('[graph-memory-bridge] modified_by edge insert failed:', err);
       }

@@ -79,12 +79,14 @@ describe('briefing blocked-focus warnings', () => {
     expect(briefing.currentTask).not.toBeNull();
     expect(briefing.currentTask!.blockedBy).toEqual(['T001']);
     expect(briefing.warnings).toBeDefined();
-    expect(briefing.warnings).toHaveLength(1);
-    expect(briefing.warnings![0]).toContain('T002');
-    expect(briefing.warnings![0]).toContain('T001');
+    const blockerWarnings =
+      briefing.warnings?.filter((warning) => warning.startsWith('Focused task')) ?? [];
+    expect(blockerWarnings).toHaveLength(1);
+    expect(blockerWarnings[0]).toContain('T002');
+    expect(blockerWarnings[0]).toContain('T001');
   });
 
-  it('does not warn when focused task has all deps resolved', async () => {
+  it('does not report blocker warnings when focused task has all deps resolved', async () => {
     setupMockAccessor(
       [
         { id: 'T001', title: 'Done dep', status: 'done', priority: 'medium' },
@@ -103,10 +105,12 @@ describe('briefing blocked-focus warnings', () => {
 
     expect(briefing.currentTask).not.toBeNull();
     expect(briefing.currentTask!.blockedBy).toBeUndefined();
-    expect(briefing.warnings).toBeUndefined();
+    expect(
+      briefing.warnings?.filter((warning) => warning.startsWith('Focused task')) ?? [],
+    ).toEqual([]);
   });
 
-  it('does not warn when no task is focused', async () => {
+  it('does not report blocker warnings when no task is focused', async () => {
     setupMockAccessor([{ id: 'T001', title: 'Blocker', status: 'pending', priority: 'medium' }], {
       currentTask: null,
       currentPhase: null,
@@ -115,7 +119,9 @@ describe('briefing blocked-focus warnings', () => {
     const briefing = await computeBriefing('/fake/project', { scope: 'global' });
 
     expect(briefing.currentTask).toBeNull();
-    expect(briefing.warnings).toBeUndefined();
+    expect(
+      briefing.warnings?.filter((warning) => warning.startsWith('Focused task')) ?? [],
+    ).toEqual([]);
   });
 
   it('lists multiple blockers in warning', async () => {
@@ -137,11 +143,13 @@ describe('briefing blocked-focus warnings', () => {
     const briefing = await computeBriefing('/fake/project', { scope: 'global' });
 
     expect(briefing.currentTask!.blockedBy).toEqual(['T001', 'T002']);
-    expect(briefing.warnings).toHaveLength(1);
-    expect(briefing.warnings![0]).toContain('T001, T002');
+    const blockerWarnings =
+      briefing.warnings?.filter((warning) => warning.startsWith('Focused task')) ?? [];
+    expect(blockerWarnings).toHaveLength(1);
+    expect(blockerWarnings[0]).toContain('T001, T002');
   });
 
-  it('does not warn when focused task has no dependencies', async () => {
+  it('does not report blocker warnings when focused task has no dependencies', async () => {
     setupMockAccessor(
       [{ id: 'T001', title: 'Simple task', status: 'pending', priority: 'medium' }],
       { currentTask: 'T001', currentPhase: null },
@@ -151,6 +159,8 @@ describe('briefing blocked-focus warnings', () => {
 
     expect(briefing.currentTask).not.toBeNull();
     expect(briefing.currentTask!.blockedBy).toBeUndefined();
-    expect(briefing.warnings).toBeUndefined();
+    expect(
+      briefing.warnings?.filter((warning) => warning.startsWith('Focused task')) ?? [],
+    ).toEqual([]);
   });
 });

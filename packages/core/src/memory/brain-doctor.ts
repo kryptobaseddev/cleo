@@ -158,6 +158,53 @@ function sampleIds(rows: readonly { id?: string | null }[]): string[] {
 // ============================================================================
 
 /**
+ * Count all graph edges with a missing endpoint while retaining a bounded sample.
+ * @param db - Canonical native brain handle for the explicitly selected project.
+ * @returns An exact orphan-edge finding, or null when both endpoints exist for every edge.
+ * @remarks A single statement keeps the total and sample consistent. Query failures propagate;
+ * this read-only assessment neither removes history nor invents missing records.
+ * @example
+ * ```ts
+ * const finding = scanBrainGraphOrphans(nativeDb);
+ * ```
+ */
+export function scanBrainGraphOrphans(
+  db: NonNullable<ReturnType<typeof getBrainNativeDb>>,
+): BrainNoiseEntry | null {
+  const rows = db
+    .prepare(`
+    SELECT e.from_id || '->' || e.to_id AS id, COUNT(*) OVER () AS total
+    FROM main.brain_page_edges e
+    LEFT JOIN main.brain_page_nodes src ON src.id = e.from_id
+    LEFT JOIN main.brain_page_nodes dst ON dst.id = e.to_id
+    LEFT JOIN main.tasks_tasks task_source
+      ON e.edge_type = 'task_touches_symbol' AND e.from_id = 'task:' || task_source.id
+    LEFT JOIN main.nexus_nodes code_target
+      ON e.edge_type IN ('code_reference', 'task_touches_symbol', 'mentions', 'documents', 'conduit_mentions_symbol') AND code_target.id = e.to_id
+    LEFT JOIN main.nexus_nodes code_source
+      ON e.edge_type = 'modified_by' AND code_source.id = e.from_id
+    WHERE (src.id IS NULL AND task_source.id IS NULL AND code_source.id IS NULL)
+       OR (dst.id IS NULL AND code_target.id IS NULL)
+    ORDER BY e.from_id, e.to_id
+    LIMIT 5
+  `)
+    .all();
+  if (rows.length === 0) return null;
+  const count = rows[0]?.total;
+  if (typeof count !== 'number') throw new Error('Invalid graph orphan count');
+  const samples = rows.map((row) => {
+    if (typeof row.id !== 'string') throw new Error('Invalid graph orphan identifier');
+    return row.id;
+  });
+  return {
+    pattern: 'orphan-edge',
+    count,
+    sampleIds: samples,
+    description: `${count} brain graph edges have a missing source or target node; inspect backed records before reconstructing derived nodes. Preserve unresolved historical edges.`,
+  };
+}
+
+/**
  * Run a read-only noise scan over `.cleo/brain.db` and return a structured
  * findings report.
  *
@@ -180,6 +227,7 @@ function sampleIds(rows: readonly { id?: string | null }[]): string[] {
  * ```
  *
  * @task T1262
+ * @remarks Structural failures remain explicit; semantic authority is not inferred from structural cleanliness.
  */
 export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorResult> {
   // Initialize brain.db connection (required before getBrainNativeDb() is callable)
@@ -345,23 +393,8 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
       }
     }
     try {
-      const rows = db
-        .prepare(
-          `SELECT e.from_id || '->' || e.to_id AS id FROM main.brain_page_edges e
-             LEFT JOIN main.brain_page_nodes src ON src.id = e.from_id
-             WHERE src.id IS NULL
-             LIMIT 20`,
-        )
-        .all() as { id?: string | null }[];
-      if (rows.length > 0) {
-        findings.push({
-          pattern: 'orphan-edge',
-          count: rows.length,
-          sampleIds: sampleIds(rows),
-          description:
-            'Brain graph edges pointing to non-existent nodes — referential integrity violation.',
-        });
-      }
+      const orphanFinding = scanBrainGraphOrphans(db);
+      if (orphanFinding) findings.push(orphanFinding);
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
       // brain_edges / brain_nodes may not exist

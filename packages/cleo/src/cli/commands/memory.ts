@@ -1768,6 +1768,11 @@ const backfillRunCommand = makeMemorySubcommand({
       type: 'string',
       description: "Backfill kind (default: 'graph-backfill').",
     },
+    'node-ids': {
+      type: 'string',
+      description:
+        'Comma-separated exact qualified graph node IDs to stage; every ID must be eligible and missing.',
+    },
     'target-table': {
       type: 'string',
       description: "Target table (default: 'brain_page_nodes').",
@@ -1777,6 +1782,11 @@ const backfillRunCommand = makeMemorySubcommand({
   operation: 'backfill.run',
   output: { command: 'memory-backfill-run', operation: 'memory.backfill.run' },
   paramBuilder: (args) => ({
+    ...(args['node-ids'] !== undefined && {
+      nodeIds: String(args['node-ids'])
+        .split(',')
+        .map((id) => id.trim()),
+    }),
     ...(args['source'] !== undefined && { source: args['source'] as string }),
     ...(args['kind'] !== undefined && { kind: args['kind'] as string }),
     ...(args['target-table'] !== undefined && { targetTable: args['target-table'] as string }),

@@ -786,8 +786,10 @@ export async function getTaskCodeImpact(
   if (result.symbols.length === 0) {
     recordKnowledgeGap(
       coverage,
-      'missing',
-      'No task evidence has been resolved to indexed symbols.',
+      coverage.maintenanceState === 'pending' ? 'partial' : 'missing',
+      coverage.maintenanceState === 'pending'
+        ? 'Task evidence assessment is deferred; zero matches do not establish missing evidence.'
+        : 'No task evidence has been resolved to indexed symbols.',
     );
   }
   if (symbolIds.length > 50)
