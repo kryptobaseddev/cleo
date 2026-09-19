@@ -11,11 +11,15 @@
  * @task T10490
  */
 
+import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
+import { buildSync } from 'esbuild';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addTask } from '../../tasks/add.js';
 import { _resetTeardownSignalForTests, markShuttingDown } from '../../teardown-signal.js';
@@ -24,7 +28,9 @@ import {
   createOperationExecutionContext,
   observeOperation,
   pendingBackgroundOpCount,
+  receiveOperationContext,
   trackBackgroundOp,
+  transferOperationContext,
 } from '../background-ops.js';
 import type { DataAccessor } from '../data-accessor.js';
 import { resetDbState } from '../sqlite.js';
@@ -301,5 +307,142 @@ describe('captured operation execution lifetime (T12265)', () => {
     expect(() => context.assertActive()).toThrow('cancelled');
     markShuttingDown();
     expect(() => scope().assertActive()).toThrow('teardown');
+  });
+});
+
+describe('captured worker scope transfer', () => {
+  it('retains the deadline and charges aggregate resources only in the origin', () => {
+    const context = createOperationExecutionContext(
+      {
+        projectId: 'A',
+        projectRoot: '/tmp/A',
+        actor: 'foreground',
+        operation: 'docs.projection',
+        idempotencyKey: 'one',
+      },
+      { budgetMs: 1000, resources: { maxBytes: 8, maxItems: 2 } },
+    );
+    const link = transferOperationContext(context, { bytes: 5, items: 1 });
+    const received = receiveOperationContext(structuredClone(link.transfer));
+    try {
+      expect(received.identity).toEqual(context.identity);
+      expect(received.deadlineAt).toBe(context.deadlineAt);
+      received.assertActive();
+      expect(() => received.consume({ bytes: 1 })).toThrow();
+      expect(() => transferOperationContext(context, { bytes: 4, items: 1 })).toThrow();
+    } finally {
+      received.close();
+      link.release();
+      context.close();
+    }
+  });
+
+  it.each([
+    'cancel-before-write',
+    'cancel-after-commit',
+  ] as const)('observes %s across a blocked real worker without claiming preemption', async (mode) => {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-operation-worker-'));
+    const dbPath = join(root, 'proof.db');
+    const native = new DatabaseSync(dbPath);
+    native.exec('CREATE TABLE proof (value TEXT)');
+    native.close();
+    const bundle = join(root, 'scope.mjs');
+    buildSync({
+      entryPoints: [fileURLToPath(new URL('../background-ops.ts', import.meta.url))],
+      outfile: bundle,
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      packages: 'external',
+    });
+    const context = createOperationExecutionContext(
+      {
+        projectId: 'A',
+        projectRoot: root,
+        actor: 'foreground',
+        operation: 'docs.projection',
+        idempotencyKey: mode,
+      },
+      { budgetMs: 10000, resources: { maxBytes: 128, maxItems: 1 } },
+    );
+    const link = transferOperationContext(context, { bytes: 32, items: 1 });
+    const latch = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2);
+    const flags = new Int32Array(latch);
+    const worker = new Worker(
+      `
+        const { parentPort, workerData } = require('node:worker_threads');
+        const { DatabaseSync } = require('node:sqlite');
+        (async () => {
+          const { receiveOperationContext } = await import(workerData.bundle);
+          const context = receiveOperationContext(workerData.scope);
+          const flags = new Int32Array(workerData.latch);
+          parentPort.postMessage('ready');
+          Atomics.wait(flags, 0, 0, 5000);
+          let db;
+          try {
+            context.assertActive();
+            db = new DatabaseSync(workerData.dbPath);
+            context.assertActive();
+            db.exec("INSERT INTO proof VALUES ('committed')");
+            parentPort.postMessage('committed');
+            Atomics.wait(flags, 1, 0, 5000);
+            parentPort.postMessage({ result: 'committed', projectId: context.identity.projectId });
+          } catch (error) {
+            parentPort.postMessage({ result: 'rejected', code: error.code });
+          } finally { db?.close(); context.close(); }
+        })().catch(error => { throw error; });
+      `,
+      {
+        eval: true,
+        resourceLimits: { maxOldGenerationSizeMb: 64 },
+        workerData: { bundle: pathToFileURL(bundle).href, scope: link.transfer, latch, dbPath },
+      },
+    );
+    try {
+      expect((await once(worker, 'message'))[0]).toBe('ready');
+      const next = once(worker, 'message');
+      if (mode === 'cancel-before-write') context.close();
+      Atomics.store(flags, 0, 1);
+      Atomics.notify(flags, 0);
+      if (mode === 'cancel-before-write') {
+        expect((await next)[0]).toEqual({ result: 'rejected', code: 'E_OPERATION_CANCELLED' });
+      } else {
+        expect((await next)[0]).toBe('committed');
+        const final = once(worker, 'message');
+        context.close();
+        Atomics.store(flags, 1, 1);
+        Atomics.notify(flags, 1);
+        expect((await final)[0]).toEqual({ result: 'committed', projectId: 'A' });
+      }
+      const fresh = new DatabaseSync(dbPath, { readOnly: true });
+      expect(fresh.prepare('SELECT value FROM proof').all()).toEqual(
+        mode === 'cancel-before-write' ? [] : [{ value: 'committed' }],
+      );
+      fresh.close();
+    } finally {
+      link.release();
+      context.close();
+      await worker.terminate();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('invalidates an escaped receiver when the transfer is released', () => {
+    const context = createOperationExecutionContext({
+      projectId: 'A',
+      projectRoot: '/tmp/A',
+      actor: 'caller',
+      operation: 'docs.projection',
+      idempotencyKey: 'release',
+    });
+    const link = transferOperationContext(context, { items: 1 });
+    const received = receiveOperationContext(link.transfer);
+    link.release();
+    try {
+      expect(() => received.assertActive()).toThrow();
+    } finally {
+      received.close();
+      context.close();
+    }
   });
 });

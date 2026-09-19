@@ -34,6 +34,8 @@ import type {
   OperationExecutionIdentity,
   OperationExecutionOptions,
   OperationExecutionStopCode,
+  OperationExecutionTransfer,
+  OperationExecutionTransferHandle,
   OperationResourceUsage,
   OperationWaitResult,
 } from '@cleocode/contracts/jobs';
@@ -300,5 +302,91 @@ export function observeOperation<T>(
     );
     context.signal.addEventListener('abort', abort, { once: true });
     if (context.signal.aborted) abort();
+  });
+}
+
+/**
+ * Reserve a worker stage in the original resource budget and link cancellation.
+ * @param context - Origin-owned operation context.
+ * @param usage - Complete declared stage admission charged before the transfer exists.
+ * @returns Structured-cloneable scope and listener cleanup owned by the originating caller.
+ * @remarks The shared flag is cooperative evidence, not synchronous preemption or
+ * permission to write. Executors still validate domain fences at the commit boundary.
+ * Release only after observing actual completion or explicitly reporting unresolved work.
+ * @example
+ * ```ts
+ * const usage = { bytes: payloadBytes, items: 1 };
+ * const link = transferOperationContext(context, usage);
+ * try { await existingWorker.enqueue(link.transfer); } finally { link.release(); }
+ * ```
+ */
+export function transferOperationContext(
+  context: OperationExecutionContext,
+  usage: OperationResourceUsage,
+): OperationExecutionTransferHandle {
+  context.consume(usage);
+  const cancellation = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
+  const state = new Int32Array(cancellation);
+  const cancel = () => {
+    Atomics.store(state, 0, 1);
+  };
+  context.signal.addEventListener('abort', cancel, { once: true });
+  if (context.signal.aborted) cancel();
+  return Object.freeze({
+    transfer: Object.freeze({
+      identity: context.identity,
+      deadlineAt: context.deadlineAt,
+      cancellation,
+    }),
+    release: () => {
+      cancel();
+      context.signal.removeEventListener('abort', cancel);
+    },
+  });
+}
+
+/**
+ * Receive an admitted worker scope without granting another resource budget.
+ * @param transfer - Serialized identity/deadline plus the origin-owned cancellation flag.
+ * @returns Cooperating worker context with no additional byte/item admission allowance.
+ * @throws TypeError - Malformed shared cancellation storage or identity/deadline.
+ * @remarks The origin must reserve the complete stage before sending it. Positive
+ * receiver resource charges refuse rather than reset the original aggregate limits.
+ * A busy worker observes cancellation when it next checks a boundary; a committed
+ * result must still be reported as committed if cancellation arrives afterwards.
+ * @example
+ * ```ts
+ * const context = receiveOperationContext(envelope.execution);
+ * try { context.assertActive(); await existingHandler(context); } finally { context.close(); }
+ * ```
+ */
+export function receiveOperationContext(
+  transfer: OperationExecutionTransfer,
+): OperationExecutionContext {
+  if (
+    !(transfer.cancellation instanceof SharedArrayBuffer) ||
+    transfer.cancellation.byteLength !== Int32Array.BYTES_PER_ELEMENT
+  ) {
+    throw new TypeError('Invalid operation cancellation transfer');
+  }
+  const state = new Int32Array(transfer.cancellation);
+  const controller = new AbortController();
+  const context = createOperationExecutionContext(transfer.identity, {
+    deadlineAt: transfer.deadlineAt,
+    budgetMs: Math.max(0, transfer.deadlineAt - Date.now()),
+    signal: controller.signal,
+    resources: { maxBytes: 0, maxItems: 0 },
+  });
+  const assertActive = () => {
+    if (Atomics.load(state, 0) !== 0) controller.abort();
+    context.assertActive();
+  };
+  return Object.freeze({
+    ...context,
+    assertActive,
+    consume: (usage: OperationResourceUsage) => {
+      assertActive();
+      context.consume(usage);
+    },
   });
 }

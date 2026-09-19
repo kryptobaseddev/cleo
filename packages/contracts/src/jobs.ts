@@ -139,6 +139,24 @@ export interface OperationExecutionOptions {
   readonly resources?: OperationResourceLimits;
 }
 
+/** Structured-cloneable execution scope for an already admitted worker stage. */
+export interface OperationExecutionTransfer {
+  /** Captured routing and provenance; receiving realms must not resolve it again. */
+  readonly identity: OperationExecutionIdentity;
+  /** Original absolute deadline, never a new worker budget. */
+  readonly deadlineAt: number;
+  /** One Int32 cancellation flag: zero is active; nonzero forbids new guarded work. */
+  readonly cancellation: SharedArrayBuffer;
+}
+
+/** Origin-owned cancellation link for one admitted cross-realm stage. */
+export interface OperationExecutionTransferHandle {
+  /** Serializable scope sent through the existing worker protocol. */
+  readonly transfer: OperationExecutionTransfer;
+  /** Invalidate future receiver writes and detach the originating abort listener. */
+  readonly release: () => void;
+}
+
 /** Reasons why an operation must not admit a new guarded stage. */
 export type OperationExecutionStopCode =
   | 'E_OPERATION_CANCELLED'
