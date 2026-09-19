@@ -37,7 +37,6 @@ import type {
   NexusEdgeRef,
   RiskTier,
   SymbolFullContext,
-  SymbolImpactEntry,
   TaskCodeImpact,
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
@@ -527,6 +526,9 @@ export async function getSymbolFullContext(
  * - Computes aggregate risk tier
  *
  * Substrate failures are exposed through coverage; ambiguous names are rejected.
+ * Historical file associations survive optional impact failure. UNKNOWN entries
+ * use zero numeric placeholders; only blastRadius.symbolsAnalyzed counts completed
+ * assessments, and file precision does not establish that a symbol changed.
  *
  * @param taskId - Task ID (e.g., 'T001')
  * @param projectRoot - Absolute path to project root
@@ -574,93 +576,120 @@ export async function getTaskCodeImpact(
       await getNexusDb(projectRoot);
       const nexusNative = getNexusNativeDb(projectRoot);
 
-      if (nexusNative) {
-        const { analyzeImpact } = await import('@cleocode/nexus');
-
-        // Load all nodes + relations once
-        const allNodes = typedAll<{
-          id: string;
-          name: string;
-          kind: string;
-          file_path: string | null;
-          label: string;
-          is_exported: number;
-        }>(
-          nexusNative.prepare(
-            `SELECT id, name, kind, file_path, label, is_exported FROM nexus_nodes LIMIT 50000`,
-          ),
+      if (!nexusNative) throw new Error('Task impact graph connection is unavailable.');
+      // Historical association is independent of the optional impact engine.
+      const readSymbol = nexusNative.prepare(
+        'SELECT id, name, kind, file_path, label FROM nexus_nodes WHERE id = ?',
+      );
+      for (const symbolId of symbolIds) {
+        const node = typedGet<Pick<RawNexusNode, 'id' | 'name' | 'kind' | 'file_path' | 'label'>>(
+          readSymbol,
+          symbolId,
         );
-
-        // T11545: `weight` moved to the sibling nexus_relation_weights table and
-        // is unused by the GraphRelation mapping below — select only structural cols.
-        const allRelations = typedAll<{
-          id: string;
-          source_id: string;
-          target_id: string;
-          type: string;
-          confidence: number | null;
-        }>(
-          nexusNative.prepare(
-            `SELECT id, source_id, target_id, type, confidence FROM nexus_relations LIMIT 200000`,
-          ),
-        );
-
-        // Map to GraphNode / GraphRelation contracts
-        const graphNodes = allNodes.map((n) => ({
-          id: n.id,
-          name: n.name ?? n.label,
-          kind: n.kind as import('@cleocode/contracts').GraphNodeKind,
-          filePath: n.file_path ?? '',
-          startLine: 0,
-          endLine: 0,
-          language: 'unknown',
-          exported: n.is_exported === 1,
-        }));
-
-        const graphRelations = allRelations.map((r) => ({
-          source: r.source_id,
-          target: r.target_id,
-          type: r.type as import('@cleocode/contracts').GraphRelationType,
-          confidence: r.confidence ?? 1.0,
-        }));
-
-        const symbolEntries: SymbolImpactEntry[] = [];
-
-        for (const symbolId of symbolIds.slice(0, 50)) {
-          const node = allNodes.find((n) => n.id === symbolId);
-          if (!node) continue;
-
-          const impactResult = analyzeImpact(symbolId, graphNodes, graphRelations);
-
-          symbolEntries.push({
-            nexusNodeId: symbolId,
-            precision: evidenceBySymbol.get(symbolId)?.precision ?? 'file',
-            evidence: evidenceBySymbol.get(symbolId)?.evidence ?? [],
-            label: node.name ?? node.label,
-            kind: node.kind,
-            filePath: node.file_path,
-            riskLevel:
-              coverage.status !== 'current'
-                ? 'UNKNOWN'
-                : impactResult.totalAffected === 0
-                  ? 'NONE'
-                  : toRiskTier(impactResult.riskLevel),
-            totalAffected: impactResult.totalAffected,
-            directCallers: impactResult.affectedByDepth.depth1_willBreak.length,
-          });
-        }
-
-        result.symbols = symbolEntries;
-        result.blastRadius = {
-          totalAffected: symbolEntries.reduce((sum, s) => sum + s.totalAffected, 0),
-          maxRisk: maxRiskTier(symbolEntries.map((s) => s.riskLevel)),
-          symbolsAnalyzed: symbolEntries.length,
-        };
-        result.riskScore = result.blastRadius.maxRisk;
+        if (!node) continue;
+        result.symbols.push({
+          nexusNodeId: symbolId,
+          precision: evidenceBySymbol.get(symbolId)?.precision ?? 'file',
+          evidence: evidenceBySymbol.get(symbolId)?.evidence ?? [],
+          label: node.name ?? node.label,
+          kind: node.kind,
+          filePath: node.file_path,
+          riskLevel: 'UNKNOWN',
+          totalAffected: 0,
+          directCallers: 0,
+        });
       }
+      const { analyzeImpact } = await import('@cleocode/nexus');
+
+      // Load all nodes + relations once
+      const allNodes = typedAll<{
+        id: string;
+        name: string;
+        kind: string;
+        file_path: string | null;
+        label: string;
+        is_exported: number;
+      }>(
+        nexusNative.prepare(
+          `SELECT id, name, kind, file_path, label, is_exported FROM nexus_nodes LIMIT 50001`,
+        ),
+      );
+
+      // T11545: `weight` moved to the sibling nexus_relation_weights table and
+      // is unused by the GraphRelation mapping below — select only structural cols.
+      const allRelations = typedAll<{
+        id: string;
+        source_id: string;
+        target_id: string;
+        type: string;
+        confidence: number | null;
+      }>(
+        nexusNative.prepare(
+          `SELECT id, source_id, target_id, type, confidence FROM nexus_relations LIMIT 200001`,
+        ),
+      );
+
+      if (allNodes.length > 50000 || allRelations.length > 200000) {
+        recordKnowledgeGap(
+          coverage,
+          'partial',
+          'Impact graph exceeds the 50000-node or 200000-relationship assessment limit.',
+        );
+        coverage.nextAction = `cleo doctor knowledge --task ${taskId}`;
+      }
+      // Map to GraphNode / GraphRelation contracts
+      const graphNodes = allNodes.map((n) => ({
+        id: n.id,
+        name: n.name ?? n.label,
+        kind: n.kind as import('@cleocode/contracts').GraphNodeKind,
+        filePath: n.file_path ?? '',
+        startLine: 0,
+        endLine: 0,
+        language: 'unknown',
+        exported: n.is_exported === 1,
+      }));
+
+      const graphRelations = allRelations.map((r) => ({
+        source: r.source_id,
+        target: r.target_id,
+        type: r.type as import('@cleocode/contracts').GraphRelationType,
+        confidence: r.confidence ?? 1.0,
+      }));
+
+      for (const entry of result.symbols.slice(0, 50)) {
+        const impactResult = analyzeImpact(entry.nexusNodeId, graphNodes, graphRelations);
+        entry.riskLevel =
+          coverage.status !== 'current'
+            ? 'UNKNOWN'
+            : impactResult.totalAffected === 0
+              ? 'NONE'
+              : toRiskTier(impactResult.riskLevel);
+        entry.totalAffected = impactResult.totalAffected;
+        entry.directCallers = impactResult.affectedByDepth.depth1_willBreak.length;
+        result.blastRadius.symbolsAnalyzed += 1;
+        result.blastRadius.totalAffected += impactResult.totalAffected;
+      }
+      result.blastRadius.maxRisk = maxRiskTier(result.symbols.map((entry) => entry.riskLevel));
+      result.riskScore = result.blastRadius.maxRisk;
     } catch (err) {
       if (err instanceof KnowledgeSymbolAmbiguityError) throw err;
-      recordKnowledgeGap(coverage, 'failed', err instanceof Error ? err.message : String(err));
+      const failure = err instanceof Error ? err.message : String(err);
+      recordKnowledgeGap(coverage, 'failed', `Task impact assessment failed: ${failure}`);
+      coverage.nextAction = `cleo doctor knowledge --task ${taskId}`;
+      result.findings.push({
+        id: `task-impact:${taskId}`,
+        projectId: coverage.projectId,
+        affectedRecordIds: [taskId, ...symbolIds],
+        description: `Optional impact assessment failed: ${failure}. Inspect the diagnostic and retry the task footprint after the analyzer is available. Historical associations remain evidence, not proof that each symbol changed.`,
+        evidence: taskEvidence.files.flatMap((file) => file.evidence),
+        repairClass: 'agent-resolvable',
+        state: 'failed',
+        proposedAction: null,
+        verification: [
+          'Repeat the task footprint with a working impact analyzer; retain the same independently supported file and symbol associations.',
+        ],
+        recovery: null,
+      });
       console.warn(
         '[living-brain] blast radius analysis failed:',
         err instanceof Error ? err.message : String(err),
@@ -792,14 +821,26 @@ export async function getTaskCodeImpact(
         : 'No task evidence has been resolved to indexed symbols.',
     );
   }
-  if (symbolIds.length > 50)
-    recordKnowledgeGap(coverage, 'partial', 'Impact is bounded to 50 task symbols.');
-  if (result.symbols.length < Math.min(symbolIds.length, 50)) {
+  if (symbolIds.length > 50) {
+    coverage.nextAction = `cleo doctor knowledge --task ${taskId}`;
+    recordKnowledgeGap(
+      coverage,
+      'partial',
+      'Impact is bounded to 50 task symbols; additional associations remain unassessed.',
+    );
+  }
+  if (result.symbols.length < symbolIds.length) {
     recordKnowledgeGap(coverage, 'partial', 'Some task-linked symbols are absent from the graph.');
+  }
+  if (result.blastRadius.symbolsAnalyzed < result.symbols.length) {
+    coverage.limitations.push(
+      'Impact counts include only completed analyzer results. Zero counts for unassessed symbols are placeholders, not evidence of NONE; their risk remains UNKNOWN.',
+    );
   }
   if (coverage.status !== 'current') {
     result.riskScore = 'UNKNOWN';
     result.blastRadius.maxRisk = 'UNKNOWN';
+    for (const entry of result.symbols) entry.riskLevel = 'UNKNOWN';
   }
   return result;
 }
