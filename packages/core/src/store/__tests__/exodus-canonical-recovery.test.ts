@@ -1,6 +1,6 @@
 /** Real canonical schemas and triggers, synthetic source data only (T12260). */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -45,6 +45,8 @@ it.each([
     } finally {
       source.close();
     }
+    const preCutover = join(root, 'before-cutover.db');
+    db.prepare('VACUUM INTO ?').run(preCutover);
     vi.stubEnv('CLEO_DISABLE_EXODUS_ON_OPEN', '0');
     const result = await maybeRunExodusOnOpen('project', target, db, root);
     expect(result.outcome, result.reason).toBe(abort ? 'aborted' : 'migrated');
@@ -86,6 +88,16 @@ it.each([
         expect(reopened.reason).toMatch(/generation/);
       } finally {
         replacement.close();
+      }
+      copyFileSync(preCutover, target);
+      const restored = new DatabaseSync(target);
+      try {
+        const reopened = await maybeRunExodusOnOpen('project', target, restored, root);
+        expect(reopened.outcome, reopened.reason).toBe('aborted');
+        expect(reopened.reason).toMatch(/generation/);
+        expect(restored.prepare('SELECT payload FROM unrelated').get()?.payload).toBe('preserved');
+      } finally {
+        restored.close();
       }
     }
   } finally {
