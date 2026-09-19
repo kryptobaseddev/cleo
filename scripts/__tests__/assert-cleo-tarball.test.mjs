@@ -10,6 +10,7 @@ vi.mock('@cleocode/caamp', () => import('../../packages/caamp/src/core/artifacts
 import { checkCleoTarball } from '../../packages/cleo/scripts/check-cleo-tarball-size.mjs';
 import { assertCleoTarball } from '../assert-cleo-tarball.mjs';
 import {
+  assertPackedHealthResponse,
   assertPackedTaskResponse,
   assertPackedVersion,
   packedEnvironment,
@@ -179,5 +180,139 @@ describe('independent installed response oracles', () => {
       { error: 'tasks.db unavailable' },
     ])
       expect(() => assertPackedTaskResponse(body, 'T002', 'expected')).toThrow();
+  });
+});
+
+describe('independent scoped health oracle', () => {
+  const expected = {
+    version: '2026.9.8',
+    projectDb: '/synthetic/project/.cleo/cleo.db',
+    globalDb: '/synthetic/global/cleo.db',
+    taskCount: 2,
+  };
+  function health() {
+    const databases = {};
+    for (const [name, scope, table] of [
+      ['tasks', 'project', 'tasks_tasks'],
+      ['nexus', 'project', 'nexus_nodes'],
+      ['brain', 'project', 'brain_observations'],
+      ['conduit', 'project', 'conduit_messages'],
+      ['project-registry', 'global', 'nexus_project_registry'],
+      ['agent-registry', 'global', 'agent_registry_agents'],
+    ])
+      databases[name] = {
+        scope,
+        table,
+        path: scope === 'project' ? expected.projectDb : expected.globalDb,
+        projectId: scope === 'project' ? 'fixture-id' : null,
+        available: true,
+        coverage: 'current',
+        rowCount: name === 'tasks' ? 2 : 0,
+        errors: [],
+        lifecycle: 'owned-read-only-snapshot',
+        schemaVersion: '0',
+        observedPragmas: {
+          journal_mode: 'wal',
+          foreign_keys: 1,
+          busy_timeout: 5000,
+          query_only: 0,
+        },
+      };
+    return {
+      service: 'cleo-studio',
+      version: '2026.9.8',
+      projectId: 'fixture-id',
+      ok: true,
+      okScope: 'listed-store-probes-only',
+      databases,
+      coverage: {
+        status: 'partial',
+        observedRealms: ['studio-main'],
+        unobservedRealms: ['core-main', 'core-workers'],
+        limitations: ['Live handles not inventoried'],
+      },
+    };
+  }
+  it('accepts actual scoped counts with explicit incomplete realm coverage', () => {
+    expect(() => assertPackedHealthResponse(health(), expected)).not.toThrow();
+  });
+  it.each([
+    'missing',
+    'failed',
+  ])('rejects explicit %s separately from a healthy zero', (coverage) => {
+    const body = health();
+    body.ok = false;
+    body.coverage.status = coverage === 'failed' ? 'failed' : 'partial';
+    Object.assign(body.databases.tasks, {
+      coverage,
+      available: coverage !== 'missing',
+      rowCount: null,
+      errors: ['synthetic diagnostic'],
+    });
+    expect(() => assertPackedHealthResponse(body, expected)).toThrow(`is ${coverage}`);
+    body.databases.tasks.rowCount = 0;
+    expect(() => assertPackedHealthResponse(body, expected)).toThrow(
+      'disguises an unassessed count',
+    );
+  });
+  it.each([
+    [
+      'retired zero count',
+      (body) => {
+        body.databases.tasks.rowCount = 0;
+      },
+    ],
+    [
+      'unknown version',
+      (body) => {
+        body.version = 'unknown';
+      },
+    ],
+    [
+      'global graph confusion',
+      (body) => {
+        body.databases.nexus.path = expected.globalDb;
+      },
+    ],
+    [
+      'retired table',
+      (body) => {
+        body.databases.tasks.table = 'tasks';
+      },
+    ],
+    [
+      'foreign project',
+      (body) => {
+        body.databases.tasks.projectId = 'other';
+      },
+    ],
+    [
+      'unobserved realm hidden',
+      (body) => {
+        body.coverage.unobservedRealms = [];
+      },
+    ],
+    [
+      'false complete coverage',
+      (body) => {
+        body.coverage.status = 'current';
+      },
+    ],
+    [
+      'missing pragma',
+      (body) => {
+        delete body.databases.tasks.observedPragmas.journal_mode;
+      },
+    ],
+    [
+      'failed probe as current',
+      (body) => {
+        body.databases.tasks.errors = ['failed read'];
+      },
+    ],
+  ])('rejects %s despite HTTP success', (_name, corrupt) => {
+    const body = health();
+    corrupt(body);
+    expect(() => assertPackedHealthResponse(body, expected)).toThrow();
   });
 });

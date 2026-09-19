@@ -149,6 +149,77 @@ export function assertPackedTaskResponse(body, taskId, title) {
   }
 }
 
+/**
+ * Verify scoped installed health observations against independently created data.
+ * @param {object} body - Parsed health response from the installed Studio server.
+ * @param {object} expected - Installed version, fixture paths and canonical task count.
+ * @returns {void} Throws on failed/missing probes or inaccurate/incomplete disclosure.
+ */
+export function assertPackedHealthResponse(body, expected) {
+  if (body?.service !== 'cleo-studio' || body.version !== expected.version)
+    throw new Error('Studio health version differs from its installed package.');
+  if (
+    !['partial', 'failed'].includes(body.coverage?.status) ||
+    body.okScope !== 'listed-store-probes-only' ||
+    !body.coverage.observedRealms?.includes('studio-main') ||
+    !body.coverage.unobservedRealms?.includes('core-main') ||
+    !body.coverage.unobservedRealms?.includes('core-workers') ||
+    !Array.isArray(body.coverage.limitations) ||
+    body.coverage.limitations.length === 0
+  )
+    throw new Error('Studio health does not disclose unobserved runtime realms.');
+  const probes = [
+    ['tasks', 'project', 'tasks_tasks'],
+    ['nexus', 'project', 'nexus_nodes'],
+    ['brain', 'project', 'brain_observations'],
+    ['conduit', 'project', 'conduit_messages'],
+    ['project-registry', 'global', 'nexus_project_registry'],
+    ['agent-registry', 'global', 'agent_registry_agents'],
+  ];
+  for (const [name, scope, table] of probes) {
+    const report = body.databases?.[name];
+    if (
+      !report ||
+      report.scope !== scope ||
+      report.table !== table ||
+      report.path !== (scope === 'project' ? expected.projectDb : expected.globalDb)
+    )
+      throw new Error(`Studio health ${name} has incorrect database identity or scope.`);
+    if (report.coverage !== 'current') {
+      if (
+        !['missing', 'failed'].includes(report.coverage) ||
+        report.rowCount !== null ||
+        !Array.isArray(report.errors) ||
+        report.errors.length === 0 ||
+        (report.coverage === 'missing' && report.available !== false)
+      )
+        throw new Error(`Studio health ${name} disguises an unassessed count.`);
+      throw new Error(`Studio health ${name} is ${report.coverage}: ${report.errors.join('; ')}`);
+    }
+    if (
+      report.available !== true ||
+      !Number.isSafeInteger(report.rowCount) ||
+      report.rowCount < 0 ||
+      !Array.isArray(report.errors) ||
+      report.errors.length !== 0 ||
+      report.lifecycle !== 'owned-read-only-snapshot' ||
+      typeof report.schemaVersion !== 'string' ||
+      typeof report.observedPragmas?.journal_mode !== 'string' ||
+      !['foreign_keys', 'busy_timeout', 'query_only'].every(
+        (pragma) => typeof report.observedPragmas?.[pragma] === 'number',
+      ) ||
+      report.projectId !== (scope === 'project' ? body.projectId : null)
+    )
+      throw new Error(`Studio health ${name} lacks truthful observed snapshot fields.`);
+  }
+  if (
+    body.coverage.status !== 'partial' ||
+    body.ok !== true ||
+    body.databases.tasks.rowCount !== expected.taskCount
+  )
+    throw new Error('Studio health task population differs from canonical fixture writes.');
+}
+
 async function freeLoopbackPort() {
   const server = createServer();
   await new Promise((done, fail) => {
@@ -219,6 +290,7 @@ export async function verifyPackedRuntime(app, root, env) {
   };
   const receipt = {
     studio: 'not-assessed',
+    health: 'not-assessed',
     embedding: 'not-assessed',
     cleanup: 'not-assessed',
     failures: [],
@@ -340,6 +412,19 @@ export async function verifyPackedRuntime(app, root, env) {
       if (response.status !== 200) throw new Error(`${path} returned ${response.status}`);
       if (label === 'tasks')
         assertPackedTaskResponse(JSON.parse(bytes.toString('utf8')), taskId, title);
+      if (label === 'health') {
+        receipt.health = 'failed';
+        const studio = JSON.parse(
+          readFileSync(join(app, 'node_modules/@cleocode/cleo/package.json'), 'utf8'),
+        );
+        assertPackedHealthResponse(JSON.parse(bytes.toString('utf8')), {
+          version: studio.version,
+          projectDb: join(env.CLEO_ROOT, '.cleo/cleo.db'),
+          globalDb: join(env.CLEO_HOME, 'cleo.db'),
+          taskCount: 2,
+        });
+        receipt.health = 'verified-scoped-counts-partial-realms';
+      }
     }
     receipt.studio = 'verified-canonical-task-readback';
   } catch (error) {
@@ -585,6 +670,7 @@ syncBuiltinESMExports();
     assertPackedVersion(version, expected);
     manifest.coverage.cliVersion = 'verified';
     manifest.runtime = await verifyPackedRuntime(app, root, env);
+    manifest.coverage.health = manifest.runtime.health;
     manifest.coverage.studio = 'verified-canonical-task-readback';
     manifest.coverage.embedding = 'verified-installed-native-inference';
     manifest.status = 'verified-packed-runtime';
@@ -597,6 +683,7 @@ syncBuiltinESMExports();
     const runtimePath = join(root, 'runtime.json');
     if (existsSync(runtimePath)) {
       manifest.runtime = JSON.parse(readFileSync(runtimePath, 'utf8'));
+      manifest.coverage.health = manifest.runtime.health;
       manifest.coverage.studio = manifest.runtime.studio;
       manifest.coverage.embedding = manifest.runtime.embedding;
     }
