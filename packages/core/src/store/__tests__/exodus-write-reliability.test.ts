@@ -512,6 +512,11 @@ describe('exodus write-reliability (T11782)', () => {
     const result = await maybeRunExodusOnOpen('project', paths.projectDbPath, projectDb, tmpDir);
 
     expect(result.outcome, `unexpected outcome: ${result.reason}`).toBe('aborted');
+    expect(result.recovery?.complete).toBe(true);
+    expect(result.recovery?.scopes.map((entry) => entry.dbPath)).toEqual([
+      paths.projectDbPath,
+      paths.globalDbPath,
+    ]);
     // The caller handle remains OPEN and the consolidated base table is empty
     // (rolled back); legacy stays the source of truth.
     expect(projectDb.isOpen, 'caller handle must remain OPEN after abort').toBe(true);
