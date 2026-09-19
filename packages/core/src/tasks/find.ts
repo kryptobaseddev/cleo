@@ -1,5 +1,5 @@
 /**
- * Fuzzy task search with minimal output.
+ * Lexical task search with explicit fuzzy opt-in and match provenance.
  * @task T4460
  * @epic T4454
  */
@@ -7,10 +7,12 @@
 import type {
   MinimalTaskRecord,
   TaskKind,
+  TaskMatch,
   TaskPopulation,
   TaskQueryFilters,
   TaskRecord,
   TaskStatus,
+  TasksFindResult,
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
@@ -43,6 +45,8 @@ export interface FindResult {
    */
   severity?: string | null;
   score: number;
+  /** Explicit retrieval basis retained through compact projections. */
+  match: TaskMatch;
   /** Progressive disclosure directives for follow-up operations. */
   _next?: NextDirectives;
 }
@@ -52,6 +56,8 @@ export interface FindTasksOptions {
   query?: string;
   id?: string;
   exact?: boolean;
+  /** Explicitly enable character-subsequence fallback. */
+  fuzzy?: boolean;
   status?: TaskStatus;
   field?: string;
   includeArchive?: boolean;
@@ -114,7 +120,7 @@ export interface FindTasksResult {
   total: number;
   population: TaskPopulation;
   query: string;
-  searchType: 'fuzzy' | 'id' | 'exact';
+  searchType: TaskMatch['kind'];
 }
 
 /**
@@ -150,7 +156,7 @@ export function isUrgentTask(task: {
  *     number of English sentences, so this tier is noise whenever anything
  *     better exists.
  *
- * {@link findTasks} keeps the weak tier only when NO strong match was found,
+ * With explicit fuzzy opt-in, {@link findTasks} keeps the weak tier only when NO strong match was found,
  * which preserves typo tolerance for genuinely obscure queries without
  * letting the weak tier flood a normal search.
  *
@@ -335,11 +341,11 @@ export function extractInlineFilters(options: FindTasksOptions): FindTasksOption
 }
 
 /**
- * Search tasks by fuzzy matching, ID prefix, exact title, or filter-only.
+ * Search tasks lexically, by explicit fuzzy matching, ID, exact title, or filters.
  * Returns minimal fields only (context-efficient).
  *
  * Accepts any of:
- *   - positional `query` for fuzzy title/description search
+ *   - positional `query` for lexical title/description search (`fuzzy` opts in)
  *   - `id` prefix
  *   - `status` / `kind` filter (any of these alone is sufficient — no
  *     query required, returns all matches)
@@ -355,6 +361,22 @@ export async function findTasks(
   accessor?: DataAccessor,
 ): Promise<FindTasksResult> {
   const options = extractInlineFilters(rawOptions);
+  const supportedFields: TaskMatch['fields'] = ['title', 'description', 'notes', 'id'];
+  if (options.field && !supportedFields.includes(options.field as TaskMatch['fields'][number])) {
+    throw new CleoError(
+      ExitCode.INVALID_INPUT,
+      `Unsupported search field '${options.field}'; use title, description, notes, or id`,
+    );
+  }
+  if (options.exact && (options.fuzzy || (options.field && options.field !== 'title'))) {
+    throw new CleoError(
+      ExitCode.INVALID_INPUT,
+      'Exact title search cannot be combined with fuzzy or another field',
+    );
+  }
+  const fields: TaskMatch['fields'] = options.field
+    ? [options.field as TaskMatch['fields'][number]]
+    : ['title', 'description'];
 
   // T10108: an empty-string or whitespace-only `query` is the same as no
   // query — without this, `fuzzyScore('', '<any title>')` returns 80 for
@@ -417,6 +439,12 @@ export async function findTasks(
         depends: t.depends ?? [],
         size: t.size ?? undefined,
         severity: t.severity ?? undefined,
+        match: {
+          kind: 'id',
+          fields: ['id'],
+          terms: [idQuery],
+          reason: 'Case-insensitive ID equality, prefix, or substring',
+        },
         score:
           t.id.toUpperCase() === idQuery ? 100 : t.id.toUpperCase().startsWith(idQuery) ? 80 : 50,
       }));
@@ -437,11 +465,17 @@ export async function findTasks(
         size: t.size ?? undefined,
         severity: t.severity ?? undefined,
         score: 100,
+        match: {
+          kind: 'exact',
+          fields: ['title'],
+          terms: [queryStr],
+          reason: 'Exact case-sensitive title equality',
+        },
       }));
   } else if (options.query == null) {
     // Filter-only mode — return every task the status/kind filter already
     // matched. All-equal score=50 so pagination is stable. T1187-followup.
-    searchType = 'fuzzy';
+    searchType = 'filter';
     queryStr = '';
     results = allTasks.map((t) => ({
       id: t.id,
@@ -454,17 +488,48 @@ export async function findTasks(
       size: t.size ?? undefined,
       severity: t.severity ?? undefined,
       score: 50,
+      match: {
+        kind: 'filter',
+        fields: [],
+        terms: [],
+        reason: 'Matched explicit task filters; no text query',
+      },
     }));
   } else {
-    // Fuzzy search
-    searchType = 'fuzzy';
+    // Lexical by default; subsequence matching requires explicit opt-in.
+    searchType = options.fuzzy ? 'fuzzy' : 'lexical';
     queryStr = options.query;
     const scored: FindResult[] = [];
 
     for (const t of allTasks) {
-      const titleScore = fuzzyScore(queryStr, t.title);
-      const descScore = t.description ? fuzzyScore(queryStr, t.description) * 0.7 : 0;
-      const score = Math.max(titleScore, descScore);
+      const texts: Record<TaskMatch['fields'][number], string> = {
+        title: t.title,
+        description: t.description ?? '',
+        notes: (t.notes ?? []).join('\n'),
+        id: t.id,
+      };
+      const terms = queryStr.toLowerCase().trim().split(/\s+/);
+      const candidates = fields
+        .map((field) => {
+          const text = texts[field];
+          const literalTerms = terms.filter((term) => text.toLowerCase().includes(term));
+          const score =
+            options.fuzzy || literalTerms.length > 0
+              ? fuzzyScore(queryStr, text) * (field === 'description' ? 0.7 : 1)
+              : 0;
+          return { field, score, literalTerms };
+        })
+        .filter((candidate) => candidate.score > 0);
+      const score = Math.max(0, ...candidates.map((candidate) => candidate.score));
+      const literalTerms = [...new Set(candidates.flatMap((candidate) => candidate.literalTerms))];
+      const match: TaskMatch = {
+        kind: literalTerms.length ? 'lexical' : 'fuzzy',
+        fields: candidates.map((candidate) => candidate.field),
+        terms: literalTerms,
+        reason: literalTerms.length
+          ? 'Case-insensitive literal query terms in the named fields'
+          : 'Explicit fuzzy opt-in: character subsequence, not literal query terms',
+      };
 
       if (score > 0) {
         scored.push({
@@ -478,6 +543,7 @@ export async function findTasks(
           size: t.size ?? undefined,
           severity: t.severity ?? undefined,
           score: Math.round(score),
+          match,
         });
       }
     }
@@ -488,7 +554,8 @@ export async function findTasks(
     // makes `total` useless as a signal. When nothing matches strongly the
     // weak tier is all there is, so keep it rather than return nothing.
     const hasStrong = scored.some((r) => r.score >= RELEVANCE_STRONG_MIN);
-    const relevant = hasStrong ? scored.filter((r) => r.score >= RELEVANCE_STRONG_MIN) : scored;
+    const relevant =
+      options.fuzzy && hasStrong ? scored.filter((r) => r.score >= RELEVANCE_STRONG_MIN) : scored;
 
     results = relevant.sort((a, b) => b.score - a.score);
   }
@@ -523,7 +590,7 @@ export async function findTasks(
 // ---------------------------------------------------------------------------
 
 /**
- * Fuzzy search tasks by title/description/ID, wrapped in EngineResult.
+ * Search tasks with explicit matching provenance, wrapped in EngineResult.
  *
  * @param projectRoot - Absolute path to the project root
  * @param query - Search string to match against title, description, or ID
@@ -541,6 +608,8 @@ export async function taskFind(
   options?: {
     id?: string;
     exact?: boolean;
+    fuzzy?: boolean;
+    field?: string;
     status?: string;
     includeArchive?: boolean;
     offset?: number;
@@ -554,13 +623,7 @@ export async function taskFind(
     /** Filter by parent task ID — see {@link FindTasksOptions.parent}. @task T10108 */
     parent?: string;
   },
-): Promise<
-  EngineResult<{
-    results: (MinimalTaskRecord | TaskRecord)[];
-    total: number;
-    population: TaskPopulation;
-  }>
-> {
+): Promise<EngineResult<TasksFindResult>> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
     const findResult = await findTasks(
@@ -568,6 +631,8 @@ export async function taskFind(
         query,
         id: options?.id,
         exact: options?.exact,
+        fuzzy: options?.fuzzy,
+        field: options?.field,
         status: options?.status as TaskStatus | undefined,
         includeArchive: options?.includeArchive,
         limit: limit ?? 20,
@@ -590,17 +655,20 @@ export async function taskFind(
             ExitCode.GENERAL_ERROR,
             `Task ${r.id} disappeared during search projection; retry the query`,
           );
-        fullResults.push(taskToRecord(task));
+        fullResults.push({ ...taskToRecord(task), match: r.match });
       }
       return engineSuccess({
         results: fullResults,
         total: findResult.total,
         population: findResult.population,
+        query: findResult.query,
+        searchType: findResult.searchType,
       });
     }
 
     const results: MinimalTaskRecord[] = findResult.results.map((r) => ({
       id: r.id,
+      match: r.match,
       title: r.title,
       status: r.status,
       priority: r.priority,
@@ -614,7 +682,13 @@ export async function taskFind(
       ...(r.severity != null ? { severity: r.severity } : {}),
     }));
 
-    return engineSuccess({ results, total: findResult.total, population: findResult.population });
+    return engineSuccess({
+      results,
+      total: findResult.total,
+      population: findResult.population,
+      query: findResult.query,
+      searchType: findResult.searchType,
+    });
   } catch (err: unknown) {
     // T9940: preserve CleoError LAFS codes; non-CleoError → E_INTERNAL,
     // never the misleading E_NOT_INITIALIZED blanket label.

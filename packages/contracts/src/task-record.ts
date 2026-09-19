@@ -53,6 +53,8 @@ export interface TaskRecordRelationCounts {
 
 /** String-widened Task for JSON serialization in dispatch/LAFS layer. */
 export interface TaskRecord {
+  /** Search provenance when this full record is returned by task search. */
+  match?: TaskMatch;
   id: string;
   title: string;
   description: string;
