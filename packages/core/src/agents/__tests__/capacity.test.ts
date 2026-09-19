@@ -7,7 +7,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   findLeastLoadedAgent,
@@ -17,6 +17,16 @@ import {
   updateCapacity,
 } from '../capacity.js';
 import { registerAgent, updateAgentStatus } from '../registry.js';
+
+// Route explicit fixture roots to their own logs and stores.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('Capacity Tracking', () => {
   let tempDir: string;
