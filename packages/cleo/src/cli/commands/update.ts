@@ -21,7 +21,6 @@
 
 import { ExitCode, TASK_SEVERITIES, type TaskRecord } from '@cleocode/contracts';
 import {
-  appendSignedSeverityAttestation,
   INPUT_CONTRACTS,
   isPipelineTransitionForward,
   isValidPipelineStage,
@@ -361,18 +360,10 @@ export const updateCommand = defineCommand({
       const validatedPayload = raw as Record<string, unknown>;
       const response = await dispatchRaw('mutate', 'tasks', 'update', validatedPayload);
       if (!response.success) {
-        cliError(
-          response.error?.message ?? 'Update failed',
-          response.error?.code ?? 'E_UPDATE_FAILED',
-          {
-            name: response.error?.code ?? 'E_UPDATE_FAILED',
-            fix: response.error?.fix ?? 'Check task fields and try again',
-          },
-          { operation: 'tasks.update' },
-        );
-        process.exit(1);
+        handleRawError(response, { command: 'update', operation: 'tasks.update' });
         return;
       }
+
       cliOutput(response.data, { command: 'update', operation: 'tasks.update' });
       return;
     }
@@ -522,68 +513,8 @@ export const updateCommand = defineCommand({
     // T1590: AC-immutability override reason — forwarded as `reason`.
     if (args.reason !== undefined) params['reason'] = args.reason;
 
-    // T1856: Critical-priority tasks MUST declare dependencies or provide a waiver.
-    // When --priority critical is being set, check if the caller is simultaneously
-    // declaring depends (via --depends or --add-depends) or providing a waiver.
-    // If neither is present, fetch the existing task to check for pre-existing depends
-    // before rejecting. Tasks created before this guard (with existing depends) pass.
-    if (
-      args.priority === 'critical' &&
-      !args.depends &&
-      !args['add-depends'] &&
-      args['depends-waiver'] === undefined
-    ) {
-      // Fetch the existing task to check for pre-existing dependency declarations.
-      const showResponse = await dispatchRaw('query', 'tasks', 'show', {
-        taskId: args.taskId,
-      });
-      if (!showResponse.success) {
-        handleRawError(showResponse, { command: 'update', operation: 'tasks.show' });
-        return;
-      }
-      const existingTask = showResponse.data as TaskRecord | undefined;
-      const existingDepends = existingTask?.depends;
-      const hasDependencies = Array.isArray(existingDepends) && existingDepends.length > 0;
-
-      if (!hasDependencies) {
-        cliError(
-          'Critical-priority tasks must declare at least one dependency (--depends) or provide a waiver (--depends-waiver "<reason>").',
-          'E_VALIDATION',
-          {
-            name: 'E_VALIDATION',
-            fix:
-              'Add --depends <taskId> to declare a dependency, or use --depends-waiver "<reason>" ' +
-              'to waive the requirement. Use `cleo find "<topic>"` to discover candidate dependencies.',
-          },
-          { operation: 'tasks.update' },
-        );
-        process.exit(6);
-        return;
-      }
-    }
+    // Core checks the effective dependency set and persists authorization atomically.
     if (args['depends-waiver'] !== undefined) params['dependsWaiver'] = args['depends-waiver'];
-
-    // T9073 / T9071: fire signed severity attestation for any role.
-    // Severity is orthogonal to priority — no auto-mapping here.
-    // Non-fatal outside CLEO project (falls through).
-    if (args.severity !== undefined) {
-      try {
-        await appendSignedSeverityAttestation({
-          timestamp: new Date().toISOString(),
-          title: String(args.taskId),
-          severity: args.severity,
-          taskId: String(args.taskId),
-        });
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        if (code === 'E_OWNER_ONLY') {
-          cliError((err as Error).message, 72, { name: 'E_OWNER_ONLY' });
-          process.exit(72);
-          return;
-        }
-        // Any other failure (e.g. not inside a CLEO project) is non-fatal.
-      }
-    }
 
     await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
   },
