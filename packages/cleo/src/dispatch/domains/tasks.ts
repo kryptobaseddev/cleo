@@ -153,6 +153,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       limit: params.limit,
       offset: params.offset,
       compact: params.compact,
+      includeArchive: params.includeArchive,
     });
     if (!result.success) {
       return lafsError(

@@ -191,3 +191,43 @@ describe('knowledge truth survives the budget middleware T12199', () => {
     expect(output.data).toBeNull();
   });
 });
+
+it('retains population and emitted rows together or rejects an insufficient budget (T12200)', async () => {
+  const data = {
+    results: [{ id: 'T1', title: 'one' }],
+    population: {
+      matched: 3,
+      returned: 1,
+      truncated: true,
+      archive: 'excluded',
+      limit: 1,
+      offset: 0,
+    },
+    examples: 'example '.repeat(500),
+  };
+  const roomy = enforceBudget({ success: true, data }, 500);
+  expect(roomy.response.success).toBe(true);
+  expect(roomy.response.data).toMatchObject({ results: data.results, population: data.population });
+  const tiny = enforceBudget({ success: true, data }, 1);
+  expect(tiny.exceeded).toBe(true);
+  const request: DispatchRequest = {
+    gateway: 'query',
+    domain: 'tasks',
+    operation: 'find',
+    params: { _budget: 1 },
+  };
+  const response = await createBudgetEnforcement()(request, async () => ({
+    success: true,
+    data,
+    meta: {
+      gateway: 'query',
+      domain: 'tasks',
+      operation: 'find',
+      source: 'cli',
+      requestId: 'population-budget',
+      timestamp: new Date().toISOString(),
+      duration_ms: 0,
+    },
+  }));
+  expect(response.success).toBe(false);
+});

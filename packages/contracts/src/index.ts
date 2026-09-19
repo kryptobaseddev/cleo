@@ -343,6 +343,7 @@ export type {
   TaskAuditLogQuery,
   TaskAuditLogRow,
   TaskFieldUpdates,
+  TaskPopulation,
   TaskQueryFilters,
   TransactionAccessor,
 } from './data-accessor.js';
