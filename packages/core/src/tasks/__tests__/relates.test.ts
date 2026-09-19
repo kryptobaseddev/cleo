@@ -10,10 +10,20 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { addBatchRelations, addRelation, listRelations, removeRelation } from '../relates.js';
 import { coreTaskRelates, coreTaskRelatesAddBatch } from '../task-data.js';
+
+// Explicit fixture cwd must resolve its own project and persisted records.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('relates.ts addRelation persistence (T5168)', () => {
   let testDir: string;
