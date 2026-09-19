@@ -31,7 +31,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resetDbState, validateGateVerify } from '@cleocode/core/internal';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** Absolute project root for each test — recreated per test. */
 let TEST_ROOT: string;
@@ -104,6 +104,8 @@ function hasTrigger(db: NativeDbForTest, name: string): boolean {
 
 describe('validateGateVerify — parent-type-matrix decoupling (T11907)', () => {
   beforeEach(async () => {
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     resetDbState();
     TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-t11907-'));
     await setupTestRoot();
@@ -112,6 +114,7 @@ describe('validateGateVerify — parent-type-matrix decoupling (T11907)', () => 
   afterEach(async () => {
     resetDbState();
     await rm(TEST_ROOT, { recursive: true, force: true });
+    vi.unstubAllEnvs();
   });
 
   it('records an evidence gate on a task parented directly under a saga (repro)', async () => {
