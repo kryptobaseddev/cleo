@@ -61,10 +61,12 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import { getLogger } from '../../logger.js';
 import { getCleoHome, resolveCleoDir } from '../../paths.js';
 import { getCleoVersion } from '../../scaffold/ensure-config.js';
+import { hasExodusDatabaseIdentity } from './recovery.js';
 import type { ExodusPlan, ExodusScope, LegacyDbDescriptor } from './types.js';
 
 const log = getLogger('exodus-archive');
@@ -72,6 +74,7 @@ const markerIdentity = z.object({
   version: z.literal(1),
   scope: z.enum(['project', 'global']),
   targetDbPath: z.string().optional(),
+  databaseIdentity: z.string().optional(),
 });
 
 /** Per-scope archive directory name (sibling of the migrated DBs). */
@@ -150,6 +153,8 @@ export interface ExodusCompleteMarker {
   readonly archivedSources: readonly string[];
   /** Exact target certified by new markers; absent on legacy version-1 markers. */
   readonly targetDbPath?: string;
+  /** Persisted cutover token; prevents a replaced/restored database inheriting this marker. */
+  readonly databaseIdentity?: string;
 }
 
 /**
@@ -163,12 +168,14 @@ export interface ExodusCompleteMarker {
  * @param scope - Target scope.
  * @param cwd   - Working directory used to resolve the project `.cleo/` dir.
  * @param targetDbPath - Explicit target database; its directory owns metadata, overriding discovery.
+ * @param nativeDb - Existing caller handle; certifies the marker against its persisted cutover token.
  * @returns Whether `<scopeBase>/exodus-complete` exists.
  */
 export function hasExodusCompleteMarker(
   scope: ExodusScope,
   cwd?: string,
   targetDbPath?: string,
+  nativeDb?: DatabaseSync,
 ): boolean {
   let markerPath: string;
   try {
@@ -179,6 +186,13 @@ export function hasExodusCompleteMarker(
   }
   if (!existsSync(markerPath)) return false;
   const marker = markerIdentity.parse(JSON.parse(readFileSync(markerPath, 'utf8')));
+  if (
+    nativeDb &&
+    (!marker.databaseIdentity || !hasExodusDatabaseIdentity(nativeDb, marker.databaseIdentity))
+  )
+    throw new Error(
+      'Exodus completion marker does not certify this database generation; assessment required',
+    );
   return (
     marker.scope === scope &&
     (!targetDbPath ||
@@ -198,6 +212,7 @@ export function hasExodusCompleteMarker(
  * @param archivedSources - Logical names of the sources archived for this scope.
  * @param cwd             - Working directory used to resolve the project dir.
  * @param targetDbPath - Explicit target database; its directory owns metadata, overriding discovery.
+ * @param databaseIdentity - Token committed on the verified database generation before publication.
  * @returns The marker's absolute path.
  *
  * @task T11777
@@ -207,6 +222,7 @@ export function writeExodusCompleteMarker(
   archivedSources: readonly string[],
   cwd?: string,
   targetDbPath?: string,
+  databaseIdentity?: string,
 ): string {
   const markerPath = exodusMarkerPath(scope, cwd, targetDbPath);
   const baseDir = scopeBaseDir(scope, cwd, targetDbPath);
@@ -219,6 +235,7 @@ export function writeExodusCompleteMarker(
     completedAt: new Date().toISOString(),
     archivedSources: [...archivedSources],
     targetDbPath: resolve(targetDbPath ?? join(baseDir, 'cleo.db')),
+    ...(databaseIdentity ? { databaseIdentity } : {}),
   };
 
   const tmpPath = `${markerPath}.tmp`;
@@ -357,11 +374,13 @@ export interface ArchiveMigratedSourcesResult {
  * @returns A {@link ArchiveMigratedSourcesResult} with per-source + per-scope outcomes.
  *
  * @task T11777
+ * @param identities - Persisted cutover tokens for the exact verified target generations.
  */
 export function archiveMigratedSources(
   consumed: readonly LegacyDbDescriptor[],
   cwd?: string,
   targets?: Pick<ExodusPlan, 'projectDbPath' | 'globalDbPath'>,
+  identities?: Partial<Record<ExodusScope, string>>,
 ): ArchiveMigratedSourcesResult {
   const results: ArchivedSourceResult[] = [];
   const scopes = new Set<ExodusScope>();
@@ -377,7 +396,7 @@ export function archiveMigratedSources(
   for (const scope of scopes) {
     const archivedForScope = consumed.filter((s) => s.targetScope === scope).map((s) => s.name);
     const target = scope === 'project' ? targets?.projectDbPath : targets?.globalDbPath;
-    writeExodusCompleteMarker(scope, archivedForScope, cwd, target);
+    writeExodusCompleteMarker(scope, archivedForScope, cwd, target, identities?.[scope]);
     markersWritten.push(scope);
   }
 

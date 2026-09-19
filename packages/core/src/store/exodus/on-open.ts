@@ -71,8 +71,8 @@ import { getLogger } from '../../logger.js';
 import type { DualScope, DualScopeDbHandle } from '../dual-scope-db.js';
 import { withLock } from '../lock.js';
 import { archiveMigratedSources, hasExodusCompleteMarker } from './archive.js';
-import { rollbackExodusReceipts } from './recovery.js';
-import type { ExodusPlan, ExodusRecoveryResult } from './types.js';
+import { rollbackExodusReceipts, sealExodusDatabase } from './recovery.js';
+import type { ExodusPlan, ExodusRecoveryResult, ExodusScope, LegacyDbDescriptor } from './types.js';
 
 const log = getLogger('exodus-on-open');
 
@@ -157,6 +157,26 @@ async function rollbackBothScopes(plan: ExodusPlan): Promise<ExodusRecoveryResul
     complete: scopes.every((entry) => entry.status === 'rolled_back'),
     scopes,
   };
+}
+
+/** Seal only scopes whose sources were verified, without disturbing other cutovers. */
+async function sealTargets(
+  plan: ExodusPlan,
+  consumed: readonly LegacyDbDescriptor[],
+): Promise<Partial<Record<ExodusScope, string>>> {
+  const { openDualScopeDbAtPath } = await import('../dual-scope-db.js');
+  const identities: Partial<Record<ExodusScope, string>> = {};
+  for (const scope of ['project', 'global'] as const) {
+    if (!consumed.some((source) => source.targetScope === scope)) continue;
+    const path = scope === 'project' ? plan.projectDbPath : plan.globalDbPath;
+    const handle = await openDualScopeDbAtPath(scope, path, undefined, { dedicated: true });
+    try {
+      identities[scope] = sealExodusDatabase(handle.db.$client as DatabaseSync);
+    } finally {
+      handle.close();
+    }
+  }
+  return identities;
 }
 
 /**
@@ -318,22 +338,22 @@ async function runExodusOnOpen(
     return { outcome: 'skipped', reason: 'CLEO_DISABLE_EXODUS_ON_OPEN set' };
   }
 
+  // Fast path (unlocked): if the consolidated DB already has data, nothing to do.
+  // This makes the second-open case a cheap COUNT(*) with no lock acquisition.
+  if (!consolidatedIsEmpty(nativeDb, scope)) {
+    return { outcome: 'skipped', reason: 'consolidated cleo.db already populated' };
+  }
+
   // Completion-marker gate (T11777): once this scope's cutover is recorded, the
   // migration has already happened and the legacy sources have been archived.
   // Gate on the committed MARKER rather than (only) the source-file existsSync,
   // so a re-appearing or stranded legacy DB can NEVER re-arm exodus-on-open even
   // if the consolidated base table momentarily reads empty (DHQ-052 · T11662).
-  if (hasExodusCompleteMarker(scope, cwd, dbPath)) {
+  if (hasExodusCompleteMarker(scope, cwd, dbPath, nativeDb)) {
     return {
       outcome: 'skipped',
       reason: 'exodus completion marker present — scope already migrated (cutover sealed)',
     };
-  }
-
-  // Fast path (unlocked): if the consolidated DB already has data, nothing to do.
-  // This makes the second-open case a cheap COUNT(*) with no lock acquisition.
-  if (!consolidatedIsEmpty(nativeDb, scope)) {
-    return { outcome: 'skipped', reason: 'consolidated cleo.db already populated' };
   }
 
   // Lazy-load the exodus engine via dynamic import to break the import cycle
@@ -488,7 +508,8 @@ async function runExodusOnOpen(
         // so it is logged but does not flip the outcome to 'aborted'.
         try {
           const consumed = plan.sources.filter((s) => existsSync(s.path));
-          const archiveResult = archiveMigratedSources(consumed, cwd, plan);
+          const identities = await sealTargets(plan, consumed);
+          const archiveResult = archiveMigratedSources(consumed, cwd, plan, identities);
           log.info(
             {
               scope,
