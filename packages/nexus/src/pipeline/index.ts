@@ -149,7 +149,7 @@ export { CALLABLE_KINDS, CLASS_KINDS, createSymbolTable } from './symbol-table.j
 export type { WorkerPool } from './workers/worker-pool.js';
 export { createWorkerPool } from './workers/worker-pool.js';
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import type {
   GraphIndexFileReport,
@@ -530,6 +530,7 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   options?.parserLimits?.signal?.throwIfAborted();
   const startTime = Date.now();
+  const publicationGeneration = randomUUID();
   const isIncremental = options?.incremental === true;
   const graph: KnowledgeGraph = createKnowledgeGraph();
 
@@ -654,6 +655,7 @@ export async function runPipeline(
     {
       tsconfigPaths,
       namedImportMap,
+      publicationGeneration,
       onProgress,
       parserLimits: options?.parserLimits,
       parserExecution: options?.parserExecution,
@@ -696,15 +698,25 @@ export async function runPipeline(
   // Runs after call resolution so the SymbolTable is fully populated with all
   // class members and properties. Same-file and global tiers are used.
   process.stderr.write('[nexus] Phase 3f: Resolving member accesses...\n');
-  const accessResult = await resolveAccesses(allAccesses, graph, symbolTable);
+  const accessResult = await resolveAccesses(
+    allAccesses,
+    graph,
+    symbolTable,
+    namedImportMap,
+    barrelMap,
+  );
   process.stderr.write(
-    `[nexus] Accesses: tier1=${accessResult.tier1Count}, tier3=${accessResult.tier3Count}, unresolved=${accessResult.unresolvedCount}\n`,
+    `[nexus] Accesses: tier1=${accessResult.tier1Count}, tier2a=${accessResult.tier2aCount}, tier3=${accessResult.tier3Count}, unresolved=${accessResult.unresolvedCount}\n`,
   );
 
-  const referenceReports = retainAnalyzedReferences(graph, allCalls, allAccesses);
+  const referenceReports = [
+    ...callResult.references,
+    ...accessResult.references,
+    ...retainAnalyzedReferences(graph, allCalls, allAccesses),
+  ];
   if (referenceReports.length > 0) {
     process.stderr.write(
-      `[nexus] Partial scope coverage: ${referenceReports.length} AST references retained as diagnostics because their enclosing declarations were not analyzed.\n`,
+      `[nexus] Reference limitations: ${referenceReports.length} unresolved or unmodeled static sites retained with available evidence.\n`,
     );
   }
 
@@ -760,7 +772,9 @@ export async function runPipeline(
       );
     }
     const publication = graph.preparePublication();
+    publication.generation = publicationGeneration;
     publication.assessment = {
+      generation: publicationGeneration,
       references: referenceReports,
       sourceRoot: repoPath,
       includedRepositories: [...(options.includedRepositories ?? [])],

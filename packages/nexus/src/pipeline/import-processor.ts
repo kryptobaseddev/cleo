@@ -964,52 +964,82 @@ export function resolveBarrelBinding(
   exportedName: string,
   barrelMap: BarrelExportMap,
 ): BarrelExportEntry | null {
-  let currentFile = barrelFile;
-  let currentName = exportedName;
+  // Direct declarations are candidate-enumerator inputs, not barrel resolutions.
+  if (!barrelMap.has(barrelFile)) return null;
+  const result = resolveBarrelCandidates(barrelFile, exportedName, barrelMap);
+  return result.incomplete.length === 0 && result.candidates.length === 1
+    ? result.candidates[0]
+    : null;
+}
 
-  for (let depth = 0; depth < MAX_BARREL_CHAIN_DEPTH; depth++) {
-    const barrelEntry = barrelMap.get(currentFile);
-    if (!barrelEntry) return null;
+/** Candidate source bindings plus explicit traversal limits/cycles. */
+export interface BarrelResolutionCandidates {
+  /** All distinct candidate bindings; callers must verify actual exported declarations. */
+  candidates: BarrelExportEntry[];
+  /** Reasons traversal cannot establish a complete candidate set. */
+  incomplete: string[];
+}
 
-    // Check exact named match first
-    const namedMatch = barrelEntry.get(currentName);
-    if (namedMatch) {
-      // If the canonical file is itself a barrel, keep following the chain
-      if (barrelMap.has(namedMatch.canonicalFile)) {
-        currentFile = namedMatch.canonicalFile;
-        currentName = namedMatch.canonicalName;
-        continue;
-      }
-      return namedMatch;
+/**
+ * Enumerate re-export candidates without selecting the first wildcard source.
+ * @param barrelFile - Imported source module.
+ * @param exportedName - Imported name, after explicit alias normalization.
+ * @param barrelMap - Existing re-export inventory.
+ * @param hasDeclaration - Optional AST oracle for a directly exported declaration.
+ * @returns Distinct candidate locations and any cycle/depth/breadth limitations.
+ * @remarks Every branch carries its visited identities; cycles never reset the
+ * depth budget. Direct declarations and named re-exports take precedence over stars.
+ * @example
+ * ```ts
+ * const result = resolveBarrelCandidates('index.ts', 'create', barrelMap);
+ * if (result.incomplete.length) reportUnresolved(result.incomplete);
+ * ```
+ */
+export function resolveBarrelCandidates(
+  barrelFile: string,
+  exportedName: string,
+  barrelMap: BarrelExportMap,
+  hasDeclaration?: (entry: BarrelExportEntry) => boolean,
+): BarrelResolutionCandidates {
+  const queue = [
+    { entry: { canonicalFile: barrelFile, canonicalName: exportedName }, trail: new Set<string>() },
+  ];
+  const candidates = new Map<string, BarrelExportEntry>();
+  const incomplete = new Set<string>();
+  for (let index = 0; index < queue.length; index++) {
+    if (index >= 8192) {
+      incomplete.add('Re-export candidate traversal exceeded 8192 branches');
+      break;
     }
-
-    // No named match — check wildcard re-exports
-    // Collect all wildcard source files from this barrel
-    let wildcardIndex = 0;
-    while (barrelEntry.has(`${WILDCARD_EXPORT_KEY_PREFIX}${wildcardIndex}`)) {
-      const wildcardEntry = barrelEntry.get(`${WILDCARD_EXPORT_KEY_PREFIX}${wildcardIndex}`)!;
-      wildcardIndex++;
-
-      const wildcardSourceFile = wildcardEntry.canonicalFile;
-
-      // If the wildcard source is itself a barrel, check it recursively (via loop)
-      if (barrelMap.has(wildcardSourceFile)) {
-        const nested = resolveBarrelBinding(wildcardSourceFile, currentName, barrelMap);
-        if (nested) return nested;
-        continue;
-      }
-
-      // Wildcard from a non-barrel file: we can't know what it exports without
-      // running the symbol table lookup. Return a candidate pointing to this file.
-      // The caller (resolveSingleCall) will verify against the symbol table.
-      return { canonicalFile: wildcardSourceFile, canonicalName: currentName };
+    const { entry, trail } = queue[index];
+    const key = `${entry.canonicalFile}\0${entry.canonicalName}`;
+    if (trail.has(key)) {
+      incomplete.add(`Cyclic re-export binding at ${entry.canonicalFile}:${entry.canonicalName}`);
+      continue;
     }
-
-    // No match in this barrel at all
-    return null;
+    if (trail.size >= MAX_BARREL_CHAIN_DEPTH) {
+      incomplete.add(`Re-export depth exceeds ${MAX_BARREL_CHAIN_DEPTH} at ${entry.canonicalFile}`);
+      continue;
+    }
+    const bindings = barrelMap.get(entry.canonicalFile);
+    if (hasDeclaration?.(entry) || !bindings) {
+      candidates.set(key, entry);
+      continue;
+    }
+    const named = bindings.get(entry.canonicalName);
+    const next = named
+      ? [named]
+      : [...bindings.entries()]
+          .filter(([name]) => name.startsWith(WILDCARD_EXPORT_KEY_PREFIX))
+          .map(([, binding]) => ({
+            canonicalFile: binding.canonicalFile,
+            canonicalName: entry.canonicalName,
+          }));
+    const visited = new Set(trail);
+    visited.add(key);
+    for (const candidate of next) queue.push({ entry: candidate, trail: visited });
   }
-
-  return null;
+  return { candidates: [...candidates.values()], incomplete: [...incomplete].sort() };
 }
 
 // ---------------------------------------------------------------------------
@@ -1017,11 +1047,10 @@ export function resolveBarrelBinding(
 // ---------------------------------------------------------------------------
 
 /**
- * Hard limit for tree-sitter 0.21.x: native code uses a 15-bit byte-offset
- * counter that overflows at 32768 characters. Files larger than this threshold
- * cannot be parsed by tree-sitter and should use the regex fallback.
- *
- * Exported for use in parse-loop.ts and parse-worker.ts.
+ * Historical threshold for direct-string parser input, retained for compatibility.
+ * @deprecated This is not a parser capacity limit. The native callback input path
+ * parses larger original Unicode sources under explicit byte/time/process limits.
+ * The current parse loop and parser worker do not use this threshold.
  */
 export const TREE_SITTER_MAX_CHARS = 32_767;
 
@@ -1037,7 +1066,7 @@ export const TREE_SITTER_MAX_CHARS = 32_767;
  * statements. False negatives are acceptable (they result in missing CALLS edges,
  * not incorrect ones). Dynamic or computed re-exports are not handled.
  *
- * Used as a fallback when tree-sitter cannot parse a file due to its 32K limit.
+ * Legacy opt-in helper; the current bounded parser does not fall back here based on source length.
  *
  * @param content - Raw file content (non-ASCII chars are ignored by regex patterns)
  * @param filePath - File path relative to repo root

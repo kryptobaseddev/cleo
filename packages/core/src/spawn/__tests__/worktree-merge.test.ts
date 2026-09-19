@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   completeAgentWorktreeViaMerge,
@@ -44,6 +44,8 @@ function makeRepo(branch: string): Fixture {
   const xdg = join(dir, '.xdg');
   mkdirSync(xdg, { recursive: true });
   process.env['XDG_DATA_HOME'] = xdg;
+  // CLEO_HOME has precedence over XDG; keep worktrees inside this fixture.
+  vi.stubEnv('CLEO_HOME', join(xdg, 'cleo'));
 
   const git = (...args: string[]): string =>
     execFileSync('git', args, {
@@ -86,6 +88,8 @@ function gitAt(cwd: string, ...args: string[]): string {
 // ---------------------------------------------------------------------------
 // getDefaultBranch
 // ---------------------------------------------------------------------------
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe('getDefaultBranch (project-agnostic resolution)', () => {
   let fixture: Fixture;
@@ -158,7 +162,7 @@ describe('completeAgentWorktreeViaMerge (ADR-062)', () => {
       skipFetch: true,
     });
 
-    expect(result.merged).toBe(true);
+    expect(result.merged, JSON.stringify(result)).toBe(true);
     expect(result.commitCount).toBe(2);
     expect(result.targetBranch).toBe('trunk');
     expect(result.mergeCommit.length).toBe(40);
@@ -205,7 +209,7 @@ describe('completeAgentWorktreeViaMerge (ADR-062)', () => {
       skipFetch: true,
     });
 
-    expect(result.merged).toBe(true);
+    expect(result.merged, JSON.stringify(result)).toBe(true);
     expect(result.targetBranch).toBe('develop');
     expect(result.commitCount).toBe(1);
 
@@ -223,7 +227,7 @@ describe('completeAgentWorktreeViaMerge (ADR-062)', () => {
       skipFetch: true,
     });
 
-    expect(result.merged).toBe(true);
+    expect(result.merged, JSON.stringify(result)).toBe(true);
     expect(result.commitCount).toBe(0);
     expect(result.mergeCommit).toBe('');
     // Worktree should still be cleaned up via prune.

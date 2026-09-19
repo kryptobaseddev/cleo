@@ -783,6 +783,8 @@ export interface ExtractedCall {
   span?: GraphSourceSpan;
   /** Source content generation used for lexical/anonymous identities. */
   generation?: string;
+  /** Preallocated publication identity, distinct from the source content hash. */
+  publicationGeneration?: string;
   /** Nearest callee binding for free calls, or receiver binding for member calls. */
   lexical?: GraphLexicalResolution;
   /** True when the original callee cannot be statically named; never silently discard it. */
@@ -850,6 +852,7 @@ export function extractCalls(
           receiverName,
           span: model.spanOf(node),
           generation: model.generation,
+          publicationGeneration: model.publicationGeneration,
           lexical: bindingName ? model.resolve(bindingName, node.startIndex) : undefined,
           dynamic: !named || (member && !receiverName),
         });
@@ -960,6 +963,7 @@ export function extractTypeScript(
       meta: {
         lexicalCapability: 'typescript-javascript',
         sourceGeneration: model.generation,
+        publicationGeneration: model.publicationGeneration,
         sourceSpan: declaration.span,
       },
     });

@@ -19,6 +19,7 @@ import type {
 } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { z } from 'zod';
 import { createParserExecutionPort } from '../resources/spawn-wrapper.js';
 import { nexusNodes, nexusRelations } from '../store/schema/cleo-project/nexus-graph.js';
 import { readKnowledgeIndexAssessment } from './knowledge.js';
@@ -79,6 +80,22 @@ export function publishNexusGraph(
   rows: GraphPublicationRows,
   expectedGeneration: string | null,
 ): void {
+  const generation = rows.generation ?? randomUUID();
+  if (rows.generation !== undefined) {
+    z.uuid().parse(generation);
+    if (generation === expectedGeneration)
+      throw new Error('Publication generation must be a fresh immutable identity');
+    if (rows.assessment?.generation !== generation)
+      throw new Error('Staged assessment publication generation does not match rows');
+    if (
+      rows.assessment.references?.some(
+        (reference) =>
+          reference.publicationGeneration !== undefined &&
+          reference.publicationGeneration !== generation,
+      )
+    )
+      throw new Error('Staged reference publication generation does not match rows');
+  }
   db.transaction(
     (tx) => {
       if (graphGeneration(tx) !== expectedGeneration) {
@@ -106,11 +123,21 @@ export function publishNexusGraph(
           .values(rows.relations.slice(offset, offset + 500))
           .run();
       }
+      if (
+        rows.generation !== undefined &&
+        tx.values(sql`
+        SELECT id FROM main.nexus_nodes
+        WHERE json_extract(meta_json, '$.lexicalCapability') = 'typescript-javascript'
+          AND json_extract(meta_json, '$.publicationGeneration') IS NOT ${generation}
+        LIMIT 1
+      `).length > 0
+      ) {
+        throw new Error('Staged lexical declaration publication generation does not match rows');
+      }
       if (rows.assessment) {
         tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_assessment', ${JSON.stringify(rows.assessment)})
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
       }
-      const generation = randomUUID();
       tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_generation', ${generation})
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
     },

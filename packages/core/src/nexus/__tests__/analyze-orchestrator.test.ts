@@ -111,6 +111,92 @@ describe('publishNexusGraph', () => {
     expect(native.prepare('SELECT * FROM _nexus_meta').all()).toEqual([]);
   });
 
+  it('commits the staged publication identity while preserving separate source hashes', () => {
+    const rows = replacement();
+    const generation = '11111111-1111-4111-8111-111111111111';
+    rows.generation = generation;
+    rows.nodes[0]!.metaJson = JSON.stringify({
+      lexicalCapability: 'typescript-javascript',
+      publicationGeneration: generation,
+      sourceGeneration: 'a'.repeat(64),
+    });
+    rows.assessment = {
+      generation,
+      sourceRoot: '/fixture',
+      assessedRevision: null,
+      assessedAt: '2026-09-19',
+      files: [],
+      references: [
+        {
+          kind: 'shadowed',
+          filePath: 'new.ts',
+          sourceId: 'new',
+          targetName: 'local',
+          relationship: 'calls',
+          reason: 'Local binding is not an imported target',
+          generation: 'a'.repeat(64),
+          publicationGeneration: generation,
+        },
+      ],
+    };
+    publishNexusGraph(drizzle({ client: native }), rows, null);
+    expect(
+      native.prepare("SELECT value FROM _nexus_meta WHERE key='graph_generation'").get(),
+    ).toEqual({ value: generation });
+    expect(
+      native.prepare("SELECT value FROM _nexus_meta WHERE key='graph_assessment'").get(),
+    ).toEqual({ value: JSON.stringify(rows.assessment) });
+    expect(native.prepare('SELECT meta_json FROM nexus_nodes').get()).toEqual({
+      meta_json: rows.nodes[0]!.metaJson,
+    });
+    expect(() => publishNexusGraph(drizzle({ client: native }), rows, generation)).toThrow(
+      'fresh immutable identity',
+    );
+  });
+
+  it.each([
+    'assessment',
+    'reference',
+    'declaration',
+  ])('refuses mixed %s publication identities without changing the previous graph', (part) => {
+    const rows = replacement();
+    const generation = '22222222-2222-4222-8222-222222222222';
+    const other = '33333333-3333-4333-8333-333333333333';
+    rows.generation = generation;
+    rows.assessment = {
+      generation: part === 'assessment' ? other : generation,
+      sourceRoot: '/fixture',
+      assessedRevision: null,
+      assessedAt: '2026-09-19',
+      files: [],
+      references:
+        part === 'reference'
+          ? [
+              {
+                kind: 'dynamic',
+                filePath: 'new.ts',
+                sourceId: 'new',
+                targetName: 'computed',
+                relationship: 'calls',
+                reason: 'Dynamic expression',
+                publicationGeneration: other,
+              },
+            ]
+          : [],
+    };
+    rows.nodes[0]!.metaJson = JSON.stringify({
+      lexicalCapability: 'typescript-javascript',
+      publicationGeneration: part === 'declaration' ? other : generation,
+    });
+    expect(() => publishNexusGraph(drizzle({ client: native }), rows, null)).toThrow(
+      'publication generation',
+    );
+    expect(native.prepare('SELECT id FROM nexus_nodes').all()).toEqual([{ id: 'old' }]);
+    expect(native.prepare('SELECT id FROM nexus_relations').all()).toEqual([{ id: 'old-edge' }]);
+    expect(native.prepare('SELECT name FROM nexus_symbols_fts').all()).toEqual([{ name: 'old' }]);
+    expect(native.prepare('SELECT * FROM _nexus_meta').all()).toEqual([]);
+  });
+
   it('rejects a stale concurrent publication without replacing the winning graph', () => {
     const db = drizzle({ client: native });
     publishNexusGraph(db, replacement(), null);

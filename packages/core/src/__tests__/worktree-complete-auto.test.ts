@@ -35,7 +35,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WorktreeLifecycleAuditEntry } from '@cleocode/contracts';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AUTO_WORKTREE_COMPLETE_ENV,
@@ -59,6 +59,8 @@ function makeRepo(branch: string): Fixture {
   const xdg = join(dir, '.xdg');
   mkdirSync(xdg, { recursive: true });
   process.env['XDG_DATA_HOME'] = xdg;
+  // CLEO_HOME has precedence over XDG; keep worktrees inside this fixture.
+  vi.stubEnv('CLEO_HOME', join(xdg, 'cleo'));
 
   const git = (...args: string[]): string =>
     execFileSync('git', args, {
@@ -110,6 +112,8 @@ function readAuditLines(filePath: string): WorktreeLifecycleAuditEntry[] {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe('maybeAutoCompleteWorktreeForTask (T9548 auto-invoke wrapper)', () => {
   let fixture: Fixture | undefined;

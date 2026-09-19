@@ -24,13 +24,15 @@ import {
   lifecycleStatus,
   resetDbState,
 } from '@cleocode/core/internal';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let TEST_ROOT = '';
 let RCASD_DIR = '';
 
 describe('Lifecycle Engine', () => {
   beforeEach(() => {
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     process.env['LIFECYCLE_ENFORCEMENT_MODE'] = 'off';
     resetDbState();
     TEST_ROOT = mkdtempSync(join(tmpdir(), 'cleo-lifecycle-engine-'));
@@ -47,6 +49,7 @@ describe('Lifecycle Engine', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
     await closeLogger();
     closeDb();

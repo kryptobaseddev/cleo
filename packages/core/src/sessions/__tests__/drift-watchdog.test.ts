@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAccessor } from '../../store/data-accessor.js';
 import {
   DEFAULT_PIVOT_THRESHOLD,
@@ -27,6 +27,8 @@ describe('drift-watchdog', () => {
   let auditPath: string;
 
   beforeEach(async () => {
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-drift-test-'));
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
@@ -45,6 +47,7 @@ describe('drift-watchdog', () => {
       rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(() => {}),
       new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
     ]);
+    vi.unstubAllEnvs();
   });
 
   // -------------------------------------------------------------------------

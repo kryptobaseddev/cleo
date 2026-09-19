@@ -474,13 +474,13 @@ export interface GraphLexicalResolution {
   reason: string;
 }
 
-/** An AST reference whose enclosing scope has no analyzed declaration in this generation. */
+/** An unresolved static reference retained with its available lexical and source evidence. */
 export interface GraphIndexReferenceReport {
   /** Explicit extraction limitation; this record is not a resolved graph relationship. */
   kind: 'unmodeled-source' | 'ambiguous' | 'external' | 'dynamic' | 'shadowed' | 'unresolved';
   /** Analyzed source file containing the reference. */
   filePath: string;
-  /** Enclosing scope identifier extracted from syntax, without a graph declaration. */
+  /** Enclosing qualified scope identifier extracted from original syntax. */
   sourceId: string;
   /** Known target, absent when syntax cannot establish one. */
   targetId?: string;
@@ -490,16 +490,20 @@ export interface GraphIndexReferenceReport {
   relationship: 'calls' | 'accesses';
   /** Extraction and resolution provenance from the attempted relationship. */
   reason: string;
-  /** Original reference range; absent only on historical reports. */
+  /** Original reference range; absent on historical or unsupported-language reports. */
   span?: GraphSourceSpan;
   /** Candidate identities retained without asserting an authoritative target. */
   candidateIds?: string[];
-  /** Source generation tying anonymous and span identities to the analyzed bytes. */
+  /** Source-content generation tying reference evidence to analyzed bytes. */
   generation?: string;
+  /** Preallocated publication identity; absent for standalone or historical extraction. */
+  publicationGeneration?: string;
 }
 
 /** Source provenance persisted with a complete published graph generation. */
 export interface GraphIndexAssessment {
+  /** Immutable publication identity allocated before extraction; absent on historical indexes. */
+  generation?: string;
   /** Unmodeled AST scopes remain explicit limitations instead of fabricated declarations. */
   references?: GraphIndexReferenceReport[];
   /** Explicit nested repository/worktree scope retained for subsequent rebuilds. */
@@ -516,6 +520,8 @@ export interface GraphIndexAssessment {
 
 /** Validated rows staged before an atomic graph publication. */
 export interface GraphPublicationRows {
+  /** Immutable publication identity shared by anonymous symbols, rows and assessment. */
+  generation?: string;
   /** Source provenance and coverage belonging to this generation. */
   assessment?: GraphIndexAssessment;
   /** Complete replacement node generation. */

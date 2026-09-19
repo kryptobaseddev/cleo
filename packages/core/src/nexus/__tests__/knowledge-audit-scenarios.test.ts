@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { GraphIndexAssessment } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import { runKnowledgeDoctor } from '../../doctor/knowledge.js';
@@ -21,7 +22,11 @@ import { getDb } from '../../store/sqlite.js';
 import { tasks } from '../../store/tasks-schema.js';
 import { nexusTaskSymbols } from '../api-contracts.js';
 import { getSymbolImpact, nexusImpact } from '../impact.js';
-import { assessKnowledgeCoverage, KnowledgeSymbolAmbiguityError } from '../knowledge.js';
+import {
+  assessKnowledgeCoverage,
+  KnowledgeSymbolAmbiguityError,
+  readKnowledgeIndexAssessment,
+} from '../knowledge.js';
 import { getSymbolFullContext, getTaskCodeImpact } from '../living-brain.js';
 import { getTaskKnowledgeEvidence } from '../task-evidence.js';
 
@@ -265,6 +270,63 @@ describe('preserved audit failure modes against synthetic project stores', () =>
     ).run(id, 'function', name, file, name, new Date().toISOString());
     return id;
   }
+
+  it('round-trips lexical report kinds, candidates, source ranges and publication identity', async () => {
+    const graph = getNexusNativeDb(root);
+    if (!graph) throw new Error('Synthetic graph unavailable');
+    const generation = '55555555-5555-4555-8555-555555555555';
+    const kinds = [
+      'unmodeled-source',
+      'ambiguous',
+      'external',
+      'dynamic',
+      'shadowed',
+      'unresolved',
+    ] as const;
+    const assessment: GraphIndexAssessment = {
+      generation,
+      sourceRoot: root,
+      assessedRevision: null,
+      assessedAt: '2026-09-19',
+      files: [],
+      references: kinds.map((kind) => ({
+        kind,
+        filePath: 'source.ts',
+        sourceId: 'source.ts::caller',
+        targetName: 'callee',
+        relationship: 'calls',
+        reason: 'Explicit unresolved source evidence',
+        candidateIds: ['source.ts::candidate'],
+        generation: 'a'.repeat(64),
+        publicationGeneration: generation,
+        span: {
+          startIndex: 2,
+          endIndex: 10,
+          startLine: 1,
+          endLine: 1,
+          startColumn: 2,
+          endColumn: 10,
+          offsetEncoding: 'utf16',
+        },
+      })),
+    };
+    graph
+      .prepare("INSERT INTO main._nexus_meta (key,value) VALUES ('graph_assessment',?)")
+      .run(JSON.stringify(assessment));
+    expect(await readKnowledgeIndexAssessment(root)).toEqual(assessment);
+    const invalid = {
+      ...assessment,
+      references: [
+        { ...assessment.references![0], span: { ...assessment.references![0]!.span, endIndex: 1 } },
+      ],
+    };
+    graph
+      .prepare("UPDATE main._nexus_meta SET value=? WHERE key='graph_assessment'")
+      .run(JSON.stringify(invalid));
+    await expect(readKnowledgeIndexAssessment(root)).rejects.toThrow(
+      'ordered original source range',
+    );
+  });
 
   it('probes 2/15: an absent graph returns UNKNOWN rather than zero-impact assurance', async () => {
     const operation = await nexusImpact(root, {

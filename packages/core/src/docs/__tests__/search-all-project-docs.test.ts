@@ -20,12 +20,15 @@ vi.mock('llmtxt/similarity', () => ({
 
 import * as simMod from 'llmtxt/similarity';
 import { createAttachmentStore } from '../../store/attachment-store.js';
+import { closeAllDatabases } from '../../store/sqlite.js';
 import { searchAllProjectDocs } from '../docs-ops.js';
 
 let tmpRoot: string;
 let prevCwd: string;
 
 beforeEach(async () => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   tmpRoot = await mkdtemp(join(tmpdir(), 'cleo-search-test-'));
   prevCwd = process.cwd();
   await mkdir(join(tmpRoot, '.cleo'), { recursive: true });
@@ -35,8 +38,10 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await closeAllDatabases();
   process.chdir(prevCwd);
   await rm(tmpRoot, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 async function publishDoc(

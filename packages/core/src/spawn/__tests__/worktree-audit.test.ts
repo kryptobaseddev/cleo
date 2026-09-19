@@ -17,7 +17,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { completeAgentWorktreeIntegration, createAgentWorktree } from '../branch-lock.js';
 
@@ -35,6 +35,8 @@ function makeRepo(branch: string): Fixture {
   const xdg = join(dir, '.xdg');
   mkdirSync(xdg, { recursive: true });
   process.env['XDG_DATA_HOME'] = xdg;
+  // CLEO_HOME has precedence over XDG; keep worktrees inside this fixture.
+  vi.stubEnv('CLEO_HOME', join(xdg, 'cleo'));
 
   const git = (...args: string[]): string =>
     execFileSync('git', args, {
@@ -68,6 +70,8 @@ function makeRepo(branch: string): Fixture {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe('completeAgentWorktreeIntegration', () => {
   let fixture: Fixture | undefined;

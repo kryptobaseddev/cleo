@@ -372,7 +372,7 @@ describe('living-brain SDK', () => {
       expect(full.structural.riskLevel).toBe('UNKNOWN');
     });
 
-    it('keeps unmodeled AST references inspectable and never infers complete caller coverage', async () => {
+    it('keeps legacy and dynamic references inspectable without inferring complete callers', async () => {
       const native = getNexusNativeDb(projectRoot);
       if (!native) throw new Error('Missing fixture database');
       const references = [
@@ -384,6 +384,24 @@ describe('living-brain SDK', () => {
           targetName: SYMBOL_NAME,
           relationship: 'calls',
           reason: 'AST scope lacks a declaration',
+        },
+        {
+          kind: 'dynamic',
+          filePath: FILE_PATH,
+          sourceId: CALLER_ID,
+          targetName: 'handlers[name]',
+          relationship: 'calls',
+          candidateIds: [],
+          span: {
+            startIndex: 0,
+            endIndex: 16,
+            startLine: 1,
+            endLine: 1,
+            startColumn: 0,
+            endColumn: 16,
+            offsetEncoding: 'utf16',
+          },
+          reason: 'Computed expression requires runtime evidence',
         },
       ];
       native
@@ -404,7 +422,7 @@ describe('living-brain SDK', () => {
       expect(impact.coverage.status).toBe('partial');
       expect(impact.riskLevel).toBe('UNKNOWN');
       expect(impact.coverage.reasons).toContain(
-        '1 AST references have unmodeled enclosing scopes; known callers are incomplete. Inspect assessment.references in cleo nexus status.',
+        '2 unresolved or unmodeled static references remain; known callers are incomplete. Inspect assessment.references in cleo nexus status.',
       );
       expect(impact.coverage.nextAction).toBe('cleo nexus status');
       expect(JSON.stringify(impact.impactByDepth)).toContain(CALLER_ID);

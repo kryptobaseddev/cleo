@@ -29,8 +29,9 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BUILTIN_DOC_KINDS } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAttachmentStore } from '../../store/attachment-store.js';
+import { closeAllDatabases } from '../../store/sqlite.js';
 import { searchAllProjectDocs } from '../docs-ops.js';
 import {
   createAttachmentStoreDocsAccessor,
@@ -44,14 +45,18 @@ import { generateSlug, stripMdExtension } from '../import/slug.js';
 let projectRoot: string;
 
 beforeEach(async () => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   projectRoot = await mkdtemp(join(tmpdir(), 'cleo-import-T9791-'));
   await mkdir(join(projectRoot, '.cleo'), { recursive: true });
 });
 
 afterEach(async () => {
+  await closeAllDatabases();
   await rm(projectRoot, { recursive: true, force: true }).catch(() => {
     /* never fail teardown */
   });
+  vi.unstubAllEnvs();
 });
 
 async function seed(rel: string, content: string): Promise<void> {
