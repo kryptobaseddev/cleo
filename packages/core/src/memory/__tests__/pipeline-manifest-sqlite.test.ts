@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExtendedManifestEntry } from '../index.js';
 import {
   distillManifestEntry,
@@ -93,6 +93,16 @@ async function seedEntries(root: string, entries: ExtendedManifestEntry[]): Prom
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+// Resolve explicit fixture cwd values independently of the shared setup project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('pipeline-manifest-sqlite', () => {
   let testRoot: string;

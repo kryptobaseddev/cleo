@@ -66,6 +66,9 @@ async function seedTasks(testRoot: string): Promise<void> {
 }
 
 beforeEach(async () => {
+  // Explicit cwd must resolve this fixture rather than the shared setup project.
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-admission-'));
   mkdirSync(join(TEST_ROOT, '.git'), { recursive: true });
   await seedTasks(TEST_ROOT);
@@ -80,6 +83,7 @@ afterEach(async () => {
     // ignore cleanup errors
   }
   await rm(TEST_ROOT, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 // ---------------------------------------------------------------------------

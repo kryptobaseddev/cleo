@@ -40,6 +40,9 @@ const child_process: Record<string, unknown> = cjsRequire('node:child_process');
 // Resolve the platform temp default without inherited host overrides. A TMPDIR
 // below the developer's home can make ancestor discovery bind ~/.cleo even
 // after HOME is replaced. Never create the test sandbox beneath that path.
+// This fallback alias must not survive when a fixture clears CLEO_ROOT to use
+// its explicit cwd. Keep one default project pin, not an inherited second one.
+delete process.env.CLEO_PROJECT_ROOT;
 for (const name of ['TMPDIR', 'TMP', 'TEMP']) delete process.env[name];
 const sandbox = mkdtempSync(join(tmpdir(), 'cleo-vitest-fork-'));
 const isolatedRoots = {

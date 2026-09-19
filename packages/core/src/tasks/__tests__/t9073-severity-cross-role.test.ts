@@ -59,6 +59,16 @@ async function readAttestationLines(cwd: string): Promise<Record<string, unknown
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+// Resolve explicit fixture cwd values independently of the shared setup project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('T9073 — severity attestation fires for any role', () => {
   beforeEach(async () => {
     tempDir = await setupTempCleoDir();

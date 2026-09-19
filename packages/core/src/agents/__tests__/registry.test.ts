@@ -8,7 +8,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   checkAgentHealth,
@@ -25,6 +25,16 @@ import {
   registerAgent,
   updateAgentStatus,
 } from '../registry.js';
+
+// Explicit cwd identifies each fixture; retain only the global sandbox bindings.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('Agent Registry', () => {
   let tempDir: string;

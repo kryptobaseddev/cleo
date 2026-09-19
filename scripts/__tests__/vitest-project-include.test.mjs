@@ -198,6 +198,7 @@ describe('test runtime store isolation (T9579)', () => {
       'CLEO_HOME',
       'CLEO_CONFIG_HOME',
       'CLEO_ROOT',
+      'CLEO_PROJECT_ROOT',
       'CLEO_DIR',
       'AGENTS_HOME',
       'NEXUS_HOME',
@@ -219,6 +220,7 @@ describe('test runtime store isolation (T9579)', () => {
         const { join } = await import('node:path');
         const roots = Object.fromEntries(${JSON.stringify(names)}.map(name => [name, process.env[name]]));
         for (const path of Object.values(roots)) {
+          if (typeof path !== 'string') continue;
           mkdirSync(path, { recursive: true });
           writeFileSync(join(path, 'probe'), 'isolated write');
         }
@@ -237,6 +239,7 @@ describe('test runtime store isolation (T9579)', () => {
         expect(readdirSync(env[name])).toEqual(['sentinel']);
         expect(readFileSync(join(env[name], 'sentinel'), 'utf8')).toBe('preserve original bytes');
       }
+      expect(isolated.CLEO_PROJECT_ROOT).toBeUndefined();
       expect(isolated.CLEO_DIR).toBe(join(isolated.CLEO_ROOT, '.cleo'));
     } finally {
       if (isolated?.CLEO_HOME !== env.CLEO_HOME && isolated?.CLEO_HOME)
