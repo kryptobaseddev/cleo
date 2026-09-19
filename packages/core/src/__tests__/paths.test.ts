@@ -27,6 +27,7 @@ import {
   resolveCanonicalCleoDir,
   resolveProjectByCwd,
   resolveProjectPath,
+  worktreeScope,
 } from '../paths.js';
 
 // Exercise cwd and registry discovery, not the global setup's project override.
@@ -116,6 +117,22 @@ describe('getCleoDirAbsolute', () => {
     } finally {
       rmSync(fixtureDir, { recursive: true, force: true });
     }
+  });
+
+  it('prioritizes captured scope over absolute CLEO_DIR and restores unscoped override semantics', async () => {
+    vi.stubEnv('CLEO_DIR', '/ambient/data');
+    vi.stubEnv('CLEO_ROOT', '/ambient');
+    const result = await worktreeScope.run(
+      { worktreeRoot: '/captured', projectHash: 'captured' },
+      async () => {
+        expect(getCleoDirAbsolute('/caller')).toBe('/captured/.cleo');
+        await Promise.resolve();
+        vi.stubEnv('CLEO_DIR', '/changed/data');
+        return getCleoDirAbsolute('/caller');
+      },
+    );
+    expect(result).toBe('/captured/.cleo');
+    expect(getCleoDirAbsolute('/caller')).toBe('/changed/data');
   });
 
   it('returns absolute CLEO_DIR as-is', () => {

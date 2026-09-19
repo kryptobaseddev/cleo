@@ -367,10 +367,15 @@ export function getCleoDir(cwd?: string): string {
  * getCleoDirAbsolute('/tmp/new-project', { bootstrap: true }); // "/tmp/new-project/.cleo"
  * ```
  *
+ * @remarks Active worktree scope takes precedence over ambient CLEO_DIR, matching
+ * resolveCleoDir. Outside a scope, absolute CLEO_DIR retains its override behavior.
  * @deprecated Migrate to {@link resolveProjectByCwd} + {@link resolveCanonicalCleoDir}
  * @task T11009
  */
 export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean }): string {
+  // Captured ownership has the same precedence as the canonical resolver.
+  // Ambient overrides retain their historical behavior only outside a scope.
+  if (worktreeScope.getStore() !== undefined) return resolveCleoDir(cwd);
   const cleoDir = getCleoDir();
   if (isAbsolutePath(cleoDir)) {
     return cleoDir;
