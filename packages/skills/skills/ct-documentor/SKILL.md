@@ -1,14 +1,14 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.15.0
+version: 3.16.0
 tier: 3
 core: false
 category: specialist
 protocol: null
 metadata:
-  version: 3.15.0
-  lastReviewed: 2026-05-27
+  version: 3.16.0
+  lastReviewed: 2026-09-19
   stability: stable
 dependencies:
   - ct-docs-lookup
@@ -61,6 +61,27 @@ first — it returns slug + owner + type without forcing a filesystem walk. Use
 legacy discovery verbs only when `list` is insufficient.
 
 ---
+
+## Verify document storage and optional projections separately
+
+After `cleo docs add`, retain the canonical attachment ID and SHA-256, then use
+`cleo docs fetch <slug>` to verify the accepted bytes. For exact-byte checks,
+decode `data.bytesBase64` from the JSON response and compare its digest with
+`data.metadata.sha256`; rendered content can add a trailing newline.
+
+The add result's `projection` reports captured project identity/root, coverage,
+diagnostics, the original deadline, and any durable `jobId` or verified receipt.
+A successful document write can coexist with failed or pending graph/observation
+work. Preserve those diagnostics and references in the handoff. Missing identity
+means missing projection coverage; it does not authorize guessing a project.
+
+Optional projection work shares a two-second foreground budget across identity
+capture, preparation, locking, execution, and verification. Deadline expiry ends
+foreground observation; synchronous database work is not preempted by a timer.
+If the outcome is unresolved, inspect the retained job and accepted attachment
+before explicitly resuming. Do not repeat the add to simulate a retry or assume
+that a lost worker reply means no write committed. A projection receipt verifies
+its domain results; it is not an atomic receipt for all document side effects.
 
 ## Purpose
 
