@@ -325,16 +325,17 @@ export async function createBackup(
     file: string;
     getDb: () => { exec: (sql: string) => void } | null;
   }> = [
-    { file: 'tasks.db', getDb: getNativeDb },
-    { file: 'brain.db', getDb: getBrainNativeDb },
+    { file: 'tasks.db', getDb: () => getNativeDb(projectRoot) },
+    { file: 'brain.db', getDb: () => getBrainNativeDb(projectRoot) },
   ];
   const jsonTargets: string[] = ['config.json', 'project-info.json'];
   const backedUp: string[] = [];
 
   // SQLite via VACUUM INTO.
   for (const target of sqliteTargets) {
-    const src = join(cleoDir, target.file);
-    if (!existsSync(src)) continue;
+    // These are compatibility labels, not source paths. Post-E6 both canonical
+    // accessors point at cleo.db; absence of legacy files says nothing about
+    // source availability. The project-bound native handle is authoritative.
     const dest = join(backupDir, `${target.file}.${backupId}`);
     try {
       const ok = safeSqliteSnapshot(target.getDb(), dest);

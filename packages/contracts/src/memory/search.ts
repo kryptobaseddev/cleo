@@ -30,6 +30,8 @@
  * @since SG-ARCH-SOLID Saga T9831 · E-CONTRACTS-FOUNDATION T9832 · T9956 (Phase 0e)
  */
 export interface BrainCompactHit {
+  /** Obsolete decision IDs matching the query whose explicit supersededBy chain resolves to this current hit. */
+  matchedHistoricalIds?: string[];
   /** Entry identifier (e.g. `D-arch-001`, `P-feat-042`). */
   id: string;
   /** Source BRAIN table that produced the hit. */
@@ -70,6 +72,8 @@ export interface BrainCompactHit {
  * @since SG-ARCH-SOLID Saga T9831 · E-CONTRACTS-FOUNDATION T9832 · T9956 (Phase 0e)
  */
 export interface SearchBrainCompactParams {
+  /** Explicitly include superseded and invalidated records for historical retrieval. */
+  includeHistory?: boolean;
   /** Free-text query (FTS5 + optional vector recall). */
   query: string;
   /** Maximum number of hits to return (caller-bounded). */

@@ -306,7 +306,7 @@ describe('brain-reasoning-symbol', () => {
       expect(riskIds).toContain('decision:D-risk2');
     });
 
-    it('merges risk tiers: MEDIUM task count + structural NONE = MEDIUM', async () => {
+    it('keeps missing structural coverage UNKNOWN even when task references suggest risk', async () => {
       const { reasonImpactOfChange } = await import('../../nexus/living-brain.js');
 
       const symbolNexusId = 'src/nexus/tasks-bridge.ts::getTasksForSymbol';
@@ -324,16 +324,14 @@ describe('brain-reasoning-symbol', () => {
 
       const result = await reasonImpactOfChange(symbolNexusId, tempDir);
 
-      // 3 open tasks should push risk to at least MEDIUM
-      const order = ['NONE', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-      const riskIdx = order.indexOf(result.mergedRiskScore);
-      expect(riskIdx).toBeGreaterThanOrEqual(order.indexOf('MEDIUM'));
-
-      // Narrative mentions open tasks
-      expect(result.narrative).toContain('task');
+      expect(result.openTasks).toHaveLength(3);
+      expect(result.structural.riskLevel).toBe('UNKNOWN');
+      expect(result.mergedRiskScore).toBe('UNKNOWN');
+      expect(result.coverage?.status).not.toBe('current');
+      expect(result.narrative).toContain('cannot be fully assessed');
     });
 
-    it('narrative describes directCallers, openTasks, and merged risk', async () => {
+    it('narrative explicitly explains unverified legacy coverage', async () => {
       const { reasonImpactOfChange } = await import('../../nexus/living-brain.js');
 
       const symbolNexusId = 'src/core/facade.ts::getApi';
@@ -341,8 +339,9 @@ describe('brain-reasoning-symbol', () => {
 
       const result = await reasonImpactOfChange(symbolNexusId, tempDir);
 
-      // Narrative should always contain "Merged risk:"
-      expect(result.narrative).toMatch(/Merged risk:/i);
+      expect(result.mergedRiskScore).toBe('UNKNOWN');
+      expect(result.narrative).toMatch(/Coverage:/i);
+      expect(result.narrative).not.toContain('will break');
     });
   });
 });

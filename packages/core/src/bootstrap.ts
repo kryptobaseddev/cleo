@@ -352,8 +352,14 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
   const globalAgentsMd = join(globalAgentsDir, 'AGENTS.md');
 
   try {
-    const { inject, getInstalledProviders, injectAll, buildInjectionContent, withFileLock } =
-      await import('@cleocode/caamp');
+    const {
+      inject,
+      getInstalledProviders,
+      injectAll,
+      buildInjectionContent,
+      resolveInstructionDelivery,
+      withFileLock,
+    } = await import('@cleocode/caamp');
 
     if (!ctx.isDryRun) {
       await mkdir(globalAgentsDir, { recursive: true });
@@ -435,7 +441,15 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
           }
         }
 
-        const results = await injectAll(providers, homedir(), 'global', injectionContent);
+        const delivery = await resolveInstructionDelivery(injectionContent, homedir());
+        const failures = delivery.findings.filter((finding) => finding.kind !== 'duplicate');
+        if (failures.length > 0) {
+          ctx.warnings.push(
+            `Global instruction delivery unresolved: ${failures.map((finding) => `${finding.kind}: ${finding.path}`).join('; ')}`,
+          );
+          return;
+        }
+        const results = await injectAll(providers, homedir(), 'global', delivery.content);
         for (const [filePath, action] of results) {
           const displayPath = filePath.replace(homedir(), '~');
           ctx.created.push(`${displayPath} (${action})`);

@@ -17,7 +17,7 @@ import {
   OpenCodeInstallProvider,
   OpenCodeSpawnProvider,
 } from '@cleocode/adapters';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('OpenCodeAdapter — integration', () => {
   let adapter: OpenCodeAdapter;
@@ -189,9 +189,19 @@ describe('OpenCodeInstallProvider — integration', () => {
     install = new OpenCodeInstallProvider();
     testDir = join(tmpdir(), `cleo-opencode-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
+    const fixtureHome = join(testDir, 'fixture-home');
+    vi.stubEnv('HOME', fixtureHome);
+    vi.stubEnv('USERPROFILE', fixtureHome);
+    vi.stubEnv('CLEO_HOME', join(fixtureHome, '.cleo'));
+    mkdirSync(join(fixtureHome, '.cleo', 'templates'), { recursive: true });
+    writeFileSync(
+      join(fixtureHome, '.cleo', 'templates', 'CLEO-INJECTION.md'),
+      'Fixture protocol: inspect authority and coverage.',
+    );
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     try {
       rmSync(testDir, { recursive: true, force: true });
     } catch {
@@ -199,24 +209,24 @@ describe('OpenCodeInstallProvider — integration', () => {
     }
   });
 
-  it('creates AGENTS.md with @-references', async () => {
+  it('creates AGENTS.md with embedded protocol', async () => {
     await install.ensureInstructionReferences(testDir);
     const content = readFileSync(join(testDir, 'AGENTS.md'), 'utf-8');
-    // Structure check: must be a non-empty @~/... path pointing to CLEO-INJECTION.md (OS-agnostic)
-    expect(content).toMatch(/@~\/.+\/CLEO-INJECTION\.md/);
-    expect(content).toContain('@.cleo/memory-bridge.md');
+    expect(content).toContain('Fixture protocol: inspect authority and coverage.');
+    expect(content).toContain('Project memory bridge unavailable.');
+    expect(content).not.toContain('@.cleo/memory-bridge.md');
   });
 
-  it('appends missing references to existing AGENTS.md', async () => {
+  it('embeds protocol while preserving existing AGENTS.md', async () => {
     const existing = '# Project Agents\n\nSome content.\n';
     writeFileSync(join(testDir, 'AGENTS.md'), existing, 'utf-8');
 
     await install.ensureInstructionReferences(testDir);
     const content = readFileSync(join(testDir, 'AGENTS.md'), 'utf-8');
     expect(content).toContain('# Project Agents');
-    // Structure check: must be a non-empty @~/... path pointing to CLEO-INJECTION.md (OS-agnostic)
-    expect(content).toMatch(/@~\/.+\/CLEO-INJECTION\.md/);
-    expect(content).toContain('@.cleo/memory-bridge.md');
+    expect(content).toContain('Fixture protocol: inspect authority and coverage.');
+    expect(content).toContain('Project memory bridge unavailable.');
+    expect(content).not.toContain('@.cleo/memory-bridge.md');
   });
 
   it('does not duplicate CAAMP block on repeated calls', async () => {
@@ -231,6 +241,7 @@ describe('OpenCodeInstallProvider — integration', () => {
     const afterSecond = readFileSync(join(testDir, 'AGENTS.md'), 'utf-8');
     const blockCountSecond = (afterSecond.match(/<!-- CAAMP:START -->/g) ?? []).length;
     expect(blockCountSecond).toBe(1);
+    expect(afterSecond).toBe(afterFirst);
   });
 
   it('install returns expected shape', async () => {

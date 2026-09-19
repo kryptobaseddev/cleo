@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.0.0
+version: 3.1.0
 tier: 2
 core: false
 category: specialist
@@ -16,9 +16,20 @@ compatibility:
   - windsurf
   - gemini-cli
 license: MIT
+metadata:
+  version: 3.1.0
+  lastReviewed: 2026-09-18
+  stability: stable
 ---
 
 # Development Workflow Context Injection
+
+Before editing, inspect focus/briefing authority and coverage. Missing evidence
+means UNKNOWN impact; current static coverage does not prove every runtime caller.
+Task start, verification, completion, and handoff expose assessed coverage. Preserve
+these limitations in PR and handoff claims, and recheck after source changes.
+Use the repair matrix and sourced foreground resolutions; verify postconditions
+and retain receipt recovery. Record actionable learning rather than empty traces.
 
 **Protocol**: @src/protocols/contribution.md
 **Type**: Context Injection (cleo-subagent)

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { notInArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
+import { KnowledgeSymbolAmbiguityError, resolveKnowledgeSymbol } from './knowledge.js';
 import { buildSymbolMissError } from './symbol-miss.js';
 
 /** Source code content fetched via smartUnfold. */
@@ -129,55 +130,23 @@ export async function getSymbolContext(
   const limit = opts.limit ?? 20;
   const showContent = opts.showContent ?? false;
 
-  const { sortMatchingNodes } = await import('./symbol-ranking.js');
-  const db = await getNexusDb();
-
-  // Fetch only symbol nodes (exclude community/process structural nodes).
-  // ADR-090 · T11648: the graph lives in the PROJECT `cleo.db` (one project per
-  // DB), so the former `project_id = ?` predicate is dropped — only the kind
-  // exclusion remains, pushed into the `idx_nexus_nodes_kind` index.
-  let projectSymbolNodes: Array<Record<string, unknown>> = [];
-  try {
-    projectSymbolNodes = db
-      .select()
-      .from(nexusSchema.nexusNodes)
-      .where(notInArray(nexusSchema.nexusNodes.kind, ['community', 'process']))
-      .all() as Array<Record<string, unknown>>;
-  } catch {
-    projectSymbolNodes = [];
-  }
-
-  const lowerSymbol = symbolName.toLowerCase();
-  const rawMatchingNodes = projectSymbolNodes.filter(
-    (n) => n['name'] != null && String(n['name']).toLowerCase().includes(lowerSymbol),
-  );
-  const matchingNodes = sortMatchingNodes(rawMatchingNodes, symbolName);
+  const db = await getNexusDb(repoPath);
+  const projectSymbolNodes = db
+    .select()
+    .from(nexusSchema.nexusNodes)
+    .where(notInArray(nexusSchema.nexusNodes.kind, ['community', 'process']))
+    .all();
+  const selected = resolveKnowledgeSymbol(symbolName, projectSymbolNodes);
+  const matchingNodes = projectSymbolNodes.filter((node) => node.id === selected?.id);
 
   if (matchingNodes.length === 0) {
     // T12068: distinguish "no such symbol" from "index predates the symbol".
     throw buildSymbolMissError(symbolName, projectId, projectSymbolNodes);
   }
 
-  // Fetch all relations for callers/callees/process edges (project-scoped DB).
-  let allRelations: Array<Record<string, unknown>> = [];
-  try {
-    allRelations = db.select().from(nexusSchema.nexusRelations).all() as Array<
-      Record<string, unknown>
-    >;
-  } catch {
-    allRelations = [];
-  }
-
-  // Fetch ALL nodes (including community/process) for the nodeById map so community
-  // labels and process names resolve correctly.
-  let allProjectNodes: Array<Record<string, unknown>> = [];
-  try {
-    allProjectNodes = db.select().from(nexusSchema.nexusNodes).all() as Array<
-      Record<string, unknown>
-    >;
-  } catch {
-    allProjectNodes = projectSymbolNodes;
-  }
+  // Query failures remain explicit errors rather than empty healthy context.
+  const allRelations = db.select().from(nexusSchema.nexusRelations).all();
+  const allProjectNodes = db.select().from(nexusSchema.nexusNodes).all();
 
   const nodeById = new Map<string, Record<string, unknown>>();
   for (const n of allProjectNodes) {
@@ -330,6 +299,8 @@ export async function nexusContext(
     });
     return engineSuccess(result);
   } catch (error) {
+    if (error instanceof KnowledgeSymbolAmbiguityError)
+      return engineError(error.code, error.message, { details: { candidates: error.candidates } });
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }

@@ -31,6 +31,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('system/backup', () => {
@@ -117,6 +118,42 @@ describe('system/backup', () => {
     expect(meta.files).toEqual(
       expect.arrayContaining(['tasks.db', 'brain.db', 'config.json', 'project-info.json']),
     );
+  });
+
+  it('snapshots canonical-only cleo.db through project-bound handles while retaining legacy labels', async () => {
+    const database = new DatabaseSync(join(testDir, '.cleo', 'cleo.db'));
+    database.exec(
+      "PRAGMA journal_mode=WAL; CREATE TABLE backup_fixture(value TEXT); INSERT INTO backup_fixture VALUES ('preserved evidence')",
+    );
+    const getNativeDb = vi.fn((cwd: string) => (cwd === testDir ? database : null));
+    const getBrainNativeDb = vi.fn((cwd: string) => (cwd === testDir ? database : null));
+    vi.doMock('../../store/sqlite.js', () => ({ getDb: vi.fn(), getNativeDb }));
+    vi.doMock('../../store/memory-sqlite.js', () => ({ getBrainDb: vi.fn(), getBrainNativeDb }));
+    try {
+      expect(existsSync(join(testDir, '.cleo', 'tasks.db'))).toBe(false);
+      expect(existsSync(join(testDir, '.cleo', 'brain.db'))).toBe(false);
+      const { createBackup } = await import('../backup.js');
+      const result = await createBackup(testDir);
+      expect(result.files).toEqual(['tasks.db', 'brain.db']);
+      expect(getNativeDb).toHaveBeenCalledWith(testDir);
+      expect(getBrainNativeDb).toHaveBeenCalledWith(testDir);
+      for (const label of ['tasks.db', 'brain.db']) {
+        const snapshot = new DatabaseSync(
+          join(testDir, '.cleo', 'backups', 'sqlite', `${label}.${result.backupId}`),
+          { readOnly: true },
+        );
+        try {
+          expect(snapshot.prepare('SELECT value FROM backup_fixture').get()?.value).toBe(
+            'preserved evidence',
+          );
+          expect(snapshot.prepare('PRAGMA integrity_check').get()?.integrity_check).toBe('ok');
+        } finally {
+          snapshot.close();
+        }
+      }
+    } finally {
+      database.close();
+    }
   });
 
   it('createBackup skips SQLite files when the native handle is null (non-fatal)', async () => {
