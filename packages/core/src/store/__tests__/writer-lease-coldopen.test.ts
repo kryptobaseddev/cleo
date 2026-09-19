@@ -19,7 +19,7 @@
  * @epic T11625
  */
 
-import { mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -38,6 +38,7 @@ import {
   acquireWriterLease,
   assertWriterLeaseHeld,
   hasActiveGrant,
+  type LeaseHandle,
   type LeaseScope,
   type LeaseTarget,
   makeWriterLeaseIdentity,
@@ -45,6 +46,7 @@ import {
   resolveDbIdentity,
   WriterLeaseRequiredError,
   withColdOpenLease,
+  withWriterLease,
 } from '../writer-lease.js';
 import { WRITER_LEASES_TABLE, WRITER_QUEUE_TABLE } from '../writer-lease-schema.js';
 
@@ -772,6 +774,128 @@ describe('captured cold-open lease lifetime', () => {
       release();
       await holder;
       holderNative.close();
+    }
+  });
+
+  it('never recreates a removed project when releasing a cancelled scoped lease', async () => {
+    const directory = join(testRoot, 'removed-project');
+    const target = join(directory, '.cleo', 'cleo.db');
+    const execution = context();
+    _setNativeDbResolverForTest(undefined);
+    const lease = await acquireWriterLease('project', 'brain', { dbPath: target, execution });
+    execution.close();
+    _resetDualScopeDbCache();
+    rmSync(directory, { recursive: true });
+    await lease.release();
+    await lease.release();
+    expect(existsSync(directory)).toBe(false);
+    expect(lease.cleanupPending).toBe(true);
+  });
+
+  it('scoped heartbeat and release never borrow an unrelated native transaction', async () => {
+    const target = join(testRoot, 'release-owned.db');
+    const execution = context();
+    const lease = await acquireWriterLease('project', 'brain', { dbPath: target, execution });
+    const opened = await openDualScopeDbAtPath('project', target);
+    const native = opened.db.$client;
+    const before = native
+      .prepare("SELECT heartbeat_at FROM main._writer_leases WHERE lane='brain'")
+      .get()?.heartbeat_at;
+    native.exec(
+      "CREATE TABLE release_owner_proof (value TEXT); BEGIN; INSERT INTO release_owner_proof VALUES ('unrelated')",
+    );
+    try {
+      lease.heartbeat();
+      await lease.release();
+      expect(native.isTransaction).toBe(true);
+      expect(native.prepare('SELECT value FROM release_owner_proof').get()?.value).toBe(
+        'unrelated',
+      );
+      expect(
+        native.prepare("SELECT heartbeat_at FROM main._writer_leases WHERE lane='brain'").get()
+          ?.heartbeat_at,
+      ).toBe(before);
+      expect(
+        native.prepare("SELECT active FROM main._writer_leases WHERE lane='brain'").get()?.active,
+      ).toBe(1);
+      expect(lease.cleanupPending).toBe(true);
+    } finally {
+      native.exec('ROLLBACK');
+      execution.close();
+    }
+  });
+
+  it.each([
+    'replacement',
+    'shared',
+  ] as const)('scoped release preserves a %s holder and remains idempotent', async (kind) => {
+    const target = join(testRoot, 'release-replacement.db');
+    const original = context();
+    const successor = context();
+    const first = await acquireWriterLease('project', 'brain', {
+      dbPath: target,
+      execution: original,
+    });
+    const opened = await openDualScopeDbAtPath('project', target);
+    const native = opened.db.$client;
+    if (kind === 'replacement')
+      native.exec("UPDATE main._writer_leases SET active=0 WHERE lane='brain'");
+    const second = await acquireWriterLease('project', 'brain', {
+      dbPath: target,
+      execution: successor,
+      reentrant: kind === 'shared',
+    });
+    try {
+      original.close();
+      await first.release();
+      await first.release();
+      expect(
+        native
+          .prepare("SELECT epoch FROM main._writer_leases WHERE lane='brain' AND active=1")
+          .get()?.epoch,
+      ).toBe(second.epoch);
+      expect(second.cleanupPending).toBe(false);
+      await second.release();
+      expect(
+        native
+          .prepare(
+            "SELECT count(*) AS count FROM main._writer_leases WHERE lane='brain' AND active=1",
+          )
+          .get()?.count,
+      ).toBe(0);
+    } finally {
+      original.close();
+      successor.close();
+      await second.release();
+    }
+  });
+
+  it('returns an admitted committed write even when scoped teardown cleanup must be deferred', async () => {
+    const target = join(testRoot, 'committed-release.db');
+    const execution = context();
+    let held: LeaseHandle | undefined;
+    const result = await withWriterLease(
+      'project',
+      'brain',
+      async (lease) => {
+        held = lease;
+        const opened = await openDualScopeDbAtPath('project', target);
+        opened.db.$client.exec(
+          "CREATE TABLE committed_release (value TEXT); INSERT INTO committed_release VALUES ('committed')",
+        );
+        execution.close();
+        _resetDualScopeDbCache();
+        return 'committed';
+      },
+      { dbPath: target, execution },
+    );
+    expect(result).toBe('committed');
+    expect(held?.cleanupPending).toBe(true);
+    const fresh = new DatabaseSync(target, { readOnly: true });
+    try {
+      expect(fresh.prepare('SELECT value FROM committed_release').get()?.value).toBe('committed');
+    } finally {
+      fresh.close();
     }
   });
 

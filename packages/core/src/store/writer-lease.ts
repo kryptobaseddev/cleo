@@ -98,6 +98,8 @@ export type LeaseMode = 'supervisor' | 'local' | 'off' | 'require';
  * callback of {@link withWriterLease}.
  */
 export interface LeaseHandle {
+  /** Scoped cleanup could not update its original handle; persisted ownership awaits TTL recovery. */
+  readonly cleanupPending?: boolean;
   /** The cleo.db scope this lease arbitrates within. */
   readonly scope: LeaseScope;
   /** The write lane this lease arbitrates within the scope. */
@@ -661,6 +663,13 @@ class InternalLeaseHandle implements LeaseHandle {
 
   heartbeat(): void {
     if (this.released) return;
+    if (this.nativeDb.isOpen && this.nativeDb.isTransaction) {
+      log().debug(
+        { scope: this.scope, lane: this.lane },
+        'Lease heartbeat deferred while another caller owns the native transaction',
+      );
+      return;
+    }
     // The heartbeat fires from an unref'd timer; if the underlying native handle
     // was closed out from under a still-held lease (cache eviction / shutdown /
     // test teardown), `prepare()` throws `database is not open` INSIDE the timer
@@ -697,9 +706,10 @@ class InternalLeaseHandle implements LeaseHandle {
    * @param nativeDb - Handle to use for the release update. A caller may retry
    *   with a freshly resolved handle when the lease's original shared handle
    *   was closed mid-operation.
+   * @param guardTransaction - Refuse to borrow another caller's native transaction.
    * @returns True when the release update executed successfully.
    */
-  releaseRow(nativeDb: DatabaseSync = this.nativeDb): boolean {
+  releaseRow(nativeDb: DatabaseSync = this.nativeDb, guardTransaction = false): boolean {
     if (!this.released) {
       this.released = true;
       if (this.heartbeatTimer) {
@@ -707,18 +717,48 @@ class InternalLeaseHandle implements LeaseHandle {
         this.heartbeatTimer = null;
       }
     }
+    let began = false;
     try {
+      if (guardTransaction) {
+        nativeDb.exec('BEGIN IMMEDIATE');
+        began = true;
+      }
       nativeDb
         .prepare(
           `UPDATE ${WRITER_LEASES_TABLE} SET active = 0, reentrancy_depth = 0 ` +
             `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
         )
         .run(this.scope, this.lane, this.holderId, this.epoch);
+      if (began) nativeDb.exec('COMMIT');
       return true;
     } catch (err) {
+      if (began) nativeDb.exec('ROLLBACK');
       log().debug(
         { scope: this.scope, lane: this.lane, err: err instanceof Error ? err.message : err },
         'writer-lease releaseRow failed (native handle likely closed); fresh-handle retry required',
+      );
+      return false;
+    }
+  }
+
+  /** Adjust a shared grant using its existing connection only; never reopen during cleanup. */
+  releaseScopedDepth(depth: number): boolean {
+    let began = false;
+    try {
+      this.nativeDb.exec('BEGIN IMMEDIATE');
+      began = true;
+      this.nativeDb
+        .prepare(
+          `UPDATE ${WRITER_LEASES_TABLE} SET reentrancy_depth = ? WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
+        )
+        .run(depth, this.scope, this.lane, this.holderId, this.epoch);
+      this.nativeDb.exec('COMMIT');
+      return true;
+    } catch (error) {
+      if (began) this.nativeDb.exec('ROLLBACK');
+      log().debug(
+        { scope: this.scope, lane: this.lane, error },
+        'Scoped lease depth cleanup deferred; original handle unavailable or owned',
       );
       return false;
     }
@@ -1053,7 +1093,7 @@ export async function acquireWriterLease(
         existing.refcount -= 1;
         throw err;
       }
-      return existing.handle;
+      return scopeLeaseRelease(existing.handle, dbPath, opts?.execution);
     }
 
     // Single-flight FIRST acquisition (Finding 2): if another caller is already
@@ -1079,7 +1119,7 @@ export async function acquireWriterLease(
           entry.refcount -= 1;
           throw err;
         }
-        return entry.handle;
+        return scopeLeaseRelease(entry.handle, dbPath, opts?.execution);
       }
       // The shared acquire is no longer active — fall through to a fresh acquire.
     }
@@ -1094,7 +1134,7 @@ export async function acquireWriterLease(
     _inflightAcquire.set(key, acquirePromise);
   }
   try {
-    return await acquirePromise;
+    return scopeLeaseRelease(await acquirePromise, dbPath, opts?.execution);
   } finally {
     // Always clear our in-flight entry. A degraded acquire resolves to a no-op
     // handle (never memoized) and `require` mode rejects — in both cases the
@@ -1217,13 +1257,54 @@ async function performFirstAcquire(
   }
 }
 
+/** Bind cleanup to this caller's original grant without reopening after cancellation. */
+function scopeLeaseRelease(
+  handle: LeaseHandle,
+  dbPath: string,
+  execution?: OperationExecutionContext,
+): LeaseHandle {
+  if (!execution) return handle;
+  let released = false;
+  let cleanupPending = false;
+  return {
+    get cleanupPending() {
+      return cleanupPending;
+    },
+    scope: handle.scope,
+    lane: handle.lane,
+    epoch: handle.epoch,
+    async release() {
+      if (released) return;
+      released = true;
+      cleanupPending = await releaseGrant(handle.scope, dbPath, handle.lane, handle);
+    },
+    heartbeat() {
+      execution.assertActive();
+      if (!released) handle.heartbeat();
+    },
+  };
+}
+
 /** Decrement the memoized grant; free the row at depth 0. */
-async function releaseGrant(scope: LeaseScope, dbPath: string, lane: LeaseLane): Promise<void> {
+async function releaseGrant(
+  scope: LeaseScope,
+  dbPath: string,
+  lane: LeaseLane,
+  scopedHandle?: LeaseHandle,
+): Promise<boolean> {
   const key = memoKey(scope, dbPath, lane);
   const entry = _grantMemo.get(key);
-  if (!entry) return; // off-mode / no-op handle / already released
+  if (!entry || (scopedHandle && entry.handle !== scopedHandle)) {
+    // Stop a stale scoped timer without touching the successor's epoch or reopening.
+    return scopedHandle instanceof InternalLeaseHandle
+      ? !scopedHandle.releaseRow(undefined, true)
+      : false;
+  }
   entry.refcount -= 1;
   if (entry.refcount > 0) {
+    if (scopedHandle) {
+      return !entry.handle.releaseScopedDepth(entry.refcount);
+    }
     // Still re-entered above this frame — decrement the durable depth only. Pin the
     // resolver at the grant's own dbPath so the depth-write lands in the SAME file
     // the lease row lives in (matches the memo key, not the cwd-default).
@@ -1234,11 +1315,18 @@ async function releaseGrant(scope: LeaseScope, dbPath: string, lane: LeaseLane):
           `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
       )
       .run(scope, lane, entry.handle.holderId, entry.handle.epoch);
-    return;
+    return false;
   }
   // Depth 0 — free the row and evict the memo.
   _grantMemo.delete(key);
-  if (entry.handle.releaseRow()) return;
+  if (entry.handle.releaseRow(undefined, scopedHandle !== undefined)) return false;
+  if (scopedHandle) {
+    log().debug(
+      { scope, lane, dbPath },
+      'Scoped lease release deferred to TTL recovery; no replacement handle opened',
+    );
+    return true;
+  }
 
   // The domain can close and replace the shared dual-scope handle while a lease
   // is still unwinding. Closing SQLite does not mutate the persisted lease row;
@@ -1246,12 +1334,13 @@ async function releaseGrant(scope: LeaseScope, dbPath: string, lane: LeaseLane):
   // the full stale-holder TTL.
   try {
     const { native } = await _nativeDbResolver(scope, dbPath);
-    entry.handle.releaseRow(native);
+    return !entry.handle.releaseRow(native);
   } catch (err) {
     log().debug(
       { scope, lane, dbPath, err: err instanceof Error ? err.message : err },
       'writer-lease fresh-handle release retry failed; row will expire by TTL',
     );
+    return true;
   }
 }
 
