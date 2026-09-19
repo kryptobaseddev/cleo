@@ -3,11 +3,18 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { coreDoctorReport, getSystemHealth } from '../health.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as typeof import('node:sqlite');
+
+// Migration and diagnostic reads must address the explicitly seeded fixture.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('system health audit_log checks', () => {
   let projectRoot: string;

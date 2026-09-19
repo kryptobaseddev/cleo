@@ -11,7 +11,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openCleoDb, openCleoDbSnapshot, validateProjectIdConsistency } from '../open-cleo-db.js';
 
 // ---------------------------------------------------------------------------
@@ -49,6 +49,13 @@ function cleanupTempDir(dir: string): void {
 function nativeOf(handle: { db: unknown }): DatabaseSync {
   return handle.db as DatabaseSync;
 }
+
+// Distinct explicit project roots must resolve to distinct fixture stores.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('openCleoDb', () => {
   let tempDir: string;

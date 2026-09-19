@@ -37,6 +37,13 @@ let projectDir: string;
 let cleoDirProject: string;
 let globalDir: string;
 
+// Distinct explicit project roots must resolve to distinct fixture stores.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
   testRoot = join(
     tmpdir(),

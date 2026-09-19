@@ -192,6 +192,8 @@ describe('runExodusStatus', () => {
   let tmpDir: string;
 
   beforeEach(() => {
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     tmpDir = makeTempDir();
     // Simulate a minimal .cleo/ layout
     mkdirSync(join(tmpDir, '.cleo'));
@@ -204,6 +206,7 @@ describe('runExodusStatus', () => {
 
   afterEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
   });
 
   it('reports no staging and no target DBs for a fresh project', () => {

@@ -76,6 +76,13 @@ vi.mock('../../logger.js', () => ({
 // Test 1: Fresh init — all 5 DBs apply migrations without error
 // ---------------------------------------------------------------------------
 
+// Migration and diagnostic reads must address the explicitly seeded fixture.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
   let tempDir: string;
 
