@@ -171,6 +171,8 @@ export interface ReflectorResult {
   patternsStored: number;
   /** Number of new learnings stored. */
   learningsStored: number;
+  /** Candidate observation IDs that require sourced review before replacement. */
+  proposedSupersededIds?: string[];
   /** IDs of observations marked as superseded. */
   supersededIds: string[];
 }
@@ -477,35 +479,6 @@ function storeObserverNote(
   }
 }
 
-/**
- * Mark observations as superseded by the reflector.
- * Sets invalid_at so they are excluded from future queries.
- */
-function markSuperseded(ids: string[]): void {
-  if (ids.length === 0) return;
-  const nativeDb = getBrainNativeDb();
-  if (!nativeDb) return;
-
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  try {
-    // SQLite placeholder limit is 999; process in safe batches
-    const BATCH = 100;
-    for (let i = 0; i < ids.length; i += BATCH) {
-      const batch = ids.slice(i, i + BATCH);
-      const placeholders = batch.map(() => '?').join(',');
-      nativeDb
-        .prepare(
-          `UPDATE brain_observations
-           SET invalid_at = ?, updated_at = ?
-           WHERE id IN (${placeholders}) AND invalid_at IS NULL`,
-        )
-        .run(now, now, ...batch);
-    }
-  } catch {
-    /* best-effort */
-  }
-}
-
 // ============================================================================
 // Observer
 // ============================================================================
@@ -796,20 +769,18 @@ export async function runReflector(
 
   // T742: Collect IDs of newly stored patterns/learnings so we can write
   // supersedes graph edges from them to the superseded source observations.
-  const newEntryIds: string[] = [];
 
   // Store patterns
   if (Array.isArray(output.patterns)) {
     for (const p of output.patterns) {
       if (typeof p.pattern !== 'string' || !p.pattern) continue;
       try {
-        const stored = await storePattern(projectRoot, {
+        await storePattern(projectRoot, {
           type: 'workflow',
           pattern: p.pattern.slice(0, 500),
           context: (p.context ?? '').slice(0, 200),
           source: REFLECTOR_SOURCE,
         });
-        newEntryIds.push(`pattern:${stored.id}`);
         patternsStored++;
       } catch {
         /* best-effort */
@@ -824,13 +795,12 @@ export async function runReflector(
       const confidence =
         typeof l.confidence === 'number' ? Math.max(0.1, Math.min(1.0, l.confidence)) : 0.7;
       try {
-        const stored = await storeLearning(projectRoot, {
+        await storeLearning(projectRoot, {
           insight: l.insight.slice(0, 500),
           source: REFLECTOR_SOURCE,
           confidence,
           actionable: confidence >= 0.7,
         });
-        newEntryIds.push(`learning:${stored.id}`);
         learningsStored++;
       } catch {
         /* best-effort */
@@ -838,38 +808,17 @@ export async function runReflector(
     }
   }
 
-  // Mark superseded observations as invalid (soft-evict).
-  const supersededIds = Array.isArray(output.superseded)
+  // LLM synthesis cannot establish that source observations ceased to be true.
+  const proposedSupersededIds = Array.isArray(output.superseded)
     ? output.superseded.filter((id): id is string => typeof id === 'string')
     : [];
-
-  markSuperseded(supersededIds);
-
-  // T742: Write supersedes graph edges from each new entry to each superseded
-  // observation. This links the synthesized knowledge back to its source
-  // observations in brain_page_edges so the supersession chain is traversable.
-  // All edge writes are best-effort — never block the return.
-  if (newEntryIds.length > 0 && supersededIds.length > 0) {
-    for (const newNodeId of newEntryIds) {
-      for (const obsId of supersededIds) {
-        addGraphEdge(
-          projectRoot,
-          newNodeId,
-          `observation:${obsId}`,
-          'supersedes',
-          1.0,
-          'reflector-synthesized:session-end-reflection',
-        ).catch(() => {
-          /* best-effort */
-        });
-      }
-    }
-  }
+  const supersededIds: string[] = [];
 
   return {
     ran: true,
     patternsStored,
     learningsStored,
     supersededIds,
+    proposedSupersededIds,
   };
 }

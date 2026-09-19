@@ -19,6 +19,7 @@ import type {
 import { typedAll } from '../store/typed-query.js';
 import type { SimilarityResult } from './brain-similarity.js';
 import { searchSimilar } from './brain-similarity.js';
+import { memoryEligibilityClause } from './eligibility.js';
 import { QUALITY_SCORE_THRESHOLD } from './quality-scoring.js';
 
 /** Search result grouped by backing memory table. */
@@ -56,6 +57,8 @@ export interface BrainSearchOptions {
    * Defaults to true — omitting this is equivalent to `includeGlobal: true`.
    */
   includeGlobal?: boolean;
+  /** Include superseded and invalidated records for explicit historical retrieval. */
+  includeHistory?: boolean;
 }
 
 /** Track whether FTS5 is available in the current SQLite build. */
@@ -338,14 +341,13 @@ export async function searchBrain(
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb(projectRoot);
 
-  if (!nativeDb) {
-    return { decisions: [], patterns: [], learnings: [], observations: [] };
-  }
+  if (!nativeDb) throw new Error('BRAIN database unavailable during search');
 
   const limit = options?.limit ?? 10;
   const tables = options?.tables ?? ['decisions', 'patterns', 'learnings', 'observations'];
   const peerId = options?.peerId;
   const includeGlobal = options?.includeGlobal ?? true;
+  const includeHistory = options?.includeHistory ?? false;
 
   const ftsAvailable = ensureFts5Tables(nativeDb);
 
@@ -360,10 +362,10 @@ export async function searchBrain(
       _fts5RebuiltForPath = getBrainDbPath(projectRoot);
       rebuildFts5Index(nativeDb);
     }
-    return searchWithFts5(nativeDb, query, tables, limit, peerId, includeGlobal);
+    return searchWithFts5(nativeDb, query, tables, limit, peerId, includeGlobal, includeHistory);
   }
 
-  return searchWithLike(nativeDb, query, tables, limit, peerId, includeGlobal);
+  return searchWithLike(nativeDb, query, tables, limit, peerId, includeGlobal, includeHistory);
 }
 
 /**
@@ -406,6 +408,7 @@ function searchWithFts5(
   limit: number,
   peerId?: string,
   includeGlobal = true,
+  includeHistory = false,
 ): BrainMemorySearchResult {
   const result: BrainMemorySearchResult = {
     decisions: [],
@@ -428,8 +431,9 @@ function searchWithFts5(
         JOIN brain_decisions d ON d.rowid = fts.rowid
         WHERE brain_decisions_fts MATCH ?
           AND (d.quality_score IS NULL OR d.quality_score >= ?)
+          ${memoryEligibilityClause('decisions', 'd', includeHistory)}
           ${clause}
-        ORDER BY bm25(brain_decisions_fts)
+        ORDER BY CASE WHEN d.decision_category = 'agent_dispatch' THEN 1 ELSE 0 END, bm25(brain_decisions_fts)
         LIMIT ?
       `);
       const rows = matchConjunctiveFirst<BrainDecisionRow>(
@@ -440,7 +444,14 @@ function searchWithFts5(
       result.decisions = rows;
     } catch {
       // FTS query failed, fall back to LIKE for this table
-      result.decisions = likeSearchDecisions(nativeDb, query, limit, peerId, includeGlobal);
+      result.decisions = likeSearchDecisions(
+        nativeDb,
+        query,
+        limit,
+        peerId,
+        includeGlobal,
+        includeHistory,
+      );
     }
   }
 
@@ -453,6 +464,7 @@ function searchWithFts5(
         JOIN brain_patterns p ON p.rowid = fts.rowid
         WHERE brain_patterns_fts MATCH ?
           AND (p.quality_score IS NULL OR p.quality_score >= ?)
+          ${memoryEligibilityClause('patterns', 'p', includeHistory)}
           ${clause}
         ORDER BY bm25(brain_patterns_fts)
         LIMIT ?
@@ -464,7 +476,14 @@ function searchWithFts5(
       );
       result.patterns = rows;
     } catch {
-      result.patterns = likeSearchPatterns(nativeDb, query, limit, peerId, includeGlobal);
+      result.patterns = likeSearchPatterns(
+        nativeDb,
+        query,
+        limit,
+        peerId,
+        includeGlobal,
+        includeHistory,
+      );
     }
   }
 
@@ -477,6 +496,7 @@ function searchWithFts5(
         JOIN brain_learnings l ON l.rowid = fts.rowid
         WHERE brain_learnings_fts MATCH ?
           AND (l.quality_score IS NULL OR l.quality_score >= ?)
+          ${memoryEligibilityClause('learnings', 'l', includeHistory)}
           ${clause}
         ORDER BY bm25(brain_learnings_fts)
         LIMIT ?
@@ -488,7 +508,14 @@ function searchWithFts5(
       );
       result.learnings = rows;
     } catch {
-      result.learnings = likeSearchLearnings(nativeDb, query, limit, peerId, includeGlobal);
+      result.learnings = likeSearchLearnings(
+        nativeDb,
+        query,
+        limit,
+        peerId,
+        includeGlobal,
+        includeHistory,
+      );
     }
   }
 
@@ -501,8 +528,9 @@ function searchWithFts5(
         JOIN brain_observations o ON o.rowid = fts.rowid
         WHERE brain_observations_fts MATCH ?
           AND (o.quality_score IS NULL OR o.quality_score >= ?)
+          ${memoryEligibilityClause('observations', 'o', includeHistory)}
           ${clause}
-        ORDER BY bm25(brain_observations_fts)
+        ORDER BY CASE WHEN o.title LIKE 'Task start:%' OR o.title LIKE 'Task complete:%' THEN 1 ELSE 0 END, bm25(brain_observations_fts)
         LIMIT ?
       `);
       const rows = matchConjunctiveFirst<BrainObservationRow>(
@@ -512,7 +540,14 @@ function searchWithFts5(
       );
       result.observations = rows;
     } catch {
-      result.observations = likeSearchObservations(nativeDb, query, limit, peerId, includeGlobal);
+      result.observations = likeSearchObservations(
+        nativeDb,
+        query,
+        limit,
+        peerId,
+        includeGlobal,
+        includeHistory,
+      );
     }
   }
 
@@ -529,6 +564,7 @@ function searchWithLike(
   limit: number,
   peerId?: string,
   includeGlobal = true,
+  includeHistory = false,
 ): BrainMemorySearchResult {
   const result: BrainMemorySearchResult = {
     decisions: [],
@@ -538,19 +574,47 @@ function searchWithLike(
   };
 
   if (tables.includes('decisions')) {
-    result.decisions = likeSearchDecisions(nativeDb, query, limit, peerId, includeGlobal);
+    result.decisions = likeSearchDecisions(
+      nativeDb,
+      query,
+      limit,
+      peerId,
+      includeGlobal,
+      includeHistory,
+    );
   }
 
   if (tables.includes('patterns')) {
-    result.patterns = likeSearchPatterns(nativeDb, query, limit, peerId, includeGlobal);
+    result.patterns = likeSearchPatterns(
+      nativeDb,
+      query,
+      limit,
+      peerId,
+      includeGlobal,
+      includeHistory,
+    );
   }
 
   if (tables.includes('learnings')) {
-    result.learnings = likeSearchLearnings(nativeDb, query, limit, peerId, includeGlobal);
+    result.learnings = likeSearchLearnings(
+      nativeDb,
+      query,
+      limit,
+      peerId,
+      includeGlobal,
+      includeHistory,
+    );
   }
 
   if (tables.includes('observations')) {
-    result.observations = likeSearchObservations(nativeDb, query, limit, peerId, includeGlobal);
+    result.observations = likeSearchObservations(
+      nativeDb,
+      query,
+      limit,
+      peerId,
+      includeGlobal,
+      includeHistory,
+    );
   }
 
   return result;
@@ -562,14 +626,17 @@ function likeSearchDecisions(
   limit: number,
   peerId?: string,
   includeGlobal = true,
+  includeHistory = false,
 ): BrainDecisionRow[] {
   const likePattern = `%${query}%`;
   const { clause, params } = buildPeerClause('brain_decisions', peerId, includeGlobal);
+  const eligibility = memoryEligibilityClause('decisions', 'brain_decisions', includeHistory);
   return typedAll<BrainDecisionRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_decisions
     WHERE (decision LIKE ? OR rationale LIKE ?)
       AND (quality_score IS NULL OR quality_score >= ?)
+      ${eligibility}
       ${clause}
     ORDER BY created_at DESC
     LIMIT ?
@@ -588,14 +655,17 @@ function likeSearchPatterns(
   limit: number,
   peerId?: string,
   includeGlobal = true,
+  includeHistory = false,
 ): BrainPatternRow[] {
   const likePattern = `%${query}%`;
   const { clause, params } = buildPeerClause('brain_patterns', peerId, includeGlobal);
+  const eligibility = memoryEligibilityClause('patterns', 'brain_patterns', includeHistory);
   return typedAll<BrainPatternRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_patterns
     WHERE (pattern LIKE ? OR context LIKE ?)
       AND (quality_score IS NULL OR quality_score >= ?)
+      ${eligibility}
       ${clause}
     ORDER BY frequency DESC
     LIMIT ?
@@ -614,14 +684,17 @@ function likeSearchLearnings(
   limit: number,
   peerId?: string,
   includeGlobal = true,
+  includeHistory = false,
 ): BrainLearningRow[] {
   const likePattern = `%${query}%`;
   const { clause, params } = buildPeerClause('brain_learnings', peerId, includeGlobal);
+  const eligibility = memoryEligibilityClause('learnings', 'brain_learnings', includeHistory);
   return typedAll<BrainLearningRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_learnings
     WHERE (insight LIKE ? OR source LIKE ?)
       AND (quality_score IS NULL OR quality_score >= ?)
+      ${eligibility}
       ${clause}
     ORDER BY confidence DESC
     LIMIT ?
@@ -640,14 +713,17 @@ function likeSearchObservations(
   limit: number,
   peerId?: string,
   includeGlobal = true,
+  includeHistory = false,
 ): BrainObservationRow[] {
   const likePattern = `%${query}%`;
   const { clause, params } = buildPeerClause('brain_observations', peerId, includeGlobal);
+  const eligibility = memoryEligibilityClause('observations', 'brain_observations', includeHistory);
   return typedAll<BrainObservationRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_observations
     WHERE (title LIKE ? OR narrative LIKE ?)
       AND (quality_score IS NULL OR quality_score >= ?)
+      ${eligibility}
       ${clause}
     ORDER BY created_at DESC
     LIMIT ?
@@ -1019,12 +1095,7 @@ export async function hybridSearch(
 
   // --- 1. Run FTS5, vector, and code symbol search in parallel ---
   const searches: Promise<unknown>[] = [
-    searchBrain(projectRoot, query, { limit: maxResults * 3 }).catch(() => ({
-      decisions: [],
-      patterns: [],
-      learnings: [],
-      observations: [],
-    })),
+    searchBrain(projectRoot, query, { limit: maxResults * 3 }),
     searchSimilar(query, projectRoot, maxResults * 3).catch(() => [] as SimilarityResult[]),
   ];
 
@@ -1146,7 +1217,9 @@ export async function hybridSearch(
       const neighbors = await accessor.getNeighbors(nodeId);
       for (const neighbor of neighbors) {
         graphHits.push({
-          id: neighbor.id,
+          id: neighbor.id.startsWith(`${neighbor.nodeType}:`)
+            ? neighbor.id.slice(neighbor.nodeType.length + 1)
+            : neighbor.id,
           type: neighbor.nodeType,
           title: neighbor.label,
           text: neighbor.label,
@@ -1161,7 +1234,29 @@ export async function hybridSearch(
   // --- 7. Fuse with RRF and return top-N ---
   const fused = reciprocalRankFusion(rrfSources, rrfK);
 
-  return fused.slice(0, maxResults).map((r) => ({
+  const { getBrainNativeDb } = await import('../store/memory-sqlite.js');
+  const nativeDb = getBrainNativeDb(projectRoot);
+  if (!nativeDb) throw new Error('BRAIN database unavailable while checking retrieval eligibility');
+  const eligible = fused.filter((hit) => {
+    const table =
+      hit.type === 'decision'
+        ? 'decisions'
+        : hit.type === 'pattern'
+          ? 'patterns'
+          : hit.type === 'learning'
+            ? 'learnings'
+            : hit.type === 'observation'
+              ? 'observations'
+              : undefined;
+    if (!table) return true;
+    return (
+      nativeDb
+        .prepare(`SELECT id FROM main.brain_${table} WHERE id = ?${memoryEligibilityClause(table)}`)
+        .get(hit.id) !== undefined
+    );
+  });
+
+  return eligible.slice(0, maxResults).map((r) => ({
     id: r.id,
     score: r.rrfScore,
     type: r.type,

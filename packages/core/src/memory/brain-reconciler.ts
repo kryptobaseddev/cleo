@@ -4,8 +4,8 @@
  * T1147 Wave 7: Reconciler core module.
  *
  * Extends `runConsolidation` from brain-lifecycle with a supersession pass that
- * automatically invalidates older BRAIN entries when a newer entry contradicts
- * them with high confidence (edge weight > 0.8 on the `contradicts` graph edge).
+ * reports contradiction candidates for the calling agent. Scores do not establish
+ * authority; invalidation requires an explicit sourced replacement.
  *
  * This module absorbs the T1139 scope (decision/learning/pattern supersession)
  * and adds a scheduled `reconciler` trigger type to `brain_consolidation_events`.
@@ -24,7 +24,7 @@ import {
   brainPageEdges,
   brainPatterns,
 } from '../store/schema/memory-schema.js';
-import { runConsolidation } from './brain-lifecycle.js';
+import type { RunConsolidationResult } from './brain-lifecycle.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,8 +51,10 @@ export interface ReconcilerResult {
     decisions: string[];
     patterns: string[];
   };
+  /** Contradiction candidates requiring sourced resolution; no authority was inferred. */
+  candidateIds?: ReconcilerResult['supersededIds'];
   /** Number of dedup/quality/promotion steps from the base consolidation pass. */
-  consolidationResult: Awaited<ReturnType<typeof runConsolidation>>;
+  consolidationResult: RunConsolidationResult;
   /** Whether this was a dry run (no writes performed on supersession pass). */
   dryRun: boolean;
 }
@@ -62,21 +64,15 @@ export interface ReconcilerResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Queries `brain_page_edges` for `contradicts` edges with weight above the
- * threshold and marks the *source* entry (older) as superseded by setting
- * `invalid_at = now()` on the relevant brain table.
- *
- * The edge convention is: `source → contradicts → target`, where `target` is
- * the newer/stronger entry and `source` is the one to invalidate.
+ * Find contradiction candidates without changing either record's authority.
+ * Graph scores and edge direction do not prove which source is correct.
  *
  * @param projectRoot - Absolute path to the project root.
- * @param threshold   - Edge weight threshold (default 0.8).
- * @param dryRun      - When true, returns candidates without writing.
+ * @param threshold - Minimum contradiction confidence for candidate reporting.
  */
 async function applySupersessionPass(
   projectRoot: string,
   threshold: number,
-  dryRun: boolean,
 ): Promise<ReconcilerResult['supersededIds']> {
   const db = await getBrainDb(projectRoot);
 
@@ -103,12 +99,10 @@ async function applySupersessionPass(
     return supersededIds;
   }
 
-  const nowIso = new Date().toISOString();
-
   // For each contradicts edge, attempt to supersede the source in each brain table.
   // We check each table in order; break once the source is found.
   for (const edge of contradictEdges) {
-    const sourceId = edge.sourceId;
+    const sourceId = edge.sourceId.replace(/^(observation|decision|pattern|learning):/, '');
 
     // Check brain_observations
     const obs = await db
@@ -119,13 +113,6 @@ async function applySupersessionPass(
 
     if (obs) {
       supersededIds.observations.push(sourceId);
-      if (!dryRun) {
-        await db
-          .update(brainObservations)
-          .set({ invalidAt: nowIso })
-          .where(eq(brainObservations.id, sourceId))
-          .run();
-      }
       continue;
     }
 
@@ -138,13 +125,6 @@ async function applySupersessionPass(
 
     if (lrn) {
       supersededIds.learnings.push(sourceId);
-      if (!dryRun) {
-        await db
-          .update(brainLearnings)
-          .set({ invalidAt: nowIso })
-          .where(eq(brainLearnings.id, sourceId))
-          .run();
-      }
       continue;
     }
 
@@ -157,13 +137,6 @@ async function applySupersessionPass(
 
     if (dec) {
       supersededIds.decisions.push(sourceId);
-      if (!dryRun) {
-        await db
-          .update(brainDecisions)
-          .set({ invalidAt: nowIso })
-          .where(eq(brainDecisions.id, sourceId))
-          .run();
-      }
       continue;
     }
 
@@ -176,13 +149,6 @@ async function applySupersessionPass(
 
     if (pat) {
       supersededIds.patterns.push(sourceId);
-      if (!dryRun) {
-        await db
-          .update(brainPatterns)
-          .set({ invalidAt: nowIso })
-          .where(eq(brainPatterns.id, sourceId))
-          .run();
-      }
     }
   }
 
@@ -194,24 +160,13 @@ async function applySupersessionPass(
 // ---------------------------------------------------------------------------
 
 /**
- * Runs the full reconciler pass for the given project.
+ * Assess contradiction candidates for the calling agent without invoking a model.
+ * Returns empty superseded lists: replacement requires explicit sourced evidence.
+ * Optional synthesis remains available through the separate consolidation command.
  *
- * This is an extension of `runConsolidation` that adds a T1139 supersession
- * pass: entries whose `contradicts` edge weight exceeds `contradictionThreshold`
- * are marked `invalid_at = now()` in their respective brain tables.
- *
- * After the supersession pass, the result is logged to `brain_consolidation_events`
- * with `trigger = 'reconciler'`.
- *
- * @param projectRoot - Absolute path to the project root (used for DB location).
- * @param options     - Optional configuration overrides.
- * @returns Combined result from consolidation + supersession passes.
- *
- * @example
- * ```typescript
- * const result = await runReconciler('/mnt/projects/myapp');
- * console.log(`Superseded: ${result.superseded}, DryRun: ${result.dryRun}`);
- * ```
+ * @param projectRoot - Absolute project root.
+ * @param options - Candidate threshold, audit session, and dry-run behavior.
+ * @returns Candidates plus legacy zero-valued consolidation counters.
  */
 export async function runReconciler(
   projectRoot: string,
@@ -219,12 +174,26 @@ export async function runReconciler(
 ): Promise<ReconcilerResult> {
   const { contradictionThreshold = 0.8, sessionId = null, dryRun = false } = options;
 
-  // Step 1: Run the base consolidation pass (dedup, quality recompute, tier promotion,
-  // contradiction detection, soft eviction, edge strengthening, summaries).
-  const consolidationResult = await runConsolidation(projectRoot, sessionId, 'scheduled');
+  // Repair reasoning belongs to the calling agent; optional synthesis is a separate operation.
+  const consolidationResult: RunConsolidationResult = {
+    deduplicated: 0,
+    qualityRecomputed: 0,
+    tierPromotions: { promoted: [], evicted: [] },
+    contradictions: 0,
+    softEvicted: 0,
+    edgesStrengthened: 0,
+    nexusEdgesStrengthened: 0,
+    summariesGenerated: 0,
+  };
 
-  // Step 2: Supersession pass — find contradicts edges and invalidate older entries.
-  const supersededIds = await applySupersessionPass(projectRoot, contradictionThreshold, dryRun);
+  // Step 2: Contradiction scores generate candidates, never authority mutations.
+  const candidateIds = await applySupersessionPass(projectRoot, contradictionThreshold);
+  const supersededIds: ReconcilerResult['supersededIds'] = {
+    observations: [],
+    learnings: [],
+    decisions: [],
+    patterns: [],
+  };
 
   const superseded =
     supersededIds.observations.length +
@@ -234,44 +203,45 @@ export async function runReconciler(
 
   // Step 3: Log reconciler event to brain_consolidation_events.
   // Use best-effort (no throw) so a logging failure does not abort the reconciler.
-  try {
-    const db = await getBrainDb(projectRoot);
-    const stepResultsJson = JSON.stringify({
-      consolidation: {
-        deduplicated: consolidationResult.deduplicated,
-        qualityRecomputed: consolidationResult.qualityRecomputed,
-        contradictions: consolidationResult.contradictions,
-        softEvicted: consolidationResult.softEvicted,
-        promoted: consolidationResult.tierPromotions.promoted.length,
-        summaries: consolidationResult.summariesGenerated,
-      },
-      supersession: {
-        threshold: contradictionThreshold,
-        superseded,
-        supersededIds,
-        dryRun,
-        note: dryRun
-          ? `dry-run: ${superseded} supersession candidates detected`
-          : `superseded ${superseded} entries (threshold=${contradictionThreshold})`,
-      },
-    });
-    await db
-      .insert(brainConsolidationEvents)
-      .values({
-        trigger: 'reconciler',
-        sessionId: sessionId ?? null,
-        stepResultsJson,
-        succeeded: true,
-      })
-      .run();
-  } catch (err) {
-    console.warn('[reconciler] Failed to log reconciler event:', err);
-  }
+  if (!dryRun)
+    try {
+      const db = await getBrainDb(projectRoot);
+      const stepResultsJson = JSON.stringify({
+        consolidation: {
+          deduplicated: consolidationResult.deduplicated,
+          qualityRecomputed: consolidationResult.qualityRecomputed,
+          contradictions: consolidationResult.contradictions,
+          softEvicted: consolidationResult.softEvicted,
+          promoted: consolidationResult.tierPromotions.promoted.length,
+          summaries: consolidationResult.summariesGenerated,
+        },
+        supersession: {
+          threshold: contradictionThreshold,
+          superseded,
+          supersededIds,
+          candidateIds,
+          dryRun,
+          note: 'Contradictions are candidates only; a calling agent must provide a sourced replacement.',
+        },
+      });
+      await db
+        .insert(brainConsolidationEvents)
+        .values({
+          trigger: 'reconciler',
+          sessionId: sessionId ?? null,
+          stepResultsJson,
+          succeeded: true,
+        })
+        .run();
+    } catch (err) {
+      console.warn('[reconciler] Failed to log reconciler event:', err);
+    }
 
   return {
     superseded,
     supersededIds,
     consolidationResult,
+    candidateIds,
     dryRun,
   };
 }
@@ -289,7 +259,7 @@ export async function countSupersessionCandidates(
   projectRoot: string,
   contradictionThreshold = 0.8,
 ): Promise<number> {
-  const ids = await applySupersessionPass(projectRoot, contradictionThreshold, true);
+  const ids = await applySupersessionPass(projectRoot, contradictionThreshold);
   return (
     ids.observations.length + ids.learnings.length + ids.decisions.length + ids.patterns.length
   );

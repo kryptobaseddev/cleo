@@ -11,6 +11,7 @@
  */
 
 import type { TaskStatus } from '@cleocode/contracts';
+import { memoryEligibilityClause } from '../eligibility.js';
 
 /** Default token budget for `buildRetrievalBundle` (characters / 4 ≈ tokens). */
 const DEFAULT_TOKEN_BUDGET = 4000;
@@ -126,12 +127,11 @@ export async function fetchPeerMemory(
   // T1260 PSYCHE E3: SELECT provenance_class AS provenance_class for M6 refusal gate.
   const learningSqlWithPeer = `SELECT id, insight, created_at, provenance_class FROM brain_learnings
              WHERE (peer_id = ? OR peer_id = 'global')
-             ORDER BY created_at DESC LIMIT 10`;
+             ${memoryEligibilityClause('learnings')} ORDER BY created_at DESC LIMIT 10`;
   const learningSqlGlobal = `SELECT id, insight, created_at, provenance_class FROM brain_learnings
              WHERE peer_id = 'global'
-             ORDER BY created_at DESC LIMIT 10`;
-  const learningSqlLegacy =
-    'SELECT id, insight, created_at FROM brain_learnings ORDER BY created_at DESC LIMIT 10';
+             ${memoryEligibilityClause('learnings')} ORDER BY created_at DESC LIMIT 10`;
+  const learningSqlLegacy = `SELECT id, insight, created_at FROM main.brain_learnings WHERE 1=1${memoryEligibilityClause('learnings')} ORDER BY created_at DESC LIMIT 10`;
 
   let learningRows: RawLearning[] = [];
   // `query` intentionally unused until FTS narrowing lands (T1090 followup).
@@ -145,7 +145,7 @@ export async function fetchPeerMemory(
     try {
       learningRows = nativeDb.prepare(learningSqlLegacy).all() as RawLearning[];
     } catch {
-      learningRows = [];
+      throw new Error('BRAIN learning retrieval failed');
     }
   }
 
@@ -160,12 +160,11 @@ export async function fetchPeerMemory(
   // T1260 PSYCHE E3: SELECT provenance_class for M6 refusal gate.
   const patternSqlWithPeer = `SELECT id, pattern, extracted_at, provenance_class FROM brain_patterns
            WHERE (peer_id = ? OR peer_id = 'global')
-           ORDER BY extracted_at DESC LIMIT 10`;
+           ${memoryEligibilityClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
   const patternSqlGlobal = `SELECT id, pattern, extracted_at, provenance_class FROM brain_patterns
            WHERE peer_id = 'global'
-           ORDER BY extracted_at DESC LIMIT 10`;
-  const patternSqlLegacy =
-    'SELECT id, pattern, extracted_at FROM brain_patterns ORDER BY extracted_at DESC LIMIT 10';
+           ${memoryEligibilityClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
+  const patternSqlLegacy = `SELECT id, pattern, extracted_at FROM main.brain_patterns WHERE 1=1${memoryEligibilityClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
 
   let patternRows: RawPattern[] = [];
   try {
@@ -176,7 +175,7 @@ export async function fetchPeerMemory(
     try {
       patternRows = nativeDb.prepare(patternSqlLegacy).all() as RawPattern[];
     } catch {
-      patternRows = [];
+      throw new Error('BRAIN pattern retrieval failed');
     }
   }
 
@@ -191,12 +190,11 @@ export async function fetchPeerMemory(
   // T1260 PSYCHE E3: SELECT provenance_class for M6 refusal gate.
   const decisionSqlWithPeer = `SELECT id, decision, created_at, provenance_class FROM brain_decisions
            WHERE (peer_id = ? OR peer_id = 'global')
-           ORDER BY created_at DESC LIMIT 10`;
+           ${memoryEligibilityClause('decisions')} ORDER BY created_at DESC LIMIT 10`;
   const decisionSqlGlobal = `SELECT id, decision, created_at, provenance_class FROM brain_decisions
            WHERE peer_id = 'global'
-           ORDER BY created_at DESC LIMIT 10`;
-  const decisionSqlLegacy =
-    'SELECT id, decision, created_at FROM brain_decisions ORDER BY created_at DESC LIMIT 10';
+           ${memoryEligibilityClause('decisions')} ORDER BY created_at DESC LIMIT 10`;
+  const decisionSqlLegacy = `SELECT id, decision, created_at FROM main.brain_decisions WHERE 1=1${memoryEligibilityClause('decisions')} ORDER BY created_at DESC LIMIT 10`;
 
   let decisionRows: RawDecision[] = [];
   try {
@@ -207,7 +205,7 @@ export async function fetchPeerMemory(
     try {
       decisionRows = nativeDb.prepare(decisionSqlLegacy).all() as RawDecision[];
     } catch {
-      decisionRows = [];
+      throw new Error('BRAIN decision retrieval failed');
     }
   }
 
@@ -288,7 +286,7 @@ export async function fetchSessionState(
         .prepare(
           `SELECT id, title, narrative, created_at, provenance_class
            FROM brain_observations
-           WHERE source_session_id = ?
+           WHERE source_session_id = ?${memoryEligibilityClause('observations')}
            ORDER BY created_at DESC, id DESC LIMIT 10`,
         )
         .all(sessionId) as RawObs[];
@@ -398,8 +396,8 @@ export async function buildRetrievalBundle(
             const { getBrainDb } = await import('../../store/memory-sqlite.js');
             await getBrainDb(projectRoot);
             return await fetchPeerMemory(peerId, query);
-          } catch {
-            return { peerLearnings: [], peerPatterns: [], decisions: [] };
+          } catch (error) {
+            throw new Error('Current memory bundle could not be assessed', { cause: error });
           }
         })()
       : Promise.resolve({ peerLearnings: [], peerPatterns: [], decisions: [] }),
