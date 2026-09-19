@@ -24,7 +24,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { ReleasePlan } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
 import { closeDb, getDb, resetDbState } from '../../store/sqlite.js';
@@ -185,6 +185,13 @@ function makeStubRunner(): ReleaseOpenRunner & {
     },
   };
 }
+
+// Validate release state from each explicitly initialized fixture project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'cleo-open-field-schema-'));
