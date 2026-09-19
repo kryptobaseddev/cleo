@@ -146,6 +146,141 @@ describe('task mutation durability', () => {
     expect(persisted(projectA, "SELECT id FROM tasks_tasks WHERE id = 'T2'")).toBe('[]');
   });
 
+  it('persists formerly omitted SDK update fields and acceptance rows in a fresh process', async () => {
+    const a = await createSqliteDataAccessor(projectA);
+    await a.upsertSingleTask(task('T1', 'Original'));
+    const { updateTask } = await import('../tasks-sqlite.js');
+    await updateTask(
+      'T1',
+      {
+        title: 'Changed',
+        kind: 'bug',
+        scope: 'unit',
+        severity: 'P0',
+        positionVersion: 7,
+        noAutoComplete: true,
+        pipelineStage: 'implementation',
+        acceptance: ['First', 'Second'],
+        provenance: { createdBy: 'creator', modifiedBy: 'editor', sessionId: null },
+      },
+      projectA,
+    );
+    expect(
+      persisted(
+        projectA,
+        "SELECT title, role, scope, severity, position_version, no_auto_complete, pipeline_stage, acceptance_json, created_by, modified_by FROM tasks_tasks WHERE id = 'T1'",
+      ),
+    ).toBe(
+      JSON.stringify([
+        {
+          title: 'Changed',
+          role: 'bug',
+          scope: 'unit',
+          severity: 'P0',
+          position_version: 7,
+          no_auto_complete: 1,
+          pipeline_stage: 'implementation',
+          acceptance_json: '["First","Second"]',
+          created_by: 'creator',
+          modified_by: 'editor',
+        },
+      ]),
+    );
+    expect(
+      persisted(
+        projectA,
+        "SELECT text FROM tasks_task_acceptance_criteria WHERE task_id = 'T1' ORDER BY ordinal",
+      ),
+    ).toBe('[{"text":"First"},{"text":"Second"}]');
+    await updateTask('T1', { severity: null }, projectA);
+    expect(persisted(projectA, "SELECT severity FROM tasks_tasks WHERE id = 'T1'")).toBe(
+      '[{"severity":null}]',
+    );
+  });
+
+  it('creates concurrent project-owned task, parent, dependency and criterion records', async () => {
+    const a = await createSqliteDataAccessor(projectA);
+    const b = await createSqliteDataAccessor(projectB);
+    await Promise.all(
+      ([a, b] as const).map(async (store, index) => {
+        const title = index === 0 ? 'A' : 'B';
+        await store.transaction(async (tx) => {
+          await tx.upsertSingleTask(task('T1', `${title} parent`));
+          await tx.upsertSingleTask(
+            task('T2', `${title} child`, {
+              parentId: 'T1',
+              acceptance: [`${title} criterion`],
+              depends: ['T1'],
+            }),
+          );
+          await tx.insertAcRows([
+            { id: `${title}-ac`, taskId: 'T2', ordinal: 1, text: `${title} criterion` },
+          ]);
+        });
+      }),
+    );
+    for (const [project, title] of [
+      [projectA, 'A'],
+      [projectB, 'B'],
+    ] as const) {
+      expect(
+        persisted(
+          project,
+          "SELECT id, title, parent_id, acceptance_json FROM tasks_tasks WHERE id = 'T2'",
+        ),
+      ).toBe(
+        JSON.stringify([
+          {
+            id: 'T2',
+            title: `${title} child`,
+            parent_id: 'T1',
+            acceptance_json: JSON.stringify([`${title} criterion`]),
+          },
+        ]),
+      );
+      expect(persisted(project, 'SELECT task_id, text FROM tasks_task_acceptance_criteria')).toBe(
+        JSON.stringify([{ task_id: 'T2', text: `${title} criterion` }]),
+      );
+      expect(persisted(project, 'SELECT task_id, depends_on FROM tasks_task_dependencies')).toBe(
+        '[{"task_id":"T2","depends_on":"T1"}]',
+      );
+    }
+  });
+
+  it('surfaces diagnostic read failures instead of returning empty relationships', async () => {
+    const a = await createSqliteDataAccessor(projectA);
+    getNativeTasksDb(projectA)!.exec(
+      'ALTER TABLE tasks_task_dependencies RENAME TO unavailable_dependencies',
+    );
+    await expect(a.getDependencyChain('T1')).rejects.toThrow(/no such table/);
+  });
+
+  it('rolls back SDK updates and creations when acceptance or dependency storage fails', async () => {
+    const a = await createSqliteDataAccessor(projectA);
+    await a.upsertSingleTask(task('T1', 'Original'));
+    const { createTask, updateTask } = await import('../tasks-sqlite.js');
+    getNativeTasksDb(projectA)!.exec(
+      "CREATE TRIGGER fail_ac BEFORE INSERT ON tasks_task_acceptance_criteria BEGIN SELECT RAISE(ABORT, 'AC failure'); END",
+    );
+    await expect(
+      updateTask('T1', { title: 'Lost', acceptance: ['Must rollback'] }, projectA),
+    ).rejects.toThrow();
+    expect(
+      persisted(projectA, "SELECT title, acceptance_json FROM tasks_tasks WHERE id = 'T1'"),
+    ).toBe('[{"title":"Original","acceptance_json":"[]"}]');
+    getNativeTasksDb(projectA)!.exec(
+      "CREATE TRIGGER fail_dep BEFORE INSERT ON tasks_task_dependencies BEGIN SELECT RAISE(ABORT, 'dependency failure'); END",
+    );
+    await expect(
+      createTask(task('T2', 'Rejected', { depends: ['T1'] }), projectA),
+    ).rejects.toThrow();
+    expect(persisted(projectA, "SELECT id FROM tasks_tasks WHERE id = 'T2'")).toBe('[]');
+    await updateTask('T1', { title: undefined, description: 'Updated only description' }, projectA);
+    expect(persisted(projectA, "SELECT title FROM tasks_tasks WHERE id = 'T1'")).toBe(
+      '[{"title":"Original"}]',
+    );
+  });
+
   it('rejects an update that addresses no row', async () => {
     const a = await createSqliteDataAccessor(projectA);
     await expect(a.updateTaskFields('T404', { title: 'Never persisted' })).rejects.toThrow(

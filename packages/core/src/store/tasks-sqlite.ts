@@ -21,6 +21,7 @@ import {
 } from '@cleocode/contracts';
 import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
+import { applyAcPlan, planAcUpdate } from '../tasks/ac-table.js';
 import { rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnTaskDelete } from './cross-db-cleanup.js';
 import {
@@ -31,6 +32,7 @@ import {
 } from './data-safety-central.js';
 import { parseLabels, updateTaskLabels } from './db-helpers.js';
 import { getDb, getNativeDb } from './sqlite.js';
+import { createSqliteDataAccessor } from './sqlite-data-accessor.js';
 import type { TaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
 
@@ -58,20 +60,24 @@ async function insertTaskRow(task: Task, cwd?: string): Promise<Task> {
   }
 
   const db = await getDb(cwd);
-  const row = taskToRow(task);
-  db.insert(schema.tasks).values(row).run();
-
-  // Insert dependencies
-  if (task.depends && task.depends.length > 0) {
-    for (const depId of task.depends) {
+  const accessor = await createSqliteDataAccessor(cwd);
+  return accessor.transaction(async (tx) => {
+    const row = taskToRow(task);
+    // Retain INSERT's collision rejection rather than converting creation to
+    // an upsert that could overwrite a concurrently-created identity.
+    db.insert(schema.tasks).values(row).run();
+    for (const depId of task.depends ?? []) {
       db.insert(schema.taskDependencies).values({ taskId: task.id, dependsOn: depId }).run();
     }
-  }
-
-  // T11356: keep the task_labels junction in sync with labels_json.
-  await updateTaskLabels(db, task.id, parseLabels(row.labelsJson));
-
-  return task;
+    await updateTaskLabels(db, task.id, parseLabels(row.labelsJson));
+    if (task.acceptance !== undefined) {
+      await applyAcPlan(tx, task.id, planAcUpdate(task.id, [], task.acceptance));
+    }
+    for (const relation of task.relates ?? []) {
+      await tx.addRelation(task.id, relation.taskId, relation.type, relation.reason);
+    }
+    return task;
+  });
 }
 
 /** Get a task by ID, including its dependencies. */
@@ -101,63 +107,51 @@ export async function updateTask(
   updates: Partial<Task>,
   cwd?: string,
 ): Promise<Task | null> {
-  const db = await getDb(cwd);
-  const existing = await getTask(taskId, cwd);
-  if (!existing) return null;
-
-  // Build update object (only changed fields)
-  const updateRow: Record<string, unknown> = {
-    updatedAt: new Date().toISOString(),
-  };
-
-  if (updates.title !== undefined) updateRow.title = updates.title;
-  if (updates.description !== undefined) updateRow.description = updates.description;
-  if (updates.status !== undefined) {
-    updateRow.status = updates.status;
-    // Clear stale timestamps when status resets to non-terminal state
+  if (updates.id !== undefined && updates.id !== taskId) {
+    throw new CleoError(ExitCode.INVALID_INPUT, 'A task update cannot change its identity');
+  }
+  if (updates.gates !== undefined || updates.abortReason !== undefined) {
+    throw new CleoError(
+      ExitCode.INVALID_INPUT,
+      'gates and abortReason are not persisted task fields',
+    );
+  }
+  const accessor = await createSqliteDataAccessor(cwd);
+  return accessor.transaction(async (tx) => {
+    const existing = await getTask(taskId, cwd);
+    if (!existing) return null;
+    const provided = { ...updates };
+    for (const [key, value] of Object.entries(provided)) {
+      if (value === undefined) Reflect.deleteProperty(provided, key);
+    }
+    const updated: Task = {
+      ...existing,
+      ...provided,
+      id: taskId,
+      updatedAt: updates.updatedAt ?? new Date().toISOString(),
+    };
     if (updates.status === 'pending' || updates.status === 'active') {
-      if (updates.cancelledAt === undefined) updateRow.cancelledAt = null;
-      if (updates.completedAt === undefined) updateRow.completedAt = null;
+      if (updates.cancelledAt === undefined) updated.cancelledAt = undefined;
+      if (updates.completedAt === undefined) updated.completedAt = undefined;
     }
-  }
-  if (updates.priority !== undefined) updateRow.priority = updates.priority;
-  if (updates.type !== undefined) updateRow.type = updates.type;
-  if (updates.parentId !== undefined) updateRow.parentId = updates.parentId;
-  if (updates.phase !== undefined) updateRow.phase = updates.phase;
-  if (updates.size !== undefined) updateRow.size = updates.size;
-  if (updates.position !== undefined) updateRow.position = updates.position;
-  if (updates.labels !== undefined) updateRow.labelsJson = JSON.stringify(updates.labels);
-  if (updates.notes !== undefined) updateRow.notesJson = JSON.stringify(updates.notes);
-  if (updates.acceptance !== undefined)
-    updateRow.acceptanceJson = JSON.stringify(updates.acceptance);
-  if (updates.files !== undefined) updateRow.filesJson = JSON.stringify(updates.files);
-  if (updates.origin !== undefined) updateRow.origin = updates.origin;
-  if (updates.blockedBy !== undefined) updateRow.blockedBy = updates.blockedBy;
-  if (updates.epicLifecycle !== undefined) updateRow.epicLifecycle = updates.epicLifecycle;
-  if (updates.completedAt !== undefined) updateRow.completedAt = updates.completedAt;
-  if (updates.cancelledAt !== undefined) updateRow.cancelledAt = updates.cancelledAt;
-  if (updates.cancellationReason !== undefined)
-    updateRow.cancellationReason = updates.cancellationReason;
-  if (updates.verification !== undefined)
-    updateRow.verificationJson = JSON.stringify(updates.verification);
-  if (updates.assignee !== undefined) updateRow.assignee = updates.assignee;
-
-  db.update(schema.tasks).set(updateRow).where(eq(schema.tasks.id, taskId)).run();
-
-  // Update dependencies if provided
-  if (updates.depends !== undefined) {
-    db.delete(schema.taskDependencies).where(eq(schema.taskDependencies.taskId, taskId)).run();
-    for (const depId of updates.depends) {
-      db.insert(schema.taskDependencies).values({ taskId, dependsOn: depId }).run();
+    // The canonical Task converter is shared with add and rich update. Never
+    // maintain another partial field list that silently drops accepted values.
+    await tx.upsertSingleTask(updated);
+    if (updates.acceptance !== undefined) {
+      await applyAcPlan(
+        tx,
+        taskId,
+        planAcUpdate(taskId, await tx.getAcRows(taskId), updates.acceptance),
+      );
     }
-  }
-
-  // T11356: keep the task_labels junction in sync when labels change.
-  if (updates.labels !== undefined) {
-    await updateTaskLabels(db, taskId, parseLabels(updateRow.labelsJson as string));
-  }
-
-  return getTask(taskId, cwd);
+    if (updates.relates !== undefined) {
+      await tx.clearRelations(taskId);
+      for (const relation of updates.relates) {
+        await tx.addRelation(taskId, relation.taskId, relation.type, relation.reason);
+      }
+    }
+    return getTask(taskId, cwd);
+  });
 }
 
 /** Delete a task by ID. */
