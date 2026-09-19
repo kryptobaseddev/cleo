@@ -6,6 +6,7 @@
 
 import type {
   MinimalTaskRecord,
+  RecordProjectionDisclosure,
   TaskKind,
   TaskMatch,
   TaskPopulation,
@@ -15,6 +16,7 @@ import type {
   TasksFindResult,
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
+import { discloseProjection } from '../dispatch/mvi-projection.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
@@ -26,7 +28,7 @@ import { taskToRecord } from './engine-converters.js';
 import { paginateTaskPopulation, readTaskPopulation } from './population.js';
 
 /** Minimal task info for search results. */
-export interface FindResult {
+export interface FindResult extends RecordProjectionDisclosure {
   id: string;
   title: string;
   status: string;
@@ -573,10 +575,12 @@ export async function findTasks(
   results = rows;
 
   // Enrich each result with _next progressive disclosure directives
-  const enrichedResults = results.map((r) => ({
-    ...r,
-    _next: taskListItemNext(r.id),
-  }));
+  const sourceById = new Map(allTasks.map((task) => [task.id, task]));
+  const enrichedResults = results.map((r) => {
+    const source = sourceById.get(r.id);
+    if (!source) throw new CleoError(ExitCode.GENERAL_ERROR, `Search source missing for ${r.id}`);
+    return discloseProjection({ ...source }, { ...r, _next: taskListItemNext(r.id) });
+  });
 
   return {
     results: enrichedResults,
@@ -668,21 +672,26 @@ export async function taskFind(
       });
     }
 
-    const results: MinimalTaskRecord[] = findResult.results.map((r) => ({
-      id: r.id,
-      match: r.match,
-      title: r.title,
-      status: r.status,
-      priority: r.priority,
-      parentId: r.parentId,
-      depends: r.depends,
-      type: r.type,
-      size: r.size,
-      // T9905: surface severity in the minimal projection so agents calling
-      // `cleo find --urgent` see the second urgency axis without a follow-up
-      // `cleo show` per row.
-      ...(r.severity != null ? { severity: r.severity } : {}),
-    }));
+    const results: MinimalTaskRecord[] = findResult.results.map((r) =>
+      discloseProjection(
+        { ...r },
+        {
+          id: r.id,
+          match: r.match,
+          title: r.title,
+          status: r.status,
+          priority: r.priority,
+          parentId: r.parentId,
+          depends: r.depends,
+          type: r.type,
+          size: r.size,
+          // T9905: surface severity in the minimal projection so agents calling
+          // `cleo find --urgent` see the second urgency axis without a follow-up
+          // `cleo show` per row.
+          ...(r.severity != null ? { severity: r.severity } : {}),
+        },
+      ),
+    );
 
     return engineSuccess({
       results,

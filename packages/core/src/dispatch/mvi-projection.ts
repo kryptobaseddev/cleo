@@ -23,7 +23,7 @@
  * @task T11351 (Epic T11285 EP-MVI-PRIMITIVE) — generalized budget-aware projector
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, type RecordProjectionDisclosure } from '@cleocode/contracts';
 import { projectionFieldBytes, TokenEstimator } from '@cleocode/lafs';
 import { CleoError } from '../errors.js';
 
@@ -190,6 +190,20 @@ const GENERIC_MVI_FIELDS: ReadonlySet<string> = new Set([
   'kind',
   'parentId',
 ]);
+
+/**
+ * Retain omission provenance when an SDK constructs its own compact shape.
+ * Uses the same field accounting, mandatory truth and prior-omission rules as
+ * dispatch projection. Synthetic fields remain present; source fields omitted
+ * by successive projections remain named with their original byte sizes.
+ */
+export function discloseProjection<
+  Source extends Record<string, unknown>,
+  Projected extends Record<string, unknown>,
+>(source: Source, projected: Projected): Projected & RecordProjectionDisclosure {
+  const { picked, withheld } = pickFields(source, new Set(Object.keys(projected)));
+  return { ...projected, ...withWithheldMarker({ ...picked, ...projected }, withheld) };
+}
 
 /**
  * Pick the MVI-allow-listed keys out of a record, reporting what was withheld.

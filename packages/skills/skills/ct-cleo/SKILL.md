@@ -20,6 +20,8 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 
 Task find defaults to lexical query terms. Fuzzy character-subsequence matching requires `--fuzzy`; inspect per-row `match.kind` and `match.fields` before inferring related work. `--in` restricts the source field. Matching mode and fuzzy field explanations survive scalar/human output on stderr. Semantic retrieval remains separately identified.
 
+Compact SDK list/find records also carry `_withheld`: omission names and original UTF-8 sizes are recorded before fields are discarded, then retained through later CLI projections. Use full records to inspect those values; absence is not emptiness.
+
 List/find expose `data.population` with matched and returned counts, truncation, pagination, and archive eligibility. Count output equals emitted rows; use `--all` or `--limit 0` to enumerate all matches, and `--include-archive` to include archives under the same filters. Scalar/ID/table/summary modes preserve population facts on stderr. Do not treat a page as complete.
 
 ## Quick Reference
