@@ -225,7 +225,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     // Second open: target now populated → fast-path skip, no migration.
     const second = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
     expect(second.outcome).toBe('skipped');
-    expect(second.reason).toMatch(/already populated/i);
+    expect(second.reason).toMatch(/completion marker/i);
 
     // Row counts are unchanged (no double-copy).
     expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(FIXTURE_EXPECTED_ROWS.tasks_tasks);
@@ -543,7 +543,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     try {
       const { writeExodusCompleteMarker } = await import('../exodus/archive.js');
       // Seal the project cutover. The marker is the durable trigger-gate.
-      writeExodusCompleteMarker('project', ['tasks'], tmpDir);
+      writeExodusCompleteMarker('project', ['tasks'], tmpDir, fx.projectDbPath);
 
       // The consolidated DB is EMPTY and a legacy source DB still exists on disk —
       // pre-T11777 this would re-arm the auto-migration. With the marker present

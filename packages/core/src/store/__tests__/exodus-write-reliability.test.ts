@@ -28,6 +28,7 @@
  * @saga T11242
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -284,6 +285,7 @@ describe('exodus write-reliability (T11782)', () => {
     globalDb = undefined;
     callerDb = undefined;
     rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -476,27 +478,34 @@ describe('exodus write-reliability (T11782)', () => {
     globalDb = new DatabaseSync(paths.globalDbPath);
     await armFixture(tmpDir, projectDb, globalDb, paths);
 
+    callerDb = new DatabaseSync(paths.projectDbPath);
+    callerDb.exec(
+      "CREATE TABLE caller_writes(id INTEGER PRIMARY KEY, payload TEXT); INSERT INTO caller_writes VALUES (1, 'keep-before')",
+    );
     const verifyMod = await import('../exodus/index.js');
-    const verifySpy = vi.spyOn(verifyMod, 'verifyMigration').mockReturnValue({
-      ok: false,
-      tables: [
-        {
-          sourceTable: 'tasks',
-          targetTable: 'tasks_tasks',
-          scope: 'project',
-          sourceCount: TASKS_SEEDED,
-          targetCount: 0, // forced deficit → abort
-          sourceHash: 'aaaa',
-          targetHash: 'bbbb',
-          countMatch: false,
-          hashMatch: false,
-        },
-      ],
-      foreignKeyViolations: [],
-      introducedForeignKeyViolations: [],
-      preExistingForeignKeyViolations: [],
-      enumDrift: [],
-      error: 'FORCED count deficit for FIX D abort test',
+    const verifySpy = vi.spyOn(verifyMod, 'verifyMigration').mockImplementation(() => {
+      callerDb!.exec("INSERT INTO tasks_tasks VALUES ('CALLER', 'keep-after', NULL)");
+      return {
+        ok: false,
+        tables: [
+          {
+            sourceTable: 'tasks',
+            targetTable: 'tasks_tasks',
+            scope: 'project',
+            sourceCount: TASKS_SEEDED,
+            targetCount: 0, // forced deficit → abort
+            sourceHash: 'aaaa',
+            targetHash: 'bbbb',
+            countMatch: false,
+            hashMatch: false,
+          },
+        ],
+        foreignKeyViolations: [],
+        introducedForeignKeyViolations: [],
+        preExistingForeignKeyViolations: [],
+        enumDrift: [],
+        error: 'FORCED count deficit for FIX D abort test',
+      };
     });
 
     const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
@@ -506,7 +515,27 @@ describe('exodus write-reliability (T11782)', () => {
     // The caller handle remains OPEN and the consolidated base table is empty
     // (rolled back); legacy stays the source of truth.
     expect(projectDb.isOpen, 'caller handle must remain OPEN after abort').toBe(true);
-    expect(countRows(paths.projectDbPath, 'tasks_tasks')).toBe(0);
+    const persisted = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `
+      import { DatabaseSync } from 'node:sqlite';
+      const db = new DatabaseSync(process.argv[1], {readOnly:true});
+      process.stdout.write(JSON.stringify({tasks:db.prepare('SELECT id,title FROM tasks_tasks ORDER BY id').all(),caller:db.prepare('SELECT * FROM caller_writes').all()}));
+      db.close();
+    `,
+          paths.projectDbPath,
+        ],
+        { encoding: 'utf8', timeout: 10000 },
+      ),
+    );
+    expect(persisted).toEqual({
+      tasks: [{ id: 'CALLER', title: 'keep-after' }],
+      caller: [{ id: 1, payload: 'keep-before' }],
+    });
     expect(countRows(paths.tasksDbPath, 'tasks')).toBe(TASKS_SEEDED);
 
     verifySpy.mockRestore();
@@ -638,6 +667,7 @@ describe('exodus migrate diagnostics — idempotent dedup vs real loss (T11835)'
     projectDb = undefined;
     globalDb = undefined;
     rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
