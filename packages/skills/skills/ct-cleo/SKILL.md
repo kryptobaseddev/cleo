@@ -2,8 +2,8 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.6.0
-  lastReviewed: 2026-05-27
+  version: 2.8.0
+  lastReviewed: 2026-09-19
   stability: stable
 ---
 
@@ -257,3 +257,7 @@ cite decisions by durable BRAIN decision IDs.
 **Migration rule:** When you encounter a decision ONLY in a markdown ledger
 (`.cleo/adrs/`, `.cleo/agent-outputs/`), store it in the BRAIN with
 `cleo memory store --type decision` and cite the BRAIN ID going forward.
+
+## Evidence must prove task criteria
+
+Merged PRs and passing CI are provenance. Implementation requires changed artifacts related to the task; testing and review require their own actual results. For tasks with canonical criteria, append explicit links such as `satisfies:T1234#AC1` to each relevant gate's evidence. Fetch the PR merge commit so artifact hashes can be inspected. A changed criterion invalidates its recorded proof. Completing a child preserves an open parent whose own criteria remain unproven; child waivers never transfer to parent criteria.
