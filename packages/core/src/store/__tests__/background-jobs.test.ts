@@ -1,5 +1,6 @@
 /** Independent ownership, cancellation and durability oracles for the existing job store. */
 import { execFile, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -70,7 +71,14 @@ beforeAll(() => {
     const store = new DurableJobStore(drizzle({client:native}));
     let result;
     try {
-      result = process.argv[3] === 'claim' ? {grant:store.claim('job',Date.now())} : {job:store.get('job')};
+      if (process.argv[3] === 'claim') result = {grant:store.claim('job',Date.now())};
+      else if (process.argv[3] === 'defer') result = {job:store.defer('writer-'+process.pid,'docs.projection',Date.now(),JSON.parse(process.argv[4]))};
+      else if (process.argv[3] === 'resume') {
+        store.claim('job',Date.now());
+        const proposalJson = store.get('job').proposalJson;
+        store.complete('job',{verifiedProposal:proposalJson},Date.now());
+        result = {job:store.get('job')};
+      } else result = {job:store.get('job')};
     } catch (error) { result = {code:error.code,message:error.message}; }
     native.close(); process.stdout.write(JSON.stringify(result));
   `,
@@ -423,4 +431,221 @@ it('upgrades populated active rows through the migration runner without touching
   } finally {
     history.close();
   }
+});
+
+describe('authentic durable pending work (T12265)', () => {
+  it('persists original Unicode/whitespace bytes before any executor claim and resumes in a fresh process', () => {
+    const store = new DurableJobStore(db, { projectId: 'project-A', actor: 'foreground' });
+    const proposalJson = '{\n  "root": "/isolated/A", "text": "界 | quoted union"\n}\n';
+    const pending = store.defer('job', 'docs.projection', Date.now(), { ...request, proposalJson });
+    expect(pending).toMatchObject({
+      status: 'pending',
+      ownership: 'unclaimed',
+      attempts: 0,
+      fencingEpoch: 0,
+      ownerId: null,
+      leaseExpiresAt: null,
+      claimedBy: 'foreground',
+    });
+    expect(readProcess().job).toMatchObject({
+      proposalJson,
+      proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
+      status: 'pending',
+      attempts: 0,
+    });
+    const result = JSON.parse(
+      execFileSync(process.execPath, [join(bundleRoot, 'client.mjs'), path, 'resume'], {
+        encoding: 'utf8',
+        timeout: 10_000,
+      }),
+    );
+    expect(result.job).toMatchObject({
+      status: 'complete',
+      attempts: 1,
+      fencingEpoch: 1,
+      result: { verifiedProposal: proposalJson },
+    });
+    expect(readProcess().job).toMatchObject({
+      status: 'complete',
+      result: { verifiedProposal: proposalJson },
+    });
+    expect(() => store.complete('job', {}, Date.now())).toThrow(/owned/);
+  });
+
+  it('coalesces concurrent independent-process submissions into one durable pending identity', async () => {
+    const args = [join(bundleRoot, 'client.mjs'), path, 'defer', JSON.stringify(request)];
+    const results = await Promise.all([
+      execute(process.execPath, args, { timeout: 10_000 }),
+      execute(process.execPath, args, { timeout: 10_000 }),
+    ]);
+    const first = JSON.parse(results[0].stdout).job;
+    const second = JSON.parse(results[1].stdout).job;
+    expect(first.id).toBe(second.id);
+    expect(first.status).toBe('pending');
+    expect(second.attempts).toBe(0);
+    expect(native.prepare('SELECT COUNT(*) AS n FROM background_jobs').get()?.n).toBe(1);
+  });
+
+  it('allows one independent-process claimant for authentic pending work', async () => {
+    const store = new DurableJobStore(db);
+    store.defer('job', 'docs.projection', Date.now(), request);
+    const results = await Promise.all([
+      execute(process.execPath, [join(bundleRoot, 'client.mjs'), path, 'claim'], {
+        timeout: 10_000,
+      }),
+      execute(process.execPath, [join(bundleRoot, 'client.mjs'), path, 'claim'], {
+        timeout: 10_000,
+      }),
+    ]);
+    const parsed = results.map((result) => JSON.parse(result.stdout));
+    expect(parsed.filter((result) => result.grant)).toHaveLength(1);
+    expect(parsed.filter((result) => result.code === 'E_JOB_NOT_RECLAIMABLE')).toHaveLength(1);
+    expect(readProcess().job).toMatchObject({ status: 'running', attempts: 1, fencingEpoch: 1 });
+  });
+
+  it('preserves scoped repeats and refuses changed inputs without modifying the original', () => {
+    const store = new DurableJobStore(db);
+    const original = store.defer('job', 'docs.projection', Date.now(), request);
+    expect(store.defer('ignored-id', 'docs.projection', Date.now(), request)).toEqual(original);
+    expect(() =>
+      store.defer('other', 'docs.projection', Date.now(), {
+        ...request,
+        proposalJson: '{"changed":true}',
+      }),
+    ).toThrow(/different immutable/);
+    expect(
+      store.defer('project-B', 'docs.projection', Date.now(), {
+        ...request,
+        projectId: 'project-B',
+      }).id,
+    ).toBe('project-B');
+    expect(store.defer('other-op', 'other.projection', Date.now(), request).id).toBe('other-op');
+    expect(readProcess().job).toEqual(original);
+    expect(new DurableJobStore(db, { projectId: 'project-B' }).get('job')).toBeUndefined();
+    expect(() =>
+      new DurableJobStore(db, { projectId: 'project-B' }).defer(
+        'mismatch',
+        'docs.projection',
+        Date.now(),
+        request,
+      ),
+    ).toThrow(/differs/);
+  });
+
+  it('rolls back submission state, payload and hash together on an injected insertion failure', () => {
+    const store = new DurableJobStore(db);
+    native.exec(
+      "CREATE TRIGGER fail_pending AFTER INSERT ON background_jobs WHEN NEW.status='pending' BEGIN SELECT RAISE(ABORT,'pending insert failed'); END",
+    );
+    expect(() => store.defer('job', 'docs.projection', Date.now(), request)).toThrow(
+      expect.objectContaining({
+        cause: expect.objectContaining({ message: 'pending insert failed' }),
+      }),
+    );
+    expect(readProcess().job).toBeUndefined();
+    expect(native.prepare('SELECT COUNT(*) AS n FROM background_jobs').get()?.n).toBe(0);
+    native.exec('DROP TRIGGER fail_pending');
+    expect(store.defer('job', 'docs.projection', Date.now(), request).status).toBe('pending');
+  });
+
+  it('rolls back claim state and grant when an update fails', () => {
+    const store = new DurableJobStore(db);
+    const pending = store.defer('job', 'docs.projection', Date.now(), request);
+    native.exec(
+      "CREATE TRIGGER fail_claim AFTER UPDATE ON background_jobs WHEN NEW.status='running' BEGIN SELECT RAISE(ABORT,'claim failed'); END",
+    );
+    expect(() => store.claim('job', Date.now())).toThrow(
+      expect.objectContaining({ cause: expect.objectContaining({ message: 'claim failed' }) }),
+    );
+    expect(readProcess().job).toEqual(pending);
+    expect(() => store.complete('job', {}, Date.now())).toThrow(/owned/);
+    native.exec('DROP TRIGGER fail_claim');
+    expect(store.claim('job', Date.now()).epoch).toBe(1);
+  });
+
+  it('refuses submission inside an unrelated native transaction without rolling it back', () => {
+    const store = new DurableJobStore(db);
+    native.exec('BEGIN');
+    expect(() => store.defer('job', 'docs.projection', Date.now(), request)).toThrow(
+      /another caller/,
+    );
+    native.exec('ROLLBACK');
+    expect(readProcess().job).toBeUndefined();
+  });
+
+  it.each([
+    'missing',
+    'malformed',
+    'hash-mismatch',
+    'ownership',
+  ] as const)('retains %s pending evidence and refuses automatic reconstruction or claim', (defect) => {
+    const store = new DurableJobStore(db);
+    store.defer('job', 'docs.projection', Date.now(), request);
+    if (defect === 'missing')
+      native.exec("UPDATE background_jobs SET proposal_json=NULL WHERE id='job'");
+    if (defect === 'malformed')
+      native.exec("UPDATE background_jobs SET proposal_json='{' WHERE id='job'");
+    if (defect === 'hash-mismatch')
+      native.exec("UPDATE background_jobs SET proposal_json='{}' WHERE id='job'");
+    if (defect === 'ownership') native.exec("UPDATE background_jobs SET attempts=1 WHERE id='job'");
+    const before = native.prepare('SELECT * FROM background_jobs').get();
+    expect(store.get('job')).toMatchObject({
+      ownership: 'legacy-unknown',
+      diagnosticError: expect.any(String),
+    });
+    expect(() => store.claim('job', Date.now())).toThrow(/proposal|ownership/);
+    expect(native.prepare('SELECT * FROM background_jobs').get()).toEqual(before);
+    if (defect === 'missing') {
+      expect(
+        store.defer('ignored', 'docs.projection', Date.now(), request).proposalJson,
+      ).toBeNull();
+      expect(native.prepare('SELECT * FROM background_jobs').get()).toEqual(before);
+    }
+  });
+
+  it('records cancellation before execution and refuses later claims', () => {
+    const store = new DurableJobStore(db);
+    store.defer('job', 'docs.projection', Date.now(), request);
+    expect(store.requestCancel('job', Date.now())).toBe(true);
+    expect(readProcess().job).toMatchObject({ status: 'cancelled', attempts: 0, ownerId: null });
+    expect(() => store.claim('job', Date.now())).toThrow(/claimed/);
+  });
+
+  it('does not launch pending retries and runs only an explicit manager resume', async () => {
+    const owner = manager();
+    const id = owner.deferJob('docs.projection', request);
+    const executor = vi.fn(async () => ({ projected: true }));
+    expect(await owner.startJob('docs.projection', executor, request)).toBe(id);
+    expect(executor).not.toHaveBeenCalled();
+    expect(owner.getJob(id)?.status).toBe('pending');
+    await owner.resumeJob(id, executor);
+    await flushed();
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(owner.getJob(id)).toMatchObject({
+      status: 'complete',
+      attempts: 1,
+      result: { projected: true },
+    });
+    expect(owner.deferJob('docs.projection', request)).toBe(id);
+    await expect(owner.resumeJob(id, executor)).rejects.toThrow(/claimed/);
+    expect(executor).toHaveBeenCalledTimes(1);
+  });
+
+  it('enforces the same running capacity atomically when pending work is claimed', async () => {
+    const owner = new BackgroundJobManager(db, { projectId: 'project-A', maxJobs: 1 });
+    managers.push(owner);
+    const work = Promise.withResolvers<void>();
+    const running = await owner.startJob('held', () => work.promise);
+    const pending = owner.deferJob('docs.projection', request);
+    const executor = vi.fn(async () => 'done');
+    await expect(owner.resumeJob(pending, executor)).rejects.toThrow(/Maximum concurrent/);
+    expect(owner.getJob(pending)).toMatchObject({ status: 'pending', attempts: 0 });
+    expect(executor).not.toHaveBeenCalled();
+    work.resolve();
+    await flushed();
+    expect(owner.getJob(running)?.status).toBe('complete');
+    await owner.resumeJob(pending, executor);
+    await flushed();
+    expect(owner.getJob(pending)?.status).toBe('complete');
+  });
 });

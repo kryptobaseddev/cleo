@@ -19,7 +19,7 @@ import type {
   BackgroundJobStoreOptions,
   BackgroundJobSubmission,
 } from '@cleocode/contracts/jobs';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from './sqlite.js';
 import {
   BACKGROUND_JOB_STATUSES,
@@ -72,8 +72,10 @@ export interface BackgroundJob {
   idempotencyKey: string | null;
   /** SHA-256 of immutable proposal bytes. */
   proposalHash: string | null;
+  /** Authentic immutable input bytes; null means the original payload is unavailable. */
+  proposalJson: string | null;
   /** Ownership assessment at read time, independent of lifecycle status. */
-  ownership: 'current' | 'expired' | 'legacy-unknown' | 'terminal';
+  ownership: 'current' | 'expired' | 'unclaimed' | 'legacy-unknown' | 'terminal';
   /** Explicit diagnostic failure, when result decoding or local persistence failed. */
   diagnosticError?: string;
 }
@@ -129,14 +131,18 @@ function rowToJob(row: BackgroundJobRow): BackgroundJob {
     checkpointAt: row.checkpointAt,
     idempotencyKey: row.idempotencyKey,
     proposalHash: row.proposalHash,
+    proposalJson: row.proposalJson,
     ownership: terminal
       ? 'terminal'
-      : row.ownerId === null || row.leaseExpiresAt === null
-        ? 'legacy-unknown'
-        : row.leaseExpiresAt <= Date.now()
-          ? 'expired'
-          : 'current',
+      : row.status === 'pending' && pendingProposalProblem(row) === null
+        ? 'unclaimed'
+        : row.ownerId === null || row.leaseExpiresAt === null
+          ? 'legacy-unknown'
+          : row.leaseExpiresAt <= Date.now()
+            ? 'expired'
+            : 'current',
   };
+  if (row.status === 'pending') job.diagnosticError = pendingProposalProblem(row) ?? undefined;
   if (row.completedAt !== null) job.completedAt = new Date(row.completedAt).toISOString();
   if (row.result !== null) {
     try {
@@ -152,6 +158,31 @@ function rowToJob(row: BackgroundJobRow): BackgroundJob {
   return job;
 }
 
+function pendingProposalProblem(row: BackgroundJobRow): string | null {
+  if (
+    row.ownerId !== null ||
+    row.leaseExpiresAt !== null ||
+    row.fencingEpoch !== 0 ||
+    row.attempts !== 0
+  )
+    return 'Pending job contains inconsistent execution ownership; explicit recovery is required';
+  if (
+    !row.projectId ||
+    !row.idempotencyKey ||
+    row.proposalJson === null ||
+    row.proposalHash === null
+  )
+    return 'Pending job has no authentic scoped proposal payload; explicit recovery is required';
+  try {
+    requireJson(row.proposalJson);
+  } catch {
+    return 'Pending job proposal is not valid JSON';
+  }
+  if (createHash('sha256').update(row.proposalJson).digest('hex') !== row.proposalHash)
+    return 'Pending job proposal bytes do not match their immutable hash';
+  return null;
+}
+
 function requireText(value: string, field: string): void {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new BackgroundJobError('E_JOB_INPUT_INVALID', `${field} must be a nonempty string`);
@@ -159,6 +190,11 @@ function requireText(value: string, field: string): void {
 }
 
 function requireJson(value: string): void {
+  if (typeof value !== 'string')
+    throw new BackgroundJobError(
+      'E_JOB_INPUT_INVALID',
+      'Proposal/checkpoint must contain serialized JSON bytes',
+    );
   try {
     JSON.parse(value);
   } catch {
@@ -167,6 +203,14 @@ function requireJson(value: string): void {
       'Proposal/checkpoint must contain valid JSON bytes',
     );
   }
+}
+
+function requireRunningLimit(maxRunning?: number): void {
+  if (maxRunning !== undefined && (!Number.isSafeInteger(maxRunning) || maxRunning < 1))
+    throw new BackgroundJobError(
+      'E_JOB_INPUT_INVALID',
+      'Running-job limit must be a positive safe integer',
+    );
 }
 
 /**
@@ -305,87 +349,8 @@ export class DurableJobStore {
     submission?: BackgroundJobSubmission,
     maxRunning?: number,
   ): BackgroundJobLease | null {
-    if (maxRunning !== undefined && (!Number.isSafeInteger(maxRunning) || maxRunning < 1)) {
-      throw new BackgroundJobError(
-        'E_JOB_INPUT_INVALID',
-        'Running-job limit must be a positive safe integer',
-      );
-    }
-    requireText(id, 'id');
-    requireText(operation, 'operation');
-    if (submission) {
-      requireText(submission.projectId, 'projectId');
-      requireText(submission.idempotencyKey, 'idempotencyKey');
-      requireJson(submission.proposalJson);
-      if (
-        this.#options.projectId !== undefined &&
-        this.#options.projectId !== submission.projectId
-      ) {
-        throw new BackgroundJobError(
-          'E_JOB_SCOPE_MISMATCH',
-          'Submission project differs from the store scope',
-        );
-      }
-    }
-    const proposalHash = submission
-      ? createHash('sha256').update(submission.proposalJson).digest('hex')
-      : null;
-    const row = this.#write(() => {
-      if (submission) {
-        const prior = this.#db
-          .select()
-          .from(backgroundJobs)
-          .where(
-            and(
-              eq(backgroundJobs.projectId, submission.projectId),
-              eq(backgroundJobs.operation, operation),
-              eq(backgroundJobs.idempotencyKey, submission.idempotencyKey),
-            ),
-          )
-          .get();
-        if (prior) {
-          if (prior.proposalHash !== proposalHash)
-            throw new BackgroundJobError(
-              'E_JOB_IDEMPOTENCY_CONFLICT',
-              'Retry key was already used with different immutable proposal bytes',
-            );
-          return null;
-        }
-      }
-      if (maxRunning !== undefined) {
-        const count =
-          this.#db
-            .select({ count: sql<number>`count(*)` })
-            .from(backgroundJobs)
-            .where(and(this.#scope(), eq(backgroundJobs.status, 'running')))
-            .get()?.count ?? 0;
-        if (count >= maxRunning)
-          throw new BackgroundJobError(
-            'E_JOB_INPUT_INVALID',
-            `Maximum concurrent jobs reached (${maxRunning})`,
-          );
-      }
-      return this.#db
-        .insert(backgroundJobs)
-        .values({
-          id,
-          operation,
-          status: 'running',
-          startedAt: now,
-          heartbeatAt: now,
-          claimedBy: this.#options.actor ?? null,
-          projectId: submission?.projectId ?? this.#options.projectId ?? null,
-          ownerId: this.#ownerId,
-          leaseExpiresAt: Date.now() + this.leaseMs,
-          fencingEpoch: 1,
-          attempts: 1,
-          proposalHash,
-          idempotencyKey: submission?.idempotencyKey ?? null,
-        })
-        .returning()
-        .get();
-    });
-    if (!row) return null;
+    const { row, created } = this.#submit(id, operation, now, submission, 'running', maxRunning);
+    if (!created) return null;
     const grant = this.#grant(row);
     this.#grants.set(id, grant);
     return grant;
@@ -419,6 +384,141 @@ export class DurableJobStore {
       )
       .get();
     return row ? rowToJob(row) : undefined;
+  }
+
+  /** Check the project running limit while the caller owns the write transaction. */
+  #requireCapacity(maxRunning?: number, excludeId?: string): void {
+    requireRunningLimit(maxRunning);
+    if (maxRunning === undefined) return;
+    const count =
+      this.#db
+        .select({ count: sql<number>`count(*)` })
+        .from(backgroundJobs)
+        .where(
+          and(
+            this.#scope(),
+            eq(backgroundJobs.status, 'running'),
+            excludeId ? ne(backgroundJobs.id, excludeId) : undefined,
+          ),
+        )
+        .get()?.count ?? 0;
+    if (count >= maxRunning)
+      throw new BackgroundJobError(
+        'E_JOB_INPUT_INVALID',
+        `Maximum concurrent jobs reached (${maxRunning})`,
+      );
+  }
+
+  /** Atomically coalesce or insert complete immutable proposal state. */
+  #submit(
+    id: string,
+    operation: string,
+    now: number,
+    submission: BackgroundJobSubmission | undefined,
+    status: 'pending' | 'running',
+    maxRunning?: number,
+  ) {
+    requireRunningLimit(maxRunning);
+    requireText(id, 'id');
+    if (!Number.isSafeInteger(now))
+      throw new BackgroundJobError(
+        'E_JOB_INPUT_INVALID',
+        'Job event timestamp must be a safe integer',
+      );
+    requireText(operation, 'operation');
+    if (submission) {
+      requireText(submission.projectId, 'projectId');
+      requireText(submission.idempotencyKey, 'idempotencyKey');
+      requireJson(submission.proposalJson);
+      if (
+        this.#options.projectId !== undefined &&
+        this.#options.projectId !== submission.projectId
+      ) {
+        throw new BackgroundJobError(
+          'E_JOB_SCOPE_MISMATCH',
+          'Submission project differs from the store scope',
+        );
+      }
+    }
+    const proposalHash = submission
+      ? createHash('sha256').update(submission.proposalJson).digest('hex')
+      : null;
+    return this.#write(() => {
+      if (submission) {
+        const prior = this.#db
+          .select()
+          .from(backgroundJobs)
+          .where(
+            and(
+              eq(backgroundJobs.projectId, submission.projectId),
+              eq(backgroundJobs.operation, operation),
+              eq(backgroundJobs.idempotencyKey, submission.idempotencyKey),
+            ),
+          )
+          .get();
+        if (prior) {
+          if (
+            prior.proposalHash !== proposalHash ||
+            (prior.proposalJson !== null && prior.proposalJson !== submission.proposalJson)
+          )
+            throw new BackgroundJobError(
+              'E_JOB_IDEMPOTENCY_CONFLICT',
+              'Retry key was already used with different immutable proposal bytes',
+            );
+          return { row: prior, created: false };
+        }
+      }
+      if (status === 'running') this.#requireCapacity(maxRunning);
+      const row = this.#db
+        .insert(backgroundJobs)
+        .values({
+          id,
+          operation,
+          status,
+          startedAt: now,
+          heartbeatAt: now,
+          claimedBy: this.#options.actor ?? null,
+          projectId: submission?.projectId ?? this.#options.projectId ?? null,
+          ownerId: status === 'running' ? this.#ownerId : null,
+          leaseExpiresAt: status === 'running' ? Date.now() + this.leaseMs : null,
+          fencingEpoch: status === 'running' ? 1 : 0,
+          attempts: status === 'running' ? 1 : 0,
+          proposalHash,
+          proposalJson: submission?.proposalJson ?? null,
+          idempotencyKey: submission?.idempotencyKey ?? null,
+        })
+        .returning()
+        .get();
+      return { row, created: true };
+    });
+  }
+
+  /**
+   * Persist authentic pending work without claiming or starting an executor.
+   * @param id - Proposed job identity; matching retries retain the original identity.
+   * @param operation - Exact operation whose supported inputs the domain service validates.
+   * @param now - Submission timestamp in epoch milliseconds.
+   * @param submission - Required project-scoped immutable serialized proposal.
+   * @returns Persisted pending job, or unchanged prior matching submission.
+   * @remarks Input and its hash commit in one native transaction. Existing history
+   * without payload is retained, never reconstructed from a hash or overwritten.
+   * @example
+   * ```ts
+   * const pending = store.defer(id, 'docs.projection', Date.now(), submission);
+   * ```
+   */
+  defer(
+    id: string,
+    operation: string,
+    now: number,
+    submission: BackgroundJobSubmission,
+  ): BackgroundJob {
+    if (!submission)
+      throw new BackgroundJobError(
+        'E_JOB_INPUT_INVALID',
+        'Pending work requires a scoped proposal',
+      );
+    return rowToJob(this.#submit(id, operation, now, submission, 'pending').row);
   }
 
   /**
@@ -467,31 +567,38 @@ export class DurableJobStore {
   }
 
   /**
-   * Reclaim only an explicitly expired lease, fencing the prior attempt.
+   * Claim authentic unstarted work or reclaim an explicitly expired lease.
    * @param id - Existing job identity.
    * @param now - Claim timestamp.
+   * @param maxRunning - Optional capacity limit enforced atomically with the claim.
    * @returns New attempt's lease.
-   * @remarks Preserves checkpoint and cancellation request. Terminal and legacy-unowned rows are refused.
+   * @remarks Preserves checkpoint and cancellation request. Pending work must have
+   * authentic hash-matching inputs and no prior execution; ambiguous legacy rows refuse.
    * @example
    * ```ts
    * const lease = store.claim(expiredJob.id, Date.now());
    * ```
    */
-  claim(id: string, now: number): BackgroundJobLease {
+  claim(id: string, now: number, maxRunning?: number): BackgroundJobLease {
     const row = this.#write(() => {
       const prior = this.#row(id);
+      const pending = prior?.status === 'pending';
+      const problem = pending && prior ? pendingProposalProblem(prior) : null;
       if (
         !prior ||
-        prior.status !== 'running' ||
-        prior.ownerId === null ||
-        prior.leaseExpiresAt === null ||
-        prior.leaseExpiresAt > Date.now()
+        (pending
+          ? problem !== null
+          : prior.status !== 'running' ||
+            prior.ownerId === null ||
+            prior.leaseExpiresAt === null ||
+            prior.leaseExpiresAt > Date.now())
       ) {
         throw new BackgroundJobError(
           'E_JOB_NOT_RECLAIMABLE',
-          'Only explicitly expired running ownership may be reclaimed',
+          problem ?? 'Only explicitly expired ownership or authentic pending work may be claimed',
         );
       }
+      this.#requireCapacity(maxRunning, id);
       if (
         !Number.isSafeInteger(prior.fencingEpoch + 1) ||
         !Number.isSafeInteger(prior.attempts + 1)
@@ -504,6 +611,7 @@ export class DurableJobStore {
       return this.#db
         .update(backgroundJobs)
         .set({
+          status: 'running',
           ownerId: this.#ownerId,
           claimedBy: this.#options.actor ?? null,
           fencingEpoch: prior.fencingEpoch + 1,
@@ -573,7 +681,7 @@ export class DurableJobStore {
    * Request cancellation without claiming that execution has stopped.
    * @param id - Visible job identity.
    * @param now - Request timestamp.
-   * @returns Whether running work has a persisted cancellation request.
+   * @returns Whether pending work was cancelled or running work has a persisted request.
    * @remarks Terminal results are preserved when cancellation arrives after commit.
    * @example
    * ```ts
@@ -583,7 +691,17 @@ export class DurableJobStore {
   requestCancel(id: string, now: number): boolean {
     return this.#write(() => {
       const row = this.#row(id);
-      if (!row || row.status !== 'running') return false;
+      if (!row || (row.status !== 'running' && row.status !== 'pending')) return false;
+      if (row.status === 'pending') {
+        const problem = pendingProposalProblem(row);
+        if (problem) throw new BackgroundJobError('E_JOB_NOT_RECLAIMABLE', problem);
+        this.#db
+          .update(backgroundJobs)
+          .set({ status: 'cancelled', cancellationRequestedAt: now, completedAt: now })
+          .where(eq(backgroundJobs.id, id))
+          .run();
+        return true;
+      }
       if (row.cancellationRequestedAt === null)
         this.#db
           .update(backgroundJobs)
@@ -775,7 +893,23 @@ export class BackgroundJobManager {
   }
 
   /**
-   * Explicitly resume expired ownership using the same existing executor facade.
+   * Record optional work durably without scheduling an executor or model.
+   * @param operation - Supported action validated by the calling domain service.
+   * @param submission - Authentic scoped proposal bytes for explicit later resume.
+   * @returns Existing or newly persisted job identity.
+   * @remarks This does not establish completion of the optional projection or a
+   * domain repair receipt. Explicit resume must validate current prerequisites.
+   * @example
+   * ```ts
+   * const id = manager.deferJob('docs.projection', submission);
+   * ```
+   */
+  deferJob(operation: string, submission: BackgroundJobSubmission): string {
+    return this.#store.defer(randomUUID(), operation, Date.now(), submission).id;
+  }
+
+  /**
+   * Explicitly start pending work or resume expired ownership using the existing facade.
    * @param id - Expired job identity.
    * @param executor - Executor capable of resuming its persisted checkpoint.
    * @returns Identity of the resumed job.
@@ -789,7 +923,7 @@ export class BackgroundJobManager {
     id: string,
     executor: (context: BackgroundJobExecutionContext) => Promise<unknown>,
   ): Promise<string> {
-    const lease = this.#store.claim(id, Date.now());
+    const lease = this.#store.claim(id, Date.now(), this.#maxJobs);
     this.#launch(lease, executor);
     return id;
   }
