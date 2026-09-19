@@ -11,7 +11,7 @@
  *   6. git log --grep          → recentActivity (last 5 commits)
  *
  * All sub-calls run in parallel where possible via `Promise.allSettled`.
- * Failures are silently swallowed so a missing store never blocks `cleo focus`.
+ * Auxiliary failures preserve usable fields and appear separately in sourceDiagnostics.
  *
  * Token budget: ≤ 1 500 tokens for typical task orientation.
  *
@@ -20,6 +20,7 @@
  */
 
 import { execSync } from 'node:child_process';
+import type { KnowledgeDiagnostic } from '@cleocode/contracts';
 import type {
   FocusAttachedDoc,
   FocusBlocker,
@@ -32,6 +33,11 @@ import type {
 } from '@cleocode/contracts/operations/focus';
 import type { MemoryCompactHit } from '@cleocode/contracts/operations/memory';
 import { getProjectRoot } from '@cleocode/core';
+import { runKnowledgeDoctor } from '@cleocode/core/doctor/knowledge';
+import {
+  compactKnowledgeCoverage,
+  compactKnowledgeHealth,
+} from '@cleocode/core/doctor/knowledge-summary';
 import {
   buildAttentionDigest,
   createAttachmentStore,
@@ -78,7 +84,11 @@ const TASK_ID_RE = /^T\d+$/i;
  *
  * @internal
  */
-function fetchRecentActivity(taskId: string, projectRoot: string): FocusRecentCommit[] {
+function fetchRecentActivity(
+  taskId: string,
+  projectRoot: string,
+  diagnostics: Record<string, KnowledgeDiagnostic>,
+): FocusRecentCommit[] {
   try {
     const raw = execSync(`git log --grep="${taskId}" --pretty=format:"%H\t%s\t%aI" -n 5`, {
       encoding: 'utf8',
@@ -98,7 +108,8 @@ function fetchRecentActivity(taskId: string, projectRoot: string): FocusRecentCo
         };
       })
       .filter((c) => c.commitSha !== '');
-  } catch {
+  } catch (error) {
+    diagnostics['git'] = { status: 'failed', reasons: [String(error)], evidence: [] };
     return [];
   }
 }
@@ -106,14 +117,18 @@ function fetchRecentActivity(taskId: string, projectRoot: string): FocusRecentCo
 /**
  * Collect task-scoped attachment entries from the docs store.
  *
- * Always resolves — returns `[]` on any failure.
+ * Returns `[]` on failure and records failed source diagnostics.
  *
  * @param projectRoot - Absolute project root.
  * @param taskId      - Owner task ID.
  *
  * @internal
  */
-async function fetchAttachedDocs(projectRoot: string, taskId: string): Promise<FocusAttachedDoc[]> {
+async function fetchAttachedDocs(
+  projectRoot: string,
+  taskId: string,
+  diagnostics: Record<string, KnowledgeDiagnostic>,
+): Promise<FocusAttachedDoc[]> {
   try {
     const store = createAttachmentStore();
     const metas = await store.listByOwner('task', taskId, projectRoot);
@@ -128,7 +143,8 @@ async function fetchAttachedDocs(projectRoot: string, taskId: string): Promise<F
       });
     }
     return entries;
-  } catch {
+  } catch (error) {
+    diagnostics['docs'] = { status: 'failed', reasons: [String(error)], evidence: [] };
     return [];
   }
 }
@@ -144,7 +160,10 @@ async function fetchAttachedDocs(projectRoot: string, taskId: string): Promise<F
  *
  * @internal
  */
-async function fetchBrainContext(taskId: string): Promise<FocusBrainContext | undefined> {
+async function fetchBrainContext(
+  taskId: string,
+  diagnostics: Record<string, KnowledgeDiagnostic>,
+): Promise<FocusBrainContext | undefined> {
   try {
     const [obsResult, decResult, lrnResult] = await Promise.allSettled([
       memoryFind({ query: taskId, limit: 3, tables: ['observations'] }),
@@ -155,7 +174,14 @@ async function fetchBrainContext(taskId: string): Promise<FocusBrainContext | un
     const toHits = (
       r: PromiseSettledResult<Awaited<ReturnType<typeof memoryFind>>>,
     ): MemoryCompactHit[] => {
-      if (r.status !== 'fulfilled' || !r.value.success) return [];
+      if (r.status !== 'fulfilled' || !r.value.success) {
+        diagnostics['memory'] = {
+          status: 'failed',
+          reasons: ['One or more scoped memory retrievals failed.'],
+          evidence: [],
+        };
+        return [];
+      }
       const data = r.value.data as { results?: MemoryCompactHit[] } | undefined;
       return (data?.results ?? []).slice(0, 3);
     };
@@ -165,7 +191,8 @@ async function fetchBrainContext(taskId: string): Promise<FocusBrainContext | un
       learnings: toHits(lrnResult),
       decisions: toHits(decResult),
     };
-  } catch {
+  } catch (error) {
+    diagnostics['memory'] = { status: 'failed', reasons: [String(error)], evidence: [] };
     return undefined;
   }
 }
@@ -185,11 +212,13 @@ async function fetchBrainContext(taskId: string): Promise<FocusBrainContext | un
  */
 async function fetchAttentionDigest(
   projectRoot: string,
+  diagnostics: Record<string, KnowledgeDiagnostic>,
 ): Promise<FocusShowResult['attentionDigest'] | undefined> {
   try {
     const digest = await buildAttentionDigest(projectRoot);
     return digest ?? undefined;
-  } catch {
+  } catch (error) {
+    diagnostics['attention'] = { status: 'failed', reasons: [String(error)], evidence: [] };
     return undefined;
   }
 }
@@ -205,10 +234,18 @@ async function fetchAttentionDigest(
 async function fetchSagaMembersWithTitles(
   projectRoot: string,
   sagaId: string,
+  diagnostics: Record<string, KnowledgeDiagnostic>,
 ): Promise<FocusSagaMember[]> {
   try {
     const relResult = await taskRelates(projectRoot, sagaId);
-    if (!relResult.success) return [];
+    if (!relResult.success) {
+      diagnostics['saga'] = {
+        status: 'failed',
+        reasons: ['Saga relationship retrieval failed.'],
+        evidence: [],
+      };
+      return [];
+    }
 
     const memberIds = (relResult.data?.relations ?? [])
       .filter((r) => r.type === 'groups')
@@ -224,13 +261,19 @@ async function fetchSagaMembersWithTitles(
       .map((r, i) => {
         const epicId = memberIds[i] ?? '';
         if (r.status !== 'fulfilled' || !r.value.success) {
+          diagnostics['saga'] = {
+            status: 'failed',
+            reasons: ['One or more saga member records could not be loaded.'],
+            evidence: [],
+          };
           return { epicId, title: epicId, status: 'unknown' };
         }
         const t = r.value.data!.task;
         return { epicId: t.id, title: t.title, status: t.status };
       })
       .filter((m) => m.epicId !== '');
-  } catch {
+  } catch (error) {
+    diagnostics['saga'] = { status: 'failed', reasons: [String(error)], evidence: [] };
     return [];
   }
 }
@@ -267,6 +310,8 @@ async function buildFocusEnvelope(
     };
   }
 
+  const knowledge = await runKnowledgeDoctor(projectRoot, { fix: true, budgetMs: 2000 });
+  const sourceDiagnostics: Record<string, KnowledgeDiagnostic> = {};
   const task = showResult.data!.task;
 
   // ── 2. Determine entity tier ──────────────────────────────────────────────
@@ -308,6 +353,12 @@ async function buildFocusEnvelope(
   if (explicitBlockers.length === 0 && Array.isArray(task.depends)) {
     for (const depId of task.depends as string[]) {
       const dRes = await taskShow(projectRoot, depId).catch(() => null);
+      if (!dRes?.success)
+        sourceDiagnostics['dependencies'] = {
+          status: 'failed',
+          reasons: ['A dependency record could not be assessed.'],
+          evidence: [],
+        };
       if (dRes?.success && dRes.data) {
         const s = dRes.data.task.status;
         if (s !== 'done' && s !== 'cancelled') {
@@ -326,6 +377,12 @@ async function buildFocusEnvelope(
     await Promise.allSettled(
       explicitBlockers.map(async (bid) => {
         const bRes = await taskShow(projectRoot, bid).catch(() => null);
+        if (!bRes?.success)
+          sourceDiagnostics['blockers'] = {
+            status: 'failed',
+            reasons: ['A blocker record could not be assessed.'],
+            evidence: [],
+          };
         blockers.push({
           id: bid,
           title: bRes?.success ? (bRes.data?.task.title ?? bid) : bid,
@@ -347,23 +404,23 @@ async function buildFocusEnvelope(
   const [sagaMembersResult, readyResult, docsResult, brainResult, attentionResult] =
     await Promise.allSettled([
       isSaga
-        ? fetchSagaMembersWithTitles(projectRoot, id)
+        ? fetchSagaMembersWithTitles(projectRoot, id, sourceDiagnostics)
         : Promise.resolve(undefined as FocusSagaMember[] | undefined),
 
       epicIdForReady && TASK_ID_RE.test(epicIdForReady)
         ? orchestrateReady(epicIdForReady, projectRoot)
         : Promise.resolve(null),
 
-      fetchAttachedDocs(projectRoot, id),
+      fetchAttachedDocs(projectRoot, id, sourceDiagnostics),
 
-      fetchBrainContext(id),
+      fetchBrainContext(id, sourceDiagnostics),
 
       // T11374: Tier-2 attention digest for the calling agent's resolved scope.
-      fetchAttentionDigest(projectRoot),
+      fetchAttentionDigest(projectRoot, sourceDiagnostics),
     ]);
 
   // ── 8. Recent git activity (sync, cheap) ──────────────────────────────────
-  const recentActivity = fetchRecentActivity(id, projectRoot);
+  const recentActivity = fetchRecentActivity(id, projectRoot, sourceDiagnostics);
 
   // ── 9. Assemble result ────────────────────────────────────────────────────
 
@@ -397,15 +454,39 @@ async function buildFocusEnvelope(
   const attentionDigest: FocusShowResult['attentionDigest'] | undefined =
     attentionResult.status === 'fulfilled' ? attentionResult.value : undefined;
 
+  for (const [name, result] of Object.entries({
+    saga: sagaMembersResult,
+    ready: readyResult,
+    docs: docsResult,
+    memory: brainResult,
+    attention: attentionResult,
+  })) {
+    if (result.status === 'rejected')
+      sourceDiagnostics[name] = {
+        status: 'failed',
+        reasons: [String(result.reason)],
+        evidence: [],
+      };
+  }
+  if (readyResult.status === 'fulfilled' && readyResult.value?.success === false) {
+    sourceDiagnostics['ready'] = {
+      status: 'failed',
+      reasons: ['Ready-wave assessment failed.'],
+      evidence: [],
+    };
+  }
   const envelope: FocusShowResult = {
     identity,
     scope,
-    ...(members != null ? { members } : {}),
+    coverage: compactKnowledgeCoverage(knowledge.health.coverage),
+    ...(brainContext != null ? { brainContext } : {}),
     blockers,
     ...(readyWave != null ? { readyWave } : {}),
+    knowledgeHealth: compactKnowledgeHealth(knowledge.health),
+    sourceDiagnostics,
+    ...(members != null ? { members } : {}),
     ...(attachedDocs != null ? { attachedDocs } : {}),
     ...(recentActivity.length > 0 ? { recentActivity } : {}),
-    ...(brainContext != null ? { brainContext } : {}),
     ...(attentionDigest != null ? { attentionDigest } : {}),
     tokensEstimated: 0,
   };
@@ -434,7 +515,7 @@ const QUERY_OPS = new Set<string>(['show']);
  */
 export class FocusHandler implements DomainHandler {
   /**
-   * Execute a read-only focus query operation.
+   * Execute a focus query with bounded deterministic knowledge maintenance.
    *
    * @param operation - Operation name (`'show'`).
    * @param params    - Raw params (must contain `id: string`).

@@ -136,7 +136,7 @@ describe('computeBriefing — opportunistic dream trigger (T1904 · T11655)', ()
     expect(mockCheckAndDream).not.toHaveBeenCalled();
   });
 
-  it('T11655: fires inside a long-lived sentient host (CLEO_SENTIENT_DAEMON) without an explicit opt-in', async () => {
+  it('requires explicit synthesis opt-in even inside a long-lived sentient host', async () => {
     process.env['CLEO_SENTIENT_DAEMON'] = '1';
     (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(buildMockAccessor());
     (loadConfig as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -144,7 +144,7 @@ describe('computeBriefing — opportunistic dream trigger (T1904 · T11655)', ()
     await computeBriefing(PROJECT_ROOT);
     await new Promise((r) => setImmediate(r));
 
-    expect(mockCheckAndDream).toHaveBeenCalledTimes(1);
+    expect(mockCheckAndDream).not.toHaveBeenCalled();
   });
 
   it('does not throw when checkAndDream rejects', async () => {

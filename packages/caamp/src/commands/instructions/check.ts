@@ -95,6 +95,9 @@ export function registerInstructionsCheck(parent: Command): void {
         // Build provider status for result
         const providerStatus = results.map((r) => ({
           id: r.provider,
+          status: r.status,
+          deliveryFindings: r.deliveryFindings,
+          liveEvaluation: r.liveEvaluation,
           present: r.status === 'current' || r.status === 'outdated',
           path: r.file,
         }));

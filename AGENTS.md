@@ -8,6 +8,30 @@
 
 Rules below are NON-NEGOTIABLE for this repo. Protocol surface (sessions, tasks, memory, orchestration, evidence gates) is in CLEO-INJECTION.md and not duplicated here.
 
+## Instruction architecture
+
+The packaged protocol source is `packages/core/templates/CLEO-INJECTION.md`.
+Installation publishes it to the CLEO templates directory; the global hub
+`~/.agents/AGENTS.md` points there. Project `AGENTS.md` owns repository rules
+and project context. CAAMP owns managed blocks in provider instruction files;
+provider adapters own runtime delivery. Canonical ct-* skills under
+`packages/skills/skills/` own detailed workflow guidance. Spawn prompts embed
+resolved protocol content according to their configured tier.
+
+User instructions and provider safety requirements take precedence. Establish
+the assigned worktree before orientation; then use briefing/focus, inspect
+current authority and coverage, inspect source evidence, act, verify, and record
+useful learning. Historical handoffs are evidence, not automatically current
+instructions. Missing or failed knowledge must remain visible.
+
+Reference expansion is provider-dependent. A literal `@path` is not proof that
+an agent loaded that file. Delivery without verified expansion must use a
+self-contained managed bootstrap. Keep user-authored text outside managed blocks
+unchanged; report missing references, cycles, duplicates, and stale content.
+Check packaged, installed, global, project, provider, skill, bridge, and spawn
+surfaces when changing instruction behavior. Run command-existence and delivery
+regressions; mark live Codex, Claude, or Kimi evaluations unverified unless run.
+
 ## Code Quality
 
 **Type safety (zero tolerance).** NEVER `any`, `unknown` as a shortcut, `as unknown as X` casting chains, or inline/mocked types. Use `packages/contracts/src/` — build new contracts if genuinely missing.

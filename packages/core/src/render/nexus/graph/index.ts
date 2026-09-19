@@ -210,12 +210,16 @@ export function renderNexusImpact(data: Record<string, unknown>, quiet: boolean)
       nodes: Array<{ name: string; kind: string; filePath?: string; reasons: string[] }>;
     }>) ?? [];
   if (Number(data['totalImpactedNodes']) === 0) {
-    lines.push('  No callers found — safe to modify.');
+    lines.push(
+      data['riskLevel'] === 'UNKNOWN'
+        ? '  Impact is unknown because coverage is incomplete. Inspect coverage and evidence before editing.'
+        : '  No callers detected in the assessed graph. Static analysis cannot prove all runtime callers.',
+    );
   } else {
     for (let i = 0; i < impactByDepth.length; i++) {
       const layer = impactByDepth[i];
       if (!layer || layer.nodes.length === 0) continue;
-      const label = i === 0 ? 'WILL BREAK' : i === 1 ? 'LIKELY AFFECTED' : 'MAY NEED TESTING';
+      const label = i === 0 ? 'DIRECT CALLERS' : i === 1 ? 'LIKELY AFFECTED' : 'MAY NEED TESTING';
       lines.push(`\n  d=${i + 1} ${label} (${layer.nodes.length}):`);
       for (const node of layer.nodes.slice(0, 15)) {
         lines.push(

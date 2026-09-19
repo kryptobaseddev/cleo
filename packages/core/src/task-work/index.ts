@@ -8,9 +8,10 @@
 // Auto-register hook handlers
 import '../hooks/handlers/index.js';
 
-import type { TaskWorkState } from '@cleocode/contracts';
+import type { KnowledgeCoverage, TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { resolveOrCwd } from '../paths.js';
 import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
@@ -59,6 +60,8 @@ export interface TaskCurrentResult {
 
 /** Result of starting work on a task. */
 export interface TaskStartResult {
+  /** Coverage at task start; unavailable evidence never implies no impact. */
+  knowledgeCoverage?: KnowledgeCoverage;
   taskId: string;
   taskTitle: string;
   previousTask: string | null;
@@ -184,6 +187,7 @@ export async function startTask(
     });
 
   return {
+    knowledgeCoverage: await assessKnowledgeCoverage(resolveOrCwd(cwd)),
     taskId,
     taskTitle: task.title,
     previousTask,

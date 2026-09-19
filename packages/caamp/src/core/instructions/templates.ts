@@ -5,6 +5,11 @@
  * Includes structured InjectionTemplate API for project-level customization.
  */
 
+import { createHash } from 'node:crypto';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, resolve } from 'node:path';
+import type { InstructionDelivery } from '@cleocode/contracts/caamp-markers';
 import type { Provider } from '../../types.js';
 
 // ── InjectionTemplate API ───────────────────────────────────────────
@@ -237,4 +242,134 @@ export function groupByInstructFile(providers: Provider[]): Map<string, Provider
   }
 
   return groups;
+}
+
+/**
+ * Expand instruction references into bounded, self-contained managed content.
+ *
+ * Code placed in `packages/caamp/` per Package-Boundary Check — verified against AGENTS.md.
+ * Missing files and cycles are explicit findings; callers must refuse incomplete writes.
+ * Marker lines are removed from embedded files so nested managed blocks cannot corrupt
+ * the destination. References inside fenced examples are preserved as examples.
+ *
+ * @param content - Managed content containing standalone reference lines.
+ * @param baseDir - Directory against which the first references resolve.
+ * @returns Resolved bootstrap and deterministic delivery diagnostics.
+ * @example
+ * ```typescript
+ * const delivery = await resolveInstructionDelivery('@AGENTS.md', '/project');
+ * ```
+ * @public
+ */
+export async function resolveInstructionDelivery(
+  content: string,
+  baseDir: string,
+): Promise<InstructionDelivery> {
+  const result: InstructionDelivery = {
+    content: '',
+    sources: [],
+    findings: [],
+    liveEvaluation: 'unverified',
+  };
+  const visited = new Set<string>();
+  let bytes = 0;
+  async function expand(text: string, directory: string, ancestors: string[]): Promise<string> {
+    const lines: string[] = [];
+    let fence: string | null = null;
+    for (const line of text.split('\n')) {
+      const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(line);
+      if (fenceMatch?.[1]) {
+        if (!fence) fence = fenceMatch[1];
+        else if (fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length)
+          fence = null;
+        lines.push(line);
+        continue;
+      }
+      const stamp = !fence ? /^<!-- CAAMP:SOURCE (\S+) ([a-f0-9]{64}) -->$/.exec(line) : null;
+      if (stamp?.[1] && stamp[2]) {
+        let sourcePath = stamp[1];
+        try {
+          sourcePath = decodeURIComponent(sourcePath);
+          const sourceSize = (await stat(sourcePath)).size;
+          bytes += sourceSize;
+          if (bytes > 524288) {
+            result.findings.push({
+              kind: 'limit',
+              path: sourcePath,
+              reason: 'Instruction byte budget exceeded.',
+            });
+          } else {
+            const digest = createHash('sha256')
+              .update(await readFile(sourcePath))
+              .digest('hex');
+            if (digest !== stamp[2])
+              result.findings.push({
+                kind: 'stale',
+                path: sourcePath,
+                reason: 'Embedded source changed after delivery.',
+              });
+          }
+        } catch (error) {
+          result.findings.push({
+            kind: 'missing-reference',
+            path: sourcePath,
+            reason: String(error),
+          });
+        }
+        lines.push(line);
+        continue;
+      }
+      const ref = !fence ? /^\s*@([^\s]+)\s*$/.exec(line)?.[1] : undefined;
+      if (!ref) {
+        if (!/^\s*<!-- CAAMP:(START|END) -->\s*$/.test(line)) lines.push(line);
+        continue;
+      }
+      let path = resolve(directory, ref.startsWith('~/') ? resolve(homedir(), ref.slice(2)) : ref);
+      try {
+        path = await realpath(path);
+      } catch (error) {
+        result.findings.push({ kind: 'missing-reference', path, reason: String(error) });
+        continue;
+      }
+      if (ancestors.includes(path)) {
+        result.findings.push({ kind: 'cycle', path, reason: 'Reference repeats an ancestor.' });
+        continue;
+      }
+      if (visited.has(path)) {
+        result.findings.push({ kind: 'duplicate', path, reason: 'Source already embedded once.' });
+        continue;
+      }
+      if (ancestors.length >= 16 || visited.size >= 64 || bytes >= 524288) {
+        result.findings.push({
+          kind: 'limit',
+          path,
+          reason: 'Instruction expansion budget exceeded.',
+        });
+        continue;
+      }
+      try {
+        bytes += (await stat(path)).size;
+        if (bytes > 524288) {
+          result.findings.push({
+            kind: 'limit',
+            path,
+            reason: 'Instruction byte budget exceeded.',
+          });
+          continue;
+        }
+        const source = await readFile(path, 'utf8');
+        visited.add(path);
+        result.sources.push(path);
+        lines.push(
+          `<!-- CAAMP:SOURCE ${encodeURIComponent(path)} ${createHash('sha256').update(source).digest('hex')} -->`,
+        );
+        lines.push(await expand(source, dirname(path), [...ancestors, path]));
+      } catch (error) {
+        result.findings.push({ kind: 'missing-reference', path, reason: String(error) });
+      }
+    }
+    return lines.join('\n');
+  }
+  result.content = await expand(content, baseDir, []);
+  return result;
 }

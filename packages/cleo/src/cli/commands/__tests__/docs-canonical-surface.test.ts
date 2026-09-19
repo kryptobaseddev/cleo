@@ -9,7 +9,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -304,13 +304,10 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
   // ═════════════════════════════════════════════════════════════════════════
 
   describe('docs publish', () => {
-    it('publish command exists and validates --for and --to flags', async () => {
+    it('publishes through dispatch with exact bytes and records an in-sync publication', async () => {
       const doc = await addDocFile(projectRoot, 'T99999', '# Publishable Doc\n\nHello publish!');
 
-      // The publish backend handler (mutate:docs.publish) is not yet registered
-      // (T11138 / T11177 consolidation gap). The CLI rejects with E_INVALID_OPERATION.
-      // This test validates that the CLI command exists, parses arguments, and
-      // reaches the dispatch layer (rather than failing at argument parsing).
+      // The advertised verb must reach the canonical publication service.
       const result = runCli(
         [
           'docs',
@@ -324,11 +321,20 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
         ],
         projectRoot,
       );
-      // Known gap: backend not registered → status is non-zero
-      expect(result.status).not.toBe(0);
-      // The error should be about the missing handler, not argument validation
+      expect(result.status).toBe(0);
       const env = parseEnvelope(result.stdout);
-      expect(env.success).toBe(false);
+      expect(env.success).toBe(true);
+      expect(env.data).toMatchObject({
+        ownerId: 'T99999',
+        relativePath: 'docs/published-spec.md',
+        sha256: doc.sha256,
+      });
+      expect(await readFile(join(projectRoot, 'docs/published-spec.md'), 'utf8')).toBe(
+        '# Publishable Doc\n\nHello publish!',
+      );
+      const status = runCli(['docs', 'status', '--json'], projectRoot);
+      expect(status.status).toBe(0);
+      expect(parseEnvelope(status.stdout).data).toMatchObject({ allInSync: true });
     });
 
     it('errors when --for is missing', () => {

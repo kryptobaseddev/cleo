@@ -18,7 +18,7 @@
 import type {
   ContractCompatibilityMatrix,
   ContractMatch,
-  SymbolReference,
+  NexusTaskSymbolsResult,
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { linkConduitMessagesToSymbols } from '../memory/graph-memory-bridge.js';
@@ -28,6 +28,8 @@ import {
   extractTopicContracts,
   matchContracts,
 } from './api-extractors/index.js';
+import { assessKnowledgeCoverage, recordKnowledgeGap } from './knowledge.js';
+import { getTaskKnowledgeEvidence } from './task-evidence.js';
 import { getSymbolsForTask, runGitLogTaskLinker } from './tasks-bridge.js';
 
 /**
@@ -166,16 +168,21 @@ export async function nexusConduitScan(
 export async function nexusTaskSymbols(
   taskId: string,
   projectRoot: string,
-): Promise<
-  EngineResult<{
-    taskId: string;
-    count: number;
-    symbols: SymbolReference[];
-  }>
-> {
+): Promise<EngineResult<NexusTaskSymbolsResult>> {
   try {
-    const symbols = await getSymbolsForTask(taskId, projectRoot);
-    return engineSuccess({ taskId, count: symbols.length, symbols });
+    const coverage = await assessKnowledgeCoverage(projectRoot);
+    const taskEvidence = await getTaskKnowledgeEvidence(taskId, projectRoot, coverage);
+    const symbols = await getSymbolsForTask(taskId, projectRoot, taskEvidence);
+    if (symbols.length === 0) {
+      recordKnowledgeGap(
+        coverage,
+        coverage.maintenanceState === 'pending' ? 'partial' : 'missing',
+        coverage.maintenanceState === 'pending'
+          ? 'Task evidence assessment is deferred; zero matches do not establish missing evidence.'
+          : 'No task evidence has been resolved to indexed symbols.',
+      );
+    }
+    return engineSuccess({ taskId, count: symbols.length, symbols, coverage });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
