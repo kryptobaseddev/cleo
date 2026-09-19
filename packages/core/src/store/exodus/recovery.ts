@@ -1,4 +1,5 @@
 /** Durable, resource-scoped recovery for Exodus INSERTs (T12260). */
+import { randomUUID } from 'node:crypto';
 import { constants, type DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { z } from 'zod';
 
@@ -432,4 +433,39 @@ export function rollbackExodusReceipts(db: DatabaseSync, operation: string): num
   } finally {
     db.exec(`PRAGMA foreign_keys = ${foreignKeys}`);
   }
+}
+
+/** Commit a fresh cutover token to this exact database generation before its marker. */
+export function sealExodusDatabase(db: DatabaseSync): string {
+  if (db.isTransaction)
+    throw new ExodusRecoveryError('Exodus sealing requires a dedicated idle handle');
+  const token = randomUUID();
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(
+      'CREATE TABLE IF NOT EXISTS main._exodus_database_identity(id INTEGER PRIMARY KEY CHECK(id=1),token TEXT NOT NULL)',
+    );
+    db.prepare(
+      'INSERT INTO main._exodus_database_identity VALUES(1,?) ON CONFLICT(id) DO UPDATE SET token=excluded.token',
+    ).run(token);
+    db.exec('COMMIT');
+    return token;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+/** Verify a marker's cutover token against the existing caller's database handle. */
+export function hasExodusDatabaseIdentity(db: DatabaseSync, token: string): boolean {
+  const present = db
+    .prepare(
+      "SELECT name FROM main.sqlite_master WHERE type='table' AND name='_exodus_database_identity'",
+    )
+    .get();
+  return Boolean(
+    present &&
+      db.prepare('SELECT token FROM main._exodus_database_identity WHERE id=1').get()?.token ===
+        token,
+  );
 }
