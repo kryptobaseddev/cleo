@@ -79,59 +79,6 @@ function generateAuditLogId(): string {
   return `log-${epoch}-${rand}`;
 }
 
-/**
- * Native SQLite handle subset used by the BEGIN IMMEDIATE helper.
- *
- * Avoids dragging the whole `node:sqlite` `DatabaseSync` typings through
- * the file when all we need is `.prepare(sql).run()`. The accessor
- * always retrieves the real handle via `getNativeTasksDb()`.
- */
-interface ImmediateTxNativeDb {
-  prepare(sql: string): { run: () => unknown };
-}
-
-/**
- * Run `fn` inside an outermost `BEGIN IMMEDIATE` transaction, wrapped
- * in {@link withWriteRetry} so SQLITE_BUSY contention is absorbed at the
- * transaction boundary rather than mid-statement.
- *
- * - Acquires a RESERVED lock immediately so concurrent writers queue
- *   politely (or fall through to retry after `busy_timeout` expires).
- * - Commits on success; rolls back on any thrown error before
- *   propagating it. If the thrown error is SQLITE_BUSY,
- *   {@link withWriteRetry} re-runs the WHOLE function (BEGIN included)
- *   after backoff — better-sqlite3 / node:sqlite forbids nesting
- *   `BEGIN IMMEDIATE` inside an open transaction, so retry MUST start
- *   from this outer boundary.
- *
- * DO NOT call this from inside an already-open transaction. For nested
- * writes use `accessor.transaction()` which uses SAVEPOINTs (T9814).
- *
- * @bug gh-391 — SQLITE_BUSY contention on parallel writes.
- * @task T9839
- */
-async function runInImmediateTx<T>(
-  nativeDb: ImmediateTxNativeDb,
-  fn: () => T | Promise<T>,
-): Promise<T> {
-  return withWriteRetry(async () => {
-    nativeDb.prepare('BEGIN IMMEDIATE').run();
-    try {
-      const result = await fn();
-      nativeDb.prepare('COMMIT').run();
-      return result;
-    } catch (err) {
-      try {
-        nativeDb.prepare('ROLLBACK').run();
-      } catch {
-        // Secondary rollback failures are non-fatal — propagate the original
-        // error which captures the actual cause.
-      }
-      throw err;
-    }
-  });
-}
-
 // ---- Schema meta helpers ----
 
 /** Read a JSON blob from the schema_meta table by key. */
@@ -150,12 +97,18 @@ async function getMetaValue<T>(cwd: string | undefined, key: string): Promise<T 
   }
 }
 
-/** Write a JSON blob to the schema_meta table by key. */
+/** Write metadata through the same ownership queue as task mutations. */
 export async function setMetaValue(
   cwd: string | undefined,
   key: string,
   value: unknown,
 ): Promise<void> {
+  const accessor = await createSqliteDataAccessor(cwd);
+  await accessor.setMetaValue(key, value);
+}
+
+/** Write metadata while the caller owns the transaction. */
+async function writeMetaValue(cwd: string | undefined, key: string, value: unknown): Promise<void> {
   const db = await getDb(cwd);
   const json = JSON.stringify(value);
   await db
@@ -171,7 +124,29 @@ export async function setMetaValue(
 // One queue per shared native handle, independent of accessor identity. These
 // hold coordination state only; the ProjectStore remains the owner of handles.
 const taskTransactionQueue = new WeakMap<DatabaseSync, Promise<void>>();
-const taskTransactionContext = new AsyncLocalStorage<ReadonlySet<DatabaseSync>>();
+/** One lexical transaction lifetime; its queue serializes sibling savepoints. */
+class TaskTransactionScope {
+  active = true;
+  pending = Promise.resolve();
+  constructor(
+    readonly native: DatabaseSync,
+    readonly parent?: TaskTransactionScope,
+  ) {}
+  assertActive(): void {
+    if (!this.active) throw new Error('Transaction scope has ended');
+  }
+}
+const taskTransactionContext = new AsyncLocalStorage<TaskTransactionScope>();
+
+function activeTransactionScope(native: DatabaseSync): TaskTransactionScope | undefined {
+  let scope = taskTransactionContext.getStore();
+  while (scope) {
+    if (!scope.active) return undefined;
+    if (scope.native === native) return scope;
+    scope = scope.parent;
+  }
+  return undefined;
+}
 
 // ---- Accessor factory ----
 
@@ -258,25 +233,18 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     // ---- saveArchive ----
 
     async saveArchive(data: ArchiveFile): Promise<void> {
-      const db = await getDb(cwd);
+      return accessor.transaction(async () => {
+        const db = await getDb(cwd);
 
-      // Pre-compute archive IDs + active task IDs for dependency validation
-      const archiveIds = new Set(data.archivedTasks.map((t) => t.id));
-      const activeRows = await db
-        .select({ id: schema.tasks.id })
-        .from(schema.tasks)
-        .where(ne(schema.tasks.status, 'archived'))
-        .all();
-      const validDepIds = new Set([...archiveIds, ...activeRows.map((r) => r.id)]);
+        // Pre-compute archive IDs + active task IDs for dependency validation
+        const archiveIds = new Set(data.archivedTasks.map((t) => t.id));
+        const activeRows = await db
+          .select({ id: schema.tasks.id })
+          .from(schema.tasks)
+          .where(ne(schema.tasks.status, 'archived'))
+          .all();
+        const validDepIds = new Set([...archiveIds, ...activeRows.map((r) => r.id)]);
 
-      // Wrap all upserts + dependency updates in a single transaction.
-      // Retry on SQLITE_BUSY contention via runInImmediateTx (gh#391).
-      const nativeDb = await requireNativeDb();
-      if (!nativeDb) {
-        throw new Error('Native database not initialized');
-      }
-
-      await runInImmediateTx(nativeDb, async () => {
         // Collect dependency data for batch update
         const depBatch: Array<{ taskId: string; deps: string[] }> = [];
 
@@ -321,46 +289,53 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     // ---- saveSessions ----
 
     async saveSessions(sessions: Session[]): Promise<void> {
-      const db = await getDb(cwd);
+      return accessor.transaction(async () => {
+        const db = await getDb(cwd);
 
-      // Get existing session IDs
-      const existingRows = await db.select({ id: schema.sessions.id }).from(schema.sessions).all();
-      const existingIds = new Set(existingRows.map((r) => r.id));
-      const incomingIds = new Set(sessions.map((s) => s.id));
+        // Get existing session IDs
+        const existingRows = await db
+          .select({ id: schema.sessions.id })
+          .from(schema.sessions)
+          .all();
+        const existingIds = new Set(existingRows.map((r) => r.id));
+        const incomingIds = new Set(sessions.map((s) => s.id));
 
-      // Delete sessions that are no longer in the data
-      for (const eid of existingIds) {
-        if (!incomingIds.has(eid)) {
-          await db.delete(schema.sessions).where(eq(schema.sessions.id, eid)).run();
+        // Delete sessions that are no longer in the data
+        for (const eid of existingIds) {
+          if (!incomingIds.has(eid)) {
+            await db.delete(schema.sessions).where(eq(schema.sessions.id, eid)).run();
+          }
         }
-      }
 
-      // Upsert all sessions
-      for (const session of sessions) {
-        await upsertSession(db, session);
-      }
+        // Upsert all sessions
+        for (const session of sessions) {
+          await upsertSession(db, session);
+        }
+      });
     },
 
     // ---- appendLog ----
 
     async appendLog(entry: Record<string, unknown>): Promise<void> {
-      const db = await getDb(cwd);
-      // gh#391: every task mutation appends one audit row; retry on contention.
-      await withWriteRetry(() =>
-        db
-          .insert(schema.auditLog)
-          .values({
-            id: (entry.id as string) ?? generateAuditLogId(),
-            timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
-            action: (entry.action as string) ?? (entry.operation as string) ?? 'unknown',
-            taskId: (entry.taskId as string) ?? 'unknown',
-            actor: (entry.actor as string) ?? 'system',
-            detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
-            beforeJson: entry.before ? JSON.stringify(entry.before) : null,
-            afterJson: entry.after ? JSON.stringify(entry.after) : null,
-          })
-          .run(),
-      );
+      return accessor.transaction(async () => {
+        const db = await getDb(cwd);
+        // gh#391: every task mutation appends one audit row; retry on contention.
+        await withWriteRetry(() =>
+          db
+            .insert(schema.auditLog)
+            .values({
+              id: (entry.id as string) ?? generateAuditLogId(),
+              timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
+              action: (entry.action as string) ?? (entry.operation as string) ?? 'unknown',
+              taskId: (entry.taskId as string) ?? 'unknown',
+              actor: (entry.actor as string) ?? 'system',
+              detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
+              beforeJson: entry.before ? JSON.stringify(entry.before) : null,
+              afterJson: entry.after ? JSON.stringify(entry.after) : null,
+            })
+            .run(),
+        );
+      });
     },
 
     async queryAuditLog(query: TaskAuditLogQuery): Promise<TaskAuditLogRow[]> {
@@ -416,45 +391,9 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       relationType: string,
       reason?: string,
     ): Promise<void> {
-      const db = await getDb(cwd);
-      // Validate relation type - throw on invalid (T5168)
-      const validTypes = [
-        'related',
-        'blocks',
-        'duplicates',
-        'absorbs',
-        'fixes',
-        'extends',
-        'supersedes',
-        'groups', // ADR-073: Saga member linkage
-      ] as const;
-      if (!validTypes.includes(relationType as (typeof validTypes)[number])) {
-        throw new Error(
-          `Invalid relation type: ${relationType}. Valid types: ${validTypes.join(', ')}`,
-        );
-      }
-      // gh#391: retry on SQLITE_BUSY contention.
-      await withWriteRetry(() =>
-        db
-          .insert(schema.taskRelations)
-          .values({
-            taskId,
-            relatedTo,
-            relationType: relationType as (typeof validTypes)[number],
-            reason: reason ?? null,
-          })
-          .onConflictDoNothing()
-          .run(),
-      );
-    },
-
-    async removeRelation(taskId: string, relatedTo: string, relationType?: string): Promise<void> {
-      const db = await getDb(cwd);
-      const conditions = [
-        eq(schema.taskRelations.taskId, taskId),
-        eq(schema.taskRelations.relatedTo, relatedTo),
-      ];
-      if (relationType !== undefined) {
+      return accessor.transaction(async () => {
+        const db = await getDb(cwd);
+        // Validate relation type - throw on invalid (T5168)
         const validTypes = [
           'related',
           'blocks',
@@ -470,17 +409,57 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
             `Invalid relation type: ${relationType}. Valid types: ${validTypes.join(', ')}`,
           );
         }
-        conditions.push(
-          eq(schema.taskRelations.relationType, relationType as (typeof validTypes)[number]),
+        // gh#391: retry on SQLITE_BUSY contention.
+        await withWriteRetry(() =>
+          db
+            .insert(schema.taskRelations)
+            .values({
+              taskId,
+              relatedTo,
+              relationType: relationType as (typeof validTypes)[number],
+              reason: reason ?? null,
+            })
+            .onConflictDoNothing()
+            .run(),
         );
-      }
-      // gh#391: retry on SQLITE_BUSY contention.
-      await withWriteRetry(() =>
-        db
-          .delete(schema.taskRelations)
-          .where(and(...conditions))
-          .run(),
-      );
+      });
+    },
+
+    async removeRelation(taskId: string, relatedTo: string, relationType?: string): Promise<void> {
+      return accessor.transaction(async () => {
+        const db = await getDb(cwd);
+        const conditions = [
+          eq(schema.taskRelations.taskId, taskId),
+          eq(schema.taskRelations.relatedTo, relatedTo),
+        ];
+        if (relationType !== undefined) {
+          const validTypes = [
+            'related',
+            'blocks',
+            'duplicates',
+            'absorbs',
+            'fixes',
+            'extends',
+            'supersedes',
+            'groups', // ADR-073: Saga member linkage
+          ] as const;
+          if (!validTypes.includes(relationType as (typeof validTypes)[number])) {
+            throw new Error(
+              `Invalid relation type: ${relationType}. Valid types: ${validTypes.join(', ')}`,
+            );
+          }
+          conditions.push(
+            eq(schema.taskRelations.relationType, relationType as (typeof validTypes)[number]),
+          );
+        }
+        // gh#391: retry on SQLITE_BUSY contention.
+        await withWriteRetry(() =>
+          db
+            .delete(schema.taskRelations)
+            .where(and(...conditions))
+            .run(),
+        );
+      });
     },
 
     // ---- AC rows (T10508) ----
@@ -546,48 +525,52 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
-      const db = await getDb(cwd);
-      // Verify the task exists before archiving
-      const rows = await db
-        .select({ id: schema.tasks.id })
-        .from(schema.tasks)
-        .where(eq(schema.tasks.id, taskId))
-        .all();
-      if (rows.length === 0) return;
-      // gh#391: retry on SQLITE_BUSY contention.
-      await withWriteRetry(() =>
-        db
-          .update(schema.tasks)
-          .set({
-            status: 'archived',
-            archivedAt: fields.archivedAt ?? new Date().toISOString(),
-            archiveReason: fields.archiveReason ?? ARCHIVE_REASON_TOMBSTONE,
-            cycleTimeDays: fields.cycleTimeDays ?? null,
-            updatedAt: new Date().toISOString(),
-          })
+      return accessor.transaction(async () => {
+        const db = await getDb(cwd);
+        // Verify the task exists before archiving
+        const rows = await db
+          .select({ id: schema.tasks.id })
+          .from(schema.tasks)
           .where(eq(schema.tasks.id, taskId))
-          .run(),
-      );
+          .all();
+        if (rows.length === 0) return;
+        // gh#391: retry on SQLITE_BUSY contention.
+        await withWriteRetry(() =>
+          db
+            .update(schema.tasks)
+            .set({
+              status: 'archived',
+              archivedAt: fields.archivedAt ?? new Date().toISOString(),
+              archiveReason: fields.archiveReason ?? ARCHIVE_REASON_TOMBSTONE,
+              cycleTimeDays: fields.cycleTimeDays ?? null,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(schema.tasks.id, taskId))
+            .run(),
+        );
+      });
     },
 
     async removeSingleTask(taskId: string): Promise<void> {
-      const db = await getDb(cwd);
-      // gh#391: wrap the three-statement delete sequence in one retry
-      // boundary. SQLITE_BUSY mid-sequence would leak dangling task_dependencies
-      // rows; retrying the whole sequence keeps the cleanup atomic at the
-      // application level (foreign-key cascade catches edge cases regardless).
-      await withWriteRetry(async () => {
-        // Delete dependencies first (both directions)
-        await db
-          .delete(schema.taskDependencies)
-          .where(eq(schema.taskDependencies.taskId, taskId))
-          .run();
-        await db
-          .delete(schema.taskDependencies)
-          .where(eq(schema.taskDependencies.dependsOn, taskId))
-          .run();
-        // Delete the task itself
-        await db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
+      return accessor.transaction(async () => {
+        const db = await getDb(cwd);
+        // gh#391: wrap the three-statement delete sequence in one retry
+        // boundary. SQLITE_BUSY mid-sequence would leak dangling task_dependencies
+        // rows; retrying the whole sequence keeps the cleanup atomic at the
+        // application level (foreign-key cascade catches edge cases regardless).
+        await withWriteRetry(async () => {
+          // Delete dependencies first (both directions)
+          await db
+            .delete(schema.taskDependencies)
+            .where(eq(schema.taskDependencies.taskId, taskId))
+            .run();
+          await db
+            .delete(schema.taskDependencies)
+            .where(eq(schema.taskDependencies.dependsOn, taskId))
+            .run();
+          // Delete the task itself
+          await db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
+        });
       });
     },
 
@@ -630,15 +613,19 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async upsertSingleSession(session: Session): Promise<void> {
-      const db = await getDb(cwd);
-      await upsertSession(db, session);
+      return accessor.transaction(async () => {
+        const db = await getDb(cwd);
+        await upsertSession(db, session);
+      });
     },
 
     async removeSingleSession(sessionId: string): Promise<void> {
-      const db = await getDb(cwd);
-      await db.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run();
-      // Best-effort cross-db cleanup: nullify brain.db references to this session
-      void cleanupBrainRefsOnSessionDelete(sessionId, cwd);
+      return accessor.transaction(async () => {
+        const db = await getDb(cwd);
+        await db.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run();
+        // Best-effort cross-db cleanup: nullify brain.db references to this session
+        void cleanupBrainRefsOnSessionDelete(sessionId, cwd);
+      });
     },
 
     // ---- Targeted query methods (Phase 2 modernization) ----
@@ -1007,53 +994,53 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       fromPosition: number,
       delta: number,
     ): Promise<void> {
-      const nativeDb = await requireNativeDb();
-      if (!nativeDb) {
-        throw new Error('Native database not initialized');
-      }
-      if (parentId === null) {
-        nativeDb
-          .prepare(
-            `UPDATE tasks_tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id IS NULL AND position >= ? AND status != 'archived'`,
-          )
-          .run(delta, new Date().toISOString(), fromPosition);
-      } else {
-        nativeDb
-          .prepare(
-            `UPDATE tasks_tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id = ? AND position >= ? AND status != 'archived'`,
-          )
-          .run(delta, new Date().toISOString(), parentId, fromPosition);
-      }
+      return accessor.transaction(async () => {
+        const nativeDb = await requireNativeDb();
+        if (!nativeDb) {
+          throw new Error('Native database not initialized');
+        }
+        if (parentId === null) {
+          nativeDb
+            .prepare(
+              `UPDATE tasks_tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id IS NULL AND position >= ? AND status != 'archived'`,
+            )
+            .run(delta, new Date().toISOString(), fromPosition);
+        } else {
+          nativeDb
+            .prepare(
+              `UPDATE tasks_tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id = ? AND position >= ? AND status != 'archived'`,
+            )
+            .run(delta, new Date().toISOString(), parentId, fromPosition);
+        }
+      });
     },
 
     // ---- Targeted write methods ----
 
     async updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void> {
-      const db = await getDb(cwd);
-      const nativeDb = await requireNativeDb();
-      if (!taskTransactionContext.getStore()?.has(nativeDb) || !nativeDb.isTransaction) {
-        return accessor.transaction((tx) => tx.updateTaskFields(taskId, fields));
-      }
-      // TaskFieldUpdates uses the schema's field names. Reject unsupported runtime
-      // input before Drizzle can silently omit it; no second field map can drift.
-      const columns = getTableColumns(schema.tasks);
-      for (const key of Object.keys(fields)) {
-        if (!Object.hasOwn(columns, key) || key === 'id' || key === 'createdAt') {
-          throw new Error(`Unsupported task update field: ${key}`);
+      return accessor.transaction(async () => {
+        const db = await getDb(cwd);
+        // TaskFieldUpdates uses the schema's field names. Reject unsupported runtime
+        // input before Drizzle can silently omit it; no second field map can drift.
+        const columns = getTableColumns(schema.tasks);
+        for (const key of Object.keys(fields)) {
+          if (!Object.hasOwn(columns, key) || key === 'id' || key === 'createdAt') {
+            throw new Error(`Unsupported task update field: ${key}`);
+          }
         }
-      }
-      const updateRow = { ...fields, updatedAt: fields.updatedAt ?? new Date().toISOString() };
+        const updateRow = { ...fields, updatedAt: fields.updatedAt ?? new Date().toISOString() };
 
-      // gh#391: this is the chokepoint for `cleo update <id> --add-labels`.
-      // Parallel invocations from a single shell used to lose ~50% of writes
-      // to SQLITE_BUSY; withWriteRetry recovers them.
-      const result = await withWriteRetry(() =>
-        db.update(schema.tasks).set(updateRow).where(eq(schema.tasks.id, taskId)).run(),
-      );
-      if (Number(result.changes) !== 1) throw new Error(`Task not found: ${taskId}`);
-      if (fields.labelsJson !== undefined) {
-        await updateTaskLabels(db, taskId, parseLabels(fields.labelsJson));
-      }
+        // gh#391: this is the chokepoint for `cleo update <id> --add-labels`.
+        // Parallel invocations from a single shell used to lose ~50% of writes
+        // to SQLITE_BUSY; withWriteRetry recovers them.
+        const result = await withWriteRetry(() =>
+          db.update(schema.tasks).set(updateRow).where(eq(schema.tasks.id, taskId)).run(),
+        );
+        if (Number(result.changes) !== 1) throw new Error(`Task not found: ${taskId}`);
+        if (fields.labelsJson !== undefined) {
+          await updateTaskLabels(db, taskId, parseLabels(fields.labelsJson));
+        }
+      });
     },
 
     async transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T> {
@@ -1067,263 +1054,333 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         throw new Error('Native database not initialized');
       }
 
-      // Async context distinguishes true nesting from independent concurrent
-      // callers. The native handle is shared across accessor instances.
-      const context = taskTransactionContext.getStore();
-      if (!context?.has(nativeDb)) {
-        const previous = taskTransactionQueue.get(nativeDb) ?? Promise.resolve();
-        const released = Promise.withResolvers<void>();
-        const tail = previous.then(() => released.promise);
-        taskTransactionQueue.set(nativeDb, tail);
-        await previous;
-        try {
-          return await taskTransactionContext.run(new Set([...(context ?? []), nativeDb]), () =>
-            withWriteRetry(() => accessor.transaction(fn)),
-          );
-        } finally {
-          released.resolve();
-          if (taskTransactionQueue.get(nativeDb) === tail) taskTransactionQueue.delete(nativeDb);
-        }
-      }
-      const isOuter = !nativeDb.isTransaction;
-      const spName = isOuter ? null : `_cleo_tx_${(_txSavepointCounter++).toString(36)}`;
-      if (isOuter) {
-        nativeDb.prepare('BEGIN IMMEDIATE').run();
-      } else {
-        nativeDb.prepare(`SAVEPOINT ${spName}`).run();
-      }
+      const context = activeTransactionScope(nativeDb);
+      const previous = context?.pending ?? taskTransactionQueue.get(nativeDb) ?? Promise.resolve();
+      const released = Promise.withResolvers<void>();
+      const tail = previous.then(() => released.promise);
+      if (context) context.pending = tail;
+      else taskTransactionQueue.set(nativeDb, tail);
+      await previous;
       try {
-        const tx: TransactionAccessor = {
-          async upsertSingleTask(task: Task): Promise<void> {
-            const row = taskToRow(task);
-            await upsertTask(db, row);
-            await updateDependencies(db, task.id, task.depends ?? []);
-          },
-          async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
-            await db
-              .update(schema.tasks)
-              .set({
-                status: 'archived',
-                archivedAt: fields.archivedAt ?? new Date().toISOString(),
-                archiveReason: fields.archiveReason ?? ARCHIVE_REASON_TOMBSTONE,
-                cycleTimeDays: fields.cycleTimeDays ?? null,
-                updatedAt: new Date().toISOString(),
-              })
-              .where(eq(schema.tasks.id, taskId))
-              .run();
-          },
-          async removeSingleTask(taskId: string): Promise<void> {
-            await db
-              .delete(schema.taskDependencies)
-              .where(eq(schema.taskDependencies.taskId, taskId))
-              .run();
-            await db
-              .delete(schema.taskDependencies)
-              .where(eq(schema.taskDependencies.dependsOn, taskId))
-              .run();
-            await db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
-          },
-          async setMetaValue(key: string, value: unknown): Promise<void> {
-            await setMetaValue(cwd, key, value);
-          },
-          async updateTaskFields(taskId: string, flds: TaskFieldUpdates): Promise<void> {
-            // Delegate to the outer accessor's implementation
-            await accessor.updateTaskFields(taskId, flds);
-          },
-          async getChildren(parentId: string): Promise<Task[]> {
-            const rows = await db
-              .select()
-              .from(schema.tasks)
-              .where(and(eq(schema.tasks.parentId, parentId), ne(schema.tasks.status, 'archived')))
-              .orderBy(sql`${schema.tasks.position} ASC, ${schema.tasks.createdAt} ASC`)
-              .all();
-            return rows.map(rowToTask);
-          },
-          async appendLog(entry: Record<string, unknown>): Promise<void> {
-            await accessor.appendLog(entry);
-          },
-          // T9514: persist relates mutations inside the transaction
-          async addRelation(
-            taskId: string,
-            relatedTo: string,
-            relationType: string,
-            reason?: string,
-          ): Promise<void> {
-            await accessor.addRelation(taskId, relatedTo, relationType, reason);
-          },
-          async removeRelation(
-            taskId: string,
-            relatedTo: string,
-            relationType?: string,
-          ): Promise<void> {
-            await accessor.removeRelation(taskId, relatedTo, relationType);
-          },
-          async clearRelations(taskId: string): Promise<void> {
-            await db
-              .delete(schema.taskRelations)
-              .where(eq(schema.taskRelations.taskId, taskId))
-              .run();
-          },
-          // ---- AC rows (T10508) ----
-          async insertAcRows(
-            rows: Array<{
-              id: string;
-              taskId: string;
-              ordinal: number;
-              text: string;
-              kind?: 'text' | 'child_task' | 'evidence_bound';
-              sourceKey?: string;
-              targetTaskId?: string | null;
-              projection?: string;
-              contentHash?: string | null;
-            }>,
-          ): Promise<void> {
-            if (rows.length === 0) return;
-            await db
-              .insert(schema.taskAcceptanceCriteria)
-              .values(
-                rows.map((r) => ({
-                  id: r.id,
-                  taskId: r.taskId,
-                  ordinal: r.ordinal,
-                  kind: r.kind ?? 'text',
-                  sourceKey: r.sourceKey ?? `text:${r.ordinal}`,
-                  targetTaskId: r.targetTaskId ?? null,
-                  projection: r.projection ?? 'legacy',
-                  text: r.text,
-                  contentHash: r.contentHash ?? null,
-                })),
-              )
-              .run();
-          },
-          async getAcRows(taskId: string) {
-            const out = await db
-              .select({
-                id: schema.taskAcceptanceCriteria.id,
-                taskId: schema.taskAcceptanceCriteria.taskId,
-                ordinal: schema.taskAcceptanceCriteria.ordinal,
-                kind: schema.taskAcceptanceCriteria.kind,
-                sourceKey: schema.taskAcceptanceCriteria.sourceKey,
-                targetTaskId: schema.taskAcceptanceCriteria.targetTaskId,
-                projection: schema.taskAcceptanceCriteria.projection,
-                text: schema.taskAcceptanceCriteria.text,
-                createdAt: schema.taskAcceptanceCriteria.createdAt,
-                updatedAt: schema.taskAcceptanceCriteria.updatedAt,
-                contentHash: schema.taskAcceptanceCriteria.contentHash,
-              })
-              .from(schema.taskAcceptanceCriteria)
-              .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
-              .orderBy(schema.taskAcceptanceCriteria.ordinal)
-              .all();
-            return out.map((r) => ({
-              id: r.id,
-              taskId: r.taskId,
-              ordinal: r.ordinal,
-              kind: r.kind,
-              sourceKey: r.sourceKey ?? `text:${r.ordinal}`,
-              targetTaskId: r.targetTaskId ?? null,
-              projection: r.projection,
-              text: r.text,
-              createdAt: r.createdAt,
-              updatedAt: r.updatedAt ?? null,
-              contentHash: r.contentHash ?? null,
-            }));
-          },
-          async deleteAcRowsForTask(taskId: string): Promise<void> {
-            await db
-              .delete(schema.taskAcceptanceCriteria)
-              .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
-              .run();
-          },
-          async appendAcHistory(
-            rows: Array<{ acId: string; previousText: string; reason: string }>,
-          ): Promise<void> {
-            if (rows.length === 0) return;
-            await db
-              .insert(schema.taskAcceptanceCriteriaHistory)
-              .values(
-                rows.map((r) => ({
-                  acId: r.acId,
-                  previousText: r.previousText,
-                  reason: r.reason,
-                })),
-              )
-              .run();
-          },
-          // ---- AC bindings (T10509 — AC-coverage gate) ----
-          async getAcBindings(acIds: readonly string[]) {
-            if (acIds.length === 0) return [];
-            const out = await db
-              .select({
-                id: schema.evidenceAcBindings.id,
-                evidenceAtomId: schema.evidenceAcBindings.evidenceAtomId,
-                acId: schema.evidenceAcBindings.acId,
-                bindingType: schema.evidenceAcBindings.bindingType,
-                createdAt: schema.evidenceAcBindings.createdAt,
-              })
-              .from(schema.evidenceAcBindings)
-              .where(inArray(schema.evidenceAcBindings.acId, acIds as string[]))
-              .all();
-            return out.map((r) => ({
-              id: r.id,
-              evidenceAtomId: r.evidenceAtomId,
-              acId: r.acId,
-              bindingType: r.bindingType,
-              createdAt: r.createdAt,
-            }));
-          },
-          // ---- AC bindings — writer (T10511, Validator SDK tools) ----
-          async insertAcBindings(
-            rows: Array<{
-              id: string;
-              evidenceAtomId: string;
-              acId: string;
-              bindingType: 'direct' | 'satisfies' | 'coverage';
-            }>,
-          ): Promise<void> {
-            if (rows.length === 0) return;
-            // Idempotent insert — UNIQUE (evidence_atom_id, ac_id, binding_type)
-            // index collapses re-inserts of the same triple via DO NOTHING.
-            await db
-              .insert(schema.evidenceAcBindings)
-              .values(
-                rows.map((r) => ({
-                  id: r.id,
-                  evidenceAtomId: r.evidenceAtomId,
-                  acId: r.acId,
-                  bindingType: r.bindingType,
-                })),
-              )
-              .onConflictDoNothing({
-                target: [
-                  schema.evidenceAcBindings.evidenceAtomId,
-                  schema.evidenceAcBindings.acId,
-                  schema.evidenceAcBindings.bindingType,
-                ],
-              })
-              .run();
-          },
-        };
-
-        const result = await fn(tx);
-        if (isOuter) {
-          nativeDb.prepare('COMMIT').run();
-        } else {
-          nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
-        }
-        return result;
-      } catch (err) {
-        try {
-          if (isOuter) {
-            nativeDb.prepare('ROLLBACK').run();
-          } else {
-            nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
-            nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
+        if (context && !context.active) return accessor.transaction(fn);
+        const execute = async (): Promise<T> => {
+          if (!context && nativeDb.isTransaction) {
+            throw new Error('Cannot join a transaction without an active task-accessor owner');
           }
-        } catch {
-          /* ignore secondary rollback errors */
-        }
-        throw err;
+          const inherited = taskTransactionContext.getStore();
+          const scope = new TaskTransactionScope(
+            nativeDb,
+            inherited?.active ? inherited : undefined,
+          );
+          return taskTransactionContext.run(scope, async () => {
+            const isOuter = !nativeDb.isTransaction;
+            const spName = isOuter ? null : `_cleo_tx_${(_txSavepointCounter++).toString(36)}`;
+            if (isOuter) {
+              nativeDb.prepare('BEGIN IMMEDIATE').run();
+            } else {
+              nativeDb.prepare(`SAVEPOINT ${spName}`).run();
+            }
+            try {
+              const tx: TransactionAccessor = {
+                async upsertSingleTask(task: Task): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    const row = taskToRow(task);
+                    await upsertTask(db, row);
+                    await updateDependencies(db, task.id, task.depends ?? []);
+                  });
+                },
+                async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    await db
+                      .update(schema.tasks)
+                      .set({
+                        status: 'archived',
+                        archivedAt: fields.archivedAt ?? new Date().toISOString(),
+                        archiveReason: fields.archiveReason ?? ARCHIVE_REASON_TOMBSTONE,
+                        cycleTimeDays: fields.cycleTimeDays ?? null,
+                        updatedAt: new Date().toISOString(),
+                      })
+                      .where(eq(schema.tasks.id, taskId))
+                      .run();
+                  });
+                },
+                async removeSingleTask(taskId: string): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    await db
+                      .delete(schema.taskDependencies)
+                      .where(eq(schema.taskDependencies.taskId, taskId))
+                      .run();
+                    await db
+                      .delete(schema.taskDependencies)
+                      .where(eq(schema.taskDependencies.dependsOn, taskId))
+                      .run();
+                    await db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
+                  });
+                },
+                async setMetaValue(key: string, value: unknown): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    await writeMetaValue(cwd, key, value);
+                  });
+                },
+                async updateTaskFields(taskId: string, flds: TaskFieldUpdates): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    // Delegate to the outer accessor's implementation
+                    await accessor.updateTaskFields(taskId, flds);
+                  });
+                },
+                async getChildren(parentId: string): Promise<Task[]> {
+                  scope.assertActive();
+                  const rows = await db
+                    .select()
+                    .from(schema.tasks)
+                    .where(
+                      and(eq(schema.tasks.parentId, parentId), ne(schema.tasks.status, 'archived')),
+                    )
+                    .orderBy(sql`${schema.tasks.position} ASC, ${schema.tasks.createdAt} ASC`)
+                    .all();
+                  return rows.map(rowToTask);
+                },
+                async appendLog(entry: Record<string, unknown>): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    await accessor.appendLog(entry);
+                  });
+                },
+                // T9514: persist relates mutations inside the transaction
+                async addRelation(
+                  taskId: string,
+                  relatedTo: string,
+                  relationType: string,
+                  reason?: string,
+                ): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    await accessor.addRelation(taskId, relatedTo, relationType, reason);
+                  });
+                },
+                async removeRelation(
+                  taskId: string,
+                  relatedTo: string,
+                  relationType?: string,
+                ): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    await accessor.removeRelation(taskId, relatedTo, relationType);
+                  });
+                },
+                async clearRelations(taskId: string): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    await db
+                      .delete(schema.taskRelations)
+                      .where(eq(schema.taskRelations.taskId, taskId))
+                      .run();
+                  });
+                },
+                // ---- AC rows (T10508) ----
+                async insertAcRows(
+                  rows: Array<{
+                    id: string;
+                    taskId: string;
+                    ordinal: number;
+                    text: string;
+                    kind?: 'text' | 'child_task' | 'evidence_bound';
+                    sourceKey?: string;
+                    targetTaskId?: string | null;
+                    projection?: string;
+                    contentHash?: string | null;
+                  }>,
+                ): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    if (rows.length === 0) return;
+                    await db
+                      .insert(schema.taskAcceptanceCriteria)
+                      .values(
+                        rows.map((r) => ({
+                          id: r.id,
+                          taskId: r.taskId,
+                          ordinal: r.ordinal,
+                          kind: r.kind ?? 'text',
+                          sourceKey: r.sourceKey ?? `text:${r.ordinal}`,
+                          targetTaskId: r.targetTaskId ?? null,
+                          projection: r.projection ?? 'legacy',
+                          text: r.text,
+                          contentHash: r.contentHash ?? null,
+                        })),
+                      )
+                      .run();
+                  });
+                },
+                async getAcRows(taskId: string) {
+                  scope.assertActive();
+                  const out = await db
+                    .select({
+                      id: schema.taskAcceptanceCriteria.id,
+                      taskId: schema.taskAcceptanceCriteria.taskId,
+                      ordinal: schema.taskAcceptanceCriteria.ordinal,
+                      kind: schema.taskAcceptanceCriteria.kind,
+                      sourceKey: schema.taskAcceptanceCriteria.sourceKey,
+                      targetTaskId: schema.taskAcceptanceCriteria.targetTaskId,
+                      projection: schema.taskAcceptanceCriteria.projection,
+                      text: schema.taskAcceptanceCriteria.text,
+                      createdAt: schema.taskAcceptanceCriteria.createdAt,
+                      updatedAt: schema.taskAcceptanceCriteria.updatedAt,
+                      contentHash: schema.taskAcceptanceCriteria.contentHash,
+                    })
+                    .from(schema.taskAcceptanceCriteria)
+                    .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
+                    .orderBy(schema.taskAcceptanceCriteria.ordinal)
+                    .all();
+                  return out.map((r) => ({
+                    id: r.id,
+                    taskId: r.taskId,
+                    ordinal: r.ordinal,
+                    kind: r.kind,
+                    sourceKey: r.sourceKey ?? `text:${r.ordinal}`,
+                    targetTaskId: r.targetTaskId ?? null,
+                    projection: r.projection,
+                    text: r.text,
+                    createdAt: r.createdAt,
+                    updatedAt: r.updatedAt ?? null,
+                    contentHash: r.contentHash ?? null,
+                  }));
+                },
+                async deleteAcRowsForTask(taskId: string): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    await db
+                      .delete(schema.taskAcceptanceCriteria)
+                      .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
+                      .run();
+                  });
+                },
+                async appendAcHistory(
+                  rows: Array<{ acId: string; previousText: string; reason: string }>,
+                ): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    if (rows.length === 0) return;
+                    await db
+                      .insert(schema.taskAcceptanceCriteriaHistory)
+                      .values(
+                        rows.map((r) => ({
+                          acId: r.acId,
+                          previousText: r.previousText,
+                          reason: r.reason,
+                        })),
+                      )
+                      .run();
+                  });
+                },
+                // ---- AC bindings (T10509 — AC-coverage gate) ----
+                async getAcBindings(acIds: readonly string[]) {
+                  scope.assertActive();
+                  if (acIds.length === 0) return [];
+                  const out = await db
+                    .select({
+                      id: schema.evidenceAcBindings.id,
+                      evidenceAtomId: schema.evidenceAcBindings.evidenceAtomId,
+                      acId: schema.evidenceAcBindings.acId,
+                      bindingType: schema.evidenceAcBindings.bindingType,
+                      createdAt: schema.evidenceAcBindings.createdAt,
+                    })
+                    .from(schema.evidenceAcBindings)
+                    .where(inArray(schema.evidenceAcBindings.acId, acIds as string[]))
+                    .all();
+                  return out.map((r) => ({
+                    id: r.id,
+                    evidenceAtomId: r.evidenceAtomId,
+                    acId: r.acId,
+                    bindingType: r.bindingType,
+                    createdAt: r.createdAt,
+                  }));
+                },
+                // ---- AC bindings — writer (T10511, Validator SDK tools) ----
+                async insertAcBindings(
+                  rows: Array<{
+                    id: string;
+                    evidenceAtomId: string;
+                    acId: string;
+                    bindingType: 'direct' | 'satisfies' | 'coverage';
+                  }>,
+                ): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    if (rows.length === 0) return;
+                    // Idempotent insert — UNIQUE (evidence_atom_id, ac_id, binding_type)
+                    // index collapses re-inserts of the same triple via DO NOTHING.
+                    await db
+                      .insert(schema.evidenceAcBindings)
+                      .values(
+                        rows.map((r) => ({
+                          id: r.id,
+                          evidenceAtomId: r.evidenceAtomId,
+                          acId: r.acId,
+                          bindingType: r.bindingType,
+                        })),
+                      )
+                      .onConflictDoNothing({
+                        target: [
+                          schema.evidenceAcBindings.evidenceAtomId,
+                          schema.evidenceAcBindings.acId,
+                          schema.evidenceAcBindings.bindingType,
+                        ],
+                      })
+                      .run();
+                  });
+                },
+              };
+
+              const result = await fn(tx);
+              await scope.pending;
+              if (isOuter) {
+                nativeDb.prepare('COMMIT').run();
+              } else {
+                nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
+              }
+              return result;
+            } catch (err) {
+              await scope.pending;
+              try {
+                if (isOuter) {
+                  nativeDb.prepare('ROLLBACK').run();
+                } else {
+                  nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
+                  nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
+                }
+              } catch {
+                /* ignore secondary rollback errors */
+              }
+              throw err;
+            } finally {
+              scope.active = false;
+            }
+          });
+        };
+        return await (context ? execute() : withWriteRetry(execute));
+      } finally {
+        released.resolve();
+        if (!context && taskTransactionQueue.get(nativeDb) === tail)
+          taskTransactionQueue.delete(nativeDb);
       }
     },
 
@@ -1340,7 +1397,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async setMetaValue(key: string, value: unknown): Promise<void> {
-      return setMetaValue(cwd, key, value);
+      return accessor.transaction((tx) => tx.setMetaValue(key, value));
     },
 
     async getSchemaVersion(): Promise<string | null> {
@@ -1364,56 +1421,60 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     // ---- Agent task claiming ----
 
     async claimTask(taskId: string, agentId: string): Promise<void> {
-      const nativeDb = await requireNativeDb();
-      if (!nativeDb) {
-        throw new Error('Native database not initialized');
-      }
+      return accessor.transaction(async () => {
+        const nativeDb = await requireNativeDb();
+        if (!nativeDb) {
+          throw new Error('Native database not initialized');
+        }
 
-      // Verify the task exists first
-      const existsRow = nativeDb
-        .prepare('SELECT assignee FROM tasks_tasks WHERE id = ?')
-        .get(taskId) as { assignee: string | null } | undefined;
-      if (!existsRow) {
-        throw new Error(`Task not found: ${taskId}`);
-      }
-
-      // Atomic claim: only succeeds if assignee IS NULL or already claimed by this agent.
-      // This prevents race conditions between concurrent agents.
-      const result = nativeDb
-        .prepare(
-          'UPDATE tasks_tasks SET assignee = ?, updated_at = ? WHERE id = ? AND (assignee IS NULL OR assignee = ?)',
-        )
-        .run(agentId, new Date().toISOString(), taskId, agentId) as { changes: number };
-
-      if (result.changes === 0) {
-        // Row was not updated — task is claimed by a different agent
-        const currentRow = nativeDb
+        // Verify the task exists first
+        const existsRow = nativeDb
           .prepare('SELECT assignee FROM tasks_tasks WHERE id = ?')
           .get(taskId) as { assignee: string | null } | undefined;
-        throw new Error(
-          `Task ${taskId} is already claimed by agent: ${currentRow?.assignee ?? 'unknown'}`,
-        );
-      }
+        if (!existsRow) {
+          throw new Error(`Task not found: ${taskId}`);
+        }
+
+        // Atomic claim: only succeeds if assignee IS NULL or already claimed by this agent.
+        // This prevents race conditions between concurrent agents.
+        const result = nativeDb
+          .prepare(
+            'UPDATE tasks_tasks SET assignee = ?, updated_at = ? WHERE id = ? AND (assignee IS NULL OR assignee = ?)',
+          )
+          .run(agentId, new Date().toISOString(), taskId, agentId) as { changes: number };
+
+        if (result.changes === 0) {
+          // Row was not updated — task is claimed by a different agent
+          const currentRow = nativeDb
+            .prepare('SELECT assignee FROM tasks_tasks WHERE id = ?')
+            .get(taskId) as { assignee: string | null } | undefined;
+          throw new Error(
+            `Task ${taskId} is already claimed by agent: ${currentRow?.assignee ?? 'unknown'}`,
+          );
+        }
+      });
     },
 
     async unclaimTask(taskId: string): Promise<void> {
-      const nativeDb = await requireNativeDb();
-      if (!nativeDb) {
-        throw new Error('Native database not initialized');
-      }
+      return accessor.transaction(async () => {
+        const nativeDb = await requireNativeDb();
+        if (!nativeDb) {
+          throw new Error('Native database not initialized');
+        }
 
-      // Verify the task exists
-      const existsRow = nativeDb.prepare('SELECT id FROM tasks_tasks WHERE id = ?').get(taskId) as
-        | { id: string }
-        | undefined;
-      if (!existsRow) {
-        throw new Error(`Task not found: ${taskId}`);
-      }
+        // Verify the task exists
+        const existsRow = nativeDb.prepare('SELECT id FROM tasks_tasks WHERE id = ?').get(taskId) as
+          | { id: string }
+          | undefined;
+        if (!existsRow) {
+          throw new Error(`Task not found: ${taskId}`);
+        }
 
-      // Clear the assignee — no-op if already null
-      nativeDb
-        .prepare('UPDATE tasks_tasks SET assignee = NULL, updated_at = ? WHERE id = ?')
-        .run(new Date().toISOString(), taskId);
+        // Clear the assignee — no-op if already null
+        nativeDb
+          .prepare('UPDATE tasks_tasks SET assignee = NULL, updated_at = ? WHERE id = ?')
+          .run(new Date().toISOString(), taskId);
+      });
     },
   };
 

@@ -31,6 +31,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { parse as parseYaml } from 'yaml';
 
 const WORKFLOW = '.github/workflows/release.yml';
 /** Minimum seconds the cap must exceed the budget by, so a slow runner start cannot invert them. */
@@ -39,30 +40,59 @@ const MIN_HEADROOM_MS = 300_000;
 /**
  * Extract the post-deploy job's cap and budget from the workflow source.
  *
- * Deliberately regex over raw source rather than a YAML parse: this must run
- * in CI with no dependencies, and the values are plain scalars.
+ * Select the step that invokes the payload, then read its owning job and
+ * effective environment. Job IDs, display names, ordering and comments are
+ * not identities. Unsupported/dynamic values fail closed, rather than being
+ * partially parsed as a plausible number. CI installs the locked YAML parser.
  *
  * @param {string} src - Raw `release.yml` contents.
- * @returns {{capMinutes: number, capEnvMinutes: number, budgetMs: number}}
+ * @returns Parsed job cap, effective step cap, mirrored environment cap, and poll budget.
  */
 function extract(src) {
-  const postDeploy = src.indexOf('Post-Deploy Execution Payload');
-  if (postDeploy === -1) throw new Error(`could not locate the post-deploy job in ${WORKFLOW}`);
-  const tail = src.slice(postDeploy);
-
-  const cap = tail.match(/^\s*timeout-minutes:\s*(\d+)/m);
-  const capEnv = tail.match(/^\s*POSTDEPLOY_JOB_CAP_MINUTES:\s*'(\d+)'/m);
-  const budget = tail.match(/^\s*POSTDEPLOY_TIMEOUT_MS:\s*'(\d+)'/m);
-
-  if (!cap) throw new Error('could not read timeout-minutes for the post-deploy job');
-  if (!capEnv) throw new Error('could not read POSTDEPLOY_JOB_CAP_MINUTES');
-  if (!budget) throw new Error('could not read POSTDEPLOY_TIMEOUT_MS');
+  const workflow = parseYaml(src);
+  const payloads = [];
+  for (const [jobId, job] of Object.entries(workflow?.jobs ?? {})) {
+    for (const step of job?.steps ?? []) {
+      // Recognize a literal command, not an echo, comment or display name.
+      // This does not attempt to evaluate arbitrary shell or Actions code.
+      if (
+        typeof step?.run === 'string' &&
+        /^\s*node\s+(?:\.\/)?scripts\/execute-payload\.mjs(?:\s|$)/m.test(step.run)
+      ) {
+        payloads.push({ jobId, job, step });
+      }
+    }
+  }
+  if (payloads.length !== 1) {
+    throw new Error(`expected exactly one literal payload run step, found ${payloads.length}`);
+  }
+  const { jobId, job, step } = payloads[0];
+  const env = { ...workflow.env, ...job.env, ...step.env };
+  const capMinutes = positiveInteger(job['timeout-minutes'], `${jobId}.timeout-minutes`);
+  const stepCap = step['timeout-minutes'];
 
   return {
-    capMinutes: Number(cap[1]),
-    capEnvMinutes: Number(capEnv[1]),
-    budgetMs: Number(budget[1]),
+    capMinutes,
+    capEnvMinutes: positiveInteger(env.POSTDEPLOY_JOB_CAP_MINUTES, 'POSTDEPLOY_JOB_CAP_MINUTES'),
+    budgetMs: positiveInteger(env.POSTDEPLOY_TIMEOUT_MS, 'POSTDEPLOY_TIMEOUT_MS'),
+    effectiveCapMinutes:
+      stepCap === undefined
+        ? capMinutes
+        : Math.min(capMinutes, positiveInteger(stepCap, `${jobId} payload step timeout-minutes`)),
   };
+}
+
+/** Require a complete positive integer literal, rejecting expressions and lossy coercion. */
+function positiveInteger(value, label) {
+  if (
+    (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/.test(value))) ||
+    !Number.isSafeInteger(Number(value)) ||
+    Number(value) <= 0 ||
+    Number(value) > Number.MAX_SAFE_INTEGER / 60_000
+  ) {
+    throw new Error(`could not read ${label} as a positive safe integer literal`);
+  }
+  return Number(value);
 }
 
 let parsed;
@@ -74,8 +104,8 @@ try {
   process.exit(2);
 }
 
-const { capMinutes, capEnvMinutes, budgetMs } = parsed;
-const capMs = capMinutes * 60_000;
+const { capMinutes, capEnvMinutes, budgetMs, effectiveCapMinutes } = parsed;
+const capMs = effectiveCapMinutes * 60_000;
 const problems = [];
 
 if (capMinutes !== capEnvMinutes) {
@@ -88,7 +118,7 @@ if (capMinutes !== capEnvMinutes) {
 
 if (budgetMs >= capMs) {
   problems.push(
-    `POSTDEPLOY_TIMEOUT_MS (${budgetMs}ms) >= job cap (${capMinutes}min = ${capMs}ms).\n` +
+    `POSTDEPLOY_TIMEOUT_MS (${budgetMs}ms) >= effective cap (${effectiveCapMinutes}min = ${capMs}ms).\n` +
       '    The runner would kill the job mid-poll; no package named, no artifacts written.',
   );
 } else if (capMs - budgetMs < MIN_HEADROOM_MS) {
@@ -106,5 +136,5 @@ if (problems.length > 0) {
 
 console.log(
   `lint-postdeploy-budget: OK — budget ${budgetMs}ms < cap ${capMs}ms ` +
-    `(${capMinutes}min), headroom ${capMs - budgetMs}ms, env mirrors literal.`,
+    `(${effectiveCapMinutes}min), headroom ${capMs - budgetMs}ms, env mirrors job literal.`,
 );

@@ -29,6 +29,7 @@ import { enforceAcceptanceImmutability } from './ac-immutability.js';
 import { applyAcPlan, planAcUpdate, rebuildChildProjectionAc } from './ac-table.js';
 import {
   normalizePriority,
+  validateDependencyWaiver,
   validateLabels,
   validateSize,
   validateStatus,
@@ -121,6 +122,8 @@ export interface UpdateTaskOptions {
   clearBlockedBy?: boolean;
   parentId?: string | null;
   noAutoComplete?: boolean;
+  /** Justification recorded atomically in the task audit log for a critical-priority update. */
+  dependsWaiver?: string;
   /** RCASD-IVTR+C pipeline stage transition target. Must be >= current stage. @task T060 */
   pipelineStage?: string;
   /**
@@ -187,6 +190,8 @@ export async function updateTask(
 
   await requireActiveSession('tasks.update', cwd);
 
+  validateDependencyWaiver(options.priority, options.dependsWaiver);
+
   const changes: string[] = [];
   const now = new Date().toISOString();
   const originalParentId = task.parentId ?? null;
@@ -231,9 +236,10 @@ export async function updateTask(
   // T1590 — AC-immutability guard. Once a task has entered the
   // implementation pipeline stage (or any later stage), changes to
   // `acceptance` require an explicit operator `--reason`, which is
-  // appended to `.cleo/audit/ac-changes.jsonl`. Without a reason, the
+  // recorded in the transactional task_updated audit. The legacy JSONL
+  // stream records authorization attempts only. Without a reason, the
   // attempt is rejected with E_AC_LOCKED.
-  enforceAcceptanceImmutability({
+  const acceptanceAuthorization = enforceAcceptanceImmutability({
     task,
     newAcceptance: options.acceptance,
     reason: options.reason,
@@ -702,7 +708,15 @@ export async function updateTask(
       action: 'task_updated',
       taskId: options.taskId,
       actor: 'system',
-      details: { changes, title: task.title },
+      details: {
+        changes,
+        title: task.title,
+        ...(options.reason !== undefined ? { reason: options.reason } : {}),
+        ...(acceptanceAuthorization
+          ? { acceptanceOverride: { ...acceptanceAuthorization, status: 'committed' } }
+          : {}),
+        ...(options.dependsWaiver !== undefined ? { dependsWaiver: options.dependsWaiver } : {}),
+      },
       before: null,
       after: { changes, title: task.title },
     });

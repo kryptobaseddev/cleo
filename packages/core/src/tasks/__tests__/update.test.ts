@@ -4,8 +4,9 @@
  * @epic T4454
  */
 
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { Task, TasksUpdateQueryParams } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -118,6 +119,271 @@ describe('updateTask', () => {
       }
       expect(await accessor.loadSingleTask('T001')).toMatchObject(expected);
     }
+  });
+
+  it.each([
+    false,
+    true,
+  ])('records committed acceptance overrides only after a successful transaction (fault=%s)', async (failAudit) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Locked acceptance fixture',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'implementation',
+        acceptance: ['original criterion'],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const faultAccessor: DataAccessor = {
+      ...accessor,
+      async transaction(callback) {
+        return accessor.transaction((tx) =>
+          callback({
+            ...tx,
+            async appendLog(entry) {
+              if (failAudit) throw new Error('Injected override audit failure');
+              return tx.appendLog(entry);
+            },
+          }),
+        );
+      },
+    };
+    const mutation = updateTask(
+      {
+        taskId: 'T001',
+        acceptance: ['approved criterion'],
+        reason: 'Owner approved scope correction',
+      },
+      env.tempDir,
+      faultAccessor,
+    );
+    if (failAudit) await expect(mutation).rejects.toThrow('Injected override audit failure');
+    else await mutation;
+    const entries = await accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] });
+    if (failAudit) {
+      expect(entries).toEqual([]);
+      expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual(['original criterion']);
+    } else {
+      expect(entries).toHaveLength(1);
+      expect(JSON.parse(entries[0]!.detailsJson!)).toMatchObject({
+        reason: 'Owner approved scope correction',
+        acceptanceOverride: {
+          status: 'committed',
+          oldAcceptance: ['original criterion'],
+          newAcceptance: ['approved criterion'],
+          reason: 'Owner approved scope correction',
+          stage: 'implementation',
+        },
+      });
+    }
+    const attempt = JSON.parse(
+      (await readFile(join(env.tempDir, '.cleo/audit/ac-changes.jsonl'), 'utf8')).trim(),
+    );
+    expect(attempt.status).toBe('authorization-attempt');
+  });
+
+  it('retains committed override provenance when the advisory filesystem audit cannot be written', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Audit filesystem failure fixture',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'implementation',
+        acceptance: ['original'],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await writeFile(join(env.tempDir, '.cleo/audit'), 'Block advisory audit directory');
+    await updateTask(
+      {
+        taskId: 'T001',
+        acceptance: ['approved'],
+        reason: 'Approved despite unavailable advisory stream',
+      },
+      env.tempDir,
+      accessor,
+    );
+    const entries = await accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] });
+    expect(entries).toHaveLength(1);
+    expect(JSON.parse(entries[0]!.detailsJson!)).toMatchObject({
+      acceptanceOverride: {
+        status: 'committed',
+        reason: 'Approved despite unavailable advisory stream',
+        oldAcceptance: ['original'],
+        newAcceptance: ['approved'],
+      },
+    });
+    expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual(['approved']);
+  });
+
+  it.each([
+    'engine',
+    'operation',
+  ] as const)('%s wrapper persists dependency, parent and relationship changes', async (wrapper) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Initial epic',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Mutation target',
+        type: 'task',
+        parentId: 'T001',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'research',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T003',
+        title: 'Related task',
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T004',
+        title: 'Destination epic',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const cases: Array<{ input: Omit<TasksUpdateQueryParams, 'taskId'>; expected: Partial<Task> }> =
+      [
+        { input: { depends: ['T003'] }, expected: { depends: ['T003'] } },
+        { input: { addDepends: ['T004'] }, expected: { depends: ['T003', 'T004'] } },
+        { input: { removeDepends: ['T003'] }, expected: { depends: ['T004'] } },
+        { input: { depends: [] }, expected: { depends: undefined } },
+        {
+          input: { relates: [{ taskId: 'T003', type: 'related', reason: 'Shared evidence' }] },
+          expected: { relates: [{ taskId: 'T003', type: 'related', reason: 'Shared evidence' }] },
+        },
+        {
+          input: { addRelates: [{ taskId: 'T004', type: 'blocks', reason: 'Prerequisite' }] },
+          expected: {
+            relates: [
+              { taskId: 'T003', type: 'related', reason: 'Shared evidence' },
+              { taskId: 'T004', type: 'blocks', reason: 'Prerequisite' },
+            ],
+          },
+        },
+        {
+          input: { removeRelates: ['T003'] },
+          expected: { relates: [{ taskId: 'T004', type: 'blocks', reason: 'Prerequisite' }] },
+        },
+        { input: { relates: [] }, expected: { relates: undefined } },
+        { input: { parent: 'T004' }, expected: { parentId: 'T004', type: 'task' } },
+        { input: { parent: null }, expected: { parentId: undefined } },
+        { input: { type: 'epic' }, expected: { type: 'epic' } },
+        { input: { status: 'blocked' }, expected: { status: 'blocked' } },
+        { input: { pipelineStage: 'consensus' }, expected: { pipelineStage: 'consensus' } },
+      ];
+    for (const { input, expected } of cases) {
+      if (wrapper === 'engine') {
+        const result = await taskUpdate(env.tempDir, 'T002', input);
+        expect(result.success, JSON.stringify(result)).toBe(true);
+      } else {
+        await tasksUpdateOp(env.tempDir, { taskId: 'T002', ...input });
+      }
+      const persisted = await accessor.loadSingleTask('T002');
+      const { relates, ...expectedFields } = expected;
+      expect(persisted, JSON.stringify(input)).toMatchObject(expectedFields);
+      if ('relates' in expected) {
+        expect(persisted?.relates ?? []).toHaveLength(relates?.length ?? 0);
+        expect(persisted?.relates ?? []).toEqual(expect.arrayContaining(relates ?? []));
+      }
+    }
+  });
+
+  it('persists dependency-waiver provenance with the critical-priority mutation', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Waiver fixture',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const dependsWaiver = 'Independent incident repair with no prerequisite work';
+    const result = await taskUpdate(env.tempDir, 'T001', { priority: 'critical', dependsWaiver });
+    expect(result.success).toBe(true);
+    expect((await accessor.loadSingleTask('T001'))?.priority).toBe('critical');
+    const entries = await accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] });
+    expect(entries).toHaveLength(1);
+    expect(JSON.parse(entries[0]!.detailsJson!)).toMatchObject({ dependsWaiver });
+  });
+
+  it.each([
+    { priority: 'critical', dependsWaiver: '   ' },
+    { priority: 'high', dependsWaiver: 'Not a critical-priority waiver' },
+  ])('rejects unsupported dependency waivers without changing the task: %j', async (input) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Waiver rejection fixture',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const result = await taskUpdate(env.tempDir, 'T001', input);
+    expect(result.success).toBe(false);
+    expect((await accessor.loadSingleTask('T001'))?.priority).toBe('medium');
+    expect(await accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] })).toEqual(
+      [],
+    );
+  });
+
+  it('rolls back the priority change when dependency-waiver audit persistence fails', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Audit rollback fixture',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const faultAccessor: DataAccessor = {
+      ...accessor,
+      async transaction(callback) {
+        return accessor.transaction((tx) =>
+          callback({
+            ...tx,
+            async appendLog() {
+              throw new Error('Injected audit persistence failure');
+            },
+          }),
+        );
+      },
+    };
+    await expect(
+      updateTask(
+        {
+          taskId: 'T001',
+          priority: 'critical',
+          dependsWaiver: 'Urgent independent repair',
+        },
+        env.tempDir,
+        faultAccessor,
+      ),
+    ).rejects.toThrow('Injected audit persistence failure');
+    expect((await accessor.loadSingleTask('T001'))?.priority).toBe('medium');
+    expect(await accessor.queryAuditLog({ taskIds: ['T001'], actions: ['task_updated'] })).toEqual(
+      [],
+    );
   });
 
   it('updates task title', async () => {

@@ -241,7 +241,7 @@ export const updateCommand = defineCommand({
      * Critical-priority tasks without declared dependencies silently break
      * wave-order spawning when downstream work assumes they are load-bearing.
      * Provide a justification string to waive the `--depends` requirement.
-     * The waiver is stored in task metadata for auditability.
+     * The waiver is stored in the task update audit log in the mutation transaction.
      *
      * @task T1856
      * @epic T1855
@@ -249,7 +249,7 @@ export const updateCommand = defineCommand({
     'depends-waiver': {
       type: 'string',
       description:
-        'Justification (string) to waive the "--depends required for critical priority" check. Only consulted when the task is being promoted to --priority critical AND no existing or new --depends are declared. Stored verbatim in task metadata as audit trail; ignored for non-critical updates. (gh-405 / T1856)',
+        'Non-empty justification to waive the dependency requirement for --priority critical. Stored verbatim in the transactional task update audit log. Rejected for non-critical updates. (gh-405 / T1856)',
     },
     /**
      * Related tasks — semantic relationships (non-dependency).
