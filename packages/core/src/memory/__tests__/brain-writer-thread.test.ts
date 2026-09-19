@@ -139,6 +139,7 @@ describe('scoped source worker execution (T12265)', () => {
     'current',
     'manager',
     'cancel-after-commit',
+    'lost-ack',
     'cancelled',
     'stale-owner',
     'malformed',
@@ -209,7 +210,11 @@ describe('scoped source worker execution (T12265)', () => {
       native.prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?').run(job.id);
       new DurableJobStore(db, { projectId: 'A' }).claim(job.id, Date.now());
     }
-    const committed = mode === 'current' || mode === 'manager' || mode === 'cancel-after-commit';
+    const committed =
+      mode === 'current' ||
+      mode === 'manager' ||
+      mode === 'cancel-after-commit' ||
+      mode === 'lost-ack';
     const latch = new SharedArrayBuffer(4);
     const wrapper = join(artifact, 'dist/worker-wrapper.js');
     await writeFile(
@@ -227,12 +232,12 @@ describe('scoped source worker execution (T12265)', () => {
         await import('./brain-writer-worker.js');
       `,
     );
-    const worker =
+    let worker =
       mode === 'manager'
         ? undefined
         : new Worker(wrapper, {
             resourceLimits: { maxOldGenerationSizeMb: 256 },
-            workerData: { pause: mode === 'cancel-after-commit', latch },
+            workerData: { pause: mode === 'cancel-after-commit' || mode === 'lost-ack', latch },
             env: { ...process.env, CLEO_ROOT: other, CLEO_DIR: join(other, '.cleo') },
           });
     let manager: typeof import('../brain-writer-thread.js') | undefined;
@@ -263,6 +268,37 @@ describe('scoped source worker execution (T12265)', () => {
           Atomics.store(new Int32Array(latch), 0, 1);
           Atomics.notify(new Int32Array(latch), 0);
           [response] = await final;
+        } else if (mode === 'lost-ack') {
+          expect((await reply)[0]).toEqual({ committed: true });
+          await worker.terminate(); // Real committed write, deliberately no successful acknowledgement.
+          original.close();
+          const before = native.prepare('SELECT id,created_at FROM brain_observations').all();
+          expect(before).toHaveLength(1);
+          native
+            .prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?')
+            .run(job.id);
+          const resumedStore = new DurableJobStore(db, { projectId: 'A', actor: 'resumer' });
+          const resumed = createOperationExecutionContext(original.identity, { budgetMs: 15000 });
+          const resumedExecution = bindOperationWriteFence(resumed, {
+            ...execution.writeFence!,
+            lease: resumedStore.claim(job.id, Date.now()),
+          });
+          const resumedLink = transferOperationContext(resumedExecution, { items: 1 });
+          worker = new Worker(join(artifact, 'dist/brain-writer-worker.js'), {
+            resourceLimits: { maxOldGenerationSizeMb: 256 },
+            env: { ...process.env, CLEO_ROOT: other, CLEO_DIR: join(other, '.cleo') },
+          });
+          try {
+            const replay = once(worker, 'message', { signal: AbortSignal.timeout(10000) });
+            worker.postMessage({ ...envelope, execution: resumedLink.transfer });
+            [response] = await replay;
+            expect(native.prepare('SELECT id,created_at FROM brain_observations').all()).toEqual(
+              before,
+            );
+          } finally {
+            resumedLink.release();
+            resumed.close();
+          }
         } else [response] = await reply;
       } else {
         manager = await import(
