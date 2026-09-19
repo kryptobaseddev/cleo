@@ -42,7 +42,7 @@ import { processHeritage } from '../pipeline/heritage-processor.js';
 import { buildImportResolutionContext } from '../pipeline/import-processor.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { buildLexicalScopeModel } from '../pipeline/lexical-scope.js';
-import { runParseLoop } from '../pipeline/parse-loop.js';
+import { extractOriginalSource, runParseLoop } from '../pipeline/parse-loop.js';
 import { extractAccesses } from '../pipeline/processors/access-processor.js';
 import { createResolutionContext } from '../pipeline/resolution-context.js';
 import { createSymbolTable } from '../pipeline/symbol-table.js';
@@ -1170,5 +1170,43 @@ const emoji='😀'; handlers[key](); (getHandler())(); (() => 1)();`;
     );
     expect(result.calls.find((item) => item.calledName === 'getHandler')?.dynamic).toBe(false);
     expect(new Set(result.calls.map((item) => item.generation)).size).toBe(1);
+  });
+});
+
+describe('shared call and access extraction (T12264)', () => {
+  it('uses the same original generation, qualified owner and UTF-16 ranges', () => {
+    const source = `// 😀 leading Unicode
+import { orgNameTaken } from './production';
+const auth = { hooks: { beforeCreateOrganization: async (input) => {
+  input.name = 'new'; orgNameTaken(input.name); input[key]();
+} } };`;
+    const result = extractOriginalSource(source, 'auth.ts');
+    const owner = 'auth.ts::auth.hooks.beforeCreateOrganization';
+    expect(result.calls.every((call) => call.sourceId === owner)).toBe(true);
+    expect(result.accesses?.every((access) => access.sourceId === owner)).toBe(true);
+    expect(result.accesses?.every((access) => access.lexical?.kind === 'shadowed')).toBe(true);
+    expect(
+      new Set([...result.calls, ...(result.accesses ?? [])].map((site) => site.generation)).size,
+    ).toBe(1);
+    const fields = result.accesses?.filter((access) => access.memberName === 'name') ?? [];
+    expect(fields.map((access) => access.accessMode)).toEqual(['write', 'read']);
+    for (const access of fields)
+      expect(source.slice(access.span?.startIndex, access.span?.endIndex)).toBe('input.name');
+    const dynamic = result.accesses?.find((access) => access.memberName === 'key');
+    expect(dynamic?.dynamic).toBe(true);
+    expect(source.slice(dynamic?.span?.startIndex, dynamic?.span?.endIndex)).toBe('input[key]');
+    const declaration = result.definitions.find((node) => node.id === owner);
+    expect(declaration?.meta?.sourceGeneration).toBe(result.calls[0].generation);
+  });
+
+  it('discloses lexical capability only for TypeScript and JavaScript extraction', () => {
+    const javascript = extractOriginalSource('function run(value){return value.name;}', 'plain.js');
+    expect(javascript.definitions[0].meta?.lexicalCapability).toBe('typescript-javascript');
+    expect(javascript.accesses?.[0].lexical?.bindings[0].kind).toBe('parameter');
+    const python = extractOriginalSource('def run(value):\n    return value.name\n', 'plain.py');
+    expect(python.definitions[0].name).toBe('run');
+    expect(python.accesses?.[0].memberName).toBe('name');
+    expect(python.accesses?.[0].lexical).toBeUndefined();
+    expect(python.definitions[0].meta?.lexicalCapability).toBeUndefined();
   });
 });

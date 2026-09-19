@@ -31,9 +31,14 @@
  * @module pipeline/processors/access-processor
  */
 
+import { createHash } from 'node:crypto';
 import type { GraphRelation } from '@cleocode/contracts';
 import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import type { GraphLexicalResolution, GraphSourceSpan } from '@cleocode/contracts/graph';
+import type Parser from 'tree-sitter';
 import type { KnowledgeGraph } from '../knowledge-graph.js';
+import { detectLanguageFromPath } from '../language-detection.js';
+import { buildLexicalScopeModel, type LexicalScopeModel } from '../lexical-scope.js';
 import { TIER_CONFIDENCE } from '../resolution-context.js';
 import type { SymbolTable } from '../symbol-table.js';
 
@@ -79,6 +84,14 @@ export interface ExtractedAccess {
   receiverName?: string;
   /** Whether the member is read, written, or both. */
   accessMode: AccessMode;
+  /** Original UTF-16 access range when shared lexical extraction is supported. */
+  span?: GraphSourceSpan;
+  /** Source content generation, distinct from the eventual publication generation. */
+  generation?: string;
+  /** Nearest receiver binding; an unknown local must block unrelated global candidates. */
+  lexical?: GraphLexicalResolution;
+  /** Computed or complex receiver expressions without a statically established target. */
+  dynamic?: boolean;
 }
 
 /**
@@ -101,16 +114,7 @@ export interface AccessResolutionResult {
  * Minimal tree-sitter SyntaxNode shape required by this processor.
  * Avoids a hard dependency on any particular tree-sitter type package.
  */
-interface SyntaxNode {
-  type: string;
-  text: string;
-  children: SyntaxNode[];
-  namedChildren: SyntaxNode[];
-  namedChildCount: number;
-  parent: SyntaxNode | null;
-  childForFieldName(fieldName: string): SyntaxNode | null;
-  namedChild(index: number): SyntaxNode | null;
-}
+type SyntaxNode = Parser.SyntaxNode;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -283,9 +287,25 @@ function isWriteTarget(node: SyntaxNode): boolean {
  *
  * @param rootNode - AST root node (program, module, source_file, etc.)
  * @param filePath - File path relative to repo root
+ * @param model - Shared TS/JS scope model; other languages retain their existing capability.
  * @returns Array of extracted access records
  */
-export function extractAccesses(rootNode: SyntaxNode, filePath: string): ExtractedAccess[] {
+export function extractAccesses(
+  rootNode: SyntaxNode,
+  filePath: string,
+  model?: LexicalScopeModel,
+): ExtractedAccess[] {
+  const language = detectLanguageFromPath(filePath);
+  const lexicalModel =
+    model ??
+    (language === 'typescript' || language === 'javascript'
+      ? buildLexicalScopeModel(
+          rootNode,
+          filePath,
+          createHash('sha256').update(rootNode.text).digest('hex'),
+          language,
+        )
+      : undefined);
   const results: ExtractedAccess[] = [];
 
   /**
@@ -294,6 +314,7 @@ export function extractAccesses(rootNode: SyntaxNode, filePath: string): Extract
    */
   const ACCESS_NODE_TYPES: Record<string, { object: string; property: string }> = {
     member_expression: { object: 'object', property: 'property' },
+    subscript_expression: { object: 'object', property: 'index' },
     attribute: { object: 'object', property: 'attribute' },
     field_expression: { object: 'value', property: 'field' },
     selector_expression: { object: 'operand', property: 'field' },
@@ -315,10 +336,20 @@ export function extractAccesses(rootNode: SyntaxNode, filePath: string): Extract
 
         results.push({
           filePath,
-          sourceId: buildSourceId(node, filePath),
+          sourceId: lexicalModel?.ownerAt(node.startIndex) ?? buildSourceId(node, filePath),
           memberName,
           receiverName,
           accessMode,
+          ...(lexicalModel
+            ? {
+                span: lexicalModel.spanOf(node),
+                generation: lexicalModel.generation,
+                lexical: receiverName
+                  ? lexicalModel.resolve(receiverName, node.startIndex)
+                  : undefined,
+                dynamic: node.type === 'subscript_expression' || !receiverName,
+              }
+            : {}),
         });
       }
     }

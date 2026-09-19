@@ -67,6 +67,7 @@ import type {
 import { buildBarrelExportMap, processExtractedImports } from './import-processor.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import { detectLanguageFromPath } from './language-detection.js';
+import { buildLexicalScopeModel } from './lexical-scope.js';
 import { type ExtractedAccess, extractAccesses } from './processors/access-processor.js';
 import type { SymbolTable } from './symbol-table.js';
 import type { ParseWorkerResult } from './workers/parse-worker.js';
@@ -232,21 +233,27 @@ export interface CommonExtractionResult {
  * @param language - Canonical language name from `detectLanguageFromPath`
  * @param rootNode - Parsed tree-sitter AST root node
  * @param filePath - File path relative to repo root
+ * @param sourceGeneration - SHA-256 of original source bytes, distinct from publication identity.
  * @returns Uniform extraction result
  */
 function runExtractor(
   language: string,
   rootNode: Parser.SyntaxNode,
   filePath: string,
+  sourceGeneration: string,
 ): CommonExtractionResult {
   const node = rootNode;
+  const model =
+    language === 'typescript' || language === 'javascript'
+      ? buildLexicalScopeModel(rootNode, filePath, sourceGeneration, language)
+      : undefined;
 
   let result: CommonExtractionResult;
 
   switch (language) {
     case 'typescript':
     case 'javascript':
-      result = extractTypeScript(node, filePath, language);
+      result = extractTypeScript(node, filePath, language, model);
       break;
     case 'python':
       result = extractPython(node, filePath);
@@ -264,7 +271,7 @@ function runExtractor(
   // Run access extraction on the parsed AST (Phase 3f — T1837).
   // Supports all languages with member_expression / attribute / field_expression /
   // selector_expression AST node types (TS, JS, Python, Go, Rust).
-  result.accesses = extractAccesses(node, filePath);
+  result.accesses = extractAccesses(node, filePath, model);
 
   return result;
 }
@@ -298,7 +305,12 @@ export function extractOriginalSource(
   if (!parser || !grammar) throw new Error(`Parser or grammar unavailable: ${grammarKey}`);
   parser.setLanguage(grammar);
   const tree = parseOriginalSource(parser, source, limits);
-  return runExtractor(language, tree.rootNode, filePath);
+  return runExtractor(
+    language,
+    tree.rootNode,
+    filePath,
+    createHash('sha256').update(source).digest('hex'),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -832,7 +844,12 @@ export async function runParseLoop(
     // Extract definitions, imports, heritage, calls, and re-exports — dispatch by language
     let extracted: CommonExtractionResult;
     try {
-      extracted = runExtractor(lang, rootNode, file.path);
+      extracted = runExtractor(
+        lang,
+        rootNode,
+        file.path,
+        createHash('sha256').update(source).digest('hex'),
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       options.onFileReport?.({ path: file.path, status: 'failed', reason: `extract: ${msg}` });

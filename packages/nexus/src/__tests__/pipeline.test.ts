@@ -917,7 +917,7 @@ describe('runPipeline', () => {
     );
   });
 
-  it('retains AST-proven unmodeled scopes as diagnostics without inventing declarations', async () => {
+  it('publishes AST-proven nested and object scopes with matching call endpoints', async () => {
     writeFile(
       tmpDir,
       'main.ts',
@@ -942,21 +942,20 @@ export function outer() { const nested = () => known(); return nested(); }
     );
     const generation = publishGraph.mock.calls[0]?.[0];
     expect(generation).toBeDefined();
-    expect(generation?.assessment?.references).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'unmodeled-source',
-          filePath: 'main.ts',
-          sourceId: 'main.ts::fetch',
-          targetId: 'main.ts::known',
-          targetName: 'known',
-          relationship: 'calls',
-        }),
-        expect.objectContaining({ sourceId: 'main.ts::nested', targetId: 'main.ts::known' }),
-      ]),
-    );
+    expect(generation?.assessment?.references).toEqual([]);
     expect(result.references).toEqual(generation?.assessment?.references);
-    expect(generation?.nodes.some((node) => node.id === 'main.ts::fetch')).toBe(false);
+    expect(generation?.nodes.map((node) => node.id)).toEqual(
+      expect.arrayContaining(['main.ts::fetch', 'main.ts::outer.nested']),
+    );
+    for (const sourceId of ['main.ts::fetch', 'main.ts::outer.nested']) {
+      expect(generation?.relations).toContainEqual(
+        expect.objectContaining({
+          sourceId,
+          targetId: 'main.ts::known',
+          type: 'calls',
+        }),
+      );
+    }
     expect(generation?.relations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
