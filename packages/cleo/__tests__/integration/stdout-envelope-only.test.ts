@@ -258,5 +258,19 @@ describe.skipIf(!HAS_BUNDLE)('mutation exit and persistence contract (T12258)', 
       expect(reread.status, reread.stderr || reread.stdout).toBe(0);
       expect(reread.stdout.trim()).toBe(expected);
     }
+    for (const noAutoComplete of [true, false]) {
+      const updated = runCli([
+        'update',
+        'T002',
+        '--params',
+        JSON.stringify({ noAutoComplete }),
+        '--output',
+        'silent',
+      ]);
+      expect(updated.status, updated.stderr || updated.stdout).toBe(0);
+      const reread = runCli(['show', 'T002', '--field', '/data/task/noAutoComplete']);
+      expect(reread.status, reread.stderr || reread.stdout).toBe(0);
+      expect(reread.stdout.trim()).toBe(String(noAutoComplete));
+    }
   }, 60_000);
 });

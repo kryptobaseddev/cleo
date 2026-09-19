@@ -81,3 +81,17 @@ describe('INPUT_CONTRACTS example round-trip', () => {
     }
   });
 });
+
+describe('tasks.update noAutoComplete schema (T12258)', () => {
+  it.each([true, false])('accepts explicit boolean %s', (noAutoComplete) => {
+    const contract = INPUT_CONTRACTS['tasks.update'];
+    if (!contract) throw new Error('tasks.update missing');
+    expect(validateOperationInput(contract, { taskId: 'T12258', noAutoComplete }).ok).toBe(true);
+  });
+
+  it.each(['true', 1, null])('rejects non-boolean %s', (noAutoComplete) => {
+    const contract = INPUT_CONTRACTS['tasks.update'];
+    if (!contract) throw new Error('tasks.update missing');
+    expect(validateOperationInput(contract, { taskId: 'T12258', noAutoComplete }).ok).toBe(false);
+  });
+});
