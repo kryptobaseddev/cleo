@@ -262,6 +262,21 @@ describe.skipIf(!HAS_BUNDLE)('mutation exit and persistence contract (T12258)', 
       return taskId;
     }
 
+    it('returns update and delete IDs with fresh-process postconditions', () => {
+      const taskId = createFixtureEpic('Mutation ID receipt epic');
+      const title = 'Updated mutation ID receipt epic';
+      const updated = runCli(['update', taskId, '--title', title, '--output', 'id']);
+      expect(updated.status, updated.stderr || updated.stdout).toBe(0);
+      expect(updated.stdout.trim()).toBe(taskId);
+      expect(runCli(['show', taskId, '--field', '/data/task/title']).stdout.trim()).toBe(title);
+      const deleted = runCli(['delete', taskId, '--output', 'id']);
+      expect(deleted.status, deleted.stderr || deleted.stdout).toBe(0);
+      expect(deleted.stdout.trim()).toBe(taskId);
+      const reread = runCli(['show', taskId, '--field', '/data/task/status']);
+      expect(reread.status, reread.stderr || reread.stdout).toBe(0);
+      expect(reread.stdout.trim()).toBe('archived');
+    }, 60_000);
+
     it('persists both auto-complete flag values', () => {
       const taskId = createFixtureEpic('Flag persistence epic');
       for (const [flag, expected] of [

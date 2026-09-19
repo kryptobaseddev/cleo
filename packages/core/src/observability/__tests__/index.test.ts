@@ -7,8 +7,18 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLogSummary, queryLogs, streamLogs } from '../index.js';
+
+// Route explicit fixture roots to their own logs and stores.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function makeLine(level: string, msg: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({

@@ -11,6 +11,7 @@
 import { parseArgs } from 'citty';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { addCommand } from '../add.js';
+import { deleteCommand } from '../delete.js';
 import { listCommand } from '../list.js';
 import { updateCommand } from '../update.js';
 
@@ -75,6 +76,24 @@ describe('task CLI command alias normalization (T1472)', () => {
     });
 
     mocks.dispatchFromCli.mockResolvedValue(undefined);
+  });
+
+  it('preserves canonical deleted IDs and cascade receipt through the CLI renderer', async () => {
+    const data = {
+      count: 2,
+      created: [],
+      updated: [],
+      deleted: ['T200', 'T201'],
+      cascadeDeleted: ['T201'],
+    };
+    mocks.dispatchRaw.mockResolvedValue({ success: true, data });
+    const run = deleteCommand.run;
+    if (!run) throw new Error('deleteCommand.run is missing');
+    await run({ args: { taskId: 'T200' }, rawArgs: [] });
+    expect(mocks.cliOutput).toHaveBeenCalledWith(data, {
+      command: 'delete',
+      operation: 'tasks.delete',
+    });
   });
 
   it('normalizes add aliases to canonical task params (T9072: --kind canonical)', async () => {

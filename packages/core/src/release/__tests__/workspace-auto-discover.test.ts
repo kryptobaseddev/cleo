@@ -12,12 +12,22 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   bumpVersionFromConfig,
   discoverWorkspacePackageJsonFiles,
   resolveVersionBumpTargets,
 } from '../version-bump.js';
+
+// Each explicit cwd belongs to this test's synthetic project, not the setup pin.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 let ROOT: string;
 

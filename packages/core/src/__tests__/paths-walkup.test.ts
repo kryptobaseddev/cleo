@@ -49,12 +49,16 @@ function makeTempBaseIsolated(label: string): string {
   return dir;
 }
 
-/** Snapshot and restore CLEO_ROOT around a test run. */
+/** Snapshot and clear explicit project overrides while testing ancestor discovery. */
 function useCleanEnv(): { restore: () => void } {
   const savedRoot = process.env['CLEO_ROOT'];
+  const savedDir = process.env['CLEO_DIR'];
   delete process.env['CLEO_ROOT'];
+  delete process.env['CLEO_DIR'];
   return {
     restore() {
+      if (savedDir !== undefined) process.env['CLEO_DIR'] = savedDir;
+      else delete process.env['CLEO_DIR'];
       if (savedRoot !== undefined) {
         process.env['CLEO_ROOT'] = savedRoot;
       } else {

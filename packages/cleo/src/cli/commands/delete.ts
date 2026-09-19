@@ -47,13 +47,6 @@ export const deleteCommand = defineCommand({
       handleRawError(response, { command: 'delete', operation: 'tasks.delete' });
     }
 
-    const data = response.data as Record<string, unknown> | undefined;
-    const output: Record<string, unknown> = { deletedTask: data?.deletedTask };
-    const cascadeDeleted = data?.cascadeDeleted;
-    if (Array.isArray(cascadeDeleted) && cascadeDeleted.length > 0) {
-      output['cascadeDeleted'] = cascadeDeleted;
-    }
-
-    cliOutput(output, { command: 'delete', operation: 'tasks.delete' });
+    cliOutput(response.data, { command: 'delete', operation: 'tasks.delete' });
   },
 });
