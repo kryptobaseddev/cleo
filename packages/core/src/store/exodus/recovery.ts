@@ -137,11 +137,13 @@ function inspectEffects(
   table: string,
   action: number,
 ): boolean {
+  const functions = db.prepare('PRAGMA function_list').all();
+  // SQLite retains built-in overloads after an application replaces a name.
+  // Refuse the entire overridden name; its runtime dispatch is opaque here.
+  const overridden = new Set(functions.filter((row) => row.builtin !== 1).map((row) => row.name));
   const builtins = new Set(
-    db
-      .prepare('PRAGMA function_list')
-      .all()
-      .filter((row) => row.builtin === 1)
+    functions
+      .filter((row) => row.builtin === 1 && !overridden.has(row.name))
       .map((row) => row.name),
   );
   let mirrorsHandoff = false;

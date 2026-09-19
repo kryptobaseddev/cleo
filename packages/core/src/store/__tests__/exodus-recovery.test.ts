@@ -176,3 +176,17 @@ it('refuses recovery that would orphan an unrelated referencing row', () => {
   expect(db.prepare('SELECT id FROM records').all()).toEqual([{ id: 1 }]);
   expect(db.prepare('SELECT state FROM _exodus_recovery_rows').get()?.state).toBe('committed');
 });
+
+it('refuses an application override of a built-in SQL function before a trigger can invoke it', () => {
+  let calls = 0;
+  db.function('length', () => {
+    calls++;
+    return 1;
+  });
+  db.exec('CREATE TRIGGER opaque_guard BEFORE INSERT ON records BEGIN SELECT length(new.id); END');
+  expect(() => insert("INSERT INTO records VALUES(1,'unsafe',NULL,NULL)")).toThrow(
+    /opaque function length/,
+  );
+  expect(calls).toBe(0);
+  expect(db.prepare('SELECT count(*) AS n FROM records').get()?.n).toBe(0);
+});
