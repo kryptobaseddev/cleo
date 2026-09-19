@@ -107,20 +107,18 @@ function baseTableForScope(scope: DualScope): string {
   return scope === 'project' ? 'tasks_tasks' : 'nexus_project_registry';
 }
 
-/**
- * Count rows in `table` on `nativeDb`, returning `0` if the table does not yet
- * exist or the query fails. Used to decide whether the consolidated DB is empty.
- */
+/** Count persisted rows; only an absent table is empty, never a failed read. */
 function safeRowCount(nativeDb: DatabaseSync, table: string): number {
-  try {
-    const row = nativeDb.prepare(`SELECT COUNT(*) AS n FROM "${table}"`).get() as
-      | { n: number }
-      | undefined;
-    return row?.n ?? 0;
-  } catch {
-    // Table missing (pre-migration) or other read error → treat as empty.
+  if (
+    !nativeDb
+      .prepare("SELECT name FROM main.sqlite_master WHERE type='table' AND name=?")
+      .get(table)
+  )
     return 0;
-  }
+  const count = nativeDb.prepare(`SELECT COUNT(*) AS n FROM main."${table}"`).get()?.n;
+  if (typeof count !== 'number' || !Number.isSafeInteger(count))
+    throw new Error(`Cannot assess migration population: ${table}`);
+  return count;
 }
 
 /**
@@ -290,6 +288,23 @@ export interface ExodusOnOpenResult {
  * @saga T11242
  */
 export async function maybeRunExodusOnOpen(
+  scope: DualScope,
+  dbPath: string,
+  nativeDb: DatabaseSync,
+  cwd: string | undefined,
+): Promise<ExodusOnOpenResult> {
+  try {
+    return await runExodusOnOpen(scope, dbPath, nativeDb, cwd);
+  } catch (error) {
+    return {
+      outcome: 'aborted',
+      reason: `migration assessment failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+/** Run the guarded assessment, copy and recovery behind the explicit abort boundary. */
+async function runExodusOnOpen(
   scope: DualScope,
   dbPath: string,
   nativeDb: DatabaseSync,

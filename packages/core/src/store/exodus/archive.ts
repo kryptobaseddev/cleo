@@ -55,17 +55,24 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   renameSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { z } from 'zod';
 import { getLogger } from '../../logger.js';
 import { getCleoHome, resolveCleoDir } from '../../paths.js';
 import { getCleoVersion } from '../../scaffold/ensure-config.js';
 import type { ExodusPlan, ExodusScope, LegacyDbDescriptor } from './types.js';
 
 const log = getLogger('exodus-archive');
+const markerIdentity = z.object({
+  version: z.literal(1),
+  scope: z.enum(['project', 'global']),
+  targetDbPath: z.string().optional(),
+});
 
 /** Per-scope archive directory name (sibling of the migrated DBs). */
 const ARCHIVE_DIR_NAME = '_archive' as const;
@@ -141,6 +148,8 @@ export interface ExodusCompleteMarker {
   readonly completedAt: string;
   /** Logical names of the legacy sources that were archived (provenance). */
   readonly archivedSources: readonly string[];
+  /** Exact target certified by new markers; absent on legacy version-1 markers. */
+  readonly targetDbPath?: string;
 }
 
 /**
@@ -161,11 +170,21 @@ export function hasExodusCompleteMarker(
   cwd?: string,
   targetDbPath?: string,
 ): boolean {
+  let markerPath: string;
   try {
-    return existsSync(exodusMarkerPath(scope, cwd, targetDbPath));
-  } catch {
+    markerPath = exodusMarkerPath(scope, cwd, targetDbPath);
+  } catch (error) {
+    if (targetDbPath) throw error;
     return false;
   }
+  if (!existsSync(markerPath)) return false;
+  const marker = markerIdentity.parse(JSON.parse(readFileSync(markerPath, 'utf8')));
+  return (
+    marker.scope === scope &&
+    (!targetDbPath ||
+      !marker.targetDbPath ||
+      resolve(marker.targetDbPath) === resolve(targetDbPath))
+  );
 }
 
 /**
@@ -199,6 +218,7 @@ export function writeExodusCompleteMarker(
     cleoVersion: getCleoVersion(),
     completedAt: new Date().toISOString(),
     archivedSources: [...archivedSources],
+    targetDbPath: resolve(targetDbPath ?? join(baseDir, 'cleo.db')),
   };
 
   const tmpPath = `${markerPath}.tmp`;

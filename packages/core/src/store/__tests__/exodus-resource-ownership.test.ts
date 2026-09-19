@@ -64,6 +64,9 @@ it('archives consumed sources and seals the target without changing another proj
   expect(readFileSync(originalMarker)).toEqual(originalBytes);
   expect(exodusMarkerPath('project', root, target)).toBe(join(root, 'selected', 'exodus-complete'));
   expect(hasExodusCompleteMarker('project', root, target)).toBe(true);
+  expect(JSON.parse(readFileSync(exodusMarkerPath('project', root, target), 'utf8'))).toMatchObject(
+    { scope: 'project', targetDbPath: target },
+  );
 });
 
 it('separates markers for distinct database resources sharing one directory', () => {
@@ -72,4 +75,44 @@ it('separates markers for distinct database resources sharing one directory', ()
   writeExodusCompleteMarker('project', ['first'], root, first);
   expect(hasExodusCompleteMarker('project', root, first)).toBe(true);
   expect(hasExodusCompleteMarker('project', root, second)).toBe(false);
+});
+
+it('does not accept a marker copied from another exact database target', () => {
+  const first = join(root, 'selected', 'first.db');
+  const second = join(root, 'selected', 'second.db');
+  const marker = writeExodusCompleteMarker('project', ['first'], root, first);
+  writeFileSync(exodusMarkerPath('project', root, second), readFileSync(marker));
+  expect(hasExodusCompleteMarker('project', root, second)).toBe(false);
+});
+
+it('reports diagnostic read failure as an abort instead of an empty migration target', async () => {
+  const db = new DatabaseSync(target);
+  db.close();
+  const result = await maybeRunExodusOnOpen('project', target, db, root);
+  expect(result.outcome).toBe('aborted');
+  expect(result.reason).toMatch(/assessment failed/);
+});
+
+it('reports malformed marker evidence rather than silently attempting migration', async () => {
+  writeFileSync(exodusMarkerPath('project', root, target), 'not json');
+  const db = new DatabaseSync(target);
+  try {
+    const result = await maybeRunExodusOnOpen('project', target, db, root);
+    expect(result.outcome).toBe('aborted');
+    expect(result.reason).toMatch(/assessment failed/);
+  } finally {
+    db.close();
+  }
+});
+
+it('refuses a cwd-discovered migration plan targeting another database', async () => {
+  const db = new DatabaseSync(target);
+  try {
+    db.exec('CREATE TABLE tasks_tasks(id TEXT PRIMARY KEY)');
+    const result = await maybeRunExodusOnOpen('project', target, db, root);
+    expect(result.outcome).toBe('aborted');
+    expect(result.reason).toMatch(/does not match opened database/);
+  } finally {
+    db.close();
+  }
 });
