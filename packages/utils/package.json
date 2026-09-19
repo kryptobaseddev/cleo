@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/utils",
-  "version": "2026.9.7",
+  "version": "2026.9.8",
   "private": true,
   "type": "module",
   "description": "CLEO shared pure-utility leaf — zero-dependency, stateless helpers (formatBytes, …) collapsed from duplicated inline copies across packages. Bundled into @cleocode/cleo, never published (owner decision: single published artifact).",
