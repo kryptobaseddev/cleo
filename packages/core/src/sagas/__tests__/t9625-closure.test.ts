@@ -31,7 +31,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTask, getDb, taskShow } from '@cleocode/core/internal';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
 import { reconcileSaga } from '../reconcile.js';
@@ -99,6 +99,13 @@ async function seedSagaWithDoneMembers(
     );
   }
 }
+
+// Each reconciliation scenario owns its synthetic saga and task records.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(async () => {
   TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-t9625-closure-test-'));
