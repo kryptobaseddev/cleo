@@ -41,6 +41,7 @@
  */
 
 import { writeFile } from 'node:fs/promises';
+import { runKnowledgeDoctor } from '@cleocode/core/doctor/knowledge';
 import { DockerModeAdapter, isSandboxedGlobally } from './docker-mode.js';
 import { buildStatus, createProcessEntry, type PiProcessEntry, PiWrapper } from './pi-wrapper.js';
 import type {
@@ -123,6 +124,29 @@ export class PiCodingAgentAdapter implements HarnessAdapter {
     const cwd = opts?.cwd ?? process.cwd();
     const env = opts?.env ?? {};
     const useSandbox = opts?.sandboxed === true || isSandboxedGlobally();
+    opts?.signal?.throwIfAborted();
+    const knowledge = await runKnowledgeDoctor(cwd, { taskId, budgetMs: 2000 });
+    opts?.signal?.throwIfAborted();
+    // The existing foreground coding agent owns reasoning and permission checks.
+    // Assessment is shared with external callers; no background model is spawned.
+    const knowledgePrompt = `${prompt}
+
+## Project knowledge assessment
+${JSON.stringify({
+  coverage: knowledge.health.coverage,
+  findings: knowledge.health.findings.slice(0, 5),
+  omittedFindings: Math.max(0, knowledge.health.findings.length - 5),
+  stateHash: knowledge.stateHash,
+})}
+Inspect current authority and source evidence before editing. UNKNOWN impact is
+incomplete assessment; static analysis cannot prove all runtime callers. Preserve
+historical guidance and follow explicitly sourced successors. Use the repair matrix
+and its prerequisites, verification, and recovery. Stay within this task scope and
+the existing permission policy. Submit sourced resolutions using the supported
+knowledge doctor proposal operation; do not guess authority or invoke a background
+model. Use cleo doctor knowledge --help for proposal syntax. Reassess after edits,
+record verification evidence before completion, and include unresolved findings
+in the handoff. Owner-decision findings require an actionable decision request.`;
 
     // Build exit promise — resolved by the process entry when the child exits.
     let resolveExit!: (status: HarnessProcessStatus) => void;
@@ -141,9 +165,9 @@ export class PiCodingAgentAdapter implements HarnessAdapter {
     }
 
     if (useSandbox) {
-      await this.spawnInSandbox(entry, prompt, cwd, env);
+      await this.spawnInSandbox(entry, knowledgePrompt, cwd, env);
     } else {
-      await this.wrapper.start(entry, prompt, cwd, env);
+      await this.wrapper.start(entry, knowledgePrompt, cwd, env);
     }
 
     return {

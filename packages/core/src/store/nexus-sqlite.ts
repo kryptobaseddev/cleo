@@ -170,6 +170,8 @@ const NEXUS_GLOBAL_ATTACH_ALIAS = 'nexus_global';
  *
  * @param cwd - Optional working directory used to resolve the owning project
  *   root (forwarded to {@link resolveDualScopeDbPath}('project', cwd)).
+ * @param cwd - Explicit project root, or the ambient canonical project when omitted.
+ * @returns Project-bound Nexus graph database.
  * @task T307
  * @epic T299
  * @task T11648 (ADR-090 runtime read half — route graph reads to project scope)
@@ -745,8 +747,8 @@ function runNexusMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase, dbPa
  * @task T11578 (AC3 — prefixed `nexus_*` tables)
  * @task T11648 (ADR-090 runtime read half — project-scope graph + global attach)
  */
-export async function getNexusDb(): Promise<NodeSQLiteDatabase> {
-  return (await bindNexusDomain()).db.drizzle;
+export async function getNexusDb(cwd?: string): Promise<NodeSQLiteDatabase> {
+  return (await bindNexusDomain(cwd)).db.drizzle;
 }
 
 /**
@@ -766,11 +768,14 @@ export async function getNexusDb(): Promise<NodeSQLiteDatabase> {
  * binding (and re-runs the global migration before re-attaching) instead of
  * resetting a process-wide singleton that other projects also depended on.
  *
+ * @param cwd - Explicit project root, or the ambient canonical project when omitted.
  * @returns The live nexus-domain binding.
  *
  * @task T12039 (E6-L15)
  */
-export async function bindNexusDomain(): Promise<DomainBinding<NexusDomainHandle, ProjectStore>> {
+export async function bindNexusDomain(
+  cwd?: string,
+): Promise<DomainBinding<NexusDomainHandle, ProjectStore>> {
   const requestedRegistryPath = getNexusRegistryDbPath();
 
   // The registry home (`getCleoHome()`) can change between calls — tests that
@@ -778,9 +783,9 @@ export async function bindNexusDomain(): Promise<DomainBinding<NexusDomainHandle
   // OLD global ATTACHed, so drop it and re-establish (which re-runs the global
   // consolidated migration before re-attaching; a bare re-attach would bind an
   // unmigrated global → "no such table: nexus_project_registry"). ADR-090 · T11648.
-  const bound = peekProjectDomain<NexusDomainHandle>('nexus');
+  const bound = peekProjectDomain<NexusDomainHandle>('nexus', cwd);
   if (bound && bound.db.registryPath !== requestedRegistryPath) {
-    releaseDomainBindings({ scope: 'project', domain: 'nexus' });
+    releaseDomainBindings({ scope: 'project', domain: 'nexus', dbPath: bound.store.dbPath });
   }
 
   // ADR-086 / T10321 — warn (one-shot, non-blocking) if the install still
@@ -797,12 +802,9 @@ export async function bindNexusDomain(): Promise<DomainBinding<NexusDomainHandle
   await openDualScopeDb('global');
 
   // ── Graph home: open PROJECT scope as `main` (T11648 · ADR-090 §2.1/§2.4) ──
-  // We pass NO cwd: the dual-scope resolver resolves the canonical project root
-  // via the `resolveCleoDir()` SSoT (CWD-walk / CLEO_DIR / worktree scope) —
-  // never a bare `process.cwd()` (T9584). Omitting the cwd also keeps the
-  // exodus-on-open hook un-armed, which is correct for the runtime READ path
-  // (exodus is a separate explicit step).
-  const binding = await bindProjectDomain('nexus', undefined, (nativeDb, store) => {
+  // Explicit roots bind the requested project's canonical store. Omitted roots
+  // retain the resolver's worktree/environment/CWD cascade. Never switch CWD.
+  const binding = await bindProjectDomain('nexus', cwd, (nativeDb, store) => {
     // ATTACH the GLOBAL `cleo.db` so the registry/identity tables resolve by
     // their bare names via SQLite's fall-through (ADR-090 · T11648). Idempotent.
     ensureGlobalRegistryAttached(nativeDb);
@@ -839,7 +841,7 @@ export async function bindNexusDomain(): Promise<DomainBinding<NexusDomainHandle
   } catch {
     // A failed re-attach means this handle is unusable — drop the binding so the
     // next call re-derives a fresh handle + attach.
-    releaseDomainBindings({ scope: 'project', domain: 'nexus' });
+    releaseDomainBindings({ scope: 'project', domain: 'nexus', dbPath: binding.store.dbPath });
     throw new Error(
       'T12039: nexus binding lost its GLOBAL registry ATTACH and could not re-attach.',
     );
@@ -887,10 +889,11 @@ export function resetNexusDbState(): void {
 /**
  * Get the underlying node:sqlite DatabaseSync instance for the nexus domain.
  * Useful for direct PRAGMA calls or raw SQL operations.
- * Returns null if the database hasn't been initialized.
+ * @param cwd - Explicit project root, or the ambient canonical project when omitted.
+ * @returns The native handle, or null if this project has not been initialized.
  */
-export function getNexusNativeDb(): DatabaseSync | null {
-  return boundProjectNative('nexus');
+export function getNexusNativeDb(cwd?: string): DatabaseSync | null {
+  return boundProjectNative('nexus', cwd);
 }
 
 export type { NodeSQLiteDatabase };

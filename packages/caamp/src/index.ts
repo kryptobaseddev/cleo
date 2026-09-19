@@ -157,6 +157,7 @@ export {
   generateSkillsSection,
   groupByInstructFile,
   parseInjectionContent,
+  resolveInstructionDelivery,
 } from './core/instructions/templates.js';
 // Logger
 export { isQuiet, isVerbose, setQuiet, setVerbose } from './core/logger.js';

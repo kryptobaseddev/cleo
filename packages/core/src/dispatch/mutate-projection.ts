@@ -379,5 +379,7 @@ export function applyMutateProjection(
   if (data === null || data === undefined || typeof data !== 'object') return data;
   const envelope = plan.extract(data as Record<string, unknown>);
   if (envelope.count === 0 && envelope.ids.length === 0) return data;
+  // Coverage is a trust boundary: compact mutation responses must not hide it.
+  if ('knowledgeCoverage' in data) envelope['knowledgeCoverage'] = data.knowledgeCoverage;
   return envelope;
 }

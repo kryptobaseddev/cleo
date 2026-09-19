@@ -16,7 +16,7 @@ import {
   CursorInstallProvider,
   createCursorAdapter as createAdapter,
 } from '@cleocode/adapters';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('CursorAdapter — integration', () => {
   let adapter: CursorAdapter;
@@ -138,9 +138,19 @@ describe('CursorInstallProvider — integration', () => {
     install = new CursorInstallProvider();
     testDir = join(tmpdir(), `cleo-cursor-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
+    const fixtureHome = join(testDir, 'fixture-home');
+    vi.stubEnv('HOME', fixtureHome);
+    vi.stubEnv('USERPROFILE', fixtureHome);
+    vi.stubEnv('CLEO_HOME', join(fixtureHome, '.cleo'));
+    mkdirSync(join(fixtureHome, '.cleo', 'templates'), { recursive: true });
+    writeFileSync(
+      join(fixtureHome, '.cleo', 'templates', 'CLEO-INJECTION.md'),
+      'Fixture protocol: inspect authority and coverage.',
+    );
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     try {
       rmSync(testDir, { recursive: true, force: true });
     } catch {

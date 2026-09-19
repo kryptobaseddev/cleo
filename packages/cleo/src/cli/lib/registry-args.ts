@@ -97,8 +97,9 @@ export function registryParamsToDispatchPayload(
     if (raw === undefined || raw === null) continue;
 
     if (param.type === 'number') {
-      const parsed = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-      if (!Number.isNaN(parsed)) payload[param.name] = parsed;
+      // Preserve fractions and invalid values for the owning operation's validation.
+      // parseInt rounded fractions and silently turned malformed input into a default.
+      payload[param.name] = typeof raw === 'number' ? raw : Number(String(raw));
       continue;
     }
     if (param.type === 'boolean') {

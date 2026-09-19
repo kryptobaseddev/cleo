@@ -255,6 +255,29 @@ describe('Docs North Star round-trip (S6)', () => {
     await cleanupDocsProject();
   });
 
+  it('fetches a local unregistered project from an included repository without changing ownership', async () => {
+    const handler = new DocsHandler();
+    const content = '# Preserved local evidence\n\nExact Unicode bytes: 解析🌱';
+    const added = await handler.mutate('add', {
+      ownerId: 'T200',
+      content,
+      slug: 'unregistered-local-evidence',
+      type: 'note',
+    });
+    expect(added.success).toBe(true);
+    delete process.env['CLEO_DIR'];
+    const includedRoot = join(tempDir, 'included-repository');
+    await mkdir(join(includedRoot, '.git'), { recursive: true });
+    process.chdir(includedRoot);
+    const fetched = await handler.query('fetch', { attachmentRef: 'unregistered-local-evidence' });
+    expect(fetched.success, JSON.stringify(fetched)).toBe(true);
+    expect(fetched.data).toMatchObject({
+      metadata: { sha256: createHash('sha256').update(content).digest('hex') },
+      bytesBase64: Buffer.from(content).toString('base64'),
+      path: expect.stringContaining(join(tempDir, '.cleo')),
+    });
+  });
+
   it('completes the full North Star round-trip: add → update → publish → status → fetch', async () => {
     const handler = new DocsHandler();
 

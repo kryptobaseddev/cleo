@@ -376,6 +376,11 @@
       "import": "./dist/llm/*.js",
       "require": "./dist/llm/*.js"
     },
+    "./paths.js": {
+      "types": "./dist/paths.d.ts",
+      "import": "./dist/paths.js",
+      "require": "./dist/paths.js"
+    },
     "./paths": {
       "types": "./dist/paths-export.d.ts",
       "import": "./dist/paths-export.js",

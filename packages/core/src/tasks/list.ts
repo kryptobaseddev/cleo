@@ -5,8 +5,10 @@
  */
 
 import type {
+  RecordProjectionDisclosure,
   Task,
   TaskKind,
+  TaskPopulation,
   TaskPriority,
   TaskRecord,
   TaskSeverity,
@@ -14,11 +16,12 @@ import type {
   TaskType,
 } from '@cleocode/contracts';
 import type { LAFSPage } from '@cleocode/lafs';
+import { discloseProjection } from '../dispatch/mvi-projection.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
-import { paginate } from '../pagination.js';
+import { createPage } from '../pagination.js';
 // T10123: Saga constants + member resolver moved to `../sagas/` (Saga T10113 /
 // Epic T10208). Re-exported below for backwards-compat with consumers that
 // still import them from this module — new code should import from
@@ -29,6 +32,7 @@ import type { TaskQueryFilters } from '../store/data-accessor.js';
 import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
 import { assertTaskAxisFilters } from './axis-filters.js';
 import { tasksToRecords } from './engine-converters.js';
+import { paginateTaskPopulation, readTaskPopulation } from './population.js';
 
 // Re-export saga constants for backwards-compat (T10123).
 // Test fixtures and external consumers historically imported these from
@@ -38,7 +42,7 @@ export { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL }; // saga-l
 const TASK_LIST_DEFAULT_LIMIT = 10;
 
 /** Compact task representation — minimal fields for list responses. */
-export interface CompactTask {
+export interface CompactTask extends RecordProjectionDisclosure {
   id: string;
   title: string;
   status: string;
@@ -51,15 +55,18 @@ export interface CompactTask {
 
 /** Convert a full Task to compact representation with _next directives. */
 export function toCompact(task: Task): CompactTask {
-  return {
-    id: task.id,
-    title: task.title,
-    status: task.status,
-    priority: task.priority,
-    type: task.type,
-    parentId: task.parentId,
-    _next: taskListItemNext(task.id),
-  };
+  return discloseProjection(
+    { ...task },
+    {
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      type: task.type,
+      parentId: task.parentId,
+      _next: taskListItemNext(task.id),
+    },
+  );
 }
 
 /** Filter options for listing tasks. */
@@ -110,6 +117,8 @@ export interface ListTasksOptions {
    * set to a non-archived value.
    */
   excludeArchived?: boolean;
+  /** Include archived rows with the same filters as ordinary rows. */
+  includeArchive?: boolean;
   /**
    * When `true`, order results by priority (critical → high → medium → low)
    * instead of the default position-based order.
@@ -127,6 +136,7 @@ export interface ListTasksResult {
   tasks: Task[];
   total: number;
   filtered: number;
+  population: TaskPopulation;
   page: LAFSPage;
   pagination?: {
     limit: number;
@@ -191,7 +201,7 @@ export async function listTasks(
   if (options.type) queryFilters.type = options.type;
   // Skip the raw parentId filter when routing through the Saga helper so the
   // helper remains the SSoT for Saga membership semantics.
-  if (options.parentId && sagaMemberIds === null) queryFilters.parentId = options.parentId;
+  if (options.parentId) queryFilters.parentId = options.parentId;
   if (options.phase) queryFilters.phase = options.phase;
   if (options.label) queryFilters.label = options.label;
   // T12120 (GH #1245/#1246) — validate BEFORE querying so an unrecognised
@@ -207,39 +217,27 @@ export async function listTasks(
     queryFilters.excludeStatus = 'archived';
   }
 
-  const queryResult = await dataAccessor.queryTasks(queryFilters);
-  let filtered: Task[];
-  let filteredCount: number;
-  if (sagaMemberIds !== null) {
-    // Saga path: restrict the queried set to the saga's member Epic IDs.
-    const memberOrder = new Map<string, number>();
-    for (let idx = 0; idx < sagaMemberIds.length; idx++) {
-      const id = sagaMemberIds[idx];
-      if (id !== undefined) memberOrder.set(id, idx);
-    }
-    const memberSet = new Set(sagaMemberIds);
-    const sagaFiltered = queryResult.tasks
-      .filter((t) => memberSet.has(t.id))
-      .sort((a, b) => (memberOrder.get(a.id) ?? 0) - (memberOrder.get(b.id) ?? 0));
-    filtered = sagaFiltered;
-    filteredCount = sagaFiltered.length;
-  } else {
-    filtered = queryResult.tasks;
-    filteredCount = queryResult.total;
-  }
-
-  // Get total count of all tasks (unfiltered) for the response
-  const total = await dataAccessor.countTasks();
-
-  const limit =
-    options.limit === 0
-      ? undefined
-      : typeof options.limit === 'number' && options.limit > 0
-        ? options.limit
-        : TASK_LIST_DEFAULT_LIMIT;
-  const offset =
-    typeof options.offset === 'number' && options.offset > 0 ? options.offset : undefined;
-  const { items: tasks, page } = paginate(filtered, limit, offset);
+  const includeArchive = options.includeArchive === true && !options.excludeArchived;
+  const filtered = await readTaskPopulation(dataAccessor, queryFilters, includeArchive);
+  const total =
+    options.status === 'archived'
+      ? await dataAccessor.countTasks({ status: 'archived' })
+      : (await dataAccessor.countTasks()) +
+        (includeArchive ? await dataAccessor.countTasks({ status: 'archived' }) : 0);
+  const { rows: tasks, population } = paginateTaskPopulation(
+    filtered,
+    options.limit ?? TASK_LIST_DEFAULT_LIMIT,
+    options.offset ?? 0,
+    options.status === 'archived' ? 'only' : includeArchive ? 'included' : 'excluded',
+  );
+  const page =
+    population.limit === null && population.offset === 0
+      ? { mode: 'none' as const }
+      : createPage({
+          total: population.matched,
+          limit: population.limit ?? Math.max(1, population.returned),
+          offset: population.offset,
+        });
   const pagination =
     page.mode === 'offset'
       ? {
@@ -258,7 +256,8 @@ export async function listTasks(
   return {
     tasks: enrichedTasks,
     total,
-    filtered: filteredCount,
+    filtered: population.matched,
+    population,
     page,
     pagination,
     ...(sagaMemberIds !== null ? { bindingSource: LIST_BINDING_SAGA_GROUPS } : {}),
@@ -294,12 +293,14 @@ export async function taskList(
     limit?: number;
     offset?: number;
     compact?: boolean;
+    includeArchive?: boolean;
   },
 ): Promise<
   EngineResult<{
     tasks: TaskRecord[] | CompactTask[];
     total: number;
     filtered: number;
+    population: TaskPopulation;
     bindingSource?: typeof LIST_BINDING_SAGA_GROUPS;
   }>
 > {
@@ -318,6 +319,7 @@ export async function taskList(
         children: params?.children,
         limit: params?.limit,
         offset: params?.offset,
+        includeArchive: params?.includeArchive,
       },
       projectRoot,
       accessor,
@@ -330,6 +332,7 @@ export async function taskList(
         tasks,
         total: result.total,
         filtered: result.filtered,
+        population: result.population,
         ...(result.bindingSource !== undefined ? { bindingSource: result.bindingSource } : {}),
       },
       result.page,

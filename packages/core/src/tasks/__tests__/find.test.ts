@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { findTasks, fuzzyScore, RELEVANCE_STRONG_MIN } from '../find.js';
+import { findTasks, fuzzyScore, RELEVANCE_STRONG_MIN, taskFind } from '../find.js';
 
 describe('fuzzyScore', () => {
   it('returns 100 for exact match', () => {
@@ -73,10 +73,88 @@ describe('findTasks', () => {
       },
     ]);
 
-    const result = await findTasks({ query: 'auth' }, env.tempDir, accessor);
+    const result = await findTasks({ query: 'auth', fuzzy: true }, env.tempDir, accessor);
     expect(result.results.length).toBeGreaterThan(0);
     expect(result.results[0]!.id).toBe('T001');
     expect(result.searchType).toBe('fuzzy');
+  });
+
+  it('excludes unrelated subsequences from default discovery and duplicate checks', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T77',
+        title: 'Detect and evaluate a decoupled inline engine',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const lexical = await findTasks({ query: 'deadline' }, env.tempDir, accessor);
+    expect(lexical.results).toEqual([]);
+    expect(lexical.population.matched).toBe(0);
+    expect(lexical.searchType).toBe('lexical');
+    const fuzzy = await findTasks({ query: 'deadline', fuzzy: true }, env.tempDir, accessor);
+    expect(fuzzy.results).toHaveLength(1);
+    expect(fuzzy.results[0].match).toMatchObject({ kind: 'fuzzy', fields: ['title'], terms: [] });
+    expect(fuzzy.results[0].match.reason).toContain('Explicit fuzzy opt-in');
+  });
+
+  it('honors selected Unicode fields and returns matching basis through SDK projections', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T78',
+        title: 'plain task',
+        description: '解析 authentication',
+        notes: ['only-notes-token'],
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T79',
+        title: '解析 title',
+        description: 'other',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const description = await findTasks(
+      { query: '解析', field: 'description' },
+      env.tempDir,
+      accessor,
+    );
+    expect(description.results.map((t) => t.id)).toEqual(['T78']);
+    expect(description.results[0].match).toMatchObject({
+      kind: 'lexical',
+      fields: ['description'],
+      terms: ['解析'],
+    });
+    expect(
+      (
+        await findTasks({ query: 'only-notes-token', field: 'notes' }, env.tempDir, accessor)
+      ).results.map((t) => t.id),
+    ).toEqual(['T78']);
+    expect(
+      (await findTasks({ query: 'T78', field: 'id' }, env.tempDir, accessor)).results.map(
+        (t) => t.id,
+      ),
+    ).toEqual(['T78']);
+    for (const verbose of [false, true]) {
+      const result = await taskFind(env.tempDir, '解析', 0, { field: 'description', verbose });
+      expect(result.success).toBe(true);
+      expect(result.data?.searchType).toBe('lexical');
+      expect(result.data?.results[0].match).toMatchObject({
+        kind: 'lexical',
+        fields: ['description'],
+      });
+    }
+    await expect(
+      findTasks({ query: '解析', field: 'missing' }, env.tempDir, accessor),
+    ).rejects.toThrow(/Unsupported search field/);
+    await expect(
+      findTasks({ query: '解析', exact: true, fuzzy: true }, env.tempDir, accessor),
+    ).rejects.toThrow(/cannot be combined/);
   });
 
   it('finds tasks by ID prefix', async () => {

@@ -1,9 +1,30 @@
 ---
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
+metadata:
+  version: 2.7.0
+  lastReviewed: 2026-09-18
+  stability: stable
 ---
 
 # Orchestrator Protocol
+
+## Trustworthy project knowledge
+
+After confirming the assigned worktree, orient with briefing/focus. Check current
+coverage and sourced authority before acting on retrieved guidance. `UNKNOWN`
+impact is incomplete assessment; `NONE` is no detected impact in assessed static
+coverage, never proof of no runtime callers. Resolve ambiguous symbols explicitly.
+Preserve historical handoffs and follow sourced corrections separately.
+
+Consume repair findings as a matrix of scope, evidence, responsibility, operation,
+prerequisites, verification, and recovery. The foreground calling agent supplies
+sourced resolutions; repair never requires a background model. Escalate unresolved
+owner decisions, reject stale proposals, verify postconditions, and record useful
+incident learning with project/revision evidence. A failed diagnostic is not clean.
+Provider reference delivery must be verified or embedded self-contained; static
+instruction checks do not establish live Codex, Claude, or Kimi behavior.
+
 
 > **The Mantra**: *Stay high-level. Never code directly. Delegate everything. Read only manifests. Spawn in wave order. Respect the pipeline.*
 

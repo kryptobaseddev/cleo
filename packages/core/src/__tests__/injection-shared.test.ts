@@ -216,9 +216,18 @@ describe('ensureInjection', () => {
   it('creates AGENTS.md even when no providers are detected', async () => {
     // Mock CAAMP with no providers
     vi.doMock('@cleocode/caamp', () => ({
+      resolveInstructionDelivery: vi.fn(async (content: string) => ({
+        content,
+        sources: [],
+        findings: [],
+        liveEvaluation: 'unverified',
+      })),
       getInstalledProviders: vi.fn(() => []),
-      inject: vi.fn(async () => 'injected'),
-      injectAll: vi.fn(),
+      inject: vi.fn(async (path: string, content: string) => {
+        await writeFile(path, content);
+        return 'injected';
+      }),
+      injectAll: vi.fn(async () => new Map()),
       buildInjectionContent: vi.fn(),
     }));
 
@@ -241,9 +250,18 @@ describe('ensureInjection', () => {
     ];
 
     vi.doMock('@cleocode/caamp', () => ({
+      resolveInstructionDelivery: vi.fn(async (content: string) => ({
+        content,
+        sources: [],
+        findings: [],
+        liveEvaluation: 'unverified',
+      })),
       getInstalledProviders: vi.fn(() => providers),
       injectAll: vi.fn(async () => new Map([[join(tempDir, 'CLAUDE.md'), 'injected']])),
-      inject: vi.fn(async () => 'injected'),
+      inject: vi.fn(async (path: string, content: string) => {
+        await writeFile(path, content);
+        return 'injected';
+      }),
       buildInjectionContent: vi.fn(({ references }: { references: string[] }) =>
         references.join('\n'),
       ),

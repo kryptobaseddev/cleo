@@ -89,7 +89,7 @@ describe('T9771 — tasks-bridge warnings → meta.warnings', () => {
     expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
-  it('linkTaskToSymbols with malformed filesJson returns empty result without warnings', async () => {
+  it('linkTaskToSymbols reports malformed evidence through structured failure and warnings without stderr', async () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -97,15 +97,21 @@ describe('T9771 — tasks-bridge warnings → meta.warnings', () => {
     const collector = new WarningCollector();
     const { linkTaskToSymbols } = await import('../tasks-bridge.js');
 
-    // Malformed JSON → files=[] → early return with linked=0 — no warning path.
+    // Malformed evidence cannot be mistaken for an assessed empty footprint.
     const result = await withWarningCollector(collector, async () =>
       linkTaskToSymbols('T0001', '{not-json', tempDir),
     );
 
     expect(result.linked).toBe(0);
     expect(result.taskId).toBe('T0001');
-    // Empty files → no warning fired.
-    expect(collector.drain()).toBeUndefined();
+    expect(result.status).toBe('failed');
+    expect(result.reason).toContain('not valid JSON');
+    expect(collector.drain()).toContainEqual(
+      expect.objectContaining({
+        code: 'W_TASKS_BRIDGE_FAILED',
+        context: expect.objectContaining({ operation: 'linkTaskToSymbols', taskId: 'T0001' }),
+      }),
+    );
 
     expect(bridgeStderrCalls(stderrSpy)).toEqual([]);
     expect(consoleErrorSpy).not.toHaveBeenCalled();

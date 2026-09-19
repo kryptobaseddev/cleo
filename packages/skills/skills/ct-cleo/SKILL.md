@@ -2,12 +2,29 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.12.0
+  version: 2.13.0
   lastReviewed: 2026-09-19
   stability: stable
 ---
 
 # CLEO Protocol Guide
+
+## Trustworthy project knowledge
+
+After confirming the assigned worktree, orient with briefing/focus. Check current
+coverage and sourced authority before acting on retrieved guidance. `UNKNOWN`
+impact is incomplete assessment; `NONE` is no detected impact in assessed static
+coverage, never proof of no runtime callers. Resolve ambiguous symbols explicitly.
+Preserve historical handoffs and follow sourced corrections separately.
+
+Consume repair findings as a matrix of scope, evidence, responsibility, operation,
+prerequisites, verification, and recovery. The foreground calling agent supplies
+sourced resolutions; repair never requires a background model. Escalate unresolved
+owner decisions, reject stale proposals, verify postconditions, and record useful
+incident learning with project/revision evidence. A failed diagnostic is not clean.
+Provider reference delivery must be verified or embedded self-contained; static
+instruction checks do not establish live Codex, Claude, or Kimi behavior.
+
 
 <!-- thin-pointer: full protocol is in CLEO-INJECTION.md (T9148) -->
 Full protocol content lives in `~/.cleo/templates/CLEO-INJECTION.md`.
@@ -17,6 +34,12 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 · `task-discovery` · `task-relationships` · `session-commands` · `memory` · `nexus`
 · `orchestration` · `playbooks` · `documents` · `error-handling` · `pre-complete-gate`
 · `spawn-tiers` · `rules` · `memory-jit` · `escalation`
+
+Task find defaults to lexical query terms. Fuzzy character-subsequence matching requires `--fuzzy`; inspect per-row `match.kind` and `match.fields` before inferring related work. `--in` restricts the source field. Matching mode and fuzzy field explanations survive scalar/human output on stderr. Semantic retrieval remains separately identified.
+
+Compact SDK list/find records also carry `_withheld`: omission names and original UTF-8 sizes are recorded before fields are discarded, then retained through later CLI projections. Use full records to inspect those values; absence is not emptiness.
+
+List/find expose `data.population` with matched and returned counts, truncation, pagination, and archive eligibility. Count output equals emitted rows; use `--all` or `--limit 0` to enumerate all matches, and `--include-archive` to include archives under the same filters. Scalar/ID/table/summary modes preserve population facts on stderr. Do not treat a page as complete.
 
 ## Quick Reference
 

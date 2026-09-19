@@ -11,7 +11,7 @@ import { dispatchRaw, handleRawError, maybeEmitDescribe } from '../../dispatch/a
 import { cliOutput } from '../renderers/index.js';
 /** Native citty command for `cleo find [query]`. */
 export const findCommand = defineCommand({
-  meta: { name: 'find', description: 'Fuzzy search tasks by title/description' },
+  meta: { name: 'find', description: 'Lexical task search; fuzzy matching requires --fuzzy' },
   args: {
     query: {
       type: 'positional',
@@ -20,6 +20,11 @@ export const findCommand = defineCommand({
     },
     id: { type: 'string', description: 'Search by ID prefix' },
     exact: { type: 'boolean', description: 'Exact title match' },
+    fuzzy: {
+      type: 'boolean',
+      description:
+        'Opt into character-subsequence matches; each result explains its matching fields',
+    },
     status: {
       type: 'string',
       description: 'Filter by status (pending|active|blocked|done|cancelled)',
@@ -99,8 +104,7 @@ export const findCommand = defineCommand({
      */
     parent: {
       type: 'string',
-      description:
-        'Filter by parent task ID — Saga-aware via task_relations groups (ADR-073 §1) (T10108)',
+      description: 'Filter by direct parentId containment, including saga children',
     },
   },
   async run({ args }) {
@@ -108,16 +112,17 @@ export const findCommand = defineCommand({
     // find uses dispatchRaw, so it calls the describe short-circuit directly.
     if (maybeEmitDescribe('query', 'tasks', 'find', { command: 'find' })) return;
 
-    let limit = args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined;
+    let limit = args.limit !== undefined ? Number(args.limit) : undefined;
     // `--all` is the discoverable spelling; set it explicitly rather than
     // deleting `limit`, because an ABSENT limit falls back to the default of
     // 20, not to "no limit".
     if (args.all === true) limit = 0;
-    const offset = args.offset !== undefined ? Number.parseInt(args.offset, 10) : undefined;
+    const offset = args.offset !== undefined ? Number(args.offset) : undefined;
     const params: Record<string, unknown> = {};
     if (args.query !== undefined) params['query'] = args.query;
     if (args.id !== undefined) params['id'] = args.id;
     if (args.exact !== undefined) params['exact'] = args.exact;
+    if (args.fuzzy !== undefined) params['fuzzy'] = args.fuzzy;
     if (args.status !== undefined) params['status'] = args.status;
     if (args.in !== undefined) params['field'] = args.in;
     if (args['include-archive'] !== undefined) params['includeArchive'] = args['include-archive'];
@@ -160,7 +165,15 @@ export const findCommand = defineCommand({
       return;
     }
     const total = (data?.total as number) ?? results.length;
-    const page = createPage({ total, limit, offset });
-    cliOutput(data, { command: 'find', operation: 'tasks.find', page });
+    const page =
+      response.page ??
+      (limit === 0 && !offset
+        ? { mode: 'none' as const }
+        : createPage({
+            total,
+            limit: limit === 0 ? Math.max(1, results.length) : (limit ?? 20),
+            offset,
+          }));
+    cliOutput(data, { command: 'find', operation: 'tasks.find', page, enumerateAllFlag: '--all' });
   },
 });

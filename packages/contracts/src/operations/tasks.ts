@@ -18,6 +18,7 @@
  * @task T1703 — Fill Result=unknown stubs with canonical typed shapes
  */
 
+import type { TaskPopulation } from '../data-accessor.js';
 import type { ImpactReport } from '../facade.js';
 import type { TaskAnalysisResult, TaskRef } from '../results.js';
 /**
@@ -25,7 +26,7 @@ import type { TaskAnalysisResult, TaskRef } from '../results.js';
  */
 import type { TaskStatus } from '../status-registry.js';
 import type { TaskKind, TaskPriority, TaskSeverity, TaskType } from '../task.js';
-import type { TaskRecord } from '../task-record.js';
+import type { MinimalTaskRecord, TaskMatch, TaskRecord } from '../task-record.js';
 import type { ExternalTask, ExternalTaskLink, ReconcileResult } from '../task-sync.js';
 import type {
   CompletionEvaluateParams,
@@ -115,11 +116,14 @@ export interface TasksListParams {
   limit?: number;
   offset?: number;
   compact?: boolean;
+  /** Include archive rows under the same filters. */
+  includeArchive?: boolean;
 }
 export interface TasksListResult {
   tasks: TaskOp[];
   total: number;
   filtered: number;
+  population: TaskPopulation;
 }
 
 // tasks.find
@@ -142,6 +146,10 @@ export interface TasksFindParams {
   id?: string;
   /** When true, require exact string match instead of fuzzy. @task T963 */
   exact?: boolean;
+  /** Explicitly allow character-subsequence matching. Default is lexical. */
+  fuzzy?: boolean;
+  /** Restrict matching to this field; unsupported values reject. */
+  field?: string;
   /** Filter by status. @task T963 */
   status?: TaskStatus;
   /** When true, include archived tasks in the search. @task T963 */
@@ -201,7 +209,14 @@ export interface TasksFindParams {
    */
   parent?: string;
 }
-export type TasksFindResult = MinimalTask[];
+/** Canonical task-search wrapper, including retrieval basis and population scope. */
+export interface TasksFindResult {
+  results: (MinimalTaskRecord | TaskRecord)[];
+  total: number;
+  population: TaskPopulation;
+  query: string;
+  searchType: TaskMatch['kind'];
+}
 
 /**
  * Mutate Operations

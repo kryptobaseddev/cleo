@@ -8,7 +8,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -59,6 +59,147 @@ describe('Brain Search', () => {
   });
 
   describe('searchBrain', () => {
+    it.each([
+      'fts',
+      'fallback',
+    ] as const)('excludes invalidated and superseded decisions in %s retrieval while preserving history', async (strategy) => {
+      const { searchBrain } = await import('../brain-search.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      const accessor = await getBrainAccessor(tempDir);
+      for (const id of ['current', 'invalidated', 'superseded', 'replaced']) {
+        await accessor.addDecision({
+          id,
+          type: 'architecture',
+          decision: 'SQLite authority guidance',
+          rationale: 'Sourced project decision',
+          confidence: 'high',
+        });
+      }
+      const db = getBrainNativeDb(tempDir)!;
+      db.prepare(
+        "UPDATE brain_decisions SET invalid_at = datetime('now') WHERE id = 'invalidated'",
+      ).run();
+      db.prepare(
+        "UPDATE brain_decisions SET confirmation_state = 'superseded' WHERE id = 'superseded'",
+      ).run();
+      db.prepare(
+        "UPDATE brain_decisions SET superseded_by = 'current' WHERE id = 'replaced'",
+      ).run();
+      const prepare = db.prepare.bind(db);
+      const spy = vi.spyOn(db, 'prepare').mockImplementation((sql) => {
+        if (strategy === 'fallback' && sql.includes(' MATCH ?')) throw new Error('FTS unavailable');
+        return prepare(sql);
+      });
+      try {
+        const current = await searchBrain(tempDir, 'SQLite', { tables: ['decisions'] });
+        expect(current.decisions.map((row) => row.id)).toEqual(['current']);
+        const history = await searchBrain(tempDir, 'SQLite', {
+          tables: ['decisions'],
+          includeHistory: true,
+        });
+        expect(history.decisions.map((row) => row.id).sort()).toEqual([
+          'current',
+          'invalidated',
+          'replaced',
+          'superseded',
+        ]);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it.each([
+      'lexical',
+      'hybrid',
+      'recency',
+    ] as const)('keeps retired decisions out of compact %s search and permits explicit history', async (mode) => {
+      const { searchBrainCompact } = await import('../retrieval/search.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+      const accessor = await getBrainAccessor(tempDir);
+      for (const id of ['D-current', 'D-retired']) {
+        await accessor.addDecision({
+          id,
+          type: 'architecture',
+          decision: 'Database policy',
+          rationale: 'Owner sourced',
+          confidence: 'high',
+        });
+      }
+      await accessor.updateDecision('D-retired', { invalidAt: new Date().toISOString() });
+      const current = await searchBrainCompact(tempDir, {
+        query: 'Database',
+        tables: ['decisions'],
+        mode,
+      });
+      expect(current.results.map((row) => row.id)).toEqual(['D-current']);
+      const history = await searchBrainCompact(tempDir, {
+        query: 'Database',
+        tables: ['decisions'],
+        mode,
+        includeHistory: true,
+      });
+      expect(history.results.map((row) => row.id).sort()).toEqual(['D-current', 'D-retired']);
+      expect((await accessor.findDecisions()).map((row) => row.id)).toEqual(['D-current']);
+      expect(await accessor.getDecision('D-retired')).not.toBeNull();
+    });
+
+    it('resolves obsolete wording to the explicitly sourced successor without rewriting history', async () => {
+      const { searchBrainCompact } = await import('../retrieval/search.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+      const accessor = await getBrainAccessor(tempDir);
+      await accessor.addDecision({
+        id: 'D001',
+        type: 'architecture',
+        decision: 'Always fail closed',
+        rationale: 'Original owner guidance',
+        confidence: 'high',
+      });
+      await accessor.addDecision({
+        id: 'D002',
+        type: 'architecture',
+        decision: 'Missing evidence is unknown',
+        rationale: 'Explicit sourced owner correction',
+        confidence: 'high',
+      });
+      await accessor.updateDecision('D001', {
+        supersededBy: 'D002',
+        confirmationState: 'superseded',
+      });
+      const result = await searchBrainCompact(tempDir, {
+        query: 'fail closed',
+        tables: ['decisions'],
+      });
+      expect(result.results).toEqual([
+        expect.objectContaining({ id: 'D002', matchedHistoricalIds: ['D001'] }),
+      ]);
+      expect((await accessor.getDecision('D001'))?.decision).toBe('Always fail closed');
+    });
+
+    it('reports structural scan failures instead of a clean empty diagnosis', async () => {
+      const { scanBrainNoise } = await import('../brain-doctor.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      await getBrainAccessor(tempDir);
+      const healthy = await scanBrainNoise(tempDir);
+      expect(healthy.structure?.status).toBe('clean');
+      expect(healthy.semantics?.status).toBe('unavailable');
+      const db = getBrainNativeDb(tempDir)!;
+      const prepare = db.prepare.bind(db);
+      const spy = vi.spyOn(db, 'prepare').mockImplementation((sql) => {
+        if (sql.includes('COUNT(*) as c')) throw new Error('simulated read failure');
+        return prepare(sql);
+      });
+      try {
+        const result = await scanBrainNoise(tempDir);
+        expect(result.isClean).toBe(false);
+        expect(result.structure?.status).toBe('failed');
+        expect(result.structure?.reasons).toContain('simulated read failure');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it('should return empty results for empty query', async () => {
       const { searchBrain } = await import('../brain-search.js');
       const { closeBrainDb } = await import('../../store/memory-sqlite.js');

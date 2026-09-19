@@ -19,6 +19,7 @@
  * @epic T9855
  */
 
+import type { TaskPopulation } from '@cleocode/contracts';
 import {
   COLLECTION_IDENTITY_FIELDS,
   COLLECTION_KEYS as CONTRACT_COLLECTION_KEYS,
@@ -217,6 +218,8 @@ function extractIds(data: unknown): string[] {
 function extractCount(data: unknown): number {
   if (data === null || typeof data !== 'object') return 0;
   const rec = data as Record<string, unknown>;
+  const population = taskPopulationFacts(data);
+  if (population) return population.returned;
 
   // 1. Filter-aware match count of a `tasks.list` envelope. Wins over `total`
   // so a filtered listing reports the number of MATCHES, not the global total.
@@ -241,6 +244,72 @@ function extractCount(data: unknown): number {
   if (typeof rec['id'] === 'string') return 1;
 
   return 0;
+}
+
+/** Read the canonical task population without inferring counts from unrelated fields. */
+export function taskPopulationFacts(data: unknown): TaskPopulation | undefined {
+  if (!data || typeof data !== 'object' || !('population' in data)) return undefined;
+  const facts = data.population;
+  if (
+    !facts ||
+    typeof facts !== 'object' ||
+    !('matched' in facts) ||
+    !('returned' in facts) ||
+    !('truncated' in facts) ||
+    !('archive' in facts) ||
+    !('limit' in facts) ||
+    !('offset' in facts)
+  )
+    return undefined;
+  if (
+    typeof facts.matched !== 'number' ||
+    typeof facts.returned !== 'number' ||
+    typeof facts.truncated !== 'boolean' ||
+    typeof facts.offset !== 'number' ||
+    (facts.limit !== null && typeof facts.limit !== 'number') ||
+    !['included', 'excluded', 'only'].includes(String(facts.archive))
+  )
+    return undefined;
+  return {
+    matched: facts.matched,
+    returned: facts.returned,
+    truncated: facts.truncated,
+    archive: facts.archive as TaskPopulation['archive'],
+    limit: facts.limit,
+    offset: facts.offset,
+  };
+}
+
+/** Preserve explicit fuzzy retrieval explanations in scalar and human renderings. */
+export function formatTaskMatching(data: unknown): string | undefined {
+  if (!data || typeof data !== 'object' || !('searchType' in data)) return undefined;
+  if (typeof data.searchType !== 'string') return undefined;
+  const lines = [`cleo: searchType=${data.searchType}`];
+  if (data.searchType === 'fuzzy') {
+    for (const row of pickCollection(data as Record<string, unknown>) ?? []) {
+      if (!row || typeof row !== 'object' || !('match' in row) || !('id' in row)) continue;
+      const match = row.match;
+      if (
+        !match ||
+        typeof match !== 'object' ||
+        !('kind' in match) ||
+        !('fields' in match) ||
+        !Array.isArray(match.fields)
+      )
+        continue;
+      lines.push(
+        `cleo: match id=${String(row.id)} kind=${String(match.kind)} fields=${match.fields.filter((field) => typeof field === 'string').join(',')}`,
+      );
+    }
+  }
+  return lines.join('\n');
+}
+
+/** Preserve scope facts on stderr while scalar and row stdout remain pipeable. */
+export function formatTaskPopulation(data: unknown): string | undefined {
+  const facts = taskPopulationFacts(data);
+  if (!facts) return undefined;
+  return `cleo: population matched=${facts.matched} returned=${facts.returned} truncated=${facts.truncated} archive=${facts.archive} limit=${facts.limit ?? 'all'} offset=${facts.offset}`;
 }
 
 /**
@@ -509,6 +578,11 @@ export interface TruncationFacts {
  *          set; `null` when the result is complete (or not a collection).
  */
 export function detectTruncation(data: unknown, page?: unknown): TruncationFacts | null {
+  const population = taskPopulationFacts(data);
+  if (population)
+    return population.truncated
+      ? { returned: population.returned, total: population.matched }
+      : null;
   if (data === null || typeof data !== 'object') return null;
   const rec = data as Record<string, unknown>;
   const collection = pickCollection(rec);

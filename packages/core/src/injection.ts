@@ -134,7 +134,7 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     };
   }
 
-  const { getInstalledProviders, inject, injectAll, buildInjectionContent } = caamp;
+  const { getInstalledProviders, inject, injectAll, resolveInstructionDelivery } = caamp;
 
   const providers = getInstalledProviders();
   const actions: string[] = [];
@@ -158,15 +158,6 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     const removedGitNexus = await stripGitNexusBlocks(join(projectRoot, 'AGENTS.md'));
     if (removedGitNexus) {
       actions.push('removed hardcoded gitnexus block from AGENTS.md');
-    }
-
-    // Step 1: Inject @AGENTS.md into all provider instruction files
-    const injectionContent = buildInjectionContent({ references: ['@AGENTS.md'] });
-    const results = await injectAll(providers, projectRoot, 'project', injectionContent);
-
-    for (const [filePath, action] of results) {
-      const fileName = basename(filePath);
-      actions.push(`${fileName} (${action})`);
     }
   }
 
@@ -218,20 +209,17 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
 
   const agentsMdContent = agentsMdLines.join('\n');
 
-  // Direct call — CAAMP 1.8.0 handles idempotency
-  const agentsAction = await inject(agentsMdPath, agentsMdContent);
-  actions.push(`AGENTS.md CLEO content (${agentsAction})`);
-
   // Step 3: Install CLEO-INJECTION.md to global templates dir
   const content = getInjectionTemplateContent();
   if (content) {
     const globalTemplatesDir = join(getCleoHome(), 'templates');
     await mkdir(globalTemplatesDir, { recursive: true });
     const globalPath = join(globalTemplatesDir, 'CLEO-INJECTION.md');
-    if (!existsSync(globalPath)) {
+    if (!existsSync(globalPath) || (await readFile(globalPath, 'utf8')) !== content) {
+      // Package-owned template: refresh stale installed versions before resolving bootstrap.
       // T10368-audit-ok: injection.global-cleo-injection
       await writeFile(globalPath, content);
-      actions.push('installed global CLEO-INJECTION.md');
+      actions.push('refreshed global CLEO-INJECTION.md');
     }
   }
 
@@ -249,6 +237,39 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     await inject(globalAgentsMd, globalHubContent);
   } catch {
     // Best-effort — don't fail if global hub creation fails
+  }
+
+  // Resolve before writing project/provider files. Provider reference expansion is
+  // not guaranteed; failed resolution must not replace a previously usable block.
+  const delivery = await resolveInstructionDelivery(agentsMdContent, projectRoot);
+  const failures = delivery.findings.filter((finding) => finding.kind !== 'duplicate');
+  if (failures.length > 0) {
+    return {
+      action: 'skipped',
+      path: agentsMdPath,
+      details: `Instruction delivery failed: ${failures.map((finding) => `${finding.kind}: ${finding.path}`).join('; ')}`,
+    };
+  }
+  const agentsAction = await inject(agentsMdPath, delivery.content);
+  actions.push(`AGENTS.md self-contained CLEO content (${agentsAction})`);
+  // Other native instruction files embed the complete project rules as well.
+  const projectInstructions = await readFile(agentsMdPath, 'utf8');
+  const providerDelivery = await resolveInstructionDelivery(projectInstructions, projectRoot);
+  const providerFailures = providerDelivery.findings.filter(
+    (finding) => finding.kind !== 'duplicate',
+  );
+  if (providerFailures.length > 0) {
+    actions.push(
+      `provider delivery unresolved: ${providerFailures.map((finding) => `${finding.kind}: ${finding.path}`).join('; ')}`,
+    );
+  } else {
+    const results = await injectAll(
+      providers.filter((provider) => provider.instructFile !== 'AGENTS.md'),
+      projectRoot,
+      'project',
+      providerDelivery.content,
+    );
+    for (const [filePath, action] of results) actions.push(`${basename(filePath)} (${action})`);
   }
 
   return {

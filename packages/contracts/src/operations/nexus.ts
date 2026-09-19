@@ -20,12 +20,14 @@
  */
 
 // API contract result types (T1065)
+import type { KnowledgeCoverage } from '../knowledge-health.js';
 import type { ContractCompatibilityMatrix } from '../nexus-contract-ops.js';
 // Living-brain result types (T1068)
 import type {
   CodeAnchorResult,
   CodeReasonTrace,
   ImpactFullReport,
+  RiskTier,
   SymbolFullContext,
   TaskCodeImpact,
 } from '../nexus-living-brain-ops.js';
@@ -860,6 +862,8 @@ export interface NexusImpactAffectedNode {
 }
 /** Result of `nexus.impact`. */
 export interface NexusImpactResult {
+  /** Evidence coverage assessed independently of impact severity. */
+  coverage?: KnowledgeCoverage;
   /** Original symbol query string. */
   query: string;
   /** Project ID the analysis ran against. */
@@ -871,7 +875,7 @@ export interface NexusImpactResult {
   /** Whether `why` reasons were requested and populated. */
   why: boolean;
   /** Risk tier based on totalImpact count. */
-  riskLevel: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  riskLevel: RiskTier;
   /** Total affected symbols across all depths (excludes the target itself). */
   totalImpact: number;
   /** Maximum traversal depth applied. */
@@ -1038,6 +1042,8 @@ export interface NexusTaskSymbolsParams {
 }
 /** Result of `nexus.task-symbols`. */
 export interface NexusTaskSymbolsResult {
+  /** Coverage and unresolved evidence, independent of the number of matches. */
+  coverage?: KnowledgeCoverage;
   /** Task ID that was queried. */
   taskId: string;
   /** Count of symbols found. */

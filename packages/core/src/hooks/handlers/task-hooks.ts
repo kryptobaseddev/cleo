@@ -1,80 +1,37 @@
 /**
  * Task Hook Handlers - Phase 2D of T5237
  *
- * Handlers that capture task lifecycle events to BRAIN via memory.observe.
+ * Task lifecycle integration without content-free BRAIN observations.
  * Auto-registers on module load.
  *
  * T138: Triggers memory bridge refresh after task completion.
- * T554: Triggers LLM observer after task completion when observation count ≥ threshold.
+ * Useful learnings are supplied explicitly by the calling agent.
  */
 
 import { hooks } from '../registry.js';
 import type { PostToolUsePayload, PreToolUsePayload } from '../types.js';
-import { isMissingBrainSchemaError, isNoProjectError } from './handler-helpers.js';
 import { maybeRefreshMemoryBridge } from './memory-bridge-refresh.js';
 
 /**
  * Handle PreToolUse (maps to task.start in CLEO, canonical: was onToolStart)
  */
 export async function handleToolStart(
-  projectRoot: string,
-  payload: PreToolUsePayload,
+  _projectRoot: string,
+  _payload: PreToolUsePayload,
 ): Promise<void> {
-  const { observeBrain } = await import('../../memory/brain-retrieval.js');
-
-  try {
-    await observeBrain(projectRoot, {
-      text: `Started work on ${payload.taskId}: ${payload.taskTitle}`,
-      title: `Task start: ${payload.taskId}`,
-      type: 'change',
-      sourceType: 'agent',
-    });
-  } catch (err) {
-    // Best-effort brain capture: swallow migration-lag (schema not yet created)
-    // AND "no CLEO project resolvable" (T11281) — both are non-failures for an
-    // observation hook. Anything else re-throws.
-    if (!isMissingBrainSchemaError(err) && !isNoProjectError(err)) throw err;
-  }
+  // Task lifecycle belongs in task/audit records; it is not a useful memory observation.
 }
 
 /**
  * Handle PostToolUse (maps to task.complete in CLEO, canonical: was onToolComplete)
  *
  * T138: Refresh memory bridge after task completion.
- * T554: Fire-and-forget LLM observer when observation count ≥ threshold.
+ * No background LLM is required for task completion.
  */
 export async function handleToolComplete(
   projectRoot: string,
-  payload: PostToolUsePayload,
+  _payload: PostToolUsePayload,
 ): Promise<void> {
-  const { observeBrain } = await import('../../memory/brain-retrieval.js');
-
-  try {
-    await observeBrain(projectRoot, {
-      text: `Task ${payload.taskId} completed with status: ${payload.status}`,
-      title: `Task complete: ${payload.taskId}`,
-      type: 'change',
-      sourceType: 'agent',
-    });
-  } catch (err) {
-    // Best-effort brain capture: swallow migration-lag (schema not yet created)
-    // AND "no CLEO project resolvable" (T11281) — both are non-failures for an
-    // observation hook. Anything else re-throws.
-    if (!isMissingBrainSchemaError(err) && !isNoProjectError(err)) throw err;
-  }
-
-  // T554: Fire-and-forget observer — runs after observation is stored so the
-  // new observation is included in the count. setImmediate ensures the task
-  // complete response reaches the caller before the LLM call begins.
-  setImmediate(async () => {
-    try {
-      const { runObserver } = await import('../../memory/observer-reflector.js');
-      await runObserver(projectRoot);
-    } catch {
-      // Observer errors must never surface to the task complete flow
-    }
-  });
-
   // T555: Correlate retrieval outcomes against this task completion.
   // Fire-and-forget: quality score adjustments must never block the response.
   setImmediate(async () => {

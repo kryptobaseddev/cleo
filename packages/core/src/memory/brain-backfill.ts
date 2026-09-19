@@ -18,14 +18,18 @@
  *
  * T1003: Staged backfill functions (stagedBackfillRun, approveBackfillRun,
  * rollbackBackfillRun, listBackfillRuns) are appended below the graph
- * back-fill core. Staged runs write row IDs to brain_backfill_runs first;
- * actual mutations happen only on approve.
+ * back-fill core. Staged runs capture exact source/version and incident-edge
+ * preconditions in brain_backfill_runs; approval reconstructs only those missing
+ * nodes, without synthesizing edges or invoking the broad graph back-fill.
  *
  * @task T530
  * @epic T523
  */
 
 import { createHash, randomBytes } from 'node:crypto';
+import { realpathSync } from 'node:fs';
+import type { KnowledgeBackfillOptions } from '@cleocode/contracts';
+import { z } from 'zod';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import type {
@@ -508,13 +512,139 @@ export interface StagedBackfillRunResult {
   empty: boolean;
 }
 
+const stagedSourceTableSchema = z.enum([
+  'brain_decisions',
+  'brain_patterns',
+  'brain_learnings',
+  'brain_observations',
+  'brain_sticky_notes',
+]);
+const stagedNodeSchema = z.object({
+  id: z.string(),
+  node_type: z.string(),
+  label: z.string(),
+  quality_score: z.number(),
+  content_hash: z.string(),
+  metadata_json: z.string(),
+  created_at: z.string(),
+  last_activity_at: z.string(),
+  updated_at: z.null(),
+});
+const stagedSnapshotSchema = z.object({
+  version: z.literal(2),
+  projectRoot: z.string(),
+  candidates: z
+    .array(
+      z.object({
+        id: z.string(),
+        sourceTable: stagedSourceTableSchema,
+        sourceId: z.string(),
+        sourceHash: z.string(),
+        edgeHash: z.string(),
+        node: stagedNodeSchema,
+      }),
+    )
+    .max(500),
+  created: z
+    .array(z.object({ id: z.string(), rowHash: z.string(), edgeHash: z.string() }))
+    .max(500),
+});
+const stagedRunSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  status: z.string(),
+  created_at: z.string(),
+  approved_at: z.string().nullable(),
+  rows_affected: z.number(),
+  rollback_snapshot_json: z.string().nullable(),
+  source: z.string(),
+  target_table: z.string(),
+  approved_by: z.string().nullable(),
+});
+const typedSourceSchema = z.record(z.string(), z.union([z.string(), z.number(), z.null()]));
+const sourceKinds = {
+  brain_decisions: 'decision',
+  brain_patterns: 'pattern',
+  brain_learnings: 'learning',
+  brain_observations: 'observation',
+  brain_sticky_notes: 'sticky',
+} as const;
+const volatileSourceFields = new Set([
+  'access_count',
+  'last_accessed_at',
+  'citation_count',
+  'last_cited_at',
+  'updated_at',
+  'retrieval_count',
+  'last_retrieved_at',
+  'last_activity_at',
+  'reinforcement_count',
+]);
+
+/** Hash source content and provenance without treating retrieval counters as an edit. */
+function stagedSourceHash(row: z.infer<typeof typedSourceSchema>): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify(
+        Object.entries(row)
+          .filter(([key]) => !volatileSourceFields.has(key))
+          .sort(([a], [b]) => a.localeCompare(b)),
+      ),
+    )
+    .digest('hex');
+}
+
+/** Fingerprint exact graph rows, including concurrent relationship changes. */
+function stagedGraphHash(value: object): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+/** Read all incident edges without modifying historical relationships. */
+function stagedEdgesHash(db: NonNullable<ReturnType<typeof getBrainNativeDb>>, id: string): string {
+  return stagedGraphHash(
+    db
+      .prepare(
+        'SELECT * FROM main.brain_page_edges WHERE from_id = ? OR to_id = ? ORDER BY from_id, to_id, edge_type',
+      )
+      .all(id, id),
+  );
+}
+
+/** Reject legacy and cross-project snapshots rather than guessing which rows may be removed. */
+function readStagedSnapshot(
+  raw: z.infer<typeof stagedRunSchema>,
+  projectRoot: string,
+): z.infer<typeof stagedSnapshotSchema> {
+  if (raw.target_table !== 'brain_page_nodes')
+    throw new Error('Staged backfill supports derived brain_page_nodes only.');
+  const parsed = stagedSnapshotSchema.safeParse(JSON.parse(raw.rollback_snapshot_json ?? 'null'));
+  if (!parsed.success)
+    throw new Error(
+      'Backfill snapshot lacks exact source and recovery preconditions; discard this staged run and stage a new run. Legacy approved runs require their canonical backup.',
+    );
+  if (parsed.data.projectRoot !== realpathSync(projectRoot))
+    throw new Error('Backfill project binding changed.');
+  return parsed.data;
+}
+
+/** Read a validated ledger row while the caller holds the writer transaction. */
+function readStagedRun(
+  db: NonNullable<ReturnType<typeof getBrainNativeDb>>,
+  runId: string,
+): z.infer<typeof stagedRunSchema> {
+  const row = db.prepare('SELECT * FROM main.brain_backfill_runs WHERE id = ?').get(runId);
+  if (!row) throw new Error(`Backfill run '${runId}' not found`);
+  return stagedRunSchema.parse(row);
+}
+
 /**
  * Stage a graph backfill run against brain_page_nodes / brain_page_edges.
  *
  * Discovers all candidate node IDs from typed tables (decisions, patterns,
  * learnings, observations, sticky notes) that are NOT yet in brain_page_nodes.
- * Writes the list to `rollback_snapshot_json` and creates a `brain_backfill_runs`
- * row with status='staged'. No rows are inserted into brain tables.
+ * Captures exact nodes, source hashes, incident-edge fingerprints and project binding in
+ * `rollback_snapshot_json`, and creates a `brain_backfill_runs`
+ * row with status='staged'. The ledger is written, but derived graph rows are unchanged.
  *
  * Pass `source` as a human-readable descriptor (e.g. a file path or session ID).
  * Pass `kind` as the backfill kind (e.g. 'graph-backfill', 'observation-promotion').
@@ -524,77 +654,126 @@ export interface StagedBackfillRunResult {
  * @returns StagedBackfillRunResult with the staged run record.
  *
  * @task T1003
+ * @remarks The snapshot captures exact source and relationship preconditions without mutating derived nodes.
+ * @example
+ * ```ts
+ * const staged = await stagedBackfillRun(projectRoot, undefined);
+ * ```
  */
 export async function stagedBackfillRun(
   projectRoot: string,
-  opts?: {
-    source?: string;
-    kind?: string;
-    targetTable?: string;
-  },
+  opts?: KnowledgeBackfillOptions,
 ): Promise<StagedBackfillRunResult> {
-  const db = await getBrainDb(projectRoot);
-  const accessor = await getBrainAccessor(projectRoot);
-
-  const source = opts?.source ?? 'staged-run';
-  const kind = opts?.kind ?? 'graph-backfill';
-  const targetTable = opts?.targetTable ?? 'brain_page_nodes';
-
-  // Gather candidate IDs not yet in brain_page_nodes
-  const [decisions, patterns, learnings, observations, stickyNotes] = await Promise.all([
-    accessor.findDecisions(),
-    accessor.findPatterns(),
-    accessor.findLearnings(),
-    accessor.findObservations(),
-    accessor.findStickyNotes(),
-  ]);
-
-  // Collect candidate node IDs
-  const candidates: string[] = [
-    ...decisions.map((d) => `decision:${d.id}`),
-    ...patterns.map((p) => `pattern:${p.id}`),
-    ...learnings.map((l) => `learning:${l.id}`),
-    ...observations.map((o) => `observation:${o.id}`),
-    ...stickyNotes.map((s) => `sticky:${s.id}`),
-  ];
-
-  // Filter out IDs already present in brain_page_nodes
-  const existingNodes = await db
-    .select({ id: brainSchema.brainPageNodes.id })
-    .from(brainSchema.brainPageNodes);
-  const existingSet = new Set(existingNodes.map((n) => n.id));
-  const pendingIds = candidates.filter((id) => !existingSet.has(id));
-
-  const runId = generateRunId();
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-
-  const run: BrainBackfillRunRow = {
-    id: runId,
-    kind,
-    status: 'staged',
-    createdAt: now,
-    approvedAt: null,
-    rowsAffected: pendingIds.length,
-    rollbackSnapshotJson: JSON.stringify(pendingIds),
-    source,
-    targetTable,
-    approvedBy: null,
-  };
-
-  await db.insert(brainSchema.brainBackfillRuns).values(run);
-
-  return {
-    run,
-    empty: pendingIds.length === 0,
-  };
+  await getBrainDb(projectRoot);
+  const db = getBrainNativeDb(projectRoot);
+  if (!db) throw new Error('brain.db native handle unavailable');
+  if (opts?.targetTable && opts.targetTable !== 'brain_page_nodes')
+    throw new Error('Staged backfill supports derived brain_page_nodes only.');
+  const selected =
+    opts?.nodeIds === undefined
+      ? undefined
+      : z.array(z.string().min(1)).min(1).max(500).parse(opts.nodeIds);
+  if (selected && new Set(selected).size !== selected.length)
+    throw new Error('Backfill nodeIds must not contain duplicates.');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const now = new Date().toISOString();
+    const snapshot: z.infer<typeof stagedSnapshotSchema> = {
+      version: 2,
+      projectRoot: realpathSync(projectRoot),
+      candidates: [],
+      created: [],
+    };
+    for (const sourceTable of stagedSourceTableSchema.options) {
+      const kind = sourceKinds[sourceTable];
+      const selection = selected
+        ? ` AND (? || ':' || source.id) IN (${selected.map(() => '?').join(',')})`
+        : '';
+      const rows = db
+        .prepare(`SELECT source.* FROM main.${sourceTable} source
+        LEFT JOIN main.brain_page_nodes node ON node.id = ? || ':' || source.id
+        WHERE node.id IS NULL${selection} ORDER BY source.id LIMIT 501`)
+        .all(kind, ...(selected ? [kind, ...selected] : []));
+      for (const value of rows) {
+        const source = typedSourceSchema.parse(value);
+        if (typeof source.id !== 'string') throw new Error('Backfill source identifier is invalid');
+        const id = `${kind}:${source.id}`;
+        if (
+          selected &&
+          (source.invalid_at != null ||
+            (kind === 'decision' &&
+              (source.superseded_by != null || source.confirmation_state === 'superseded')))
+        )
+          throw new Error(`Selected backfill source ${id} is not currently eligible.`);
+        const sourceHash = stagedSourceHash(source);
+        const label =
+          source.decision ?? source.pattern ?? source.insight ?? source.title ?? source.content;
+        if (typeof label !== 'string' || !label.trim())
+          throw new Error(
+            `Backfill source ${id} has no substantive label; resolve it before staging.`,
+          );
+        snapshot.candidates.push({
+          id,
+          sourceId: source.id,
+          sourceTable,
+          sourceHash,
+          edgeHash: stagedEdgesHash(db, id),
+          node: {
+            id,
+            node_type: kind,
+            label: label.slice(0, 200),
+            quality_score: typeof source.quality_score === 'number' ? source.quality_score : 0.5,
+            content_hash: sourceHash,
+            metadata_json: JSON.stringify({
+              sourceTable,
+              sourceId: source.id,
+              sourceHash,
+              derived: true,
+            }),
+            created_at: now,
+            last_activity_at: now,
+            updated_at: null,
+          },
+        });
+        if (snapshot.candidates.length > 500)
+          throw new Error(
+            'More than 500 missing nodes require a bounded source selection before staging.',
+          );
+      }
+    }
+    if (selected && snapshot.candidates.length !== selected.length) {
+      const found = new Set(snapshot.candidates.map((candidate) => candidate.id));
+      throw new Error(
+        `Selected backfill IDs are missing, already indexed, or unsupported: ${selected.filter((id) => !found.has(id)).join(', ')}`,
+      );
+    }
+    const id = generateRunId();
+    db.prepare(`INSERT INTO main.brain_backfill_runs
+      (id, kind, status, created_at, rows_affected, rollback_snapshot_json, source, target_table)
+      VALUES (?, ?, 'staged', ?, ?, ?, ?, 'brain_page_nodes')`).run(
+      id,
+      opts?.kind ?? 'graph-backfill',
+      now,
+      snapshot.candidates.length,
+      JSON.stringify(snapshot),
+      opts?.source ?? 'staged-run',
+    );
+    const run = mapRunRow(readStagedRun(db, id));
+    db.exec('COMMIT');
+    return { run, empty: snapshot.candidates.length === 0 };
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 /**
  * Approve a staged backfill run, committing its rows to live brain tables.
  *
- * Reads the run record, validates that it is in 'staged' status, then triggers
- * `backfillBrainGraph` to perform the actual INSERT OR IGNORE work. Finally,
- * updates the run row to status='approved' with the current timestamp.
+ * Reads the staged run under a writer transaction, validates its exact source
+ * and graph preconditions, then inserts only its reviewed derived nodes. The
+ * same transaction records created-row hashes and approval metadata for recovery.
+ * Historical edges remain unchanged.
  *
  * Double-approve is idempotent: returns `{ alreadySettled: true }` if the run
  * is already approved or rolled-back.
@@ -605,6 +784,11 @@ export async function stagedBackfillRun(
  * @returns Result with the updated run record and graph backfill stats.
  *
  * @task T1003
+ * @remarks Approval inserts only the reviewed nodes and records recovery hashes atomically; stale source or graph state is rejected.
+ * @example
+ * ```ts
+ * const applied = await approveBackfillRun(projectRoot, runId, 'calling-agent');
+ * ```
  */
 export async function approveBackfillRun(
   projectRoot: string,
@@ -616,62 +800,101 @@ export async function approveBackfillRun(
   backfillResult?: BrainBackfillResult;
 }> {
   await getBrainDb(projectRoot);
-  const nativeDb = getBrainNativeDb(projectRoot);
-  if (!nativeDb) {
-    throw new Error('brain.db native handle unavailable');
+  const db = getBrainNativeDb(projectRoot);
+  if (!db) throw new Error('brain.db native handle unavailable');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const raw = readStagedRun(db, runId);
+    if (raw.status === 'approved' || raw.status === 'rolled-back') {
+      db.exec('COMMIT');
+      return { run: mapRunRow(raw), alreadySettled: true };
+    }
+    if (raw.status !== 'staged') throw new Error('Backfill run is not staged.');
+    const snapshot = readStagedSnapshot(raw, projectRoot);
+    if (snapshot.created.length)
+      throw new Error('Staged backfill unexpectedly contains committed nodes.');
+    const beforeNodes = Number(
+      db.prepare('SELECT COUNT(*) AS count FROM main.brain_page_nodes').get()?.count,
+    );
+    const beforeEdges = Number(
+      db.prepare('SELECT COUNT(*) AS count FROM main.brain_page_edges').get()?.count,
+    );
+    const typedCounts = Object.fromEntries(
+      stagedSourceTableSchema.options.map((table) => [
+        table,
+        Number(db.prepare(`SELECT COUNT(*) AS count FROM main.${table}`).get()?.count),
+      ]),
+    );
+    for (const candidate of snapshot.candidates) {
+      const current = typedSourceSchema.parse(
+        db
+          .prepare(`SELECT * FROM main.${candidate.sourceTable} WHERE id = ?`)
+          .get(candidate.sourceId),
+      );
+      if (
+        candidate.id !== `${sourceKinds[candidate.sourceTable]}:${candidate.sourceId}` ||
+        candidate.node.id !== candidate.id ||
+        stagedSourceHash(current) !== candidate.sourceHash ||
+        db.prepare('SELECT id FROM main.brain_page_nodes WHERE id = ?').get(candidate.id) ||
+        stagedEdgesHash(db, candidate.id) !== candidate.edgeHash
+      )
+        throw new Error(`Backfill proposal is stale for ${candidate.id}; stage a new run.`);
+    }
+    const insert = db.prepare(`INSERT INTO main.brain_page_nodes
+      (id, node_type, label, quality_score, content_hash, metadata_json, created_at, last_activity_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const byType: Record<string, number> = {};
+    for (const candidate of snapshot.candidates) {
+      const node = candidate.node;
+      insert.run(
+        node.id,
+        node.node_type,
+        node.label,
+        node.quality_score,
+        node.content_hash,
+        node.metadata_json,
+        node.created_at,
+        node.last_activity_at,
+        node.updated_at,
+      );
+      const created = db.prepare('SELECT * FROM main.brain_page_nodes WHERE id = ?').get(node.id);
+      if (!created) throw new Error('Created backfill node is unreadable');
+      snapshot.created.push({
+        id: node.id,
+        rowHash: stagedGraphHash(created),
+        edgeHash: stagedEdgesHash(db, node.id),
+      });
+      byType[node.node_type] = (byType[node.node_type] ?? 0) + 1;
+    }
+    db.prepare(
+      `UPDATE main.brain_backfill_runs SET status = 'approved', approved_at = ?, approved_by = ?, rollback_snapshot_json = ? WHERE id = ?`,
+    ).run(new Date().toISOString(), approvedBy ?? 'owner', JSON.stringify(snapshot), runId);
+    const run = mapRunRow(readStagedRun(db, runId));
+    db.exec('COMMIT');
+    return {
+      run,
+      alreadySettled: false,
+      backfillResult: {
+        before: {
+          nodes: beforeNodes,
+          edges: beforeEdges,
+          decisions: typedCounts['brain_decisions'] ?? 0,
+          patterns: typedCounts['brain_patterns'] ?? 0,
+          learnings: typedCounts['brain_learnings'] ?? 0,
+          observations: typedCounts['brain_observations'] ?? 0,
+          stickyNotes: typedCounts['brain_sticky_notes'] ?? 0,
+        },
+        after: { nodes: beforeNodes + snapshot.created.length, edges: beforeEdges },
+        nodesInserted: snapshot.created.length,
+        edgesInserted: 0,
+        stubsCreated: 0,
+        byType,
+      },
+    };
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
   }
-
-  interface RunRow {
-    id: string;
-    kind: string;
-    status: string;
-    created_at: string;
-    approved_at: string | null;
-    rows_affected: number;
-    rollback_snapshot_json: string | null;
-    source: string;
-    target_table: string;
-    approved_by: string | null;
-  }
-
-  const rawRun = nativeDb
-    .prepare('SELECT * FROM brain_backfill_runs WHERE id = ? LIMIT 1')
-    .get(runId) as unknown as RunRow | undefined;
-
-  if (!rawRun) {
-    throw new Error(`Backfill run '${runId}' not found`);
-  }
-
-  // If already settled, return as-is
-  if (rawRun.status === 'approved' || rawRun.status === 'rolled-back') {
-    const run = mapRunRow(rawRun);
-    return { run, alreadySettled: true };
-  }
-
-  // Execute the actual backfill
-  const backfillResult = await backfillBrainGraph(projectRoot);
-
-  // Mark run as approved
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  const approver = approvedBy ?? 'owner';
-  nativeDb
-    .prepare(
-      `UPDATE brain_backfill_runs
-       SET status = 'approved', approved_at = ?, approved_by = ?
-       WHERE id = ?`,
-    )
-    .run(now, approver, runId);
-
-  // Re-fetch updated run
-  const updatedRaw = nativeDb
-    .prepare('SELECT * FROM brain_backfill_runs WHERE id = ? LIMIT 1')
-    .get(runId) as unknown as RunRow;
-
-  return {
-    run: mapRunRow(updatedRaw),
-    alreadySettled: false,
-    backfillResult,
-  };
 }
 
 /**
@@ -691,6 +914,11 @@ export async function approveBackfillRun(
  * @returns Result with the updated run record and optional delete count.
  *
  * @task T1003
+ * @remarks Recovery removes only unchanged nodes created by this run and refuses concurrent node or edge edits.
+ * @example
+ * ```ts
+ * const restored = await rollbackBackfillRun(projectRoot, runId);
+ * ```
  */
 export async function rollbackBackfillRun(
   projectRoot: string,
@@ -701,82 +929,49 @@ export async function rollbackBackfillRun(
   deletedRows: number;
 }> {
   await getBrainDb(projectRoot);
-  const nativeDb = getBrainNativeDb(projectRoot);
-  if (!nativeDb) {
-    throw new Error('brain.db native handle unavailable');
-  }
-
-  interface RunRow {
-    id: string;
-    kind: string;
-    status: string;
-    created_at: string;
-    approved_at: string | null;
-    rows_affected: number;
-    rollback_snapshot_json: string | null;
-    source: string;
-    target_table: string;
-    approved_by: string | null;
-  }
-
-  const rawRun = nativeDb
-    .prepare('SELECT * FROM brain_backfill_runs WHERE id = ? LIMIT 1')
-    .get(runId) as unknown as RunRow | undefined;
-
-  if (!rawRun) {
-    throw new Error(`Backfill run '${runId}' not found`);
-  }
-
-  // Already rolled back — idempotent no-op
-  if (rawRun.status === 'rolled-back') {
-    return { run: mapRunRow(rawRun), alreadySettled: true, deletedRows: 0 };
-  }
-
-  let deletedRows = 0;
-
-  // If already approved, we need to DELETE committed rows from the target table
-  if (rawRun.status === 'approved' && rawRun.rollback_snapshot_json) {
-    let ids: string[] = [];
-    try {
-      ids = JSON.parse(rawRun.rollback_snapshot_json) as string[];
-    } catch {
-      // Malformed snapshot — proceed without deleting
+  const db = getBrainNativeDb(projectRoot);
+  if (!db) throw new Error('brain.db native handle unavailable');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const raw = readStagedRun(db, runId);
+    if (raw.status === 'rolled-back') {
+      db.exec('COMMIT');
+      return { run: mapRunRow(raw), alreadySettled: true, deletedRows: 0 };
     }
-
-    if (ids.length > 0) {
-      const targetTable = rawRun.target_table;
-      // Validate table name against known brain tables (prevent SQL injection)
-      const allowedTables = [
-        'brain_page_nodes',
-        'brain_observations',
-        'brain_decisions',
-        'brain_patterns',
-        'brain_learnings',
-        'brain_transcript_events',
-      ] as const;
-      if ((allowedTables as readonly string[]).includes(targetTable)) {
-        // SQLite has a limit of ~999 bound params — chunk if needed
-        const CHUNK = 200;
-        for (let i = 0; i < ids.length; i += CHUNK) {
-          const chunk = ids.slice(i, i + CHUNK);
-          const placeholders = chunk.map(() => '?').join(',');
-          const result = nativeDb
-            .prepare(`DELETE FROM ${targetTable} WHERE id IN (${placeholders})`)
-            .run(...chunk) as { changes: number };
-          deletedRows += result.changes ?? 0;
-        }
+    let deletedRows = 0;
+    if (raw.status === 'approved') {
+      const snapshot = readStagedSnapshot(raw, projectRoot);
+      if (snapshot.created.length !== snapshot.candidates.length)
+        throw new Error('Backfill receipt does not cover every created node.');
+      for (const created of snapshot.created) {
+        const current = db
+          .prepare('SELECT * FROM main.brain_page_nodes WHERE id = ?')
+          .get(created.id);
+        if (
+          !current ||
+          stagedGraphHash(current) !== created.rowHash ||
+          stagedEdgesHash(db, created.id) !== created.edgeHash
+        )
+          throw new Error(
+            `Backfill rollback is stale for ${created.id}; preserve concurrent changes and inspect the canonical backup.`,
+          );
       }
-    }
+      for (const created of snapshot.created) {
+        const result = db.prepare('DELETE FROM main.brain_page_nodes WHERE id = ?').run(created.id);
+        deletedRows += Number(result.changes);
+      }
+    } else if (raw.status !== 'staged')
+      throw new Error('Backfill run cannot be rolled back from its current state.');
+    db.prepare("UPDATE main.brain_backfill_runs SET status = 'rolled-back' WHERE id = ?").run(
+      runId,
+    );
+    const run = mapRunRow(readStagedRun(db, runId));
+    db.exec('COMMIT');
+    return { run, alreadySettled: false, deletedRows };
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
   }
-
-  // Mark run as rolled-back
-  nativeDb.prepare(`UPDATE brain_backfill_runs SET status = 'rolled-back' WHERE id = ?`).run(runId);
-
-  const updatedRaw = nativeDb
-    .prepare('SELECT * FROM brain_backfill_runs WHERE id = ? LIMIT 1')
-    .get(runId) as unknown as RunRow;
-
-  return { run: mapRunRow(updatedRaw), alreadySettled: false, deletedRows };
 }
 
 /**

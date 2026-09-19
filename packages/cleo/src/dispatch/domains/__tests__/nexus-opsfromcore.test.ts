@@ -120,13 +120,13 @@ describe('nexus dispatch OpsFromCore inference (T1440)', () => {
     expect(source).toContain('getSupportedOperations');
   });
 
-  it('preserves the inline handleImpact and handleTopEntries functions', async () => {
+  it('keeps impact routed through the shared core service and preserves top entries', async () => {
     const source = await readFile(dispatchSourcePath, 'utf-8');
 
-    // These complex ops bypass typed dispatch and must stay preserved
     expect(source).toContain('handleTopEntries');
     expect(source).toContain('handleImpact');
-    expect(source).toContain('NexusImpactResult');
+    expect(source).toContain('await nexusImpact(');
+    expect(source).not.toContain('function riskLevelFor(');
   });
 
   it('exposes nexusCoreOps from the core nexus index', async () => {

@@ -16,7 +16,7 @@ import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   checkGateEvidenceMinimum,
@@ -326,11 +326,16 @@ describe('validateAtom - tool (T832 / T1534, project-agnostic resolver)', () => 
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'evidence-tool-'));
+    vi.stubEnv('CLEO_DIR', join(tmpDir, '.cleo'));
+    vi.stubEnv('CLEO_ROOT', tmpDir);
+    // These tests execute only true/false; cgroup behavior has its own tests.
+    vi.stubEnv('CLEO_NO_TOOL_CGROUP', '1');
     initGitRepo(tmpDir);
     gitCommit(tmpDir, 'a.txt', 'one\n', 'first');
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -357,7 +362,7 @@ describe('validateAtom - tool (T832 / T1534, project-agnostic resolver)', () => 
       }),
     );
     const r = await validateAtom({ kind: 'tool', tool: 'test' }, tmpDir);
-    expect(r.ok).toBe(true);
+    expect(r.ok, JSON.stringify(r)).toBe(true);
     if (r.ok && r.atom.kind === 'tool') {
       expect(r.atom.tool).toBe('test');
       expect(r.atom.exitCode).toBe(0);

@@ -153,6 +153,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       limit: params.limit,
       offset: params.offset,
       compact: params.compact,
+      includeArchive: params.includeArchive,
     });
     if (!result.success) {
       return lafsError(
@@ -174,6 +175,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       await taskFind(projectRoot, params.query, params.limit, {
         id: params.id,
         exact: params.exact,
+        fuzzy: params.fuzzy,
+        field: params.field,
         status: params.status,
         includeArchive: params.includeArchive,
         offset: params.offset,

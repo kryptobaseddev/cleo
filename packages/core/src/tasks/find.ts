@@ -1,30 +1,34 @@
 /**
- * Fuzzy task search with minimal output.
+ * Lexical task search with explicit fuzzy opt-in and match provenance.
  * @task T4460
  * @epic T4454
  */
 
 import type {
   MinimalTaskRecord,
-  Task,
+  RecordProjectionDisclosure,
   TaskKind,
+  TaskMatch,
+  TaskPopulation,
   TaskQueryFilters,
   TaskRecord,
   TaskStatus,
+  TasksFindResult,
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
+import { discloseProjection } from '../dispatch/mvi-projection.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
-import { resolveSagaMemberIds } from '../sagas/storage.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { taskToRecord } from './engine-converters.js';
+import { paginateTaskPopulation, readTaskPopulation } from './population.js';
 
 /** Minimal task info for search results. */
-export interface FindResult {
+export interface FindResult extends RecordProjectionDisclosure {
   id: string;
   title: string;
   status: string;
@@ -43,6 +47,8 @@ export interface FindResult {
    */
   severity?: string | null;
   score: number;
+  /** Explicit retrieval basis retained through compact projections. */
+  match: TaskMatch;
   /** Progressive disclosure directives for follow-up operations. */
   _next?: NextDirectives;
 }
@@ -52,6 +58,8 @@ export interface FindTasksOptions {
   query?: string;
   id?: string;
   exact?: boolean;
+  /** Explicitly enable character-subsequence fallback. */
+  fuzzy?: boolean;
   status?: TaskStatus;
   field?: string;
   includeArchive?: boolean;
@@ -112,8 +120,9 @@ export interface FindTasksOptions {
 export interface FindTasksResult {
   results: FindResult[];
   total: number;
+  population: TaskPopulation;
   query: string;
-  searchType: 'fuzzy' | 'id' | 'exact';
+  searchType: TaskMatch['kind'];
 }
 
 /**
@@ -149,7 +158,7 @@ export function isUrgentTask(task: {
  *     number of English sentences, so this tier is noise whenever anything
  *     better exists.
  *
- * {@link findTasks} keeps the weak tier only when NO strong match was found,
+ * With explicit fuzzy opt-in, {@link findTasks} keeps the weak tier only when NO strong match was found,
  * which preserves typo tolerance for genuinely obscure queries without
  * letting the weak tier flood a normal search.
  *
@@ -334,11 +343,11 @@ export function extractInlineFilters(options: FindTasksOptions): FindTasksOption
 }
 
 /**
- * Search tasks by fuzzy matching, ID prefix, exact title, or filter-only.
+ * Search tasks lexically, by explicit fuzzy matching, ID, exact title, or filters.
  * Returns minimal fields only (context-efficient).
  *
  * Accepts any of:
- *   - positional `query` for fuzzy title/description search
+ *   - positional `query` for lexical title/description search (`fuzzy` opts in)
  *   - `id` prefix
  *   - `status` / `kind` filter (any of these alone is sufficient — no
  *     query required, returns all matches)
@@ -354,6 +363,22 @@ export async function findTasks(
   accessor?: DataAccessor,
 ): Promise<FindTasksResult> {
   const options = extractInlineFilters(rawOptions);
+  const supportedFields: TaskMatch['fields'] = ['title', 'description', 'notes', 'id'];
+  if (options.field && !supportedFields.includes(options.field as TaskMatch['fields'][number])) {
+    throw new CleoError(
+      ExitCode.INVALID_INPUT,
+      `Unsupported search field '${options.field}'; use title, description, notes, or id`,
+    );
+  }
+  if (options.exact && (options.fuzzy || (options.field && options.field !== 'title'))) {
+    throw new CleoError(
+      ExitCode.INVALID_INPUT,
+      'Exact title search cannot be combined with fuzzy or another field',
+    );
+  }
+  const fields: TaskMatch['fields'] = options.field
+    ? [options.field as TaskMatch['fields'][number]]
+    : ['title', 'description'];
 
   // T10108: an empty-string or whitespace-only `query` is the same as no
   // query — without this, `fuzzyScore('', '<any title>')` returns 80 for
@@ -381,71 +406,13 @@ export async function findTasks(
 
   const acc = accessor ?? (await getTaskAccessor(cwd));
 
-  // T10108: Saga-aware --parent routing.
-  // When --parent targets a Saga, resolve members through the canonical
-  // Saga member helper. Falls back to the default parentId-based query when the
-  // parent is not a Saga (or does not exist — non-existent IDs collapse to
-  // an empty result via the default path, preserving historical behaviour).
-  // Mirrors `listTasks` (ADR-073 §1).
-  let sagaMemberIds: string[] | null = null;
-  if (options.parent) {
-    sagaMemberIds = await resolveSagaMemberIds(acc, options.parent);
-  }
-
-  // Use targeted query with status/label/parent filters when available —
-  // push them into the accessor so SQLite-backed accessors benefit from the
-  // existing query predicates. T9904 (label) / T10108 (parent).
-  const filters: TaskQueryFilters = {};
-  if (options.status) {
-    filters.status = options.status;
-  }
-  if (options.label) {
-    filters.label = options.label;
-  }
-  // T10108: skip the raw parentId filter when routing through the Saga helper;
-  // the member-set intersection below restricts the result in-memory instead.
-  if (options.parent && sagaMemberIds === null) {
-    filters.parentId = options.parent;
-  }
-  const queryResult = await acc.queryTasks(filters);
-  let allTasks: Task[] = [...queryResult.tasks];
-
-  // T10108: Saga path — restrict the queried set to the saga's member IDs.
-  if (sagaMemberIds !== null) {
-    const memberOrder = new Map<string, number>();
-    for (let idx = 0; idx < sagaMemberIds.length; idx++) {
-      const id = sagaMemberIds[idx];
-      if (id !== undefined) memberOrder.set(id, idx);
-    }
-    const memberSet = new Set(sagaMemberIds);
-    allTasks = allTasks
-      .filter((t) => memberSet.has(t.id))
-      .sort((a, b) => (memberOrder.get(a.id) ?? 0) - (memberOrder.get(b.id) ?? 0));
-  }
-
-  // Include archive if requested
-  if (options.includeArchive) {
-    const archive = await acc.loadArchive();
-    if (archive?.archivedTasks) {
-      let archivedTasks = archive.archivedTasks as Task[];
-      if (options.status) {
-        archivedTasks = archivedTasks.filter((t) => t.status === options.status);
-      }
-      if (options.label) {
-        // T9904 — archive doesn't flow through queryTasks; apply the label
-        // predicate here so includeArchive composes correctly.
-        archivedTasks = archivedTasks.filter((t) =>
-          (t.labels ?? []).includes(options.label as string),
-        );
-      }
-      allTasks = [...allTasks, ...archivedTasks];
-    }
-  }
-
-  // T944/T9072: kind filter — applied after status/archive resolution
-  if (options.kind) {
-    allTasks = allTasks.filter((t) => t.kind === options.kind);
-  }
+  const filters: TaskQueryFilters = {
+    status: options.status,
+    label: options.label,
+    parentId: options.parent,
+    kind: options.kind,
+  };
+  let allTasks = await readTaskPopulation(acc, filters, options.includeArchive);
 
   // T9905: unified urgency filter. Disjunctive across the two orthogonal axes:
   //   priority IN ('critical','high') OR severity IN ('P0','P1')
@@ -474,6 +441,12 @@ export async function findTasks(
         depends: t.depends ?? [],
         size: t.size ?? undefined,
         severity: t.severity ?? undefined,
+        match: {
+          kind: 'id',
+          fields: ['id'],
+          terms: [idQuery],
+          reason: 'Case-insensitive ID equality, prefix, or substring',
+        },
         score:
           t.id.toUpperCase() === idQuery ? 100 : t.id.toUpperCase().startsWith(idQuery) ? 80 : 50,
       }));
@@ -494,11 +467,17 @@ export async function findTasks(
         size: t.size ?? undefined,
         severity: t.severity ?? undefined,
         score: 100,
+        match: {
+          kind: 'exact',
+          fields: ['title'],
+          terms: [queryStr],
+          reason: 'Exact case-sensitive title equality',
+        },
       }));
   } else if (options.query == null) {
     // Filter-only mode — return every task the status/kind filter already
     // matched. All-equal score=50 so pagination is stable. T1187-followup.
-    searchType = 'fuzzy';
+    searchType = 'filter';
     queryStr = '';
     results = allTasks.map((t) => ({
       id: t.id,
@@ -511,17 +490,50 @@ export async function findTasks(
       size: t.size ?? undefined,
       severity: t.severity ?? undefined,
       score: 50,
+      match: {
+        kind: 'filter',
+        fields: [],
+        terms: [],
+        reason: 'Matched explicit task filters; no text query',
+      },
     }));
   } else {
-    // Fuzzy search
-    searchType = 'fuzzy';
+    // Lexical by default; subsequence matching requires explicit opt-in.
+    searchType = options.fuzzy ? 'fuzzy' : 'lexical';
     queryStr = options.query;
     const scored: FindResult[] = [];
 
     for (const t of allTasks) {
-      const titleScore = fuzzyScore(queryStr, t.title);
-      const descScore = t.description ? fuzzyScore(queryStr, t.description) * 0.7 : 0;
-      const score = Math.max(titleScore, descScore);
+      const texts: Record<TaskMatch['fields'][number], string> = {
+        title: t.title,
+        description: t.description ?? '',
+        notes: (t.notes ?? []).join('\n'),
+        id: t.id,
+      };
+      const terms = queryStr.toLowerCase().trim().split(/\s+/);
+      const candidates = fields
+        .map((field) => {
+          const text = texts[field];
+          const literalTerms = terms.filter((term) => text.toLowerCase().includes(term));
+          const score =
+            options.fuzzy || literalTerms.length > 0
+              ? fuzzyScore(queryStr, text) * (field === 'description' ? 0.7 : 1)
+              : 0;
+          return { field, score, literalTerms };
+        })
+        .filter((candidate) => candidate.score > 0);
+      const score = Math.max(0, ...candidates.map((candidate) => candidate.score));
+      const literalTerms = [...new Set(candidates.flatMap((candidate) => candidate.literalTerms))];
+      const match: TaskMatch = {
+        kind: literalTerms.length ? 'lexical' : 'fuzzy',
+        fields: candidates
+          .filter((candidate) => !literalTerms.length || candidate.literalTerms.length > 0)
+          .map((candidate) => candidate.field),
+        terms: literalTerms,
+        reason: literalTerms.length
+          ? 'Case-insensitive literal query terms in the named fields'
+          : 'Explicit fuzzy opt-in: character subsequence, not literal query terms',
+      };
 
       if (score > 0) {
         scored.push({
@@ -535,6 +547,7 @@ export async function findTasks(
           size: t.size ?? undefined,
           severity: t.severity ?? undefined,
           score: Math.round(score),
+          match,
         });
       }
     }
@@ -545,34 +558,34 @@ export async function findTasks(
     // makes `total` useless as a signal. When nothing matches strongly the
     // weak tier is all there is, so keep it rather than return nothing.
     const hasStrong = scored.some((r) => r.score >= RELEVANCE_STRONG_MIN);
-    const relevant = hasStrong ? scored.filter((r) => r.score >= RELEVANCE_STRONG_MIN) : scored;
+    const relevant =
+      options.fuzzy && hasStrong ? scored.filter((r) => r.score >= RELEVANCE_STRONG_MIN) : scored;
 
     results = relevant.sort((a, b) => b.score - a.score);
   }
 
   const total = results.length;
 
-  // Apply pagination.
-  //
-  // GH #1302 — `limit === 0` means NO LIMIT here, as it always has in
-  // `listTasks`. It previously meant `slice(offset, offset + 0)`, i.e. ZERO
-  // rows, so the same flag spelled the same way returned everything on
-  // `cleo list` and nothing on `cleo find`. The envelope made that worse rather
-  // than obvious: `{"results": [], "total": 260}` with a message reading "No
-  // matching tasks found" — the answer and its own refutation in one object.
-  const limit = options.limit ?? 20;
-  const offset = options.offset ?? 0;
-  results = limit === 0 ? results.slice(offset) : results.slice(offset, offset + limit);
+  const { rows, population } = paginateTaskPopulation(
+    results,
+    options.limit ?? 20,
+    options.offset ?? 0,
+    options.status === 'archived' ? 'only' : options.includeArchive ? 'included' : 'excluded',
+  );
+  results = rows;
 
   // Enrich each result with _next progressive disclosure directives
-  const enrichedResults = results.map((r) => ({
-    ...r,
-    _next: taskListItemNext(r.id),
-  }));
+  const sourceById = new Map(allTasks.map((task) => [task.id, task]));
+  const enrichedResults = results.map((r) => {
+    const source = sourceById.get(r.id);
+    if (!source) throw new CleoError(ExitCode.GENERAL_ERROR, `Search source missing for ${r.id}`);
+    return discloseProjection({ ...source }, { ...r, _next: taskListItemNext(r.id) });
+  });
 
   return {
     results: enrichedResults,
     total,
+    population,
     query: queryStr,
     searchType,
   };
@@ -583,7 +596,7 @@ export async function findTasks(
 // ---------------------------------------------------------------------------
 
 /**
- * Fuzzy search tasks by title/description/ID, wrapped in EngineResult.
+ * Search tasks with explicit matching provenance, wrapped in EngineResult.
  *
  * @param projectRoot - Absolute path to the project root
  * @param query - Search string to match against title, description, or ID
@@ -601,6 +614,8 @@ export async function taskFind(
   options?: {
     id?: string;
     exact?: boolean;
+    fuzzy?: boolean;
+    field?: string;
     status?: string;
     includeArchive?: boolean;
     offset?: number;
@@ -614,7 +629,7 @@ export async function taskFind(
     /** Filter by parent task ID — see {@link FindTasksOptions.parent}. @task T10108 */
     parent?: string;
   },
-): Promise<EngineResult<{ results: (MinimalTaskRecord | TaskRecord)[]; total: number }>> {
+): Promise<EngineResult<TasksFindResult>> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
     const findResult = await findTasks(
@@ -622,6 +637,8 @@ export async function taskFind(
         query,
         id: options?.id,
         exact: options?.exact,
+        fuzzy: options?.fuzzy,
+        field: options?.field,
         status: options?.status as TaskStatus | undefined,
         includeArchive: options?.includeArchive,
         limit: limit ?? 20,
@@ -639,27 +656,50 @@ export async function taskFind(
       const fullResults: TaskRecord[] = [];
       for (const r of findResult.results) {
         const task = await accessor.loadSingleTask(r.id);
-        if (task) fullResults.push(taskToRecord(task));
+        if (!task)
+          throw new CleoError(
+            ExitCode.GENERAL_ERROR,
+            `Task ${r.id} disappeared during search projection; retry the query`,
+          );
+        fullResults.push({ ...taskToRecord(task), match: r.match });
       }
-      return engineSuccess({ results: fullResults, total: findResult.total });
+      return engineSuccess({
+        results: fullResults,
+        total: findResult.total,
+        population: findResult.population,
+        query: findResult.query,
+        searchType: findResult.searchType,
+      });
     }
 
-    const results: MinimalTaskRecord[] = findResult.results.map((r) => ({
-      id: r.id,
-      title: r.title,
-      status: r.status,
-      priority: r.priority,
-      parentId: r.parentId,
-      depends: r.depends,
-      type: r.type,
-      size: r.size,
-      // T9905: surface severity in the minimal projection so agents calling
-      // `cleo find --urgent` see the second urgency axis without a follow-up
-      // `cleo show` per row.
-      ...(r.severity != null ? { severity: r.severity } : {}),
-    }));
+    const results: MinimalTaskRecord[] = findResult.results.map((r) =>
+      discloseProjection(
+        { ...r },
+        {
+          id: r.id,
+          match: r.match,
+          title: r.title,
+          status: r.status,
+          priority: r.priority,
+          parentId: r.parentId,
+          depends: r.depends,
+          type: r.type,
+          size: r.size,
+          // T9905: surface severity in the minimal projection so agents calling
+          // `cleo find --urgent` see the second urgency axis without a follow-up
+          // `cleo show` per row.
+          ...(r.severity != null ? { severity: r.severity } : {}),
+        },
+      ),
+    );
 
-    return engineSuccess({ results, total: findResult.total });
+    return engineSuccess({
+      results,
+      total: findResult.total,
+      population: findResult.population,
+      query: findResult.query,
+      searchType: findResult.searchType,
+    });
   } catch (err: unknown) {
     // T9940: preserve CleoError LAFS codes; non-CleoError → E_INTERNAL,
     // never the misleading E_NOT_INITIALIZED blanket label.
