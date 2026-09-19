@@ -307,11 +307,13 @@ export class BrainDataAccessor {
    * Insert and read back one observation with an optional guarded synchronous boundary.
    * @param row - Complete observation payload, including its caller-selected identity.
    * @param execution - Captured lifetime checked immediately before SQL execution.
-   * @returns The actual stored row after a committed insert.
+   * @returns The actual stored row after insertion or an exact fenced replay.
    * @throws Error if cancellation, an existing native transaction, or SQL prevents insertion.
    * @remarks Scoped writes use one synchronous transaction and cannot join an unrelated
    * native transaction. Cancellation during admitted synchronous SQL cannot preempt it;
-   * its committed row remains the result. Legacy callers retain their async path.
+   * its committed row remains the result. Fenced replay checks all supplied fields
+   * except the new attempt timestamp and preserves the original stored timestamp.
+   * Conflicting or retracted rows are never overwritten. Legacy callers retain their async path.
    * @example
    * ```ts
    * const stored = await accessor.addObservation(row, execution);
@@ -325,6 +327,26 @@ export class BrainDataAccessor {
       execution.assertActive();
       return this.db.transaction((tx) => {
         assertOperationWriteFence(tx, execution);
+        if (execution.writeFence) {
+          const previous = tx
+            .select()
+            .from(brainSchema.brainObservations)
+            .where(eq(brainSchema.brainObservations.id, row.id))
+            .get();
+          if (previous) {
+            if (previous.invalidAt !== null || previous.expiredAt !== null) {
+              throw new Error('Observation replay conflicts with a retracted record');
+            }
+            for (const key of Object.keys(row) as (keyof NewBrainObservationRow)[]) {
+              // The first durable insertion owns its creation timestamp. A retry
+              // cannot replace it with the later attempt's clock.
+              if (key !== 'createdAt' && row[key] !== undefined && previous[key] !== row[key]) {
+                throw new Error(`Observation replay conflicts with stored ${key}`);
+              }
+            }
+            return previous;
+          }
+        }
         tx.insert(brainSchema.brainObservations).values(row).run();
         const stored = tx
           .select()

@@ -493,6 +493,69 @@ describe('captured observation write boundary', () => {
     }
   });
 
+  it('replays a committed fenced observation across a new lease epoch without replacing evidence', async () => {
+    const { getDb } = await import('../../store/sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    const db = await getDb(tempDir);
+    const jobs = new DurableJobStore(db, { projectId: 'observation-fixture', actor: 'fixture' });
+    const proposalJson = JSON.stringify({ attachment: 'b'.repeat(64), owner: 'T12265' });
+    const job = jobs.defer('replay-job', 'docs.projection', Date.now(), {
+      projectId: 'observation-fixture',
+      idempotencyKey: 'observation-boundary',
+      proposalJson,
+    });
+    const first = context();
+    const fence = {
+      dbPath: join(tempDir, '.cleo', 'cleo.db'),
+      proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
+      lease: jobs.claim(job.id, Date.now()),
+    };
+    const params = {
+      text: 'Sourced immutable 😀',
+      title: 'Replay proof',
+      sourceType: 'agent' as const,
+      _skipGate: true,
+      _skipQueue: true,
+    };
+    const stored = await observeBrain(tempDir, params, bindOperationWriteFence(first, fence));
+    first.close(); // Simulated caller loss after the domain commit, before recording a result.
+    const native = getBrainNativeDb(tempDir)!;
+    native.prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?').run(job.id);
+    const resumedStore = new DurableJobStore(db, {
+      projectId: 'observation-fixture',
+      actor: 'resumer',
+    });
+    const resumed = context();
+    const execution = bindOperationWriteFence(resumed, {
+      ...fence,
+      lease: resumedStore.claim(job.id, Date.now()),
+    });
+    try {
+      expect(execution.writeFence!.lease.epoch).toBeGreaterThan(fence.lease.epoch);
+      const repeated = await observeBrain(tempDir, params, execution);
+      expect(repeated).toEqual(stored);
+      await expect(
+        observeBrain(tempDir, { ...params, text: 'Conflicting payload' }, execution),
+      ).rejects.toThrow('replay conflicts');
+      expect(native.prepare('SELECT count(*) AS n FROM brain_observations').get()?.n).toBe(1);
+      expect(
+        native.prepare('SELECT narrative FROM brain_observations WHERE id=?').get(stored.id)
+          ?.narrative,
+      ).toBe(params.text);
+      native
+        .prepare('UPDATE brain_observations SET invalid_at=? WHERE id=?')
+        .run('2020-01-01 00:00:00', stored.id);
+      await expect(observeBrain(tempDir, params, execution)).rejects.toThrow('retracted');
+      native.prepare('UPDATE brain_observations SET invalid_at=NULL WHERE id=?').run(stored.id);
+      resumedStore.requestCancel(job.id, Date.now());
+      await expect(observeBrain(tempDir, params, execution)).rejects.toThrow(
+        'Domain write refused',
+      );
+    } finally {
+      resumed.close();
+    }
+  });
+
   it('refuses delayed accessor continuation after cancellation and cleanup', async () => {
     const accessor = await accessorModule.getBrainAccessor(tempDir);
     let release = () => {};
