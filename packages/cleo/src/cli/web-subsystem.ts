@@ -72,10 +72,16 @@ const STARTUP_POLL_ITERATIONS = 30;
  *     — legacy dev-checkout fallback. Kept for backward compat; the
  *     `postbuild` step is required before `cleo web start` in a dev checkout.
  *
+ * @param moduleUrl - URL of the CLI module within `src/cli` or `dist/cli`;
+ *   defaults to this module, including when bundled into the CLI entry point.
  * @returns The absolute path to the Studio build directory, or `undefined` when
  *   none of the candidates exist on disk.
+ * @example
+ * ```ts
+ * const studioDir = resolveStudioDir();
+ * ```
  */
-export function resolveStudioDir(): string | undefined {
+export function resolveStudioDir(moduleUrl = import.meta.url): string | undefined {
   // 1. Explicit override.
   const envOverride = process.env['CLEO_STUDIO_DIR'];
   if (envOverride !== undefined && envOverride.length > 0 && existsSync(envOverride)) {
@@ -84,9 +90,9 @@ export function resolveStudioDir(): string | undefined {
 
   // 2. Bundled path (T11979): <cleo-package-root>/studio-dist/
   //    import.meta.url resolves to the compiled .js file under dist/cli/;
-  //    walking up 3 levels reaches the package root.
+  //    walking up 2 levels reaches the package root (also true for src/cli/).
   try {
-    const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+    const pkgRoot = resolve(dirname(fileURLToPath(moduleUrl)), '..', '..');
     const bundled = join(pkgRoot, 'studio-dist');
     if (existsSync(join(bundled, 'index.js'))) {
       return bundled;

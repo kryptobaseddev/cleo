@@ -158,6 +158,7 @@ import type {
   ParserExecutionLimits,
   ParserExecutionPort,
 } from '@cleocode/contracts';
+import type { GraphSourceRootAssessment } from '@cleocode/contracts/graph';
 import { sql } from 'drizzle-orm';
 import { resolveCalls } from './call-processor.js';
 import { detectCommunities } from './community-processor.js';
@@ -204,8 +205,16 @@ export interface PipelineOptions {
   /** Revision captured by the owning project before indexing. */
   assessedRevision?: string | null;
 
-  /** Publish a validated complete generation atomically using the owning store. */
-  publishGraph?: (rows: GraphPublicationRows) => void;
+  /** Explicit parent and repository provenance observed by the owning core service. */
+  sourceRoots?: GraphSourceRootAssessment;
+
+  /**
+   * Publish a validated generation atomically using the owning store.
+   * Completion awaits this callback; rejection propagates without reporting success.
+   * The owner must reject before mutation or roll back its own transaction on failure.
+   * Cancellation after the owner commits must not be reported as an uncommitted failure.
+   */
+  publishGraph?: (rows: GraphPublicationRows) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -531,6 +540,7 @@ export async function runPipeline(
   options?.parserLimits?.signal?.throwIfAborted();
   const startTime = Date.now();
   const publicationGeneration = randomUUID();
+  const sourceRoots = options?.sourceRoots ? structuredClone(options.sourceRoots) : undefined;
   const isIncremental = options?.incremental === true;
   const graph: KnowledgeGraph = createKnowledgeGraph();
 
@@ -776,6 +786,7 @@ export async function runPipeline(
     publication.assessment = {
       generation: publicationGeneration,
       references: referenceReports,
+      ...(sourceRoots ? { sourceRoots } : {}),
       sourceRoot: repoPath,
       includedRepositories: [...(options.includedRepositories ?? [])],
       assessedRevision: options.assessedRevision ?? null,
@@ -783,7 +794,7 @@ export async function runPipeline(
       files: [...reports.values()],
     };
     options.parserLimits?.signal?.throwIfAborted();
-    options.publishGraph(publication);
+    await options.publishGraph(publication);
   } else {
     await graph.flush(projectId, db, tables);
   }

@@ -5,11 +5,16 @@
  * @task T11257 R6 — migrate web command → daemon subsystem
  */
 
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createWebSubsystem,
   getWebPaths,
   isWebProcessRunning,
+  resolveStudioDir,
   WEB_DEFAULT_HOST,
   WEB_DEFAULT_PORT,
   WEB_SUBSYSTEM_NAME,
@@ -96,5 +101,71 @@ describe('isWebProcessRunning', () => {
   it('returns false for a non-existent PID', () => {
     // PID 2147483647 is far above the Linux default limit of 4194304.
     expect(isWebProcessRunning(2_147_483_647)).toBe(false);
+  });
+});
+
+describe('resolveStudioDir package layouts (T12255)', () => {
+  let fixture: string;
+  let packageRoot: string;
+
+  beforeEach(() => {
+    fixture = mkdtempSync(join(tmpdir(), 'cleo-studio-layout-'));
+    packageRoot = join(fixture, 'node_modules', '@cleocode', 'cleo');
+    vi.stubEnv('CLEO_STUDIO_DIR', '');
+    vi.stubEnv('CLEO_ROOT', join(fixture, 'project'));
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(fixture, { recursive: true, force: true });
+  });
+
+  function buildAt(directory: string): string {
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, 'index.js'), '// synthetic Studio entry');
+    return directory;
+  }
+
+  function moduleUrl(relative = 'dist/cli/index.js'): string {
+    return pathToFileURL(join(packageRoot, relative)).href;
+  }
+
+  it.each([
+    'src/cli/web-subsystem.ts',
+    'dist/cli/web-subsystem.js',
+    'dist/cli/index.js',
+  ])('resolves bundled Studio relative to %s without selecting a scope-level decoy', (relative) => {
+    const expected = buildAt(join(packageRoot, 'studio-dist'));
+    buildAt(join(fixture, 'node_modules', '@cleocode', 'studio-dist'));
+    buildAt(join(fixture, 'project', 'packages', 'studio', 'build'));
+    expect(resolveStudioDir(moduleUrl(relative))).toBe(expected);
+  });
+
+  it('honors an existing explicit deployment override before the bundle', () => {
+    buildAt(join(packageRoot, 'studio-dist'));
+    const override = buildAt(join(fixture, 'override'));
+    vi.stubEnv('CLEO_STUDIO_DIR', override);
+    expect(resolveStudioDir(moduleUrl())).toBe(override);
+  });
+
+  it('ignores a missing override and resolves the installed bundle', () => {
+    const expected = buildAt(join(packageRoot, 'studio-dist'));
+    vi.stubEnv('CLEO_STUDIO_DIR', join(fixture, 'missing'));
+    expect(resolveStudioDir(moduleUrl())).toBe(expected);
+  });
+
+  it('falls back to an explicit development project when the bundle is missing', () => {
+    const expected = buildAt(join(fixture, 'project', 'packages', 'studio', 'build'));
+    expect(resolveStudioDir(moduleUrl())).toBe(expected);
+  });
+
+  it('requires an entry file instead of accepting an empty bundled directory', () => {
+    mkdirSync(join(packageRoot, 'studio-dist'), { recursive: true });
+    expect(resolveStudioDir(moduleUrl())).toBeUndefined();
+  });
+
+  it('uses the development fallback when the module URL cannot name a file', () => {
+    const expected = buildAt(join(fixture, 'project', 'packages', 'studio', 'build'));
+    expect(resolveStudioDir('https://invalid.example/entry.js')).toBe(expected);
   });
 });

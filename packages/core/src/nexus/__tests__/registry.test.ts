@@ -290,6 +290,67 @@ describe('nexusRegister', () => {
     expect(await db.select().from(projectIdAliases)).toEqual(aliasesBefore);
   });
 
+  it.each([
+    false,
+    true,
+  ])('keeps explicit project metadata when ambient pins change: %s', async (changeDuringRead) => {
+    const explicitProject = join(testDir, 'explicit-project');
+    await createTestProjectDb(explicitProject, [
+      { id: 'T900', title: 'Only explicit B', status: 'pending', labels: ['project-b'] },
+    ]);
+    await writeFile(
+      join(explicitProject, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'explicit-project-b' }),
+    );
+    await writeFile(
+      join(projectDir, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'ambient-project-a' }),
+    );
+    const explicitAlias = (await canonicalProjectId(explicitProject)).id;
+    const originalAccessor = dataAccessors.getTaskAccessor;
+    const entered = Promise.withResolvers<void>();
+    const proceed = Promise.withResolvers<void>();
+    if (changeDuringRead) {
+      vi.spyOn(dataAccessors, 'getTaskAccessor').mockImplementationOnce(async (cwd) => {
+        entered.resolve();
+        await proceed.promise;
+        return originalAccessor(cwd);
+      });
+      vi.stubEnv('CLEO_ROOT', explicitProject);
+      vi.stubEnv('CLEO_DIR', join(explicitProject, '.cleo'));
+    } else {
+      vi.stubEnv('CLEO_ROOT', projectDir);
+      vi.stubEnv('CLEO_DIR', join(projectDir, '.cleo'));
+    }
+    const registration = nexusRegister(explicitProject, 'explicit-b', 'execute');
+    if (changeDuringRead) {
+      await entered.promise;
+      vi.stubEnv('CLEO_ROOT', projectDir);
+      vi.stubEnv('CLEO_DIR', join(projectDir, '.cleo'));
+      proceed.resolve();
+    }
+    const hash = await registration;
+    expect(await nexusGetProject(hash)).toMatchObject({
+      projectId: 'explicit-project-b',
+      path: explicitProject,
+      name: 'explicit-b',
+      permissions: 'execute',
+      taskCount: 1,
+      labels: ['project-b'],
+    });
+    const db = await getNexusDb();
+    expect(
+      await db.select().from(projectIdAliases).where(eq(projectIdAliases.legacyId, explicitAlias)),
+    ).toMatchObject([{ canonicalId: 'explicit-project-b' }]);
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
+    const ambient = await originalAccessor(projectDir);
+    expect((await ambient.queryTasks({})).tasks.map((task) => task.id).sort()).toEqual([
+      'T001',
+      'T002',
+    ]);
+  });
+
   it('throws on name conflict', async () => {
     await nexusRegister(projectDir, 'test-proj', 'read');
 

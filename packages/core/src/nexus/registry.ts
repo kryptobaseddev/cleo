@@ -32,7 +32,7 @@ import { type EngineResult, engineError, engineSuccess } from '../engine-result.
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { paginate } from '../pagination.js';
-import { getCleoHome } from '../paths.js';
+import { getCleoHome, worktreeScope } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 // Re-export only: resetNexusDbState used by tests and index barrel.
 import { resetNexusDbState } from '../store/nexus-sqlite.js';
@@ -436,141 +436,145 @@ export async function nexusRegister(
 
   // Canonicalize before hashing so relative and symlink spelling cannot create owners.
   const resolvedPath = await realpath(resolve(projectPath));
-  if (!(await stat(join(resolvedPath, '.cleo'))).isDirectory()) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Path missing .cleo directory: ${resolvedPath}`);
-  }
   const projectHash = generateProjectHash(resolvedPath);
-  const declaredId = await readProjectId(resolvedPath);
-  const canonicalIdentity = await canonicalProjectId(resolvedPath);
-  await nexusInit();
-  const { getNexusDb } = await import('../store/nexus-sqlite.js');
-  const ownershipFilter = or(
-    eq(projectRegistry.projectPath, resolvedPath),
-    eq(projectRegistry.projectHash, projectHash),
-    eq(projectRegistry.projectId, declaredId || canonicalIdentity.id),
-  );
-  const before = await getNexusDb();
-  validateRegistrationOwner(
-    before.select().from(projectRegistry).where(ownershipFilter).all(),
-    resolvedPath,
-    projectHash,
-    declaredId,
-  );
-
-  // The accessor may auto-register this path. Never carry an absence observation
-  // across this await into the write transaction.
-  const meta = await readProjectMeta(resolvedPath);
-  if ((await readProjectId(resolvedPath)) !== declaredId) {
-    throw new CleoError(
-      ExitCode.NEXUS_PROJECT_EXISTS,
-      `Project identity changed during registration: ${resolvedPath}`,
+  // Capture explicit ownership across awaits; ambient CLEO_ROOT/CLEO_DIR may
+  // belong to another project or change while metadata is being loaded.
+  return worktreeScope.run({ worktreeRoot: resolvedPath, projectHash }, async () => {
+    if (!(await stat(join(resolvedPath, '.cleo'))).isDirectory()) {
+      throw new CleoError(ExitCode.NOT_FOUND, `Path missing .cleo directory: ${resolvedPath}`);
+    }
+    const declaredId = await readProjectId(resolvedPath);
+    const canonicalIdentity = await canonicalProjectId(resolvedPath);
+    await nexusInit();
+    const { getNexusDb } = await import('../store/nexus-sqlite.js');
+    const ownershipFilter = or(
+      eq(projectRegistry.projectPath, resolvedPath),
+      eq(projectRegistry.projectHash, projectHash),
+      eq(projectRegistry.projectId, declaredId || canonicalIdentity.id),
     );
-  }
-  const db = await getNexusDb();
-  const now = new Date().toISOString();
-  const legacyAlias = legacyProjectId(resolvedPath);
-  const skippedAliases: string[] = [];
-  const projectId = db.transaction(
-    (tx) => {
-      const existing = validateRegistrationOwner(
-        tx.select().from(projectRegistry).where(ownershipFilter).all(),
-        resolvedPath,
-        projectHash,
-        declaredId,
+    const before = await getNexusDb();
+    validateRegistrationOwner(
+      before.select().from(projectRegistry).where(ownershipFilter).all(),
+      resolvedPath,
+      projectHash,
+      declaredId,
+    );
+
+    // The accessor may auto-register this path. Never carry an absence observation
+    // across this await into the write transaction.
+    const meta = await readProjectMeta(resolvedPath);
+    if ((await readProjectId(resolvedPath)) !== declaredId) {
+      throw new CleoError(
+        ExitCode.NEXUS_PROJECT_EXISTS,
+        `Project identity changed during registration: ${resolvedPath}`,
       );
-      const immutableId = declaredId || existing?.projectId || canonicalIdentity.id;
-      const projectName = name || existing?.name || basename(resolvedPath) || 'unnamed';
-      const nameOwner = tx
-        .select()
-        .from(projectRegistry)
-        .where(eq(projectRegistry.name, projectName))
-        .all();
-      if (nameOwner.some((row) => row.projectId !== immutableId)) {
-        throw new CleoError(
-          ExitCode.VALIDATION_ERROR,
-          `Project name '${projectName}' already exists in registry`,
+    }
+    const db = await getNexusDb();
+    const now = new Date().toISOString();
+    const legacyAlias = legacyProjectId(resolvedPath);
+    const skippedAliases: string[] = [];
+    const projectId = db.transaction(
+      (tx) => {
+        const existing = validateRegistrationOwner(
+          tx.select().from(projectRegistry).where(ownershipFilter).all(),
+          resolvedPath,
+          projectHash,
+          declaredId,
         );
-      }
-      const metadata = {
-        name: projectName,
-        permissions: permissions ?? existing?.permissions ?? 'read',
-        lastSync: now,
-        taskCount: meta.taskCount,
-        labelsJson: JSON.stringify(meta.labels),
-        lastSeen: now,
-        brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
-        tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
-      };
-      if (existing)
-        tx.update(projectRegistry)
-          .set(metadata)
-          .where(eq(projectRegistry.projectId, immutableId))
-          .run();
-      else
-        tx.insert(projectRegistry)
-          .values({
-            ...metadata,
-            projectId: immutableId,
-            projectHash,
-            projectPath: resolvedPath,
-            registeredAt: now,
-            healthStatus: 'unknown',
-            statsJson: '{}',
-          })
-          .run();
-      for (const alias of new Set([canonicalIdentity.id, legacyAlias])) {
-        if (alias === immutableId) continue;
-        const aliasOwner = tx
-          .select()
-          .from(projectIdAliases)
-          .where(eq(projectIdAliases.legacyId, alias))
-          .get();
-        const directOwner = tx
+        const immutableId = declaredId || existing?.projectId || canonicalIdentity.id;
+        const projectName = name || existing?.name || basename(resolvedPath) || 'unnamed';
+        const nameOwner = tx
           .select()
           .from(projectRegistry)
-          .where(eq(projectRegistry.projectId, alias))
-          .get();
-        if (
-          (aliasOwner && aliasOwner.canonicalId !== immutableId) ||
-          (directOwner && directOwner.projectId !== immutableId)
-        ) {
-          // The old truncated path token is lossy. Preserve its owner and disclose
-          // the omitted compatibility alias, never redirect another project.
-          if (alias === legacyAlias) {
-            skippedAliases.push(alias);
-            continue;
-          }
+          .where(eq(projectRegistry.name, projectName))
+          .all();
+        if (nameOwner.some((row) => row.projectId !== immutableId)) {
           throw new CleoError(
-            ExitCode.NEXUS_PROJECT_EXISTS,
-            `Project identity alias already belongs to another project: ${alias}`,
+            ExitCode.VALIDATION_ERROR,
+            `Project name '${projectName}' already exists in registry`,
           );
         }
-        tx.insert(projectIdAliases)
-          .values({ legacyId: alias, canonicalId: immutableId, createdAt: now })
-          .onConflictDoNothing()
-          .run();
-      }
-      return immutableId;
-    },
-    { behavior: 'immediate' },
-  );
-  if (skippedAliases.length)
-    pushWarning({
-      code: 'W_PROJECT_ALIAS_CONFLICT',
-      message: 'Registration retained existing owners of ambiguous legacy path aliases.',
-      severity: 'warn',
-      context: { projectId, aliases: skippedAliases },
+        const metadata = {
+          name: projectName,
+          permissions: permissions ?? existing?.permissions ?? 'read',
+          lastSync: now,
+          taskCount: meta.taskCount,
+          labelsJson: JSON.stringify(meta.labels),
+          lastSeen: now,
+          brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
+          tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
+        };
+        if (existing)
+          tx.update(projectRegistry)
+            .set(metadata)
+            .where(eq(projectRegistry.projectId, immutableId))
+            .run();
+        else
+          tx.insert(projectRegistry)
+            .values({
+              ...metadata,
+              projectId: immutableId,
+              projectHash,
+              projectPath: resolvedPath,
+              registeredAt: now,
+              healthStatus: 'unknown',
+              statsJson: '{}',
+            })
+            .run();
+        for (const alias of new Set([canonicalIdentity.id, legacyAlias])) {
+          if (alias === immutableId) continue;
+          const aliasOwner = tx
+            .select()
+            .from(projectIdAliases)
+            .where(eq(projectIdAliases.legacyId, alias))
+            .get();
+          const directOwner = tx
+            .select()
+            .from(projectRegistry)
+            .where(eq(projectRegistry.projectId, alias))
+            .get();
+          if (
+            (aliasOwner && aliasOwner.canonicalId !== immutableId) ||
+            (directOwner && directOwner.projectId !== immutableId)
+          ) {
+            // The old truncated path token is lossy. Preserve its owner and disclose
+            // the omitted compatibility alias, never redirect another project.
+            if (alias === legacyAlias) {
+              skippedAliases.push(alias);
+              continue;
+            }
+            throw new CleoError(
+              ExitCode.NEXUS_PROJECT_EXISTS,
+              `Project identity alias already belongs to another project: ${alias}`,
+            );
+          }
+          tx.insert(projectIdAliases)
+            .values({ legacyId: alias, canonicalId: immutableId, createdAt: now })
+            .onConflictDoNothing()
+            .run();
+        }
+        return immutableId;
+      },
+      { behavior: 'immediate' },
+    );
+    if (skippedAliases.length)
+      pushWarning({
+        code: 'W_PROJECT_ALIAS_CONFLICT',
+        message: 'Registration retained existing owners of ambiguous legacy path aliases.',
+        severity: 'warn',
+        context: { projectId, aliases: skippedAliases },
+      });
+
+    await writeNexusAudit({
+      action: 'register',
+      projectHash,
+      projectId,
+      operation: 'register',
+      success: true,
     });
 
-  await writeNexusAudit({
-    action: 'register',
-    projectHash,
-    projectId,
-    operation: 'register',
-    success: true,
+    return projectHash;
   });
-
-  return projectHash;
 }
 
 /**
