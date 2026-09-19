@@ -161,6 +161,7 @@ describe('isolated shared extraction (T12262)', () => {
       const entries = [
         ['worker', new URL('../pipeline/workers/parse-worker.ts', import.meta.url).pathname],
         ['pipeline', new URL('../pipeline/index.ts', import.meta.url).pathname],
+        ['extractor', new URL('../pipeline/parse-loop.ts', import.meta.url).pathname],
         ['pool', new URL('../pipeline/workers/worker-pool.ts', import.meta.url).pathname],
         [
           'provider',
@@ -183,6 +184,7 @@ describe('isolated shared extraction (T12262)', () => {
         import assert from 'node:assert/strict';
         import { createWorkerPool } from './pool.mjs';
         import { runPipeline } from './pipeline.mjs';
+        import { extractOriginalSource } from './extractor.mjs';
         import { mkdirSync, copyFileSync, writeFileSync } from 'node:fs';
         import { fileURLToPath } from 'node:url';
         import { createParserExecutionPort, _forceSystemdRunAvailable } from './provider.mjs';
@@ -193,6 +195,7 @@ describe('isolated shared extraction (T12262)', () => {
           { path: 'unicode.py', content: 'def 読む():\\n    return obj.値\\n読む()\\n' },
           { path: 'unicode.go', content: 'package main\\nfunc 読む(){ obj.値() }\\nfunc main(){読む()}\\n' },
           { path: 'unicode.rs', content: 'fn 読む(){ obj.値(); } fn main(){読む();}' },
+          { path: 'lexical.ts', content: '// 😀\\nimport { orgNameTaken } from "./production"; const hooks={beforeCreateOrganization:(input)=>orgNameTaken(input.name)}; function mock(orgNameTaken){return orgNameTaken();}' },
           { path: 'too-large.ts', content: 'const 文 = "🌱";', limits: { maxSourceBytes: 1 } },
           { path: 'invalid.ts', content: 'export function broken( {' },
         ];
@@ -216,7 +219,14 @@ describe('isolated shared extraction (T12262)', () => {
           assert.ok(results.flatMap(result => result.imports).some(binding => binding.rawImportPath === './資料🌱'));
           assert.match(reports.find(report => report.path === 'too-large.ts').reason, /E_PARSE_SIZE/);
           assert.match(reports.find(report => report.path === 'invalid.ts').reason, /E_PARSE_SYNTAX/);
-          assert.equal(results.reduce((sum, result) => sum + result.fileCount, 0), 5);
+          const lexicalInput = inputs.find(input => input.path === 'lexical.ts');
+          const direct = extractOriginalSource(lexicalInput.content, lexicalInput.path);
+          const json = value => JSON.parse(JSON.stringify(value));
+          assert.deepEqual(symbols.filter(symbol => symbol.filePath === lexicalInput.path), json(direct.definitions));
+          assert.deepEqual(calls.filter(call => call.filePath === lexicalInput.path), json(direct.calls));
+          assert.deepEqual(accesses.filter(access => access.filePath === lexicalInput.path), json(direct.accesses));
+          assert.equal(direct.calls.find(call => call.sourceId === 'lexical.ts::mock').lexical.kind, 'shadowed');
+          assert.equal(results.reduce((sum, result) => sum + result.fileCount, 0), 6);
           assert.equal(results.reduce((sum, result) => sum + result.skippedCount, 0), 2);
         } finally { await pool.terminate(); }
         mkdirSync(new URL('./workers/', import.meta.url));
@@ -915,6 +925,74 @@ describe('runPipeline', () => {
         expect.objectContaining({ sourceId: 'main.ts', targetId: 'module:pg', type: 'imports' }),
       ]),
     );
+  });
+
+  it('publishes every unresolved lexical call/access with original evidence', async () => {
+    const source = `// 😀 original span prefix
+import { orgNameTaken as production } from './production';
+import { remote } from 'external';
+export function GET(input) {
+  const orgNameTaken=vi.fn(); orgNameTaken(); remote(); choose();
+  input.orgNameTaken; input.orgNameTaken; input[key];
+  return production('real');
+}`;
+    writeFile(tmpDir, 'main.ts', source);
+    writeFile(
+      tmpDir,
+      'production.ts',
+      'export function orgNameTaken(name) {return false;} export function choose() {}',
+    );
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const result = await runPipeline(
+      tmpDir,
+      'project',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      { publishGraph },
+    );
+    const generation = publishGraph.mock.calls[0]?.[0];
+    const references = generation?.assessment?.references ?? [];
+    expect(result.references).toEqual(references);
+    expect(
+      references.some((site) => site.kind === 'external' && site.targetName === 'remote'),
+    ).toBe(true);
+    expect(
+      references.some(
+        (site) =>
+          site.kind === 'unresolved' &&
+          site.targetName === 'choose' &&
+          site.candidateIds?.includes('production.ts::choose'),
+      ),
+    ).toBe(true);
+    expect(
+      references.some((site) => site.kind === 'dynamic' && site.relationship === 'accesses'),
+    ).toBe(true);
+    const repeated = references.filter(
+      (site) => site.relationship === 'accesses' && site.targetName === 'orgNameTaken',
+    );
+    expect(repeated).toHaveLength(2);
+    expect(new Set(repeated.map((site) => site.span?.startIndex)).size).toBe(2);
+    for (const site of references) {
+      expect(site.sourceId).toBe('main.ts::GET');
+      expect(site.span?.offsetEncoding).toBe('utf16');
+      expect(site.generation).toMatch(/^[a-f0-9]{64}$/);
+      expect(site.reason.length).toBeGreaterThan(10);
+      expect(source.slice(site.span?.startIndex, site.span?.endIndex).length).toBeGreaterThan(0);
+    }
+    const productionEdges =
+      generation?.relations.filter((edge) => edge.targetId === 'production.ts::orgNameTaken') ?? [];
+    expect(productionEdges.filter((edge) => edge.type === 'calls')).toHaveLength(1);
+    expect(productionEdges.filter((edge) => edge.type === 'accesses')).toHaveLength(0);
+    expect(
+      generation?.relations.some(
+        (edge) => edge.type === 'imports' && edge.targetId === 'production.ts',
+      ),
+    ).toBe(true);
+    expect(insert).not.toHaveBeenCalled();
   });
 
   it('publishes AST-proven nested and object scopes with matching call endpoints', async () => {
