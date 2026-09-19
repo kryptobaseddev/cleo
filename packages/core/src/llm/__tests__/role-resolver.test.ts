@@ -57,6 +57,8 @@ const ENV_KEYS = [
   'CLEO_HOME',
   'HOME',
   'CLEO_DIR',
+  // Explicit projectRoot fixtures must not inherit the global project override.
+  'CLEO_ROOT',
 ];
 
 function saveEnv(): void {

@@ -8,10 +8,22 @@ import { CleoError } from '../errors.js';
 /**
  * Validate and normalize an explicitly supplied acceptance array.
  *
+ * @remarks
  * Absent input remains undefined. String entries are trimmed and blank strings
  * are dropped; an explicitly empty result remains [] so update can clear it.
  * Entries stay literal, including pipes and quoted unions. Nonstring entries
  * reject the entire input before any task mutation.
+ *
+ * @param acceptance - Optional array of literal string criteria supplied by the caller.
+ * @returns Trimmed nonblank criteria, including an explicit empty array; undefined for absent input.
+ * @throws CleoError when the input is not an array or includes a nonstring entry.
+ * @example
+ * ```typescript
+ * const criteria = [' literal a|b ', '', ' verify output '];
+ * normalizeAcceptance(criteria);
+ * // ['literal a|b', 'verify output']
+ * normalizeAcceptance([]); // [] requests an explicit clear on update
+ * ```
  */
 export function normalizeAcceptance(
   acceptance: readonly string[] | undefined,
@@ -206,8 +218,9 @@ function splitAcceptance(input: string, delim = '|'): string[] {
 /**
  * Parse acceptance criteria from a raw CLI string.
  *
+ * @remarks
  * Supports two formats:
- * - JSON array: `'["AC1","AC2","AC3"]'` (fast-path; preserved verbatim)
+ * - JSON array: `'["AC1","AC2","AC3"]'` (literal entries, normalized whitespace)
  * - Pipe-separated: `"AC1|AC2|AC3"` (tokenized via `splitAcceptance`)
  *
  * The pipe-separated form uses a bracket+quote+escape-aware tokenizer so
@@ -217,6 +230,15 @@ function splitAcceptance(input: string, delim = '|'): string[] {
  *
  * @param raw - Raw string from `--acceptance` flag
  * @returns Array of trimmed, non-empty acceptance criteria strings
+ * @throws CleoError for malformed explicit JSON arrays or nonstring JSON elements.
+ * @example
+ * ```typescript
+ * parseAcceptanceCriteria('first|ENUM (hot|cold)|third');
+ * // ['first', 'ENUM (hot|cold)', 'third']
+ * const raw = '["literal a|b", " verified "]';
+ * parseAcceptanceCriteria(raw);
+ * // ['literal a|b', 'verified']
+ * ```
  *
  * @bug https://github.com/kryptobaseddev/cleo/issues/409
  * @task T1490
