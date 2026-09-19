@@ -2346,6 +2346,7 @@ export {
 // === TaskRecord Types (string-widened for dispatch/LAFS) ===
 export type {
   MinimalTaskRecord,
+  TaskMatch,
   TaskRecord,
   TaskRecordRelation,
   TaskRecordRelationCounts,
