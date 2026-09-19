@@ -35,7 +35,9 @@
  * @task gh#1403
  */
 
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -161,11 +163,86 @@ describe('T12273 package artifact checks reach the required PR and merge-group g
   it('runs on both PR and merge-group events with relevant source/script/workflow inputs', () => {
     expect(workflow.on).toHaveProperty('pull_request');
     expect(workflow.on).toHaveProperty('merge_group');
-    expect(job.if).toBe(
-      "needs.changes.outputs.code == 'true' || needs.changes.outputs.scripts == 'true' || needs.changes.outputs.workflows == 'true'",
-    );
     expect(workflow.jobs.ci.needs).toContain('packed-artifact');
     expect(job['continue-on-error']).toBeUndefined();
+  });
+  const changes = workflow.jobs.changes;
+  const filters = parseYaml(changes.steps.find((step) => step.id === 'filter').with.filters);
+  // Representative real build inputs are independent of filter names/patterns.
+  it.each(
+    [
+      'crates/worktree-napi/src/lib.rs',
+      'crates/worktrunk-core/Cargo.toml',
+      'Cargo.toml',
+      'Cargo.lock',
+      '.cargo/config.toml',
+      'rust-toolchain.toml',
+      '.npmrc',
+      '.pnpmfile.cjs',
+      '.npmignore',
+      '.gitignore',
+      'pnpm-workspace.yaml',
+      'pnpm-lock.yaml',
+      'package.json',
+      'build.mjs',
+      'tsconfig.base.json',
+      'packages/studio/svelte.config.js',
+      'packages/cleo/package.json',
+      'packages/core/src/store/sqlite.ts',
+      'scripts/packed-install-smoke.mjs',
+      '.github/workflows/ci.yml',
+      '.github/actions/install-ripgrep/action.yml',
+    ]
+      .map((changedPath) => [changedPath, true])
+      .concat([['docs/usage.md', false]]),
+  )('evaluates packed verification for the independent input %s as %s', (changedPath, expected) => {
+    const enabled = job.if
+      .split(' || ')
+      .map((term) => {
+        const parsed = /^needs\.changes\.outputs\.([a-z_]+) == 'true'$/.exec(term);
+        expect(parsed, `unsupported gate expression: ${term}`).not.toBeNull();
+        const name = parsed[1];
+        expect(changes.outputs[name]).toBe(`\${{ steps.filter.outputs.${name} }}`);
+        expect(filters[name]).toBeInstanceOf(Array);
+        return filters[name].some((pattern) => path.posix.matchesGlob(changedPath, pattern));
+      })
+      .some(Boolean);
+    expect(enabled).toBe(expected);
+  });
+  it.each([
+    ['failure', 1],
+    ['cancelled', 1],
+    ['success', 0],
+    ['skipped', 0],
+  ])('executes the real required aggregate with a packed result of %s', (result, expected) => {
+    const root = mkdtempSync(path.join(tmpdir(), 'packed-aggregate-'));
+    try {
+      const aggregate = workflow.jobs.ci.steps.find((step) => step.env?.NEEDS_JSON);
+      const needs = Object.fromEntries(
+        workflow.jobs.ci.needs.map((name) => [
+          name,
+          { result: name === 'packed-artifact' ? result : 'success' },
+        ]),
+      );
+      const run = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', aggregate.run], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          PATH: process.env.PATH,
+          RESULTS: Object.values(needs)
+            .map((entry) => entry.result)
+            .join(','),
+          NEEDS_JSON: JSON.stringify(needs),
+          ADVISORY_RESULT: 'success',
+          GITHUB_STEP_SUMMARY: path.join(root, 'summary'),
+        },
+      });
+      expect(run.error).toBeUndefined();
+      expect(run.status, run.stdout + run.stderr).toBe(expected);
+      if (expected !== 0) expect(run.stdout).toContain('packed-artifact');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
   it('executes classifier, npm fixtures and wiring tests without changed-sibling selection', () => {
     const run = job.steps.find(

@@ -61,6 +61,7 @@ jobs:
     timeout-minutes: 2
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      packaging: ${{ steps.filter.outputs.packaging }}
       scripts: ${{ steps.filter.outputs.scripts }}
       schemas: ${{ steps.filter.outputs.schemas }}
       core: ${{ steps.filter.outputs.core }}
@@ -133,6 +134,18 @@ jobs:
             scripts:
               - 'scripts/**'
               - 'vitest.memory-safe.js'
+            # Native and package-manager inputs also change the installed artifact.
+            packaging:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain*'
+              - '.npmrc'
+              - '.pnpmfile.cjs'
+              - '.npmignore'
+              - '.gitignore'
+              - '.github/actions/**'
             schemas:
               - 'packages/*/schemas/**'
               - 'packages/*/templates/**'
@@ -1715,8 +1728,8 @@ jobs:
   packed-artifact:
     name: Packed CLI and Studio Artifact
     needs: [biome, changes]
-    # Source, packaging scripts, and workflow-only changes all exercise this gate.
-    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.scripts == 'true' || needs.changes.outputs.workflows == 'true'
+    # Includes native and package-manager inputs, even without JavaScript changes.
+    if: needs.changes.outputs.packaging == 'true' || needs.changes.outputs.code == 'true' || needs.changes.outputs.scripts == 'true' || needs.changes.outputs.workflows == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -1736,7 +1749,10 @@ jobs:
         run: |
           cargo build --release --locked -p worktree-napi
           cp target/release/libworktree_napi.so crates/worktree-napi/worktree-napi.linux-x64-gnu.node
+      - uses: ./.github/actions/install-ripgrep
       - run: pnpm install --frozen-lockfile
+      - name: Prepare Studio test configuration
+        run: pnpm --filter @cleocode/studio exec svelte-kit sync
       - name: Run package classifier and actual npm fixture regressions
         run: pnpm exec vitest run --project @cleocode/caamp --project scripts packages/caamp/tests/unit/package-artifact.test.ts scripts/__tests__/assert-cleo-tarball.test.mjs scripts/__tests__/ci-scripts-tests-wiring.test.mjs --maxWorkers=2
       - name: Build release JavaScript and Studio content
