@@ -524,7 +524,9 @@ export async function findTasks(
       const literalTerms = [...new Set(candidates.flatMap((candidate) => candidate.literalTerms))];
       const match: TaskMatch = {
         kind: literalTerms.length ? 'lexical' : 'fuzzy',
-        fields: candidates.map((candidate) => candidate.field),
+        fields: candidates
+          .filter((candidate) => !literalTerms.length || candidate.literalTerms.length > 0)
+          .map((candidate) => candidate.field),
         terms: literalTerms,
         reason: literalTerms.length
           ? 'Case-insensitive literal query terms in the named fields'
