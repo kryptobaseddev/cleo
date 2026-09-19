@@ -6,9 +6,22 @@
  * - When a valid project cookie is set, locals.projectCtx is resolved from the registry.
  * - When an invalid/unknown project cookie is set, locals.projectCtx falls back to default.
  *
- * All nexus.db reads are mocked so no real databases are required.
+ * Hook propagation uses mocks; modern-store resolution uses disposable canonical
+ * stores and real source accessors to test project ownership and path policy.
  */
 
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
+import {
+  _resetDualScopeDbCache,
+  getDualScopeNativeDb,
+  openDualScopeDbAtPath,
+} from '@cleocode/core/store/dual-scope-db';
+import { nexusProjectRegistry } from '@cleocode/core/store/schema/cleo-global/nexus';
+import { closeAllDatabases } from '@cleocode/core/store/sqlite';
+import { listTasks } from '@cleocode/core/tasks/list';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -171,5 +184,147 @@ describe('hooks.server.ts — project context propagation', () => {
     const response = await handle({ event, resolve });
 
     expect(response.status).toBe(200);
+  });
+});
+
+describe('actual modern-store context resolution', () => {
+  let root: string;
+  let projectA: string;
+  let projectB: string;
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), 'studio-modern-context-'));
+    projectA = join(root, 'a');
+    projectB = join(root, 'b');
+    const globalHome = join(root, 'cleo');
+    mkdirSync(globalHome);
+    vi.stubEnv('CLEO_HOME', globalHome);
+    vi.stubEnv('CLEO_ROOT', projectA);
+    vi.stubEnv('CLEO_DIR', join(projectA, '.cleo'));
+    const registry = await openDualScopeDbAtPath('global', join(globalHome, 'cleo.db'));
+    for (const [projectPath, projectId, title] of [
+      [projectA, 'aaaaaaaaaaaa', 'Task A'],
+      [projectB, 'bbbbbbbbbbbb', 'Task B'],
+    ]) {
+      mkdirSync(join(projectPath, '.cleo'), { recursive: true });
+      writeFileSync(
+        join(projectPath, '.cleo/project-info.json'),
+        JSON.stringify({ projectId, projectHash: projectId }),
+      );
+      registry.db
+        .insert(nexusProjectRegistry)
+        .values({
+          projectId,
+          projectHash: projectId,
+          projectPath,
+          name: title,
+          brainDbPath: join(projectPath, '.cleo/brain.db'),
+          tasksDbPath: join(projectPath, '.cleo/tasks.db'),
+        })
+        .run();
+      const accessor = await getTaskAccessor(projectPath);
+      await accessor.upsertSingleTask({
+        id: 'T001',
+        title,
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      });
+      expect(existsSync(join(projectPath, '.cleo/cleo.db'))).toBe(true);
+      expect(existsSync(join(projectPath, '.cleo/tasks.db'))).toBe(false);
+      expect(existsSync(join(projectPath, '.cleo/brain.db'))).toBe(false);
+    }
+  });
+  afterEach(async () => {
+    await closeAllDatabases();
+    _resetDualScopeDbCache();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('recognizes the default consolidated store and persisted project identity', async () => {
+    const actual =
+      await vi.importActual<typeof import('../project-context.js')>('../project-context.js');
+    const context = actual.resolveDefaultProjectContext();
+    expect(context).toMatchObject({
+      projectId: 'aaaaaaaaaaaa',
+      projectPath: projectA,
+      tasksDbPath: join(projectA, '.cleo/cleo.db'),
+      brainDbPath: join(projectA, '.cleo/cleo.db'),
+      tasksDbExists: true,
+      brainDbExists: true,
+    });
+    expect((await listTasks({}, context.projectPath)).tasks.map((task) => task.title)).toEqual([
+      'Task A',
+    ]);
+  });
+
+  it('switches registered projects without trusting retired paths or ambient pins', async () => {
+    const actual =
+      await vi.importActual<typeof import('../project-context.js')>('../project-context.js');
+    for (const [projectId, projectPath, title] of [
+      ['bbbbbbbbbbbb', projectB, 'Task B'],
+      ['aaaaaaaaaaaa', projectA, 'Task A'],
+    ]) {
+      const context = actual.resolveProjectContext(projectId);
+      expect(context).toMatchObject({
+        projectId,
+        projectPath,
+        tasksDbPath: join(projectPath, '.cleo/cleo.db'),
+        brainDbPath: join(projectPath, '.cleo/cleo.db'),
+        tasksDbExists: true,
+        brainDbExists: true,
+      });
+      expect((await listTasks({}, context!.projectPath)).tasks.map((task) => task.title)).toEqual([
+        title,
+      ]);
+    }
+    expect(
+      actual
+        .listRegisteredProjects()
+        .map((project) => project.tasksDbPath)
+        .sort(),
+    ).toEqual([join(projectA, '.cleo/cleo.db'), join(projectB, '.cleo/cleo.db')]);
+  });
+
+  it('resolves an explicit CLEO_ROOT without requiring CLEO_DIR or matching cwd', async () => {
+    const actual =
+      await vi.importActual<typeof import('../project-context.js')>('../project-context.js');
+    vi.stubEnv('CLEO_DIR', undefined);
+    vi.stubEnv('CLEO_ROOT', projectB);
+    const context = actual.resolveDefaultProjectContext();
+    expect(context).toMatchObject({
+      projectId: 'bbbbbbbbbbbb',
+      projectPath: projectB,
+      tasksDbPath: join(projectB, '.cleo/cleo.db'),
+      tasksDbExists: true,
+    });
+  });
+
+  it('distinguishes an unknown project from an unreadable registry', async () => {
+    const actual =
+      await vi.importActual<typeof import('../project-context.js')>('../project-context.js');
+    expect(actual.resolveProjectContext('missing-project')).toBeNull();
+    const registry = await openDualScopeDbAtPath('global', join(root, 'cleo/cleo.db'));
+    getDualScopeNativeDb(registry).exec(
+      'ALTER TABLE nexus_project_registry RENAME TO unavailable_registry',
+    );
+    expect(() => actual.resolveProjectContext('aaaaaaaaaaaa')).toThrow(/nexus_project_registry/);
+    expect(() => actual.listRegisteredProjects()).toThrow(/nexus_project_registry/);
+  });
+
+  it('does not replace unreadable persisted identity with an empty identity', async () => {
+    const actual =
+      await vi.importActual<typeof import('../project-context.js')>('../project-context.js');
+    writeFileSync(join(projectA, '.cleo/project-info.json'), '{corrupted');
+    expect(() => actual.resolveDefaultProjectContext()).toThrow(/identity/);
+  });
+
+  it('resolves global domain paths to the canonical global store', async () => {
+    const paths = await import('../cleo-home.js');
+    expect(paths.getNexusDbPath()).toBe(join(root, 'cleo/cleo.db'));
+    expect(paths.getAgentRegistryDbPath()).toBe(join(root, 'cleo/cleo.db'));
+    expect(paths.getTasksDbPath()).toBe(join(projectA, '.cleo/cleo.db'));
+    expect(paths.getBrainDbPath()).toBe(join(projectA, '.cleo/cleo.db'));
+    expect(paths.getConduitDbPath()).toBe(join(projectA, '.cleo/cleo.db'));
   });
 });

@@ -3,20 +3,26 @@
  *
  * The active project is stored as a cookie (`cleo_project_id`).
  * When a project is selected, the studio resolves the project's
- * brain.db and tasks.db paths from the global nexus.db registry,
+ * consolidated project store from the global cleo.db registry,
  * injecting them into database connections for the page load.
  *
- * nexus.db is always global (single instance); brain.db and tasks.db
- * are per-project.
+ * Task and brain tables share the project store. The cross-project registry
+ * lives in the global store; legacy stored domain paths are not authoritative.
  *
  * @task T622
  */
 
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { openCleoDbSnapshot } from '@cleocode/core';
+import { basename, dirname, join } from 'node:path';
+import { getProjectInfoSync } from '@cleocode/core';
+import { openCleoDbSnapshot } from '@cleocode/core/store/open-cleo-db';
 import type { Cookies } from '@sveltejs/kit';
-import { getCleoHome, getCleoProjectDir } from './cleo-home.js';
+import {
+  getCleoProjectDir,
+  getNexusDbPath,
+  getTasksDbPath,
+  withStudioProjectScope,
+} from './cleo-home.js';
 
 /** Cookie name used to persist the active project selection. */
 export const PROJECT_COOKIE = 'cleo_project_id';
@@ -32,13 +38,13 @@ export interface ProjectContext {
   name: string;
   /** Absolute path to the project root. */
   projectPath: string;
-  /** Absolute path to brain.db for this project. */
+  /** Absolute consolidated project store path containing brain tables. */
   brainDbPath: string;
-  /** Absolute path to tasks.db for this project. */
+  /** Absolute consolidated project store path containing task tables. */
   tasksDbPath: string;
-  /** Whether brain.db exists on disk. */
+  /** Whether the consolidated brain store exists on disk. */
   brainDbExists: boolean;
-  /** Whether tasks.db exists on disk. */
+  /** Whether the consolidated task store exists on disk. */
   tasksDbExists: boolean;
 }
 
@@ -70,72 +76,85 @@ export function clearActiveProjectId(cookies: Cookies): void {
 }
 
 /**
- * Resolve the project context from the nexus.db registry for a given project ID.
+ * Resolve project context from the consolidated global registry.
  *
  * Returns null if the project is not registered or the DB rows are missing.
- * Falls back to deriving paths from the project_path column if brain_db_path
- * or tasks_db_path are not set in the registry.
+ * Legacy domain-path columns are ignored; canonical paths derive from the selected root.
+ * @param projectId - Stable registered project identity selected by the request.
+ * @returns The selected project context, or null when the registry or row is absent.
+ * @throws When an existing registry cannot be read; diagnostic failure is not absence.
+ * @remarks Snapshot reads are read-only and do not apply journal pragmas or rewrite registry rows.
+ * @example
+ * ```ts
+ * const context = resolveProjectContext(projectId);
+ * ```
  */
 export function resolveProjectContext(projectId: string): ProjectContext | null {
+  // T11578 · AC3: the cross-project registry lives in the consolidated GLOBAL
+  // `cleo.db` (the standalone `nexus.db` is retired post-E6), in the PREFIXED
+  // `nexus_project_registry` table.
+  const globalDbPath = getNexusDbPath();
+  if (!existsSync(globalDbPath)) return null;
+
+  // Read-only snapshot via chokepoint API (T9685-B3, ADR-068): the registry
+  // is read-only from Studio context — writes happen via the CLI.
+  const snap = openCleoDbSnapshot(globalDbPath, { readOnly: true, applyPragmas: false });
   try {
-    // T11578 · AC3: the cross-project registry lives in the consolidated GLOBAL
-    // `cleo.db` (the standalone `nexus.db` is retired post-E6), in the PREFIXED
-    // `nexus_project_registry` table.
-    const globalDbPath = join(getCleoHome(), 'cleo.db');
-    if (!existsSync(globalDbPath)) return null;
+    const row = snap.db
+      .prepare(
+        'SELECT project_id, name, project_path FROM nexus_project_registry WHERE project_id = ?',
+      )
+      .get(projectId) as
+      | {
+          project_id: string;
+          name: string;
+          project_path: string;
+        }
+      | undefined;
 
-    // Read-only snapshot via chokepoint API (T9685-B3, ADR-068): the registry
-    // is read-only from Studio context — writes happen via the CLI.
-    const snap = openCleoDbSnapshot(globalDbPath);
-    try {
-      const row = snap.db
-        .prepare(
-          'SELECT project_id, name, project_path, brain_db_path, tasks_db_path FROM nexus_project_registry WHERE project_id = ?',
-        )
-        .get(projectId) as
-        | {
-            project_id: string;
-            name: string;
-            project_path: string;
-            brain_db_path: string | null;
-            tasks_db_path: string | null;
-          }
-        | undefined;
+    if (!row) return null;
 
-      if (!row) return null;
+    const tasksDbPath = getTasksDbPath(row.project_path);
+    const brainDbPath = tasksDbPath;
 
-      const brainDbPath = row.brain_db_path ?? join(row.project_path, '.cleo', 'brain.db');
-      const tasksDbPath = row.tasks_db_path ?? join(row.project_path, '.cleo', 'tasks.db');
-
-      return {
-        projectId: row.project_id,
-        name: row.name,
-        projectPath: row.project_path,
-        brainDbPath,
-        tasksDbPath,
-        brainDbExists: existsSync(brainDbPath),
-        tasksDbExists: existsSync(tasksDbPath),
-      };
-    } finally {
-      snap.close();
-    }
-  } catch {
-    return null;
+    return {
+      projectId: row.project_id,
+      name: row.name,
+      projectPath: row.project_path,
+      brainDbPath,
+      tasksDbPath,
+      brainDbExists: existsSync(brainDbPath),
+      tasksDbExists: existsSync(tasksDbPath),
+    };
+  } finally {
+    snap.close();
   }
 }
 
 /**
  * Resolve the default project context (current project from CLEO_ROOT / cwd).
  * Used as fallback when no project cookie is set.
+ * @returns Canonical modern-store paths and the available persisted identity.
+ * @throws When existing identity metadata cannot be decoded.
+ * @remarks Projects without metadata retain the legacy empty identity; this does not
+ * assert that they are registered or have verified portable identity.
+ * @example
+ * ```ts
+ * const context = resolveDefaultProjectContext();
+ * ```
  */
 export function resolveDefaultProjectContext(): ProjectContext {
   const projectDir = getCleoProjectDir();
-  const projectPath = projectDir.replace(/\/.cleo$/, '');
-  const brainDbPath = join(projectDir, 'brain.db');
-  const tasksDbPath = join(projectDir, 'tasks.db');
+  const projectPath = dirname(projectDir);
+  const tasksDbPath = getTasksDbPath();
+  const brainDbPath = tasksDbPath;
+  const info = withStudioProjectScope(projectPath, () => getProjectInfoSync(projectPath));
+  if (!info && existsSync(join(projectDir, 'project-info.json'))) {
+    throw new Error(`Cannot read Studio project identity at ${projectDir}/project-info.json`);
+  }
   return {
-    projectId: '',
-    name: projectPath.split('/').pop() ?? 'default',
+    projectId: info?.projectId || info?.projectHash || '',
+    name: basename(projectPath) || 'default',
     projectPath,
     brainDbPath,
     tasksDbPath,
@@ -145,8 +164,16 @@ export function resolveDefaultProjectContext(): ProjectContext {
 }
 
 /**
- * List all registered projects from nexus.db.
- * Returns an empty array if nexus.db is unavailable.
+ * List registered projects with canonical modern domain paths.
+ * Returns an empty array when the global registry store is absent.
+ * @returns Registry projects with current canonical store paths and recorded statistics.
+ * @throws When an existing registry cannot be read; failures do not become an empty population.
+ * @remarks Recorded statistics retain their existing freshness semantics. Path resolution
+ * does not migrate data or claim that project graph contents live in the global registry.
+ * @example
+ * ```ts
+ * const projects = listRegisteredProjects();
+ * ```
  */
 export function listRegisteredProjects(): Array<{
   projectId: string;
@@ -162,91 +189,84 @@ export function listRegisteredProjects(): Array<{
   lastSeen: string;
   healthStatus: string;
 }> {
+  // T11578 · AC3: registry lives in the consolidated GLOBAL `cleo.db`
+  // (`nexus_project_registry`), not the retired standalone `nexus.db`.
+  const globalDbPath = getNexusDbPath();
+  if (!existsSync(globalDbPath)) return [];
+
+  // Read-only snapshot via chokepoint API (T9685-B3, ADR-068): the registry
+  // is read-only from Studio context — writes happen via the CLI.
+  const snap = openCleoDbSnapshot(globalDbPath, { readOnly: true, applyPragmas: false });
   try {
-    // T11578 · AC3: registry lives in the consolidated GLOBAL `cleo.db`
-    // (`nexus_project_registry`), not the retired standalone `nexus.db`.
-    const globalDbPath = join(getCleoHome(), 'cleo.db');
-    if (!existsSync(globalDbPath)) return [];
+    const rows = snap.db
+      .prepare(
+        `SELECT
+          project_id,
+          name,
+          project_path,
+          last_indexed,
+          task_count,
+          stats_json,
+          last_seen,
+          health_status
+        FROM nexus_project_registry
+        ORDER BY last_seen DESC`,
+      )
+      .all() as Array<{
+      project_id: string;
+      name: string;
+      project_path: string;
+      last_indexed: string | null;
+      task_count: number;
+      stats_json: string | null;
+      last_seen: string;
+      health_status: string;
+    }>;
 
-    // Read-only snapshot via chokepoint API (T9685-B3, ADR-068): the registry
-    // is read-only from Studio context — writes happen via the CLI.
-    const snap = openCleoDbSnapshot(globalDbPath);
-    try {
-      const rows = snap.db
-        .prepare(
-          `SELECT
-            project_id,
-            name,
-            project_path,
-            brain_db_path,
-            tasks_db_path,
-            last_indexed,
-            task_count,
-            stats_json,
-            last_seen,
-            health_status
-          FROM nexus_project_registry
-          ORDER BY last_seen DESC`,
-        )
-        .all() as Array<{
-        project_id: string;
-        name: string;
-        project_path: string;
-        brain_db_path: string | null;
-        tasks_db_path: string | null;
-        last_indexed: string | null;
-        task_count: number;
-        stats_json: string | null;
-        last_seen: string;
-        health_status: string;
-      }>;
+    /**
+     * Strict server-side exclusion: any project whose path contains a `.temp/`
+     * segment is filtered out before reaching the client. This rule is
+     * non-negotiable (cannot be revealed via UI toggle) — `.temp/` is reserved
+     * for ephemeral fixture/scratch state that must never appear in the
+     * project switcher.
+     */
+    const TEMP_PATH_PATTERN = /(^|\/)\.temp(\/|$)/;
 
-      /**
-       * Strict server-side exclusion: any project whose path contains a `.temp/`
-       * segment is filtered out before reaching the client. This rule is
-       * non-negotiable (cannot be revealed via UI toggle) — `.temp/` is reserved
-       * for ephemeral fixture/scratch state that must never appear in the
-       * project switcher.
-       */
-      const TEMP_PATH_PATTERN = /(^|\/)\.temp(\/|$)/;
-
-      return rows
-        .filter((row) => !TEMP_PATH_PATTERN.test(row.project_path))
-        .map((row) => {
-          let nodeCount = 0;
-          let relationCount = 0;
-          let fileCount = 0;
-          try {
-            const stats = JSON.parse(row.stats_json ?? '{}') as {
-              nodeCount?: number;
-              relationCount?: number;
-              fileCount?: number;
-            };
-            nodeCount = stats.nodeCount ?? 0;
-            relationCount = stats.relationCount ?? 0;
-            fileCount = stats.fileCount ?? 0;
-          } catch {
-            // keep defaults
-          }
-          return {
-            projectId: row.project_id,
-            name: row.name,
-            projectPath: row.project_path,
-            brainDbPath: row.brain_db_path ?? null,
-            tasksDbPath: row.tasks_db_path ?? null,
-            lastIndexed: row.last_indexed ?? null,
-            taskCount: row.task_count ?? 0,
-            nodeCount,
-            relationCount,
-            fileCount,
-            lastSeen: row.last_seen,
-            healthStatus: row.health_status,
+    return rows
+      .filter((row) => !TEMP_PATH_PATTERN.test(row.project_path))
+      .map((row) => {
+        let nodeCount = 0;
+        let relationCount = 0;
+        let fileCount = 0;
+        try {
+          const stats = JSON.parse(row.stats_json ?? '{}') as {
+            nodeCount?: number;
+            relationCount?: number;
+            fileCount?: number;
           };
-        });
-    } finally {
-      snap.close();
-    }
-  } catch {
-    return [];
+          nodeCount = stats.nodeCount ?? 0;
+          relationCount = stats.relationCount ?? 0;
+          fileCount = stats.fileCount ?? 0;
+        } catch {
+          // keep defaults
+        }
+        const storePath = getTasksDbPath(row.project_path);
+        return {
+          projectId: row.project_id,
+          name: row.name,
+          projectPath: row.project_path,
+          brainDbPath: storePath,
+          tasksDbPath: storePath,
+          lastIndexed: row.last_indexed ?? null,
+          taskCount: row.task_count ?? 0,
+          nodeCount,
+          relationCount,
+          fileCount,
+          lastSeen: row.last_seen,
+          healthStatus: row.health_status,
+        };
+      });
+  } finally {
+    snap.close();
   }
 }
