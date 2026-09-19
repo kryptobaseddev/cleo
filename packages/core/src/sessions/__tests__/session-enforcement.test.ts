@@ -22,7 +22,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CleoError } from '../../errors.js';
 import { drainWarnings } from '../../output.js';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
@@ -44,6 +44,9 @@ afterAll(() => {
 let TEST_ROOT: string;
 
 beforeEach(async () => {
+  // Resolve each explicitly supplied fixture root, including independent projects.
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   resetDbState();
   drainWarnings();
   TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-session-enforcement-'));
@@ -51,6 +54,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   resetDbState();
   await rm(TEST_ROOT, { recursive: true, force: true });
 });
