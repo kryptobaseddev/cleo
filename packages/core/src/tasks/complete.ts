@@ -281,6 +281,16 @@ function projectRootForGate(cwd: string | undefined): string {
  */
 type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings'>;
 
+/** Parent rollups must satisfy their own criteria without inheriting child waivers. */
+async function canAutoCompleteParent(
+  parent: Task,
+  accessor: DataAccessor,
+  tx: TransactionAccessor,
+): Promise<boolean> {
+  if (parent.noAutoComplete) return false;
+  return (await computeAcCoverage(parent.id, { ...accessor, ...tx })).ok;
+}
+
 async function enforceAcCoverageGate(
   options: CompleteTaskOptions,
   projectRoot: string,
@@ -922,7 +932,7 @@ export async function completeTask(
                   } as typeof acc)
                 : true;
 
-              if (epicEvidencePassed) {
+              if (epicEvidencePassed && (await canAutoCompleteParent(parent, acc, tx))) {
                 parent.status = 'done';
                 parent.completedAt = now;
                 parent.updatedAt = now;
@@ -979,7 +989,11 @@ export async function completeTask(
                   '[complete] suppressing coordination-parent auto-close: un-waived cancelled children require `cleo complete --waive-cancelled-children`',
                 );
               }
-              if (allCpDone && !cpHasCancelledChild) {
+              if (
+                allCpDone &&
+                !cpHasCancelledChild &&
+                (await canAutoCompleteParent(coordinationParent, acc, tx))
+              ) {
                 // Synthesize verification evidence from children's gate state.
                 // The overlay adds the current task (not yet in DB) as done so
                 // buildRollupEvidence sees the post-write view.
@@ -1050,7 +1064,7 @@ export async function completeTask(
             if (m.id === task.id) return true;
             return m.status === 'done' || m.status === 'cancelled';
           });
-          if (!allMembersTerminal) continue;
+          if (!allMembersTerminal || !(await canAutoCompleteParent(saga, acc, tx))) continue;
 
           // Synthesize evidence + flip the saga to terminal. The saga write
           // joins `autoCompletedTasks` so the transaction below upserts it

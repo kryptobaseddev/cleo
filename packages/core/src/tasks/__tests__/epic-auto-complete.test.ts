@@ -43,6 +43,47 @@ describe('epic auto-complete', () => {
     await env.cleanup();
   });
 
+  it.each([
+    'epic',
+    'task',
+    'saga',
+  ] as const)('leaves a %s parent with an unproven criterion open after its last child completes', async (parentType) => {
+    await seedTasks(accessor, [
+      { id: 'T901', title: 'Parent scope', type: parentType, status: 'active' },
+      {
+        id: 'T902',
+        title: 'Finished child',
+        type: parentType === 'saga' ? 'epic' : parentType === 'task' ? 'subtask' : 'task',
+        parentId: 'T901',
+        status: 'active',
+      },
+    ]);
+    await accessor.transaction(async (tx) => {
+      await tx.insertAcRows([
+        {
+          id: 'parent-unproven-ac',
+          taskId: 'T901',
+          ordinal: 1,
+          text: 'Actual integrated behavior verified',
+        },
+      ]);
+    });
+    const result = await completeTask({ taskId: 'T902' }, env.tempDir, accessor);
+    expect(result.task.status).toBe('done');
+    expect(result.autoCompleted ?? []).not.toContain('T901');
+    expect((await accessor.loadSingleTask('T901'))?.status).toBe('active');
+    expect((await accessor.getAcRows('T901'))[0]?.text).toBe('Actual integrated behavior verified');
+  });
+
+  it('honors the saga noAutoComplete opt-out', async () => {
+    await seedTasks(accessor, [
+      { id: 'T901', title: 'Manual saga', type: 'saga', status: 'active', noAutoComplete: true },
+      { id: 'T902', title: 'Finished epic', type: 'epic', parentId: 'T901', status: 'active' },
+    ]);
+    await completeTask({ taskId: 'T902' }, env.tempDir, accessor);
+    expect((await accessor.loadSingleTask('T901'))?.status).toBe('active');
+  });
+
   it('does NOT auto-complete epic when only one of two subtasks is completed (bug T585)', async () => {
     await seedTasks(accessor, [
       {
