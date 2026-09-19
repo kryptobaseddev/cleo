@@ -120,7 +120,7 @@ export function taskToRow(task: Partial<Task> & { id: string }): NewTaskRow {
     // T944/T9072: orthogonal axes — use undefined so Drizzle applies the column default
     kind: task.kind ?? undefined,
     scope: task.scope ?? undefined,
-    severity: task.severity ?? undefined,
+    severity: task.severity,
   };
 }
 
