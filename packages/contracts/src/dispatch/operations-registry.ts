@@ -288,6 +288,12 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
     params: [
+      {
+        name: 'includeArchive',
+        type: 'boolean',
+        required: false,
+        description: 'Include archived rows under the same filters',
+      },
       { name: 'parent', type: 'string', required: false, description: 'Filter by parent task ID' },
       { name: 'status', type: 'string', required: false, description: 'Filter by task status' },
       { name: 'priority', type: 'string', required: false, description: 'Filter by task priority' },
@@ -319,7 +325,7 @@ export const OPERATIONS: OperationDef[] = [
         type: 'number',
         required: false,
         description:
-          'Maximum number of tasks to return (default 10). Use --all to return every match. (--limit 0 also returns every match, but only on this command — prefer --all.)',
+          'Maximum number of tasks to return (default 10). --all or --limit 0 returns every match.',
       },
       {
         name: 'offset',

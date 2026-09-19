@@ -18,6 +18,7 @@
  * @task T1703 — Fill Result=unknown stubs with canonical typed shapes
  */
 
+import type { TaskPopulation } from '../data-accessor.js';
 import type { ImpactReport } from '../facade.js';
 import type { TaskAnalysisResult, TaskRef } from '../results.js';
 /**
@@ -115,11 +116,14 @@ export interface TasksListParams {
   limit?: number;
   offset?: number;
   compact?: boolean;
+  /** Include archive rows under the same filters. */
+  includeArchive?: boolean;
 }
 export interface TasksListResult {
   tasks: TaskOp[];
   total: number;
   filtered: number;
+  population: TaskPopulation;
 }
 
 // tasks.find
