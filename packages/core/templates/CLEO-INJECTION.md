@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.17.1 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.18.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -275,6 +275,14 @@ Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantb
 | Generate llms.txt summary | `cleo docs generate --for <taskId>` |
 
 Use repo-relative paths within the current repo/worktree, never arbitrary external absolute paths from `/tmp` or another checkout. Publish tracked copies with `cleo docs publish --for <ownerId> --to <repo-relative-path>`. Before batch writes, run `cleo add-batch --dry-run` and check `/data/insertedCount` = 0. `cleo docs list-types` and `DocKindRegistry` define runtime kinds; prefer them over stale lists.
+Document storage success is separate from optional projection verification. Read
+`data.projection` after `cleo docs add`: retain coverage, diagnostics, captured
+project identity, deadline, and any job/receipt reference. Pending work can have an
+unresolved committed outcome; inspect it before explicit resume, never repeat the
+add blindly. One two-second maintenance budget covers preparation through
+verification; timer expiry does not preempt synchronous SQLite. Verify exact bytes
+with `cleo docs fetch <slug>` JSON `data.bytesBase64` and `data.metadata.sha256`;
+rendered content can add a newline.
 <!-- /CLEO-INJECTION:section=documents -->
 <!-- CLEO-INJECTION:section=human-render -->
 ## Human Render Contract (ADR-077)
