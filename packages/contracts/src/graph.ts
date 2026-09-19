@@ -500,8 +500,58 @@ export interface GraphIndexReferenceReport {
   publicationGeneration?: string;
 }
 
+/** One explicitly selected source root, without implying complete file or caller coverage. */
+export interface GraphSourceRoot {
+  /** Absolute normalized requested location, retained even when inaccessible. */
+  readonly requestedPath: string;
+  /** Real filesystem location; null when canonical ownership could not be observed. */
+  readonly canonicalPath: string | null;
+  /** Forward-slash prefix relative to the graph source root; empty for the root itself. */
+  readonly graphPrefix: string;
+  /** Whether the caller explicitly included this repository below the graph source root. */
+  readonly explicitlyIncluded: boolean;
+  /** Git HEAD observed at this root; null is never interpreted as a known revision. */
+  readonly revision: string | null;
+  /** Outcome of root/revision observation, distinct from file-analysis coverage. */
+  readonly status: 'available' | 'unversioned' | 'missing' | 'failed' | 'pending';
+  /** Diagnostic failures or limitations that must survive compact root rendering. */
+  readonly diagnostics: readonly string[];
+}
+
+/** Immutable provenance of explicitly owned roots under a stable parent project identity. */
+export interface GraphSourceRootAssessment {
+  /** Existing project identity supplied by the caller, never derived from Git roots. */
+  readonly projectId: string;
+  /** Absolute parent project location; canonicalized when it exists. */
+  readonly projectRoot: string;
+  /** Absolute graph source location; canonicalized when it exists. */
+  readonly sourceRoot: string;
+  /** Observation start time in ISO-8601 form. */
+  readonly assessedAt: string;
+  /** Source root followed by explicitly selected repository roots; no implicit nested discovery. */
+  readonly roots: readonly GraphSourceRoot[];
+}
+
+/** Explicit source ownership and bounded revision-assessment input. */
+export interface GraphSourceRootRequest {
+  /** Stable existing parent project identity. */
+  readonly projectId: string;
+  /** Parent project location; independent of repository ownership. */
+  readonly projectRoot: string;
+  /** Explicit graph source location; defaults to the parent project location. */
+  readonly sourceRoot?: string;
+  /** Repository paths relative to the source root; escaping or aliased ownership is invalid. */
+  readonly includedRepositories?: readonly string[];
+  /** Absolute epoch-millisecond deadline shared across every root; defaults to two seconds. */
+  readonly deadline?: number;
+  /** Caller cancellation; cancellation rejects instead of reporting successful observation. */
+  readonly signal?: AbortSignal;
+}
+
 /** Source provenance persisted with a complete published graph generation. */
 export interface GraphIndexAssessment {
+  /** Explicit parent identity and per-root revision observations; absent on historical indexes. */
+  sourceRoots?: GraphSourceRootAssessment;
   /** Immutable publication identity allocated before extraction; absent on historical indexes. */
   generation?: string;
   /** Unmodeled AST scopes remain explicit limitations instead of fabricated declarations. */
