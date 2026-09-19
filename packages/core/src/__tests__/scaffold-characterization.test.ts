@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   checkCleoStructure,
@@ -57,6 +57,13 @@ function makeProjectWithCleo(): string {
 }
 
 // ── ensureCleoStructure ───────────────────────────────────────────────
+
+// Exercise explicit fixture roots without the setup project's default pins.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('characterization: ensureCleoStructure', () => {
   let tmpDir: string;
