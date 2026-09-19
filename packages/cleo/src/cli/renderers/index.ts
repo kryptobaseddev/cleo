@@ -114,6 +114,8 @@ import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs
 import { normalizeForHuman } from './normalizer.js';
 import {
   detectTruncation,
+  formatTaskMatching,
+  formatTaskPopulation,
   formatTruncationWarning,
   renderOutputMode,
   renderSummary,
@@ -397,6 +399,20 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const fieldCtx = getFieldContext();
   const outputMode = getOutputMode();
   const summary = getSummaryMode();
+  const matching = formatTaskMatching(data);
+  if (
+    matching &&
+    (outputMode !== 'envelope' || summary || fieldCtx.field || ctx.format === 'human')
+  ) {
+    process.stderr.write(`${matching}\n`);
+  }
+  const population = formatTaskPopulation(data);
+  if (
+    population &&
+    (outputMode !== 'envelope' || summary || fieldCtx.field || ctx.format === 'human')
+  ) {
+    process.stderr.write(`${population}\n`);
+  }
 
   // T9930 — --output {id|table|count|silent} re-renders the canonical envelope
   // payload into the alternative shape the caller asked for. `--field` (T9929)

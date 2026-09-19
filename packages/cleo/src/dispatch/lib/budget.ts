@@ -11,6 +11,7 @@
  * @epic T11285 EP-MVI-PRIMITIVE
  */
 
+import { MVI_TRUTH_FIELDS } from '@cleocode/core/dispatch/mvi-projection';
 import type { BudgetEnforcementResult } from '@cleocode/lafs';
 import { applyBudgetEnforcement, BUDGET_EXCEEDED_CODE, checkBudget } from '@cleocode/lafs';
 import type { _ProtoEnvelopeStub } from './proto-envelope.js';
@@ -149,7 +150,7 @@ export function enforceBudget(
     effectiveBudget,
     // In 'truncate' mode the engine attempts to shrink the payload; in 'error'
     // mode we skip truncation so the overflow surfaces as an error envelope.
-    { truncateOnExceed: mode === 'truncate' },
+    { truncateOnExceed: mode === 'truncate', requiredFields: MVI_TRUTH_FIELDS },
   );
 
   // The engine sets withinBudget=false ONLY when it could not bring the

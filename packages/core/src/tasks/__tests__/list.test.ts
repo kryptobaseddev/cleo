@@ -5,9 +5,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { projectMvi } from '../../dispatch/mvi-projection.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { listTasks } from '../list.js';
+import { findTasks, taskFind } from '../find.js';
+import { listTasks, taskList, toCompact } from '../list.js';
 
 describe('listTasks', () => {
   let env: TestDbEnv;
@@ -299,5 +301,188 @@ describe('listTasks', () => {
 
     expect(result.tasks).toHaveLength(12);
     expect(result.page.mode).toBe('none');
+  });
+  it('shares archive eligibility, parent filtering, and explicit population facts with find', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T201',
+        title: 'cohort parent',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T202',
+        title: 'cohort ordinary',
+        parentId: 'T201',
+        status: 'pending',
+        priority: 'medium',
+        kind: 'bug',
+        labels: ['scope'],
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T203',
+        title: 'cohort archived',
+        parentId: 'T201',
+        status: 'archived',
+        priority: 'medium',
+        kind: 'bug',
+        labels: ['scope'],
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T204',
+        title: 'cohort unrelated archive',
+        status: 'archived',
+        priority: 'medium',
+        kind: 'bug',
+        labels: ['scope'],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const list = await listTasks(
+      { parentId: 'T201', label: 'scope', kind: 'bug', includeArchive: true, limit: 1 },
+      env.tempDir,
+      accessor,
+    );
+    const find = await findTasks(
+      {
+        query: 'cohort',
+        parent: 'T201',
+        label: 'scope',
+        kind: 'bug',
+        includeArchive: true,
+        limit: 1,
+      },
+      env.tempDir,
+      accessor,
+    );
+    expect(list.population).toEqual({
+      matched: 2,
+      returned: 1,
+      truncated: true,
+      limit: 1,
+      offset: 0,
+      archive: 'included',
+    });
+    expect(find.population).toEqual(list.population);
+    const listed = await listTasks(
+      { parentId: 'T201', includeArchive: true, limit: 0 },
+      env.tempDir,
+      accessor,
+    );
+    const found = await findTasks(
+      { parent: 'T201', includeArchive: true, limit: 0 },
+      env.tempDir,
+      accessor,
+    );
+    expect(listed.tasks.map((t) => t.id).sort()).toEqual(['T202', 'T203']);
+    expect(found.results.map((t) => t.id).sort()).toEqual(['T202', 'T203']);
+    const archived = await findTasks(
+      { status: 'archived', parent: 'T201', includeArchive: true, limit: 0 },
+      env.tempDir,
+      accessor,
+    );
+    expect(archived.results.map((t) => t.id)).toEqual(['T203']);
+    expect(archived.population.archive).toBe('only');
+    const ordinary = await findTasks({ parent: 'T201', limit: 0 }, env.tempDir, accessor);
+    expect(ordinary.results.map((t) => t.id)).toEqual(['T202']);
+    expect(ordinary.population.archive).toBe('excluded');
+  });
+
+  it('limit zero with an offset returns every remaining match without the generic 50-row ceiling', async () => {
+    await seedTasks(
+      accessor,
+      Array.from({ length: 72 }, (_, i) => ({
+        id: `T${300 + i}`,
+        title: 'large population',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      })),
+    );
+    const list = await listTasks({ limit: 0, offset: 3 }, env.tempDir, accessor);
+    const find = await findTasks(
+      { query: 'large population', limit: 0, offset: 3 },
+      env.tempDir,
+      accessor,
+    );
+    expect(list.tasks).toHaveLength(69);
+    expect(find.results).toHaveLength(69);
+    expect(list.population).toEqual({
+      matched: 72,
+      returned: 69,
+      truncated: true,
+      limit: null,
+      offset: 3,
+      archive: 'excluded',
+    });
+    expect(find.population).toEqual(list.population);
+  });
+
+  it('rejects invalid pagination instead of silently changing the requested population', async () => {
+    for (const limit of [-1, 1.5, Number.NaN]) {
+      await expect(listTasks({ limit }, env.tempDir, accessor)).rejects.toThrow(
+        /non-negative integers/,
+      );
+      await expect(findTasks({ status: 'pending', limit }, env.tempDir, accessor)).rejects.toThrow(
+        /non-negative integers/,
+      );
+    }
+  });
+  it.each([
+    'compact',
+    'lowFind',
+    'sdkFind',
+    'sdkList',
+  ] as const)('discloses upstream SDK omissions for %s before fields are lost (T12199)', async (surface) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T880',
+        title: 'disclosure fixture',
+        description: '解析🌱',
+        acceptance: ['preserve authority', 'verify actual scope'],
+        notes: ['historical evidence'],
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const source = await accessor.loadSingleTask('T880');
+    if (!source) throw new Error('fixture missing');
+    const direct = toCompact(source);
+    const low = await findTasks({ query: 'disclosure' }, env.tempDir, accessor);
+    const sdkFind = await taskFind(env.tempDir, 'disclosure');
+    const sdkList = await taskList(env.tempDir, { compact: true });
+    expect(sdkFind.success).toBe(true);
+    expect(sdkList.success).toBe(true);
+    const rows = {
+      compact: direct,
+      lowFind: low.results[0],
+      sdkFind: sdkFind.data?.results[0],
+      sdkList: sdkList.data?.tasks[0],
+    };
+    for (const row of [rows[surface]]) {
+      if (!row) throw new Error('projection lost fixture');
+      expect(row).not.toHaveProperty('description');
+      expect(row).not.toHaveProperty('acceptance');
+      expect(row._withheld?.description).toBe(Buffer.byteLength('解析🌱', 'utf8'));
+      expect(row._withheld?.acceptance).toBe(
+        Buffer.byteLength(JSON.stringify(source.acceptance), 'utf8'),
+      );
+      for (const key of Object.keys(source)) {
+        if (!Object.hasOwn(row, key)) expect(row._withheld).toHaveProperty(key);
+      }
+      for (const key of Object.keys(row._withheld ?? {}))
+        expect(Object.hasOwn(row, key)).toBe(false);
+      const projected = projectMvi({ ...row }, 'task');
+      expect(projected._withheld).toMatchObject(row._withheld ?? {});
+    }
+    expect(sdkFind.data?.results[0]._withheld).toHaveProperty('score');
+    const full = await taskFind(env.tempDir, 'disclosure', 0, { verbose: true });
+    expect(full.data?.results[0]).toHaveProperty('description', '解析🌱');
+    expect(full.data?.results[0]).not.toHaveProperty('_withheld');
   });
 });

@@ -148,6 +148,9 @@ export async function computeAcCoverage(
   // coverage) count equally per ADR-079-r4 §3.
   const covered = new Set<string>();
   for (const b of bindings) {
+    // T12254: the former completion shortcut asserted every criterion solely
+    // from verification.passed. Keep its rows as history, never as proof.
+    if (b.evidenceAtomId === 'auto-coverage-verification-passed') continue;
     covered.add(b.acId);
   }
 

@@ -2,8 +2,8 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.6.0
-  lastReviewed: 2026-05-27
+  version: 2.11.0
+  lastReviewed: 2026-09-19
   stability: stable
 ---
 
@@ -17,6 +17,12 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 · `task-discovery` · `task-relationships` · `session-commands` · `memory` · `nexus`
 · `orchestration` · `playbooks` · `documents` · `error-handling` · `pre-complete-gate`
 · `spawn-tiers` · `rules` · `memory-jit` · `escalation`
+
+Task find defaults to lexical query terms. Fuzzy character-subsequence matching requires `--fuzzy`; inspect per-row `match.kind` and `match.fields` before inferring related work. `--in` restricts the source field. Matching mode and fuzzy field explanations survive scalar/human output on stderr. Semantic retrieval remains separately identified.
+
+Compact SDK list/find records also carry `_withheld`: omission names and original UTF-8 sizes are recorded before fields are discarded, then retained through later CLI projections. Use full records to inspect those values; absence is not emptiness.
+
+List/find expose `data.population` with matched and returned counts, truncation, pagination, and archive eligibility. Count output equals emitted rows; use `--all` or `--limit 0` to enumerate all matches, and `--include-archive` to include archives under the same filters. Scalar/ID/table/summary modes preserve population facts on stderr. Do not treat a page as complete.
 
 ## Quick Reference
 
@@ -36,6 +42,37 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 | Attach doc to task | `cleo docs add T### file.md --type note --slug handle` |
 | Read a doc | `cleo docs fetch <slug>` |
 | Browse docs | `cleo docs list --task T###` |
+
+## Acceptance input and historical evidence
+
+Add, update, batch, and saga creation share one acceptance-input boundary. Pass
+arrays of strings in JSON parameters; `--acceptance` also accepts a JSON array
+string or the documented pipe-delimited form. Array entries keep literal pipes
+and quoted unions. Strings are trimmed and blank strings omitted; nonstring
+entries and malformed explicit JSON arrays reject the whole mutation. Bracketed
+prose and the existing delimiter escaping rules retain their interpretation.
+
+On update, an explicit `[]` (including an all-blank string array) requests a clear;
+omitting acceptance leaves it unchanged. Policy and immutability checks apply to
+normalized criteria, and a locked change still requires `--reason`. Fresh reads
+retain an empty acceptance array. Malformed stored criteria produce a diagnostic;
+valid historical strings and structured gates are preserved without normalization.
+Do not infer historical splits from pipes alone: repairs need original input or
+explicit provenance, a snapshot, and a guarded receipt.
+
+## Read completeness before editing
+
+Use `cleo show <id> --full` to inspect task fields before editing them. Compact
+records name every omitted field in `_withheld`, including empty or null values;
+the size is UTF-8 content bytes for strings and serialized JSON bytes otherwise.
+Repeated projection retains earlier omissions. A record without `_withheld` is
+complete at the record projection boundary; an envelope can separately report
+omitted records or fields. Never overwrite a field because a compact read omitted it.
+
+Coverage, failure diagnostics, authority corrections, and pending repair facts
+survive budgeting before examples. If mandatory facts cannot fit, the operation
+rejects the budget. Request a narrower scope or a larger budget, and do not treat
+that failure as clean coverage or absent impact.
 
 ## Skill-Specific Extensions
 
@@ -257,3 +294,7 @@ cite decisions by durable BRAIN decision IDs.
 **Migration rule:** When you encounter a decision ONLY in a markdown ledger
 (`.cleo/adrs/`, `.cleo/agent-outputs/`), store it in the BRAIN with
 `cleo memory store --type decision` and cite the BRAIN ID going forward.
+
+## Evidence must prove task criteria
+
+Merged PRs and passing CI are provenance. Implementation requires changed artifacts related to the task; testing and review require their own actual results. For tasks with canonical criteria, append explicit links such as `satisfies:T1234#AC1` to each relevant gate's evidence. Fetch the PR merge commit so artifact hashes can be inspected. A changed criterion invalidates its recorded proof. Completing a child preserves an open parent whose own criteria remain unproven; child waivers never transfer to parent criteria.

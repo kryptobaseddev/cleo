@@ -343,6 +343,7 @@ export type {
   TaskAuditLogQuery,
   TaskAuditLogRow,
   TaskFieldUpdates,
+  TaskPopulation,
   TaskQueryFilters,
   TransactionAccessor,
 } from './data-accessor.js';
@@ -2289,8 +2290,10 @@ export type {
   AcceptanceItem,
   CancelledTask,
   CompletedTask,
+  CriterionEvidenceLink,
   EpicLifecycle,
   EvidenceAtom,
+  EvidenceValidationContext,
   FileMeta,
   GateEvidence,
   Phase,
@@ -2343,6 +2346,8 @@ export {
 // === TaskRecord Types (string-widened for dispatch/LAFS) ===
 export type {
   MinimalTaskRecord,
+  RecordProjectionDisclosure,
+  TaskMatch,
   TaskRecord,
   TaskRecordRelation,
   TaskRecordRelationCounts,

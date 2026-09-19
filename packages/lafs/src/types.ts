@@ -590,6 +590,8 @@ export interface ConformanceReport {
  * callback is invoked.
  */
 export type BudgetEnforcementOptions = {
+  /** Caller-required top-level fields that truncation must preserve in full. */
+  requiredFields?: readonly string[];
   /**
    * When `true`, oversized results are truncated to fit within the budget.
    *

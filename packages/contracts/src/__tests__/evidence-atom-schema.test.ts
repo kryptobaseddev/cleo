@@ -540,7 +540,10 @@ describe('GATE_EVIDENCE_REQUIREMENTS (T10337)', () => {
     ];
     expect(validateEvidenceForGate('implemented', d).ok).toBe(true);
 
-    const e: EvidenceAtomInput[] = [{ kind: 'pr', prNumber: 357 }];
+    const e: EvidenceAtomInput[] = [
+      { kind: 'pr', prNumber: 357 },
+      { kind: 'files', paths: ['src/fix.ts'] },
+    ];
     expect(validateEvidenceForGate('implemented', e).ok).toBe(true);
   });
 
@@ -552,11 +555,11 @@ describe('GATE_EVIDENCE_REQUIREMENTS (T10337)', () => {
     if (!r.ok) {
       expect(r.message).toMatch(/^Gate 'implemented' requires evidence: /);
       expect(r.message).toContain('[commit AND files]');
-      expect(r.message).toContain('[pr]');
+      expect(r.message).toContain('[pr AND files]');
     }
   });
 
-  it('testsPassed accepts test-run, tool, pr — single-atom alternatives', () => {
+  it('testsPassed accepts actual runs and tools but rejects PR provenance', () => {
     expect(
       validateEvidenceForGate('testsPassed', [
         { kind: 'test-run', path: '/tmp/v.json' },
@@ -570,7 +573,7 @@ describe('GATE_EVIDENCE_REQUIREMENTS (T10337)', () => {
     expect(
       validateEvidenceForGate('testsPassed', [{ kind: 'pr', prNumber: 357 }] as EvidenceAtomInput[])
         .ok,
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('testsPassed rejects empty evidence', () => {
@@ -579,7 +582,7 @@ describe('GATE_EVIDENCE_REQUIREMENTS (T10337)', () => {
 
   it('qaPassed accepts a single tool atom (behavior parity with legacy)', () => {
     // Critical parity check: GATE_EVIDENCE_REQUIREMENTS.qaPassed.oneOf is
-    // [['tool'], ['pr']] — not [['tool', 'tool']]. The legacy runtime did NOT
+    // [['tool']] — not [['tool', 'tool']]. The legacy runtime did NOT
     // count distinct tool names, so one tool atom passes.
     expect(
       validateEvidenceForGate('qaPassed', [{ kind: 'tool', tool: 'lint' }] as EvidenceAtomInput[])
@@ -587,11 +590,11 @@ describe('GATE_EVIDENCE_REQUIREMENTS (T10337)', () => {
     ).toBe(true);
   });
 
-  it('qaPassed also accepts pr atom', () => {
+  it('qaPassed rejects PR provenance without a review tool result', () => {
     expect(
       validateEvidenceForGate('qaPassed', [{ kind: 'pr', prNumber: 357 }] as EvidenceAtomInput[])
         .ok,
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('documented accepts files or url', () => {
@@ -656,7 +659,7 @@ describe('formatGateRequirement (T10337)', () => {
     expect(s).toContain('[commit AND note]');
     expect(s).toContain('[decision AND files]');
     expect(s).toContain('[decision AND note]');
-    expect(s).toContain('[pr]');
+    expect(s).toContain('[pr AND files]');
     // Joiner between combinations is ' OR '.
     expect(s.split(' OR ').length).toBe(5);
   });
@@ -678,7 +681,7 @@ describe('formatGateRequirementHint (T9949)', () => {
     expect(h).toContain("--evidence 'commit:<sha>;note:<short description>'");
     expect(h).toContain("--evidence 'decision:D-arch-001;files:path/a.ts,path/b.ts'");
     expect(h).toContain("--evidence 'decision:D-arch-001;note:<short description>'");
-    expect(h).toContain("--evidence 'pr:357'");
+    expect(h).toContain("--evidence 'pr:357;files:path/a.ts,path/b.ts'");
     // Routes a `note:`-only caller at the partner atom they need.
     expect(h).toContain("'note:' alone is NOT accepted for this gate");
     expect(h).toContain("'commit:'");
@@ -686,11 +689,11 @@ describe('formatGateRequirementHint (T9949)', () => {
   });
 
   it('routes note-only callers for testsPassed at the right alternatives', () => {
-    // testsPassed accepts test-run, tool, or pr — none of which involve note.
+    // testsPassed accepts test-run or tool — neither involves note.
     const h = formatGateRequirementHint('testsPassed');
     expect(h).toContain("--evidence 'test-run:/tmp/vitest-out.json'");
     expect(h).toContain("--evidence 'tool:test'");
-    expect(h).toContain("--evidence 'pr:357'");
+    expect(h).not.toContain('pr:357');
     // When no combination includes note at all, the helper falls through to a
     // generic "not accepted, see ADR-051" clarifier rather than fabricating a
     // partner suggestion.
@@ -731,9 +734,9 @@ describe('validateEvidenceForGate failure surface (T9949)', () => {
     ] as EvidenceAtomInput[]);
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      // Legacy single-line message preserved byte-for-byte.
+      // Error includes the same artifact requirement as the validator.
       expect(r.message).toBe(
-        "Gate 'implemented' requires evidence: [commit AND files] OR [commit AND note] OR [decision AND files] OR [decision AND note] OR [pr]",
+        "Gate 'implemented' requires evidence: [commit AND files] OR [commit AND note] OR [decision AND files] OR [decision AND note] OR [pr AND files]",
       );
       // New rich hint includes the same content as formatGateRequirementHint.
       expect(r.hint).toBe(formatGateRequirementHint('implemented'));
@@ -747,7 +750,7 @@ describe('validateEvidenceForGate failure surface (T9949)', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.hint).toContain("--evidence 'tool:test'");
-      expect(r.hint).toContain("--evidence 'pr:357'");
+      expect(r.hint).not.toContain('pr:357');
       expect(r.hint).toContain("'note:' is NOT accepted for this gate");
     }
   });
