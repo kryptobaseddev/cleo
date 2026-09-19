@@ -16,9 +16,10 @@
  *     and worktree storage to throwaway directories.
  *   - `NEXUS_HOME` and `NEXUS_CACHE_DIR` follow `CLEO_HOME` so the global
  *     Nexus database also lives in tmp.
- *   - Variables already set by the parent process (e.g. by an integration
- *     suite that explicitly opted in via `CLEO_TEST_ALLOW_PROJECT_DB=true`)
- *     are honoured — we only fill in defaults.
+ *   - Inherited runtime roots are always replaced, including HOME and temp
+ *     variables. Test fixtures must never walk from a host temp directory
+ *     into a real ancestor .cleo directory. Explicit per-test overrides
+ *     belong in that test, after this setup has established isolation.
  *
  * Tests that need to override these (e.g. nexus/transfer.test.ts) can still
  * set them in their own `beforeEach` — that mutation lives only inside the
@@ -26,7 +27,7 @@
  */
 
 import { createRequire } from 'node:module';
-import { mkdtempSync, realpathSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -36,51 +37,38 @@ import { join, resolve } from 'node:path';
 const cjsRequire = createRequire(import.meta.url);
 const child_process: Record<string, unknown> = cjsRequire('node:child_process');
 
+// Resolve the platform temp default without inherited host overrides. A TMPDIR
+// below the developer's home can make ancestor discovery bind ~/.cleo even
+// after HOME is replaced. Never create the test sandbox beneath that path.
+for (const name of ['TMPDIR', 'TMP', 'TEMP']) delete process.env[name];
 const sandbox = mkdtempSync(join(tmpdir(), 'cleo-vitest-fork-'));
-
-if (!process.env.CLEO_HOME) {
-  process.env.CLEO_HOME = sandbox;
+const isolatedRoots = {
+  HOME: join(sandbox, 'home'),
+  USERPROFILE: join(sandbox, 'home'),
+  TMPDIR: join(sandbox, 'tmp'),
+  TMP: join(sandbox, 'tmp'),
+  TEMP: join(sandbox, 'tmp'),
+  XDG_DATA_HOME: join(sandbox, 'data-home'),
+  XDG_CONFIG_HOME: join(sandbox, 'config-home'),
+  XDG_CACHE_HOME: join(sandbox, 'cache-home'),
+  XDG_RUNTIME_DIR: join(sandbox, 'runtime'),
+  CLEO_HOME: sandbox,
+  CLEO_CONFIG_HOME: join(sandbox, 'cleo-config'),
+  CLEO_ROOT: join(sandbox, 'project'),
+  CLEO_DIR: join(sandbox, 'project', '.cleo'),
+  AGENTS_HOME: join(sandbox, 'agents'),
+  NEXUS_HOME: join(sandbox, 'nexus'),
+  NEXUS_CACHE_DIR: join(sandbox, 'nexus', 'cache'),
+};
+for (const [name, directory] of Object.entries(isolatedRoots)) {
+  mkdirSync(directory, { recursive: true });
+  process.env[name] = directory;
 }
-// T9405: getCleoPlatformPaths().config now resolves the global config file
-// (config.json) — formerly under CLEO_HOME. env-paths reads XDG_CONFIG_HOME /
-// XDG_CACHE_HOME, so pin them to the per-fork sandbox too. Without these, a
-// test that writes to globalConfigPath() lands in the real user's
-// ~/.config/cleo and persists across runs.
-if (!process.env.XDG_CONFIG_HOME) {
-  process.env.XDG_CONFIG_HOME = join(sandbox, 'config-home');
-}
-if (!process.env.XDG_CACHE_HOME) {
-  process.env.XDG_CACHE_HOME = join(sandbox, 'cache-home');
-}
-// T12051: `getAgentsHome()` resolves the GLOBAL agent-instruction hub
-// (`~/.agents/AGENTS.md`) — the file every provider's CLAUDE.md/AGENTS.md
-// @-references. `ensureInjection()` and `injectAgentsHub()` write it
-// unconditionally, and until now no test overrode it, so every run of the
-// injection suites appended a CAAMP block to the developer's REAL hub.
-//
-// T9020 addressed the *content* of those stray blocks (pinning the canonical
-// tilde path so dedup-by-content could collapse them) but never stopped the
-// write itself, which is why the pollution kept recurring: the moment a marker
-// was damaged, dedup-by-content stopped matching and the blocks accumulated
-// again. Pinning the directory removes the write vector entirely.
-if (!process.env.AGENTS_HOME) {
-  process.env.AGENTS_HOME = join(sandbox, 'agents');
-}
-// T12082: the cross-provider selector now admits a LIVE local inference daemon
-// as provisioned — a provider that needs no key should not have to be declared,
-// only to answer. That makes host state a test input: on a developer machine
-// running Ollama, every "nothing is provisioned" assertion in the LLM suite
-// flips. Pin it off by default; the tests that exercise the local path unset
-// this variable themselves.
-if (!process.env.CLEO_DISABLE_LOCAL_INFERENCE) {
-  process.env.CLEO_DISABLE_LOCAL_INFERENCE = '1';
-}
-if (!process.env.NEXUS_HOME) {
-  process.env.NEXUS_HOME = join(sandbox, 'nexus');
-}
-if (!process.env.NEXUS_CACHE_DIR) {
-  process.env.NEXUS_CACHE_DIR = join(sandbox, 'nexus', 'cache');
-}
+// A parent process cannot opt an ordinary unit-test fork into a real store.
+// Deliberate integration fixtures may set scoped overrides after setup.
+delete process.env.CLEO_TEST_ALLOW_PROJECT_DB;
+delete process.env.CLEO_TEST_ALLOWED_DB_ROOTS;
+process.env.CLEO_DISABLE_LOCAL_INFERENCE = '1';
 // Tests do not need real signaldock peer permission checks.
 if (!process.env.NEXUS_SKIP_PERMISSION_CHECK) {
   process.env.NEXUS_SKIP_PERMISSION_CHECK = 'true';
