@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.8.0
+  version: 2.9.0
   lastReviewed: 2026-09-19
   stability: stable
 ---
@@ -36,6 +36,23 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 | Attach doc to task | `cleo docs add T### file.md --type note --slug handle` |
 | Read a doc | `cleo docs fetch <slug>` |
 | Browse docs | `cleo docs list --task T###` |
+
+## Acceptance input and historical evidence
+
+Add, update, batch, and saga creation share one acceptance-input boundary. Pass
+arrays of strings in JSON parameters; `--acceptance` also accepts a JSON array
+string or the documented pipe-delimited form. Array entries keep literal pipes
+and quoted unions. Strings are trimmed and blank strings omitted; nonstring
+entries and malformed explicit JSON arrays reject the whole mutation. Bracketed
+prose and the existing delimiter escaping rules retain their interpretation.
+
+On update, an explicit `[]` (including an all-blank string array) requests a clear;
+omitting acceptance leaves it unchanged. Policy and immutability checks apply to
+normalized criteria, and a locked change still requires `--reason`. Fresh reads
+retain an empty acceptance array. Malformed stored criteria produce a diagnostic;
+valid historical strings and structured gates are preserved without normalization.
+Do not infer historical splits from pipes alone: repairs need original input or
+explicit provenance, a snapshot, and a guarded receipt.
 
 ## Read completeness before editing
 
