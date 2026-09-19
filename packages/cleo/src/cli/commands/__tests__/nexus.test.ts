@@ -19,7 +19,7 @@ import {
   nexusRegister,
   resetDbState,
 } from '@cleocode/core/internal';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
 import { nexusCommand } from '../nexus.js';
 
@@ -40,6 +40,13 @@ async function createTestProject(
   await accessor.close();
   resetDbState();
 }
+
+// Multi-project scenarios resolve each store from its explicit fixture root.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'nexus-cli-test-'));
