@@ -6,8 +6,8 @@
 
 import type {
   MinimalTaskRecord,
-  Task,
   TaskKind,
+  TaskPopulation,
   TaskQueryFilters,
   TaskRecord,
   TaskStatus,
@@ -18,10 +18,10 @@ import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
-import { resolveSagaMemberIds } from '../sagas/storage.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { taskToRecord } from './engine-converters.js';
+import { paginateTaskPopulation, readTaskPopulation } from './population.js';
 
 /** Minimal task info for search results. */
 export interface FindResult {
@@ -112,6 +112,7 @@ export interface FindTasksOptions {
 export interface FindTasksResult {
   results: FindResult[];
   total: number;
+  population: TaskPopulation;
   query: string;
   searchType: 'fuzzy' | 'id' | 'exact';
 }
@@ -381,71 +382,13 @@ export async function findTasks(
 
   const acc = accessor ?? (await getTaskAccessor(cwd));
 
-  // T10108: Saga-aware --parent routing.
-  // When --parent targets a Saga, resolve members through the canonical
-  // Saga member helper. Falls back to the default parentId-based query when the
-  // parent is not a Saga (or does not exist — non-existent IDs collapse to
-  // an empty result via the default path, preserving historical behaviour).
-  // Mirrors `listTasks` (ADR-073 §1).
-  let sagaMemberIds: string[] | null = null;
-  if (options.parent) {
-    sagaMemberIds = await resolveSagaMemberIds(acc, options.parent);
-  }
-
-  // Use targeted query with status/label/parent filters when available —
-  // push them into the accessor so SQLite-backed accessors benefit from the
-  // existing query predicates. T9904 (label) / T10108 (parent).
-  const filters: TaskQueryFilters = {};
-  if (options.status) {
-    filters.status = options.status;
-  }
-  if (options.label) {
-    filters.label = options.label;
-  }
-  // T10108: skip the raw parentId filter when routing through the Saga helper;
-  // the member-set intersection below restricts the result in-memory instead.
-  if (options.parent && sagaMemberIds === null) {
-    filters.parentId = options.parent;
-  }
-  const queryResult = await acc.queryTasks(filters);
-  let allTasks: Task[] = [...queryResult.tasks];
-
-  // T10108: Saga path — restrict the queried set to the saga's member IDs.
-  if (sagaMemberIds !== null) {
-    const memberOrder = new Map<string, number>();
-    for (let idx = 0; idx < sagaMemberIds.length; idx++) {
-      const id = sagaMemberIds[idx];
-      if (id !== undefined) memberOrder.set(id, idx);
-    }
-    const memberSet = new Set(sagaMemberIds);
-    allTasks = allTasks
-      .filter((t) => memberSet.has(t.id))
-      .sort((a, b) => (memberOrder.get(a.id) ?? 0) - (memberOrder.get(b.id) ?? 0));
-  }
-
-  // Include archive if requested
-  if (options.includeArchive) {
-    const archive = await acc.loadArchive();
-    if (archive?.archivedTasks) {
-      let archivedTasks = archive.archivedTasks as Task[];
-      if (options.status) {
-        archivedTasks = archivedTasks.filter((t) => t.status === options.status);
-      }
-      if (options.label) {
-        // T9904 — archive doesn't flow through queryTasks; apply the label
-        // predicate here so includeArchive composes correctly.
-        archivedTasks = archivedTasks.filter((t) =>
-          (t.labels ?? []).includes(options.label as string),
-        );
-      }
-      allTasks = [...allTasks, ...archivedTasks];
-    }
-  }
-
-  // T944/T9072: kind filter — applied after status/archive resolution
-  if (options.kind) {
-    allTasks = allTasks.filter((t) => t.kind === options.kind);
-  }
+  const filters: TaskQueryFilters = {
+    status: options.status,
+    label: options.label,
+    parentId: options.parent,
+    kind: options.kind,
+  };
+  let allTasks = await readTaskPopulation(acc, filters, options.includeArchive);
 
   // T9905: unified urgency filter. Disjunctive across the two orthogonal axes:
   //   priority IN ('critical','high') OR severity IN ('P0','P1')
@@ -552,17 +495,13 @@ export async function findTasks(
 
   const total = results.length;
 
-  // Apply pagination.
-  //
-  // GH #1302 — `limit === 0` means NO LIMIT here, as it always has in
-  // `listTasks`. It previously meant `slice(offset, offset + 0)`, i.e. ZERO
-  // rows, so the same flag spelled the same way returned everything on
-  // `cleo list` and nothing on `cleo find`. The envelope made that worse rather
-  // than obvious: `{"results": [], "total": 260}` with a message reading "No
-  // matching tasks found" — the answer and its own refutation in one object.
-  const limit = options.limit ?? 20;
-  const offset = options.offset ?? 0;
-  results = limit === 0 ? results.slice(offset) : results.slice(offset, offset + limit);
+  const { rows, population } = paginateTaskPopulation(
+    results,
+    options.limit ?? 20,
+    options.offset ?? 0,
+    options.status === 'archived' ? 'only' : options.includeArchive ? 'included' : 'excluded',
+  );
+  results = rows;
 
   // Enrich each result with _next progressive disclosure directives
   const enrichedResults = results.map((r) => ({
@@ -573,6 +512,7 @@ export async function findTasks(
   return {
     results: enrichedResults,
     total,
+    population,
     query: queryStr,
     searchType,
   };
@@ -614,7 +554,13 @@ export async function taskFind(
     /** Filter by parent task ID — see {@link FindTasksOptions.parent}. @task T10108 */
     parent?: string;
   },
-): Promise<EngineResult<{ results: (MinimalTaskRecord | TaskRecord)[]; total: number }>> {
+): Promise<
+  EngineResult<{
+    results: (MinimalTaskRecord | TaskRecord)[];
+    total: number;
+    population: TaskPopulation;
+  }>
+> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
     const findResult = await findTasks(
@@ -639,9 +585,18 @@ export async function taskFind(
       const fullResults: TaskRecord[] = [];
       for (const r of findResult.results) {
         const task = await accessor.loadSingleTask(r.id);
-        if (task) fullResults.push(taskToRecord(task));
+        if (!task)
+          throw new CleoError(
+            ExitCode.GENERAL_ERROR,
+            `Task ${r.id} disappeared during search projection; retry the query`,
+          );
+        fullResults.push(taskToRecord(task));
       }
-      return engineSuccess({ results: fullResults, total: findResult.total });
+      return engineSuccess({
+        results: fullResults,
+        total: findResult.total,
+        population: findResult.population,
+      });
     }
 
     const results: MinimalTaskRecord[] = findResult.results.map((r) => ({
@@ -659,7 +614,7 @@ export async function taskFind(
       ...(r.severity != null ? { severity: r.severity } : {}),
     }));
 
-    return engineSuccess({ results, total: findResult.total });
+    return engineSuccess({ results, total: findResult.total, population: findResult.population });
   } catch (err: unknown) {
     // T9940: preserve CleoError LAFS codes; non-CleoError → E_INTERNAL,
     // never the misleading E_NOT_INITIALIZED blanket label.

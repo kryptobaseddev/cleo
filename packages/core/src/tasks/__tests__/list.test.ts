@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { findTasks } from '../find.js';
 import { listTasks } from '../list.js';
 
 describe('listTasks', () => {
@@ -299,5 +300,135 @@ describe('listTasks', () => {
 
     expect(result.tasks).toHaveLength(12);
     expect(result.page.mode).toBe('none');
+  });
+  it('shares archive eligibility, parent filtering, and explicit population facts with find', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T201',
+        title: 'cohort parent',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T202',
+        title: 'cohort ordinary',
+        parentId: 'T201',
+        status: 'pending',
+        priority: 'medium',
+        kind: 'bug',
+        labels: ['scope'],
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T203',
+        title: 'cohort archived',
+        parentId: 'T201',
+        status: 'archived',
+        priority: 'medium',
+        kind: 'bug',
+        labels: ['scope'],
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T204',
+        title: 'cohort unrelated archive',
+        status: 'archived',
+        priority: 'medium',
+        kind: 'bug',
+        labels: ['scope'],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const list = await listTasks(
+      { parentId: 'T201', label: 'scope', kind: 'bug', includeArchive: true, limit: 1 },
+      env.tempDir,
+      accessor,
+    );
+    const find = await findTasks(
+      {
+        query: 'cohort',
+        parent: 'T201',
+        label: 'scope',
+        kind: 'bug',
+        includeArchive: true,
+        limit: 1,
+      },
+      env.tempDir,
+      accessor,
+    );
+    expect(list.population).toEqual({
+      matched: 2,
+      returned: 1,
+      truncated: true,
+      limit: 1,
+      offset: 0,
+      archive: 'included',
+    });
+    expect(find.population).toEqual(list.population);
+    const listed = await listTasks(
+      { parentId: 'T201', includeArchive: true, limit: 0 },
+      env.tempDir,
+      accessor,
+    );
+    const found = await findTasks(
+      { parent: 'T201', includeArchive: true, limit: 0 },
+      env.tempDir,
+      accessor,
+    );
+    expect(listed.tasks.map((t) => t.id).sort()).toEqual(['T202', 'T203']);
+    expect(found.results.map((t) => t.id).sort()).toEqual(['T202', 'T203']);
+    const archived = await findTasks(
+      { status: 'archived', parent: 'T201', includeArchive: true, limit: 0 },
+      env.tempDir,
+      accessor,
+    );
+    expect(archived.results.map((t) => t.id)).toEqual(['T203']);
+    expect(archived.population.archive).toBe('only');
+    const ordinary = await findTasks({ parent: 'T201', limit: 0 }, env.tempDir, accessor);
+    expect(ordinary.results.map((t) => t.id)).toEqual(['T202']);
+    expect(ordinary.population.archive).toBe('excluded');
+  });
+
+  it('limit zero with an offset returns every remaining match without the generic 50-row ceiling', async () => {
+    await seedTasks(
+      accessor,
+      Array.from({ length: 72 }, (_, i) => ({
+        id: `T${300 + i}`,
+        title: 'large population',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      })),
+    );
+    const list = await listTasks({ limit: 0, offset: 3 }, env.tempDir, accessor);
+    const find = await findTasks(
+      { query: 'large population', limit: 0, offset: 3 },
+      env.tempDir,
+      accessor,
+    );
+    expect(list.tasks).toHaveLength(69);
+    expect(find.results).toHaveLength(69);
+    expect(list.population).toEqual({
+      matched: 72,
+      returned: 69,
+      truncated: true,
+      limit: null,
+      offset: 3,
+      archive: 'excluded',
+    });
+    expect(find.population).toEqual(list.population);
+  });
+
+  it('rejects invalid pagination instead of silently changing the requested population', async () => {
+    for (const limit of [-1, 1.5, Number.NaN]) {
+      await expect(listTasks({ limit }, env.tempDir, accessor)).rejects.toThrow(
+        /non-negative integers/,
+      );
+      await expect(findTasks({ status: 'pending', limit }, env.tempDir, accessor)).rejects.toThrow(
+        /non-negative integers/,
+      );
+    }
   });
 });
