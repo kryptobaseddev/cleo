@@ -142,6 +142,12 @@ export interface DualScopeDbHandle<TScope extends DualScope = DualScope> {
  * @param handle - Exact cached or dedicated handle whose connection is required.
  * @returns Its native SQLite connection; ownership remains with the handle.
  * @throws When the driver exposes no native SQLite connection.
+ * @remarks Dedicated migration handles retain independent connection ownership.
+ * @example
+ * ```ts
+ * const native = getDualScopeNativeDb(handle);
+ * native.prepare('SELECT 1').get();
+ * ```
  */
 export function getDualScopeNativeDb(handle: DualScopeDbHandle): DatabaseSync {
   const db = handle.db;
