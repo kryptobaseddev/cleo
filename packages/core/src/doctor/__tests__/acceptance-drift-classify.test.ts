@@ -49,6 +49,7 @@ function emptyScan(baselinePath: string): AcceptanceDriftScanResult {
       'rows-unreadable': 0,
       'legacy-children-omitted': 0,
       'count-mismatch': 0,
+      'content-mismatch': 0,
     },
     currentEraDrift: 0,
     unbaselined: [],
@@ -58,6 +59,17 @@ function emptyScan(baselinePath: string): AcceptanceDriftScanResult {
 }
 
 describe('classifyAcceptanceDrift — the live convention is json == text + child', () => {
+  it('reports content drift even when the two stores have identical counts', () => {
+    expect(
+      classifyAcceptanceDrift({
+        jsonCount: 1,
+        textRowCount: 1,
+        childRowCount: 0,
+        contentMatches: false,
+      }),
+    ).toBe('content-mismatch');
+  });
+
   it('treats an empty task as consistent', () => {
     expect(classifyAcceptanceDrift({ jsonCount: 0, textRowCount: 0, childRowCount: 0 })).toBeNull();
   });
