@@ -14,6 +14,7 @@ import type { SQL } from 'drizzle-orm';
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { memoryEligibilityClause } from '../memory/eligibility.js';
+import { assertOperationWriteFence } from './background-jobs.js';
 import { getBrainDb } from './memory-sqlite.js';
 import { jsonbText } from './schema/jsonb.js';
 import type {
@@ -323,7 +324,7 @@ export class BrainDataAccessor {
     if (execution) {
       execution.assertActive();
       return this.db.transaction((tx) => {
-        execution.assertActive();
+        assertOperationWriteFence(tx, execution);
         tx.insert(brainSchema.brainObservations).values(row).run();
         const stored = tx
           .select()

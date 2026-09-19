@@ -28,13 +28,19 @@
  * @epic T569
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createOperationExecutionContext } from '../../store/background-ops.js';
+import { DurableJobStore } from '../../store/background-jobs.js';
+import {
+  bindOperationWriteFence,
+  createOperationExecutionContext,
+} from '../../store/background-ops.js';
 import * as accessorModule from '../../store/memory-accessor.js';
+import { ensureLlmtxtNodeScoped } from '../graph-auto-populate.js';
 import { observeBrain } from '../retrieval/observe.js';
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -417,6 +423,73 @@ describe('captured observation write boundary', () => {
       execution.close();
       spy.mockRestore();
       vi.unstubAllEnvs();
+    }
+  });
+
+  it.each([
+    'current',
+    'cancel',
+    'stale-owner',
+  ] as const)('fences actual observation and graph writes after persisted %s', async (kind) => {
+    const { getDb } = await import('../../store/sqlite.js');
+    const db = await getDb(tempDir);
+    const jobs = new DurableJobStore(db, { projectId: 'observation-fixture', actor: 'fixture' });
+    const proposalJson = JSON.stringify({ attachment: 'b'.repeat(64), owner: 'T12265' });
+    const job = jobs.defer('observation-job', 'docs.projection', Date.now(), {
+      projectId: 'observation-fixture',
+      idempotencyKey: 'observation-boundary',
+      proposalJson,
+    });
+    const original = context();
+    const execution = bindOperationWriteFence(original, {
+      dbPath: join(tempDir, '.cleo', 'cleo.db'),
+      proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
+      lease: jobs.claim(job.id, Date.now()),
+    });
+    const accessor = await accessorModule.getBrainAccessor(tempDir);
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    const native = getBrainNativeDb(tempDir)!;
+    if (kind === 'cancel') jobs.requestCancel(job.id, Date.now());
+    else if (kind === 'stale-owner') {
+      native.prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?').run(job.id);
+      new DurableJobStore(db, { projectId: 'observation-fixture' }).claim(job.id, Date.now());
+    }
+    try {
+      if (kind === 'current') {
+        const stored = await accessor.addObservation(
+          { id: 'O-job-fenced', type: 'discovery', title: 'allowed' },
+          execution,
+        );
+        expect(stored.title).toBe('allowed');
+        expect(
+          await ensureLlmtxtNodeScoped(execution, 'b'.repeat(64), 'T12265', 'allowed'),
+        ).toMatchObject({ status: 'completed' });
+        expect(
+          native
+            .prepare('SELECT count(*) AS count FROM brain_page_nodes WHERE id=?')
+            .get('llmtxt:' + 'b'.repeat(64))?.count,
+        ).toBe(1);
+        return;
+      }
+
+      await expect(
+        accessor.addObservation(
+          { id: 'O-job-fenced', type: 'discovery', title: 'forbidden' },
+          execution,
+        ),
+      ).rejects.toThrow('Domain write refused');
+      await expect(
+        ensureLlmtxtNodeScoped(execution, 'b'.repeat(64), 'T12265', 'forbidden'),
+      ).rejects.toThrow('Domain write refused');
+      expect(await accessor.getObservation('O-job-fenced')).toBeNull();
+      expect(
+        native
+          .prepare('SELECT count(*) AS count FROM brain_page_nodes WHERE id=?')
+          .get('llmtxt:' + 'b'.repeat(64))?.count,
+      ).toBe(0);
+    } finally {
+      execution.close();
+      original.close();
     }
   });
 
