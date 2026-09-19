@@ -449,8 +449,10 @@ export interface GateEvidenceRequirement {
  *   - `[decision, files]` — decision-only task: brain_decisions row +
  *                           research-note file (T1875).
  *   - `[decision, note]`  — decision-only task without research note.
- *   - `[pr]`              — merged-PR retroactive proof (T9838 extension
- *                           of T9764).
+ *   - `[pr, files]`       — merged-PR provenance with inspected artifacts.
+ *
+ * PR merge status and generic CI success do not prove tests or review for
+ * the task. Those gates require their own verified result atoms (T12254).
  *
  * ## Why is `qaPassed` listed as `['tool']` not `['tool', 'tool']`?
  *
@@ -473,11 +475,11 @@ export const GATE_EVIDENCE_REQUIREMENTS: Readonly<
       ['commit', 'note'],
       ['decision', 'files'],
       ['decision', 'note'],
-      ['pr'],
+      ['pr', 'files'],
     ],
   },
-  testsPassed: { oneOf: [['test-run'], ['tool'], ['pr']] },
-  qaPassed: { oneOf: [['tool'], ['pr']] },
+  testsPassed: { oneOf: [['test-run'], ['tool']] },
+  qaPassed: { oneOf: [['tool']] },
   documented: { oneOf: [['files'], ['url']] },
   securityPassed: { oneOf: [['tool'], ['note']] },
   cleanupDone: { oneOf: [['note']] },
