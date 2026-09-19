@@ -82,7 +82,8 @@ describe('brain.db fresh init — zero "Adding missing column" warnings', () => 
     // ------------------------------------------------------------------
     // 2. Mock paths.js so brain.db is written to our isolated tmpdir.
     // ------------------------------------------------------------------
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => cleoHome,
       // memory-sqlite.ts (under test) resolves brain.db via the canonical
       // resolveCleoDir SSoT helper (T11262). With the tempDir cwd it must
