@@ -38,7 +38,11 @@ export async function prepareDocumentProjection(
     throw new Error('Document projection requires a canonical SHA-256');
   }
   return worktreeScope.run(
-    { worktreeRoot: context.identity.projectRoot, projectHash: context.identity.projectId },
+    {
+      worktreeRoot: context.identity.projectRoot,
+      projectHash: context.identity.projectId,
+      execution: context,
+    },
     async () => {
       const root = context.identity.projectRoot;
       const attachments = createAttachmentStore();
