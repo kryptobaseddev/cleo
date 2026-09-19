@@ -205,6 +205,17 @@ export interface OperationExecutionContext {
 }
 
 /**
+ * Trusted synchronous domain mutation admitted inside the job store's write transaction.
+ * @param execution - Captured identity, deadline, cancellation and current ownership fence.
+ * @returns JSON receipt bytes to persist as the job outcome in the same transaction.
+ * @remarks Implementations must use the already-open database named by the fence,
+ * must not control transactions, and must not schedule work or perform external
+ * side effects. This contract does not sandbox arbitrary callbacks or preempt
+ * synchronous work; domain preconditions and receipt validation remain required.
+ */
+export type AtomicJobMutation = (execution: OperationExecutionContext) => string;
+
+/**
  * Observation of a bounded wait, separate from the underlying operation's receipt.
  * @typeParam T - Value produced if the supplied promise settles during observation.
  */
