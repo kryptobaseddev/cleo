@@ -31,66 +31,23 @@
  * @epic T10293
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DocAttachmentObservationPayload } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { DocsAddResult } from '@cleocode/contracts/operations/docs';
+import {
+  _resetBrainWriterForTests,
+  shutdownBrainWriter,
+} from '@cleocode/core/memory/brain-writer-thread';
+import { awaitBackgroundOps } from '@cleocode/core/store/background-ops';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocsHandler } from '../docs.js';
 
 // ---------------------------------------------------------------------------
 // Helpers — mirrors the read-back helper in docs-memory-observation.test.ts so
 // the two suites can evolve independently if BRAIN storage details shift.
 // ---------------------------------------------------------------------------
-
-/** Wait up to `ms` milliseconds for `predicate()` to return truthy. */
-async function waitFor(predicate: () => Promise<boolean>, ms = 4000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    if (await predicate()) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
-
-/**
- * Best-effort settle window for the fire-and-forget observation writer before
- * teardown — mirrors `drainPendingBrainWrites` in
- * docs-memory-observation.test.ts (T12101). `docs.add` emits its observation
- * via an un-awaited promise chain whose tail can still be writing
- * `.cleo/cleo.db` when the test body finishes; draining before
- * `closeAllDatabases()` keeps those writes off the `rm` race window
- * (ENOTEMPTY on macOS CI).
- *
- * @task T12101
- */
-async function drainPendingBrainWrites(): Promise<void> {
-  await new Promise((r) => setImmediate(r));
-  await new Promise((r) => setImmediate(r));
-  await new Promise((r) => setTimeout(r, 200));
-}
-
-/**
- * Recursive `rm` that retries the transient ENOTEMPTY/EBUSY/EPERM races
- * produced by late fire-and-forget writers (T12101). Bounded to ~2.5s; any
- * other error is rethrown immediately. Handles are always closed via
- * `closeAllDatabases()` before this runs.
- *
- * @task T12101
- */
-async function rmWithRetry(path: string): Promise<void> {
-  const maxAttempts = 25;
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await rm(path, { recursive: true, force: true });
-      return;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      const transient = code === 'ENOTEMPTY' || code === 'EBUSY' || code === 'EPERM';
-      if (!transient || attempt >= maxAttempts) throw err;
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  }
-}
 
 /**
  * Read the doc-attachment observation row for `slug` directly from
@@ -130,7 +87,14 @@ const docsHandler = new DocsHandler();
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'cleo-docs-retro-'));
-  process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+  vi.stubEnv('CLEO_ROOT', tempDir);
+  vi.stubEnv('CLEO_DIR', join(tempDir, '.cleo'));
+  vi.stubEnv('CLEO_BRAIN_BYPASS_WRITER_THREAD', '1');
+  await mkdir(join(tempDir, '.cleo'));
+  await writeFile(
+    join(tempDir, '.cleo/project-info.json'),
+    JSON.stringify({ projectId: 'observation-fixture', projectRoot: tempDir }),
+  );
 
   fixtureFile = join(tempDir, 'doc.md');
   await writeFile(
@@ -141,14 +105,13 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  // T12101: settle fire-and-forget brain writers BEFORE closing handles, so
-  // they finish on the open DB instead of reopening `.cleo/cleo.db` during
-  // the recursive removal (ENOTEMPTY on macOS CI).
-  await drainPendingBrainWrites();
+  await awaitBackgroundOps();
+  await shutdownBrainWriter();
+  _resetBrainWriterForTests();
   const { closeAllDatabases } = await import('@cleocode/core/internal');
   await closeAllDatabases();
-  delete process.env['CLEO_DIR'];
-  await rmWithRetry(tempDir);
+  vi.unstubAllEnvs();
+  await rm(tempDir, { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -209,27 +172,27 @@ describe('T10375 — auto-emit on retroactively-normalized docs (E5.5)', () => {
         attachedBy: 'test-T10375',
       });
       expect(addResp.success, `docs.add failed: ${JSON.stringify(addResp.error)}`).toBe(true);
-      const addData = addResp.data as { attachmentId: string };
+      expect(
+        (addResp.data as DocsAddResult).projection,
+        JSON.stringify(addResp.data),
+      ).toMatchObject({ status: 'completed' });
+      const addData = addResp.data as DocsAddResult;
 
-      let foundRow: { id: string; title: string | null; narrative: string | null } | undefined;
-      await waitFor(async () => {
-        foundRow = await findDocObservationBySlug(testCase.slug);
-        return foundRow !== undefined;
-      });
+      const foundRow = await findDocObservationBySlug(testCase.slug);
 
       // Auto-emit landed.
       expect(
         foundRow,
         `expected docs.add to emit a doc-attachment observation for slug '${testCase.slug}'`,
       ).toBeDefined();
-      if (!foundRow) return;
+      if (!foundRow) throw new Error('Completed projection lacks its observation');
 
       // Title shape — what `cleo memory find '<slug>'` matches on via FTS.
       expect(foundRow.title).toBe(`Doc attached: ${testCase.slug}`);
 
       // Narrative — full structured payload.
       expect(typeof foundRow.narrative).toBe('string');
-      if (!foundRow.narrative) return;
+      if (!foundRow.narrative) throw new Error('Completed observation lacks its payload');
       const payload = JSON.parse(foundRow.narrative) as DocAttachmentObservationPayload;
 
       // Every required field of the contract must be present and correct.
@@ -258,15 +221,14 @@ describe('T10375 — auto-emit on retroactively-normalized docs (E5.5)', () => {
       attachedBy: 'test-T10375',
     });
     expect(addResp.success).toBe(true);
-
-    let foundRow: { id: string; title: string | null; narrative: string | null } | undefined;
-    await waitFor(async () => {
-      foundRow = await findDocObservationBySlug(slug);
-      return foundRow !== undefined;
+    expect((addResp.data as DocsAddResult).projection, JSON.stringify(addResp.data)).toMatchObject({
+      status: 'completed',
     });
 
+    const foundRow = await findDocObservationBySlug(slug);
+
     expect(foundRow).toBeDefined();
-    if (!foundRow?.narrative) return;
+    if (!foundRow?.narrative) throw new Error('Completed observation lacks its payload');
     const payload = JSON.parse(foundRow.narrative) as DocAttachmentObservationPayload;
 
     // Exact key set — extra keys are tolerated (forward-compatible) but
