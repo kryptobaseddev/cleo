@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.6.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.7.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## MANDATORY: Run `cleo briefing` BEFORE Any Other Tool
@@ -17,7 +17,12 @@ The ONLY canonical sources of session state are:
 - `cleo briefing` — structured handoff + next tasks + BRAIN context
 - `cleo focus <id>` — **primary orient surface** — single call replacing 8: identity, scope, blockers, ready wave, docs, git activity, brain context (≤ 1 500 tokens)
 - `cleo memory find "<query>"` — BRAIN memory lookup
-- `cleo show <taskId> --full` — individual task detail. **Use `--full`.** Bare `cleo show` returns an MVI projection that WITHHOLDS `description` and `verification`; withheld fields are named in `_withheld` (field → size), and a record with no `_withheld` key is complete.
+- `cleo show <taskId> --full` — individual task detail. **Use `--full`.** Bare `cleo show` returns an MVI projection that WITHHOLDS `description` and `verification`; withheld fields are named in `_withheld` (field → UTF-8 content bytes; structured values use JSON bytes), and a record with no `_withheld` key is complete.
+
+Projection markers include omitted empty/null fields and survive repeated projection.
+Budgeting preserves coverage, diagnostic failures, authority corrections and pending
+repair facts before examples. A budget too small for mandatory facts fails explicitly;
+request narrower scope or more budget. Never treat this failure as clean coverage.
 
 If you find yourself reading a markdown file for orientation, STOP. Run `cleo briefing`.
 
