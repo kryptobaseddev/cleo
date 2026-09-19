@@ -63,6 +63,7 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.js.map",
     "completions",
     "bin",
     "scripts",

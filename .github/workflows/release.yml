@@ -435,6 +435,25 @@ jobs:
       - name: Verify @cleocode/cleo tarball contents (T12011)
         run: node scripts/assert-cleo-tarball.mjs
 
+      # The size budget, deliberately the step immediately after the presence
+      # gate above. The two answer opposite questions and neither covers the
+      # other: `assert-cleo-tarball.mjs` asks "is anything MISSING?" using
+      # existsSync, so re-adding the 48.5 MB that gh#1472 removed would make
+      # every one of its assertions MORE true. This one asks "is there too
+      # much, or suspiciously little?".
+      #
+      # It belongs HERE and not in a tag-triggered workflow: by this point the
+      # job has run build.mjs, the brain + studio builds and copy-studio-dist,
+      # so this is the exact tree `pnpm publish` uploads ~300 lines below. A
+      # separate workflow would neither build Studio nor run in time to gate
+      # anything.
+      #
+      # INSTALL-TIME budget only. It is not a remedy for npm publish latency
+      # and must never be justified as one — see gh#1478 and the script's own
+      # docblock.
+      - name: Assert @cleocode/cleo size budget (T12252)
+        run: node packages/cleo/scripts/check-cleo-tarball-size.mjs
+
       # T12012: Hard gate — packed-install smoke test. Catches the class of
       # regression where a published package's dist imports a workspace-private
       # package that is NOT declared in that package's dependencies (and therefore

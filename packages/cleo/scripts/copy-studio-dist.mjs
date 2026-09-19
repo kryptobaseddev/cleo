@@ -21,12 +21,34 @@
  *
  * Studio's build output was 94% of the published @cleocode/cleo tarball —
  * 72 MB of web app around 4.6 MB of CLI — which pushed the package to 80.6 MB
- * unpacked. npm QUEUES packages that large for asynchronous processing and
- * returns exit 0 immediately, so v2026.9.6 reported a successful publish and
- * never became installable: 17 of 18 packages converged within 247 s while
- * `cleo` was still 404 at 1800 s.
+ * unpacked. Every `npm install -g @cleocode/cleo` downloaded and wrote all of
+ * it. That is the entire justification for this exclusion, and it is enough on
+ * its own.
  *
- * Two classes are therefore excluded from the PACKAGE (never from
+ * ### Correction: this is NOT a publish-latency fix (gh#1478)
+ *
+ * An earlier version of this docblock asserted that "npm QUEUES packages that
+ * large for asynchronous processing and returns exit 0 immediately", and that
+ * this was why v2026.9.6 published but never became installable. **That claim
+ * is false and is recorded here so it is not re-derived.** Three measurements
+ * killed it:
+ *
+ *   - Six consecutive releases shipped a BYTE-IDENTICAL 80.6 MB / 1059-file
+ *     package. Time from `npm publish` returning 0 to the registry creating
+ *     the version ranged from 4m55s to 55m11s. Size varied by zero; the delay
+ *     varied 11x.
+ *   - v2026.9.7 — the release this exclusion first shipped in — cut the
+ *     package to 32.1 MB / 728 files and took 2h55m09s. 3.2x LONGER at 40% the
+ *     size.
+ *   - In the v2026.9.7 run itself, `@cleocode/core` (42.8 MB across 5319 files,
+ *     larger and with seven times the file count) converged in 3m47s while
+ *     `cleo` took 175m. Same run, same token, same account, same minute.
+ *
+ * So the delay is specific to this package on npm's side, and nothing in this
+ * file moves it. Do not size, justify or revisit these exclusions on
+ * publish-latency grounds. The install-time argument below stands by itself.
+ *
+ * Two classes are excluded from the PACKAGE (never from
  * `packages/studio/build/`, so developing or running Studio from a checkout is
  * unaffected):
  *
@@ -41,10 +63,12 @@
  *     runtime the embedding path executes in Node via onnxruntime-node, not in
  *     the browser. This is a bundler artifact, not a feature.
  *
- * Together 47.9 MB of 80.6 MB. The target is chosen from evidence rather than
- * guessed: `@cleocode/core` is 42.8 MB across 5319 files and published
- * synchronously in the same run that `cleo` failed, so landing under it puts
- * the package in a range empirically proven to work.
+ * Together 47.9 MB of 80.6 MB — a 60% reduction in what every install
+ * downloads and writes to disk. (The earlier framing of that target, "landing
+ * under core's 42.8 MB puts the package in a range empirically proven to
+ * publish synchronously", was reasoning from the falsified size hypothesis
+ * above. The reduction is worth having; the prediction attached to it was
+ * wrong, and v2026.9.7 disproved it on the very release that shipped it.)
  *
  * The exclusions are ASSERTED after the copy, not merely applied — a filter
  * that silently stops matching would restore the old size while still
