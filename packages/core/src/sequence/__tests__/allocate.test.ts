@@ -6,7 +6,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDb, getNativeDb, resetDbState } from '../../store/sqlite.js';
 import { allocateNextTaskId, showSequence } from '../index.js';
 
@@ -14,6 +14,9 @@ describe('allocateNextTaskId', () => {
   let tempDir: string;
 
   beforeEach(async () => {
+    // Each test owns a fresh store at the explicitly supplied project root.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     // Reset any existing DB singleton
     resetDbState();
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-alloc-test-'));
@@ -23,6 +26,7 @@ describe('allocateNextTaskId', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     resetDbState();
     await rm(tempDir, { recursive: true, force: true });
   });
