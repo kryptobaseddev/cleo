@@ -464,6 +464,16 @@ export interface DocsAddParams {
   strict?: boolean;
 }
 
+/** Successful or policy-disabled optional graph projection of a canonical document. */
+export interface DocsGraphProjectionResult {
+  /** Explicit policy outcome; failures are not represented as successful completion. */
+  status: 'completed' | 'disabled';
+  /** Captured project identity owning the graph. */
+  projectId: string;
+  /** Captured absolute repository root used for all graph writes. */
+  projectRoot: string;
+}
+
 /**
  * Result of `docs.add`.
  */
