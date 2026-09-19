@@ -12,7 +12,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -28,6 +36,7 @@ import { runPipeline } from '../pipeline/index.js';
 import type { DrizzleTableRef } from '../pipeline/knowledge-graph.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { detectLanguageFromPath, isIndexableFile } from '../pipeline/language-detection.js';
+import { extractOriginalSource } from '../pipeline/parse-loop.js';
 import { processStructure } from '../pipeline/structure-processor.js';
 
 /**
@@ -140,6 +149,90 @@ describe('bounded parser workers (T12262)', () => {
   });
 });
 
+describe('isolated shared extraction (T12262)', () => {
+  it('preserves language capabilities and per-file failures through actual process IPC', () => {
+    const directory = makeTempDir();
+    try {
+      symlinkSync(
+        new URL('../../node_modules', import.meta.url).pathname,
+        join(directory, 'node_modules'),
+        'dir',
+      );
+      const entries = [
+        ['worker', new URL('../pipeline/workers/parse-worker.ts', import.meta.url).pathname],
+        ['pool', new URL('../pipeline/workers/worker-pool.ts', import.meta.url).pathname],
+        [
+          'provider',
+          new URL('../../../core/src/resources/spawn-wrapper.ts', import.meta.url).pathname,
+        ],
+      ];
+      for (const [name, entry] of entries)
+        buildSync({
+          entryPoints: [entry],
+          outfile: join(directory, `${name}.mjs`),
+          bundle: true,
+          packages: 'external',
+          platform: 'node',
+          format: 'esm',
+        });
+      const script = join(directory, 'probe.mjs');
+      writeFileSync(
+        script,
+        `
+        import assert from 'node:assert/strict';
+        import { createWorkerPool } from './pool.mjs';
+        import { createParserExecutionPort, _forceSystemdRunAvailable } from './provider.mjs';
+        _forceSystemdRunAvailable(false);
+        const inputs = [
+          { path: 'large.ts', content: '/*' + 'x'.repeat(65536) + '*/\\nimport { 源 } from "./資料🌱"; export function 解析(){return obj.値;} 解析();' },
+          { path: 'unicode.js', content: 'function 読む(){return obj.値;} 読む();' },
+          { path: 'unicode.py', content: 'def 読む():\\n    return obj.値\\n読む()\\n' },
+          { path: 'unicode.go', content: 'package main\\nfunc 読む(){ obj.値() }\\nfunc main(){読む()}\\n' },
+          { path: 'unicode.rs', content: 'fn 読む(){ obj.値(); } fn main(){読む();}' },
+          { path: 'too-large.ts', content: 'const 文 = "🌱";', limits: { maxSourceBytes: 1 } },
+        ];
+        let childCount = 0;
+        const actual = createParserExecutionPort();
+        const execution = { spawn(path, limits) { childCount++; return actual.spawn(path, limits); } };
+        const pool = createWorkerPool(new URL('./worker.mjs', import.meta.url), 2, { workerHeapMb: 64 }, execution);
+        try {
+          const results = await pool.dispatch(inputs);
+          assert.equal(childCount, 2, 'extractor must not recursively enter worker dispatch');
+          const symbols = results.flatMap(result => result.symbols);
+          const calls = results.flatMap(result => result.calls);
+          const accesses = results.flatMap(result => result.accesses);
+          const reports = results.flatMap(result => result.reports);
+          for (const input of inputs.slice(0, 5)) {
+            assert.ok(symbols.some(symbol => symbol.filePath === input.path && ['解析','読む'].includes(symbol.name)), input.path + ' declaration');
+            assert.ok(calls.some(call => call.filePath === input.path && ['解析','読む'].includes(call.calledName)), input.path + ' caller');
+            assert.ok(accesses.some(access => access.filePath === input.path), input.path + ' access');
+            assert.equal(reports.find(report => report.path === input.path).status, 'analyzed');
+          }
+          assert.ok(results.flatMap(result => result.imports).some(binding => binding.rawImportPath === './資料🌱'));
+          assert.match(reports.find(report => report.path === 'too-large.ts').reason, /E_PARSE_SIZE/);
+          assert.equal(results.reduce((sum, result) => sum + result.fileCount, 0), 5);
+          assert.equal(results.reduce((sum, result) => sum + result.skippedCount, 0), 1);
+        } finally { await pool.terminate(); }
+      `,
+      );
+      execFileSync(process.execPath, [script], {
+        timeout: 20000,
+        stdio: 'pipe',
+        env: {
+          PATH: process.env['PATH'],
+          NODE_OPTIONS: '--max-old-space-size=1024',
+          HOME: directory,
+          TMPDIR: directory,
+          TMP: directory,
+          TEMP: directory,
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('bounded original parser capacity (T12262)', () => {
   function sourceOfLength(length: number): string {
     const head = 'import { 源 } from "./資料🌱";\n/*';
@@ -170,6 +263,15 @@ describe('bounded original parser capacity (T12262)', () => {
     expect(call?.startIndex).toBe(source.lastIndexOf('解析('));
     expect(call?.endIndex).toBe(source.lastIndexOf('解析(') + '解析("🌱")'.length);
     expect(call?.startIndex).not.toBe(Buffer.byteLength(source.slice(0, call?.startIndex), 'utf8'));
+  });
+
+  it.each([
+    32766, 32767, 32768, 65536, 262144,
+  ])('extracts tail declarations and calls from original %i-unit files', (length) => {
+    const extracted = extractOriginalSource(sourceOfLength(length), 'original.ts');
+    expect(extracted.definitions.some((node) => node.name === '解析')).toBe(true);
+    expect(extracted.imports[0].rawImportPath).toBe('./資料🌱');
+    expect(extracted.calls.some((call) => call.calledName === '解析')).toBe(true);
   });
 
   it('retains the real default-buffer failure as a native negative control', () => {

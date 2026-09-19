@@ -254,9 +254,16 @@ export function hasSystemdRun(): boolean {
     _systemdRunAvailable = false;
     return false;
   }
-  // Quick binary availability check — does NOT test user-bus connectivity.
-  const probe = spawnSync('systemd-run', ['--version'], { stdio: 'ignore' });
-  _systemdRunAvailable = probe.status === 0;
+  if (!process.env['DBUS_SESSION_BUS_ADDRESS'] && !process.env['XDG_RUNTIME_DIR']) {
+    _systemdRunAvailable = false;
+    return false;
+  }
+  const probe = spawnSync('systemd-run', ['--version'], { stdio: 'ignore', timeout: 1000 });
+  const bus =
+    probe.status === 0
+      ? spawnSync('systemctl', ['--user', 'show-environment'], { stdio: 'ignore', timeout: 1000 })
+      : null;
+  _systemdRunAvailable = probe.status === 0 && bus?.status === 0;
   return _systemdRunAvailable;
 }
 
@@ -486,16 +493,22 @@ export function createParserExecutionPort(): ParserExecutionPort {
         deregister();
         controller.signal.throwIfAborted();
       }
-      const owned = spawnWrapped(
-        process.execPath,
-        [`--max-old-space-size=${heapMb}`, '--max-semi-space-size=8', scriptPath],
-        {
-          stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-          detached: process.platform !== 'win32',
-          env: process.env,
-        },
-        { scopeClass: 'tool', resources: { memoryMax: `${Math.max(256, heapMb * 2)}M` } },
-      );
+      let owned: SpawnWrappedResult;
+      try {
+        owned = spawnWrapped(
+          process.execPath,
+          [`--max-old-space-size=${heapMb}`, '--max-semi-space-size=8', scriptPath],
+          {
+            stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+            detached: process.platform !== 'win32',
+            env: process.env,
+          },
+          { scopeClass: 'tool', resources: { memoryMax: `${Math.max(256, heapMb * 2)}M` } },
+        );
+      } catch (error) {
+        deregister();
+        throw error;
+      }
       const { child } = owned;
       // Drain diagnostics to avoid blocking a child on a full stderr pipe.
       child.stderr?.on('data', () => undefined);
