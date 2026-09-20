@@ -1942,11 +1942,9 @@ export async function registerProjectOnEncounter(
           const db = await getNexusRegistryDb(capturedHome);
           execution.assertActive();
           const projectHash = generateProjectHash(resolvedPath);
-          const aliases = new Set([
-            legacyProjectId(resolvedPath),
-            canonical.id,
-            ...(canonical.legacyAliases ?? []),
-          ]);
+          const legacyAlias = legacyProjectId(resolvedPath);
+          const skippedAliases: string[] = [];
+          const aliases = new Set([legacyAlias, canonical.id, ...(canonical.legacyAliases ?? [])]);
           aliases.delete(infoProjectId);
           db.transaction(
             (tx) => {
@@ -2014,8 +2012,15 @@ export async function registerProjectOnEncounter(
                 if (
                   (owner && owner.canonicalId !== infoProjectId) ||
                   (directOwner && directOwner.projectId !== infoProjectId)
-                )
+                ) {
+                  // Match explicit registration: this old truncated token is lossy.
+                  // Preserve its existing owner; the immutable identity still registers.
+                  if (alias === legacyAlias) {
+                    skippedAliases.push(alias);
+                    continue;
+                  }
                   throw new Error('Project encounter alias belongs to another immutable identity');
+                }
                 if (!owner)
                   tx.insert(projectIdAliases)
                     .values({ legacyId: alias, canonicalId: infoProjectId, createdAt: now })
@@ -2025,6 +2030,10 @@ export async function registerProjectOnEncounter(
             },
             { behavior: 'immediate' },
           );
+          if (skippedAliases.length > 0)
+            process.stderr.write(
+              `[cleo] Project encounter omitted colliding legacy alias: ${skippedAliases.join(', ')}\n`,
+            );
         }),
       execution,
     );
