@@ -28,7 +28,9 @@
  * @see packages/core/src/store/__tests__/test-db-helper.ts (flush wiring)
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import type {
   BackgroundJobWriteFence,
   OperationExecutionContext,
@@ -45,27 +47,134 @@ import { registerTeardownAbort } from '../teardown-signal.js';
 /** Promises for best-effort background work that has not yet settled. */
 const inFlight = new Set<Promise<unknown>>();
 
+/** Work staged by an existing SQLite transaction, before its actual commit. */
+interface DeferredBackgroundOperation {
+  start(): void;
+  discard(error: Error): void;
+}
+
+/** Lexical commit boundary; this owns no database or executor. */
+interface BackgroundCommitBoundary {
+  native: DatabaseSync;
+  execution?: OperationExecutionContext;
+  parent?: BackgroundCommitBoundary;
+  active: boolean;
+  rollback?: Error;
+  deferred: DeferredBackgroundOperation[];
+}
+const backgroundCommitBoundary = new AsyncLocalStorage<BackgroundCommitBoundary>();
+
 /**
- * Register a best-effort background promise so a later {@link awaitBackgroundOps}
- * can flush it. The promise is wrapped so a rejection never escapes the
- * registry (callers keep their own `.catch`); the wrapper removes itself from
- * the set once settled.
- *
- * @param op - the detached best-effort promise to track
- * @remarks Legacy tracking does not capture scope or cancel the supplied promise.
+ * Stage lazy effects until the supplied transaction has actually committed.
+ * @typeParam T - Committed transaction result.
+ * @param native - Existing writer handle whose nested savepoints share this boundary.
+ * @param commit - Existing transaction implementation, including commit or rollback.
+ * @param execution - Existing captured budget; never replaced with a fresh context.
+ * @returns The original committed result; deferred failures never undo it.
+ * @remarks Call around the actual transaction, not an individual row write. Nested
+ * successful savepoints transfer effects to their parent; rollback discards them.
+ * This adds no deadline and never executes eager promises again.
  * @example
  * ```ts
- * trackBackgroundOp(writeProjection());
+ * await withBackgroundOpCommitBoundary(native, () => executeTransaction());
  * ```
  */
-export function trackBackgroundOp(op: Promise<unknown>): void {
-  const tracked = Promise.resolve(op).catch(() => {
-    /* Best-effort — the caller owns error handling; never reject the registry. */
-  });
+export async function withBackgroundOpCommitBoundary<T>(
+  native: DatabaseSync,
+  commit: () => Promise<T>,
+  execution?: OperationExecutionContext,
+): Promise<T> {
+  const inherited = backgroundCommitBoundary.getStore();
+  const parent = inherited?.active && inherited.native === native ? inherited : undefined;
+  const boundary: BackgroundCommitBoundary = {
+    native,
+    execution: execution ?? parent?.execution,
+    parent,
+    active: true,
+    deferred: [],
+  };
+  try {
+    const result = await backgroundCommitBoundary.run(boundary, commit);
+    boundary.active = false;
+    if (parent) parent.deferred.push(...boundary.deferred);
+    else for (const operation of boundary.deferred) operation.start();
+    return result;
+  } catch (error) {
+    boundary.active = false;
+    boundary.rollback = new Error(
+      'Background operation discarded because its transaction rolled back',
+      { cause: error },
+    );
+    for (const operation of boundary.deferred) operation.discard(boundary.rollback);
+    throw error;
+  }
+}
+
+/**
+ * Track an eager legacy promise or defer a lazy effect until outer transaction commit.
+ * @param op - Existing promise, or lazy operation that must not run before commit.
+ * @param execution - Optional original budget, otherwise inherited from the transaction.
+ * @returns An inspectable settled result, including rollback, cancellation and failures.
+ * @remarks Lazy work retains captured async context and the original execution budget.
+ * The registry counts staged work as pending. Eager promises have already started
+ * and cannot gain rollback safety. Results are process-local, not durable job receipts.
+ * @example
+ * ```ts
+ * const outcome = trackBackgroundOp(() => writeProjection());
+ * const result = await outcome;
+ * ```
+ */
+export function trackBackgroundOp(
+  op: Promise<unknown> | (() => Promise<unknown>),
+  execution?: OperationExecutionContext,
+): Promise<PromiseSettledResult<void>> {
+  const completion = Promise.withResolvers<PromiseSettledResult<void>>();
+  const tracked = completion.promise;
   inFlight.add(tracked);
-  void tracked.finally(() => {
-    inFlight.delete(tracked);
-  });
+  void tracked.then(() => inFlight.delete(tracked));
+  const settle = (work: Promise<unknown>): void => {
+    void work.then(
+      () => completion.resolve({ status: 'fulfilled', value: undefined }),
+      (reason: Error) => completion.resolve({ status: 'rejected', reason }),
+    );
+  };
+  if (typeof op !== 'function') {
+    settle(op);
+    return tracked;
+  }
+  const resume = AsyncLocalStorage.snapshot();
+  const capturedExecution = execution ?? backgroundCommitBoundary.getStore()?.execution;
+  let started = false;
+  const operation: DeferredBackgroundOperation = {
+    start() {
+      if (started) return;
+      started = true;
+      settle(
+        Promise.resolve().then(() =>
+          resume(() => {
+            capturedExecution?.assertActive();
+            return op();
+          }),
+        ),
+      );
+    },
+    discard(error) {
+      if (started) return;
+      started = true;
+      completion.resolve({ status: 'rejected', reason: error });
+    },
+  };
+  let boundary = backgroundCommitBoundary.getStore();
+  while (boundary && !boundary.active) {
+    if (boundary.rollback) {
+      operation.discard(boundary.rollback);
+      return tracked;
+    }
+    boundary = boundary.parent;
+  }
+  if (boundary) boundary.deferred.push(operation);
+  else operation.start();
+  return tracked;
 }
 
 /**
@@ -80,6 +189,9 @@ export function trackBackgroundOp(op: Promise<unknown>): void {
  * ```
  */
 export async function awaitBackgroundOps(): Promise<void> {
+  if (backgroundCommitBoundary.getStore()?.active) {
+    throw new Error('Cannot drain background work before its transaction commits');
+  }
   // Bound rescheduling rounds only; a round itself can wait indefinitely.
   for (let i = 0; i < 100 && inFlight.size > 0; i++) {
     await Promise.allSettled(Array.from(inFlight));

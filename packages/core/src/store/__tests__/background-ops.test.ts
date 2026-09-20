@@ -21,6 +21,7 @@ import { Worker } from 'node:worker_threads';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { buildSync } from 'esbuild';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { worktreeScope } from '../../project-scope.js';
 import { addTask } from '../../tasks/add.js';
 import { _resetTeardownSignalForTests, markShuttingDown } from '../../teardown-signal.js';
 import {
@@ -64,6 +65,121 @@ describe('background-ops registry (T10490)', () => {
   it('is a no-op when nothing is pending', async () => {
     await awaitBackgroundOps();
     expect(pendingBackgroundOpCount()).toBe(0);
+  });
+});
+
+describe('transaction-bound lazy background operations', () => {
+  let env: TestDbEnv;
+  beforeEach(async () => {
+    env = await createTestDb();
+  });
+  afterEach(async () => {
+    await env.cleanup();
+  });
+
+  it('runs once after the outer commit, never at a nested savepoint release', async () => {
+    const effects: string[] = [];
+    let outcome: ReturnType<typeof trackBackgroundOp> | undefined;
+    await env.accessor.transaction(async () => {
+      await env.accessor.transaction(async () => {
+        outcome = trackBackgroundOp(async () => {
+          effects.push('committed');
+        });
+        expect(pendingBackgroundOpCount()).toBe(1);
+        expect(effects).toEqual([]);
+      });
+      expect(effects).toEqual([]);
+      await expect(awaitBackgroundOps()).rejects.toThrow('before its transaction commits');
+    });
+    await awaitBackgroundOps();
+    expect(await outcome).toEqual({ status: 'fulfilled', value: undefined });
+    expect(effects).toEqual(['committed']);
+    expect(pendingBackgroundOpCount()).toBe(0);
+  });
+
+  it('discards successful nested effects when the outer transaction rolls back', async () => {
+    const effects: string[] = [];
+    let outcome: ReturnType<typeof trackBackgroundOp> | undefined;
+    await expect(
+      env.accessor.transaction(async () => {
+        await env.accessor.transaction(async () => {
+          outcome = trackBackgroundOp(async () => {
+            effects.push('must not run');
+          });
+        });
+        throw new Error('outer rollback');
+      }),
+    ).rejects.toThrow('outer rollback');
+    await awaitBackgroundOps();
+    expect(await outcome).toMatchObject({
+      status: 'rejected',
+      reason: { message: expect.stringContaining('rolled back') },
+    });
+    expect(effects).toEqual([]);
+  });
+
+  it('discards only a rolled-back savepoint while committing its valid sibling', async () => {
+    const effects: string[] = [];
+    await env.accessor.transaction(async () => {
+      await expect(
+        env.accessor.transaction(async () => {
+          trackBackgroundOp(async () => {
+            effects.push('rejected');
+          });
+          throw new Error('savepoint rollback');
+        }),
+      ).rejects.toThrow('savepoint rollback');
+      trackBackgroundOp(async () => {
+        effects.push('accepted');
+      });
+    });
+    await awaitBackgroundOps();
+    expect(effects).toEqual(['accepted']);
+  });
+
+  it('retains captured project context after ambient changes and reports operation failures', async () => {
+    const seen: string[] = [];
+    let outcome: ReturnType<typeof trackBackgroundOp> | undefined;
+    await env.accessor.transaction(async () => {
+      worktreeScope.run({ worktreeRoot: env.tempDir }, () => {
+        outcome = trackBackgroundOp(async () => {
+          seen.push(worktreeScope.getStore()!.worktreeRoot);
+          throw new Error('inspectable projection failure');
+        });
+      });
+    });
+    await awaitBackgroundOps();
+    expect(seen).toEqual([env.tempDir]);
+    expect(await outcome).toMatchObject({
+      status: 'rejected',
+      reason: { message: 'inspectable projection failure' },
+    });
+  });
+
+  it('does not replace a captured expired budget when work becomes runnable', async () => {
+    const execution = createOperationExecutionContext({
+      projectId: 'fixture',
+      projectRoot: env.tempDir,
+      actor: 'test',
+      operation: 'effect',
+      idempotencyKey: 'one',
+    });
+    let invoked = false;
+    let outcome: ReturnType<typeof trackBackgroundOp> | undefined;
+    await env.accessor.transaction(async () => {
+      worktreeScope.run({ worktreeRoot: env.tempDir, execution }, () => {
+        outcome = trackBackgroundOp(async () => {
+          invoked = true;
+        }, execution);
+      });
+      execution.close();
+    });
+    await awaitBackgroundOps();
+    expect(invoked).toBe(false);
+    expect(await outcome).toMatchObject({
+      status: 'rejected',
+      reason: { code: 'E_OPERATION_CLOSED' },
+    });
   });
 });
 

@@ -39,6 +39,7 @@ import {
   type WorktreeScope,
   worktreeScope,
 } from '../project-scope.js';
+import { withBackgroundOpCommitBoundary } from './background-ops.js';
 import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnSessionDelete } from './cross-db-cleanup.js';
 import type {
@@ -1455,7 +1456,9 @@ async function createOwnedSqliteDataAccessor(
             }
           });
         };
-        return await (context ? execute() : withWriteRetry(execute));
+        const commit = () =>
+          withBackgroundOpCommitBoundary(nativeDb, execute, worktreeScope.getStore()?.execution);
+        return await (context ? commit() : withWriteRetry(commit));
       } finally {
         released.resolve();
         if (!context && taskTransactionQueue.get(nativeDb) === tail)
