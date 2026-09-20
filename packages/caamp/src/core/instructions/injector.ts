@@ -433,16 +433,13 @@ export async function inject(filePath: string, content: string): Promise<CaampIn
   const body = content.trim();
   assertBalancedMarkers(buildBlock(body));
 
-  if (!existsSync(filePath)) {
-    // Create new file with injection block. Still atomic + locked so a
-    // concurrent creator cannot interleave with us.
-    return withFileLock<CaampInjectionAction>(filePath, async () => {
+  return withFileLock<CaampInjectionAction>(filePath, async () => {
+    // Decide from the locked state: another holder may have created user text
+    // while this caller waited. A pre-lock existence check cannot authorize replacement.
+    if (!existsSync(filePath)) {
       await writeFileAtomic({ path: filePath, content: `${buildBlock(body)}\n` });
       return 'created';
-    });
-  }
-
-  return withFileLock<CaampInjectionAction>(filePath, async () => {
+    }
     const existing = await readFile(filePath, 'utf-8');
 
     // Fail closed on a torn read. Our own writes are atomic, but callers

@@ -467,3 +467,22 @@ describe('T12269 removal and deduplication own only marker spans', () => {
     await expect(readFile(file)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
+
+describe('T12269 creation decision uses the locked file state', () => {
+  it('preserves bytes created by the previous lock holder before injection acquires ownership', async () => {
+    const { withFileLock } = await import('../../src/index.js');
+    const user = '\uFEFF# Concurrent user notes  \r\n\r\n \t';
+    let pending: ReturnType<typeof inject> | undefined;
+    await withFileLock(file, async () => {
+      // inject reaches its first await while this holder still owns the lock.
+      pending = inject(file, '@managed');
+      await writeFile(file, user);
+    });
+    const action = await pending;
+    const expected = `\uFEFF${START}\n@managed\n${END}\n\n${user.slice(1)}`;
+    expect(await readFile(file)).toEqual(Buffer.from(expected));
+    expect(action).toBe('added');
+    expect(await inject(file, '@managed')).toBe('intact');
+    expect(await readFile(file)).toEqual(Buffer.from(expected));
+  });
+});
