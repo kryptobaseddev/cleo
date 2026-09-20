@@ -10,10 +10,9 @@ import type {
   FetchBrainEntriesResult,
   FetchedBrainEntry,
 } from '@cleocode/contracts';
+import { captureProjectScope, worktreeScope } from '../../project-scope.js';
 import { getBrainAccessor } from '../../store/memory-accessor.js';
-import { getCurrentSessionId } from './get-current-session-id.js';
-import { incrementCitationCounts } from './increment-citation-counts.js';
-import { logRetrieval } from './log-retrieval.js';
+import { scheduleRetrievalTelemetry } from './telemetry.js';
 import { parseIdPrefix } from './timeline.js';
 
 /**
@@ -23,8 +22,23 @@ import { parseIdPrefix } from './timeline.js';
  * @param projectRoot - Project root directory
  * @param params - Fetch parameters with IDs
  * @returns Full entry data for each found ID, plus not-found list
+ * @remarks Captures explicit ownership and inherited operation lifetime before reads.
+ * Citation and retrieval-log writes are registered before return; callers can await
+ * the existing background barrier. Optional telemetry has no durable outcome receipt.
+ * @example
+ * ```ts
+ * const result = await fetchBrainEntries(projectRoot, { ids: ['O-example'] });
+ * ```
  */
 export async function fetchBrainEntries(
+  projectRoot: string,
+  params: FetchBrainEntriesParams,
+): Promise<FetchBrainEntriesResult> {
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+  return worktreeScope.run(scope, () => fetchBrainEntriesScoped(scope.worktreeRoot, params));
+}
+
+async function fetchBrainEntriesScoped(
   projectRoot: string,
   params: FetchBrainEntriesParams,
 ): Promise<FetchBrainEntriesResult> {
@@ -109,21 +123,13 @@ export async function fetchBrainEntries(
   // Citation tracking + retrieval logging (non-blocking)
   if (results.length > 0) {
     const fetchedIds = results.map((r) => r.id);
-    setImmediate(() => {
-      incrementCitationCounts(projectRoot, fetchedIds).catch(() => {});
-      getCurrentSessionId(projectRoot)
-        .then((sessionId) => {
-          return logRetrieval(
-            projectRoot,
-            fetchedIds.join(','),
-            fetchedIds,
-            'fetch',
-            results.length * 500,
-            sessionId,
-          );
-        })
-        .catch(() => {});
-    });
+    await scheduleRetrievalTelemetry(
+      projectRoot,
+      fetchedIds.join(','),
+      fetchedIds,
+      'fetch',
+      results.length * 500,
+    );
   }
 
   return {

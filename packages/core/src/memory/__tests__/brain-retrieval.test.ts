@@ -88,10 +88,11 @@ describe('Brain Retrieval', () => {
 
   describe('searchBrainCompact', () => {
     it.each([
-      false,
-      true,
-    ])('retains project/session ownership until telemetry finishes (RRF=%s)', async (useRRF) => {
-      const { searchBrainCompact } = await import('../brain-retrieval.js');
+      'lexical',
+      'rrf',
+      'fetch',
+    ])('retains project/session ownership until telemetry finishes (%s)', async (method) => {
+      const { searchBrainCompact, fetchBrainEntries } = await import('../brain-retrieval.js');
       const { getBrainAccessor } = await import('../../store/memory-accessor.js');
       const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const { getDb, closeAllDatabases } = await import('../../store/sqlite.js');
@@ -134,19 +135,25 @@ describe('Brain Retrieval', () => {
             });
           });
         }
-        const first = await searchBrainCompact(tempDir, {
-          query: 'ownershipneedle',
-          tables: ['observations'],
-          useRRF,
-        });
+        const first =
+          method === 'fetch'
+            ? await fetchBrainEntries(tempDir, { ids: ['O-owner'] })
+            : await searchBrainCompact(tempDir, {
+                query: 'ownershipneedle',
+                tables: ['observations'],
+                useRRF: method === 'rrf',
+              });
         expect(first.results.map((hit) => hit.id)).toContain('O-owner');
         await entered.promise;
         expect(pendingBackgroundOpCount()).toBeGreaterThan(0);
-        const next = await searchBrainCompact(second, {
-          query: 'ownershipneedle',
-          tables: ['observations'],
-          useRRF,
-        });
+        const next =
+          method === 'fetch'
+            ? await fetchBrainEntries(second, { ids: ['O-owner'] })
+            : await searchBrainCompact(second, {
+                query: 'ownershipneedle',
+                tables: ['observations'],
+                useRRF: method === 'rrf',
+              });
         expect(next.results.map((hit) => hit.id)).toContain('O-owner');
         release.resolve();
         await completed.promise;
@@ -162,7 +169,7 @@ describe('Brain Retrieval', () => {
           expect(
             native
               ?.prepare('SELECT session_id FROM brain_retrieval_log WHERE query = ?')
-              .all('ownershipneedle'),
+              .all(method === 'fetch' ? 'O-owner' : 'ownershipneedle'),
           ).toEqual([{ session_id: session }]);
           expect(
             native
@@ -180,11 +187,15 @@ describe('Brain Retrieval', () => {
       }
     });
 
-    it.each([
-      'cancel',
-      'deadline',
-    ] as const)('prevents telemetry writes after the original operation %s', async (stop) => {
-      const { searchBrainCompact } = await import('../brain-retrieval.js');
+    it.each(
+      ['lexical', 'rrf', 'fetch'].flatMap((method) =>
+        ['cancel', 'deadline'].map((stop) => ({ method, stop })),
+      ),
+    )('prevents telemetry writes after the original operation $method $stop', async ({
+      method,
+      stop,
+    }) => {
+      const { searchBrainCompact, fetchBrainEntries } = await import('../brain-retrieval.js');
       const { getBrainAccessor } = await import('../../store/memory-accessor.js');
       const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const retrieval = await import('../retrieval/log-retrieval.js');
@@ -232,11 +243,13 @@ describe('Brain Retrieval', () => {
         const found = await worktreeScope.run(
           { worktreeRoot: tempDir, projectHash: 'test', execution: context },
           () =>
-            searchBrainCompact(tempDir, {
-              query: 'cancelneedle',
-              tables: ['observations'],
-              useRRF: false,
-            }),
+            method === 'fetch'
+              ? fetchBrainEntries(tempDir, { ids: ['O-cancel'] })
+              : searchBrainCompact(tempDir, {
+                  query: 'cancelneedle',
+                  tables: ['observations'],
+                  useRRF: method === 'rrf',
+                }),
         );
         expect(found.results.map((hit) => hit.id)).toContain('O-cancel');
         await entered.promise;
@@ -256,7 +269,7 @@ describe('Brain Retrieval', () => {
           expect(
             native
               ?.prepare('SELECT COUNT(*) AS count FROM brain_retrieval_log WHERE query = ?')
-              .get('cancelneedle'),
+              .get(method === 'fetch' ? 'O-cancel' : 'cancelneedle'),
           ).toEqual({ count: 0 });
         else expect(table).toBeUndefined();
       } finally {
