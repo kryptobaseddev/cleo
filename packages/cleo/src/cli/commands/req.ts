@@ -101,7 +101,7 @@ const migrateCommand = defineCommand({
     await dispatchFromCli(
       apply ? 'mutate' : 'query',
       'tasks',
-      'req.migrate',
+      apply ? 'req.migrate' : 'req.migrate.preview',
       { taskId, apply },
       { command: 'req migrate' },
     );
