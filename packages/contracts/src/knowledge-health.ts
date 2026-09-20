@@ -324,6 +324,43 @@ export interface KnowledgeRepairProposal {
   evidence: [KnowledgeEvidenceRef, ...KnowledgeEvidenceRef[]];
 }
 
+/** Complete row evidence retained for an actual committed mutation. */
+export interface KnowledgeRepairRowImages {
+  /** Exact serialized row immediately before this operation. */
+  beforeJson: string;
+  /** Exact serialized row after this operation, including preserved usage. */
+  afterJson: string;
+}
+
+/** Explicit quarantine-only recovery policy; absent legacy policies remain strict. */
+export interface KnowledgeQuarantineWriteFootprint {
+  /** Version of this fixed field contract, never inferred for historical receipts. */
+  version: 1;
+  /** Only the existing observation quarantine operation grants this policy. */
+  operation: 'knowledge.quarantine-stubs';
+  /** Exact fields this operation may restore. */
+  writeFields: ['invalid_at'];
+  /**
+   * Read-side usage fields preserved after paired monotonic validation. First use
+   * permits zero-count/NULL time only with a valid protected creation-time lower bound.
+   */
+  usageFields: ['citation_count', 'updated_at'];
+  /** Before-image hash excluding only the two declared usage fields. */
+  protectedBeforeHash: string;
+  /** After-image hash excluding only the two declared usage fields. */
+  protectedAfterHash: string;
+}
+
+/** Executed resource with complete hashes and optional explicitly versioned row recovery. */
+export interface KnowledgeRepairExecutedResource extends KnowledgeRepairResource {
+  /** Complete image hash observed after domain postconditions passed. */
+  afterHash: string;
+  /** Full before/after evidence; legacy receipts may omit it. */
+  rowImages?: KnowledgeRepairRowImages;
+  /** Quarantine-specific recovery policy; never inferred from absent or malformed data. */
+  quarantineFootprint?: KnowledgeQuarantineWriteFootprint;
+}
+
 /** One exact resource whose captured image constrains a supported repair. */
 export interface KnowledgeRepairResource {
   /** Canonical resource family; no arbitrary SQL table or filesystem action. */
@@ -524,12 +561,7 @@ export interface KnowledgeRepairExecution {
   /** Published generation observed before mutation; rollback verifies affected resources independently. */
   generation: string | null;
   /** Exact affected and sourced resources, with hashes before and after mutation. */
-  resources: Array<
-    KnowledgeRepairResource & {
-      /** Complete image hash observed after domain postconditions passed. */
-      afterHash: string;
-    }
-  >;
+  resources: KnowledgeRepairExecutedResource[];
   /** Append-only lifecycle event identities persisted with the mutation. */
   eventIds: string[];
 }

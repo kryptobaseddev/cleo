@@ -1328,6 +1328,188 @@ describe('durable sourced knowledge repair preparation', () => {
     });
   }
 
+  it('preserves legitimate post-repair citation usage while restoring only declared quarantine fields', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    const originalBytes = persisted().receipts[0].value;
+    const db = getBrainNativeDb(root)!;
+    await incrementCitationCounts(root, ['O-prepared']);
+    const current = db.prepare("SELECT * FROM main.brain_observations WHERE id='O-prepared'").get();
+    const recovery = await prepareRollback(original.id);
+    const receipt = await applyPreparedKnowledgeRepair(context, recovery.jobId);
+    const restored = db
+      .prepare("SELECT * FROM main.brain_observations WHERE id='O-prepared'")
+      .get();
+    expect(restored).toEqual({ ...current, invalid_at: null });
+    const image = receipt.execution?.resources[0];
+    expect(image?.beforeHash).toBe(
+      createHash('sha256').update(JSON.stringify(current)).digest('hex'),
+    );
+    expect(image?.afterHash).toBe(
+      createHash('sha256').update(JSON.stringify(restored)).digest('hex'),
+    );
+    expect(image?.afterHash).not.toBe(original.execution?.resources[0]?.beforeHash);
+    if (!image?.rowImages) throw new Error('Missing actual rollback row evidence');
+    expect(JSON.parse(image.rowImages.beforeJson)).toEqual(current);
+    expect(JSON.parse(image.rowImages.afterJson)).toEqual(restored);
+    expect(receipt.reasons.join(' ')).toContain('current retrieval usage preserved');
+    expect(persisted().receipts).toContainEqual({ value: originalBytes });
+  });
+
+  it.each([
+    ['timestamp-only', 3, '2021-01-01 00:00:00'],
+    ['decrement', 2, '2021-01-01 00:00:00'],
+    ['negative', -1, '2021-01-01 00:00:00'],
+    ['fractional', 3.5, '2021-01-01 00:00:00'],
+    ['invalid-count', 'bad-value', '2021-01-01 00:00:00'],
+    ['invalid-time', 4, 'not-a-time'],
+    ['missing-time', 4, null],
+    ['backward-time', 4, '2019-01-01 00:00:00'],
+    ['future-time', 4, '9999-01-01 00:00:00'],
+    ['invalid-calendar', 4, '2021-02-30 00:00:00'],
+  ] as const)('refuses %s usage changes without weakening protected row recovery', async (_label, count, time) => {
+    const db = getBrainNativeDb(root)!;
+    db.exec(
+      "UPDATE main.brain_observations SET citation_count=3,updated_at='2020-01-01 00:00:00' WHERE id='O-prepared'",
+    );
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    db.prepare(
+      "UPDATE main.brain_observations SET citation_count=?,updated_at=? WHERE id='O-prepared'",
+    ).run(count, time);
+    const before = persisted();
+    await expect(prepareRollback(original.id)).rejects.toMatchObject({ code: 'E_REPAIR_STALE' });
+    expect(persisted()).toEqual(before);
+  });
+
+  it.each([
+    'title',
+    'narrative',
+    'source_session_id',
+    'invalid_at',
+    'verified',
+  ] as const)('preserves conflicting protected %s edits', async (field) => {
+    const db = getBrainNativeDb(root)!;
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    const values = {
+      title: 'Edited title',
+      narrative: 'Substantive new evidence',
+      source_session_id: 'different-provenance',
+      invalid_at: 'user-mark',
+      verified: 1,
+    };
+    db.prepare(`UPDATE main.brain_observations SET ${field}=? WHERE id='O-prepared'`).run(
+      values[field],
+    );
+    const before = persisted();
+    await expect(prepareRollback(original.id)).rejects.toMatchObject({ code: 'E_REPAIR_STALE' });
+    expect(persisted()).toEqual(before);
+  });
+
+  it.each([
+    'version',
+    'images',
+    'before-image',
+    'protected-hash',
+    'write-fields',
+    'operation',
+  ] as const)('refuses malformed or forged %s footprint evidence', async (alteration) => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    const db = getBrainNativeDb(root)!;
+    const key = `knowledge_repair:${original.id}`;
+    const stored = JSON.parse(
+      String(db.prepare('SELECT value FROM main._nexus_meta WHERE key=?').get(key)?.value),
+    );
+    const resource = stored.receipt.execution.resources[0];
+    if (alteration === 'version') resource.quarantineFootprint.version = 99;
+    if (alteration === 'images') delete resource.rowImages;
+    if (alteration === 'before-image')
+      resource.rowImages.beforeJson = JSON.stringify({
+        ...JSON.parse(resource.rowImages.beforeJson),
+        narrative: 'forged',
+      });
+    if (alteration === 'protected-hash')
+      resource.quarantineFootprint.protectedAfterHash = '0'.repeat(64);
+    if (alteration === 'write-fields') resource.quarantineFootprint.writeFields = ['narrative'];
+    if (alteration === 'operation') resource.quarantineFootprint.operation = 'knowledge.rollback';
+    // Corrupt both redundant fixture copies: field/hash validation must still refuse forged policy.
+    db.prepare('UPDATE main._nexus_meta SET value=? WHERE key=?').run(JSON.stringify(stored), key);
+    db.prepare('UPDATE main.background_jobs SET result=? WHERE id=?').run(
+      JSON.stringify(stored.receipt),
+      pending.jobId,
+    );
+    const before = persisted();
+    await expect(prepareRollback(original.id)).rejects.toThrow();
+    expect(persisted()).toEqual(before);
+  });
+
+  it.each([
+    false,
+    true,
+  ])('retains strict legacy receipt semantics with later usage=%s', async (touched) => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    const db = getBrainNativeDb(root)!;
+    const key = `knowledge_repair:${original.id}`;
+    const stored = JSON.parse(
+      String(db.prepare('SELECT value FROM main._nexus_meta WHERE key=?').get(key)?.value),
+    );
+    for (const resource of stored.receipt.execution.resources) {
+      delete resource.quarantineFootprint;
+      delete resource.rowImages;
+    }
+    const bytes = JSON.stringify(stored);
+    db.prepare('UPDATE main._nexus_meta SET value=? WHERE key=?').run(bytes, key);
+    db.prepare('UPDATE main.background_jobs SET result=? WHERE id=?').run(
+      JSON.stringify(stored.receipt),
+      pending.jobId,
+    );
+    if (touched) {
+      await incrementCitationCounts(root, ['O-prepared']);
+      await expect(prepareRollback(original.id)).rejects.toThrow('legacy receipts require');
+    } else {
+      const recovery = await prepareRollback(original.id);
+      expect((await applyPreparedKnowledgeRepair(context, recovery.jobId)).state).toBe('repaired');
+    }
+    expect(db.prepare('SELECT value FROM main._nexus_meta WHERE key=?').get(key)?.value).toBe(
+      bytes,
+    );
+  });
+
+  it.each([
+    'missing-creation',
+    'positive-count-without-time',
+  ] as const)('refuses ambiguous first-use baseline %s', async (issue) => {
+    const db = getBrainNativeDb(root)!;
+    if (issue === 'missing-creation')
+      db.exec("UPDATE main.brain_observations SET created_at='invalid' WHERE id='O-prepared'");
+    else
+      db.exec(
+        "UPDATE main.brain_observations SET citation_count=1,updated_at=NULL WHERE id='O-prepared'",
+      );
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    await incrementCitationCounts(root, ['O-prepared']);
+    await expect(prepareRollback(original.id)).rejects.toMatchObject({ code: 'E_REPAIR_STALE' });
+  });
+
+  it('keeps prepared-current full-image CAS strict across a later legitimate usage update', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    const recovery = await prepareRollback(original.id);
+    await incrementCitationCounts(root, ['O-prepared']);
+    const db = getBrainNativeDb(root)!;
+    const before = db.prepare("SELECT * FROM main.brain_observations WHERE id='O-prepared'").get();
+    await expect(applyPreparedKnowledgeRepair(context, recovery.jobId)).rejects.toMatchObject({
+      code: 'E_REPAIR_STALE',
+    });
+    expect(db.prepare("SELECT * FROM main.brain_observations WHERE id='O-prepared'").get()).toEqual(
+      before,
+    );
+  });
+
   it('rolls back affected resources while preserving unrelated changes and original receipt bytes', async () => {
     const repair = await prepareKnowledgeRepair(context, proposal);
     const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
