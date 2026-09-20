@@ -891,7 +891,7 @@ export async function captureWrapped(
         mode: owned.mode,
         ...(owned.unitName ? { unitName: owned.unitName } : {}),
         nativeMemory: 'unverified',
-        cleanupScope: process.platform === 'win32' ? 'direct-child' : 'process-group',
+        cleanupScope: 'process-group',
         transportClosed: true,
         targetCloseObserved: closedFrame,
         cleanupObservation,
