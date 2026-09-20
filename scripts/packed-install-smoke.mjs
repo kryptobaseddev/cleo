@@ -13,12 +13,13 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { createConnection, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLISHED_PKGS = [
@@ -82,6 +83,7 @@ export function packedEnvironment(root) {
     XDG_DATA_HOME: 'data',
     XDG_CONFIG_HOME: 'config',
     XDG_CACHE_HOME: 'cache',
+    XDG_STATE_HOME: 'state',
     XDG_RUNTIME_DIR: 'runtime',
     TMPDIR: 'tmp',
     TMP: 'tmp',
@@ -108,6 +110,120 @@ export function packedEnvironment(root) {
     mkdirSync(env[key], { recursive: true });
   }
   return env;
+}
+
+/**
+ * Verify installed packed bytes, stage managed instructions, and observe an external CLI.
+ * This is deliberately a prerequisite, not a complete repair workflow certificate.
+ * @param {string} app - Owned npm installation directory beneath the isolation root.
+ * @param {import('@cleocode/contracts/capabilities').ProviderVerificationInvocation} input - Original bounded invocation.
+ * @param {readonly import('@cleocode/contracts/package-artifact').PackageArtifactInventory[]} expected - Trusted verifier-produced npm-pack inventories, never agent output.
+ * @returns {Promise<import('@cleocode/contracts/capabilities').PackedProviderProcessObservation>} Retained process and installed-file evidence.
+ */
+export async function verifyPackedProviderProcess(app, input, expected) {
+  const invocation = { ...input, environment: { ...input.environment } };
+  const inventories = structuredClone(expected);
+  const checkDeadline = () => {
+    invocation.signal?.throwIfAborted();
+    if (Date.now() >= invocation.deadlineAt)
+      throw new Error('Original provider deadline expired during packed preparation');
+  };
+  checkDeadline();
+  const root = realpathSync(invocation.isolationRoot);
+  const inside = (path, parent = root) => {
+    const actual = realpathSync(path);
+    const suffix = relative(parent, actual);
+    if (suffix === '..' || suffix.startsWith(`..${sep}`) || isAbsolute(suffix))
+      throw new Error(`Installed provider path escapes owned root: ${path}`);
+    return actual;
+  };
+  const installed = inside(app);
+  const project = inside(invocation.projectRoot);
+  const artifacts = [];
+  const verified = new Map();
+  for (const name of ['@cleocode/cleo-os', '@cleocode/core', '@cleocode/skills']) {
+    const matches = inventories.filter((entry) => entry.packageName === name);
+    if (matches.length !== 1) throw new Error(`Exactly one packed inventory required: ${name}`);
+    const inventory = matches[0];
+    if (inventory.source !== 'npm-pack' || !/^[a-f0-9]{64}$/.test(inventory.tarballSha256 ?? ''))
+      throw new Error(`Actual retained npm-pack evidence required: ${name}`);
+    const packageRoot = inside(join(installed, 'node_modules', name), installed);
+    const seen = new Set();
+    for (const file of inventory.files) {
+      checkDeadline();
+      if (
+        !file.path ||
+        isAbsolute(file.path) ||
+        file.path.split(/[\\/]/).includes('..') ||
+        seen.has(file.path)
+      )
+        throw new Error(`Invalid or duplicate packed path: ${file.path}`);
+      seen.add(file.path);
+      const path = inside(join(packageRoot, file.path), packageRoot);
+      if (!Number.isSafeInteger(file.size) || file.size < 0 || statSync(path).size !== file.size)
+        throw new Error(`Installed provider length differs: ${name}/${file.path}`);
+      const bytes = readFileSync(path);
+      if (
+        bytes.length !== file.size ||
+        !/^[a-f0-9]{64}$/.test(file.sha256 ?? '') ||
+        sha256(bytes) !== file.sha256
+      )
+        throw new Error(`Installed provider content differs: ${name}/${file.path}`);
+      verified.set(`${name}/${file.path}`, { locator: path, sha256: file.sha256 });
+    }
+    if (!seen.has('package.json')) throw new Error(`Packed package manifest missing: ${name}`);
+    const manifestPath = join(packageRoot, 'package.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    if (manifest.name !== name || manifest.version !== inventory.version)
+      throw new Error(`Installed provider package identity differs: ${name}`);
+    artifacts.push(verified.get(`${name}/package.json`));
+  }
+  const required = (name) => {
+    const artifact = verified.get(name);
+    if (!artifact) throw new Error(`Required packed provider artifact missing: ${name}`);
+    return artifact;
+  };
+  const runner = required('@cleocode/cleo-os/dist/harnesses/provider-verification.js');
+  artifacts.push(runner);
+  const sources = [
+    required('@cleocode/core/templates/CLEO-INJECTION.md'),
+    required('@cleocode/skills/skills/ct-cleo/SKILL.md'),
+  ];
+  const body = Buffer.concat(
+    sources.flatMap((source) => [readFileSync(source.locator), Buffer.from('\n')]),
+  );
+  const bootstrapPath = join(
+    project,
+    invocation.provider === 'claude-code' ? 'CLAUDE.md' : 'AGENTS.md',
+  );
+  checkDeadline();
+  if (existsSync(bootstrapPath)) {
+    inside(bootstrapPath, project);
+    if (!readFileSync(bootstrapPath).equals(body))
+      throw new Error('Managed bootstrap conflicts with existing project instructions');
+  } else writeFileSync(bootstrapPath, body, { flag: 'wx', mode: 0o600 });
+  const bootstrap = { locator: bootstrapPath, sha256: sha256(readFileSync(bootstrapPath)) };
+  if (bootstrap.sha256 !== sha256(body)) throw new Error('Managed bootstrap verification failed');
+  checkDeadline();
+  const { runProviderVerification } = await import(pathToFileURL(runner.locator).href);
+  checkDeadline();
+  if (typeof runProviderVerification !== 'function')
+    throw new Error('Installed provider runner export missing');
+  const process = await runProviderVerification(invocation);
+  if (process.certification !== 'unverified')
+    throw new Error('Installed process runner attempted unsupported capability promotion');
+  return {
+    artifacts,
+    instructions: { sources, bootstrap, delivery: 'staged-unverified' },
+    process,
+    workflow: 'unverified',
+    limitations: [
+      'File equality is against supplied trusted pack inventories; source-to-build reproducibility is not inferred.',
+      'Bootstrap bytes are staged self-contained; provider reading and reference expansion remain unverified.',
+      'Retrieval, guarded repair, receipt inspection, stale rejection, verification and rollback require independent scenario oracles.',
+      'External CLI process evidence does not certify CleoOS programmatic spawning or complete lifecycle containment.',
+    ],
+  };
 }
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -556,7 +672,12 @@ async function main() {
     lockSha256: sha256(readFileSync(join(REPO_ROOT, 'pnpm-lock.yaml'))),
     packages: [],
     status: 'running',
-    coverage: { cliVersion: 'not-assessed', studio: 'not-assessed', embedding: 'not-assessed' },
+    coverage: {
+      cliVersion: 'not-assessed',
+      studio: 'not-assessed',
+      embedding: 'not-assessed',
+      providers: 'not-assessed',
+    },
     limitations: [
       'Third-party dependencies may use npm registry.',
       'Extracted file hashes are compared against installed package bytes; absent packages are explicitly outside the CLI dependency graph. This Linux check does not certify other platforms or providers.',
@@ -612,7 +733,11 @@ async function main() {
       name: 'packed-smoke-app',
       version: '0.0.1',
       private: true,
-      dependencies: { '@cleocode/cleo': overrides['@cleocode/cleo'] },
+      dependencies: {
+        '@cleocode/cleo': overrides['@cleocode/cleo'],
+        '@cleocode/cleo-os': overrides['@cleocode/cleo-os'],
+        '@cleocode/skills': overrides['@cleocode/skills'],
+      },
       overrides,
     };
     writeFileSync(join(app, 'package.json'), JSON.stringify(appManifest, null, 2) + '\n');

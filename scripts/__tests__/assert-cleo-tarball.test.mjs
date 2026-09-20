@@ -1,5 +1,14 @@
 /** Independent npm-produced fixtures exercise both operational packaging wrappers. */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +24,7 @@ import {
   assertPackedVersion,
   packedEnvironment,
   runPackedCommand,
+  verifyPackedProviderProcess,
 } from '../packed-install-smoke.mjs';
 
 const required = [
@@ -147,6 +157,7 @@ describe('packed operational execution', () => {
     for (const key of [
       'HOME',
       'XDG_DATA_HOME',
+      'XDG_STATE_HOME',
       'NEXUS_HOME',
       'CLAUDE_CONFIG_DIR',
       'CODEX_HOME',
@@ -314,5 +325,146 @@ describe('independent scoped health oracle', () => {
     const body = health();
     corrupt(body);
     expect(() => assertPackedHealthResponse(body, expected)).toThrow();
+  });
+});
+
+describe('packed provider process prerequisites, not workflow certification', () => {
+  const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+  function fixture(certification = 'unverified') {
+    const app = join(root, 'app');
+    const env = packedEnvironment(root);
+    const inventories = [];
+    for (const [name, files] of [
+      [
+        '@cleocode/core',
+        { 'templates/CLEO-INJECTION.md': 'Managed protocol: inspect authority and coverage.\n' },
+      ],
+      [
+        '@cleocode/skills',
+        { 'skills/ct-cleo/SKILL.md': 'Managed skill: verify receipts and preserve history.\n' },
+      ],
+      [
+        '@cleocode/cleo-os',
+        {
+          'dist/harnesses/provider-verification.js': `import {writeFileSync} from 'node:fs';import {join} from 'node:path';export async function runProviderVerification(input){writeFileSync(join(input.isolationRoot,'fixture-launched'),'yes');return {certification:${JSON.stringify(certification)},stdout:'agent claims workflow passed',outcome:'exited',exitCode:0};}`,
+        },
+      ],
+    ]) {
+      const packageRoot = join(app, 'node_modules', name);
+      mkdirSync(packageRoot, { recursive: true });
+      writeFileSync(
+        join(packageRoot, 'package.json'),
+        JSON.stringify({ name, version: '1.0.0', type: 'module' }),
+      );
+      for (const [path, content] of Object.entries(files)) {
+        mkdirSync(dirname(join(packageRoot, path)), { recursive: true });
+        writeFileSync(join(packageRoot, path), content);
+      }
+      const packed = JSON.parse(
+        runPackedCommand(
+          'npm',
+          ['pack', '--ignore-scripts', '--json', '--pack-destination', root],
+          { cwd: packageRoot, env },
+        ),
+      )[0];
+      inventories.push({
+        packageName: name,
+        version: '1.0.0',
+        source: 'npm-pack',
+        packedBytes: packed.size,
+        tarballSha256: digest(readFileSync(join(root, packed.filename))),
+        files: packed.files.map((file) => ({
+          path: file.path,
+          size: file.size,
+          sha256: digest(readFileSync(join(packageRoot, file.path))),
+        })),
+      });
+    }
+    return {
+      app,
+      inventories,
+      input: {
+        provider: 'codex',
+        executable: process.execPath,
+        invocationId: 'packed-fixture',
+        isolationRoot: root,
+        projectRoot: env.CLEO_ROOT,
+        environment: env,
+        prompt: 'Inspect the synthetic project and follow its managed instructions.',
+        deadlineAt: Date.now() + 10000,
+        transcriptByteLimit: 4096,
+        memoryMaxMb: 256,
+      },
+    };
+  }
+  it('matches real npm-produced fixture bytes and stages exact instructions without certifying their reading', async () => {
+    const { app, inventories, input } = fixture();
+    const result = await verifyPackedProviderProcess(app, input, inventories);
+    expect(result.workflow).toBe('unverified');
+    expect(result.instructions.delivery).toBe('staged-unverified');
+    expect(result.process.stdout).toContain('claims workflow passed');
+    const bytes = readFileSync(result.instructions.bootstrap.locator);
+    expect(digest(bytes)).toBe(result.instructions.bootstrap.sha256);
+    expect(bytes.toString()).toBe(
+      'Managed protocol: inspect authority and coverage.\n\nManaged skill: verify receipts and preserve history.\n\n',
+    );
+    expect(result.instructions.sources).toHaveLength(2);
+    expect(result.artifacts).toHaveLength(4);
+    expect(result.limitations.join(' ')).toContain('reference expansion remain unverified');
+  });
+  it('rejects an installed fixture runner attempting to promote process output into certification', async () => {
+    const { app, inventories, input } = fixture('verified');
+    await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow(
+      'unsupported capability promotion',
+    );
+  });
+  it('rejects an installed runner edited after pack, before loading or executing it', async () => {
+    const { app, inventories, input } = fixture();
+    writeFileSync(
+      join(app, 'node_modules/@cleocode/cleo-os/dist/harnesses/provider-verification.js'),
+      'throw new Error("must not load");',
+    );
+    await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow('differs');
+    expect(existsSync(join(root, 'fixture-launched'))).toBe(false);
+  });
+  it('rejects a preview inventory and ambiguous package identities', async () => {
+    const { app, inventories, input } = fixture();
+    inventories[0].source = 'npm-pack-dry-run';
+    await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow(
+      'Actual retained npm-pack',
+    );
+    inventories[0].source = 'npm-pack';
+    inventories.push(inventories[0]);
+    await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow(
+      'Exactly one packed inventory',
+    );
+  });
+  it('preserves pre-existing project instruction bytes and refuses conflict', async () => {
+    const { app, inventories, input } = fixture();
+    const path = join(input.projectRoot, 'AGENTS.md');
+    writeFileSync(path, 'User-authored instructions.');
+    await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow('conflicts');
+    expect(readFileSync(path, 'utf8')).toBe('User-authored instructions.');
+    expect(existsSync(join(root, 'fixture-launched'))).toBe(false);
+  });
+  it('preserves original deadline/cancellation through preparation without launch or bootstrap writes', async () => {
+    const { app, inventories, input } = fixture();
+    input.deadlineAt = Date.now() - 1;
+    await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow('deadline');
+    input.deadlineAt = Date.now() + 10000;
+    input.signal = AbortSignal.abort();
+    await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(existsSync(join(root, 'fixture-launched'))).toBe(false);
+    expect(existsSync(join(input.projectRoot, 'AGENTS.md'))).toBe(false);
+  });
+  it('refuses package symlinks escaping the isolated installation', async () => {
+    const { app, inventories, input } = fixture();
+    const packageRoot = join(app, 'node_modules/@cleocode/cleo-os');
+    rmSync(packageRoot, { recursive: true });
+    symlinkSync(dirname(root), packageRoot, 'dir');
+    await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow('escapes');
+    expect(existsSync(join(root, 'fixture-launched'))).toBe(false);
   });
 });

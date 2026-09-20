@@ -174,3 +174,27 @@ export interface ProviderVerificationProcessResult {
   /** Explicit scope, cleanup, permission and synchronous-boundary limitations. */
   diagnostics: readonly string[];
 }
+
+/** Exact managed instruction bytes staged for an external CLI; reading remains separate evidence. */
+export interface ProviderInstructionStaging {
+  /** Installed source instruction files independently matched against packed inventories. */
+  sources: readonly ProviderArtifactIdentity[];
+  /** Self-contained managed bootstrap inside the isolated synthetic project. */
+  bootstrap: ProviderArtifactIdentity;
+  /** Staging proves availability, not provider expansion or an actual tool read. */
+  delivery: 'staged-unverified';
+}
+
+/** Installed-file observations accompanying one external CLI process attempt. */
+export interface PackedProviderProcessObservation {
+  /** Exact installed runner and package manifests checked before execution. */
+  artifacts: readonly ProviderArtifactIdentity[];
+  /** Managed instruction staging, distinct from independently observed reading. */
+  instructions: ProviderInstructionStaging;
+  /** Actual bounded external process result; not a provider-authored certificate. */
+  process: ProviderVerificationProcessResult;
+  /** This prerequisite does not assess the complete repair workflow. */
+  workflow: 'unverified';
+  /** Repair, delivery and lifecycle evidence still required. */
+  limitations: readonly string[];
+}
