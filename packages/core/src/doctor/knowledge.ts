@@ -19,6 +19,8 @@ import type {
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type {
   KnowledgePreparedRepairProposal,
+  KnowledgeRepairAttemptFailure,
+  KnowledgeRepairAttemptOutcome,
   KnowledgeRepairExecution,
   KnowledgeRepairPreparation,
   KnowledgeRepairResource,
@@ -32,8 +34,8 @@ import { generateProjectHash } from '../nexus/hash.js';
 import { assessKnowledgeCoverage, readKnowledgeIndexAssessment } from '../nexus/knowledge.js';
 import { getTaskKnowledgeEvidence } from '../nexus/task-evidence.js';
 import { worktreeScope } from '../paths.js';
-import { DurableJobStore } from '../store/background-jobs.js';
-import { bindOperationWriteFence } from '../store/background-ops.js';
+import { BackgroundJobError, DurableJobStore } from '../store/background-jobs.js';
+import { bindOperationWriteFence, OperationExecutionError } from '../store/background-ops.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
@@ -172,15 +174,19 @@ const preparedProposalSchema = proposalSchema
 export class KnowledgeRepairError extends Error {
   /** Stable machine-readable repair failure code. */
   readonly code: string;
+  /** Observed owned-attempt outcome and truthful persistence status. @defaultValue undefined */
+  readonly attemptFailure?: KnowledgeRepairAttemptFailure;
   /**
    * Construct an actionable validation or concurrency error.
    * @param code - Stable repair validation failure code.
    * @param message - Observable reason the repair was rejected.
+   * @param attemptFailure - Optional observed attempt with committed or pending finalization.
    */
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, attemptFailure?: KnowledgeRepairAttemptFailure) {
     super(message);
     this.name = 'KnowledgeRepairError';
     this.code = code;
+    this.attemptFailure = attemptFailure;
   }
 }
 
@@ -418,11 +424,17 @@ export async function prepareKnowledgeRepair(
       const proposalJson = JSON.stringify(prepared);
       context.consume({ bytes: Buffer.byteLength(proposalJson, 'utf8'), items: resources.length });
       context.assertActive();
-      const job = store.defer(randomUUID(), context.identity.operation, Date.now(), {
-        projectId: context.identity.projectId,
-        idempotencyKey: context.identity.idempotencyKey,
-        proposalJson,
-      });
+      const job = store.defer(
+        randomUUID(),
+        context.identity.operation,
+        Date.now(),
+        {
+          projectId: context.identity.projectId,
+          idempotencyKey: context.identity.idempotencyKey,
+          proposalJson,
+        },
+        context,
+      );
       return {
         jobId: job.id,
         jobStatus: job.status,
@@ -447,6 +459,16 @@ function resourceHash(db: DatabaseSync, resource: KnowledgeRepairResource, root:
   return hash(JSON.stringify(row));
 }
 
+/** Append immutable ledger bytes and verify their persisted image inside the caller-owned transaction. */
+function appendVerifiedMetadata(db: DatabaseSync, key: string, bytes: string): void {
+  db.prepare('INSERT INTO main._nexus_meta(key,value) VALUES (?,?)').run(key, bytes);
+  if (db.prepare('SELECT value FROM main._nexus_meta WHERE key=?').get(key)?.value !== bytes)
+    throw new KnowledgeRepairError(
+      'E_REPAIR_VERIFY',
+      'Append-only ledger readback differs from observed bytes.',
+    );
+}
+
 /** Read exact persisted generation bytes for an immediate transactional recheck. */
 function assessmentBytes(db: DatabaseSync): string | null {
   const row = db.prepare("SELECT value FROM main._nexus_meta WHERE key='graph_assessment'").get();
@@ -467,8 +489,9 @@ function assessmentBytes(db: DatabaseSync): string | null {
  * File hashes are rechecked around mutation but SQLite cannot lock external file edits.
  * A later explicit invocation may supply a new bounded context for the same immutable
  * proposal; an active attempt never renews its deadline. Interrupted uncommitted work
- * retains its job lease for explicit recovery after expiry; no automatic retry or
- * background reasoning is started.
+ * records observed failure/cancellation atomically when the original budget and
+ * ownership permit; otherwise the error explicitly reports pending finalization
+ * and retains the lease/checkpoint. No automatic retry or background reasoning runs.
  * @example
  * ```ts
  * const receipt = await applyPreparedKnowledgeRepair(context, pending.jobId);
@@ -573,82 +596,148 @@ export async function applyPreparedKnowledgeRepair(
           'E_REPAIR_STALE',
           'Published generation changed after preparation.',
         );
-      const lease = store.claim(jobId, Date.now());
-      const execution = bindOperationWriteFence(context, {
-        lease,
-        proposalHash: job.proposalHash,
-        dbPath: prepared.databasePath,
-      });
-      const startedAt = new Date().toISOString();
-      const receiptJson = store.completeAtomically(execution, () => {
-        if (
-          assessmentBytes(db) !== originalAssessment ||
-          JSON.stringify(repairResources(db, prepared, root)) !== JSON.stringify(prepared.resources)
-        )
-          throw new KnowledgeRepairError(
-            'E_REPAIR_STALE',
-            'Prepared resource or generation changed before mutation.',
+      const lease = store.claim(jobId, Date.now(), undefined, context);
+      const attemptStartedAt = Date.now();
+      const startedAt = new Date(attemptStartedAt).toISOString();
+      let execution: OperationExecutionContext | undefined;
+      try {
+        execution = bindOperationWriteFence(
+          context,
+          {
+            lease,
+            proposalHash: job.proposalHash,
+            dbPath: prepared.databasePath,
+          },
+          context.signal.aborted,
+        );
+        const activeExecution = execution;
+        const receiptJson = store.completeAtomically(activeExecution, () => {
+          if (
+            assessmentBytes(db) !== originalAssessment ||
+            JSON.stringify(repairResources(db, prepared, root)) !==
+              JSON.stringify(prepared.resources)
+          )
+            throw new KnowledgeRepairError(
+              'E_REPAIR_STALE',
+              'Prepared resource or generation changed before mutation.',
+            );
+          const receipt = applyProposalBody(
+            db,
+            proposalSchema.parse(prepared),
+            report,
+            root,
+            store.get(jobId)!.attempts,
+            startedAt,
           );
-        const receipt = applyProposalBody(
-          db,
-          proposalSchema.parse(prepared),
-          report,
-          root,
-          store.get(jobId)!.attempts,
-          startedAt,
-        );
-        const eventIds = ['started', 'verified', 'committed'].map(
-          (stage) => `${jobId}:${lease.epoch}:${stage}`,
-        );
-        const provenance: KnowledgeRepairExecution = {
+          const eventIds = ['started', 'verified', 'committed'].map(
+            (stage) => `${jobId}:${lease.epoch}:${stage}`,
+          );
+          const provenance: KnowledgeRepairExecution = {
+            identity: prepared.identity,
+            jobId,
+            ownerId: lease.ownerId,
+            fencingEpoch: lease.epoch,
+            proposalHash: job.proposalHash!,
+            generation: prepared.expectedGeneration,
+            resources: prepared.resources.map((resource) => ({
+              ...resource,
+              afterHash: resourceHash(db, resource, root),
+            })),
+            eventIds,
+          };
+          if (
+            provenance.resources.some(
+              (resource) =>
+                resource.role === 'source' && resource.beforeHash !== resource.afterHash,
+            )
+          )
+            throw new KnowledgeRepairError(
+              'E_REPAIR_STALE',
+              'Cited evidence changed during mutation.',
+            );
+          receipt.execution = provenance;
+          const stored = readReceipt(db, prepared.id);
+          if (!stored)
+            throw new KnowledgeRepairError(
+              'E_REPAIR_VERIFY',
+              'Repair receipt disappeared during verification.',
+            );
+          writeReceipt(db, storedRepairSchema.parse({ ...stored, receipt }));
+          for (const [index, id] of eventIds.entries()) {
+            appendVerifiedMetadata(
+              db,
+              `knowledge_repair_event:${id}`,
+              JSON.stringify({
+                id,
+                jobId,
+                receiptId: receipt.id,
+                actor: context.identity.actor,
+                fencingEpoch: lease.epoch,
+                stage: ['started', 'verified', 'committed'][index],
+                at: index === 0 ? startedAt : receipt.completedAt,
+                proposalHash: job.proposalHash,
+              }),
+            );
+          }
+          activeExecution.assertActive();
+          return JSON.stringify(receiptSchema.parse(receipt));
+        });
+        return receiptSchema.parse(JSON.parse(receiptJson));
+      } catch (error) {
+        const observedAt = new Date().toISOString();
+        const errorCode =
+          error instanceof KnowledgeRepairError ||
+          error instanceof BackgroundJobError ||
+          error instanceof OperationExecutionError
+            ? error.code
+            : 'E_REPAIR_APPLY';
+        const reason = error instanceof Error ? error.message : String(error);
+        const status = context.signal.aborted ? 'cancelled' : 'failed';
+        const attemptId = `${jobId}:${lease.epoch}`;
+        const attempt: KnowledgeRepairAttemptOutcome = {
+          id: attemptId,
+          proposalId: prepared.id,
+          proposalHash: job.proposalHash,
           identity: prepared.identity,
           jobId,
           ownerId: lease.ownerId,
           fencingEpoch: lease.epoch,
-          proposalHash: job.proposalHash!,
-          generation: prepared.expectedGeneration,
-          resources: prepared.resources.map((resource) => ({
-            ...resource,
-            afterHash: resourceHash(db, resource, root),
-          })),
-          eventIds,
+          status,
+          errorCode,
+          reason,
+          startedAt,
+          observedAt,
+          eventIds: [`${attemptId}:started`, `${attemptId}:${status}`],
         };
-        if (
-          provenance.resources.some(
-            (resource) => resource.role === 'source' && resource.beforeHash !== resource.afterHash,
-          )
-        )
-          throw new KnowledgeRepairError(
-            'E_REPAIR_STALE',
-            'Cited evidence changed during mutation.',
-          );
-        receipt.execution = provenance;
-        const stored = readReceipt(db, prepared.id);
-        if (!stored)
-          throw new KnowledgeRepairError(
-            'E_REPAIR_VERIFY',
-            'Repair receipt disappeared during verification.',
-          );
-        writeReceipt(db, storedRepairSchema.parse({ ...stored, receipt }));
-        for (const [index, id] of eventIds.entries()) {
-          db.prepare('INSERT INTO main._nexus_meta(key,value) VALUES (?,?)').run(
-            `knowledge_repair_event:${id}`,
-            JSON.stringify({
-              id,
-              jobId,
-              receiptId: receipt.id,
-              actor: context.identity.actor,
-              fencingEpoch: lease.epoch,
-              stage: ['started', 'verified', 'committed'][index],
-              at: index === 0 ? startedAt : receipt.completedAt,
-              proposalHash: job.proposalHash,
-            }),
-          );
-        }
-        execution.assertActive();
-        return JSON.stringify(receiptSchema.parse(receipt));
-      });
-      return receiptSchema.parse(JSON.parse(receiptJson));
+        const finalization = execution
+          ? store.finalizeAtomically(execution, { status, message: reason }, () => {
+              const bytes = JSON.stringify(attempt);
+              const key = `knowledge_repair_attempt:${attemptId}`;
+              appendVerifiedMetadata(db, key, bytes);
+              for (const [index, id] of attempt.eventIds.entries()) {
+                const eventKey = `knowledge_repair_event:${id}`;
+                const eventBytes = JSON.stringify({
+                  id,
+                  jobId,
+                  attemptId,
+                  actor: context.identity.actor,
+                  fencingEpoch: lease.epoch,
+                  stage: index === 0 ? 'started' : status,
+                  at: index === 0 ? startedAt : observedAt,
+                  proposalHash: job.proposalHash,
+                });
+                appendVerifiedMetadata(db, eventKey, eventBytes);
+              }
+              return bytes;
+            })
+          : {
+              state: 'pending-finalization' as const,
+              reason: 'No usable owned fence could be attached after claim.',
+              elapsedMs: Date.now() - attemptStartedAt,
+              deadlineExceeded: Date.now() >= context.deadlineAt,
+            };
+        throw new KnowledgeRepairError(errorCode, reason, { attempt, finalization });
+      }
     },
   );
 }

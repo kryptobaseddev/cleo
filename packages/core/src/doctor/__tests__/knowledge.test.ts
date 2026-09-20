@@ -489,6 +489,10 @@ describe('durable sourced knowledge repair preparation', () => {
       "INSERT INTO main.brain_observations (id,type,title,narrative) VALUES ('O-prepared','discovery','Task complete: T123','Task T123 completed with status: undefined')",
     ).run();
     await getDb(root);
+    // The shared Vitest pragma default disables foreign keys; exercise repair
+    // durability with the production constraint setting explicitly enabled.
+    db.exec('PRAGMA foreign_keys=ON');
+    expect(db.prepare('PRAGMA foreign_keys').get()?.foreign_keys).toBe(1);
     const report = await runKnowledgeDoctor(root, { dryRun: true, budgetMs: 10000 });
     expect(report.health.coverage.projectId).toBe('repair-A');
     expect(report.proposals).toHaveLength(1);
@@ -523,7 +527,7 @@ describe('durable sourced knowledge repair preparation', () => {
         [
           '--input-type=module',
           '-e',
-          "import {DatabaseSync} from 'node:sqlite';const db=new DatabaseSync(process.argv[1],{readOnly:true});process.stdout.write(JSON.stringify({jobs:db.prepare('SELECT id,status,proposal_json,proposal_hash,attempts FROM main.background_jobs').all(),observation:db.prepare(\"SELECT invalid_at,narrative FROM main.brain_observations WHERE id='O-prepared'\").get(),receipts:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair:%'\").all()}));db.close();",
+          "import {DatabaseSync} from 'node:sqlite';const db=new DatabaseSync(process.argv[1],{readOnly:true});process.stdout.write(JSON.stringify({jobs:db.prepare('SELECT id,status,result,error,proposal_json,proposal_hash,attempts FROM main.background_jobs').all(),observation:db.prepare(\"SELECT invalid_at,narrative FROM main.brain_observations WHERE id='O-prepared'\").get(),attemptOutcomes:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_attempt:%'\").all(),events:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_event:%'\").all(),receipts:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair:%'\").all()}));db.close();",
           join(root, '.cleo/cleo.db'),
         ],
         { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] },
@@ -606,16 +610,68 @@ describe('durable sourced knowledge repair preparation', () => {
       db.exec(
         `CREATE TEMP TRIGGER reject_repair BEFORE INSERT ON main._nexus_meta WHEN NEW.key LIKE '${fault === 'domain-receipt' ? 'knowledge_repair:' : 'knowledge_repair_event:'}%' BEGIN SELECT RAISE(ABORT,'repair receipt fault'); END`,
       );
-    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      attemptFailure: {
+        finalization: { state: fault === 'lifecycle' ? 'pending-finalization' : 'finalized' },
+      },
+    });
+    const state = persisted();
+    expect(state.jobs[0]).toMatchObject({
+      status: fault === 'lifecycle' ? 'running' : 'failed',
+      attempts: 1,
+    });
+    expect(state.observation.invalid_at).toBeNull();
+    expect(state.receipts).toEqual([]);
+    expect(state.events).toHaveLength(fault === 'lifecycle' ? 0 : 2);
+    expect(state.attemptOutcomes).toHaveLength(fault === 'lifecycle' ? 0 : 1);
+    if (fault !== 'lifecycle') {
+      const attempt = JSON.parse(state.attemptOutcomes[0].value);
+      expect(attempt).toMatchObject({
+        jobId: pending.jobId,
+        proposalId: proposal.id,
+        status: 'failed',
+        identity: context.identity,
+        fencingEpoch: 1,
+      });
+      expect(JSON.parse(state.jobs[0].result)).toEqual(attempt);
+      await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+      expect(persisted().attemptOutcomes).toEqual(state.attemptOutcomes);
+      expect(persisted().events).toEqual(state.events);
+    }
+  });
+
+  it.each([
+    'attempt-receipt',
+    'terminal-state',
+    'event-rewrite',
+  ] as const)('retains pending finalization without partial outcome metadata on %s failure', async (fault) => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const db = getBrainNativeDb(root)!;
+    expect(db.prepare('PRAGMA foreign_keys').get()?.foreign_keys).toBe(1);
+    db.exec(
+      "CREATE TEMP TRIGGER reject_actual_repair BEFORE UPDATE OF status ON main.background_jobs WHEN NEW.status='complete' BEGIN SELECT RAISE(ABORT,'observed apply failure'); END",
+    );
+    if (fault === 'attempt-receipt')
+      db.exec(
+        "CREATE TEMP TRIGGER reject_attempt BEFORE INSERT ON main._nexus_meta WHEN NEW.key LIKE 'knowledge_repair_attempt:%' BEGIN SELECT RAISE(ABORT,'attempt receipt fault'); END",
+      );
+    else if (fault === 'terminal-state')
+      db.exec(
+        "CREATE TEMP TRIGGER reject_failed_job BEFORE UPDATE OF status ON main.background_jobs WHEN NEW.status='failed' BEGIN SELECT RAISE(ABORT,'failed terminal fault'); END",
+      );
+    else
+      db.exec(
+        "CREATE TEMP TRIGGER rewrite_attempt_event AFTER INSERT ON main._nexus_meta WHEN NEW.key LIKE 'knowledge_repair_event:%' BEGIN UPDATE _nexus_meta SET value='{}' WHERE key=NEW.key; END",
+      );
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      attemptFailure: { finalization: { state: 'pending-finalization' } },
+    });
     const state = persisted();
     expect(state.jobs[0]).toMatchObject({ status: 'running', attempts: 1 });
     expect(state.observation.invalid_at).toBeNull();
     expect(state.receipts).toEqual([]);
-    expect(
-      db
-        .prepare("SELECT key FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_event:%'")
-        .all(),
-    ).toEqual([]);
+    expect(state.attemptOutcomes).toEqual([]);
+    expect(state.events).toEqual([]);
   });
 
   it('uses existing sourced authority rules through the prepared transaction and retains historical text', async () => {
@@ -732,10 +788,14 @@ describe('durable sourced knowledge repair preparation', () => {
       vi.setSystemTime(originalDeadline + 1);
       return lease;
     });
-    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      attemptFailure: { finalization: { state: 'pending-finalization', deadlineExceeded: true } },
+    });
     expect(context.deadlineAt).toBe(originalDeadline);
     expect(persisted().observation.invalid_at).toBeNull();
     expect(persisted().receipts).toEqual([]);
+    expect(persisted().attemptOutcomes).toEqual([]);
+    expect(persisted().jobs[0]).toMatchObject({ status: 'running', attempts: 1 });
   });
 
   it('retains the original deadline and rolls back when cancellation arrives after claiming', async () => {
@@ -749,10 +809,14 @@ describe('durable sourced knowledge repair preparation', () => {
       context.close();
       return lease;
     });
-    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
-    expect(persisted().jobs[0]).toMatchObject({ status: 'running', attempts: 1 });
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      attemptFailure: { attempt: { status: 'cancelled' }, finalization: { state: 'finalized' } },
+    });
+    expect(persisted().jobs[0]).toMatchObject({ status: 'cancelled', attempts: 1 });
     expect(persisted().observation.invalid_at).toBeNull();
     expect(persisted().receipts).toEqual([]);
+    expect(persisted().attemptOutcomes).toHaveLength(1);
+    expect(persisted().events).toHaveLength(2);
   });
 
   it('rechecks complete resource images after claim, including fields absent from the old state digest', async () => {
@@ -1002,6 +1066,35 @@ describe('durable sourced knowledge repair preparation', () => {
     expect(result.proposal.assessmentHash).toBe(
       createHash('sha256').update(JSON.stringify(assessment)).digest('hex'),
     );
+  });
+
+  it('passes the original execution context into preparation storage before mutation', async () => {
+    const original = DurableJobStore.prototype.defer;
+    vi.spyOn(DurableJobStore.prototype, 'defer').mockImplementation(function (
+      this: DurableJobStore,
+      ...args
+    ) {
+      context.close();
+      return original.apply(this, args);
+    });
+    await expect(prepareKnowledgeRepair(context, proposal)).rejects.toThrow();
+    expect(persisted().jobs).toEqual([]);
+  });
+
+  it('passes the original execution context into claim storage before mutation', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const original = DurableJobStore.prototype.claim;
+    vi.spyOn(DurableJobStore.prototype, 'claim').mockImplementation(function (
+      this: DurableJobStore,
+      ...args
+    ) {
+      context.close();
+      return original.apply(this, args);
+    });
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    expect(persisted().jobs[0]).toMatchObject({ status: 'pending', attempts: 0 });
+    expect(persisted().attemptOutcomes).toEqual([]);
+    expect(persisted().observation.invalid_at).toBeNull();
   });
 
   it('reports durable preparation if cancellation arrives immediately after its commit', async () => {
