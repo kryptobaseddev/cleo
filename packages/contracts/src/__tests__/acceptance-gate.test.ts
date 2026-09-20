@@ -12,7 +12,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { AcceptanceGate, AcceptanceGateResult, FileAssertion } from '../acceptance-gate.js';
+import type {
+  AcceptanceGate,
+  AcceptanceGateBinding,
+  AcceptanceGateResult,
+  FileAssertion,
+} from '../acceptance-gate.js';
 import {
   acceptanceArraySchema,
   acceptanceGateResultSchema,
@@ -816,5 +821,86 @@ describe('acceptance result captured execution preservation (T12292)', () => {
       expect(acceptanceGateResultSchema.safeParse({ ...result, execution: corrupt }).success).toBe(
         false,
       );
+  });
+});
+
+describe('typed requirement verification binding (T12292)', () => {
+  const binding: AcceptanceGateBinding = {
+    version: 1,
+    verificationId: '9f4a8d70-6325-4bf8-a30c-b719ade689da',
+    identity: {
+      projectId: 'stable-project',
+      projectRoot: '/project',
+      actor: 'agent-test',
+      operation: 'check.gate.verify',
+      idempotencyKey: 'verification-attempt',
+    },
+    taskId: 'T122',
+    criterionId: 'e1cf21de-92db-46e4-8e3d-156ab78a0b32',
+    criterionHash: 'a'.repeat(64),
+    gateHash: 'b'.repeat(64),
+    capturedAt: '2026-09-20T17:00:00.000Z',
+    deadlineAt: 1790000000000,
+    invocation: {
+      command: 'node',
+      args: ['scripts/verify.mjs', '--task', 'T122'],
+      cwd: '/project',
+      environmentHash: 'c'.repeat(64),
+    },
+    artifacts: [{ path: '/project/scripts/verify.mjs', sha256: 'd'.repeat(64), bytes: 81 }],
+  };
+  const result: AcceptanceGateResult = {
+    index: 3,
+    req: 'PARTNER-122',
+    kind: 'test',
+    result: 'error',
+    durationMs: 5,
+    checkedAt: '2026-09-20T17:00:00.005Z',
+    checkedBy: 'agent-test',
+    binding,
+  };
+
+  it('round-trips bound identity, invocation hashes and untracked input snapshots losslessly', () => {
+    expect(acceptanceGateResultSchema.parse(JSON.parse(JSON.stringify(result)))).toEqual(result);
+  });
+
+  it('preserves an explicitly observed absent input without fabricating a hash', () => {
+    const absent = {
+      ...result,
+      binding: {
+        ...binding,
+        artifacts: [{ path: '/project/scripts/missing.mjs', sha256: null, bytes: null }],
+      },
+    };
+    expect(acceptanceGateResultSchema.parse(absent)).toEqual(absent);
+  });
+
+  it('does not turn a bound process result into a verdict without an actual execution observation', () => {
+    expect(acceptanceGateResultSchema.safeParse({ ...result, result: 'pass' }).success).toBe(false);
+    const legacy = { ...result, binding: undefined, result: 'pass' };
+    expect(acceptanceGateResultSchema.parse(legacy)).toEqual(legacy);
+  });
+
+  it.each([
+    { ...binding, gateHash: 'not-a-hash' },
+    { ...binding, identity: { ...binding.identity, projectRoot: 'relative-root' } },
+    { ...binding, invocation: { ...binding.invocation, cwd: 'relative-cwd' } },
+    { ...binding, artifacts: [{ ...binding.artifacts[0], path: 'relative-input' }] },
+    { ...binding, verificationId: 'not-a-uuid' },
+    { ...binding, identity: { ...binding.identity, actor: 'different-agent' } },
+    { ...binding, capturedAt: '2026-09-20T17:00:01.000Z' },
+    { ...binding, deadlineAt: 1 },
+    { ...binding, artifacts: [binding.artifacts[0], binding.artifacts[0]] },
+    { ...binding, artifacts: [{ ...binding.artifacts[0], sha256: null }] },
+    { ...binding, artifacts: [{ ...binding.artifacts[0], bytes: -1 }] },
+    {
+      ...binding,
+      invocation: { ...binding.invocation, environmentHash: '', env: { SECRET: 'must-not-store' } },
+    },
+    { ...binding, authority: 'implicit' },
+  ])('rejects inconsistent or malformed persisted binding %#', (invalid) => {
+    expect(acceptanceGateResultSchema.safeParse({ ...result, binding: invalid }).success).toBe(
+      false,
+    );
   });
 });

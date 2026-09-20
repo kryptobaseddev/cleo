@@ -13,6 +13,7 @@
  */
 
 import { z } from 'zod';
+import type { AcceptanceGateBinding } from './acceptance-gate.js';
 import type { ProcessCaptureResult } from './resource-governor.js';
 
 // ─── Base schema ──────────────────────────────────────────────────────────────
@@ -301,6 +302,80 @@ const capturedExecutionSchema: z.ZodType<ProcessCaptureResult> = z
       });
   });
 
+/** Absolute captured paths; canonical ownership is checked by the runtime verifier. */
+const gateBindingPathSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(value) && !value.includes('\0'),
+    'Captured gate paths must be absolute and contain no null byte',
+  );
+
+/** Strict persistence shape for existing acceptance-result provenance. */
+const acceptanceGateBindingSchema: z.ZodType<AcceptanceGateBinding> = z
+  .object({
+    version: z.literal(1),
+    verificationId: z.string().uuid(),
+    identity: z
+      .object({
+        projectId: z.string().min(1),
+        projectRoot: gateBindingPathSchema,
+        actor: z.string().min(1),
+        operation: z.literal('check.gate.verify'),
+        idempotencyKey: z.string().min(1),
+      })
+      .strict(),
+    taskId: z.string().min(1),
+    criterionId: z.string().uuid(),
+    criterionHash: z.string().regex(/^[a-f0-9]{64}$/),
+    gateHash: z.string().regex(/^[a-f0-9]{64}$/),
+    capturedAt: z.string().datetime(),
+    deadlineAt: z.number().int().positive().safe(),
+    invocation: z
+      .object({
+        command: z.string().min(1),
+        args: z.array(z.string()),
+        cwd: gateBindingPathSchema,
+        environmentHash: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .strict()
+      .optional(),
+    artifacts: z.array(
+      z
+        .object({
+          path: gateBindingPathSchema,
+          sha256: z
+            .string()
+            .regex(/^[a-f0-9]{64}$/)
+            .nullable(),
+          bytes: z.number().int().nonnegative().safe().nullable(),
+        })
+        .strict()
+        .superRefine((artifact, context) => {
+          if ((artifact.sha256 === null) !== (artifact.bytes === null))
+            context.addIssue({
+              code: 'custom',
+              message: 'Absent input requires both null digest and size',
+            });
+        }),
+    ),
+  })
+  .strict()
+  .superRefine((binding, context) => {
+    if (new Set(binding.artifacts.map(({ path }) => path)).size !== binding.artifacts.length)
+      context.addIssue({
+        code: 'custom',
+        path: ['artifacts'],
+        message: 'Input paths must be unique',
+      });
+    if (Date.parse(binding.capturedAt) >= binding.deadlineAt)
+      context.addIssue({
+        code: 'custom',
+        path: ['deadlineAt'],
+        message: 'Input capture must precede the original deadline',
+      });
+  });
+
 /**
  * Zod schema for {@link AcceptanceGateResult}.
  *
@@ -316,6 +391,7 @@ const capturedExecutionSchema: z.ZodType<ProcessCaptureResult> = z
  */
 export const acceptanceGateResultSchema = z
   .object({
+    binding: acceptanceGateBindingSchema.optional(),
     index: z.number().int().nonnegative(),
     req: z.string().optional(),
     kind: z.enum(['test', 'file', 'command', 'lint', 'http', 'manual']),
@@ -332,6 +408,42 @@ export const acceptanceGateResultSchema = z
     checkedBy: z.string().min(1),
   })
   .superRefine((result, context) => {
+    const binding = result.binding;
+    if (binding) {
+      if (binding.identity.actor !== result.checkedBy)
+        context.addIssue({
+          code: 'custom',
+          path: ['binding', 'identity', 'actor'],
+          message: 'Result actor must match captured operation identity',
+        });
+      if (Date.parse(binding.capturedAt) > Date.parse(result.checkedAt))
+        context.addIssue({
+          code: 'custom',
+          path: ['binding', 'capturedAt'],
+          message: 'Result cannot precede input capture',
+        });
+      const executable = ['test', 'command', 'lint'].includes(result.kind);
+      if (executable && !binding.invocation)
+        context.addIssue({
+          code: 'custom',
+          path: ['binding', 'invocation'],
+          message: 'Executable gate requires captured invocation',
+        });
+      if (['pass', 'fail', 'warn'].includes(result.result)) {
+        if (executable && !result.execution)
+          context.addIssue({
+            code: 'custom',
+            path: ['execution'],
+            message: 'Bound executable verdict requires process observation',
+          });
+        if (Date.parse(result.checkedAt) > binding.deadlineAt)
+          context.addIssue({
+            code: 'custom',
+            path: ['checkedAt'],
+            message: 'Verdict exceeds the original admitted deadline',
+          });
+      }
+    }
     const execution = result.execution;
     if (
       execution &&
