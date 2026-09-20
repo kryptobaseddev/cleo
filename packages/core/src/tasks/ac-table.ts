@@ -1,9 +1,9 @@
 /**
  * Helpers that compute the diff between an existing AC row set and an
- * incoming AC text list, then apply the dual-write (rows + history) inside
- * a caller-owned transaction. The legacy `tasks.acceptance` string column
- * MUST stay in lock-step — the legacy writer lives in addTask/updateTask;
- * this module only manages the row-table SSoT side.
+ * incoming mixed acceptance list, then apply row/history mutations inside
+ * a caller-owned transaction. Parent projection mutations also preserve the
+ * canonical typed gates in the JSON compatibility view; literal strings
+ * never gain gate semantics merely because their bytes resemble JSON.
  *
  * @adr ADR-079-r1 §2.2 — ordinal monotonicity, never reused
  * @epic T10381 E-AC-MIGRATION
@@ -21,7 +21,7 @@ import type {
   AcRow,
   TransactionAccessor,
 } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { acceptanceGateSchema, ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 
 /**
@@ -300,11 +300,34 @@ function buildChildProjectionInsertRow(
   };
 }
 
-function legacyAcceptanceFromRows(rows: readonly AcInsertRow[]): string[] {
+/** Reconstruct the mixed view only from canonical row kind and validated gate identity. */
+function acceptanceFromRows(rows: readonly AcInsertRow[]): AcceptanceItem[] {
   return rows
     .slice()
     .sort((a, b) => a.ordinal - b.ordinal)
-    .map((row) => row.text);
+    .map((row) => {
+      // Literal JSON-looking text remains literal. Row kind is the discriminator.
+      if (row.kind !== 'evidence_bound') return row.text;
+      let gate: AcceptanceGate;
+      try {
+        gate = acceptanceGateSchema.parse(JSON.parse(row.text));
+      } catch {
+        throw new CleoError(
+          ExitCode.VALIDATION_ERROR,
+          `Cannot project malformed typed acceptance row ${row.id}`,
+        );
+      }
+      if (
+        acItemToText(gate) !== row.text ||
+        row.sourceKey !== evidenceBoundSourceKey(gate, row.text) ||
+        (row.contentHash != null && row.contentHash !== acTextHash(row.text))
+      )
+        throw new CleoError(
+          ExitCode.VALIDATION_ERROR,
+          `Cannot project inconsistent typed acceptance row ${row.id}`,
+        );
+      return gate;
+    });
 }
 
 function childIdForProjectionRow(row: AcRow): string | null {
@@ -462,7 +485,11 @@ export function planChildProjectionRebuild(
   parentId: string,
   children: readonly ChildProjectionAuditInput[],
   existing: readonly AcRow[],
-): { plan: AcUpdatePlan; legacyAcceptance: string[]; auditBefore: AcProjectionAuditResult } {
+): {
+  plan: AcUpdatePlan;
+  legacyAcceptance: AcceptanceItem[];
+  auditBefore: AcProjectionAuditResult;
+} {
   const auditBefore = auditChildProjectionAcRows(parentId, children, existing);
   if (!auditBefore.dirty) {
     return {
@@ -495,7 +522,7 @@ export function planChildProjectionRebuild(
       })),
       fullDelete: true,
     },
-    legacyAcceptance: legacyAcceptanceFromRows(inserts),
+    legacyAcceptance: acceptanceFromRows(inserts),
     auditBefore,
   };
 }
@@ -699,11 +726,8 @@ export async function removeChildProjectionAc(
   const plan = planChildProjectionRemoval(parentId, existing, childId, reason);
   if (plan.history.length === 0) return false;
 
+  const legacyAcceptance = acceptanceFromRows(plan.inserts);
   await applyAcPlan(tx, parentId, plan);
-  const legacyAcceptance = plan.inserts
-    .slice()
-    .sort((a, b) => a.ordinal - b.ordinal)
-    .map((row) => row.text);
   await tx.updateTaskFields(parentId, {
     acceptanceJson: JSON.stringify(legacyAcceptance),
     updatedAt,
