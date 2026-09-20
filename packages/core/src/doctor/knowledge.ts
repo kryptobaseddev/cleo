@@ -22,6 +22,7 @@ import type {
   KnowledgeRepairAttemptFailure,
   KnowledgeRepairAttemptOutcome,
   KnowledgeRepairCancellation,
+  KnowledgeRepairExecutedResource,
   KnowledgeRepairExecution,
   KnowledgeRepairInspection,
   KnowledgeRepairInventory,
@@ -121,6 +122,18 @@ const rollbackReferenceSchema = z.object({
   receiptId: z.string().min(1),
   receiptHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
+const rowImagesSchema = z.object({ beforeJson: z.string(), afterJson: z.string() }).strict();
+const rowImageSchema = z.record(z.string(), z.json());
+const quarantineFootprintSchema = z
+  .object({
+    version: z.literal(1),
+    operation: z.literal('knowledge.quarantine-stubs'),
+    writeFields: z.tuple([z.literal('invalid_at')]),
+    usageFields: z.tuple([z.literal('citation_count'), z.literal('updated_at')]),
+    protectedBeforeHash: z.string().regex(/^[a-f0-9]{64}$/),
+    protectedAfterHash: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict();
 const repairExecutionSchema = z.object({
   rollback: rollbackReferenceSchema.optional(),
   identity: executionIdentitySchema,
@@ -129,7 +142,13 @@ const repairExecutionSchema = z.object({
   fencingEpoch: z.number().int().positive(),
   proposalHash: z.string().regex(/^[a-f0-9]{64}$/),
   generation: z.string().nullable(),
-  resources: z.array(resourceSchema.extend({ afterHash: z.string().regex(/^[a-f0-9]{64}$/) })),
+  resources: z.array(
+    resourceSchema.extend({
+      afterHash: z.string().regex(/^[a-f0-9]{64}$/),
+      rowImages: rowImagesSchema.optional(),
+      quarantineFootprint: quarantineFootprintSchema.optional(),
+    }),
+  ),
   eventIds: z.array(z.string()),
 });
 const receiptSchema = z.object({
@@ -309,6 +328,24 @@ function rollbackSnapshot(db: DatabaseSync, proposal: KnowledgeRepairProposal, r
       'E_REPAIR_RECOVERY',
       'Retained snapshot does not cover every affected resource.',
     );
+  if (affected.some((resource) => resource.quarantineFootprint)) {
+    const job = db
+      .prepare(
+        'SELECT status,result,proposal_hash,idempotency_key FROM main.background_jobs WHERE id=? AND project_id=?',
+      )
+      .get(execution.jobId, proposal.projectId);
+    if (
+      job?.status !== 'complete' ||
+      typeof job.result !== 'string' ||
+      job.proposal_hash !== execution.proposalHash ||
+      job.idempotency_key !== id ||
+      JSON.stringify(receiptSchema.parse(JSON.parse(job.result))) !== JSON.stringify(stored.receipt)
+    )
+      throw new KnowledgeRepairError(
+        'E_REPAIR_STALE',
+        'Versioned recovery receipt differs from its committed job evidence.',
+      );
+  }
   return { stored, affected, reference: { receiptId: id, receiptHash: hash(bytes) } };
 }
 
@@ -331,16 +368,19 @@ function repairResources(
   if (proposal.action.operation === 'knowledge.rollback') {
     const original = rollbackSnapshot(db, proposal, projectRoot);
     for (const resource of original.affected) {
-      if (resourceHash(db, resource, projectRoot) !== resource.afterHash)
+      const current = resourceImage(db, resource, projectRoot);
+      if (resource.quarantineFootprint)
+        recoverableQuarantineImage(resource, current, original.stored.receipt.action?.operation);
+      else if (hash(current) !== resource.afterHash)
         throw new KnowledgeRepairError(
           'E_REPAIR_STALE',
-          `Affected resource ${resource.id} changed after repair.`,
+          `Affected resource ${resource.id} changed after repair; legacy receipts require the complete retained image.`,
         );
       resources.push({
         kind: resource.kind,
         id: resource.id,
         role: 'affected',
-        beforeHash: resource.afterHash,
+        beforeHash: hash(current),
       });
     }
   } else if (proposal.action.operation === 'knowledge.quarantine-stubs') {
@@ -541,15 +581,117 @@ export async function prepareKnowledgeRepair(
 }
 
 /** Read a complete resource image using only fixed supported tables and captured paths. */
-function resourceHash(db: DatabaseSync, resource: KnowledgeRepairResource, root: string): string {
-  if (resource.kind === 'file') return hash(readFileSync(resolve(root, resource.id), 'utf8'));
+function resourceImage(db: DatabaseSync, resource: KnowledgeRepairResource, root: string): string {
+  if (resource.kind === 'file') return readFileSync(resolve(root, resource.id), 'utf8');
   const row =
     resource.kind === 'decision'
       ? db.prepare('SELECT * FROM main.brain_decisions WHERE id=?').get(resource.id)
       : db.prepare('SELECT * FROM main.brain_observations WHERE id=?').get(resource.id);
   if (!row)
     throw new KnowledgeRepairError('E_REPAIR_STALE', `Resource ${resource.id} disappeared.`);
-  return hash(JSON.stringify(row));
+  return JSON.stringify(row);
+}
+
+/** Hash the exact persisted row or original source bytes. */
+function resourceHash(db: DatabaseSync, resource: KnowledgeRepairResource, root: string): string {
+  return hash(resourceImage(db, resource, root));
+}
+
+/** Hash complete parsed fields except a fixed operation-specific exclusion. */
+function rowHashExcept(bytes: string, excluded: readonly string[]): string {
+  const row = rowImageSchema.parse(JSON.parse(bytes));
+  return hash(
+    JSON.stringify(
+      Object.fromEntries(Object.entries(row).filter(([key]) => !excluded.includes(key))),
+    ),
+  );
+}
+
+/** Parse only canonical UTC SQLite/ISO timestamps without normalizing invalid dates. */
+function usageTimestamp(value: ReturnType<typeof rowImageSchema.parse>[string]): number {
+  if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z?$/.test(value)
+  )
+    return Number.NaN;
+  const normalized = value.replace(' ', 'T').replace(/Z$/, '') + 'Z';
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) &&
+    new Date(parsed).toISOString().slice(0, 19) === normalized.slice(0, 19)
+    ? parsed
+    : Number.NaN;
+}
+
+/** Validate full retained evidence before allowing the declared paired read-usage delta. */
+function recoverableQuarantineImage(
+  resource: KnowledgeRepairExecutedResource,
+  currentJson: string,
+  operation: string | undefined,
+): string {
+  const footprint = resource.quarantineFootprint;
+  const images = resource.rowImages;
+  if (
+    !footprint ||
+    !images ||
+    operation !== 'knowledge.quarantine-stubs' ||
+    resource.kind !== 'observation' ||
+    resource.role !== 'affected'
+  )
+    throw new KnowledgeRepairError(
+      'E_REPAIR_RECOVERY',
+      'Quarantine footprint lacks complete operation-bound row evidence.',
+    );
+  quarantineFootprintSchema.parse(footprint);
+  const before = rowImageSchema.parse(JSON.parse(images.beforeJson));
+  const after = rowImageSchema.parse(JSON.parse(images.afterJson));
+  const current = rowImageSchema.parse(JSON.parse(currentJson));
+  if (
+    hash(images.beforeJson) !== resource.beforeHash ||
+    hash(images.afterJson) !== resource.afterHash ||
+    before.id !== resource.id ||
+    after.id !== resource.id ||
+    current.id !== resource.id ||
+    before.invalid_at !== null ||
+    typeof after.invalid_at !== 'string' ||
+    rowHashExcept(images.beforeJson, ['invalid_at']) !==
+      rowHashExcept(images.afterJson, ['invalid_at']) ||
+    rowHashExcept(images.beforeJson, footprint.usageFields) !== footprint.protectedBeforeHash ||
+    rowHashExcept(images.afterJson, footprint.usageFields) !== footprint.protectedAfterHash
+  )
+    throw new KnowledgeRepairError(
+      'E_REPAIR_RECOVERY',
+      'Retained quarantine images or declared write footprint disagree with complete hashes.',
+    );
+  if (rowHashExcept(currentJson, footprint.usageFields) !== footprint.protectedAfterHash)
+    throw new KnowledgeRepairError(
+      'E_REPAIR_STALE',
+      `Protected quarantine resource ${resource.id} changed after repair.`,
+    );
+  if (hash(currentJson) !== resource.afterHash) {
+    const earlier = after.citation_count;
+    const now = current.citation_count;
+    const earlierTime = usageTimestamp(
+      after.updated_at === null && earlier === 0 ? after.created_at : after.updated_at,
+    );
+    const currentTime = usageTimestamp(current.updated_at);
+    if (
+      typeof earlier !== 'number' ||
+      !Number.isSafeInteger(earlier) ||
+      earlier < 0 ||
+      typeof now !== 'number' ||
+      !Number.isSafeInteger(now) ||
+      now <= earlier ||
+      !Number.isFinite(earlierTime) ||
+      !Number.isFinite(currentTime) ||
+      currentTime < earlierTime ||
+      currentTime > Date.now()
+    )
+      throw new KnowledgeRepairError(
+        'E_REPAIR_STALE',
+        `Resource ${resource.id} has an invalid or nonmonotonic paired retrieval update.`,
+      );
+  }
+  return JSON.stringify({ ...current, invalid_at: before.invalid_at });
 }
 
 /** Append immutable ledger bytes and verify their persisted image inside the caller-owned transaction. */
@@ -1275,6 +1417,15 @@ async function executePreparedKnowledgeRepair(
         const activeExecution = execution;
         const receiptJson = store.completeAtomically(activeExecution, () => {
           recheckResources();
+          const beforeImages = new Map(
+            prepared.resources
+              .filter((resource) => resource.kind !== 'file')
+              .map((resource) => {
+                const bytes = resourceImage(db, resource, root);
+                activeExecution.consume({ bytes: Buffer.byteLength(bytes) });
+                return [`${resource.kind}:${resource.id}`, bytes];
+              }),
+          );
           const receipt =
             prepared.action.operation === 'knowledge.rollback'
               ? applyRollbackBody(db, prepared, root, store.get(jobId)!.attempts, startedAt)
@@ -1297,10 +1448,37 @@ async function executePreparedKnowledgeRepair(
             fencingEpoch: lease.epoch,
             proposalHash,
             generation: assessment?.generation ?? null,
-            resources: prepared.resources.map((resource) => ({
-              ...resource,
-              afterHash: resourceHash(db, resource, root),
-            })),
+            resources: prepared.resources.map((resource): KnowledgeRepairExecutedResource => {
+              const afterJson = resourceImage(db, resource, root);
+              const beforeJson = beforeImages.get(`${resource.kind}:${resource.id}`);
+              const result: KnowledgeRepairExecutedResource = {
+                ...resource,
+                afterHash: hash(afterJson),
+              };
+              if (beforeJson !== undefined) {
+                activeExecution.consume({ bytes: Buffer.byteLength(afterJson) });
+                result.rowImages = { beforeJson, afterJson };
+                if (
+                  prepared.action.operation === 'knowledge.quarantine-stubs' &&
+                  resource.kind === 'observation' &&
+                  resource.role === 'affected'
+                ) {
+                  result.quarantineFootprint = {
+                    version: 1,
+                    operation: 'knowledge.quarantine-stubs',
+                    writeFields: ['invalid_at'],
+                    usageFields: ['citation_count', 'updated_at'],
+                    protectedBeforeHash: rowHashExcept(beforeJson, [
+                      'citation_count',
+                      'updated_at',
+                    ]),
+                    protectedAfterHash: rowHashExcept(afterJson, ['citation_count', 'updated_at']),
+                  };
+                  recoverableQuarantineImage(result, afterJson, prepared.action.operation);
+                }
+              }
+              return result;
+            }),
             eventIds,
           };
           if (
@@ -1778,6 +1956,18 @@ function applyRollbackBody(
       'E_REPAIR_STALE',
       'Original recovery snapshot changed after preparation.',
     );
+  const expectedImages = new Map(
+    original.affected
+      .filter((resource) => resource.quarantineFootprint)
+      .map((resource) => [
+        resource.id,
+        recoverableQuarantineImage(
+          resource,
+          resourceImage(db, resource, root),
+          original.stored.receipt.action?.operation,
+        ),
+      ]),
+  );
   if (original.stored.quarantine) {
     if (restoreObservationStubs(db, original.stored.quarantine) !== original.affected.length)
       throw new KnowledgeRepairError(
@@ -1789,12 +1979,17 @@ function applyRollbackBody(
     db.prepare(
       'UPDATE main.brain_decisions SET invalid_at=?,superseded_by=?,supersedes=?,confirmation_state=? WHERE id=?',
     ).run(row.invalid_at, row.superseded_by, row.supersedes, row.confirmation_state, row.id);
-  for (const resource of original.affected)
-    if (resourceHash(db, resource, root) !== resource.beforeHash)
+  for (const resource of original.affected) {
+    const expected = expectedImages.get(resource.id);
+    if (
+      resourceHash(db, resource, root) !==
+      (expected === undefined ? resource.beforeHash : hash(expected))
+    )
       throw new KnowledgeRepairError(
         'E_REPAIR_VERIFY',
-        `Restored ${resource.id} differs from its complete original image.`,
+        `Restored ${resource.id} differs from its declared recovery fields and preserved current usage.`,
       );
+  }
   const receipt: KnowledgeRepairReceipt = {
     id: prepared.id,
     proposalId: prepared.id,
@@ -1817,7 +2012,9 @@ function applyRollbackBody(
     },
     verificationEvidence: original.stored.receipt.verificationEvidence,
     reasons: [
-      'Affected resources match their complete original images; original repair evidence remains retained unchanged.',
+      expectedImages.size
+        ? 'Declared quarantine fields restored; current retrieval usage preserved. Original complete evidence remains unchanged.'
+        : 'Affected resources match their complete original images; original repair evidence remains retained unchanged.',
     ],
   };
   writeReceipt(
