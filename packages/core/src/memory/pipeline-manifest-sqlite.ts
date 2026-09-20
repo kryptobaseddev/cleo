@@ -14,6 +14,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import type { ManifestWithProvenance } from '@cleocode/contracts/operations/research';
 import { eq, like, or } from 'drizzle-orm';
 import { type EngineFailure, type EngineResult, EngineResultError } from '../engine-result.js';
@@ -33,13 +34,13 @@ async function getBinding(cwd?: string) {
 
 import { createPage } from '../pagination.js';
 import { getProjectRoot, resolveCleoDir } from '../paths.js';
-import {
-  type ContradictionDetail,
-  type ExtendedManifestEntry,
-  filterManifestEntries,
-  type ResearchFilter,
-  type SupersededDetail,
+import type {
+  ContradictionDetail,
+  ExtendedManifestEntry,
+  ResearchFilter,
+  SupersededDetail,
 } from './index.js';
+import { filterManifestEntries } from './manifest-filter.js';
 
 // Re-export types for consumers that previously imported them from pipeline-manifest-compat
 export type ManifestEntry = ExtendedManifestEntry;
@@ -98,7 +99,7 @@ function readStoredRows(
         const { provenance, ...stored } = existing;
         // Compare every persisted scalar, including raw content/metadata bytes and archival state.
         // A short content hash or the lossy public projection cannot establish equality.
-        if (JSON.stringify(stored) !== JSON.stringify(row)) {
+        if (!isDeepStrictEqual(stored, row)) {
           throw new EngineResultError({
             code: 'E_MANIFEST_ID_CONFLICT',
             message: `Manifest '${row.id}' has conflicting stored payloads; inspect both sources before repair.`,
@@ -169,6 +170,72 @@ function manifestFailure(code: string, error: Error): EngineFailure {
     cause = cause.cause;
   }
   return { success: false, error: { code, message: causes.join(' → ') } };
+}
+
+/**
+ * Insert authentic prepared manifest rows in one guarded project transaction.
+ *
+ * @remarks
+ * Preserves caller handle ownership and both storage histories. Identical complete
+ * payloads are idempotent; differing identities and legacy rows never authorize
+ * replacement. Any batch failure rolls back all inserted rows.
+ * @param rows - Complete persisted payloads, including raw content and metadata.
+ * @param projectRoot - Explicit project identity captured before asynchronous binding.
+ * @param expectedDb - Caller-owned canonical task-domain handle for this project.
+ * @returns Number of newly inserted rows; identical stored rows are skipped.
+ * @throws If database identity, historical evidence, or any transactional write fails.
+ * @example
+ * ```ts
+ * const inserted = await insertManifestRows(preparedRows, projectRoot, db);
+ * ```
+ */
+export async function insertManifestRows(
+  rows: ReadonlyArray<typeof pipelineManifest.$inferSelect>,
+  projectRoot: string,
+  expectedDb: Awaited<ReturnType<typeof getBinding>>['db'],
+): Promise<number> {
+  try {
+    const binding = await getBinding(projectRoot);
+    if (expectedDb !== binding.db) {
+      throw new EngineResultError({
+        code: 'E_MANIFEST_DATABASE_MISMATCH',
+        message:
+          'Supplied database is not the captured canonical project binding; ownership is unverified.',
+        details: { databasePath: binding.store.dbPath },
+      });
+    }
+    return binding.db.transaction(
+      () => {
+        let inserted = 0;
+        for (const row of rows) {
+          const existing = readStoredRows(binding, true, row.id);
+          requireModernRows(existing);
+          if (existing[0]) {
+            const { provenance, ...stored } = existing[0];
+            if (!isDeepStrictEqual(stored, row)) {
+              throw new EngineResultError({
+                code: 'E_MANIFEST_ID_CONFLICT',
+                message: `Manifest '${row.id}' differs from the supplied payload; explicit repair is required.`,
+                details: { entryId: row.id, provenance, stored, incoming: row },
+              });
+            }
+            continue;
+          }
+          binding.db.insert(pipelineManifest).values(row).run();
+          inserted++;
+        }
+        return inserted;
+      },
+      { behavior: 'immediate' },
+    );
+  } catch (error) {
+    throw new EngineResultError(
+      manifestFailure(
+        'E_MANIFEST_INGEST',
+        error instanceof Error ? error : new Error(String(error)),
+      ).error,
+    );
+  }
 }
 
 function now(): string {

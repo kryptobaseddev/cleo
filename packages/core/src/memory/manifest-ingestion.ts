@@ -1,6 +1,6 @@
 /**
  * Ingestion functions for RCASD phase markdown and loose agent-output markdown
- * into pipeline_manifest table.
+ * into the canonical docs_pipeline_manifest table.
  *
  * @task T1099
  * @epic T1093 — MANIFEST/RCASD Architecture Unification
@@ -8,10 +8,10 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { eq } from 'drizzle-orm';
-import { pipelineManifest } from '../store/tasks-schema.js';
+import type { docsPipelineManifest } from '../store/schema/cleo-project/docs.js';
+import { insertManifestRows } from './pipeline-manifest-sqlite.js';
 
 /**
  * Mapping from RCASD phase directory name to pipeline_manifest.type value.
@@ -125,7 +125,7 @@ function inferLooseFileType(filename: string): string {
 export interface IngestionResult {
   /** Number of entries successfully ingested. */
   ingested: number;
-  /** Number of entries skipped (due to duplication or errors). */
+  /** Number of identical persisted entries skipped. */
   skipped: number;
 }
 
@@ -134,291 +134,140 @@ export interface IngestionResult {
  */
 type NodeSQLiteDatabase = Awaited<ReturnType<typeof import('../store/sqlite.js')['getDb']>>;
 
+function readInputRoot(path: string): string[] {
+  try {
+    return readdirSync(path);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
 /**
- * Ingest RCASD phase directories into pipeline_manifest.
+ * Ingest RCASD phase markdown into the selected project's canonical manifest.
  *
- * Reads `.cleo/rcasd/<TaskID>/<phase>/*.md` files and inserts each as a
- * pipeline_manifest row with:
- * - task_id: extracted from parent directory name
- * - type: mapped from phase directory name per §3.4
- * - content: full file contents
- * - source_file: relative path from project root
- * - metadata_json: {phase, rcasd_origin: true, ...}
- *
- * Uses INSERT OR IGNORE on content_hash for idempotency.
- *
- * @param projectRoot - absolute path to project root
- * @param db - Drizzle ORM database instance
- * @returns {ingested, skipped}
+ * @remarks
+ * Reads `.cleo/rcasd/<TaskID>/<phase>/*.md` without rewriting source content.
+ * The entire prepared batch commits atomically. Only identical persisted payloads
+ * are skipped; changed identities and legacy evidence require explicit repair.
+ * @param projectRoot - Explicit project directory owning the input and database.
+ * @param db - Caller-owned canonical task-domain database for that project.
+ * @returns Counts of inserted and identical existing entries.
+ * @throws If source reads, database ownership, history checks, or writes fail.
+ * @example
+ * ```ts
+ * const result = await ingestRcasdDirectories(projectRoot, db);
+ * ```
  */
 export async function ingestRcasdDirectories(
   projectRoot: string,
   db: NodeSQLiteDatabase,
 ): Promise<IngestionResult> {
   const rcasdRoot = join(projectRoot, '.cleo', 'rcasd');
-  let ingested = 0;
-  let skipped = 0;
-
-  // Check if rcasd directory exists
-  if (!existsSync(rcasdRoot)) {
-    return { ingested: 0, skipped: 0 };
-  }
-
-  // Read task directories
-  let taskDirs: string[];
-  try {
-    const fs = await import('node:fs');
-    taskDirs = fs.readdirSync(rcasdRoot).filter((f) => {
-      const fullPath = join(rcasdRoot, f);
-      return fs.statSync(fullPath).isDirectory();
-    });
-  } catch {
-    return { ingested: 0, skipped: 0 };
-  }
-
-  for (const taskDir of taskDirs) {
-    const taskId = taskDir; // e.g., T091
-    const taskPath = join(rcasdRoot, taskDir);
-
-    // Read phase subdirectories
-    let phaseDirs: string[];
-    try {
-      const fs = await import('node:fs');
-      phaseDirs = fs.readdirSync(taskPath).filter((f) => {
-        const fullPath = join(taskPath, f);
-        return fs.statSync(fullPath).isDirectory();
-      });
-    } catch {
-      continue;
-    }
-
+  const rows: Array<typeof docsPipelineManifest.$inferSelect> = [];
+  const taskDirs = readInputRoot(rcasdRoot).filter((name) =>
+    statSync(join(rcasdRoot, name)).isDirectory(),
+  );
+  for (const taskId of taskDirs) {
+    const taskPath = join(rcasdRoot, taskId);
+    const phaseDirs = readdirSync(taskPath).filter((name) =>
+      statSync(join(taskPath, name)).isDirectory(),
+    );
     for (const phaseDir of phaseDirs) {
       const phasePath = join(taskPath, phaseDir);
-
-      // Read markdown files in phase directory
-      let mdFiles: string[];
-      try {
-        const fs = await import('node:fs');
-        mdFiles = fs.readdirSync(phasePath).filter((f) => f.endsWith('.md'));
-      } catch {
-        continue;
-      }
-
-      for (const mdFile of mdFiles) {
+      for (const mdFile of readdirSync(phasePath).filter((name) => name.endsWith('.md'))) {
         const filePath = join(phasePath, mdFile);
-        let content: string;
-        let mtime: Date;
-
-        try {
-          content = readFileSync(filePath, 'utf-8');
-          const stat = statSync(filePath);
-          mtime = new Date(stat.mtime);
-        } catch {
-          skipped++;
-          continue;
-        }
-
-        // Generate manifest entry
-        const slug = stringToSlug(mdFile.replace(/\.md$/, ''));
-        const id = `${taskId}-rcasd-${phaseDir}-${slug}`;
-        const contentHash = computeContentHash(content);
-        const sourceFile = join('.cleo', 'rcasd', taskId, phaseDir, mdFile);
-        const createdAt = mtime.toISOString();
-
-        // Determine type from phase directory
-        const type = PHASE_TO_TYPE[phaseDir] || 'implementation';
-
-        // Prepare metadata
-        const metadataJson = {
+        const content = readFileSync(filePath, 'utf-8');
+        const metadata = {
           phase: phaseDir,
           rcasd_origin: true,
-        };
-
-        // Handle atypical files per §3.5
-        if (
-          (phaseDir === 'consensus' && mdFile === 'auto-complete-policy.md') ||
+          ...((phaseDir === 'consensus' && mdFile === 'auto-complete-policy.md') ||
           (phaseDir === 'decomposition' && mdFile === 'worker-specs.md')
-        ) {
-          (metadataJson as Record<string, unknown>).filename_note =
-            'non-T-prefixed or generic filename';
-        }
-
-        if (
-          phaseDir === 'decomposition' &&
+            ? { filename_note: 'non-T-prefixed or generic filename' }
+            : {}),
+          ...(phaseDir === 'decomposition' &&
           mdFile === 'T1008-worker-spec.md' &&
           taskId === 'T1007'
-        ) {
-          (metadataJson as Record<string, unknown>).cross_task_ref = 'T1008';
-        }
-
-        // Insert into pipeline_manifest, skipping if already exists
-        try {
-          // Check if this ID already exists (idempotency)
-          const existing = await db
-            .select({ id: pipelineManifest.id })
-            .from(pipelineManifest)
-            .where(eq(pipelineManifest.id, id))
-            .limit(1);
-
-          if (existing.length > 0) {
-            // Already ingested, skip
-            skipped++;
-          } else {
-            // Insert new entry
-            await db.insert(pipelineManifest).values({
-              id,
-              taskId,
-              epicId: null,
-              sessionId: null,
-              type,
-              content,
-              contentHash,
-              status: 'active',
-              distilled: false,
-              brainObsId: null,
-              sourceFile,
-              metadataJson: JSON.stringify(metadataJson),
-              createdAt,
-              archivedAt: null,
-            });
-            ingested++;
-          }
-        } catch (err) {
-          // Log but continue
-          console.error(`Failed to ingest ${id}:`, err);
-          skipped++;
-        }
+            ? { cross_task_ref: 'T1008' }
+            : {}),
+        };
+        rows.push({
+          id: `${taskId}-rcasd-${phaseDir}-${stringToSlug(mdFile.replace(/\.md$/, ''))}`,
+          sessionId: null,
+          taskId,
+          epicId: null,
+          type: PHASE_TO_TYPE[phaseDir] || 'implementation',
+          content,
+          contentHash: computeContentHash(content),
+          status: 'active',
+          distilled: false,
+          brainObsId: null,
+          sourceFile: join('.cleo', 'rcasd', taskId, phaseDir, mdFile),
+          metadataJson: JSON.stringify(metadata),
+          createdAt: statSync(filePath).mtime.toISOString(),
+          archivedAt: null,
+        });
       }
     }
   }
-
-  return { ingested, skipped };
+  const ingested = await insertManifestRows(rows, projectRoot, db);
+  return { ingested, skipped: rows.length - ingested };
 }
 
 /**
- * Ingest loose agent-output markdown files into pipeline_manifest.
+ * Ingest top-level agent-output markdown into the canonical manifest atomically.
  *
- * Reads `.cleo/agent-outputs/*.md` (maxdepth=1, no subdirectory recursion) and
- * inserts each as a pipeline_manifest row with:
- * - task_id: extracted from filename using T\d+ pattern, or null
- * - type: inferred from filename per §4.3 and overrides
- * - content: full file contents
- * - source_file: relative path: `.cleo/agent-outputs/<filename>`
- * - metadata_json: {loose_origin: true, original_filename, ...}
- *
- * Uses INSERT OR IGNORE on content_hash for idempotency.
- *
- * @param projectRoot - absolute path to project root
- * @param db - Drizzle ORM database instance
- * @returns {ingested, skipped}
+ * @remarks
+ * Reads `.cleo/agent-outputs/*.md` without descending into subdirectories.
+ * Preserves original content, source path, timestamp, and filename-derived metadata.
+ * Missing input directories are empty inputs; read and write failures propagate.
+ * @param projectRoot - Explicit project directory owning the input and database.
+ * @param db - Caller-owned canonical task-domain database for that project.
+ * @returns Counts of inserted and identical existing entries.
+ * @throws If source reads, database ownership, history checks, or writes fail.
+ * @example
+ * ```ts
+ * const result = await ingestLooseAgentOutputs(projectRoot, db);
+ * ```
  */
 export async function ingestLooseAgentOutputs(
   projectRoot: string,
   db: NodeSQLiteDatabase,
 ): Promise<IngestionResult> {
-  const agentOutputDir = join(projectRoot, '.cleo', 'agent-outputs');
-  let ingested = 0;
-  let skipped = 0;
-
-  // Check if agent-outputs directory exists
-  if (!existsSync(agentOutputDir)) {
-    return { ingested: 0, skipped: 0 };
-  }
-
-  // Read markdown files at maxdepth 1
-  let mdFiles: string[];
-  try {
-    const fs = await import('node:fs');
-    mdFiles = fs.readdirSync(agentOutputDir).filter((f) => {
-      const fullPath = join(agentOutputDir, f);
-      const stat = fs.statSync(fullPath);
-      return stat.isFile() && f.endsWith('.md');
-    });
-  } catch {
-    return { ingested: 0, skipped: 0 };
-  }
-
-  for (const mdFile of mdFiles) {
-    const filePath = join(agentOutputDir, mdFile);
-    let content: string;
-    let mtime: Date;
-
-    try {
-      content = readFileSync(filePath, 'utf-8');
-      const stat = statSync(filePath);
-      mtime = new Date(stat.mtime);
-    } catch {
-      skipped++;
-      continue;
-    }
-
-    // Extract task ID (may be null)
+  const inputRoot = join(projectRoot, '.cleo', 'agent-outputs');
+  const rows: Array<typeof docsPipelineManifest.$inferSelect> = [];
+  for (const mdFile of readInputRoot(inputRoot)) {
+    const filePath = join(inputRoot, mdFile);
+    const stat = statSync(filePath);
+    if (!stat.isFile() || !mdFile.endsWith('.md')) continue;
+    const content = readFileSync(filePath, 'utf-8');
     const taskId = extractTaskId(mdFile);
-
-    // Infer type from filename
-    const type = inferLooseFileType(mdFile);
-
-    // Generate ID
     const slug = stringToSlug(mdFile.replace(/\.md$/, ''));
-    const id = taskId ? `${taskId}-loose-${slug}` : `loose-${slug}`;
-
-    const contentHash = computeContentHash(content);
-    const sourceFile = join('.cleo', 'agent-outputs', mdFile);
-    const createdAt = mtime.toISOString();
-
-    // Prepare metadata
-    const metadataJson: Record<string, unknown> = {
-      loose_origin: true,
-      original_filename: mdFile,
-    };
-
-    // Tag flat RCASD phase files per §4.6
     const isRcasdPhase =
       taskId &&
       /^T\d+-(R\d+|CA\d+|[a-z-]+)-(.*)\.(md)$/i.test(mdFile) &&
-      FILENAME_TYPE_PATTERNS.some(([pat]) => pat.test(mdFile));
-    if (isRcasdPhase) {
-      metadataJson.flat_rcasd = true;
-    }
-
-    // Insert into pipeline_manifest, skipping if already exists
-    try {
-      // Check if this ID already exists (idempotency)
-      const existing = await db
-        .select({ id: pipelineManifest.id })
-        .from(pipelineManifest)
-        .where(eq(pipelineManifest.id, id))
-        .limit(1);
-
-      if (existing.length > 0) {
-        // Already ingested, skip
-        skipped++;
-      } else {
-        // Insert new entry
-        await db.insert(pipelineManifest).values({
-          id,
-          taskId: taskId ?? null,
-          epicId: null,
-          sessionId: null,
-          type,
-          content,
-          contentHash,
-          status: 'active',
-          distilled: false,
-          brainObsId: null,
-          sourceFile,
-          metadataJson: JSON.stringify(metadataJson),
-          createdAt,
-          archivedAt: null,
-        });
-        ingested++;
-      }
-    } catch (err) {
-      // Log but continue
-      console.error(`Failed to ingest ${id}:`, err);
-      skipped++;
-    }
+      FILENAME_TYPE_PATTERNS.some(([pattern]) => pattern.test(mdFile));
+    rows.push({
+      id: taskId ? `${taskId}-loose-${slug}` : `loose-${slug}`,
+      sessionId: null,
+      taskId,
+      epicId: null,
+      type: inferLooseFileType(mdFile),
+      content,
+      contentHash: computeContentHash(content),
+      status: 'active',
+      distilled: false,
+      brainObsId: null,
+      sourceFile: join('.cleo', 'agent-outputs', mdFile),
+      metadataJson: JSON.stringify({
+        loose_origin: true,
+        original_filename: mdFile,
+        ...(isRcasdPhase ? { flat_rcasd: true } : {}),
+      }),
+      createdAt: stat.mtime.toISOString(),
+      archivedAt: null,
+    });
   }
-
-  return { ingested, skipped };
+  const ingested = await insertManifestRows(rows, projectRoot, db);
+  return { ingested, skipped: rows.length - ingested };
 }
