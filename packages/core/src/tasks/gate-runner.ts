@@ -45,6 +45,7 @@ import type {
   AcceptanceGateBinding,
   AcceptanceGateInvocation,
   AcceptanceGateRunOptions,
+  AcceptanceGateVerificationReceipt,
 } from '@cleocode/contracts/acceptance-gate';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type {
@@ -255,6 +256,52 @@ export async function runTaskGates(
     }
     return results;
   });
+}
+
+/**
+ * Build the existing audit detail payload for one validated typed-result batch.
+ * @param results - Exact result array that is persisted alongside this receipt.
+ * @param passed - Overall verification outcome at the time of recording.
+ * @returns The canonical receipt detail shape with deterministic result-byte hash.
+ * @throws Error when results are absent, unbound, duplicated or belong to different batches.
+ * @remarks This serializer establishes shape and byte identity, not execution authority.
+ * The caller must persist the receipt and results in the same owning transaction.
+ * @example
+ * ```ts
+ * const details = createTaskGateReceipt(results, verification.passed);
+ * await transaction.appendLog({ action: 'gate.verify.typed', taskId, details });
+ * ```
+ */
+export function createTaskGateReceipt(
+  results: readonly AcceptanceGateResult[],
+  passed: boolean,
+): AcceptanceGateVerificationReceipt {
+  const first = results[0]?.binding;
+  if (!first) throw new Error('Typed receipt requires a bound result batch');
+  const indexes = new Set<number>();
+  const criteria = new Set<string>();
+  for (const candidate of results) {
+    const result = acceptanceGateResultSchema.parse(candidate);
+    const binding = result.binding;
+    if (
+      !binding ||
+      binding.verificationId !== first.verificationId ||
+      binding.taskId !== first.taskId ||
+      !isDeepStrictEqual(binding.identity, first.identity) ||
+      binding.deadlineAt !== first.deadlineAt ||
+      indexes.has(result.index) ||
+      criteria.has(binding.criterionId)
+    )
+      throw new Error('Typed receipt requires one batch owner and unique criterion results');
+    indexes.add(result.index);
+    criteria.add(binding.criterionId);
+  }
+  return {
+    verificationId: first.verificationId,
+    resultHash: createHash('sha256').update(JSON.stringify(results)).digest('hex'),
+    operation: 'check.gate.verify',
+    passed,
+  };
 }
 
 /**

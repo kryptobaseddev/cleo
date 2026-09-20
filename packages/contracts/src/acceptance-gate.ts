@@ -494,3 +494,15 @@ export interface AcceptanceGateResult {
   /** Agent identifier or `"human"` that ran or attested the gate. */
   checkedBy: string;
 }
+
+/** Canonical typed-verification audit details stored with results in the task transaction. */
+export interface AcceptanceGateVerificationReceipt {
+  /** One admitted verification batch identity shared by every result. */
+  verificationId: string;
+  /** SHA-256 of the exact persisted result-array JSON bytes. */
+  resultHash: string;
+  /** Explicit verification operation; never inferred from generic completion evidence. */
+  operation: 'check.gate.verify';
+  /** Overall generic-plus-typed verification outcome at this observation. */
+  passed: boolean;
+}
