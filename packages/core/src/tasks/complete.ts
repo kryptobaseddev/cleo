@@ -55,7 +55,7 @@ import { acItemToText } from './ac-table.js';
 import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { revalidateEvidence } from './evidence.js';
-import { createTaskGateReceipt, revalidateTaskGateResults } from './gate-runner.js';
+import { validateTaskGateCompletion } from './gate-runner.js';
 import { validateNexusImpactGate } from './nexus-impact-gate.js';
 import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.js';
 
@@ -872,28 +872,15 @@ export async function completeTask(
         typedExecution = ownedTypedExecution;
       }
       typedExecution.assertActive();
-      const results = candidate.verification?.gateResults ?? [];
-      await revalidateTaskGateResults(candidate, criteria, results, {
-        projectRoot: completionRoot,
-        execution: typedExecution,
-      });
-      if (!(candidate.acceptance ?? []).some((item) => typeof item !== 'string' && !item.advisory))
-        return;
-      const passingDetails = JSON.stringify(createTaskGateReceipt(results, true));
-      const failingDetails = JSON.stringify(createTaskGateReceipt(results, false));
-      const receipts = await acc.queryAuditLog({
-        taskIds: [candidate.id],
-        actions: ['gate.verify.typed'],
-        limit: 100,
-      });
-      if (
-        !receipts.some(
-          (receipt) =>
-            receipt.actor === results[0]!.binding!.identity.actor &&
-            (receipt.detailsJson === passingDetails || receipt.detailsJson === failingDetails),
-        )
-      )
-        throw new Error('Typed requirement result has no authentic matching canonical receipt');
+      await validateTaskGateCompletion(
+        candidate,
+        criteria,
+        {
+          projectRoot: completionRoot,
+          execution: typedExecution,
+        },
+        acc,
+      );
       typedExecution.assertActive();
     } catch (error) {
       // Cancellation/deadline remains an operation failure, never a parent-rollup skip.

@@ -151,6 +151,8 @@ describe('completeTask', () => {
     'harness',
     'gate',
     'receipt',
+    'receipt-actor',
+    'receipt-details',
     'project',
   ] as const)('typed completion requires current authentic proof: %s', async (change) => {
     await typedFixture();
@@ -167,6 +169,16 @@ describe('completeTask', () => {
     if (change === 'receipt')
       getNativeTasksDb(env.tempDir)!
         .prepare("DELETE FROM tasks_audit_log WHERE action='gate.verify.typed'")
+        .run();
+    if (change === 'receipt-actor')
+      getNativeTasksDb(env.tempDir)!
+        .prepare(
+          "UPDATE tasks_audit_log SET actor='unrelated-actor' WHERE action='gate.verify.typed'",
+        )
+        .run();
+    if (change === 'receipt-details')
+      getNativeTasksDb(env.tempDir)!
+        .prepare("UPDATE tasks_audit_log SET details_json='{}' WHERE action='gate.verify.typed'")
         .run();
     if (change === 'project')
       await writeFile(
