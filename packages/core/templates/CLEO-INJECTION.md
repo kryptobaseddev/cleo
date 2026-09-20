@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.18.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.19.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -197,6 +197,8 @@ Three decoys make a HEALTHY project look corrupt:
 | bare `tasks` table, 0 rows | Empty relic beside the populated `tasks_tasks` |
 
 Small legacy DBs beside large snapshots do not prove corruption. `cleo doctor superseded-store` identifies the live store by row counts; `briefing`/`focus` already read it.
+Use `cleo backup inspect <snapshot> --record-id <id>` for read-only historical evidence; scoped absence or unknown provenance is not recovery authority.
+
 <!-- /CLEO-INJECTION:section=data-location -->
 
 <!-- CLEO-INJECTION:section=nexus -->
