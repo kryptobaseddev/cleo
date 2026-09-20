@@ -72,6 +72,9 @@ describe('exact read-only observation snapshot inspection', () => {
       path: source,
       label: 'tasks legacy backup',
       sha256: before.sha256,
+      atimeNs: before.atime.toString(),
+      atimeAfterNs: before.atime.toString(),
+      atimeChanged: false,
     });
     expect(result.projectIdentity).toEqual({
       expected: 'expected-project',
@@ -98,6 +101,40 @@ describe('exact read-only observation snapshot inspection', () => {
       createHash('sha256').update(JSON.stringify(entries)).digest('hex'),
     );
     expect(sourceIdentity()).toEqual(before);
+  });
+
+  it('reports access-only changes from another reader without rejecting authentic payload', async () => {
+    fixture(
+      `CREATE TABLE observations(id TEXT PRIMARY KEY, narrative TEXT); INSERT INTO observations VALUES ('${ID}', 'authentic payload');`,
+    );
+    fs.utimesSync(source, new Date('2001-01-01'), new Date('2002-01-01'));
+    const before = sourceIdentity();
+    const open = fs.promises.open;
+    let externalRead = false;
+    vi.spyOn(fs.promises, 'open').mockImplementation(async (...args) => {
+      if (args[1] === 'wx') {
+        fs.readFileSync(source);
+        externalRead = true;
+      }
+      return open(...args);
+    });
+    const result = await inspectBackupObservation({ snapshotPath: source, recordId: ID });
+    const after = sourceIdentity();
+    expect(externalRead).toBe(true);
+    expect(after.atime).not.toBe(before.atime);
+    expect({ ...after, atime: before.atime }).toEqual(before);
+    expect(result.status).toBe('found');
+    expect(result.record?.payload.narrative).toEqual({
+      type: 'text',
+      bytesBase64: Buffer.from('authentic payload').toString('base64'),
+    });
+    expect(result.source).toMatchObject({
+      sha256: before.sha256,
+      atimeNs: before.atime.toString(),
+      atimeAfterNs: after.atime.toString(),
+      atimeChanged: true,
+    });
+    expect(result.limitations.join(' ')).toContain('does not establish which reader');
   });
 
   it('reads a legacy table exactly and scopes genuine absence to the inspected snapshot', async () => {
@@ -262,6 +299,30 @@ describe('exact read-only observation snapshot inspection', () => {
     vi.spyOn(fs.promises, 'open').mockImplementation(async (...args) => {
       if (args[1] === 'wx') fs.appendFileSync(source, 'source changed after capture');
       return open(...args);
+    });
+    await expect(
+      inspectBackupObservation({ snapshotPath: source, recordId: ID }),
+    ).rejects.toMatchObject({ code: 'SOURCE_CHANGED' });
+  });
+
+  it('still rejects same-size content changes when a writer restores modification time', async () => {
+    fixture(
+      `CREATE TABLE observations(id TEXT PRIMARY KEY); INSERT INTO observations VALUES ('${ID}');`,
+    );
+    fs.utimesSync(source, new Date('2001-01-01'), new Date('2002-01-01'));
+    const before = fs.statSync(source);
+    const original = snapshots.openCleoDbSnapshot;
+    vi.spyOn(snapshots, 'openCleoDbSnapshot').mockImplementation((file, options) => {
+      const descriptor = fs.openSync(source, 'r+');
+      try {
+        fs.writeSync(descriptor, Buffer.from('X'), 0, 1, 0);
+      } finally {
+        fs.closeSync(descriptor);
+      }
+      fs.utimesSync(source, before.atime, before.mtime);
+      expect(fs.statSync(source).size).toBe(before.size);
+      expect(fs.statSync(source).mtimeMs).toBe(before.mtimeMs);
+      return original(file, options);
     });
     await expect(
       inspectBackupObservation({ snapshotPath: source, recordId: ID }),
