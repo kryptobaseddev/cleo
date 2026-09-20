@@ -9,9 +9,14 @@
  * @epic T1691
  */
 
+import type { ReconstructResult } from '@cleocode/contracts';
 import { renderAuditReconstruct } from '@cleocode/core';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import * as auditSdk from '@cleocode/core/audit/reconstruct';
+import { runCommand } from 'citty';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setFormatContext } from '../../format-context.js';
+import { setOutputMode } from '../../output-context.js';
+import { auditCommand } from '../audit.js';
 
 // ---------------------------------------------------------------------------
 // Test lifecycle
@@ -312,5 +317,149 @@ describe('cliOutput — LAFS envelope shape for audit-reconstruct', () => {
     expect(written).toContain('T991');
     expect(written).toContain('abc12345');
     expect(written).toContain('feat(T991): ship it');
+  });
+});
+
+describe('actual audit command assessment delivery', () => {
+  let stdout: string;
+  let stderr: string;
+  const assessed = (coverage: 'current' | 'partial' | 'failed'): ReconstructResult => ({
+    taskId: 'T994',
+    directCommits: [],
+    childIdRange: null,
+    childCommits: {},
+    releaseTags: [],
+    releaseCommitShas: [],
+    inferredChildren: [],
+    firstSeenAt: null,
+    lastSeenAt: null,
+    assessment: {
+      repositoryRoot: '/synthetic/repo',
+      deadlineAt: 123,
+      coverage,
+      shallow: false,
+      observedCommits: 0,
+      historyComplete: coverage !== 'failed',
+      tagsComplete: coverage === 'current',
+      commands: [],
+      diagnostics:
+        coverage === 'current'
+          ? []
+          : [{ code: 'E_GIT_READ_FAILED', stage: 'tags', message: 'Git permission denied' }],
+      limitations: [
+        'Only locally reachable refs are assessed.',
+        'Numeric proximity is not task authority.',
+      ],
+    },
+  });
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    stdout = '';
+    stderr = '';
+    process.exitCode = undefined;
+    setOutputMode('envelope');
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      stdout += String(chunk);
+      return true;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderr += String(chunk);
+      return true;
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.exitCode = undefined;
+    setOutputMode('envelope');
+  });
+
+  it.each([
+    'partial',
+    'failed',
+  ] as const)('preserves %s assessment in a failing canonical envelope', async (coverage) => {
+    const evidence = assessed(coverage);
+    vi.spyOn(auditSdk, 'reconstructLineage').mockResolvedValue(evidence);
+    await runCommand(auditCommand, {
+      rawArgs: ['reconstruct', 'T994', '--repo-root', '/synthetic/repo'],
+    });
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(stdout)).toMatchObject({
+      success: false,
+      error: { codeName: 'E_AUDIT_INCOMPLETE', details: evidence },
+    });
+  });
+
+  it('emits genuine assessed absence as success and forwards explicit bounded limits', async () => {
+    const evidence = assessed('current');
+    const spy = vi.spyOn(auditSdk, 'reconstructLineage').mockResolvedValue(evidence);
+    const started = Date.now();
+    await runCommand(auditCommand, {
+      rawArgs: [
+        'reconstruct',
+        't994',
+        '--repo-root',
+        '/synthetic/repo',
+        '--budget-ms',
+        '12000',
+        '--max-output-bytes',
+        '1048576',
+      ],
+    });
+    expect(process.exitCode).toBeUndefined();
+    expect(console.log).not.toHaveBeenCalled();
+    expect(JSON.parse(stdout)).toMatchObject({ success: true, data: evidence });
+    expect(spy).toHaveBeenCalledWith('T994', '/synthetic/repo', {
+      execution: { deadlineAt: expect.any(Number) },
+      maxOutputBytes: 1048576,
+    });
+    const deadline = spy.mock.calls[0]?.[2]?.execution?.deadlineAt;
+    expect(deadline).toBeGreaterThanOrEqual(started + 12000);
+    expect(deadline).toBeLessThanOrEqual(Date.now() + 12000);
+  });
+
+  it.each([
+    '-1',
+    '1.5',
+    'Infinity',
+    '9007199254740992',
+  ])('rejects invalid budget %s before SDK execution', async (budget) => {
+    const spy = vi.spyOn(auditSdk, 'reconstructLineage');
+    await runCommand(auditCommand, {
+      rawArgs: ['reconstruct', 'T994', '--repo-root', '/synthetic/repo', '--budget-ms', budget],
+    });
+    expect(process.exitCode).toBe(1);
+    expect(spy).not.toHaveBeenCalled();
+    expect(JSON.parse(stdout)).toMatchObject({
+      success: false,
+      error: { codeName: 'E_VALIDATION' },
+    });
+  });
+
+  it('renders failure coverage and diagnostics in human and silent output', async () => {
+    vi.spyOn(auditSdk, 'reconstructLineage').mockResolvedValue(assessed('failed'));
+    setFormatContext({ format: 'human', source: 'flag', quiet: false });
+    for (const mode of ['envelope', 'silent'] as const) {
+      stderr = '';
+      setOutputMode(mode);
+      await runCommand(auditCommand, {
+        rawArgs: ['reconstruct', 'T994', '--repo-root', '/synthetic/repo'],
+      });
+      expect(process.exitCode).toBe(1);
+      expect(stderr).toContain('Coverage: failed');
+      expect(stderr).toContain('Git permission denied');
+      expect(stderr).toContain('Numeric proximity is not task authority.');
+      expect(stdout).toBe('');
+    }
+  });
+
+  it('places mandatory assessment truth before lineage examples and marks legacy unknown', () => {
+    const current = renderAuditReconstruct({ ...assessed('partial') }, false);
+    expect(current.indexOf('Coverage: partial')).toBeLessThan(current.indexOf('Direct commits:'));
+    expect(current).toContain('historyComplete');
+    expect(current).toContain('tagsComplete');
+    expect(current).toContain('Git permission denied');
+    expect(renderAuditReconstruct({ taskId: 'T994', directCommits: [] }, false)).toContain(
+      'Coverage: unknown',
+    );
   });
 });
