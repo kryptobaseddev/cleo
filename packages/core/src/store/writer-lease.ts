@@ -63,7 +63,9 @@
  * @see ./dual-scope-db.ts — the open chokepoint this engine routes through (Seams 0 & 1)
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { realpathSync, statSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { LeaseLane, LeaseScope } from '@cleocode/contracts';
@@ -76,6 +78,7 @@ import {
   openDualScopeDbAtPath,
   resolveDualScopeDbPath,
 } from './dual-scope-db.js';
+import { openNativeDatabase } from './sqlite-native.js';
 import {
   assertWriterLeaseActiveIndexPresent,
   WRITER_LEASES_ACTIVE_INDEX,
@@ -474,6 +477,10 @@ export interface WriterLeaseIdentity {
   readonly scope: LeaseScope;
   /** Absolute canonical on-disk path to this scope's cleo.db (normalized). */
   readonly dbPath: string;
+  /** Device captured when an existing file was bound; absent for abstract/unopened identities. */
+  readonly fileDevice?: string;
+  /** Inode captured with fileDevice, preserving the original open generation across replacement. */
+  readonly fileInode?: string;
 }
 
 /**
@@ -488,12 +495,20 @@ export interface WriterLeaseIdentity {
  * @param scope - The cleo.db scope.
  * @param dbPath - An absolute or relative path to the scope's cleo.db. Normalized
  *   via `path.resolve()` before freezing.
- * @returns A frozen, normalized identity.
+ * @returns A frozen, normalized identity, with device/inode when the file already exists.
+ * @remarks Required schema ownership refuses identities without captured file provenance.
+ * Missing abstract paths remain valid for legacy unscoped consumers; other stat errors propagate.
  *
  * @task T12042 (E6-L12b)
  */
 export function makeWriterLeaseIdentity(scope: LeaseScope, dbPath: string): WriterLeaseIdentity {
-  return Object.freeze({ scope, dbPath: resolvePath(dbPath) });
+  const path = resolvePath(dbPath);
+  const file = statSync(path, { bigint: true, throwIfNoEntry: false });
+  return Object.freeze({
+    scope,
+    dbPath: path,
+    ...(file ? { fileDevice: String(file.dev), fileInode: String(file.ino) } : {}),
+  });
 }
 
 // ── DB-identity registry (typed WeakMap — immutable, concurrency-safe) ──────
@@ -532,7 +547,12 @@ const _dbIdentityRegistry = new WeakMap<object, WriterLeaseIdentity>();
 export function registerDbIdentity(db: object, identity: WriterLeaseIdentity): void {
   const existing = _dbIdentityRegistry.get(db);
   if (existing) {
-    if (existing.scope === identity.scope && existing.dbPath === identity.dbPath) {
+    if (
+      existing.scope === identity.scope &&
+      existing.dbPath === identity.dbPath &&
+      existing.fileDevice === identity.fileDevice &&
+      existing.fileInode === identity.fileInode
+    ) {
       return; // idempotent — same canonical identity
     }
     throw new Error(
@@ -1501,6 +1521,158 @@ function ensureColdOpenLeaseTables(nativeDb: DatabaseSync): void {
   }
 }
 
+/** Options for existing cold-open calls and required domain establishment ownership.
+ * @remarks Required ownership uses an operation-owned handle, never a domain cache.
+ * @example
+ * ```ts
+ * const options: ColdOpenLeaseOptions = { requiredIdentity: resolveDbIdentity(store.db) };
+ * ```
+ */
+export interface ColdOpenLeaseOptions
+  extends Pick<LeaseAcquireOptions, 'priority' | 'ttlMs' | 'execution'> {
+  /** Require exclusion even in off/local mode using the store's captured file generation. */
+  requiredIdentity?: WriterLeaseIdentity;
+}
+
+/** A checkpoint for the actual persisted cold-open ownership grant.
+ * @remarks This checks ownership; it cannot preempt or fence arbitrary callback writes.
+ * @example
+ * ```ts
+ * await withColdOpenLease('project', native, async (ownership) => {
+ *   ownership.assertHeld();
+ *   return 'ready';
+ * });
+ * ```
+ */
+export interface ColdOpenLeaseGuard {
+  /** Verify the same grant on the lease handle or another handle to the same main file.
+   * @param target - Optional native handle whose main schema must expose the identical grant.
+   * @returns Nothing when the persisted holder and epoch match.
+   */
+  assertHeld(target?: DatabaseSync): void;
+}
+
+/** Lexical membership expires when its owning callback returns. */
+interface RequiredColdOpenScope {
+  readonly parent?: RequiredColdOpenScope;
+  readonly scope: LeaseScope;
+  readonly path: string;
+  readonly device: bigint;
+  readonly inode: bigint;
+  readonly guard: ColdOpenLeaseGuard;
+  readonly execution?: OperationExecutionContext;
+  active: boolean;
+}
+
+/** Operation-local membership, not a process-wide grant or domain-handle cache. */
+const requiredColdOpenScope = new AsyncLocalStorage<RequiredColdOpenScope>();
+
+/** Refuse replacement of the exact file protected by this operation. */
+function assertColdOpenFile(frame: RequiredColdOpenScope): void {
+  const current = statSync(frame.path, { bigint: true });
+  if (!frame.active || current.dev !== frame.device || current.ino !== frame.inode) {
+    throw new LeaseUnavailableError(
+      frame.scope,
+      'tasks',
+      'required schema ownership expired or database file replaced',
+    );
+  }
+}
+
+/** Hold schema ownership independently of a callback that can close its domain handle. */
+async function withRequiredColdOpenLease<T>(
+  scope: LeaseScope,
+  nativeDb: DatabaseSync,
+  fn: (ownership: ColdOpenLeaseGuard) => Promise<T>,
+  opts: ColdOpenLeaseOptions,
+): Promise<T> {
+  opts.execution?.assertActive();
+  const captured = opts.requiredIdentity!;
+  const path = realpathSync(captured.dbPath);
+  const identity = statSync(path, { bigint: true });
+  if (
+    captured.scope !== scope ||
+    captured.fileDevice !== String(identity.dev) ||
+    captured.fileInode !== String(identity.ino)
+  ) {
+    throw new LeaseUnavailableError(
+      scope,
+      'tasks',
+      'required schema identity is missing or its database file was replaced',
+    );
+  }
+  const parent = requiredColdOpenScope.getStore();
+  for (let frame = parent; frame; frame = frame.parent) {
+    if (!frame.active)
+      throw new LeaseUnavailableError(scope, 'tasks', 'expired lexical schema ownership');
+    if (frame.path !== path) continue;
+    assertColdOpenFile(frame);
+    if (frame.scope !== scope)
+      throw new LeaseUnavailableError(scope, 'tasks', 'nested schema scope mismatch');
+    if (frame.execution && opts.execution && frame.execution !== opts.execution) {
+      throw new LeaseUnavailableError(
+        scope,
+        'tasks',
+        'nested schema ownership cannot replace execution authority',
+      );
+    }
+    frame.execution?.assertActive();
+    frame.guard.assertHeld(nativeDb);
+    const result = await fn(frame.guard);
+    assertColdOpenFile(frame);
+    frame.guard.assertHeld();
+    return result;
+  }
+
+  const remaining = opts.execution
+    ? Math.max(1, opts.execution.deadlineAt - Date.now())
+    : ACQUIRE_DEADLINE_MS;
+  const owned = openNativeDatabase(path, { timeout: Math.min(ACQUIRE_DEADLINE_MS, remaining) });
+  try {
+    opts.execution?.assertActive();
+    const afterOpen = statSync(path, { bigint: true });
+    if (afterOpen.dev !== identity.dev || afterOpen.ino !== identity.ino) {
+      throw new LeaseUnavailableError(scope, 'tasks', 'database file changed during lease open');
+    }
+    return await runColdOpenLease(
+      scope,
+      owned,
+      async (grant) => {
+        const frame: RequiredColdOpenScope = {
+          parent,
+          scope,
+          path,
+          device: identity.dev,
+          inode: identity.ino,
+          guard: grant,
+          execution: opts.execution,
+          active: true,
+        };
+        const guard: ColdOpenLeaseGuard = {
+          assertHeld(target) {
+            assertColdOpenFile(frame);
+            grant.assertHeld(target);
+          },
+        };
+        // The random holder and epoch must be visible through the actual callback
+        // handle. Matching path strings alone cannot establish file identity.
+        guard.assertHeld(nativeDb);
+        try {
+          const result = await requiredColdOpenScope.run(frame, () => fn(guard));
+          guard.assertHeld();
+          return result;
+        } finally {
+          frame.active = false;
+        }
+      },
+      opts,
+      true,
+    );
+  } finally {
+    owned.close();
+  }
+}
+
 /**
  * Lease the dual-scope-db COLD-OPEN critical section (Seam 0 — the T5158 heal).
  *
@@ -1530,7 +1702,10 @@ function ensureColdOpenLeaseTables(nativeDb: DatabaseSync): void {
  *
  * @typeParam T - Actual result of the admitted migration callback.
  * @remarks Scoped callbacks receive one original deadline and must cooperate at
- * their own asynchronous boundaries. A committed callback result survives later
+ * their own asynchronous boundaries. Required ownership pins the captured file generation,
+ * uses an independently owned handle, and refuses off/degraded execution. Explicit
+ * checkpoints and publication checks do not fence arbitrary callback writes.
+ * A committed callback result survives later
  * cancellation; cancellation never grants degraded migration permission.
  * @example
  * ```ts
@@ -1550,16 +1725,30 @@ function ensureColdOpenLeaseTables(nativeDb: DatabaseSync): void {
 export async function withColdOpenLease<T>(
   scope: LeaseScope,
   nativeDb: DatabaseSync,
-  fn: () => Promise<T>,
-  opts?: Pick<LeaseAcquireOptions, 'priority' | 'ttlMs' | 'execution'>,
+  fn: (ownership: ColdOpenLeaseGuard) => Promise<T>,
+  opts?: ColdOpenLeaseOptions,
+): Promise<T> {
+  return opts?.requiredIdentity
+    ? withRequiredColdOpenLease(scope, nativeDb, fn, opts)
+    : runColdOpenLease(scope, nativeDb, fn, opts);
+}
+
+/** Shared row acquisition; required callers cannot take the compatibility fallback. */
+async function runColdOpenLease<T>(
+  scope: LeaseScope,
+  nativeDb: DatabaseSync,
+  fn: (ownership: ColdOpenLeaseGuard) => Promise<T>,
+  opts?: ColdOpenLeaseOptions,
+  required = false,
 ): Promise<T> {
   opts?.execution?.assertActive();
-  const mode = effectiveMode();
+  const mode = required ? 'require' : effectiveMode();
+  const unleased: ColdOpenLeaseGuard = { assertHeld: () => opts?.execution?.assertActive() };
 
   // `off` mode — pure pass-through. busy_timeout=30000 on the connection still
   // serializes the migrate/reconcile write-txn exactly as before the lease.
   if (mode === 'off') {
-    return fn();
+    return fn(unleased);
   }
 
   // The lease tables MUST exist before the claim txn — the migration that creates
@@ -1609,14 +1798,29 @@ export async function withColdOpenLease<T>(
           'cold-open writer-lease acquire deadline exceeded; proceeding under ' +
             'busy_timeout fallback (degraded)',
         );
-        return fn();
+        return fn(unleased);
       }
       await sleepAsync(Math.min(CLAIM_RETRY_DELAY_MS, Math.max(0, deadline - Date.now())));
     }
 
     // Retain an actual committed callback result even if cancellation arrives afterwards.
     opts?.execution?.assertActive();
-    return await fn();
+    return await fn({
+      assertHeld(target = nativeDb) {
+        const row = target
+          .prepare(
+            `SELECT holder_id, epoch FROM main.${WRITER_LEASES_TABLE} WHERE scope = ? AND lane = ? AND active = 1`,
+          )
+          .get(scope, lane);
+        if (!row || row.holder_id !== holderId || row.epoch !== epoch) {
+          throw new LeaseUnavailableError(
+            scope,
+            lane,
+            'required schema ownership is stale or belongs to another database',
+          );
+        }
+      },
+    });
   } finally {
     if (enqueued) dequeueWaiter(nativeDb, scope, lane, holderId, opts?.execution !== undefined);
     if (epoch !== null) {
