@@ -31,6 +31,26 @@ export interface DependencyWarning {
 }
 
 /**
+ * Test whether an observed dependency status satisfies execution readiness.
+ *
+ * @remarks
+ * Only done and archived records satisfy the spawn contract. Cancelled work,
+ * missing status and unrecognized input remain unsatisfied. Completion waivers
+ * are a separate policy and are not applied by this predicate.
+ *
+ * @param status - Status observed from a dependency record, if available.
+ * @returns Whether the dependency supplies satisfactory readiness evidence.
+ * @example
+ * ```ts
+ * isReadinessDependencySatisfied('archived'); // true
+ * isReadinessDependencySatisfied('cancelled'); // false
+ * ```
+ */
+export function isReadinessDependencySatisfied(status: string | undefined): boolean {
+  return status === 'done' || status === 'archived';
+}
+
+/**
  * Return dependencies that prevent a task from being spawned.
  *
  * @remarks
@@ -55,7 +75,7 @@ export function getReadinessDependencyBlockers(
 ): string[] {
   return (depends ?? []).filter((id) => {
     const status = taskLookup.get(id)?.status;
-    return status !== 'done' && status !== 'archived';
+    return !isReadinessDependencySatisfied(status);
   });
 }
 
