@@ -546,30 +546,12 @@ async function runMainWithLafsEnvelope(
       // The error branches above already `process.exit(1)` (which bypasses this
       // finally), so this runs only on the success path.
       const { shutdownCliRuntime, armExitBackstop } = await import('@cleocode/core/internal');
+      const { formatShutdownOutcomes } = await import('@cleocode/core/shutdown-deadline');
       const outcomes = await shutdownCliRuntime();
-
-      // T12115 — teardown is now deadline-bounded, so a wedged worker is
-      // abandoned rather than awaited. Say so on stderr (stdout carries exactly
-      // one LAFS envelope, ADR-086): a step that blew its budget is a leak, and
-      // the next report should name the subsystem instead of guessing.
-      // A step that THREW is reported too — `settled` alone includes "threw
-      // immediately", so without this a teardown failing on every invocation
-      // looks identical to a clean one.
-      const threw = outcomes.filter((o) => o.threw);
-      if (threw.length > 0) {
-        process.stderr.write(
-          `cleo: teardown step(s) failed but did not block exit: ` +
-            `${threw.map((o) => o.label).join(', ')}. The command's own result stands.\n`,
-        );
-      }
-
-      const stalled = outcomes.filter((o) => !o.settled);
-      if (stalled.length > 0) {
-        process.stderr.write(
-          `cleo: teardown step(s) exceeded their deadline and were abandoned: ` +
-            `${stalled.map((o) => `${o.label} (${o.durationMs}ms)`).join(', ')}\n`,
-        );
-      }
+      // Preserve assessed failures, cancellation, and unstarted-resource reasons.
+      // Registry settlement alone does not certify individual producer success.
+      const diagnostics = formatShutdownOutcomes(outcomes);
+      if (diagnostics) process.stderr.write(diagnostics);
 
       // Last resort. The timer is unref'd, so a process that drains promptly
       // exits on its own and never reaches this — the "drain, then exit"
