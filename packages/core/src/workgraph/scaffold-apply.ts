@@ -15,6 +15,7 @@ import type {
   WorkGraphScaffoldApplyResult,
   WorkGraphScaffoldValidationIssue,
 } from '@cleocode/contracts';
+import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
 import { validateWorkGraphScaffold } from './scaffold-validate.js';
@@ -149,98 +150,103 @@ export async function applyWorkGraphScaffold(
     };
   }
 
-  // Step 2: apply to storage in a transaction
-  const db = await getDb();
-  const nativeDb = getNativeDb();
+  // Capture the project once before either handle acquisition can yield.
+  const scope = captureProjectScope(getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    // Step 2: apply to storage in a transaction
+    const db = await getDb(scope.worktreeRoot);
+    const nativeDb = getNativeDb(scope.worktreeRoot);
 
-  if (!nativeDb) {
-    return {
-      ...baseResult,
-      applied: false,
-      nodesChanged: 0,
-      edgesChanged: 0,
-      issues: [
-        ...baseResult.issues,
-        makeIssue(
-          E_WORKGRAPH_SCAFFOLD_APPLY_NO_DB,
-          'Database not initialized — cannot apply scaffold',
-        ),
-      ],
-    };
-  }
-
-  nativeDb.exec('BEGIN IMMEDIATE');
-
-  try {
-    let nodesChanged = 0;
-    let edgesChanged = 0;
-
-    // Insert nodes — onConflictDoNothing for idempotency (AC2)
-    for (const node of params.nodes) {
-      const row = nodeToInsertRow(node);
-      const result = db.insert(schema.tasks).values(row).onConflictDoNothing().run();
-      if (result.changes > 0) {
-        nodesChanged++;
-      }
+    if (!nativeDb) {
+      return {
+        ...baseResult,
+        applied: false,
+        nodesChanged: 0,
+        edgesChanged: 0,
+        issues: [
+          ...baseResult.issues,
+          makeIssue(
+            E_WORKGRAPH_SCAFFOLD_APPLY_NO_DB,
+            'Database not initialized — cannot apply scaffold',
+          ),
+        ],
+      };
     }
 
-    // Insert edges
-    if (params.edges && params.edges.length > 0) {
-      for (const edge of params.edges) {
-        if (edge.source === 'dependency') {
-          // Dependency edge → task_dependencies
-          const result = db
-            .insert(schema.taskDependencies)
-            .values({ taskId: edge.fromId, dependsOn: edge.toId })
-            .onConflictDoNothing()
-            .run();
-          if (result.changes > 0) {
-            edgesChanged++;
-          }
-        } else {
-          // Relation edge → task_relations
-          const relationType = edge.relationType ?? edgeKindToRelationType(edge.kind) ?? 'related';
-          const result = db
-            .insert(schema.taskRelations)
-            .values({
-              taskId: edge.fromId,
-              relatedTo: edge.toId,
-              relationType,
-              reason: edge.reason ?? null,
-            })
-            .onConflictDoNothing()
-            .run();
-          if (result.changes > 0) {
-            edgesChanged++;
+    nativeDb.exec('BEGIN IMMEDIATE');
+
+    try {
+      let nodesChanged = 0;
+      let edgesChanged = 0;
+
+      // Insert nodes — onConflictDoNothing for idempotency (AC2)
+      for (const node of params.nodes) {
+        const row = nodeToInsertRow(node);
+        const result = db.insert(schema.tasks).values(row).onConflictDoNothing().run();
+        if (result.changes > 0) {
+          nodesChanged++;
+        }
+      }
+
+      // Insert edges
+      if (params.edges && params.edges.length > 0) {
+        for (const edge of params.edges) {
+          if (edge.source === 'dependency') {
+            // Dependency edge → task_dependencies
+            const result = db
+              .insert(schema.taskDependencies)
+              .values({ taskId: edge.fromId, dependsOn: edge.toId })
+              .onConflictDoNothing()
+              .run();
+            if (result.changes > 0) {
+              edgesChanged++;
+            }
+          } else {
+            // Relation edge → task_relations
+            const relationType =
+              edge.relationType ?? edgeKindToRelationType(edge.kind) ?? 'related';
+            const result = db
+              .insert(schema.taskRelations)
+              .values({
+                taskId: edge.fromId,
+                relatedTo: edge.toId,
+                relationType,
+                reason: edge.reason ?? null,
+              })
+              .onConflictDoNothing()
+              .run();
+            if (result.changes > 0) {
+              edgesChanged++;
+            }
           }
         }
       }
+
+      nativeDb.exec('COMMIT');
+
+      return {
+        ...baseResult,
+        applied: true,
+        nodesChanged,
+        edgesChanged,
+      };
+    } catch (err) {
+      nativeDb.exec('ROLLBACK');
+
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        ...baseResult,
+        applied: false,
+        nodesChanged: 0,
+        edgesChanged: 0,
+        issues: [
+          ...baseResult.issues,
+          makeIssue(
+            E_WORKGRAPH_SCAFFOLD_APPLY_INVALID,
+            `Apply failed and was rolled back: ${message}`,
+          ),
+        ],
+      };
     }
-
-    nativeDb.exec('COMMIT');
-
-    return {
-      ...baseResult,
-      applied: true,
-      nodesChanged,
-      edgesChanged,
-    };
-  } catch (err) {
-    nativeDb.exec('ROLLBACK');
-
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      ...baseResult,
-      applied: false,
-      nodesChanged: 0,
-      edgesChanged: 0,
-      issues: [
-        ...baseResult.issues,
-        makeIssue(
-          E_WORKGRAPH_SCAFFOLD_APPLY_INVALID,
-          `Apply failed and was rolled back: ${message}`,
-        ),
-      ],
-    };
-  }
+  });
 }

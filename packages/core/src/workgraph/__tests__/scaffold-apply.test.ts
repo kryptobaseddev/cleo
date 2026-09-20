@@ -19,6 +19,7 @@
  * @epic T10547
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,7 +29,7 @@ import type {
   WorkGraphHierarchyInputNode,
   WorkGraphScaffoldApplyParams,
 } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tempDir: string;
 
@@ -118,9 +119,14 @@ describe('WorkGraph scaffold apply engine', () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-scaffold-apply-'));
     const cleoDir = join(tempDir, '.cleo');
-    process.env['CLEO_DIR'] = cleoDir;
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    vi.stubEnv('CLEO_DIR', cleoDir);
 
     await mkdir(cleoDir, { recursive: true });
+    await writeFile(
+      join(cleoDir, 'project-info.json'),
+      JSON.stringify({ projectId: 'workgraph-fixture', projectHash: 'workgraph-fixture' }),
+    );
     await writeFile(
       join(cleoDir, 'config.json'),
       JSON.stringify({
@@ -144,8 +150,95 @@ describe('WorkGraph scaffold apply engine', () => {
     } catch {
       /* ignore */
     }
-    delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  async function prepareOtherProject(): Promise<string> {
+    const other = join(tempDir, 'other');
+    await mkdir(join(other, '.cleo'), { recursive: true });
+    await writeFile(
+      join(other, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'other-workgraph', projectHash: 'other-workgraph' }),
+    );
+    const { createTask } = await import('../../store/tasks-sqlite.js');
+    await createTask(makeTask({ id: 'T990', title: 'Other seed' }), other, {
+      autoCheckpoint: false,
+      validateSequence: false,
+    });
+    return other;
+  }
+
+  function persistedScopeRows(root: string): string {
+    return execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        "import { DatabaseSync } from 'node:sqlite'; const db=new DatabaseSync(process.argv[1],{readOnly:true});process.stdout.write(JSON.stringify(db.prepare(\"SELECT id FROM tasks_tasks WHERE id LIKE 'SCOPE%' ORDER BY id\").all()));db.close();",
+        join(root, '.cleo/cleo.db'),
+      ],
+      { encoding: 'utf8', timeout: 5000 },
+    );
+  }
+
+  it('uses captured default project discovery when the directory pin disagrees', async () => {
+    const other = await prepareOtherProject();
+    const { getTask } = await import('../../store/tasks-sqlite.js');
+    await getTask('T991', tempDir);
+    const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
+    vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    const result = await applyWorkGraphScaffold(
+      applyParams('SCOPE-PARENT', [epicNode('SCOPE-PARENT')]),
+    );
+    expect(result.applied).toBe(true);
+    expect(JSON.parse(persistedScopeRows(tempDir))).toEqual([{ id: 'SCOPE-PARENT' }]);
+    expect(JSON.parse(persistedScopeRows(other))).toEqual([]);
+  });
+
+  it('rolls back the actual mutation handle when ambient ownership changes after acquisition', async () => {
+    const other = await prepareOtherProject();
+    const sqlite = await import('../../store/sqlite.js');
+    await sqlite.getDb(tempDir);
+    const native = sqlite.getNativeDb(tempDir);
+    if (!native) throw new Error('Synthetic mutation handle missing');
+    native.exec(
+      "CREATE TRIGGER fail_scaffold BEFORE INSERT ON tasks_tasks WHEN NEW.id='SCOPE-CHILD' BEGIN SELECT RAISE(ABORT,'synthetic scaffold fault'); END",
+    );
+    const originalGetDb = sqlite.getDb;
+    let acquired = () => {};
+    let resume = () => {};
+    const ready = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    const continuation = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    vi.spyOn(sqlite, 'getDb').mockImplementationOnce(async (cwd) => {
+      const db = await originalGetDb(cwd);
+      acquired();
+      await continuation;
+      return db;
+    });
+    const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
+    const applying = applyWorkGraphScaffold(
+      applyParams('SCOPE-PARENT', [
+        epicNode('SCOPE-PARENT'),
+        taskNode('SCOPE-CHILD', 'SCOPE-PARENT'),
+      ]),
+    );
+    await ready;
+    vi.stubEnv('CLEO_ROOT', other);
+    vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    resume();
+    const result = await applying;
+    expect(result.applied).toBe(false);
+    expect(
+      result.issues.some((issue) => issue.message.includes('Apply failed and was rolled back')),
+    ).toBe(true);
+    expect(JSON.parse(persistedScopeRows(tempDir))).toEqual([]);
+    expect(JSON.parse(persistedScopeRows(other))).toEqual([]);
   });
 
   // -----------------------------------------------------------------------

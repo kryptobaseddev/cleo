@@ -18,7 +18,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tempDir: string;
 
@@ -41,9 +41,14 @@ describe('WorkGraph planning doc generator', () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-planning-doc-'));
     const cleoDir = join(tempDir, '.cleo');
-    process.env['CLEO_DIR'] = cleoDir;
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    vi.stubEnv('CLEO_DIR', cleoDir);
 
     await mkdir(cleoDir, { recursive: true });
+    await writeFile(
+      join(cleoDir, 'project-info.json'),
+      JSON.stringify({ projectId: 'workgraph-fixture', projectHash: 'workgraph-fixture' }),
+    );
     await writeFile(
       join(cleoDir, 'config.json'),
       JSON.stringify({
@@ -67,8 +72,9 @@ describe('WorkGraph planning doc generator', () => {
     } catch {
       /* ignore */
     }
-    delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   // -----------------------------------------------------------------------
