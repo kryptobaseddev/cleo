@@ -19,8 +19,12 @@ import { getNexusDb, getNexusNativeDb, resetNexusDbState } from '../../store/nex
 import { closeAllDatabases, getDb } from '../../store/sqlite.js';
 import {
   applyPreparedKnowledgeRepair,
+  cancelPreparedKnowledgeRepair,
+  createKnowledgeRepairInvocation,
+  inspectPreparedKnowledgeRepair,
   listKnowledgeRepairReceipts,
   prepareKnowledgeRepair,
+  prepareKnowledgeRollback,
   resumePreparedKnowledgeRepair,
   runKnowledgeDoctor,
 } from '../knowledge.js';
@@ -1482,6 +1486,211 @@ describe('durable sourced knowledge repair preparation', () => {
     expect(
       db.prepare("SELECT 1 FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_retry:%'").get(),
     ).toBeUndefined();
+  });
+
+  it('inspects authentic pending work and discloses partial lifecycle pages', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    expect(await inspectPreparedKnowledgeRepair(context, pending.jobId)).toMatchObject({
+      status: 'pending',
+      receipt: null,
+      rollbackReceipt: null,
+      ledgerComplete: true,
+      ledgerTotal: 0,
+    });
+    const receipt = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    const first = await inspectPreparedKnowledgeRepair(context, pending.jobId, 1);
+    const rest = await inspectPreparedKnowledgeRepair(context, pending.jobId, 2, 1);
+    expect(first).toMatchObject({ receipt, ledgerTotal: 3, ledgerComplete: false });
+    expect(first.ledger).toHaveLength(1);
+    expect(rest).toMatchObject({ ledgerTotal: 3, ledgerComplete: false });
+    expect(rest.ledger).toHaveLength(2);
+    expect(new Set([...first.ledger, ...rest.ledger].map((row) => row.key)).size).toBe(3);
+  });
+
+  it('shows original committed evidence and separate current rollback correction', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    const rollbackPending = await prepareRollback(original.id);
+    const recovered = await applyPreparedKnowledgeRepair(context, rollbackPending.jobId);
+    context.close();
+    context = createOperationExecutionContext(pending.proposal.identity, { budgetMs: 10000 });
+    const inspected = await inspectPreparedKnowledgeRepair(context, pending.jobId);
+    expect(inspected.status).toBe('complete');
+    expect(inspected.receipt).toEqual(original);
+    expect(inspected.rollbackReceipt).toEqual(recovered);
+  });
+
+  it('surfaces inspection read failure instead of an empty healthy ledger', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    getBrainNativeDb(root)!.exec('DROP TABLE main._nexus_meta');
+    await expect(inspectPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+  });
+
+  it('captures inspection ownership before contradictory ROOT and DIR changes', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const inspecting = inspectPreparedKnowledgeRepair(context, pending.jobId);
+    const other = join(root, 'other-inspection');
+    vi.stubEnv('CLEO_ROOT', other);
+    vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    expect(await inspecting).toMatchObject({
+      jobId: pending.jobId,
+      proposal: { identity: { projectRoot: root } },
+    });
+    expect(() => readFileSync(join(other, '.cleo/cleo.db'))).toThrow();
+  });
+
+  it('requires the explicit immutable actor for inspection and cancellation', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    context.close();
+    context = createOperationExecutionContext(
+      { ...context.identity, actor: 'different-actor' },
+      { budgetMs: 10000 },
+    );
+    await expect(inspectPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      code: 'E_REPAIR_ACTOR',
+    });
+    await expect(cancelPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      code: 'E_REPAIR_ACTOR',
+    });
+    expect(persisted().jobs[0].status).toBe('pending');
+  });
+
+  it.each([
+    'pending',
+    'running',
+    'complete',
+  ] as const)('reports actual %s state after a cancellation request', async (status) => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    if (status === 'running')
+      new DurableJobStore(await getDb(root), { projectId: 'repair-A' }).claim(
+        pending.jobId,
+        Date.now(),
+      );
+    if (status === 'complete') await applyPreparedKnowledgeRepair(context, pending.jobId);
+    const result = await cancelPreparedKnowledgeRepair(context, pending.jobId);
+    expect(result.requested).toBe(status !== 'complete');
+    expect(result.inspection?.status).toBe(status === 'pending' ? 'cancelled' : status);
+    if (status === 'running')
+      expect(result.inspection?.cancellationRequestedAt).toEqual(expect.any(Number));
+    if (status === 'complete') expect(result.inspection?.receipt?.state).toBe('repaired');
+    expect(result.diagnosticError).toBeNull();
+  });
+
+  it('reports the committed cancellation request when subsequent inspection is cancelled', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const request = DurableJobStore.prototype.requestCancel;
+    vi.spyOn(DurableJobStore.prototype, 'requestCancel').mockImplementationOnce(function (
+      this: DurableJobStore,
+      ...args
+    ) {
+      const result = request.apply(this, args);
+      context.close();
+      return result;
+    });
+    const result = await cancelPreparedKnowledgeRepair(context, pending.jobId);
+    expect(result).toMatchObject({
+      requested: true,
+      inspection: null,
+      diagnosticError: expect.stringContaining('transaction completed'),
+    });
+    expect(persisted().jobs[0].status).toBe('cancelled');
+  });
+
+  it('retains an uncertain expired attempt before resuming and fences its old owner', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const oldOwner = new DurableJobStore(await getDb(root), {
+      projectId: 'repair-A',
+      actor: 'preparation-test',
+    });
+    oldOwner.claim(pending.jobId, Date.now());
+    oldOwner.checkpoint(pending.jobId, '{"stage":"unknown interrupted attempt"}', Date.now());
+    oldOwner.requestCancel(pending.jobId, Date.now());
+    getBrainNativeDb(root)!
+      .prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?')
+      .run(pending.jobId);
+    context.close();
+    context = createOperationExecutionContext(context.identity, { budgetMs: 10000 });
+    const receipt = await resumePreparedKnowledgeRepair(context, pending.jobId);
+    expect(receipt.execution?.fencingEpoch).toBe(2);
+    expect(() => oldOwner.complete(pending.jobId, { late: true }, Date.now())).toThrow();
+    expect(JSON.parse(persisted().retryHistory[0].value)).toMatchObject({
+      status: 'running',
+      error: null,
+      checkpointJson: '{"stage":"unknown interrupted attempt"}',
+      cancellationRequestedAt: expect.any(Number),
+    });
+    const inspected = await inspectPreparedKnowledgeRepair(context, pending.jobId);
+    expect(inspected.ledgerComplete).toBe(true);
+    expect(inspected.ledgerTotal).toBe(4);
+    expect(persisted().attemptOutcomes).toEqual([]);
+  });
+
+  it('refuses explicit resume of a still-live owner without appending invented history', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    new DurableJobStore(await getDb(root), { projectId: 'repair-A' }).claim(
+      pending.jobId,
+      Date.now(),
+    );
+    const before = persisted();
+    await expect(resumePreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    expect(persisted().jobs).toEqual(before.jobs);
+    expect(persisted().retryHistory).toEqual([]);
+  });
+
+  it('creates explicit invocation scope without renewing the caller deadline', async () => {
+    const deadline = Date.now() + 1000;
+    const other = join(root, 'other-invocation');
+    const loading = createKnowledgeRepairInvocation(
+      root,
+      'preparation-test',
+      proposal.id,
+      deadline,
+    );
+    vi.stubEnv('CLEO_ROOT', other);
+    vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    const created = await loading;
+    try {
+      expect(created.identity).toEqual(context.identity);
+      expect(created.deadlineAt).toBe(deadline);
+    } finally {
+      created.close();
+    }
+    await expect(
+      createKnowledgeRepairInvocation(root, 'preparation-test', proposal.id, Date.now() - 1),
+    ).rejects.toThrow();
+    await expect(
+      createKnowledgeRepairInvocation(root, '', proposal.id, deadline),
+    ).rejects.toMatchObject({ code: 'E_REPAIR_INPUT' });
+  });
+
+  it('prepares recovery directly from an authentic receipt and preserves its immutable identity', async () => {
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    context.close();
+    context = await createKnowledgeRepairInvocation(
+      root,
+      'preparation-test',
+      'new-rollback',
+      Date.now() + 10000,
+    );
+    const pending = await prepareKnowledgeRollback(context, original.id);
+    expect(pending.proposal).toMatchObject({
+      id: 'new-rollback',
+      action: { operation: 'knowledge.rollback' },
+      rollback: { receiptId: original.id },
+    });
+    expect(await applyPreparedKnowledgeRepair(context, pending.jobId)).toMatchObject({
+      id: 'new-rollback',
+      state: 'repaired',
+    });
+    expect(persisted().observation.invalid_at).toBeNull();
+    expect(await prepareKnowledgeRollback(context, original.id)).toMatchObject({
+      jobId: pending.jobId,
+      jobStatus: 'complete',
+    });
+    await expect(prepareKnowledgeRollback(context, 'different-receipt')).rejects.toMatchObject({
+      code: 'E_REPAIR_ID_REUSED',
+    });
   });
 
   it('passes the original execution context into preparation storage before mutation', async () => {

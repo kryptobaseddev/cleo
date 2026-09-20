@@ -21,7 +21,9 @@ import type {
   KnowledgePreparedRepairProposal,
   KnowledgeRepairAttemptFailure,
   KnowledgeRepairAttemptOutcome,
+  KnowledgeRepairCancellation,
   KnowledgeRepairExecution,
+  KnowledgeRepairInspection,
   KnowledgeRepairPreparation,
   KnowledgeRepairResource,
 } from '@cleocode/contracts/knowledge-health';
@@ -34,8 +36,16 @@ import { generateProjectHash } from '../nexus/hash.js';
 import { assessKnowledgeCoverage, readKnowledgeIndexAssessment } from '../nexus/knowledge.js';
 import { getTaskKnowledgeEvidence } from '../nexus/task-evidence.js';
 import { worktreeScope } from '../paths.js';
-import { BackgroundJobError, DurableJobStore } from '../store/background-jobs.js';
-import { bindOperationWriteFence, OperationExecutionError } from '../store/background-ops.js';
+import {
+  type BackgroundJob,
+  BackgroundJobError,
+  DurableJobStore,
+} from '../store/background-jobs.js';
+import {
+  bindOperationWriteFence,
+  createOperationExecutionContext,
+  OperationExecutionError,
+} from '../store/background-ops.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
@@ -540,6 +550,133 @@ function appendVerifiedMetadata(db: DatabaseSync, key: string, bytes: string): v
     );
 }
 
+/**
+ * Construct a repair invocation using a root and deadline captured before caller asynchronous work.
+ * @param projectRoot - Explicit project identity root captured by the foreground caller.
+ * @param actor - Explicit stable caller attribution; never copied from stored proposal ownership.
+ * @param proposalId - Immutable proposal/retry key supplied by the caller.
+ * @param deadlineAt - Original absolute invocation deadline including earlier file reads.
+ * @returns Validated execution context that the caller must close in a finally block.
+ * @throws KnowledgeRepairError when actor, identity or deadline input is invalid.
+ * @remarks Metadata reads do not renew the deadline. This attribution is not an owner signature.
+ * @example
+ * ```ts
+ * const context = await createKnowledgeRepairInvocation(root, actor, proposalId, deadlineAt);
+ * ```
+ */
+export async function createKnowledgeRepairInvocation(
+  projectRoot: string,
+  actor: string,
+  proposalId: string,
+  deadlineAt: number,
+): Promise<OperationExecutionContext> {
+  const root = resolve(projectRoot);
+  if (!actor.trim() || !proposalId.trim() || !Number.isSafeInteger(deadlineAt))
+    throw new KnowledgeRepairError(
+      'E_REPAIR_INPUT',
+      'Explicit actor, proposal identity and original deadline are required.',
+    );
+  const info = await worktreeScope.run(
+    { worktreeRoot: root, projectHash: generateProjectHash(root) },
+    () => loadProjectInfo(root),
+  );
+  if (
+    typeof info?.projectId !== 'string' ||
+    !info.projectId ||
+    (info.projectRoot !== undefined && info.projectRoot !== root)
+  )
+    throw new KnowledgeRepairError(
+      'E_REPAIR_SCOPE',
+      'Canonical project identity is required for repair execution.',
+    );
+  const context = createOperationExecutionContext(
+    {
+      projectId: info.projectId,
+      projectRoot: root,
+      actor,
+      operation: 'doctor.knowledge',
+      idempotencyKey: proposalId,
+    },
+    { budgetMs: Math.max(0, deadlineAt - Date.now()), deadlineAt },
+  );
+  try {
+    context.assertActive();
+    return context;
+  } catch (error) {
+    context.close();
+    throw error;
+  }
+}
+
+/**
+ * Prepare guarded recovery from a retained original receipt without applying it.
+ * @param context - Explicit recovery actor, new immutable proposal identity and original deadline.
+ * @param receiptId - Successful scoped original receipt whose complete affected images are retained.
+ * @returns Durable immutable pending rollback through the existing preparation service.
+ * @throws KnowledgeRepairError when the receipt, evidence or affected resources cannot authorize recovery.
+ * @remarks Historical receipt bytes are retained; unrelated changes do not authorize overwriting an affected edit.
+ * @example
+ * ```ts
+ * const pending = await prepareKnowledgeRollback(context, originalReceiptId);
+ * ```
+ */
+export async function prepareKnowledgeRollback(
+  context: OperationExecutionContext,
+  receiptId: string,
+): Promise<KnowledgeRepairPreparation> {
+  context.assertActive();
+  return worktreeScope.run(
+    {
+      worktreeRoot: context.identity.projectRoot,
+      projectHash: generateProjectHash(context.identity.projectRoot),
+      execution: context,
+    },
+    async () => {
+      await getBrainDb(context.identity.projectRoot);
+      context.assertActive();
+      const db = getBrainNativeDb(context.identity.projectRoot);
+      if (!db) throw new KnowledgeRepairError('E_REPAIR_STORE', 'Recovery store is unavailable.');
+      const store = new DurableJobStore(await getDb(context.identity.projectRoot), {
+        projectId: context.identity.projectId,
+        actor: context.identity.actor,
+      });
+      const prior = store.findSubmission(context.identity.operation, {
+        projectId: context.identity.projectId,
+        idempotencyKey: context.identity.idempotencyKey,
+        proposalJson: '{}',
+      });
+      if (prior) {
+        const { prepared } = validatePreparedJob(context, prior);
+        if (
+          prepared.action.operation !== 'knowledge.rollback' ||
+          prepared.rollback?.receiptId !== receiptId
+        )
+          throw new KnowledgeRepairError(
+            'E_REPAIR_ID_REUSED',
+            'Recovery identity already belongs to different immutable inputs.',
+          );
+        return prepareKnowledgeRepair(context, proposalSchema.parse(prepared));
+      }
+      const original = readReceipt(db, receiptId);
+      const first = original?.receipt.verificationEvidence[0];
+      if (!original || !first)
+        throw new KnowledgeRepairError(
+          'E_REPAIR_SOURCE',
+          'Original sourced receipt is unavailable.',
+        );
+      return prepareKnowledgeRepair(context, {
+        id: context.identity.idempotencyKey,
+        findingId: `rollback:${receiptId}`,
+        projectId: context.identity.projectId,
+        expectedRevision: null,
+        expectedStateHash: stateHash(db),
+        action: { operation: 'knowledge.rollback', arguments: { receiptId }, prerequisites: [] },
+        evidence: [first, ...original.receipt.verificationEvidence.slice(1)],
+      });
+    },
+  );
+}
+
 /** Read exact persisted generation bytes for an immediate transactional recheck. */
 function assessmentBytes(db: DatabaseSync): string | null {
   const row = db.prepare("SELECT value FROM main._nexus_meta WHERE key='graph_assessment'").get();
@@ -576,7 +713,7 @@ export async function applyPreparedKnowledgeRepair(
 }
 
 /**
- * Explicitly resume immutable repair work, preserving failed or cancelled attempts before retry.
+ * Explicitly resume immutable repair work, preserving terminal or expired running attempts before retry.
  * @param context - Fresh bounded invocation with the same explicit actor and proposal identity.
  * @param jobId - Authentic prepared job to inspect and revalidate before retry.
  * @returns Existing committed receipt or the newly committed repair receipt.
@@ -594,6 +731,262 @@ export async function resumePreparedKnowledgeRepair(
   jobId: string,
 ): Promise<KnowledgeRepairReceipt> {
   return executePreparedKnowledgeRepair(context, jobId, true);
+}
+
+/** Parse immutable scoped job input without borrowing its actor or trusting its proposal hash alone. */
+function validatePreparedJob(context: OperationExecutionContext, job: BackgroundJob) {
+  const root = context.identity.projectRoot;
+  if (!job.proposalJson || !job.proposalHash || hash(job.proposalJson) !== job.proposalHash)
+    throw new KnowledgeRepairError(
+      'E_REPAIR_SOURCE',
+      'Authentic prepared repair input is unavailable.',
+    );
+  const prepared = preparedProposalSchema.parse(JSON.parse(job.proposalJson));
+  if ((prepared.action.operation === 'knowledge.rollback') !== Boolean(prepared.rollback))
+    throw new KnowledgeRepairError(
+      'E_REPAIR_INPUT',
+      'Recovery reference must match the supported rollback action.',
+    );
+  if (prepared.identity.actor !== context.identity.actor)
+    throw new KnowledgeRepairError(
+      'E_REPAIR_ACTOR',
+      'Explicit actor differs from the immutable repair proposal; retain the original actor or prepare a separately authorized proposal.',
+    );
+  if (
+    JSON.stringify(prepared.identity) !==
+      JSON.stringify(executionIdentitySchema.parse(context.identity)) ||
+    prepared.id !== context.identity.idempotencyKey ||
+    prepared.projectId !== context.identity.projectId ||
+    prepared.databasePath !== resolveDualScopeDbPath('project', root) ||
+    job.operation !== context.identity.operation ||
+    job.idempotencyKey !== context.identity.idempotencyKey
+  )
+    throw new KnowledgeRepairError(
+      'E_REPAIR_SCOPE',
+      'Prepared repair does not match the captured operation.',
+    );
+  return { prepared, proposalHash: job.proposalHash };
+}
+
+/** Open read/metadata services under the original captured execution scope. */
+async function openPreparedKnowledgeRepair(context: OperationExecutionContext, jobId: string) {
+  context.assertActive();
+  return worktreeScope.run(
+    {
+      worktreeRoot: context.identity.projectRoot,
+      projectHash: generateProjectHash(context.identity.projectRoot),
+      execution: context,
+    },
+    async () => {
+      const root = context.identity.projectRoot;
+      const metadata = await loadProjectInfo(root);
+      context.assertActive();
+      if (
+        !metadata ||
+        metadata.projectId !== context.identity.projectId ||
+        (metadata.projectRoot !== undefined && metadata.projectRoot !== root)
+      )
+        throw new KnowledgeRepairError('E_REPAIR_SCOPE', 'Canonical repair identity changed.');
+      const taskDb = await getDb(root);
+      await getBrainDb(root);
+      context.assertActive();
+      const db = getBrainNativeDb(root);
+      if (!db || getNativeDb(root) !== db)
+        throw new KnowledgeRepairError(
+          'E_REPAIR_STORE',
+          'Repair inspection requires the same scoped database handle.',
+        );
+      const store = new DurableJobStore(taskDb, {
+        projectId: context.identity.projectId,
+        actor: context.identity.actor,
+      });
+      const job = store.get(jobId);
+      if (!job)
+        throw new KnowledgeRepairError(
+          'E_REPAIR_NOT_FOUND',
+          'Prepared job was not found in this project.',
+        );
+      return { db, store, job, ...validatePreparedJob(context, job) };
+    },
+  );
+}
+
+/** Read a bounded page while disclosing all retained matching evidence. */
+function inspectPreparedState(
+  db: DatabaseSync,
+  job: BackgroundJob,
+  prepared: KnowledgePreparedRepairProposal,
+  proposalHash: string,
+  limit: number,
+  offset: number,
+): KnowledgeRepairInspection {
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 1000 ||
+    !Number.isSafeInteger(offset) ||
+    offset < 0
+  )
+    throw new KnowledgeRepairError(
+      'E_REPAIR_INPUT',
+      'Inspection limit must be 1–1000 and offset must be a nonnegative integer.',
+    );
+  const prefixes = [
+    'knowledge_repair_event:',
+    'knowledge_repair_attempt:',
+    'knowledge_repair_retry:',
+  ].map((prefix) => `${prefix}${job.id}:`);
+  const total = db
+    .prepare(
+      'SELECT COUNT(*) AS total FROM main._nexus_meta WHERE instr(key,?)=1 OR instr(key,?)=1 OR instr(key,?)=1',
+    )
+    .get(...prefixes)?.total;
+  if (typeof total !== 'number')
+    throw new KnowledgeRepairError(
+      'E_REPAIR_STORE',
+      'Cannot enumerate the retained repair ledger.',
+    );
+  const ledger = db
+    .prepare(
+      'SELECT key,value FROM main._nexus_meta WHERE instr(key,?)=1 OR instr(key,?)=1 OR instr(key,?)=1 ORDER BY rowid LIMIT ? OFFSET ?',
+    )
+    .all(...prefixes, limit, offset)
+    .map((row) => {
+      if (typeof row.key !== 'string' || typeof row.value !== 'string')
+        throw new KnowledgeRepairError('E_REPAIR_STORE', 'Invalid retained lifecycle entry.');
+      return { key: row.key, valueJson: row.value };
+    });
+  const receipt = readReceipt(db, prepared.id)?.receipt ?? null;
+  let rollbackReceipt: KnowledgeRepairReceipt | null = null;
+  const marker = db
+    .prepare('SELECT value FROM main._nexus_meta WHERE key=?')
+    .get(`knowledge_rollback:${prepared.id}`)?.value;
+  if (marker !== undefined) {
+    if (typeof marker !== 'string')
+      throw new KnowledgeRepairError('E_REPAIR_VERIFY', 'Invalid rollback marker.');
+    const parsed = z
+      .object({ receiptId: z.string(), original: rollbackReferenceSchema })
+      .parse(JSON.parse(marker));
+    rollbackReceipt = readReceipt(db, parsed.receiptId)?.receipt ?? null;
+    if (
+      !rollbackReceipt ||
+      rollbackReceipt.execution?.rollback?.receiptId !== prepared.id ||
+      JSON.stringify(rollbackReceipt.execution.rollback) !== JSON.stringify(parsed.original)
+    )
+      throw new KnowledgeRepairError(
+        'E_REPAIR_VERIFY',
+        'Rollback marker and retained recovery receipt disagree.',
+      );
+  }
+  if (
+    job.status === 'complete' &&
+    (!receipt ||
+      JSON.stringify(receiptSchema.parse(job.result)) !== JSON.stringify(receipt) ||
+      receipt.execution?.jobId !== job.id ||
+      receipt.execution?.proposalHash !== job.proposalHash)
+  )
+    throw new KnowledgeRepairError(
+      'E_REPAIR_VERIFY',
+      'Completed job and retained receipt disagree.',
+    );
+  return {
+    jobId: job.id,
+    status: job.status,
+    proposalHash,
+    proposal: prepared,
+    attempts: job.attempts,
+    fencingEpoch: job.fencingEpoch,
+    ownerId: job.ownerId,
+    leaseExpiresAt: job.leaseExpiresAt,
+    cancellationRequestedAt: job.cancellationRequestedAt,
+    checkpointJson: job.checkpointJson,
+    receipt,
+    rollbackReceipt,
+    diagnosticError: job.diagnosticError ?? null,
+    ledger,
+    ledgerTotal: total,
+    ledgerComplete: offset === 0 && ledger.length === total,
+  };
+}
+
+/**
+ * Inspect authentic prepared work, its receipt and separate append-only attempt history.
+ * @param context - Captured project, explicit original actor and immutable proposal identity.
+ * @param jobId - Existing durable operation identity.
+ * @param limit - Maximum lifecycle entries, default 100 and bounded to 1000.
+ * @param offset - Zero-based ledger page offset, default zero.
+ * @returns Actual job state and a page whose completeness is explicit.
+ * @throws KnowledgeRepairError when scope, actor, proposal or persisted evidence is inconsistent.
+ * @remarks This does not infer a failed outcome from lease expiry or count a cancellation request as rollback.
+ * @example
+ * ```ts
+ * const state = await inspectPreparedKnowledgeRepair(context, jobId, 100, 0);
+ * ```
+ */
+export async function inspectPreparedKnowledgeRepair(
+  context: OperationExecutionContext,
+  jobId: string,
+  limit = 100,
+  offset = 0,
+): Promise<KnowledgeRepairInspection> {
+  const { db, job, prepared, proposalHash } = await openPreparedKnowledgeRepair(context, jobId);
+  const result = inspectPreparedState(db, job, prepared, proposalHash, limit, offset);
+  context.consume({
+    bytes: Buffer.byteLength(JSON.stringify(result), 'utf8'),
+    items: result.ledger.length,
+  });
+  context.assertActive();
+  return result;
+}
+
+/**
+ * Persist an explicit cancellation request under the original invocation budget.
+ * @param context - Captured project, explicit actor and immutable proposal identity.
+ * @param jobId - Existing prepared work to cancel or signal.
+ * @returns Committed request status and actual observed job/receipt state.
+ * @throws KnowledgeRepairError when scope or authentic prepared input is invalid.
+ * @remarks Running work remains running until its owner acknowledges cancellation; completed
+ * effects and receipts are preserved. Cancellation observed after commit cannot erase the request.
+ * @example
+ * ```ts
+ * const cancellation = await cancelPreparedKnowledgeRepair(context, jobId);
+ * ```
+ */
+export async function cancelPreparedKnowledgeRepair(
+  context: OperationExecutionContext,
+  jobId: string,
+): Promise<KnowledgeRepairCancellation> {
+  const { db, store, prepared, proposalHash } = await openPreparedKnowledgeRepair(context, jobId);
+  const requested = store.requestCancel(jobId, Date.now(), context);
+  try {
+    context.assertActive();
+    const job = store.get(jobId);
+    if (!job)
+      throw new KnowledgeRepairError(
+        'E_REPAIR_VERIFY',
+        'Cancellation target disappeared after persistence.',
+      );
+    const inspection = inspectPreparedState(db, job, prepared, proposalHash, 100, 0);
+    context.consume({
+      bytes: Buffer.byteLength(JSON.stringify(inspection), 'utf8'),
+      items: inspection.ledger.length,
+    });
+    return {
+      requested,
+      inspection,
+      diagnosticError: null,
+      deadlineAt: context.deadlineAt,
+      deadlineExceeded: Date.now() >= context.deadlineAt,
+    };
+  } catch (error) {
+    return {
+      requested,
+      inspection: null,
+      diagnosticError: `Cancellation request transaction completed; inspection failed: ${error instanceof Error ? error.message : String(error)}`,
+      deadlineAt: context.deadlineAt,
+      deadlineExceeded: Date.now() >= context.deadlineAt,
+    };
+  }
 }
 
 /** Execute existing prepared work; explicit terminal retries share the same original invocation deadline. */
@@ -633,35 +1026,12 @@ async function executePreparedKnowledgeRepair(
         actor: context.identity.actor,
       });
       const job = store.get(jobId);
-      if (!job?.proposalJson || !job.proposalHash || hash(job.proposalJson) !== job.proposalHash)
+      if (!job)
         throw new KnowledgeRepairError(
-          'E_REPAIR_SOURCE',
-          'Authentic prepared repair input is unavailable.',
+          'E_REPAIR_NOT_FOUND',
+          'Prepared job was not found in this project.',
         );
-      const prepared = preparedProposalSchema.parse(JSON.parse(job.proposalJson));
-      if ((prepared.action.operation === 'knowledge.rollback') !== Boolean(prepared.rollback))
-        throw new KnowledgeRepairError(
-          'E_REPAIR_INPUT',
-          'Recovery reference must match the supported rollback action.',
-        );
-      if (prepared.identity.actor !== context.identity.actor)
-        throw new KnowledgeRepairError(
-          'E_REPAIR_ACTOR',
-          'Explicit actor differs from the immutable repair proposal; retain the original actor or prepare a separately authorized proposal.',
-        );
-      if (
-        JSON.stringify(prepared.identity) !==
-          JSON.stringify(executionIdentitySchema.parse(context.identity)) ||
-        prepared.id !== context.identity.idempotencyKey ||
-        prepared.projectId !== context.identity.projectId ||
-        prepared.databasePath !== resolveDualScopeDbPath('project', root) ||
-        job.operation !== context.identity.operation ||
-        job.idempotencyKey !== context.identity.idempotencyKey
-      )
-        throw new KnowledgeRepairError(
-          'E_REPAIR_SCOPE',
-          'Prepared repair does not match the captured operation.',
-        );
+      const { prepared, proposalHash } = validatePreparedJob(context, job);
       if (job.status === 'complete') {
         const stored = readReceipt(db, prepared.id);
         const result = receiptSchema.parse(job.result);
@@ -725,7 +1095,8 @@ async function executePreparedKnowledgeRepair(
           );
       };
       const lease =
-        allowTerminalRetry && (job.status === 'failed' || job.status === 'cancelled')
+        allowTerminalRetry &&
+        (job.status === 'failed' || job.status === 'cancelled' || job.status === 'running')
           ? store.retryAtomically(jobId, Date.now(), context, (previousAttemptJson) => {
               recheckResources();
               const prior = z
@@ -733,7 +1104,7 @@ async function executePreparedKnowledgeRepair(
                 .parse(JSON.parse(previousAttemptJson));
               const key = `knowledge_repair_retry:${prior.id}:${prior.fencingEpoch}`;
               appendVerifiedMetadata(db, key, previousAttemptJson);
-              return JSON.stringify({ retainedAttemptKey: key, proposalHash: job.proposalHash });
+              return JSON.stringify({ retainedAttemptKey: key, proposalHash });
             })
           : store.claim(jobId, Date.now(), undefined, context);
       const attemptStartedAt = Date.now();
@@ -744,7 +1115,7 @@ async function executePreparedKnowledgeRepair(
           context,
           {
             lease,
-            proposalHash: job.proposalHash,
+            proposalHash,
             dbPath: prepared.databasePath,
           },
           context.signal.aborted,
@@ -772,7 +1143,7 @@ async function executePreparedKnowledgeRepair(
             jobId,
             ownerId: lease.ownerId,
             fencingEpoch: lease.epoch,
-            proposalHash: job.proposalHash!,
+            proposalHash,
             generation: assessment?.generation ?? null,
             resources: prepared.resources.map((resource) => ({
               ...resource,
@@ -810,7 +1181,7 @@ async function executePreparedKnowledgeRepair(
                 fencingEpoch: lease.epoch,
                 stage: ['started', 'verified', 'committed'][index],
                 at: index === 0 ? startedAt : receipt.completedAt,
-                proposalHash: job.proposalHash,
+                proposalHash,
               }),
             );
           }
@@ -851,7 +1222,7 @@ async function executePreparedKnowledgeRepair(
         const attempt: KnowledgeRepairAttemptOutcome = {
           id: attemptId,
           proposalId: prepared.id,
-          proposalHash: job.proposalHash,
+          proposalHash,
           identity: prepared.identity,
           jobId,
           ownerId: lease.ownerId,
@@ -878,7 +1249,7 @@ async function executePreparedKnowledgeRepair(
                   fencingEpoch: lease.epoch,
                   stage: index === 0 ? 'started' : status,
                   at: index === 0 ? startedAt : observedAt,
-                  proposalHash: job.proposalHash,
+                  proposalHash,
                 });
                 appendVerifiedMetadata(db, eventKey, eventBytes);
               }
