@@ -11,6 +11,7 @@ import type { DataAccessor } from '../../store/data-accessor.js';
 import { getDb, getNativeDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 import { archiveTasks } from '../../tasks/archive.js';
+import { buildBrainState } from '../bootstrap.js';
 import {
   analyzeEpic,
   autoDispatch,
@@ -21,6 +22,7 @@ import {
   resolveTokens,
   startOrchestration,
 } from '../index.js';
+import { getUnblockOpportunities } from '../unblock.js';
 
 let env: TestDbEnv;
 let accessor: DataAccessor;
@@ -223,6 +225,18 @@ describe('cross-epic readiness uses persisted global prerequisites', () => {
       blockedTasks: ['T121'],
     });
     expect(await getNextTask('T100', env.tempDir, accessor)).toBeNull();
+    expect(
+      (await buildBrainState(env.tempDir, { speed: 'full' }, accessor)).blockers,
+    ).toContainEqual({
+      taskId: 'T121',
+      title: 'Task T121',
+      blockedBy: ['T999'],
+    });
+    expect((await getUnblockOpportunities(env.tempDir, accessor)).singleBlocker).toContainEqual({
+      taskId: 'T121',
+      title: 'Task T121',
+      remainingBlocker: { id: 'T999', title: 'T999' },
+    });
   });
 
   it('propagates required dependency-read failures instead of empty or healthy readiness', async () => {
@@ -362,5 +376,72 @@ describe('getOrchestratorContext', () => {
     expect(ctx.totalTasks).toBe(4);
     expect(ctx.completed).toBe(1);
     expect(ctx.completionPercent).toBe(25);
+  });
+});
+
+describe('bootstrap and unblock resolve dependency evidence separately from selected tasks', () => {
+  beforeEach(async () => {
+    await writeTodo([
+      { id: 'T100', type: 'epic', status: 'active' },
+      { id: 'T110', type: 'epic', status: 'active' },
+      { id: 'T111', parentId: 'T110', status: 'done' },
+      { id: 'T112', parentId: 'T110', status: 'pending' },
+      { id: 'T113', parentId: 'T110', status: 'cancelled' },
+      { id: 'T121', parentId: 'T100', priority: 'high', depends: ['T111'] },
+      { id: 'T122', parentId: 'T100', depends: ['T111', 'T112'] },
+      { id: 'T123', parentId: 'T100', depends: ['T113'] },
+      { id: 'T124', parentId: 'T100', depends: ['T113'] },
+    ]);
+    expect(await archiveTasks({ taskIds: ['T111'] }, env.tempDir, accessor)).toMatchObject({
+      archived: ['T111'],
+    });
+    expect((await accessor.queryTasks({})).tasks.map((task) => task.id)).not.toContain('T111');
+    expect(await accessor.loadTasks(['T111'])).toMatchObject([{ id: 'T111', status: 'archived' }]);
+  });
+
+  it('bootstrap selects a satisfied task and reports only unresolved IDs without inflating progress', async () => {
+    const brain = await buildBrainState(env.tempDir, { speed: 'full' }, accessor);
+    expect(brain.nextSuggestion).toEqual({ id: 'T121', title: 'Task T121', score: 1 });
+    expect(brain.progress).toEqual({ total: 8, done: 0, active: 2, blocked: 0, pending: 5 });
+    expect(brain.blockers).toEqual([
+      { taskId: 'T122', title: 'Task T122', blockedBy: ['T112'] },
+      { taskId: 'T123', title: 'Task T123', blockedBy: ['T113'] },
+      { taskId: 'T124', title: 'Task T124', blockedBy: ['T113'] },
+    ]);
+  });
+
+  it('unblock retains cancellation blockers and excludes satisfied archived dependencies', async () => {
+    const result = await getUnblockOpportunities(env.tempDir, accessor);
+    expect(result.singleBlocker).toEqual([
+      { taskId: 'T122', title: 'Task T122', remainingBlocker: { id: 'T112', title: 'Task T112' } },
+      { taskId: 'T123', title: 'Task T123', remainingBlocker: { id: 'T113', title: 'Task T113' } },
+      { taskId: 'T124', title: 'Task T124', remainingBlocker: { id: 'T113', title: 'Task T113' } },
+    ]);
+    expect(result.commonBlockers).toEqual([
+      { taskId: 'T113', title: 'Task T113', blocksCount: 2, blockedTasks: ['T123', 'T124'] },
+    ]);
+    // This existing field counts potential transitive impact, not immediate admission.
+    expect(result.highImpact).toEqual([
+      { taskId: 'T112', title: 'Task T112', wouldUnblock: 1, dependents: ['T122'] },
+    ]);
+  });
+
+  it('propagates a required archive lookup failure from both consumers', async () => {
+    const lookup = vi
+      .spyOn(accessor, 'loadTasks')
+      .mockRejectedValue(new Error('required dependency evidence unavailable'));
+    try {
+      await expect(buildBrainState(env.tempDir, { speed: 'full' }, accessor)).rejects.toThrow(
+        'required dependency evidence unavailable',
+      );
+      await expect(getUnblockOpportunities(env.tempDir, accessor)).rejects.toThrow(
+        'required dependency evidence unavailable',
+      );
+      expect(lookup).toHaveBeenCalledTimes(2);
+      expect(lookup).toHaveBeenNthCalledWith(1, ['T111']);
+      expect(lookup).toHaveBeenNthCalledWith(2, ['T111']);
+    } finally {
+      lookup.mockRestore();
+    }
   });
 });
