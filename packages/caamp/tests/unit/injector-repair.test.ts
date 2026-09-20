@@ -255,14 +255,14 @@ describe('removeInjection — no stateful-regex skipping', () => {
       const target = join(dir, `AGENTS-${i}.md`);
       await writeFile(target, `${START}\n${REF}\n${END}\n\nkeep me\n`, 'utf-8');
       expect(await removeInjection(target)).toBe(true);
-      expect(await readFile(target, 'utf-8')).toBe('keep me\n');
+      expect(await readFile(target, 'utf-8')).toBe('\n\nkeep me\n');
     }
   });
 
   it('removes a block whose markers were damaged', async () => {
     await writeFile(file, `!-- CAAMP:START -->\n${REF}\n${END}\n\nkeep me\n`, 'utf-8');
     expect(await removeInjection(file)).toBe(true);
-    expect(await readFile(file, 'utf-8')).toBe('keep me\n');
+    expect(await readFile(file, 'utf-8')).toBe('\n\nkeep me\n');
   });
 });
 
@@ -414,5 +414,56 @@ describe('T12269 byte-preserving managed boundary', () => {
     );
     await expect(inject(file, '@new')).rejects.toThrow(/ambiguous.*CAAMP|CAAMP.*ambiguous/i);
     expect(await readFile(file)).toEqual(before);
+  });
+});
+
+describe('T12269 removal and deduplication own only marker spans', () => {
+  const prefix = '\uFEFF \t\r\nUser prefix  \r\n\r\n\r\n';
+  const gap = '\r\n\r\n\r\nUser island  \t\r\n';
+  const suffix = ' \t\r\nUser suffix  \r\n\r\n \t';
+  const block = `${START}\r\n@same\r\n${END}`;
+
+  it('removes complete regions while retaining all prefix, gap and suffix bytes', async () => {
+    await writeFile(file, prefix + block + gap + block + suffix);
+    expect(await removeInjection(file)).toBe(true);
+    expect(await readFile(file)).toEqual(Buffer.from(prefix + gap + suffix));
+    expect(await removeInjection(file)).toBe(false);
+    expect(await readFile(file)).toEqual(Buffer.from(prefix + gap + suffix));
+  });
+
+  it('preserves whitespace-only outside content as a real file', async () => {
+    const before = '\uFEFF\t\r\n';
+    const after = '  \r\n\r\n\t';
+    await writeFile(file, before + block + after);
+    expect(await removeInjection(file)).toBe(true);
+    expect(await readFile(file)).toEqual(Buffer.from(before + after));
+  });
+
+  it('dedupes by existing last-occurrence policy without changing any user bytes', async () => {
+    await writeFile(file, prefix + block + gap + block + suffix);
+    const result = await dedupeFile(file);
+    expect(result).toMatchObject({ removed: 1, kept: 1, modified: true });
+    const expected = Buffer.from(prefix + gap + block + suffix);
+    expect(await readFile(file)).toEqual(expected);
+    expect(await dedupeFile(file)).toMatchObject({ removed: 0, kept: 1, modified: false });
+    expect(await readFile(file)).toEqual(expected);
+  });
+
+  it.each([
+    `${START}\nunterminated user bytes`,
+    `unmatched end\n${END}`,
+    `${START}\nouter user bytes\n${START}\ninner\n${END}\n${END}`,
+  ])('rejects ambiguous removal and dedupe before changing disk: %s', async (ambiguous) => {
+    const expected = Buffer.from(prefix + ambiguous + suffix);
+    await writeFile(file, expected);
+    await expect(removeInjection(file)).rejects.toThrow(/Ambiguous CAAMP/);
+    expect(await readFile(file)).toEqual(expected);
+    await expect(dedupeFile(file)).rejects.toThrow(/Ambiguous CAAMP/);
+    expect(await readFile(file)).toEqual(expected);
+  });
+
+  it('does not create a file when desired content contains nested managed markers', async () => {
+    await expect(inject(file, `${START}\nambiguous\n${END}`)).rejects.toThrow(/Ambiguous CAAMP/);
+    await expect(readFile(file)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

@@ -17,6 +17,7 @@ import { assertNotTornRead, withFileLock } from '../fs/atomic.js';
 import { getAgentsHome } from '../paths/standard.js';
 import { getProvider, getProviderInstructionReferences } from '../registry/providers.js';
 import {
+  assertBalancedMarkers,
   blockPattern,
   buildBlock,
   type CaampBlock,
@@ -124,6 +125,7 @@ export async function dedupeFile(filePath: string): Promise<DedupeResult> {
     // invisible to the strict pattern, so without this step the duplicates it
     // caused would be reported as "already clean" (T12051).
     const { content: healed, repaired } = normalizeMarkers(original);
+    assertBalancedMarkers(healed);
     const blocks = parseBlocks(healed);
 
     if (blocks.length === 0) {
@@ -156,15 +158,11 @@ export async function dedupeFile(filePath: string): Promise<DedupeResult> {
       if (keepSet.has(block)) {
         result += block.raw;
       }
-      // Removed duplicates contribute nothing — surrounding whitespace is
-      // normalized by the final collapse step below.
+      // Only the duplicate marker span is removed; user whitespace is retained.
     }
 
     // Emit any trailing text after the last block
     result += healed.slice(cursor);
-
-    // Normalize: collapse 3+ consecutive newlines → 2, trim trailing whitespace
-    result = `${result.replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;
 
     // Only rewrite when there is real work to do. Cosmetic differences alone
     // (a missing trailing newline, say) must not cause a write — callers batch
@@ -433,6 +431,7 @@ export async function inject(filePath: string, content: string): Promise<CaampIn
   // reconcile path agree on what "the same content" means. Without this a
   // whitespace-only difference reported `updated` forever.
   const body = content.trim();
+  assertBalancedMarkers(buildBlock(body));
 
   if (!existsSync(filePath)) {
     // Create new file with injection block. Still atomic + locked so a
@@ -478,8 +477,9 @@ export async function inject(filePath: string, content: string): Promise<CaampIn
  * @returns `true` if a CAAMP block was found and removed, `false` otherwise
  *
  * @remarks
- * Cleans up any leftover blank lines after removing the block. If the file
- * would be entirely empty after removal, the file itself is deleted.
+ * Retains every byte outside the marker spans, including whitespace-only
+ * content. Deletes the file only when no outside bytes remain. Ambiguous
+ * marker ownership rejects removal before any file write.
  *
  * Blocks whose markers are damaged are healed first, so uninstall removes them
  * too rather than leaving orphaned fragments behind.
@@ -497,22 +497,20 @@ export async function removeInjection(filePath: string): Promise<boolean> {
   return withFileLock(filePath, async () => {
     const original = await readFile(filePath, 'utf-8');
     const { content } = normalizeMarkers(original);
+    assertBalancedMarkers(content);
 
     // A fresh pattern per call: a shared /g RegExp carries `lastIndex`, so the
     // previous `MARKER_PATTERN.test()` here skipped matches on alternate calls.
     if (parseBlocks(content).length === 0) return false;
 
-    const cleaned = content
-      .replace(blockPattern(), '')
-      .replace(/^\n{2,}/, '\n')
-      .trim();
+    const cleaned = content.replace(blockPattern(), '');
 
     if (!cleaned) {
       // File would be empty - remove it entirely
       const { rm } = await import('node:fs/promises');
       await rm(filePath);
     } else {
-      await writeFileAtomic({ path: filePath, content: `${cleaned}\n` });
+      await writeFileAtomic({ path: filePath, content: cleaned });
     }
 
     return true;

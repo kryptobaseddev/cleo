@@ -185,8 +185,17 @@ export function buildBlock(content: string): string {
   return `${CAAMP_MARKER_START}\n${content}\n${CAAMP_MARKER_END}`;
 }
 
-/** Reject ambiguous ownership before a caller can write or discard text. */
-function assertBalancedMarkers(content: string): void {
+/**
+ * Reject ambiguous managed ownership before a caller writes or discards text.
+ * @param content - File or desired block after damage normalization.
+ * @remarks This validates ownership only; it neither edits nor parses the managed body.
+ * @throws When markers are nested or unmatched; callers must retain original bytes.
+ * @example
+ * ```typescript
+ * assertBalancedMarkers(normalizeMarkers(onDisk).content);
+ * ```
+ */
+export function assertBalancedMarkers(content: string): void {
   let open = false;
   const markers = new RegExp(`${CAAMP_MARKER_START}|${CAAMP_MARKER_END}`, 'g');
   for (const match of content.matchAll(markers)) {
