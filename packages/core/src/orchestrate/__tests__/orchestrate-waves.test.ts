@@ -28,8 +28,16 @@ import { mkdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Task } from '@cleocode/contracts';
 import { orchestrateWaves } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { validateSpawnReadiness } from '../../orchestration/validate-spawn.js';
+import { getEnrichedWaves } from '../../orchestration/waves.js';
+import { governor } from '../../resources/governor.js';
+import { awaitBackgroundOps } from '../../store/background-ops.js';
+import * as taskAccessors from '../../store/data-accessor.js';
+import { createTask } from '../../store/tasks-sqlite.js';
+import { archiveTasks } from '../../tasks/archive.js';
 
 let TEST_ROOT: string;
 
@@ -173,6 +181,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  await awaitBackgroundOps();
   try {
     const { closeAllDatabases } = await import('@cleocode/core/internal');
     await closeAllDatabases();
@@ -267,5 +277,156 @@ describe('orchestrateWaves — empty and all-done epics', () => {
     // computeWaves only processes non-terminal tasks; if all done, no waves
     expect(data.waves.length, 'wave list must be empty for all-done epic').toBe(0);
     expect(data.totalWaves, 'totalWaves must be 0 for all-done epic').toBe(0);
+  });
+});
+
+/** Seed hard cross-epic dependencies through the canonical task store. */
+async function seedCrossEpicTasks(): Promise<void> {
+  const records: Partial<Task>[] = [
+    { id: 'T100', type: 'saga' },
+    { id: 'T110', type: 'epic', parentId: 'T100' },
+    { id: 'T120', type: 'epic', parentId: 'T100' },
+    { id: 'T111', parentId: 'T110' },
+    { id: 'T121', parentId: 'T120', depends: ['T111'] },
+  ];
+  for (const record of records) {
+    await createTask(
+      {
+        id: 'T100',
+        title: 'Cross-epic prerequisite',
+        description: 'Independent readiness oracle',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        createdAt: '2026-09-20T00:00:00Z',
+        ...record,
+      },
+      TEST_ROOT,
+    );
+  }
+  // Keep resource capacity deterministic; admission's filtering algorithm remains real.
+  vi.spyOn(governor, 'available').mockResolvedValue(2);
+}
+
+describe('orchestrateWaves — global hard dependencies (T12293)', () => {
+  it('orders cross-member work once and admits only currently ready tasks', async () => {
+    await seedCrossEpicTasks();
+    const result = await orchestrateWaves('T100', TEST_ROOT);
+    expect(result).toMatchObject({
+      success: true,
+      data: {
+        totalTasks: 2,
+        totalWaves: 2,
+        via: 'saga',
+        sagaMembers: ['T110', 'T120'],
+        waves: [
+          { waveNumber: 1, taskIds: ['T111'], tasks: [{ id: 'T111', ready: true, blockedBy: [] }] },
+          {
+            waveNumber: 2,
+            taskIds: ['T121'],
+            tasks: [{ id: 'T121', ready: false, blockedBy: ['T111'] }],
+          },
+        ],
+        admission: { admitted: ['T111'], deferred: [] },
+      },
+    });
+    const accessor = await taskAccessors.getTaskAccessor(TEST_ROOT);
+    expect(await validateSpawnReadiness('T121', TEST_ROOT, accessor)).toMatchObject({
+      ready: false,
+      issues: [expect.objectContaining({ code: 'V_UNMET_DEP' })],
+    });
+    await accessor.updateTaskFields('T111', { status: 'done', pipelineStage: 'contribution' });
+    expect(await orchestrateWaves('T100', TEST_ROOT)).toMatchObject({
+      success: true,
+      data: {
+        totalTasks: 2,
+        totalWaves: 1,
+        waves: [{ taskIds: ['T121'], tasks: [{ id: 'T121', ready: true, blockedBy: [] }] }],
+        admission: { admitted: ['T121'], deferred: [] },
+      },
+    });
+    expect(await validateSpawnReadiness('T121', TEST_ROOT, accessor)).toMatchObject({
+      ready: true,
+    });
+  });
+
+  it('keeps an external pending prerequisite visible and out of admission', async () => {
+    await seedCrossEpicTasks();
+    expect(await orchestrateWaves('T120', TEST_ROOT)).toMatchObject({
+      success: true,
+      data: {
+        totalTasks: 1,
+        waves: [
+          { taskIds: ['T121'], tasks: [{ depends: ['T111'], blockedBy: ['T111'], ready: false }] },
+        ],
+        admission: { admitted: [], deferred: [] },
+      },
+    });
+  });
+
+  it.each([
+    'done',
+    'archived',
+  ] as const)('accepts external %s prerequisites without selecting them', async (status) => {
+    await seedCrossEpicTasks();
+    const accessor = await taskAccessors.getTaskAccessor(TEST_ROOT);
+    await accessor.updateTaskFields('T111', { status: 'done', pipelineStage: 'contribution' });
+    if (status === 'archived') {
+      expect(await archiveTasks({ taskIds: ['T111'] }, TEST_ROOT, accessor)).toMatchObject({
+        archived: ['T111'],
+      });
+      const fresh = await taskAccessors.getTaskAccessor(TEST_ROOT);
+      expect(await fresh.loadTasks(['T111'])).toMatchObject([{ id: 'T111', status: 'archived' }]);
+      expect((await fresh.queryTasks({ parentId: 'T110' })).tasks).toEqual([]);
+    }
+    expect(await orchestrateWaves('T120', TEST_ROOT)).toMatchObject({
+      success: true,
+      data: {
+        totalTasks: 1,
+        totalWaves: 1,
+        waves: [{ taskIds: ['T121'], tasks: [{ blockedBy: [], ready: true }] }],
+        admission: { admitted: ['T121'], deferred: [] },
+      },
+    });
+    expect(await validateSpawnReadiness('T121', TEST_ROOT, accessor)).toMatchObject({
+      ready: true,
+    });
+  });
+
+  it('does not treat cancelled prerequisites as satisfied or schedulable', async () => {
+    await seedCrossEpicTasks();
+    const accessor = await taskAccessors.getTaskAccessor(TEST_ROOT);
+    await accessor.updateTaskFields('T111', { status: 'cancelled', pipelineStage: 'cancelled' });
+    for (const id of ['T100', 'T120']) {
+      expect(await orchestrateWaves(id, TEST_ROOT)).toMatchObject({
+        success: true,
+        data: {
+          waves: [{ taskIds: ['T121'], tasks: [{ blockedBy: ['T111'], ready: false }] }],
+          admission: { admitted: [], deferred: [] },
+        },
+      });
+    }
+    expect(await validateSpawnReadiness('T121', TEST_ROOT, accessor)).toMatchObject({
+      ready: false,
+      issues: [expect.objectContaining({ code: 'V_UNMET_DEP' })],
+    });
+  });
+
+  it('preserves a missing dependency as blocked and propagates failed reads', async () => {
+    await seedCrossEpicTasks();
+    const accessor = await taskAccessors.getTaskAccessor(TEST_ROOT);
+    const load = vi.spyOn(accessor, 'loadTasks').mockResolvedValueOnce([]);
+    const result = await getEnrichedWaves('T120', TEST_ROOT, accessor);
+    expect(load).toHaveBeenCalledExactlyOnceWith(['T111']);
+    expect(result.waves[0]?.tasks).toMatchObject([
+      { id: 'T121', blockedBy: ['T111'], ready: false },
+    ]);
+    const failure = new Error('Independent global dependency population read failed');
+    load.mockRejectedValue(failure);
+    vi.spyOn(taskAccessors, 'getTaskAccessor').mockResolvedValue(accessor);
+    expect(await orchestrateWaves('T120', TEST_ROOT)).toMatchObject({
+      success: false,
+      error: { code: 'E_GENERAL', message: failure.message },
+    });
   });
 });
