@@ -13,11 +13,14 @@
  * @task T11493
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLifecycleStatus } from '../../lifecycle/index.js';
 import { initLoomForEpic, orchestrateStartup } from '../../orchestrate/lifecycle-ops.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
+import { type DataAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { addTask } from '../add.js';
 import { backfillEpicLoom } from '../backfill-epic-loom.js';
@@ -391,5 +394,79 @@ describe('T11493 regression: orchestrateStartup correctly auto-initializes LOOM'
     expect(second.success).toBe(true);
     expect((second.data as Record<string, unknown>).autoInitialized).toBe(false);
     expect((second.data as Record<string, unknown>).currentStage).toBe('already-initialized');
+  });
+});
+
+describe('LOOM project ownership across asynchronous lifecycle work', () => {
+  let env: TestDbEnv;
+  let other: string;
+  beforeEach(async () => {
+    env = await createTestDb();
+    other = join(env.tempDir, 'other');
+    mkdirSync(join(other, '.cleo'), { recursive: true });
+    writeFileSync(join(other, '.cleo/config.json'), JSON.stringify({ lifecycle: { mode: 'off' } }));
+    for (const root of [env.tempDir, other]) {
+      const accessor = await getTaskAccessor(root);
+      await accessor.upsertSingleTask({
+        id: 'T810',
+        title: `Epic for ${root}`,
+        description: 'Explicit project fixture',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: '2026-09-19T00:00:00Z',
+      });
+    }
+  });
+  afterEach(async () => {
+    await env.cleanup();
+    vi.unstubAllEnvs();
+  });
+  function pipelineCount(root: string): number {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        "import { DatabaseSync } from 'node:sqlite'; const db=new DatabaseSync(process.argv[1],{readOnly:true}); process.stdout.write(JSON.stringify(db.prepare(\"SELECT count(*) AS count FROM tasks_lifecycle_pipelines WHERE task_id='T810'\").get())); db.close();",
+        join(root, '.cleo/cleo.db'),
+      ],
+      { encoding: 'utf8', timeout: 10000 },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    return JSON.parse(result.stdout).count;
+  }
+  it.each([
+    'direct',
+    'startup',
+  ] as const)('retains explicit project ownership for %s initialization with conflicting environment', async (entry) => {
+    vi.stubEnv('CLEO_ROOT', other);
+    vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    if (entry === 'direct') {
+      expect(await initLoomForEpic('T810', env.tempDir)).toEqual({
+        initialized: true,
+        alreadyInitialized: false,
+      });
+      expect(await initLoomForEpic('T810', env.tempDir)).toEqual({
+        initialized: false,
+        alreadyInitialized: true,
+      });
+    } else {
+      expect((await orchestrateStartup('T810', env.tempDir)).success).toBe(true);
+    }
+    expect(pipelineCount(env.tempDir)).toBe(1);
+    expect(pipelineCount(other)).toBe(0);
+  });
+  it('retains ownership after invocation while interleaved projects initialize independently', async () => {
+    vi.stubEnv('CLEO_ROOT', env.tempDir);
+    vi.stubEnv('CLEO_DIR', env.cleoDir);
+    const first = initLoomForEpic('T810', env.tempDir);
+    vi.stubEnv('CLEO_ROOT', other);
+    vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    const second = initLoomForEpic('T810', other);
+    expect(await first).toEqual({ initialized: true, alreadyInitialized: false });
+    expect(await second).toEqual({ initialized: true, alreadyInitialized: false });
+    expect(pipelineCount(env.tempDir)).toBe(1);
+    expect(pipelineCount(other)).toBe(1);
   });
 });
