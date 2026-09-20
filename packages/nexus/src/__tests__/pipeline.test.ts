@@ -173,15 +173,29 @@ describe('isolated shared extraction (T12262)', () => {
           new URL('../../../core/src/resources/spawn-wrapper.ts', import.meta.url).pathname,
         ],
       ];
-      for (const [name, entry] of entries)
-        buildSync({
+      for (const [name, entry] of entries) {
+        // The core provider has its own JavaScript dependencies. Resolve them
+        // from its original importer before relocating the fixture output;
+        // native parser entries retain their Nexus package installation.
+        const result = buildSync({
           entryPoints: [entry],
           outfile: join(directory, `${name}.mjs`),
           bundle: true,
-          packages: 'external',
+          packages: name === 'provider' ? 'bundle' : 'external',
+          metafile: true,
           platform: 'node',
           format: 'esm',
         });
+        if (name === 'provider') {
+          const runtimeImports = Object.values(result.metafile.outputs).flatMap(
+            (output) => output.imports,
+          );
+          expect(runtimeImports.every((binding) => binding.path.startsWith('node:'))).toBe(true);
+          expect(Object.keys(result.metafile.inputs).some((input) => input.includes('/zod/'))).toBe(
+            true,
+          );
+        }
+      }
       const script = join(directory, 'probe.mjs');
       writeFileSync(
         script,
