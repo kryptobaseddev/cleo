@@ -124,6 +124,156 @@ describe('pipeline-manifest-sqlite', () => {
     }
   });
 
+  describe('persisted metadata diagnostics', () => {
+    const invalidMetadata = [
+      ['malformed JSON', '{', 'metadata_json'],
+      ['JSON null', 'null', 'metadata_json'],
+      ['array root', '[]', 'metadata_json'],
+      ['scalar root', '"text"', 'metadata_json'],
+      ['non-string file', '{"file":7}', 'file'],
+      ['non-string title', '{"title":false}', 'title'],
+      ['non-array topics', '{"topics":"topic"}', 'topics'],
+      ['invalid topic element', '{"topics":["valid",1]}', 'topics.1'],
+      ['invalid finding element', '{"key_findings":[null]}', 'key_findings.0'],
+      ['non-boolean actionable', '{"actionable":0}', 'actionable'],
+      ['invalid follow-up', '{"needs_followup":[{}]}', 'needs_followup.0'],
+      ['invalid task links', '{"linked_tasks":"T1"}', 'linked_tasks'],
+      ['invalid confidence', '{"confidence":"certain"}', 'confidence'],
+      ['invalid checksum', '{"file_checksum":9}', 'file_checksum'],
+      ['invalid duration', '{"duration_seconds":null}', 'duration_seconds'],
+    ] as const;
+
+    describe.each(['docs_pipeline_manifest', 'pipeline_manifest'] as const)('%s', (table) => {
+      it.each(
+        invalidMetadata,
+      )('rejects %s without rewriting historical bytes', async (_label, metadata, field) => {
+        const { bindTasksDomain } = await import('../../store/sqlite.js');
+        const { native } = await bindTasksDomain(testRoot);
+        native.exec('PRAGMA foreign_keys=ON');
+        expect(native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+        native
+          .prepare(
+            `INSERT INTO ${table}(id,type,content,status,metadata_json,created_at) VALUES (?,?,?,?,?,?)`,
+          )
+          .run(
+            'corrupt-metadata',
+            'research',
+            'Authentic retained payload',
+            'active',
+            metadata,
+            '2026-01-01',
+          );
+        const expected = {
+          code: 'E_MANIFEST_METADATA_INVALID',
+          details: { entryId: 'corrupt-metadata', tables: [table], field },
+        };
+        await expect(readManifestEntries(testRoot)).rejects.toMatchObject(expected);
+        expect(await pipelineManifestRead({}, testRoot)).toMatchObject({
+          success: false,
+          error: expected,
+        });
+        expect(
+          native
+            .prepare(`SELECT metadata_json,content FROM ${table} WHERE id=?`)
+            .get('corrupt-metadata'),
+        ).toEqual({ metadata_json: metadata, content: 'Authentic retained payload' });
+      });
+    });
+
+    it('accepts absent metadata and preserves literal values plus unrelated metadata during linking', async () => {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      native.exec('PRAGMA foreign_keys=ON');
+      expect(native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      native
+        .prepare(
+          "INSERT INTO tasks_tasks(id,title,status,created_at,updated_at) VALUES ('T099','Link target','pending','2026-01-01','2026-01-01')",
+        )
+        .run();
+      native
+        .prepare(
+          'INSERT INTO docs_pipeline_manifest(id,type,content,status,source_file,metadata_json,created_at) VALUES (?,?,?,?,?,?,?)',
+        )
+        .run(
+          'no-metadata',
+          'research',
+          'Plain historical body',
+          'active',
+          'plain.md',
+          null,
+          '2026-01-01',
+        );
+      const metadata = {
+        topics: [' A | B '],
+        linked_tasks: [],
+        actionable: false,
+        extension: { original: [1, 'untouched'] },
+      };
+      native
+        .prepare(
+          'INSERT INTO docs_pipeline_manifest(id,type,content,status,metadata_json,created_at) VALUES (?,?,?,?,?,?)',
+        )
+        .run(
+          'literal-metadata',
+          'research',
+          'Original content',
+          'active',
+          JSON.stringify(metadata),
+          '2026-02-01',
+        );
+      const entries = await readManifestEntries(testRoot);
+      expect(entries.find((entry) => entry.id === 'no-metadata')).toMatchObject({
+        file: 'plain.md',
+        title: 'research',
+        topics: [],
+      });
+      expect(entries.find((entry) => entry.id === 'literal-metadata')).toMatchObject({
+        topics: [' A | B '],
+        actionable: false,
+      });
+      expect(
+        await pipelineManifestLink('T099', 'literal-metadata', undefined, testRoot),
+      ).toMatchObject({ success: true });
+      const stored = native
+        .prepare('SELECT metadata_json,content FROM docs_pipeline_manifest WHERE id=?')
+        .get('literal-metadata');
+      if (typeof stored?.metadata_json !== 'string') throw new Error('Missing stored metadata');
+      expect(JSON.parse(stored.metadata_json)).toEqual({ ...metadata, linked_tasks: ['T099'] });
+      expect(stored.content).toBe('Original content');
+    });
+
+    it('rejects invalid metadata before link mutation and preserves the original row', async () => {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      native
+        .prepare(
+          'INSERT INTO docs_pipeline_manifest(id,type,content,status,metadata_json,created_at) VALUES (?,?,?,?,?,?)',
+        )
+        .run(
+          'invalid-links',
+          'research',
+          'Original content',
+          'active',
+          '{"linked_tasks":null}',
+          '2026-01-01',
+        );
+      expect(
+        await pipelineManifestLink('T099', 'invalid-links', undefined, testRoot),
+      ).toMatchObject({
+        success: false,
+        error: {
+          code: 'E_MANIFEST_METADATA_INVALID',
+          details: { entryId: 'invalid-links', field: 'linked_tasks' },
+        },
+      });
+      expect(
+        native
+          .prepare('SELECT metadata_json,task_id FROM docs_pipeline_manifest WHERE id=?')
+          .get('invalid-links'),
+      ).toEqual({ metadata_json: '{"linked_tasks":null}', task_id: null });
+    });
+  });
+
   describe('canonical storage with enforced foreign keys and retained history', () => {
     beforeEach(async () => {
       const { bindTasksDomain } = await import('../../store/sqlite.js');
