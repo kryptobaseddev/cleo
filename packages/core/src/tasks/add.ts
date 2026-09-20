@@ -150,10 +150,32 @@ export interface AddTaskOptions {
    * @task T12281
    */
   skipMixedAcParentGuard?: boolean;
+  /**
+   * Resolve PM-Core V2 design-point 3 in-line instead of refusing.
+   *
+   * When the parent is a `task`/`subtask` carrying free-text ACs, run
+   * {@link decomposeTask} first — lifting those criteria onto a new first child
+   * so the parent becomes a pure container — and then proceed with this add.
+   *
+   * OPT-IN by design. Without it the guard still fires unchanged, because
+   * decomposing rewrites a task the caller only named as `--parent`, and doing
+   * that silently would mutate a row nobody asked about. The result reports
+   * what moved in {@link AddTaskResult.autoDecomposed}.
+   *
+   * @task T12298
+   */
+  autoDecompose?: boolean;
 }
 
 /** Result of adding a task. */
 export interface AddTaskResult {
+  /**
+   * Set when `autoDecompose` resolved design-point 3 before this add: the
+   * parent's criteria were lifted onto this child first. Absent otherwise.
+   *
+   * @task T12298
+   */
+  autoDecomposed?: { childId: string; movedAcceptance: string[] };
   task: Task;
   duplicate?: boolean;
   dryRun?: boolean;
@@ -801,6 +823,9 @@ export async function addTask(
   // Validate title (early-exit — can't proceed without a title)
   validateTitle(options.title);
 
+  /** Set when `autoDecompose` converted a text-AC leaf parent into a container. */
+  let autoDecomposed: AddTaskResult['autoDecomposed'];
+
   // Skip session enforcement for dry-run — no data is written
   if (!options.dryRun) {
     await requireActiveSession('tasks.add', cwd);
@@ -1282,7 +1307,18 @@ export async function addTask(
   ) {
     const parentAcRows = await dataAccessor.getAcRows(parentId);
     const parentHasTextAc = parentAcRows.some((row) => row.kind === 'text');
-    if (parentHasTextAc) {
+    if (parentHasTextAc && options.autoDecompose && !options.dryRun) {
+      // Resolve the guard instead of reporting it. Dynamic import because
+      // `decompose.ts` imports `addTask` from here — a static import would close
+      // the cycle. The decompose runs BEFORE the projection write below, so by
+      // the time this add inserts, the parent is a pure container and
+      // design-point 3 holds for real rather than being waived.
+      const { decomposeTask } = await import('./decompose.js');
+      const moved = await decomposeTask({ taskId: parentId }, cwd, dataAccessor);
+      if (moved.childId) {
+        autoDecomposed = { childId: moved.childId, movedAcceptance: moved.movedAcceptance };
+      }
+    } else if (parentHasTextAc) {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Cannot add child under ${parentId}: it is a ${parentTaskForProjection.type} with its ` +
@@ -1293,7 +1329,8 @@ export async function addTask(
           `containers by design.)`,
         {
           fix:
-            `Run \`cleo decompose ${parentId}\` — it moves ${parentId}'s text acceptance ` +
+            `Re-run this add with --auto-decompose to do it in one step, or run ` +
+            `\`cleo decompose ${parentId}\` first — either moves ${parentId}'s text acceptance ` +
             `criteria onto a new first child in one step, leaving ${parentId} a pure ` +
             `container, after which this add succeeds. (Or promote ${parentId} to an epic ` +
             `if it is meant to hold children.) Note that clearing the ACs by hand with ` +
@@ -1371,7 +1408,16 @@ export async function addTask(
     search: options.title,
     limit: 50,
   });
-  const duplicate = findRecentDuplicate(options.title, phase, candidateDupes);
+  // `forceDuplicate` is honoured here as well as by the semantic check above.
+  // This 60-second window exists to absorb accidental double-submits, but it
+  // returned the EXISTING task without inserting and without throwing, so a
+  // caller that had explicitly said "yes, create it anyway" silently got back a
+  // row it did not create. `cleo decompose` hits this every time it runs on a
+  // task filed moments earlier — the common case — because the child it creates
+  // deliberately inherits the parent's title.
+  const duplicate = options.forceDuplicate
+    ? null
+    : findRecentDuplicate(options.title, phase, candidateDupes);
   if (duplicate) {
     return { task: duplicate, duplicate: true };
   }
@@ -1726,5 +1772,6 @@ export async function addTask(
     createdIds: { tasks: [taskId], acceptanceCriteria: createdAcceptanceCriteriaIds },
     ...(warnings.length > 0 && { warnings }),
     ...(reopenedAncestorIds.length > 0 && { reopenedAncestors: reopenedAncestorIds }),
+    ...(autoDecomposed && { autoDecomposed }),
   };
 }

@@ -111,10 +111,19 @@ task that has `--acceptance` text is refused with `E_CLEO_VALIDATION`. That is e
 not a bug. Convert it in one step:
 
 ```bash
+# One step — do the decompose inline as part of the add you actually wanted:
+cleo add --type subtask --parent <taskId> --title "..." --acceptance "..." --auto-decompose
+
+# Or convert first, then add normally:
 cleo decompose <taskId>                      # text ACs move to a new first subtask
 cleo decompose <taskId> --dry-run            # preview: shows exactly which ACs move
-cleo decompose <taskId> --child-title "..."  # required if the parent was created <60s ago
+cleo decompose <taskId> --child-title "..."  # give the inheriting child its own name
 ```
+
+`--auto-decompose` is OPT-IN because it rewrites the PARENT — a row you only
+named as `--parent`. When it fires, the envelope reports it as
+`autoDecomposed: { childId, movedAcceptance }`. Read that: the task you filed is
+now a container, and its criteria live on the child named there.
 
 After that the task is a pure container and further `cleo add --type subtask --parent
 <taskId>` calls succeed normally. Do NOT try `cleo update <id> --acceptance ""` —

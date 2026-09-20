@@ -1343,6 +1343,8 @@ export interface TasksAddBatchParams {
     scope?: string;
     severity?: string;
     forceDuplicate?: boolean;
+    /** Resolve design-point 3 in-line by decomposing a text-AC parent. @task T12298 */
+    autoDecompose?: boolean;
   }>;
   /** Optional default parent ID applied when a task spec omits `parent`. */
   defaultParent?: string;
@@ -1464,6 +1466,8 @@ export interface TasksAddParams {
    * @task T1633
    */
   forceDuplicate?: boolean;
+  /** Resolve design-point 3 in-line by decomposing a text-AC parent. @task T12298 */
+  autoDecompose?: boolean;
 }
 /**
  * Result of `tasks.add` — the newly created task.
@@ -2287,6 +2291,8 @@ export interface TasksAddBatchEntry {
   severity?: string;
   /** Bypass BRAIN duplicate-task rejection (audited). */
   forceDuplicate?: boolean;
+  /** Resolve design-point 3 in-line by decomposing a text-AC parent. @task T12298 */
+  autoDecompose?: boolean;
 }
 
 /**
@@ -2325,6 +2331,7 @@ export const TASKS_ADD_INPUT_SCHEMA: JsonSchema = {
     scope: { type: 'string', enum: ['project', 'feature', 'unit'] },
     severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
     forceDuplicate: { type: 'boolean' },
+    autoDecompose: { type: 'boolean' },
   },
 };
 
@@ -2404,6 +2411,7 @@ export const TASKS_ADD_BATCH_INPUT_SCHEMA: JsonSchema = {
           scope: { type: 'string', enum: ['project', 'feature', 'unit'] },
           severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
           forceDuplicate: { type: 'boolean' },
+          autoDecompose: { type: 'boolean' },
         },
       },
     },

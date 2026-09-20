@@ -177,6 +177,13 @@ export async function decomposeTask(
     parentId: options.taskId,
     type: 'subtask' as TaskType,
     acceptance: movedAcceptance,
+    // The child deliberately inherits the parent's title, which lands inside
+    // `addTask`'s 60-second exact-title window whenever the parent was filed
+    // moments ago — the common case, an agent filing a task and immediately
+    // breaking it down. That window exists to absorb accidental double-submits;
+    // this is an explicit single operation with its own preflight, so the
+    // collision is intended rather than accidental.
+    forceDuplicate: true,
   };
 
   // Step 1 — preflight. Writes nothing; surfaces depth/containment/sibling
@@ -189,14 +196,15 @@ export async function decomposeTask(
     acc,
   );
 
-  // `addTask` answers an exact-title match inside its 60s window by RETURNING
-  // THE EXISTING TASK with `duplicate: true` — it does not throw and it does not
-  // insert. Left unchecked that is silent data loss here: the criteria would be
-  // stripped in step 2 and step 3 would "succeed" by handing back the parent
-  // itself, leaving a task with no criteria and no child. It fires exactly when
-  // decomposing a task created moments ago, which is the common case — an agent
-  // filing a task and immediately breaking it down. Caught on the preflight, so
-  // nothing has been written yet.
+  // Backstop. `addTask` answers an exact-title match inside its 60s window by
+  // RETURNING THE EXISTING TASK with `duplicate: true` — it does not throw and
+  // it does not insert. Left unchecked that is silent data loss here: the
+  // criteria would be stripped in step 2 and step 3 would "succeed" by handing
+  // back the parent itself, leaving a task with no criteria and no child.
+  // `forceDuplicate` on the payload now suppresses that path, so this should be
+  // unreachable — it is kept because the failure it guards against is silent
+  // and destructive, and a guard that costs one boolean is cheaper than
+  // rediscovering it. Caught on the preflight, so nothing has been written yet.
   if (preview.duplicate) {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,

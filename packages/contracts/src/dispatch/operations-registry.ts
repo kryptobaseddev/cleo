@@ -2550,6 +2550,22 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Initial note entry for the task',
         cli: { flag: 'notes' },
       },
+      {
+        name: 'forceDuplicate',
+        type: 'boolean',
+        required: false,
+        description:
+          'Bypass duplicate-task rejection, including the 60s exact-title window (T1633)',
+        cli: { flag: 'force-duplicate' },
+      },
+      {
+        name: 'autoDecompose',
+        type: 'boolean',
+        required: false,
+        description:
+          "Move the parent's text acceptance criteria onto a new first subtask when they would otherwise block this add (PM-Core V2 design-point 3) (T12298)",
+        cli: { flag: 'auto-decompose' },
+      },
     ] satisfies ParamDef[],
   },
   {

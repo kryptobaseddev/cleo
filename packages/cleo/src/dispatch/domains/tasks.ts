@@ -384,6 +384,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         severity: params.severity,
         // T1633: BRAIN duplicate-bypass flag
         forceDuplicate: params.forceDuplicate,
+        // T12298: resolve design-point 3 in-line instead of refusing
+        autoDecompose: params.autoDecompose,
       }),
       'add',
     );
