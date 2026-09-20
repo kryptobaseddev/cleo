@@ -20,9 +20,8 @@
  *     violations — useful for sequencing analysis.
  *   - Treats missing transcript as `[]` (not an error) so callers can
  *     batch-lint across many session ids without try/catch.
- *   - Uses the same `CanonRegistry` shape exported by the CLI dispatch
- *     layer's check.canon-docs module — that's the single source of
- *     routing truth.
+ *   - Resolves directory ownership through the shared SDK policy resolver,
+ *     also consumed by the CLI's PR-time gate.
  *
  * @epic T9787 — SG-DOCS-CANON-CLOSURE
  * @task T9797 — E-DOCS-REAL-WORLD-VALIDATION
@@ -31,7 +30,8 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { join, posix, sep } from 'node:path';
+import type { CanonDocPathPolicy } from '@cleocode/contracts/docs-taxonomy';
 import { parse as parseYaml } from 'yaml';
 import { truncateString } from '../render/helpers.js';
 
@@ -137,8 +137,65 @@ export interface CanonLintResult {
  * @internal
  */
 function normaliseDir(dir: string): string {
-  const slashed = dir.split(sep).join('/');
+  const slashed = posix.normalize(dir.replaceAll('\\', '/'));
+  if (slashed === '.') return '';
   return slashed.endsWith('/') ? slashed : `${slashed}/`;
+}
+
+/**
+ * Resolve the most specific configured document-directory ownership rule.
+ *
+ * @param registry - Validated canonical routing configuration.
+ * @param filePath - Repository-relative document path.
+ * @returns The owning rule, or undefined when no configured directory matches.
+ *
+ * @remarks
+ * Longer directory prefixes win. At equal specificity an explicitly permitted
+ * publication mirror owns its directory over another kind's legacy raw path.
+ * Conflicting raw-path rules fail closed. This classifies routes, not provenance.
+ *
+ * @example
+ * ```typescript
+ * const registry = loadCanonRegistry('/project');
+ * const rule = registry && resolveCanonDocPathPolicy(registry, '.cleo/rcasd/T1/note.md');
+ * if (rule && !rule.rawMdAllowed) throw new Error(rule.matchedPath);
+ * ```
+ */
+export function resolveCanonDocPathPolicy(
+  registry: CanonRegistry,
+  filePath: string,
+): CanonDocPathPolicy | undefined {
+  const normalized = posix.normalize(filePath.replaceAll('\\', '/'));
+  let selected: CanonDocPathPolicy | undefined;
+  for (const [docKind, entry] of Object.entries(registry.kinds)) {
+    const candidates: CanonDocPathPolicy[] = (entry.rawMdPaths ?? []).map((dir) => ({
+      docKind,
+      matchedPath: normaliseDir(dir),
+      rawMdAllowed: entry.rawMdAllowed,
+      source: 'raw-path',
+    }));
+    if (entry.rawMdAllowed) {
+      candidates.push({
+        docKind,
+        matchedPath: normaliseDir(entry.publishMirror),
+        rawMdAllowed: true,
+        source: 'published-mirror',
+      });
+    }
+    for (const candidate of candidates) {
+      if (!normalized.startsWith(candidate.matchedPath)) continue;
+      if (
+        !selected ||
+        candidate.matchedPath.length > selected.matchedPath.length ||
+        (candidate.matchedPath.length === selected.matchedPath.length &&
+          ((candidate.source === 'published-mirror' && selected.source === 'raw-path') ||
+            (candidate.source === selected.source && !candidate.rawMdAllowed)))
+      ) {
+        selected = candidate;
+      }
+    }
+  }
+  return selected;
 }
 
 /**
@@ -378,16 +435,6 @@ export function lintSessionForCanonViolations(params: LintSessionParams): CanonL
     };
   }
 
-  // 2. Build the [dir, kindId] block-list from kinds with rawMdAllowed:false.
-  const blockingPaths: Array<{ dir: string; kind: string }> = [];
-  for (const [kind, entry] of Object.entries(registry.kinds)) {
-    if (entry.rawMdAllowed) continue;
-    if (!entry.rawMdPaths || entry.rawMdPaths.length === 0) continue;
-    for (const p of entry.rawMdPaths) {
-      blockingPaths.push({ dir: normaliseDir(p), kind });
-    }
-  }
-
   // 3. Read the transcript. Missing file → empty success (see docstring).
   if (!existsSync(transcriptPath)) {
     return {
@@ -432,21 +479,19 @@ export function lintSessionForCanonViolations(params: LintSessionParams): CanonL
       const relative = normalisedPath.startsWith(`${projectRootSlashed}/`)
         ? normalisedPath.slice(projectRootSlashed.length + 1)
         : normalisedPath;
-      for (const { dir, kind } of blockingPaths) {
-        if (relative.startsWith(dir)) {
-          violations.push({
-            sessionId,
-            toolUseId: call.toolUseId,
-            tool: call.tool,
-            path: relative,
-            docKind: kind,
-            matchedPath: dir,
-            kind: 'raw-md-canonical',
-            evidence: truncateEvidence(call.snippet),
-            fix: `cleo docs add <taskId> ${relative} --type ${kind}`,
-          });
-          break;
-        }
+      const policy = resolveCanonDocPathPolicy(registry, relative);
+      if (policy && !policy.rawMdAllowed) {
+        violations.push({
+          sessionId,
+          toolUseId: call.toolUseId,
+          tool: call.tool,
+          path: relative,
+          docKind: policy.docKind,
+          matchedPath: policy.matchedPath,
+          kind: 'raw-md-canonical',
+          evidence: truncateEvidence(call.snippet),
+          fix: `cleo docs add <taskId> ${relative} --type ${policy.docKind}`,
+        });
       }
     }
   }
