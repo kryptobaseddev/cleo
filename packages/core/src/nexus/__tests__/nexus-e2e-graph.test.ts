@@ -16,8 +16,9 @@ import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
+import { awaitBackgroundOps } from '../../store/background-ops.js';
 import { resetNexusDbState } from '../../store/nexus-sqlite.js';
-import { resetDbState } from '../../store/sqlite.js';
+import { closeAllDatabases, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import {
   blockingAnalysis,
@@ -85,31 +86,33 @@ async function createTestProjectWithId(
 // ── Shared state ─────────────────────────────────────────────────────
 
 let testDir: string;
+let originalCwd: string;
 let registryDir: string;
-
-// Explicit fixture roots must not inherit the setup project's override.
-beforeEach(() => {
-  vi.stubEnv('CLEO_ROOT', undefined);
-  vi.stubEnv('CLEO_DIR', undefined);
-});
-afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'nexus-e2e-graph-'));
+  // No-argument registry calls need a caller project independent of registered targets.
+  await mkdir(join(testDir, '.cleo'), { recursive: true });
+  await mkdir(join(testDir, '.git'), { recursive: true });
+  originalCwd = process.cwd();
+  process.chdir(testDir);
+  vi.stubEnv('CLEO_ROOT', testDir);
+  vi.stubEnv('CLEO_PROJECT_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   registryDir = join(testDir, 'cleo-home');
   await mkdir(registryDir, { recursive: true });
 
-  process.env['CLEO_HOME'] = registryDir;
+  vi.stubEnv('CLEO_HOME', registryDir);
   // NOTE (ADR-090 · T11648): CLEO_DIR is intentionally NOT pinned here. These
   // E2E tests register MULTIPLE synthetic projects (each with its own `.cleo/`)
   // and assert per-project task/graph counts via each project's path — a global
   // CLEO_DIR override would funnel every project into one DB. The GLOBAL-registry
   // ATTACH stays fresh because `ensureGlobalRegistryAttached` self-heals when
   // CLEO_HOME changes (DETACH + re-ATTACH on path drift).
-  process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
-  process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
-  process.env['NEXUS_CURRENT_PROJECT'] = 'e2e-project';
-  delete process.env['NEXUS_SKIP_PERMISSION_CHECK'];
+  vi.stubEnv('NEXUS_HOME', join(registryDir, 'nexus'));
+  vi.stubEnv('NEXUS_CACHE_DIR', join(registryDir, 'nexus', 'cache'));
+  vi.stubEnv('NEXUS_CURRENT_PROJECT', 'e2e-project');
+  vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', undefined);
 
   resetNexusDbState();
   resetDbState();
@@ -117,14 +120,13 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  delete process.env['CLEO_HOME'];
-  delete process.env['NEXUS_HOME'];
-  delete process.env['NEXUS_CACHE_DIR'];
-  delete process.env['NEXUS_CURRENT_PROJECT'];
-  delete process.env['NEXUS_SKIP_PERMISSION_CHECK'];
+  await awaitBackgroundOps();
   resetNexusDbState();
-  resetDbState();
+  await closeAllDatabases();
   invalidateGraphCache();
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  process.chdir(originalCwd);
   await rm(testDir, { recursive: true, force: true });
 });
 
@@ -252,7 +254,7 @@ describe('cross-project task resolution', () => {
         depends: ['T100'],
       },
     ]);
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
     await nexusRegister(projADir, 'backend', 'read');
     await nexusRegister(projBDir, 'frontend', 'read');
   });
@@ -316,7 +318,7 @@ describe('dependency graph', () => {
     await createTestProjectDb(dirB, [
       { id: 'T010', title: 'UI Shell', status: 'active', description: 'Shell' },
     ]);
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
     await nexusRegister(dirA, 'api', 'read');
     await nexusRegister(dirB, 'ui', 'read');
 
@@ -339,7 +341,7 @@ describe('dependency graph', () => {
       { id: 'T002', title: 'Mid', status: 'active', description: 'Mid', depends: ['T001'] },
       { id: 'T003', title: 'Top', status: 'pending', description: 'Top', depends: ['T002'] },
     ]);
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
     await nexusRegister(dirA, 'chain', 'read');
 
     const result = await nexusDeps('chain:T003', 'forward');
@@ -354,7 +356,7 @@ describe('dependency graph', () => {
       { id: 'T001', title: 'Base', status: 'done', description: 'Base' },
       { id: 'T002', title: 'Dep', status: 'pending', description: 'Dep', depends: ['T001'] },
     ]);
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
     await nexusRegister(dirA, 'rev-proj', 'read');
 
     const result = await nexusDeps('rev-proj:T001', 'reverse');
@@ -369,7 +371,7 @@ describe('dependency graph', () => {
       { id: 'T001', title: 'Base', status: 'done', description: 'Base' },
       { id: 'T002', title: 'Dep', status: 'pending', description: 'Dep', depends: ['T001'] },
     ]);
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
     await nexusRegister(dirA, 'resolve-proj', 'read');
 
     const resolved = await resolveCrossDeps(['T001'], 'resolve-proj');
@@ -390,7 +392,7 @@ describe('orphan detection', () => {
       { id: 'T001', title: 'Base', status: 'done', description: 'Base' },
       { id: 'T002', title: 'Dep', status: 'pending', description: 'Dep', depends: ['T001'] },
     ]);
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
     await nexusRegister(dirA, 'orphan-local', 'read');
 
     const orphans = await orphanDetection();
@@ -402,7 +404,7 @@ describe('orphan detection', () => {
     await createTestProjectDb(dirA, [
       { id: 'T001', title: 'Solo', status: 'done', description: 'Solo' },
     ]);
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
     await nexusRegister(dirA, 'no-deps', 'read');
 
     const orphans = await orphanDetection();
@@ -431,7 +433,7 @@ describe('blocking analysis extended', () => {
         depends: ['T002', 'T003'],
       },
     ]);
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
     await nexusRegister(dirA, 'diamond', 'read');
 
     const result = await blockingAnalysis('diamond:T001');
@@ -458,7 +460,7 @@ describe('critical path extended', () => {
       { id: 'T003', title: 'Step 3', status: 'pending', description: 'S3', depends: ['T002'] },
       { id: 'T004', title: 'Step 4', status: 'pending', description: 'S4', depends: ['T003'] },
     ]);
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
     await nexusRegister(dirA, 'crit-proj', 'read');
 
     const result = await criticalPath();
@@ -486,7 +488,7 @@ describe('critical path extended', () => {
         depends: ['T001'],
       },
     ]);
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
     await nexusRegister(dirA, 'blocker-proj', 'read');
 
     const result = await criticalPath();
@@ -746,7 +748,7 @@ describe('permission module extended', () => {
       { id: 'T001', title: 'Task', status: 'pending', description: 'desc' },
     ]);
     await nexusRegister(projDir, 'bypass-proj', 'read');
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
 
     expect(await checkPermission('bypass-proj', 'execute')).toBe(true);
     await expect(requirePermission('bypass-proj', 'execute')).resolves.toBeUndefined();
@@ -763,7 +765,7 @@ describe('graph caching', () => {
     await createTestProjectDb(dirA, [
       { id: 'T001', title: 'Task', status: 'done', description: 'desc' },
     ]);
-    process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
+    vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
     await nexusRegister(dirA, 'cache-proj', 'read');
 
     const graph1 = await buildGlobalGraph();

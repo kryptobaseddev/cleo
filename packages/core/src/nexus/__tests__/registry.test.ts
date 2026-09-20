@@ -11,10 +11,11 @@ import type { Task } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
+import { awaitBackgroundOps } from '../../store/background-ops.js';
 import * as dataAccessors from '../../store/data-accessor.js';
 import { getNexusDb, getNexusNativeDb } from '../../store/nexus-sqlite.js';
 import { projectIdAliases } from '../../store/schema/nexus-schema.js';
-import { resetDbState } from '../../store/sqlite.js';
+import { closeAllDatabases, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { generateProjectHash } from '../hash.js';
 import { canonicalProjectId } from '../identity.js';
@@ -45,26 +46,30 @@ async function createTestProjectDb(
 }
 
 let testDir: string;
+let originalCwd: string;
 let registryDir: string;
 let projectDir: string;
 
-// Multi-project scenarios resolve each store from its explicit fixture root.
-beforeEach(() => {
-  vi.stubEnv('CLEO_ROOT', undefined);
-  vi.stubEnv('CLEO_DIR', undefined);
-});
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllEnvs();
-});
-
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'nexus-registry-test-'));
+  // No-argument registry calls need a caller project independent of registered targets.
+  await mkdir(join(testDir, '.cleo'), { recursive: true });
+  await mkdir(join(testDir, '.git'), { recursive: true });
+  originalCwd = process.cwd();
+  process.chdir(testDir);
+  vi.stubEnv('CLEO_ROOT', testDir);
+  vi.stubEnv('CLEO_PROJECT_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   registryDir = join(testDir, 'cleo-home');
   projectDir = join(testDir, 'test-project');
 
   // Create fake CLEO home
   await mkdir(registryDir, { recursive: true });
+
+  // Point env vars to test dirs — CLEO_HOME controls nexus.db location
+  vi.stubEnv('CLEO_HOME', registryDir);
+  vi.stubEnv('NEXUS_HOME', join(registryDir, 'nexus'));
+  vi.stubEnv('NEXUS_CACHE_DIR', join(registryDir, 'nexus', 'cache'));
 
   // Create a fake project with tasks.db
   await createTestProjectDb(projectDir, [
@@ -84,21 +89,17 @@ beforeEach(async () => {
     },
   ]);
 
-  // Point env vars to test dirs — CLEO_HOME controls nexus.db location
-  process.env['CLEO_HOME'] = registryDir;
-  process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
-  process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
-
   // Reset nexus.db singleton so each test gets a fresh database
   resetNexusDbState();
 });
 
 afterEach(async () => {
-  delete process.env['CLEO_HOME'];
-  delete process.env['NEXUS_HOME'];
-  delete process.env['NEXUS_CACHE_DIR'];
+  await awaitBackgroundOps();
   resetNexusDbState();
-  resetDbState();
+  await closeAllDatabases();
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  process.chdir(originalCwd);
   await rm(testDir, { recursive: true, force: true });
 });
 
@@ -129,6 +130,19 @@ describe('nexusInit', () => {
     expect(registry).not.toBeNull();
     expect(registry!.projects).toEqual({});
     expect(registry!.schemaVersion).toBe('1.0.0');
+  });
+
+  it('binds caller and global registry handles to distinct synthetic fixtures', async () => {
+    await nexusInit();
+    const native = getNexusNativeDb();
+    if (!native) throw new Error('Expected initialized registry handle');
+    const databases = native.prepare('PRAGMA database_list').all();
+    expect(databases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'main', file: join(testDir, '.cleo', 'cleo.db') }),
+        expect.objectContaining({ name: 'nexus_global', file: join(registryDir, 'cleo.db') }),
+      ]),
+    );
   });
 
   it('is idempotent', async () => {
@@ -342,7 +356,7 @@ describe('nexusRegister', () => {
     expect(
       await db.select().from(projectIdAliases).where(eq(projectIdAliases.legacyId, explicitAlias)),
     ).toMatchObject([{ canonicalId: 'explicit-project-b' }]);
-    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_ROOT', testDir);
     vi.stubEnv('CLEO_DIR', undefined);
     const ambient = await originalAccessor(projectDir);
     expect((await ambient.queryTasks({})).tasks.map((task) => task.id).sort()).toEqual([
