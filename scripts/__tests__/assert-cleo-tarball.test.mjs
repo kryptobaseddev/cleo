@@ -778,6 +778,157 @@ describe('independent provider repair data oracle', () => {
       'do not agree',
     );
   });
+  it('verifies all 26 seeded resources through preparation, repair and rollback', () => {
+    const f = fixture();
+    const additionalNoiseIds = Array.from({ length: 25 }, (_, index) => `O-extra-${index}`);
+    const extended = { ...identity, additionalNoiseIds };
+    const proposal = JSON.parse(f.job.proposalJson);
+    for (const id of additionalNoiseIds) {
+      const row = {
+        id,
+        rowJson: JSON.stringify({ ...JSON.parse(f.before.observations[0].rowJson), id }),
+      };
+      f.before.observations.push(row);
+      f.after.observations.push({ ...row });
+      proposal.resources.push({ id, role: 'affected', kind: 'observation' });
+      f.receipt.execution.resources.push({
+        id,
+        beforeHash: 'c'.repeat(64),
+        afterHash: 'd'.repeat(64),
+      });
+    }
+    f.job.proposalJson = JSON.stringify(proposal);
+    f.job.proposalHash = createHash('sha256').update(f.job.proposalJson).digest('hex');
+    f.receipt.execution.proposalHash = f.job.proposalHash;
+    expect(assertPackedProviderRepairState(f.before, f.after, extended, 'prepared').jobId).toBe(
+      f.job.id,
+    );
+    f.repair();
+    for (const row of f.after.observations.filter((row) => additionalNoiseIds.includes(row.id)))
+      row.rowJson = JSON.stringify({
+        ...JSON.parse(row.rowJson),
+        invalid_at: '2026-09-20T00:00:00.000Z',
+      });
+    expect(assertPackedProviderRepairState(f.before, f.after, extended, 'repaired').receiptId).toBe(
+      f.receipt.id,
+    );
+    f.rollback();
+    for (const row of f.after.observations.filter((row) => additionalNoiseIds.includes(row.id)))
+      row.rowJson = f.before.observations.find((original) => original.id === row.id).rowJson;
+    expect(
+      assertPackedProviderRepairState(f.before, f.after, extended, 'rolled-back').rollbackReceiptId,
+    ).toBe('recovery-authentic');
+    proposal.resources.pop();
+    f.job.proposalJson = JSON.stringify(proposal);
+    f.job.proposalHash = createHash('sha256').update(f.job.proposalJson).digest('hex');
+    expect(() =>
+      assertPackedProviderRepairState(f.before, f.after, extended, 'rolled-back'),
+    ).toThrow('unexpected resources');
+  });
+  it.each(['extra', 'duplicate', 'wrong-id'])('rejects %s affected resource membership', (kind) => {
+    const f = fixture();
+    const proposal = JSON.parse(f.job.proposalJson);
+    if (kind === 'wrong-id') proposal.resources[0].id = identity.incidentId;
+    else
+      proposal.resources.push({
+        ...proposal.resources[0],
+        id: kind === 'extra' ? 'O-extra' : identity.noiseId,
+      });
+    f.job.proposalJson = JSON.stringify(proposal);
+    f.job.proposalHash = createHash('sha256').update(f.job.proposalJson).digest('hex');
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
+      'unexpected resources',
+    );
+  });
+  function retrievedFixture() {
+    const f = fixture();
+    f.before.capturedAtMs = Date.parse('2026-09-20T00:00:01.500Z');
+    f.after.capturedAtMs = Date.parse('2026-09-20T00:00:03.500Z');
+    f.before.observations[1].rowJson = JSON.stringify({
+      ...JSON.parse(f.before.observations[1].rowJson),
+      citation_count: 2,
+      updated_at: '2026-09-20 00:00:00',
+    });
+    f.after.observations[1].rowJson = JSON.stringify({
+      ...JSON.parse(f.before.observations[1].rowJson),
+      citation_count: 3,
+      updated_at: '2026-09-20 00:00:02',
+    });
+    return f;
+  }
+  it('records legitimate measured read-side usage while retaining exact incident content', () => {
+    const f = retrievedFixture();
+    expect(
+      assertPackedProviderRepairState(f.before, f.after, identity, 'prepared').retrievalChanges,
+    ).toEqual([
+      {
+        id: identity.incidentId,
+        beforeCount: 2,
+        afterCount: 3,
+        beforeUpdatedAt: '2026-09-20 00:00:00',
+        afterUpdatedAt: '2026-09-20 00:00:02',
+      },
+    ]);
+  });
+  it.each([
+    { citation_count: 2 },
+    { citation_count: 1 },
+    { citation_count: 2.5 },
+    { updated_at: '2026-09-19 23:59:59' },
+    { updated_at: '2026-09-20 00:00:04' },
+    { updated_at: 'invalid' },
+  ])('rejects unmeasured or nonmonotonic citation metadata %j', (change) => {
+    const f = retrievedFixture();
+    f.after.observations[1].rowJson = JSON.stringify({
+      ...JSON.parse(f.after.observations[1].rowJson),
+      ...change,
+    });
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
+      'Retrieval metadata',
+    );
+  });
+  it('requires explicit observed time bounds and forbids a timestamp moving backward', () => {
+    const f = retrievedFixture();
+    delete f.before.capturedAtMs;
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
+      'Retrieval metadata',
+    );
+    f.before.capturedAtMs = Date.parse('2026-09-20T00:00:01.500Z');
+    f.before.observations[1].rowJson = JSON.stringify({
+      ...JSON.parse(f.before.observations[1].rowJson),
+      updated_at: '2026-09-20 00:00:03',
+    });
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
+      'Retrieval metadata',
+    );
+  });
+  it.each([
+    'narrative',
+    'source',
+    'confirmation_state',
+    'invalid_at',
+    'title',
+  ])('never hides %s edits behind legitimate citation updates', (field) => {
+    const f = retrievedFixture();
+    f.after.observations[1].rowJson = JSON.stringify({
+      ...JSON.parse(f.after.observations[1].rowJson),
+      [field]: 'changed',
+    });
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
+      'incident evidence changed',
+    );
+  });
+  it('rejects added or dropped original observation identities', () => {
+    const f = fixture();
+    f.after.observations.push({ id: 'O-added', rowJson: '{"id":"O-added"}' });
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
+      'population changed',
+    );
+    f.after.observations = f.after.observations.filter((row) => row.id !== identity.incidentId);
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
+      'retained observation',
+    );
+  });
   it('requires separate durable rollback evidence and preserves the original receipt', () => {
     const f = fixture();
     f.repair();

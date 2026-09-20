@@ -243,16 +243,68 @@ export function assertPackedProviderRepairState(before, after, identity, phase) 
     if (parsed.id !== id) throw new Error('Observation image identity differs');
     return parsed;
   };
-  const initial = image(before, identity.noiseId);
-  const current = image(after, identity.noiseId);
-  if (
-    JSON.stringify(image(before, identity.incidentId)) !==
-    JSON.stringify(image(after, identity.incidentId))
-  )
-    throw new Error('Substantive incident evidence changed');
-  for (const row of before.observations.filter((row) => row.id !== identity.noiseId)) {
-    if (JSON.stringify(image(before, row.id)) !== JSON.stringify(image(after, row.id)))
-      throw new Error('Unrelated original observation changed');
+  const noiseIds = [identity.noiseId, ...(identity.additionalNoiseIds ?? [])];
+  if (new Set(noiseIds).size !== noiseIds.length || noiseIds.includes(identity.incidentId))
+    throw new Error('Seeded affected identities must be distinct from incident evidence');
+  const retrievalChanges = [];
+  const equal = (left, right) =>
+    JSON.stringify(Object.entries(left).sort(([a], [b]) => a.localeCompare(b))) ===
+    JSON.stringify(Object.entries(right).sort(([a], [b]) => a.localeCompare(b)));
+  const pairs = new Map();
+  for (const row of before.observations) {
+    const initial = image(before, row.id);
+    const current = image(after, row.id);
+    const normalized = { ...current };
+    if (
+      initial.citation_count !== current.citation_count ||
+      initial.updated_at !== current.updated_at
+    ) {
+      const timestamp = (value) =>
+        typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
+          ? Date.parse(value.replace(' ', 'T') + 'Z')
+          : NaN;
+      const updated = timestamp(current.updated_at);
+      const previous = initial.updated_at == null ? null : timestamp(initial.updated_at);
+      if (
+        !Number.isSafeInteger(initial.citation_count) ||
+        initial.citation_count < 0 ||
+        !Number.isSafeInteger(current.citation_count) ||
+        current.citation_count <= initial.citation_count ||
+        !Number.isSafeInteger(before.capturedAtMs) ||
+        !Number.isSafeInteger(after.capturedAtMs) ||
+        before.capturedAtMs > after.capturedAtMs ||
+        !Number.isFinite(updated) ||
+        updated < Math.floor(before.capturedAtMs / 1000) * 1000 ||
+        updated > after.capturedAtMs ||
+        (previous !== null && (!Number.isFinite(previous) || updated < previous))
+      )
+        throw new Error(
+          'Retrieval metadata changed outside the observed monotonic counter contract',
+        );
+      retrievalChanges.push({
+        id: row.id,
+        beforeCount: initial.citation_count,
+        afterCount: current.citation_count,
+        beforeUpdatedAt: initial.updated_at ?? null,
+        afterUpdatedAt: current.updated_at,
+      });
+      normalized.citation_count = initial.citation_count;
+      if (Object.hasOwn(initial, 'updated_at')) normalized.updated_at = initial.updated_at;
+      else delete normalized.updated_at;
+    }
+    pairs.set(row.id, { initial, current, normalized });
+  }
+  if (after.observations.length !== before.observations.length)
+    throw new Error('Observation population changed outside the seeded repair');
+  for (const id of [identity.incidentId, ...noiseIds])
+    if (!pairs.has(id)) throw new Error(`Missing seeded observation: ${id}`);
+  for (const [id, { initial, normalized }] of pairs) {
+    if (!noiseIds.includes(id) && !equal(initial, normalized))
+      throw new Error(
+        id === identity.incidentId
+          ? 'Substantive incident evidence changed'
+          : 'Unrelated original observation changed',
+      );
   }
   const jobs = after.jobs.map((job) => {
     if (sha256(Buffer.from(job.proposalJson)) !== job.proposalHash)
@@ -274,10 +326,14 @@ export function assertPackedProviderRepairState(before, after, identity, phase) 
   )
     throw new Error('Prepared operation scope differs');
   if (
-    proposal.resources?.length !== 1 ||
-    proposal.resources[0].id !== identity.noiseId ||
-    proposal.resources[0].role !== 'affected' ||
-    proposal.resources[0].kind !== 'observation'
+    proposal.resources?.length !== noiseIds.length ||
+    new Set(proposal.resources.map((resource) => resource.id)).size !== noiseIds.length ||
+    proposal.resources.some(
+      (resource) =>
+        !noiseIds.includes(resource.id) ||
+        resource.role !== 'affected' ||
+        resource.kind !== 'observation',
+    )
   )
     throw new Error('Prepared repair affects unexpected resources');
   const metadata = (key) => {
@@ -291,11 +347,12 @@ export function assertPackedProviderRepairState(before, after, identity, phase) 
       job.status !== 'pending' ||
       job.resultJson !== null ||
       stored !== null ||
-      JSON.stringify(initial) !== JSON.stringify(current)
+      noiseIds.some((id) => !equal(pairs.get(id).initial, pairs.get(id).normalized))
     )
       throw new Error('Preparation mutated evidence or reported a terminal result');
     return {
       phase,
+      retrievalChanges,
       jobId: job.id,
       proposalId: proposal.id,
       receiptId: null,
@@ -316,27 +373,34 @@ export function assertPackedProviderRepairState(before, after, identity, phase) 
     JSON.stringify(JSON.parse(job.resultJson ?? 'null')) !== JSON.stringify(receipt)
   )
     throw new Error('Committed repair and authentic job receipt do not agree');
-  const mutation = receipt.execution.resources?.find(
-    (resource) => resource.id === identity.noiseId,
-  );
+  const mutations = receipt.execution.resources ?? [];
   if (
-    !mutation ||
-    !/^[a-f0-9]{64}$/.test(mutation.beforeHash) ||
-    !/^[a-f0-9]{64}$/.test(mutation.afterHash) ||
-    mutation.beforeHash === mutation.afterHash
+    mutations.length !== noiseIds.length ||
+    new Set(mutations.map((resource) => resource.id)).size !== noiseIds.length ||
+    mutations.some(
+      (resource) =>
+        !noiseIds.includes(resource.id) ||
+        !/^[a-f0-9]{64}$/.test(resource.beforeHash) ||
+        !/^[a-f0-9]{64}$/.test(resource.afterHash) ||
+        resource.beforeHash === resource.afterHash,
+    )
   )
     throw new Error('Receipt lacks a measured resource change');
   if (phase === 'repaired') {
-    if (
-      typeof current.invalid_at !== 'string' ||
-      !current.invalid_at ||
-      JSON.stringify({ ...current, invalid_at: initial.invalid_at }) !== JSON.stringify(initial)
-    )
-      throw new Error('Repair did not solely quarantine and retain the original observation');
+    for (const id of noiseIds) {
+      const { initial, current, normalized } = pairs.get(id);
+      if (
+        typeof current.invalid_at !== 'string' ||
+        !current.invalid_at ||
+        !equal({ ...normalized, invalid_at: initial.invalid_at }, initial)
+      )
+        throw new Error('Repair did not solely quarantine and retain the original observation');
+    }
     if (metadata(`knowledge_rollback:${receipt.id}`) !== null)
       throw new Error('Historical repair receipt is already rolled back');
     return {
       phase,
+      retrievalChanges,
       jobId: job.id,
       proposalId: proposal.id,
       receiptId: receipt.id,
@@ -344,7 +408,7 @@ export function assertPackedProviderRepairState(before, after, identity, phase) 
     };
   }
   if (phase !== 'rolled-back') throw new Error('Unsupported independent repair phase');
-  if (JSON.stringify(initial) !== JSON.stringify(current))
+  if (noiseIds.some((id) => !equal(pairs.get(id).initial, pairs.get(id).normalized)))
     throw new Error('Rollback did not restore the complete original observation');
   const link = metadata(`knowledge_rollback:${receipt.id}`);
   const recovery = link ? metadata(`knowledge_repair:${link.receiptId}`)?.receipt : null;
@@ -365,6 +429,7 @@ export function assertPackedProviderRepairState(before, after, identity, phase) 
     throw new Error('Rollback lacks its separate authentic recovery job and receipt');
   return {
     phase,
+    retrievalChanges,
     jobId: job.id,
     proposalId: proposal.id,
     receiptId: receipt.id,
