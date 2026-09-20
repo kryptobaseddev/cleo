@@ -92,78 +92,43 @@ Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for st
 Task `parent_id` = Epic; Subtask `parent_id` = Task. `task_relations` is non-containment
 only — dependencies, ordering, cross-reference, evidence, supersession, provenance.
 
-### Depth: all four tiers are reachable
+### Depth + decomposition
 
-`saga 0 → epic 1 → task 2 → subtask 3`, and `hierarchy.maxDepth` (default 3) is the
-maximum depth VALUE, **inclusive**. A subtask under a task is legal on a saga-rooted
-spine. `E_CLEO_DEPTH_EXCEEDED` now means only one thing: you tried to parent under a
-subtask, the leaf tier. Re-read the parent's tier before retrying — the error names it.
+`saga 0 → epic 1 → task 2 → subtask 3`; `hierarchy.maxDepth` (default 3) is the max depth
+VALUE, **inclusive**, so a subtask under a task is legal. `E_CLEO_DEPTH_EXCEEDED` now means
+only: you parented under a subtask, the leaf tier. `--type` is honoured verbatim — so
+`--type subtask --parent <epic>` is REFUSED, not silently retyped.
+A task is **either** a leaf with its own text ACs **or** a container with children, never
+both (PM-Core V2 design-point 3) — so the first `cleo add` under a task carrying
+`--acceptance` text is refused. That is expected. Convert it:
 
-`--type` is honoured verbatim, so an illegal pair is REFUSED rather than quietly
-retyped: `--type subtask --parent <epic>` is `E_CLEO_VALIDATION`, not a silently
-created task. Match the tier to the parent.
+| Goal | Command |
+|------|---------|
+| Add the subtask AND convert in one call | `cleo add --type subtask --parent <id> --title "..." --acceptance "..." --auto-decompose` |
+| Convert first, then add normally | `cleo decompose <id>` (`--dry-run`, `--child-title "..."`) |
 
-### Decomposing a task into subtasks
-
-A task is **either** a leaf defined by its own text ACs **or** a container defined by
-its children — never both (PM-Core V2 design-point 3). So the first `cleo add` under a
-task that has `--acceptance` text is refused with `E_CLEO_VALIDATION`. That is expected,
-not a bug. Convert it in one step:
-
-```bash
-# One step — do the decompose inline as part of the add you actually wanted:
-cleo add --type subtask --parent <taskId> --title "..." --acceptance "..." --auto-decompose
-
-# Or convert first, then add normally:
-cleo decompose <taskId>                      # text ACs move to a new first subtask
-cleo decompose <taskId> --dry-run            # preview: shows exactly which ACs move
-cleo decompose <taskId> --child-title "..."  # give the inheriting child its own name
-```
-
-`--auto-decompose` is OPT-IN because it rewrites the PARENT — a row you only
-named as `--parent`. When it fires, the envelope reports it as
-`autoDecomposed: { childId, movedAcceptance }`. Read that: the task you filed is
-now a container, and its criteria live on the child named there.
-
-After that the task is a pure container and further `cleo add --type subtask --parent
-<taskId>` calls succeed normally. Do NOT try `cleo update <id> --acceptance ""` —
-acceptance enforcement rejects an empty criteria list, so it cannot clear them.
-<!-- /CLEO-INJECTION:section=task-creation -->
+`--auto-decompose` is opt-in: it rewrites the PARENT and reports
+`autoDecomposed: { childId, movedAcceptance }` — read it, the task you filed is now a
+container. `cleo update <id> --acceptance ""` does NOT work (enforcement rejects empty).<!-- /CLEO-INJECTION:section=task-creation -->
 
 <!-- CLEO-INJECTION:section=task-discovery -->
-### Keeping scope clean across a saga (overlap reconciliation)
+### Overlap reconciliation across a saga
 
-On a large project several agents file tasks into the same saga and their scope
-drifts together. `cleo add` only checks for duplicates at INSERT time, against a
-flat candidate set, with a binary reject/insert verdict — so partial overlap is
-invisible and overlap that emerges later is never re-examined.
+`cleo add` checks duplicates only at INSERT time — flat, reject-or-insert — so partial
+overlap is invisible and post-filing drift is never re-examined. Sweep for it:
 
-Sweep a container for it:
+| Goal | Command |
+|------|---------|
+| Report overlapping scope (read-only) | `cleo reconcile scope <sagaId\|epicId>` |
+| Narrow to strongest signals | `cleo reconcile scope <id> --threshold 0.75` |
+| Write the proposed `relates` edges | `cleo reconcile scope <id> --apply` |
 
-```bash
-cleo reconcile scope <sagaId|epicId>              # report only — never mutates
-cleo reconcile scope <sagaId> --threshold 0.75    # narrow to the strongest signals
-cleo reconcile scope <sagaId> --apply             # write the proposed relates edges
-```
-
-Each overlapping pair gets an ACTION, not a duplicate yes/no:
-
-| action | means | `--apply` writes |
-|--------|-------|------------------|
-| `merge` | same tier, same parent, ≥90% match — one deliverable | `duplicates` |
-| `absorb` | ≥90% match in DIFFERENT containers — fold later into earlier | `absorbs` |
-| `split` | shared scope across containers — extract the shared part (`cleo decompose`) | `related` |
-| `link` | shared scope between siblings — usually intended sequencing | `related` |
-
-**`--apply` only ever writes `relates` edges.** Nothing is merged, retitled,
-reparented or deleted — the edges make the overlap visible and leave the
-decision to you. The earlier-created task is always the survivor, so the report
-is reproducible.
-
-Read `link` findings sceptically: where tasks follow a naming convention, titles
-share vocabulary without sharing scope. `Route createAgentWorktree…` vs `Route
-destroyAgentWorktree…` scores 0.85 and is two different jobs. `merge`/`absorb`
-additionally require a tier and parent match, so they are the ones to act on.
+Actions: **merge** (same tier+parent, ≥90%) · **absorb** (≥90% across containers) ·
+**split** (shared scope apart — use `cleo decompose`) · **link** (siblings, usually
+intended sequencing). `--apply` writes ONLY `relates` edges — nothing is merged, retitled,
+reparented or deleted — and the earlier task always survives, so runs are reproducible.
+Read `link` sceptically: shared naming conventions inflate title similarity. Act on
+`merge`/`absorb`, which also require a tier+parent match.
 
 ## Task Discovery
 
