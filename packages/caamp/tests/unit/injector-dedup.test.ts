@@ -243,14 +243,11 @@ describe('dedupeFile()', () => {
     const pathA = '@~/.local/share/cleo/templates/CLEO-INJECTION.md';
     const pathB = '@~/.agents/AGENTS.md';
     // pathA appears twice (duplicate), pathB appears once (unique)
-    await writeFile(
-      filePath,
-      [block(pathA), block(pathB), block(pathA)].join('\n'),
-    );
+    await writeFile(filePath, [block(pathA), block(pathB), block(pathA)].join('\n'));
 
     const result = await dedupeFile(filePath);
     expect(result.removed).toBe(1); // one duplicate of pathA removed
-    expect(result.kept).toBe(2);    // pathA (last) + pathB kept
+    expect(result.kept).toBe(2); // pathA (last) + pathB kept
     expect(result.modified).toBe(true);
 
     const content = await readFile(filePath, 'utf-8');
@@ -262,10 +259,7 @@ describe('dedupeFile()', () => {
   it('preserves surrounding non-block content when deduplicating', async () => {
     const filePath = join(testDir, 'preserve-content.md');
     const path = '@~/.local/share/cleo/templates/CLEO-INJECTION.md';
-    await writeFile(
-      filePath,
-      `# Header\n\n${block(path)}\n\n${block(path)}\n\n# Footer\n`,
-    );
+    await writeFile(filePath, `# Header\n\n${block(path)}\n\n${block(path)}\n\n# Footer\n`);
 
     const result = await dedupeFile(filePath);
     expect(result.modified).toBe(true);
@@ -291,26 +285,18 @@ describe('dedupeFile()', () => {
     expect(second.removed).toBe(0);
   });
 
-  it('handles file with malformed blocks (START without END) — parses clean blocks only', async () => {
+  it('rejects malformed ownership without rewriting any original bytes', async () => {
     const filePath = join(testDir, 'malformed.md');
-    // One clean block + orphaned START with no END
     const path = '@~/.local/share/cleo/templates/CLEO-INJECTION.md';
-    await writeFile(
-      filePath,
-      `${block(path)}\n<!-- CAAMP:START -->\norphaned content with no end marker`,
+    const original = Buffer.from(
+      `\uFEFF  ${block(path)}\r\n\r\n<!-- CAAMP:START -->\r\norphaned user content  \t`,
     );
+    await writeFile(filePath, original);
 
-    // parseCaampBlocks only finds complete START...END pairs.
-    // The malformed orphan is NOT matched — it's treated as regular text.
-    // dedupeFile should not crash.
-    const result = await dedupeFile(filePath);
-    // Only 1 complete block found → no duplicates
-    expect(result.modified).toBe(false);
-    expect(result.removed).toBe(0);
-    expect(result.kept).toBe(1);
-
-    // File is left unchanged (no crash)
-    expect(existsSync(filePath)).toBe(true);
+    // Inspection may still enumerate complete blocks. A mutation must reject
+    // ambiguous ownership instead of claiming successful repair of the file.
+    await expect(dedupeFile(filePath)).rejects.toThrow(/Ambiguous CAAMP markers/);
+    expect(await readFile(filePath)).toEqual(original);
   });
 });
 
@@ -324,8 +310,8 @@ describe('dedupeFiles()', () => {
     const file3 = join(testDir, 'C.md');
 
     await writeFile(file1, [block(path), block(path)].join('\n')); // 2 → 1
-    await writeFile(file2, block(path));                            // already clean
-    await writeFile(file3, '# No blocks\n');                       // no blocks
+    await writeFile(file2, block(path)); // already clean
+    await writeFile(file3, '# No blocks\n'); // no blocks
 
     const results = await dedupeFiles([file1, file2, file3]);
     expect(results).toHaveLength(3);
