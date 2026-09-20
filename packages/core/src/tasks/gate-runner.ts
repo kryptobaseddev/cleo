@@ -31,6 +31,7 @@ import type {
   AcceptanceGateResult,
   AcRow,
   CommandGate,
+  DataAccessor,
   FileAssertion,
   FileGate,
   HttpGate,
@@ -374,6 +375,49 @@ export async function revalidateTaskGateResults(
         );
     }
   });
+}
+
+/**
+ * Validate completion authority from current typed inputs and the canonical verification receipt.
+ * @param task - Task snapshot owned by the caller's write transaction.
+ * @param criteria - Normalized criteria from that same transaction.
+ * @param options - Captured original execution lifetime and project scope.
+ * @param accessor - Canonical receipt reader bound to the same project store.
+ * @returns Resolves only when every hard typed requirement has current authentic proof.
+ * @throws When typed representations, results, inputs or canonical receipts disagree.
+ * @remarks Callers retain transaction ownership and must check their execution context before
+ * committing. Advisory gates retain their existing semantics; generic evidence cannot replace
+ * hard typed proof. Filesystem hashing is cooperative, not atomic with external file writes.
+ * @example
+ * ```typescript
+ * await validateTaskGateCompletion(task, rows, { execution }, accessor);
+ * ```
+ */
+export async function validateTaskGateCompletion(
+  task: Task,
+  criteria: readonly AcRow[],
+  options: RunGatesOptions,
+  accessor: Pick<DataAccessor, 'queryAuditLog'>,
+): Promise<void> {
+  const results = task.verification?.gateResults ?? [];
+  await revalidateTaskGateResults(task, criteria, results, options);
+  if (!(task.acceptance ?? []).some((item) => typeof item !== 'string' && !item.advisory)) return;
+  const passingDetails = JSON.stringify(createTaskGateReceipt(results, true));
+  const failingDetails = JSON.stringify(createTaskGateReceipt(results, false));
+  const receipts = await accessor.queryAuditLog({
+    taskIds: [task.id],
+    actions: ['gate.verify.typed'],
+    limit: 100,
+  });
+  if (
+    !receipts.some(
+      (receipt) =>
+        receipt.actor === results[0]!.binding!.identity.actor &&
+        (receipt.detailsJson === passingDetails || receipt.detailsJson === failingDetails),
+    )
+  )
+    throw new Error('Typed requirement result has no authentic matching canonical receipt');
+  (options.execution ?? worktreeScope.getStore()?.execution)?.assertActive();
 }
 
 /** Require the stored mixed acceptance array and ordered normalized rows to agree. */
