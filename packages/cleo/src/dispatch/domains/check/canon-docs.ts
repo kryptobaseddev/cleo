@@ -181,7 +181,15 @@ function listAddedMarkdownFiles(projectRoot: string, baseRef: string): string[] 
   try {
     const out = execFileSync(
       'git',
-      ['diff', '--diff-filter=A', '--name-only', '--end-of-options', `${baseRef}...HEAD`, '--'],
+      [
+        'diff',
+        '--diff-filter=A',
+        '--name-only',
+        '-z',
+        '--end-of-options',
+        `${baseRef}...HEAD`,
+        '--',
+      ],
       {
         cwd: projectRoot,
         encoding: 'utf8',
@@ -189,10 +197,7 @@ function listAddedMarkdownFiles(projectRoot: string, baseRef: string): string[] 
         timeout: 30_000,
       },
     );
-    return out
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0 && line.endsWith('.md'));
+    return out.split('\0').filter((line) => line.length > 0 && line.endsWith('.md'));
   } catch (error) {
     throw new CanonDocsDiffError(
       projectRoot,

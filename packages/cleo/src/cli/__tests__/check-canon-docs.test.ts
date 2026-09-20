@@ -241,15 +241,26 @@ describe('runCanonDocsCheck — routing', () => {
     mkdirSync(join(projectRoot, '.cleo/adrs'), { recursive: true });
     mkdirSync(join(projectRoot, '.cleo/rcasd/T1'), { recursive: true });
     writeFileSync(join(projectRoot, '.cleo/adrs/raw.md'), '# Disallowed raw ADR\n');
+    writeFileSync(
+      join(projectRoot, '.cleo/adrs/Δ observed.md'),
+      '# Unicode path must be assessed\n',
+    );
     writeFileSync(join(projectRoot, '.cleo/rcasd/T1/note.md'), '# Eligible route only\n');
-    execFileSync('git', ['add', '.cleo/adrs/raw.md', '.cleo/rcasd/T1/note.md'], {
-      cwd: projectRoot,
-    });
+    execFileSync(
+      'git',
+      ['add', '.cleo/adrs/raw.md', '.cleo/adrs/Δ observed.md', '.cleo/rcasd/T1/note.md'],
+      {
+        cwd: projectRoot,
+      },
+    );
     commit();
     const result = runCanonDocsCheck({ projectRoot, baseRef: 'HEAD~1' });
-    expect(result.scanned).toBe(2);
+    expect(result.scanned).toBe(3);
     expect(result.passed).toBe(false);
-    expect(result.violations.map((v) => v.file)).toEqual(['.cleo/adrs/raw.md']);
+    expect(result.violations.map((v) => v.file)).toEqual([
+      '.cleo/adrs/raw.md',
+      '.cleo/adrs/Δ observed.md',
+    ]);
     expect(() => runCanonDocsCheck({ projectRoot, baseRef: 'missing-reference' })).toThrow(
       CanonDocsDiffError,
     );
