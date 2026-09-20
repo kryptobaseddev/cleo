@@ -131,6 +131,40 @@ acceptance enforcement rejects an empty criteria list, so it cannot clear them.
 <!-- /CLEO-INJECTION:section=task-creation -->
 
 <!-- CLEO-INJECTION:section=task-discovery -->
+### Keeping scope clean across a saga (overlap reconciliation)
+
+On a large project several agents file tasks into the same saga and their scope
+drifts together. `cleo add` only checks for duplicates at INSERT time, against a
+flat candidate set, with a binary reject/insert verdict — so partial overlap is
+invisible and overlap that emerges later is never re-examined.
+
+Sweep a container for it:
+
+```bash
+cleo reconcile scope <sagaId|epicId>              # report only — never mutates
+cleo reconcile scope <sagaId> --threshold 0.75    # narrow to the strongest signals
+cleo reconcile scope <sagaId> --apply             # write the proposed relates edges
+```
+
+Each overlapping pair gets an ACTION, not a duplicate yes/no:
+
+| action | means | `--apply` writes |
+|--------|-------|------------------|
+| `merge` | same tier, same parent, ≥90% match — one deliverable | `duplicates` |
+| `absorb` | ≥90% match in DIFFERENT containers — fold later into earlier | `absorbs` |
+| `split` | shared scope across containers — extract the shared part (`cleo decompose`) | `related` |
+| `link` | shared scope between siblings — usually intended sequencing | `related` |
+
+**`--apply` only ever writes `relates` edges.** Nothing is merged, retitled,
+reparented or deleted — the edges make the overlap visible and leave the
+decision to you. The earlier-created task is always the survivor, so the report
+is reproducible.
+
+Read `link` findings sceptically: where tasks follow a naming convention, titles
+share vocabulary without sharing scope. `Route createAgentWorktree…` vs `Route
+destroyAgentWorktree…` scores 0.85 and is two different jobs. `merge`/`absorb`
+additionally require a tier and parent match, so they are the ones to act on.
+
 ## Task Discovery
 
 **Use `cleo focus` to orient on a task. Use `cleo find` for discovery. NEVER `cleo list` for browsing.**

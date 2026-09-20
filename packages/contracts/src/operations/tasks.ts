@@ -1643,6 +1643,45 @@ export interface TasksCompleteQueryResult {
   unblockedTasks?: Array<Pick<TaskRef, 'id' | 'title'>>;
 }
 
+// tasks.reconcile-scope (dispatch-level params) — containment-aware overlap sweep
+/**
+ * Params for `tasks.reconcile-scope` — sweep a container for tasks whose scope
+ * overlaps and propose merge / absorb / split / link for each pair.
+ *
+ * @task T12299
+ */
+export interface TasksReconcileScopeParams {
+  /** Saga, epic or any container to sweep; its whole subtree is considered. */
+  rootId: string;
+  /** Write the proposed `relates` edges. Read-only when false or omitted. */
+  apply?: boolean;
+  /** Report pairs at or above this similarity score (0-1). */
+  threshold?: number;
+}
+
+/** One overlapping pair and the action proposed for it. @task T12299 */
+export interface TasksScopeOverlap {
+  keepId: string;
+  keepTitle: string;
+  otherId: string;
+  otherTitle: string;
+  action: 'merge' | 'absorb' | 'split' | 'link';
+  score: number;
+  relation: 'duplicates' | 'absorbs' | 'related';
+  rationale: string;
+  sameParent: boolean;
+}
+
+/** Result of `tasks.reconcile-scope`. @task T12299 */
+export interface TasksReconcileScopeResult {
+  rootId: string;
+  scanned: number;
+  pairs: number;
+  overlaps: TasksScopeOverlap[];
+  applied: number;
+  truncated?: { limit: number; liveNodes: number };
+}
+
 // tasks.decompose (dispatch-level params) — PM-Core V2 design-point 3
 /**
  * Params for `tasks.decompose` — move a task's free-text acceptance criteria
@@ -2193,6 +2232,7 @@ export type TasksOps = {
   readonly complete: readonly [TasksCompleteQueryParams, TasksCompleteQueryResult];
   readonly cancel: readonly [TasksCancelParams, TasksCancelResult];
   readonly decompose: readonly [TasksDecomposeParams, TasksDecomposeResult];
+  readonly 'reconcile-scope': readonly [TasksReconcileScopeParams, TasksReconcileScopeResult];
   readonly delete: readonly [TasksDeleteQueryParams, TasksDeleteQueryResult];
   readonly archive: readonly [TasksArchiveQueryParams, TasksArchiveQueryResult];
   readonly restore: readonly [TasksRestoreParams, TasksRestoreResult];

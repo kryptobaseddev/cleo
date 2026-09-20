@@ -66,6 +66,7 @@ import {
   taskList,
   taskNext,
   taskPlan,
+  taskReconcileScope,
   taskRelates,
   taskRelatesAdd,
   taskRelatesAddBatch,
@@ -490,6 +491,18 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     );
   },
 
+  'reconcile-scope': async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(
+      await taskReconcileScope(projectRoot, {
+        rootId: params.rootId,
+        apply: params.apply,
+        threshold: params.threshold,
+      }),
+      'reconcile-scope',
+    );
+  },
+
   decompose: async (params) => {
     const projectRoot = getProjectRoot();
     return wrapCoreResult(
@@ -711,6 +724,7 @@ const MUTATE_OPS = new Set<string>([
   'complete',
   'cancel',
   'decompose',
+  'reconcile-scope',
   'delete',
   'archive',
   'restore',

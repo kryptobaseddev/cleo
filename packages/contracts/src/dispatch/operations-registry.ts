@@ -2877,6 +2877,40 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'tasks',
+    operation: 'reconcile-scope',
+    description:
+      'tasks.reconcile-scope (mutate) — sweep a saga/epic subtree for tasks whose scope overlaps and propose merge/absorb/split/link; read-only unless --apply',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['rootId'],
+    params: [
+      {
+        name: 'rootId',
+        type: 'string',
+        required: true,
+        description: 'Saga, epic or other container to sweep (its whole subtree is considered)',
+        cli: { positional: true },
+      },
+      {
+        name: 'apply',
+        type: 'boolean',
+        required: false,
+        description: 'Write the proposed `relates` edges (read-only without it)',
+        cli: { flag: 'apply' },
+      },
+      {
+        name: 'threshold',
+        type: 'number',
+        required: false,
+        description: 'Report pairs at or above this similarity score, 0-1 (default 0.55)',
+        cli: { flag: 'threshold' },
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
     operation: 'decompose',
     description:
       'tasks.decompose (mutate) — move a task’s free-text acceptance criteria onto a new first child, turning the leaf into a container (PM-Core V2 design-point 3)',

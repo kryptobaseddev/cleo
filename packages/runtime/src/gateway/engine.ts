@@ -260,6 +260,7 @@ export {
   taskNext,
   taskPlan,
   taskPromote,
+  taskReconcileScope,
   taskRelates,
   taskRelatesAdd,
   taskRelatesAddBatch,

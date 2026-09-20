@@ -2092,6 +2092,7 @@ export { taskFind } from './tasks/find.js';
 export { taskLabelList, taskLabelShow } from './tasks/labels.js';
 export { taskList } from './tasks/list.js';
 export { taskPlan } from './tasks/plan.js';
+export { taskReconcileScope } from './tasks/reconcile-scope.js';
 // Complex mutations + strict completion (T1568 / ADR-057 / ADR-058) — Wave 4
 export { addTaskWithSessionScope, resolveParentFromSession } from './tasks/session-scope.js';
 // Engine-layer EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058) — Wave 2
