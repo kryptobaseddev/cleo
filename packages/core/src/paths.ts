@@ -38,6 +38,7 @@ import {
 import { CleoError } from './errors.js';
 import {
   _resolveMainRepoFromGitlink,
+  captureProjectScope,
   getProjectRoot,
   validateProjectRoot,
   worktreeScope,
@@ -46,6 +47,7 @@ import {
 export type { WorktreeScope } from './project-scope.js';
 export { getProjectRoot, validateProjectRoot, worktreeScope } from './project-scope.js';
 
+import { createOperationExecutionContext, trackBackgroundOp } from './store/background-ops.js';
 import { getPlatformPaths } from './system/platform-paths.js';
 
 /**
@@ -374,7 +376,7 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
   // as the path authority.
   const project = _pathsResolveProjectByCwd(cwd);
   if (project !== null) {
-    // T11021: Auto-register project on first encounter (fire-and-forget).
+    // T11021: Schedule lifecycle-tracked registration against captured global ownership.
     // T11023: pass legacyUUID so it gets registered as an alias alongside
     // the canonical ID.
     // T11281: unit tests that exercise the nexus registration/reconcile contract
@@ -386,7 +388,9 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
       registerProjectOnEncounter(
         project.projectRoot,
         project.legacyUUID ?? project.projectId,
-      ).catch(() => {});
+      ).catch((error: Error) => {
+        process.stderr.write(`[cleo] Project encounter registration failed: ${error.message}\n`);
+      });
     }
     try {
       const projectRoot = getProjectRoot(cwd);
@@ -1880,132 +1884,152 @@ function _rowToRegistryEntry(row: Record<string, unknown>): ProjectRegistryEntry
   };
 }
 
-/** Read project name from .cleo/project-info.json. Returns undefined on failure. */
+/** Read optional project name; malformed or unreadable existing metadata is a diagnostic. */
 function _readProjectNameFromInfo(projectRoot: string): string | undefined {
-  try {
-    const infoPath = join(projectRoot, '.cleo', 'project-info.json');
-    if (!existsSync(infoPath)) return undefined;
-    const raw = readFileSync(infoPath, 'utf-8');
-    const data = JSON.parse(raw) as Record<string, unknown>;
-    return typeof data.name === 'string' && data.name.length > 0 ? data.name : undefined;
-  } catch {
-    return undefined;
-  }
+  const infoPath = join(projectRoot, '.cleo', 'project-info.json');
+  if (!existsSync(infoPath)) return undefined;
+  const raw = readFileSync(infoPath, 'utf-8');
+  const data = JSON.parse(raw) as Record<string, unknown>;
+  return typeof data.name === 'string' && data.name.length > 0 ? data.name : undefined;
 }
 
-/** Auto-register a project on first encounter (AC2, AC3, AC5, AC6). */
+/**
+ * Register an encountered project's immutable identity in its captured global registry.
+ * @param projectRoot - Explicit project ownership captured before asynchronous work.
+ * @param infoProjectId - Existing immutable project identity, never inferred from similarity.
+ * @returns Completion of the fully tracked operation, including any failure.
+ * @remarks Lazy work obeys the existing transaction/queue boundary and shares the
+ * original execution deadline. Registry writes never initialize the project graph.
+ * Cancellation is checked before the actual synchronous registry transaction commits.
+ * @example
+ * ```ts
+ * await registerProjectOnEncounter(projectRoot, projectId);
+ * ```
+ */
 export async function registerProjectOnEncounter(
   projectRoot: string,
   infoProjectId: string,
 ): Promise<void> {
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+  const capturedHome = getCleoHome();
+  const resolvedPath = scope.worktreeRoot;
+  const projectName = _readProjectNameFromInfo(resolvedPath) || basename(resolvedPath) || 'unnamed';
+  if (!infoProjectId.trim())
+    throw new Error('Project encounter requires an existing immutable identity');
+  const ownedExecution = !scope.execution;
+  const execution =
+    scope.execution ??
+    createOperationExecutionContext({
+      projectId: infoProjectId,
+      projectRoot: resolvedPath,
+      actor: 'project-encounter',
+      operation: 'nexus.register-encounter',
+      idempotencyKey: `${capturedHome}:${infoProjectId}:${resolvedPath}`,
+    });
   try {
-    const { canonicalProjectId: computeCanonicalId } = await import('./nexus/identity.js');
-    const { generateProjectHash } = await import('./nexus/hash.js');
-    const canonicalResult = await computeCanonicalId(projectRoot);
-    const canonicalId = canonicalResult.id;
-    // T11281 (owner directive 2026-05-29): the registry's projectId is the
-    // project's IMMUTABLE lifetime identity — assigned once, stored in
-    // .cleo/project-info.json, and carried verbatim through move / rename /
-    // export-import, no matter which nexus it registers with. The path-derived
-    // canonical id is NOT move-stable (it changes when the path changes), so it
-    // is recorded only as an ALIAS; projectHash (generateProjectHash) is the
-    // path fingerprint that updates on move. Fall back to the canonical id only
-    // when the project carries no stored id yet (first assignment / fresh init).
-    const immutableId = infoProjectId && infoProjectId.length > 0 ? infoProjectId : canonicalId;
-    const { getNexusDb } = await import('./store/nexus-sqlite.js');
-    const { eq } = await import('drizzle-orm');
-    const { projectRegistry, projectIdAliases } = await import('./store/schema/nexus-schema.js');
-    const db = await getNexusDb();
-    const existingRows = await db
-      .select()
-      .from(projectRegistry)
-      .where(eq(projectRegistry.projectId, immutableId))
-      .limit(1);
-    const now = new Date().toISOString();
-    const resolvedPath = resolve(projectRoot);
-    const projectName =
-      _readProjectNameFromInfo(resolvedPath) || basename(projectRoot) || 'unnamed';
-    if (existingRows.length > 0) {
-      const existingPath = existingRows[0].projectPath as string;
-      if (existingPath !== resolvedPath) {
-        // Seamless move/rename/export-import: same immutable projectId, new
-        // path. Update the path AND the projectHash fingerprint so the dual
-        // fingerprint tracks the new location (T11281).
-        const newBrainDbPath = join(resolvedPath, '.cleo', 'brain.db');
-        const newTasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
-        await db
-          .update(projectRegistry)
-          .set({
-            projectPath: resolvedPath,
-            projectHash: generateProjectHash(resolvedPath),
-            brainDbPath: newBrainDbPath,
-            tasksDbPath: newTasksDbPath,
-            lastSeen: now,
-          })
-          .where(eq(projectRegistry.projectId, immutableId));
-      } else {
-        await db
-          .update(projectRegistry)
-          .set({ lastSeen: now })
-          .where(eq(projectRegistry.projectId, immutableId));
-      }
-      return;
-    }
-    // T11281: This insert follows a non-transactional select-by-projectId
-    // "not found" check above. Because the caller is a fire-and-forget
-    // `registerProjectOnEncounter(...).catch(() => {})` (paths.ts auto-register
-    // on first encounter, T11021), it can race a concurrent explicit
-    // `nexusRegister`/`registerProjectOnEncounter` for the same project: both
-    // pass the existence check, then both INSERT, and the loser throws
-    // `UNIQUE constraint failed: project_registry.project_path` (or the
-    // projectId PK). The auto-register is best-effort and idempotent by intent,
-    // so a lost race must be a silent no-op, not a thrown error. onConflictDoNothing
-    // makes the canonical-id PK and the project_path UNIQUE index both safe.
-    await db
-      .insert(projectRegistry)
-      .values({
-        projectId: immutableId,
-        // T11280: projectHash MUST be the canonical sha256-derived hash of the
-        // resolved path (matching nexusRegister/generateProjectHash), NOT the raw
-        // gitRoot path. The previous value polluted the registry with a path in
-        // the hash column, producing spurious name-collision errors when a later
-        // nexusRegister computed the real hash for the same project.
-        projectHash: generateProjectHash(resolvedPath),
-        projectPath: resolvedPath,
-        name: projectName,
-        registeredAt: now,
-        lastSeen: now,
-        healthStatus: 'unknown',
-        healthLastCheck: null,
-        permissions: 'read',
-        lastSync: now,
-        taskCount: 0,
-        labelsJson: '[]',
-        brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
-        tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
-        statsJson: '{}',
-      })
-      .onConflictDoNothing();
-    // Map every alternate identity token — the path-derived canonical id, the
-    // legacy base64url id, and any declared legacy aliases — to the IMMUTABLE
-    // registry id, so a lookup by ANY of them resolves to the project's lifetime
-    // row via the alias table (T11281). The immutable id is never its own alias.
-    const aliases = canonicalResult.legacyAliases ?? [];
-    const { legacyProjectId } = await import('./nexus/identity.js');
-    const directLegacy = legacyProjectId(resolvedPath);
-    const allAliases = new Set<string>([directLegacy, canonicalId, infoProjectId, ...aliases]);
-    allAliases.delete(immutableId);
-    for (const legacyId of allAliases) {
-      try {
-        await db
-          .insert(projectIdAliases)
-          .values({ legacyId, canonicalId: immutableId, createdAt: now })
-          .onConflictDoNothing();
-      } catch {
-        /* best-effort */
-      }
-    }
-  } catch {
-    /* best-effort registration */
+    const outcome = await trackBackgroundOp(
+      () =>
+        worktreeScope.run({ ...scope, execution }, async () => {
+          const { canonicalProjectId, legacyProjectId } = await import('./nexus/identity.js');
+          const { generateProjectHash } = await import('./nexus/hash.js');
+          const canonical = await canonicalProjectId(resolvedPath, execution);
+          execution.assertActive();
+          const { getNexusRegistryDb } = await import('./store/nexus-sqlite.js');
+          const { eq, or } = await import('drizzle-orm');
+          const { projectRegistry, projectIdAliases } = await import(
+            './store/schema/nexus-schema.js'
+          );
+          const db = await getNexusRegistryDb(capturedHome);
+          execution.assertActive();
+          const projectHash = generateProjectHash(resolvedPath);
+          const aliases = new Set([
+            legacyProjectId(resolvedPath),
+            canonical.id,
+            ...(canonical.legacyAliases ?? []),
+          ]);
+          aliases.delete(infoProjectId);
+          db.transaction(
+            (tx) => {
+              execution.assertActive();
+              const owners = tx
+                .select()
+                .from(projectRegistry)
+                .where(
+                  or(
+                    eq(projectRegistry.projectId, infoProjectId),
+                    eq(projectRegistry.projectPath, resolvedPath),
+                    eq(projectRegistry.projectHash, projectHash),
+                  ),
+                )
+                .all();
+              if (owners.some((owner) => owner.projectId !== infoProjectId))
+                throw new Error(
+                  'Project encounter path or hash belongs to another immutable identity',
+                );
+              const now = new Date().toISOString();
+              const existing = owners.find((owner) => owner.projectId === infoProjectId);
+              if (existing) {
+                tx.update(projectRegistry)
+                  .set({
+                    projectPath: resolvedPath,
+                    projectHash,
+                    lastSeen: now,
+                    brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
+                    tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
+                  })
+                  .where(eq(projectRegistry.projectId, infoProjectId))
+                  .run();
+              } else {
+                tx.insert(projectRegistry)
+                  .values({
+                    projectId: infoProjectId,
+                    projectHash,
+                    projectPath: resolvedPath,
+                    name: projectName,
+                    registeredAt: now,
+                    lastSeen: now,
+                    healthStatus: 'unknown',
+                    healthLastCheck: null,
+                    permissions: 'read',
+                    lastSync: now,
+                    taskCount: 0,
+                    labelsJson: '[]',
+                    brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
+                    tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
+                    statsJson: '{}',
+                  })
+                  .run();
+              }
+              for (const alias of aliases) {
+                const owner = tx
+                  .select()
+                  .from(projectIdAliases)
+                  .where(eq(projectIdAliases.legacyId, alias))
+                  .get();
+                const directOwner = tx
+                  .select()
+                  .from(projectRegistry)
+                  .where(eq(projectRegistry.projectId, alias))
+                  .get();
+                if (
+                  (owner && owner.canonicalId !== infoProjectId) ||
+                  (directOwner && directOwner.projectId !== infoProjectId)
+                )
+                  throw new Error('Project encounter alias belongs to another immutable identity');
+                if (!owner)
+                  tx.insert(projectIdAliases)
+                    .values({ legacyId: alias, canonicalId: infoProjectId, createdAt: now })
+                    .run();
+              }
+              execution.assertActive();
+            },
+            { behavior: 'immediate' },
+          );
+        }),
+      execution,
+    );
+    if (outcome.status === 'rejected') throw outcome.reason;
+  } finally {
+    if (ownedExecution) execution.close();
   }
 }

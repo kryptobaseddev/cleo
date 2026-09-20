@@ -86,6 +86,7 @@ import { ensureColumns, migrateWithRetry, reconcileJournal } from './migration-m
 // registry does. This module contributes only its schema reconciliation + the
 // GLOBAL registry ATTACH.
 import {
+  bindGlobalDomainAtPath,
   bindProjectDomain,
   boundProjectNative,
   type DomainBinding,
@@ -196,11 +197,12 @@ export function getNexusDbPath(cwd?: string): string {
  *
  * @task T11648 (ADR-090 — registry stays global-asserted)
  * @adr ADR-036 — registry/identity is global-only.
- * @throws {Error} If the resolved path is not under `getCleoHome()`.
+ * @param capturedGlobalHome - Optional global ownership captured before an asynchronous stage.
+ * @throws {Error} If the resolved path is not under the captured or ambient global home.
  */
-export function getNexusRegistryDbPath(): string {
-  const cleoHome = getCleoHome();
-  const registryPath = resolveDualScopeDbPath('global');
+export function getNexusRegistryDbPath(capturedGlobalHome?: string): string {
+  const cleoHome = capturedGlobalHome ?? getCleoHome();
+  const registryPath = resolveDualScopeDbPath('global', undefined, cleoHome);
 
   // Guard: the registry/identity home MUST be under the global tier (ADR-036).
   if (!registryPath.startsWith(cleoHome)) {
@@ -213,6 +215,25 @@ export function getNexusRegistryDbPath(): string {
   }
 
   return registryPath;
+}
+
+/**
+ * Open only the global registry through the canonical runtime and domain binding.
+ * @param capturedGlobalHome - Global home captured by the caller before awaiting.
+ * @returns Global registry Drizzle facade; no project graph handle is opened.
+ * @remarks Consolidated global migrations own the registry schema. This adds no
+ * handle cache and never runs project Nexus delta migrations for registry work.
+ * @example
+ * ```ts
+ * const db = await getNexusRegistryDb(capturedHome);
+ * ```
+ */
+export async function getNexusRegistryDb(capturedGlobalHome: string): Promise<NodeSQLiteDatabase> {
+  const path = getNexusRegistryDbPath(capturedGlobalHome);
+  const binding = await bindGlobalDomainAtPath('nexus-registry', path, (native) =>
+    drizzle({ client: native }),
+  );
+  return binding.db;
 }
 
 /**
