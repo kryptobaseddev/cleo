@@ -28,7 +28,7 @@ import { computeEpicStatus, computeOverallStatus } from '../orchestration/status
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import type { EnrichedWave } from '../orchestration/waves.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
-import { getProjectRoot } from '../paths.js';
+import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { isSagaShape } from '../sagas/enforcement.js';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
 import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
@@ -150,19 +150,18 @@ export async function resolveSagaMembers(
  * Load all tasks from task data.
  *
  * @param projectRoot - Optional project root path. Defaults to resolved root.
- * @returns Array of all tasks, empty on error.
+ * @returns All matched tasks, including an empty array for an empty project.
+ * @throws Error when project identity or task storage cannot be read.
  */
 export async function loadTasks(projectRoot?: string): Promise<Task[]> {
-  const root = getProjectRoot(projectRoot);
-  try {
-    const accessor = await getTaskAccessor(root);
+  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const accessor = await getTaskAccessor(scope.worktreeRoot);
     const result = await accessor.queryTasks({
       status: [...TASK_STATUSES] as TaskStatus[],
     });
-    return result?.tasks ?? [];
-  } catch {
-    return [];
-  }
+    return result.tasks;
+  });
 }
 
 /**
@@ -177,28 +176,31 @@ export async function orchestrateStatus(
   epicId?: string,
   projectRoot?: string,
 ): Promise<EngineResult> {
-  try {
-    const root = getProjectRoot(projectRoot);
-    const tasks = await loadTasks(root);
+  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    try {
+      const root = scope.worktreeRoot;
+      const tasks = await loadTasks(root);
 
-    if (epicId) {
-      const epic = tasks.find((t) => t.id === epicId);
-      if (!epic) {
-        return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
+      if (epicId) {
+        const epic = tasks.find((t) => t.id === epicId);
+        if (!epic) {
+          return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
+        }
+
+        const children = tasks.filter((t) => t.parentId === epicId);
+        const status = computeEpicStatus(epicId, epic.title, children);
+
+        return { success: true, data: status };
       }
 
-      const children = tasks.filter((t) => t.parentId === epicId);
-      const status = computeEpicStatus(epicId, epic.title, children);
-
+      // No epicId - return overall status
+      const status = computeOverallStatus(tasks);
       return { success: true, data: status };
+    } catch (err: unknown) {
+      return engineError('E_GENERAL', (err as Error).message);
     }
-
-    // No epicId - return overall status
-    const status = computeOverallStatus(tasks);
-    return { success: true, data: status };
-  } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
-  }
+  });
 }
 
 /**
@@ -215,43 +217,46 @@ export async function orchestrateAnalyze(
   projectRoot?: string,
   mode?: string,
 ): Promise<EngineResult> {
-  // Mode: critical-path (delegates to critical path engine)
-  if (mode === 'critical-path') {
-    const { orchestrateCriticalPath } = await import('./lifecycle-ops.js');
-    return orchestrateCriticalPath(projectRoot);
-  }
+  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    // Mode: critical-path (delegates to critical path engine)
+    if (mode === 'critical-path') {
+      const { orchestrateCriticalPath } = await import('./lifecycle-ops.js');
+      return orchestrateCriticalPath(scope.worktreeRoot);
+    }
 
-  // Default mode: analysis (requires epicId)
-  if (!epicId) {
-    return engineError('E_INVALID_INPUT', 'epicId is required for standard analysis');
-  }
+    // Default mode: analysis (requires epicId)
+    if (!epicId) {
+      return engineError('E_INVALID_INPUT', 'epicId is required for standard analysis');
+    }
 
-  try {
-    const root = getProjectRoot(projectRoot);
-    const accessor = await getTaskAccessor(root);
-    const result = await analyzeEpic(epicId, root, accessor);
+    try {
+      const root = scope.worktreeRoot;
+      const accessor = await getTaskAccessor(root);
+      const result = await analyzeEpic(epicId, root, accessor);
 
-    // Add dependency graph and circular dep detection via core analyze module
-    const tasks = await loadTasks(root);
-    const children = tasks.filter((t) => t.parentId === epicId);
-    const depAnalysis = analyzeDependencies(children, tasks);
+      // Add dependency graph and circular dep detection via core analyze module
+      const tasks = await loadTasks(root);
+      const children = tasks.filter((t) => t.parentId === epicId);
+      const depAnalysis = analyzeDependencies(children, tasks);
 
-    return {
-      success: true,
-      data: {
-        epicId: result.epicId,
-        epicTitle: tasks.find((t) => t.id === epicId)?.title || epicId,
-        totalTasks: result.totalTasks,
-        waves: result.waves,
-        circularDependencies: depAnalysis.circularDependencies,
-        missingDependencies: depAnalysis.missingDependencies,
-        dependencyGraph: depAnalysis.dependencyGraph,
-      },
-    };
-  } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_GENERAL';
-    return engineError(code, (err as Error).message);
-  }
+      return {
+        success: true,
+        data: {
+          epicId: result.epicId,
+          epicTitle: tasks.find((t) => t.id === epicId)?.title || epicId,
+          totalTasks: result.totalTasks,
+          waves: result.waves,
+          circularDependencies: depAnalysis.circularDependencies,
+          missingDependencies: depAnalysis.missingDependencies,
+          dependencyGraph: depAnalysis.dependencyGraph,
+        },
+      };
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? 'E_GENERAL';
+      return engineError(code, (err as Error).message);
+    }
+  });
 }
 
 /**
@@ -311,234 +316,237 @@ export async function orchestrateReady(
   projectRoot?: string,
   opts?: OrchestrateReadyOptions,
 ): Promise<EngineResult> {
-  if (!epicId) {
-    return engineError('E_INVALID_INPUT', 'epicId is required');
-  }
-
-  try {
-    const root = getProjectRoot(projectRoot);
-    // T929: verify the epic exists before computing the ready-set so that a
-    // nonexistent epicId returns E_NOT_FOUND (exit 4) instead of success:{total:0}.
-    const tasks = await loadTasks(root);
-    const epic = tasks.find((t) => t.id === epicId);
-    if (!epic) {
-      return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
+  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    if (!epicId) {
+      return engineError('E_INVALID_INPUT', 'epicId is required');
     }
 
-    // ---------------------------------------------------------------------------
-    // T1858: dep-graph validation pre-step (shared between parent + saga modes)
-    // ---------------------------------------------------------------------------
-    const config = await loadConfig(root);
-    const lifecycleMode = config.lifecycle?.mode ?? 'strict';
-
-    let depsWarning: string | undefined;
-
-    // Helper: filter issues to only those that are actionable blockers for
-    // the epic ready-set check. Excludes:
-    //   - E_ORPHAN: project-level concern, not specific to the epic ready-check.
-    //   - E_MISSING_REF where the referenced task EXISTS project-wide (cross-epic
-    //     deps that are outside the scoped set are not truly missing).
-    const projectTaskIds = new Set(tasks.map((t) => t.id));
-    const toBlockerIssues = (issues: ReturnType<typeof runValidation>['issues']) =>
-      issues.filter((i) => {
-        if (i.code === 'E_ORPHAN') return false;
-        if (i.code === 'E_MISSING_REF') {
-          // relatedIds contains the dep ID that was reported missing in the scope.
-          // If it actually exists project-wide, it's just a cross-epic dep — not a
-          // true missing reference.
-          return (i.relatedIds ?? []).some((depId) => !projectTaskIds.has(depId));
-        }
-        return true;
-      });
-
-    if (opts?.ignoreDepsValidate) {
-      // Bypass requested — audit-log it regardless of mode, then skip check.
-      const validation = runValidation(tasks, { epicId });
-      const blockerIssues = toBlockerIssues(validation.issues);
-      appendDepsValidateBypassAudit(root, {
-        ts: new Date().toISOString(),
-        epicId,
-        source: 'cli',
-        issueCount: blockerIssues.length,
-        issues: blockerIssues.map(({ code, taskId, epicA, epicB }) => ({
-          code,
-          taskId,
-          epicA,
-          epicB,
-        })),
-      });
-    } else if (lifecycleMode !== 'off') {
-      const validation = runValidation(tasks, { epicId });
-      const blockerIssues = toBlockerIssues(validation.issues);
-      const isValid = blockerIssues.length === 0;
-
-      if (!isValid) {
-        const summary = `Dep graph has ${blockerIssues.length} issue(s): ${[...new Set(blockerIssues.map((i) => i.code))].join(', ')}`;
-
-        if (lifecycleMode === 'strict') {
-          return engineError('E_DEP_GRAPH_INVALID', summary, {
-            details: { issueCount: blockerIssues.length, issues: blockerIssues },
-          });
-        }
-        // advisory: warn + proceed
-        depsWarning = summary;
-      }
-    }
-    // mode === 'off': skip validation entirely
-    // ---------------------------------------------------------------------------
-
-    // -------------------------------------------------------------------------
-    // T10966: Saga-aware traversal — always auto-detect saga shape.
-    //
-    // After T10638, sagas use `type='saga'` with `parent_id` containment.
-    // The `via` parameter is deprecated (T10968); all callers get the same
-    // auto-detect behavior. Saga members are recursed into per-member; the
-    // result is the deduplicated union of ready tasks across all members.
-    // -------------------------------------------------------------------------
-    // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
-    const sagaShaped = isSagaShape(epic);
-
-    const accessor = await getTaskAccessor(root);
-
-    type ReadyTaskOut = {
-      id: string;
-      title: string;
-      priority: string;
-      depends: string[];
-    };
-
-    if (sagaShaped) {
-      // T10966: use canonical resolveSagaMemberIds (with type-checking).
-      const memberIds = await resolveSagaMemberIds(accessor, epicId);
-      const members = memberIds ?? [];
-
-      const seenIds = new Set<string>();
-      const aggregated: ReadyTaskOut[] = [];
-      let aggregatedAllCount = 0;
-      let aggregatedBlockedCount = 0;
-      const skippedNested: string[] = [];
-
-      for (const memberId of members) {
-        // Recursion safety: sagas SHOULD NOT nest (ADR-073). If a member is
-        // itself saga-shaped, skip it and surface the anomaly in meta rather
-        // than recursing — preserves O(N) aggregation.
-        const memberTask = tasks.find((t) => t.id === memberId);
-        if (memberTask && isSagaShape(memberTask)) {
-          skippedNested.push(memberId);
-          continue;
-        }
-
-        const memberReady = await getReadyTasks(memberId, root, accessor);
-        aggregatedAllCount += memberReady.length;
-        aggregatedBlockedCount += memberReady.filter(
-          (t) => !t.ready && t.blockers.length > 0,
-        ).length;
-
-        for (const t of memberReady) {
-          if (!t.ready) continue;
-          if (seenIds.has(t.taskId)) continue;
-          seenIds.add(t.taskId);
-          aggregated.push({
-            id: t.taskId,
-            title: t.title,
-            priority: t.priority,
-            depends: t.depends,
-          });
-        }
+    try {
+      const root = scope.worktreeRoot;
+      // T929: verify the epic exists before computing the ready-set so that a
+      // nonexistent epicId returns E_NOT_FOUND (exit 4) instead of success:{total:0}.
+      const tasks = await loadTasks(root);
+      const epic = tasks.find((t) => t.id === epicId);
+      if (!epic) {
+        return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
       }
 
-      // Preserve priority ordering (critical → high → medium → low) then ID.
-      const priorityWeight: Record<string, number> = {
-        critical: 4,
-        high: 3,
-        medium: 2,
-        low: 1,
+      // ---------------------------------------------------------------------------
+      // T1858: dep-graph validation pre-step (shared between parent + saga modes)
+      // ---------------------------------------------------------------------------
+      const config = await loadConfig(root);
+      const lifecycleMode = config.lifecycle?.mode ?? 'strict';
+
+      let depsWarning: string | undefined;
+
+      // Helper: filter issues to only those that are actionable blockers for
+      // the epic ready-set check. Excludes:
+      //   - E_ORPHAN: project-level concern, not specific to the epic ready-check.
+      //   - E_MISSING_REF where the referenced task EXISTS project-wide (cross-epic
+      //     deps that are outside the scoped set are not truly missing).
+      const projectTaskIds = new Set(tasks.map((t) => t.id));
+      const toBlockerIssues = (issues: ReturnType<typeof runValidation>['issues']) =>
+        issues.filter((i) => {
+          if (i.code === 'E_ORPHAN') return false;
+          if (i.code === 'E_MISSING_REF') {
+            // relatedIds contains the dep ID that was reported missing in the scope.
+            // If it actually exists project-wide, it's just a cross-epic dep — not a
+            // true missing reference.
+            return (i.relatedIds ?? []).some((depId) => !projectTaskIds.has(depId));
+          }
+          return true;
+        });
+
+      if (opts?.ignoreDepsValidate) {
+        // Bypass requested — audit-log it regardless of mode, then skip check.
+        const validation = runValidation(tasks, { epicId });
+        const blockerIssues = toBlockerIssues(validation.issues);
+        appendDepsValidateBypassAudit(root, {
+          ts: new Date().toISOString(),
+          epicId,
+          source: 'cli',
+          issueCount: blockerIssues.length,
+          issues: blockerIssues.map(({ code, taskId, epicA, epicB }) => ({
+            code,
+            taskId,
+            epicA,
+            epicB,
+          })),
+        });
+      } else if (lifecycleMode !== 'off') {
+        const validation = runValidation(tasks, { epicId });
+        const blockerIssues = toBlockerIssues(validation.issues);
+        const isValid = blockerIssues.length === 0;
+
+        if (!isValid) {
+          const summary = `Dep graph has ${blockerIssues.length} issue(s): ${[...new Set(blockerIssues.map((i) => i.code))].join(', ')}`;
+
+          if (lifecycleMode === 'strict') {
+            return engineError('E_DEP_GRAPH_INVALID', summary, {
+              details: { issueCount: blockerIssues.length, issues: blockerIssues },
+            });
+          }
+          // advisory: warn + proceed
+          depsWarning = summary;
+        }
+      }
+      // mode === 'off': skip validation entirely
+      // ---------------------------------------------------------------------------
+
+      // -------------------------------------------------------------------------
+      // T10966: Saga-aware traversal — always auto-detect saga shape.
+      //
+      // After T10638, sagas use `type='saga'` with `parent_id` containment.
+      // The `via` parameter is deprecated (T10968); all callers get the same
+      // auto-detect behavior. Saga members are recursed into per-member; the
+      // result is the deduplicated union of ready tasks across all members.
+      // -------------------------------------------------------------------------
+      // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
+      const sagaShaped = isSagaShape(epic);
+
+      const accessor = await getTaskAccessor(root);
+
+      type ReadyTaskOut = {
+        id: string;
+        title: string;
+        priority: string;
+        depends: string[];
       };
-      aggregated.sort((a, b) => {
-        const wa = priorityWeight[a.priority] ?? 0;
-        const wb = priorityWeight[b.priority] ?? 0;
-        if (wa !== wb) return wb - wa;
-        return a.id.localeCompare(b.id);
-      });
 
+      if (sagaShaped) {
+        // T10966: use canonical resolveSagaMemberIds (with type-checking).
+        const memberIds = await resolveSagaMemberIds(accessor, epicId);
+        const members = memberIds ?? [];
+
+        const seenIds = new Set<string>();
+        const aggregated: ReadyTaskOut[] = [];
+        let aggregatedAllCount = 0;
+        let aggregatedBlockedCount = 0;
+        const skippedNested: string[] = [];
+
+        for (const memberId of members) {
+          // Recursion safety: sagas SHOULD NOT nest (ADR-073). If a member is
+          // itself saga-shaped, skip it and surface the anomaly in meta rather
+          // than recursing — preserves O(N) aggregation.
+          const memberTask = tasks.find((t) => t.id === memberId);
+          if (memberTask && isSagaShape(memberTask)) {
+            skippedNested.push(memberId);
+            continue;
+          }
+
+          const memberReady = await getReadyTasks(memberId, root, accessor);
+          aggregatedAllCount += memberReady.length;
+          aggregatedBlockedCount += memberReady.filter(
+            (t) => !t.ready && t.blockers.length > 0,
+          ).length;
+
+          for (const t of memberReady) {
+            if (!t.ready) continue;
+            if (seenIds.has(t.taskId)) continue;
+            seenIds.add(t.taskId);
+            aggregated.push({
+              id: t.taskId,
+              title: t.title,
+              priority: t.priority,
+              depends: t.depends,
+            });
+          }
+        }
+
+        // Preserve priority ordering (critical → high → medium → low) then ID.
+        const priorityWeight: Record<string, number> = {
+          critical: 4,
+          high: 3,
+          medium: 2,
+          low: 1,
+        };
+        aggregated.sort((a, b) => {
+          const wa = priorityWeight[a.priority] ?? 0;
+          const wb = priorityWeight[b.priority] ?? 0;
+          if (wa !== wb) return wb - wa;
+          return a.id.localeCompare(b.id);
+        });
+
+        let reason: string | undefined;
+        if (aggregated.length === 0) {
+          if (members.length === 0) {
+            reason = 'saga has no member epics';
+          } else if (aggregatedAllCount === 0) {
+            reason = 'saga members have no children';
+          } else if (aggregatedBlockedCount === aggregatedAllCount) {
+            reason = 'all saga-member tasks have unmet dependencies';
+          } else {
+            reason = 'no saga-member tasks with unmet dependencies found';
+          }
+        }
+
+        // T12000: annotate which ready tasks are admittable now vs deferred so
+        // orchestrators size their fan-out to host capacity (Never-OOM).
+        const admission = await computeAgentAdmission(aggregated.map((t) => t.id));
+
+        return {
+          success: true,
+          data: {
+            epicId,
+            readyTasks: aggregated,
+            total: aggregated.length,
+            via: 'saga' as const,
+            sagaMembers: members,
+            admission,
+            ...(skippedNested.length > 0 && { sagaNestedSkipped: skippedNested }),
+            ...(reason !== undefined && { reason }),
+            ...(depsWarning !== undefined && { depsWarning }),
+          },
+        };
+      }
+
+      // Regular epic: walk parentId.
+      const readyTasks = await getReadyTasks(epicId, root, accessor);
+      const ready = readyTasks.filter((t) => t.ready);
+
+      // T929: when no tasks are ready, include a diagnostic reason so callers
+      // can distinguish "all done" from "all blocked" without a second query.
       let reason: string | undefined;
-      if (aggregated.length === 0) {
-        if (members.length === 0) {
-          reason = 'saga has no member epics';
-        } else if (aggregatedAllCount === 0) {
-          reason = 'saga members have no children';
-        } else if (aggregatedBlockedCount === aggregatedAllCount) {
-          reason = 'all saga-member tasks have unmet dependencies';
+      if (ready.length === 0) {
+        const all = readyTasks;
+        const blockedCount = all.filter((t) => !t.ready && t.blockers.length > 0).length;
+        if (all.length === 0) {
+          reason = 'epic has no children';
+        } else if (blockedCount === all.length) {
+          reason = 'all children have unmet dependencies';
         } else {
-          reason = 'no saga-member tasks with unmet dependencies found';
+          reason = 'no tasks with unmet dependencies found; check child task statuses';
         }
       }
 
+      const readyOut = ready.map((t) => ({
+        id: t.taskId,
+        title: t.title,
+        priority: t.priority,
+        depends: t.depends,
+      }));
       // T12000: annotate which ready tasks are admittable now vs deferred so
       // orchestrators size their fan-out to host capacity (Never-OOM).
-      const admission = await computeAgentAdmission(aggregated.map((t) => t.id));
+      const admission = await computeAgentAdmission(readyOut.map((t) => t.id));
 
       return {
         success: true,
         data: {
           epicId,
-          readyTasks: aggregated,
-          total: aggregated.length,
-          via: 'saga' as const,
-          sagaMembers: members,
+          readyTasks: readyOut,
+          total: readyOut.length,
+          via: 'parent' as const,
           admission,
-          ...(skippedNested.length > 0 && { sagaNestedSkipped: skippedNested }),
           ...(reason !== undefined && { reason }),
           ...(depsWarning !== undefined && { depsWarning }),
         },
       };
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? 'E_GENERAL';
+      return engineError(code, (err as Error).message);
     }
-
-    // Regular epic: walk parentId.
-    const readyTasks = await getReadyTasks(epicId, root, accessor);
-    const ready = readyTasks.filter((t) => t.ready);
-
-    // T929: when no tasks are ready, include a diagnostic reason so callers
-    // can distinguish "all done" from "all blocked" without a second query.
-    let reason: string | undefined;
-    if (ready.length === 0) {
-      const all = readyTasks;
-      const blockedCount = all.filter((t) => !t.ready && t.blockers.length > 0).length;
-      if (all.length === 0) {
-        reason = 'epic has no children';
-      } else if (blockedCount === all.length) {
-        reason = 'all children have unmet dependencies';
-      } else {
-        reason = 'no tasks with unmet dependencies found; check child task statuses';
-      }
-    }
-
-    const readyOut = ready.map((t) => ({
-      id: t.taskId,
-      title: t.title,
-      priority: t.priority,
-      depends: t.depends,
-    }));
-    // T12000: annotate which ready tasks are admittable now vs deferred so
-    // orchestrators size their fan-out to host capacity (Never-OOM).
-    const admission = await computeAgentAdmission(readyOut.map((t) => t.id));
-
-    return {
-      success: true,
-      data: {
-        epicId,
-        readyTasks: readyOut,
-        total: readyOut.length,
-        via: 'parent' as const,
-        admission,
-        ...(reason !== undefined && { reason }),
-        ...(depsWarning !== undefined && { depsWarning }),
-      },
-    };
-  } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_GENERAL';
-    return engineError(code, (err as Error).message);
-  }
+  });
 }
 
 /**
@@ -550,45 +558,48 @@ export async function orchestrateReady(
  * @task T4478
  */
 export async function orchestrateNext(epicId: string, projectRoot?: string): Promise<EngineResult> {
-  if (!epicId) {
-    return engineError('E_INVALID_INPUT', 'epicId is required');
-  }
+  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    if (!epicId) {
+      return engineError('E_INVALID_INPUT', 'epicId is required');
+    }
 
-  try {
-    const root = getProjectRoot(projectRoot);
-    const accessor = await getTaskAccessor(root);
-    const nextTask = await getNextTask(epicId, root, accessor);
+    try {
+      const root = scope.worktreeRoot;
+      const accessor = await getTaskAccessor(root);
+      const nextTask = await getNextTask(epicId, root, accessor);
 
-    if (!nextTask) {
+      if (!nextTask) {
+        return {
+          success: true,
+          data: {
+            epicId,
+            nextTask: null,
+            message: 'No tasks ready to spawn. All pending tasks may have unmet dependencies.',
+          },
+        };
+      }
+
+      // Get all ready tasks for alternatives
+      const readyTasks = await getReadyTasks(epicId, root, accessor);
+      const ready = readyTasks.filter((t) => t.ready);
+
       return {
         success: true,
         data: {
           epicId,
-          nextTask: null,
-          message: 'No tasks ready to spawn. All pending tasks may have unmet dependencies.',
+          nextTask: { id: nextTask.taskId, title: nextTask.title, priority: nextTask.priority },
+          alternatives: ready
+            .slice(1, 4)
+            .map((t) => ({ id: t.taskId, title: t.title, priority: t.priority })),
+          totalReady: ready.length,
         },
       };
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? 'E_GENERAL';
+      return engineError(code, (err as Error).message);
     }
-
-    // Get all ready tasks for alternatives
-    const readyTasks = await getReadyTasks(epicId, root, accessor);
-    const ready = readyTasks.filter((t) => t.ready);
-
-    return {
-      success: true,
-      data: {
-        epicId,
-        nextTask: { id: nextTask.taskId, title: nextTask.title, priority: nextTask.priority },
-        alternatives: ready
-          .slice(1, 4)
-          .map((t) => ({ id: t.taskId, title: t.title, priority: t.priority })),
-        totalReady: ready.length,
-      },
-    };
-  } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_GENERAL';
-    return engineError(code, (err as Error).message);
-  }
+  });
 }
 
 /**
@@ -642,119 +653,122 @@ export async function orchestrateWaves(
   projectRoot?: string,
   _opts?: OrchestrateWavesOptions,
 ): Promise<EngineResult> {
-  if (!epicId) {
-    return engineError('E_INVALID_INPUT', 'epicId is required');
-  }
-
-  try {
-    const root = getProjectRoot(projectRoot);
-    const accessor = await getTaskAccessor(root);
-
-    // gh-390 / ADR-073: detect saga shape so we walk the groups relation.
-    const epic = await accessor.loadSingleTask(epicId);
-    if (!epic) {
-      return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
+  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    if (!epicId) {
+      return engineError('E_INVALID_INPUT', 'epicId is required');
     }
 
-    // T10966: Saga-aware traversal — always auto-detect saga shape.
-    // After T10638, sagas use `type='saga'` with `parent_id` containment.
-    // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
-    const sagaShaped = isSagaShape(epic);
+    try {
+      const root = scope.worktreeRoot;
+      const accessor = await getTaskAccessor(root);
 
-    if (!sagaShaped) {
-      const result = await getEnrichedWaves(epicId, root, accessor);
-      // T12000: admission over the first actionable (non-completed) wave —
-      // the tasks an orchestrator would spawn next — so the fan-out is sized
-      // to host capacity (Never-OOM).
-      const admission = await computeAgentAdmission(firstActionableWaveTaskIds(result.waves));
+      // gh-390 / ADR-073: detect saga shape so we walk the groups relation.
+      const epic = await accessor.loadSingleTask(epicId);
+      if (!epic) {
+        return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
+      }
+
+      // T10966: Saga-aware traversal — always auto-detect saga shape.
+      // After T10638, sagas use `type='saga'` with `parent_id` containment.
+      // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
+      const sagaShaped = isSagaShape(epic);
+
+      if (!sagaShaped) {
+        const result = await getEnrichedWaves(epicId, root, accessor);
+        // T12000: admission over the first actionable (non-completed) wave —
+        // the tasks an orchestrator would spawn next — so the fan-out is sized
+        // to host capacity (Never-OOM).
+        const admission = await computeAgentAdmission(firstActionableWaveTaskIds(result.waves));
+        return {
+          success: true,
+          data: { ...result, via: 'parent' as const, admission },
+        };
+      }
+
+      // Saga walk: compute per-member waves and merge by index.
+      const memberIds = await resolveSagaMemberIds(accessor, epicId);
+      const members = memberIds ?? [];
+      const skippedNested: string[] = [];
+      const perMemberWaves: EnrichedWave[][] = [];
+      let totalChildren = 0;
+
+      for (const memberId of members) {
+        const memberTask = await accessor.loadSingleTask(memberId);
+        // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
+        if (memberTask && isSagaShape(memberTask)) {
+          skippedNested.push(memberId);
+          continue;
+        }
+        const memberResult = await getEnrichedWaves(memberId, root, accessor);
+        perMemberWaves.push(memberResult.waves);
+        totalChildren += memberResult.totalTasks;
+      }
+
+      const maxWaves = perMemberWaves.reduce((m, w) => Math.max(m, w.length), 0);
+      const mergedWaves: EnrichedWave[] = [];
+
+      for (let i = 0; i < maxWaves; i++) {
+        const seen = new Set<string>();
+        const mergedTasks: EnrichedWave['tasks'] = [];
+        let anyInProgress = false;
+        let allCompleted = true;
+        let latestCompletedAt: string | undefined;
+
+        for (const memberWaves of perMemberWaves) {
+          const wave = memberWaves[i];
+          if (!wave) continue;
+          if (wave.status === 'in_progress') anyInProgress = true;
+          if (wave.status !== 'completed') allCompleted = false;
+          if (wave.completedAt && (!latestCompletedAt || wave.completedAt > latestCompletedAt)) {
+            latestCompletedAt = wave.completedAt;
+          }
+          for (const t of wave.tasks) {
+            if (seen.has(t.id)) continue;
+            seen.add(t.id);
+            mergedTasks.push(t);
+          }
+        }
+
+        const mergedStatus: EnrichedWave['status'] = allCompleted
+          ? 'completed'
+          : anyInProgress
+            ? 'in_progress'
+            : 'pending';
+
+        const merged: EnrichedWave = {
+          waveNumber: i + 1,
+          status: mergedStatus,
+          tasks: mergedTasks,
+          taskIds: mergedTasks.map((t) => t.id),
+        };
+        if (mergedStatus === 'completed' && latestCompletedAt) {
+          merged.completedAt = latestCompletedAt;
+        }
+        mergedWaves.push(merged);
+      }
+
+      // T12000: admission over the first actionable merged wave (Never-OOM).
+      const admission = await computeAgentAdmission(firstActionableWaveTaskIds(mergedWaves));
+
       return {
         success: true,
-        data: { ...result, via: 'parent' as const, admission },
+        data: {
+          epicId,
+          waves: mergedWaves,
+          totalWaves: mergedWaves.length,
+          totalTasks: totalChildren,
+          via: 'saga' as const,
+          sagaMembers: members,
+          admission,
+          ...(skippedNested.length > 0 && { sagaNestedSkipped: skippedNested }),
+        },
       };
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? 'E_GENERAL';
+      return engineError(code, (err as Error).message);
     }
-
-    // Saga walk: compute per-member waves and merge by index.
-    const memberIds = await resolveSagaMemberIds(accessor, epicId);
-    const members = memberIds ?? [];
-    const skippedNested: string[] = [];
-    const perMemberWaves: EnrichedWave[][] = [];
-    let totalChildren = 0;
-
-    for (const memberId of members) {
-      const memberTask = await accessor.loadSingleTask(memberId);
-      // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
-      if (memberTask && isSagaShape(memberTask)) {
-        skippedNested.push(memberId);
-        continue;
-      }
-      const memberResult = await getEnrichedWaves(memberId, root, accessor);
-      perMemberWaves.push(memberResult.waves);
-      totalChildren += memberResult.totalTasks;
-    }
-
-    const maxWaves = perMemberWaves.reduce((m, w) => Math.max(m, w.length), 0);
-    const mergedWaves: EnrichedWave[] = [];
-
-    for (let i = 0; i < maxWaves; i++) {
-      const seen = new Set<string>();
-      const mergedTasks: EnrichedWave['tasks'] = [];
-      let anyInProgress = false;
-      let allCompleted = true;
-      let latestCompletedAt: string | undefined;
-
-      for (const memberWaves of perMemberWaves) {
-        const wave = memberWaves[i];
-        if (!wave) continue;
-        if (wave.status === 'in_progress') anyInProgress = true;
-        if (wave.status !== 'completed') allCompleted = false;
-        if (wave.completedAt && (!latestCompletedAt || wave.completedAt > latestCompletedAt)) {
-          latestCompletedAt = wave.completedAt;
-        }
-        for (const t of wave.tasks) {
-          if (seen.has(t.id)) continue;
-          seen.add(t.id);
-          mergedTasks.push(t);
-        }
-      }
-
-      const mergedStatus: EnrichedWave['status'] = allCompleted
-        ? 'completed'
-        : anyInProgress
-          ? 'in_progress'
-          : 'pending';
-
-      const merged: EnrichedWave = {
-        waveNumber: i + 1,
-        status: mergedStatus,
-        tasks: mergedTasks,
-        taskIds: mergedTasks.map((t) => t.id),
-      };
-      if (mergedStatus === 'completed' && latestCompletedAt) {
-        merged.completedAt = latestCompletedAt;
-      }
-      mergedWaves.push(merged);
-    }
-
-    // T12000: admission over the first actionable merged wave (Never-OOM).
-    const admission = await computeAgentAdmission(firstActionableWaveTaskIds(mergedWaves));
-
-    return {
-      success: true,
-      data: {
-        epicId,
-        waves: mergedWaves,
-        totalWaves: mergedWaves.length,
-        totalTasks: totalChildren,
-        via: 'saga' as const,
-        sagaMembers: members,
-        admission,
-        ...(skippedNested.length > 0 && { sagaNestedSkipped: skippedNested }),
-      },
-    };
-  } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_GENERAL';
-    return engineError(code, (err as Error).message);
-  }
+  });
 }
 
 /**
@@ -782,20 +796,23 @@ export async function orchestrateContext(
   epicId?: string,
   projectRoot?: string,
 ): Promise<EngineResult> {
-  try {
-    const root = getProjectRoot(projectRoot);
-    const tasks = await loadTasks(root);
+  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    try {
+      const root = scope.worktreeRoot;
+      const tasks = await loadTasks(root);
 
-    let taskCount = tasks.length;
-    if (epicId) {
-      taskCount = tasks.filter((t) => t.parentId === epicId).length;
+      let taskCount = tasks.length;
+      if (epicId) {
+        taskCount = tasks.filter((t) => t.parentId === epicId).length;
+      }
+
+      const contextData = estimateContext(taskCount, root, epicId);
+      return { success: true, data: contextData };
+    } catch (err: unknown) {
+      return engineError('E_GENERAL', (err as Error).message);
     }
-
-    const contextData = estimateContext(taskCount, root, epicId);
-    return { success: true, data: contextData };
-  } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
-  }
+  });
 }
 
 /**
@@ -810,18 +827,21 @@ export async function orchestrateValidate(
   taskId: string,
   projectRoot?: string,
 ): Promise<EngineResult> {
-  if (!taskId) {
-    return engineError('E_INVALID_INPUT', 'taskId is required');
-  }
+  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    if (!taskId) {
+      return engineError('E_INVALID_INPUT', 'taskId is required');
+    }
 
-  try {
-    const root = getProjectRoot(projectRoot);
-    const accessor = await getTaskAccessor(root);
-    const result = await validateSpawnReadiness(taskId, root, accessor);
-    return { success: true, data: result };
-  } catch (err: unknown) {
-    return engineError('E_VALIDATION', (err as Error).message);
-  }
+    try {
+      const root = scope.worktreeRoot;
+      const accessor = await getTaskAccessor(root);
+      const result = await validateSpawnReadiness(taskId, root, accessor);
+      return { success: true, data: result };
+    } catch (err: unknown) {
+      return engineError('E_VALIDATION', (err as Error).message);
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -856,203 +876,208 @@ export async function orchestrateReport(
   projectRoot?: string,
   params?: OrchestrateReportParams,
 ): Promise<EngineResult> {
-  if (!epicId) {
-    return engineError('E_INVALID_INPUT', 'epicId is required');
-  }
-
-  try {
-    const root = getProjectRoot(projectRoot);
-    const tasks = await loadTasks(root);
-
-    const epic = tasks.find((t) => t.id === epicId);
-    if (!epic) {
-      return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
+  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    if (!epicId) {
+      return engineError('E_INVALID_INPUT', 'epicId is required');
     }
 
-    const children = tasks.filter((t) => t.parentId === epicId);
-    const completedIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
-
-    // Classification buckets
-    const ready: OrchestrateReportEntry[] = [];
-    const blocked: OrchestrateReportEntry[] = [];
-    const blockedBy: OrchestrateReportEntry[] = [];
-    const gateBlocked: OrchestrateReportEntry[] = [];
-    const invalid: OrchestrateReportEntry[] = [];
-
-    // Dependency analysis for invalid detection — swallow errors gracefully
-    let depAnalysis: {
-      missingDependencies: Array<{ taskId: string; missingDep: string }>;
-      circularDependencies: string[][];
-    } = { missingDependencies: [], circularDependencies: [] };
     try {
-      depAnalysis = analyzeDependencies(children, tasks);
-    } catch {
-      // Non-fatal: dependency analysis failed, skip invalid classification
-    }
-    const missingDepIds = new Set(depAnalysis.missingDependencies.map((m) => m.missingDep));
-    const circularInvolved = new Set<string>();
-    for (const chain of depAnalysis.circularDependencies) {
-      for (const id of chain) circularInvolved.add(id);
-    }
+      const root = scope.worktreeRoot;
+      const tasks = await loadTasks(root);
 
-    for (const task of children) {
-      // Skip terminal states
-      if (task.status === 'done' || task.status === 'cancelled') continue;
-
-      const deps: string[] = task.depends ?? [];
-      const unmetDeps = deps.filter((d: string) => !completedIds.has(d));
-      const gates = task.gates ?? {};
-
-      // --- Invalid classification ---
-      const hasMissingDeps = deps.some((d: string) => missingDepIds.has(d));
-      const isCircular = circularInvolved.has(task.id);
-
-      if (hasMissingDeps || isCircular) {
-        const reasons: string[] = [];
-        if (hasMissingDeps) reasons.push('missing-dep');
-        if (isCircular) reasons.push('circular-dep');
-        invalid.push({
-          id: task.id,
-          title: task.title,
-          priority: task.priority ?? 'medium',
-          status: task.status,
-          reason: reasons.join(', '),
-        });
-        continue;
+      const epic = tasks.find((t) => t.id === epicId);
+      if (!epic) {
+        return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
       }
 
-      // --- Gate-blocked classification ---
-      const requiredGates = ['implemented', 'testsPassed', 'qaPassed'];
-      const failedGates = requiredGates.filter((g) => gates[g] === false);
-      // A task is gate-blocked only if at least one required gate is explicitly false.
-      // Missing/undefined gates (common for pending tasks) do NOT classify as gate-blocked.
-      if (failedGates.length > 0) {
-        const gateSummary: Record<string, boolean> = {};
-        for (const g of requiredGates) {
-          gateSummary[g] = gates[g] === true;
-        }
-        gateBlocked.push({
-          id: task.id,
-          title: task.title,
-          priority: task.priority ?? 'medium',
-          status: task.status,
-          reason:
-            failedGates.length > 0 ? `gates-failed: ${failedGates.join(',')}` : 'gates-incomplete',
-          gates: gateSummary,
-        });
-        continue;
+      const children = tasks.filter((t) => t.parentId === epicId);
+      const completedIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+
+      // Classification buckets
+      const ready: OrchestrateReportEntry[] = [];
+      const blocked: OrchestrateReportEntry[] = [];
+      const blockedBy: OrchestrateReportEntry[] = [];
+      const gateBlocked: OrchestrateReportEntry[] = [];
+      const invalid: OrchestrateReportEntry[] = [];
+
+      // Dependency analysis for invalid detection — swallow errors gracefully
+      let depAnalysis: {
+        missingDependencies: Array<{ taskId: string; missingDep: string }>;
+        circularDependencies: string[][];
+      } = { missingDependencies: [], circularDependencies: [] };
+      try {
+        depAnalysis = analyzeDependencies(children, tasks);
+      } catch {
+        // Non-fatal: dependency analysis failed, skip invalid classification
+      }
+      const missingDepIds = new Set(depAnalysis.missingDependencies.map((m) => m.missingDep));
+      const circularInvolved = new Set<string>();
+      for (const chain of depAnalysis.circularDependencies) {
+        for (const id of chain) circularInvolved.add(id);
       }
 
-      // --- Blocked-by classification ---
-      if (unmetDeps.length > 0) {
-        blockedBy.push({
-          id: task.id,
-          title: task.title,
-          priority: task.priority ?? 'medium',
-          status: task.status,
-          reason: unmetDeps.join(', '),
-        });
-        // Also add to plain "blocked" for the broader blocked group
-        blocked.push({
-          id: task.id,
-          title: task.title,
-          priority: task.priority ?? 'medium',
-          status: task.status,
-          reason: `${unmetDeps.length} unmet dep(s)`,
-        });
-        continue;
-      }
+      for (const task of children) {
+        // Skip terminal states
+        if (task.status === 'done' || task.status === 'cancelled') continue;
 
-      // --- Ready classification ---
-      ready.push({
-        id: task.id,
-        title: task.title,
-        priority: task.priority ?? 'medium',
-        status: task.status,
-        reason: 'ready',
-      });
-    }
+        const deps: string[] = task.depends ?? [];
+        const unmetDeps = deps.filter((d: string) => !completedIds.has(d));
+        const gates = task.gates ?? {};
 
-    // Build groups
-    const groups: OrchestrateReportGroup[] = [
-      {
-        group: 'ready',
-        label: 'Ready — parallel-safe, actionable now',
-        count: ready.length,
-        tasks: ready,
-      },
-      {
-        group: 'blocked',
-        label: 'Blocked — has unmet dependency counts',
-        count: blocked.length,
-        tasks: blocked,
-      },
-      {
-        group: 'blockedBy',
-        label: 'Blocked-by — lists specific blocker task IDs',
-        count: blockedBy.length,
-        tasks: blockedBy,
-      },
-      {
-        group: 'gateBlocked',
-        label: 'Gate-blocked — gates (implemented/testsPassed/qaPassed) not satisfied',
-        count: gateBlocked.length,
-        tasks: gateBlocked,
-      },
-      {
-        group: 'invalid',
-        label: 'Invalid — missing or circular dependencies',
-        count: invalid.length,
-        tasks: invalid,
-      },
-    ];
+        // --- Invalid classification ---
+        const hasMissingDeps = deps.some((d: string) => missingDepIds.has(d));
+        const isCircular = circularInvolved.has(task.id);
 
-    // Pagination
-    const pageSize = Math.min(params?.pageSize ?? DEFAULT_REPORT_PAGE_SIZE, MAX_REPORT_PAGE_SIZE);
-    const page = Math.max(params?.page ?? 1, 1);
-    const totalEntries = groups.reduce((sum, g) => sum + g.count, 0);
-    const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
-
-    // Apply pagination — slice tasks across all groups
-    if (totalEntries > pageSize) {
-      const startIdx = (page - 1) * pageSize;
-      const endIdx = startIdx + pageSize;
-      let globalIdx = 0;
-
-      for (const group of groups) {
-        const groupStart = globalIdx;
-        const groupEnd = globalIdx + group.tasks.length;
-
-        if (groupEnd <= startIdx || groupStart >= endIdx) {
-          // Group entirely outside the current page
-          group.tasks = [];
-        } else {
-          const sliceStart = Math.max(0, startIdx - groupStart);
-          const sliceEnd = Math.min(group.tasks.length, endIdx - groupStart);
-          group.tasks = group.tasks.slice(sliceStart, sliceEnd);
+        if (hasMissingDeps || isCircular) {
+          const reasons: string[] = [];
+          if (hasMissingDeps) reasons.push('missing-dep');
+          if (isCircular) reasons.push('circular-dep');
+          invalid.push({
+            id: task.id,
+            title: task.title,
+            priority: task.priority ?? 'medium',
+            status: task.status,
+            reason: reasons.join(', '),
+          });
+          continue;
         }
 
-        globalIdx = groupEnd;
-      }
-    }
+        // --- Gate-blocked classification ---
+        const requiredGates = ['implemented', 'testsPassed', 'qaPassed'];
+        const failedGates = requiredGates.filter((g) => gates[g] === false);
+        // A task is gate-blocked only if at least one required gate is explicitly false.
+        // Missing/undefined gates (common for pending tasks) do NOT classify as gate-blocked.
+        if (failedGates.length > 0) {
+          const gateSummary: Record<string, boolean> = {};
+          for (const g of requiredGates) {
+            gateSummary[g] = gates[g] === true;
+          }
+          gateBlocked.push({
+            id: task.id,
+            title: task.title,
+            priority: task.priority ?? 'medium',
+            status: task.status,
+            reason:
+              failedGates.length > 0
+                ? `gates-failed: ${failedGates.join(',')}`
+                : 'gates-incomplete',
+            gates: gateSummary,
+          });
+          continue;
+        }
 
-    return {
-      success: true,
-      data: {
-        epicId,
-        epicTitle: epic.title,
-        totalTasks: children.length,
-        groups,
-        pagination: {
-          page,
-          pageSize,
-          totalPages,
-          totalEntries,
+        // --- Blocked-by classification ---
+        if (unmetDeps.length > 0) {
+          blockedBy.push({
+            id: task.id,
+            title: task.title,
+            priority: task.priority ?? 'medium',
+            status: task.status,
+            reason: unmetDeps.join(', '),
+          });
+          // Also add to plain "blocked" for the broader blocked group
+          blocked.push({
+            id: task.id,
+            title: task.title,
+            priority: task.priority ?? 'medium',
+            status: task.status,
+            reason: `${unmetDeps.length} unmet dep(s)`,
+          });
+          continue;
+        }
+
+        // --- Ready classification ---
+        ready.push({
+          id: task.id,
+          title: task.title,
+          priority: task.priority ?? 'medium',
+          status: task.status,
+          reason: 'ready',
+        });
+      }
+
+      // Build groups
+      const groups: OrchestrateReportGroup[] = [
+        {
+          group: 'ready',
+          label: 'Ready — parallel-safe, actionable now',
+          count: ready.length,
+          tasks: ready,
         },
-      },
-    };
-  } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_GENERAL';
-    return engineError(code, (err as Error).message);
-  }
+        {
+          group: 'blocked',
+          label: 'Blocked — has unmet dependency counts',
+          count: blocked.length,
+          tasks: blocked,
+        },
+        {
+          group: 'blockedBy',
+          label: 'Blocked-by — lists specific blocker task IDs',
+          count: blockedBy.length,
+          tasks: blockedBy,
+        },
+        {
+          group: 'gateBlocked',
+          label: 'Gate-blocked — gates (implemented/testsPassed/qaPassed) not satisfied',
+          count: gateBlocked.length,
+          tasks: gateBlocked,
+        },
+        {
+          group: 'invalid',
+          label: 'Invalid — missing or circular dependencies',
+          count: invalid.length,
+          tasks: invalid,
+        },
+      ];
+
+      // Pagination
+      const pageSize = Math.min(params?.pageSize ?? DEFAULT_REPORT_PAGE_SIZE, MAX_REPORT_PAGE_SIZE);
+      const page = Math.max(params?.page ?? 1, 1);
+      const totalEntries = groups.reduce((sum, g) => sum + g.count, 0);
+      const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
+
+      // Apply pagination — slice tasks across all groups
+      if (totalEntries > pageSize) {
+        const startIdx = (page - 1) * pageSize;
+        const endIdx = startIdx + pageSize;
+        let globalIdx = 0;
+
+        for (const group of groups) {
+          const groupStart = globalIdx;
+          const groupEnd = globalIdx + group.tasks.length;
+
+          if (groupEnd <= startIdx || groupStart >= endIdx) {
+            // Group entirely outside the current page
+            group.tasks = [];
+          } else {
+            const sliceStart = Math.max(0, startIdx - groupStart);
+            const sliceEnd = Math.min(group.tasks.length, endIdx - groupStart);
+            group.tasks = group.tasks.slice(sliceStart, sliceEnd);
+          }
+
+          globalIdx = groupEnd;
+        }
+      }
+
+      return {
+        success: true,
+        data: {
+          epicId,
+          epicTitle: epic.title,
+          totalTasks: children.length,
+          groups,
+          pagination: {
+            page,
+            pageSize,
+            totalPages,
+            totalEntries,
+          },
+        },
+      };
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? 'E_GENERAL';
+      return engineError(code, (err as Error).message);
+    }
+  });
 }

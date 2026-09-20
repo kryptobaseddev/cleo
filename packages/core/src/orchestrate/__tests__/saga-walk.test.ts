@@ -32,9 +32,15 @@
  * @task T10969 — Add saga ready frontier tests
  */
 
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createTask, orchestrateReady, orchestrateWaves, sagas } from '@cleocode/core/internal';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { captureProjectScope, worktreeScope } from '../../project-scope.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
+import { getNativeTasksDb } from '../../store/sqlite.js';
+import { loadTasks, orchestrateStatus } from '../query-ops.js';
 
 let TEST_ROOT: string;
 let env: TestDbEnv;
@@ -193,6 +199,7 @@ afterEach(async () => {
     // ignore cleanup errors
   }
   await env.cleanup();
+  vi.unstubAllEnvs();
 });
 
 // ---------------------------------------------------------------------------
@@ -390,5 +397,62 @@ describe('sagas.sagaRollup — deep rollup with task-level progress (T10966)', (
   it('returns E_NOT_FOUND for a regular epic (not a saga)', async () => {
     const result = await sagas.sagaRollup(TEST_ROOT, { sagaId: 'T-REGULAR' });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('orchestrate query project ownership and diagnostics', () => {
+  function emptyProject(): string {
+    const root = join(TEST_ROOT, 'other');
+    mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(root, '.cleo', 'config.json'),
+      JSON.stringify({ verification: { enabled: false } }),
+    );
+    return root;
+  }
+
+  it('keeps explicit saga queries in their requested project despite contradictory ambient pins', async () => {
+    const other = emptyProject();
+    await getTaskAccessor(other);
+    vi.stubEnv('CLEO_ROOT', other);
+    vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    const result = await orchestrateReady('T-S', TEST_ROOT);
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({ epicId: 'T-S', total: 3 });
+    expect((await loadTasks(TEST_ROOT)).some((task) => task.id === 'T-S')).toBe(true);
+    expect(await loadTasks(other)).toEqual([]);
+    expect((await orchestrateStatus(undefined, other)).success).toBe(true);
+  });
+
+  it('captures the default root before awaits and keeps interleaved explicit reads distinct', async () => {
+    const other = emptyProject();
+    vi.stubEnv('CLEO_ROOT', TEST_ROOT);
+    vi.stubEnv('CLEO_DIR', join(TEST_ROOT, '.cleo'));
+    const captured = loadTasks();
+    vi.stubEnv('CLEO_ROOT', other);
+    vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    const [original, empty, explicit] = await Promise.all([
+      captured,
+      loadTasks(other),
+      loadTasks(TEST_ROOT),
+    ]);
+    expect(original.map((task) => task.id)).toContain('T-S');
+    expect(explicit.map((task) => task.id)).toContain('T-S');
+    expect(empty).toEqual([]);
+  });
+
+  it('surfaces a real storage read failure instead of reporting an empty healthy project', async () => {
+    const native = await worktreeScope.run(captureProjectScope(TEST_ROOT, undefined), () =>
+      getNativeTasksDb(TEST_ROOT),
+    );
+    native.exec('ALTER TABLE tasks_tasks RENAME TO tasks_tasks_unreadable_fixture');
+    try {
+      await expect(loadTasks(TEST_ROOT)).rejects.toThrow(/tasks_tasks/);
+      const result = await orchestrateStatus(undefined, TEST_ROOT);
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toMatch(/tasks_tasks/);
+    } finally {
+      native.exec('ALTER TABLE tasks_tasks_unreadable_fixture RENAME TO tasks_tasks');
+    }
   });
 });
