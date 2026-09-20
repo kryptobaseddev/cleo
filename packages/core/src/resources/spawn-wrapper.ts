@@ -844,7 +844,7 @@ export async function captureWrapped(
       if (diagnostic) error ??= diagnostic;
       terminate();
     };
-    const cancelled = () => stop('cancelled');
+    const cancelled = () => stop(Date.now() >= execution.deadlineAt ? 'deadline' : 'cancelled');
     const teardown = () => stop('teardown');
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = () => {

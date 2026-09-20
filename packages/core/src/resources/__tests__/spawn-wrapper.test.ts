@@ -685,6 +685,32 @@ describe.skipIf(process.platform === 'win32')('captured target lifecycle', () =>
     }
   });
 
+  it('preserves deadline expiry when an enclosing lifetime aborts before the capture timer', async () => {
+    _forceSystemdRunAvailable(false);
+    const controller = new AbortController();
+    const deadlineAt = Date.now() + 5000;
+    const pending = captureWrapped(process.execPath, ['-e', 'setInterval(()=>{},1000)'], {
+      cwd: tmpdir(),
+      env: {},
+      execution: { deadlineAt, signal: controller.signal },
+    });
+    const timer = setTimeout(() => {
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(deadlineAt);
+      try {
+        controller.abort(new Error('enclosing operation expired'));
+      } finally {
+        clock.mockRestore();
+      }
+    }, 100);
+    try {
+      const result = await pending;
+      expect(result.stopped).toBe('deadline');
+      expect(result.cleanupErrors).toEqual([]);
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
   it('bounds a descendant that keeps the target pipes open after its parent exits', async () => {
     _forceSystemdRunAvailable(false);
     const script =
