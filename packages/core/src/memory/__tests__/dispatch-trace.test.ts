@@ -25,7 +25,11 @@ import {
   createOperationExecutionContext,
   pendingBackgroundOpCount,
 } from '../../store/background-ops.js';
+import { getBrainAccessor } from '../../store/memory-accessor.js';
+import { closeAllDatabases } from '../../store/sqlite.js';
 import type { verifyAndStore } from '../extraction-gate.js';
+import * as graph from '../graph-auto-populate.js';
+import { storePattern } from '../patterns.js';
 
 // ---------------------------------------------------------------------------
 // Mock verifyAndStore so no real brain.db is opened
@@ -136,6 +140,8 @@ describe('resolver dispatch trace lifecycle', () => {
   let directory: string | undefined;
   afterEach(async () => {
     await awaitBackgroundOps();
+    await closeAllDatabases();
+    vi.restoreAllMocks();
     mockVerifyAndStore.mockReset();
     mockVerifyAndStore.mockResolvedValue({ action: 'stored', id: 'O-test', reason: 'fixture' });
     if (directory) await rm(directory, { recursive: true, force: true });
@@ -157,6 +163,14 @@ describe('resolver dispatch trace lifecycle', () => {
         JSON.stringify({ projectId: id, projectHash: id, projectRoot: root }),
       );
     }
+    await writeFile(
+      join(first, '.cleo/config.json'),
+      JSON.stringify({ brain: { autoCapture: true } }),
+    );
+    await writeFile(
+      join(second, '.cleo/config.json'),
+      JSON.stringify({ brain: { autoCapture: true } }),
+    );
     const cant = join(directory, 'base.cant');
     await writeFile(cant, 'Synthetic universal protocol');
     return { first, second, cant };
@@ -248,6 +262,124 @@ describe('resolver dispatch trace lifecycle', () => {
       expect(seen.toSorted()).toEqual([first, second].toSorted());
     } finally {
       db.close();
+    }
+  });
+
+  it.each([
+    'insert',
+    'duplicate',
+  ] as const)('owns the actual pattern graph descendant through completion (%s)', async (mode) => {
+    const { first } = await fixture();
+    const execution = createOperationExecutionContext(
+      {
+        projectRoot: first,
+        projectId: 'first',
+        actor: 'test',
+        operation: 'memory.pattern',
+        idempotencyKey: mode,
+      },
+      { budgetMs: 10000 },
+    );
+    const scope = { worktreeRoot: first, projectHash: 'first', execution };
+    const params = {
+      type: 'workflow' as const,
+      pattern: 'Recorded dispatch behavior',
+      context: 'Controlled trace',
+      _skipGate: true,
+    };
+    if (mode === 'duplicate') {
+      await worktreeScope.run(scope, () => storePattern(first, params));
+      await awaitBackgroundOps();
+    }
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const finished = Promise.withResolvers<void>();
+    const original = graph.upsertGraphNode;
+    const spy = vi.spyOn(graph, 'upsertGraphNode').mockImplementationOnce(async (...args) => {
+      entered.resolve();
+      await release.promise;
+      try {
+        return await original(...args);
+      } finally {
+        finished.resolve();
+      }
+    });
+    try {
+      const saved = await worktreeScope.run(scope, () => storePattern(first, params));
+      await entered.promise;
+      expect(saved.frequency).toBe(mode === 'duplicate' ? 2 : 1);
+      expect(pendingBackgroundOpCount()).toBeGreaterThan(0);
+      expect(spy.mock.calls[0]?.[0]).toBe(first);
+      expect(spy.mock.calls[0]?.[7]).toBe(execution);
+      let completed = false;
+      const barrier = awaitBackgroundOps().then(() => {
+        completed = true;
+      });
+      await Promise.resolve();
+      expect(completed).toBe(false);
+      release.resolve();
+      await barrier;
+      const row = await worktreeScope.run({ worktreeRoot: first, projectHash: 'first' }, async () =>
+        (await getBrainAccessor(first)).getPageNode(`pattern:${saved.id}`),
+      );
+      expect(row?.id).toBe(`pattern:${saved.id}`);
+      expect(pendingBackgroundOpCount()).toBe(0);
+    } finally {
+      release.resolve();
+      await finished.promise;
+    }
+  });
+
+  it('retains the committed pattern but refuses a cancelled delayed graph projection', async () => {
+    const { first } = await fixture();
+    const abort = new AbortController();
+    const execution = createOperationExecutionContext(
+      {
+        projectRoot: first,
+        projectId: 'first',
+        actor: 'test',
+        operation: 'memory.pattern',
+        idempotencyKey: 'cancel-graph',
+      },
+      { budgetMs: 10000, signal: abort.signal },
+    );
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const finished = Promise.withResolvers<void>();
+    const original = graph.upsertGraphNode;
+    vi.spyOn(graph, 'upsertGraphNode').mockImplementationOnce(async (...args) => {
+      entered.resolve();
+      await release.promise;
+      try {
+        return await original(...args);
+      } finally {
+        finished.resolve();
+      }
+    });
+    try {
+      const saved = await worktreeScope.run(
+        { worktreeRoot: first, projectHash: 'first', execution },
+        () =>
+          storePattern(first, {
+            type: 'workflow',
+            pattern: 'Cancelled graph only',
+            context: 'Committed row retained',
+            _skipGate: true,
+          }),
+      );
+      await entered.promise;
+      abort.abort(new Error('Cancel graph after pattern commit'));
+      release.resolve();
+      await awaitBackgroundOps();
+      await finished.promise;
+      const accessor = await worktreeScope.run({ worktreeRoot: first, projectHash: 'first' }, () =>
+        getBrainAccessor(first),
+      );
+      expect((await accessor.getPattern(saved.id))?.pattern).toBe('Cancelled graph only');
+      expect(await accessor.getPageNode(`pattern:${saved.id}`)).toBeNull();
+    } finally {
+      release.resolve();
+      await finished.promise;
     }
   });
 
