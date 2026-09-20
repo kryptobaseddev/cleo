@@ -9,10 +9,11 @@
  * @epic T768
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
+  AcceptanceGate,
   CommandGate,
   FileGate,
   HttpGate,
@@ -20,7 +21,9 @@ import type {
   ManualGate,
   TestGate,
 } from '@cleocode/contracts';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { _forceSystemdRunAvailable } from '../../resources/spawn-wrapper.js';
+import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { runGates } from '../gate-runner.js';
 
 // ─── Setup ────────────────────────────────────────────────────────────────
@@ -30,6 +33,14 @@ let projectRoot: string;
 beforeAll(async () => {
   projectRoot = await mkdtemp(join(tmpdir(), 'cleo-gate-runner-'));
   await writeFile(join(projectRoot, 'package.json'), JSON.stringify({ name: 'gate-fixture' }));
+  await mkdir(join(projectRoot, '.cleo'));
+  await writeFile(
+    join(projectRoot, '.cleo/project-info.json'),
+    JSON.stringify({
+      projectId: 'gate-fixture',
+      projectHash: 'gate-fixture-path',
+    }),
+  );
 });
 
 afterAll(async () => {
@@ -166,26 +177,28 @@ describe('gate-runner — command gate', () => {
 });
 
 describe('gate-runner — lint gate', () => {
-  it('skips lint gate gracefully when command not found', async () => {
+  it('returns an incomplete observation when the requested lint tool cannot start', async () => {
     // This test verifies that lint gates handle missing tools gracefully
     const gates: LintGate[] = [
       {
         kind: 'lint',
         description: 'biome-format — validates lint gate',
-        linter: 'biome',
-        paths: ['packages/core/src/tasks/gate-runner.ts'],
-        mode: 'format',
+        tool: 'biome',
+        args: ['check', '.'],
+        expect: 'clean',
       },
     ];
 
-    const results = await runGates(gates, { projectRoot });
+    const results = await runGates(gates, { projectRoot, env: { PATH: projectRoot } });
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       kind: 'lint',
     });
-    // Should either pass or fail depending on whether biome is configured
-    expect(['pass', 'fail', 'warn', 'skipped', 'error']).toContain(results[0].result);
+    expect(results[0]).toMatchObject({
+      result: 'error',
+      execution: { started: false, exitCode: null },
+    });
   });
 });
 
@@ -222,7 +235,7 @@ describe('gate-runner — manual gate', () => {
       },
     ];
 
-    const results = await runGates(gates, { projectRoot }, { skipManual: true });
+    const results = await runGates(gates, { projectRoot, skipManual: true });
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
@@ -240,7 +253,7 @@ describe('gate-runner — manual gate', () => {
       },
     ];
 
-    const results = await runGates(gates, { projectRoot }, { skipManual: false });
+    const results = await runGates(gates, { projectRoot, skipManual: false });
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
@@ -252,7 +265,7 @@ describe('gate-runner — manual gate', () => {
 
 describe('gate-runner — multi-gate execution', () => {
   it('runs multiple gates sequentially', async () => {
-    const gates = [
+    const gates: AcceptanceGate[] = [
       {
         kind: 'test' as const,
         description: 'test-1 — multi-gate test gate',
@@ -272,13 +285,9 @@ describe('gate-runner — multi-gate execution', () => {
         description: 'manual-1 — multi-gate manual gate',
         prompt: 'Review test',
       },
-    ] as const;
+    ];
 
-    const results = await runGates(
-      gates as unknown as Parameters<typeof runGates>[0],
-      { projectRoot },
-      { skipManual: true },
-    );
+    const results = await runGates(gates, { projectRoot, skipManual: true });
 
     expect(results).toHaveLength(3);
     expect(results[0].result).toBe('pass');
@@ -314,7 +323,7 @@ describe('gate-runner — multi-gate execution', () => {
 
 describe('gate-runner — integration with contract types', () => {
   it('validates all gate kinds together', async () => {
-    const gates = [
+    const gates: AcceptanceGate[] = [
       {
         kind: 'test' as const,
         description: 'test-1 — integration test gate',
@@ -334,13 +343,9 @@ describe('gate-runner — integration with contract types', () => {
         description: 'manual-1 — integration manual gate',
         prompt: 'Review manual',
       },
-    ] as const;
+    ];
 
-    const results = await runGates(
-      gates as unknown as Parameters<typeof runGates>[0],
-      { projectRoot },
-      { skipManual: true },
-    );
+    const results = await runGates(gates, { projectRoot, skipManual: true });
 
     expect(results.length).toBeGreaterThanOrEqual(3);
     expect(results.every((r) => r.result)).toBe(true);
@@ -429,5 +434,310 @@ describe('gate-runner — a killed gate is not a failed gate (gh#1270)', () => {
     const results = await runGates(gates, { projectRoot });
 
     expect(results[0]?.result).toBe('fail');
+  });
+});
+
+describe('gate runner target verdict and shared execution (T12292)', () => {
+  it('does not pass a missing executable merely because exit1 was expected', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'command',
+          description: 'missing target',
+          cmd: '/no-such-cleo-gate-executable',
+          exitCode: 1,
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toContain('ENOENT');
+  });
+
+  it('uses actual nonzero target exit codes without inventing exit1', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'command',
+          description: 'actual exit7',
+          cmd: process.execPath,
+          args: ['-e', 'process.exit(7)'],
+          exitCode: 7,
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('pass');
+  });
+
+  it('retains a missing harness as an unmet test requirement', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'missing harness',
+          command: process.execPath,
+          args: [join(projectRoot, 'missing-harness.mjs')],
+          expect: 'exit0',
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('fail');
+    expect(result?.evidence).toContain('MODULE_NOT_FOUND');
+  });
+
+  it('does not silently accept an unmeasured minimum test count', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'zero tests cannot prove minimum',
+          command: process.execPath,
+          args: ['-e', 'process.exit(0)'],
+          expect: 'exit0',
+          minCount: 5,
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/count/i);
+  });
+});
+
+describe('gate runner immutable lifetime and bounded evidence', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    _forceSystemdRunAvailable(undefined);
+  });
+
+  function execution(options: Parameters<typeof createOperationExecutionContext>[1] = {}) {
+    return createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'gate-test',
+        operation: 'tasks.verify',
+        idempotencyKey: 'gate-fixture-check',
+      },
+      options,
+    );
+  }
+
+  it('does not renew the shared deadline for subsequent gates', async () => {
+    _forceSystemdRunAvailable(false);
+    const context = execution({ budgetMs: 150 });
+    const marker = join(projectRoot, 'late-deadline-marker');
+    try {
+      const results = await runGates(
+        [
+          {
+            kind: 'command',
+            description: 'slow first',
+            cmd: process.execPath,
+            args: ['-e', 'setInterval(()=>{},1000)'],
+            timeoutMs: 1800000,
+          },
+          {
+            kind: 'command',
+            description: 'must not start',
+            cmd: process.execPath,
+            args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)},'late')`],
+            timeoutMs: 1800000,
+          },
+        ],
+        { projectRoot, execution: context },
+      );
+      expect(results.map((result) => result.result)).toEqual(['error', 'error']);
+      expect(results[0]?.execution?.stopped).toBe('deadline');
+      await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      context.close();
+    }
+  });
+
+  it('rejects a project override outside the captured operation before execution', async () => {
+    const context = execution();
+    try {
+      await expect(
+        runGates(
+          [
+            {
+              kind: 'command',
+              description: 'wrong project',
+              cmd: process.execPath,
+              args: ['-e', 'process.exit(0)'],
+            },
+          ],
+          { projectRoot: join(projectRoot, 'other'), execution: context },
+        ),
+      ).rejects.toThrow(/project.*captured/i);
+    } finally {
+      context.close();
+    }
+  });
+
+  it('retains cancellation as interruption and prevents later gates', async () => {
+    _forceSystemdRunAvailable(false);
+    const controller = new AbortController();
+    const context = execution({ budgetMs: 2000, signal: controller.signal });
+    const timer = setTimeout(() => controller.abort(new Error('fixture cancellation')), 100);
+    try {
+      const results = await runGates(
+        [
+          {
+            kind: 'command',
+            description: 'cancel first',
+            cmd: process.execPath,
+            args: ['-e', 'setInterval(()=>{},1000)'],
+          },
+          { kind: 'manual', description: 'later', prompt: 'later manual' },
+        ],
+        { projectRoot, execution: context },
+      );
+      expect(results.map((result) => result.result)).toEqual(['error', 'error']);
+      expect(results[0]?.execution?.stopped).toBe('cancelled');
+    } finally {
+      clearTimeout(timer);
+      context.close();
+    }
+  });
+
+  it('charges aggregate admission before the next gate starts', async () => {
+    const context = execution({ resources: { maxItems: 1 } });
+    try {
+      const results = await runGates(
+        [
+          { kind: 'manual', description: 'first', prompt: 'first' },
+          { kind: 'manual', description: 'second', prompt: 'second' },
+        ],
+        { projectRoot, execution: context },
+      );
+      expect(results.map((result) => result.result)).toEqual(['skipped', 'error']);
+      expect(results[1]?.errorMessage).toMatch(/resource|item/i);
+    } finally {
+      context.close();
+    }
+  });
+
+  it('captures exact argv, environment, cwd and requirement before caller edits', async () => {
+    _forceSystemdRunAvailable(false);
+    const gate: CommandGate = {
+      kind: 'command',
+      description: 'captured gate',
+      req: 'PARTNER-EXACT',
+      cmd: process.execPath,
+      args: [
+        '-e',
+        'process.stdout.write(JSON.stringify({cwd:process.cwd(),value:process.env.GATE_VALUE,arg:process.argv[1]}))',
+        'quoted | ü',
+      ],
+    };
+    const env = { GATE_VALUE: 'original' };
+    const pending = runGates([gate], { projectRoot, env });
+    gate.req = 'MUTATED';
+    gate.args = ['-e', 'process.exit(9)'];
+    env.GATE_VALUE = 'changed';
+    const [result] = await pending;
+    expect(result).toMatchObject({ req: 'PARTNER-EXACT', result: 'pass' });
+    expect(JSON.parse(result?.execution?.stdout ?? '{}')).toEqual({
+      cwd: projectRoot,
+      value: 'original',
+      arg: 'quoted | ü',
+    });
+  });
+
+  it('rejects output truncation rather than accepting a prefix as proof', async () => {
+    _forceSystemdRunAvailable(false);
+    const [result] = await runGates(
+      [
+        {
+          kind: 'command',
+          description: 'oversized output',
+          cmd: process.execPath,
+          args: ['-e', "process.stdout.write('x'.repeat(2048))"],
+        },
+      ],
+      { projectRoot, maxOutputBytes: 32 },
+    );
+    expect(result).toMatchObject({
+      result: 'error',
+      execution: { stopped: 'output-limit', outputTruncated: true },
+    });
+  });
+
+  it('fails resource admission truthfully when requested native limits cannot be established', async () => {
+    _forceSystemdRunAvailable(false);
+    const [result] = await runGates(
+      [
+        {
+          kind: 'command',
+          description: 'bounded only',
+          cmd: process.execPath,
+          args: ['-e', 'process.exit(0)'],
+        },
+      ],
+      { projectRoot, memoryMaxMb: 4096, tasksMax: 256 },
+    );
+    expect(result).toMatchObject({
+      result: 'error',
+      execution: { started: false, stopped: 'resource-limit' },
+    });
+  });
+
+  it('does not convert a file read diagnostic into empty successful content', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'file',
+          description: 'directory is not content',
+          path: projectRoot,
+          assertions: [{ type: 'contains', value: '' }],
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/EISDIR/);
+  });
+
+  it('enforces file byte bounds for hashes as well as text predicates', async () => {
+    const path = join(projectRoot, 'oversized.bin');
+    await writeFile(path, Buffer.alloc(100, 1));
+    const [result] = await runGates(
+      [
+        {
+          kind: 'file',
+          description: 'bounded digest',
+          path,
+          assertions: [{ type: 'sha256', value: 'a'.repeat(64) }],
+        },
+      ],
+      { projectRoot, maxOutputBytes: 10 },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/byte limit/);
+  });
+
+  it('retains HTTP failure and oversized bodies as incomplete observations', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockRejectedValueOnce(new Error('fixture network failure'))
+        .mockResolvedValueOnce(new Response('x'.repeat(100))),
+    );
+    const gate: HttpGate = {
+      kind: 'http',
+      description: 'bounded response',
+      url: 'https://fixture.invalid',
+      status: 200,
+    };
+    const [failed] = await runGates([gate], { projectRoot });
+    expect(failed?.result).toBe('error');
+    const [oversized] = await runGates([gate], { projectRoot, maxOutputBytes: 10 });
+    expect(oversized?.result).toBe('error');
+    expect(oversized?.errorMessage).toMatch(/byte limit/);
   });
 });

@@ -2,11 +2,11 @@
  * Acceptance gate discriminated union and result types.
  *
  * A machine-verifiable acceptance gate. Gates coexist with free-text criteria
- * in `Task.acceptance`; the runtime executes only gates and records results in
- * `task.verification.gateResults` and in the `lifecycle_gate_results` DB table.
+ * in `Task.acceptance`. The runner returns observed results; persistence and
+ * completion binding require the caller's explicit verification workflow.
  *
  * Six gate kinds are supported:
- * - `test`    — run a command and assert exit code / test-count
+ * - `test`    — run a command and assert exit code; unmeasured test-count requirements remain errors
  * - `file`    — assert properties of a file on disk
  * - `command` — run any CLI command and assert exit code / stdout
  * - `lint`    — run a static-analysis tool and require a clean result
@@ -18,6 +18,38 @@
  * @task T779
  * @see {@link https://github.com/kryptobaseddev/cleo} T760 RCASD hardening
  */
+
+import type { OperationExecutionContext } from './jobs.js';
+import type {
+  ProcessCaptureOptions,
+  ProcessCaptureResult,
+  SystemdControlContext,
+} from './resource-governor.js';
+
+/**
+ * Captured options for evaluating acceptance gates without renewing operation authority.
+ * @remarks An absent execution context receives a two-second shared foreground budget.
+ * Per-gate timeouts can tighten it; long work requires explicit runtime admission.
+ * @example
+ * ```typescript
+ * const options: AcceptanceGateRunOptions = { projectRoot: '/project', execution };
+ * ```
+ */
+export interface AcceptanceGateRunOptions
+  extends Pick<ProcessCaptureOptions, 'memoryMaxMb' | 'tasksMax'> {
+  /** Explicit project root, or the captured operation's project root. */
+  projectRoot?: string;
+  /** Manual gates remain skipped and never become machine proof. */
+  skipManual?: boolean;
+  /** Original admitted operation, including project identity, deadline and cancellation. */
+  execution?: OperationExecutionContext;
+  /** Explicit captured environment; defaults to a copy of the calling environment. */
+  env?: Readonly<Record<string, string | undefined>>;
+  /** Aggregate process output and file-content read bound per gate. */
+  maxOutputBytes?: number;
+  /** Existing manager context, separate from the child environment. */
+  systemdControl?: SystemdControlContext;
+}
 
 // ─── Base ────────────────────────────────────────────────────────────────────
 
@@ -48,7 +80,7 @@ export interface GateBase {
   /**
    * Gate timeout in milliseconds.
    *
-   * @defaultValue 120_000
+   * @defaultValue 60_000 (further bounded by the shared operation deadline)
    */
   timeoutMs?: number;
 }
@@ -56,8 +88,8 @@ export interface GateBase {
 // ─── Variants ────────────────────────────────────────────────────────────────
 
 /**
- * Run a command; pass when exit code is 0 and when at least `minCount`
- * tests have run. Designed for test suites:
+ * Run a command and verify its actual exit status. Positive `minCount` requires
+ * a structured test-count capability and currently returns an explicit error. Designed for test suites:
  * `{ kind: 'test', command: 'pnpm test', expect: 'pass' }`.
  */
 export interface TestGate extends GateBase {
@@ -71,7 +103,7 @@ export interface TestGate extends GateBase {
    * - `"exit0"`: exit code 0 only (permissive mode).
    */
   expect: 'pass' | 'exit0';
-  /** Minimum number of tests that must have run. */
+  /** Minimum test count; unsupported count evidence must return error, never infer a count from exit zero. */
   minCount?: number;
   /** Working directory relative to project root. Default `.`. */
   cwd?: string;
@@ -181,8 +213,8 @@ export interface LintGate extends GateBase {
 
 /**
  * Hit a URL and assert HTTP status and optional body match. For tasks that
- * ship a webapp or API. The runner starts a server only if `startCommand`
- * is set and tears it down after the probe.
+ * ship a webapp or API. Probing an existing service is supported; `startCommand`
+ * currently returns an explicit error pending an admitted owned service lifetime.
  */
 export interface HttpGate extends GateBase {
   kind: 'http';
@@ -356,6 +388,8 @@ export interface AcceptanceGateResult {
   result: 'pass' | 'fail' | 'warn' | 'skipped' | 'error';
   /** Wall-clock duration of the gate execution in milliseconds. */
   durationMs: number;
+  /** Actual process outcome and containment evidence; wrapper status is not target proof. */
+  execution?: ProcessCaptureResult;
   /**
    * Typed kind-specific detail payload.
    *
