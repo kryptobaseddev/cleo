@@ -233,9 +233,10 @@ export function packedEnvironment(root) {
  * @param {import('@cleocode/contracts/capabilities').ProviderRepairFixtureState} after - Fresh independent post-phase snapshot.
  * @param {import('@cleocode/contracts/capabilities').ProviderRepairFixtureIdentity} identity - Seed identities held by the verifier.
  * @param {import('@cleocode/contracts/capabilities').ProviderRepairVerificationPhase} phase - Required data postcondition.
+ * @param {readonly import('@cleocode/contracts/capabilities').ProviderRepairCliObservation[]} commands - Actual recorded CLI executions required to authenticate any stale-replan chain.
  * @returns {import('@cleocode/contracts/capabilities').ProviderRepairPhaseEvidence} Authentic operation identities; command delivery remains a separate oracle.
  */
-export function assertPackedProviderRepairState(before, after, identity, phase) {
+export function assertPackedProviderRepairState(before, after, identity, phase, commands = []) {
   const image = (state, id) => {
     const rows = state.observations.filter((row) => row.id === id);
     if (rows.length !== 1) throw new Error(`Expected exactly one retained observation: ${id}`);
@@ -311,12 +312,82 @@ export function assertPackedProviderRepairState(before, after, identity, phase) 
       throw new Error('Prepared job input hash differs');
     return { job, proposal: JSON.parse(job.proposalJson) };
   });
-  const repairs = jobs.filter(
-    ({ proposal }) =>
-      proposal.action?.operation === 'knowledge.quarantine-stubs' &&
-      proposal.identity?.actor === identity.actor,
+  const scopedResources = (proposal) =>
+    proposal.projectId === identity.projectId &&
+    proposal.identity?.projectId === identity.projectId &&
+    proposal.identity.actor === identity.actor &&
+    proposal.identity.operation === 'doctor.knowledge' &&
+    proposal.identity.idempotencyKey === proposal.id &&
+    proposal.resources?.length === noiseIds.length &&
+    new Set(proposal.resources.map((resource) => resource.id)).size === noiseIds.length &&
+    proposal.resources.every(
+      (resource) =>
+        noiseIds.includes(resource.id) &&
+        resource.kind === 'observation' &&
+        resource.role === 'affected',
+    );
+  if (
+    jobs.some(
+      ({ job, proposal }) =>
+        job.status === 'complete' &&
+        !['knowledge.quarantine-stubs', 'knowledge.rollback'].includes(
+          proposal.action?.operation,
+        ) &&
+        !before.jobs.some((original) => JSON.stringify(original) === JSON.stringify(job)),
+    )
+  )
+    throw new Error('Additional committed effects are outside the verified repair lifecycle');
+  const allRepairs = jobs.filter(
+    ({ proposal }) => proposal.action?.operation === 'knowledge.quarantine-stubs',
   );
-  if (repairs.length !== 1) throw new Error('Expected one authentic prepared quarantine job');
+  const failed = allRepairs.filter(({ job }) => job.status === 'failed');
+  const commandFor = (job, proposal) =>
+    commands.filter((command) => {
+      const flag = (name, value) =>
+        command.arguments.filter((arg) => arg === name).length === 1 &&
+        command.arguments[command.arguments.indexOf(name) + 1] === value;
+      return (
+        command.arguments[0] === 'doctor' &&
+        command.arguments[1] === 'knowledge' &&
+        flag('--apply', job.id) &&
+        flag('--actor', identity.actor) &&
+        flag('--proposal-id', proposal.id)
+      );
+    });
+  for (const { job, proposal } of failed) {
+    const outcome = JSON.parse(job.resultJson ?? 'null');
+    const metadata = after.metadata.filter(
+      (entry) => entry.key === `knowledge_repair_attempt:${outcome?.id}`,
+    );
+    if (
+      !scopedResources(proposal) ||
+      !outcome ||
+      outcome.jobId !== job.id ||
+      outcome.proposalId !== proposal.id ||
+      outcome.proposalHash !== job.proposalHash ||
+      outcome.identity?.projectId !== identity.projectId ||
+      outcome.identity.actor !== identity.actor ||
+      outcome.status !== 'failed' ||
+      outcome.errorCode !== 'E_REPAIR_STALE' ||
+      metadata.length !== 1 ||
+      !equal(JSON.parse(metadata[0].valueJson), outcome) ||
+      after.metadata.some((entry) => entry.key === `knowledge_repair:${proposal.id}`) ||
+      !commandFor(job, proposal).some((command) => {
+        if (command.exitCode === null || command.exitCode === 0) return false;
+        const output = JSON.parse(command.stdout);
+        return (
+          output.success === false &&
+          equal(output.error?.details?.attemptFailure?.attempt ?? {}, outcome)
+        );
+      })
+    )
+      throw new Error('Prior stale attempt lacks matching scoped CLI and durable outcome evidence');
+  }
+  const repairs = allRepairs.filter(
+    ({ job, proposal }) => job.status !== 'failed' && proposal.identity?.actor === identity.actor,
+  );
+  if (repairs.length !== 1 || allRepairs.length !== failed.length + 1)
+    throw new Error('Expected one authentic prepared quarantine job');
   const { job, proposal } = repairs[0];
   if (
     proposal.projectId !== identity.projectId ||
@@ -342,6 +413,12 @@ export function assertPackedProviderRepairState(before, after, identity, phase) 
     return matches[0] ? JSON.parse(matches[0].valueJson) : null;
   };
   const stored = metadata(`knowledge_repair:${proposal.id}`);
+  const rollbackJobs = jobs.filter(
+    ({ job, proposal }) =>
+      job.status === 'complete' && proposal.action?.operation === 'knowledge.rollback',
+  );
+  if ((phase !== 'rolled-back' && rollbackJobs.length) || rollbackJobs.length > 1)
+    throw new Error('Additional committed rollback effects are outside the verified phase');
   if (phase === 'prepared') {
     if (
       job.status !== 'pending' ||
@@ -380,6 +457,24 @@ export function assertPackedProviderRepairState(before, after, identity, phase) 
     JSON.stringify(JSON.parse(job.resultJson ?? 'null')) !== JSON.stringify(receipt)
   )
     throw new Error('Committed repair and authentic job receipt do not agree');
+  if (
+    failed.length &&
+    !commandFor(job, proposal).some((command) => {
+      if (command.exitCode !== 0) return false;
+      const output = JSON.parse(command.stdout);
+      return output.success === true && equal(output.data ?? {}, receipt);
+    })
+  )
+    throw new Error('Current replan lacks an actual matching successful apply receipt');
+  for (const original of before.jobs) {
+    const current = after.jobs.find((entry) => entry.id === original.id);
+    if (
+      !current ||
+      current.proposalJson !== original.proposalJson ||
+      current.proposalHash !== original.proposalHash
+    )
+      throw new Error('Prior immutable operation history changed');
+  }
   const mutations = receipt.execution.resources ?? [];
   if (
     mutations.length !== noiseIds.length ||

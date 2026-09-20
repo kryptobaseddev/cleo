@@ -965,6 +965,115 @@ describe('independent provider repair data oracle', () => {
       'retained observation',
     );
   });
+  function staleReplanFixture() {
+    const f = fixture();
+    f.repair();
+    const oldProposal = {
+      ...JSON.parse(f.job.proposalJson),
+      id: 'stale-proposal',
+      identity: { ...JSON.parse(f.job.proposalJson).identity, idempotencyKey: 'stale-proposal' },
+    };
+    const proposalJson = JSON.stringify(oldProposal);
+    const prior = {
+      id: 'stale-job',
+      status: 'failed',
+      proposalJson,
+      proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
+      resultJson: null,
+    };
+    const outcome = {
+      id: 'stale-job:1',
+      jobId: prior.id,
+      proposalId: oldProposal.id,
+      proposalHash: prior.proposalHash,
+      identity: oldProposal.identity,
+      status: 'failed',
+      errorCode: 'E_REPAIR_STALE',
+    };
+    prior.resultJson = JSON.stringify(outcome);
+    f.after.jobs.unshift(prior);
+    f.after.metadata.push({
+      key: 'knowledge_repair_attempt:stale-job:1',
+      valueJson: prior.resultJson,
+    });
+    const commands = [
+      {
+        arguments: [
+          'doctor',
+          'knowledge',
+          '--apply',
+          prior.id,
+          '--actor',
+          identity.actor,
+          '--proposal-id',
+          oldProposal.id,
+        ],
+        exitCode: 6,
+        stdout: JSON.stringify({
+          success: false,
+          error: { details: { attemptFailure: { attempt: outcome } } },
+        }),
+      },
+      {
+        arguments: [
+          'doctor',
+          'knowledge',
+          '--apply',
+          f.job.id,
+          '--actor',
+          identity.actor,
+          '--proposal-id',
+          f.receipt.id,
+        ],
+        exitCode: 0,
+        stdout: JSON.stringify({ success: true, data: f.receipt }),
+      },
+    ];
+    return { ...f, prior, commands };
+  }
+  it('authenticates a failed stale attempt followed by one scoped committed replan', () => {
+    const f = staleReplanFixture();
+    expect(
+      assertPackedProviderRepairState(f.before, f.after, identity, 'repaired', f.commands)
+        .receiptId,
+    ).toBe(f.receipt.id);
+    f.rollback();
+    expect(
+      assertPackedProviderRepairState(f.before, f.after, identity, 'rolled-back', f.commands)
+        .rollbackReceiptId,
+    ).toBe('recovery-authentic');
+  });
+  it.each([
+    'missing-command',
+    'wrong-actor',
+    'wrong-proposal',
+    'forged-outcome',
+    'extra-commit',
+    'other-operation',
+  ])('rejects unproven stale-replan history: %s', (kind) => {
+    const f = staleReplanFixture();
+    if (kind === 'missing-command') f.commands.shift();
+    if (kind === 'wrong-actor') f.commands[0].arguments[5] = 'another-actor';
+    if (kind === 'wrong-proposal') f.commands[1].arguments[7] = 'another-proposal';
+    if (kind === 'forged-outcome') f.after.metadata.at(-1).valueJson = '{}';
+    if (kind === 'extra-commit') f.after.jobs.push({ ...f.job, id: 'extra-committed-job' });
+    if (kind === 'other-operation') {
+      const proposal = {
+        ...JSON.parse(f.job.proposalJson),
+        action: { operation: 'unrelated.mutation' },
+      };
+      const proposalJson = JSON.stringify(proposal);
+      f.after.jobs.push({
+        ...f.job,
+        id: 'other-operation-job',
+        proposalJson,
+        proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
+      });
+    }
+    expect(() =>
+      assertPackedProviderRepairState(f.before, f.after, identity, 'repaired', f.commands),
+    ).toThrow();
+  });
   it('requires separate durable rollback evidence and preserves the original receipt', () => {
     const f = fixture();
     f.repair();
