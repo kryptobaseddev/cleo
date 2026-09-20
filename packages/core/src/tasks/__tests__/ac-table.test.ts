@@ -13,8 +13,12 @@
  * @decision D013
  */
 
-import type { AcRow } from '@cleocode/contracts';
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+import type { AcceptanceGate, AcRow } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
+import { createTestDb, seedTasks } from '../../store/__tests__/test-db-helper.js';
+import { getNativeTasksDb } from '../../store/sqlite.js';
 import {
   acItemToText,
   acTextHash,
@@ -28,7 +32,10 @@ import {
   evidenceBoundSourceKey,
   planAcUpdate,
   planChildProjectionRebuild,
+  rebuildChildProjectionAc,
+  removeChildProjectionAc,
 } from '../ac-table.js';
+import { reqAdd } from '../req.js';
 
 /**
  * Build a synthetic AC row matching the shape `getAcRows` returns.
@@ -439,5 +446,133 @@ describe('planChildProjectionRebuild', () => {
       }),
     ]);
     expect(result.legacyAcceptance).toEqual(['manual AC', 'Complete child C1: Moved child']);
+  });
+});
+
+describe('child projection typed gate preservation', () => {
+  const gate: AcceptanceGate = {
+    kind: 'test',
+    req: 'PARENT-PROJECTION',
+    description: 'Preserve executable requirement',
+    command: 'node',
+    args: ['test.mjs'],
+    expect: 'exit0',
+  };
+  function typedRow(): AcRow {
+    const generated = buildFreshAcRows('P1', [gate])[0]!;
+    return { ...row('P1', 1, generated.text), ...generated };
+  }
+
+  it('rebuilds mixed typed and literal JSON criteria without demoting or inferring gates', () => {
+    const typed = typedRow();
+    const literal = row('P1', 2, typed.text, 'literal-json');
+    const planned = planChildProjectionRebuild(
+      'P1',
+      [{ id: 'C1', title: 'Child' }],
+      [typed, literal],
+    );
+    expect(planned.legacyAcceptance).toEqual([gate, literal.text, 'Complete child C1: Child']);
+    expect(planned.plan.inserts[0]).toMatchObject({
+      id: typed.id,
+      kind: 'evidence_bound',
+      sourceKey: typed.sourceKey,
+    });
+  });
+
+  it.each([
+    'payload',
+    'sourceKey',
+    'contentHash',
+    'extra-field',
+  ] as const)('refuses malformed canonical typed row %s before a rebuild plan is used', (change) => {
+    const typed = typedRow();
+    if (change === 'payload') typed.text = '{bad';
+    if (change === 'sourceKey') typed.sourceKey = 'evidence:another-owner';
+    if (change === 'contentHash') typed.contentHash = '0'.repeat(64);
+    if (change === 'extra-field') typed.text = typed.text.replace('}', ',"unsupported":true}');
+    expect(() =>
+      planChildProjectionRebuild('P1', [{ id: 'C1', title: 'Child' }], [typed]),
+    ).toThrow();
+  });
+
+  it('preserves typed payload in real rebuild/removal transactions and rolls back projection faults', async () => {
+    const env = await createTestDb();
+    try {
+      await seedTasks(env.accessor, [
+        {
+          id: 'P1',
+          title: 'Parent',
+          type: 'epic',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'C1',
+          parentId: 'P1',
+          title: 'Child',
+          type: 'task',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      await reqAdd(env.tempDir, 'P1', gate, env.accessor);
+      const [typed] = await env.accessor.getAcRows('P1');
+      await env.accessor.transaction((tx) =>
+        tx.insertAcBindings([
+          {
+            id: 'typed-evidence',
+            acId: typed!.id,
+            evidenceAtomId: 'synthetic-evidence',
+            bindingType: 'satisfies',
+          },
+        ]),
+      );
+      const bindings = await env.accessor.getAcBindings([typed!.id]);
+      const persisted = () => {
+        const child = spawnSync(
+          process.execPath,
+          [
+            '--input-type=module',
+            '-e',
+            "import { DatabaseSync } from 'node:sqlite'; const db=new DatabaseSync(process.argv[1],{readOnly:true}); try { process.stdout.write(db.prepare(\"SELECT acceptance_json FROM tasks_tasks WHERE id='P1'\").get().acceptance_json); } finally { db.close(); }",
+            join(env.cleoDir, 'cleo.db'),
+          ],
+          { encoding: 'utf8', timeout: 10000 },
+        );
+        expect(child.status, child.stderr).toBe(0);
+        return JSON.parse(child.stdout);
+      };
+      await env.accessor.transaction((tx) =>
+        rebuildChildProjectionAc(
+          tx,
+          'P1',
+          [{ id: 'C1', title: 'Child' }],
+          new Date().toISOString(),
+        ),
+      );
+      expect(persisted()).toEqual([gate, 'Complete child C1: Child']);
+      expect(await env.accessor.getAcBindings([typed!.id])).toEqual(bindings);
+      const before = await env.accessor.getAcRows('P1');
+      getNativeTasksDb(env.tempDir)!.exec(
+        "CREATE TRIGGER reject_projection BEFORE UPDATE OF acceptance_json ON tasks_tasks BEGIN SELECT RAISE(ABORT,'projection fault'); END",
+      );
+      await expect(
+        env.accessor.transaction((tx) =>
+          removeChildProjectionAc(tx, 'P1', 'C1', 'archive', new Date().toISOString()),
+        ),
+      ).rejects.toThrow();
+      expect(await env.accessor.getAcRows('P1')).toEqual(before);
+      expect(persisted()).toEqual([gate, 'Complete child C1: Child']);
+      getNativeTasksDb(env.tempDir)!.exec('DROP TRIGGER reject_projection');
+      await env.accessor.transaction((tx) =>
+        removeChildProjectionAc(tx, 'P1', 'C1', 'delete', new Date().toISOString()),
+      );
+      expect(persisted()).toEqual([gate]);
+      expect(await env.accessor.getAcBindings([typed!.id])).toEqual(bindings);
+    } finally {
+      await env.cleanup();
+    }
   });
 });
