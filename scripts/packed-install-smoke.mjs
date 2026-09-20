@@ -5,7 +5,7 @@
  * Provider workflows and publication remain unassessed.
  */
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -18,8 +18,9 @@ import {
 } from 'node:fs';
 import { createConnection, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { captureWrapped } from '../packages/core/dist/resources/spawn-wrapper.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLISHED_PKGS = [
@@ -44,21 +45,133 @@ const PUBLISHED_PKGS = [
 ];
 
 /**
- * Execute a bounded operational command; nonzero exit never becomes captured success.
+ * Execute setup inside the shared bounded capture lifetime; a wrapper exit is not a target verdict.
  * @param {string} command - Executable to invoke without a shell.
  * @param {string[]} args - Literal argument vector.
- * @param {{cwd?: string, env?: NodeJS.ProcessEnv, timeout?: number}} options - Explicit execution context.
- * @returns {string} Captured stdout only after a successful exit.
+ * @param {Partial<import('@cleocode/contracts/resource-governor').ProcessCaptureOptions> & {timeout?: number}} options - Original context; timeout supplies a new invocation deadline only when execution is absent.
+ * @returns {Promise<string>} Complete stdout after actual target success and observed cleanup.
  */
-export function runPackedCommand(command, args, options = {}) {
-  return execFileSync(command, args, {
-    cwd: options.cwd ?? REPO_ROOT,
-    env: options.env ?? process.env,
-    encoding: 'utf8',
-    stdio: 'pipe',
-    timeout: options.timeout ?? 120_000,
-    maxBuffer: 64 * 1024 * 1024,
+export async function runPackedCommand(command, args, options = {}) {
+  const env = { ...(options.env ?? process.env) };
+  const execution = options.execution
+    ? { ...options.execution }
+    : { deadlineAt: Date.now() + (options.timeout ?? 120_000) };
+  const systemdControl = options.systemdControl ? { ...options.systemdControl } : undefined;
+  const memoryMaxMb = options.memoryMaxMb ?? 4096;
+  const tasksMax = options.tasksMax ?? 256;
+  if (
+    !Number.isSafeInteger(memoryMaxMb) ||
+    memoryMaxMb < 1 ||
+    memoryMaxMb > 4096 ||
+    !Number.isSafeInteger(tasksMax) ||
+    tasksMax < 1 ||
+    tasksMax > 256
+  )
+    throw new RangeError('Packed command limits must not exceed 4096 MiB and 256 tasks');
+  const result = await captureWrapped(command, [...args], {
+    cwd: resolve(options.cwd ?? REPO_ROOT),
+    env,
+    execution,
+    systemdControl,
+    maxOutputBytes: options.maxOutputBytes ?? 64 * 1024 * 1024,
+    memoryMaxMb,
+    tasksMax,
   });
+  if (env.CLEO_PACKED_COMMAND_RECEIPTS) {
+    mkdirSync(env.CLEO_PACKED_COMMAND_RECEIPTS, { recursive: true });
+    writeFileSync(
+      join(env.CLEO_PACKED_COMMAND_RECEIPTS, `${randomUUID()}.json`),
+      JSON.stringify({ command, result }, null, 2),
+      { mode: 0o600 },
+    );
+  }
+  if (
+    !result.started ||
+    !result.targetCloseObserved ||
+    result.exitCode !== 0 ||
+    result.signal ||
+    result.error ||
+    result.stopped ||
+    result.outputTruncated ||
+    result.cleanupErrors.length ||
+    result.cleanupObservation === 'unverified'
+  ) {
+    throw Object.assign(
+      new Error(
+        `Packed command failed: target=${result.exitCode}, signal=${result.signal}, stop=${result.stopped}, error=${result.error}, cleanup=${result.cleanupObservation}`,
+      ),
+      {
+        stdout: result.stdout,
+        stderr: result.stderr,
+        capture: result,
+      },
+    );
+  }
+  return result.stdout;
+}
+
+/**
+ * Exercise the actual installed Git entry, including independent initialized-file readback.
+ * @param {string} app - Fresh retained npm installation.
+ * @param {string} root - Owned evidence directory; the Git fixture must not already exist.
+ * @param {NodeJS.ProcessEnv} env - Isolated child environment.
+ * @param {Partial<import('@cleocode/contracts/resource-governor').ProcessCaptureOptions>} options - Original shared deadline, cancellation and manager connection.
+ * @returns {Promise<object>} Installed executable hash, Git version and initialized repository evidence.
+ */
+export async function verifyPackedGit(app, root, env, options = {}) {
+  const execution = options.execution
+    ? { ...options.execution }
+    : { deadlineAt: Date.now() + 30_000 };
+  const environment = {
+    ...env,
+    PATH: `${join(app, 'node_modules', '.bin')}${process.platform === 'win32' ? ';' : ':'}${env.PATH ?? ''}`,
+  };
+  const systemdControl = options.systemdControl ? { ...options.systemdControl } : undefined;
+  execution.signal?.throwIfAborted();
+  if (Date.now() >= execution.deadlineAt)
+    throw new Error('Original installed Git deadline expired');
+  const executable = realpathSync(join(app, 'node_modules', '.bin', 'git'));
+  const expectedRoot = realpathSync(join(app, 'node_modules', '@cleocode', 'git-shim'));
+  if (!executable.startsWith(expectedRoot + sep))
+    throw new Error('Installed Git entry escapes its package');
+  const repository = join(root, 'installed-git-fixture');
+  if (existsSync(repository))
+    throw new Error('Installed Git fixture already exists; refusing to overwrite evidence');
+  const context = { cwd: root, env: environment, execution, systemdControl };
+  const version = (
+    await runPackedCommand(join(app, 'node_modules', '.bin', 'git'), ['--version'], context)
+  ).trim();
+  if (!/^git version \S+/.test(version))
+    throw new Error('Installed Git version is not a Git response');
+  await runPackedCommand(
+    join(app, 'node_modules', '.bin', 'git'),
+    ['init', '--quiet', repository],
+    context,
+  );
+  const top = (
+    await runPackedCommand(
+      join(app, 'node_modules', '.bin', 'git'),
+      ['-C', repository, 'rev-parse', '--show-toplevel'],
+      context,
+    )
+  ).trim();
+  const head = readFileSync(join(repository, '.git', 'HEAD'));
+  if (
+    realpathSync(top) !== realpathSync(repository) ||
+    !head.toString('utf8').startsWith('ref: refs/heads/') ||
+    !statSync(join(repository, '.git', 'objects')).isDirectory()
+  )
+    throw new Error('Installed Git initialization failed independent filesystem postconditions');
+  const receipt = {
+    version,
+    repository,
+    executable,
+    executableSha256: sha256(readFileSync(executable)),
+    headSha256: sha256(head),
+    deadlineAt: execution.deadlineAt,
+  };
+  writeFileSync(join(root, 'installed-git.json'), JSON.stringify(receipt, null, 2));
+  return receipt;
 }
 
 /**
@@ -105,6 +218,7 @@ export function packedEnvironment(root) {
     CURSOR_CONFIG_DIR: 'cursor',
     GEMINI_CLI_HOME: 'gemini',
     npm_config_cache: 'npm-cache',
+    CLEO_PACKED_COMMAND_RECEIPTS: 'command-receipts',
   };
   for (const [key, path] of Object.entries(roots)) {
     env[key] = join(root, path);
@@ -339,7 +453,11 @@ export function assertPackedProviderStaleRejection(before, after, jobId, command
  * @returns {Promise<import('@cleocode/contracts/capabilities').PackedProviderProcessObservation>} Retained process and installed-file evidence.
  */
 export async function verifyPackedProviderProcess(app, input, expected) {
-  const invocation = { ...input, environment: { ...input.environment } };
+  const invocation = {
+    ...input,
+    environment: { ...input.environment },
+    ...(input.systemdControl ? { systemdControl: { ...input.systemdControl } } : {}),
+  };
   const inventories = structuredClone(expected);
   const checkDeadline = () => {
     invocation.signal?.throwIfAborted();
@@ -601,14 +719,142 @@ function fileHashes(root) {
   return files;
 }
 
+/** Read the actual worker's bounded scope before any runtime subprocess starts. */
+function observePackedScope() {
+  if (process.platform !== 'linux')
+    throw new Error('Packed detached runtime requires observed Linux cgroup containment');
+  const cgroupPath = /^0::(.+)$/m.exec(readFileSync('/proc/self/cgroup', 'utf8'))?.[1];
+  if (!cgroupPath || !/^cleo-tool-[\w-]+\.scope$/.test(basename(cgroupPath)))
+    throw new Error('Packed detached runtime requires an observed owned systemd scope');
+  const cgroup = join('/sys/fs/cgroup', cgroupPath);
+  const memoryMaxBytes = Number(readFileSync(join(cgroup, 'memory.max'), 'utf8').trim());
+  const memorySwapMaxBytes = Number(readFileSync(join(cgroup, 'memory.swap.max'), 'utf8').trim());
+  const tasksMax = Number(readFileSync(join(cgroup, 'pids.max'), 'utf8').trim());
+  const members = readFileSync(join(cgroup, 'cgroup.procs'), 'utf8')
+    .trim()
+    .split(/\s+/)
+    .map(Number);
+  if (
+    !Number.isSafeInteger(memoryMaxBytes) ||
+    memoryMaxBytes <= 0 ||
+    memoryMaxBytes > 4 * 1024 ** 3 ||
+    memorySwapMaxBytes !== 0 ||
+    !Number.isSafeInteger(tasksMax) ||
+    tasksMax < 1 ||
+    tasksMax > 256 ||
+    !members.includes(process.pid)
+  )
+    throw new Error('Packed runtime scope membership or memory/swap bound is unverified');
+  return {
+    unitName: basename(cgroupPath),
+    cgroupPath,
+    memoryMaxBytes,
+    memorySwapMaxBytes,
+    tasksMax,
+    workerPid: process.pid,
+    observedMembers: members,
+  };
+}
+
 /**
- * Verify actual installed CLI/Studio task readback and native local embedding.
+ * Verify the complete installed runtime inside one owned, deadline-bounded scope.
  * @param {string} app - Isolated npm installation directory.
  * @param {string} root - Owned retained evidence directory.
  * @param {NodeJS.ProcessEnv} env - Isolated runtime environment.
+ * @param {Partial<import('@cleocode/contracts/resource-governor').ProcessCaptureOptions>} options - Original deadline/signal and manager connection.
  * @returns {Promise<object>} Independently recorded stage results; any failed stage fails the check.
  */
-export async function verifyPackedRuntime(app, root, env) {
+export async function verifyPackedRuntime(app, root, env, options = {}) {
+  const environment = { ...env };
+  const execution = options.execution
+    ? { ...options.execution }
+    : { deadlineAt: Date.now() + 420_000 };
+  const systemdControl = options.systemdControl ? { ...options.systemdControl } : undefined;
+  execution.signal?.throwIfAborted();
+  if (Date.now() >= execution.deadlineAt)
+    throw new Error('Original packed runtime deadline expired');
+  const processResult = await captureWrapped(
+    process.execPath,
+    [
+      fileURLToPath(import.meta.url),
+      '--packed-runtime-worker',
+      resolve(app),
+      resolve(root),
+      String(execution.deadlineAt),
+    ],
+    {
+      cwd: resolve(root),
+      env: environment,
+      execution,
+      systemdControl,
+      maxOutputBytes: 1_048_576,
+      memoryMaxMb: 4096,
+      tasksMax: 256,
+    },
+  );
+  writeFileSync(join(root, 'runtime-process.json'), JSON.stringify(processResult, null, 2), {
+    mode: 0o600,
+  });
+  if (
+    !processResult.started ||
+    !processResult.targetCloseObserved ||
+    processResult.exitCode !== 0 ||
+    processResult.signal ||
+    processResult.error ||
+    processResult.stopped ||
+    processResult.outputTruncated ||
+    processResult.mode !== 'systemd' ||
+    processResult.cleanupObservation !== 'scope-terminal' ||
+    processResult.cleanupErrors.length
+  )
+    throw new Error(
+      `Packed runtime lifetime failed or remains unverified: ${processResult.stderr || processResult.error || processResult.stopped || processResult.cleanupObservation}`,
+    );
+  const observed = JSON.parse(readFileSync(join(root, 'runtime-scope.json'), 'utf8'));
+  if (
+    observed.unitName !== processResult.unitName ||
+    observed.workerPid !== processResult.targetPid ||
+    processResult.nativeMemory !== 'observed-cgroup' ||
+    observed.cgroupPath !== processResult.resourceLimits?.cgroup
+  )
+    throw new Error('Packed runtime worker scope differs from the actual owned capture');
+  const cgroup = join('/sys/fs/cgroup', observed.cgroupPath);
+  const removed = !existsSync(cgroup);
+  const remainingMembers = removed
+    ? []
+    : readFileSync(join(cgroup, 'cgroup.procs'), 'utf8')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(Number);
+  const populated = removed
+    ? false
+    : /^populated 1$/m.test(readFileSync(join(cgroup, 'cgroup.events'), 'utf8'));
+  writeFileSync(
+    join(root, 'runtime-scope-cleanup.json'),
+    JSON.stringify({ cgroupPath: observed.cgroupPath, removed, remainingMembers, populated }),
+  );
+  if (remainingMembers.length || populated)
+    throw new Error('Owned runtime scope still contains processes after cleanup');
+  return JSON.parse(processResult.stdout);
+}
+
+/** Keep deliberate Studio descendants alive until the entire observed scope ends. */
+async function verifyPackedRuntimeInScope(app, root, env, deadlineAt) {
+  const scope = observePackedScope();
+  writeFileSync(join(root, 'runtime-scope.json'), JSON.stringify(scope));
+  const runWithinScope = (command, args, options = {}) => {
+    const remaining = deadlineAt - Date.now();
+    if (remaining <= 0) throw new Error('Original packed runtime deadline expired');
+    return execFileSync(command, args, {
+      cwd: options.cwd ?? app,
+      env: options.env ?? env,
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: Math.min(remaining, options.timeout ?? 45000),
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  };
   const cli = join(app, 'node_modules/@cleocode/cleo/dist/cli/index.js');
   const entry = join(app, 'node_modules/@cleocode/cleo/studio-dist/index.js');
   const port = await freeLoopbackPort();
@@ -633,7 +879,7 @@ export async function verifyPackedRuntime(app, root, env) {
     writeFileSync(join(root, 'runtime.json'), JSON.stringify(receipt, null, 2) + '\n');
   const runCli = (name, args) => {
     try {
-      const output = runPackedCommand(process.execPath, [cli, ...args], {
+      const output = runWithinScope(process.execPath, [cli, ...args], {
         cwd: env.CLEO_ROOT,
         env: runtimeEnv,
         timeout: 45_000,
@@ -829,7 +1075,7 @@ export async function verifyPackedRuntime(app, root, env) {
     }
     if (!cpus.length || cpus.some((cpu) => !Number.isInteger(cpu)))
       throw new Error('Could not establish bounded CPU affinity.');
-    const output = runPackedCommand(
+    const output = runWithinScope(
       'taskset',
       ['-c', cpus.join(','), process.execPath, '--input-type=module', '-e', EMBEDDING_PROBE],
       { cwd: app, env: modelEnv, timeout: 240_000 },
@@ -877,6 +1123,15 @@ async function main() {
   mkdirSync(evidenceParent, { recursive: true });
   const root = mkdtempSync(join(evidenceParent, 'cleo-packed-smoke-'));
   const env = packedEnvironment(root);
+  const runtimeDirectory = process.env.CLEO_PACKED_SYSTEMD_RUNTIME ?? process.env.XDG_RUNTIME_DIR;
+  const systemdControl = runtimeDirectory
+    ? {
+        runtimeDirectory,
+        ...(process.env.DBUS_SESSION_BUS_ADDRESS
+          ? { busAddress: process.env.DBUS_SESSION_BUS_ADDRESS }
+          : {}),
+      }
+    : undefined;
   const tarballs = join(root, 'tarballs');
   const app = join(root, 'app');
   mkdirSync(tarballs);
@@ -886,12 +1141,15 @@ async function main() {
     nodeVersion: process.version,
     platform: process.platform,
     architecture: process.arch,
-    sourceRevision: runPackedCommand('git', ['rev-parse', 'HEAD']).trim(),
+    sourceRevision: (
+      await runPackedCommand('git', ['rev-parse', 'HEAD'], { env, systemdControl })
+    ).trim(),
     lockSha256: sha256(readFileSync(join(REPO_ROOT, 'pnpm-lock.yaml'))),
     packages: [],
     status: 'running',
     coverage: {
       cliVersion: 'not-assessed',
+      git: 'not-assessed',
       studio: 'not-assessed',
       embedding: 'not-assessed',
       providers: 'not-assessed',
@@ -911,9 +1169,10 @@ async function main() {
       const cwd = join(REPO_ROOT, 'packages', directory);
       const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'));
       if (!pkg.name || !pkg.version) throw new Error(`Missing package identity: ${directory}`);
-      const output = runPackedCommand('pnpm', ['pack', '--pack-destination', tarballs], {
+      const output = await runPackedCommand('pnpm', ['pack', '--pack-destination', tarballs], {
         cwd,
         env: { ...env, npm_config_ignore_scripts: 'true' },
+        systemdControl,
       });
       writeFileSync(join(root, `pack-${directory}.log`), output);
       const filename = `${pkg.name.replace('@', '').replaceAll('/', '-')}-${pkg.version}.tgz`;
@@ -921,10 +1180,15 @@ async function main() {
       const bytes = readFileSync(tarball);
       const extracted = join(root, 'extracted', directory);
       mkdirSync(extracted, { recursive: true });
-      const paths = runPackedCommand('tar', ['-tzf', tarball], { env }).trim().split('\n');
+      const paths = (await runPackedCommand('tar', ['-tzf', tarball], { env, systemdControl }))
+        .trim()
+        .split('\n');
       if (paths.some((path) => !path.startsWith('package/') || path.split('/').includes('..')))
         throw new Error(`Unsafe packed archive path in ${filename}`);
-      runPackedCommand('tar', ['-xzf', tarball, '-C', extracted, '--no-same-owner'], { env });
+      await runPackedCommand('tar', ['-xzf', tarball, '-C', extracted, '--no-same-owner'], {
+        env,
+        systemdControl,
+      });
       const packageRoot = join(extracted, 'package');
       const packedManifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
       if (packedManifest.name !== pkg.name || packedManifest.version !== pkg.version)
@@ -959,10 +1223,10 @@ async function main() {
       overrides,
     };
     writeFileSync(join(app, 'package.json'), JSON.stringify(appManifest, null, 2) + '\n');
-    const installed = runPackedCommand(
+    const installed = await runPackedCommand(
       'npm',
       ['install', '--no-audit', '--no-fund', '--loglevel=warn'],
-      { cwd: app, env, timeout: 300_000 },
+      { cwd: app, env, systemdControl, timeout: 300_000 },
     );
     writeFileSync(join(root, 'install.log'), installed);
     for (const pkg of manifest.packages) {
@@ -985,6 +1249,9 @@ async function main() {
       pkg.verifiedFileCount = pkg.files.length;
     }
     save();
+    manifest.git = await verifyPackedGit(app, root, env, { systemdControl });
+    manifest.coverage.git = 'verified-installed-version-and-initialization';
+    save();
     const binary = join(app, 'node_modules', '.bin', 'cleo');
     if (!existsSync(binary)) throw new Error('Installed CLI entry is missing.');
     const guard = join(root, 'runtime-guard.mjs');
@@ -1004,15 +1271,18 @@ globalThis.fetch = denied;
 syncBuiltinESMExports();
 `,
     );
-    const version = runPackedCommand(process.execPath, ['--import', guard, binary, '--version'], {
-      cwd: env.CLEO_ROOT,
-      env,
-      timeout: 30_000,
-    }).trim();
+    const version = (
+      await runPackedCommand(process.execPath, ['--import', guard, binary, '--version'], {
+        cwd: env.CLEO_ROOT,
+        env,
+        timeout: 30_000,
+        systemdControl,
+      })
+    ).trim();
     writeFileSync(join(root, 'version.txt'), version + '\n');
     assertPackedVersion(version, expected);
     manifest.coverage.cliVersion = 'verified';
-    manifest.runtime = await verifyPackedRuntime(app, root, env);
+    manifest.runtime = await verifyPackedRuntime(app, root, env, { systemdControl });
     manifest.coverage.health = manifest.runtime.health;
     manifest.coverage.studio = 'verified-canonical-task-readback';
     manifest.coverage.embedding = 'verified-installed-native-inference';
@@ -1041,7 +1311,19 @@ syncBuiltinESMExports();
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch((error) => {
+  const operation =
+    process.argv[2] === '--packed-runtime-worker'
+      ? (() => {
+          const [app, root, rawDeadline] = process.argv.slice(3);
+          const deadlineAt = Number(rawDeadline);
+          if (!app || !root || !Number.isSafeInteger(deadlineAt) || Date.now() >= deadlineAt)
+            throw new Error('Invalid or expired packed runtime worker context');
+          return verifyPackedRuntimeInScope(app, root, { ...process.env }, deadlineAt).then(
+            (receipt) => process.stdout.write(JSON.stringify(receipt)),
+          );
+        })()
+      : main();
+  operation.catch((error) => {
     console.error(`[packed-smoke] FAILED: ${error.message}`);
     process.exitCode = 1;
   });
