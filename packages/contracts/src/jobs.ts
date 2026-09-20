@@ -44,6 +44,68 @@ export type BackgroundJobStatus =
   | 'cancelled'
   | 'orphaned';
 
+/** Caller and query binding for one bounded durable candidate scan. */
+export interface BackgroundJobPageScope {
+  /** Cursor/query representation version. */
+  version: 1;
+  /** Exact persisted project identity. */
+  projectId: string;
+  /** Captured project root; a cursor cannot cross project copies. */
+  projectRoot: string;
+  /** Requesting principal, not the mutable claimedBy owner label. */
+  actor: string;
+  /** Exact operation being enumerated. */
+  operation: string;
+  /** Optional lifecycle filter, null for every retained status. */
+  status: BackgroundJobStatus | null;
+  /** Maximum candidate rows inspected, between one and 100. */
+  limit: number;
+  /** Maximum combined UTF-8 text payload bytes in each candidate. */
+  maxPayloadBytes: number;
+}
+
+/** Stable position after an immutable submission timestamp and unique ID. */
+export interface BackgroundJobPageCursor extends BackgroundJobPageScope {
+  /** Original submission time; claiming or retrying never changes it. */
+  startedAt: number;
+  /** Unique tie-breaker at the last scanned candidate, not the last actor match. */
+  id: string;
+}
+
+/** Bounded candidate query; the domain validates immutable proposal principals. */
+export interface BackgroundJobPageQuery {
+  /** Exact persisted operation to inspect. */
+  operation: string;
+  /** Optional stored status; omission includes every status and prior job. */
+  status?: BackgroundJobStatus;
+  /** Maximum scanned candidates, default 25 and capped at 100. */
+  limit?: number;
+  /** Per-candidate text-byte cap, default 256 KiB and capped at one MiB. */
+  maxPayloadBytes?: number;
+  /** Cursor bound to this exact caller, project and query. */
+  after?: BackgroundJobPageCursor;
+}
+
+/** One bounded storage observation, not an actor-filtered or multi-page snapshot. */
+export interface BackgroundJobCandidatePage<TJob> {
+  /** Fully bounded candidate values; the domain must validate actor and source hashes. */
+  candidates: TJob[];
+  /** Exact query/caller binding. */
+  scope: BackgroundJobPageScope;
+  /** Number of candidates scanned in this page. */
+  scannedCount: number;
+  /** Additional storage candidates were observed beyond the page. */
+  hasMoreCandidates: boolean;
+  /** Continue after the last scanned row, including pages with no actor matches. */
+  nextCursor: BackgroundJobPageCursor | null;
+  /** Matching principal population is deliberately not counted by this generic store. */
+  matchingTotal: null;
+  /** Each page has its own SQLite read snapshot; concurrent changes may affect later pages. */
+  observation: 'per-page-snapshot';
+  /** Actor authorization is deferred to the domain's immutable proposal schema. */
+  principalValidation: 'domain-required';
+}
+
 /** Immutable request used to coalesce a job within one project and operation. */
 export interface BackgroundJobSubmission {
   /** Stable identity of the project owning the operation. */

@@ -16,16 +16,19 @@ import type {
   AtomicJobBookkeeping,
   AtomicJobMutation,
   AtomicJobRetryBookkeeping,
+  BackgroundJobCandidatePage,
   BackgroundJobExecutionContext,
   BackgroundJobFailureCode,
   BackgroundJobLease,
+  BackgroundJobPageQuery,
+  BackgroundJobPageScope,
   BackgroundJobStoreOptions,
   BackgroundJobSubmission,
   JobAttemptOutcome,
   JobFinalizationResult,
   OperationExecutionContext,
 } from '@cleocode/contracts/jobs';
-import { and, eq, getTableColumns, gt, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from './sqlite.js';
 import {
   BACKGROUND_JOB_STATUSES,
@@ -377,6 +380,7 @@ export class DurableJobStore {
     deadlineAt?: number,
     onCommittedCleanupFailure?: (message: string) => void,
     assertCommitAllowed?: () => void,
+    readOnly = false,
   ): T {
     let outcome: { value: T } | undefined;
     let failure: Error | undefined;
@@ -422,7 +426,7 @@ export class DurableJobStore {
       }
       // BEGIN outside rollback scope: failure must not roll back another caller.
       try {
-        this.#db.run(sql`BEGIN IMMEDIATE`);
+        this.#db.run(readOnly ? sql`BEGIN DEFERRED` : sql`BEGIN IMMEDIATE`);
       } catch (error) {
         if (error instanceof Error && /within a transaction/i.test(String(error.cause ?? error)))
           throw new BackgroundJobError(
@@ -807,6 +811,169 @@ export class DurableJobStore {
       )
       .all()
       .map(rowToJob);
+  }
+
+  /**
+   * Read a bounded candidate page without a runtime manager or ownership mutation.
+   * @param query - Exact operation, optional status, payload cap and bound cursor.
+   * @param execution - Original captured caller and deadline; never renewed by this read.
+   * @returns Candidate rows and a last-scanned cursor; the domain must validate principals.
+   * @throws BackgroundJobError for ambiguous scope, mismatched cursors, oversized rows or borrowed transactions.
+   * @remarks SQL limits candidates before payload materialization or JSON parsing. Mutable
+   * claimedBy is not used as principal authority. Existing transaction cleanup bounds lock waits;
+   * synchronous SQLite work is cooperative and cannot be preempted by a JavaScript timer.
+   * @example
+   * ```ts
+   * const page = store.listPage({ operation: 'doctor.knowledge', limit: 20 }, execution);
+   * ```
+   */
+  listPage(
+    query: BackgroundJobPageQuery,
+    execution: OperationExecutionContext,
+  ): BackgroundJobCandidatePage<BackgroundJob> {
+    execution.assertActive();
+    const projectId = this.#options.projectId;
+    const actor = this.#options.actor;
+    if (
+      !projectId ||
+      !actor?.trim() ||
+      execution.identity.projectId !== projectId ||
+      execution.identity.actor !== actor ||
+      execution.identity.operation !== query.operation
+    )
+      throw new BackgroundJobError(
+        'E_JOB_SCOPE_MISMATCH',
+        'Candidate reads require an exact project, explicit caller and operation',
+      );
+    requireText(query.operation, 'operation');
+    const limit = query.limit ?? 25;
+    const maxPayloadBytes = query.maxPayloadBytes ?? 262144;
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      !Number.isSafeInteger(maxPayloadBytes) ||
+      maxPayloadBytes < 1 ||
+      maxPayloadBytes > 1048576 ||
+      (query.status !== undefined &&
+        !BACKGROUND_JOB_STATUSES.some((status) => status === query.status))
+    )
+      throw new BackgroundJobError('E_JOB_INPUT_INVALID', 'Invalid bounded candidate query');
+    const scope: BackgroundJobPageScope = {
+      version: 1,
+      projectId,
+      projectRoot: execution.identity.projectRoot,
+      actor,
+      operation: query.operation,
+      status: query.status ?? null,
+      limit,
+      maxPayloadBytes,
+    };
+    const after = query.after;
+    if (
+      after &&
+      (!Number.isSafeInteger(after.startedAt) ||
+        typeof after.id !== 'string' ||
+        !after.id.trim() ||
+        after.version !== scope.version ||
+        after.projectId !== scope.projectId ||
+        after.projectRoot !== scope.projectRoot ||
+        after.actor !== scope.actor ||
+        after.operation !== scope.operation ||
+        after.status !== scope.status ||
+        after.limit !== scope.limit ||
+        after.maxPayloadBytes !== scope.maxPayloadBytes)
+    )
+      throw new BackgroundJobError(
+        'E_JOB_SCOPE_MISMATCH',
+        'Candidate cursor belongs to a different caller or query',
+      );
+    return this.#write(
+      (): BackgroundJobCandidatePage<BackgroundJob> => {
+        execution.assertActive();
+        const columns = getTableColumns(backgroundJobs);
+        const payloadBytes = sql<number>`${sql.join(
+          Object.values(columns)
+            .filter((column) => column.dataType === 'string' || column.dataType === 'string enum')
+            .map((column) => sql`length(CAST(coalesce(${column}, '') AS BLOB))`),
+          sql` + `,
+        )}`;
+        // The first query never returns opaque payloads. An over-limit ID is withheld too.
+        const selected = this.#db
+          .select({
+            id: sql<string>`CASE WHEN ${payloadBytes} <= ${maxPayloadBytes} THEN ${columns.id} ELSE '' END`,
+            startedAt: columns.startedAt,
+            payloadBytes,
+          })
+          .from(backgroundJobs)
+          .where(
+            and(
+              this.#scope(),
+              eq(columns.operation, query.operation),
+              query.status ? eq(columns.status, query.status) : undefined,
+              after
+                ? or(
+                    gt(columns.startedAt, after.startedAt),
+                    and(eq(columns.startedAt, after.startedAt), gt(columns.id, after.id)),
+                  )
+                : undefined,
+            ),
+          )
+          .orderBy(asc(columns.startedAt), asc(columns.id))
+          .limit(limit + 1)
+          .all();
+        execution.assertActive();
+        const scanned = selected.slice(0, limit);
+        if (scanned.some((row) => row.payloadBytes > maxPayloadBytes))
+          throw new BackgroundJobError(
+            'E_JOB_INPUT_INVALID',
+            'Candidate payload exceeds the explicit byte cap; no complete inventory is available',
+          );
+        execution.consume({
+          items: scanned.length,
+          bytes: scanned.reduce((total, row) => total + row.payloadBytes, 0),
+        });
+        const rows = scanned.length
+          ? this.#db
+              .select()
+              .from(backgroundJobs)
+              .where(
+                and(
+                  this.#scope(),
+                  eq(columns.operation, query.operation),
+                  inArray(
+                    columns.id,
+                    scanned.map((row) => row.id),
+                  ),
+                ),
+              )
+              .orderBy(asc(columns.startedAt), asc(columns.id))
+              .all()
+          : [];
+        const candidates = rows.map((row) => {
+          execution.assertActive();
+          return rowToJob(row);
+        });
+        const last = scanned.at(-1);
+        return {
+          candidates,
+          scope,
+          scannedCount: scanned.length,
+          hasMoreCandidates: selected.length > limit,
+          nextCursor:
+            selected.length > limit && last
+              ? { ...scope, startedAt: last.startedAt, id: last.id }
+              : null,
+          matchingTotal: null,
+          observation: 'per-page-snapshot',
+          principalValidation: 'domain-required',
+        };
+      },
+      execution.deadlineAt,
+      undefined,
+      () => execution.assertActive(),
+      true,
+    );
   }
 
   /**
