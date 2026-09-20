@@ -21,12 +21,17 @@
  * @task T9796 (E-DOCS-CANON-LOCKDOWN)
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadCanonRegistry, runCanonDocsCheck } from '../../dispatch/domains/check/canon-docs.js';
+import {
+  CanonDocsDiffError,
+  loadCanonRegistry,
+  runCanonDocsCheck,
+} from '../../dispatch/domains/check/canon-docs.js';
 import { checkCommand } from '../commands/check.js';
 
 // ---------------------------------------------------------------------------
@@ -212,6 +217,59 @@ describe('runCanonDocsCheck — routing', () => {
     expect(result.violations).toHaveLength(1);
     expect(result.violations[0]?.file).toBe('.cleo/adrs/ADR-BAD.md');
     expect(result.scanned).toBe(3);
+  });
+
+  it('reads actual Git additions and keeps a prohibited raw document failing', () => {
+    execFileSync('git', ['init', '-q', projectRoot]);
+    const commit = () =>
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.name=Canonical fixture',
+          '-c',
+          'user.email=fixture@example.invalid',
+          'commit',
+          '--no-gpg-sign',
+          '--allow-empty',
+          '-qm',
+          'fixture',
+        ],
+        { cwd: projectRoot, timeout: 15000 },
+      );
+    commit();
+    mkdirSync(join(projectRoot, '.cleo/adrs'), { recursive: true });
+    mkdirSync(join(projectRoot, '.cleo/rcasd/T1'), { recursive: true });
+    writeFileSync(join(projectRoot, '.cleo/adrs/raw.md'), '# Disallowed raw ADR\n');
+    writeFileSync(join(projectRoot, '.cleo/rcasd/T1/note.md'), '# Eligible route only\n');
+    execFileSync('git', ['add', '.cleo/adrs/raw.md', '.cleo/rcasd/T1/note.md'], {
+      cwd: projectRoot,
+    });
+    commit();
+    const result = runCanonDocsCheck({ projectRoot, baseRef: 'HEAD~1' });
+    expect(result.scanned).toBe(2);
+    expect(result.passed).toBe(false);
+    expect(result.violations.map((v) => v.file)).toEqual(['.cleo/adrs/raw.md']);
+    expect(() => runCanonDocsCheck({ projectRoot, baseRef: 'missing-reference' })).toThrow(
+      CanonDocsDiffError,
+    );
+    expect(() =>
+      runCanonDocsCheck({ projectRoot, baseRef: 'HEAD; touch injected-marker' }),
+    ).toThrow(/E_CANON_DIFF_FAILED/);
+    expect(existsSync(join(projectRoot, 'injected-marker'))).toBe(false);
+  });
+
+  it('reports unavailable repository reads rather than an empty successful inventory', () => {
+    expect(() => runCanonDocsCheck({ projectRoot, baseRef: 'HEAD' })).toThrow(
+      /E_CANON_DIFF_FAILED/,
+    );
+    try {
+      runCanonDocsCheck({ projectRoot, baseRef: 'HEAD' });
+      expect.fail('The missing repository must not yield a result');
+    } catch (error) {
+      expect(error).toBeInstanceOf(CanonDocsDiffError);
+      expect(error).toMatchObject({ code: 'E_CANON_DIFF_FAILED', cause: expect.any(Error) });
+    }
   });
 });
 
