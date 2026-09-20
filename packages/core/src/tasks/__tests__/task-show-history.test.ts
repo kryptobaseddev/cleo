@@ -14,6 +14,7 @@
  * @epic T769
  */
 
+import type { AcceptanceItem, Task } from '@cleocode/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,7 @@ vi.mock('../compute-task-view.js', () => ({
 
 import { getLifecycleStatus } from '../../lifecycle/index.js';
 import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
+import { taskToRecord } from '../engine-converters.js';
 import { taskShowOperation, taskShowWithHistory } from '../show.js';
 
 const mockGetAccessor = vi.mocked(getAccessor);
@@ -153,6 +155,48 @@ describe('taskShowWithHistory', () => {
     // Both deprecated shim and canonical replacement (T9054)
     mockGetAccessor.mockResolvedValue(stub);
     mockGetTaskAccessor.mockResolvedValue(stub);
+  });
+
+  it('preserves canonical typed requirement payloads in full show records', async () => {
+    const acceptance: AcceptanceItem[] = [
+      'literal | criterion',
+      {
+        kind: 'test',
+        req: 'PARTNER-001',
+        description: 'Exact harness requirement',
+        command: 'node',
+        args: ['axiom-app/scripts/verify-partner-completion.mjs', '--task', 'T001'],
+        env: { FIXTURE_VALUE: 'literal ü | value' },
+        cwd: 'included-root',
+        expect: 'exit0',
+        timeoutMs: 1800000,
+      },
+      'final literal',
+    ];
+    const task: Task = {
+      id: 'T001',
+      title: 'Requirement task',
+      description: 'Typed gate projection fixture',
+      status: 'active',
+      priority: 'medium',
+      createdAt: '2026-09-20T17:00:00Z',
+      acceptance,
+    };
+    const accessor = await getTaskAccessor(projectRoot);
+    vi.mocked(accessor.loadSingleTask).mockResolvedValue(task);
+    const shown = await taskShowOperation(projectRoot, { taskId: 'T001' });
+    expect(shown.success).toBe(true);
+    if (!shown.success || !('task' in shown.data)) throw new Error('Expected full show success');
+    expect(shown.data.task.acceptance).toEqual(acceptance);
+    expect(JSON.parse(JSON.stringify(shown.data.task)).acceptance).toEqual(acceptance);
+    const converted = taskToRecord(task);
+    expect(converted.acceptance).toEqual(acceptance);
+    const gate = converted.acceptance?.[1];
+    if (!gate || typeof gate === 'string' || gate.kind !== 'test')
+      throw new Error('Missing typed test gate');
+    gate.args?.push('mutated-response');
+    expect(task.acceptance).toEqual(acceptance);
+    expect(task.acceptance?.[1]).not.toEqual(gate);
   });
 
   describe('without --history flag', () => {

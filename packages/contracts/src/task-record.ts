@@ -8,7 +8,7 @@
  * @epic T4654
  */
 
-import type { TaskVerification } from './task.js';
+import type { AcceptanceItem, TaskVerification } from './task.js';
 
 /** Omitted source fields and their UTF-8 serialized sizes on partial records. */
 export interface RecordProjectionDisclosure {
@@ -78,7 +78,8 @@ export interface TaskRecord extends RecordProjectionDisclosure {
   depends?: string[];
   relates?: TaskRecordRelation[];
   files?: string[];
-  acceptance?: string[];
+  /** Canonical text criteria and typed gates, preserved in full record projections. */
+  acceptance?: AcceptanceItem[];
   notes?: string[];
   labels?: string[];
   size?: string | null;
