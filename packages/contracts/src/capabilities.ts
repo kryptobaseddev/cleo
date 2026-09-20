@@ -4,6 +4,8 @@
  * @task T5240
  */
 
+import type { SystemdControlContext } from './resource-governor.js';
+
 export interface AdapterCapabilities {
   supportsHooks: boolean;
   supportedHookEvents: string[];
@@ -131,8 +133,34 @@ export interface ProviderVerificationInvocation {
   transcriptByteLimit: number;
   /** Explicit cgroup memory ceiling; fallback process groups do not enforce it. */
   memoryMaxMb: number;
+  /** Optional manager connection, used only by control probes/launcher; never child roots.
+   * @defaultValue Ambient manager discovery.
+   */
+  systemdControl?: SystemdControlContext;
   /** Caller cancellation; cleanup does not grant further scenario execution. */
   signal?: AbortSignal;
+}
+
+/** Independent observations of the owned transient scope, never a workflow certificate. */
+export interface ProviderScopeObservation {
+  /** Unique runner-owned unit, independent of provider-authored output. */
+  unitName: string;
+  /** Actual manager-reported cgroup path, or null when unobserved. */
+  cgroupPath: string | null;
+  /** Actual kernel memory limit in bytes, or null when unobserved/non-numeric. */
+  memoryMaxBytes: number | null;
+  /** Actual kernel swap limit in bytes, or null when unobserved/non-numeric. */
+  memorySwapMaxBytes: number | null;
+  /** PIDs read from the owned cgroup and independently matched against proc membership. */
+  observedMemberPids: readonly number[];
+  /** Kernel populated state observed during the invocation. */
+  populatedBefore: boolean | null;
+  /** Kernel populated state after cleanup; null means absent or unobserved, not automatically empty. */
+  populatedAfter: boolean | null;
+  /** Whether a previously observed owned cgroup was removed after cleanup. */
+  removedAfter: boolean;
+  /** Observed membership, requested memory/swap bounds and empty scope after cleanup all matched. */
+  verified: boolean;
 }
 
 /** Bounded process observation; only a separate independent verifier may assess a workflow. */
@@ -169,6 +197,8 @@ export interface ProviderVerificationProcessResult {
   processGroupGone: boolean | null;
   /** Launch containment selected by the existing core execution service. */
   containment: 'systemd' | 'pgid';
+  /** Actual scope observations; null for fallback or no owned unit. */
+  scope: ProviderScopeObservation | null;
   /** No process-only observation certifies repair or complete lifecycle behavior. */
   certification: 'unverified';
   /** Explicit scope, cleanup, permission and synchronous-boundary limitations. */

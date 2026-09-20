@@ -1,13 +1,23 @@
+import * as childProcess from 'node:child_process';
+import * as fileSystem from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProviderVerificationInvocation } from '@cleocode/contracts/capabilities';
+import * as spawning from '@cleocode/core/resources/spawn-wrapper';
 import { _forceSystemdRunAvailable } from '@cleocode/core/resources/spawn-wrapper';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   providerVerificationArguments,
   runProviderVerification,
 } from '../provider-verification.js';
+
+vi.mock('node:child_process', { spy: true });
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+});
+vi.mock('@cleocode/core/resources/spawn-wrapper', { spy: true });
 
 let root: string;
 beforeEach(async () => {
@@ -15,6 +25,7 @@ beforeEach(async () => {
   _forceSystemdRunAvailable(false);
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -249,4 +260,106 @@ describe.skipIf(process.platform === 'win32')('bounded external provider observa
       if (cleanupFailure) throw cleanupFailure;
     },
   );
+});
+
+describe.skipIf(process.platform !== 'linux')('owned scope observations', () => {
+  it.each([
+    false,
+    true,
+  ])('requires independently observed limits and empty cleanup (conflict=%s)', async (wrongLimit) => {
+    const input = await invocation('setTimeout(()=>process.stdout.write("done"),150);');
+    const manager = { runtimeDirectory: join(root, 'control-runtime') };
+    input.systemdControl = manager;
+    const { spawnWrapped: originalSpawn, _forceSystemdRunAvailable: forceOriginal } =
+      await vi.importActual<typeof import('@cleocode/core/resources/spawn-wrapper')>(
+        '@cleocode/core/resources/spawn-wrapper',
+      );
+    forceOriginal(false);
+    let unit = '';
+    let stopped = false;
+    let membershipReads = 0;
+    const captured: string[] = [];
+    vi.spyOn(spawning, 'spawnWrapped').mockImplementation((command, args, options, wrapper) => {
+      captured.push(wrapper?.systemdControl?.runtimeDirectory ?? 'missing');
+      const launched = originalSpawn(command, args, options, {
+        ...wrapper,
+        systemdControl: undefined,
+      });
+      unit = `cleo-tool-${wrapper?.scopeId}.scope`;
+      return { ...launched, mode: 'systemd', unitName: unit };
+    });
+    const { spawnSync: originalSync } =
+      await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    vi.spyOn(childProcess, 'spawnSync').mockImplementation((command, args, options) => {
+      if (command !== 'systemctl') return originalSync(command, args, options);
+      captured.push(options?.env?.XDG_RUNTIME_DIR ?? 'missing');
+      if (args?.includes('kill')) stopped = true;
+      return {
+        pid: 1,
+        output: [],
+        stdout: `/synthetic/${unit}\n`,
+        stderr: '',
+        status: 0,
+        signal: null,
+      };
+    });
+    const { readFileSync: originalRead } =
+      await vi.importActual<typeof import('node:fs')>('node:fs');
+    vi.spyOn(fileSystem, 'readFileSync').mockImplementation((path, options) => {
+      const name = String(path);
+      if (name === `/proc/12345/cgroup` || name === `/proc/67890/cgroup`)
+        return `0::/synthetic/${unit}\n`;
+      if (name.startsWith('/sys/fs/cgroup/synthetic/')) {
+        if (name.endsWith('/cgroup.events')) return `populated ${stopped ? 0 : 1}\n`;
+        if (name.endsWith('/cgroup.procs')) return membershipReads++ === 0 ? '12345\n' : '67890\n';
+        if (name.endsWith('/memory.max')) return wrongLimit ? '1\n' : '268435456\n';
+        if (name.endsWith('/memory.swap.max')) return '0\n';
+      }
+      return originalRead(path, options);
+    });
+    const promise = runProviderVerification(input);
+    manager.runtimeDirectory = '/not-captured';
+    const result = await promise;
+    expect(captured).toEqual(captured.map(() => join(root, 'control-runtime')));
+    expect(result.scope).toMatchObject({
+      unitName: unit,
+      populatedBefore: true,
+      populatedAfter: false,
+      observedMemberPids: [12345, 67890],
+      verified: !wrongLimit,
+    });
+    expect(result.scope?.unitName).not.toBe(`cleo-tool-${input.invocationId}.scope`);
+    expect(result.certification).toBe('unverified');
+    expect(result.childClosed).toBe(true);
+  });
+
+  it('does not infer observed containment from a systemd launch or missing scope', async () => {
+    const input = await invocation('setTimeout(()=>{},30);');
+    const { spawnWrapped: originalSpawn, _forceSystemdRunAvailable: forceOriginal } =
+      await vi.importActual<typeof import('@cleocode/core/resources/spawn-wrapper')>(
+        '@cleocode/core/resources/spawn-wrapper',
+      );
+    forceOriginal(false);
+    vi.spyOn(spawning, 'spawnWrapped').mockImplementation((command, args, options, wrapper) => ({
+      ...originalSpawn(command, args, options, wrapper),
+      mode: 'systemd',
+      unitName: 'unobserved-owned.scope',
+    }));
+    vi.spyOn(childProcess, 'spawnSync').mockReturnValue({
+      pid: 1,
+      output: [],
+      stdout: '',
+      stderr: '',
+      status: 1,
+      signal: null,
+    });
+    const result = await runProviderVerification(input);
+    expect(result.scope).toMatchObject({
+      verified: false,
+      cgroupPath: null,
+      removedAfter: false,
+      observedMemberPids: [],
+    });
+    expect(result.certification).toBe('unverified');
+  });
 });

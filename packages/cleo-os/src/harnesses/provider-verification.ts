@@ -1,12 +1,13 @@
 /** Bounded external CLI observation for the existing installed-artifact verifier. @packageDocumentation */
 
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream, readFileSync } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type {
   CertifiableProviderCli,
+  ProviderScopeObservation,
   ProviderVerificationInvocation,
   ProviderVerificationProcessResult,
 } from '@cleocode/contracts/capabilities';
@@ -141,7 +142,11 @@ export async function runProviderVerification(
 ): Promise<ProviderVerificationProcessResult> {
   const started = Date.now();
   // Copy mutable caller inputs synchronously before filesystem awaits.
-  const captured = { ...input, environment: { ...input.environment } };
+  const captured = {
+    ...input,
+    environment: { ...input.environment },
+    systemdControl: input.systemdControl ? { ...input.systemdControl } : undefined,
+  };
   const invocation = await validateInvocation(captured);
   const executablePath = await realpath(invocation.executable);
   const digest = createHash('sha256');
@@ -178,6 +183,7 @@ export async function runProviderVerification(
     childClosed: false,
     processGroupGone: null,
     containment: 'pgid',
+    scope: null,
     certification: 'unverified',
     diagnostics,
   };
@@ -192,12 +198,126 @@ export async function runProviderVerification(
     },
     {
       scopeClass: 'tool',
-      scopeId: invocation.invocationId,
+      scopeId: `${invocation.invocationId}-${randomUUID()}`,
+      systemdControl: invocation.systemdControl,
       resources: { memoryMax: `${invocation.memoryMaxMb}M` },
     },
   );
   result.containment = owned.mode;
   const { child } = owned;
+  const managerEnv = invocation.systemdControl
+    ? {
+        ...invocation.environment,
+        XDG_RUNTIME_DIR: invocation.systemdControl.runtimeDirectory,
+        DBUS_SESSION_BUS_ADDRESS:
+          invocation.systemdControl.busAddress ??
+          `unix:path=${join(invocation.systemdControl.runtimeDirectory, 'bus')}`,
+      }
+    : { ...invocation.environment };
+  const scope: ProviderScopeObservation | null =
+    owned.mode === 'systemd' && owned.unitName
+      ? {
+          unitName: owned.unitName,
+          cgroupPath: null,
+          memoryMaxBytes: null,
+          memorySwapMaxBytes: null,
+          observedMemberPids: [],
+          populatedBefore: null,
+          populatedAfter: null,
+          removedAfter: false,
+          verified: false,
+        }
+      : null;
+  result.scope = scope;
+  const scopeDiagnostics = new Set<string>();
+  const scopeDiagnostic = (message: string) => {
+    if (scopeDiagnostics.has(message)) return;
+    scopeDiagnostics.add(message);
+    diagnostics.push(message);
+  };
+  let cleanupDeadline: number | undefined;
+  const beginCleanup = () => (cleanupDeadline ??= Date.now() + 1000);
+  const observeScope = (after: boolean) => {
+    if (
+      !scope ||
+      process.platform !== 'linux' ||
+      Date.now() >= (after ? beginCleanup() : invocation.deadlineAt)
+    )
+      return;
+    try {
+      if (!scope.cgroupPath) {
+        const remaining = (after ? beginCleanup() : invocation.deadlineAt) - Date.now();
+        if (remaining <= 0) return;
+        const query = spawnSync(
+          'systemctl',
+          ['--user', 'show', scope.unitName, '--property=ControlGroup', '--value'],
+          {
+            env: managerEnv,
+            encoding: 'utf8',
+            timeout: Math.min(100, remaining),
+            maxBuffer: 4096,
+            stdio: ['ignore', 'pipe', 'ignore'],
+          },
+        );
+        if (query.status !== 0 || query.error) {
+          scopeDiagnostic('An owned scope query failed or exceeded its bounded observation time.');
+          return;
+        }
+        const group = query.stdout.trim();
+        // Observe only the exact randomly named scope, never a parent/global slice.
+        if (
+          !group.startsWith('/') ||
+          group.split('/').includes('..') ||
+          !group.endsWith(`/${scope.unitName}`)
+        )
+          return;
+        scope.cgroupPath = group;
+      }
+      const directory = join('/sys/fs/cgroup', scope.cgroupPath);
+      const events = readFileSync(join(directory, 'cgroup.events'), 'utf8');
+      const populated = /^populated ([01])$/m.exec(events)?.[1];
+      if (after) scope.populatedAfter = populated === undefined ? null : populated === '1';
+      else {
+        scope.populatedBefore =
+          scope.populatedBefore === true
+            ? true
+            : populated === undefined
+              ? null
+              : populated === '1';
+        const memory = readFileSync(join(directory, 'memory.max'), 'utf8').trim();
+        const swap = readFileSync(join(directory, 'memory.swap.max'), 'utf8').trim();
+        scope.memoryMaxBytes = /^\d+$/.test(memory) ? Number(memory) : null;
+        scope.memorySwapMaxBytes = /^\d+$/.test(swap) ? Number(swap) : null;
+        const members = readFileSync(join(directory, 'cgroup.procs'), 'utf8').trim().split(/\s+/);
+        if (members.length > 1024) return;
+        const matched: number[] = [];
+        for (const member of members) {
+          if (Date.now() >= invocation.deadlineAt) return;
+          if (!/^\d+$/.test(member)) continue;
+          const membership = readFileSync(`/proc/${member}/cgroup`, 'utf8');
+          if (membership.split('\n').includes(`0::${scope.cgroupPath}`))
+            matched.push(Number(member));
+        }
+        scope.observedMemberPids = [...new Set([...scope.observedMemberPids, ...matched])];
+      }
+    } catch (error) {
+      if (
+        after &&
+        scope.populatedBefore === true &&
+        scope.observedMemberPids.length > 0 &&
+        error instanceof Error &&
+        'code' in error &&
+        error.code === 'ENOENT'
+      ) {
+        scope.removedAfter = true;
+        scope.populatedAfter = null;
+      } else
+        scopeDiagnostic(
+          'An owned scope filesystem observation failed; unavailable evidence remains unverified.',
+        );
+      // Races during startup or process exit leave the corresponding evidence unverified.
+    }
+  };
   let bytesLeft = invocation.transcriptByteLimit;
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
@@ -212,12 +332,16 @@ export async function runProviderVerification(
   const killGroup = () => {
     if (owned.mode === 'systemd' && owned.unitName && !scopeStopRequested) {
       scopeStopRequested = true;
-      const cleanup = spawnSync(
-        'systemctl',
-        ['--user', 'kill', '--kill-whom=all', '--signal=SIGKILL', owned.unitName],
-        { stdio: 'ignore', timeout: 1000 },
-      );
-      if (cleanup.error || cleanup.status !== 0)
+      const remaining = beginCleanup() - Date.now();
+      const cleanup =
+        remaining > 0
+          ? spawnSync(
+              'systemctl',
+              ['--user', 'kill', '--kill-whom=all', '--signal=SIGKILL', owned.unitName],
+              { env: managerEnv, stdio: 'ignore', timeout: Math.max(1, remaining) },
+            )
+          : null;
+      if (!cleanup || cleanup.error || cleanup.status !== 0)
         diagnostics.push('Owned systemd scope kill was unsuccessful or unverified.');
     }
     if (!child.pid) return;
@@ -232,14 +356,18 @@ export async function runProviderVerification(
   const stop = (outcome: ProviderVerificationProcessResult['outcome']) => {
     if (stopRequested || finalized) return;
     stopRequested = true;
+    beginCleanup();
     result.outcome = outcome;
     killGroup();
     // This is a bounded cleanup observation window, not extra scenario execution time.
-    cleanupTimer = setTimeout(() => {
-      child.stdout?.destroy();
-      child.stderr?.destroy();
-      settle();
-    }, 1000);
+    cleanupTimer = setTimeout(
+      () => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        settle();
+      },
+      Math.max(0, beginCleanup() - Date.now()),
+    );
   };
   const collect = (chunks: Buffer[], value: Buffer) => {
     if (finalized) return;
@@ -271,13 +399,36 @@ export async function runProviderVerification(
     Math.max(0, invocation.deadlineAt - Date.now()),
   );
   if (invocation.signal?.aborted) abort();
+  else if (Date.now() >= invocation.deadlineAt) stop('deadline');
+  const scopePoll = setInterval(() => {
+    if (!stopRequested && !result.childClosed) observeScope(false);
+  }, 25);
+  if (!stopRequested) observeScope(false);
   try {
     await settled;
   } finally {
     clearTimeout(deadline);
+    clearInterval(scopePoll);
     if (cleanupTimer) clearTimeout(cleanupTimer);
     invocation.signal?.removeEventListener('abort', abort);
+    beginCleanup();
     killGroup();
+    if (scope) {
+      do {
+        observeScope(true);
+        if (scope.removedAfter || scope.populatedAfter === false) break;
+        await new Promise<void>((done) =>
+          setTimeout(done, Math.min(25, Math.max(0, beginCleanup() - Date.now()))),
+        );
+      } while (Date.now() < beginCleanup());
+      scope.verified =
+        result.childClosed &&
+        scope.populatedBefore === true &&
+        scope.observedMemberPids.length > 0 &&
+        scope.memoryMaxBytes === invocation.memoryMaxMb * 1024 * 1024 &&
+        scope.memorySwapMaxBytes === 0 &&
+        (scope.removedAfter || scope.populatedAfter === false);
+    }
     if (process.platform !== 'win32' && child.pid) {
       try {
         process.kill(-child.pid, 0);
@@ -293,10 +444,17 @@ export async function runProviderVerification(
     diagnostics.push(
       'Process-group fallback has no observed cgroup memory bound and cannot exclude escaped descendants.',
     );
+  else if (!scope?.verified)
+    diagnostics.push(
+      'Owned scope membership, resource bounds or cleanup could not all be verified.',
+    );
   else
     diagnostics.push(
-      'Systemd scope emptiness was not independently inspected; lifecycle verification remains unverified.',
+      'Owned scope membership, memory/swap limits and empty cleanup were observed; this is not a complete provider lifecycle certificate.',
     );
+  diagnostics.push(
+    'Synchronous manager probes and kernel reads are bounded cooperatively; timers do not preempt them. Cleanup gets at most one separate one-second observation window; elapsed time includes overruns.',
+  );
   if (!result.childClosed || result.processGroupGone !== true)
     diagnostics.push('Owned process cleanup is incomplete or unverified.');
   const decode = (chunks: Buffer[]) => {
