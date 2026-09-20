@@ -925,7 +925,7 @@ describe('shared invocation budget for pending submission, claim and cancellatio
 });
 
 describe('explicit terminal retry composition', () => {
-  function terminal(status: 'failed' | 'cancelled' = 'failed') {
+  function terminal(status: 'failed' | 'cancelled' | 'interrupted' = 'failed') {
     native.exec(
       'PRAGMA foreign_keys=ON; CREATE TABLE retry_history(id TEXT PRIMARY KEY,value TEXT NOT NULL)',
     );
@@ -936,7 +936,9 @@ describe('explicit terminal retry composition', () => {
     if (status === 'failed') store.fail('job', 'Original observed failure', Date.now());
     else {
       store.requestCancel('job', Date.now());
-      store.cancel('job', Date.now());
+      if (status === 'interrupted')
+        native.exec("UPDATE background_jobs SET lease_expires_at=0 WHERE id='job'");
+      else store.cancel('job', Date.now());
     }
     return store;
   }
@@ -960,6 +962,7 @@ describe('explicit terminal retry composition', () => {
   it.each([
     'failed',
     'cancelled',
+    'interrupted',
   ] as const)('retains the complete %s attempt before a fresh fenced claim', (status) => {
     const store = terminal(status);
     const old = store.get('job')!;
@@ -980,7 +983,7 @@ describe('explicit terminal retry composition', () => {
         );
         expect(prior).toMatchObject({
           id: 'job',
-          status,
+          status: status === 'interrupted' ? 'running' : status,
           attempts: 1,
           fencingEpoch: 1,
           ownerId: old.ownerId,
@@ -989,7 +992,7 @@ describe('explicit terminal retry composition', () => {
           proposalHash: old.proposalHash,
           cancellationRequestedAt: old.cancellationRequestedAt,
           error: old.error ?? null,
-          completedAt: Date.parse(old.completedAt!),
+          completedAt: old.completedAt ? Date.parse(old.completedAt) : null,
         });
         expect(
           fresh
@@ -1068,6 +1071,57 @@ describe('explicit terminal retry composition', () => {
     }
   });
 
+  it('fences the previous owner after retaining an uncertain interrupted attempt', () => {
+    const oldOwner = terminal('interrupted');
+    const before = oldOwner.get('job')!;
+    const next = new DurableJobStore(db, { projectId: request.projectId, actor: 'resuming-agent' });
+    const context = invocation();
+    try {
+      const grant = next.retryAtomically('job', Date.now(), context, retain);
+      expect(grant.ownerId).not.toBe(before.ownerId);
+      expect(() => oldOwner.complete('job', { late: true }, Date.now())).toThrow();
+      const retained = JSON.parse(
+        String(native.prepare('SELECT value FROM retry_history').get()?.value),
+      );
+      expect(retained).toMatchObject({
+        status: 'running',
+        error: null,
+        completedAt: null,
+        ownerId: before.ownerId,
+        checkpointJson: before.checkpointJson,
+        cancellationRequestedAt: before.cancellationRequestedAt,
+      });
+      expect(next.get('job')).toMatchObject({
+        status: 'running',
+        fencingEpoch: 2,
+        cancellationRequestedAt: null,
+      });
+    } finally {
+      context.close();
+    }
+  });
+
+  it.each([
+    'history',
+    'claim',
+  ] as const)('preserves interrupted ownership and checkpoint on recovery %s fault', (fault) => {
+    const store = terminal('interrupted');
+    const before = store.get('job');
+    const context = invocation();
+    native.exec(
+      fault === 'history'
+        ? "CREATE TEMP TRIGGER refuse_history BEFORE INSERT ON retry_history BEGIN SELECT RAISE(ABORT,'history fault'); END"
+        : "CREATE TEMP TRIGGER refuse_claim BEFORE UPDATE OF owner_id ON background_jobs BEGIN SELECT RAISE(ABORT,'claim fault'); END",
+    );
+    try {
+      expect(() => store.retryAtomically('job', Date.now(), context, retain)).toThrow();
+      expect(store.get('job')).toEqual(before);
+      expect(native.prepare('SELECT * FROM retry_history').all()).toEqual([]);
+    } finally {
+      context.close();
+    }
+  });
+
   it('refuses already committed work without appending retry history or reapplying effects', () => {
     const store = terminal();
     const context = invocation();
@@ -1116,8 +1170,11 @@ describe('explicit terminal retry composition', () => {
     }
   });
 
-  it('lets exactly one of two independent resume processes retain and claim the terminal attempt', async () => {
-    terminal();
+  it.each([
+    'failed',
+    'interrupted',
+  ] as const)('lets exactly one independent resume process claim the %s attempt', async (status) => {
+    terminal(status);
     const results = await Promise.all([
       execute(process.execPath, [join(bundleRoot, 'client.mjs'), path, 'retry', root], {
         timeout: 10000,
