@@ -97,6 +97,34 @@ describe('transaction-bound lazy background operations', () => {
     expect(pendingBackgroundOpCount()).toBe(0);
   });
 
+  it('queues the next foreground transaction behind committed effects and permits nested accessor writes', async () => {
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let nextEntered = false;
+    let outcome: ReturnType<typeof trackBackgroundOp> | undefined;
+    await env.accessor.transaction(async () => {
+      outcome = trackBackgroundOp(async () => {
+        started.resolve();
+        await release.promise;
+        await env.accessor.setMetaValue('effect-proof', 'committed');
+      });
+    });
+    await started.promise;
+    const next = env.accessor.transaction(async () => {
+      nextEntered = true;
+    });
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(nextEntered).toBe(false);
+    } finally {
+      release.resolve();
+    }
+    await next;
+    await awaitBackgroundOps();
+    expect(await outcome).toMatchObject({ status: 'fulfilled' });
+    expect(await env.accessor.getMetaValue('effect-proof')).toBe('committed');
+  });
+
   it('discards successful nested effects when the outer transaction rolls back', async () => {
     const effects: string[] = [];
     let outcome: ReturnType<typeof trackBackgroundOp> | undefined;

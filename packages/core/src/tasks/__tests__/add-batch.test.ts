@@ -11,12 +11,49 @@
  * @epic T9813
  */
 
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sagaCreate } from '../../sagas/create.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { awaitBackgroundOps } from '../../store/background-ops.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { addBatchTasks } from '../add-batch.js';
+
+/** Independently read committed task nodes from a fresh bounded readonly process. */
+function readGraphNodes(env: TestDbEnv): { id: string; label: string }[] {
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--max-old-space-size=128',
+      '--disable-warning=ExperimentalWarning',
+      '--input-type=module',
+      '-e',
+      `
+    import { DatabaseSync } from 'node:sqlite';
+    const db = new DatabaseSync(process.argv[1], { readOnly: true });
+    try { process.stdout.write(JSON.stringify(db.prepare("SELECT id, label FROM brain_page_nodes WHERE node_type = 'task' ORDER BY id").all())); }
+    finally { db.close(); }
+  `,
+      join(env.cleoDir, 'cleo.db'),
+    ],
+    {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        PATH: process.env.PATH,
+        HOME: env.tempDir,
+        TMPDIR: env.tempDir,
+        TMP: env.tempDir,
+        TEMP: env.tempDir,
+      },
+    },
+  );
+  expect(result.error).toBeUndefined();
+  expect(result.status, result.stderr).toBe(0);
+  return JSON.parse(result.stdout);
+}
 
 // ---------------------------------------------------------------------------
 // Test fixture helpers
@@ -169,6 +206,37 @@ describe('addBatchTasks', () => {
     expect(t3!.title).toBe('Batch task C');
     expect(t1!.labels).toEqual(['pm-core-v2', 'wave.3']);
     expect(t1!.acceptance).toEqual(['labels persist as arrays', 'acceptance persists as arrays']);
+    await awaitBackgroundOps();
+    expect(readGraphNodes(env)).toEqual([
+      { id: 'task:T001', label: 'T001: Batch task A' },
+      { id: 'task:T002', label: 'T002: Batch task B' },
+      { id: 'task:T003', label: 'T003: Batch task C' },
+    ]);
+  });
+
+  it('does not publish task graph effects from a later outer rollback', async () => {
+    await expect(
+      accessor.transaction(async () => {
+        await addBatchTasks(
+          {
+            tasks: [
+              {
+                title: 'Rolled back task',
+                description: 'No graph artifact may survive this rollback',
+                skipContainmentInvariant: true,
+              },
+            ],
+          },
+          accessor,
+          env.tempDir,
+        );
+        expect(readGraphNodes(env)).toEqual([]);
+        throw new Error('outer batch rollback');
+      }),
+    ).rejects.toThrow('outer batch rollback');
+    await awaitBackgroundOps();
+    expect((await accessor.queryTasks({})).tasks).toEqual([]);
+    expect(readGraphNodes(env)).toEqual([]);
   });
 
   // -------------------------------------------------------------------------

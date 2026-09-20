@@ -1702,6 +1702,43 @@ export async function addTask(
       before: null,
       after: { title: options.title, status, priority },
     });
+    // T945 Stage A — mint a `task:T###` brain graph node at creation, not at
+    // completion. Lazy registration defers execution until the actual outer commit,
+    // including batch transactions; rollback never starts these graph effects.
+    // Tracked (T10490) so the test harness can flush it before tearing down the
+    // shared SQLite singleton; production still runs it fully detached.
+    trackBackgroundOp(() =>
+      import('../memory/graph-auto-populate.js')
+        .then(({ ensureTaskNode }) =>
+          ensureTaskNode(resolveOrCwd(cwd), taskId, options.title, {
+            status,
+            priority,
+            type: taskType,
+            ...(parentId ? { parentId } : {}),
+          }),
+        )
+        .catch(() => {
+          /* Graph population is best-effort — never fail addTask. */
+        }),
+    );
+
+    // T1634 — LOOM auto-init for new epics.
+    // Every new epic automatically initializes the RCASD-IVTR lifecycle pipeline
+    // at the 'research' stage so 'cleo orchestrate ready --epic <id>' always
+    // has a LOOM context (and never returns 'epic has no children' due to an
+    // uninitialized pipeline). Fire-and-forget: failures are swallowed inside
+    // initLoomForEpic so LOOM init never blocks or fails epic creation.
+    if (taskType === 'epic') {
+      // Tracked (T10490) — initLoomForEpic touches the shared tasks singleton via
+      // getDb(); flushing it before a test teardown prevents cross-test races.
+      trackBackgroundOp(() =>
+        import('../orchestrate/lifecycle-ops.js')
+          .then(({ initLoomForEpic }) => initLoomForEpic(taskId, resolveOrCwd(cwd)))
+          .catch(() => {
+            /* LOOM init is best-effort — never fail addTask. */
+          }),
+      );
+    }
   });
 
   if (duplicateBypass) {
@@ -1720,45 +1757,6 @@ export async function addTask(
         `${reopenedAncestorIds.length === 1 ? '' : 's'} (${reopenedAncestorIds.join(', ')}) ` +
         `because new child ${taskId} added unsatisfied work under a completed parent. ` +
         `Re-complete the ancestor(s) once ${taskId} is done.`,
-    );
-  }
-
-  // T945 Stage A — mint a `task:T###` brain graph node at creation, not at
-  // completion. Prior to this hook, addTask never wrote to the graph, so new
-  // tasks were invisible until completeTask ran. Fire-and-forget: any failure
-  // is swallowed inside ensureTaskNode so graph writes never fail task creation.
-  // Tracked (T10490) so the test harness can flush it before tearing down the
-  // shared SQLite singleton; production still runs it fully detached.
-  trackBackgroundOp(
-    import('../memory/graph-auto-populate.js')
-      .then(({ ensureTaskNode }) =>
-        ensureTaskNode(resolveOrCwd(cwd), taskId, options.title, {
-          status,
-          priority,
-          type: taskType,
-          ...(parentId ? { parentId } : {}),
-        }),
-      )
-      .catch(() => {
-        /* Graph population is best-effort — never fail addTask. */
-      }),
-  );
-
-  // T1634 — LOOM auto-init for new epics.
-  // Every new epic automatically initializes the RCASD-IVTR lifecycle pipeline
-  // at the 'research' stage so 'cleo orchestrate ready --epic <id>' always
-  // has a LOOM context (and never returns 'epic has no children' due to an
-  // uninitialized pipeline). Fire-and-forget: failures are swallowed inside
-  // initLoomForEpic so LOOM init never blocks or fails epic creation.
-  if (taskType === 'epic') {
-    // Tracked (T10490) — initLoomForEpic touches the shared tasks singleton via
-    // getDb(); flushing it before a test teardown prevents cross-test races.
-    trackBackgroundOp(
-      import('../orchestrate/lifecycle-ops.js')
-        .then(({ initLoomForEpic }) => initLoomForEpic(taskId, resolveOrCwd(cwd)))
-        .catch(() => {
-          /* LOOM init is best-effort — never fail addTask. */
-        }),
     );
   }
 
