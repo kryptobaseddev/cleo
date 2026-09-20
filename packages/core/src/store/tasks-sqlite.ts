@@ -1,8 +1,10 @@
 /**
  * SQLite-backed task store operations.
  *
- * CRUD operations for tasks, dependencies, and relations backed by tasks.db.
+ * CRUD operations for tasks, dependencies, and relations backed by the project cleo.db.
  * Implements the same interface as the JSON store for StoreProvider compatibility.
+ * Every public operation captures canonical project scope before opening a handle;
+ * direct SQL, safety checks and accessor transactions retain that same ownership.
  *
  * @epic T4454
  * @task W1-T3
@@ -21,6 +23,7 @@ import {
 } from '@cleocode/contracts';
 import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
+import { getProjectRoot, worktreeScope } from '../project-scope.js';
 import { applyAcPlan, planAcUpdate } from '../tasks/ac-table.js';
 import { rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnTaskDelete } from './cross-db-cleanup.js';
@@ -32,9 +35,18 @@ import {
 } from './data-safety-central.js';
 import { parseLabels, updateTaskLabels } from './db-helpers.js';
 import { getDb, getNativeDb } from './sqlite.js';
-import { createSqliteDataAccessor } from './sqlite-data-accessor.js';
+import { captureTaskAccessorScope, createSqliteDataAccessor } from './sqlite-data-accessor.js';
 import type { TaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
+
+/** Capture one legacy operation before opening a handle or crossing an await. */
+function inTaskStoreScope<T>(
+  cwd: string | undefined,
+  operation: (root: string) => Promise<T>,
+): Promise<T> {
+  const scope = captureTaskAccessorScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, () => operation(scope.worktreeRoot));
+}
 
 // === CRUD OPERATIONS ===
 
@@ -82,23 +94,25 @@ async function insertTaskRow(task: Task, cwd?: string): Promise<Task> {
 
 /** Get a task by ID, including its dependencies. */
 export async function getTask(taskId: string, cwd?: string): Promise<Task | null> {
-  const db = await getDb(cwd);
-  const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).all();
-  if (rows.length === 0) return null;
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).all();
+    if (rows.length === 0) return null;
 
-  const task = rowToTask(rows[0]!);
+    const task = rowToTask(rows[0]!);
 
-  // Load dependencies
-  const deps = await db
-    .select()
-    .from(schema.taskDependencies)
-    .where(eq(schema.taskDependencies.taskId, taskId))
-    .all();
-  if (deps.length > 0) {
-    task.depends = deps.map((d) => d.dependsOn);
-  }
+    // Load dependencies
+    const deps = await db
+      .select()
+      .from(schema.taskDependencies)
+      .where(eq(schema.taskDependencies.taskId, taskId))
+      .all();
+    if (deps.length > 0) {
+      task.depends = deps.map((d) => d.dependsOn);
+    }
 
-  return task;
+    return task;
+  });
 }
 
 /** Update an existing task. */
@@ -107,70 +121,74 @@ export async function updateTask(
   updates: Partial<Task>,
   cwd?: string,
 ): Promise<Task | null> {
-  if (updates.id !== undefined && updates.id !== taskId) {
-    throw new CleoError(ExitCode.INVALID_INPUT, 'A task update cannot change its identity');
-  }
-  if (updates.gates !== undefined || updates.abortReason !== undefined) {
-    throw new CleoError(
-      ExitCode.INVALID_INPUT,
-      'gates and abortReason are not persisted task fields',
-    );
-  }
-  const accessor = await createSqliteDataAccessor(cwd);
-  return accessor.transaction(async (tx) => {
-    const existing = await getTask(taskId, cwd);
-    if (!existing) return null;
-    const provided = { ...updates };
-    for (const [key, value] of Object.entries(provided)) {
-      if (value === undefined) Reflect.deleteProperty(provided, key);
+  return inTaskStoreScope(cwd, async (cwd) => {
+    if (updates.id !== undefined && updates.id !== taskId) {
+      throw new CleoError(ExitCode.INVALID_INPUT, 'A task update cannot change its identity');
     }
-    const updated: Task = {
-      ...existing,
-      ...provided,
-      id: taskId,
-      updatedAt: updates.updatedAt ?? new Date().toISOString(),
-    };
-    if (updates.status === 'pending' || updates.status === 'active') {
-      if (updates.cancelledAt === undefined) updated.cancelledAt = undefined;
-      if (updates.completedAt === undefined) updated.completedAt = undefined;
-    }
-    // The canonical Task converter is shared with add and rich update. Never
-    // maintain another partial field list that silently drops accepted values.
-    await tx.upsertSingleTask(updated);
-    if (updates.acceptance !== undefined) {
-      await applyAcPlan(
-        tx,
-        taskId,
-        planAcUpdate(taskId, await tx.getAcRows(taskId), updates.acceptance),
+    if (updates.gates !== undefined || updates.abortReason !== undefined) {
+      throw new CleoError(
+        ExitCode.INVALID_INPUT,
+        'gates and abortReason are not persisted task fields',
       );
     }
-    if (updates.relates !== undefined) {
-      await tx.clearRelations(taskId);
-      for (const relation of updates.relates) {
-        await tx.addRelation(taskId, relation.taskId, relation.type, relation.reason);
+    const accessor = await createSqliteDataAccessor(cwd);
+    return accessor.transaction(async (tx) => {
+      const existing = await getTask(taskId, cwd);
+      if (!existing) return null;
+      const provided = { ...updates };
+      for (const [key, value] of Object.entries(provided)) {
+        if (value === undefined) Reflect.deleteProperty(provided, key);
       }
-    }
-    return getTask(taskId, cwd);
+      const updated: Task = {
+        ...existing,
+        ...provided,
+        id: taskId,
+        updatedAt: updates.updatedAt ?? new Date().toISOString(),
+      };
+      if (updates.status === 'pending' || updates.status === 'active') {
+        if (updates.cancelledAt === undefined) updated.cancelledAt = undefined;
+        if (updates.completedAt === undefined) updated.completedAt = undefined;
+      }
+      // The canonical Task converter is shared with add and rich update. Never
+      // maintain another partial field list that silently drops accepted values.
+      await tx.upsertSingleTask(updated);
+      if (updates.acceptance !== undefined) {
+        await applyAcPlan(
+          tx,
+          taskId,
+          planAcUpdate(taskId, await tx.getAcRows(taskId), updates.acceptance),
+        );
+      }
+      if (updates.relates !== undefined) {
+        await tx.clearRelations(taskId);
+        for (const relation of updates.relates) {
+          await tx.addRelation(taskId, relation.taskId, relation.type, relation.reason);
+        }
+      }
+      return getTask(taskId, cwd);
+    });
   });
 }
 
 /** Delete a task by ID. */
 export async function deleteTask(taskId: string, cwd?: string): Promise<boolean> {
-  const db = await getDb(cwd);
-  const existing = await db
-    .select({ id: schema.tasks.id })
-    .from(schema.tasks)
-    .where(eq(schema.tasks.id, taskId))
-    .all();
-  if (existing.length === 0) return false;
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    const existing = await db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, taskId))
+      .all();
+    if (existing.length === 0) return false;
 
-  db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
+    db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
 
-  // T033 Part 4: Cross-DB cleanup — nullify brain.db soft FK refs to this task.
-  // Runs after deletion to avoid blocking the task delete path on brain errors.
-  void cleanupBrainRefsOnTaskDelete(taskId, cwd);
+    // T033 Part 4: Cross-DB cleanup — nullify brain.db soft FK refs to this task.
+    // Runs after deletion to avoid blocking the task delete path on brain errors.
+    void cleanupBrainRefsOnTaskDelete(taskId, cwd);
 
-  return true;
+    return true;
+  });
 }
 
 /** List tasks with optional filters. */
@@ -184,55 +202,59 @@ export async function listTasks(
   },
   cwd?: string,
 ): Promise<Task[]> {
-  const db = await getDb(cwd);
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
 
-  const conditions = [];
-  // Exclude archived by default
-  conditions.push(ne(schema.tasks.status, 'archived'));
+    const conditions = [];
+    // Exclude archived by default
+    conditions.push(ne(schema.tasks.status, 'archived'));
 
-  if (filters?.status) conditions.push(eq(schema.tasks.status, filters.status));
-  if (filters?.parentId !== undefined) {
-    if (filters.parentId === null) {
-      conditions.push(isNull(schema.tasks.parentId));
-    } else {
-      conditions.push(eq(schema.tasks.parentId, filters.parentId));
+    if (filters?.status) conditions.push(eq(schema.tasks.status, filters.status));
+    if (filters?.parentId !== undefined) {
+      if (filters.parentId === null) {
+        conditions.push(isNull(schema.tasks.parentId));
+      } else {
+        conditions.push(eq(schema.tasks.parentId, filters.parentId));
+      }
     }
-  }
-  if (filters?.type) conditions.push(eq(schema.tasks.type, filters.type));
-  if (filters?.phase) conditions.push(eq(schema.tasks.phase, filters.phase));
+    if (filters?.type) conditions.push(eq(schema.tasks.type, filters.type));
+    if (filters?.phase) conditions.push(eq(schema.tasks.phase, filters.phase));
 
-  const query = db
-    .select()
-    .from(schema.tasks)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(asc(schema.tasks.position), asc(schema.tasks.createdAt));
+    const query = db
+      .select()
+      .from(schema.tasks)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(asc(schema.tasks.position), asc(schema.tasks.createdAt));
 
-  const rows = filters?.limit ? await query.limit(filters.limit).all() : await query.all();
+    const rows = filters?.limit ? await query.limit(filters.limit).all() : await query.all();
 
-  // Load dependencies for all tasks
-  const tasks = rows.map(rowToTask);
-  await loadDependencies(tasks, cwd);
-  return tasks;
+    // Load dependencies for all tasks
+    const tasks = rows.map(rowToTask);
+    await loadDependencies(tasks, cwd);
+    return tasks;
+  });
 }
 
 /** Find tasks by fuzzy text search. */
 export async function findTasks(query: string, limit: number = 20, cwd?: string): Promise<Task[]> {
-  const db = await getDb(cwd);
-  const pattern = `%${query}%`;
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    const pattern = `%${query}%`;
 
-  const rows = await db
-    .select()
-    .from(schema.tasks)
-    .where(
-      and(
-        ne(schema.tasks.status, 'archived'),
-        sql`(${schema.tasks.id} LIKE ${pattern} OR ${schema.tasks.title} LIKE ${pattern} OR ${schema.tasks.description} LIKE ${pattern})`,
-      ),
-    )
-    .limit(limit)
-    .all();
+    const rows = await db
+      .select()
+      .from(schema.tasks)
+      .where(
+        and(
+          ne(schema.tasks.status, 'archived'),
+          sql`(${schema.tasks.id} LIKE ${pattern} OR ${schema.tasks.title} LIKE ${pattern} OR ${schema.tasks.description} LIKE ${pattern})`,
+        ),
+      )
+      .limit(limit)
+      .all();
 
-  return rows.map(rowToTask);
+    return rows.map(rowToTask);
+  });
 }
 
 /**
@@ -245,58 +267,60 @@ export async function findTasks(query: string, limit: number = 20, cwd?: string)
  * to `'completed-unverified'` to preserve forward compat.
  */
 export async function archiveTask(taskId: string, reason?: string, cwd?: string): Promise<boolean> {
-  const db = await getDb(cwd);
-  const task = await getTask(taskId, cwd);
-  if (!task) return false;
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    const task = await getTask(taskId, cwd);
+    if (!task) return false;
 
-  const now = new Date().toISOString();
-  const cycleTime = task.createdAt
-    ? Math.floor((Date.now() - new Date(task.createdAt).getTime()) / (1000 * 60 * 60 * 24))
-    : null;
+    const now = new Date().toISOString();
+    const cycleTime = task.createdAt
+      ? Math.floor((Date.now() - new Date(task.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+      : null;
 
-  // Normalize any caller-supplied legacy reason ('completed', 'deleted',
-  // arbitrary strings) into the T1408 enum. NULL stays NULL via undefined.
-  //
-  // T1409: enforce the tombstone guard. Direct callers MAY NOT write the
-  // tombstone value `'completed-unverified'` unless the migration-backfill
-  // env flag is set. The fallback when no reason is supplied still maps to
-  // the tombstone (since DB CHECK requires one of the 6 enum values), but
-  // explicit caller-supplied tombstones from non-migration code are rejected.
-  // T11578 · AC1: the consolidated `tasks_tasks.archive_reason` column is
-  // CHECK-backed by the T1408 enum, so the writer must produce a value typed as
-  // `ArchiveReasonValue` (the prefixed schema narrows the column type). The
-  // normalization already only ever yields canonical enum values; the explicit
-  // return type makes that guarantee visible to the drizzle `.set()` overload.
-  const normalizedReason: ArchiveReasonValue = (() => {
-    if (!reason) return ARCHIVE_REASON_TOMBSTONE;
-    const valid = new Set<ArchiveReasonValue>([
-      'verified',
-      'reconciled',
-      'superseded',
-      'shadowed',
-      'cancelled',
-      ARCHIVE_REASON_TOMBSTONE,
-    ]);
-    if (reason === ARCHIVE_REASON_TOMBSTONE && !isArchiveTombstoneAllowed()) {
-      throw new ArchiveReasonTombstoneError(taskId);
-    }
-    if (valid.has(reason as ArchiveReasonValue)) return reason as ArchiveReasonValue;
-    if (reason === 'deleted') return 'cancelled';
-    return ARCHIVE_REASON_TOMBSTONE;
-  })();
+    // Normalize any caller-supplied legacy reason ('completed', 'deleted',
+    // arbitrary strings) into the T1408 enum. NULL stays NULL via undefined.
+    //
+    // T1409: enforce the tombstone guard. Direct callers MAY NOT write the
+    // tombstone value `'completed-unverified'` unless the migration-backfill
+    // env flag is set. The fallback when no reason is supplied still maps to
+    // the tombstone (since DB CHECK requires one of the 6 enum values), but
+    // explicit caller-supplied tombstones from non-migration code are rejected.
+    // T11578 · AC1: the consolidated `tasks_tasks.archive_reason` column is
+    // CHECK-backed by the T1408 enum, so the writer must produce a value typed as
+    // `ArchiveReasonValue` (the prefixed schema narrows the column type). The
+    // normalization already only ever yields canonical enum values; the explicit
+    // return type makes that guarantee visible to the drizzle `.set()` overload.
+    const normalizedReason: ArchiveReasonValue = (() => {
+      if (!reason) return ARCHIVE_REASON_TOMBSTONE;
+      const valid = new Set<ArchiveReasonValue>([
+        'verified',
+        'reconciled',
+        'superseded',
+        'shadowed',
+        'cancelled',
+        ARCHIVE_REASON_TOMBSTONE,
+      ]);
+      if (reason === ARCHIVE_REASON_TOMBSTONE && !isArchiveTombstoneAllowed()) {
+        throw new ArchiveReasonTombstoneError(taskId);
+      }
+      if (valid.has(reason as ArchiveReasonValue)) return reason as ArchiveReasonValue;
+      if (reason === 'deleted') return 'cancelled';
+      return ARCHIVE_REASON_TOMBSTONE;
+    })();
 
-  db.update(schema.tasks)
-    .set({
-      status: 'archived',
-      archivedAt: now,
-      archiveReason: normalizedReason,
-      cycleTimeDays: cycleTime,
-      updatedAt: now,
-    })
-    .where(eq(schema.tasks.id, taskId))
-    .run();
+    db.update(schema.tasks)
+      .set({
+        status: 'archived',
+        archivedAt: now,
+        archiveReason: normalizedReason,
+        cycleTimeDays: cycleTime,
+        updatedAt: now,
+      })
+      .where(eq(schema.tasks.id, taskId))
+      .run();
 
-  return true;
+    return true;
+  });
 }
 
 // === DEPENDENCY & RELATION OPERATIONS ===
@@ -333,8 +357,10 @@ export async function addDependency(
   dependsOn: string,
   cwd?: string,
 ): Promise<void> {
-  const db = await getDb(cwd);
-  db.insert(schema.taskDependencies).values({ taskId, dependsOn }).onConflictDoNothing().run();
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    db.insert(schema.taskDependencies).values({ taskId, dependsOn }).onConflictDoNothing().run();
+  });
 }
 
 /** Remove a dependency. */
@@ -343,15 +369,17 @@ export async function removeDependency(
   dependsOn: string,
   cwd?: string,
 ): Promise<void> {
-  const db = await getDb(cwd);
-  db.delete(schema.taskDependencies)
-    .where(
-      and(
-        eq(schema.taskDependencies.taskId, taskId),
-        eq(schema.taskDependencies.dependsOn, dependsOn),
-      ),
-    )
-    .run();
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    db.delete(schema.taskDependencies)
+      .where(
+        and(
+          eq(schema.taskDependencies.taskId, taskId),
+          eq(schema.taskDependencies.dependsOn, dependsOn),
+        ),
+      )
+      .run();
+  });
 }
 
 /** Add a relation between tasks. */
@@ -370,12 +398,14 @@ export async function addRelation(
   cwd?: string,
   reason?: string,
 ): Promise<void> {
-  const db = await getDb(cwd);
-  await db
-    .insert(schema.taskRelations)
-    .values({ taskId, relatedTo, relationType, reason: reason ?? null })
-    .onConflictDoNothing()
-    .run();
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    await db
+      .insert(schema.taskRelations)
+      .values({ taskId, relatedTo, relationType, reason: reason ?? null })
+      .onConflictDoNothing()
+      .run();
+  });
 }
 
 /** Remove a relation between tasks. */
@@ -385,18 +415,20 @@ export async function removeRelation(
   relationType?: string,
   cwd?: string,
 ): Promise<void> {
-  const db = await getDb(cwd);
-  const conditions = [
-    eq(schema.taskRelations.taskId, taskId),
-    eq(schema.taskRelations.relatedTo, relatedTo),
-  ];
-  if (relationType !== undefined) {
-    conditions.push(eq(schema.taskRelations.relationType, relationType as 'related'));
-  }
-  await db
-    .delete(schema.taskRelations)
-    .where(and(...conditions))
-    .run();
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    const conditions = [
+      eq(schema.taskRelations.taskId, taskId),
+      eq(schema.taskRelations.relatedTo, relatedTo),
+    ];
+    if (relationType !== undefined) {
+      conditions.push(eq(schema.taskRelations.relationType, relationType as 'related'));
+    }
+    await db
+      .delete(schema.taskRelations)
+      .where(and(...conditions))
+      .run();
+  });
 }
 
 /** Get relations for a task. */
@@ -404,28 +436,31 @@ export async function getRelations(
   taskId: string,
   cwd?: string,
 ): Promise<Array<{ relatedTo: string; type: string; reason?: string }>> {
-  const db = await getDb(cwd);
-  const rows = await db
-    .select()
-    .from(schema.taskRelations)
-    .where(eq(schema.taskRelations.taskId, taskId))
-    .all();
-  return rows.map((r) => ({
-    relatedTo: r.relatedTo,
-    type: r.relationType,
-    reason: r.reason ?? undefined,
-  }));
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    const rows = await db
+      .select()
+      .from(schema.taskRelations)
+      .where(eq(schema.taskRelations.taskId, taskId))
+      .all();
+    return rows.map((r) => ({
+      relatedTo: r.relatedTo,
+      type: r.relationType,
+      reason: r.reason ?? undefined,
+    }));
+  });
 }
 
 // === GRAPH OPERATIONS ===
 
 /** Get the dependency chain (blockers) for a task using recursive CTE. */
 export async function getBlockerChain(taskId: string, cwd?: string): Promise<string[]> {
-  await getDb(cwd);
-  const nativeDb = getNativeDb(cwd);
-  if (!nativeDb) return [];
-  const result = nativeDb
-    .prepare(`
+  return inTaskStoreScope(cwd, async (cwd) => {
+    await getDb(cwd);
+    const nativeDb = getNativeDb(cwd);
+    if (!nativeDb) return [];
+    const result = nativeDb
+      .prepare(`
     WITH RECURSIVE blocker_chain(id) AS (
       SELECT depends_on FROM tasks_task_dependencies WHERE task_id = ?
       UNION
@@ -434,29 +469,33 @@ export async function getBlockerChain(taskId: string, cwd?: string): Promise<str
     )
     SELECT id FROM blocker_chain
   `)
-    .all(taskId) as { id: string }[];
-  return result.map((r) => r.id);
+      .all(taskId) as { id: string }[];
+    return result.map((r) => r.id);
+  });
 }
 
 /** Get children of a task (hierarchy). */
 export async function getChildren(parentId: string, cwd?: string): Promise<Task[]> {
-  const db = await getDb(cwd);
-  const rows = await db
-    .select()
-    .from(schema.tasks)
-    .where(eq(schema.tasks.parentId, parentId))
-    .orderBy(asc(schema.tasks.position), asc(schema.tasks.createdAt))
-    .all();
-  return rows.map(rowToTask);
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    const rows = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.parentId, parentId))
+      .orderBy(asc(schema.tasks.position), asc(schema.tasks.createdAt))
+      .all();
+    return rows.map(rowToTask);
+  });
 }
 
 /** Build a tree from a root task using recursive CTE. */
 export async function getSubtree(rootId: string, cwd?: string): Promise<Task[]> {
-  await getDb(cwd);
-  const nativeDb = getNativeDb(cwd);
-  if (!nativeDb) return [];
-  const rows = nativeDb
-    .prepare(`
+  return inTaskStoreScope(cwd, async (cwd) => {
+    await getDb(cwd);
+    const nativeDb = getNativeDb(cwd);
+    if (!nativeDb) return [];
+    const rows = nativeDb
+      .prepare(`
     WITH RECURSIVE subtree AS (
       SELECT * FROM tasks_tasks WHERE id = ?
       UNION ALL
@@ -465,39 +504,44 @@ export async function getSubtree(rootId: string, cwd?: string): Promise<Task[]> 
     )
     SELECT * FROM subtree
   `)
-    .all(rootId) as TaskRow[];
-  return rows.map(rowToTask);
+      .all(rootId) as TaskRow[];
+    return rows.map(rowToTask);
+  });
 }
 
 /** Count tasks by status. */
 export async function countByStatus(cwd?: string): Promise<Record<string, number>> {
-  const db = await getDb(cwd);
-  const rows = await db
-    .select({
-      status: schema.tasks.status,
-      count: count(),
-    })
-    .from(schema.tasks)
-    .where(ne(schema.tasks.status, 'archived'))
-    .groupBy(schema.tasks.status)
-    .all();
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    const rows = await db
+      .select({
+        status: schema.tasks.status,
+        count: count(),
+      })
+      .from(schema.tasks)
+      .where(ne(schema.tasks.status, 'archived'))
+      .groupBy(schema.tasks.status)
+      .all();
 
-  const result: Record<string, number> = {};
-  for (const row of rows) {
-    result[row.status] = row.count;
-  }
-  return result;
+    const result: Record<string, number> = {};
+    for (const row of rows) {
+      result[row.status] = row.count;
+    }
+    return result;
+  });
 }
 
 /** Get total task count (excluding archived). */
 export async function countTasks(cwd?: string): Promise<number> {
-  const db = await getDb(cwd);
-  const result = await db
-    .select({ count: count() })
-    .from(schema.tasks)
-    .where(ne(schema.tasks.status, 'archived'))
-    .get();
-  return result?.count ?? 0;
+  return inTaskStoreScope(cwd, async (cwd) => {
+    const db = await getDb(cwd);
+    const result = await db
+      .select({ count: count() })
+      .from(schema.tasks)
+      .where(ne(schema.tasks.status, 'archived'))
+      .get();
+    return result?.count ?? 0;
+  });
 }
 
 // === SAFE WRAPPER FUNCTIONS (with collision detection, write verification, auto-checkpoint) ===
@@ -514,7 +558,9 @@ export async function createTask(
   cwd?: string,
   config?: Partial<SafetyConfig>,
 ): Promise<Task> {
-  return safeCreateTask(() => insertTaskRow(task, cwd), task, cwd, config);
+  return inTaskStoreScope(cwd, async (cwd) => {
+    return safeCreateTask(() => insertTaskRow(task, cwd), task, cwd, config);
+  });
 }
 
 /**
@@ -527,7 +573,9 @@ export async function updateTaskSafe(
   cwd?: string,
   config?: Partial<SafetyConfig>,
 ): Promise<Task | null> {
-  return safeUpdateTask(() => updateTask(taskId, updates, cwd), taskId, updates, cwd, config);
+  return inTaskStoreScope(cwd, async (cwd) => {
+    return safeUpdateTask(() => updateTask(taskId, updates, cwd), taskId, updates, cwd, config);
+  });
 }
 
 /**
@@ -539,5 +587,7 @@ export async function deleteTaskSafe(
   cwd?: string,
   config?: Partial<SafetyConfig>,
 ): Promise<boolean> {
-  return safeDeleteTask(() => deleteTask(taskId, cwd), taskId, cwd, config);
+  return inTaskStoreScope(cwd, async (cwd) => {
+    return safeDeleteTask(() => deleteTask(taskId, cwd), taskId, cwd, config);
+  });
 }
