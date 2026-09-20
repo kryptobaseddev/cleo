@@ -26,6 +26,7 @@ import {
   testGateSchema,
 } from '../acceptance-gate-schema.js';
 import type { AcceptanceItem } from '../index.js';
+import type { ProcessCaptureResult } from '../resource-governor.js';
 
 // ─── TestGate ────────────────────────────────────────────────────────────────
 
@@ -732,5 +733,88 @@ describe('acceptanceArraySchema — mixed (string | AcceptanceGate)[] (T780)', (
     // Compile-time structural check: parsed type must be assignable to AcceptanceItem[]
     const typed: AcceptanceItem[] = parsed;
     expect(typed).toHaveLength(2);
+  });
+});
+
+describe('acceptance result captured execution preservation (T12292)', () => {
+  const execution: ProcessCaptureResult = {
+    started: true,
+    targetPid: 1234,
+    exitCode: 0,
+    signal: null,
+    error: null,
+    stopped: null,
+    stdout: 'literal ü | output',
+    stderr: '',
+    outputTruncated: false,
+    durationMs: 12,
+    mode: 'systemd',
+    unitName: 'cleo-tool-fixture.scope',
+    nativeMemory: 'observed-cgroup',
+    resourceLimits: {
+      cgroup: '/user.slice/cleo-tool-fixture.scope',
+      memoryMaxBytes: 4294967296,
+      tasksMax: 256,
+    },
+    cleanupScope: 'process-group',
+    transportClosed: true,
+    targetCloseObserved: true,
+    cleanupObservation: 'scope-terminal',
+    cleanupErrors: [],
+  };
+  const result: AcceptanceGateResult = {
+    index: 3,
+    req: 'PARTNER-EXACT',
+    kind: 'test',
+    result: 'pass',
+    durationMs: 12,
+    checkedAt: '2026-09-20T17:00:00.000Z',
+    checkedBy: 'captured-agent',
+    execution,
+  };
+
+  it('preserves every execution field through JSON and runtime validation', () => {
+    expect(acceptanceGateResultSchema.parse(JSON.parse(JSON.stringify(result)))).toEqual(result);
+  });
+
+  it.each([
+    'deadline',
+    'cancelled',
+    'resource-limit',
+    'output-limit',
+    'transport-error',
+  ] as const)('retains %s as an incomplete observation without inventing a verdict', (stopped) => {
+    const interrupted: AcceptanceGateResult = {
+      ...result,
+      result: 'error',
+      execution: { ...execution, stopped, exitCode: null, targetCloseObserved: false },
+    };
+    expect(acceptanceGateResultSchema.parse(interrupted)).toEqual(interrupted);
+    expect(acceptanceGateResultSchema.safeParse({ ...interrupted, result: 'pass' }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects a completed verdict for an unstarted target', () => {
+    expect(
+      acceptanceGateResultSchema.safeParse({
+        ...result,
+        execution: { ...execution, started: false, targetPid: null, exitCode: null },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects malformed or contradictory process evidence instead of stripping it', () => {
+    for (const corrupt of [
+      { ...execution, unexpectedAuthority: true },
+      { ...execution, targetPid: 0 },
+      { ...execution, signal: 'SIGTERM' },
+      { ...execution, nativeMemory: 'observed-cgroup', resourceLimits: undefined },
+      { ...execution, resourceLimits: { ...execution.resourceLimits, cgroup: '/wrong-owner' } },
+      { ...execution, durationMs: Number.POSITIVE_INFINITY },
+    ])
+      expect(acceptanceGateResultSchema.safeParse({ ...result, execution: corrupt }).success).toBe(
+        false,
+      );
   });
 });
