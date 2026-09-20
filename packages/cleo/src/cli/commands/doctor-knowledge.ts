@@ -14,6 +14,7 @@ import {
   createKnowledgeRepairInvocation,
   inspectPreparedKnowledgeRepair,
   KnowledgeRepairError,
+  listPreparedKnowledgeRepairs,
   parseKnowledgeRepairProposal,
   prepareKnowledgeRepair,
   prepareKnowledgeRollback,
@@ -42,6 +43,11 @@ export const doctorKnowledgeSubcommand = defineCommand({
       type: 'string',
       description: 'Apply an immutable prepared job under a fresh bounded attempt',
     },
+    jobs: {
+      type: 'boolean',
+      description: 'Discover durable repairs for an explicit original actor',
+    },
+    cursor: { type: 'string', description: 'Exact JSON nextCursor from the preceding --jobs page' },
     inspect: {
       type: 'string',
       description: 'Inspect a prepared job, retained receipts and lifecycle ledger',
@@ -62,7 +68,10 @@ export const doctorKnowledgeSubcommand = defineCommand({
       type: 'string',
       description: 'Immutable proposal identity for job operations or new rollback',
     },
-    limit: { type: 'string', default: '100', description: 'Inspection ledger page size (1–1000)' },
+    limit: {
+      type: 'string',
+      description: 'Page size: --jobs 1–100 (default 25); inspection 1–1000 (default 100)',
+    },
     offset: { type: 'string', default: '0', description: 'Inspection ledger page offset' },
     rollback: {
       type: 'string',
@@ -108,6 +117,7 @@ export const doctorKnowledgeSubcommand = defineCommand({
         args.inspect,
         args.cancel,
         args.resume,
+        args.jobs,
       ];
       if (actions.filter(Boolean).length > 1)
         throw new KnowledgeRepairError(
@@ -116,7 +126,13 @@ export const doctorKnowledgeSubcommand = defineCommand({
         );
       if (
         args['dry-run'] &&
-        (args.prepare || args.apply || args.inspect || args.cancel || args.resume || args.rollback)
+        (args.prepare ||
+          args.apply ||
+          args.inspect ||
+          args.cancel ||
+          args.resume ||
+          args.rollback ||
+          args.jobs)
       )
         throw new KnowledgeRepairError(
           'E_REPAIR_INPUT',
@@ -136,6 +152,30 @@ export const doctorKnowledgeSubcommand = defineCommand({
           'E_REPAIR_INPUT',
           '--proposal-id must identify the immutable prepared input or new rollback.',
         );
+      if (args.cursor && !args.jobs)
+        throw new KnowledgeRepairError('E_REPAIR_INPUT', '--cursor requires --jobs.');
+      if (args.jobs) {
+        if (args['proposal-id'] || Number(args.offset) !== 0)
+          throw new KnowledgeRepairError(
+            'E_REPAIR_INPUT',
+            '--jobs uses its returned cursor, not proposal identity or offset.',
+          );
+        // The inventory key names this read invocation; it never impersonates a stored proposal.
+        context = await createKnowledgeRepairInvocation(
+          root,
+          args.actor!,
+          'knowledge-inventory',
+          deadlineAt,
+        );
+        cliOutput(
+          await listPreparedKnowledgeRepairs(context, {
+            limit: Number(args.limit ?? '25'),
+            after: args.cursor === undefined ? undefined : JSON.parse(args.cursor),
+          }),
+          { command: 'doctor', operation: 'doctor.knowledge' },
+        );
+        return;
+      }
       let proposal =
         args.prepare || args.resolve
           ? parseKnowledgeRepairProposal(await readFile((args.prepare || args.resolve)!, 'utf8'))
@@ -181,7 +221,7 @@ export const doctorKnowledgeSubcommand = defineCommand({
           await inspectPreparedKnowledgeRepair(
             context,
             args.inspect,
-            Number(args.limit),
+            Number(args.limit ?? '100'),
             Number(args.offset),
           ),
           { command: 'doctor', operation: 'doctor.knowledge' },

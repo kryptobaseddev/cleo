@@ -99,6 +99,90 @@ describe('doctor knowledge executable dispatch', () => {
     ).toBeNull();
   });
 
+  it('discovers all durable proposal identities through bounded standalone pages and exact inspection actions', () => {
+    const report = invoke(['--dry-run']);
+    expect(report.status, report.stderr + report.stdout).toBe(0);
+    const proposal = JSON.parse(report.stdout).data.proposals[0];
+    const file = join(root, 'inventory-proposal.json');
+    writeFileSync(file, JSON.stringify(proposal));
+    const prepared = invoke(['--prepare', file, '--actor', 'inventory-test']);
+    expect(prepared.status, prepared.stderr + prepared.stdout).toBe(0);
+    const pending = JSON.parse(prepared.stdout).data;
+    writeFileSync(file, JSON.stringify({ ...proposal, id: proposal.id + '-second' }));
+    const secondPrepared = invoke(['--prepare', file, '--actor', 'inventory-test']);
+    expect(secondPrepared.status, secondPrepared.stderr + secondPrepared.stdout).toBe(0);
+    const secondPending = JSON.parse(secondPrepared.stdout).data;
+    const listed = invoke(['--jobs', '--actor', 'inventory-test', '--limit', '1']);
+    expect(listed.status, listed.stderr + listed.stdout).toBe(0);
+    const page = JSON.parse(listed.stdout).data;
+    expect(page).toMatchObject({
+      status: 'current',
+      scannedCount: 1,
+      hasMoreCandidates: true,
+      matchingTotal: null,
+      entries: [
+        {
+          jobId: pending.jobId,
+          proposalId: proposal.id,
+          status: 'pending',
+          actor: 'inventory-test',
+          receiptVerification: 'inspection-required',
+        },
+      ],
+    });
+    expect(page.entries[0].inspectArgv.slice(0, 2)).toEqual(['doctor', 'knowledge']);
+    const inspected = invoke(page.entries[0].inspectArgv.slice(2));
+    expect(inspected.status, inspected.stderr + inspected.stdout).toBe(0);
+    expect(JSON.parse(inspected.stdout).data).toMatchObject({
+      jobId: pending.jobId,
+      status: 'pending',
+      attempts: 0,
+      receipt: null,
+    });
+    const continued = invoke([
+      '--jobs',
+      '--actor',
+      'inventory-test',
+      '--limit',
+      '1',
+      '--cursor',
+      JSON.stringify(page.nextCursor),
+    ]);
+    expect(continued.status, continued.stderr + continued.stdout).toBe(0);
+    expect(JSON.parse(continued.stdout).data).toMatchObject({
+      hasMoreCandidates: false,
+      entries: [{ jobId: secondPending.jobId, proposalId: proposal.id + '-second' }],
+    });
+    const other = invoke(['--jobs', '--actor', 'different-actor']);
+    expect(other.status, other.stderr + other.stdout).toBe(0);
+    expect(JSON.parse(other.stdout).data).toMatchObject({
+      entries: [],
+      excludedActorCount: 2,
+      scannedCount: 2,
+    });
+    for (const flags of [
+      ['--jobs'],
+      ['--jobs', '--actor', 'inventory-test', '--cursor', 'false'],
+      ['--jobs', '--actor', 'inventory-test', '--cursor', 'not-json'],
+      ['--jobs', '--actor', 'inventory-test', '--limit', '101'],
+      ['--jobs', '--actor', 'inventory-test', '--offset', '1'],
+    ]) {
+      const result = invoke(flags);
+      expect(result.status, result.stderr + result.stdout).toBe(6);
+      expect(JSON.parse(result.stdout).success).toBe(false);
+    }
+    expect(
+      getBrainNativeDb(root)
+        ?.prepare('SELECT status,attempts FROM main.background_jobs WHERE id=?')
+        .get(pending.jobId),
+    ).toMatchObject({ status: 'pending', attempts: 0 });
+    expect(
+      getBrainNativeDb(root)
+        ?.prepare("SELECT invalid_at FROM main.brain_observations WHERE id='O-stub'")
+        .get()?.invalid_at,
+    ).toBeNull();
+  });
+
   it('retrieves, prepares, applies, inspects and rolls back through independent CLI processes', () => {
     const assessed = invoke(['--dry-run']);
     expect(assessed.status, assessed.stderr + assessed.stdout).toBe(0);
