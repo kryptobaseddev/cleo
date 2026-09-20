@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.20.3
+  version: 2.20.4
   lastReviewed: 2026-09-20
   stability: stable
 ---
@@ -51,8 +51,11 @@ After rollback, apply/resume reject with `E_REPAIR_ROLLED_BACK`; inspect
 `recoveryState` for the original historical receipt and separate rollback receipt.
 
 Recover via `cleo doctor knowledge --rollback RECEIPT --actor AGENT --proposal-id NEW_ID`.
-Inspect both receipts: unrelated changes are preserved, conflicting affected-row edits
-refuse rollback, and stale proposals require fresh sourced assessment. `--resolve FILE`
+Inspect both receipts. Versioned quarantine recovery restores only `invalid_at`, preserving
+validated paired citation-count/timestamp usage; protected edits conflict. Legacy receipts
+require exact images. Recovery records actual before/after images, not byte restoration
+of old usage. Prepared rollback still guards the full current image; later reads require
+fresh preparation. Unrelated changes survive. Stale proposals need reassessment. `--resolve FILE`
 applies reviewed input through the same lifecycle; `--fix --actor AGENT` handles bounded
 confirmed stubs. `cleo doctor repair` retains its separate database-recovery semantics.
 
