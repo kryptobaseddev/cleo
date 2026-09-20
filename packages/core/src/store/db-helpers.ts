@@ -317,17 +317,32 @@ export async function batchUpdateDependencies(
 }
 
 /**
- * Batch-load dependencies for a list of tasks and apply them in-place.
- * Uses inArray for efficient querying. Optionally filters by a set of valid IDs.
+ * Batch-load persisted hard dependencies for selected tasks in-place.
+ *
+ * @remarks
+ * Missing targets remain explicit dependency identifiers so readiness and
+ * integrity checks can diagnose them. A caller's known population cannot prove
+ * an omitted target is satisfied. This reader does not repair or delete edges;
+ * database failures propagate to the caller. Soft relations are read separately.
+ *
+ * @param db - Canonical project database handle.
+ * @param tasks - Selected task records to enrich with their stored hard edges.
+ * @param _validationIds - Legacy argument retained for compatibility; no longer filters evidence.
+ * @returns Resolves after dependencies have been read successfully.
+ *
+ * @example
+ * ```ts
+ * await loadDependenciesForTasks(db, selectedTasks);
+ * // A missing target remains in depends for explicit readiness diagnostics.
+ * ```
  */
 export async function loadDependenciesForTasks(
   db: DrizzleDb,
   tasks: Task[],
-  validationIds?: Set<string>,
+  _validationIds?: Set<string>,
 ): Promise<void> {
   if (tasks.length === 0) return;
   const taskIds = tasks.map((t) => t.id);
-  const taskIdSet = validationIds ?? new Set(taskIds);
 
   const allDeps = await db
     .select()
@@ -337,14 +352,12 @@ export async function loadDependenciesForTasks(
 
   const depMap = new Map<string, string[]>();
   for (const dep of allDeps) {
-    if (taskIdSet.has(dep.dependsOn)) {
-      let arr = depMap.get(dep.taskId);
-      if (!arr) {
-        arr = [];
-        depMap.set(dep.taskId, arr);
-      }
-      arr.push(dep.dependsOn);
+    let arr = depMap.get(dep.taskId);
+    if (!arr) {
+      arr = [];
+      depMap.set(dep.taskId, arr);
     }
+    arr.push(dep.dependsOn);
   }
 
   for (const task of tasks) {
