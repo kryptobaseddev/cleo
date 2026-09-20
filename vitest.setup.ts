@@ -29,7 +29,7 @@
 import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 // We must patch the CommonJS `child_process` module object so every importer
 // (ESM and CJS) sees the wrapped functions. The ESM namespace object is
@@ -37,14 +37,36 @@ import { join, resolve } from 'node:path';
 const cjsRequire = createRequire(import.meta.url);
 const child_process: Record<string, unknown> = cjsRequire('node:child_process');
 
-// Resolve the platform temp default without inherited host overrides. A TMPDIR
-// below the developer's home can make ancestor discovery bind ~/.cleo even
-// after HOME is replaced. Never create the test sandbox beneath that path.
-// This fallback alias must not survive when a fixture clears CLEO_ROOT to use
-// its explicit cwd. Keep one default project pin, not an inherited second one.
+// Capture the caller's selected filesystem before sanitizing inherited aliases.
+// Only choose a physical system-temp base, never the arbitrary inherited
+// subdirectory: it may be a host HOME/provider path or an ancestor of .cleo.
+const inheritedTemp = tmpdir();
+// This fallback project alias must not survive fixture CLEO_ROOT overrides.
 delete process.env.CLEO_PROJECT_ROOT;
 for (const name of ['TMPDIR', 'TMP', 'TEMP']) delete process.env[name];
-const sandbox = mkdtempSync(join(tmpdir(), 'cleo-vitest-fork-'));
+const platformTemp = tmpdir();
+const sandboxParent = (() => {
+  let inheritedPhysical: string;
+  try {
+    inheritedPhysical = realpathSync(inheritedTemp);
+  } catch {
+    return platformTemp;
+  }
+  const permittedBases = process.platform === 'win32' ? [platformTemp] : ['/var/tmp', platformTemp];
+  for (const base of permittedBases) {
+    let physicalBase: string;
+    try {
+      physicalBase = realpathSync(base);
+    } catch {
+      continue;
+    }
+    if (inheritedPhysical === physicalBase || inheritedPhysical.startsWith(`${physicalBase}${sep}`)) {
+      return physicalBase;
+    }
+  }
+  return platformTemp;
+})();
+const sandbox = mkdtempSync(join(sandboxParent, 'cleo-vitest-fork-'));
 const isolatedRoots = {
   HOME: join(sandbox, 'home'),
   USERPROFILE: join(sandbox, 'home'),
