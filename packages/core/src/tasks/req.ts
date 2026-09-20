@@ -9,7 +9,8 @@
  * @task T782
  */
 
-import type { AcceptanceGate, AcceptanceItem } from '@cleocode/contracts';
+import { isDeepStrictEqual } from 'node:util';
+import type { AcceptanceGate, AcceptanceItem, TransactionAccessor } from '@cleocode/contracts';
 import { acceptanceGateSchema, ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -55,7 +56,9 @@ export interface MigrationProposal {
 
 /** Result of `reqMigrate` with `apply: true`. */
 export interface MigrationApplyResult {
+  /** Proposed replacements evaluated against the transaction snapshot. */
   proposals: MigrationProposal[];
+  /** Number of free-text criteria replaced by validated gates. */
   applied: number;
 }
 
@@ -72,20 +75,18 @@ async function loadTask(accessor: DataAccessor, taskId: string) {
 }
 
 async function persistAcceptanceProjection(
-  accessor: DataAccessor,
+  tx: TransactionAccessor,
   taskId: string,
   acceptance: readonly AcceptanceItem[],
   updatedAt: string,
 ): Promise<void> {
-  await accessor.transaction(async (tx) => {
-    await tx.updateTaskFields(taskId, {
-      acceptanceJson: JSON.stringify(acceptance),
-      updatedAt,
-    });
-    const existing = await tx.getAcRows(taskId);
-    const plan = planAcUpdate(taskId, existing, acceptance);
-    await applyAcPlan(tx, taskId, plan);
+  await tx.updateTaskFields(taskId, {
+    acceptanceJson: JSON.stringify(acceptance),
+    updatedAt,
   });
+  const existing = await tx.getAcRows(taskId);
+  const plan = planAcUpdate(taskId, existing, acceptance);
+  await applyAcPlan(tx, taskId, plan);
 }
 
 /**
@@ -176,16 +177,29 @@ function heuristicClassify(text: string, reqId: string): MigrationProposal['prop
 /**
  * Add a typed `AcceptanceGate` (with a REQ-ID) to a task's acceptance array.
  *
- * Validates the gate JSON against the Zod schema before writing. Rejects
- * duplicate REQ-IDs within the same task.
+ * @remarks
+ * Validates before opening storage. Reading existing acceptance, checking REQ-ID
+ * uniqueness and persisting the task/AC projection share one transaction, so
+ * competing appends cannot overwrite each other. This records a gate; it does
+ * not execute it or record passing verification evidence.
+ *
+ * @returns The committed acceptance array and its owning task identity.
+ * @example
+ * ```typescript
+ * const gate: AcceptanceGate = {
+ *   kind: 'test', command: 'node', args: ['verify.mjs'], expect: 'exit0',
+ *   req: 'PARTNER-121', description: 'Task-specific checks pass',
+ * };
+ * await reqAdd(projectRoot, 'T121', gate, undefined);
+ * ```
  *
  * @param projectRoot - Absolute path to project root
  * @param taskId - Target task ID
- * @param gate - Parsed `AcceptanceGate` object (already validated)
+ * @param gate - Typed gate; runtime schema validation also applies to SDK callers
  * @param accessor - Optional pre-created accessor (for testing)
  *
- * @throws {CleoError} E_NOT_FOUND when the task does not exist
- * @throws {CleoError} E_VALIDATION when the REQ-ID already exists on the task
+ * @throws CleoError E_NOT_FOUND when the task does not exist
+ * @throws CleoError E_VALIDATION when the REQ-ID already exists on the task
  *
  * @task T782
  */
@@ -195,46 +209,54 @@ export async function reqAdd(
   gate: AcceptanceGate,
   accessor?: DataAccessor,
 ): Promise<{ task: { id: string; acceptance: AcceptanceItem[] } }> {
+  const validated = validateGate(gate);
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
-  const task = await loadTask(acc, taskId);
+  return acc.transaction(async (tx) => {
+    const task = await loadTask(acc, taskId);
 
-  const existing = (task.acceptance ?? []) as AcceptanceItem[];
+    const existing = (task.acceptance ?? []) as AcceptanceItem[];
 
-  // Check REQ-ID uniqueness
-  if (gate.req) {
-    const dup = existing.find(
-      (item): item is AcceptanceGate =>
-        typeof item === 'object' && (item as AcceptanceGate).req === gate.req,
-    );
-    if (dup) {
-      throw new CleoError(
-        ExitCode.VALIDATION_ERROR,
-        `REQ-ID "${gate.req}" already exists on task ${taskId}`,
-        {
-          fix: `Choose a unique REQ-ID or remove the existing gate with 'cleo req list ${taskId}'`,
-        },
+    // Check REQ-ID uniqueness
+    if (validated.req) {
+      const dup = existing.find(
+        (item): item is AcceptanceGate => typeof item === 'object' && item.req === validated.req,
       );
+      if (dup) {
+        throw new CleoError(
+          ExitCode.VALIDATION_ERROR,
+          `REQ-ID "${validated.req}" already exists on task ${taskId}`,
+          {
+            fix: `Choose a unique REQ-ID or remove the existing gate with 'cleo req list ${taskId}'`,
+          },
+        );
+      }
     }
-  }
 
-  const updated: AcceptanceItem[] = [...existing, gate];
-  await persistAcceptanceProjection(acc, taskId, updated, new Date().toISOString());
+    const updated: AcceptanceItem[] = [...existing, validated];
+    await persistAcceptanceProjection(tx, taskId, updated, new Date().toISOString());
 
-  return { task: { id: taskId, acceptance: updated } };
+    return { task: { id: taskId, acceptance: updated } };
+  });
 }
 
 /**
  * List all REQ-ID–addressed acceptance gates on a task.
  *
- * Free-text strings (legacy) in the acceptance array are skipped because
- * they have no REQ-ID. Only structured `AcceptanceGate` items with a `req`
- * field are returned.
+ * @remarks
+ * Free-text strings are skipped because they have no REQ-ID. This summary does
+ * not execute gates or establish verification; full payloads remain on the task.
+ *
+ * @returns Requirement identity, index, kind and description for each named gate.
+ * @example
+ * ```typescript
+ * const { gates } = await reqList(projectRoot, 'T121', undefined);
+ * ```
  *
  * @param projectRoot - Absolute path to project root
  * @param taskId - Target task ID
  * @param accessor - Optional pre-created accessor (for testing)
  *
- * @throws {CleoError} E_NOT_FOUND when the task does not exist
+ * @throws CleoError E_NOT_FOUND when the task does not exist
  *
  * @task T782
  */
@@ -270,19 +292,27 @@ export async function reqList(
  * Heuristic migrator: reads free-text acceptance strings and proposes typed
  * `AcceptanceGate` replacements.
  *
+ * @remarks
  * Without `apply: true` only proposals are returned. With `apply: true` the
  * matched strings are replaced in the task's acceptance array and the updated
  * array is persisted.
  *
  * Auto-generated REQ-IDs use the pattern `MIGRATED-001`, `MIGRATED-002`, etc.
- * Strings that already contain a structured gate (object items) are skipped.
+ * Existing structured gates and their requirement identities are preserved.
+ * Apply plans and persists under one transaction; preview does not write.
+ *
+ * @returns Proposed replacements and, when applied, the committed replacement count.
+ * @example
+ * ```typescript
+ * const preview = await reqMigrate(projectRoot, 'T121', false, undefined);
+ * ```
  *
  * @param projectRoot - Absolute path to project root
  * @param taskId - Target task ID
  * @param apply - When true, writes the proposals back to the task
  * @param accessor - Optional pre-created accessor (for testing)
  *
- * @throws {CleoError} E_NOT_FOUND when the task does not exist
+ * @throws CleoError E_NOT_FOUND when the task does not exist
  *
  * @task T782
  */
@@ -293,48 +323,58 @@ export async function reqMigrate(
   accessor?: DataAccessor,
 ): Promise<{ proposals: MigrationProposal[]; applied?: number }> {
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
-  const task = await loadTask(acc, taskId);
+  const migrate = async (tx?: TransactionAccessor) => {
+    const task = await loadTask(acc, taskId);
 
-  const acceptance = (task.acceptance ?? []) as AcceptanceItem[];
-  const proposals: MigrationProposal[] = [];
-  let counter = 1;
+    const acceptance = (task.acceptance ?? []) as AcceptanceItem[];
+    const proposals: MigrationProposal[] = [];
+    let counter = 1;
+    const usedRequirements = new Set(
+      acceptance.flatMap((item) => (typeof item === 'object' && item.req ? [item.req] : [])),
+    );
 
-  // Collect free-text indices only
-  for (let i = 0; i < acceptance.length; i++) {
-    const item = acceptance[i];
-    if (typeof item !== 'string') continue; // skip existing gates
+    // Collect free-text indices only
+    for (let i = 0; i < acceptance.length; i++) {
+      const item = acceptance[i];
+      if (typeof item !== 'string') continue; // skip existing gates
 
-    const reqId = `MIGRATED-${String(counter).padStart(3, '0')}`;
-    counter++;
+      let reqId: string;
+      do {
+        reqId = `MIGRATED-${String(counter++).padStart(3, '0')}`;
+      } while (usedRequirements.has(reqId));
+      usedRequirements.add(reqId);
 
-    const proposed = heuristicClassify(item, reqId);
-    proposals.push({
-      index: i,
-      original: item,
-      proposed,
-      reqId: proposed ? reqId : null,
-      heuristic: proposed ? proposed.kind : null,
+      const classified = heuristicClassify(item, reqId);
+      const proposed = classified ? validateGate(classified) : null;
+      proposals.push({
+        index: i,
+        original: item,
+        proposed,
+        reqId: proposed ? reqId : null,
+        heuristic: proposed ? proposed.kind : null,
+      });
+    }
+
+    if (!tx) {
+      return { proposals };
+    }
+
+    // Apply: replace matched strings with their proposed gates
+    // Unmatched strings (where proposed is null) are left as-is
+    const updated: AcceptanceItem[] = acceptance.map((item, i) => {
+      const proposal = proposals.find((p) => p.index === i);
+      if (proposal?.proposed) return proposal.proposed;
+      return item;
     });
-  }
 
-  if (!apply) {
-    return { proposals };
-  }
+    await persistAcceptanceProjection(tx, taskId, updated, new Date().toISOString());
 
-  // Apply: replace matched strings with their proposed gates
-  // Unmatched strings (where proposed is null) are left as-is
-  const updated: AcceptanceItem[] = acceptance.map((item, i) => {
-    const proposal = proposals.find((p) => p.index === i);
-    if (proposal?.proposed) return proposal.proposed;
-    return item;
-  });
-
-  await persistAcceptanceProjection(acc, taskId, updated, new Date().toISOString());
-
-  return {
-    proposals,
-    applied: proposals.filter((p) => p.proposed !== null).length,
+    return {
+      proposals,
+      applied: proposals.filter((p) => p.proposed !== null).length,
+    };
   };
+  return apply ? acc.transaction(migrate) : migrate();
 }
 
 /**
@@ -343,14 +383,24 @@ export async function reqMigrate(
  * Returns the parsed `AcceptanceGate` on success or throws a `CleoError`
  * with exit code `E_VALIDATION` on failure.
  *
+ * @remarks
+ * Uses the same schema boundary as direct SDK writes and rejects unsupported
+ * fields, including nested fields that the schema would otherwise strip.
+ *
+ * @returns The validated gate without executing its command.
+ * @example
+ * ```typescript
+ * const raw = '{"kind":"manual","description":"Review","prompt":"Approve?"}';
+ * const gate = parseGateJson(raw);
+ * ```
  * @param raw - Raw JSON string from `--gate` CLI flag
  *
- * @throws {CleoError} E_VALIDATION when JSON is malformed or schema invalid
+ * @throws CleoError E_VALIDATION when JSON is malformed or schema invalid
  *
  * @task T782
  */
 export function parseGateJson(raw: string): AcceptanceGate {
-  let parsed: unknown;
+  let parsed: AcceptanceGate;
   try {
     parsed = JSON.parse(raw);
   } catch {
@@ -359,7 +409,12 @@ export function parseGateJson(raw: string): AcceptanceGate {
     });
   }
 
-  const result = acceptanceGateSchema.safeParse(parsed);
+  return validateGate(parsed);
+}
+
+/** Validate the canonical schema without silently dropping unsupported gate fields. */
+function validateGate(gate: AcceptanceGate): AcceptanceGate {
+  const result = acceptanceGateSchema.safeParse(gate);
   if (!result.success) {
     const issues = result.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ');
     throw new CleoError(
@@ -371,5 +426,10 @@ export function parseGateJson(raw: string): AcceptanceGate {
     );
   }
 
+  if (!isDeepStrictEqual(gate, result.data)) {
+    throw new CleoError(ExitCode.VALIDATION_ERROR, 'Gate includes unsupported fields', {
+      fix: 'Use only fields supported by the canonical AcceptanceGate schema; unsupported nested fields are also rejected.',
+    });
+  }
   return result.data;
 }
