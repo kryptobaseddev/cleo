@@ -20,6 +20,7 @@ import { eq } from 'drizzle-orm';
 import { build } from 'esbuild';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleoWorkspaceSubpathAliases } from '../../../../../vitest-workspace-resolver.js';
+import { worktreeScope } from '../../project-scope.js';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 import { getNexusDb, NEXUS_SCHEMA_VERSION, resetNexusDbState } from '../../store/nexus-sqlite.js';
 import {
@@ -132,15 +133,17 @@ describe('explicit registration with encounter registration enabled', () => {
     delete process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'];
 
     const hash = await nexusRegister(projectPath, 'requested-name', 'write');
-    expect(await nexusGetProject(hash)).toMatchObject({
-      projectId,
-      path: projectPath,
-      name: 'requested-name',
-      permissions: 'write',
-      taskCount: 1,
-      labels: ['retained'],
+    await worktreeScope.run({ worktreeRoot: projectPath }, async () => {
+      expect(await nexusGetProject(hash)).toMatchObject({
+        projectId,
+        path: projectPath,
+        name: 'requested-name',
+        permissions: 'write',
+        taskCount: 1,
+        labels: ['retained'],
+      });
+      expect((await nexusList()).filter((project) => project.path === projectPath)).toHaveLength(1);
     });
-    expect((await nexusList()).filter((project) => project.path === projectPath)).toHaveLength(1);
   });
 });
 
@@ -558,7 +561,10 @@ describe('schema integrity', () => {
   });
 });
 
-it('converges concurrent fresh-process registrations on one immutable owner', async () => {
+it.each([
+  false,
+  true,
+])('converges concurrent fresh-process registrations on one immutable owner (domain schema gap %s)', async (exerciseDomainGap) => {
   const project = join(testDir, 'process-project');
   await mkdir(join(project, '.cleo'), { recursive: true });
   const projectId = randomUUID();
@@ -596,6 +602,34 @@ it('converges concurrent fresh-process registrations on one immutable owner', as
         import {existsSync} from 'node:fs';
         import {writeFile} from 'node:fs/promises';
         import {setTimeout} from 'node:timers/promises';
+        import {DatabaseSync} from 'node:sqlite';
+        // Observe native failures before registry metadata wraps the Drizzle error.
+        // Preserve the original statement, arguments, result and thrown error.
+        const originalPrepare = DatabaseSync.prototype.prepare;
+        DatabaseSync.prototype.prepare = function(sql) {
+          const statement = originalPrepare.call(this, sql);
+          if (sql.includes('__drizzle_migrations')) {
+            for (const method of ['run', 'get', 'all', 'iterate']) {
+              const original = statement[method];
+              statement[method] = function(...args) {
+                try {
+                  const result = original.apply(this, args);
+                  return result;
+                }
+                catch (error) {
+                  process.stderr.write(JSON.stringify({
+                    event: 'native-migration-error', sql, method,
+                    code: error.code, errcode: error.errcode,
+                    errstr: error.errstr, message: error.message,
+                  }) + '\\n');
+                  throw error;
+                }
+              };
+            }
+          }
+          return statement;
+        };
+        import {bindProjectDomain} from './packages/core/src/store/ports/domain-binding.ts';
         import {nexusRegister,nexusList} from './packages/core/src/nexus/registry.ts';
         import {getNexusDb,resetNexusDbState} from './packages/core/src/store/nexus-sqlite.ts';
         import {awaitBackgroundOps} from './packages/core/src/store/background-ops.ts';
@@ -606,6 +640,16 @@ it('converges concurrent fresh-process registrations on one immutable owner', as
         else {
           await writeFile(gate+'.'+identity,'ready');
           while(!existsSync(gate)) await setTimeout(10);
+          if (${exerciseDomainGap}) {
+            await bindProjectDomain('concurrent-schema-fixture', root, async (native) => {
+              const present = native.prepare("SELECT name FROM sqlite_master WHERE name = 'registration_schema_fixture'").get();
+              if (!present) {
+                await setTimeout(75);
+                native.exec('CREATE TABLE registration_schema_fixture (identity TEXT PRIMARY KEY)');
+              }
+              return native;
+            });
+          }
           process.stdout.write(await nexusRegister(root,'concurrent-name','write'));
         }
         await awaitBackgroundOps(); resetNexusDbState(); resetDbState();
