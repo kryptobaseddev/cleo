@@ -31,7 +31,7 @@ import type {
   BackupObservationInspectOptions,
   BackupObservationRecord,
   BackupObservationValue,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/backup-manifest';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
 
 // ---------------------------------------------------------------------------
