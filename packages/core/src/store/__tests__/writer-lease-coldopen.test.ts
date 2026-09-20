@@ -176,6 +176,18 @@ describe('T12042 — registerDbIdentity hardening', () => {
     expect(resolveDbIdentity(db)).toBe(id);
   });
 
+  it('preserves legacy path-only registration without inventing file provenance later', () => {
+    const path = join(testRoot, 'not-opened-yet.db');
+    const key = {};
+    const original = makeWriterLeaseIdentity('project', path);
+    registerDbIdentity(key, original);
+    const native = new DatabaseSync(path);
+    native.close();
+    expect(() => registerDbIdentity(key, makeWriterLeaseIdentity('project', path))).not.toThrow();
+    expect(resolveDbIdentity(key)).toBe(original);
+    expect(resolveDbIdentity(key).fileDevice).toBeUndefined();
+  });
+
   it('same DB with different scope must throw', () => {
     const db = {};
     registerDbIdentity(db, makeWriterLeaseIdentity('project', '/tmp/cleo.db'));

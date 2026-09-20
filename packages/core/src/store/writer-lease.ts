@@ -550,10 +550,12 @@ export function registerDbIdentity(db: object, identity: WriterLeaseIdentity): v
     if (
       existing.scope === identity.scope &&
       existing.dbPath === identity.dbPath &&
-      existing.fileDevice === identity.fileDevice &&
-      existing.fileInode === identity.fileInode
+      (existing.fileDevice === undefined ||
+        identity.fileDevice === undefined ||
+        (existing.fileDevice === identity.fileDevice && existing.fileInode === identity.fileInode))
     ) {
-      return; // idempotent — same canonical identity
+      // Never upgrade a legacy path-only identity using a later filesystem observation.
+      return; // idempotent — same canonical identity; original provenance remains immutable
     }
     throw new Error(
       'E_WRITER_LEASE_IDENTITY_MISMATCH: the same drizzle DB handle was ' +
