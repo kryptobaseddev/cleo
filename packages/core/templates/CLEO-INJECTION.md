@@ -200,7 +200,6 @@ Small legacy DBs beside large snapshots do not prove corruption. `cleo doctor su
 Use `cleo backup inspect <snapshot> --record-id <id>` for read-only historical evidence; scoped absence or unknown provenance is not recovery authority.
 
 <!-- /CLEO-INJECTION:section=data-location -->
-
 <!-- CLEO-INJECTION:section=nexus -->
 ## Nexus — when to use which scope
 
