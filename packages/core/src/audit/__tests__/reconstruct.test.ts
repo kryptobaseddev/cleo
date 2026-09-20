@@ -17,7 +17,9 @@ import { reconstructLineage } from '../reconstruct.js';
  *   packages/core/src/audit/__tests__/reconstruct.test.ts
  *   ../../../../.. → T1322/ (worktree root, which IS the git repo root for this branch)
  */
-const REPO_ROOT = new URL('../../../../..', import.meta.url).pathname.replace(/\/$/, '');
+const REPO_ROOT =
+  process.env['CLEO_AUDIT_HISTORICAL_REPO'] ??
+  new URL('../../../../..', import.meta.url).pathname.replace(/\/$/, '');
 
 let fixture: string;
 let scratch: string;
@@ -98,7 +100,9 @@ describe('bounded lineage with independent real Git evidence', () => {
       const result = await reconstructLineage('T994', fixture);
       expect(result.directCommits.map((entry) => entry.sha).toSorted()).toEqual(direct.toSorted());
       expect(result.assessment?.repositoryRoot).toBe(fixture);
-      expect(result.assessment?.coverage).toBe('current');
+      expect(result.assessment?.coverage, JSON.stringify(result.assessment?.diagnostics)).toBe(
+        'current',
+      );
     } finally {
       if (previous === undefined) delete process.env.GIT_DIR;
       else process.env.GIT_DIR = previous;
@@ -291,7 +295,13 @@ describe.runIf(process.env['CLEO_AUDIT_HISTORICAL_ANCHORS'] === '1')(
     let result: ReconstructResult;
 
     beforeAll(async () => {
-      result = await reconstructLineage('T991', REPO_ROOT);
+      result = await reconstructLineage('T991', REPO_ROOT, {
+        execution: { deadlineAt: Date.now() + 90000 },
+        maxOutputBytes: 64 * 1024 * 1024,
+      });
+      expect(result.assessment?.coverage, JSON.stringify(result.assessment?.diagnostics)).toBe(
+        'current',
+      );
     }, 120_000); // 2-minute timeout for git operations
 
     it('returns a ReconstructResult with the correct taskId', () => {
@@ -427,7 +437,13 @@ describe.runIf(process.env['CLEO_AUDIT_HISTORICAL_ANCHORS'] === '1')(
     let result: ReconstructResult;
 
     beforeAll(async () => {
-      result = await reconstructLineage('T994', REPO_ROOT);
+      result = await reconstructLineage('T994', REPO_ROOT, {
+        execution: { deadlineAt: Date.now() + 90000 },
+        maxOutputBytes: 64 * 1024 * 1024,
+      });
+      expect(result.assessment?.coverage, JSON.stringify(result.assessment?.diagnostics)).toBe(
+        'current',
+      );
     }, 120_000);
 
     it('T994 has a direct commit with "T994"', () => {
