@@ -105,3 +105,72 @@ export interface ProviderSourceInspection {
   /** Explicit read/type failures; an empty list does not establish runtime completeness. */
   diagnostics: readonly string[];
 }
+
+/** External CLIs required by the installed repair certification scenarios. */
+export type CertifiableProviderCli = 'claude-code' | 'codex' | 'kimi';
+
+/** Captured input to one bounded external CLI observation, not an agent engine. */
+export interface ProviderVerificationInvocation {
+  /** Provider whose normal, fixed CLI argument grammar will be used. */
+  provider: CertifiableProviderCli;
+  /** Absolute executable path; PATH discovery is a separate observation. */
+  executable: string;
+  /** Unique retained invocation identity, independent of the agent's answer. */
+  invocationId: string;
+  /** Synthetic isolation directory containing every writable root. */
+  isolationRoot: string;
+  /** Synthetic project directory beneath isolationRoot. */
+  projectRoot: string;
+  /** Explicit environment; the runner never merges ambient credentials/configuration. */
+  environment: Readonly<Record<string, string | undefined>>;
+  /** Scenario objective only; expected answers and receipt IDs must not be supplied. */
+  prompt: string;
+  /** Original absolute execution deadline in Unix milliseconds, including preparation. */
+  deadlineAt: number;
+  /** Aggregate stdout plus stderr byte ceiling. */
+  transcriptByteLimit: number;
+  /** Explicit cgroup memory ceiling; fallback process groups do not enforce it. */
+  memoryMaxMb: number;
+  /** Caller cancellation; cleanup does not grant further scenario execution. */
+  signal?: AbortSignal;
+}
+
+/** Bounded process observation; only a separate independent verifier may assess a workflow. */
+export interface ProviderVerificationProcessResult {
+  /** Invocation identity captured before launch. */
+  invocationId: string;
+  /** External provider under observation. */
+  provider: CertifiableProviderCli;
+  /** Exact executable bytes measured immediately before launch. */
+  executable: ProviderArtifactIdentity;
+  /** Fixed permission-preserving argument vector, excluding the scenario prompt. */
+  arguments: readonly string[];
+  /** Process outcome, never a repair or provider certification verdict. */
+  outcome: 'exited' | 'spawn-failed' | 'cancelled' | 'deadline' | 'transcript-limit';
+  /** Actual exit code when observed, otherwise null. */
+  exitCode: number | null;
+  /** Start time of preparation, in ISO-8601. */
+  startedAt: string;
+  /** End time after bounded cleanup, in ISO-8601. */
+  endedAt: string;
+  /** Original deadline, never renewed across preparation/launch. */
+  deadlineAt: number;
+  /** Elapsed time including cleanup, which may exceed the scenario deadline. */
+  elapsedMs: number;
+  /** Retained stdout, bounded together with stderr. */
+  stdout: string;
+  /** Retained stderr, bounded together with stdout. */
+  stderr: string;
+  /** Whether any transcript bytes were withheld. */
+  transcriptTruncated: boolean;
+  /** Observed direct child closure; does not prove all descendants exited. */
+  childClosed: boolean;
+  /** Whether the owned POSIX process group was observed absent, or null if unassessed. */
+  processGroupGone: boolean | null;
+  /** Launch containment selected by the existing core execution service. */
+  containment: 'systemd' | 'pgid';
+  /** No process-only observation certifies repair or complete lifecycle behavior. */
+  certification: 'unverified';
+  /** Explicit scope, cleanup, permission and synchronous-boundary limitations. */
+  diagnostics: readonly string[];
+}
