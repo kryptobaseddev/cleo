@@ -67,6 +67,7 @@
 import type { EvidenceAtom } from '@cleocode/contracts';
 import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
 import { and, eq } from 'drizzle-orm';
+import { captureProjectScope, worktreeScope } from '../../project-scope.js';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 
@@ -404,158 +405,161 @@ export async function validateSatisfiesAtom(
     };
   }
 
-  const db = await getDb(projectRoot);
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+  return worktreeScope.run(scope, async (): Promise<SatisfiesValidation> => {
+    const db = await getDb(scope.worktreeRoot);
 
-  // -------------------------------------------------------------------
-  // Check 2 — Target task exists
-  // -------------------------------------------------------------------
-  const targetTaskRows = await db
-    .select({ id: schema.tasks.id, status: schema.tasks.status })
-    .from(schema.tasks)
-    .where(eq(schema.tasks.id, parsed.targetTaskId))
-    .all();
-  if (targetTaskRows.length === 0) {
-    return {
-      ok: false,
-      reason:
-        `satisfies: target task "${parsed.targetTaskId}" does not exist in the local tasks table. ` +
-        `Verify the task ID via 'cleo find ${parsed.targetTaskId}' or 'cleo show ${parsed.targetTaskId}'.`,
-      codeName: 'E_AC_BINDING_TARGET_NOT_FOUND',
-    };
-  }
-  const targetTask = targetTaskRows[0];
-
-  // -------------------------------------------------------------------
-  // Check 3 — Target task NOT in terminal state
-  //
-  // ADR-079-r2 §2.4 row 3 says status ∈ {pending, active, done}.
-  // We use TERMINAL_TASK_STATUSES from contracts (cancelled, archived,
-  // done) and invert — but the ADR explicitly allows `done` because
-  // workers routinely satisfy ACs on already-shipped tasks. So the
-  // forbidden set is `cancelled` + `archived` (+ legacy `deleted` if
-  // such a status ever exists). `done` is OK.
-  // -------------------------------------------------------------------
-  const FORBIDDEN_STATUSES: ReadonlySet<string> = new Set(
-    [...TERMINAL_TASK_STATUSES].filter((s) => s !== 'done'),
-  );
-  if (typeof targetTask.status === 'string' && FORBIDDEN_STATUSES.has(targetTask.status)) {
-    return {
-      ok: false,
-      reason:
-        `satisfies: target task "${parsed.targetTaskId}" is in terminal state "${targetTask.status}". ` +
-        `Atoms may only target tasks in {pending, active, done}. ` +
-        `Cancelled or archived tasks cannot satisfy live evidence chains.`,
-      codeName: 'E_AC_BINDING_TARGET_TERMINAL',
-    };
-  }
-
-  // -------------------------------------------------------------------
-  // Check 4 — AC exists on the target task
-  //
-  // Resolve to the canonical UUID — even when the atom carried the
-  // alias form. The canonical UUID is what gets persisted in
-  // `evidence_ac_bindings` so the AC-coverage gate (T10508) is alias-
-  // drift-safe (per ADR-079-r2 §2.5).
-  // -------------------------------------------------------------------
-  let resolvedAcUuid: string | null = null;
-  if (parsed.targetAcId !== undefined) {
-    // Canonical UUID path — verify it actually exists on the target task
-    // (a free-floating UUID that does not belong to the target task is
-    // still an AC-not-found from the binding's perspective).
-    const exists = await uuidExistsOnTask(db, parsed.targetTaskId, parsed.targetAcId);
-    if (!exists) {
-      return {
-        ok: false,
-        reason:
-          `satisfies: AC "${parsed.targetAcId}" does not exist on target task "${parsed.targetTaskId}". ` +
-          `Run 'cleo show ${parsed.targetTaskId}' to list its acceptance criteria.`,
-        codeName: 'E_AC_BINDING_TARGET_AC_NOT_FOUND',
-      };
-    }
-    resolvedAcUuid = parsed.targetAcId;
-  } else if (parsed.targetAcAlias !== undefined) {
-    // Alias path — resolve via (task_id, ordinal) lookup.
-    resolvedAcUuid = await resolveAliasToUuid(db, parsed.targetTaskId, parsed.targetAcAlias);
-    if (resolvedAcUuid === null) {
-      return {
-        ok: false,
-        reason:
-          `satisfies: alias "${parsed.targetAcAlias}" does not resolve to any AC on target task "${parsed.targetTaskId}". ` +
-          `Run 'cleo show ${parsed.targetTaskId}' to list its acceptance criteria (the alias is the 1-based AC<n> position).`,
-        codeName: 'E_AC_BINDING_TARGET_AC_NOT_FOUND',
-      };
-    }
     // -------------------------------------------------------------------
-    // Alias drift detection (ADR-079-r2 §3 — hard error path)
+    // Check 2 — Target task exists
+    // -------------------------------------------------------------------
+    const targetTaskRows = await db
+      .select({ id: schema.tasks.id, status: schema.tasks.status })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, parsed.targetTaskId))
+      .all();
+    if (targetTaskRows.length === 0) {
+      return {
+        ok: false,
+        reason:
+          `satisfies: target task "${parsed.targetTaskId}" does not exist in the local tasks table. ` +
+          `Verify the task ID via 'cleo find ${parsed.targetTaskId}' or 'cleo show ${parsed.targetTaskId}'.`,
+        codeName: 'E_AC_BINDING_TARGET_NOT_FOUND',
+      };
+    }
+    const targetTask = targetTaskRows[0];
+
+    // -------------------------------------------------------------------
+    // Check 3 — Target task NOT in terminal state
     //
-    // Compare the alias's current canonical UUID against any
-    // previously-persisted binding for the same (source, target, alias)
-    // triple. When they disagree, the alias has shifted — the worker
-    // MUST re-state the atom using the canonical UUID form.
+    // ADR-079-r2 §2.4 row 3 says status ∈ {pending, active, done}.
+    // We use TERMINAL_TASK_STATUSES from contracts (cancelled, archived,
+    // done) and invert — but the ADR explicitly allows `done` because
+    // workers routinely satisfy ACs on already-shipped tasks. So the
+    // forbidden set is `cancelled` + `archived` (+ legacy `deleted` if
+    // such a status ever exists). `done` is OK.
     // -------------------------------------------------------------------
-    const driftedFrom = await detectAliasDrift(
-      db,
-      sourceTaskId,
-      parsed.targetTaskId,
-      parsed.targetAcAlias,
-      resolvedAcUuid,
+    const FORBIDDEN_STATUSES: ReadonlySet<string> = new Set(
+      [...TERMINAL_TASK_STATUSES].filter((s) => s !== 'done'),
     );
-    if (driftedFrom !== null) {
+    if (typeof targetTask.status === 'string' && FORBIDDEN_STATUSES.has(targetTask.status)) {
       return {
         ok: false,
         reason:
-          `satisfies: alias "${parsed.targetAcAlias}" on target "${parsed.targetTaskId}" has drifted — ` +
-          `previously resolved to ${driftedFrom}, now resolves to ${resolvedAcUuid}. ` +
-          `Re-emit the atom using the canonical UUID form to lock the binding: ` +
-          `satisfies:${parsed.targetTaskId}#${resolvedAcUuid}`,
-        codeName: 'E_AC_ALIAS_DRIFTED',
+          `satisfies: target task "${parsed.targetTaskId}" is in terminal state "${targetTask.status}". ` +
+          `Atoms may only target tasks in {pending, active, done}. ` +
+          `Cancelled or archived tasks cannot satisfy live evidence chains.`,
+        codeName: 'E_AC_BINDING_TARGET_TERMINAL',
       };
     }
-  } else {
-    // Defence-in-depth — covered by check 1 but exhausting the union
-    // here keeps TypeScript exhaustiveness happy.
+
+    // -------------------------------------------------------------------
+    // Check 4 — AC exists on the target task
+    //
+    // Resolve to the canonical UUID — even when the atom carried the
+    // alias form. The canonical UUID is what gets persisted in
+    // `evidence_ac_bindings` so the AC-coverage gate (T10508) is alias-
+    // drift-safe (per ADR-079-r2 §2.5).
+    // -------------------------------------------------------------------
+    let resolvedAcUuid: string | null = null;
+    if (parsed.targetAcId !== undefined) {
+      // Canonical UUID path — verify it actually exists on the target task
+      // (a free-floating UUID that does not belong to the target task is
+      // still an AC-not-found from the binding's perspective).
+      const exists = await uuidExistsOnTask(db, parsed.targetTaskId, parsed.targetAcId);
+      if (!exists) {
+        return {
+          ok: false,
+          reason:
+            `satisfies: AC "${parsed.targetAcId}" does not exist on target task "${parsed.targetTaskId}". ` +
+            `Run 'cleo show ${parsed.targetTaskId}' to list its acceptance criteria.`,
+          codeName: 'E_AC_BINDING_TARGET_AC_NOT_FOUND',
+        };
+      }
+      resolvedAcUuid = parsed.targetAcId;
+    } else if (parsed.targetAcAlias !== undefined) {
+      // Alias path — resolve via (task_id, ordinal) lookup.
+      resolvedAcUuid = await resolveAliasToUuid(db, parsed.targetTaskId, parsed.targetAcAlias);
+      if (resolvedAcUuid === null) {
+        return {
+          ok: false,
+          reason:
+            `satisfies: alias "${parsed.targetAcAlias}" does not resolve to any AC on target task "${parsed.targetTaskId}". ` +
+            `Run 'cleo show ${parsed.targetTaskId}' to list its acceptance criteria (the alias is the 1-based AC<n> position).`,
+          codeName: 'E_AC_BINDING_TARGET_AC_NOT_FOUND',
+        };
+      }
+      // -------------------------------------------------------------------
+      // Alias drift detection (ADR-079-r2 §3 — hard error path)
+      //
+      // Compare the alias's current canonical UUID against any
+      // previously-persisted binding for the same (source, target, alias)
+      // triple. When they disagree, the alias has shifted — the worker
+      // MUST re-state the atom using the canonical UUID form.
+      // -------------------------------------------------------------------
+      const driftedFrom = await detectAliasDrift(
+        db,
+        sourceTaskId,
+        parsed.targetTaskId,
+        parsed.targetAcAlias,
+        resolvedAcUuid,
+      );
+      if (driftedFrom !== null) {
+        return {
+          ok: false,
+          reason:
+            `satisfies: alias "${parsed.targetAcAlias}" on target "${parsed.targetTaskId}" has drifted — ` +
+            `previously resolved to ${driftedFrom}, now resolves to ${resolvedAcUuid}. ` +
+            `Re-emit the atom using the canonical UUID form to lock the binding: ` +
+            `satisfies:${parsed.targetTaskId}#${resolvedAcUuid}`,
+          codeName: 'E_AC_ALIAS_DRIFTED',
+        };
+      }
+    } else {
+      // Defence-in-depth — covered by check 1 but exhausting the union
+      // here keeps TypeScript exhaustiveness happy.
+      return {
+        ok: false,
+        reason: `satisfies: neither targetAcId nor targetAcAlias is set`,
+        codeName: 'E_AC_BINDING_MALFORMED',
+      };
+    }
+
+    // -------------------------------------------------------------------
+    // Check 5 — Same-saga (or same-root-epic) scope
+    //
+    // Costliest check — runs ONLY after target+ac existence verified.
+    // Skipped when `sourceTaskId` is undefined (caller is responsible
+    // for stamping the task id; see param docs).
+    // -------------------------------------------------------------------
+    if (sourceTaskId !== undefined && sourceTaskId !== parsed.targetTaskId) {
+      const shared = await shareScope(db, sourceTaskId, parsed.targetTaskId);
+      if (!shared) {
+        return {
+          ok: false,
+          reason:
+            `satisfies: source task "${sourceTaskId}" and target task "${parsed.targetTaskId}" ` +
+            `are not in the same saga (or root epic when no saga is present). ` +
+            `Atoms may only bind ACs across tasks that ship as a coherent unit per ADR-079-r2 §2.3. ` +
+            `If the cross-saga binding is genuinely required, escalate to the Lead — ` +
+            `the saga boundary is the binding boundary by design.`,
+          codeName: 'E_AC_BINDING_OUT_OF_SCOPE',
+        };
+      }
+    }
+
+    // -------------------------------------------------------------------
+    // Success — return the canonicalised atom with resolvedAcUuid pinned
+    // -------------------------------------------------------------------
     return {
-      ok: false,
-      reason: `satisfies: neither targetAcId nor targetAcAlias is set`,
-      codeName: 'E_AC_BINDING_MALFORMED',
+      ok: true,
+      atom: {
+        kind: 'satisfies',
+        targetTaskId: parsed.targetTaskId,
+        targetAcId: parsed.targetAcId,
+        targetAcAlias: parsed.targetAcAlias,
+        versionPin: parsed.versionPin,
+        resolvedAcUuid,
+      },
     };
-  }
-
-  // -------------------------------------------------------------------
-  // Check 5 — Same-saga (or same-root-epic) scope
-  //
-  // Costliest check — runs ONLY after target+ac existence verified.
-  // Skipped when `sourceTaskId` is undefined (caller is responsible
-  // for stamping the task id; see param docs).
-  // -------------------------------------------------------------------
-  if (sourceTaskId !== undefined && sourceTaskId !== parsed.targetTaskId) {
-    const shared = await shareScope(db, sourceTaskId, parsed.targetTaskId);
-    if (!shared) {
-      return {
-        ok: false,
-        reason:
-          `satisfies: source task "${sourceTaskId}" and target task "${parsed.targetTaskId}" ` +
-          `are not in the same saga (or root epic when no saga is present). ` +
-          `Atoms may only bind ACs across tasks that ship as a coherent unit per ADR-079-r2 §2.3. ` +
-          `If the cross-saga binding is genuinely required, escalate to the Lead — ` +
-          `the saga boundary is the binding boundary by design.`,
-        codeName: 'E_AC_BINDING_OUT_OF_SCOPE',
-      };
-    }
-  }
-
-  // -------------------------------------------------------------------
-  // Success — return the canonicalised atom with resolvedAcUuid pinned
-  // -------------------------------------------------------------------
-  return {
-    ok: true,
-    atom: {
-      kind: 'satisfies',
-      targetTaskId: parsed.targetTaskId,
-      targetAcId: parsed.targetAcId,
-      targetAcAlias: parsed.targetAcAlias,
-      versionPin: parsed.versionPin,
-      resolvedAcUuid,
-    },
-  };
+  });
 }

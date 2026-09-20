@@ -419,8 +419,8 @@ describe('LOOM project ownership across asynchronous lifecycle work', () => {
     }
   });
   afterEach(async () => {
-    await env.cleanup();
     vi.unstubAllEnvs();
+    await env.cleanup();
   });
   function pipelineCount(root: string): number {
     const result = spawnSync(
