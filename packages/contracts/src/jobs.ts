@@ -105,7 +105,9 @@ export type BackgroundJobFailureCode =
   | 'E_JOB_IDEMPOTENCY_CONFLICT'
   | 'E_JOB_LEASE_LOST'
   | 'E_JOB_NOT_RECLAIMABLE'
-  | 'E_JOB_TRANSACTION_OWNED';
+  | 'E_JOB_TRANSACTION_OWNED'
+  | 'E_JOB_DEADLINE_EXCEEDED'
+  | 'E_JOB_LOCK_POLICY_CONFLICT';
 
 /** Immutable routing and provenance captured before asynchronous operation work. */
 export interface OperationExecutionIdentity {
@@ -214,6 +216,48 @@ export interface OperationExecutionContext {
  * synchronous work; domain preconditions and receipt validation remain required.
  */
 export type AtomicJobMutation = (execution: OperationExecutionContext) => string;
+
+/** Declared terminal outcome of an observed attempt; never inferred from lease expiry. */
+export interface JobAttemptOutcome {
+  /** Actual observed failure or acknowledged cancellation. */
+  readonly status: 'failed' | 'cancelled';
+  /** Sourced failure/cancellation explanation retained with the attempt. */
+  readonly message: string;
+}
+
+/**
+ * Trusted synchronous attempt receipt/event bookkeeping, without domain repair authority.
+ * @returns Serialized JSON receipt bytes retained with the terminal job row.
+ * @remarks Only existing services may supply this callback. It must append metadata
+ * in the already-open database, never mutate repaired resources, schedule work,
+ * control transactions or change connection pragmas. This is not an arbitrary-code sandbox.
+ */
+export type AtomicJobBookkeeping = () => string;
+
+/** Truthful terminal bookkeeping result, separate from the attempted domain operation. */
+export type JobFinalizationResult =
+  | {
+      /** Metadata and terminal row committed together. */
+      readonly state: 'finalized';
+      /** Exact committed receipt bytes. */
+      readonly resultJson: string;
+      /** Connection cleanup failure observed after commit; the receipt remains committed. */
+      readonly cleanupError?: string;
+      /** Actual elapsed synchronous wall time, including cleanup. */
+      readonly elapsedMs: number;
+      /** Whether synchronous commit/cleanup finished after the original deadline. */
+      readonly deadlineExceeded: boolean;
+    }
+  | {
+      /** No terminal outcome was committed; preserve the existing lease/checkpoint. */
+      readonly state: 'pending-finalization';
+      /** Actual refusal or bookkeeping failure, not an invented attempt outcome. */
+      readonly reason: string;
+      /** Actual elapsed synchronous wall time, including cleanup. */
+      readonly elapsedMs: number;
+      /** Whether the original execution deadline has elapsed. */
+      readonly deadlineExceeded: boolean;
+    };
 
 /**
  * Observation of a bounded wait, separate from the underlying operation's receipt.
