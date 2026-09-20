@@ -936,6 +936,7 @@ export class DurableJobStore {
    * Request cancellation without claiming that execution has stopped.
    * @param id - Visible job identity.
    * @param now - Request timestamp.
+   * @param execution - Optional original invocation context; never renews its deadline.
    * @returns Whether pending work was cancelled or running work has a persisted request.
    * @remarks Terminal results are preserved when cancellation arrives after commit.
    * @example
@@ -943,28 +944,36 @@ export class DurableJobStore {
    * const requested = store.requestCancel(id, Date.now());
    * ```
    */
-  requestCancel(id: string, now: number): boolean {
-    return this.#write(() => {
-      const row = this.#row(id);
-      if (!row || (row.status !== 'running' && row.status !== 'pending')) return false;
-      if (row.status === 'pending') {
-        const problem = pendingProposalProblem(row);
-        if (problem) throw new BackgroundJobError('E_JOB_NOT_RECLAIMABLE', problem);
-        this.#db
-          .update(backgroundJobs)
-          .set({ status: 'cancelled', cancellationRequestedAt: now, completedAt: now })
-          .where(eq(backgroundJobs.id, id))
-          .run();
+  requestCancel(id: string, now: number, execution?: OperationExecutionContext): boolean {
+    execution?.assertActive();
+    return this.#write(
+      () => {
+        const row = this.#row(id);
+        if (!row) return false;
+        this.#assertInvocation(execution, row.operation, row.projectId, row.idempotencyKey);
+        if (row.status !== 'running' && row.status !== 'pending') return false;
+        if (row.status === 'pending') {
+          const problem = pendingProposalProblem(row);
+          if (problem) throw new BackgroundJobError('E_JOB_NOT_RECLAIMABLE', problem);
+          this.#db
+            .update(backgroundJobs)
+            .set({ status: 'cancelled', cancellationRequestedAt: now, completedAt: now })
+            .where(eq(backgroundJobs.id, id))
+            .run();
+          return true;
+        }
+        if (row.cancellationRequestedAt === null)
+          this.#db
+            .update(backgroundJobs)
+            .set({ cancellationRequestedAt: now })
+            .where(eq(backgroundJobs.id, id))
+            .run();
         return true;
-      }
-      if (row.cancellationRequestedAt === null)
-        this.#db
-          .update(backgroundJobs)
-          .set({ cancellationRequestedAt: now })
-          .where(eq(backgroundJobs.id, id))
-          .run();
-      return true;
-    });
+      },
+      execution?.deadlineAt,
+      (message) => this.#committedCleanupFailures.set(id, message),
+      () => execution?.assertActive(),
+    );
   }
 
   /**

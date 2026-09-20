@@ -658,13 +658,40 @@ describe('authentic durable pending work (T12265)', () => {
   });
 });
 
-describe('shared invocation budget for pending submission and claim', () => {
+describe('shared invocation budget for pending submission, claim and cancellation', () => {
+  it.each([
+    'running',
+    'complete',
+  ] as const)('preserves %s effects when requesting scoped cancellation', (status) => {
+    const store = new DurableJobStore(db, { projectId: request.projectId });
+    store.defer('bounded-job', 'docs.projection', Date.now(), request);
+    store.claim('bounded-job', Date.now());
+    if (status === 'complete') store.complete('bounded-job', { committed: true }, Date.now());
+    const context = createOperationExecutionContext({
+      projectId: request.projectId,
+      projectRoot: root,
+      actor: 'fixture',
+      operation: 'docs.projection',
+      idempotencyKey: request.idempotencyKey,
+    });
+    try {
+      expect(store.requestCancel('bounded-job', Date.now(), context)).toBe(status === 'running');
+      expect(store.get('bounded-job')?.status).toBe(status);
+      if (status === 'running')
+        expect(store.get('bounded-job')?.cancellationRequestedAt).toEqual(expect.any(Number));
+      else expect(store.get('bounded-job')?.result).toEqual({ committed: true });
+    } finally {
+      context.close();
+    }
+  });
+
   it.each([
     'defer',
     'claim',
+    'cancel',
   ] as const)('bounds actual writer contention during %s without committing new ownership', async (phase) => {
     const store = new DurableJobStore(db, { projectId: request.projectId });
-    if (phase === 'claim') store.defer('bounded-job', 'docs.projection', Date.now(), request);
+    if (phase !== 'defer') store.defer('bounded-job', 'docs.projection', Date.now(), request);
     native.exec('PRAGMA busy_timeout=3000');
     const child = execFile(
       process.execPath,
@@ -702,11 +729,13 @@ describe('shared invocation budget for pending submission and claim', () => {
       expect(() =>
         phase === 'claim'
           ? store.claim('bounded-job', Date.now(), undefined, context)
-          : store.defer('bounded-job', 'docs.projection', Date.now(), request, context),
+          : phase === 'cancel'
+            ? store.requestCancel('bounded-job', Date.now(), context)
+            : store.defer('bounded-job', 'docs.projection', Date.now(), request, context),
       ).toThrow();
       expect(Date.now() - startedAt).toBeLessThan(300);
       expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(3000);
-      if (phase === 'claim')
+      if (phase !== 'defer')
         expect(store.get('bounded-job')).toMatchObject({ status: 'pending', attempts: 0 });
       else expect(store.get('bounded-job')).toBeUndefined();
     } finally {
@@ -718,9 +747,10 @@ describe('shared invocation budget for pending submission and claim', () => {
   it.each([
     'defer',
     'claim',
+    'cancel',
   ] as const)('refuses expired %s before any BEGIN and retains the original deadline', (phase) => {
     const store = new DurableJobStore(db, { projectId: request.projectId });
-    if (phase === 'claim') store.defer('bounded-job', 'docs.projection', Date.now(), request);
+    if (phase !== 'defer') store.defer('bounded-job', 'docs.projection', Date.now(), request);
     const context = createOperationExecutionContext(
       {
         projectId: request.projectId,
@@ -736,10 +766,12 @@ describe('shared invocation budget for pending submission and claim', () => {
       expect(() =>
         phase === 'claim'
           ? store.claim('bounded-job', Date.now(), undefined, context)
-          : store.defer('bounded-job', 'docs.projection', Date.now(), request, context),
+          : phase === 'cancel'
+            ? store.requestCancel('bounded-job', Date.now(), context)
+            : store.defer('bounded-job', 'docs.projection', Date.now(), request, context),
       ).toThrow();
       expect(run).not.toHaveBeenCalled();
-      if (phase === 'claim')
+      if (phase !== 'defer')
         expect(store.get('bounded-job')).toMatchObject({ status: 'pending', attempts: 0 });
       else expect(store.get('bounded-job')).toBeUndefined();
     } finally {
@@ -750,13 +782,14 @@ describe('shared invocation budget for pending submission and claim', () => {
   it.each([
     'defer',
     'claim',
+    'cancel',
   ] as const)('rolls back %s when cancellation or deadline arrives before commit', (phase) => {
     native.exec('PRAGMA busy_timeout=3000');
     for (const stop of ['cancel', 'deadline'] as const) {
       const id = `bounded-${stop}`;
       const submission = { ...request, idempotencyKey: id };
       const store = new DurableJobStore(db, { projectId: request.projectId });
-      if (phase === 'claim') store.defer(id, 'docs.projection', Date.now(), submission);
+      if (phase !== 'defer') store.defer(id, 'docs.projection', Date.now(), submission);
       const context = createOperationExecutionContext({
         projectId: request.projectId,
         projectRoot: root,
@@ -773,15 +806,17 @@ describe('shared invocation budget for pending submission and claim', () => {
         return 0;
       });
       native.exec(
-        `CREATE TEMP TRIGGER stop_invocation_trigger AFTER ${phase === 'claim' ? 'UPDATE OF owner_id' : 'INSERT'} ON background_jobs BEGIN SELECT stop_invocation(); END`,
+        `CREATE TEMP TRIGGER stop_invocation_trigger AFTER ${phase === 'claim' ? 'UPDATE OF owner_id' : phase === 'cancel' ? 'UPDATE OF cancellation_requested_at' : 'INSERT'} ON background_jobs BEGIN SELECT stop_invocation(); END`,
       );
       try {
         expect(() =>
           phase === 'claim'
             ? store.claim(id, Date.now(), undefined, context)
-            : store.defer(id, 'docs.projection', Date.now(), submission, context),
+            : phase === 'cancel'
+              ? store.requestCancel(id, Date.now(), context)
+              : store.defer(id, 'docs.projection', Date.now(), submission, context),
         ).toThrow();
-        if (phase === 'claim')
+        if (phase !== 'defer')
           expect(store.get(id)).toMatchObject({ status: 'pending', attempts: 0 });
         else expect(store.get(id)).toBeUndefined();
         expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(3000);
@@ -796,9 +831,10 @@ describe('shared invocation budget for pending submission and claim', () => {
   it.each([
     'defer',
     'claim',
+    'cancel',
   ] as const)('reports committed %s despite cancellation observed after commit', (phase) => {
     const store = new DurableJobStore(db, { projectId: request.projectId });
-    if (phase === 'claim') store.defer('bounded-job', 'docs.projection', Date.now(), request);
+    if (phase !== 'defer') store.defer('bounded-job', 'docs.projection', Date.now(), request);
     const context = createOperationExecutionContext({
       projectId: request.projectId,
       projectRoot: root,
@@ -813,7 +849,8 @@ describe('shared invocation budget for pending submission and claim', () => {
       try {
         if (
           fresh.prepare("SELECT status FROM background_jobs WHERE id='bounded-job'").get()
-            ?.status === (phase === 'claim' ? 'running' : 'pending')
+            ?.status ===
+          (phase === 'claim' ? 'running' : phase === 'cancel' ? 'cancelled' : 'pending')
         )
           context.close();
       } finally {
@@ -825,11 +862,13 @@ describe('shared invocation budget for pending submission and claim', () => {
       const result =
         phase === 'claim'
           ? store.claim('bounded-job', Date.now(), undefined, context)
-          : store.defer('bounded-job', 'docs.projection', Date.now(), request, context);
+          : phase === 'cancel'
+            ? store.requestCancel('bounded-job', Date.now(), context)
+            : store.defer('bounded-job', 'docs.projection', Date.now(), request, context);
       expect(result).toBeDefined();
       expect(context.signal.aborted).toBe(true);
       expect(store.get('bounded-job')).toMatchObject({
-        status: phase === 'claim' ? 'running' : 'pending',
+        status: phase === 'claim' ? 'running' : phase === 'cancel' ? 'cancelled' : 'pending',
         attempts: phase === 'claim' ? 1 : 0,
       });
     } finally {
@@ -840,9 +879,10 @@ describe('shared invocation budget for pending submission and claim', () => {
   it.each([
     'defer',
     'claim',
+    'cancel',
   ] as const)('rejects a mismatched %s invocation without borrowing its identity', (phase) => {
     const store = new DurableJobStore(db, { projectId: request.projectId });
-    if (phase === 'claim') store.defer('bounded-job', 'docs.projection', Date.now(), request);
+    if (phase !== 'defer') store.defer('bounded-job', 'docs.projection', Date.now(), request);
     const context = createOperationExecutionContext({
       projectId: 'other-project',
       projectRoot: root,
@@ -854,9 +894,11 @@ describe('shared invocation budget for pending submission and claim', () => {
       expect(() =>
         phase === 'claim'
           ? store.claim('bounded-job', Date.now(), undefined, context)
-          : store.defer('bounded-job', 'docs.projection', Date.now(), request, context),
+          : phase === 'cancel'
+            ? store.requestCancel('bounded-job', Date.now(), context)
+            : store.defer('bounded-job', 'docs.projection', Date.now(), request, context),
       ).toThrow('Invocation differs');
-      if (phase === 'claim')
+      if (phase !== 'defer')
         expect(store.get('bounded-job')).toMatchObject({ status: 'pending', attempts: 0 });
       else expect(store.get('bounded-job')).toBeUndefined();
     } finally {
