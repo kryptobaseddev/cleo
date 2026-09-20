@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.20.2 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.20.3 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -13,6 +13,7 @@ Version: 2.20.2 | CLI-only dispatch | `cleo <command> [args]`
 6. **Learn.** Record actionable incident knowledge with source, project, revision, observation, correction, and verification through `cleo memory observe`. Preserve historical handoffs; present corrections separately. Avoid empty completion traces.
 
 Knowledge repair: `cleo doctor knowledge --dry-run`, then `--prepare FILE --actor AGENT`.
+Discover retained work with `--jobs --actor AGENT`, `--limit` and returned JSON `--cursor`; follow exact `inspectArgv`, not latest-job guesses. Retain partial diagnostics.
 Use `--apply JOB`, `--inspect JOB`, `--cancel JOB`, or `--resume JOB` with the original explicit `--actor AGENT --proposal-id PROPOSAL`; never borrow stored actor attribution.
 Verify receipts and paged lifecycle evidence (`--limit`/`--offset`); retain diagnostic failures and `prepared`/`attemptFailure` recovery details. Cancellation is a request, not rollback.
 Each invocation shares a default 2000ms budget (`--budget-ms`); a later explicit attempt is fresh, without renewing an active deadline or preempting synchronous SQLite.
