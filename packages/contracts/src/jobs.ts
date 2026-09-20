@@ -234,6 +234,17 @@ export interface JobAttemptOutcome {
  */
 export type AtomicJobBookkeeping = () => string;
 
+/**
+ * Trusted synchronous terminal-retry bookkeeping inside the existing job transaction.
+ * @param previousAttemptJson - Complete previous stored row image, including original result,
+ * error, checkpoint, cancellation, counters and lease fields; retain these exact JSON bytes.
+ * @returns JSON receipt bytes verified by the domain after append-only persistence.
+ * @remarks Recheck immutable domain preconditions and preserve the previous attempt before
+ * returning. No asynchronous work, external effects or transaction control is permitted.
+ * This trusted composition port does not sandbox arbitrary callbacks.
+ */
+export type AtomicJobRetryBookkeeping = (previousAttemptJson: string) => string;
+
 /** Truthful terminal bookkeeping result, separate from the attempted domain operation. */
 export type JobFinalizationResult =
   | {
