@@ -1,4 +1,5 @@
 import { OPERATIONS } from '@cleocode/contracts';
+import { reconcileSaga } from '@cleocode/core/sagas';
 import { parseGateJson, reqAdd, reqList, reqMigrate } from '@cleocode/core/tasks';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -22,6 +23,11 @@ vi.mock('@cleocode/core/tasks', async () => {
     reqMigrate: vi.fn(),
   };
 });
+
+vi.mock('@cleocode/core/sagas', async () => ({
+  ...(await vi.importActual<typeof import('@cleocode/core/sagas')>('@cleocode/core/sagas')),
+  reconcileSaga: vi.fn(),
+}));
 
 // Mock engine functions before importing the handler
 vi.mock('@cleocode/runtime/gateway', async () => ({
@@ -112,6 +118,7 @@ import {
   taskTree,
   taskUpdate,
 } from '@cleocode/runtime/gateway';
+import * as typedAdapter from '../../adapters/typed.js';
 import { TasksHandler } from '../tasks.js';
 
 describe('TasksHandler', () => {
@@ -555,6 +562,50 @@ describe('TasksHandler', () => {
   // -----------------------------------------------------------------------
   // Mutate operations
   // -----------------------------------------------------------------------
+
+  describe('saga reconciliation dispatch identity', () => {
+    it('passes only the saga result and operation to the shared result adapter', async () => {
+      const data = {
+        total: 0,
+        closed: 0,
+        noOp: 0,
+        blocked: 0,
+        pending: 0,
+        errors: 0,
+        dryRun: true,
+        entries: [],
+      };
+      vi.mocked(reconcileSaga).mockResolvedValue({ success: true, data });
+      const adapter = vi.spyOn(typedAdapter, 'wrapCoreResult');
+      try {
+        const response = await handler.mutate('saga.reconcile', { sagaId: 'SG-1', dryRun: true });
+        expect(reconcileSaga).toHaveBeenCalledWith('/mock/project', {
+          sagaId: 'SG-1',
+          dryRun: true,
+        });
+        expect(response.success).toBe(true);
+        expect(response.data).toEqual(data);
+        expect(adapter).toHaveBeenCalledTimes(1);
+        // Requirement operation names are not saga fallback data or positional arguments.
+        expect(adapter).toHaveBeenCalledWith({ success: true, data }, 'saga.reconcile');
+      } finally {
+        adapter.mockRestore();
+      }
+    });
+
+    it('preserves a real saga service error without converting it into a requirement response', async () => {
+      vi.mocked(reconcileSaga).mockResolvedValue({
+        success: false,
+        error: { code: 'E_RECONCILE_FAILED', message: 'Explicit saga read failure' },
+      });
+      const response = await handler.mutate('saga.reconcile', { sagaId: 'SG-2', dryRun: true });
+      expect(response.success).toBe(false);
+      expect(response.error).toMatchObject({
+        code: 'E_RECONCILE_FAILED',
+        message: 'Explicit saga read failure',
+      });
+    });
+  });
 
   describe('mutate', () => {
     it('add - delegates to addTaskWithSessionScope', async () => {

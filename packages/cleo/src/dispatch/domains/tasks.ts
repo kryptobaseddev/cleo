@@ -769,8 +769,6 @@ async function sagaReconcile(params: Record<string, unknown>): Promise<LafsEnvel
   return wrapCoreResult(
     await coreSagaReconcile(getProjectRoot(), { sagaId, dryRun }),
     'saga.reconcile',
-    'req.add',
-    'req.migrate',
   );
 }
 
