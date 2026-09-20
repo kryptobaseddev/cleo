@@ -195,6 +195,15 @@ export { type ListTasksOptions, type ListTasksResult, listTasks, taskList } from
 // Task Core operation signatures for OpsFromCore inference (T1445)
 export type { tasksCoreOps } from './ops.js';
 export { taskPlan } from './plan.js';
+export {
+  type MigrationApplyResult,
+  type MigrationProposal,
+  parseGateJson,
+  type ReqListEntry,
+  reqAdd,
+  reqList,
+  reqMigrate,
+} from './req.js';
 export { addTaskWithSessionScope, resolveParentFromSession } from './session-scope.js';
 // System-wide severity attestation primitive (T9071 / ADR-054 draft)
 export {
