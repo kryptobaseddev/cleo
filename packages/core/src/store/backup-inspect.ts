@@ -548,6 +548,9 @@ export async function inspectBackupObservation(
     const integrity = snapshot.db.prepare('PRAGMA integrity_check(1)').all();
     if (integrity.length !== 1 || integrity[0]?.integrity_check !== 'ok')
       inspectionFailure('INVALID_SNAPSHOT', 'Snapshot integrity_check did not return ok.');
+    const textEncoding = snapshot.db.prepare('PRAGMA encoding').get()?.encoding;
+    if (textEncoding !== 'UTF-8' && textEncoding !== 'UTF-16le' && textEncoding !== 'UTF-16be')
+      inspectionFailure('UNSUPPORTED_SCHEMA', 'Snapshot text encoding is unsupported.');
     const schemas = snapshot.db
       .prepare(
         "SELECT name, type, sql FROM main.sqlite_schema WHERE name IN ('brain_observations','observations')",
@@ -584,15 +587,13 @@ export async function inspectBackupObservation(
     }
     const project = record?.payload.project_id;
     const recorded =
-      project?.type === 'text' ? Buffer.from(project.bytesBase64, 'base64').toString('utf8') : null;
-    if (
-      project &&
-      project.type !== 'null' &&
-      (project.type !== 'text' ||
-        !recorded ||
-        Buffer.from(recorded).toString('base64') !== project.bytesBase64)
-    )
-      inspectionFailure('UNSUPPORTED_SCHEMA', 'Recorded project_id must be nonempty UTF-8 text.');
+      project?.type === 'text'
+        ? new TextDecoder(textEncoding, { fatal: true, ignoreBOM: true }).decode(
+            Buffer.from(project.bytesBase64, 'base64'),
+          )
+        : null;
+    if (project && project.type !== 'null' && (project.type !== 'text' || !recorded))
+      inspectionFailure('UNSUPPORTED_SCHEMA', 'Recorded project_id must be nonempty valid text.');
     if (recorded && options.expectedProjectId && recorded !== options.expectedProjectId)
       inspectionFailure(
         'PROJECT_MISMATCH',
@@ -615,6 +616,7 @@ export async function inspectBackupObservation(
         atimeNs: before.atimeNs.toString(),
       },
       userVersion: version,
+      textEncoding,
       inspectedTables: inspected.sort(),
       projectIdentity: {
         expected: options.expectedProjectId ?? null,

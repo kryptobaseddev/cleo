@@ -207,7 +207,7 @@ export interface BackupObservationInspectOptions {
   expectedProjectId?: string;
   /** Source byte ceiling, at most 1 GiB; default 512 MiB. */
   maxSnapshotBytes?: number;
-  /** Sum of stored column byte lengths; at most 16 MiB, default 1 MiB. */
+  /** Sum of SQLite CAST(value AS BLOB) lengths; at most 16 MiB, default 1 MiB. */
   maxPayloadBytes?: number;
 }
 
@@ -232,7 +232,7 @@ export interface BackupObservationRecord {
   payload: Record<string, BackupObservationValue>;
   /** SHA256 of UTF-8 JSON for column-name-sorted [name, taggedValue] pairs. */
   payloadSha256: string;
-  /** Sum of stored column byte lengths before JSON/base64 expansion. */
+  /** Sum of SQLite CAST(value AS BLOB) lengths before JSON/base64 expansion. */
   payloadBytes: number;
 }
 
@@ -254,6 +254,8 @@ export interface BackupObservationInspection {
   };
   /** Actual SQLite schema marker; not an inferred product/schema version. */
   userVersion: number;
+  /** Database encoding used by the preserved TEXT bytes. */
+  textEncoding: 'UTF-8' | 'UTF-16le' | 'UTF-16be';
   /** Every supported table found and queried with indexed exact equality. */
   inspectedTables: Array<'brain_observations' | 'observations'>;
   /** Caller expectation is separate from recorded identity and never fills it in. */
