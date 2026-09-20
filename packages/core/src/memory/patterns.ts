@@ -11,6 +11,8 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
+import { captureProjectScope, worktreeScope } from '../project-scope.js';
+import { trackBackgroundOp } from '../store/background-ops.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { upsertGraphNode } from './graph-auto-populate.js';
 import { computePatternQuality } from './quality-scoring.js';
@@ -65,9 +67,20 @@ function generatePatternId(): string {
 /**
  * Store a new pattern.
  * If a similar pattern already exists (same type + matching text), increments frequency.
+ * @param projectRoot - Explicit owning project root captured before asynchronous work.
+ * @param params - Existing pattern fields and extraction-gate policy.
+ * @returns The stored or merged pattern; graph projection remains an optional tracked effect.
+ * @remarks Both graph branches retain the original execution context and completion
+ * barrier. Cancellation after a pattern commit can prevent graph projection without
+ * undoing the committed pattern. The legacy pattern write itself is not fully fenced.
+ * @example
+ * ```ts
+ * await storePattern(root, { type: 'workflow', pattern: 'Run tests', context: 'Before release' });
+ * ```
  * @task T4768, T5241
  */
 export async function storePattern(projectRoot: string, params: StorePatternParams) {
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
   if (!params.pattern?.trim()) {
     throw new Error('Pattern description is required');
   }
@@ -83,7 +96,7 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     const { verifyCandidate } = await import('./extraction-gate.js');
     const isAuto = params.source?.startsWith('auto') ?? false;
     const sourceConf = isAuto ? ('speculative' as const) : ('agent' as const);
-    const gateResult = await verifyCandidate(projectRoot, {
+    const gateResult = await verifyCandidate(scope.worktreeRoot, {
       text: params.pattern.trim(),
       title: params.context.trim().slice(0, 120),
       memoryType: 'procedural',
@@ -95,7 +108,9 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     if (gateResult.action !== 'stored') {
       // Gate merged, rejected, or queued — return best available representation
       const existing = gateResult.id
-        ? await (await getBrainAccessor(projectRoot)).getPattern(gateResult.id).catch(() => null)
+        ? await (await getBrainAccessor(scope.worktreeRoot))
+            .getPattern(gateResult.id)
+            .catch(() => null)
         : null;
       if (existing) {
         return { ...existing, examples: JSON.parse(existing.examplesJson || '[]') };
@@ -131,7 +146,7 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     // Gate approved — fall through to native storage below (no recursion needed).
   }
 
-  const accessor = await getBrainAccessor(projectRoot);
+  const accessor = await getBrainAccessor(scope.worktreeRoot);
 
   // Search for duplicate pattern by normalized text within same type
   const existingPatterns = await accessor.findPatterns({ type: params.type });
@@ -157,21 +172,26 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     const updated = await accessor.getPattern(duplicate.id);
 
     // Refresh graph node for the updated (incremented) pattern (best-effort, T537).
-    upsertGraphNode(
-      projectRoot,
-      `pattern:${duplicate.id}`,
-      'pattern',
-      duplicate.pattern.substring(0, 200),
-      duplicate.qualityScore ?? 0.5,
-      duplicate.pattern + duplicate.context,
-      {
-        type: duplicate.type,
-        impact: duplicate.impact ?? undefined,
-        frequency: duplicate.frequency + 1,
-      },
-    ).catch(() => {
-      /* best-effort */
-    });
+    trackBackgroundOp(
+      () =>
+        worktreeScope.run(scope, () =>
+          upsertGraphNode(
+            scope.worktreeRoot,
+            `pattern:${duplicate.id}`,
+            'pattern',
+            duplicate.pattern.substring(0, 200),
+            duplicate.qualityScore ?? 0.5,
+            duplicate.pattern + duplicate.context,
+            {
+              type: duplicate.type,
+              impact: duplicate.impact ?? undefined,
+              frequency: duplicate.frequency + 1,
+            },
+            scope.execution,
+          ),
+        ),
+      scope.execution,
+    );
 
     return {
       ...updated!,
@@ -238,17 +258,22 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
   const saved = await accessor.addPattern(entry);
 
   // Auto-populate graph node for the new pattern (best-effort, T537).
-  upsertGraphNode(
-    projectRoot,
-    `pattern:${saved.id}`,
-    'pattern',
-    saved.pattern.substring(0, 200),
-    qualityScore,
-    saved.pattern + saved.context,
-    { type: saved.type, impact: saved.impact ?? undefined },
-  ).catch(() => {
-    /* best-effort */
-  });
+  trackBackgroundOp(
+    () =>
+      worktreeScope.run(scope, () =>
+        upsertGraphNode(
+          scope.worktreeRoot,
+          `pattern:${saved.id}`,
+          'pattern',
+          saved.pattern.substring(0, 200),
+          qualityScore,
+          saved.pattern + saved.context,
+          { type: saved.type, impact: saved.impact ?? undefined },
+          scope.execution,
+        ),
+      ),
+    scope.execution,
+  );
 
   // Similarity identifies reconciliation candidates; it cannot establish authority.
   // Replacement requires an explicit sourced operation from the calling agent.
