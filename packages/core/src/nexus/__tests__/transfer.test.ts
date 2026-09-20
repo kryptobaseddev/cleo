@@ -12,7 +12,8 @@ import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLinksByTaskId } from '../../reconciliation/link-store.js';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
-import { resetDbState } from '../../store/sqlite.js';
+import { awaitBackgroundOps } from '../../store/background-ops.js';
+import { closeAllDatabases, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { nexusInit, nexusRegister, resetNexusDbState } from '../registry.js';
 import { executeTransfer, previewTransfer } from '../transfer.js';
@@ -31,24 +32,31 @@ async function createTestProjectDb(
 }
 
 let testDir: string;
+let originalCwd: string;
 let registryDir: string;
 let sourceDir: string;
 let targetDir: string;
 
-// Multi-project scenarios resolve each store from its explicit fixture root.
-beforeEach(() => {
-  vi.stubEnv('CLEO_ROOT', undefined);
-  vi.stubEnv('CLEO_DIR', undefined);
-});
-afterEach(() => vi.unstubAllEnvs());
-
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'nexus-transfer-test-'));
+  await mkdir(join(testDir, '.cleo'), { recursive: true });
+  await mkdir(join(testDir, '.git'), { recursive: true });
+  originalCwd = process.cwd();
+  process.chdir(testDir);
+  vi.stubEnv('CLEO_ROOT', testDir);
+  vi.stubEnv('CLEO_PROJECT_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   registryDir = join(testDir, 'cleo-home');
   sourceDir = join(testDir, 'source-project');
   targetDir = join(testDir, 'target-project');
 
   await mkdir(registryDir, { recursive: true });
+
+  // Point env vars to test dirs
+  vi.stubEnv('CLEO_HOME', registryDir);
+  vi.stubEnv('NEXUS_HOME', join(registryDir, 'nexus'));
+  vi.stubEnv('NEXUS_CACHE_DIR', join(registryDir, 'nexus', 'cache'));
+  vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
 
   // Create source project with a task hierarchy
   await createTestProjectDb(sourceDir, [
@@ -73,12 +81,6 @@ beforeEach(async () => {
   // Create empty target project
   await createTestProjectDb(targetDir, []);
 
-  // Point env vars to test dirs
-  process.env['CLEO_HOME'] = registryDir;
-  process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
-  process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
-  process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
-
   resetNexusDbState();
 
   // Register both projects
@@ -90,12 +92,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  delete process.env['CLEO_HOME'];
-  delete process.env['NEXUS_HOME'];
-  delete process.env['NEXUS_CACHE_DIR'];
-  delete process.env['NEXUS_SKIP_PERMISSION_CHECK'];
+  await awaitBackgroundOps();
   resetNexusDbState();
-  resetDbState();
+  await closeAllDatabases();
+  vi.unstubAllEnvs();
+  process.chdir(originalCwd);
   await rm(testDir, { recursive: true, force: true });
 });
 

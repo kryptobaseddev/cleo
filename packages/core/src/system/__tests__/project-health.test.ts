@@ -18,7 +18,9 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetDbState } from '../../store/sqlite.js';
+import { awaitBackgroundOps } from '../../store/background-ops.js';
+import { resetNexusDbState } from '../../store/nexus-sqlite.js';
+import { closeAllDatabases, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import {
   checkAllRegisteredProjects,
@@ -43,34 +45,31 @@ function makeHealthyDb(path: string, userVersion = 7): void {
 }
 
 let testDir: string;
-
-// Explicit fixture cwd must select its own project rather than the setup pin.
-beforeEach(() => {
-  vi.stubEnv('CLEO_ROOT', undefined);
-  vi.stubEnv('CLEO_DIR', undefined);
-});
-
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
+let originalCwd: string;
 
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'cleo-project-health-'));
+  await mkdir(join(testDir, '.cleo'), { recursive: true });
+  await mkdir(join(testDir, '.git'), { recursive: true });
+  originalCwd = process.cwd();
+  process.chdir(testDir);
+  vi.stubEnv('CLEO_ROOT', testDir);
+  vi.stubEnv('CLEO_PROJECT_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+  vi.stubEnv('NEXUS_HOME', join(testDir, 'cleo-home', 'nexus'));
+  vi.stubEnv('NEXUS_CACHE_DIR', join(testDir, 'cleo-home', 'nexus', 'cache'));
   // Redirect CLEO_HOME so checkGlobalHealth / checkAllRegisteredProjects
   // touch a tmp directory (never the user's real ~/.local/share/cleo).
-  process.env['CLEO_HOME'] = join(testDir, 'cleo-home');
-  await mkdir(process.env['CLEO_HOME'], { recursive: true });
+  vi.stubEnv('CLEO_HOME', join(testDir, 'cleo-home'));
+  await mkdir(join(testDir, 'cleo-home'), { recursive: true });
 });
 
 afterEach(async () => {
-  resetDbState();
-  try {
-    const { resetNexusDbState } = await import('../../store/nexus-sqlite.js');
-    resetNexusDbState();
-  } catch {
-    // nexus-sqlite may not be fully set up in every test.
-  }
-  delete process.env['CLEO_HOME'];
+  await awaitBackgroundOps();
+  resetNexusDbState();
+  await closeAllDatabases();
+  vi.unstubAllEnvs();
+  process.chdir(originalCwd);
   await rm(testDir, { recursive: true, force: true });
 });
 
