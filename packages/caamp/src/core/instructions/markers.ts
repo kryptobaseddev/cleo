@@ -112,15 +112,21 @@ export function normalizeMarkers(content: string): NormalizeResult {
 
   const heal = (input: string, source: string, canonical: string): string =>
     input.replace(new RegExp(source, 'gmi'), (match) => {
-      if (match === canonical) return match;
+      // Horizontal whitespace and CRLF bytes are not marker punctuation.
+      const leading = /^[ \t\r]*/.exec(match)?.[0] ?? '';
+      const trailing = /[ \t\r]*$/.exec(match)?.[0] ?? '';
+      const replacement = leading + canonical + trailing;
+      if (match === replacement) return match;
       repaired += 1;
-      return canonical;
+      return replacement;
     });
 
-  let out = heal(content, CAAMP_DAMAGED_START_PATTERN_SOURCE, CAAMP_MARKER_START);
+  // Keep a UTF-8 BOM at the original file boundary while matching its first line.
+  const bom = content.startsWith('\uFEFF') ? '\uFEFF' : '';
+  let out = heal(content.slice(bom.length), CAAMP_DAMAGED_START_PATTERN_SOURCE, CAAMP_MARKER_START);
   out = heal(out, CAAMP_DAMAGED_END_PATTERN_SOURCE, CAAMP_MARKER_END);
 
-  return { content: out, repaired };
+  return { content: bom + out, repaired };
 }
 
 /**
@@ -179,15 +185,23 @@ export function buildBlock(content: string): string {
   return `${CAAMP_MARKER_START}\n${content}\n${CAAMP_MARKER_END}`;
 }
 
-/**
- * Tidy whitespace produced by removing blocks, and guarantee a trailing newline.
- *
- * @param content - Content to normalise
- * @returns Content with runs of blank lines collapsed and exactly one trailing newline
- */
-function tidy(content: string): string {
-  const collapsed = content.replace(/\n{3,}/g, '\n\n').trimEnd();
-  return collapsed.length > 0 ? `${collapsed}\n` : '';
+/** Reject ambiguous ownership before a caller can write or discard text. */
+function assertBalancedMarkers(content: string): void {
+  let open = false;
+  const markers = new RegExp(`${CAAMP_MARKER_START}|${CAAMP_MARKER_END}`, 'g');
+  for (const match of content.matchAll(markers)) {
+    const opening = match[0] === CAAMP_MARKER_START;
+    if (opening === open) {
+      throw new Error(
+        'Ambiguous CAAMP markers: nested or unmatched delimiter; original content preserved.',
+      );
+    }
+    open = opening;
+  }
+  if (open)
+    throw new Error(
+      'Ambiguous CAAMP markers: opening delimiter has no end; original content preserved.',
+    );
 }
 
 /**
@@ -229,11 +243,11 @@ export interface ReconcileResult {
  *    any others are removed. Replacing in place matters: prepending instead
  *    would walk the block up the file on every run, and would separate it from
  *    any heading a user wrote above it.
- * 4. All text outside CAAMP blocks is preserved. CAAMP owns the region between
- *    its markers and nothing else in the file. The only change made outside
- *    them is whitespace tidying — runs of three or more newlines collapse to
- *    two, and the file ends with exactly one newline. No non-blank line is
- *    ever removed, reordered or rewritten.
+ * 4. Every byte outside CAAMP blocks is preserved, including indentation,
+ *    CRLF, BOM, blank lines and trailing whitespace. Only newly inserted block
+ *    separators are added; existing user text is never trimmed or tidied.
+ * 5. Nested or unmatched markers are ambiguous ownership and reject mutation.
+ *    No guessed region is removed or expanded to consume user content.
  *
  * This function is pure — it performs no I/O, which is what makes the
  * behaviour straightforward to test exhaustively.
@@ -242,6 +256,7 @@ export interface ReconcileResult {
  * @param desiredContent - Body the single surviving block should carry
  * @param insert - Placement when the file has no block yet
  * @returns The reconciled content plus what was found on the way
+ * @throws When existing or desired markers have ambiguous ownership.
  *
  * @example
  * ```typescript
@@ -257,19 +272,21 @@ export function reconcile(
   insert: BlockInsertPosition = 'prepend',
 ): ReconcileResult {
   const { content: healed, repaired } = normalizeMarkers(existing);
+  assertBalancedMarkers(healed);
   const blocks = parseBlocks(healed);
   // Trim the body so whitespace-only differences converge to one canonical
   // form instead of rewriting the file on every call.
   const desiredBlock = buildBlock(desiredContent.trim());
+  assertBalancedMarkers(desiredBlock);
 
   if (blocks.length === 0) {
-    const body = healed.trim();
-    if (body.length === 0) return { content: tidy(desiredBlock), blocksBefore: 0, repaired };
+    if (healed.length === 0) return { content: `${desiredBlock}\n`, blocksBefore: 0, repaired };
+    const bom = healed.startsWith('\uFEFF') ? '\uFEFF' : '';
     return {
       content:
         insert === 'append'
-          ? tidy(`${body}\n\n${desiredBlock}`)
-          : tidy(`${desiredBlock}\n\n${body}`),
+          ? `${healed}\n\n${desiredBlock}\n`
+          : `${bom}${desiredBlock}\n\n${healed.slice(bom.length)}`,
       blocksBefore: 0,
       repaired,
     };
@@ -286,7 +303,7 @@ export function reconcile(
   }
   out += healed.slice(cursor);
 
-  return { content: tidy(out), blocksBefore: blocks.length, repaired };
+  return { content: out, blocksBefore: blocks.length, repaired };
 }
 
 /**
@@ -342,6 +359,7 @@ export function mergeBlockBodies(blocks: readonly CaampBlock[]): string {
  *
  * @param existing - Current file contents
  * @returns The repaired content plus what was found on the way
+ * @throws When marker ownership is ambiguous; callers must preserve the original file.
  *
  * @example
  * ```typescript
@@ -352,6 +370,7 @@ export function mergeBlockBodies(blocks: readonly CaampBlock[]): string {
  */
 export function repairContent(existing: string): ReconcileResult {
   const { content: healed, repaired } = normalizeMarkers(existing);
+  assertBalancedMarkers(healed);
   const blocks = parseBlocks(healed);
 
   if (blocks.length === 0) {
