@@ -21,6 +21,7 @@ import {
   applyPreparedKnowledgeRepair,
   listKnowledgeRepairReceipts,
   prepareKnowledgeRepair,
+  resumePreparedKnowledgeRepair,
   runKnowledgeDoctor,
 } from '../knowledge.js';
 
@@ -527,7 +528,7 @@ describe('durable sourced knowledge repair preparation', () => {
         [
           '--input-type=module',
           '-e',
-          "import {DatabaseSync} from 'node:sqlite';const db=new DatabaseSync(process.argv[1],{readOnly:true});process.stdout.write(JSON.stringify({jobs:db.prepare('SELECT id,status,result,error,proposal_json,proposal_hash,attempts FROM main.background_jobs').all(),decisions:db.prepare('SELECT id,decision,invalid_at,superseded_by,supersedes,confirmation_state FROM main.brain_decisions ORDER BY id').all(),observation:db.prepare(\"SELECT invalid_at,narrative FROM main.brain_observations WHERE id='O-prepared'\").get(),attemptOutcomes:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_attempt:%'\").all(),events:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_event:%'\").all(),receipts:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair:%'\").all()}));db.close();",
+          "import {DatabaseSync} from 'node:sqlite';const db=new DatabaseSync(process.argv[1],{readOnly:true});process.stdout.write(JSON.stringify({jobs:db.prepare('SELECT id,status,result,error,proposal_json,proposal_hash,attempts FROM main.background_jobs').all(),decisions:db.prepare('SELECT id,decision,invalid_at,superseded_by,supersedes,confirmation_state FROM main.brain_decisions ORDER BY id').all(),observation:db.prepare(\"SELECT invalid_at,narrative FROM main.brain_observations WHERE id='O-prepared'\").get(),retryHistory:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_retry:%'\").all(),attemptOutcomes:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_attempt:%'\").all(),events:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_event:%'\").all(),receipts:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair:%'\").all()}));db.close();",
           join(root, '.cleo/cleo.db'),
         ],
         { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] },
@@ -1364,6 +1365,123 @@ describe('durable sourced knowledge repair preparation', () => {
       expect.objectContaining({ id: pending.jobId, status: 'complete' }),
     );
     expect(persisted().attemptOutcomes).toEqual([]);
+  });
+
+  it('explicitly resumes a failed repair with fresh budget and preserves its entire prior attempt', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const db = getBrainNativeDb(root)!;
+    db.exec(
+      "CREATE TEMP TRIGGER fail_first BEFORE UPDATE OF status ON main.background_jobs WHEN NEW.status='complete' BEGIN SELECT RAISE(ABORT,'first attempt fault'); END",
+    );
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    const previous = persisted();
+    expect(previous.jobs[0].status).toBe('failed');
+    db.exec('DROP TRIGGER fail_first');
+    context.close();
+    context = createOperationExecutionContext(context.identity, { budgetMs: 10000 });
+    const receipt = await resumePreparedKnowledgeRepair(context, pending.jobId);
+    expect(receipt.execution?.fencingEpoch).toBe(2);
+    expect(receipt.attempt).toBe(2);
+    const after = persisted();
+    expect(after.attemptOutcomes).toEqual(previous.attemptOutcomes);
+    expect(after.events).toEqual(expect.arrayContaining(previous.events));
+    const retained = JSON.parse(after.retryHistory[0].value);
+    expect(retained).toMatchObject({
+      id: pending.jobId,
+      status: 'failed',
+      fencingEpoch: 1,
+      attempts: 1,
+      result: previous.jobs[0].result,
+      error: previous.jobs[0].error,
+    });
+    expect(await resumePreparedKnowledgeRepair(context, pending.jobId)).toEqual(receipt);
+    expect(persisted().jobs[0].attempts).toBe(2);
+  });
+
+  it('revalidates the immutable recovery snapshot before committing a new rollback claim', async () => {
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    const pending = await prepareRollback(original.id);
+    const db = getBrainNativeDb(root)!;
+    db.exec(
+      `CREATE TEMP TRIGGER fail_rollback BEFORE UPDATE OF status ON main.background_jobs WHEN NEW.id='${pending.jobId}' AND NEW.status='complete' BEGIN SELECT RAISE(ABORT,'rollback attempt fault'); END`,
+    );
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    db.exec('DROP TRIGGER fail_rollback');
+    db.prepare(
+      "UPDATE main._nexus_meta SET value=json_set(value,'$.postHash','later-snapshot-change') WHERE key=?",
+    ).run(`knowledge_repair:${original.id}`);
+    const before = persisted();
+    context.close();
+    context = createOperationExecutionContext(context.identity, { budgetMs: 10000 });
+    await expect(resumePreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      code: 'E_REPAIR_STALE',
+    });
+    expect(persisted().jobs).toEqual(before.jobs);
+    expect(persisted().receipts).toEqual(before.receipts);
+    expect(persisted().retryHistory).toEqual([]);
+  });
+
+  it('requires deliberate resume for cancelled work and retains the cancellation record', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    new DurableJobStore(await getDb(root), { projectId: 'repair-A' }).requestCancel(
+      pending.jobId,
+      Date.now(),
+    );
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toThrow();
+    context.close();
+    context = createOperationExecutionContext(context.identity, { budgetMs: 10000 });
+    expect(await resumePreparedKnowledgeRepair(context, pending.jobId)).toMatchObject({
+      state: 'repaired',
+      attempt: 1,
+    });
+    const prior = JSON.parse(persisted().retryHistory[0].value);
+    expect(prior).toMatchObject({
+      status: 'cancelled',
+      attempts: 0,
+      cancellationRequestedAt: expect.any(Number),
+    });
+  });
+
+  it.each([
+    'actor',
+    'source',
+    'history',
+    'claim',
+  ] as const)('refuses explicit terminal resume on %s conflict without erasing the old outcome', async (fault) => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const store = new DurableJobStore(await getDb(root), { projectId: 'repair-A' });
+    store.requestCancel(pending.jobId, Date.now());
+    const before = persisted();
+    const db = getBrainNativeDb(root)!;
+    context.close();
+    context = createOperationExecutionContext(
+      {
+        ...context.identity,
+        actor: fault === 'actor' ? 'different-actor' : context.identity.actor,
+      },
+      { budgetMs: 10000 },
+    );
+    if (fault === 'source')
+      db.exec(
+        "UPDATE main.brain_observations SET invalid_at='later correction' WHERE id='O-prepared'",
+      );
+    if (fault === 'history')
+      db.exec(
+        "CREATE TEMP TRIGGER refuse_history BEFORE INSERT ON main._nexus_meta WHEN NEW.key LIKE 'knowledge_repair_retry:%' BEGIN SELECT RAISE(ABORT,'history fault'); END",
+      );
+    if (fault === 'claim')
+      db.exec(
+        "CREATE TEMP TRIGGER refuse_resume BEFORE UPDATE OF owner_id ON main.background_jobs BEGIN SELECT RAISE(ABORT,'claim fault'); END",
+      );
+    const resumed = resumePreparedKnowledgeRepair(context, pending.jobId);
+    if (fault === 'actor') await expect(resumed).rejects.toMatchObject({ code: 'E_REPAIR_ACTOR' });
+    else await expect(resumed).rejects.toThrow();
+    expect(persisted().jobs).toEqual(before.jobs);
+    expect(persisted().receipts).toEqual(before.receipts);
+    expect(
+      db.prepare("SELECT 1 FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_retry:%'").get(),
+    ).toBeUndefined();
   });
 
   it('passes the original execution context into preparation storage before mutation', async () => {

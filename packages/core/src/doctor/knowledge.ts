@@ -572,6 +572,36 @@ export async function applyPreparedKnowledgeRepair(
   context: OperationExecutionContext,
   jobId: string,
 ): Promise<KnowledgeRepairReceipt> {
+  return executePreparedKnowledgeRepair(context, jobId, false);
+}
+
+/**
+ * Explicitly resume immutable repair work, preserving failed or cancelled attempts before retry.
+ * @param context - Fresh bounded invocation with the same explicit actor and proposal identity.
+ * @param jobId - Authentic prepared job to inspect and revalidate before retry.
+ * @returns Existing committed receipt or the newly committed repair receipt.
+ * @throws KnowledgeRepairError when actor, source, recovery snapshot or resource preconditions changed.
+ * @remarks Terminal retries retain the complete prior stored attempt atomically with a new claim.
+ * An active attempt is never stolen and an expired context is never renewed. Already committed
+ * effects are not reapplied. Historical outcomes and original repair evidence remain inspectable.
+ * @example
+ * ```ts
+ * const receipt = await resumePreparedKnowledgeRepair(newInvocation, jobId);
+ * ```
+ */
+export async function resumePreparedKnowledgeRepair(
+  context: OperationExecutionContext,
+  jobId: string,
+): Promise<KnowledgeRepairReceipt> {
+  return executePreparedKnowledgeRepair(context, jobId, true);
+}
+
+/** Execute existing prepared work; explicit terminal retries share the same original invocation deadline. */
+async function executePreparedKnowledgeRepair(
+  context: OperationExecutionContext,
+  jobId: string,
+  allowTerminalRetry: boolean,
+): Promise<KnowledgeRepairReceipt> {
   context.assertActive();
   return worktreeScope.run(
     {
@@ -613,6 +643,11 @@ export async function applyPreparedKnowledgeRepair(
         throw new KnowledgeRepairError(
           'E_REPAIR_INPUT',
           'Recovery reference must match the supported rollback action.',
+        );
+      if (prepared.identity.actor !== context.identity.actor)
+        throw new KnowledgeRepairError(
+          'E_REPAIR_ACTOR',
+          'Explicit actor differs from the immutable repair proposal; retain the original actor or prepare a separately authorized proposal.',
         );
       if (
         JSON.stringify(prepared.identity) !==
@@ -673,7 +708,34 @@ export async function applyPreparedKnowledgeRepair(
           'E_REPAIR_STALE',
           'Published generation changed after preparation.',
         );
-      const lease = store.claim(jobId, Date.now(), undefined, context);
+      const recheckResources = () => {
+        if (
+          (prepared.action.operation !== 'knowledge.rollback' &&
+            (assessmentBytes(db) !== originalAssessment ||
+              stateHash(db) !== prepared.expectedStateHash)) ||
+          JSON.stringify(repairResources(db, prepared, root)) !==
+            JSON.stringify(prepared.resources) ||
+          (prepared.rollback !== undefined &&
+            JSON.stringify(rollbackSnapshot(db, prepared, root).reference) !==
+              JSON.stringify(prepared.rollback))
+        )
+          throw new KnowledgeRepairError(
+            'E_REPAIR_STALE',
+            'Prepared resource or generation changed before mutation.',
+          );
+      };
+      const lease =
+        allowTerminalRetry && (job.status === 'failed' || job.status === 'cancelled')
+          ? store.retryAtomically(jobId, Date.now(), context, (previousAttemptJson) => {
+              recheckResources();
+              const prior = z
+                .object({ id: z.string(), fencingEpoch: z.number().int().nonnegative() })
+                .parse(JSON.parse(previousAttemptJson));
+              const key = `knowledge_repair_retry:${prior.id}:${prior.fencingEpoch}`;
+              appendVerifiedMetadata(db, key, previousAttemptJson);
+              return JSON.stringify({ retainedAttemptKey: key, proposalHash: job.proposalHash });
+            })
+          : store.claim(jobId, Date.now(), undefined, context);
       const attemptStartedAt = Date.now();
       const startedAt = new Date(attemptStartedAt).toISOString();
       let execution: OperationExecutionContext | undefined;
@@ -689,16 +751,7 @@ export async function applyPreparedKnowledgeRepair(
         );
         const activeExecution = execution;
         const receiptJson = store.completeAtomically(activeExecution, () => {
-          if (
-            (prepared.action.operation !== 'knowledge.rollback' &&
-              assessmentBytes(db) !== originalAssessment) ||
-            JSON.stringify(repairResources(db, prepared, root)) !==
-              JSON.stringify(prepared.resources)
-          )
-            throw new KnowledgeRepairError(
-              'E_REPAIR_STALE',
-              'Prepared resource or generation changed before mutation.',
-            );
+          recheckResources();
           const receipt =
             prepared.action.operation === 'knowledge.rollback'
               ? applyRollbackBody(db, prepared, root, store.get(jobId)!.attempts, startedAt)
