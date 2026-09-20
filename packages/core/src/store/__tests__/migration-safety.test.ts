@@ -23,7 +23,7 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Session, Task } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('Migration Safety Integration Tests', () => {
   let tempDir: string;
@@ -39,7 +39,12 @@ describe('Migration Safety Integration Tests', () => {
     await mkdir(cleoDir, { recursive: true });
     await mkdir(logsDir, { recursive: true });
     await mkdir(safetyDir, { recursive: true });
-    process.env['CLEO_DIR'] = cleoDir;
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    vi.stubEnv('CLEO_DIR', cleoDir);
+    await writeFile(
+      join(cleoDir, 'project-info.json'),
+      JSON.stringify({ projectId: 'migration-fixture', projectHash: 'migration-fixture' }),
+    );
 
     // Reset SQLite singleton
     const { closeDb } = await import('../sqlite.js');
@@ -51,13 +56,12 @@ describe('Migration Safety Integration Tests', () => {
   });
 
   afterEach(async () => {
-    delete process.env['CLEO_DIR'];
-
     // Close DB and cleanup
     const { closeDb } = await import('../sqlite.js');
     closeDb();
 
     await rm(tempDir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
   });
 
   // === Test Data Fixtures ===

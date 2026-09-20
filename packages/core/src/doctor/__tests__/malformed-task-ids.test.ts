@@ -12,7 +12,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tempDir: string;
 
@@ -30,8 +30,13 @@ async function insertRawTaskRow(id: string, title: string): Promise<void> {
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'cleo-malformed-'));
   const cleoDir = join(tempDir, '.cleo');
-  process.env['CLEO_DIR'] = cleoDir;
+  vi.stubEnv('CLEO_ROOT', tempDir);
+  vi.stubEnv('CLEO_DIR', cleoDir);
   await mkdir(cleoDir, { recursive: true });
+  await writeFile(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify({ projectId: 'migration-fixture', projectHash: 'migration-fixture' }),
+  );
   await writeFile(
     join(cleoDir, 'config.json'),
     JSON.stringify({
@@ -48,8 +53,8 @@ afterEach(async () => {
   const { closeDb } = await import('../../store/sqlite.js');
   closeDb();
   await new Promise((r) => setTimeout(r, 50));
-  delete process.env['CLEO_DIR'];
   await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  vi.unstubAllEnvs();
 });
 
 describe('scanMalformedTaskIds', () => {
