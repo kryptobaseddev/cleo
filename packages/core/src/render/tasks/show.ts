@@ -119,7 +119,8 @@ function renderShowFull(task: Task): string {
     lines.push(`${BOX.ml}${hr}${BOX.mr}`);
     lines.push(`${BOX.v}  ${BOLD}Acceptance Criteria${NC}`);
     for (const criterion of task.acceptance) {
-      lines.push(`${BOX.v}    ☐ ${criterion}`);
+      const rendered = typeof criterion === 'string' ? criterion : JSON.stringify(criterion);
+      lines.push(`${BOX.v}    ☐ ${rendered}`);
     }
   }
 
