@@ -633,12 +633,10 @@ export interface OrchestrateWavesOptions {
 /**
  * orchestrate.waves - Compute dependency waves
  *
- * For regular epics the wave plan is `getEnrichedWaves(epicId)`. For sagas
- * (Epics labeled `'saga'`, ADR-073), per-member wave plans are computed and
- * merged by wave index: wave N across all members becomes one unified wave N.
- * Members of unequal depth contribute to the trailing waves (longest tail
- * wins). Task IDs are deduplicated; per-wave order preserves the per-member
- * sort.
+ * For regular epics the wave plan is `getEnrichedWaves(epicId)`. Sagas select
+ * their member epics' children and compute one dependency graph across them.
+ * Containment controls selection; explicit hard dependencies control ordering
+ * and current readiness, including dependencies outside the selected population.
  *
  * @param epicId - Epic to compute waves for.
  * @param projectRoot - Optional project root path.
@@ -686,12 +684,11 @@ export async function orchestrateWaves(
         };
       }
 
-      // Saga walk: compute per-member waves and merge by index.
+      // Saga containment selects tasks; one graph preserves cross-member dependencies.
       const memberIds = await resolveSagaMemberIds(accessor, epicId);
       const members = memberIds ?? [];
       const skippedNested: string[] = [];
-      const perMemberWaves: EnrichedWave[][] = [];
-      let totalChildren = 0;
+      const selectedMembers: string[] = [];
 
       for (const memberId of members) {
         const memberTask = await accessor.loadSingleTask(memberId);
@@ -700,64 +697,19 @@ export async function orchestrateWaves(
           skippedNested.push(memberId);
           continue;
         }
-        const memberResult = await getEnrichedWaves(memberId, root, accessor);
-        perMemberWaves.push(memberResult.waves);
-        totalChildren += memberResult.totalTasks;
+        selectedMembers.push(memberId);
       }
 
-      const maxWaves = perMemberWaves.reduce((m, w) => Math.max(m, w.length), 0);
-      const mergedWaves: EnrichedWave[] = [];
-
-      for (let i = 0; i < maxWaves; i++) {
-        const seen = new Set<string>();
-        const mergedTasks: EnrichedWave['tasks'] = [];
-        let anyInProgress = false;
-        let allCompleted = true;
-        let latestCompletedAt: string | undefined;
-
-        for (const memberWaves of perMemberWaves) {
-          const wave = memberWaves[i];
-          if (!wave) continue;
-          if (wave.status === 'in_progress') anyInProgress = true;
-          if (wave.status !== 'completed') allCompleted = false;
-          if (wave.completedAt && (!latestCompletedAt || wave.completedAt > latestCompletedAt)) {
-            latestCompletedAt = wave.completedAt;
-          }
-          for (const t of wave.tasks) {
-            if (seen.has(t.id)) continue;
-            seen.add(t.id);
-            mergedTasks.push(t);
-          }
-        }
-
-        const mergedStatus: EnrichedWave['status'] = allCompleted
-          ? 'completed'
-          : anyInProgress
-            ? 'in_progress'
-            : 'pending';
-
-        const merged: EnrichedWave = {
-          waveNumber: i + 1,
-          status: mergedStatus,
-          tasks: mergedTasks,
-          taskIds: mergedTasks.map((t) => t.id),
-        };
-        if (mergedStatus === 'completed' && latestCompletedAt) {
-          merged.completedAt = latestCompletedAt;
-        }
-        mergedWaves.push(merged);
-      }
-
-      // T12000: admission over the first actionable merged wave (Never-OOM).
-      const admission = await computeAgentAdmission(firstActionableWaveTaskIds(mergedWaves));
+      const result = await getEnrichedWaves(epicId, root, accessor, selectedMembers);
+      const admission = await computeAgentAdmission(firstActionableWaveTaskIds(result.waves));
 
       return {
         success: true,
         data: {
           epicId,
-          waves: mergedWaves,
-          totalWaves: mergedWaves.length,
-          totalTasks: totalChildren,
+          waves: result.waves,
+          totalWaves: result.totalWaves,
+          totalTasks: result.totalTasks,
           via: 'saga' as const,
           sagaMembers: members,
           admission,
@@ -781,7 +733,7 @@ export async function orchestrateWaves(
  */
 function firstActionableWaveTaskIds(waves: readonly EnrichedWave[]): string[] {
   const actionable = waves.find((w) => w.status !== 'completed');
-  return actionable ? [...actionable.taskIds] : [];
+  return actionable ? actionable.tasks.filter((task) => task.ready).map((task) => task.id) : [];
 }
 
 /**

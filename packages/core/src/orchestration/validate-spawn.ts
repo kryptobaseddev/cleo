@@ -16,6 +16,7 @@ import {
 import { AgentNotFoundError, resolveAgent } from '../store/agent-resolver.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { getReadinessDependencyBlockers } from '../tasks/dependency-check.js';
 import { MAX_WORKER_FILES } from './atomicity.js';
 import { CLASSIFY_CONFIDENCE_FLOOR, CLASSIFY_FALLBACK_AGENT_ID, classifyTask } from './classify.js';
 
@@ -160,7 +161,7 @@ export async function validateSpawnReadiness(
   if (task.depends) {
     const depTasks = await acc.loadTasks(task.depends);
     const depMap = new Map(depTasks.map((t) => [t.id, t]));
-    for (const dep of task.depends) {
+    for (const dep of getReadinessDependencyBlockers(task.depends, depMap)) {
       const depTask = depMap.get(dep);
       if (!depTask) {
         issues.push({
@@ -168,8 +169,7 @@ export async function validateSpawnReadiness(
           message: `Dependency ${dep} not found`,
           severity: 'error',
         });
-      } else if (depTask.status !== 'done' && depTask.status !== 'archived') {
-        // archived tasks satisfy dependencies (treated equivalent to done) — T1954
+      } else {
         issues.push({
           code: 'V_UNMET_DEP',
           message: `Dependency ${dep} (${depTask.title}) is not complete (status: ${depTask.status})`,

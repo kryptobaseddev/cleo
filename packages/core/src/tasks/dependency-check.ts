@@ -31,6 +31,35 @@ export interface DependencyWarning {
 }
 
 /**
+ * Return dependencies that prevent a task from being spawned.
+ *
+ * @remarks
+ * Readiness follows the spawn contract: only done and archived dependencies
+ * satisfy it. Missing tasks and cancelled work remain blockers. Completion
+ * waivers apply to completion validation, not to this readiness decision.
+ * The caller owns loading the dependency population and surfacing read failures.
+ *
+ * @param depends - The task's explicit hard dependency identifiers.
+ * @param taskLookup - Successfully loaded dependency records, keyed by identity.
+ * @returns Blocking identifiers in their original dependency order.
+ *
+ * @example
+ * ```ts
+ * const blockers = getReadinessDependencyBlockers(['T1'], new Map());
+ * // blockers is ['T1']: absence is not evidence of completed work.
+ * ```
+ */
+export function getReadinessDependencyBlockers(
+  depends: readonly string[] | undefined,
+  taskLookup: ReadonlyMap<string, Task>,
+): string[] {
+  return (depends ?? []).filter((id) => {
+    const status = taskLookup.get(id)?.status;
+    return status !== 'done' && status !== 'archived';
+  });
+}
+
+/**
  * Detect circular dependencies using DFS.
  * Returns the cycle path if found, empty array otherwise.
  */

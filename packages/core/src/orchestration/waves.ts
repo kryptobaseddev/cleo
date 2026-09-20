@@ -6,6 +6,7 @@
 import type { Task, TaskPriority, TaskRef } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { getReadinessDependencyBlockers } from '../tasks/dependency-check.js';
 
 /** Basic execution wave: task IDs grouped by dependency depth. */
 export interface Wave {
@@ -21,7 +22,7 @@ export interface Wave {
  * Enriched task reference within a wave.
  *
  * Carries all fields needed by the wave renderer so callers do not need a
- * secondary lookup.  `blockedBy` lists open (non-terminal) dependency IDs;
+ * secondary lookup.  `blockedBy` lists dependencies that do not satisfy spawn readiness;
  * `ready` is `true` when the task is immediately actionable.
  */
 export interface EnrichedWaveTask extends TaskRef {
@@ -34,9 +35,9 @@ export interface EnrichedWaveTask extends TaskRef {
    */
   depends: string[];
   /**
-   * Open (non-terminal) dependency IDs that are currently blocking this task.
+   * Dependency IDs that are currently blocking this task from spawning.
    *
-   * A dependency is open when its status is not `'done'` or `'cancelled'`.
+   * Only `'done'` and `'archived'` satisfy dependencies; missing records block.
    */
   blockedBy: string[];
   /**
@@ -106,11 +107,7 @@ function enrichTask(id: string, taskMap: Map<string, Task>): EnrichedWaveTask {
   const priority = (task?.priority ?? 'medium') as TaskPriority;
   const depends = task?.depends ?? [];
 
-  const blockedBy = depends.filter((depId) => {
-    const dep = taskMap.get(depId);
-    if (!dep) return false;
-    return dep.status !== 'done' && dep.status !== 'cancelled';
-  });
+  const blockedBy = getReadinessDependencyBlockers(depends, taskMap);
 
   const ready = blockedBy.length === 0 && (status === 'pending' || status === 'active');
 
@@ -142,66 +139,47 @@ function sortWaveTasks(tasks: EnrichedWaveTask[]): EnrichedWaveTask[] {
   });
 }
 
-/** Build a dependency graph for tasks. */
-function buildDependencyGraph(tasks: Task[]): Map<string, Set<string>> {
-  const graph = new Map<string, Set<string>>();
-  for (const task of tasks) {
-    if (!graph.has(task.id)) {
-      graph.set(task.id, new Set());
-    }
-    if (task.depends) {
-      for (const dep of task.depends) {
-        graph.get(task.id)!.add(dep);
-      }
-    }
-  }
-  return graph;
-}
-
 /**
  * Compute execution waves using topological sort.
  *
- * Tasks that are already done/cancelled are pre-seeded into the `completed` set
- * so their dependants can be scheduled in wave 1. Wave status is derived from
- * the live `task.status` field rather than the local `completed` set (which
- * excludes non-terminal tasks and would always yield `false` for in-flight work).
+ * @remarks
+ * Only done or archived dependencies satisfy readiness. Earlier planned waves
+ * establish ordering, not evidence that their tasks have already completed.
+ * Missing or unfinished dependencies outside the selected population remain
+ * unresolved and are retained in the final pending wave. Terminal tasks are
+ * excluded from scheduling; cancelled dependencies still block their dependants.
  *
- * @param tasks - All tasks to partition into dependency waves.
- * @returns Ordered waves where each wave's tasks can execute in parallel.
+ * @param tasks - Selected tasks to partition into dependency waves.
+ * @param dependencyLookup - Loaded dependency population, including external tasks.
+ * @returns Ordered planned waves, with unresolved work retained as pending.
+ *
+ * @example
+ * ```ts
+ * const waves = computeWaves(tasks, projectTaskMap);
+ * ```
  */
-export function computeWaves(tasks: Task[]): Wave[] {
-  const graph = buildDependencyGraph(tasks);
+export function computeWaves(
+  tasks: Task[],
+  dependencyLookup: ReadonlyMap<string, Task> = new Map(tasks.map((task) => [task.id, task])),
+): Wave[] {
   const waves: Wave[] = [];
-  const completed = new Set<string>();
-
-  for (const task of tasks) {
-    if (task.status === 'done' || task.status === 'cancelled') {
-      completed.add(task.id);
-    }
-  }
-
-  let remaining = tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
+  const planned = new Set<string>();
+  let remaining = tasks.filter((task) => !['done', 'cancelled', 'archived'].includes(task.status));
   let waveNumber = 1;
   const maxWaves = 50;
 
   while (remaining.length > 0 && waveNumber <= maxWaves) {
     const waveTasks = remaining.filter((t) => {
-      const deps = graph.get(t.id) || new Set();
-      return Array.from(deps).every((d) => completed.has(d));
+      return getReadinessDependencyBlockers(t.depends, dependencyLookup).every((id) =>
+        planned.has(id),
+      );
     });
 
     if (waveTasks.length === 0) break;
 
-    // Determine wave status from task.status directly.
-    // Note: `remaining` already excludes done/cancelled tasks, so checking
-    // `completed.has(t.id)` here would always be false — dead code prior to T1197.
-    const allDone = waveTasks.every((t) => t.status === 'done' || t.status === 'cancelled');
-    const anyActive = waveTasks.some((t) => t.status === 'active');
-    const waveStatus: Wave['status'] = allDone
-      ? 'completed'
-      : anyActive
-        ? 'in_progress'
-        : 'pending';
+    const waveStatus: Wave['status'] = waveTasks.some((task) => task.status === 'active')
+      ? 'in_progress'
+      : 'pending';
 
     waves.push({
       waveNumber,
@@ -210,7 +188,7 @@ export function computeWaves(tasks: Task[]): Wave[] {
     });
 
     for (const t of waveTasks) {
-      completed.add(t.id);
+      planned.add(t.id);
     }
 
     remaining = remaining.filter((t) => !waveTasks.some((wt) => wt.id === t.id));
@@ -229,9 +207,10 @@ export function computeWaves(tasks: Task[]): Wave[] {
 }
 
 /**
- * Get enriched wave data for an epic.
+ * Get enriched wave data for an epic or a selected set of saga members.
  *
- * Resolves the epic's direct children, computes topological waves, enriches
+ * @remarks
+ * Resolves the selected parents' direct children, computes one topological plan, enriches
  * each wave's task list with dependency metadata, sorts tasks within each wave
  * by priority descending then open-dep count ascending, and attaches a
  * `completedAt` timestamp to completed waves.
@@ -239,16 +218,34 @@ export function computeWaves(tasks: Task[]): Wave[] {
  * @param epicId   - The epic task ID to compute waves for.
  * @param cwd      - Optional project root (falls back to `getTaskAccessor` default).
  * @param accessor - Optional pre-constructed data accessor (useful in tests).
+ * @param parentIds - Containment parents to select; defaults to the requested epic.
+ * @returns Selected task counts and waves with current dependency readiness.
+ *
+ * @example
+ * ```ts
+ * const plan = await getEnrichedWaves(sagaId, root, accessor, memberEpicIds);
+ * ```
  */
 export async function getEnrichedWaves(
   epicId: string,
   cwd?: string,
   accessor?: DataAccessor,
+  parentIds: readonly string[] = [epicId],
 ): Promise<{ epicId: string; waves: EnrichedWave[]; totalWaves: number; totalTasks: number }> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  const children = await acc.getChildren(epicId);
-  const waves = computeWaves(children);
-  const taskMap = new Map(children.map((t) => [t.id, t]));
+  const selected = new Map<string, Task>();
+  for (const parentId of new Set(parentIds)) {
+    for (const task of await acc.getChildren(parentId)) selected.set(task.id, task);
+  }
+  const children = [...selected.values()];
+  const taskMap = new Map(selected);
+  const externalIds = [...new Set(children.flatMap((task) => task.depends ?? []))].filter(
+    (id) => !selected.has(id),
+  );
+  if (externalIds.length > 0) {
+    for (const task of await acc.loadTasks(externalIds)) taskMap.set(task.id, task);
+  }
+  const waves = computeWaves(children, taskMap);
 
   const enrichedWaves: EnrichedWave[] = waves.map((w) => {
     const enrichedTasks = sortWaveTasks(w.tasks.map((id) => enrichTask(id, taskMap)));
