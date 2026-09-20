@@ -394,12 +394,116 @@ export interface NexusRelationInsertRow {
   indexedAt: string;
 }
 
+/**
+ * Role supported by a file's recorded classification evidence.
+ * @remarks Unknown files retain potential executable gaps. Generated data is not
+ * generated executable code; executable files retain their code capabilities.
+ * @example
+ * ```ts
+ * const role: GraphFileRole = 'documentation';
+ * ```
+ */
+export type GraphFileRole =
+  | 'executable'
+  | 'sql'
+  | 'documentation'
+  | 'configuration'
+  | 'schema'
+  | 'generated-data'
+  | 'data'
+  | 'asset'
+  | 'unknown';
+
+/**
+ * One independently requested indexing capability, not a runtime completeness claim.
+ * @remarks Evidence capabilities retain available file content and its positively
+ * identified role. They do not validate scientific authority, execute configuration,
+ * or establish complete symbol/reference resolution. SQL capabilities are separate.
+ * @example
+ * ```ts
+ * const requested: GraphAnalysisCapability[] = ['file-evidence', 'call-references'];
+ * ```
+ */
+export type GraphAnalysisCapability =
+  | 'file-evidence'
+  | 'documentary-evidence'
+  | 'configuration-evidence'
+  | 'schema-evidence'
+  | 'data-evidence'
+  | 'resource-evidence'
+  | 'declarations'
+  | 'imports'
+  | 'call-references'
+  | 'access-references'
+  | 'type-heritage'
+  | 'sql-schema-objects'
+  | 'sql-migrations'
+  | 'sql-triggers'
+  | 'sql-constraints'
+  | 'sql-literal-references'
+  | 'sql-dynamic-references';
+
+/**
+ * Provenance for assigning a file role; recognition is not authority.
+ * @remarks Path-only recognition cannot prove an unknown file is non-executable.
+ * @example
+ * ```ts
+ * const classification: GraphFileClassification = {
+ *   basis: 'path-and-content', reason: 'PNG path and binary signature',
+ * };
+ * ```
+ */
+export interface GraphFileClassification {
+  /** Inputs that positively establish the recorded role, or unknown when unclassified. */
+  basis: 'path' | 'content' | 'path-and-content' | 'unknown';
+  /** Human-readable observation; never an inferred scientific or policy authority. */
+  reason: string;
+}
+
+/**
+ * Capability-specific observations for an existing per-file index report.
+ * @remarks Completed is a subset of requested and records performed extraction or
+ * available evidence, not the absence of unresolved references. Static limitations
+ * and uncompleted capabilities must survive compact reporting. Legacy reports may
+ * lack this object and cannot retrospectively be declared capability-complete.
+ * @example
+ * ```ts
+ * const capabilities: GraphFileCapabilityCoverage = {
+ *   role: 'documentation',
+ *   classification: { basis: 'path', reason: 'Documentary Markdown extension' },
+ *   requested: ['file-evidence', 'documentary-evidence'],
+ *   completed: ['file-evidence', 'documentary-evidence'],
+ *   limitations: [],
+ * };
+ * ```
+ */
+export interface GraphFileCapabilityCoverage {
+  /** Actual role supported by classification provenance. */
+  role: GraphFileRole;
+  /** Evidence explaining this role and its limits. */
+  classification: GraphFileClassification;
+  /** Capabilities required for this role in the assessed scope. */
+  requested: GraphAnalysisCapability[];
+  /** Requested capabilities whose processing actually completed. */
+  completed: GraphAnalysisCapability[];
+  /** Explicit limits, including unresolved dynamic/static analysis. */
+  limitations: string[];
+}
+
 /** Observed outcome for one file or explicitly excluded directory during indexing. */
 export interface GraphIndexFileReport {
   /** Path relative to the assessed source root. */
   path: string;
-  /** Extraction or exclusion outcome; unsupported and oversized imply partial coverage. */
+  /**
+   * Processing outcome relative to requested capabilities; not a universal caller verdict.
+   * Unsupported or oversized executable capabilities remain gaps.
+   */
   status: 'analyzed' | 'excluded' | 'unsupported' | 'oversized' | 'failed';
+  /**
+   * Role-specific capability evidence from current producers.
+   * @defaultValue undefined on legacy reports without capability provenance.
+   */
+  capabilities?: GraphFileCapabilityCoverage;
   /** Explanation for skipped or failed extraction. */
   reason?: string;
   /** Filesystem modification time captured before parsing. */
