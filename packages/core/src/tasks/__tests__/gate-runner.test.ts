@@ -11,20 +11,23 @@
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type {
   AcceptanceGate,
+  AcRow,
   CommandGate,
   FileGate,
   HttpGate,
   LintGate,
   ManualGate,
+  Task,
   TestGate,
 } from '@cleocode/contracts';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _forceSystemdRunAvailable } from '../../resources/spawn-wrapper.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
-import { runGates } from '../gate-runner.js';
+import { acItemToText, acTextHash, buildFreshAcRows } from '../ac-table.js';
+import { revalidateTaskGateResults, runGates, runTaskGates } from '../gate-runner.js';
 
 // ─── Setup ────────────────────────────────────────────────────────────────
 
@@ -739,5 +742,285 @@ describe('gate runner immutable lifetime and bounded evidence', () => {
     const [oversized] = await runGates([gate], { projectRoot, maxOutputBytes: 10 });
     expect(oversized?.result).toBe('error');
     expect(oversized?.errorMessage).toMatch(/byte limit/);
+  });
+});
+
+describe('task-bound explicit gate verification (T12292)', () => {
+  function admitted() {
+    return createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'bound-agent',
+        operation: 'check.gate.verify',
+        idempotencyKey: 'bound-attempt',
+      },
+      { budgetMs: 2000 },
+    );
+  }
+  function taskAndRows(script: string) {
+    const task: Task = {
+      id: 'T122',
+      title: 'Bound verification',
+      description: 'Actual task-specific process verification fixture',
+      status: 'active',
+      type: 'task',
+      priority: 'medium',
+      createdAt: '2026-09-20T00:00:00.000Z',
+      files: [script],
+      acceptance: [
+        'Literal | text',
+        {
+          kind: 'test',
+          command: process.execPath,
+          args: [script, '--task', 'T122'],
+          expect: 'exit0',
+          req: 'PARTNER-122',
+          description: 'Actual harness must run',
+          timeoutMs: 1800000,
+        },
+      ],
+    };
+    const rows: AcRow[] = buildFreshAcRows(task.id, task.acceptance).map((row) => ({
+      ...row,
+      kind: row.kind ?? 'text',
+      sourceKey: row.sourceKey ?? '',
+      projection: row.projection ?? 'legacy',
+      targetTaskId: row.targetTaskId ?? null,
+      contentHash: row.contentHash ?? null,
+      createdAt: task.createdAt,
+      updatedAt: null,
+    }));
+    return { task, rows };
+  }
+  beforeEach(() => _forceSystemdRunAvailable(false));
+  afterEach(() => _forceSystemdRunAvailable(undefined));
+
+  it('binds actual untracked harness bytes, original mixed index and captured lifetime', async () => {
+    const script = 'bound-pass.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    try {
+      const results = await runTaskGates(task, rows, { execution });
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        index: 1,
+        req: 'PARTNER-122',
+        result: 'pass',
+        checkedBy: 'bound-agent',
+        binding: {
+          taskId: task.id,
+          criterionId: rows[1]!.id,
+          deadlineAt: execution.deadlineAt,
+          identity: execution.identity,
+          artifacts: [{ path: join(projectRoot, script), bytes: 16 }],
+        },
+      });
+      expect(results[0]!.binding!.invocation!.args).toEqual([script, '--task', 'T122']);
+      expect(results[0]!.binding!.artifacts[0]!.sha256).toMatch(/^[a-f0-9]{64}$/);
+      await expect(
+        revalidateTaskGateResults(task, rows, results, { execution }),
+      ).resolves.toBeUndefined();
+      await writeFile(join(projectRoot, script), 'process.exit(1);');
+      await expect(revalidateTaskGateResults(task, rows, results, { execution })).rejects.toThrow(
+        'input bytes changed',
+      );
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('records a missing real harness as unmet with explicit absent input', async () => {
+    const { task, rows } = taskAndRows('missing-bound-harness.mjs');
+    const execution = admitted();
+    try {
+      const results = await runTaskGates(task, rows, { execution });
+      expect(results[0]).toMatchObject({
+        result: 'fail',
+        binding: { artifacts: [{ sha256: null, bytes: null }] },
+      });
+      await expect(revalidateTaskGateResults(task, rows, results, { execution })).rejects.toThrow(
+        'lacks a passing',
+      );
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('does not launch with incoherent JSON/AC rows, missing context or mismatched project', async () => {
+    const { task, rows } = taskAndRows('must-not-run.mjs');
+    const execution = admitted();
+    try {
+      await expect(runTaskGates(task, [], { execution })).rejects.toThrow(
+        'inconsistent acceptance',
+      );
+      await expect(runTaskGates(task, rows, {})).rejects.toThrow('explicitly admitted');
+      await expect(
+        runTaskGates(task, rows, { execution, projectRoot: dirname(projectRoot) }),
+      ).rejects.toThrow();
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('rejects changed gate payload, current environment, owner and duplicate or unbound proof', async () => {
+    const script = 'bound-freshness.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    try {
+      const options = { execution, env: { PATH: process.env.PATH, PROOF_ENV: 'original' } };
+      const results = await runTaskGates(task, rows, options);
+      await expect(
+        revalidateTaskGateResults(task, rows, results, {
+          ...options,
+          env: { ...options.env, PROOF_ENV: 'changed' },
+        }),
+      ).rejects.toThrow('environment changed');
+      await expect(
+        revalidateTaskGateResults(task, rows, [...results, ...results], options),
+      ).rejects.toThrow('unique verified');
+      await expect(
+        revalidateTaskGateResults(
+          task,
+          rows,
+          results.map((r) => ({ ...r, binding: undefined })),
+          options,
+        ),
+      ).rejects.toThrow('passing bound');
+      await expect(
+        revalidateTaskGateResults({ ...task, id: 'T999' }, rows, results, options),
+      ).rejects.toThrow('inconsistent acceptance');
+      const edited = structuredClone(task);
+      const gate = edited.acceptance![1]!;
+      if (typeof gate === 'string') throw new Error('Expected typed criterion');
+      gate.description = 'changed gate description';
+      const revisedRows = rows.map((row, index) =>
+        index === 1
+          ? {
+              ...row,
+              text: acItemToText(gate),
+              contentHash: acTextHash(acItemToText(gate)),
+            }
+          : row,
+      );
+      await expect(
+        revalidateTaskGateResults(edited, revisedRows, results, options),
+      ).rejects.toThrow('stale or belongs');
+      await expect(revalidateTaskGateResults(edited, rows, results, options)).rejects.toThrow(
+        'inconsistent acceptance',
+      );
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('refuses a harness that changes its input bytes during execution', async () => {
+    const script = 'bound-self-edit.mjs';
+    await writeFile(
+      join(projectRoot, script),
+      "import {writeFileSync} from 'node:fs'; writeFileSync(new URL(import.meta.url), 'process.exit(0);');",
+    );
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    try {
+      const results = await runTaskGates(task, rows, { execution });
+      expect(results[0]).toMatchObject({
+        result: 'error',
+        errorMessage: 'Verification inputs changed during execution',
+      });
+    } finally {
+      execution.close();
+    }
+  });
+  it('rejects authentic runner output with no task binding instead of treating exit0 as completion proof', async () => {
+    const script = 'bound-original-runner.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    const gate = task.acceptance![1]!;
+    if (typeof gate === 'string') throw new Error('Expected gate');
+    try {
+      const raw = await runGates([gate], { execution });
+      expect(raw[0]!.result).toBe('pass');
+      expect(raw[0]!.binding).toBeUndefined();
+      await expect(
+        revalidateTaskGateResults(
+          task,
+          rows,
+          raw.map((r) => ({ ...r, index: 1 })),
+          { execution },
+        ),
+      ).rejects.toThrow('passing bound');
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('refuses path escape, oversized inputs and expired admission before executing the harness', async () => {
+    const script = 'bound-budget.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    try {
+      await expect(
+        runTaskGates({ ...task, files: ['../outside'] }, rows, { execution }),
+      ).rejects.toThrow('escapes');
+    } finally {
+      execution.close();
+    }
+    const expired = createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'bound-agent',
+        operation: 'check.gate.verify',
+        idempotencyKey: 'expired',
+      },
+      { budgetMs: 0 },
+    );
+    try {
+      await expect(runTaskGates(task, rows, { execution: expired })).rejects.toThrow();
+    } finally {
+      expired.close();
+    }
+    const bounded = createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'bound-agent',
+        operation: 'check.gate.verify',
+        idempotencyKey: 'byte-bound',
+      },
+      { resources: { maxBytes: 4 } },
+    );
+    try {
+      await expect(runTaskGates(task, rows, { execution: bounded })).rejects.toThrow('byte limit');
+    } finally {
+      bounded.close();
+    }
+  });
+  it('refuses an escaping executable cwd even with no declared file inputs', async () => {
+    const { task, rows } = taskAndRows('cwd-gate.mjs');
+    const execution = admitted();
+    const gate = task.acceptance![1]!;
+    if (typeof gate === 'string' || gate.kind !== 'test') throw new Error('Expected test gate');
+    gate.cwd = '..';
+    gate.command = 'echo';
+    gate.args = ['must-not-run'];
+    task.files = [];
+    const revisedRows = rows.map((row, index) =>
+      index === 1
+        ? { ...row, text: acItemToText(gate), contentHash: acTextHash(acItemToText(gate)) }
+        : row,
+    );
+    try {
+      await expect(runTaskGates(task, revisedRows, { execution })).rejects.toThrow(
+        'working directory escapes',
+      );
+    } finally {
+      execution.close();
+    }
   });
 });

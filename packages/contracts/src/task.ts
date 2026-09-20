@@ -21,7 +21,7 @@
  * @task T4456
  */
 
-import type { AcceptanceGate } from './acceptance-gate.js';
+import type { AcceptanceGate, AcceptanceGateResult } from './acceptance-gate.js';
 import type { AcRow } from './data-accessor.js';
 import type { TaskStatus } from './status-registry.js';
 
@@ -404,6 +404,8 @@ export interface GateEvidence {
 
 /** Task verification state. */
 export interface TaskVerification {
+  /** Explicitly verified acceptance results; only current authenticated bindings support completion. */
+  gateResults?: AcceptanceGateResult[];
   /** Whether all required verification gates have passed. */
   passed: boolean;
   /** Current verification round number (starts at 1). */
