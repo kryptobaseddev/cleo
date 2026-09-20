@@ -112,7 +112,8 @@ async function safely(
  * The producer barrier reports its observed pending count and leaves individual
  * producer outcomes unassessed; settling is not proof that their work succeeded.
  *
- * @returns One {@link StepOutcome} per step, in run order. A step with
+ * @returns One stage receipt using the outcome contract of {@link withDeadline},
+ *          in run order. A step with
  *          `settled: false` did not finish, or was not started because the
  *          shared budget or producer barrier prevented safe closure. The caller
  *          must surface incomplete teardown; it is not successful resource closure.
