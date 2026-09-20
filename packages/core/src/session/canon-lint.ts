@@ -152,7 +152,8 @@ function normaliseDir(dir: string): string {
  * @remarks
  * Longer directory prefixes win. At equal specificity an explicitly permitted
  * publication mirror owns its directory over another kind's legacy raw path.
- * Conflicting raw-path rules fail closed. This classifies routes, not provenance.
+ * Conflicting raw-path rules fail closed. A root-level publication location
+ * cannot grant ownership of every file. This classifies routes, not provenance.
  *
  * @example
  * ```typescript
@@ -174,10 +175,11 @@ export function resolveCanonDocPathPolicy(
       rawMdAllowed: entry.rawMdAllowed,
       source: 'raw-path',
     }));
-    if (entry.rawMdAllowed) {
+    const mirror = normaliseDir(entry.publishMirror);
+    if (entry.rawMdAllowed && mirror.length > 0) {
       candidates.push({
         docKind,
-        matchedPath: normaliseDir(entry.publishMirror),
+        matchedPath: mirror,
         rawMdAllowed: true,
         source: 'published-mirror',
       });
