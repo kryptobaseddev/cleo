@@ -25,6 +25,7 @@ import {
 import fsAsync from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { GraphIndexFileReport } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import { compactKnowledgeCoverage } from '../../doctor/knowledge-summary.js';
@@ -223,6 +224,31 @@ describe('living-brain SDK', () => {
   });
 
   describe('trustworthy knowledge coverage', () => {
+    const completeCodeCapabilities = (): NonNullable<GraphIndexFileReport['capabilities']> => ({
+      role: 'executable',
+      classification: {
+        basis: 'path-and-content',
+        reason: 'Fixture TypeScript source was extracted',
+      },
+      requested: [
+        'file-evidence',
+        'declarations',
+        'imports',
+        'call-references',
+        'access-references',
+        'type-heritage',
+      ],
+      completed: [
+        'file-evidence',
+        'declarations',
+        'imports',
+        'call-references',
+        'access-references',
+        'type-heritage',
+      ],
+      limitations: ['Static extraction does not prove all runtime calls.'],
+    });
+
     async function seedCompleteInventory(count = 503) {
       writeFileSync(
         join(projectRoot, '.cleo/project-info.json'),
@@ -244,6 +270,7 @@ describe('living-brain SDK', () => {
         return {
           path,
           status: 'analyzed' as const,
+          capabilities: completeCodeCapabilities(),
           size: stat.size,
           mtimeMs: stat.mtimeMs,
           contentHash: createHash('sha256').update(content).digest('hex'),
@@ -292,6 +319,270 @@ describe('living-brain SDK', () => {
         .run();
       return { sourceRoot, files, content, native, assessment };
     }
+
+    async function replaceReports(files: GraphIndexFileReport[]): Promise<void> {
+      const assessment = await readKnowledgeIndexAssessment(projectRoot);
+      if (!assessment) throw new Error('Missing published assessment fixture');
+      assessment.files = files;
+      const native = getNexusNativeDb(projectRoot);
+      if (!native) throw new Error('Missing canonical fixture database');
+      native
+        .prepare("UPDATE main._nexus_meta SET value=? WHERE key='graph_assessment'")
+        .run(JSON.stringify(assessment));
+    }
+
+    it('round-trips capability provenance without dropping or rewriting its evidence', async () => {
+      const fixture = await seedCompleteInventory(1);
+      const capabilities = completeCodeCapabilities();
+      capabilities.classification.reason = '  Exact original classification observation  ';
+      await replaceReports([{ ...fixture.files[0]!, capabilities }]);
+      const published = await readKnowledgeIndexAssessment(projectRoot);
+      expect(published?.files[0]?.capabilities).toEqual(capabilities);
+    });
+
+    it('keeps positively classified documents, data and assets complete without invented caller gaps', async () => {
+      const fixture = await seedCompleteInventory(6);
+      const examples = [
+        {
+          path: 'guide.md',
+          body: Buffer.from('# Guide\n'),
+          role: 'documentation',
+          evidence: 'documentary-evidence',
+        },
+        {
+          path: 'package.json',
+          body: Buffer.from('{"name":"fixture","scripts":{}}'),
+          role: 'configuration',
+          evidence: 'configuration-evidence',
+        },
+        {
+          path: 'schema.json',
+          body: Buffer.from(
+            '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}',
+          ),
+          role: 'schema',
+          evidence: 'schema-evidence',
+        },
+        {
+          path: 'generated.json',
+          body: Buffer.from('{"generated":true,"rows":[]}'),
+          role: 'generated-data',
+          evidence: 'data-evidence',
+        },
+        {
+          path: 'values.json',
+          body: Buffer.from('[1,2,3]'),
+          role: 'data',
+          evidence: 'data-evidence',
+        },
+        {
+          path: 'logo.png',
+          body: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+          role: 'asset',
+          evidence: 'resource-evidence',
+        },
+      ] as const;
+      for (const file of fixture.files) rmSync(join(fixture.sourceRoot, file.path));
+      const files: GraphIndexFileReport[] = examples.map((example) => {
+        const absolute = join(fixture.sourceRoot, example.path);
+        writeFileSync(absolute, example.body);
+        const stat = statSync(absolute);
+        return {
+          path: example.path,
+          status: 'unsupported',
+          reason: 'Executable parser not applicable to this recorded role',
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+          contentHash: createHash('sha256').update(example.body).digest('hex'),
+          capabilities: {
+            role: example.role,
+            classification: {
+              basis: 'path-and-content',
+              reason: `Fixture ${example.path} has independently supplied ${example.role} content`,
+            },
+            requested: ['file-evidence', example.evidence],
+            completed: ['file-evidence', example.evidence],
+            limitations: [],
+          },
+        };
+      });
+      execFileSync('git', ['add', '-A'], { cwd: fixture.sourceRoot });
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.name=Fixture',
+          '-c',
+          'user.email=fixture@example.invalid',
+          'commit',
+          '--quiet',
+          '--no-gpg-sign',
+          '--no-verify',
+          '-m',
+          'role fixture',
+        ],
+        { cwd: fixture.sourceRoot },
+      );
+      const assessment = await readKnowledgeIndexAssessment(projectRoot);
+      if (!assessment) throw new Error('Missing role assessment');
+      assessment.sourceRoots = await resolveSourceRoots({
+        projectId: 'fixture-parent-id',
+        projectRoot,
+        sourceRoot: fixture.sourceRoot,
+      });
+      assessment.assessedRevision = assessment.sourceRoots.roots[0]?.revision ?? null;
+      assessment.files = files;
+      fixture.native
+        .prepare("UPDATE main._nexus_meta SET value=? WHERE key='graph_assessment'")
+        .run(JSON.stringify(assessment));
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage.status).toBe('current');
+      expect(coverage.capabilities).toMatchObject({
+        requestedFiles: 6,
+        assessedFiles: 6,
+        unassessedFiles: 0,
+        legacyFiles: 0,
+        incompleteFiles: 0,
+        extractionFailedFiles: 0,
+        byRole: {
+          documentation: 1,
+          configuration: 1,
+          schema: 1,
+          'generated-data': 1,
+          data: 1,
+          asset: 1,
+        },
+        byCapability: {
+          'file-evidence': { requestedFiles: 6, completedFiles: 6, incompleteFiles: 0 },
+        },
+      });
+      expect(coverage.capabilities?.byCapability['call-references']).toBeUndefined();
+      expect(
+        coverage.limitations.some((reason) => reason.includes('Executable parser not applicable')),
+      ).toBe(true);
+      const compact = compactKnowledgeCoverage(coverage);
+      expect(compact.capabilities).toEqual(coverage.capabilities);
+      expect(compact.limitations[0]).toContain('cannot prove');
+      // Even a positively classified resource must disclose an actual failed read/extraction.
+      files[5] = { ...files[5]!, status: 'failed', reason: 'Independent resource read failure' };
+      await replaceReports(files);
+      const failed = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(failed.status).toBe('failed');
+      expect(failed.capabilities).toMatchObject({ extractionFailedFiles: 1, incompleteFiles: 1 });
+      expect(
+        failed.reasons.some((reason) => reason.includes('Independent resource read failure')),
+      ).toBe(true);
+      expect(compactKnowledgeCoverage(failed).capabilities?.extractionFailedFiles).toBe(1);
+    });
+
+    it('retains imports-only executable gaps and exact requested/completed capability counts', async () => {
+      const fixture = await seedCompleteInventory(1);
+      const capabilities = completeCodeCapabilities();
+      capabilities.completed = ['file-evidence', 'imports'];
+      await replaceReports([{ ...fixture.files[0]!, capabilities }]);
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage.status).toBe('partial');
+      expect(coverage.capabilities).toMatchObject({
+        incompleteFiles: 1,
+        byCapability: {
+          imports: { requestedFiles: 1, completedFiles: 1, incompleteFiles: 0 },
+          declarations: { requestedFiles: 1, completedFiles: 0, incompleteFiles: 1 },
+          'call-references': { requestedFiles: 1, completedFiles: 0, incompleteFiles: 1 },
+        },
+      });
+      capabilities.requested = ['file-evidence', 'imports'];
+      await replaceReports([{ ...fixture.files[0]!, capabilities }]);
+      const omitted = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(omitted.status).toBe('partial');
+      expect(omitted.capabilities?.byCapability['call-references']).toBeUndefined();
+      expect(
+        omitted.reasons.some((reason) =>
+          reason.includes(
+            'unrequested=declarations,call-references,access-references,type-heritage',
+          ),
+        ),
+      ).toBe(true);
+    });
+
+    it('keeps SQL and unknown executable capabilities explicitly incomplete', async () => {
+      const fixture = await seedCompleteInventory(2);
+      const sqlCapabilities: NonNullable<GraphIndexFileReport['capabilities']> = {
+        role: 'sql',
+        classification: { basis: 'path', reason: 'SQL fixture role' },
+        requested: [
+          'file-evidence',
+          'sql-schema-objects',
+          'sql-migrations',
+          'sql-triggers',
+          'sql-constraints',
+          'sql-literal-references',
+          'sql-dynamic-references',
+        ],
+        completed: ['file-evidence'],
+        limitations: ['SQL extraction has not been implemented.'],
+      };
+      await replaceReports([
+        { ...fixture.files[0]!, capabilities: sqlCapabilities, status: 'unsupported' },
+        {
+          ...fixture.files[1]!,
+          capabilities: {
+            ...completeCodeCapabilities(),
+            role: 'unknown',
+            classification: { basis: 'unknown', reason: 'Unrecognized executable possibility' },
+            completed: ['file-evidence'],
+          },
+          status: 'unsupported',
+        },
+      ]);
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage.status).toBe('partial');
+      expect(coverage.capabilities).toMatchObject({
+        incompleteFiles: 2,
+        byRole: { sql: 1, unknown: 1 },
+        byCapability: {
+          'sql-triggers': { requestedFiles: 1, completedFiles: 0, incompleteFiles: 1 },
+        },
+      });
+      expect(coverage.limitations).toContain('SQL extraction has not been implemented.');
+    });
+
+    it('keeps untyped historical reports conservative instead of inferring complete extraction', async () => {
+      const fixture = await seedCompleteInventory(1);
+      const { capabilities: _capabilities, ...legacy } = fixture.files[0]!;
+      await replaceReports([legacy]);
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage.status).toBe('partial');
+      expect(coverage.capabilities).toMatchObject({
+        legacyFiles: 1,
+        incompleteFiles: 1,
+        byRole: {},
+        byCapability: {},
+      });
+    });
+
+    it.each([
+      { requested: ['imports'], completed: ['declarations'] },
+      { requested: ['imports', 'imports'], completed: [] },
+      { requested: ['invented-capability'], completed: [] },
+      { classification: { basis: 'unknown', reason: 'Unproven asset' }, role: 'asset' },
+      { classification: { basis: 'path', reason: '   ' } },
+    ])('rejects malformed capability metadata rather than dropping it: %j', async (invalid) => {
+      const fixture = await seedCompleteInventory(1);
+      const assessment = await readKnowledgeIndexAssessment(projectRoot);
+      if (!assessment) throw new Error('Missing invalid metadata fixture');
+      fixture.native
+        .prepare("UPDATE main._nexus_meta SET value=? WHERE key='graph_assessment'")
+        .run(
+          JSON.stringify({
+            ...assessment,
+            files: [
+              { ...fixture.files[0], capabilities: { ...completeCodeCapabilities(), ...invalid } },
+            ],
+          }),
+        );
+      await expect(readKnowledgeIndexAssessment(projectRoot)).rejects.toThrow();
+      expect((await assessKnowledgeCoverage(projectRoot, undefined, 10000)).status).toBe('failed');
+    });
 
     it('assesses the complete persisted inventory beyond 500 without imposing a size-based gap', async () => {
       const fixture = await seedCompleteInventory();
@@ -510,6 +801,15 @@ describe('living-brain SDK', () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
         expect(JSON.stringify(coverage)).toBe(snapshot);
         expect(compact.inventory).toEqual(coverage.inventory);
+        expect(compact.capabilities).toEqual(coverage.capabilities);
+        expect(coverage.capabilities).toMatchObject({
+          requestedFiles: 503,
+          assessedFiles: 503,
+          unassessedFiles: 0,
+          byCapability: {
+            'call-references': { requestedFiles: 503, completedFiles: 503, incompleteFiles: 0 },
+          },
+        });
         expect(reader).toHaveBeenCalledTimes(1);
       } finally {
         finishRead(Buffer.from(fixture.content));
@@ -523,6 +823,12 @@ describe('living-brain SDK', () => {
         status: 'partial',
         maintenanceState: 'pending',
         inventory: { requested: null, completed: 0, unassessed: null, failed: 0 },
+        capabilities: {
+          requestedFiles: null,
+          assessedFiles: 0,
+          unassessedFiles: null,
+          byCapability: {},
+        },
       });
     });
 
@@ -580,6 +886,7 @@ describe('living-brain SDK', () => {
               {
                 path: 'current.ts',
                 status: 'analyzed',
+                capabilities: completeCodeCapabilities(),
                 size: stat.size,
                 mtimeMs: stat.mtimeMs,
                 contentHash: createHash('sha256').update(source).digest('hex'),
