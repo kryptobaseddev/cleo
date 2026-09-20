@@ -27,6 +27,7 @@ import {
   parseBlocks,
   reconcile,
   removeInjection,
+  repairContent,
 } from '../../src/index.js';
 
 const REF = '@~/.cleo/templates/CLEO-INJECTION.md';
@@ -273,12 +274,12 @@ describe('reconcile — pure, so the rules are directly assertable', () => {
     expect(parseBlocks(result.content)).toHaveLength(1);
   });
 
-  it('always ends with exactly one trailing newline', () => {
-    for (const input of ['', `${START}\n${REF}\n${END}`, `${START}\n${REF}\n${END}\n\n\n\n`]) {
-      const { content } = reconcile(input, REF);
-      expect(content.endsWith('\n')).toBe(true);
-      expect(content.endsWith('\n\n')).toBe(false);
+  it('retains the exact user-owned trailing bytes instead of normalizing them', () => {
+    for (const suffix of ['', '\n', '\r\n\r\n\r\n', ' \t  ']) {
+      const input = `${START}\n${REF}\n${END}${suffix}`;
+      expect(reconcile(input, REF).content).toBe(input);
     }
+    expect(reconcile('', REF).content).toBe(`${START}\n${REF}\n${END}\n`);
   });
 });
 
@@ -342,5 +343,76 @@ describe('hardening found by adversarial review of the T12051 fix itself', () =>
 
     await withFileLock(target, async () => undefined);
     expect(ex(`${target}.lock`)).toBe(false);
+  });
+});
+
+describe('T12269 byte-preserving managed boundary', () => {
+  const prefix = '\uFEFF  # 用户 notes  \r\n\r\n\r\n\t';
+  const between = '\r\n\r\n\r\nUser island λ  \r\n\t';
+  const suffix = '  \r\n\r\n# Keep footer  \r\n \t';
+  const first = `${START}\r\n@first\r\n${END}`;
+  const second = `${START}\r\n@second\r\n${END}`;
+
+  it('preserves independently specified prefix, interblock and suffix byte buffers', () => {
+    const original = prefix + first + between + second + suffix;
+    const result = reconcile(original, '@replacement');
+    expect(Buffer.from(result.content)).toEqual(
+      Buffer.from(prefix + `${START}\n@replacement\n${END}` + between + suffix),
+    );
+    expect(result.blocksBefore).toBe(2);
+    expect(reconcile(result.content, '@replacement').content).toBe(result.content);
+  });
+
+  it.each([
+    'prepend',
+    'append',
+  ] as const)('insertion %s preserves original BOM and whitespace', (insert) => {
+    for (const original of ['  user text \r\n \t', '\r\n \t', '\uFEFF  User λ\r\n\r\n']) {
+      const result = reconcile(original, '@new', insert);
+      const block = parseBlocks(result.content)[0]!;
+      const outside =
+        result.content.slice(0, block.startIndex) + result.content.slice(block.endIndex);
+      expect(
+        Buffer.from(outside).includes(
+          Buffer.from(original.slice(original.startsWith('\uFEFF') ? 1 : 0)),
+        ),
+      ).toBe(true);
+      if (original.startsWith('\uFEFF')) expect(result.content.startsWith('\uFEFF')).toBe(true);
+      expect(reconcile(result.content, '@new', insert).content).toBe(result.content);
+    }
+  });
+
+  it('heals damaged delimiters without consuming BOM, indentation, CRLF or trailing spaces', () => {
+    const original = '\uFEFF\t!-- CAAMP:START --> \r\n@first\r\n  <!-- CAAMP:END --  \r\n';
+    const expected = `\uFEFF\t${START} \r\n@first\r\n  ${END}  \r\n`;
+    const result = normalizeMarkers(original);
+    expect(Buffer.from(result.content)).toEqual(Buffer.from(expected));
+    expect(result.repaired).toBe(2);
+    expect(normalizeMarkers(expected)).toEqual({ content: expected, repaired: 0 });
+  });
+
+  it('repair merges managed references while preserving every outside byte', () => {
+    const result = repairContent(prefix + first + between + second + suffix);
+    expect(Buffer.from(result.content)).toEqual(
+      Buffer.from(prefix + `${START}\n@first\n@second\n${END}` + between + suffix),
+    );
+    expect(repairContent(result.content).content).toBe(result.content);
+  });
+
+  it.each([
+    `${START}\nuser content without an end`,
+    `user content\n${END}`,
+    `${START}\nkeep ambiguous\n${START}\n@nested\n${END}\n${END}`,
+  ])('refuses ambiguous marker ownership without a write: %s', async (ambiguous) => {
+    await writeFile(file, prefix + ambiguous + suffix);
+    const before = await readFile(file);
+    expect(() => reconcile(prefix + ambiguous + suffix, '@new')).toThrow(
+      /ambiguous.*CAAMP|CAAMP.*ambiguous/i,
+    );
+    expect(() => repairContent(prefix + ambiguous + suffix)).toThrow(
+      /ambiguous.*CAAMP|CAAMP.*ambiguous/i,
+    );
+    await expect(inject(file, '@new')).rejects.toThrow(/ambiguous.*CAAMP|CAAMP.*ambiguous/i);
+    expect(await readFile(file)).toEqual(before);
   });
 });
