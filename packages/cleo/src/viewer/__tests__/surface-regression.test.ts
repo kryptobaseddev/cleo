@@ -18,6 +18,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closeAllDatabases, createAttachmentStore, getDb } from '@cleocode/core/internal';
+import { awaitBackgroundOps, pendingBackgroundOpCount } from '@cleocode/core/store/background-ops';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('llmtxt/similarity', () => ({
@@ -104,6 +105,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Resolve owned registration before closing handles or changing fixture ownership.
+  await awaitBackgroundOps();
+  expect(pendingBackgroundOpCount()).toBe(0);
   await closeAllDatabases();
   process.chdir(prevCwd);
   if (prevCleoHome === undefined) delete process.env.CLEO_HOME;
