@@ -19,6 +19,7 @@
 import type { Session, Task } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
 import { getLogger } from '../logger.js';
+import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { checkSequence, repairSequence } from '../sequence/index.js';
 import type { ArchiveFile, DataAccessor } from './data-accessor.js';
 import { gitCheckpoint } from './git-checkpoint.js';
@@ -27,6 +28,15 @@ import { vacuumIntoBackup } from './sqlite-backup.js';
 import * as schema from './tasks-schema.js';
 
 const log = getLogger('data-safety');
+
+/** Bind explicit ownership before the first asynchronous safety or callback step. */
+function inSafetyScope<T>(
+  cwd: string | undefined,
+  operation: (root: string) => Promise<T>,
+): Promise<T> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, () => operation(scope.worktreeRoot));
+}
 
 /** Safety violation error */
 export class DataSafetyError extends Error {
@@ -193,13 +203,15 @@ export async function safeSaveSessions(
   cwd?: string,
   options?: Partial<SafetyOptions>,
 ): Promise<void> {
-  const opts = { ...DEFAULT_SAFETY, ...options };
+  return inSafetyScope(cwd, async (cwd) => {
+    const opts = { ...DEFAULT_SAFETY, ...options };
 
-  await accessor.saveSessions(data);
-  stats.writes++;
+    await accessor.saveSessions(data);
+    stats.writes++;
 
-  await verifySessions(data, accessor, opts);
-  await checkpoint(`saved Sessions (${data.length} sessions)`, cwd, opts);
+    await verifySessions(data, accessor, opts);
+    await checkpoint(`saved Sessions (${data.length} sessions)`, cwd, opts);
+  });
 }
 
 /**
@@ -211,13 +223,15 @@ export async function safeSaveArchive(
   cwd?: string,
   options?: Partial<SafetyOptions>,
 ): Promise<void> {
-  const opts = { ...DEFAULT_SAFETY, ...options };
+  return inSafetyScope(cwd, async (cwd) => {
+    const opts = { ...DEFAULT_SAFETY, ...options };
 
-  await accessor.saveArchive(data);
-  stats.writes++;
+    await accessor.saveArchive(data);
+    stats.writes++;
 
-  await verifyArchiveFile(data, accessor, opts);
-  await checkpoint(`saved Archive (${data.archivedTasks.length} tasks)`, cwd, opts);
+    await verifyArchiveFile(data, accessor, opts);
+    await checkpoint(`saved Archive (${data.archivedTasks.length} tasks)`, cwd, opts);
+  });
 }
 
 /**
@@ -238,17 +252,19 @@ export async function safeSingleTaskWrite(
   cwd?: string,
   options?: Partial<SafetyOptions>,
 ): Promise<void> {
-  const opts = { ...DEFAULT_SAFETY, ...options };
+  return inSafetyScope(cwd, async (cwd) => {
+    const opts = { ...DEFAULT_SAFETY, ...options };
 
-  // 1. Validate sequence
-  await ensureSequenceValid(cwd, opts);
+    // 1. Validate sequence
+    await ensureSequenceValid(cwd, opts);
 
-  // 2. Perform targeted write
-  await writeFn();
-  stats.writes++;
+    // 2. Perform targeted write
+    await writeFn();
+    stats.writes++;
 
-  // 3. Checkpoint (lightweight — no full-file verify)
-  await checkpoint(`single-task ${taskId}`, cwd, opts);
+    // 3. Checkpoint (lightweight — no full-file verify)
+    await checkpoint(`single-task ${taskId}`, cwd, opts);
+  });
 }
 
 /**
@@ -263,12 +279,14 @@ export async function safeAppendLog(
   cwd?: string,
   options?: Partial<SafetyOptions>,
 ): Promise<void> {
-  const opts = { ...DEFAULT_SAFETY, ...options, verify: false }; // Logs don't need verification
+  return inSafetyScope(cwd, async (cwd) => {
+    const opts = { ...DEFAULT_SAFETY, ...options, verify: false }; // Logs don't need verification
 
-  await accessor.appendLog(entry);
-  stats.writes++;
+    await accessor.appendLog(entry);
+    stats.writes++;
 
-  await checkpoint('log entry', cwd, opts);
+    await checkpoint('log entry', cwd, opts);
+  });
 }
 
 /**
@@ -284,60 +302,64 @@ export async function runDataIntegrityCheck(
   warnings: string[];
   stats: SafetyStats;
 }> {
-  const errors: string[] = [];
-  const warnings: string[] = [];
+  return inSafetyScope(cwd, async (cwd) => {
+    const errors: string[] = [];
+    const warnings: string[] = [];
 
-  // 1. Check sequence
-  try {
-    const seqCheck = await checkSequence(cwd);
-    if (!seqCheck.valid) {
-      errors.push(`Sequence invalid: counter=${seqCheck.counter}, maxId=T${seqCheck.maxIdInData}`);
+    // 1. Check sequence
+    try {
+      const seqCheck = await checkSequence(cwd);
+      if (!seqCheck.valid) {
+        errors.push(
+          `Sequence invalid: counter=${seqCheck.counter}, maxId=T${seqCheck.maxIdInData}`,
+        );
 
-      // Try to repair
-      const repair = await repairSequence(cwd);
-      if (repair.repaired) {
-        warnings.push(`Auto-repaired sequence: ${repair.oldCounter} -> ${repair.newCounter}`);
-      } else {
-        errors.push('Sequence auto-repair failed');
+        // Try to repair
+        const repair = await repairSequence(cwd);
+        if (repair.repaired) {
+          warnings.push(`Auto-repaired sequence: ${repair.oldCounter} -> ${repair.newCounter}`);
+        } else {
+          errors.push('Sequence auto-repair failed');
+        }
+      }
+    } catch (err) {
+      errors.push(`Sequence check failed: ${String(err)}`);
+    }
+
+    // 2. Verify task data can be queried
+    try {
+      const count = await accessor.countTasks();
+      if (count < 0) {
+        errors.push('Task count returned negative value');
+      }
+    } catch (err) {
+      errors.push(`Task data query failed: ${String(err)}`);
+    }
+
+    try {
+      const sessions = await accessor.loadSessions();
+      if (!Array.isArray(sessions)) {
+        errors.push('Sessions data is not an array');
+      }
+    } catch (err) {
+      errors.push(`Sessions load failed: ${String(err)}`);
+    }
+
+    // 3. Check for checkpoint recency
+    if (stats.lastCheckpoint) {
+      const minutesSinceCheckpoint = (Date.now() - stats.lastCheckpoint.getTime()) / 60000;
+      if (minutesSinceCheckpoint > 60) {
+        warnings.push(`Last checkpoint was ${Math.round(minutesSinceCheckpoint)} minutes ago`);
       }
     }
-  } catch (err) {
-    errors.push(`Sequence check failed: ${String(err)}`);
-  }
 
-  // 2. Verify task data can be queried
-  try {
-    const count = await accessor.countTasks();
-    if (count < 0) {
-      errors.push('Task count returned negative value');
-    }
-  } catch (err) {
-    errors.push(`Task data query failed: ${String(err)}`);
-  }
-
-  try {
-    const sessions = await accessor.loadSessions();
-    if (!Array.isArray(sessions)) {
-      errors.push('Sessions data is not an array');
-    }
-  } catch (err) {
-    errors.push(`Sessions load failed: ${String(err)}`);
-  }
-
-  // 3. Check for checkpoint recency
-  if (stats.lastCheckpoint) {
-    const minutesSinceCheckpoint = (Date.now() - stats.lastCheckpoint.getTime()) / 60000;
-    if (minutesSinceCheckpoint > 60) {
-      warnings.push(`Last checkpoint was ${Math.round(minutesSinceCheckpoint)} minutes ago`);
-    }
-  }
-
-  return {
-    passed: errors.length === 0,
-    errors,
-    warnings,
-    stats: getSafetyStats(),
-  };
+    return {
+      passed: errors.length === 0,
+      errors,
+      warnings,
+      stats: getSafetyStats(),
+    };
+  });
 }
 
 /**
@@ -345,9 +367,11 @@ export async function runDataIntegrityCheck(
  * Use before destructive operations.
  */
 export async function forceSafetyCheckpoint(context: string, cwd?: string): Promise<void> {
-  log.info({ context }, 'Forcing checkpoint');
-  await gitCheckpoint('manual', context, cwd);
-  vacuumIntoBackup({ cwd, force: true }).catch(() => {}); // non-fatal SQLite snapshot
+  return inSafetyScope(cwd, async (cwd) => {
+    log.info({ context }, 'Forcing checkpoint');
+    await gitCheckpoint('manual', context, cwd);
+    vacuumIntoBackup({ cwd, force: true }).catch(() => {}); // non-fatal SQLite snapshot
+  });
 }
 
 /**
@@ -433,24 +457,26 @@ export async function checkTaskExists(
   cwd?: string,
   config: Partial<SafetyConfig> = {},
 ): Promise<boolean> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  return inSafetyScope(cwd, async (cwd) => {
+    const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  if (!cfg.detectCollisions) return false;
+    if (!cfg.detectCollisions) return false;
 
-  const db = await getDb(cwd);
-  const existing = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).all();
+    const db = await getDb(cwd);
+    const existing = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).all();
 
-  const exists = existing.length > 0;
+    const exists = existing.length > 0;
 
-  if (exists && cfg.strictMode) {
-    throw new SafetyError(
-      `Task ID collision detected: ${taskId} already exists`,
-      'COLLISION_DETECTED',
-      { taskId, existingTask: existing[0] },
-    );
-  }
+    if (exists && cfg.strictMode) {
+      throw new SafetyError(
+        `Task ID collision detected: ${taskId} already exists`,
+        'COLLISION_DETECTED',
+        { taskId, existingTask: existing[0] },
+      );
+    }
 
-  return exists;
+    return exists;
+  });
 }
 
 /**
@@ -463,42 +489,44 @@ export async function verifyTaskWrite(
   cwd?: string,
   config: Partial<SafetyConfig> = {},
 ): Promise<boolean> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  return inSafetyScope(cwd, async (cwd) => {
+    const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  if (!cfg.verifyWrites) return true;
+    if (!cfg.verifyWrites) return true;
 
-  const db = await getDb(cwd);
-  const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).all();
+    const db = await getDb(cwd);
+    const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).all();
 
-  if (rows.length === 0) {
-    if (cfg.strictMode) {
-      throw new SafetyError(
-        `Write verification failed: Task ${taskId} not found after write`,
-        'WRITE_VERIFICATION_FAILED',
-        { taskId },
-      );
+    if (rows.length === 0) {
+      if (cfg.strictMode) {
+        throw new SafetyError(
+          `Write verification failed: Task ${taskId} not found after write`,
+          'WRITE_VERIFICATION_FAILED',
+          { taskId },
+        );
+      }
+      return false;
     }
-    return false;
-  }
 
-  // Verify expected data if provided
-  if (expectedData) {
-    const row = rows[0]!;
-    for (const [key, value] of Object.entries(expectedData)) {
-      if (value !== undefined && row[key as keyof typeof row] !== value) {
-        if (cfg.strictMode) {
-          throw new SafetyError(
-            `Write verification failed: Task ${taskId} field ${key} mismatch`,
-            'WRITE_VERIFICATION_MISMATCH',
-            { taskId, field: key, expected: value, actual: row[key as keyof typeof row] },
-          );
+    // Verify expected data if provided
+    if (expectedData) {
+      const row = rows[0]!;
+      for (const [key, value] of Object.entries(expectedData)) {
+        if (value !== undefined && row[key as keyof typeof row] !== value) {
+          if (cfg.strictMode) {
+            throw new SafetyError(
+              `Write verification failed: Task ${taskId} field ${key} mismatch`,
+              'WRITE_VERIFICATION_MISMATCH',
+              { taskId, field: key, expected: value, actual: row[key as keyof typeof row] },
+            );
+          }
+          return false;
         }
-        return false;
       }
     }
-  }
 
-  return true;
+    return true;
+  });
 }
 
 /**
@@ -509,45 +537,47 @@ export async function validateAndRepairSequence(
   cwd?: string,
   config: Partial<SafetyConfig> = {},
 ): Promise<{ valid: boolean; repaired: boolean; oldCounter?: number; newCounter?: number }> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  return inSafetyScope(cwd, async (cwd) => {
+    const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  if (!cfg.validateSequence) return { valid: true, repaired: false };
+    if (!cfg.validateSequence) return { valid: true, repaired: false };
 
-  try {
-    const check = await checkSequence(cwd);
+    try {
+      const check = await checkSequence(cwd);
 
-    if (check.valid) {
+      if (check.valid) {
+        return { valid: true, repaired: false };
+      }
+
+      // Sequence is behind, repair it
+      const repair = await repairSequence(cwd);
+
+      if (repair.repaired) {
+        log.warn(
+          { oldCounter: repair.oldCounter, newCounter: repair.newCounter },
+          'Sequence repaired',
+        );
+        return {
+          valid: true,
+          repaired: true,
+          oldCounter: repair.oldCounter,
+          newCounter: repair.newCounter,
+        };
+      }
+
+      // repairSequence returning repaired:false means "already valid, nothing to do"
       return { valid: true, repaired: false };
+    } catch (err) {
+      if (cfg.strictMode) {
+        throw new SafetyError(
+          `Sequence validation failed: ${String(err)}`,
+          'SEQUENCE_VALIDATION_FAILED',
+          { error: String(err) },
+        );
+      }
+      return { valid: false, repaired: false };
     }
-
-    // Sequence is behind, repair it
-    const repair = await repairSequence(cwd);
-
-    if (repair.repaired) {
-      log.warn(
-        { oldCounter: repair.oldCounter, newCounter: repair.newCounter },
-        'Sequence repaired',
-      );
-      return {
-        valid: true,
-        repaired: true,
-        oldCounter: repair.oldCounter,
-        newCounter: repair.newCounter,
-      };
-    }
-
-    // repairSequence returning repaired:false means "already valid, nothing to do"
-    return { valid: true, repaired: false };
-  } catch (err) {
-    if (cfg.strictMode) {
-      throw new SafetyError(
-        `Sequence validation failed: ${String(err)}`,
-        'SEQUENCE_VALIDATION_FAILED',
-        { error: String(err) },
-      );
-    }
-    return { valid: false, repaired: false };
-  }
+  });
 }
 
 /**
@@ -558,18 +588,20 @@ export async function triggerCheckpoint(
   cwd?: string,
   config: Partial<SafetyConfig> = {},
 ): Promise<void> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  return inSafetyScope(cwd, async (cwd) => {
+    const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  if (!cfg.autoCheckpoint) return;
+    if (!cfg.autoCheckpoint) return;
 
-  try {
-    await gitCheckpoint('auto', context, cwd);
-  } catch (err) {
-    // Checkpoint failures are non-fatal but should be logged
-    log.warn({ err }, 'Checkpoint failed (non-fatal)');
-  }
+    try {
+      await gitCheckpoint('auto', context, cwd);
+    } catch (err) {
+      // Checkpoint failures are non-fatal but should be logged
+      log.warn({ err }, 'Checkpoint failed (non-fatal)');
+    }
 
-  vacuumIntoBackup({ cwd }).catch(() => {}); // non-fatal SQLite snapshot
+    vacuumIntoBackup({ cwd }).catch(() => {}); // non-fatal SQLite snapshot
+  });
 }
 
 /**
@@ -582,27 +614,29 @@ export async function safeCreateTask(
   cwd?: string,
   config: Partial<SafetyConfig> = {},
 ): Promise<Task> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  return inSafetyScope(cwd, async (cwd) => {
+    const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  // 1. Validate sequence before creation
-  if (cfg.validateSequence) {
-    await validateAndRepairSequence(cwd, config);
-  }
+    // 1. Validate sequence before creation
+    if (cfg.validateSequence) {
+      await validateAndRepairSequence(cwd, config);
+    }
 
-  // 2. Check for collisions
-  if (cfg.detectCollisions) {
-    await checkTaskExists(task.id, cwd, config);
-  }
+    // 2. Check for collisions
+    if (cfg.detectCollisions) {
+      await checkTaskExists(task.id, cwd, config);
+    }
 
-  // 3. Perform the actual creation
-  const result = await createFn();
+    // 3. Perform the actual creation
+    const result = await createFn();
 
-  // 4. Trigger checkpoint
-  if (cfg.autoCheckpoint) {
-    await triggerCheckpoint(`created ${task.id}`, cwd, config);
-  }
+    // 4. Trigger checkpoint
+    if (cfg.autoCheckpoint) {
+      await triggerCheckpoint(`created ${task.id}`, cwd, config);
+    }
 
-  return result;
+    return result;
+  });
 }
 
 /**
@@ -615,19 +649,21 @@ export async function safeUpdateTask(
   cwd?: string,
   config: Partial<SafetyConfig> = {},
 ): Promise<Task | null> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  return inSafetyScope(cwd, async (cwd) => {
+    const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  // 1. Perform the actual update
-  const result = await updateFn();
+    // 1. Perform the actual update
+    const result = await updateFn();
 
-  if (!result) return null;
+    if (!result) return null;
 
-  // 2. Trigger checkpoint
-  if (cfg.autoCheckpoint) {
-    await triggerCheckpoint(`updated ${taskId}`, cwd, config);
-  }
+    // 2. Trigger checkpoint
+    if (cfg.autoCheckpoint) {
+      await triggerCheckpoint(`updated ${taskId}`, cwd, config);
+    }
 
-  return result;
+    return result;
+  });
 }
 
 /**
@@ -639,19 +675,21 @@ export async function safeDeleteTask(
   cwd?: string,
   config: Partial<SafetyConfig> = {},
 ): Promise<boolean> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  return inSafetyScope(cwd, async (cwd) => {
+    const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  // 1. Perform the actual deletion
-  const result = await deleteFn();
+    // 1. Perform the actual deletion
+    const result = await deleteFn();
 
-  if (!result) return false;
+    if (!result) return false;
 
-  // 2. Trigger checkpoint
-  if (cfg.autoCheckpoint) {
-    await triggerCheckpoint(`deleted ${taskId}`, cwd, config);
-  }
+    // 2. Trigger checkpoint
+    if (cfg.autoCheckpoint) {
+      await triggerCheckpoint(`deleted ${taskId}`, cwd, config);
+    }
 
-  return result;
+    return result;
+  });
 }
 
 /**
@@ -663,29 +701,31 @@ export async function verifySessionWrite(
   cwd?: string,
   config: Partial<SafetyConfig> = {},
 ): Promise<boolean> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  return inSafetyScope(cwd, async (cwd) => {
+    const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  if (!cfg.verifyWrites) return true;
+    if (!cfg.verifyWrites) return true;
 
-  const db = await getDb(cwd);
-  const rows = await db
-    .select()
-    .from(schema.sessions)
-    .where(eq(schema.sessions.id, sessionId))
-    .all();
+    const db = await getDb(cwd);
+    const rows = await db
+      .select()
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .all();
 
-  if (rows.length === 0) {
-    if (cfg.strictMode) {
-      throw new SafetyError(
-        `Write verification failed: Session ${sessionId} not found after write`,
-        'SESSION_WRITE_VERIFICATION_FAILED',
-        { sessionId },
-      );
+    if (rows.length === 0) {
+      if (cfg.strictMode) {
+        throw new SafetyError(
+          `Write verification failed: Session ${sessionId} not found after write`,
+          'SESSION_WRITE_VERIFICATION_FAILED',
+          { sessionId },
+        );
+      }
+      return false;
     }
-    return false;
-  }
 
-  return true;
+    return true;
+  });
 }
 
 /**
@@ -697,22 +737,24 @@ export async function safeCreateSession(
   cwd?: string,
   config: Partial<SafetyConfig> = {},
 ): Promise<Session> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  return inSafetyScope(cwd, async (cwd) => {
+    const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  // 1. Perform the actual creation
-  const result = await createFn();
+    // 1. Perform the actual creation
+    const result = await createFn();
 
-  // 2. Verify the write
-  if (cfg.verifyWrites) {
-    await verifySessionWrite(session.id, cwd, config);
-  }
+    // 2. Verify the write
+    if (cfg.verifyWrites) {
+      await verifySessionWrite(session.id, cwd, config);
+    }
 
-  // 3. Trigger checkpoint
-  if (cfg.autoCheckpoint) {
-    await triggerCheckpoint(`session ${session.id} started`, cwd, config);
-  }
+    // 3. Trigger checkpoint
+    if (cfg.autoCheckpoint) {
+      await triggerCheckpoint(`session ${session.id} started`, cwd, config);
+    }
 
-  return result;
+    return result;
+  });
 }
 
 /**
@@ -723,16 +765,18 @@ export async function forceCheckpointBeforeOperation(
   operation: string,
   cwd?: string,
 ): Promise<void> {
-  log.info({ operation }, 'Forcing checkpoint before operation');
+  return inSafetyScope(cwd, async (cwd) => {
+    log.info({ operation }, 'Forcing checkpoint before operation');
 
-  try {
-    await gitCheckpoint('manual', `pre-${operation}`, cwd);
-  } catch (err) {
-    log.error({ err }, 'Failed to create pre-operation checkpoint');
-    // Don't throw - checkpoint failures shouldn't block operations
-  }
+    try {
+      await gitCheckpoint('manual', `pre-${operation}`, cwd);
+    } catch (err) {
+      log.error({ err }, 'Failed to create pre-operation checkpoint');
+      // Don't throw - checkpoint failures shouldn't block operations
+    }
 
-  vacuumIntoBackup({ cwd, force: true }).catch(() => {}); // non-fatal SQLite snapshot
+    vacuumIntoBackup({ cwd, force: true }).catch(() => {}); // non-fatal SQLite snapshot
+  });
 }
 
 /**
@@ -747,32 +791,34 @@ export async function runSequenceIntegrityCheck(cwd?: string): Promise<{
   issues: string[];
   repairs: string[];
 }> {
-  const issues: string[] = [];
-  const repairs: string[] = [];
+  return inSafetyScope(cwd, async (cwd) => {
+    const issues: string[] = [];
+    const repairs: string[] = [];
 
-  // 1. Check sequence
-  try {
-    const seqCheck = await checkSequence(cwd);
-    if (!seqCheck.valid) {
-      issues.push(
-        `Sequence invalid: counter ${seqCheck.counter} < max ID T${seqCheck.maxIdInData}`,
-      );
+    // 1. Check sequence
+    try {
+      const seqCheck = await checkSequence(cwd);
+      if (!seqCheck.valid) {
+        issues.push(
+          `Sequence invalid: counter ${seqCheck.counter} < max ID T${seqCheck.maxIdInData}`,
+        );
 
-      // Auto-repair
-      const repair = await repairSequence(cwd);
-      if (repair.repaired) {
-        repairs.push(`Sequence repaired: ${repair.oldCounter} -> ${repair.newCounter}`);
-      } else {
-        issues.push('Sequence repair failed');
+        // Auto-repair
+        const repair = await repairSequence(cwd);
+        if (repair.repaired) {
+          repairs.push(`Sequence repaired: ${repair.oldCounter} -> ${repair.newCounter}`);
+        } else {
+          issues.push('Sequence repair failed');
+        }
       }
+    } catch (err) {
+      issues.push(`Sequence check failed: ${String(err)}`);
     }
-  } catch (err) {
-    issues.push(`Sequence check failed: ${String(err)}`);
-  }
 
-  return {
-    passed: issues.length === repairs.length,
-    issues,
-    repairs,
-  };
+    return {
+      passed: issues.length === repairs.length,
+      issues,
+      repairs,
+    };
+  });
 }
