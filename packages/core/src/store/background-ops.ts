@@ -57,6 +57,7 @@ interface DeferredBackgroundOperation {
 interface BackgroundCommitBoundary {
   native: DatabaseSync;
   execution?: OperationExecutionContext;
+  schedule?: (work: () => Promise<unknown>) => Promise<unknown>;
   parent?: BackgroundCommitBoundary;
   active: boolean;
   rollback?: Error;
@@ -70,6 +71,7 @@ const backgroundCommitBoundary = new AsyncLocalStorage<BackgroundCommitBoundary>
  * @param native - Existing writer handle whose nested savepoints share this boundary.
  * @param commit - Existing transaction implementation, including commit or rollback.
  * @param execution - Existing captured budget; never replaced with a fresh context.
+ * @param schedule - Existing writer queue admission for committed effects.
  * @returns The original committed result; deferred failures never undo it.
  * @remarks Call around the actual transaction, not an individual row write. Nested
  * successful savepoints transfer effects to their parent; rollback discards them.
@@ -83,12 +85,14 @@ export async function withBackgroundOpCommitBoundary<T>(
   native: DatabaseSync,
   commit: () => Promise<T>,
   execution?: OperationExecutionContext,
+  schedule?: (work: () => Promise<unknown>) => Promise<unknown>,
 ): Promise<T> {
   const inherited = backgroundCommitBoundary.getStore();
   const parent = inherited?.active && inherited.native === native ? inherited : undefined;
   const boundary: BackgroundCommitBoundary = {
     native,
     execution: execution ?? parent?.execution,
+    schedule: schedule ?? parent?.schedule,
     parent,
     active: true,
     deferred: [],
@@ -143,7 +147,9 @@ export function trackBackgroundOp(
     return tracked;
   }
   const resume = AsyncLocalStorage.snapshot();
-  const capturedExecution = execution ?? backgroundCommitBoundary.getStore()?.execution;
+  const capturedBoundary = backgroundCommitBoundary.getStore();
+  const capturedExecution = execution ?? capturedBoundary?.execution;
+  const schedule = capturedBoundary?.schedule;
   let started = false;
   const operation: DeferredBackgroundOperation = {
     start() {
@@ -153,7 +159,11 @@ export function trackBackgroundOp(
         Promise.resolve().then(() =>
           resume(() => {
             capturedExecution?.assertActive();
-            return op();
+            const invoke = async (): Promise<unknown> => {
+              capturedExecution?.assertActive();
+              return op();
+            };
+            return schedule ? schedule(invoke) : invoke();
           }),
         ),
       );

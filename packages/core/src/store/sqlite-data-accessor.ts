@@ -156,6 +156,27 @@ function activeTransactionScope(native: DatabaseSync): TaskTransactionScope | un
   return undefined;
 }
 
+/** Serialize committed effects with foreground writers without opening a SQL transaction. */
+async function scheduleTaskBackground(
+  native: DatabaseSync,
+  work: () => Promise<unknown>,
+): Promise<unknown> {
+  const previous = taskTransactionQueue.get(native) ?? Promise.resolve();
+  const released = Promise.withResolvers<void>();
+  const tail = previous.then(() => released.promise);
+  taskTransactionQueue.set(native, tail);
+  await previous;
+  const scope = new TaskTransactionScope(native);
+  try {
+    return await taskTransactionContext.run(scope, work);
+  } finally {
+    await scope.pending;
+    scope.active = false;
+    released.resolve();
+    if (taskTransactionQueue.get(native) === tail) taskTransactionQueue.delete(native);
+  }
+}
+
 /**
  * Compatible task-accessor name for the shared project ownership capture policy.
  * @remarks This is the same function as `captureProjectScope`; identity validation
@@ -1457,7 +1478,12 @@ async function createOwnedSqliteDataAccessor(
           });
         };
         const commit = () =>
-          withBackgroundOpCommitBoundary(nativeDb, execute, worktreeScope.getStore()?.execution);
+          withBackgroundOpCommitBoundary(
+            nativeDb,
+            execute,
+            worktreeScope.getStore()?.execution,
+            (work) => scheduleTaskBackground(nativeDb, work),
+          );
         return await (context ? commit() : withWriteRetry(commit));
       } finally {
         released.resolve();
