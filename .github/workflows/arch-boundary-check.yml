@@ -345,13 +345,13 @@ jobs:
   output-contract-coverage:
     # T11762 ST-3b (T11904) · Epic T11679 · DHQ-057 · LAFS-envelope SSoT T10400 §8 item 6
     #
-    # Asserts every operation in the 411-row OPERATIONS registry resolves a
+    # Asserts every operation in the OPERATIONS registry resolves a
     # machine-readable output contract via getOutputContract (hand-authored
     # OUTPUT_CONTRACTS → derived deriveOutputContract → generic fallback). This is
     # the conformance enforcer the LAFS-envelope SSoT (T10400 §8 item 6) says
     # SHOULD exist but did not. A deterministic static scan of the registry SOURCE
-    # files (no DB, no network); it also fail-closes on parse drift (the ordered
-    # triple regex disagreeing with the authoritative operation-entry count).
+    # files (no DB, no network); unsupported registry syntax and gateways fail
+    # closed. Nested schema fields are not operation declarations.
     #
     # Runs in --strict (zero-tolerance): coverage is currently 100% (baseline
     # scripts/.lint-output-contract-coverage-baseline.json is empty), so any op
@@ -363,12 +363,26 @@ jobs:
     # Pure static analysis of checked-in source — no untrusted user input.
     name: Output-Contract Coverage Gate (T11762)
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
       - name: Lint per-op output-contract coverage (strict)
         run: node scripts/lint-output-contract-coverage.mjs --strict
 
