@@ -2077,6 +2077,7 @@ export {
   type TaskCompleteEngineOptions,
   taskComplete,
 } from './tasks/complete.js';
+export { taskDecompose } from './tasks/decompose.js';
 export { taskDelete } from './tasks/delete.js';
 // Engine-layer converters and types (T1568 / ADR-057 / ADR-058)
 export {

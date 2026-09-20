@@ -2861,6 +2861,44 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'tasks',
+    operation: 'decompose',
+    description:
+      'tasks.decompose (mutate) — move a task’s free-text acceptance criteria onto a new first child, turning the leaf into a container (PM-Core V2 design-point 3)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Task whose text acceptance criteria move to a new child',
+        cli: { positional: true },
+      },
+      {
+        name: 'childTitle',
+        type: 'string',
+        required: false,
+        description: 'Title for the child that inherits the criteria (default: the parent’s)',
+      },
+      {
+        name: 'childDescription',
+        type: 'string',
+        required: false,
+        description: 'Description for the child (default: the parent’s)',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Preview the move without writing',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
     operation: 'archive',
     description: 'tasks.archive (mutate)',
     tier: 1,

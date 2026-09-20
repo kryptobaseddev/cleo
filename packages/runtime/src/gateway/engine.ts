@@ -239,6 +239,7 @@ export {
   taskComplete,
   taskComplexityEstimate,
   taskCurrentGet,
+  taskDecompose,
   taskDelete,
   taskDepends,
   taskDeps,

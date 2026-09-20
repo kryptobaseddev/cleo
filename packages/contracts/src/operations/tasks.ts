@@ -1639,6 +1639,40 @@ export interface TasksCompleteQueryResult {
   unblockedTasks?: Array<Pick<TaskRef, 'id' | 'title'>>;
 }
 
+// tasks.decompose (dispatch-level params) — PM-Core V2 design-point 3
+/**
+ * Params for `tasks.decompose` — move a task's free-text acceptance criteria
+ * onto a new first child so the task becomes a pure container.
+ *
+ * @task T12281
+ */
+export interface TasksDecomposeParams {
+  /** Task whose text acceptance criteria move to a new child. */
+  taskId: string;
+  /** Title for the child that inherits the criteria. Defaults to the parent's. */
+  childTitle?: string;
+  /** Description for the child. Defaults to the parent's. */
+  childDescription?: string;
+  /** Preview the move without writing. */
+  dryRun?: boolean;
+}
+
+/**
+ * Result of `tasks.decompose` — the container/child pair and the criteria moved.
+ *
+ * @task T12281
+ */
+export interface TasksDecomposeResult {
+  /** The task that is now a pure container. */
+  parentId: string;
+  /** The created child, or `null` on a dry run. */
+  childId: string | null;
+  /** The criteria texts moved from parent to child, in ordinal order. */
+  movedAcceptance: string[];
+  /** True when nothing was written. */
+  dryRun: boolean;
+}
+
 // tasks.delete (dispatch-level params)
 export interface TasksDeleteQueryParams {
   taskId: string;
@@ -2154,6 +2188,7 @@ export type TasksOps = {
   readonly update: readonly [TasksUpdateQueryParams, TasksUpdateQueryResult];
   readonly complete: readonly [TasksCompleteQueryParams, TasksCompleteQueryResult];
   readonly cancel: readonly [TasksCancelParams, TasksCancelResult];
+  readonly decompose: readonly [TasksDecomposeParams, TasksDecomposeResult];
   readonly delete: readonly [TasksDeleteQueryParams, TasksDeleteQueryResult];
   readonly archive: readonly [TasksArchiveQueryParams, TasksArchiveQueryResult];
   readonly restore: readonly [TasksRestoreParams, TasksRestoreResult];

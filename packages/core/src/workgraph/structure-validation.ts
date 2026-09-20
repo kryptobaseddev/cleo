@@ -97,7 +97,7 @@ export type WorkGraphStructureFinding =
 export interface WorkGraphStructureValidationOptions {
   /** Scope ID to echo on scope-wide findings such as missing Wave 0. */
   readonly scopeId?: string;
-  /** Maximum allowed containment depth. Defaults to CLEO's epic→task→subtask depth (2). */
+  /** Maximum allowed containment depth. Defaults to CLEO's saga→epic→task→subtask depth (3). */
   readonly maxDepth?: number;
   /** Maximum allowed direct children per parent. Defaults to unlimited. */
   readonly maxFanout?: number;
@@ -117,7 +117,12 @@ export interface WorkGraphStructureValidationResult {
   readonly pageInfo: WorkGraphPageInfo;
 }
 
-const DEFAULT_MAX_DEPTH = 2;
+// Depth VALUE of the deepest legal tier, inclusive: saga(0) → epic(1) → task(2)
+// → subtask(3). Was 2 — the pre-saga epic→task→subtask spine — and was never
+// recalibrated when ADR-083 §2.5 / ADR-088 made `saga` a real `parent_id`
+// container. `cleo workgraph validate` passes `{}`, so the stale default flagged
+// every legitimate depth-3 subtask (163 of them live in this repo's own store).
+const DEFAULT_MAX_DEPTH = 3;
 
 function normalizeLimit(limit: number | undefined): number {
   if (limit === undefined) return 100;

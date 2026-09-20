@@ -105,7 +105,17 @@ describe('E_CLEO_DEPTH_EXCEEDED names an inherited parent (T12136 · GH #1238)',
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
-    // saga -> epic -> task: the task is at depth 2, so it cannot take children.
+    // saga -> epic -> task -> subtask. The SUBTASK sits at depth 3, the deepest
+    // tier the cap admits, so it is the node that cannot take children.
+    //
+    // These cases used to target the TASK at depth 2. That worked only because
+    // the depth guard was mis-calibrated: `parentDepth + 1 >= maxDepth` refused a
+    // child of a depth-2 task, which is exactly the defect that made `--type
+    // subtask` unreachable. With the guard corrected to the inclusive rule, a
+    // task at depth 2 legitimately takes children, and filing a `task` under a
+    // `task` is now caught by the containment matrix instead — a different error.
+    // Retargeted so each case still exercises E_CLEO_DEPTH_EXCEEDED, which is
+    // what the T12136 provenance wording lives on.
     await seedTasks(accessor, [
       { id: 'T9001', title: 'saga', type: 'saga', status: 'pending', createdAt: NOW },
       {
@@ -121,6 +131,14 @@ describe('E_CLEO_DEPTH_EXCEEDED names an inherited parent (T12136 · GH #1238)',
         title: 'task',
         type: 'task',
         parentId: 'T9002',
+        status: 'pending',
+        createdAt: NOW,
+      },
+      {
+        id: 'T9004',
+        title: 'subtask',
+        type: 'subtask',
+        parentId: 'T9004',
         status: 'pending',
         createdAt: NOW,
       },
@@ -142,9 +160,9 @@ describe('E_CLEO_DEPTH_EXCEEDED names an inherited parent (T12136 · GH #1238)',
     await expect(
       addTask(
         {
-          title: 'child of a depth-2 task',
+          title: 'child of a depth-3 subtask',
           type: 'task',
-          parentId: 'T9003',
+          parentId: 'T9004',
           parentSource: 'session-inference',
           acceptance: ['a', 'b'],
         },
@@ -152,7 +170,7 @@ describe('E_CLEO_DEPTH_EXCEEDED names an inherited parent (T12136 · GH #1238)',
         accessor,
       ),
     ).rejects.toThrow(
-      /You did not pass --parent: T9003 was inherited from the active session pointer/,
+      /You did not pass --parent: T9004 was inherited from the active session pointer/,
     );
   });
 
@@ -161,9 +179,9 @@ describe('E_CLEO_DEPTH_EXCEEDED names an inherited parent (T12136 · GH #1238)',
     await expect(
       addTask(
         {
-          title: 'child of a depth-2 task',
+          title: 'child of a depth-3 subtask',
           type: 'task',
-          parentId: 'T9003',
+          parentId: 'T9004',
           parentSource: 'session-inference',
           acceptance: ['a', 'b'],
         },
@@ -181,9 +199,9 @@ describe('E_CLEO_DEPTH_EXCEEDED names an inherited parent (T12136 · GH #1238)',
     try {
       await addTask(
         {
-          title: 'child of a depth-2 task',
+          title: 'child of a depth-3 subtask',
           type: 'task',
-          parentId: 'T9003',
+          parentId: 'T9004',
           parentSource: 'explicit',
           acceptance: ['a', 'b'],
         },
@@ -193,7 +211,7 @@ describe('E_CLEO_DEPTH_EXCEEDED names an inherited parent (T12136 · GH #1238)',
     } catch (err) {
       message = err instanceof Error ? err.message : String(err);
     }
-    expect(message).toMatch(/hierarchy depth cap/);
+    expect(message).toMatch(/past the hierarchy cap/);
     expect(message).not.toMatch(/You did not pass --parent/);
     expect(message).not.toMatch(/inherited/);
   });
@@ -203,7 +221,7 @@ describe('E_CLEO_DEPTH_EXCEEDED names an inherited parent (T12136 · GH #1238)',
     let message = '';
     try {
       await addTask(
-        { title: 'child', type: 'task', parentId: 'T9003', acceptance: ['a', 'b'] },
+        { title: 'child', type: 'task', parentId: 'T9004', acceptance: ['a', 'b'] },
         env.tempDir,
         accessor,
       );

@@ -47,7 +47,8 @@ import {
   validateChildStageCeiling,
   validateEpicCreation,
 } from './epic-enforcement.js';
-import { resolveHierarchyPolicy } from './hierarchy-policy.js';
+import { childTypeForParentType } from './hierarchy.js';
+import { exceedsMaxDepth, resolveHierarchyPolicy } from './hierarchy-policy.js';
 import { resolveDefaultPipelineStage, validatePipelineStage } from './pipeline-stage.js';
 
 /**
@@ -135,6 +136,20 @@ export interface AddTaskOptions {
    * @task T11811
    */
   skipContainmentInvariant?: boolean;
+  /**
+   * Suppress ONLY the PM-Core V2 design-point 3 guard (a `task`/`subtask`
+   * holding free-text ACs may not gain a child). Every other check still runs.
+   *
+   * MUST be set ONLY by {@link decomposeTask}, and there only on its `dryRun`
+   * preflight: that preflight asks "would this child be placeable?" while the
+   * parent still holds the criteria it is about to hand over, so design-point 3
+   * is the one rule that is legitimately not yet satisfied. The real write that
+   * follows sets nothing — by then the parent has been stripped and the guard
+   * passes honestly. Agent-facing `cleo add` / `add-batch` MUST NOT set this.
+   *
+   * @task T12281
+   */
+  skipMixedAcParentGuard?: boolean;
 }
 
 /** Result of adding a task. */
@@ -535,15 +550,17 @@ export function validateParent(
     );
   }
 
-  // Check depth
+  // Check depth. Behaviourally identical to the previous `depth >= maxDepth`
+  // (this helper was always one of the two correct implementations); routed
+  // through the shared rule so there is exactly one copy of the comparison.
   const depth = getTaskDepth(parentId, tasks);
-  if (depth >= maxDepth) {
+  if (exceedsMaxDepth(depth, maxDepth)) {
     throw new CleoError(
       ExitCode.DEPTH_EXCEEDED,
       `Cannot add child to ${parentId}: max hierarchy depth (${maxDepth}) would be exceeded`,
       {
         fix: 'Reparent this task under a higher-level epic',
-        details: { field: 'parentId', expected: `depth < ${maxDepth}`, actual: depth },
+        details: { field: 'parentId', expected: `depth <= ${maxDepth}`, actual: depth + 1 },
       },
     );
   }
@@ -627,6 +644,24 @@ export function getTaskDepth(taskId: string, tasks: Task[]): number {
  * console.assert(inferTaskType('T002', tasks) === 'subtask', 'task parent → subtask');
  * ```
  */
+/**
+ * Human-readable list of the tiers that may legally contain `childType`, per the
+ * PM-Core V2 containment matrix.
+ *
+ * Used to explain a refusal in the caller's own vocabulary ("a subtask can only
+ * be filed under a task") rather than quoting a numeric depth the caller never
+ * configured.
+ *
+ * @param childType - The tier the caller asked to create.
+ * @returns Comma-joined parent tier names, or `'nothing (it is a root tier)'`.
+ */
+function describeLegalParents(childType: TaskType): string {
+  const allowed = (['saga', 'epic', 'task', 'subtask'] as const)
+    .filter((parent) => isAllowedWorkGraphParentType(childType, parent))
+    .map((parent) => `${/^[aeiou]/.test(parent) ? 'an' : 'a'} ${parent}`);
+  return allowed.length === 0 ? 'nothing (it is a root tier)' : allowed.join(' or ');
+}
+
 export function inferTaskType(parentId: string | null | undefined, tasks: Task[]): TaskType {
   if (!parentId) return 'task';
   const parent = tasks.find((t) => t.id === parentId);
@@ -1034,12 +1069,17 @@ export async function addTask(
     // Depth check using ancestor chain
     const ancestors = await dataAccessor.getAncestorChain(parentId);
     const parentDepth = ancestors.length;
-    if (parentDepth + 1 >= policy.maxDepth) {
+    if (exceedsMaxDepth(parentDepth, policy.maxDepth)) {
       // T11491 — DHQ-044: produce a clear actionable message that names the
-      // parent epic the user SHOULD target instead. The ancestor chain is
-      // ordered [immediateParent, grandparent, …, root]. When the parent is a
-      // task (depth 2), ancestors[0] is the epic (depth 1) — tell the user
-      // to file under THAT epic instead.
+      // container the caller SHOULD target instead.
+      //
+      // The ancestor chain is ordered [root, …, immediateParent]:
+      // `sqlite-data-accessor.ts` builds it with `ORDER BY depth DESC` and
+      // re-sorts "ancestors from root down", so the LAST element is the
+      // prospective parent's own parent — the grandparent of the node being
+      // added. (A prior comment here claimed the reverse order and pointed at
+      // ancestors[0]; the code was always right, the comment was not. Stated
+      // explicitly so nobody "fixes" the index to match the prose.)
       //
       // T11293: NEVER suggest "omit --parent to create a standalone task."
       // Under strict-spine containment (T11811) only sagas may be root-level,
@@ -1047,14 +1087,32 @@ export async function addTask(
       // (so the user never supplied --parent in the first place). Point to a
       // concrete higher-level container, or to --parent none to escape
       // auto-inference (the task will still need a valid parent).
-      const grandparentEpic = ancestors.length > 0 ? ancestors[ancestors.length - 1] : ancestors[0];
+      const grandparent = ancestors.length > 0 ? ancestors[ancestors.length - 1] : undefined;
+
+      // The tier the caller actually asked for. `taskType` is still the raw
+      // `--type` here (inference runs further down), so an unset type means
+      // "whatever this parent implies" — the same derivation the containment
+      // check below applies.
+      const requestedChildType = taskType ?? childTypeForParentType(parentTask.type ?? 'task');
+
+      // A suggestion that cannot be executed is worse than no suggestion. The
+      // previous version always offered `--parent <grandparent>` on the grounds
+      // that it is shallower, and said nothing about TYPE. But the caller's
+      // `--type` travels with the retry, and the containment matrix only admits
+      // saga→epic, epic→task, task→subtask — so `--type subtask --parent <epic>`
+      // clears this depth check and is then refused by the matrix below. Two
+      // field reports (GH: a user on 2026.9.5, and an agent that burned three
+      // `cleo add` calls) followed that hint from exit 11 straight into exit 6.
+      // Only offer the grandparent when it can legally hold what was asked for.
+      const grandparentAccepts =
+        grandparent !== undefined &&
+        isAllowedWorkGraphParentType(requestedChildType, grandparent.type ?? 'task');
 
       // T12136 (GH #1232/#1238) — when the parent was INHERITED rather than
       // named, say so FIRST. Otherwise the message reads as though the caller
-      // asked to file under `parentId`, and the "use --parent <epic>" advice
-      // — the only actionable-looking line — points into a hierarchy the
-      // caller never intended to touch. Naming the inference converts the
-      // suggestion from misleading to optional.
+      // asked to file under `parentId`, and the only actionable-looking line
+      // points into a hierarchy the caller never intended to touch. Naming the
+      // inference converts the suggestion from misleading to optional.
       const wasInherited = options.parentSource === 'session-inference';
       const provenance = wasInherited
         ? `You did not pass --parent: ${parentId} was inherited from the active session ` +
@@ -1063,23 +1121,33 @@ export async function addTask(
       const escapeHint = wasInherited
         ? ' Or pass --parent <id> explicitly to override the session pointer, or --parent none to suppress inference.'
         : '';
-      const epicSuggestion = grandparentEpic
-        ? ` Use --parent ${grandparentEpic.id} (the parent epic) instead.`
-        : ' Reparent under a higher-level container, or use --parent none to suppress session-based parent inference.';
+
+      // T11293: NEVER suggest "omit --parent to create a standalone task" —
+      // under strict-spine containment only a saga may be a root.
+      const suggestion = grandparentAccepts
+        ? ` File it under --parent ${grandparent?.id} as --type ${requestedChildType} instead.`
+        : ` A ${requestedChildType} can only be filed under ${describeLegalParents(requestedChildType)}, ` +
+          `and every one of those is already at or past the cap here. Re-scope the work so it ` +
+          `belongs to an existing container, or raise hierarchy.maxDepth in .cleo/config.json.`;
+
       throw new CleoError(
         ExitCode.DEPTH_EXCEEDED,
-        `${provenance}Cannot add a child to ${parentId}: the hierarchy depth cap (${policy.maxDepth}) would be exceeded. ` +
-          `Tasks at depth ${parentDepth} cannot have children.${epicSuggestion}${escapeHint}`,
+        `${provenance}Cannot add a ${requestedChildType} under ${parentId}: it is a ` +
+          `${parentTask.type ?? 'task'} at depth ${parentDepth}, and a child would sit at depth ` +
+          `${parentDepth + 1}, past the hierarchy cap of ${policy.maxDepth} ` +
+          `(saga 0, epic 1, task 2, subtask 3).${suggestion}${escapeHint}`,
         {
-          fix: grandparentEpic
-            ? `cleo add --parent ${grandparentEpic.id} --title "..." --acceptance "..."`
-            : 'Reparent this task under a higher-level epic',
+          fix: grandparentAccepts
+            ? `cleo add --type ${requestedChildType} --parent ${grandparent?.id} --title "..." --acceptance "..."`
+            : `Re-scope under an existing container, or raise hierarchy.maxDepth above ${policy.maxDepth}`,
           details: {
             field: 'parentId',
-            expected: `depth < ${policy.maxDepth}`,
+            expected: `depth <= ${policy.maxDepth}`,
             actual: parentDepth + 1,
-            suggestedParentId: grandparentEpic?.id,
-            suggestedParentTitle: grandparentEpic?.title,
+            requestedChildType,
+            // Only ever names a parent that can legally hold `requestedChildType`.
+            suggestedParentId: grandparentAccepts ? grandparent?.id : undefined,
+            suggestedParentTitle: grandparentAccepts ? grandparent?.title : undefined,
             parentSource: options.parentSource ?? 'explicit',
           },
         },
@@ -1126,13 +1194,11 @@ export async function addTask(
     }
 
     const parentTypeForValidation: TaskType = parentTask.type ?? 'task';
-    const childTypeForParent: TaskType =
-      taskType ??
-      (parentTypeForValidation === 'saga'
-        ? 'epic'
-        : parentTypeForValidation === 'task'
-          ? 'subtask'
-          : 'task');
+    // An explicit `--type` is honoured verbatim so the containment check below
+    // can REJECT it. Passing it as `currentType` instead would let the helper's
+    // reparent fallback rewrite it (`--type subtask` under an epic would become
+    // `task`) and silently create the wrong tier rather than refusing.
+    const childTypeForParent = taskType ?? childTypeForParentType(parentTypeForValidation);
     if (!isAllowedWorkGraphParentType(childTypeForParent, parentTypeForValidation)) {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
@@ -1209,6 +1275,7 @@ export async function addTask(
   // text-AC-bearing non-container leaf is about to gain its first child.
   if (
     parentId &&
+    !options.skipMixedAcParentGuard &&
     parentTaskForProjection &&
     parentTaskForProjection.type !== 'epic' &&
     parentTaskForProjection.type !== 'saga'
@@ -1226,10 +1293,12 @@ export async function addTask(
           `containers by design.)`,
         {
           fix:
-            `Either (a) move ${parentId}'s text acceptance criteria onto a new child task and ` +
-            `add work under that child, (b) clear ${parentId}'s text ACs ` +
-            `(\`cleo update ${parentId} --acceptance ""\`) so it becomes a pure container, or ` +
-            `(c) promote ${parentId} to an epic if it is meant to hold children.`,
+            `Run \`cleo decompose ${parentId}\` — it moves ${parentId}'s text acceptance ` +
+            `criteria onto a new first child in one step, leaving ${parentId} a pure ` +
+            `container, after which this add succeeds. (Or promote ${parentId} to an epic ` +
+            `if it is meant to hold children.) Note that clearing the ACs by hand with ` +
+            `\`cleo update ${parentId} --acceptance ""\` does NOT work: acceptance ` +
+            `enforcement rejects an empty criteria list.`,
           details: {
             field: 'parentId',
             parentId,

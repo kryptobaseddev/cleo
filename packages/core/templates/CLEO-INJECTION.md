@@ -91,6 +91,34 @@ A **Saga** (`SG-`) is a multi-release theme grouping multiple Epics. `type='saga
 Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for standalone);
 Task `parent_id` = Epic; Subtask `parent_id` = Task. `task_relations` is non-containment
 only — dependencies, ordering, cross-reference, evidence, supersession, provenance.
+
+### Depth: all four tiers are reachable
+
+`saga 0 → epic 1 → task 2 → subtask 3`, and `hierarchy.maxDepth` (default 3) is the
+maximum depth VALUE, **inclusive**. A subtask under a task is legal on a saga-rooted
+spine. `E_CLEO_DEPTH_EXCEEDED` now means only one thing: you tried to parent under a
+subtask, the leaf tier. Re-read the parent's tier before retrying — the error names it.
+
+`--type` is honoured verbatim, so an illegal pair is REFUSED rather than quietly
+retyped: `--type subtask --parent <epic>` is `E_CLEO_VALIDATION`, not a silently
+created task. Match the tier to the parent.
+
+### Decomposing a task into subtasks
+
+A task is **either** a leaf defined by its own text ACs **or** a container defined by
+its children — never both (PM-Core V2 design-point 3). So the first `cleo add` under a
+task that has `--acceptance` text is refused with `E_CLEO_VALIDATION`. That is expected,
+not a bug. Convert it in one step:
+
+```bash
+cleo decompose <taskId>                      # text ACs move to a new first subtask
+cleo decompose <taskId> --dry-run            # preview: shows exactly which ACs move
+cleo decompose <taskId> --child-title "..."  # required if the parent was created <60s ago
+```
+
+After that the task is a pure container and further `cleo add --type subtask --parent
+<taskId>` calls succeed normally. Do NOT try `cleo update <id> --acceptance ""` —
+acceptance enforcement rejects an empty criteria list, so it cannot clear them.
 <!-- /CLEO-INJECTION:section=task-creation -->
 
 <!-- CLEO-INJECTION:section=task-discovery -->

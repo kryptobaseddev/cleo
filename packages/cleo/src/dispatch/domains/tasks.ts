@@ -52,6 +52,7 @@ import {
   taskClaim,
   taskComplexityEstimate,
   taskCurrentGet,
+  taskDecompose,
   taskDelete,
   taskDepends,
   taskDepsCycles,
@@ -487,6 +488,19 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     );
   },
 
+  decompose: async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(
+      await taskDecompose(projectRoot, {
+        taskId: params.taskId,
+        childTitle: params.childTitle,
+        childDescription: params.childDescription,
+        dryRun: params.dryRun,
+      }),
+      'decompose',
+    );
+  },
+
   delete: async (params) => {
     const projectRoot = getProjectRoot();
     return wrapCoreResult(await taskDelete(projectRoot, params.taskId, params.force), 'delete');
@@ -694,6 +708,7 @@ const MUTATE_OPS = new Set<string>([
   'update',
   'complete',
   'cancel',
+  'decompose',
   'delete',
   'archive',
   'restore',
