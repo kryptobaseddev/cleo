@@ -200,6 +200,7 @@ export async function runProviderVerification(
       scopeClass: 'tool',
       scopeId: `${invocation.invocationId}-${randomUUID()}`,
       systemdControl: invocation.systemdControl,
+      execution: { deadlineAt: invocation.deadlineAt, signal: invocation.signal },
       resources: { memoryMax: `${invocation.memoryMaxMb}M` },
     },
   );

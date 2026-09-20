@@ -270,6 +270,9 @@ describe.skipIf(process.platform !== 'linux')('owned scope observations', () => 
     const input = await invocation('setTimeout(()=>process.stdout.write("done"),150);');
     const manager = { runtimeDirectory: join(root, 'control-runtime') };
     input.systemdControl = manager;
+    const originalDeadline = input.deadlineAt;
+    const controller = new AbortController();
+    input.signal = controller.signal;
     const { spawnWrapped: originalSpawn, _forceSystemdRunAvailable: forceOriginal } =
       await vi.importActual<typeof import('@cleocode/core/resources/spawn-wrapper')>(
         '@cleocode/core/resources/spawn-wrapper',
@@ -280,6 +283,8 @@ describe.skipIf(process.platform !== 'linux')('owned scope observations', () => 
     let membershipReads = 0;
     const captured: string[] = [];
     vi.spyOn(spawning, 'spawnWrapped').mockImplementation((command, args, options, wrapper) => {
+      expect(wrapper?.execution?.deadlineAt).toBe(originalDeadline);
+      expect(wrapper?.execution?.signal).toBe(controller.signal);
       captured.push(wrapper?.systemdControl?.runtimeDirectory ?? 'missing');
       const launched = originalSpawn(command, args, options, {
         ...wrapper,
@@ -319,6 +324,7 @@ describe.skipIf(process.platform !== 'linux')('owned scope observations', () => 
     });
     const promise = runProviderVerification(input);
     manager.runtimeDirectory = '/not-captured';
+    input.deadlineAt += 100_000;
     const result = await promise;
     expect(captured).toEqual(captured.map(() => join(root, 'control-runtime')));
     expect(result.scope).toMatchObject({
