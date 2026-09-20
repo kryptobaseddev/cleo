@@ -20,7 +20,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/contracts';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
+import { EngineResultError } from '../engine-result.js';
 import { resolveCleoDir } from '../paths.js';
 import type { CleoBlobStore as CleoBlobStoreType } from './llmtxt-blob-adapter.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
@@ -281,7 +282,10 @@ export interface AttachmentStore {
   /**
    * Retrieve attachment metadata by attachment ID.
    *
-   * @param attachmentId - The `att_<...>` or UUID attachment ID
+   * Exact IDs and full SHA-256 hex references are supported without reading bytes.
+   * If one reference names distinct ID and SHA rows, resolution fails explicitly.
+   *
+   * @param attachmentId - Exact attachment ID or full SHA-256 hex reference.
    * @param cwd          - Optional working directory for path resolution
    * @returns {@link AttachmentMetadata} or `null` if not found
    */
@@ -845,8 +849,29 @@ export function createAttachmentStore(): AttachmentStore {
 
     async getMetadata(attachmentId, cwd) {
       const db = await getDb(cwd);
-      const row = await db.select().from(attachments).where(eq(attachments.id, attachmentId)).get();
-      return row ? rowToMetadata(row) : null;
+      const rows = db
+        .select()
+        .from(attachments)
+        .where(
+          or(
+            eq(attachments.id, attachmentId),
+            /^[a-f0-9]{64}$/i.test(attachmentId)
+              ? eq(attachments.sha256, attachmentId.toLowerCase())
+              : undefined,
+          ),
+        )
+        .all();
+      if (rows.length > 1) {
+        throw new EngineResultError({
+          code: 'E_ATTACHMENT_REFERENCE_AMBIGUOUS',
+          message: 'Attachment reference identifies different ID and content-hash records.',
+          details: {
+            reference: attachmentId,
+            candidates: rows.map(({ id, sha256 }) => ({ id, sha256 })),
+          },
+        });
+      }
+      return rows[0] ? rowToMetadata(rows[0]) : null;
     },
 
     async findBySlug(slug, cwd) {

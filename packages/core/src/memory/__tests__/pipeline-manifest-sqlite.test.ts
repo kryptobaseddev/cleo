@@ -11,6 +11,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -156,6 +157,161 @@ describe('pipeline-manifest-sqlite', () => {
         );
       return native;
     }
+
+    async function storeDocument(root: string, slug: string, content: string) {
+      const { createAttachmentStore } = await import('../../store/attachment-store.js');
+      const { reserveSlug } = await import('../../docs/slug-allocator.js');
+      expect(await reserveSlug('note', slug, { cwd: root })).toMatchObject({ ok: true });
+      vi.stubEnv('CLEO_STRICT_SLUG_ALLOCATOR', '1');
+      const descriptor = {
+        kind: 'blob' as const,
+        mime: 'text/markdown',
+        storageKey: 'pending',
+        size: Buffer.byteLength(content),
+      };
+      return createAttachmentStore().put(
+        content,
+        descriptor,
+        'task',
+        'T001',
+        'manifest-test',
+        root,
+        { slug, type: 'note' },
+      );
+    }
+
+    it('resolves a canonical docs URI to the exact independently retrieved document bytes', async () => {
+      const { createDocsReadModel } = await import('../../docs/docs-read-model.js');
+      const content = '# Authentic report\n\nUnicode π and literal | evidence.  \n';
+      const slug = 'manifest-doc-evidence';
+      const stored = await storeDocument(testRoot, slug, content);
+      const model = createDocsReadModel(testRoot);
+      const doc = await model.resolveLatest(slug);
+      expect(doc?.sha256).toBe(createHash('sha256').update(content).digest('hex'));
+      expect(doc).not.toBeNull();
+      if (!doc) throw new Error('Canonical fixture document failed to resolve');
+      expect(await model.fetchContent(doc)).toBe(content);
+      for (const reference of [slug, stored.id, stored.sha256]) {
+        const resolved =
+          (await model.resolveLatest(reference)) ?? (await model.resolveByAttachmentId(reference));
+        expect(resolved, `canonical docs reference ${reference}`).toMatchObject({
+          id: stored.id,
+          sha256: stored.sha256,
+          slug,
+          kind: 'note',
+        });
+        const entry = {
+          ...ENTRY_A,
+          id: `doc-${reference}`,
+          file: `cleo://docs/${encodeURIComponent(reference)}`,
+        };
+        expect(await pipelineManifestAppend(entry, testRoot)).toMatchObject({ success: true });
+        const shown = await pipelineManifestShow(entry.id, testRoot);
+        expect(shown).toMatchObject({
+          success: true,
+          data: {
+            file: entry.file,
+            fileExists: true,
+            fileContent: content,
+            provenance: { tables: ['docs_pipeline_manifest'] },
+          },
+        });
+        if (!shown.success) throw new Error(shown.error.message);
+        expect(createHash('sha256').update(String(shown.data.fileContent)).digest('hex')).toBe(
+          doc.sha256,
+        );
+      }
+    });
+
+    it('pins document reads to the manifest project despite conflicting ambient roots', async () => {
+      const otherRoot = mkdtempSync(join(tmpdir(), 'cleo-manifest-doc-other-'));
+      mkdirSync(join(otherRoot, '.git'));
+      mkdirSync(join(otherRoot, '.cleo'));
+      try {
+        const slug = 'shared-report-slug';
+        await storeDocument(testRoot, slug, '# Project A bytes');
+        await storeDocument(otherRoot, slug, '# Project B bytes');
+        expect(
+          await pipelineManifestAppend({ ...ENTRY_A, file: `cleo://docs/${slug}` }, testRoot),
+        ).toMatchObject({ success: true });
+        vi.stubEnv('CLEO_ROOT', otherRoot);
+        vi.stubEnv('CLEO_DIR', join(otherRoot, '.cleo'));
+        expect(await pipelineManifestShow(ENTRY_A.id, testRoot)).toMatchObject({
+          success: true,
+          data: { fileContent: '# Project A bytes', fileExists: true },
+        });
+      } finally {
+        const { resetDbState } = await import('../../store/sqlite.js');
+        resetDbState();
+        rmSync(otherRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('distinguishes unavailable document content and failed reads from missing files', async () => {
+      const { DocsReadModel } = await import('../../docs/docs-read-model.js');
+      await storeDocument(testRoot, 'unavailable-report', '# Retained evidence');
+      expect(
+        await pipelineManifestAppend(
+          { ...ENTRY_A, file: 'cleo://docs/unavailable-report' },
+          testRoot,
+        ),
+      ).toMatchObject({ success: true });
+      const fetch = vi.spyOn(DocsReadModel.prototype, 'fetchContent');
+      try {
+        fetch.mockResolvedValueOnce(null);
+        expect(await pipelineManifestShow(ENTRY_A.id, testRoot)).toMatchObject({
+          success: false,
+          error: { code: 'E_MANIFEST_DOC_CONTENT_UNAVAILABLE' },
+        });
+        fetch.mockRejectedValueOnce(new Error('synthetic document read failure'));
+        expect(await pipelineManifestShow(ENTRY_A.id, testRoot)).toMatchObject({
+          success: false,
+          error: { code: 'E_MANIFEST_SHOW', message: 'synthetic document read failure' },
+        });
+      } finally {
+        fetch.mockRestore();
+      }
+    });
+
+    it.each([
+      ['cleo://docs/no-such-document', 'E_MANIFEST_DOC_NOT_FOUND'],
+      ['cleo://docs/', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/a/b', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/a?version=2', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/a#fragment', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/%ZZ', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/%2e%2e', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/a%2fb', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://other/report', 'E_MANIFEST_REFERENCE_UNSUPPORTED'],
+      ['https://example.invalid/report', 'E_MANIFEST_REFERENCE_UNSUPPORTED'],
+    ])('reports explicit resolution failure for %s', async (file, code) => {
+      const entry = { ...ENTRY_A, file };
+      expect(await pipelineManifestAppend(entry, testRoot)).toMatchObject({ success: true });
+      expect(await pipelineManifestShow(entry.id, testRoot)).toMatchObject({
+        success: false,
+        error: { code, details: { entryId: entry.id, reference: file } },
+      });
+    });
+
+    it('keeps real file reads and missing-file behavior distinct from read failures', async () => {
+      const entry = { ...ENTRY_A, file: 'ordinary.md' };
+      expect(await pipelineManifestAppend(entry, testRoot)).toMatchObject({ success: true });
+      expect(await pipelineManifestShow(entry.id, testRoot)).toMatchObject({
+        success: true,
+        data: { fileExists: false, fileContent: null },
+      });
+      writeFileSync(join(testRoot, entry.file), '# Ordinary bytes');
+      expect(await pipelineManifestShow(entry.id, testRoot)).toMatchObject({
+        success: true,
+        data: { fileExists: true, fileContent: '# Ordinary bytes' },
+      });
+      rmSync(join(testRoot, entry.file));
+      mkdirSync(join(testRoot, entry.file));
+      expect(await pipelineManifestShow(entry.id, testRoot)).toMatchObject({
+        success: false,
+        error: { code: 'E_MANIFEST_SHOW' },
+      });
+    });
 
     it('appends for a task that exists only in tasks_tasks with foreign_keys=1', async () => {
       const result = await pipelineManifestAppend(ENTRY_A, testRoot);

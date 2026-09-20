@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { ManifestWithProvenance } from '@cleocode/contracts/operations/research';
 import { eq, like, or } from 'drizzle-orm';
+import { createDocsReadModel } from '../docs/docs-read-model.js';
 import { type EngineFailure, type EngineResult, EngineResultError } from '../engine-result.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { docsPipelineManifest as pipelineManifest } from '../store/schema/cleo-project/docs.js';
@@ -331,7 +332,22 @@ function entryToRow(entry: ExtendedManifestEntry): typeof pipelineManifest.$infe
 // EngineResult-wrapped functions
 // ============================================================================
 
-/** pipeline.manifest.show - Get manifest entry details by ID */
+/**
+ * Retrieve a manifest and resolve its local file or canonical document reference.
+ *
+ * @remarks
+ * Supports `cleo://docs/<reference>` where the single percent-encoded segment is
+ * a document slug, attachment ID, or SHA-256 accepted by the canonical docs read
+ * model. URI syntax establishes no authority. Unsupported URIs and failed reads
+ * are explicit failures; missing ordinary files retain `fileExists: false`.
+ * @param researchId - Exact manifest identity, including historical entries.
+ * @param projectRoot - Explicit project directory used for both manifest and docs.
+ * @returns Manifest provenance and content, or a structured resolution failure.
+ * @example
+ * ```ts
+ * const result = await pipelineManifestShow('T001-report', '/project');
+ * ```
+ */
 export async function pipelineManifestShow(
   researchId: string,
   projectRoot?: string,
@@ -344,7 +360,8 @@ export async function pipelineManifestShow(
   }
 
   try {
-    const rows = await readRows(projectRoot, true, researchId);
+    const scope = manifestScope(projectRoot);
+    const rows = await readRows(scope.worktreeRoot, true, researchId);
 
     if (rows.length === 0) {
       return {
@@ -354,16 +371,68 @@ export async function pipelineManifestShow(
     }
 
     const entry = rowToEntry(rows[0]);
-    const root = manifestScope(projectRoot).worktreeRoot;
-
     let fileContent: string | null = null;
-    try {
-      const filePath = join(root, entry.file);
-      if (existsSync(filePath)) {
-        fileContent = readFileSync(filePath, 'utf-8');
+    if (/^[a-z][a-z\d+.-]*:/i.test(entry.file) && !/^[a-z]:[\\/]/i.test(entry.file)) {
+      const details = { entryId: researchId, reference: entry.file };
+      if (!entry.file.startsWith('cleo://docs/')) {
+        throw new EngineResultError({
+          code: 'E_MANIFEST_REFERENCE_UNSUPPORTED',
+          message:
+            'Only cleo://docs/<reference> document URIs are supported; no network lookup was attempted.',
+          details,
+        });
       }
-    } catch {
-      // File may not exist or be unreadable
+      const encoded = entry.file.slice('cleo://docs/'.length);
+      let reference: string;
+      try {
+        reference = decodeURIComponent(encoded);
+      } catch {
+        throw new EngineResultError({
+          code: 'E_MANIFEST_REFERENCE_INVALID',
+          message: 'Document reference contains invalid percent encoding.',
+          details,
+        });
+      }
+      if (
+        !reference ||
+        reference === '.' ||
+        reference === '..' ||
+        /[/\\?#\s\x00-\x1f]/.test(reference)
+      ) {
+        throw new EngineResultError({
+          code: 'E_MANIFEST_REFERENCE_INVALID',
+          message:
+            'Document URI requires one nonempty reference without path, query, or fragment components.',
+          details,
+        });
+      }
+      fileContent = await worktreeScope.run(scope, async () => {
+        const model = createDocsReadModel(scope.worktreeRoot);
+        const doc =
+          (await model.resolveLatest(reference)) ?? (await model.resolveByAttachmentId(reference));
+        if (!doc) {
+          throw new EngineResultError({
+            code: 'E_MANIFEST_DOC_NOT_FOUND',
+            message: 'Document reference was not found in the selected project.',
+            details,
+          });
+        }
+        const content = await model.fetchContent(doc);
+        if (content === null) {
+          throw new EngineResultError({
+            code: 'E_MANIFEST_DOC_CONTENT_UNAVAILABLE',
+            message: 'Document metadata resolved but its content is unavailable.',
+            details: { ...details, attachmentId: doc.id, sha256: doc.sha256 },
+          });
+        }
+        return content;
+      });
+    } else if (entry.file) {
+      try {
+        fileContent = readFileSync(join(scope.worktreeRoot, entry.file), 'utf-8');
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+      }
     }
 
     return {
