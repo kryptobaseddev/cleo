@@ -196,6 +196,73 @@ describe('AttachmentStore', () => {
     expect(result).toBeNull();
   });
 
+  it('resolves exact attachment hashes without requiring stored content bytes', async () => {
+    const { createAttachmentStore } = await import('../attachment-store.js');
+    const store = createAttachmentStore();
+    const bytes = Buffer.from('Retained attachment metadata');
+    const meta = await store.put(
+      bytes,
+      { kind: 'blob', storageKey: '', mime: 'text/plain', size: bytes.length },
+      'task',
+      'T001',
+    );
+    expect(await store.getMetadata(meta.id)).toEqual(meta);
+    expect(await store.getMetadata(meta.sha256)).toEqual(meta);
+    expect(await store.getMetadata(meta.sha256.toUpperCase())).toEqual(meta);
+    const path = join(
+      join(tempDir, '.cleo'),
+      'attachments',
+      'sha256',
+      meta.sha256.slice(0, 2),
+      `${meta.sha256.slice(2)}.txt`,
+    );
+    await rm(path);
+    expect(await store.get(meta.sha256)).toBeNull();
+    expect(await store.getMetadata(meta.sha256)).toEqual(meta);
+    const { createDocsReadModel } = await import('../../docs/docs-read-model.js');
+    const model = createDocsReadModel(tempDir);
+    expect(await model.resolveByAttachmentId(meta.sha256)).toMatchObject({
+      id: meta.id,
+      sha256: meta.sha256,
+    });
+    expect(await model.fetchDecoded(meta.sha256)).toMatchObject({
+      ok: false,
+      reason: 'no-content',
+      doc: { id: meta.id },
+    });
+    expect(await store.getMetadata(meta.sha256.slice(0, 63))).toBeNull();
+    expect(await store.getMetadata('g'.repeat(64))).toBeNull();
+  });
+
+  it('rejects an identity that names different ID and SHA records with both candidates', async () => {
+    const { createAttachmentStore } = await import('../attachment-store.js');
+    const { getDb } = await import('../sqlite.js');
+    const { attachments } = await import('../tasks-schema.js');
+    const store = createAttachmentStore();
+    const bytes = Buffer.from('Canonical content-addressed record');
+    const meta = await store.put(
+      bytes,
+      { kind: 'blob', storageKey: '', mime: 'text/plain', size: bytes.length },
+      'task',
+      'T001',
+    );
+    const db = await getDb();
+    const row = db.select().from(attachments).get();
+    if (!row) throw new Error('Attachment fixture did not persist');
+    await db.insert(attachments).values({ ...row, id: meta.sha256, sha256: 'f'.repeat(64) });
+    await expect(store.getMetadata(meta.sha256)).rejects.toMatchObject({
+      code: 'E_ATTACHMENT_REFERENCE_AMBIGUOUS',
+      details: {
+        reference: meta.sha256,
+        candidates: expect.arrayContaining([
+          { id: meta.id, sha256: meta.sha256 },
+          { id: meta.sha256, sha256: 'f'.repeat(64) },
+        ]),
+      },
+    });
+    expect(db.select().from(attachments).all()).toHaveLength(2);
+  });
+
   // ──────────────────────────────────────────────────────────────────────────
   // listByOwner returns correct attachments
   // ──────────────────────────────────────────────────────────────────────────
