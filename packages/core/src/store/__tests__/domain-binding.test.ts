@@ -52,6 +52,22 @@ describe('domain binding registry (T12037)', () => {
     await rm(dirB, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
   });
 
+  it('retains a captured global home while unscoped routing follows ambient changes', async () => {
+    const { resolveDualScopeDbPath } = await import('../dual-scope-db.js');
+    const previous = process.env['CLEO_HOME'];
+    try {
+      process.env['CLEO_HOME'] = dirA;
+      const captured = dirA;
+      process.env['CLEO_HOME'] = dirB;
+      expect(resolveDualScopeDbPath('global', undefined, captured)).toBe(join(dirA, 'cleo.db'));
+      expect(resolveDualScopeDbPath('global')).toBe(join(dirB, 'cleo.db'));
+      expect(resolveDualScopeDbPath('project', dirA, dirB)).toBe(join(dirA, '.cleo', 'cleo.db'));
+    } finally {
+      if (previous === undefined) delete process.env['CLEO_HOME'];
+      else process.env['CLEO_HOME'] = previous;
+    }
+  });
+
   it('keys bindings by canonical path — two projects coexist', async () => {
     const { bindTasksDomain } = await import('../sqlite.js');
 

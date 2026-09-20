@@ -308,13 +308,27 @@ function cacheKey(scope: DualScope, dbPath: string): CacheKey {
  * Resolve the absolute path to the dual-scope `cleo.db` for the given scope.
  *
  * - `project`: `resolveCleoDir(cwd)` + `'cleo.db'` (falls under `<root>/.cleo/`)
- * - `global`:  `getCleoHome()` + `'cleo.db'` (falls under XDG data home `/cleo/`)
+ * - `global`: `getCleoHome()` + `'cleo.db'` (falls under XDG data home `/cleo/`).
+ * @param scope - Project or global storage ownership.
+ * @param cwd - Explicit project root when resolving project storage.
+ * @param capturedGlobalHome - Previously captured global home, independent of later environment changes.
+ * @returns Canonical consolidated store path.
+ * @remarks Omitting the captured home preserves ambient global routing. A project
+ * resolution never uses the global home override. Capture ownership before awaiting.
+ * @example
+ * ```ts
+ * const path = resolveDualScopeDbPath('global', undefined, capturedHome);
+ * ```
  */
-export function resolveDualScopeDbPath(scope: DualScope, cwd?: string): string {
+export function resolveDualScopeDbPath(
+  scope: DualScope,
+  cwd?: string,
+  capturedGlobalHome?: string,
+): string {
   if (scope === 'project') {
     return join(resolveCleoDir(cwd), 'cleo.db');
   }
-  return join(getCleoHome(), 'cleo.db');
+  return join(capturedGlobalHome ?? getCleoHome(), 'cleo.db');
 }
 
 // ── Migration folder resolution ──────────────────────────────────────────────
