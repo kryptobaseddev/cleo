@@ -19,7 +19,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:child_process', { spy: true });
 
@@ -28,6 +28,7 @@ import {
   _forceSystemdRunAvailable,
   buildSpawnArgs,
   CLEO_SLICE,
+  captureWrapped,
   createParserExecutionPort,
   DEFAULT_SCOPE_RESOURCES,
   hasSystemdRun,
@@ -532,4 +533,212 @@ describe.skipIf(process.platform !== 'linux')('original process launch deadline'
     );
     expect(spawn).not.toHaveBeenCalled();
   });
+});
+
+describe.skipIf(process.platform === 'win32')('captured target lifecycle', () => {
+  beforeEach(async () => {
+    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    vi.mocked(spawn).mockImplementation(actual.spawn);
+    vi.mocked(spawnSync).mockImplementation(actual.spawnSync);
+    _resetTeardownSignalForTests();
+  });
+  it('separates a missing executable from an actual nonzero exit and retains exact argv', async () => {
+    _forceSystemdRunAvailable(false);
+    _resetTeardownSignalForTests();
+    const options = { cwd: tmpdir(), env: {}, execution: { deadlineAt: Date.now() + 5000 } };
+    const missing = await captureWrapped('/no-such-cleo-capture-binary', [], options);
+    expect(missing).toMatchObject({ started: false, exitCode: null, stopped: null });
+    expect(missing.error).toContain('ENOENT');
+    const exited = await captureWrapped(
+      process.execPath,
+      ['-e', 'process.stdout.write(process.argv[1]); process.exit(7)', 'quoted ü | argument'],
+      options,
+    );
+    expect(exited).toMatchObject({
+      started: true,
+      exitCode: 7,
+      signal: null,
+      error: null,
+      stopped: null,
+      stdout: 'quoted ü | argument',
+      nativeMemory: 'unverified',
+      cleanupErrors: [],
+    });
+  });
+
+  it('retains signals independently from numeric exit outcomes', async () => {
+    _forceSystemdRunAvailable(false);
+    const result = await captureWrapped(
+      process.execPath,
+      ['-e', "process.kill(process.pid, 'SIGTERM')"],
+      { cwd: tmpdir(), env: {}, execution: { deadlineAt: Date.now() + 5000 } },
+    );
+    expect(result).toMatchObject({
+      started: true,
+      exitCode: null,
+      signal: 'SIGTERM',
+      stopped: null,
+    });
+  });
+
+  it('stops aggregate UTF-8 output at the declared byte limit', async () => {
+    _forceSystemdRunAvailable(false);
+    const result = await captureWrapped(
+      process.execPath,
+      ['-e', "process.stdout.write('😀'.repeat(10000)); process.stderr.write('x'.repeat(10000))"],
+      { cwd: tmpdir(), env: {}, maxOutputBytes: 102, execution: { deadlineAt: Date.now() + 5000 } },
+    );
+    expect(result.stopped).toBe('output-limit');
+    expect(result.outputTruncated).toBe(true);
+    // Capture never represents an incomplete UTF-8 suffix as extra replacement bytes.
+    expect(Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr)).toBeLessThanOrEqual(
+      102,
+    );
+  });
+
+  it('rejects an expired original deadline before spawning', async () => {
+    _forceSystemdRunAvailable(false);
+    vi.clearAllMocks();
+    await expect(
+      captureWrapped(process.execPath, ['-e', 'process.exit(0)'], {
+        cwd: tmpdir(),
+        env: {},
+        execution: { deadlineAt: Date.now() - 1 },
+      }),
+    ).rejects.toThrow('DEADLINE');
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('stops the original running process group on cancellation', async () => {
+    _forceSystemdRunAvailable(false);
+    const controller = new AbortController();
+    const pending = captureWrapped(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      cwd: tmpdir(),
+      env: {},
+      execution: { deadlineAt: Date.now() + 5000, signal: controller.signal },
+    });
+    const timer = setTimeout(() => controller.abort(), 150);
+    try {
+      const result = await pending;
+      expect(result.stopped).toBe('cancelled');
+      expect(result.cleanupErrors).toEqual([]);
+      if (result.targetPid) expect(() => process.kill(result.targetPid, 0)).toThrow();
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  it('bounds a descendant that keeps the target pipes open after its parent exits', async () => {
+    _forceSystemdRunAvailable(false);
+    const script =
+      "const c=require('node:child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:['ignore',1,2]});process.stdout.write(String(c.pid));c.unref()";
+    const result = await captureWrapped(process.execPath, ['-e', script], {
+      cwd: tmpdir(),
+      env: {},
+      execution: { deadlineAt: Date.now() + 400 },
+    });
+    expect(result.stopped).toBe('deadline');
+    expect(result.stdout).toMatch(/^\d+$/);
+    expect(result.cleanupErrors).toEqual([]);
+    expect(() => process.kill(Number(result.stdout), 0)).toThrow();
+  });
+
+  it.each([
+    ['malformed', "process.stdout.write('not-json\\n')"],
+    ['truncated', "process.stdout.write('{')"],
+    ['wrapper exit', 'process.exit(127)'],
+    [
+      'missing start',
+      "process.stdout.write(JSON.stringify({type:'closed',code:0,signal:null})+'\\n')",
+    ],
+  ])('refuses %s transport as a target verdict', async (_label, script) => {
+    _forceSystemdRunAvailable(false);
+    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    vi.mocked(spawn).mockImplementation((_command, _args, options) =>
+      actual.spawn(process.execPath, ['-e', script], options),
+    );
+    const result = await captureWrapped('must-not-be-executed', [], {
+      cwd: tmpdir(),
+      env: {},
+      execution: { deadlineAt: Date.now() + 5000 },
+    });
+    expect(result).toMatchObject({ started: false, exitCode: null, stopped: 'transport-error' });
+    expect(result.error).toBeTruthy();
+  });
+
+  it('captures environment before caller edits and keeps secrets out of argv', async () => {
+    _forceSystemdRunAvailable(false);
+    const env = { CAPTURE_SECRET: 'original-sensitive-value' };
+    const pending = captureWrapped(
+      process.execPath,
+      ['-e', 'process.stdout.write(process.env.CAPTURE_SECRET)'],
+      { cwd: tmpdir(), env, execution: { deadlineAt: Date.now() + 5000 } },
+    );
+    env.CAPTURE_SECRET = 'changed';
+    const result = await pending;
+    expect(result.stdout).toBe('original-sensitive-value');
+    expect(vi.mocked(spawn).mock.calls.at(-1)?.[1]?.join(' ')).not.toContain(
+      'original-sensitive-value',
+    );
+  });
+
+  it('aborts tracked capture on teardown and refuses future launches', async () => {
+    _forceSystemdRunAvailable(false);
+    const options = { cwd: tmpdir(), env: {}, execution: { deadlineAt: Date.now() + 5000 } };
+    const pending = captureWrapped(process.execPath, ['-e', 'setInterval(()=>{},1000)'], options);
+    const timer = setTimeout(() => markShuttingDown(), 100);
+    try {
+      const result = await pending;
+      expect(result.stopped).toBe('teardown');
+      await expect(captureWrapped('unused', [], options)).rejects.toThrow('E_TEARDOWN');
+    } finally {
+      clearTimeout(timer);
+      _resetTeardownSignalForTests();
+    }
+  });
+
+  it.skipIf(process.platform !== 'linux')(
+    'observes real scope membership and terminal cleanup when a user manager is available',
+    async (context) => {
+      const systemdControl = { runtimeDirectory: `/run/user/${process.getuid?.()}` };
+      _forceSystemdRunAvailable(undefined);
+      if (!hasSystemdRun(systemdControl, { deadlineAt: Date.now() + 1000 })) {
+        context.skip();
+        return;
+      }
+      const result = await captureWrapped(
+        process.execPath,
+        ['-e', "process.stdout.write(require('node:fs').readFileSync('/proc/self/cgroup','utf8'))"],
+        { cwd: tmpdir(), env: {}, systemdControl, execution: { deadlineAt: Date.now() + 5000 } },
+      );
+      expect(result).toMatchObject({
+        started: true,
+        exitCode: 0,
+        stopped: null,
+        error: null,
+        mode: 'systemd',
+        transportClosed: true,
+        targetCloseObserved: true,
+        cleanupObservation: 'scope-terminal',
+        cleanupErrors: [],
+      });
+      expect(result.unitName).toBeTruthy();
+      if (!result.unitName) throw new Error('Missing observed scope identity');
+      expect(result.stdout).toContain(result.unitName);
+      expect(result.nativeMemory).toBe('unverified');
+      const expired = await captureWrapped(process.execPath, ['-e', 'setInterval(()=>{},1000)'], {
+        cwd: tmpdir(),
+        env: {},
+        systemdControl,
+        execution: { deadlineAt: Date.now() + 300 },
+      });
+      expect(expired).toMatchObject({
+        started: true,
+        stopped: 'deadline',
+        mode: 'systemd',
+        cleanupErrors: [],
+      });
+      expect(expired.unitName).not.toBe(result.unitName);
+    },
+  );
 });

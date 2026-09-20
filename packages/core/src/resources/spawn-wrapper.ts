@@ -66,13 +66,19 @@
  */
 
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import type { ParserExecutionPort } from '@cleocode/contracts';
 import type {
+  ProcessCaptureOptions,
+  ProcessCaptureResult,
+  ProcessCaptureStop,
   ProcessLaunchExecution,
   SystemdControlContext,
 } from '@cleocode/contracts/resource-governor';
+import { z } from 'zod';
 import { registerTeardownAbort } from '../teardown-signal.js';
 
 // ---------------------------------------------------------------------------
@@ -585,6 +591,316 @@ export function spawnWrapped(
     mode: built.mode,
     unitName: built.unitName,
   };
+}
+
+/** Transport reports target events separately from the enclosing scope wrapper. */
+const CAPTURE_TRANSPORT = String.raw`
+const { spawn } = require('node:child_process');
+const send = (event) => process.stdout.write(JSON.stringify(event) + '\n');
+const [command, ...args] = process.argv.slice(1);
+const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+child.once('spawn', () => send({ type: 'started', pid: child.pid }));
+child.once('error', (error) => send({ type: 'error', message: String(error.code || '') + ': ' + error.message }));
+for (const stream of ['stdout', 'stderr']) {
+  child[stream].on('data', (chunk) => {
+    for (let offset = 0; offset < chunk.length; offset += 16384)
+      send({ type: 'data', stream, bytes: chunk.subarray(offset, offset + 16384).toString('base64') });
+  });
+}
+child.once('close', (code, signal) => send({ type: 'closed', code, signal }));
+`;
+
+/** Internal framing is validated before it can supply a target verdict. */
+const captureFrameSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('started'), pid: z.number().int().positive() }).strict(),
+  z.object({ type: z.literal('error'), message: z.string() }).strict(),
+  z
+    .object({ type: z.literal('data'), stream: z.enum(['stdout', 'stderr']), bytes: z.string() })
+    .strict(),
+  z
+    .object({
+      type: z.literal('closed'),
+      code: z.number().int().nullable(),
+      signal: z.string().nullable(),
+    })
+    .strict(),
+]);
+
+/**
+ * Capture an owned process with a shared deadline, cancellation and bounded output.
+ * @param command - Exact executable; never interpreted as a shell expression.
+ * @param args - Exact target arguments; no environment values are added to argv.
+ * @param options - Explicit captured routing, environment and original execution budget.
+ * @returns Target events and independent transport, stop and cleanup diagnostics.
+ * @throws When admission inputs are invalid, the original context has ended, or the platform cannot provide process-group cleanup.
+ * @remarks A fixed Node transport distinguishes the requested process from systemd/sh
+ * launchers. Cleanup has a bounded additional manager timeout and can exceed the
+ * execution deadline. POSIX process groups cannot contain deliberately escaped
+ * descendants; Windows cleanup covers only the direct child and is reported as such.
+ * Native-memory limits remain unverified. This is a transport, not a job scheduler.
+ * @example
+ * ```typescript
+ * const result = await captureWrapped('node', ['check.mjs'], {
+ *   cwd: projectRoot, env: {}, execution: { deadlineAt: Date.now() + 2000 },
+ * });
+ * if (result.started && !result.stopped && result.exitCode === 0) inspect(result);
+ * ```
+ */
+export async function captureWrapped(
+  command: string,
+  args: readonly string[],
+  options: ProcessCaptureOptions,
+): Promise<ProcessCaptureResult> {
+  if (process.platform === 'win32')
+    throw new Error(
+      'E_PROCESS_CONTAINMENT: bounded process-group capture is unavailable on Windows',
+    );
+  if (!isAbsolute(options.cwd)) throw new TypeError('Captured process cwd must be absolute');
+  const maxOutputBytes = options.maxOutputBytes ?? 1_048_576;
+  if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1)
+    throw new RangeError('Capture byte limit must be a positive safe integer');
+  const execution = { ...options.execution };
+  const env = { ...options.env };
+  const systemdControl = options.systemdControl ? { ...options.systemdControl } : undefined;
+  const startedAt = Date.now();
+  launchRemaining(execution);
+  const controller = new AbortController();
+  const deregister = registerTeardownAbort(controller);
+  let owned: SpawnWrappedResult;
+  try {
+    controller.signal.throwIfAborted();
+    owned = spawnWrapped(
+      process.execPath,
+      ['-e', CAPTURE_TRANSPORT, command, ...args],
+      {
+        cwd: options.cwd,
+        env,
+        detached: process.platform !== 'win32',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+      {
+        scopeClass: 'tool',
+        scopeId: `${process.pid}-${randomUUID()}`,
+        execution,
+        systemdControl,
+        noCoreFile: false,
+      },
+    );
+  } catch (error) {
+    deregister();
+    throw error;
+  }
+  return new Promise<ProcessCaptureResult>((resolve) => {
+    const { child } = owned;
+    let started = false;
+    let targetPid: number | null = null;
+    let exitCode: number | null = null;
+    let signal: string | null = null;
+    let error: string | null = null;
+    let stopped: ProcessCaptureStop | null = null;
+    let closedFrame = false;
+    let pending = '';
+    let outputBytes = 0;
+    let outputTruncated = false;
+    let wrapperError = '';
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    const cleanupErrors: string[] = [];
+    let cleanupObservation: ProcessCaptureResult['cleanupObservation'] = 'unverified';
+    let terminated = false;
+    const terminate = () => {
+      if (terminated) return;
+      terminated = true;
+      if (child.pid) {
+        try {
+          if (process.platform === 'win32') child.kill('SIGKILL');
+          else {
+            process.kill(-child.pid, 'SIGKILL');
+            cleanupObservation = 'process-group-signalled';
+          }
+        } catch (cause) {
+          if (cause instanceof Error && 'code' in cause && cause.code === 'ESRCH')
+            cleanupObservation = 'process-group-absent';
+          else cleanupErrors.push(String(cause));
+        }
+      }
+      if (owned.unitName) {
+        const cleanup = spawnSync(
+          'systemctl',
+          ['--user', 'kill', '--kill-whom=all', '--signal=SIGKILL', owned.unitName],
+          {
+            env: managerEnvironment(systemdControl, env),
+            timeout: 1000,
+            maxBuffer: 4096,
+            encoding: 'utf8',
+          },
+        );
+        const observation = spawnSync(
+          'systemctl',
+          ['--user', 'show', owned.unitName, '--property=LoadState', '--property=ActiveState'],
+          {
+            env: managerEnvironment(systemdControl, env),
+            timeout: 1000,
+            maxBuffer: 4096,
+            encoding: 'utf8',
+          },
+        );
+        const inactive = observation.stdout
+          ?.split('\n')
+          .some(
+            (line) =>
+              line === 'LoadState=not-found' ||
+              line === 'ActiveState=inactive' ||
+              line === 'ActiveState=failed',
+          );
+        if (!observation.error && inactive) cleanupObservation = 'scope-terminal';
+        if (observation.error || !inactive)
+          cleanupErrors.push(
+            `Scope cleanup unverified: ${
+              observation.error?.message ??
+              observation.stderr?.trim() ??
+              cleanup.error?.message ??
+              cleanup.stderr?.trim() ??
+              'scope remains active'
+            }`,
+          );
+      }
+    };
+    const stop = (reason: ProcessCaptureStop, diagnostic?: string) => {
+      stopped ??= reason;
+      if (diagnostic) error ??= diagnostic;
+      terminate();
+    };
+    const cancelled = () => stop('cancelled');
+    const teardown = () => stop('teardown');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = () => {
+      const remaining = execution.deadlineAt - Date.now();
+      if (remaining <= 0) stop('deadline');
+      else timer = setTimeout(deadline, Math.min(2_147_483_647, remaining));
+    };
+    deadline();
+    execution.signal?.addEventListener('abort', cancelled, { once: true });
+    controller.signal.addEventListener('abort', teardown, { once: true });
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      pending += chunk;
+      for (;;) {
+        const end = pending.indexOf('\n');
+        if (end < 0) break;
+        const line = pending.slice(0, end);
+        pending = pending.slice(end + 1);
+        if (line.length > 32768) {
+          stop('transport-error', 'Capture frame exceeds byte bound');
+          break;
+        }
+        try {
+          const frame = captureFrameSchema.parse(JSON.parse(line));
+          if (closedFrame) throw new Error('Capture frame received after target close');
+          switch (frame.type) {
+            case 'started':
+              if (started || error) throw new Error('Duplicate or contradictory target start');
+              started = true;
+              targetPid = frame.pid;
+              break;
+            case 'error':
+              error = frame.message;
+              break;
+            case 'closed':
+              closedFrame = true;
+              if (started) {
+                exitCode = frame.code;
+                signal = frame.signal;
+              }
+              break;
+            case 'data': {
+              if (!started) throw new Error('Output before target spawn');
+              const bytes = Buffer.from(frame.bytes, 'base64');
+              if (bytes.toString('base64') !== frame.bytes)
+                throw new Error('Malformed output encoding');
+              const allowed = Math.max(0, maxOutputBytes - outputBytes);
+              (frame.stream === 'stdout' ? stdout : stderr).push(bytes.subarray(0, allowed));
+              outputBytes += bytes.length;
+              if (outputBytes > maxOutputBytes) {
+                outputTruncated = true;
+                stop('output-limit');
+              }
+              break;
+            }
+          }
+        } catch (cause) {
+          stop('transport-error', `Invalid capture transport: ${String(cause)}`);
+        }
+      }
+      if (pending.length > 32768)
+        stop('transport-error', 'Unterminated capture frame exceeds bound');
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      wrapperError = Buffer.concat([Buffer.from(wrapperError), chunk])
+        .subarray(0, 4096)
+        .toString('utf8');
+    });
+    child.once('error', (cause) => {
+      error = `Capture launcher failed: ${cause.message}`;
+    });
+    child.once('close', (wrapperCode, wrapperSignal) => {
+      clearTimeout(timer);
+      execution.signal?.removeEventListener('abort', cancelled);
+      controller.signal.removeEventListener('abort', teardown);
+      deregister();
+      if (
+        !stopped &&
+        (!closedFrame ||
+          (!started && !error) ||
+          pending.length ||
+          wrapperCode !== 0 ||
+          wrapperSignal)
+      ) {
+        stopped = 'transport-error';
+        error ??= `Capture transport incomplete (wrapper code ${wrapperCode}, signal ${wrapperSignal}): ${wrapperError}`;
+      }
+      terminate();
+      if (
+        Buffer.byteLength(Buffer.concat(stdout).toString('utf8')) +
+          Buffer.byteLength(Buffer.concat(stderr).toString('utf8')) >
+        maxOutputBytes
+      ) {
+        outputTruncated = true;
+        stopped ??= 'output-limit';
+      }
+      const decodedStdout = new StringDecoder('utf8').write(
+        Buffer.from(Buffer.concat(stdout).toString('utf8')).subarray(0, maxOutputBytes),
+      );
+      const decodedStderr = new StringDecoder('utf8').write(
+        Buffer.from(Buffer.concat(stderr).toString('utf8')).subarray(
+          0,
+          maxOutputBytes - Buffer.byteLength(decodedStdout),
+        ),
+      );
+      resolve({
+        started,
+        targetPid,
+        exitCode,
+        signal,
+        error,
+        stopped,
+        stdout: decodedStdout,
+        stderr: decodedStderr,
+        outputTruncated,
+        durationMs: Date.now() - startedAt,
+        mode: owned.mode,
+        ...(owned.unitName ? { unitName: owned.unitName } : {}),
+        nativeMemory: 'unverified',
+        cleanupScope: process.platform === 'win32' ? 'direct-child' : 'process-group',
+        transportClosed: true,
+        targetCloseObserved: closedFrame,
+        cleanupObservation,
+        cleanupErrors,
+      });
+    });
+    if (execution.signal?.aborted) cancelled();
+    if (controller.signal.aborted) teardown();
+  });
 }
 
 /**
