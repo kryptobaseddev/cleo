@@ -2,8 +2,8 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.20.2
-  lastReviewed: 2026-09-19
+  version: 2.20.3
+  lastReviewed: 2026-09-20
   stability: stable
 ---
 
@@ -29,7 +29,10 @@ instruction checks do not establish live Codex, Claude, or Kimi behavior.
 
 Use `cleo doctor knowledge --dry-run` to inspect findings and sourced proposals.
 Persist reviewed JSON with `cleo doctor knowledge --prepare proposal.json --actor AGENT`.
-For each job operation, supply the original explicit actor and proposal ID:
+Discover retained jobs with `--jobs --actor AGENT`; continue with `--limit` and returned
+JSON `--cursor`. Follow each `inspectArgv`; never guess the latest job. Partial diagnostics
+remain unresolved, and job status alone does not verify current effects.
+For job operations, supply the original explicit actor and proposal ID:
 `cleo doctor knowledge --apply JOB --actor AGENT --proposal-id PROPOSAL`;
 replace `--apply` with `--inspect`, `--cancel`, or `--resume` for that operation.
 Inspection returns original receipts, separate rollback corrections, diagnostic
