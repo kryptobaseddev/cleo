@@ -871,8 +871,10 @@ export class DurableJobStore {
     };
     const after = query.after;
     if (
-      after &&
-      (!Number.isSafeInteger(after.startedAt) ||
+      after !== undefined &&
+      (!after ||
+        typeof after !== 'object' ||
+        !Number.isSafeInteger(after.startedAt) ||
         typeof after.id !== 'string' ||
         !after.id.trim() ||
         after.version !== scope.version ||

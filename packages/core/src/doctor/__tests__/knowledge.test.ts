@@ -24,6 +24,7 @@ import {
   createKnowledgeRepairInvocation,
   inspectPreparedKnowledgeRepair,
   listKnowledgeRepairReceipts,
+  listPreparedKnowledgeRepairs,
   prepareKnowledgeRepair,
   prepareKnowledgeRollback,
   resumePreparedKnowledgeRepair,
@@ -540,6 +541,170 @@ describe('durable sourced knowledge repair preparation', () => {
       ),
     );
   }
+
+  it('discovers immutable principals across empty actor pages and mutable expired lease ownership', async () => {
+    const otherProposal = { ...proposal, id: proposal.id + '-other' };
+    const other = createOperationExecutionContext(
+      { ...context.identity, actor: 'other-principal', idempotencyKey: otherProposal.id },
+      { deadlineAt: context.deadlineAt, signal: context.signal },
+    );
+    try {
+      const first = await prepareKnowledgeRepair(other, otherProposal);
+      const second = await prepareKnowledgeRepair(context, proposal);
+      const db = getBrainNativeDb(root)!;
+      db.prepare('UPDATE main.background_jobs SET started_at=? WHERE id=?').run(1, first.jobId);
+      db.prepare('UPDATE main.background_jobs SET started_at=? WHERE id=?').run(2, second.jobId);
+      const borrower = new DurableJobStore(await getDb(root), {
+        projectId: context.identity.projectId,
+        actor: 'different-lease-owner',
+      });
+      borrower.claim(second.jobId, Date.now());
+      db.prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?').run(second.jobId);
+      const before = db.prepare('SELECT * FROM main.background_jobs ORDER BY id').all();
+      const page = await listPreparedKnowledgeRepairs(context, { limit: 1 });
+      expect(page).toMatchObject({
+        status: 'current',
+        entries: [],
+        scannedCount: 1,
+        excludedActorCount: 1,
+        hasMoreCandidates: true,
+        matchingTotal: null,
+        nextCursor: { id: first.jobId },
+      });
+      if (!page.nextCursor) throw new Error('Missing candidate continuation');
+      const next = await listPreparedKnowledgeRepairs(context, {
+        limit: 1,
+        after: page.nextCursor,
+      });
+      expect(next.entries).toHaveLength(1);
+      expect(next.entries[0]).toMatchObject({
+        jobId: second.jobId,
+        proposalId: proposal.id,
+        actor: context.identity.actor,
+        claimedBy: 'different-lease-owner',
+        status: 'running',
+        attempts: 1,
+        leaseExpiresAt: 0,
+        receiptVerification: 'inspection-required',
+        inspectArgv: [
+          'doctor',
+          'knowledge',
+          '--inspect',
+          second.jobId,
+          '--actor',
+          context.identity.actor,
+          '--proposal-id',
+          proposal.id,
+        ],
+      });
+      expect(db.prepare('SELECT * FROM main.background_jobs ORDER BY id').all()).toEqual(before);
+    } finally {
+      other.close();
+    }
+  });
+
+  it.each([
+    'complete',
+    'failed',
+  ] as const)('discovers %s history without promoting status to current effects', async (status) => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    if (status === 'complete') await applyPreparedKnowledgeRepair(context, pending.jobId);
+    else {
+      await incrementCitationCounts(root, ['O-prepared']);
+      await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+        code: 'E_REPAIR_STALE',
+      });
+    }
+    const before = persisted();
+    const page = await listPreparedKnowledgeRepairs(context);
+    expect(page.entries[0]).toMatchObject({
+      jobId: pending.jobId,
+      status,
+      attempts: 1,
+      receiptVerification: 'inspection-required',
+    });
+    expect(page.history).toBe('retained-inspection-required');
+    const inspection = await inspectPreparedKnowledgeRepair(context, pending.jobId);
+    expect(inspection.status).toBe(status);
+    expect(status === 'complete' ? inspection.receipt : inspection.ledger.length).toBeTruthy();
+    expect(persisted()).toEqual(before);
+  });
+
+  it.each([
+    'hash',
+    'schema',
+    'scope',
+    'result',
+  ] as const)('discloses corrupt %s candidate without erasing or guessing its principal', async (corruption) => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const db = getBrainNativeDb(root)!;
+    const row = db
+      .prepare('SELECT proposal_json FROM main.background_jobs WHERE id=?')
+      .get(pending.jobId);
+    if (typeof row?.proposal_json !== 'string') throw new Error('Missing proposal');
+    const body = JSON.parse(row.proposal_json);
+    if (corruption === 'result')
+      db.prepare('UPDATE main.background_jobs SET result=? WHERE id=?').run(
+        'broken-json',
+        pending.jobId,
+      );
+    else {
+      if (corruption === 'schema') body.version = 99;
+      if (corruption === 'scope') body.identity.projectRoot = join(root, 'different');
+      const bytes = JSON.stringify(body);
+      db.prepare('UPDATE main.background_jobs SET proposal_json=?,proposal_hash=? WHERE id=?').run(
+        bytes,
+        corruption === 'hash' ? '0'.repeat(64) : createHash('sha256').update(bytes).digest('hex'),
+        pending.jobId,
+      );
+    }
+    const before = persisted();
+    const page = await listPreparedKnowledgeRepairs(context);
+    expect(page).toMatchObject({
+      status: 'partial',
+      entries: [],
+      scannedCount: 1,
+      excludedActorCount: 0,
+    });
+    expect(page.diagnostics[0]?.jobId).toBe(pending.jobId);
+    expect(page.diagnostics[0]?.message.length).toBeGreaterThan(0);
+    expect(persisted()).toEqual(before);
+  });
+
+  it('keeps required read, payload and identity failures explicit instead of reporting an empty inventory', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    await expect(listPreparedKnowledgeRepairs(context, { maxPayloadBytes: 1 })).rejects.toThrow(
+      'payload exceeds',
+    );
+    const store = vi.spyOn(DurableJobStore.prototype, 'listPage').mockImplementationOnce(() => {
+      throw new Error('synthetic read fault');
+    });
+    await expect(listPreparedKnowledgeRepairs(context)).rejects.toThrow('synthetic read fault');
+    store.mockRestore();
+    const before = persisted();
+    vi.stubEnv('CLEO_ROOT', join(root, 'unrelated'));
+    vi.stubEnv('CLEO_DIR', join(root, 'unrelated', '.cleo'));
+    expect((await listPreparedKnowledgeRepairs(context)).entries[0]?.jobId).toBe(pending.jobId);
+    expect(persisted()).toEqual(before);
+    writeFileSync(
+      join(root, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'wrong', projectRoot: root }),
+    );
+    await expect(listPreparedKnowledgeRepairs(context)).rejects.toMatchObject({
+      code: 'E_REPAIR_SCOPE',
+    });
+  });
+
+  it('preserves the inventory caller deadline and rejects closed contexts before storage', async () => {
+    const read = vi.spyOn(DurableJobStore.prototype, 'listPage');
+    const page = await listPreparedKnowledgeRepairs(context);
+    expect(page).toMatchObject({ status: 'current', entries: [], hasMoreCandidates: false });
+    expect(read.mock.calls[0]?.[1]).toBe(context);
+    context.close();
+    read.mockClear();
+    await expect(listPreparedKnowledgeRepairs(context)).rejects.toThrow();
+    expect(read).not.toHaveBeenCalled();
+  });
 
   it('applies prepared quarantine, scoped receipt and job completion atomically with fresh-process readback', async () => {
     const pending = await prepareKnowledgeRepair(context, proposal);

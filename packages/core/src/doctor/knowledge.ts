@@ -24,6 +24,8 @@ import type {
   KnowledgeRepairCancellation,
   KnowledgeRepairExecution,
   KnowledgeRepairInspection,
+  KnowledgeRepairInventory,
+  KnowledgeRepairInventoryQuery,
   KnowledgeRepairPreparation,
   KnowledgeRepairRecoveredState,
   KnowledgeRepairResource,
@@ -743,9 +745,8 @@ export async function resumePreparedKnowledgeRepair(
   return executePreparedKnowledgeRepair(context, jobId, true);
 }
 
-/** Parse immutable scoped job input without borrowing its actor or trusting its proposal hash alone. */
-function validatePreparedJob(context: OperationExecutionContext, job: BackgroundJob) {
-  const root = context.identity.projectRoot;
+/** Authenticate retained proposal bytes before interpreting principal or scope. */
+function parsePreparedJob(job: BackgroundJob) {
   if (!job.proposalJson || !job.proposalHash || hash(job.proposalJson) !== job.proposalHash)
     throw new KnowledgeRepairError(
       'E_REPAIR_SOURCE',
@@ -757,6 +758,13 @@ function validatePreparedJob(context: OperationExecutionContext, job: Background
       'E_REPAIR_INPUT',
       'Recovery reference must match the supported rollback action.',
     );
+  return { prepared, proposalHash: job.proposalHash };
+}
+
+/** Parse immutable scoped job input without borrowing its actor or trusting its proposal hash alone. */
+function validatePreparedJob(context: OperationExecutionContext, job: BackgroundJob) {
+  const root = context.identity.projectRoot;
+  const { prepared, proposalHash } = parsePreparedJob(job);
   if (prepared.identity.actor !== context.identity.actor)
     throw new KnowledgeRepairError(
       'E_REPAIR_ACTOR',
@@ -775,7 +783,129 @@ function validatePreparedJob(context: OperationExecutionContext, job: Background
       'E_REPAIR_SCOPE',
       'Prepared repair does not match the captured operation.',
     );
-  return { prepared, proposalHash: job.proposalHash };
+  return { prepared, proposalHash };
+}
+
+/**
+ * Discover durable repair jobs for one explicit principal without starting an executor.
+ * @param context - Captured project, explicit actor and original invocation deadline.
+ * @param query - Candidate limit, text-byte cap, lifecycle filter and scoped continuation.
+ * @returns Authenticated matching identities, explicit partial diagnostics and last-scanned cursor.
+ * @throws KnowledgeRepairError for missing scope or required storage/metadata failures.
+ * @remarks Lease claimant labels never establish proposal authority. This page does not
+ * verify current effects or load unbounded attempt ledgers; exact inspection arguments
+ * expose the retained history. Independent pages are not a multi-page snapshot.
+ * @example
+ * ```ts
+ * const page = await listPreparedKnowledgeRepairs(context, { limit: 20 });
+ * ```
+ */
+export async function listPreparedKnowledgeRepairs(
+  context: OperationExecutionContext,
+  query: KnowledgeRepairInventoryQuery = {},
+): Promise<KnowledgeRepairInventory> {
+  context.assertActive();
+  executionIdentitySchema.parse(context.identity);
+  if (!context.identity.actor.trim())
+    throw new KnowledgeRepairError('E_REPAIR_ACTOR', 'An explicit inventory actor is required.');
+  return worktreeScope.run(
+    {
+      worktreeRoot: context.identity.projectRoot,
+      projectHash: generateProjectHash(context.identity.projectRoot),
+      execution: context,
+    },
+    async () => {
+      const root = context.identity.projectRoot;
+      const metadata = await loadProjectInfo(root);
+      context.assertActive();
+      if (
+        !metadata ||
+        metadata.projectId !== context.identity.projectId ||
+        (metadata.projectRoot !== undefined && metadata.projectRoot !== root)
+      )
+        throw new KnowledgeRepairError('E_REPAIR_SCOPE', 'Canonical repair identity changed.');
+      const taskDb = await getDb(root);
+      context.assertActive();
+      const store = new DurableJobStore(taskDb, {
+        projectId: context.identity.projectId,
+        actor: context.identity.actor,
+      });
+      const page = store.listPage({ ...query, operation: 'doctor.knowledge' }, context);
+      const result: KnowledgeRepairInventory = {
+        status: 'current',
+        scope: page.scope,
+        entries: [],
+        diagnostics: [],
+        scannedCount: page.scannedCount,
+        excludedActorCount: 0,
+        hasMoreCandidates: page.hasMoreCandidates,
+        nextCursor: page.nextCursor,
+        matchingTotal: null,
+        observation: page.observation,
+        history: 'retained-inspection-required',
+      };
+      for (const job of page.candidates) {
+        context.assertActive();
+        try {
+          const { prepared, proposalHash } = parsePreparedJob(job);
+          if (
+            job.projectId !== context.identity.projectId ||
+            prepared.projectId !== context.identity.projectId ||
+            prepared.identity.projectId !== context.identity.projectId ||
+            prepared.identity.projectRoot !== root ||
+            prepared.identity.operation !== context.identity.operation ||
+            job.operation !== context.identity.operation ||
+            prepared.databasePath !== resolveDualScopeDbPath('project', root) ||
+            prepared.id !== job.idempotencyKey ||
+            prepared.identity.idempotencyKey !== prepared.id
+          )
+            throw new KnowledgeRepairError(
+              'E_REPAIR_SCOPE',
+              'Retained proposal does not match its project and job identity.',
+            );
+          if (job.diagnosticError)
+            throw new KnowledgeRepairError('E_REPAIR_SOURCE', job.diagnosticError);
+          if (prepared.identity.actor !== context.identity.actor) {
+            result.excludedActorCount++;
+            continue;
+          }
+          result.entries.push({
+            jobId: job.id,
+            proposalId: prepared.id,
+            proposalHash,
+            actor: prepared.identity.actor,
+            claimedBy: job.claimedBy ?? null,
+            status: job.status,
+            submittedAt: job.startedAt,
+            attempts: job.attempts,
+            fencingEpoch: job.fencingEpoch,
+            leaseExpiresAt: job.leaseExpiresAt,
+            cancellationRequestedAt: job.cancellationRequestedAt,
+            receiptVerification: 'inspection-required',
+            inspectArgv: [
+              'doctor',
+              'knowledge',
+              '--inspect',
+              job.id,
+              '--actor',
+              context.identity.actor,
+              '--proposal-id',
+              prepared.id,
+            ],
+          });
+        } catch (error) {
+          result.status = 'partial';
+          result.diagnostics.push({
+            jobId: job.id,
+            code: error instanceof KnowledgeRepairError ? error.code : 'E_REPAIR_INPUT',
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      context.assertActive();
+      return result;
+    },
+  );
 }
 
 /** Open read/metadata services under the original captured execution scope. */

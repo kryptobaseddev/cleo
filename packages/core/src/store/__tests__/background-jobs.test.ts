@@ -2118,6 +2118,13 @@ describe('bounded durable candidate inventory', () => {
         );
         expect(() => store.listPage(query, execution)).toThrow('cursor belongs');
       }
+      for (const after of [null, false, 0, '', 'cursor', []])
+        expect(() =>
+          store.listPage(
+            JSON.parse(JSON.stringify({ operation: 'docs.projection', limit: 1, after })),
+            execution,
+          ),
+        ).toThrow('cursor belongs');
       const second = store.listPage(
         { operation: 'docs.projection', limit: 1, after: first.nextCursor },
         execution,
