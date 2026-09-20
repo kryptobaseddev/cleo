@@ -16,7 +16,7 @@ import {
   BackgroundJobManager,
   DurableJobStore,
 } from '../background-jobs.js';
-import { createOperationExecutionContext } from '../background-ops.js';
+import { bindOperationWriteFence, createOperationExecutionContext } from '../background-ops.js';
 import { migrateSanitized } from '../migration-manager.js';
 import { getDb, resetDbState } from '../sqlite.js';
 
@@ -682,6 +682,63 @@ describe('domain writes fenced by persisted job authority', () => {
     native.exec('CREATE TABLE guarded_domain (id TEXT PRIMARY KEY)');
     return { store, context };
   }
+
+  it.each([
+    'owned',
+    'stale',
+    'mismatched',
+  ] as const)('permits cancelled claim bookkeeping only with %s persisted authority', (kind) => {
+    const context = createOperationExecutionContext({
+      projectId: request.projectId,
+      projectRoot: root,
+      actor: 'fixture',
+      operation: 'docs.projection',
+      idempotencyKey: request.idempotencyKey,
+    });
+    const store = new DurableJobStore(db, { projectId: request.projectId, actor: 'fixture' });
+    const job = store.defer('outcome-binding-job', 'docs.projection', Date.now(), request);
+    const originalClaim = store.claim.bind(store);
+    vi.spyOn(store, 'claim').mockImplementation((...args) => {
+      const lease = originalClaim(...args);
+      context.close();
+      return lease;
+    });
+    const lease = store.claim(job.id, Date.now());
+    if (kind === 'stale') native.exec('UPDATE background_jobs SET fencing_epoch=fencing_epoch+1');
+    const execution = bindOperationWriteFence(
+      context,
+      {
+        lease,
+        dbPath: path,
+        proposalHash:
+          kind === 'mismatched'
+            ? 'f'.repeat(64)
+            : createHash('sha256').update(request.proposalJson).digest('hex'),
+      },
+      true,
+    );
+    const domain = vi.fn(() => '{}');
+    expect(() => store.completeAtomically(execution, domain)).toThrow();
+    expect(() => assertOperationWriteFence(native, execution)).toThrow();
+    expect(domain).not.toHaveBeenCalled();
+    const metadata = vi.fn(() => '{"observed":"cancelled"}');
+    const result = store.finalizeAtomically(
+      execution,
+      { status: 'cancelled', message: 'Cancellation observed during claim' },
+      metadata,
+    );
+    if (kind === 'owned') {
+      expect(result).toMatchObject({ state: 'finalized' });
+      expect(metadata).toHaveBeenCalledTimes(1);
+      expect(store.get(job.id)?.status).toBe('cancelled');
+    } else {
+      expect(result).toMatchObject({ state: 'pending-finalization' });
+      expect(metadata).not.toHaveBeenCalled();
+      expect(store.get(job.id)?.status).toBe('running');
+    }
+    expect(execution.deadlineAt).toBe(context.deadlineAt);
+    expect(execution.signal).toBe(context.signal);
+  });
 
   it.each([
     'failed',

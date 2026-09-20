@@ -536,3 +536,52 @@ it('binding claimed authority shares the original deadline, cancellation and agg
     context.close();
   }
 });
+
+describe('cancelled outcome fence binding', () => {
+  it.each([
+    'active',
+    'expired-deadline',
+    'expired-lease',
+    'cancelled',
+  ] as const)('preserves original authority and refuses %s when unsuitable', (kind) => {
+    const context = createOperationExecutionContext(
+      {
+        projectId: 'A',
+        projectRoot: '/tmp/synthetic',
+        actor: 'fixture',
+        operation: 'doctor.knowledge',
+        idempotencyKey: 'outcome-binding',
+      },
+      { budgetMs: kind === 'expired-deadline' ? 0 : 2000 },
+    );
+    const fence = {
+      dbPath: '/tmp/synthetic/cleo.db',
+      proposalHash: 'a'.repeat(64),
+      lease: {
+        jobId: 'job',
+        ownerId: 'owner',
+        epoch: 1,
+        expiresAt: Date.now() + (kind === 'expired-lease' ? -1 : 1000),
+      },
+    };
+    if (kind !== 'active') context.close();
+    try {
+      if (kind !== 'cancelled')
+        expect(() => bindOperationWriteFence(context, fence, true)).toThrow();
+      else {
+        const bound = bindOperationWriteFence(context, fence, true);
+        expect(bound.identity).toBe(context.identity);
+        expect(bound.signal).toBe(context.signal);
+        expect(bound.deadlineAt).toBe(context.deadlineAt);
+        expect(bound.assertActive).toBe(context.assertActive);
+        expect(bound.consume).toBe(context.consume);
+        expect(() => bound.assertActive()).toThrow();
+        expect(() => bound.consume({ items: 1 })).toThrow();
+        expect(() => bindOperationWriteFence(bound, fence, true)).toThrow('immutable write fence');
+        expect(() => bindOperationWriteFence(context, fence)).toThrow();
+      }
+    } finally {
+      context.close();
+    }
+  });
+});

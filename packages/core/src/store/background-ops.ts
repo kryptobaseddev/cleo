@@ -279,10 +279,13 @@ function captureWriteFence(input?: BackgroundJobWriteFence): BackgroundJobWriteF
  * Bind a newly claimed job fence without replacing the caller's lifetime or budget.
  * @param context - Original captured operation whose accounting remains authoritative.
  * @param writeFence - Persisted attempt reference to check at domain write boundaries.
+ * @param allowCancelledOutcome - Permit an already cancelled scope solely for bounded outcome bookkeeping.
  * @returns Immutable scoped view sharing the original deadline, cancellation and accounting.
  * @throws Error if the scope is inactive, already fenced, or the reference is malformed.
  * @remarks This does not renew a lease or authorize mutation. Binding changes only
- * the immutable authority reference; closing either view invalidates both.
+ * the immutable authority reference; closing either view invalidates both. The
+ * outcome option requires an aborted signal and remaining deadline/lease time,
+ * preserves the original failing domain guards, and does not prove persisted ownership.
  * @example
  * ```ts
  * const guarded = bindOperationWriteFence(context, fence);
@@ -292,10 +295,22 @@ function captureWriteFence(input?: BackgroundJobWriteFence): BackgroundJobWriteF
 export function bindOperationWriteFence(
   context: OperationExecutionContext,
   writeFence: BackgroundJobWriteFence,
+  allowCancelledOutcome = false,
 ): OperationExecutionContext {
-  context.assertActive();
+  if (typeof allowCancelledOutcome !== 'boolean')
+    throw new TypeError('Outcome binding requires an explicit boolean');
   if (context.writeFence) throw new Error('Operation already has an immutable write fence');
-  return Object.freeze({ ...context, writeFence: captureWriteFence(writeFence) });
+  const captured = captureWriteFence(writeFence);
+  if (!captured) throw new TypeError('A claimed operation write fence is required');
+  if (allowCancelledOutcome) {
+    if (Date.now() >= context.deadlineAt)
+      throw new OperationExecutionError('E_OPERATION_DEADLINE', 'Outcome binding deadline elapsed');
+    if (!context.signal.aborted)
+      throw new TypeError('Outcome-only binding requires an already cancelled operation');
+    if (captured.lease.expiresAt <= Date.now())
+      throw new TypeError('Outcome binding lease reference expired');
+  } else context.assertActive();
+  return Object.freeze({ ...context, writeFence: captured });
 }
 
 /**
