@@ -104,7 +104,12 @@ const resourceSchema = z
     beforeHash: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict();
+const rollbackReferenceSchema = z.object({
+  receiptId: z.string().min(1),
+  receiptHash: z.string().regex(/^[a-f0-9]{64}$/),
+});
 const repairExecutionSchema = z.object({
+  rollback: rollbackReferenceSchema.optional(),
   identity: executionIdentitySchema,
   jobId: z.string(),
   ownerId: z.string(),
@@ -154,6 +159,7 @@ const storedRepairSchema = z.object({
 const preparedProposalSchema = proposalSchema
   .extend({
     version: z.literal(1),
+    rollback: rollbackReferenceSchema.optional(),
     identity: executionIdentitySchema,
     databasePath: z.string().min(1),
     sourceRoot: z.string().min(1),
@@ -235,6 +241,55 @@ function stateHash(db: DatabaseSync): string {
   return hash(JSON.stringify(readState(db)));
 }
 
+/** Read the complete authentic original snapshot; legacy receipts require their conservative recovery path. */
+function rollbackSnapshot(db: DatabaseSync, proposal: KnowledgeRepairProposal, root: string) {
+  const id = proposal.action.arguments.receiptId;
+  if (typeof id !== 'string' || id === proposal.id)
+    throw new KnowledgeRepairError(
+      'E_REPAIR_INPUT',
+      'Rollback requires a distinct original receiptId.',
+    );
+  const bytes = db
+    .prepare('SELECT value FROM main._nexus_meta WHERE key=?')
+    .get(`knowledge_repair:${id}`)?.value;
+  if (typeof bytes !== 'string')
+    throw new KnowledgeRepairError(
+      'E_REPAIR_NOT_FOUND',
+      'Original rollback snapshot is unavailable.',
+    );
+  const stored = storedRepairSchema.parse(JSON.parse(bytes));
+  const execution = stored.receipt.execution;
+  if (
+    !execution ||
+    stored.receipt.state !== 'repaired' ||
+    stored.receipt.id !== id ||
+    stored.receipt.action?.operation === 'knowledge.rollback' ||
+    stored.receipt.projectId !== proposal.projectId ||
+    execution.identity.projectId !== proposal.projectId ||
+    execution.identity.projectRoot !== root ||
+    stored.rolledBack ||
+    db.prepare('SELECT 1 FROM main._nexus_meta WHERE key=?').get(`knowledge_rollback:${id}`)
+  )
+    throw new KnowledgeRepairError(
+      'E_REPAIR_RECOVERY',
+      'Receipt lacks current scoped recovery authority; inspect its retained history.',
+    );
+  const affected = execution.resources.filter((resource) => resource.role === 'affected');
+  const expectedIds = stored.quarantine?.quarantinedIds ?? stored.decisions.map((row) => row.id);
+  if (
+    !affected.length ||
+    affected.some((resource) => resource.kind === 'file') ||
+    affected.length !== expectedIds.length ||
+    affected.some((resource) => !expectedIds.includes(resource.id)) ||
+    new Set(affected.map((resource) => `${resource.kind}:${resource.id}`)).size !== affected.length
+  )
+    throw new KnowledgeRepairError(
+      'E_REPAIR_RECOVERY',
+      'Retained snapshot does not cover every affected resource.',
+    );
+  return { stored, affected, reference: { receiptId: id, receiptHash: hash(bytes) } };
+}
+
 /** Capture exact row identities and complete images without broadening the existing action. */
 function repairResources(
   db: DatabaseSync,
@@ -251,7 +306,22 @@ function repairResources(
     if (!row) throw new KnowledgeRepairError('E_REPAIR_SOURCE', `Missing ${kind} resource ${id}`);
     resources.push({ kind, id, role, beforeHash: hash(JSON.stringify(row)) });
   };
-  if (proposal.action.operation === 'knowledge.quarantine-stubs') {
+  if (proposal.action.operation === 'knowledge.rollback') {
+    const original = rollbackSnapshot(db, proposal, projectRoot);
+    for (const resource of original.affected) {
+      if (resourceHash(db, resource, projectRoot) !== resource.afterHash)
+        throw new KnowledgeRepairError(
+          'E_REPAIR_STALE',
+          `Affected resource ${resource.id} changed after repair.`,
+        );
+      resources.push({
+        kind: resource.kind,
+        id: resource.id,
+        role: 'affected',
+        beforeHash: resource.afterHash,
+      });
+    }
+  } else if (proposal.action.operation === 'knowledge.quarantine-stubs') {
     for (const id of pruneObservationStubs(db, false).candidateIds ?? [])
       capture('observation', id, 'affected');
   } else if (proposal.action.operation === 'knowledge.supersede-decision') {
@@ -289,11 +359,7 @@ function repairResources(
         capture(kind, source.id, 'source');
       }
     }
-  } else
-    throw new KnowledgeRepairError(
-      'E_REPAIR_INPUT',
-      'Rollback uses its retained receipt, not a new authority proposal.',
-    );
+  } else throw new KnowledgeRepairError('E_REPAIR_INPUT', 'Unsupported repair resource action.');
   return resources.sort(
     (left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id),
   );
@@ -403,8 +469,9 @@ export async function prepareKnowledgeRepair(
       if (!db)
         throw new KnowledgeRepairError('E_REPAIR_STORE', 'Project knowledge store is unavailable.');
       if (
-        proposal.expectedRevision !== coverage.assessedRevision ||
-        proposal.expectedStateHash !== stateHash(db)
+        proposal.action.operation !== 'knowledge.rollback' &&
+        (proposal.expectedRevision !== coverage.assessedRevision ||
+          proposal.expectedStateHash !== stateHash(db))
       )
         throw new KnowledgeRepairError(
           'E_REPAIR_STALE',
@@ -420,6 +487,10 @@ export async function prepareKnowledgeRepair(
         expectedGeneration: assessment?.generation ?? null,
         assessmentHash: hash(JSON.stringify(assessment)),
         resources,
+        rollback:
+          proposal.action.operation === 'knowledge.rollback'
+            ? rollbackSnapshot(db, proposal, root).reference
+            : undefined,
       });
       const proposalJson = JSON.stringify(prepared);
       context.consume({ bytes: Buffer.byteLength(proposalJson, 'utf8'), items: resources.length });
@@ -538,6 +609,11 @@ export async function applyPreparedKnowledgeRepair(
           'Authentic prepared repair input is unavailable.',
         );
       const prepared = preparedProposalSchema.parse(JSON.parse(job.proposalJson));
+      if ((prepared.action.operation === 'knowledge.rollback') !== Boolean(prepared.rollback))
+        throw new KnowledgeRepairError(
+          'E_REPAIR_INPUT',
+          'Recovery reference must match the supported rollback action.',
+        );
       if (
         JSON.stringify(prepared.identity) !==
           JSON.stringify(executionIdentitySchema.parse(context.identity)) ||
@@ -587,10 +663,11 @@ export async function applyPreparedKnowledgeRepair(
           report.health.coverage.reasons.join('; '),
         );
       if (
-        hash(JSON.stringify(assessment)) !== prepared.assessmentHash ||
-        (assessment?.generation ?? null) !== prepared.expectedGeneration ||
-        (assessment?.sourceRoot ?? root) !== prepared.sourceRoot ||
-        assessmentBytes(db) !== originalAssessment
+        prepared.action.operation !== 'knowledge.rollback' &&
+        (hash(JSON.stringify(assessment)) !== prepared.assessmentHash ||
+          (assessment?.generation ?? null) !== prepared.expectedGeneration ||
+          (assessment?.sourceRoot ?? root) !== prepared.sourceRoot ||
+          assessmentBytes(db) !== originalAssessment)
       )
         throw new KnowledgeRepairError(
           'E_REPAIR_STALE',
@@ -613,7 +690,8 @@ export async function applyPreparedKnowledgeRepair(
         const activeExecution = execution;
         const receiptJson = store.completeAtomically(activeExecution, () => {
           if (
-            assessmentBytes(db) !== originalAssessment ||
+            (prepared.action.operation !== 'knowledge.rollback' &&
+              assessmentBytes(db) !== originalAssessment) ||
             JSON.stringify(repairResources(db, prepared, root)) !==
               JSON.stringify(prepared.resources)
           )
@@ -621,24 +699,28 @@ export async function applyPreparedKnowledgeRepair(
               'E_REPAIR_STALE',
               'Prepared resource or generation changed before mutation.',
             );
-          const receipt = applyProposalBody(
-            db,
-            proposalSchema.parse(prepared),
-            report,
-            root,
-            store.get(jobId)!.attempts,
-            startedAt,
-          );
+          const receipt =
+            prepared.action.operation === 'knowledge.rollback'
+              ? applyRollbackBody(db, prepared, root, store.get(jobId)!.attempts, startedAt)
+              : applyProposalBody(
+                  db,
+                  proposalSchema.parse(prepared),
+                  report,
+                  root,
+                  store.get(jobId)!.attempts,
+                  startedAt,
+                );
           const eventIds = ['started', 'verified', 'committed'].map(
             (stage) => `${jobId}:${lease.epoch}:${stage}`,
           );
           const provenance: KnowledgeRepairExecution = {
+            rollback: prepared.rollback,
             identity: prepared.identity,
             jobId,
             ownerId: lease.ownerId,
             fencingEpoch: lease.epoch,
             proposalHash: job.proposalHash!,
-            generation: prepared.expectedGeneration,
+            generation: assessment?.generation ?? null,
             resources: prepared.resources.map((resource) => ({
               ...resource,
               afterHash: resourceHash(db, resource, root),
@@ -678,6 +760,25 @@ export async function applyPreparedKnowledgeRepair(
                 proposalHash: job.proposalHash,
               }),
             );
+          }
+          for (const resource of provenance.resources)
+            if (resourceHash(db, resource, root) !== resource.afterHash)
+              throw new KnowledgeRepairError(
+                'E_REPAIR_VERIFY',
+                'Affected resources changed during receipt persistence.',
+              );
+          if (prepared.rollback) {
+            const originalBytes = db
+              .prepare('SELECT value FROM main._nexus_meta WHERE key=?')
+              .get(`knowledge_repair:${prepared.rollback.receiptId}`)?.value;
+            if (
+              typeof originalBytes !== 'string' ||
+              hash(originalBytes) !== prepared.rollback.receiptHash
+            )
+              throw new KnowledgeRepairError(
+                'E_REPAIR_VERIFY',
+                'Rollback changed the original retained receipt.',
+              );
           }
           activeExecution.assertActive();
           return JSON.stringify(receiptSchema.parse(receipt));
@@ -752,9 +853,16 @@ function readReceipt(db: DatabaseSync, id: string) {
 }
 
 function writeReceipt(db: DatabaseSync, repair: z.infer<typeof storedRepairSchema>): void {
+  const bytes = JSON.stringify(repair);
+  const key = `knowledge_repair:${repair.receipt.id}`;
   db.prepare(
     'INSERT INTO main._nexus_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-  ).run(`knowledge_repair:${repair.receipt.id}`, JSON.stringify(repair));
+  ).run(key, bytes);
+  if (db.prepare('SELECT value FROM main._nexus_meta WHERE key=?').get(key)?.value !== bytes)
+    throw new KnowledgeRepairError(
+      'E_REPAIR_VERIFY',
+      'Repair receipt readback differs from verified bytes.',
+    );
 }
 
 function validateAuthoritySources(
@@ -1067,8 +1175,96 @@ export async function listKnowledgeRepairReceipts(
     .flatMap((row) => {
       if (typeof row.value !== 'string') throw new Error('Invalid stored repair receipt');
       const repair = storedRepairSchema.parse(JSON.parse(row.value));
-      return !repair.rolledBack && repair.receipt.state === 'repaired' ? [repair.receipt] : [];
+      return !repair.rolledBack &&
+        repair.receipt.state === 'repaired' &&
+        !db
+          .prepare('SELECT 1 FROM main._nexus_meta WHERE key=?')
+          .get(`knowledge_rollback:${repair.receipt.id}`)
+        ? [repair.receipt]
+        : [];
     });
+}
+
+/** Restore only proven affected images inside the existing owned job transaction. */
+function applyRollbackBody(
+  db: DatabaseSync,
+  prepared: KnowledgePreparedRepairProposal,
+  root: string,
+  attempt: number,
+  startedAt: string,
+): KnowledgeRepairReceipt {
+  const original = rollbackSnapshot(db, prepared, root);
+  if (
+    !prepared.rollback ||
+    JSON.stringify(original.reference) !== JSON.stringify(prepared.rollback)
+  )
+    throw new KnowledgeRepairError(
+      'E_REPAIR_STALE',
+      'Original recovery snapshot changed after preparation.',
+    );
+  if (original.stored.quarantine) {
+    if (restoreObservationStubs(db, original.stored.quarantine) !== original.affected.length)
+      throw new KnowledgeRepairError(
+        'E_REPAIR_VERIFY',
+        'Rollback did not restore every quarantined record.',
+      );
+  }
+  for (const row of original.stored.decisions)
+    db.prepare(
+      'UPDATE main.brain_decisions SET invalid_at=?,superseded_by=?,supersedes=?,confirmation_state=? WHERE id=?',
+    ).run(row.invalid_at, row.superseded_by, row.supersedes, row.confirmation_state, row.id);
+  for (const resource of original.affected)
+    if (resourceHash(db, resource, root) !== resource.beforeHash)
+      throw new KnowledgeRepairError(
+        'E_REPAIR_VERIFY',
+        `Restored ${resource.id} differs from its complete original image.`,
+      );
+  const receipt: KnowledgeRepairReceipt = {
+    id: prepared.id,
+    proposalId: prepared.id,
+    findingId: prepared.findingId,
+    projectId: prepared.projectId,
+    action: prepared.action,
+    state: 'repaired',
+    attempt,
+    startedAt,
+    completedAt: new Date().toISOString(),
+    recovery: {
+      snapshotId: `knowledge_repair:${original.reference.receiptId}`,
+      restoreAction: {
+        operation: 'knowledge.rollback',
+        arguments: { receiptId: prepared.id },
+        prerequisites: [
+          'This recovery is already complete. Reapplying authority requires a new sourced repair proposal.',
+        ],
+      },
+    },
+    verificationEvidence: original.stored.receipt.verificationEvidence,
+    reasons: [
+      'Affected resources match their complete original images; original repair evidence remains retained unchanged.',
+    ],
+  };
+  writeReceipt(
+    db,
+    storedRepairSchema.parse({
+      receipt,
+      postHash: stateHash(db),
+      proposalHash: hash(JSON.stringify(proposalSchema.parse(prepared))),
+      rolledBack: false,
+      decisions: [],
+      quarantine: null,
+    }),
+  );
+  appendVerifiedMetadata(
+    db,
+    `knowledge_rollback:${original.reference.receiptId}`,
+    JSON.stringify({
+      receiptId: prepared.id,
+      original: original.reference,
+      completedAt: receipt.completedAt,
+    }),
+  );
+  return receipt;
 }
 
 function rollback(db: DatabaseSync, id: string): KnowledgeRepairReceipt {
@@ -1077,6 +1273,11 @@ function rollback(db: DatabaseSync, id: string): KnowledgeRepairReceipt {
     const stored = readReceipt(db, id);
     if (!stored)
       throw new KnowledgeRepairError('E_REPAIR_NOT_FOUND', `Receipt ${id} was not found.`);
+    if (db.prepare('SELECT 1 FROM main._nexus_meta WHERE key=?').get(`knowledge_rollback:${id}`))
+      throw new KnowledgeRepairError(
+        'E_REPAIR_RECOVERY',
+        'Repair already has a separate verified rollback receipt.',
+      );
     if (!stored.rolledBack) {
       if (stored.postHash !== stateHash(db))
         throw new KnowledgeRepairError(

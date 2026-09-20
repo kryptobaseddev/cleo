@@ -242,10 +242,20 @@ export interface KnowledgeRepairResource {
   beforeHash: string;
 }
 
+/** Authentic retained repair snapshot selected for resource-specific rollback. */
+export interface KnowledgeRollbackReference {
+  /** Original successful repair receipt identity; its bytes remain unchanged. */
+  receiptId: string;
+  /** SHA-256 of the complete retained original snapshot and receipt bytes. */
+  receiptHash: string;
+}
+
 /** Existing sourced proposal enriched with immutable, independently captured execution scope. */
 export interface KnowledgePreparedRepairProposal extends KnowledgeRepairProposal {
   /** Version of this authenticated preparation shape. */
   version: 1;
+  /** Original retained recovery snapshot, present only for rollback. @defaultValue undefined */
+  rollback?: KnowledgeRollbackReference;
   /** Project, actor and immutable retry identity captured before any await. */
   identity: OperationExecutionIdentity;
   /** Exact database file containing the resources and durable pending job. */
@@ -278,6 +288,8 @@ export interface KnowledgeRepairPreparation {
 
 /** Verified scoped provenance added by the owned repair execution path. */
 export interface KnowledgeRepairExecution {
+  /** Original immutable receipt recovered by this operation. @defaultValue undefined */
+  rollback?: KnowledgeRollbackReference;
   /** Captured actor and immutable operation scope. */
   identity: OperationExecutionIdentity;
   /** Durable job whose terminal state committed with this receipt. */
@@ -288,7 +300,7 @@ export interface KnowledgeRepairExecution {
   fencingEpoch: number;
   /** Digest of the authentic prepared proposal bytes. */
   proposalHash: string;
-  /** Published generation checked before mutation, null for an unindexed project. */
+  /** Published generation observed before mutation; rollback verifies affected resources independently. */
   generation: string | null;
   /** Exact affected and sourced resources, with hashes before and after mutation. */
   resources: Array<
