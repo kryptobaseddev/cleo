@@ -105,3 +105,118 @@ describe('lint-stdout-discipline — strict mode', () => {
     }
   });
 });
+
+// These isolated expression oracles do not alter the checked-out package tree.
+const {
+  stdoutCallIdentities,
+  createStdoutBaseline,
+  compareStdoutBaseline,
+  convertLegacyStdoutBaseline,
+} = await import('../stdout-baseline-identity.mjs');
+const { createHash } = await import('node:crypto');
+const fixtureFile = 'packages/sample/src/cli.ts';
+const expression = 'process.stdout.write(\n  renderWarnDrift(migrateResult)\n);';
+const sourceAt = (source) => stdoutCallIdentities(source, fixtureFile);
+
+describe('stdout complete-call stable identity', () => {
+  it('accepts an unchanged call moved by unrelated lines and formatting', () => {
+    const baseline = createStdoutBaseline(sourceAt(expression));
+    expect(
+      compareStdoutBaseline(
+        sourceAt('// unrelated\n\nprocess . stdout . write(renderWarnDrift( migrateResult ));'),
+        baseline,
+      ).added,
+    ).toEqual([]);
+  });
+
+  it('rejects changed multiline arguments at the same starting line', () => {
+    const baseline = createStdoutBaseline(sourceAt(expression));
+    const changed = sourceAt(expression.replace('migrateResult', 'unrelatedSecret'));
+    expect(changed[0].line).toBe(baseline.items[0].line);
+    expect(compareStdoutBaseline(changed, baseline).added).toHaveLength(1);
+  });
+
+  it('rejects a duplicated identical call including two on the same line', () => {
+    const baseline = createStdoutBaseline(sourceAt('process.stdout.write("original");'));
+    expect(
+      compareStdoutBaseline(
+        sourceAt('process.stdout.write("original");process.stdout.write("original");'),
+        baseline,
+      ).added,
+    ).toHaveLength(1);
+  });
+
+  it.each([
+    ['"a b"', '"ab"'],
+    ['`first\nsecond`', '`first second`'],
+    ['"\\u0061"', '"a"'],
+  ])('preserves literal token bytes (%s)', (original, changed) => {
+    const baseline = createStdoutBaseline(sourceAt(`process.stdout.write(${original});`));
+    expect(
+      compareStdoutBaseline(sourceAt(`process.stdout.write(${changed});`), baseline).added,
+    ).toHaveLength(1);
+  });
+
+  it('does not allow moving a known expression to another file', () => {
+    const baseline = createStdoutBaseline(sourceAt(expression));
+    expect(
+      compareStdoutBaseline(stdoutCallIdentities(expression, 'packages/other.ts'), baseline).added,
+    ).toHaveLength(1);
+  });
+
+  it('ignores comments and strings mentioning a call without executing it', () => {
+    expect(
+      sourceAt('// process.stdout.write("comment");\nconst text = "process.stdout.write(fake)";'),
+    ).toEqual([]);
+  });
+
+  it('fails explicitly on invalid source or baseline schema', () => {
+    expect(() => sourceAt('process.stdout.write(')).toThrow('Cannot parse');
+    expect(() => compareStdoutBaseline([], { total: 1, items: [] })).toThrow(
+      'Invalid stdout baseline',
+    );
+  });
+});
+
+describe('stdout historical conversion', () => {
+  const revision = 'a'.repeat(40);
+  const legacy = { total: 1, items: [`${fixtureFile}:1`] };
+  const blob = (text) =>
+    createHash('sha1')
+      .update(`blob ${Buffer.byteLength(text)}\0`)
+      .update(text)
+      .digest('hex');
+  it('preserves exact source and original locations without requiring Git for later checks', () => {
+    const converted = convertLegacyStdoutBaseline(legacy, revision, () => ({
+      source: expression,
+      blob: blob(expression),
+    }));
+    expect(converted.total).toBe(legacy.total);
+    expect(converted.items[0]).toMatchObject({
+      originalLocation: legacy.items[0],
+      sourceRevision: revision,
+      sourceBlob: blob(expression),
+      snippet: expression.slice(0, -1),
+    });
+    expect(compareStdoutBaseline(sourceAt(`\n${expression}`), converted).added).toEqual([]);
+    expect(legacy.items).toEqual([`${fixtureFile}:1`]);
+  });
+
+  it('refuses unavailable, wrong-blob and ambiguous historical evidence', () => {
+    expect(() =>
+      convertLegacyStdoutBaseline(legacy, revision, () => {
+        throw new Error('Historical source unavailable');
+      }),
+    ).toThrow('Historical source unavailable');
+    expect(() =>
+      convertLegacyStdoutBaseline(legacy, revision, () => ({
+        source: expression,
+        blob: 'b'.repeat(40),
+      })),
+    ).toThrow('blob mismatch');
+    const twice = 'process.stdout.write(1);process.stdout.write(1);';
+    expect(() =>
+      convertLegacyStdoutBaseline(legacy, revision, () => ({ source: twice, blob: blob(twice) })),
+    ).toThrow('ambiguous');
+  });
+});
