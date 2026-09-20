@@ -5,7 +5,11 @@
  * against AGENTS.md. These contracts contain no runtime implementation.
  */
 
-import type { BackgroundJobStatus, OperationExecutionIdentity } from './jobs.js';
+import type {
+  BackgroundJobStatus,
+  JobFinalizationResult,
+  OperationExecutionIdentity,
+} from './jobs.js';
 
 /** Availability and freshness of the evidence used for an assessment. */
 export type KnowledgeCoverageStatus = 'current' | 'stale' | 'partial' | 'missing' | 'failed';
@@ -295,6 +299,44 @@ export interface KnowledgeRepairExecution {
   >;
   /** Append-only lifecycle event identities persisted with the mutation. */
   eventIds: string[];
+}
+
+/** Sourced failure observation for one owned repair attempt, distinct from a successful repair receipt. */
+export interface KnowledgeRepairAttemptOutcome {
+  /** Stable append-only identity derived from job and fencing epoch. */
+  id: string;
+  /** Immutable proposal identity. */
+  proposalId: string;
+  /** Authentic proposal byte digest. */
+  proposalHash: string;
+  /** Captured actor, project and operation identity. */
+  identity: OperationExecutionIdentity;
+  /** Durable job whose attempted mutation failed. */
+  jobId: string;
+  /** Unique owner of the observed attempt. */
+  ownerId: string;
+  /** Persisted ownership epoch. */
+  fencingEpoch: number;
+  /** Observed failure or cancellation; not inferred from lease expiry. */
+  status: 'failed' | 'cancelled';
+  /** Original stable refusal code when available. */
+  errorCode: string;
+  /** Original failure explanation. */
+  reason: string;
+  /** ISO timestamp at the start of the owned mutation attempt. */
+  startedAt: string;
+  /** ISO timestamp when this calling service observed the failure. */
+  observedAt: string;
+  /** Append-only event references committed only when finalization succeeds. */
+  eventIds: string[];
+}
+
+/** Immediate failure details that distinguish durable bookkeeping from pending finalization. */
+export interface KnowledgeRepairAttemptFailure {
+  /** Actual observed attempt outcome, not necessarily persisted. */
+  attempt: KnowledgeRepairAttemptOutcome;
+  /** Atomic commit result or explicit pending finalization with original budget limits. */
+  finalization: JobFinalizationResult;
 }
 
 /** Durable, reversible record of an attempted repair and its verified outcome. */
