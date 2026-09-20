@@ -6,7 +6,10 @@
 import type { Task, TaskPriority, TaskRef } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { getReadinessDependencyBlockers } from '../tasks/dependency-check.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from '../tasks/dependency-check.js';
 
 /** Basic execution wave: task IDs grouped by dependency depth. */
 export interface Wave {
@@ -238,13 +241,7 @@ export async function getEnrichedWaves(
     for (const task of await acc.getChildren(parentId)) selected.set(task.id, task);
   }
   const children = [...selected.values()];
-  const taskMap = new Map(selected);
-  const externalIds = [...new Set(children.flatMap((task) => task.depends ?? []))].filter(
-    (id) => !selected.has(id),
-  );
-  if (externalIds.length > 0) {
-    for (const task of await acc.loadTasks(externalIds)) taskMap.set(task.id, task);
-  }
+  const taskMap = await loadReadinessDependencyLookup(children, acc);
   const waves = computeWaves(children, taskMap);
 
   const enrichedWaves: EnrichedWave[] = waves.map((w) => {

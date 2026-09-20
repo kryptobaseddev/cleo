@@ -16,6 +16,7 @@ import * as schema from '../../store/tasks-schema.js';
 import { archiveTasks } from '../archive.js';
 import type { BlockedTask, OpenBug, ReadyTask } from '../plan.js';
 import { coreTaskPlan, taskPlan } from '../plan.js';
+import { coreTaskNext } from '../task-next.js';
 
 describe('plan types - Drizzle-derived interfaces', () => {
   describe('ReadyTask', () => {
@@ -188,6 +189,9 @@ describe('plan resolves hard dependency evidence without expanding selected popu
     const result = await coreTaskPlan(env.tempDir);
     expect(result.ready.map((task) => task.id)).toEqual(['T121']);
     expect(result.blocked).toEqual([]);
+    const next = await coreTaskNext(env.tempDir);
+    expect(next.suggestions.map((task) => task.id)).toEqual(['T121']);
+    expect(next.totalCandidates).toBe(1);
     expect(result.metrics).toMatchObject({
       totalTasks: status === 'archived' ? 3 : 4,
       totalEpics: 2,
@@ -207,6 +211,9 @@ describe('plan resolves hard dependency evidence without expanding selected popu
     await seed(status);
     const result = await coreTaskPlan(env.tempDir);
     expect(result.ready.some((task) => task.id === 'T121')).toBe(false);
+    expect((await coreTaskNext(env.tempDir)).suggestions.some((task) => task.id === 'T121')).toBe(
+      false,
+    );
     expect(result.blocked).toMatchObject([{ id: 'T121', blockedBy: ['T111'] }]);
     expect(result.metrics).toMatchObject({
       totalTasks: 4,
@@ -233,6 +240,7 @@ describe('plan resolves hard dependency evidence without expanding selected popu
     expect(await env.accessor.loadSingleTask('T121')).toMatchObject({ depends: ['T999'] });
     const result = await coreTaskPlan(env.tempDir);
     expect(result.ready).toEqual([]);
+    expect(await coreTaskNext(env.tempDir)).toMatchObject({ suggestions: [], totalCandidates: 0 });
     expect(result.blocked).toMatchObject([{ id: 'T121', blockedBy: ['T999'] }]);
     expect(result.metrics).toMatchObject({ totalTasks: 2, actionable: 1, blocked: 1 });
   });
@@ -245,6 +253,7 @@ describe('plan resolves hard dependency evidence without expanding selected popu
       new Error('required archive read failed'),
     );
     await expect(coreTaskPlan(env.tempDir)).rejects.toThrow('required archive read failed');
+    await expect(coreTaskNext(env.tempDir)).rejects.toThrow('required archive read failed');
     expect(await taskPlan(env.tempDir)).toMatchObject({
       success: false,
       error: { message: expect.stringContaining('required archive read failed') },
