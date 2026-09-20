@@ -25,7 +25,7 @@ import {
 import { getSkillContent } from '../orchestration/skill-ops.js';
 import { computeProgress, computeStartupSummary } from '../orchestration/status.js';
 import { getUnblockOpportunities } from '../orchestration/unblock.js';
-import { getProjectRoot } from '../paths.js';
+import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { loadTasks } from './query-ops.js';
 
@@ -56,16 +56,19 @@ export async function initLoomForEpic(
   projectRoot: string,
 ): Promise<{ initialized: boolean; alreadyInitialized: boolean; error?: string }> {
   try {
-    const lifecycleStatus = await getLifecycleStatus(projectRoot, { epicId });
-    if (lifecycleStatus.initialized) {
-      return { initialized: false, alreadyInitialized: true };
-    }
-    await recordStageProgress(projectRoot, {
-      taskId: epicId,
-      stage: 'research',
-      status: 'in_progress',
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      const lifecycleStatus = await getLifecycleStatus(scope.worktreeRoot, { epicId });
+      if (lifecycleStatus.initialized) {
+        return { initialized: false, alreadyInitialized: true };
+      }
+      await recordStageProgress(scope.worktreeRoot, {
+        taskId: epicId,
+        stage: 'research',
+        status: 'in_progress',
+      });
+      return { initialized: true, alreadyInitialized: false };
     });
-    return { initialized: true, alreadyInitialized: false };
   } catch (err: unknown) {
     return {
       initialized: false,
@@ -96,48 +99,55 @@ export async function orchestrateStartup(
   epicId: string,
   projectRoot?: string,
 ): Promise<EngineResult> {
-  if (!epicId) {
-    return engineError('E_INVALID_INPUT', 'epicId is required');
-  }
-
   try {
-    const root = getProjectRoot(projectRoot);
-    const accessor = await getTaskAccessor(root);
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      if (!epicId) {
+        return engineError('E_INVALID_INPUT', 'epicId is required');
+      }
 
-    const tasks = await loadTasks(root);
-    const epic = tasks.find((t) => t.id === epicId);
-    if (!epic) {
-      return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
-    }
+      try {
+        const root = scope.worktreeRoot;
+        const accessor = await getTaskAccessor(root);
 
-    const children = tasks.filter((t) => t.parentId === epicId);
-    const readyTasks = await getReadyTasks(epicId, root, accessor);
-    const ready = readyTasks.filter((t) => t.ready);
+        const tasks = await loadTasks(root);
+        const epic = tasks.find((t) => t.id === epicId);
+        if (!epic) {
+          return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
+        }
 
-    // Auto-initialize lifecycle at 'research' stage if not already initialized.
-    // initLoomForEpic is idempotent — re-invoking orchestrateStartup is safe.
-    const loomResult = await initLoomForEpic(epicId, root);
-    // gh#1107 / T12017: surface a genuine init failure instead of returning
-    // success:true while writing zero lifecycle rows (the silent failure that
-    // made the FK split-brain invisible — `orchestrate start` reported
-    // `initialized:true` yet `lifecycle show` stayed `not_started`).
-    // `error` is only set on a real failure; the idempotent already-initialized
-    // path sets `alreadyInitialized:true` with no error, so this never fires
-    // for the benign re-init case.
-    if (loomResult.error) {
-      return engineError(
-        'E_LIFECYCLE_INIT_FAILED',
-        `Lifecycle init for ${epicId} failed: ${loomResult.error}`,
-      );
-    }
-    const autoInitialized = loomResult.initialized;
-    const currentStage = autoInitialized ? 'research' : 'already-initialized';
+        const children = tasks.filter((t) => t.parentId === epicId);
+        const readyTasks = await getReadyTasks(epicId, root, accessor);
+        const ready = readyTasks.filter((t) => t.ready);
 
-    const summary = computeStartupSummary(epicId, epic.title, children, ready.length);
-    return { success: true, data: { ...summary, autoInitialized, currentStage } };
-  } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_GENERAL';
-    return engineError(code, (err as Error).message);
+        // Auto-initialize lifecycle at 'research' stage if not already initialized.
+        // initLoomForEpic is idempotent — re-invoking orchestrateStartup is safe.
+        const loomResult = await initLoomForEpic(epicId, root);
+        // gh#1107 / T12017: surface a genuine init failure instead of returning
+        // success:true while writing zero lifecycle rows (the silent failure that
+        // made the FK split-brain invisible — `orchestrate start` reported
+        // `initialized:true` yet `lifecycle show` stayed `not_started`).
+        // `error` is only set on a real failure; the idempotent already-initialized
+        // path sets `alreadyInitialized:true` with no error, so this never fires
+        // for the benign re-init case.
+        if (loomResult.error) {
+          return engineError(
+            'E_LIFECYCLE_INIT_FAILED',
+            `Lifecycle init for ${epicId} failed: ${loomResult.error}`,
+          );
+        }
+        const autoInitialized = loomResult.initialized;
+        const currentStage = autoInitialized ? 'research' : 'already-initialized';
+
+        const summary = computeStartupSummary(epicId, epic.title, children, ready.length);
+        return { success: true, data: { ...summary, autoInitialized, currentStage } };
+      } catch (err: unknown) {
+        const code = (err as { code?: string }).code ?? 'E_GENERAL';
+        return engineError(code, (err as Error).message);
+      }
+    });
+  } catch (error) {
+    return engineError('E_GENERAL', String(error));
   }
 }
 
@@ -155,10 +165,13 @@ export async function orchestrateBootstrap(
   params?: { speed?: 'fast' | 'full' | 'complete' },
 ): Promise<EngineResult<BrainState>> {
   try {
-    const root = getProjectRoot(projectRoot);
-    const accessor = await getTaskAccessor(root);
-    const brain = await buildBrainState(root, params, accessor);
-    return { success: true, data: brain };
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      const root = scope.worktreeRoot;
+      const accessor = await getTaskAccessor(root);
+      const brain = await buildBrainState(root, params, accessor);
+      return { success: true, data: brain };
+    });
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
   }
@@ -173,10 +186,13 @@ export async function orchestrateBootstrap(
  */
 export async function orchestrateCriticalPath(projectRoot?: string): Promise<EngineResult> {
   try {
-    const root = getProjectRoot(projectRoot);
-    const accessor = await getTaskAccessor(root);
-    const result = await getCriticalPath(root, accessor);
-    return { success: true, data: result };
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      const root = scope.worktreeRoot;
+      const accessor = await getTaskAccessor(root);
+      const result = await getCriticalPath(root, accessor);
+      return { success: true, data: result };
+    });
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
   }
@@ -191,10 +207,13 @@ export async function orchestrateCriticalPath(projectRoot?: string): Promise<Eng
  */
 export async function orchestrateUnblockOpportunities(projectRoot?: string): Promise<EngineResult> {
   try {
-    const root = getProjectRoot(projectRoot);
-    const accessor = await getTaskAccessor(root);
-    const result = await getUnblockOpportunities(root, accessor);
-    return { success: true, data: result };
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      const root = scope.worktreeRoot;
+      const accessor = await getTaskAccessor(root);
+      const result = await getUnblockOpportunities(root, accessor);
+      return { success: true, data: result };
+    });
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
   }
@@ -216,21 +235,28 @@ export async function orchestrateParallel(
   wave?: number,
   projectRoot?: string,
 ): Promise<EngineResult> {
-  if (action === 'start') {
-    if (wave === undefined || wave === null) {
-      return engineError('E_INVALID_INPUT', 'wave number is required for start action');
-    }
-    return orchestrateParallelStart(epicId, wave, projectRoot);
-  }
+  try {
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      if (action === 'start') {
+        if (wave === undefined || wave === null) {
+          return engineError('E_INVALID_INPUT', 'wave number is required for start action');
+        }
+        return orchestrateParallelStart(epicId, wave, scope.worktreeRoot);
+      }
 
-  if (action === 'end') {
-    if (wave === undefined || wave === null) {
-      return engineError('E_INVALID_INPUT', 'wave number is required for end action');
-    }
-    return orchestrateParallelEnd(epicId, wave, projectRoot);
-  }
+      if (action === 'end') {
+        if (wave === undefined || wave === null) {
+          return engineError('E_INVALID_INPUT', 'wave number is required for end action');
+        }
+        return orchestrateParallelEnd(epicId, wave, scope.worktreeRoot);
+      }
 
-  return engineError('E_INVALID_INPUT', `Unknown parallel action: ${action}`);
+      return engineError('E_INVALID_INPUT', `Unknown parallel action: ${action}`);
+    });
+  } catch (error) {
+    return engineError('E_GENERAL', String(error));
+  }
 }
 
 /**
@@ -247,21 +273,28 @@ export async function orchestrateParallelStart(
   wave: number,
   projectRoot?: string,
 ): Promise<EngineResult> {
-  if (!epicId) {
-    return engineError('E_INVALID_INPUT', 'epicId is required');
-  }
-  if (wave === undefined || wave === null) {
-    return engineError('E_INVALID_INPUT', 'wave number is required');
-  }
-
   try {
-    const root = getProjectRoot(projectRoot);
-    const accessor = await getTaskAccessor(root);
-    const result = await startParallelExecution(epicId, wave, root, accessor);
-    return { success: true, data: result };
-  } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_GENERAL';
-    return engineError(code, (err as Error).message);
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      if (!epicId) {
+        return engineError('E_INVALID_INPUT', 'epicId is required');
+      }
+      if (wave === undefined || wave === null) {
+        return engineError('E_INVALID_INPUT', 'wave number is required');
+      }
+
+      try {
+        const root = scope.worktreeRoot;
+        const accessor = await getTaskAccessor(root);
+        const result = await startParallelExecution(epicId, wave, root, accessor);
+        return { success: true, data: result };
+      } catch (err: unknown) {
+        const code = (err as { code?: string }).code ?? 'E_GENERAL';
+        return engineError(code, (err as Error).message);
+      }
+    });
+  } catch (error) {
+    return engineError('E_GENERAL', String(error));
   }
 }
 
@@ -279,30 +312,37 @@ export async function orchestrateParallelEnd(
   wave: number,
   projectRoot?: string,
 ): Promise<EngineResult> {
-  if (!epicId) {
-    return engineError('E_INVALID_INPUT', 'epicId is required');
-  }
-
   try {
-    const root = getProjectRoot(projectRoot);
-    const result = await endParallelExecution(epicId, wave, root);
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      if (!epicId) {
+        return engineError('E_INVALID_INPUT', 'epicId is required');
+      }
 
-    if (result.alreadyEnded) {
-      return {
-        success: true,
-        data: {
-          epicId,
-          wave,
-          message: 'No parallel execution was active',
-          alreadyEnded: true,
-        },
-      };
-    }
+      try {
+        const root = scope.worktreeRoot;
+        const result = await endParallelExecution(epicId, wave, root);
 
-    return { success: true, data: result };
-  } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_GENERAL';
-    return engineError(code, (err as Error).message);
+        if (result.alreadyEnded) {
+          return {
+            success: true,
+            data: {
+              epicId,
+              wave,
+              message: 'No parallel execution was active',
+              alreadyEnded: true,
+            },
+          };
+        }
+
+        return { success: true, data: result };
+      } catch (err: unknown) {
+        const code = (err as { code?: string }).code ?? 'E_GENERAL';
+        return engineError(code, (err as Error).message);
+      }
+    });
+  } catch (error) {
+    return engineError('E_GENERAL', String(error));
   }
 }
 
@@ -315,27 +355,30 @@ export async function orchestrateParallelEnd(
  */
 export async function orchestrateCheck(projectRoot?: string): Promise<EngineResult> {
   try {
-    const root = getProjectRoot(projectRoot);
-    const parallelState = await getParallelStatus(root);
-    const tasks = await loadTasks(root);
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      const root = scope.worktreeRoot;
+      const parallelState = await getParallelStatus(root);
+      const tasks = await loadTasks(root);
 
-    const activeTasks = tasks.filter((t) => t.status === 'active');
-    const progress = computeProgress(tasks);
+      const activeTasks = tasks.filter((t) => t.status === 'active');
+      const progress = computeProgress(tasks);
 
-    return {
-      success: true,
-      data: {
-        parallelExecution: {
-          active: parallelState.active,
-          epicId: parallelState.epicId || null,
-          wave: parallelState.wave || null,
-          tasks: parallelState.tasks || [],
-          startedAt: parallelState.startedAt || null,
+      return {
+        success: true,
+        data: {
+          parallelExecution: {
+            active: parallelState.active,
+            epicId: parallelState.epicId || null,
+            wave: parallelState.wave || null,
+            tasks: parallelState.tasks || [],
+            startedAt: parallelState.startedAt || null,
+          },
+          activeTasks: activeTasks.map((t) => ({ id: t.id, title: t.title, status: t.status })),
+          progress,
         },
-        activeTasks: activeTasks.map((t) => ({ id: t.id, title: t.title, status: t.status })),
-        progress,
-      },
-    };
+      };
+    });
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
   }
@@ -351,9 +394,12 @@ export async function orchestrateCheck(projectRoot?: string): Promise<EngineResu
  */
 export function orchestrateSkillInject(skillName: string, projectRoot?: string): EngineResult {
   try {
-    const root = getProjectRoot(projectRoot);
-    const result = getSkillContent(skillName, root);
-    return { success: true, data: result };
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return worktreeScope.run(scope, () => {
+      const root = scope.worktreeRoot;
+      const result = getSkillContent(skillName, root);
+      return { success: true, data: result };
+    });
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_GENERAL';
     return engineError(code, (err as Error).message);
