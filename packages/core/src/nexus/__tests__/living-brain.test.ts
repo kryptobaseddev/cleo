@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import { reasonWhySymbol } from '../../memory/brain-reasoning.js';
 import { EDGE_TYPES } from '../../memory/edge-types.js';
@@ -132,18 +132,19 @@ async function seedBrainData(brainNative: ReturnType<typeof getBrainNativeDb>) {
     )
     .run(`task:${TASK_ID}`, SYMBOL_ID, EDGE_TYPES.TASK_TOUCHES_SYMBOL, 1.0, 'test', now);
 
-  // Insert brain decision in brain_decisions table
-  try {
-    brainNative
-      .prepare(
-        `INSERT OR IGNORE INTO brain_decisions
-         (id, decision, rationale, quality_score, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run('dec-001', 'Use testFunction for all test cases', 'Consistent API', 0.7, now, now);
-  } catch {
-    // brain_decisions table may have different schema; skip gracefully
-  }
+  // Seed a real current decision; a schema failure must fail the fixture.
+  brainNative
+    .prepare(
+      'INSERT INTO main.brain_decisions (id, type, decision, rationale, confidence, confirmation_state) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    .run(
+      'dec-001',
+      'architecture',
+      'Use testFunction for all test cases',
+      'Consistent API',
+      'high',
+      'accepted',
+    );
 
   // Insert a decision brain node stub in brain_page_nodes
   brainNative
@@ -201,6 +202,7 @@ describe('living-brain SDK', () => {
   });
 
   afterEach(() => {
+    vi.doUnmock('@cleocode/nexus');
     resetBrainDbState();
     resetNexusDbState();
     if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
@@ -280,7 +282,12 @@ describe('living-brain SDK', () => {
       expect(coverage.reasons).toContain('Unindexed files exist in the configured source root.');
     });
 
-    it('discovers T448-style verification files when task.files is empty and preserves file precision', async () => {
+    it.each([
+      'available',
+      'import failure',
+      'execution failure',
+      'second execution failure',
+    ])('preserves T448 file evidence and symbol context with optional analyzer %s', async (availability) => {
       mkdirSync(join(projectRoot, 'src'), { recursive: true });
       writeFileSync(join(projectRoot, FILE_PATH), 'export function testFunction() {}');
       const db = await getDb(projectRoot);
@@ -307,8 +314,51 @@ describe('living-brain SDK', () => {
           }),
         })
         .run();
+      getBrainNativeDb(projectRoot)!
+        .prepare(
+          'INSERT INTO brain_memory_links (memory_id, memory_type, task_id, link_type) VALUES (?, ?, ?, ?)',
+        )
+        .run('dec-001', 'decision', 'T448', 'applies_to');
+      const siblingId = `${FILE_PATH}::otherFunction`;
+      getNexusNativeDb(projectRoot)!
+        .prepare(
+          'INSERT INTO nexus_nodes (id, kind, name, file_path, label, indexed_at, is_exported) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          siblingId,
+          'function',
+          'otherFunction',
+          FILE_PATH,
+          'otherFunction',
+          new Date().toISOString(),
+          0,
+        );
+      if (availability !== 'available') {
+        vi.doMock('@cleocode/nexus', async () => {
+          if (availability === 'import failure')
+            throw new Error('Injected optional import failure');
+          const actual = await vi.importActual<typeof import('@cleocode/nexus')>('@cleocode/nexus');
+          let calls = 0;
+          return {
+            ...actual,
+            analyzeImpact: (...args: Parameters<typeof actual.analyzeImpact>) => {
+              calls += 1;
+              if (availability === 'execution failure' || calls === 2) {
+                throw new Error('Injected optional execution failure');
+              }
+              return actual.analyzeImpact(...args);
+            },
+          };
+        });
+      }
       const footprint = await getTaskCodeImpact('T448', projectRoot);
       expect(footprint.files).toContain(FILE_PATH);
+      expect(footprint.decisions).toContainEqual(
+        expect.objectContaining({
+          decisionId: 'dec-001',
+          decision: 'Use testFunction for all test cases',
+        }),
+      );
       expect(footprint.symbols).toContainEqual(
         expect.objectContaining({
           nexusNodeId: SYMBOL_ID,
@@ -322,11 +372,80 @@ describe('living-brain SDK', () => {
           ]),
         }),
       );
-      expect(footprint.findings).toEqual([]);
+      expect(footprint.symbols.map((entry) => entry.nexusNodeId).sort()).toEqual(
+        [SYMBOL_ID, siblingId].sort(),
+      );
+      expect(footprint.symbols.every((entry) => entry.precision === 'file')).toBe(true);
+      if (availability === 'available') {
+        expect(footprint.findings).toEqual([]);
+        expect(footprint.blastRadius.symbolsAnalyzed).toBe(2);
+      } else {
+        expect(footprint.riskScore).toBe('UNKNOWN');
+        expect(footprint.blastRadius.maxRisk).toBe('UNKNOWN');
+        expect(footprint.blastRadius.symbolsAnalyzed).toBe(
+          availability === 'second execution failure' ? 1 : 0,
+        );
+        expect(footprint.symbols.every((entry) => entry.riskLevel === 'UNKNOWN')).toBe(true);
+        expect(footprint.coverage?.status).toBe('failed');
+        expect(footprint.coverage?.reasons.join(' ')).toContain(
+          availability === 'import failure' ? 'error when mocking a module' : 'Injected optional',
+        );
+        expect(footprint.coverage?.limitations.join(' ')).toContain(
+          'placeholders, not evidence of NONE',
+        );
+        expect(footprint.coverage?.nextAction).toContain('cleo doctor knowledge --task T448');
+        expect(footprint.findings).toContainEqual(
+          expect.objectContaining({
+            id: 'task-impact:T448',
+            state: 'failed',
+            proposedAction: null,
+            affectedRecordIds: expect.arrayContaining(['T448', SYMBOL_ID, siblingId]),
+          }),
+        );
+      }
+      vi.doUnmock('@cleocode/nexus');
       const repeated = await getTaskCodeImpact('T448', projectRoot);
       expect(repeated.symbols.map((entry) => entry.nexusNodeId)).toEqual(
         footprint.symbols.map((entry) => entry.nexusNodeId),
       );
+    });
+
+    it('retains every file association beyond the impact budget and discloses unassessed symbols', async () => {
+      mkdirSync(join(projectRoot, 'src'), { recursive: true });
+      writeFileSync(join(projectRoot, FILE_PATH), 'export function testFunction() {}');
+      const db = await getDb(projectRoot);
+      db.insert(tasks)
+        .values({
+          id: 'T449',
+          title: 'Many associated symbols',
+          filesJson: JSON.stringify([FILE_PATH]),
+        })
+        .run();
+      const insert = getNexusNativeDb(projectRoot)!.prepare(
+        'INSERT INTO nexus_nodes (id, kind, name, file_path, label, indexed_at) VALUES (?, ?, ?, ?, ?, ?)',
+      );
+      for (let index = 0; index < 50; index += 1) {
+        insert.run(
+          `${FILE_PATH}::extra${index}`,
+          'function',
+          `extra${index}`,
+          FILE_PATH,
+          `extra${index}`,
+          new Date().toISOString(),
+        );
+      }
+      const impact = await getTaskCodeImpact('T449', projectRoot);
+      expect(impact.symbols).toHaveLength(51);
+      expect(impact.symbols.every((entry) => entry.precision === 'file')).toBe(true);
+      expect(impact.blastRadius.symbolsAnalyzed).toBe(50);
+      expect(impact.riskScore).toBe('UNKNOWN');
+      expect(impact.coverage?.reasons.join(' ')).toContain(
+        'additional associations remain unassessed',
+      );
+      expect(impact.coverage?.limitations.join(' ')).toContain(
+        'placeholders, not evidence of NONE',
+      );
+      expect(impact.coverage?.nextAction).toBe('cleo doctor knowledge --task T449');
     });
 
     it('accepts qualified identifiers in impact without matching only the short name', async () => {
