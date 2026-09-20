@@ -224,7 +224,13 @@ export function detectEncryption(filePath: string): boolean {
   return header.toString('utf8') === CLEO_ENC_MAGIC;
 }
 
-/** Explicit inspection failure; callers must not translate this into not-found. */
+/**
+ * Explicit inspection failure; callers must not translate this into not-found.
+ *
+ * @remarks
+ * The code describes a refusal or failed diagnostic within the requested snapshot
+ * scope. It does not establish whether the historical record exists elsewhere.
+ */
 export class BackupObservationInspectionError extends Error {
   /**
    * Construct a scoped inspection diagnostic.
