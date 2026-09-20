@@ -416,8 +416,10 @@ function readSnapshotObservation(
  * @param options - Explicit snapshot identity, record ID and byte ceilings.
  * @returns Scoped authentic payload and provenance, or scoped not-found.
  * @throws BackupObservationInspectionError - The source, schema, identity or bounds are unproven.
- * @remarks Linux O_NOATIME/O_NOFOLLOW preserves source timestamps. Unsupported platforms
- * fail explicitly. Queries are synchronous and are not claimed to be preemptible;
+ * @remarks Linux O_NOFOLLOW protects source identity; O_NOATIME is requested as a
+ * best effort. Access-time changes are reported separately from content changes and
+ * never restored. Unsupported platforms fail explicitly. Queries are synchronous
+ * and are not claimed to be preemptible;
  * source/payload sizes and indexed exact lookups bound the accepted workload.
  * @example
  * ```ts
@@ -454,7 +456,7 @@ export async function inspectBackupObservation(
   if (process.platform !== 'linux' || !fs.constants.O_NOATIME || !fs.constants.O_NOFOLLOW)
     inspectionFailure(
       'UNSUPPORTED_SOURCE',
-      'Timestamp-preserving inspection requires Linux O_NOATIME and O_NOFOLLOW.',
+      'Snapshot inspection currently requires Linux O_NOATIME and O_NOFOLLOW.',
     );
   let temporary: string | undefined;
   let handle: fs.promises.FileHandle | undefined;
@@ -477,8 +479,8 @@ export async function inspectBackupObservation(
       fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NOATIME,
     );
     const same = (current: fs.BigIntStats): boolean =>
-      ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs', 'atimeNs'].every((key) => {
-        const name = key as 'dev' | 'ino' | 'size' | 'mtimeNs' | 'ctimeNs' | 'atimeNs';
+      ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].every((key) => {
+        const name = key as 'dev' | 'ino' | 'size' | 'mtimeNs' | 'ctimeNs';
         return current[name] === before[name];
       });
     if (!same(await handle.stat({ bigint: true })))
@@ -539,14 +541,15 @@ export async function inspectBackupObservation(
     const copiedHash = copyHash.digest('hex');
     if (copiedHash !== sourceHash)
       inspectionFailure('SOURCE_CHANGED', 'Private snapshot hash mismatch.');
-    const recheck = async (): Promise<void> => {
-      if (
-        !handle ||
-        !same(await handle.stat({ bigint: true })) ||
-        !same(await fs.promises.lstat(source, { bigint: true }))
-      )
-        inspectionFailure('SOURCE_CHANGED', 'Source snapshot identity or timestamps changed.');
+    const recheck = async (): Promise<fs.BigIntStats> => {
+      const current = await fs.promises.lstat(source, { bigint: true });
+      if (!handle || !same(await handle.stat({ bigint: true })) || !same(current))
+        inspectionFailure(
+          'SOURCE_CHANGED',
+          'Source snapshot identity, size, modification time or change time changed.',
+        );
       await rejectSnapshotJournals(source);
+      return current;
     };
     await recheck();
     snapshot = openCleoDbSnapshot(copy, { readOnly: true, applyPragmas: false });
@@ -608,7 +611,7 @@ export async function inspectBackupObservation(
     const version = snapshot.db.prepare('PRAGMA user_version').get()?.user_version;
     if (typeof version !== 'number')
       inspectionFailure('INVALID_SNAPSHOT', 'Snapshot user_version is unreadable.');
-    await recheck();
+    const after = await recheck();
     return {
       status: record ? 'found' : 'not-found',
       recordId: options.recordId,
@@ -620,6 +623,8 @@ export async function inspectBackupObservation(
         mtimeNs: before.mtimeNs.toString(),
         ctimeNs: before.ctimeNs.toString(),
         atimeNs: before.atimeNs.toString(),
+        atimeAfterNs: after.atimeNs.toString(),
+        atimeChanged: after.atimeNs !== before.atimeNs,
       },
       userVersion: version,
       textEncoding,
@@ -637,6 +642,7 @@ export async function inspectBackupObservation(
         'Filename labels and project/name fields do not establish stable project identity.',
         'Synchronous SQLite work is size-bounded, not deadline-preempted; integrity_check does not validate every application invariant.',
         'Payload hash covers the documented lossless value representation, not an original SQLite row byte span.',
+        'Access time is observed separately and never restored; a change does not establish which reader caused it or imply a content change.',
       ],
     };
   } catch (error) {

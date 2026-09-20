@@ -250,7 +250,12 @@ export interface BackupObservationInspection {
     bytes: number;
     mtimeNs: string;
     ctimeNs: string;
+    /** Observed access time before reading; not a content-mutation precondition. */
     atimeNs: string;
+    /** Observed access time at the final identity/content-metadata recheck. */
+    atimeAfterNs: string;
+    /** Whether access time changed; this does not identify the responsible reader. */
+    atimeChanged: boolean;
   };
   /** Actual SQLite schema marker; not an inferred product/schema version. */
   userVersion: number;

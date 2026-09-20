@@ -25,7 +25,6 @@ incident learning with project/revision evidence. A failed diagnostic is not cle
 Provider reference delivery must be verified or embedded self-contained; static
 instruction checks do not establish live Codex, Claude, or Kimi behavior.
 
-
 <!-- thin-pointer: full protocol is in CLEO-INJECTION.md (T9148) -->
 Full protocol content lives in `~/.cleo/templates/CLEO-INJECTION.md`.
 Emit any section with: `cleo briefing inject --section <name>`
