@@ -29,6 +29,7 @@ import {
   httpGateSchema,
   lintGateSchema,
   manualGateSchema,
+  testCountReportSchema,
   testGateSchema,
 } from '../acceptance-gate-schema.js';
 import type { AcceptanceItem } from '../index.js';
@@ -920,5 +921,97 @@ describe('published acceptance result schema (T12292)', () => {
     expect(emitted.$comment).toContain('not proof');
     expect(emitted.required).not.toContain('binding');
     expect(emitted.required).not.toContain('execution');
+  });
+});
+
+describe('structured minimum-count report schema', () => {
+  // Captured Vitest 4.1.4 JSON: one nested suite, pass + skip + todo.
+  const report = {
+    numTotalTestSuites: 2,
+    numPassedTestSuites: 2,
+    numFailedTestSuites: 0,
+    numPendingTestSuites: 0,
+    numTotalTests: 3,
+    numPassedTests: 1,
+    numFailedTests: 0,
+    numPendingTests: 1,
+    numTodoTests: 1,
+    success: true,
+    testResults: [
+      {
+        name: '/fixture/reporter.test.ts',
+        status: 'passed',
+        assertionResults: [
+          { fullName: 'actual reporter passes', status: 'passed' },
+          { fullName: 'actual reporter skipped', status: 'skipped' },
+          { fullName: 'actual reporter later', status: 'todo' },
+        ],
+      },
+    ],
+  };
+
+  it('recognizes passed tests without counting skipped or todo assertions', () => {
+    const parsed = testCountReportSchema.parse(report);
+    expect(parsed.numPassedTests).toBe(1);
+    expect(parsed.numTotalTests).toBe(3);
+    expect(parsed.numTotalTestSuites).toBe(2);
+    expect(parsed.testResults).toHaveLength(1);
+  });
+
+  it.each([
+    { numPassedTests: 3 },
+    { numTotalTests: 99 },
+    { numPendingTests: 0 },
+    { numTodoTests: 0 },
+    { numPassedTests: 1.5 },
+    { numPassedTests: -1 },
+    { numTotalTests: Number.MAX_SAFE_INTEGER + 1 },
+    { numFailedTestSuites: 1 },
+  ])('rejects malformed or inconsistent counters: %j', (change) => {
+    expect(testCountReportSchema.safeParse({ ...report, ...change }).success).toBe(false);
+  });
+
+  it('rejects summary-only, missing counters, and unsupported assertion states', () => {
+    expect(testCountReportSchema.safeParse({ numPassedTests: 100, success: true }).success).toBe(
+      false,
+    );
+    expect(testCountReportSchema.safeParse({ ...report, numTodoTests: undefined }).success).toBe(
+      false,
+    );
+    expect(
+      testCountReportSchema.safeParse({
+        ...report,
+        testResults: [
+          {
+            ...report.testResults[0],
+            assertionResults: [{ fullName: 'test', status: 'invented' }],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('retains real failed suite reports without converting them into success', () => {
+    const failed = {
+      ...report,
+      success: false,
+      numPassedTestSuites: 1,
+      numFailedTestSuites: 1,
+      testResults: [{ ...report.testResults[0], status: 'failed' }],
+    };
+    expect(testCountReportSchema.parse(failed).success).toBe(false);
+    expect(testCountReportSchema.safeParse({ ...failed, success: true }).success).toBe(false);
+  });
+
+  it('accepts zero-count structure without claiming that any test ran', () => {
+    const empty = {
+      ...report,
+      numTotalTests: 0,
+      numPassedTests: 0,
+      numPendingTests: 0,
+      numTodoTests: 0,
+      testResults: [],
+    };
+    expect(testCountReportSchema.parse(empty).numPassedTests).toBe(0);
   });
 });

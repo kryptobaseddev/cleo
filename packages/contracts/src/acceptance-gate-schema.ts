@@ -81,6 +81,90 @@ export const testGateSchema = gateBaseSchema.extend({
   env: z.record(z.string(), z.string()).optional(),
 });
 
+/**
+ * Validates the structured JSON reporter subset used for minimum test counts.
+ *
+ * @remarks
+ * Audited against Vitest 4.1.4 JSON output, including nested suites, skipped
+ * tests and todos. Jest-compatible producers must satisfy this same shape;
+ * this is not a claim that every Jest version or custom reporter is supported.
+ * Counts must match individual assertions. Passed tests alone satisfy a gate's
+ * minimum; this schema validates structure, not execution provenance or success.
+ * Extra reporter metadata is ignored. Runtime callers must bound input bytes
+ * and obtain the report from the actual owned process, not a saved report file.
+ *
+ * @example
+ * ```ts
+ * const report = testCountReportSchema.safeParse(JSON.parse(captured.stdout));
+ * if (report.success) console.info(report.data.numPassedTests);
+ * ```
+ */
+export const testCountReportSchema = z
+  .object({
+    numTotalTests: z.number().int().nonnegative().safe(),
+    numPassedTests: z.number().int().nonnegative().safe(),
+    numFailedTests: z.number().int().nonnegative().safe(),
+    numPendingTests: z.number().int().nonnegative().safe(),
+    numTodoTests: z.number().int().nonnegative().safe(),
+    numTotalTestSuites: z.number().int().nonnegative().safe(),
+    numPassedTestSuites: z.number().int().nonnegative().safe(),
+    numFailedTestSuites: z.number().int().nonnegative().safe(),
+    numPendingTestSuites: z.number().int().nonnegative().safe(),
+    success: z.boolean(),
+    testResults: z.array(
+      z.object({
+        name: z.string().min(1),
+        status: z.enum(['passed', 'failed']),
+        assertionResults: z.array(
+          z.object({
+            fullName: z.string(),
+            status: z.enum(['passed', 'failed', 'pending', 'skipped', 'todo']),
+          }),
+        ),
+      }),
+    ),
+  })
+  .superRefine((report, context) => {
+    const assertions = report.testResults.flatMap((file) => file.assertionResults);
+    const passed = assertions.filter((test) => test.status === 'passed').length;
+    const failed = assertions.filter((test) => test.status === 'failed').length;
+    const pending = assertions.filter(
+      (test) => test.status === 'pending' || test.status === 'skipped',
+    ).length;
+    const todo = assertions.filter((test) => test.status === 'todo').length;
+    if (
+      report.numTotalTests !== assertions.length ||
+      report.numPassedTests !== passed ||
+      report.numFailedTests !== failed ||
+      report.numPendingTests !== pending ||
+      report.numTodoTests !== todo
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Test counters disagree with assertion results',
+      });
+    }
+    if (
+      report.numTotalTestSuites !==
+      report.numPassedTestSuites + report.numFailedTestSuites + report.numPendingTestSuites
+    ) {
+      context.addIssue({ code: 'custom', message: 'Suite counters are inconsistent' });
+    }
+    if (
+      report.testResults.some(
+        (file) =>
+          file.status === 'passed' &&
+          file.assertionResults.some((test) => test.status === 'failed'),
+      ) ||
+      (report.success &&
+        (failed > 0 ||
+          report.numFailedTestSuites > 0 ||
+          report.testResults.some((file) => file.status === 'failed')))
+    ) {
+      context.addIssue({ code: 'custom', message: 'Success status contradicts failed results' });
+    }
+  });
+
 /** Zod schema for {@link FileGate}. */
 export const fileGateSchema = gateBaseSchema.extend({
   kind: z.literal('file'),
