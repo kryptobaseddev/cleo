@@ -119,6 +119,23 @@ describe('exact read-only observation snapshot inspection', () => {
     }
   });
 
+  it('preserves UTF-16 snapshot text bytes and discloses their encoding', async () => {
+    fixture(
+      `PRAGMA encoding='UTF-16le'; CREATE TABLE observations(id TEXT PRIMARY KEY, narrative TEXT, project_id TEXT); INSERT INTO observations VALUES ('${ID}', '日本語 historical', 'project-B');`,
+    );
+    const result = await inspectBackupObservation({
+      snapshotPath: source,
+      recordId: ID,
+      expectedProjectId: 'project-B',
+    });
+    expect(result.textEncoding).toBe('UTF-16le');
+    expect(result.record?.payload.narrative).toEqual({
+      type: 'text',
+      bytesBase64: Buffer.from('日本語 historical', 'utf16le').toString('base64'),
+    });
+    expect(result.projectIdentity.status).toBe('matched');
+  });
+
   it('checks recorded project identity without turning it into authority', async () => {
     fixture(
       `CREATE TABLE brain_observations(id TEXT PRIMARY KEY, project_id TEXT, narrative TEXT); INSERT INTO brain_observations VALUES ('${ID}', 'project-B', 'payload');`,
