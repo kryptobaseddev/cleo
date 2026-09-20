@@ -22,7 +22,7 @@
  *   - `pending`   — created but not yet picked up by a worker
  *   - `running`   — actively executing; emits heartbeats
  *   - `complete`  — finished successfully (`result` populated, `error` NULL)
- *   - `failed`    — finished with an error (`error` populated, `result` NULL)
+ *   - `failed`    — finished with an error (`result` may retain authenticated outcome metadata)
  *   - `cancelled` — explicitly cancelled by a caller
  *   - `orphaned`  — was `running` when the process exited; requires human/agent review
  *
