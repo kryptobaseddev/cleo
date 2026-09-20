@@ -566,6 +566,63 @@ describe.skipIf(process.platform === 'win32')('captured target lifecycle', () =>
     });
   });
 
+  it('refuses requested hard limits before target execution when the owned cgroup is unavailable', async () => {
+    _forceSystemdRunAvailable(false);
+    const result = await captureWrapped(
+      process.execPath,
+      ['-e', "process.stdout.write('TARGET-RAN')"],
+      {
+        cwd: tmpdir(),
+        env: {},
+        memoryMaxMb: 4096,
+        tasksMax: 256,
+        execution: { deadlineAt: Date.now() + 5000 },
+      },
+    );
+    expect(result).toMatchObject({
+      started: false,
+      exitCode: null,
+      stopped: 'resource-limit',
+      stdout: '',
+      nativeMemory: 'unverified',
+    });
+    expect(result.error).toContain('E_PROCESS_RESOURCE_LIMIT');
+    expect(result.resourceLimits).toBeUndefined();
+  });
+
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER,
+  ])('rejects invalid or inexact memory bound %s before any process starts', async (memoryMaxMb) => {
+    vi.clearAllMocks();
+    await expect(
+      captureWrapped('unused', [], {
+        cwd: tmpdir(),
+        env: {},
+        memoryMaxMb,
+        execution: { deadlineAt: Date.now() + 5000 },
+      }),
+    ).rejects.toThrow(RangeError);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('rejects a fractional kernel task limit before any process starts', async () => {
+    vi.clearAllMocks();
+    await expect(
+      captureWrapped('unused', [], {
+        cwd: tmpdir(),
+        env: {},
+        tasksMax: 1.5,
+        execution: { deadlineAt: Date.now() + 5000 },
+      }),
+    ).rejects.toThrow(RangeError);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it('retains signals independently from numeric exit outcomes', async () => {
     _forceSystemdRunAvailable(false);
     const result = await captureWrapped(
@@ -726,6 +783,49 @@ describe.skipIf(process.platform === 'win32')('captured target lifecycle', () =>
       if (!result.unitName) throw new Error('Missing observed scope identity');
       expect(result.stdout).toContain(result.unitName);
       expect(result.nativeMemory).toBe('unverified');
+      const bounded = await captureWrapped(
+        process.execPath,
+        [
+          '-e',
+          `
+        const fs = require('node:fs');
+        const group = fs.readFileSync('/proc/self/cgroup','utf8').trim().split('\\n').find(x => x.startsWith('0::')).slice(3);
+        process.stdout.write(JSON.stringify({
+          memory: fs.readFileSync('/sys/fs/cgroup' + group + '/memory.max','utf8').trim(),
+          tasks: fs.readFileSync('/sys/fs/cgroup' + group + '/pids.max','utf8').trim(),
+          group,
+        }));
+      `,
+        ],
+        {
+          cwd: tmpdir(),
+          env: {},
+          systemdControl,
+          memoryMaxMb: 4096,
+          tasksMax: 256,
+          execution: { deadlineAt: Date.now() + 5000 },
+        },
+      );
+      expect(bounded).toMatchObject({
+        started: true,
+        exitCode: 0,
+        error: null,
+        stopped: null,
+        nativeMemory: 'observed-cgroup',
+        cleanupObservation: 'scope-terminal',
+        cleanupErrors: [],
+        resourceLimits: { memoryMaxBytes: 4294967296, tasksMax: 256 },
+      });
+      expect(JSON.parse(bounded.stdout)).toEqual({
+        memory: '4294967296',
+        tasks: '256',
+        group: bounded.resourceLimits?.cgroup,
+      });
+      const configured = vi.mocked(spawn).mock.calls.at(-1)?.[1] ?? [];
+      expect(configured).toContain('MemoryMax=4096M');
+      expect(configured).toContain('TasksMax=256');
+      expect(configured).not.toContain('MemoryMax=32G');
+
       const expired = await captureWrapped(process.execPath, ['-e', 'setInterval(()=>{},1000)'], {
         cwd: tmpdir(),
         env: {},

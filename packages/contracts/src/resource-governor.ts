@@ -157,6 +157,10 @@ export interface ProcessCaptureOptions {
   readonly execution: ProcessLaunchExecution;
   /** Aggregate stdout/stderr byte limit; exceeding it stops execution without a verdict. */
   readonly maxOutputBytes?: number;
+  /** Requested hard native-memory ceiling in MiB; target admission requires observed cgroup enforcement. */
+  readonly memoryMaxMb?: number;
+  /** Requested kernel task ceiling (processes and threads); target admission requires observed cgroup enforcement. */
+  readonly tasksMax?: number;
   /** Existing manager connection used only for launcher/control operations. */
   readonly systemdControl?: SystemdControlContext;
 }
@@ -174,7 +178,27 @@ export type ProcessCaptureStop =
   | 'cancelled'
   | 'teardown'
   | 'output-limit'
+  | 'resource-limit'
   | 'transport-error';
+
+/**
+ * Kernel limits observed inside the owned cgroup before target admission.
+ * @remarks Values describe the capture scope, including its transport and descendants.
+ * They are observations at admission, not protection against later privileged reconfiguration.
+ * Null means the corresponding cgroup file contains an unlimited value.
+ * @example
+ * ```typescript
+ * const bounded = result.resourceLimits?.memoryMaxBytes === 4096 * 1024 * 1024;
+ * ```
+ */
+export interface ProcessCaptureResourceObservation {
+  /** Exact unified cgroup path containing the capture transport. */
+  readonly cgroup: string;
+  /** Observed memory.max bytes, or null when no finite ceiling was observed. */
+  readonly memoryMaxBytes: number | null;
+  /** Observed pids.max, counting kernel tasks including threads, or null. */
+  readonly tasksMax: number | null;
+}
 
 /**
  * Observed target result, kept separate from wrapper and cleanup outcomes.
@@ -210,8 +234,10 @@ export interface ProcessCaptureResult {
   readonly mode: 'systemd' | 'pgid';
   /** Exact scope name, where the launcher selected systemd. */
   readonly unitName?: string;
-  /** Scope resource configuration is not proof of native-memory enforcement. */
-  readonly nativeMemory: 'unverified';
+  /** Only a finite kernel ceiling observed inside the exact owned scope establishes this claim. */
+  readonly nativeMemory: 'unverified' | 'observed-cgroup';
+  /** Present only after validated pre-target observation of requested hard limits. */
+  readonly resourceLimits?: ProcessCaptureResourceObservation;
   /** POSIX group cleanup covers members, not descendants that deliberately escape it. */
   readonly cleanupScope: 'process-group' | 'direct-child';
   /** Returned only after the owned transport emitted close; not a claim about escaped descendants. */
