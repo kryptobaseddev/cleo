@@ -21,23 +21,32 @@
  * @task T781
  */
 
-import { createHash } from 'node:crypto';
-import { open, stat } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { constants, type Stats } from 'node:fs';
+import { lstat, open, realpath, stat } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
   AcceptanceGate,
   AcceptanceGateResult,
+  AcRow,
   CommandGate,
   FileAssertion,
   FileGate,
   HttpGate,
   LintGate,
   ManualGate,
+  Task,
   TestGate,
 } from '@cleocode/contracts';
-import { acceptanceGateSchema } from '@cleocode/contracts';
-import type { AcceptanceGateRunOptions } from '@cleocode/contracts/acceptance-gate';
+import { acceptanceGateResultSchema, acceptanceGateSchema } from '@cleocode/contracts';
+import type {
+  AcceptanceGateArtifact,
+  AcceptanceGateBinding,
+  AcceptanceGateInvocation,
+  AcceptanceGateRunOptions,
+} from '@cleocode/contracts/acceptance-gate';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
@@ -48,6 +57,7 @@ import { truncateString } from '../render/helpers.js';
 import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
+import { acItemToText, acTextHash } from './ac-table.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -171,6 +181,327 @@ export async function runGates(
   }
 }
 
+/**
+ * Run task requirements with their canonical AC and bounded input snapshots.
+ * @param task - Captured task, including its complete mixed acceptance array.
+ * @param criteria - Current normalized acceptance rows from the same task snapshot.
+ * @param options - Existing explicitly admitted verification lifetime and process limits.
+ * @returns Results bound to original mixed-array indexes, identities and input bytes.
+ * @remarks This function never writes a result. The canonical verifier must compare
+ * task/criterion freshness again and persist results plus receipt in one transaction.
+ * Untracked harnesses are included; undeclared runtime dependencies are not inferred.
+ * @example
+ * ```typescript
+ * const results = await runTaskGates(task, rows, { projectRoot, execution });
+ * ```
+ */
+export async function runTaskGates(
+  task: Task,
+  criteria: readonly AcRow[],
+  options: RunGatesOptions,
+): Promise<AcceptanceGateResult[]> {
+  const execution = options.execution ?? worktreeScope.getStore()?.execution;
+  if (!execution || execution.identity.operation !== 'check.gate.verify')
+    throw new Error(
+      'Typed verification requires an explicitly admitted check.gate.verify lifetime',
+    );
+  const root = resolve(options.projectRoot ?? execution.identity.projectRoot);
+  const scope = captureProjectScope(root, {
+    ...captureProjectScope(root, worktreeScope.getStore()),
+    execution,
+  });
+  const snapshot = structuredClone(task);
+  const rows = structuredClone([...criteria]).sort((a, b) => a.ordinal - b.ordinal);
+  assertCriterionProjection(snapshot, rows);
+  const env = { ...(options.env ?? process.env) };
+  const verificationId = randomUUID();
+  return worktreeScope.run(scope, async () => {
+    const results: AcceptanceGateResult[] = [];
+    for (const [index, gate] of (snapshot.acceptance ?? []).entries()) {
+      if (typeof gate === 'string') continue;
+      execution.assertActive();
+      const capturedAt = new Date().toISOString();
+      const invocation = executableInvocation(gate, root, env);
+      const artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution);
+      const binding: AcceptanceGateBinding = {
+        version: 1,
+        verificationId,
+        identity: { ...execution.identity },
+        taskId: snapshot.id,
+        criterionId: rows[index]!.id,
+        criterionHash: acTextHash(rows[index]!.text),
+        gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
+        capturedAt,
+        deadlineAt: execution.deadlineAt,
+        ...(invocation ? { invocation } : {}),
+        artifacts,
+      };
+      const observed = (
+        await runGates([gate], { ...options, projectRoot: root, env, execution })
+      )[0]!;
+      let result: AcceptanceGateResult = { ...observed, index, binding };
+      try {
+        const after = await snapshotGateInputs(snapshot, gate, invocation, execution);
+        if (!isDeepStrictEqual(after, artifacts))
+          throw new Error('Verification inputs changed during execution');
+      } catch (error) {
+        result = {
+          ...result,
+          result: 'error',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        };
+      }
+      results.push(acceptanceGateResultSchema.parse(result));
+    }
+    return results;
+  });
+}
+
+/**
+ * Revalidate persisted typed results against current canonical task and input state.
+ * @param task - Current task read under the caller's transaction ownership.
+ * @param criteria - Current normalized AC rows from that transaction.
+ * @param results - Authentic stored results, never caller-submitted verdicts.
+ * @param options - Current captured lifetime bounding revalidation work.
+ * @returns Resolves only when every required typed gate has current passing proof.
+ * @remarks Historical unbound results and generic text-AC evidence cannot substitute.
+ * Filesystem checks are cooperative and cannot make external file writes atomic with SQLite.
+ * @example
+ * ```typescript
+ * await revalidateTaskGateResults(task, rows, task.verification?.gateResults ?? [], { execution });
+ * ```
+ */
+export async function revalidateTaskGateResults(
+  task: Task,
+  criteria: readonly AcRow[],
+  results: readonly AcceptanceGateResult[],
+  options: RunGatesOptions,
+): Promise<void> {
+  const execution = options.execution ?? worktreeScope.getStore()?.execution;
+  if (!execution)
+    throw new Error('Typed result revalidation requires a captured execution lifetime');
+  const root = resolve(options.projectRoot ?? execution.identity.projectRoot);
+  const scope = captureProjectScope(root, {
+    ...captureProjectScope(root, worktreeScope.getStore()),
+    execution,
+  });
+  const rows = [...criteria].sort((a, b) => a.ordinal - b.ordinal);
+  assertCriterionProjection(task, rows);
+  const env = { ...(options.env ?? process.env) };
+  await worktreeScope.run(scope, async () => {
+    for (const [index, gate] of (task.acceptance ?? []).entries()) {
+      if (typeof gate === 'string' || gate.advisory) continue;
+      execution.assertActive();
+      const matches = results.filter((result) => result.index === index);
+      if (matches.length !== 1)
+        throw new Error(`Typed requirement ${gate.req ?? index} has no unique verified result`);
+      const result = acceptanceGateResultSchema.parse(matches[0]);
+      const binding = result.binding;
+      if (
+        result.result !== 'pass' ||
+        !binding ||
+        result.kind !== gate.kind ||
+        result.req !== gate.req
+      )
+        throw new Error(`Typed requirement ${gate.req ?? index} lacks a passing bound result`);
+      if (
+        binding.taskId !== task.id ||
+        binding.identity.projectId !== execution.identity.projectId ||
+        binding.identity.projectRoot !== root ||
+        binding.criterionId !== rows[index]!.id ||
+        binding.criterionHash !== acTextHash(rows[index]!.text) ||
+        binding.gateHash !== createHash('sha256').update(acItemToText(gate)).digest('hex')
+      )
+        throw new Error(
+          `Typed requirement ${gate.req ?? index} binding is stale or belongs to another owner`,
+        );
+      const invocation = executableInvocation(gate, root, env);
+      if (!isDeepStrictEqual(binding.invocation, invocation))
+        throw new Error(`Typed requirement ${gate.req ?? index} invocation or environment changed`);
+      const artifacts = await snapshotGateInputs(task, gate, invocation, execution);
+      if (!isDeepStrictEqual(binding.artifacts, artifacts))
+        throw new Error(
+          `Typed requirement ${gate.req ?? index} input bytes changed after verification`,
+        );
+    }
+  });
+}
+
+/** Require the stored mixed acceptance array and ordered normalized rows to agree. */
+function assertCriterionProjection(task: Task, rows: readonly AcRow[]): void {
+  const acceptance = task.acceptance ?? [];
+  if (
+    rows.length !== acceptance.length ||
+    rows.some(
+      (row, index) =>
+        row.taskId !== task.id ||
+        row.text !== acItemToText(acceptance[index]!) ||
+        (row.kind !== 'child_task' &&
+          row.contentHash !== null &&
+          row.contentHash !== acTextHash(row.text)),
+    )
+  )
+    throw new Error(
+      'Typed verification refused inconsistent acceptance JSON and normalized AC rows',
+    );
+}
+
+/** Effective child environment shared by launch and verification input hashing. */
+function gateEnvironment(
+  env: NodeJS.ProcessEnv,
+  overlay?: Readonly<Record<string, string>>,
+): NodeJS.ProcessEnv {
+  const merged = { ...env, ...overlay };
+  return { ...merged, ...heavyToolEnv('test', merged) };
+}
+
+/** Resolve the actual executable inputs once using the same rules as process launch. */
+function executableInvocation(
+  gate: AcceptanceGate,
+  root: string,
+  env: NodeJS.ProcessEnv,
+): AcceptanceGateInvocation | undefined {
+  if (gate.kind !== 'test' && gate.kind !== 'command' && gate.kind !== 'lint') return undefined;
+  const [testCommand, ...testArgs] = gate.kind === 'test' ? gate.command.trim().split(/\s+/) : [];
+  const command =
+    gate.kind === 'test'
+      ? testCommand!
+      : gate.kind === 'command'
+        ? gate.cmd
+        : LINT_TOOL_DEFAULTS[gate.tool].cmd;
+  const args =
+    gate.args ??
+    (gate.kind === 'test'
+      ? testArgs
+      : gate.kind === 'lint'
+        ? LINT_TOOL_DEFAULTS[gate.tool].defaultArgs
+        : []);
+  const effective = gateEnvironment(env, gate.kind === 'lint' ? undefined : gate.env);
+  return {
+    command,
+    args: [...args],
+    cwd: resolveCwd(root, gate.cwd),
+    environmentHash: createHash('sha256')
+      .update(
+        JSON.stringify(
+          Object.entries(effective)
+            .filter(([, value]) => value !== undefined)
+            .sort(([a], [b]) => a.localeCompare(b)),
+        ),
+      )
+      .digest('hex'),
+  };
+}
+
+/** Capture declared task inputs and an interpreter's explicit harness argument. */
+async function snapshotGateInputs(
+  task: Task,
+  gate: AcceptanceGate,
+  invocation: AcceptanceGateInvocation | undefined,
+  execution: OperationExecutionContext,
+): Promise<AcceptanceGateArtifact[]> {
+  const root = resolve(execution.identity.projectRoot);
+  if (invocation) {
+    const cwdRelative = relative(root, invocation.cwd);
+    if (cwdRelative === '..' || cwdRelative.startsWith('../') || isAbsolute(cwdRelative))
+      throw new Error('Typed invocation working directory escapes the captured project');
+    if ((await realpath(invocation.cwd)) !== invocation.cwd)
+      throw new Error('Typed invocation working directory has ambiguous symlink ownership');
+  }
+  const paths = new Set((task.files ?? []).map((path) => resolve(root, path)));
+  if (gate.kind === 'file' && gate.path) paths.add(resolve(root, gate.path));
+  if (
+    invocation &&
+    /^(node(?:\.exe)?|python[0-9.]*(?:\.exe)?|bun|deno|tsx|ts-node|bash|sh|ruby|perl)$/.test(
+      basename(invocation.command),
+    )
+  ) {
+    if (!invocation.args.some((arg) => ['-e', '--eval', '-c', '--print', '-p'].includes(arg))) {
+      const script = invocation.args.find((arg) => !arg.startsWith('-'));
+      if (script) paths.add(resolve(invocation.cwd, script));
+      for (const arg of invocation.args) {
+        if (
+          !arg.startsWith('-') &&
+          (arg.includes('/') || /\.(?:[cm]?[jt]sx?|py|sh|rb|pl)$/.test(arg))
+        )
+          paths.add(resolve(invocation.cwd, arg));
+      }
+    }
+  }
+  const artifacts: AcceptanceGateArtifact[] = [];
+  for (const path of [...paths].sort()) {
+    execution.assertActive();
+    execution.consume({ items: 1 });
+    if (/[?*[\]{}]/.test(path))
+      throw new Error(`Typed input requires an explicit file path: ${path}`);
+    const rel = relative(root, path);
+    if (!rel || rel === '..' || rel.startsWith('../') || isAbsolute(rel))
+      throw new Error(`Typed input escapes the captured project: ${path}`);
+    // Refuse redirected parents even for absent files; absence must belong to this project.
+    let parent = dirname(path);
+    for (;;) {
+      try {
+        if ((await realpath(parent)) !== parent)
+          throw new Error(`Typed input has an ambiguous symlink parent: ${path}`);
+        break;
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+        if (parent === root) throw error;
+        parent = dirname(parent);
+      }
+    }
+    let before: Stats;
+    try {
+      before = await lstat(path);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        artifacts.push({ path, sha256: null, bytes: null });
+        continue;
+      }
+      throw error;
+    }
+    if (!before.isFile() || before.isSymbolicLink())
+      throw new Error(`Typed input is not an unambiguous regular file: ${path}`);
+    const ceiling = execution.resources.maxBytes ?? 1_048_576;
+    if (before.size > ceiling) throw new Error(`Typed input exceeds admitted byte limit: ${path}`);
+    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const opened = await file.stat();
+      if (opened.dev !== before.dev || opened.ino !== before.ino)
+        throw new Error(`Typed input replaced while opening: ${path}`);
+      const hash = createHash('sha256');
+      const buffer = Buffer.alloc(65_536);
+      let bytes = 0;
+      for (;;) {
+        execution.assertActive();
+        const chunk = await file.read(buffer, 0, buffer.length, null);
+        if (chunk.bytesRead === 0) break;
+        bytes += chunk.bytesRead;
+        if (bytes > ceiling)
+          throw new Error(`Typed input grew beyond admitted byte limit: ${path}`);
+        execution.consume({ bytes: chunk.bytesRead });
+        hash.update(buffer.subarray(0, chunk.bytesRead));
+      }
+      const after = await file.stat();
+      const named = await lstat(path);
+      if (
+        bytes !== before.size ||
+        after.size !== before.size ||
+        after.mtimeMs !== before.mtimeMs ||
+        after.ctimeMs !== before.ctimeMs ||
+        named.dev !== before.dev ||
+        named.ino !== before.ino
+      )
+        throw new Error(`Typed input changed while hashing: ${path}`);
+      execution.assertActive();
+      artifacts.push({ path, sha256: hash.digest('hex'), bytes });
+    } finally {
+      await file.close();
+    }
+  }
+  return artifacts;
+}
+
 /** Check the shared boundary without pretending to preempt synchronous operations. */
 function assertGateActive(context: ProcessCaptureOptions): void {
   context.execution.signal?.throwIfAborted();
@@ -220,11 +551,11 @@ async function captureGateCommand(
   context: ProcessCaptureOptions,
   overlay?: Readonly<Record<string, string>>,
 ): Promise<ProcessCaptureResult> {
-  const env = { ...context.env, ...overlay };
+  const env = gateEnvironment(context.env ?? process.env, overlay);
   return captureWrapped(command, args, {
     ...context,
     cwd,
-    env: { ...env, ...heavyToolEnv('test', env) },
+    env,
     execution: {
       ...context.execution,
       deadlineAt: Math.min(context.execution.deadlineAt, Date.now() + timeoutMs),
@@ -275,11 +606,11 @@ async function runTestGate(
     throw new Error(
       'Minimum test count requires a supported structured count result; exit0 alone cannot prove it',
     );
-  const [command, ...defaults] = gate.command.trim().split(/\s+/);
+  const invocation = executableInvocation(gate, projectRoot, context.env ?? process.env)!;
   const captured = await captureGateCommand(
-    command!,
-    gate.args ?? defaults,
-    resolveCwd(projectRoot, gate.cwd),
+    invocation.command,
+    invocation.args,
+    invocation.cwd,
     timeoutMs,
     context,
     gate.env,
@@ -493,10 +824,11 @@ async function runCommandGate(
   timeoutMs: number,
   context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
+  const invocation = executableInvocation(gate, projectRoot, context.env ?? process.env)!;
   const captured = await captureGateCommand(
-    gate.cmd,
-    gate.args ?? [],
-    resolveCwd(projectRoot, gate.cwd),
+    invocation.command,
+    invocation.args,
+    invocation.cwd,
     timeoutMs,
     context,
     gate.env,
@@ -538,10 +870,11 @@ async function runLintGate(
   context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
   const tool = LINT_TOOL_DEFAULTS[gate.tool];
+  const invocation = executableInvocation(gate, projectRoot, context.env ?? process.env)!;
   const captured = await captureGateCommand(
-    tool.cmd,
-    gate.args ?? tool.defaultArgs,
-    resolveCwd(projectRoot, gate.cwd),
+    invocation.command,
+    invocation.args,
+    invocation.cwd,
     timeoutMs,
     context,
   );
