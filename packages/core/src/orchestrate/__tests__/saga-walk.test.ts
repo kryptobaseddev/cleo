@@ -199,8 +199,8 @@ afterEach(async () => {
   } catch {
     // ignore cleanup errors
   }
-  await env.cleanup();
   vi.unstubAllEnvs();
+  await env.cleanup();
 });
 
 // ---------------------------------------------------------------------------
