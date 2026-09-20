@@ -237,10 +237,13 @@ export {
   shouldPause,
 } from './orchestrator/startup.js';
 export {
+  validateCurrentManifestIntegrity,
+  validateCurrentSubagentOutput,
   validateManifestIntegrity,
   validateOrchestratorCompliance,
   validateSubagentOutput,
   verifyCompliance,
+  verifyCurrentCompliance,
 } from './orchestrator/validator.js';
 // Canonical-skill PR generator (T9749 — extracted from `cleo skills propose-patch`)
 export type {
