@@ -1,14 +1,17 @@
 /** Independent durability and validation oracles for typed requirement gates. */
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AcceptanceGate, AcRow, Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { awaitBackgroundOps } from '../../store/background-ops.js';
+import { captureProjectScope, worktreeScope } from '../../project-scope.js';
+import { _forceSystemdRunAvailable } from '../../resources/spawn-wrapper.js';
+import { awaitBackgroundOps, createOperationExecutionContext } from '../../store/background-ops.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { closeDb, getNativeTasksDb } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
+import { validateGateVerify } from '../../validation/engine-ops.js';
 import { buildFreshAcRows } from '../ac-table.js';
 import { parseGateJson, reqAdd, reqList, reqMigrate } from '../req.js';
 
@@ -70,6 +73,7 @@ describe('typed requirement persistence', () => {
     const task: Task = {
       id: 'T121',
       title: 'Requirement fixture',
+      description: 'Synthetic typed requirement persistence fixture',
       status: 'pending',
       type: 'task',
       priority: 'medium',
@@ -86,6 +90,7 @@ describe('typed requirement persistence', () => {
     await awaitBackgroundOps();
     closeDb();
     vi.unstubAllEnvs();
+    _forceSystemdRunAvailable(undefined);
     await rm(root, { recursive: true, force: true });
   });
 
@@ -221,5 +226,210 @@ describe('typed requirement persistence', () => {
       'MIGRATED-003',
       'MIGRATED-001',
     ]);
+  });
+  async function verificationFixture(script: string, content?: string) {
+    _forceSystemdRunAvailable(false);
+    await writeFile(
+      join(root, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'requirement-verifier', projectHash: 'fixture-path' }),
+    );
+    await writeFile(
+      join(root, '.cleo/config.json'),
+      JSON.stringify({
+        enforcement: { session: { requiredForMutate: false }, acceptance: { mode: 'off' } },
+        verification: { enabled: true, requiredGates: ['cleanupDone'] },
+        lifecycle: { mode: 'off' },
+      }),
+    );
+    if (content !== undefined) await writeFile(join(root, script), content);
+    await reqAdd(
+      root,
+      'T121',
+      {
+        kind: 'test',
+        command: process.execPath,
+        args: [script],
+        expect: 'exit0',
+        req: 'VERIFY-121',
+        description: 'Actual harness result',
+        timeoutMs: 1800000,
+      },
+      accessor,
+    );
+  }
+
+  it('canonical verify runs the real harness and commits exact bound result plus receipt in a fresh process', async () => {
+    await verificationFixture('verified.mjs', 'process.exit(0);');
+    const result = await validateGateVerify(root, {
+      taskId: 'T121',
+      gate: 'cleanupDone',
+      value: true,
+      agent: 'implementer',
+      evidence: 'note:explicit synthetic verification',
+    });
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+    const loaded = await accessor.loadSingleTask('T121');
+    expect(loaded?.verification?.gateResults?.[0]).toMatchObject({
+      index: 2,
+      req: 'VERIFY-121',
+      result: 'pass',
+      binding: { taskId: 'T121' },
+    });
+    const stored = JSON.parse(
+      persisted(root, "SELECT verification_json FROM tasks_tasks WHERE id='T121'"),
+    );
+    expect(JSON.parse(stored[0].verification_json).gateResults).toEqual(
+      loaded?.verification?.gateResults,
+    );
+    const logs = JSON.parse(
+      persisted(
+        root,
+        "SELECT details_json FROM tasks_audit_log WHERE task_id='T121' AND action='gate.verify.typed'",
+      ),
+    );
+    expect(
+      logs,
+      persisted(
+        root,
+        "SELECT action, task_id, details_json FROM audit_log WHERE action='gate.verify.typed'",
+      ),
+    ).toHaveLength(1);
+    expect(JSON.parse(logs[0].details_json).verificationId).toBe(
+      loaded?.verification?.gateResults?.[0]?.binding?.verificationId,
+    );
+    const rows = await accessor.getAcRows('T121');
+    expect(
+      (await accessor.getAcBindings([rows[2]!.id])).some(
+        (entry) => entry.bindingType === 'satisfies',
+      ),
+    ).toBe(true);
+  });
+
+  it('canonical verify records missing harness as unmet instead of green generic evidence', async () => {
+    await verificationFixture('not-present.mjs');
+    const result = await validateGateVerify(root, {
+      taskId: 'T121',
+      gate: 'cleanupDone',
+      value: true,
+      agent: 'implementer',
+      evidence: 'note:explicit synthetic verification',
+    });
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+    if (!result.success) throw new Error(result.error.message);
+    expect(result.data.passed).toBe(false);
+    const loaded = await accessor.loadSingleTask('T121');
+    expect(loaded?.verification?.gateResults?.[0]).toMatchObject({
+      req: 'VERIFY-121',
+      result: 'fail',
+    });
+    const rows = await accessor.getAcRows('T121');
+    expect(await accessor.getAcBindings([rows[2]!.id])).toEqual([]);
+  });
+  it('canonical verify rolls results and bindings back if mandatory receipt insertion fails', async () => {
+    await verificationFixture('verified.mjs', 'process.exit(0);');
+    const before = persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks');
+    const beforeBindings = persisted(root, 'SELECT * FROM tasks_evidence_ac_bindings');
+    const native = getNativeTasksDb(root);
+    expect(native).not.toBeNull();
+    native!.exec(
+      "CREATE TRIGGER reject_typed_receipt BEFORE INSERT ON tasks_audit_log WHEN NEW.action='gate.verify.typed' BEGIN SELECT RAISE(ABORT,'typed receipt fault'); END",
+    );
+    const result = await validateGateVerify(root, {
+      taskId: 'T121',
+      gate: 'cleanupDone',
+      agent: 'implementer',
+      evidence: 'note:explicit synthetic verification',
+    });
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('Receipt fault unexpectedly committed');
+    expect(result.error.message).toContain('typed receipt fault');
+    expect(persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks')).toBe(before);
+    expect(persisted(root, 'SELECT * FROM tasks_evidence_ac_bindings')).toBe(beforeBindings);
+    expect(persisted(root, "SELECT id FROM tasks_audit_log WHERE action='gate.verify.typed'")).toBe(
+      '[]',
+    );
+  });
+
+  it('canonical verify admits one concurrent result and records a fresh run on a later repeat', async () => {
+    await verificationFixture(
+      'rendezvous.mjs',
+      `
+      import { writeFileSync, readdirSync } from 'node:fs';
+      writeFileSync('gate-started-' + process.pid, 'ready');
+      const began = Date.now();
+      while (readdirSync('.').filter(name => name.startsWith('gate-started-')).length < 2) {
+        if (Date.now() - began > 1200) process.exit(2);
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+    `,
+    );
+    const verify = () =>
+      validateGateVerify(root, {
+        taskId: 'T121',
+        gate: 'cleanupDone',
+        agent: 'implementer',
+        evidence: 'note:explicit synthetic verification',
+      });
+    const results = await Promise.all([verify(), verify()]);
+    expect(results.map((result) => result.success).sort()).toEqual([false, true]);
+    expect(results.find((result) => !result.success)?.error?.message).toContain(
+      'changed during execution',
+    );
+    const first = await accessor.loadSingleTask('T121');
+    const firstId = first?.verification?.gateResults?.[0]?.binding?.verificationId;
+    expect(firstId).toBeTruthy();
+    expect(
+      JSON.parse(
+        persisted(root, "SELECT id FROM tasks_audit_log WHERE action='gate.verify.typed'"),
+      ),
+    ).toHaveLength(1);
+    const repeat = await verify();
+    expect(repeat.success, repeat.success ? undefined : repeat.error.message).toBe(true);
+    const second = await accessor.loadSingleTask('T121');
+    expect(second?.verification?.gateResults?.[0]?.binding?.verificationId).not.toBe(firstId);
+    expect(
+      JSON.parse(
+        persisted(root, "SELECT id FROM tasks_audit_log WHERE action='gate.verify.typed'"),
+      ),
+    ).toHaveLength(2);
+  });
+  it('canonical verify retains the admitted deadline instead of renewing the long gate timeout', async () => {
+    await verificationFixture(
+      'slow.mjs',
+      'await new Promise(resolve => setTimeout(resolve, 10000));',
+    );
+    const before = persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks');
+    const beforeBindings = persisted(root, 'SELECT * FROM tasks_evidence_ac_bindings');
+    const context = createOperationExecutionContext(
+      {
+        projectId: 'requirement-verifier',
+        projectRoot: root,
+        actor: 'deadline-test',
+        operation: 'check.gate.verify',
+        idempotencyKey: 'original-deadline',
+      },
+      { deadlineAt: Date.now() + 100 },
+    );
+    try {
+      const result = await worktreeScope.run(
+        captureProjectScope(root, { ...captureProjectScope(root, undefined), execution: context }),
+        () =>
+          validateGateVerify(root, {
+            taskId: 'T121',
+            gate: 'cleanupDone',
+            agent: 'deadline-test',
+            evidence: 'note:explicit synthetic verification',
+          }),
+      );
+      expect(result.success).toBe(false);
+      expect(persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks')).toBe(before);
+      expect(persisted(root, 'SELECT * FROM tasks_evidence_ac_bindings')).toBe(beforeBindings);
+      expect(
+        persisted(root, "SELECT id FROM tasks_audit_log WHERE action='gate.verify.typed'"),
+      ).toBe('[]');
+      expect(() => context.assertActive()).toThrow();
+    } finally {
+      context.close();
+    }
   });
 });

@@ -12,7 +12,9 @@
  * @epic T1566
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { join, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import type {
   EvidenceAtom,
   EvidenceValidationContext,
@@ -20,12 +22,21 @@ import type {
   TaskVerification,
   VerificationGate,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { loadConfig } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { CleoError } from '../errors.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
+import {
+  captureProjectScope,
+  readProjectInfoAtDirectorySync,
+  worktreeScope,
+} from '../project-scope.js';
 import { checkAndIncrementOverrideCap } from '../security/override-cap.js';
 import { enforceSharedEvidence } from '../security/shared-evidence-tracker.js';
 import { warnIfNoActiveSession } from '../sessions/session-enforcement.js';
+import { createOperationExecutionContext } from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   checkCallsiteCoverageAtom,
@@ -41,6 +52,7 @@ import {
   validateAtom,
 } from '../tasks/evidence.js';
 import { appendForceBypassLine, appendGateAuditLine } from '../tasks/gate-audit.js';
+import { revalidateTaskGateResults, runTaskGates } from '../tasks/gate-runner.js';
 import {
   hasCallsiteCoverageLabel,
   hasEngineMigrationLabel,
@@ -341,6 +353,20 @@ function protocolCatch(err: unknown): EngineResult {
  * toolchain.  `reset` mode requires no evidence. `value=false` (gate fail)
  * requires no evidence since failures do not need proof.
  *
+ * @param projectRoot - Owning project root for task, input files and result storage.
+ * @param params - Explicit gate verification request; typed gates run only for a positive write.
+ * @returns Verification state or a diagnostic refusal, without completing the task.
+ * @remarks Positive typed writes execute under the captured lifetime (two seconds for
+ * an unscoped caller), then compare task, criteria and input snapshots in the owning
+ * transaction. Bound results, AC links and the mandatory typed receipt commit together.
+ * Filesystem snapshots cannot provide a transaction spanning native files and SQLite.
+ * @example
+ * ```ts
+ * const result = await validateGateVerify(projectRoot, {
+ *   taskId: 'T123', gate: 'cleanupDone', evidence: 'note:cleanup reviewed',
+ * });
+ * ```
+ *
  * @task T5327
  * @task T832
  * @task T12106
@@ -350,6 +376,10 @@ export async function validateGateVerify(
   projectRoot: string,
   params: GateVerifyParams,
 ): Promise<EngineResult<GateVerifyResult>> {
+  const admittedAt = Date.now();
+  projectRoot = resolve(projectRoot);
+  const inheritedExecution = worktreeScope.getStore()?.execution;
+  let ownedVerificationExecution: OperationExecutionContext | undefined;
   try {
     const { taskId, gate, value = true, agent, all, reset } = params;
     const agentId = agent ?? 'unknown';
@@ -375,6 +405,49 @@ export async function validateGateVerify(
         `Task ${taskId} is already done — verification evidence cannot be added to completed tasks (ADR-051 §11.1)`,
       );
     }
+
+    const originalVerification = JSON.stringify(task.verification ?? null);
+    const originalAcceptance = structuredClone(task.acceptance ?? []);
+    const originalFiles = structuredClone(task.files ?? []);
+    const originalUpdatedAt = task.updatedAt;
+    const typedWrite =
+      !reset &&
+      value !== false &&
+      Boolean(gate || all) &&
+      originalAcceptance.some((item) => typeof item !== 'string');
+    const initialAcRows = typedWrite ? await accessor.getAcRows(taskId) : [];
+    let typedExecution: OperationExecutionContext | undefined;
+    if (typedWrite) {
+      typedExecution = inheritedExecution;
+      if (!typedExecution) {
+        const identity = readProjectInfoAtDirectorySync(projectRoot, join(projectRoot, '.cleo'));
+        if (!identity.projectId)
+          throw new Error('Typed verification requires a stable project identity');
+        ownedVerificationExecution = createOperationExecutionContext(
+          {
+            projectId: identity.projectId,
+            projectRoot,
+            actor: agentId,
+            operation: 'check.gate.verify',
+            idempotencyKey: `${taskId}:${randomUUID()}`,
+          },
+          { deadlineAt: admittedAt + 2000 },
+        );
+        typedExecution = ownedVerificationExecution;
+      }
+      typedExecution.assertActive();
+    }
+
+    const validateEvidenceAtom: typeof validateAtom = (...args) =>
+      typedExecution
+        ? worktreeScope.run(
+            captureProjectScope(projectRoot, {
+              ...captureProjectScope(projectRoot, worktreeScope.getStore()),
+              execution: typedExecution,
+            }),
+            () => validateAtom(...args),
+          )
+        : validateAtom(...args);
 
     const configGates = await loadRequiredGates(projectRoot);
 
@@ -543,7 +616,7 @@ export async function validateGateVerify(
           for (const atom of parsed.atoms.toSorted(
             (a, b) => Number(b.kind === 'pr') - Number(a.kind === 'pr'),
           )) {
-            const check = await validateAtom(atom, projectRoot, taskId, siblingCommitSha, {
+            const check = await validateEvidenceAtom(atom, projectRoot, taskId, siblingCommitSha, {
               ...evidenceContext,
               artifactCommitSha: overrideAtoms.find((atom) => atom.kind === 'pr')?.mergeCommitSha,
             });
@@ -623,7 +696,7 @@ export async function validateGateVerify(
           (a, b) => Number(b.kind === 'pr') - Number(a.kind === 'pr'),
         )) {
           // T9178: pass taskId for branch-scope commit validation
-          const check = await validateAtom(atom, projectRoot, taskId, siblingCommitSha, {
+          const check = await validateEvidenceAtom(atom, projectRoot, taskId, siblingCommitSha, {
             ...evidenceContext,
             artifactCommitSha: validatedAtoms.find((atom) => atom.kind === 'pr')?.mergeCommitSha,
           });
@@ -728,31 +801,115 @@ export async function validateGateVerify(
       action = 'set_gate';
     }
 
-    verification.passed = computePassed(verification, configGates);
+    if (typedExecution) {
+      verification.gateResults = await runTaskGates(task, initialAcRows, {
+        projectRoot,
+        execution: typedExecution,
+      });
+    }
+    verification.passed =
+      computePassed(verification, configGates) &&
+      (task.acceptance ?? []).every(
+        (item, index) =>
+          typeof item === 'string' ||
+          item.advisory ||
+          verification.gateResults?.some(
+            (result) =>
+              result.index === index &&
+              result.result === 'pass' &&
+              result.binding?.taskId === taskId,
+          ),
+      );
     task.verification = verification;
     task.updatedAt = now;
 
     const satisfiesBindingRows = buildSatisfiesAcBindingRows(taskId, evidenceStored);
-    await accessor.transaction(async (tx) => {
-      // T11907: Persist ONLY the verification + updatedAt columns rather than a
-      // full-column upsert. A full upsert re-writes `parent_id` and `type` into
-      // the ON CONFLICT DO UPDATE SET clause (even when unchanged), which fires
-      // the `tasks_tasks_parent_type_matrix_update` SQLite trigger (BEFORE UPDATE
-      // OF parent_id, type). On a task that ALREADY violates the parent-type
-      // matrix (e.g. a task parented directly under a saga), that trigger ABORTs
-      // with E_TASK_PARENT_TYPE_MATRIX and blocks recording an otherwise-valid
-      // evidence gate. Gate-recording must be DECOUPLED from the structural
-      // hierarchy invariant: the matrix is a structural-repair concern surfaced
-      // via `cleo doctor` / structural checks, NOT a `verify` precondition.
-      // Writing a partial SET (verificationJson, updatedAt) keeps parent_id/type
-      // out of the UPDATE OF columns so the matrix trigger never fires here,
-      // while genuine parent_id/type mutations elsewhere remain fully guarded.
-      await tx.updateTaskFields(taskId, {
-        verificationJson: task.verification ? JSON.stringify(task.verification) : null,
-        updatedAt: now,
+    const persistVerification = () =>
+      accessor.transaction(async (tx) => {
+        if (typedExecution) {
+          typedExecution.assertActive();
+          const current = await accessor.loadSingleTask(taskId);
+          if (
+            !current ||
+            current.status === 'done' ||
+            current.updatedAt !== originalUpdatedAt ||
+            !isDeepStrictEqual(current.acceptance ?? [], originalAcceptance) ||
+            !isDeepStrictEqual(current.files ?? [], originalFiles) ||
+            JSON.stringify(current.verification ?? null) !== originalVerification ||
+            !isDeepStrictEqual(await tx.getAcRows(taskId), initialAcRows)
+          )
+            throw new CleoError(
+              ExitCode.CONCURRENT_MODIFICATION,
+              'Typed verification task, criteria or prior results changed during execution; rerun against the current record',
+            );
+          await revalidateTaskGateResults(
+            current,
+            initialAcRows,
+            verification.gateResults ?? [],
+            {
+              projectRoot,
+              execution: typedExecution,
+            },
+            false,
+          );
+          typedExecution.assertActive();
+        }
+        // T11907: Persist ONLY the verification + updatedAt columns rather than a
+        // full-column upsert. A full upsert re-writes `parent_id` and `type` into
+        // the ON CONFLICT DO UPDATE SET clause (even when unchanged), which fires
+        // the `tasks_tasks_parent_type_matrix_update` SQLite trigger (BEFORE UPDATE
+        // OF parent_id, type). On a task that ALREADY violates the parent-type
+        // matrix (e.g. a task parented directly under a saga), that trigger ABORTs
+        // with E_TASK_PARENT_TYPE_MATRIX and blocks recording an otherwise-valid
+        // evidence gate. Gate-recording must be DECOUPLED from the structural
+        // hierarchy invariant: the matrix is a structural-repair concern surfaced
+        // via `cleo doctor` / structural checks, NOT a `verify` precondition.
+        // Writing a partial SET (verificationJson, updatedAt) keeps parent_id/type
+        // out of the UPDATE OF columns so the matrix trigger never fires here,
+        // while genuine parent_id/type mutations elsewhere remain fully guarded.
+        await tx.updateTaskFields(taskId, {
+          verificationJson: task.verification ? JSON.stringify(task.verification) : null,
+          updatedAt: now,
+        });
+        await tx.insertAcBindings(satisfiesBindingRows);
+        if (typedExecution && verification.gateResults) {
+          const results = verification.gateResults;
+          await tx.insertAcBindings(
+            results
+              .filter((result) => result.result === 'pass' && result.binding)
+              .map((result) => ({
+                id: randomUUID(),
+                evidenceAtomId: `typed:${result.binding!.verificationId}:${result.binding!.criterionId}`,
+                acId: result.binding!.criterionId,
+                bindingType: 'satisfies' as const,
+              })),
+          );
+          typedExecution.assertActive();
+          await tx.appendLog({
+            action: 'gate.verify.typed',
+            taskId,
+            actor: typedExecution.identity.actor,
+            details: {
+              verificationId: results[0]?.binding?.verificationId,
+              resultHash: createHash('sha256').update(JSON.stringify(results)).digest('hex'),
+              operation: typedExecution.identity.operation,
+              passed: verification.passed,
+            },
+          });
+        }
       });
-      await tx.insertAcBindings(satisfiesBindingRows);
-    });
+
+    if (typedExecution) {
+      await worktreeScope.run(
+        captureProjectScope(projectRoot, {
+          ...captureProjectScope(projectRoot, worktreeScope.getStore()),
+          execution: typedExecution,
+        }),
+        persistVerification,
+      );
+    } else {
+      await persistVerification();
+    }
 
     // Emit audit line for every non-view action.  Best-effort: audit write
     // failures are logged but do not block the operation.
@@ -865,9 +1022,16 @@ export async function validateGateVerify(
     }
 
     return engineSuccess(result);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return engineError('E_GENERAL', message);
+  } catch (err) {
+    const message =
+      err instanceof Error
+        ? [err.message, err.cause instanceof Error ? err.cause.message : undefined]
+            .filter(Boolean)
+            .join(': ')
+        : String(err);
+    return engineError(err instanceof CleoError ? err.toLAFSError().code : 'E_GENERAL', message);
+  } finally {
+    ownedVerificationExecution?.close();
   }
 }
 
