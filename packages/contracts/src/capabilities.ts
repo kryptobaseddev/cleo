@@ -261,6 +261,8 @@ export interface ProviderRepairMetadataImage {
 
 /** Fresh-process synthetic store snapshot; never a production store inspection request. */
 export interface ProviderRepairFixtureState {
+  /** Verifier wall-clock timestamp at snapshot capture; required to admit retrieval counters. */
+  capturedAtMs?: number;
   /** Original observation rows, including quarantined rows. */
   observations: readonly ProviderRepairObservationImage[];
   /** Existing pending and terminal jobs. */
@@ -277,12 +279,28 @@ export interface ProviderRepairFixtureIdentity {
   actor: string;
   /** Seeded confirmed content-free trace identity. */
   noiseId: string;
+  /** Additional independently seeded affected identities; the exact complete set is required. */
+  additionalNoiseIds?: readonly string[];
   /** Seeded substantive incident identity that must be preserved. */
   incidentId: string;
 }
 
 /** One independently assessed repair phase; this is not a provider certificate. */
 export type ProviderRepairVerificationPhase = 'prepared' | 'repaired' | 'rolled-back';
+
+/** Explicit read-side usage delta; never evidence of content or authority changes. */
+export interface ProviderRepairRetrievalChange {
+  /** Retained observation identity. */
+  id: string;
+  /** Original citation count from the independent snapshot. */
+  beforeCount: number;
+  /** Strictly increased count after retrieval. */
+  afterCount: number;
+  /** Original retrieval timestamp, absent or null for unused records. */
+  beforeUpdatedAt: string | null;
+  /** UTC second-precision timestamp within measured snapshot bounds. */
+  afterUpdatedAt: string;
+}
 
 /** Actual canonical identities demonstrated by an independent state oracle. */
 export interface ProviderRepairPhaseEvidence {
@@ -296,6 +314,8 @@ export interface ProviderRepairPhaseEvidence {
   receiptId: string | null;
   /** Separate recovery receipt; original evidence remains retained. */
   rollbackReceiptId: string | null;
+  /** Every admitted usage-counter delta; all other row fields remain exact. */
+  retrievalChanges: readonly ProviderRepairRetrievalChange[];
 }
 
 /** Actual installed CLI process observation recorded outside the provider's answer. */
