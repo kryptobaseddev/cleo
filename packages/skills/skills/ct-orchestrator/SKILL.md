@@ -2,8 +2,8 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 2.7.0
-  lastReviewed: 2026-09-18
+  version: 2.8.0
+  lastReviewed: 2026-09-19
   stability: stable
 ---
 
@@ -159,7 +159,9 @@ Agent({
 
 ### Valid Return Messages
 
-Subagents MUST return exactly one of:
+Capture exactly one `cleo manifest append` receipt (shorthand OR rich entry). Verify that same receipt has `success: true`, `data.appended: true`, and a nonempty `entryId`, then read it with `cleo manifest show <entryId>`. Never append again merely to capture or verify the receipt. On append or readback failure, report the failure; do not claim "Manifest appended". Static prompt checks do not prove storage or provider workflow success.
+
+After successful verification, subagents MUST return exactly one of:
 - `"[Type] complete. Manifest appended to pipeline_manifest."`
 - `"[Type] partial. Manifest appended to pipeline_manifest."`
 - `"[Type] blocked. Manifest appended to pipeline_manifest."`

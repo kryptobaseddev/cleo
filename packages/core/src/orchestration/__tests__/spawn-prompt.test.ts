@@ -9,6 +9,8 @@
  * @task T887
  */
 
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '@cleocode/contracts';
@@ -125,6 +127,11 @@ describe('buildSpawnPrompt — core contract', () => {
       projectRoot: PROJECT_ROOT,
     });
     expect(result.prompt).toContain('## CLEO Protocol (embedded — tier 1)');
+    const fullTemplate = readFileSync(
+      new URL('../../../templates/CLEO-INJECTION.md', import.meta.url),
+      'utf8',
+    );
+    expect(result.prompt.split(fullTemplate)).toHaveLength(2);
   });
 
   it('tier 2 includes tier 1 embed + skill excerpts + anti-patterns', () => {
@@ -304,6 +311,87 @@ describe('buildSpawnPrompt — return format contract', () => {
     expect(result.prompt).toContain('"appended":true');
     expect(result.prompt).toContain('cleo manifest show');
   });
+});
+
+describe('manifest examples — one append and the same receipt', () => {
+  for (const alternative of [0, 1]) {
+    for (const scenario of [
+      'success',
+      'append-exit',
+      'false-success',
+      'false-appended',
+      'missing-id',
+      'malformed',
+      'show-exit',
+    ]) {
+      it(`validates alternative ${alternative} with ${scenario}`, () => {
+        const { prompt } = buildSpawnPrompt({
+          task: BASE_TASK,
+          protocol: 'implementation',
+          tier: 0,
+          projectRoot: PROJECT_ROOT,
+        });
+        const block = prompt.split('## Manifest Protocol')[1]?.split('## Session Linkage')[0] ?? '';
+        const examples = [...block.matchAll(/```bash\n([\s\S]*?)```/g)].map((match) => match[1]);
+        expect(examples).toHaveLength(3);
+        const append = examples[alternative];
+        const verify = examples[2];
+        expect(append?.match(/cleo manifest append/g)).toHaveLength(1);
+        expect(append).toContain('APPEND_OUT=');
+        expect(verify).not.toContain('cleo manifest append');
+        const receipt =
+          scenario === 'malformed'
+            ? '{broken'
+            : JSON.stringify({
+                success: scenario !== 'false-success',
+                data: {
+                  appended: scenario !== 'false-appended',
+                  entryId: scenario === 'missing-id' ? '' : 'receipt-with-spaces 42',
+                },
+              });
+        // Execute only the rendered examples. The shell function is the entire CLI:
+        // no real provider, CLEO process, database, network or browser can launch.
+        const script = [
+          'cleo() {',
+          '  if [ "$1 $2" = "manifest append" ]; then',
+          '    echo APPEND_CALL >&2',
+          '    printf "%s\\n" "$TEST_RECEIPT"',
+          '    return "$TEST_APPEND_EXIT"',
+          '  fi',
+          '  if [ "$1 $2" = "manifest show" ] && [ "$3" = "receipt-with-spaces 42" ] && [ "$#" = 3 ]; then',
+          '    echo SHOW_SAME_RECEIPT >&2',
+          '    return "$TEST_SHOW_EXIT"',
+          '  fi',
+          '  return 97',
+          '}',
+          append,
+          verify,
+          'echo VERIFIED_RETURN',
+        ].join('\n');
+        const result = spawnSync('/bin/bash', ['--noprofile', '--norc', '-c', script], {
+          encoding: 'utf8',
+          timeout: 5000,
+          env: {
+            PATH: '/usr/bin:/bin',
+            TEST_RECEIPT: receipt,
+            TEST_APPEND_EXIT: scenario === 'append-exit' ? '8' : '0',
+            TEST_SHOW_EXIT: scenario === 'show-exit' ? '4' : '0',
+          },
+        });
+        expect(result.error).toBeUndefined();
+        expect(result.stderr.match(/APPEND_CALL/g)).toHaveLength(1);
+        if (scenario === 'success') {
+          expect(result.status).toBe(0);
+          expect(result.stderr).toContain('SHOW_SAME_RECEIPT');
+          expect(result.stdout).toContain('VERIFIED_RETURN');
+        } else {
+          expect(result.status).not.toBe(0);
+          expect(result.stdout).not.toContain('VERIFIED_RETURN');
+          if (scenario !== 'show-exit') expect(result.stderr).not.toContain('SHOW_SAME_RECEIPT');
+        }
+      });
+    }
+  }
 });
 
 describe('buildSpawnPrompt — session linkage', () => {
