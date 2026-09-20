@@ -67,7 +67,9 @@
 
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import type { ParserExecutionPort } from '@cleocode/contracts';
+import type { SystemdControlContext } from '@cleocode/contracts/resource-governor';
 import { registerTeardownAbort } from '../teardown-signal.js';
 
 // ---------------------------------------------------------------------------
@@ -115,6 +117,13 @@ export interface SliceResourceConfig {
  * Options for {@link buildSpawnArgs}.
  */
 export interface BuildSpawnArgsOptions {
+  /**
+   * Explicit local manager connection, separate from the child's isolated environment.
+   * Only the launcher receives these path/address overrides; original child values
+   * are restored before executing the requested command. No global environment changes.
+   * @defaultValue Ambient manager discovery.
+   */
+  systemdControl?: SystemdControlContext;
   /**
    * Scope class — controls `ManagedOOMPreference` and the transient unit name
    * prefix.
@@ -236,47 +245,84 @@ const OOM_AVOID_CLASSES = new Set<ScopeClass>(['daemon', 'db']);
 // ---------------------------------------------------------------------------
 
 /**
- * Is `systemd-run` available on this host? Probed once and cached.
+ * Is `systemd-run` available for this manager context? Probed and cached per connection.
  * Mirrors the probe in `packages/core/src/check/pr-gate.ts`.
  */
-let _systemdRunAvailable: boolean | undefined;
+let _forcedSystemdRunAvailable: boolean | undefined;
+const systemdProbeCache = new Map<string, boolean>();
 
-/**
- * Check whether `systemd-run --user` is usable on this host.
- *
- * Returns `false` on non-Linux, when systemd-run is not on PATH, or when
- * DBUS_SESSION_BUS_ADDRESS / XDG_RUNTIME_DIR are absent (CI containers,
- * ssh sessions without a user bus).
- */
-export function hasSystemdRun(): boolean {
-  if (_systemdRunAvailable !== undefined) return _systemdRunAvailable;
-  if (process.platform !== 'linux') {
-    _systemdRunAvailable = false;
-    return false;
-  }
-  if (!process.env['DBUS_SESSION_BUS_ADDRESS'] && !process.env['XDG_RUNTIME_DIR']) {
-    _systemdRunAvailable = false;
-    return false;
-  }
-  const probe = spawnSync('systemd-run', ['--version'], { stdio: 'ignore', timeout: 1000 });
-  const bus =
-    probe.status === 0
-      ? spawnSync('systemctl', ['--user', 'show-environment'], { stdio: 'ignore', timeout: 1000 })
-      : null;
-  _systemdRunAvailable = probe.status === 0 && bus?.status === 0;
-  return _systemdRunAvailable;
+/** Construct a manager environment without mutating the caller or global state. */
+function managerEnvironment(
+  context: SystemdControlContext | undefined,
+  original: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  if (!context) return original;
+  if (!isAbsolute(context.runtimeDirectory))
+    throw new TypeError('Systemd manager runtime directory must be absolute');
+  const address = context.busAddress ?? `unix:path=${join(context.runtimeDirectory, 'bus')}`;
+  if (!address.startsWith('unix:'))
+    throw new TypeError('Systemd manager bus must use a local Unix address');
+  return {
+    ...original,
+    XDG_RUNTIME_DIR: context.runtimeDirectory,
+    DBUS_SESSION_BUS_ADDRESS: address,
+  };
 }
 
 /**
- * Force-override the cached systemd-run availability.
- *
- * Exposed for unit tests that need to exercise the pgid-fallback or
- * systemd paths without the real binary.
- *
- * @param available - `true` = force systemd path, `false` = force pgid path.
+ * Check whether the selected local user manager can launch transient scopes.
+ * @param context - Explicit manager context; omitted callers retain ambient discovery.
+ * @returns Whether systemd binaries and the selected user bus answered the bounded probes.
+ * @remarks Availability does not prove that a later scope or resource bound was established.
+ * Probe results are keyed by platform, executable search path and manager connection,
+ * so an unavailable ambient context cannot poison a later explicit context.
+ * @example
+ * ```typescript
+ * const available = hasSystemdRun({ runtimeDirectory: '/run/user/1000' });
+ * ```
  */
-export function _forceSystemdRunAvailable(available: boolean): void {
-  _systemdRunAvailable = available;
+export function hasSystemdRun(context?: SystemdControlContext): boolean {
+  const env = managerEnvironment(context, process.env);
+  if (_forcedSystemdRunAvailable !== undefined) return _forcedSystemdRunAvailable;
+  const key = JSON.stringify([
+    process.platform,
+    env['PATH'],
+    env['DBUS_SESSION_BUS_ADDRESS'],
+    env['XDG_RUNTIME_DIR'],
+  ]);
+  const cached = systemdProbeCache.get(key);
+  if (cached !== undefined) return cached;
+  let available = false;
+  if (process.platform === 'linux' && (env['DBUS_SESSION_BUS_ADDRESS'] || env['XDG_RUNTIME_DIR'])) {
+    const probe = spawnSync('systemd-run', ['--version'], { env, stdio: 'ignore', timeout: 1000 });
+    const bus =
+      probe.status === 0
+        ? spawnSync('systemctl', ['--user', 'show-environment'], {
+            env,
+            stdio: 'ignore',
+            timeout: 1000,
+          })
+        : null;
+    available = probe.status === 0 && bus?.status === 0;
+  }
+  // Bound contexts retained by long-lived callers with many synthetic workspaces.
+  if (systemdProbeCache.size >= 64) systemdProbeCache.clear();
+  systemdProbeCache.set(key, available);
+  return available;
+}
+
+/**
+ * Override availability for deterministic tests, or clear the override and cached probes.
+ * @param available - Forced availability; undefined restores real context-specific probing.
+ * @remarks Test overrides do not establish actual manager availability or containment.
+ * @example
+ * ```typescript
+ * _forceSystemdRunAvailable(undefined);
+ * ```
+ */
+export function _forceSystemdRunAvailable(available: boolean | undefined): void {
+  _forcedSystemdRunAvailable = available;
+  systemdProbeCache.clear();
 }
 
 /** Whether we have already emitted the pgid-demotion log line for this process. */
@@ -351,6 +397,11 @@ let _scopeCounter = 0;
  * @param args - Arguments to pass to the executable.
  * @param opts - Wrapper options (scope class, resources, etc.).
  * @returns Build result with final command, args, mode, and unit name.
+ * @remarks This only constructs launch arguments; it does not establish or inspect a scope.
+ * @example
+ * ```typescript
+ * const launch = buildSpawnArgs('node', ['--version']);
+ * ```
  */
 export function buildSpawnArgs(
   command: string,
@@ -359,7 +410,7 @@ export function buildSpawnArgs(
 ): SpawnArgsBuildResult {
   const { scopeClass = 'agent', scopeId, resources = {}, noCoreFile = true } = opts;
 
-  if (!hasSystemdRun()) {
+  if (!hasSystemdRun(opts.systemdControl)) {
     if (!_pgidDemotionLogged) {
       _pgidDemotionLogged = true;
       process.stderr.write(
@@ -451,6 +502,13 @@ export function buildSpawnArgs(
  * @param spawnOpts - Options forwarded to `child_process.spawn`.
  * @param wrapOpts - Wrapper options (scope class, resources, etc.).
  * @returns Wrapped spawn result.
+ * @remarks An explicit manager context applies only to the launcher. Child manager variables
+ * are restored before execution, while all other child environment values remain in env.
+ * Scope membership, limits and cleanup require independent observation.
+ * @example
+ * ```typescript
+ * const launched = spawnWrapped('node', ['--version'], { env: process.env });
+ * ```
  */
 export function spawnWrapped(
   command: string,
@@ -458,8 +516,31 @@ export function spawnWrapped(
   spawnOpts: Parameters<typeof spawn>[2] = {},
   wrapOpts: BuildSpawnArgsOptions = {},
 ): SpawnWrappedResult {
-  const built = buildSpawnArgs(command, args, wrapOpts);
-  const child = spawn(built.command, built.args, spawnOpts);
+  const control = wrapOpts.systemdControl;
+  const childEnvironment = spawnOpts?.env ?? process.env;
+  const controlled = control !== undefined && hasSystemdRun(control);
+  // Only non-secret manager path/address values enter the env shim's argv.
+  // Arbitrary child environment (including credentials) stays in the environment.
+  const restored: string[] = [];
+  if (controlled) {
+    for (const key of ['XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']) {
+      restored.push(`--unset=${key}`);
+    }
+    for (const key of ['XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']) {
+      const value = childEnvironment[key];
+      if (value !== undefined) restored.push(`${key}=${value}`);
+    }
+  }
+  const built = buildSpawnArgs(
+    controlled ? 'env' : command,
+    controlled ? [...restored, command, ...args] : args,
+    wrapOpts,
+  );
+  const child = spawn(
+    built.command,
+    built.args,
+    controlled ? { ...spawnOpts, env: managerEnvironment(control, childEnvironment) } : spawnOpts,
+  );
   return {
     child,
     pid: child.pid,
