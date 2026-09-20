@@ -263,7 +263,8 @@ export async function runTaskGates(
  * @param criteria - Current normalized AC rows from that transaction.
  * @param results - Authentic stored results, never caller-submitted verdicts.
  * @param options - Current captured lifetime bounding revalidation work.
- * @returns Resolves only when every required typed gate has current passing proof.
+ * @param requirePassing - True for completion; false only when recording actual unmet verification outcomes.
+ * @returns Resolves when bound inputs are current and the requested verdict policy holds.
  * @remarks Historical unbound results and generic text-AC evidence cannot substitute.
  * Filesystem checks are cooperative and cannot make external file writes atomic with SQLite.
  * @example
@@ -276,6 +277,7 @@ export async function revalidateTaskGateResults(
   criteria: readonly AcRow[],
   results: readonly AcceptanceGateResult[],
   options: RunGatesOptions,
+  requirePassing = true,
 ): Promise<void> {
   const execution = options.execution ?? worktreeScope.getStore()?.execution;
   if (!execution)
@@ -290,7 +292,7 @@ export async function revalidateTaskGateResults(
   const env = { ...(options.env ?? process.env) };
   await worktreeScope.run(scope, async () => {
     for (const [index, gate] of (task.acceptance ?? []).entries()) {
-      if (typeof gate === 'string' || gate.advisory) continue;
+      if (typeof gate === 'string' || (requirePassing && gate.advisory)) continue;
       execution.assertActive();
       const matches = results.filter((result) => result.index === index);
       if (matches.length !== 1)
@@ -298,7 +300,7 @@ export async function revalidateTaskGateResults(
       const result = acceptanceGateResultSchema.parse(matches[0]);
       const binding = result.binding;
       if (
-        result.result !== 'pass' ||
+        (requirePassing && result.result !== 'pass') ||
         !binding ||
         result.kind !== gate.kind ||
         result.req !== gate.req

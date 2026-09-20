@@ -840,6 +840,9 @@ describe('task-bound explicit gate verification (T12292)', () => {
         result: 'fail',
         binding: { artifacts: [{ sha256: null, bytes: null }] },
       });
+      await expect(
+        revalidateTaskGateResults(task, rows, results, { execution }, false),
+      ).resolves.toBeUndefined();
       await expect(revalidateTaskGateResults(task, rows, results, { execution })).rejects.toThrow(
         'lacks a passing',
       );
