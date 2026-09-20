@@ -7,6 +7,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
+import type { DataAccessor } from '../store/data-accessor.js';
 
 /** Result of a dependency validation check. */
 export interface DependencyCheckResult {
@@ -77,6 +78,40 @@ export function getReadinessDependencyBlockers(
     const status = taskLookup.get(id)?.status;
     return !isReadinessDependencySatisfied(status);
   });
+}
+
+/**
+ * Resolve explicit hard dependency evidence beyond a selected task population.
+ *
+ * @remarks
+ * The returned lookup includes the selected rows and canonically loaded external
+ * dependencies, including archived records. It is evidence for readiness, not a
+ * replacement selection for counts, containment, scoring, or candidate discovery.
+ * Missing records remain absent so the readiness policy can report their IDs as
+ * blockers. Read failures propagate and never become a successful empty lookup.
+ *
+ * @param selected - Successfully loaded tasks whose dependencies will be assessed.
+ * @param accessor - Canonical accessor bound to the owning project.
+ * @returns A separate identity lookup containing selected and external evidence.
+ * @throws Error when the required canonical dependency read fails.
+ * @example
+ * ```ts
+ * const lookup = await loadReadinessDependencyLookup(selectedTasks, accessor);
+ * const blockers = getReadinessDependencyBlockers(selectedTasks[0]?.depends, lookup);
+ * ```
+ */
+export async function loadReadinessDependencyLookup(
+  selected: readonly Task[],
+  accessor: DataAccessor,
+): Promise<Map<string, Task>> {
+  const lookup = new Map(selected.map((task) => [task.id, task]));
+  const externalIds = [...new Set(selected.flatMap((task) => task.depends ?? []))].filter(
+    (id) => !lookup.has(id),
+  );
+  if (externalIds.length > 0) {
+    for (const task of await accessor.loadTasks(externalIds)) lookup.set(task.id, task);
+  }
+  return lookup;
 }
 
 /**

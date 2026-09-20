@@ -7,8 +7,15 @@
  * @task T4820
  */
 
-import { describe, expect, it } from 'vitest';
+import type { Task } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import * as taskAccessors from '../../store/data-accessor.js';
+import { getDb, getNativeDb } from '../../store/sqlite.js';
+import * as schema from '../../store/tasks-schema.js';
+import { archiveTasks } from '../archive.js';
 import type { BlockedTask, OpenBug, ReadyTask } from '../plan.js';
+import { coreTaskPlan, taskPlan } from '../plan.js';
 
 describe('plan types - Drizzle-derived interfaces', () => {
   describe('ReadyTask', () => {
@@ -143,6 +150,104 @@ describe('plan types - Drizzle-derived interfaces', () => {
       expect(bug.id).toBe('T003');
       expect(bug.priority).toBe('critical');
       expect(bug.epicId).toBe('T200');
+    });
+  });
+});
+
+describe('plan resolves hard dependency evidence without expanding selected population', () => {
+  let env: TestDbEnv;
+  beforeEach(async () => {
+    env = await createTestDb();
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await env.cleanup();
+  });
+
+  async function seed(status: Task['status']) {
+    await seedTasks(env.accessor, [
+      { id: 'T100', type: 'epic', status: 'active' },
+      { id: 'T110', type: 'epic', status: 'active' },
+      { id: 'T111', parentId: 'T110', status },
+      { id: 'T121', parentId: 'T100', depends: ['T111'], status: 'pending' },
+    ]);
+  }
+
+  it.each([
+    'done',
+    'archived',
+  ] as const)('accepts external %s while preserving active inventory', async (status) => {
+    await seed('done');
+    if (status === 'archived') {
+      expect(await archiveTasks({ taskIds: ['T111'] }, env.tempDir, env.accessor)).toMatchObject({
+        archived: ['T111'],
+      });
+      expect(await env.accessor.loadTasks(['T111'])).toMatchObject([{ status: 'archived' }]);
+      expect((await env.accessor.queryTasks({ parentId: 'T110' })).tasks).toEqual([]);
+    }
+    const result = await coreTaskPlan(env.tempDir);
+    expect(result.ready.map((task) => task.id)).toEqual(['T121']);
+    expect(result.blocked).toEqual([]);
+    expect(result.metrics).toMatchObject({
+      totalTasks: status === 'archived' ? 3 : 4,
+      totalEpics: 2,
+      activeEpics: 2,
+      actionable: 3,
+      blocked: 0,
+    });
+    expect(result.inProgress.find((epic) => epic.epicId === 'T110')?.completionPercent).toBe(
+      status === 'archived' ? 0 : 100,
+    );
+  });
+
+  it.each([
+    'pending',
+    'cancelled',
+  ] as const)('reports external %s as an unresolved blocker', async (status) => {
+    await seed(status);
+    const result = await coreTaskPlan(env.tempDir);
+    expect(result.ready.some((task) => task.id === 'T121')).toBe(false);
+    expect(result.blocked).toMatchObject([{ id: 'T121', blockedBy: ['T111'] }]);
+    expect(result.metrics).toMatchObject({
+      totalTasks: 4,
+      blocked: 1,
+      actionable: status === 'pending' ? 3 : 2,
+    });
+  });
+
+  it('reports real missing hard edges instead of omitting them from blockers and actionable counts', async () => {
+    await seedTasks(env.accessor, [
+      { id: 'T100', type: 'epic', status: 'active' },
+      { id: 'T121', parentId: 'T100' },
+    ]);
+    const db = await getDb(env.tempDir);
+    const native = getNativeDb(env.tempDir);
+    if (!native) throw new Error('Expected native canonical fixture handle');
+    native.exec('PRAGMA foreign_keys = OFF');
+    try {
+      await db.insert(schema.taskDependencies).values({ taskId: 'T121', dependsOn: 'T999' }).run();
+    } finally {
+      native.exec('PRAGMA foreign_keys = ON');
+    }
+    expect(native.prepare('PRAGMA foreign_keys').get()).toMatchObject({ foreign_keys: 1 });
+    expect(await env.accessor.loadSingleTask('T121')).toMatchObject({ depends: ['T999'] });
+    const result = await coreTaskPlan(env.tempDir);
+    expect(result.ready).toEqual([]);
+    expect(result.blocked).toMatchObject([{ id: 'T121', blockedBy: ['T999'] }]);
+    expect(result.metrics).toMatchObject({ totalTasks: 2, actionable: 1, blocked: 1 });
+  });
+
+  it('propagates the required archived lookup error through SDK and EngineResult', async () => {
+    await seed('done');
+    await archiveTasks({ taskIds: ['T111'] }, env.tempDir, env.accessor);
+    vi.spyOn(taskAccessors, 'getTaskAccessor').mockResolvedValue(env.accessor);
+    vi.spyOn(env.accessor, 'loadTasks').mockRejectedValue(
+      new Error('required archive read failed'),
+    );
+    await expect(coreTaskPlan(env.tempDir)).rejects.toThrow('required archive read failed');
+    expect(await taskPlan(env.tempDir)).toMatchObject({
+      success: false,
+      error: { message: expect.stringContaining('required archive read failed') },
     });
   });
 });
