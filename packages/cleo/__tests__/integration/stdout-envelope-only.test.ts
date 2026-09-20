@@ -25,9 +25,18 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -52,10 +61,21 @@ let sandbox: string;
 let project: string;
 let guardPath: string;
 let childEnv: NodeJS.ProcessEnv;
+let commandSequence = 0;
+let bundleSha256: string;
+const retainedFailureSandboxes = new Set<string>();
+
+function cleanupFixture(directory: string): void {
+  if (!retainedFailureSandboxes.has(directory)) rmSync(directory, { recursive: true, force: true });
+}
 
 beforeAll(() => {
   sandbox = mkdtempSync(resolve(tmpdir(), 'cleo-cli-mutation-isolation-'));
   project = resolve(sandbox, 'project');
+  bundleSha256 = HAS_BUNDLE
+    ? createHash('sha256').update(readFileSync(CLI_BUNDLE)).digest('hex')
+    : 'unavailable';
+  mkdirSync(resolve(sandbox, 'diagnostics'), { recursive: true });
   mkdirSync(resolve(project, '.cleo'), { recursive: true });
   guardPath = resolve(sandbox, 'guard.mjs');
   // Guard the child before any CLI import: no host browsers, model requests,
@@ -65,6 +85,9 @@ beforeAll(() => {
     `
     import childProcess from 'node:child_process';
     import net from 'node:net';
+    import { readFileSync, writeFileSync, writeSync } from 'node:fs';
+    import { dirname, join } from 'node:path';
+    import { isMainThread } from 'node:worker_threads';
     import { syncBuiltinESMExports } from 'node:module';
     const deny = () => { throw new Error('Isolated CLI test forbids process/network/listener access'); };
     for (const name of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) {
@@ -74,6 +97,20 @@ beforeAll(() => {
     net.Server.prototype.listen = deny;
     globalThis.fetch = deny;
     syncBuiltinESMExports();
+    if (isMainThread) {
+      let nativeStartIdentity = null;
+      try { nativeStartIdentity = readFileSync('/proc/self/stat', 'utf8'); } catch { /* Explicitly unavailable off Linux. */ }
+      writeFileSync(join(dirname(process.env.CLEO_ROOT), 'diagnostics', 'start-' + process.pid + '.json'), JSON.stringify({
+        pid: process.pid, startedAt: new Date().toISOString(), uptimeSeconds: process.uptime(),
+        argv: process.argv, execPath: process.execPath, versions: process.versions,
+        nativeStartIdentity, phase: 'guard-before-cli-import'
+      }));
+      if (process.env.CLEO_FIXTURE_DIAGNOSTIC_SIGNAL === 'SIGTERM') {
+        writeSync(1, 'fixture stdout before signal\\n');
+        writeSync(2, 'fixture stderr before signal\\n');
+        process.kill(process.pid, 'SIGTERM');
+      }
+    }
   `,
   );
   childEnv = {
@@ -98,7 +135,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  if (sandbox) rmSync(sandbox, { recursive: true, force: true });
+  if (sandbox) cleanupFixture(sandbox);
 });
 
 /**
@@ -108,29 +145,118 @@ afterAll(() => {
  * banner does not pollute stderr assertions in tests that want to
  * inspect what the CLI itself printed there.
  */
-function runCli(args: readonly string[]): {
+function runCli(
+  args: readonly string[],
+  env: NodeJS.ProcessEnv = childEnv,
+): {
   status: number | null;
   stdout: string;
   stderr: string;
 } {
-  const result = spawnSync(
-    process.execPath,
-    ['--disable-warning=ExperimentalWarning', '--import', guardPath, CLI_BUNDLE, ...args],
-    {
-      encoding: 'utf-8',
-      cwd: project,
-      env: childEnv,
-      timeout: 30_000,
-    },
-  );
-  if (result.error) throw result.error;
-  if (result.signal) throw new Error(`CLI terminated by ${result.signal}`);
+  const cwd = env['CLEO_ROOT'] ?? project;
+  const fixture = dirname(cwd);
+  const argv = [
+    '--disable-warning=ExperimentalWarning',
+    '--import',
+    guardPath,
+    CLI_BUNDLE,
+    ...args,
+  ];
+  const startedAt = new Date().toISOString();
+  const result = spawnSync(process.execPath, argv, {
+    encoding: 'utf-8',
+    cwd,
+    env,
+    timeout: 30_000,
+  });
+  const receiptPath = resolve(fixture, 'diagnostics', `command-${++commandSequence}.json`);
+  const identityPath = resolve(fixture, 'diagnostics', `start-${result.pid}.json`);
+  const receipt = {
+    argv: [process.execPath, ...argv],
+    cwd,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    pid: result.pid,
+    status: result.status,
+    signal: result.signal,
+    error: result.error ? { name: result.error.name, message: result.error.message } : null,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+    bundleSha256,
+    nativeStartIdentityPath: existsSync(identityPath) ? identityPath : null,
+  };
+  writeFileSync(receiptPath, JSON.stringify(receipt, null, 2));
+  if (result.error || result.signal) {
+    retainedFailureSandboxes.add(fixture);
+    throw new Error(
+      `CLI process failed; fixture retained at ${fixture}; receipt ${receiptPath}: ${JSON.stringify(receipt)}`,
+    );
+  }
   return {
     status: result.status,
     stdout: result.stdout ?? '',
     stderr: result.stderr ?? '',
   };
 }
+
+describe.skipIf(!HAS_BUNDLE)('CLI signal diagnostic retention', () => {
+  it.skipIf(process.platform === 'win32')(
+    'retains output, identity and fixture after a controlled child signal',
+    () => {
+      const fixture = mkdtempSync(resolve(tmpdir(), 'cleo-cli-signal-control-'));
+      const fixtureProject = resolve(fixture, 'project');
+      mkdirSync(resolve(fixtureProject, '.cleo'), { recursive: true });
+      mkdirSync(resolve(fixture, 'diagnostics'));
+      writeFileSync(
+        resolve(fixtureProject, 'preserved-user-bytes'),
+        'retain these exact fixture bytes',
+      );
+      try {
+        expect(() =>
+          runCli(['--version'], {
+            ...childEnv,
+            CLEO_ROOT: fixtureProject,
+            CLEO_DIR: resolve(fixtureProject, '.cleo'),
+            CLEO_FIXTURE_DIAGNOSTIC_SIGNAL: 'SIGTERM',
+          }),
+        ).toThrow(/SIGTERM.*fixture stdout before signal.*fixture stderr before signal/s);
+        cleanupFixture(fixture);
+        expect(readFileSync(resolve(fixtureProject, 'preserved-user-bytes'), 'utf8')).toBe(
+          'retain these exact fixture bytes',
+        );
+        const files = readdirSync(resolve(fixture, 'diagnostics'));
+        const receiptName = files.find((file) => file.startsWith('command-'));
+        expect(receiptName).toBeDefined();
+        const receipt = JSON.parse(
+          readFileSync(resolve(fixture, 'diagnostics', receiptName!), 'utf8'),
+        );
+        expect(receipt).toMatchObject({
+          signal: 'SIGTERM',
+          status: null,
+          cwd: fixtureProject,
+          stdout: 'fixture stdout before signal\n',
+          stderr: 'fixture stderr before signal\n',
+          bundleSha256,
+          nativeStartIdentityPath: expect.any(String),
+          pid: expect.any(Number),
+        });
+        expect(receipt.argv.at(-1)).toBe('--version');
+        const identity = JSON.parse(readFileSync(receipt.nativeStartIdentityPath, 'utf8'));
+        expect(identity).toMatchObject({
+          pid: receipt.pid,
+          execPath: process.execPath,
+          phase: 'guard-before-cli-import',
+        });
+        if (process.platform === 'linux')
+          expect(identity.nativeStartIdentity).toMatch(new RegExp(`^${receipt.pid} `));
+      } finally {
+        // This deliberately signalled fixture is verified above and belongs only to this control.
+        retainedFailureSandboxes.delete(fixture);
+        rmSync(fixture, { recursive: true, force: true });
+      }
+    },
+  );
+});
 
 describe.skipIf(!HAS_BUNDLE)(
   'stdout discipline — single LAFS envelope, no log-line contamination',
