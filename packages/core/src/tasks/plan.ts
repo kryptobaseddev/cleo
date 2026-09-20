@@ -8,6 +8,10 @@ import type { ProjectMeta, Task } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from './dependency-check.js';
 import { depsReady } from './deps-ready.js';
 
 type TaskRecord = Task;
@@ -65,12 +69,6 @@ const PRIORITY_SCORE: Record<string, number> = {
   medium: 50,
   low: 25,
 };
-
-async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
-  const accessor = await getTaskAccessor(projectRoot);
-  const { tasks } = await accessor.queryTasks({});
-  return tasks;
-}
 
 /**
  * Calculate leverage score for a task based on how many other tasks depend on it.
@@ -156,11 +154,27 @@ function calculateEpicCompletion(
 }
 
 /**
- * Build composite planning view.
+ * Build a composite plan with canonical hard-dependency evidence.
+ *
+ * @remarks
+ * Candidate selection, hierarchy and metrics retain the active query population.
+ * A separate lookup resolves explicit external dependencies, including archived
+ * records. Missing or cancelled dependencies remain blockers; required read
+ * failures propagate rather than returning an apparently healthy empty plan.
+ *
+ * @param projectRoot - Explicit owning project root.
+ * @returns Ranked candidates, unresolved blockers and selected-population metrics.
+ * @throws Error when required task or dependency evidence cannot be read.
+ * @example
+ * ```ts
+ * const plan = await coreTaskPlan(projectRoot);
+ * ```
  * @task T4914
  */
 export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
-  const allTasks = await loadAllTasks(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
+  const { tasks: allTasks } = await accessor.queryTasks({});
+  const dependencyLookup = await loadReadinessDependencyLookup(allTasks, accessor);
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
   const currentPhase = await getCurrentPhase(projectRoot);
 
@@ -187,7 +201,7 @@ export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
   const pendingTasks = allTasks.filter((t) => t.status === 'pending');
 
   for (const task of pendingTasks) {
-    if (depsReady(task.depends, taskMap)) {
+    if (depsReady(task.depends, dependencyLookup)) {
       const leverage = calculateLeverage(task.id, taskMap);
       const epicId = findEpicId(task, taskMap);
 
@@ -249,14 +263,7 @@ export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
       if (task.blockedBy) {
         blockedBy.push(task.blockedBy);
       }
-      if (task.depends) {
-        for (const depId of task.depends) {
-          const dep = taskMap.get(depId);
-          if (dep && dep.status !== 'done' && dep.status !== 'cancelled') {
-            blockedBy.push(depId);
-          }
-        }
-      }
+      blockedBy.push(...getReadinessDependencyBlockers(task.depends, dependencyLookup));
 
       // Calculate how many tasks this blocks
       let blocksCount = 0;
@@ -278,17 +285,8 @@ export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
   // Tasks with unresolved dependencies (pending + has incomplete deps)
   for (const task of allTasks) {
     if (task.status === 'pending' && task.depends && task.depends.length > 0) {
-      const hasUnresolvedDeps = task.depends.some((depId) => {
-        const dep = taskMap.get(depId);
-        return dep && dep.status !== 'done' && dep.status !== 'cancelled';
-      });
-
-      if (hasUnresolvedDeps && !blockedTasks.some((b) => b.id === task.id)) {
-        const blockedBy = task.depends.filter((depId) => {
-          const dep = taskMap.get(depId);
-          return dep && dep.status !== 'done' && dep.status !== 'cancelled';
-        });
-
+      const blockedBy = getReadinessDependencyBlockers(task.depends, dependencyLookup);
+      if (blockedBy.length > 0 && !blockedTasks.some((b) => b.id === task.id)) {
         // Calculate how many tasks this blocks
         let blocksCount = 0;
         for (const t of allTasks) {
