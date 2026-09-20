@@ -48,8 +48,138 @@ export function defineDomain(_domain: CanonicalDomain, ops: OperationDef[]): Ope
 // OPERATIONS — the authoritative registry data
 // ---------------------------------------------------------------------------
 
+// Requirement commands carry JSON on the wire; the SDK validates the typed gate.
+const requirementTaskParam: ParamDef = {
+  name: 'taskId',
+  type: 'string',
+  required: true,
+  description: 'Task that owns the requirement gates',
+  cli: { positional: true },
+};
+
 /** The single source of truth for all operations in CLEO. */
 export const OPERATIONS: OperationDef[] = [
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'req.add',
+    description: 'Add a validated typed requirement gate without executing it',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: true,
+    requiredParams: ['taskId', 'gate'],
+    params: [
+      requirementTaskParam,
+      {
+        name: 'gate',
+        type: 'string',
+        required: true,
+        description: 'AcceptanceGate JSON; must include kind, description and kind-specific fields',
+        cli: { flag: 'gate' },
+      },
+    ],
+    inputSchema: {
+      operation: 'tasks.req.add',
+      schema: {
+        type: 'object',
+        required: ['taskId', 'gate'],
+        additionalProperties: false,
+        properties: {
+          taskId: { type: 'string', minLength: 1 },
+          gate: { type: 'string', minLength: 1 },
+        },
+      },
+      examples: [
+        {
+          name: 'test',
+          value: {
+            taskId: 'T121',
+            gate: '{"kind":"test","command":"node","args":["verify.mjs"],"expect":"exit0","description":"Task harness passes","req":"PARTNER-121"}',
+          },
+        },
+      ],
+    },
+  },
+  {
+    gateway: 'query',
+    domain: 'tasks',
+    operation: 'req.list',
+    description: 'List named typed requirement gates without executing them',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [requirementTaskParam],
+    inputSchema: {
+      operation: 'tasks.req.list',
+      schema: {
+        type: 'object',
+        required: ['taskId'],
+        additionalProperties: false,
+        properties: { taskId: { type: 'string', minLength: 1 } },
+      },
+      examples: [{ name: 'task', value: { taskId: 'T121' } }],
+    },
+  },
+  {
+    gateway: 'query',
+    domain: 'tasks',
+    operation: 'req.migrate.preview',
+    description: 'Preview typed-gate migration proposals without writing',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      requirementTaskParam,
+      {
+        name: 'apply',
+        type: 'boolean',
+        required: false,
+        description: 'Must be absent or false for preview',
+      },
+    ],
+    inputSchema: {
+      operation: 'tasks.req.migrate.preview',
+      schema: {
+        type: 'object',
+        required: ['taskId'],
+        additionalProperties: false,
+        properties: { taskId: { type: 'string', minLength: 1 }, apply: { const: false } },
+      },
+      examples: [{ name: 'preview', value: { taskId: 'T121', apply: false } }],
+    },
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'req.migrate',
+    description: 'Explicitly apply validated typed-gate migration proposals',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: true,
+    requiredParams: ['taskId', 'apply'],
+    params: [
+      requirementTaskParam,
+      {
+        name: 'apply',
+        type: 'boolean',
+        required: true,
+        description: 'Must be true to apply proposals',
+        cli: { flag: 'apply' },
+      },
+    ],
+    inputSchema: {
+      operation: 'tasks.req.migrate',
+      schema: {
+        type: 'object',
+        required: ['taskId', 'apply'],
+        additionalProperties: false,
+        properties: { taskId: { type: 'string', minLength: 1 }, apply: { const: true } },
+      },
+      examples: [{ name: 'apply', value: { taskId: 'T121', apply: true } }],
+    },
+  },
   {
     gateway: 'query',
     domain: 'tasks',
