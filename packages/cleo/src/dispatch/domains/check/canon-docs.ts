@@ -28,9 +28,10 @@
  * @see ADR-076 — Canonical Docs SSoT (supersedes ADR-028)
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
+import { resolveCanonDocPathPolicy } from '@cleocode/core/session/canon-lint';
 import { parse as parseYaml } from 'yaml';
 
 // ---------------------------------------------------------------------------
@@ -136,39 +137,68 @@ export interface CanonDocsCheckParams {
 // ---------------------------------------------------------------------------
 
 /**
- * Normalise a configured directory path so it always:
- *   1. Uses forward slashes (matches `git diff` output).
- *   2. Ends with a trailing `/` so `startsWith` cannot accidentally
- *      match e.g. `.cleo/adrs-archive/` against `.cleo/adrs/`.
+ * Diagnostic raised when Git cannot establish the document candidate set.
  *
- * @internal
+ * @remarks
+ * An unreadable diff is incomplete assessment, never an empty successful scan.
+ * The cause retains the underlying Git process error for diagnostics.
+ *
+ * @example
+ * ```typescript
+ * try { runCanonDocsCheck({ projectRoot: '/repo', baseRef: 'missing-base' }); }
+ * catch (error) {
+ *   if (error instanceof CanonDocsDiffError) process.stderr.write(error.message);
+ * }
+ * ```
  */
-function normaliseDir(dir: string): string {
-  const slashed = dir.split(sep).join('/');
-  return slashed.endsWith('/') ? slashed : `${slashed}/`;
+export class CanonDocsDiffError extends Error {
+  /** Stable diagnostic code for an unavailable Git candidate inventory. */
+  readonly code = 'E_CANON_DIFF_FAILED';
+
+  /**
+   * Preserve the requested scope and underlying command failure.
+   *
+   * @param projectRoot - Repository that could not be assessed.
+   * @param baseRef - Requested Git comparison base.
+   * @param cause - Original Git process failure.
+   */
+  constructor(projectRoot: string, baseRef: string, cause: Error) {
+    super(
+      `E_CANON_DIFF_FAILED: Cannot assess docs in ${projectRoot} against ${baseRef}: ${cause.message}`,
+      { cause },
+    );
+    this.name = 'CanonDocsDiffError';
+  }
 }
 
 /**
  * Run `git diff --diff-filter=A --name-only <base>...HEAD` and return the
- * `*.md` additions. Failures (missing ref, not-a-repo) surface as an empty
- * list — the gate stays permissive when the diff cannot be computed so a
- * shallow CI clone or fresh repo never produces a false positive.
+ * `*.md` additions. Failures remain explicit incomplete-assessment diagnostics.
  *
  * @internal
  */
 function listAddedMarkdownFiles(projectRoot: string, baseRef: string): string[] {
   try {
-    const out = execSync(`git diff --diff-filter=A --name-only ${baseRef}...HEAD`, {
-      cwd: projectRoot,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const out = execFileSync(
+      'git',
+      ['diff', '--diff-filter=A', '--name-only', '--end-of-options', `${baseRef}...HEAD`, '--'],
+      {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 30_000,
+      },
+    );
     return out
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && line.endsWith('.md'));
-  } catch {
-    return [];
+  } catch (error) {
+    throw new CanonDocsDiffError(
+      projectRoot,
+      baseRef,
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
@@ -336,16 +366,6 @@ export function runCanonDocsCheck(params: CanonDocsCheckParams): CanonDocsCheckR
     };
   }
 
-  // Build the [matchedPath, kindId] list, only for kinds that actively block.
-  const blockingPaths: Array<{ dir: string; kind: string }> = [];
-  for (const [kind, entry] of Object.entries(registry.kinds)) {
-    if (entry.rawMdAllowed) continue;
-    if (!entry.rawMdPaths || entry.rawMdPaths.length === 0) continue;
-    for (const p of entry.rawMdPaths) {
-      blockingPaths.push({ dir: normaliseDir(p), kind });
-    }
-  }
-
   const candidates = candidateFiles ?? listAddedMarkdownFiles(projectRoot, baseRef);
   const violations: CanonDocsViolation[] = [];
 
@@ -353,16 +373,14 @@ export function runCanonDocsCheck(params: CanonDocsCheckParams): CanonDocsCheckR
     // Normalise to forward slashes — `git diff` already uses `/`, but the
     // test surface may pass Windows-style separators.
     const normalised = file.split(sep).join('/');
-    for (const { dir, kind } of blockingPaths) {
-      if (normalised.startsWith(dir)) {
-        violations.push({
-          file: normalised,
-          kind,
-          matchedPath: dir,
-          fix: `cleo docs add <taskId> ${normalised} --type ${kind}`,
-        });
-        break;
-      }
+    const policy = resolveCanonDocPathPolicy(registry, normalised);
+    if (policy && !policy.rawMdAllowed) {
+      violations.push({
+        file: normalised,
+        kind: policy.docKind,
+        matchedPath: policy.matchedPath,
+        fix: `cleo docs add <taskId> ${normalised} --type ${policy.docKind}`,
+      });
     }
   }
 
