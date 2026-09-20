@@ -9,10 +9,14 @@
  * @epic T1691
  */
 
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { ReconstructResult } from '@cleocode/contracts';
 import { renderAuditReconstruct } from '@cleocode/core';
 import * as auditSdk from '@cleocode/core/audit/reconstruct';
 import { runCommand } from 'citty';
+import ts from 'typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setFormatContext } from '../../format-context.js';
 import { setOutputMode } from '../../output-context.js';
@@ -461,5 +465,40 @@ describe('actual audit command assessment delivery', () => {
     expect(renderAuditReconstruct({ taskId: 'T994', directCommits: [] }, false)).toContain(
       'Coverage: unknown',
     );
+  });
+});
+
+describe('actual emitted SDK export resolution', () => {
+  it('loads the command declared project resolver through native package exports', () => {
+    const file = new URL('../audit.ts', import.meta.url);
+    const source = ts.createSourceFile(
+      file.pathname,
+      readFileSync(file, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const declaration = source.statements.find(
+      (statement) =>
+        ts.isImportDeclaration(statement) &&
+        statement.importClause?.namedBindings &&
+        ts.isNamedImports(statement.importClause.namedBindings) &&
+        statement.importClause.namedBindings.elements.some(
+          (binding) => (binding.propertyName ?? binding.name).text === 'getProjectRoot',
+        ),
+    );
+    if (
+      !declaration ||
+      !ts.isImportDeclaration(declaration) ||
+      !ts.isStringLiteral(declaration.moduleSpecifier)
+    )
+      throw new Error('Audit command must declare its canonical project resolver import.');
+    const probe = `import { getProjectRoot } from ${JSON.stringify(declaration.moduleSpecifier.text)}; process.stdout.write(typeof getProjectRoot);`;
+    const output = execFileSync(process.execPath, ['--input-type=module', '-e', probe], {
+      cwd: fileURLToPath(new URL('../../../../', import.meta.url)),
+      encoding: 'utf8',
+      timeout: 5000,
+      maxBuffer: 65536,
+    });
+    expect(output).toBe('function');
   });
 });

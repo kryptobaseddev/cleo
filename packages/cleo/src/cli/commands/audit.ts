@@ -24,7 +24,7 @@
  */
 
 import { reconstructLineage } from '@cleocode/core/audit/reconstruct';
-import { getProjectRoot } from '@cleocode/core/paths';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { renderAuditReconstruct } from '@cleocode/core/render/orchestration/audit-reconstruct';
 import { defineCommand, showUsage } from '../lib/define-cli-command.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
