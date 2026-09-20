@@ -291,7 +291,11 @@ describe.runIf(process.env['CLEO_AUDIT_HISTORICAL_ANCHORS'] === '1')(
     let result: ReconstructResult;
 
     beforeAll(async () => {
-      result = await reconstructLineage('T991', REPO_ROOT);
+      result = await reconstructLineage('T991', REPO_ROOT, {
+        execution: { deadlineAt: Date.now() + 90000 },
+        maxOutputBytes: 64 * 1024 * 1024,
+      });
+      expect(result.assessment?.coverage).toBe('current');
     }, 120_000); // 2-minute timeout for git operations
 
     it('returns a ReconstructResult with the correct taskId', () => {
@@ -427,7 +431,11 @@ describe.runIf(process.env['CLEO_AUDIT_HISTORICAL_ANCHORS'] === '1')(
     let result: ReconstructResult;
 
     beforeAll(async () => {
-      result = await reconstructLineage('T994', REPO_ROOT);
+      result = await reconstructLineage('T994', REPO_ROOT, {
+        execution: { deadlineAt: Date.now() + 90000 },
+        maxOutputBytes: 64 * 1024 * 1024,
+      });
+      expect(result.assessment?.coverage).toBe('current');
     }, 120_000);
 
     it('T994 has a direct commit with "T994"', () => {
