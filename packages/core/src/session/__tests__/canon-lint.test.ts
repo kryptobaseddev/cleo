@@ -191,6 +191,23 @@ describe('canon-lint (T9797 · agent-accountability)', () => {
         rawMdAllowed: false,
       });
     }
+    expect(
+      resolveCanonDocPathPolicy(
+        {
+          version: 1,
+          kinds: {
+            guarded: {
+              canonicalHome: 'ssot',
+              publishMirror: 'docs/guarded/',
+              rawMdAllowed: false,
+              rawMdPaths: ['.'],
+            },
+            readme: { canonicalHome: 'ssot', publishMirror: '.', rawMdAllowed: true },
+          },
+        },
+        'private.md',
+      )?.rawMdAllowed,
+    ).toBe(false);
   });
 
   it('Write to .cleo/adrs/ produces an adr violation', () => {
