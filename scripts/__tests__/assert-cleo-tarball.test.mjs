@@ -16,7 +16,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Source tests exercise the real CAAMP leaf. Built export/install checks remain separate.
 vi.mock('@cleocode/caamp', () => import('../../packages/caamp/src/core/artifacts/validation.ts'));
 
+// Small deterministic source fixtures exercise the real target/transport/group
+// behavior, without claiming kernel memory/process limits on a CI host. Actual
+// installed runtime verification uses the unmocked port and observed cgroups.
+const captureRequests = vi.hoisted(() => []);
+vi.mock('../../packages/core/dist/resources/spawn-wrapper.js', async () => {
+  const source = await import('../../packages/core/src/resources/spawn-wrapper.ts');
+  return {
+    ...source,
+    captureWrapped: async (command, args, options) => {
+      captureRequests.push(options);
+      return source.captureWrapped(command, args, {
+        ...options,
+        memoryMaxMb: undefined,
+        tasksMax: undefined,
+      });
+    },
+  };
+});
+
 import { checkCleoTarball } from '../../packages/cleo/scripts/check-cleo-tarball-size.mjs';
+import { _forceSystemdRunAvailable } from '../../packages/core/dist/resources/spawn-wrapper.js';
 import { assertCleoTarball } from '../assert-cleo-tarball.mjs';
 import {
   assertPackedHealthResponse,
@@ -26,7 +46,9 @@ import {
   assertPackedVersion,
   packedEnvironment,
   runPackedCommand,
+  verifyPackedGit,
   verifyPackedProviderProcess,
+  verifyPackedRuntime,
 } from '../packed-install-smoke.mjs';
 
 const required = [
@@ -40,11 +62,14 @@ const required = [
 ];
 let root;
 beforeEach(() => {
+  captureRequests.length = 0;
+  _forceSystemdRunAvailable(false);
   root = mkdtempSync(join(tmpdir(), 'cleo-package-wrappers-'));
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 afterEach(() => {
+  _forceSystemdRunAvailable(undefined);
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   rmSync(root, { recursive: true, force: true });
@@ -135,16 +160,128 @@ describe('real npm inventory through release wrappers', () => {
 });
 
 describe('packed operational execution', () => {
-  it('rejects a failed child even when it prints a plausible version', () => {
-    expect(() =>
+  it('refuses resource escalation before capture admission', async () => {
+    await expect(
+      runPackedCommand(process.execPath, ['--version'], { memoryMaxMb: 8192 }),
+    ).rejects.toThrow('4096 MiB');
+    await expect(
+      runPackedCommand(process.execPath, ['--version'], { tasksMax: 1024 }),
+    ).rejects.toThrow('256 tasks');
+    expect(captureRequests).toHaveLength(0);
+  });
+  it('rejects a failed child even when it prints a plausible version', async () => {
+    await expect(
       runPackedCommand(process.execPath, [
         '-e',
         "process.stdout.write('2026.9.8'); process.exit(7)",
       ]),
-    ).toThrow();
-    expect(runPackedCommand(process.execPath, ['-e', "process.stdout.write('fixture')"])).toBe(
-      'fixture',
+    ).rejects.toThrow();
+    expect(
+      await runPackedCommand(process.execPath, ['-e', "process.stdout.write('fixture')"]),
+    ).toBe('fixture');
+    expect(captureRequests).toHaveLength(2);
+    for (const request of captureRequests) {
+      expect(request.memoryMaxMb).toBe(4096);
+      expect(request.tasksMax).toBe(256);
+    }
+  });
+  it('keeps the original deadline and cancellation rather than renewing timeout', async () => {
+    const marker = join(root, 'must-not-run');
+    const args = ['-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)},'bad')`];
+    await expect(
+      runPackedCommand(process.execPath, args, {
+        cwd: root,
+        env: packedEnvironment(root),
+        timeout: 60000,
+        execution: { deadlineAt: Date.now() - 1 },
+      }),
+    ).rejects.toThrow('deadline');
+    await expect(
+      runPackedCommand(process.execPath, args, {
+        cwd: root,
+        env: packedEnvironment(root),
+        execution: { deadlineAt: Date.now() + 10000, signal: AbortSignal.abort() },
+      }),
+    ).rejects.toThrow();
+    expect(existsSync(marker)).toBe(false);
+  });
+  it('captures mutable environment before launch and retains exact target failure', async () => {
+    const env = packedEnvironment(root);
+    env.CAPTURE_FIXTURE = 'original';
+    const invocation = runPackedCommand(
+      process.execPath,
+      ['-e', 'process.stdout.write(process.env.CAPTURE_FIXTURE);process.exit(7)'],
+      { cwd: root, env },
     );
+    env.CAPTURE_FIXTURE = 'changed';
+    await expect(invocation).rejects.toMatchObject({
+      stdout: 'original',
+      capture: { started: true, exitCode: 7, targetCloseObserved: true, transportClosed: true },
+    });
+  });
+  it('observes exact owned descendant termination within a bounded cleanup interval', async () => {
+    const marker = join(root, 'child.pid');
+    const childCode = 'setInterval(()=>{},1000)';
+    const code = `const cp=require('node:child_process');const fs=require('node:fs');const child=cp.spawn(process.execPath,['-e',${JSON.stringify(childCode)},'cleo-packed-owned-child'],{stdio:'ignore'});const stat=fs.readFileSync('/proc/'+child.pid+'/stat','utf8');fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:child.pid,start:stat.slice(stat.lastIndexOf(')')+2).split(' ')[19]}));child.unref();`;
+    let identity;
+    const ownedRunning = () => {
+      try {
+        const stat = readFileSync(`/proc/${identity.pid}/stat`, 'utf8');
+        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+        return fields[19] === identity.start && fields[0] !== 'Z';
+      } catch (error) {
+        if (error.code === 'ENOENT') return false;
+        throw error;
+      }
+    };
+    try {
+      await runPackedCommand(process.execPath, ['-e', code], {
+        cwd: root,
+        env: packedEnvironment(root),
+        timeout: 3000,
+      });
+      identity = JSON.parse(readFileSync(marker, 'utf8'));
+      // Signal delivery is not completed cleanup. Observe the exact PID/start
+      // identity for a separate bounded cleanup interval; never repeat the action.
+      const cleanupDeadline = Date.now() + 1000;
+      while (ownedRunning() && Date.now() < cleanupDeadline)
+        await new Promise((done) => setTimeout(done, 10));
+      expect(ownedRunning()).toBe(false);
+    } finally {
+      if (!identity && existsSync(marker)) identity = JSON.parse(readFileSync(marker, 'utf8'));
+      if (identity) {
+        try {
+          if (
+            ownedRunning() &&
+            readFileSync(`/proc/${identity.pid}/cmdline`, 'utf8').includes(
+              'cleo-packed-owned-child',
+            )
+          )
+            process.kill(identity.pid, 'SIGKILL');
+        } catch (error) {
+          expect(['ENOENT', 'ESRCH']).toContain(error.code);
+        }
+      }
+    }
+  });
+  it('refuses detached runtime before actions when the original invocation expired', async () => {
+    const env = packedEnvironment(root);
+    await expect(
+      verifyPackedRuntime(join(root, 'app'), root, env, {
+        execution: { deadlineAt: Date.now() - 1 },
+      }),
+    ).rejects.toThrow('deadline');
+    expect(captureRequests).toHaveLength(0);
+    expect(existsSync(join(root, 'runtime-scope.json'))).toBe(false);
+  });
+  it('refuses installed Git before discovery when the shared attempt expired', async () => {
+    await expect(
+      verifyPackedGit(join(root, 'app'), root, packedEnvironment(root), {
+        execution: { deadlineAt: Date.now() - 1 },
+      }),
+    ).rejects.toThrow('deadline');
+    expect(captureRequests).toHaveLength(0);
+    expect(existsSync(join(root, 'installed-git-fixture'))).toBe(false);
   });
   it('does not inherit credentials, preloads, or host runtime aliases', () => {
     vi.stubEnv('OPENAI_API_KEY', 'synthetic-must-not-copy');
@@ -332,7 +469,7 @@ describe('independent scoped health oracle', () => {
 
 describe('packed provider process prerequisites, not workflow certification', () => {
   const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
-  function fixture(certification = 'unverified') {
+  async function fixture(certification = 'unverified') {
     const app = join(root, 'app');
     const env = packedEnvironment(root);
     const inventories = [];
@@ -363,7 +500,7 @@ describe('packed provider process prerequisites, not workflow certification', ()
         writeFileSync(join(packageRoot, path), content);
       }
       const packed = JSON.parse(
-        runPackedCommand(
+        await runPackedCommand(
           'npm',
           ['pack', '--ignore-scripts', '--json', '--pack-destination', root],
           { cwd: packageRoot, env },
@@ -400,7 +537,7 @@ describe('packed provider process prerequisites, not workflow certification', ()
     };
   }
   it('matches real npm-produced fixture bytes and stages exact instructions without certifying their reading', async () => {
-    const { app, inventories, input } = fixture();
+    const { app, inventories, input } = await fixture();
     const result = await verifyPackedProviderProcess(app, input, inventories);
     expect(result.workflow).toBe('unverified');
     expect(result.instructions.delivery).toBe('staged-unverified');
@@ -415,13 +552,13 @@ describe('packed provider process prerequisites, not workflow certification', ()
     expect(result.limitations.join(' ')).toContain('reference expansion remain unverified');
   });
   it('rejects an installed fixture runner attempting to promote process output into certification', async () => {
-    const { app, inventories, input } = fixture('verified');
+    const { app, inventories, input } = await fixture('verified');
     await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow(
       'unsupported capability promotion',
     );
   });
   it('rejects an installed runner edited after pack, before loading or executing it', async () => {
-    const { app, inventories, input } = fixture();
+    const { app, inventories, input } = await fixture();
     writeFileSync(
       join(app, 'node_modules/@cleocode/cleo-os/dist/harnesses/provider-verification.js'),
       'throw new Error("must not load");',
@@ -430,7 +567,7 @@ describe('packed provider process prerequisites, not workflow certification', ()
     expect(existsSync(join(root, 'fixture-launched'))).toBe(false);
   });
   it('rejects a preview inventory and ambiguous package identities', async () => {
-    const { app, inventories, input } = fixture();
+    const { app, inventories, input } = await fixture();
     inventories[0].source = 'npm-pack-dry-run';
     await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow(
       'Actual retained npm-pack',
@@ -442,7 +579,7 @@ describe('packed provider process prerequisites, not workflow certification', ()
     );
   });
   it('preserves pre-existing project instruction bytes and refuses conflict', async () => {
-    const { app, inventories, input } = fixture();
+    const { app, inventories, input } = await fixture();
     const path = join(input.projectRoot, 'AGENTS.md');
     writeFileSync(path, 'User-authored instructions.');
     await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow('conflicts');
@@ -450,7 +587,7 @@ describe('packed provider process prerequisites, not workflow certification', ()
     expect(existsSync(join(root, 'fixture-launched'))).toBe(false);
   });
   it('preserves original deadline/cancellation through preparation without launch or bootstrap writes', async () => {
-    const { app, inventories, input } = fixture();
+    const { app, inventories, input } = await fixture();
     input.deadlineAt = Date.now() - 1;
     await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow('deadline');
     input.deadlineAt = Date.now() + 10000;
@@ -462,7 +599,7 @@ describe('packed provider process prerequisites, not workflow certification', ()
     expect(existsSync(join(input.projectRoot, 'AGENTS.md'))).toBe(false);
   });
   it('refuses package symlinks escaping the isolated installation', async () => {
-    const { app, inventories, input } = fixture();
+    const { app, inventories, input } = await fixture();
     const packageRoot = join(app, 'node_modules/@cleocode/cleo-os');
     rmSync(packageRoot, { recursive: true });
     symlinkSync(dirname(root), packageRoot, 'dir');
