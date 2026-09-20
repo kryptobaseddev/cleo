@@ -272,8 +272,35 @@ export interface KnowledgeRepairPreparation {
   deadlineExceeded: boolean;
 }
 
+/** Verified scoped provenance added by the owned repair execution path. */
+export interface KnowledgeRepairExecution {
+  /** Captured actor and immutable operation scope. */
+  identity: OperationExecutionIdentity;
+  /** Durable job whose terminal state committed with this receipt. */
+  jobId: string;
+  /** Unique claim owner for this attempt. */
+  ownerId: string;
+  /** Monotonic claim fencing epoch. */
+  fencingEpoch: number;
+  /** Digest of the authentic prepared proposal bytes. */
+  proposalHash: string;
+  /** Published generation checked before mutation, null for an unindexed project. */
+  generation: string | null;
+  /** Exact affected and sourced resources, with hashes before and after mutation. */
+  resources: Array<
+    KnowledgeRepairResource & {
+      /** Complete image hash observed after domain postconditions passed. */
+      afterHash: string;
+    }
+  >;
+  /** Append-only lifecycle event identities persisted with the mutation. */
+  eventIds: string[];
+}
+
 /** Durable, reversible record of an attempted repair and its verified outcome. */
 export interface KnowledgeRepairReceipt {
+  /** Scoped execution provenance; absent on preserved legacy receipts. @defaultValue undefined */
+  execution?: KnowledgeRepairExecution;
   /** Supported operation and exact arguments applied by this receipt. */
   action?: KnowledgeRepairAction;
   /** Stable receipt identifier. */

@@ -19,6 +19,7 @@ import type {
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type {
   KnowledgePreparedRepairProposal,
+  KnowledgeRepairExecution,
   KnowledgeRepairPreparation,
   KnowledgeRepairResource,
 } from '@cleocode/contracts/knowledge-health';
@@ -32,10 +33,11 @@ import { assessKnowledgeCoverage, readKnowledgeIndexAssessment } from '../nexus/
 import { getTaskKnowledgeEvidence } from '../nexus/task-evidence.js';
 import { worktreeScope } from '../paths.js';
 import { DurableJobStore } from '../store/background-jobs.js';
+import { bindOperationWriteFence } from '../store/background-ops.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
-import { getDb } from '../store/sqlite.js';
+import { getDb, getNativeDb } from '../store/sqlite.js';
 
 const evidenceSchema = z.object({
   id: z.string(),
@@ -83,7 +85,35 @@ const observationSchema = z.object({
   invalid_at: z.string().nullable(),
   verified: z.number().nullable(),
 });
+const executionIdentitySchema = z
+  .object({
+    projectId: z.string().min(1),
+    projectRoot: z.string().min(1),
+    actor: z.string().min(1),
+    operation: z.literal('doctor.knowledge'),
+    idempotencyKey: z.string().min(1),
+  })
+  .strict();
+const resourceSchema = z
+  .object({
+    kind: z.enum(['decision', 'observation', 'file']),
+    id: z.string().min(1),
+    role: z.enum(['affected', 'source']),
+    beforeHash: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict();
+const repairExecutionSchema = z.object({
+  identity: executionIdentitySchema,
+  jobId: z.string(),
+  ownerId: z.string(),
+  fencingEpoch: z.number().int().positive(),
+  proposalHash: z.string().regex(/^[a-f0-9]{64}$/),
+  generation: z.string().nullable(),
+  resources: z.array(resourceSchema.extend({ afterHash: z.string().regex(/^[a-f0-9]{64}$/) })),
+  eventIds: z.array(z.string()),
+});
 const receiptSchema = z.object({
+  execution: repairExecutionSchema.optional(),
   action: actionSchema.optional(),
   id: z.string(),
   proposalId: z.string(),
@@ -122,29 +152,12 @@ const storedRepairSchema = z.object({
 const preparedProposalSchema = proposalSchema
   .extend({
     version: z.literal(1),
-    identity: z
-      .object({
-        projectId: z.string().min(1),
-        projectRoot: z.string().min(1),
-        actor: z.string().min(1),
-        operation: z.literal('doctor.knowledge'),
-        idempotencyKey: z.string().min(1),
-      })
-      .strict(),
+    identity: executionIdentitySchema,
     databasePath: z.string().min(1),
     sourceRoot: z.string().min(1),
     expectedGeneration: z.string().nullable(),
     assessmentHash: z.string().regex(/^[a-f0-9]{64}$/),
-    resources: z.array(
-      z
-        .object({
-          kind: z.enum(['decision', 'observation', 'file']),
-          id: z.string().min(1),
-          role: z.enum(['affected', 'source']),
-          beforeHash: z.string().regex(/^[a-f0-9]{64}$/),
-        })
-        .strict(),
-    ),
+    resources: z.array(resourceSchema),
   })
   .strict();
 
@@ -422,6 +435,224 @@ export async function prepareKnowledgeRepair(
   );
 }
 
+/** Read a complete resource image using only fixed supported tables and captured paths. */
+function resourceHash(db: DatabaseSync, resource: KnowledgeRepairResource, root: string): string {
+  if (resource.kind === 'file') return hash(readFileSync(resolve(root, resource.id), 'utf8'));
+  const row =
+    resource.kind === 'decision'
+      ? db.prepare('SELECT * FROM main.brain_decisions WHERE id=?').get(resource.id)
+      : db.prepare('SELECT * FROM main.brain_observations WHERE id=?').get(resource.id);
+  if (!row)
+    throw new KnowledgeRepairError('E_REPAIR_STALE', `Resource ${resource.id} disappeared.`);
+  return hash(JSON.stringify(row));
+}
+
+/** Read exact persisted generation bytes for an immediate transactional recheck. */
+function assessmentBytes(db: DatabaseSync): string | null {
+  const row = db.prepare("SELECT value FROM main._nexus_meta WHERE key='graph_assessment'").get();
+  if (!row) return null;
+  if (typeof row.value !== 'string')
+    throw new KnowledgeRepairError('E_REPAIR_SOURCE', 'Invalid generation metadata.');
+  return row.value;
+}
+
+/**
+ * Apply an authentic prepared repair through the established owned job transaction.
+ * @param context - Captured scope and one deadline shared by this foreground attempt.
+ * @param jobId - Existing durable pending proposal or inspectable completed operation.
+ * @returns Verified receipt committed with the source mutation and terminal job state.
+ * @throws KnowledgeRepairError when immutable inputs, resources, generation or identity changed.
+ * @remarks Uses the existing domain validators and repair ledger. Synchronous database
+ * work cannot be preempted; cancellation is checked at cooperating write boundaries.
+ * File hashes are rechecked around mutation but SQLite cannot lock external file edits.
+ * A later explicit invocation may supply a new bounded context for the same immutable
+ * proposal; an active attempt never renews its deadline. Interrupted uncommitted work
+ * retains its job lease for explicit recovery after expiry; no automatic retry or
+ * background reasoning is started.
+ * @example
+ * ```ts
+ * const receipt = await applyPreparedKnowledgeRepair(context, pending.jobId);
+ * ```
+ */
+export async function applyPreparedKnowledgeRepair(
+  context: OperationExecutionContext,
+  jobId: string,
+): Promise<KnowledgeRepairReceipt> {
+  context.assertActive();
+  return worktreeScope.run(
+    {
+      worktreeRoot: context.identity.projectRoot,
+      projectHash: generateProjectHash(context.identity.projectRoot),
+      execution: context,
+    },
+    async () => {
+      const root = context.identity.projectRoot;
+      const metadata = await loadProjectInfo(root);
+      context.assertActive();
+      if (
+        !metadata ||
+        metadata.projectId !== context.identity.projectId ||
+        (metadata.projectRoot !== undefined && metadata.projectRoot !== root)
+      )
+        throw new KnowledgeRepairError('E_REPAIR_SCOPE', 'Canonical repair identity changed.');
+      const taskDb = await getDb(root);
+      await getBrainDb(root);
+      context.assertActive();
+      const db = getBrainNativeDb(root);
+      if (!db || getNativeDb(root) !== db)
+        throw new KnowledgeRepairError(
+          'E_REPAIR_STORE',
+          'Repair and job store must share the same native transaction handle.',
+        );
+      const store = new DurableJobStore(taskDb, {
+        projectId: context.identity.projectId,
+        actor: context.identity.actor,
+      });
+      const job = store.get(jobId);
+      if (!job?.proposalJson || !job.proposalHash || hash(job.proposalJson) !== job.proposalHash)
+        throw new KnowledgeRepairError(
+          'E_REPAIR_SOURCE',
+          'Authentic prepared repair input is unavailable.',
+        );
+      const prepared = preparedProposalSchema.parse(JSON.parse(job.proposalJson));
+      if (
+        JSON.stringify(prepared.identity) !==
+          JSON.stringify(executionIdentitySchema.parse(context.identity)) ||
+        prepared.id !== context.identity.idempotencyKey ||
+        prepared.projectId !== context.identity.projectId ||
+        prepared.databasePath !== resolveDualScopeDbPath('project', root) ||
+        job.operation !== context.identity.operation ||
+        job.idempotencyKey !== context.identity.idempotencyKey
+      )
+        throw new KnowledgeRepairError(
+          'E_REPAIR_SCOPE',
+          'Prepared repair does not match the captured operation.',
+        );
+      if (job.status === 'complete') {
+        const stored = readReceipt(db, prepared.id);
+        const result = receiptSchema.parse(job.result);
+        if (
+          !stored ||
+          stored.receipt.execution?.proposalHash !== job.proposalHash ||
+          stored.receipt.execution.jobId !== jobId ||
+          JSON.stringify(stored.receipt) !== JSON.stringify(result)
+        )
+          throw new KnowledgeRepairError(
+            'E_REPAIR_VERIFY',
+            'Completed job and retained receipt disagree.',
+          );
+        return result;
+      }
+      if (readReceipt(db, prepared.id))
+        throw new KnowledgeRepairError(
+          'E_REPAIR_ID_REUSED',
+          'A retained repair receipt already owns this proposal identity.',
+        );
+      const originalAssessment = assessmentBytes(db);
+      const assessment = await readKnowledgeIndexAssessment(root);
+      const report = await runKnowledgeDoctor(root, {
+        dryRun: true,
+        budgetMs: context.remainingMs(),
+      });
+      context.assertActive();
+      if (
+        report.health.coverage.maintenanceState === 'pending' ||
+        report.health.coverage.status === 'failed'
+      )
+        throw new KnowledgeRepairError(
+          'E_REPAIR_ASSESSMENT',
+          report.health.coverage.reasons.join('; '),
+        );
+      if (
+        hash(JSON.stringify(assessment)) !== prepared.assessmentHash ||
+        (assessment?.generation ?? null) !== prepared.expectedGeneration ||
+        (assessment?.sourceRoot ?? root) !== prepared.sourceRoot ||
+        assessmentBytes(db) !== originalAssessment
+      )
+        throw new KnowledgeRepairError(
+          'E_REPAIR_STALE',
+          'Published generation changed after preparation.',
+        );
+      const lease = store.claim(jobId, Date.now());
+      const execution = bindOperationWriteFence(context, {
+        lease,
+        proposalHash: job.proposalHash,
+        dbPath: prepared.databasePath,
+      });
+      const startedAt = new Date().toISOString();
+      const receiptJson = store.completeAtomically(execution, () => {
+        if (
+          assessmentBytes(db) !== originalAssessment ||
+          JSON.stringify(repairResources(db, prepared, root)) !== JSON.stringify(prepared.resources)
+        )
+          throw new KnowledgeRepairError(
+            'E_REPAIR_STALE',
+            'Prepared resource or generation changed before mutation.',
+          );
+        const receipt = applyProposalBody(
+          db,
+          proposalSchema.parse(prepared),
+          report,
+          root,
+          store.get(jobId)!.attempts,
+          startedAt,
+        );
+        const eventIds = ['started', 'verified', 'committed'].map(
+          (stage) => `${jobId}:${lease.epoch}:${stage}`,
+        );
+        const provenance: KnowledgeRepairExecution = {
+          identity: prepared.identity,
+          jobId,
+          ownerId: lease.ownerId,
+          fencingEpoch: lease.epoch,
+          proposalHash: job.proposalHash!,
+          generation: prepared.expectedGeneration,
+          resources: prepared.resources.map((resource) => ({
+            ...resource,
+            afterHash: resourceHash(db, resource, root),
+          })),
+          eventIds,
+        };
+        if (
+          provenance.resources.some(
+            (resource) => resource.role === 'source' && resource.beforeHash !== resource.afterHash,
+          )
+        )
+          throw new KnowledgeRepairError(
+            'E_REPAIR_STALE',
+            'Cited evidence changed during mutation.',
+          );
+        receipt.execution = provenance;
+        const stored = readReceipt(db, prepared.id);
+        if (!stored)
+          throw new KnowledgeRepairError(
+            'E_REPAIR_VERIFY',
+            'Repair receipt disappeared during verification.',
+          );
+        writeReceipt(db, storedRepairSchema.parse({ ...stored, receipt }));
+        for (const [index, id] of eventIds.entries()) {
+          db.prepare('INSERT INTO main._nexus_meta(key,value) VALUES (?,?)').run(
+            `knowledge_repair_event:${id}`,
+            JSON.stringify({
+              id,
+              jobId,
+              receiptId: receipt.id,
+              actor: context.identity.actor,
+              fencingEpoch: lease.epoch,
+              stage: ['started', 'verified', 'committed'][index],
+              at: index === 0 ? startedAt : receipt.completedAt,
+              proposalHash: job.proposalHash,
+            }),
+          );
+        }
+        execution.assertActive();
+        return JSON.stringify(receiptSchema.parse(receipt));
+      });
+      return receiptSchema.parse(JSON.parse(receiptJson));
+    },
+  );
+}
+
 function readReceipt(db: DatabaseSync, id: string) {
   const row = db
     .prepare('SELECT value FROM main._nexus_meta WHERE key = ?')
@@ -513,6 +744,141 @@ function validateAuthoritySources(
   }
 }
 
+/** Existing domain preconditions, mutation and verification inside an owned transaction. */
+function applyProposalBody(
+  db: DatabaseSync,
+  proposal: KnowledgeRepairProposal,
+  result: KnowledgeDoctorResult,
+  projectRoot: string,
+  attempt: number,
+  startedAt: string,
+): KnowledgeRepairReceipt {
+  const prior = readReceipt(db, proposal.id);
+  if (prior) {
+    if (prior.proposalHash !== hash(JSON.stringify(proposal)))
+      throw new KnowledgeRepairError(
+        'E_REPAIR_ID_REUSED',
+        'A different proposal already uses this idempotency key.',
+      );
+    if (prior.rolledBack)
+      throw new KnowledgeRepairError(
+        'E_REPAIR_ROLLED_BACK',
+        'This proposal was rolled back; reassess before proposing a new repair.',
+      );
+    if (prior.receipt.state !== 'failed' || prior.receipt.attempt >= 3) {
+      return prior.receipt;
+    }
+    attempt = prior.receipt.attempt + 1;
+  }
+  if (
+    proposal.projectId !== result.health.coverage.projectId ||
+    proposal.expectedRevision !== result.health.coverage.assessedRevision ||
+    proposal.expectedStateHash !== stateHash(db)
+  ) {
+    throw new KnowledgeRepairError(
+      'E_REPAIR_STALE',
+      'Repair preconditions changed; reassess and submit a fresh proposal.',
+    );
+  }
+  const previous = readState(db);
+  const snapshots: z.infer<typeof decisionSchema>[] = [];
+  let quarantine: z.infer<typeof storedRepairSchema>['quarantine'] = null;
+  if (proposal.action.operation === 'knowledge.quarantine-stubs') {
+    const applied = pruneObservationStubs(db, true);
+    quarantine = {
+      ...applied,
+      sample: [...applied.sample],
+      quarantinedIds: applied.quarantinedIds ? [...applied.quarantinedIds] : undefined,
+    };
+    if (applied.matched !== applied.quarantinedIds?.length && applied.matched !== 0) {
+      throw new KnowledgeRepairError(
+        'E_REPAIR_VERIFY',
+        'Quarantine count did not match the observed candidates.',
+      );
+    }
+  } else if (proposal.action.operation === 'knowledge.supersede-decision') {
+    const oldId = proposal.action.arguments.previousId;
+    const newId = proposal.action.arguments.successorId;
+    if (typeof oldId !== 'string' || typeof newId !== 'string' || oldId === newId) {
+      throw new KnowledgeRepairError(
+        'E_REPAIR_INPUT',
+        'Distinct previousId and successorId are required.',
+      );
+    }
+    const oldDecision = previous.decisions.find((row) => row.id === oldId);
+    const successor = previous.decisions.find((row) => row.id === newId);
+    if (
+      !oldDecision ||
+      !successor ||
+      oldDecision.invalid_at ||
+      oldDecision.superseded_by ||
+      successor.invalid_at ||
+      successor.superseded_by ||
+      successor.confirmation_state !== 'accepted' ||
+      (successor.supersedes && successor.supersedes !== oldId)
+    ) {
+      throw new KnowledgeRepairError(
+        'E_REPAIR_AUTHORITY',
+        'Both decisions must be current and the successor must not replace a different decision.',
+      );
+    }
+    validateAuthoritySources(db, proposal, oldDecision, successor, projectRoot);
+    snapshots.push(oldDecision, successor);
+    db.prepare(
+      "UPDATE main.brain_decisions SET superseded_by = ?, invalid_at = ?, confirmation_state = 'superseded' WHERE id = ?",
+    ).run(newId, startedAt, oldId);
+    db.prepare('UPDATE main.brain_decisions SET supersedes = ? WHERE id = ?').run(oldId, newId);
+    const verified = readState(db).decisions.find((row) => row.id === oldId);
+    if (verified?.superseded_by !== newId)
+      throw new KnowledgeRepairError(
+        'E_REPAIR_VERIFY',
+        'The sourced successor could not be verified.',
+      );
+  } else {
+    throw new KnowledgeRepairError('E_REPAIR_INPUT', 'Use --rollback <receipt> for recovery.');
+  }
+  const receipt: KnowledgeRepairReceipt = {
+    action: proposal.action,
+    id: proposal.id,
+    proposalId: proposal.id,
+    findingId: proposal.findingId,
+    projectId: proposal.projectId,
+    state: 'repaired',
+    attempt,
+    startedAt,
+    completedAt: new Date().toISOString(),
+    recovery: {
+      snapshotId: `knowledge_repair:${proposal.id}`,
+      restoreAction: {
+        operation: 'knowledge.rollback',
+        arguments: { receiptId: proposal.id },
+        prerequisites: [
+          'All substantive project knowledge must still match the recorded post-state.',
+        ],
+      },
+    },
+    verificationEvidence: proposal.evidence,
+    reasons:
+      proposal.action.arguments.authorityResolution === 'caller-reviewed'
+        ? [
+            'Source integrity, project scope, accepted successor, and decision hashes verified. Semantic relevance is attested by the foreground calling agent.',
+          ]
+        : [],
+  };
+  writeReceipt(
+    db,
+    storedRepairSchema.parse({
+      receipt,
+      postHash: stateHash(db),
+      proposalHash: hash(JSON.stringify(proposal)),
+      rolledBack: false,
+      decisions: snapshots,
+      quarantine,
+    }),
+  );
+  return receipt;
+}
+
 function applyProposal(
   db: DatabaseSync,
   proposal: KnowledgeRepairProposal,
@@ -523,130 +889,9 @@ function applyProposal(
   const startedAt = new Date().toISOString();
   db.exec('BEGIN IMMEDIATE');
   try {
-    const prior = readReceipt(db, proposal.id);
-    if (prior) {
-      if (prior.proposalHash !== hash(JSON.stringify(proposal)))
-        throw new KnowledgeRepairError(
-          'E_REPAIR_ID_REUSED',
-          'A different proposal already uses this idempotency key.',
-        );
-      if (prior.rolledBack)
-        throw new KnowledgeRepairError(
-          'E_REPAIR_ROLLED_BACK',
-          'This proposal was rolled back; reassess before proposing a new repair.',
-        );
-      if (prior.receipt.state !== 'failed' || prior.receipt.attempt >= 3) {
-        db.exec('COMMIT');
-        return prior.receipt;
-      }
-      attempt = prior.receipt.attempt + 1;
-    }
-    if (
-      proposal.projectId !== result.health.coverage.projectId ||
-      proposal.expectedRevision !== result.health.coverage.assessedRevision ||
-      proposal.expectedStateHash !== stateHash(db)
-    ) {
-      throw new KnowledgeRepairError(
-        'E_REPAIR_STALE',
-        'Repair preconditions changed; reassess and submit a fresh proposal.',
-      );
-    }
-    const previous = readState(db);
-    const snapshots: z.infer<typeof decisionSchema>[] = [];
-    let quarantine: z.infer<typeof storedRepairSchema>['quarantine'] = null;
-    if (proposal.action.operation === 'knowledge.quarantine-stubs') {
-      const applied = pruneObservationStubs(db, true);
-      quarantine = {
-        ...applied,
-        sample: [...applied.sample],
-        quarantinedIds: applied.quarantinedIds ? [...applied.quarantinedIds] : undefined,
-      };
-      if (applied.matched !== applied.quarantinedIds?.length && applied.matched !== 0) {
-        throw new KnowledgeRepairError(
-          'E_REPAIR_VERIFY',
-          'Quarantine count did not match the observed candidates.',
-        );
-      }
-    } else if (proposal.action.operation === 'knowledge.supersede-decision') {
-      const oldId = proposal.action.arguments.previousId;
-      const newId = proposal.action.arguments.successorId;
-      if (typeof oldId !== 'string' || typeof newId !== 'string' || oldId === newId) {
-        throw new KnowledgeRepairError(
-          'E_REPAIR_INPUT',
-          'Distinct previousId and successorId are required.',
-        );
-      }
-      const oldDecision = previous.decisions.find((row) => row.id === oldId);
-      const successor = previous.decisions.find((row) => row.id === newId);
-      if (
-        !oldDecision ||
-        !successor ||
-        oldDecision.invalid_at ||
-        oldDecision.superseded_by ||
-        successor.invalid_at ||
-        successor.superseded_by ||
-        successor.confirmation_state !== 'accepted' ||
-        (successor.supersedes && successor.supersedes !== oldId)
-      ) {
-        throw new KnowledgeRepairError(
-          'E_REPAIR_AUTHORITY',
-          'Both decisions must be current and the successor must not replace a different decision.',
-        );
-      }
-      validateAuthoritySources(db, proposal, oldDecision, successor, projectRoot);
-      snapshots.push(oldDecision, successor);
-      db.prepare(
-        "UPDATE main.brain_decisions SET superseded_by = ?, invalid_at = ?, confirmation_state = 'superseded' WHERE id = ?",
-      ).run(newId, startedAt, oldId);
-      db.prepare('UPDATE main.brain_decisions SET supersedes = ? WHERE id = ?').run(oldId, newId);
-      const verified = readState(db).decisions.find((row) => row.id === oldId);
-      if (verified?.superseded_by !== newId)
-        throw new KnowledgeRepairError(
-          'E_REPAIR_VERIFY',
-          'The sourced successor could not be verified.',
-        );
-    } else {
-      throw new KnowledgeRepairError('E_REPAIR_INPUT', 'Use --rollback <receipt> for recovery.');
-    }
-    const receipt: KnowledgeRepairReceipt = {
-      action: proposal.action,
-      id: proposal.id,
-      proposalId: proposal.id,
-      findingId: proposal.findingId,
-      projectId: proposal.projectId,
-      state: 'repaired',
-      attempt,
-      startedAt,
-      completedAt: new Date().toISOString(),
-      recovery: {
-        snapshotId: `knowledge_repair:${proposal.id}`,
-        restoreAction: {
-          operation: 'knowledge.rollback',
-          arguments: { receiptId: proposal.id },
-          prerequisites: [
-            'All substantive project knowledge must still match the recorded post-state.',
-          ],
-        },
-      },
-      verificationEvidence: proposal.evidence,
-      reasons:
-        proposal.action.arguments.authorityResolution === 'caller-reviewed'
-          ? [
-              'Source integrity, project scope, accepted successor, and decision hashes verified. Semantic relevance is attested by the foreground calling agent.',
-            ]
-          : [],
-    };
-    writeReceipt(
-      db,
-      storedRepairSchema.parse({
-        receipt,
-        postHash: stateHash(db),
-        proposalHash: hash(JSON.stringify(proposal)),
-        rolledBack: false,
-        decisions: snapshots,
-        quarantine,
-      }),
-    );
+    const priorAttempt = readReceipt(db, proposal.id)?.receipt.attempt;
+    if (priorAttempt !== undefined) attempt = priorAttempt + 1;
+    const receipt = applyProposalBody(db, proposal, result, projectRoot, attempt, startedAt);
     db.exec('COMMIT');
     return receipt;
   } catch (error) {
