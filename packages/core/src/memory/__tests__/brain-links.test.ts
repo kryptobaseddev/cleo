@@ -5,7 +5,7 @@
  * @epic T5149
  */
 
-import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -95,6 +95,63 @@ describe('Brain Memory Links', () => {
       );
 
       expect(link.taskId).toBe('T1000');
+      expect(tasksDb.$client.isOpen).toBe(true);
+      expect(
+        tasksDb.$client
+          .prepare('SELECT memory_id FROM main.brain_memory_links WHERE task_id = ?')
+          .get('T1000')?.memory_id,
+      ).toBe('D-retained');
+    });
+
+    it('rejects a retained handle bound to another explicit project', async () => {
+      const { linkMemoryToTask } = await import('../brain-links.js');
+      const { getDb } = await import('../../store/sqlite.js');
+      const tasksDb = await getDb(tempDir);
+      const otherRoot = join(tempDir, 'other-project');
+      await mkdir(join(otherRoot, '.cleo'), { recursive: true });
+      await expect(
+        linkMemoryToTask(otherRoot, 'decision', 'D-wrong', 'T1000', 'produced_by', tasksDb),
+      ).rejects.toThrow('does not belong');
+      expect(tasksDb.$client.isOpen).toBe(true);
+    });
+
+    it('rejects a replacement generation before accessing the retained database', async () => {
+      const { linkMemoryToTask } = await import('../brain-links.js');
+      const { getDb } = await import('../../store/sqlite.js');
+      const tasksDb = await getDb(tempDir);
+      const path = tasksDb.$client.location();
+      await rename(path, `${path}.moved`);
+      await writeFile(path, Buffer.alloc(0), { flag: 'wx' });
+      await expect(
+        linkMemoryToTask(tempDir, 'decision', 'D-replacement', 'T1000', 'produced_by', tasksDb),
+      ).rejects.toThrow('replaced database generation');
+      expect(tasksDb.$client.isOpen).toBe(true);
+    });
+
+    it('refuses a closed retained handle without reopening or assuming its schema', async () => {
+      const { linkMemoryToTask } = await import('../brain-links.js');
+      const { getDb } = await import('../../store/sqlite.js');
+      const tasksDb = await getDb(tempDir);
+      tasksDb.$client.close();
+      await expect(
+        linkMemoryToTask(tempDir, 'decision', 'D-closed', 'T1000', 'produced_by', tasksDb),
+      ).rejects.toThrow('closed');
+      expect(tasksDb.$client.isOpen).toBe(false);
+    });
+
+    it('reports missing retained schema without recreating it', async () => {
+      const { linkMemoryToTask } = await import('../brain-links.js');
+      const { getDb } = await import('../../store/sqlite.js');
+      const tasksDb = await getDb(tempDir);
+      tasksDb.$client.exec('DROP TABLE main.brain_memory_links');
+      await expect(
+        linkMemoryToTask(tempDir, 'decision', 'D-schema', 'T1000', 'produced_by', tasksDb),
+      ).rejects.toThrow('lacks required brain_memory_links');
+      expect(
+        tasksDb.$client
+          .prepare("SELECT name FROM main.sqlite_schema WHERE name = 'brain_memory_links'")
+          .all(),
+      ).toEqual([]);
     });
 
     it('should throw on empty memoryId or taskId', async () => {
