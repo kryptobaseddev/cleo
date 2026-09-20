@@ -177,6 +177,8 @@ export interface ProviderVerificationProcessResult {
   outcome: 'exited' | 'spawn-failed' | 'cancelled' | 'deadline' | 'transcript-limit';
   /** Actual exit code when observed, otherwise null. */
   exitCode: number | null;
+  /** Observed launcher close signal; under systemd this is not proof of the target's signal or OOM. */
+  exitSignal: string | null;
   /** Start time of preparation, in ISO-8601. */
   startedAt: string;
   /** End time after bounded cleanup, in ISO-8601. */

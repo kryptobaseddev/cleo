@@ -82,6 +82,19 @@ async function invocation(script: string): Promise<ProviderVerificationInvocatio
 }
 
 describe.skipIf(process.platform === 'win32')('bounded external provider observations', () => {
+  it('retains the actual termination signal without guessing OOM or a numeric exit', async () => {
+    const input = await invocation("process.kill(process.pid, 'SIGTERM');");
+    const result = await runProviderVerification(input);
+    expect(result).toMatchObject({
+      exitCode: null,
+      exitSignal: 'SIGTERM',
+      childClosed: true,
+      outcome: 'exited',
+      certification: 'unverified',
+    });
+    expect(result.diagnostics.some((message) => /out.of.memory|OOM/.test(message))).toBe(false);
+  });
+
   it('uses fixed normal policy flags without adapter bypass defaults', () => {
     expect(providerVerificationArguments('codex')).toEqual([
       'exec',
