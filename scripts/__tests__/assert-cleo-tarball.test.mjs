@@ -649,7 +649,14 @@ describe('independent provider repair data oracle', () => {
         idempotencyKey: 'proposal-authentic',
       },
       action: { operation: 'knowledge.quarantine-stubs' },
-      resources: [{ id: identity.noiseId, role: 'affected', kind: 'observation' }],
+      resources: [
+        {
+          id: identity.noiseId,
+          role: 'affected',
+          kind: 'observation',
+          beforeHash: createHash('sha256').update(before.observations[0].rowJson).digest('hex'),
+        },
+      ],
     };
     const proposalJson = JSON.stringify(proposal);
     const job = {
@@ -790,7 +797,12 @@ describe('independent provider repair data oracle', () => {
       };
       f.before.observations.push(row);
       f.after.observations.push({ ...row });
-      proposal.resources.push({ id, role: 'affected', kind: 'observation' });
+      proposal.resources.push({
+        id,
+        role: 'affected',
+        kind: 'observation',
+        beforeHash: createHash('sha256').update(row.rowJson).digest('hex'),
+      });
       f.receipt.execution.resources.push({
         id,
         beforeHash: 'c'.repeat(64),
@@ -856,6 +868,30 @@ describe('independent provider repair data oracle', () => {
     });
     return f;
   }
+  it('rejects a prepared operation made stale by later retrieval of an affected row', () => {
+    const f = fixture();
+    f.before.capturedAtMs = Date.parse('2026-09-20T00:00:01.500Z');
+    f.after.capturedAtMs = Date.parse('2026-09-20T00:00:03.500Z');
+    f.before.observations[0].rowJson = JSON.stringify({
+      ...JSON.parse(f.before.observations[0].rowJson),
+      citation_count: 0,
+      updated_at: null,
+    });
+    const proposal = JSON.parse(f.job.proposalJson);
+    proposal.resources[0].beforeHash = createHash('sha256')
+      .update(f.before.observations[0].rowJson)
+      .digest('hex');
+    f.job.proposalJson = JSON.stringify(proposal);
+    f.job.proposalHash = createHash('sha256').update(f.job.proposalJson).digest('hex');
+    f.after.observations[0].rowJson = JSON.stringify({
+      ...JSON.parse(f.before.observations[0].rowJson),
+      citation_count: 1,
+      updated_at: '2026-09-20 00:00:02',
+    });
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
+      'already stale',
+    );
+  });
   it('records legitimate measured read-side usage while retaining exact incident content', () => {
     const f = retrievedFixture();
     expect(

@@ -350,6 +350,13 @@ export function assertPackedProviderRepairState(before, after, identity, phase) 
       noiseIds.some((id) => !equal(pairs.get(id).initial, pairs.get(id).normalized))
     )
       throw new Error('Preparation mutated evidence or reported a terminal result');
+    for (const resource of proposal.resources) {
+      if (
+        resource.beforeHash !==
+        sha256(Buffer.from(after.observations.find((row) => row.id === resource.id).rowJson))
+      )
+        throw new Error('Prepared resource is already stale in the independent current snapshot');
+    }
     return {
       phase,
       retrievalChanges,
