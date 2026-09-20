@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { ManifestWithProvenance } from '@cleocode/contracts/operations/research';
 import { eq, like, or } from 'drizzle-orm';
+import { z } from 'zod';
 import { createDocsReadModel } from '../docs/docs-read-model.js';
 import { type EngineFailure, type EngineResult, EngineResultError } from '../engine-result.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
@@ -250,38 +251,77 @@ function computeContentHash(content: string): string {
     .slice(0, 16);
 }
 
+/** Validate only fields projected by the canonical reader; retain other provenance. */
+const manifestMetadataSchema = z.looseObject({
+  file: z.string().optional(),
+  title: z.string().optional(),
+  topics: z.array(z.string()).optional(),
+  key_findings: z.array(z.string()).optional(),
+  actionable: z.boolean().optional(),
+  needs_followup: z.array(z.string()).optional(),
+  linked_tasks: z.array(z.string()).optional(),
+  confidence: z.number().optional(),
+  file_checksum: z.string().optional(),
+  duration_seconds: z.number().optional(),
+});
+
+function readRowMetadata(row: ManifestWithProvenance<typeof pipelineManifest.$inferSelect>) {
+  const details = {
+    entryId: row.id,
+    tables: row.provenance.tables,
+    metadataSha256: createHash('sha256')
+      .update(row.metadataJson ?? '')
+      .digest('hex'),
+  };
+  let parsed: ReturnType<typeof manifestMetadataSchema.safeParse>;
+  try {
+    parsed = manifestMetadataSchema.safeParse(
+      row.metadataJson === null ? {} : JSON.parse(row.metadataJson),
+    );
+  } catch (error) {
+    throw new EngineResultError({
+      code: 'E_MANIFEST_METADATA_INVALID',
+      message: `Manifest '${row.id}' metadata is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      details: { ...details, field: 'metadata_json' },
+    });
+  }
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => ({
+      field: issue.path.join('.') || 'metadata_json',
+      message: issue.message,
+    }));
+    throw new EngineResultError({
+      code: 'E_MANIFEST_METADATA_INVALID',
+      message: `Manifest '${row.id}' metadata violates the stored field contract`,
+      details: { ...details, field: issues[0]?.field ?? 'metadata_json', issues },
+    });
+  }
+  return parsed.data;
+}
+
 /**
- * Convert a pipeline_manifest row back to ExtendedManifestEntry format
- * for backward-compatible output.
+ * Convert a validated canonical or historical row without rewriting stored bytes.
  */
 function rowToEntry(
   row: ManifestWithProvenance<typeof pipelineManifest.$inferSelect>,
 ): ManifestWithProvenance<ExtendedManifestEntry> {
-  let meta: Record<string, unknown> = {};
-  if (row.metadataJson) {
-    try {
-      meta = JSON.parse(row.metadataJson) as Record<string, unknown>;
-    } catch {
-      // ignore malformed JSON
-    }
-  }
-
+  const meta = readRowMetadata(row);
   return {
     id: row.id,
     provenance: row.provenance,
-    file: (meta['file'] as string) ?? row.sourceFile ?? '',
-    title: (meta['title'] as string) ?? row.type,
+    file: meta.file ?? row.sourceFile ?? '',
+    title: meta.title ?? row.type,
     date: row.createdAt.slice(0, 10),
     status: (row.status === 'active' ? 'completed' : row.status) as ExtendedManifestEntry['status'],
     agent_type: row.type,
-    topics: (meta['topics'] as string[]) ?? [],
-    key_findings: (meta['key_findings'] as string[]) ?? [],
-    actionable: (meta['actionable'] as boolean) ?? true,
-    needs_followup: (meta['needs_followup'] as string[]) ?? [],
-    linked_tasks: (meta['linked_tasks'] as string[]) ?? (row.taskId ? [row.taskId] : []),
-    confidence: meta['confidence'] as number | undefined,
-    file_checksum: meta['file_checksum'] as string | undefined,
-    duration_seconds: meta['duration_seconds'] as number | undefined,
+    topics: meta.topics ?? [],
+    key_findings: meta.key_findings ?? [],
+    actionable: meta.actionable ?? true,
+    needs_followup: meta.needs_followup ?? [],
+    linked_tasks: meta.linked_tasks ?? (row.taskId ? [row.taskId] : []),
+    confidence: meta.confidence,
+    file_checksum: meta.file_checksum,
+    duration_seconds: meta.duration_seconds,
   };
 }
 
@@ -1080,12 +1120,7 @@ export async function pipelineManifestLink(
 
         // Update linked_tasks in metadataJson
         const updatedLinkedTasks = [...(entry.linked_tasks ?? []), taskId];
-        let meta: Record<string, unknown> = {};
-        try {
-          meta = row.metadataJson ? (JSON.parse(row.metadataJson) as Record<string, unknown>) : {};
-        } catch {
-          // ignore
-        }
+        const meta = readRowMetadata(row);
         meta['linked_tasks'] = updatedLinkedTasks;
 
         binding.db
