@@ -72,7 +72,7 @@ function generatePatternId(): string {
  * @returns The stored or merged pattern; graph projection remains an optional tracked effect.
  * @remarks Both graph branches retain the original execution context and completion
  * barrier. Cancellation after a pattern commit can prevent graph projection without
- * undoing the committed pattern. The legacy pattern write itself is not fully fenced.
+ * undoing the committed pattern. Scoped primary writes share the same original fence.
  * @example
  * ```ts
  * await storePattern(root, { type: 'workflow', pattern: 'Run tests', context: 'Before release' });
@@ -163,11 +163,15 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     const newExamples: string[] = params.examples ?? [];
     const mergedExamples = Array.from(new Set([...existingExamples, ...newExamples]));
 
-    await accessor.updatePattern(duplicate.id, {
-      frequency: duplicate.frequency + 1,
-      extractedAt: now,
-      examplesJson: JSON.stringify(mergedExamples),
-    });
+    await accessor.updatePattern(
+      duplicate.id,
+      {
+        frequency: duplicate.frequency + 1,
+        extractedAt: now,
+        examplesJson: JSON.stringify(mergedExamples),
+      },
+      scope.execution,
+    );
 
     const updated = await accessor.getPattern(duplicate.id);
 
@@ -255,7 +259,7 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     contentHash: contentHashValue,
   };
 
-  const saved = await accessor.addPattern(entry);
+  const saved = await accessor.addPattern(entry, scope.execution);
 
   // Auto-populate graph node for the new pattern (best-effort, T537).
   trackBackgroundOp(
