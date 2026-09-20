@@ -409,6 +409,16 @@ export interface KnowledgeRepairAttemptFailure {
   finalization: JobFinalizationResult;
 }
 
+/** Current recovery disclosure when a historically completed repair has been rolled back. */
+export interface KnowledgeRepairRecoveredState {
+  /** Current effect state; the original job and receipt remain historical successes. */
+  state: 'rolled-back';
+  /** Unmodified successful receipt whose effects were recovered. */
+  originalReceipt: KnowledgeRepairReceipt;
+  /** Separate authenticated rollback receipt, or null for retained legacy recovery metadata. */
+  rollbackReceipt: KnowledgeRepairReceipt | null;
+}
+
 /** Durable, reversible record of an attempted repair and its verified outcome. */
 export interface KnowledgeRepairReceipt {
   /** Scoped execution provenance; absent on preserved legacy receipts. @defaultValue undefined */

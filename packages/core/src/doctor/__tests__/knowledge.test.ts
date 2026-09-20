@@ -1371,6 +1371,33 @@ describe('durable sourced knowledge repair preparation', () => {
     expect(persisted().attemptOutcomes).toEqual([]);
   });
 
+  it.each([
+    'apply',
+    'resume',
+  ] as const)('discloses completed rollback before %s can return a historical repaired result', async (operation) => {
+    const identity = context.identity;
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    const pending = await prepareRollback(original.id);
+    const rollback = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    const before = persisted();
+    context.close();
+    context = createOperationExecutionContext(identity, { budgetMs: 10000 });
+    await expect(
+      (operation === 'apply' ? applyPreparedKnowledgeRepair : resumePreparedKnowledgeRepair)(
+        context,
+        repair.jobId,
+      ),
+    ).rejects.toMatchObject({
+      code: 'E_REPAIR_ROLLED_BACK',
+      recoveryState: { state: 'rolled-back', originalReceipt: original, rollbackReceipt: rollback },
+    });
+    expect(persisted()).toEqual(before);
+    expect((await inspectPreparedKnowledgeRepair(context, repair.jobId)).rollbackReceipt).toEqual(
+      rollback,
+    );
+  });
+
   it('explicitly resumes a failed repair with fresh budget and preserves its entire prior attempt', async () => {
     const pending = await prepareKnowledgeRepair(context, proposal);
     const db = getBrainNativeDb(root)!;

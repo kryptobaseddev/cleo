@@ -25,6 +25,7 @@ import type {
   KnowledgeRepairExecution,
   KnowledgeRepairInspection,
   KnowledgeRepairPreparation,
+  KnowledgeRepairRecoveredState,
   KnowledgeRepairResource,
 } from '@cleocode/contracts/knowledge-health';
 import { z } from 'zod';
@@ -192,17 +193,26 @@ export class KnowledgeRepairError extends Error {
   readonly code: string;
   /** Observed owned-attempt outcome and truthful persistence status. @defaultValue undefined */
   readonly attemptFailure?: KnowledgeRepairAttemptFailure;
+  /** Current recovery state, separate from an unmodified historical receipt. @defaultValue undefined */
+  readonly recoveryState?: KnowledgeRepairRecoveredState;
   /**
    * Construct an actionable validation or concurrency error.
    * @param code - Stable repair validation failure code.
    * @param message - Observable reason the repair was rejected.
    * @param attemptFailure - Optional observed attempt with committed or pending finalization.
+   * @param recoveryState - Optional current rollback disclosure retaining authentic historical receipts.
    */
-  constructor(code: string, message: string, attemptFailure?: KnowledgeRepairAttemptFailure) {
+  constructor(
+    code: string,
+    message: string,
+    attemptFailure?: KnowledgeRepairAttemptFailure,
+    recoveryState?: KnowledgeRepairRecoveredState,
+  ) {
     super(message);
     this.name = 'KnowledgeRepairError';
     this.code = code;
     this.attemptFailure = attemptFailure;
+    this.recoveryState = recoveryState;
   }
 }
 
@@ -1044,6 +1054,18 @@ async function executePreparedKnowledgeRepair(
           throw new KnowledgeRepairError(
             'E_REPAIR_VERIFY',
             'Completed job and retained receipt disagree.',
+          );
+        const current = inspectPreparedState(db, job, prepared, proposalHash, 1, 0);
+        if (stored.rolledBack || current.rollbackReceipt)
+          throw new KnowledgeRepairError(
+            'E_REPAIR_ROLLED_BACK',
+            'This historical repair was rolled back; inspect its recovery evidence and reassess before proposing new effects.',
+            undefined,
+            {
+              state: 'rolled-back',
+              originalReceipt: result,
+              rollbackReceipt: current.rollbackReceipt,
+            },
           );
         return result;
       }
