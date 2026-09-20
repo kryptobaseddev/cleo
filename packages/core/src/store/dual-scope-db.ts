@@ -1182,6 +1182,34 @@ export interface GlobalStore {
 }
 
 /**
+ * Run one domain establishment with the runtime store's captured file ownership.
+ * @typeParam T - Result produced by the domain establishment callback.
+ * @param store - Canonical project or global store whose immutable identity is required.
+ * @param native - Existing domain connection; its main file must expose the same lease grant.
+ * @param establish - Callback admitted under required cross-process schema exclusion.
+ * @returns The callback result after ownership checks and owned lease-handle cleanup.
+ * @remarks The lease handle is independent of the callback connection, allowing
+ * deliberate callback closure. File/epoch checkpoints do not preempt synchronous
+ * work or fence arbitrary uncooperative callback writes.
+ * @example
+ * ```ts
+ * const value = await withStoreSchemaOwnership(store, native, async () => {
+ *   return establishSchema(native);
+ * });
+ * ```
+ */
+export function withStoreSchemaOwnership<T>(
+  store: ProjectStore | GlobalStore,
+  native: DatabaseSync,
+  establish: () => Promise<T>,
+): Promise<T> {
+  return withColdOpenLease(store.scope, native, establish, {
+    requiredIdentity: store.identity,
+    execution: worktreeScope.getStore()?.execution,
+  });
+}
+
+/**
  * The CleoRuntime store registry — the explicit composition root that owns
  * project and global database entries keyed by canonical database path.
  *
