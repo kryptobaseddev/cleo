@@ -10,6 +10,7 @@
  * @epic T5576
  */
 
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -120,6 +121,252 @@ describe('pipeline-manifest-sqlite', () => {
     if (existsSync(testRoot)) {
       rmSync(testRoot, { recursive: true, force: true });
     }
+  });
+
+  describe('canonical storage with enforced foreign keys and retained history', () => {
+    beforeEach(async () => {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      native.exec('PRAGMA foreign_keys=ON');
+      expect(native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      native.exec(
+        "INSERT INTO tasks_tasks(id,title,status,created_at,updated_at) VALUES ('T001','Canonical task','pending','2026-09-20','2026-09-20')",
+      );
+      expect(native.prepare("SELECT count(*) AS n FROM tasks WHERE id='T001'").get()).toEqual({
+        n: 0,
+      });
+    });
+
+    async function seedHistory(table: 'pipeline_manifest' | 'docs_pipeline_manifest', id: string) {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      const entry = { ...ENTRY_A, id };
+      native
+        .prepare(
+          `INSERT INTO ${table}(id,type,content,status,source_file,metadata_json,created_at) VALUES (?,?,?,?,?,?,?)`,
+        )
+        .run(
+          id,
+          entry.agent_type,
+          JSON.stringify(entry),
+          'active',
+          entry.file,
+          JSON.stringify(entry),
+          '2026-01-15 00:00:00',
+        );
+      return native;
+    }
+
+    it('appends for a task that exists only in tasks_tasks with foreign_keys=1', async () => {
+      const result = await pipelineManifestAppend(ENTRY_A, testRoot);
+      expect(result).toMatchObject({
+        success: true,
+        data: { appended: true, entryId: ENTRY_A.id },
+      });
+      const { bindTasksDomain, resetDbState } = await import('../../store/sqlite.js');
+      const { native, store } = await bindTasksDomain(testRoot);
+      expect(native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      expect(native.prepare('SELECT id,task_id FROM docs_pipeline_manifest').all()).toEqual([
+        { id: ENTRY_A.id, task_id: 'T001' },
+      ]);
+      expect(native.prepare('SELECT count(*) AS n FROM pipeline_manifest').get()).toEqual({ n: 0 });
+      const path = store.dbPath;
+      // A fresh native process is the independent durability oracle; it reads
+      // only this synthetic database, with no inherited provider/store environment.
+      const freshRead = spawnSync(
+        process.execPath,
+        [
+          '--disable-warning=ExperimentalWarning',
+          '--input-type=module',
+          '-e',
+          'import { DatabaseSync } from "node:sqlite"; const db = new DatabaseSync(process.argv[1], { readOnly: true }); process.stdout.write(JSON.stringify(db.prepare("SELECT id,task_id,content FROM docs_pipeline_manifest").all())); db.close();',
+          path,
+        ],
+        { encoding: 'utf8', timeout: 5000, env: { PATH: process.env.PATH } },
+      );
+      expect(freshRead.error).toBeUndefined();
+      expect(freshRead.status, freshRead.stderr).toBe(0);
+      expect(JSON.parse(freshRead.stdout)).toEqual([
+        { id: ENTRY_A.id, task_id: 'T001', content: JSON.stringify(ENTRY_A) },
+      ]);
+      resetDbState();
+      expect(await pipelineManifestShow(ENTRY_A.id, testRoot)).toMatchObject({
+        success: true,
+        data: {
+          title: ENTRY_A.title,
+          provenance: { databasePath: path, tables: ['docs_pipeline_manifest'] },
+        },
+      });
+    });
+
+    it('retrieves both histories with physical source provenance without rewriting them', async () => {
+      const native = await seedHistory('pipeline_manifest', 'legacy-only');
+      await seedHistory('docs_pipeline_manifest', 'modern-only');
+      const before = native.prepare('SELECT * FROM pipeline_manifest').all();
+      expect(await pipelineManifestShow('legacy-only', testRoot)).toMatchObject({
+        success: true,
+        data: { provenance: { tables: ['pipeline_manifest'] } },
+      });
+      expect(await pipelineManifestShow('modern-only', testRoot)).toMatchObject({
+        success: true,
+        data: { provenance: { tables: ['docs_pipeline_manifest'] } },
+      });
+      expect(await pipelineManifestList({}, testRoot)).toMatchObject({
+        success: true,
+        data: {
+          total: 2,
+          filtered: 2,
+          entries: expect.arrayContaining([
+            expect.objectContaining({ id: 'legacy-only' }),
+            expect.objectContaining({ id: 'modern-only' }),
+          ]),
+        },
+      });
+      expect(native.prepare('SELECT * FROM pipeline_manifest').all()).toEqual(before);
+    });
+
+    it('deduplicates identical persisted rows only and discloses both sources', async () => {
+      const native = await seedHistory('pipeline_manifest', 'copied');
+      native.exec('INSERT INTO docs_pipeline_manifest SELECT * FROM pipeline_manifest');
+      expect(await pipelineManifestList({}, testRoot)).toMatchObject({
+        success: true,
+        data: {
+          total: 1,
+          entries: [
+            expect.objectContaining({
+              id: 'copied',
+              provenance: {
+                databasePath: expect.any(String),
+                tables: ['docs_pipeline_manifest', 'pipeline_manifest'],
+              },
+            }),
+          ],
+        },
+      });
+    });
+
+    it('rejects divergent same-ID payloads even when projected metadata looks identical', async () => {
+      const native = await seedHistory('pipeline_manifest', 'collision');
+      native.exec('INSERT INTO docs_pipeline_manifest SELECT * FROM pipeline_manifest');
+      native
+        .prepare('UPDATE docs_pipeline_manifest SET content=? WHERE id=?')
+        .run('different authentic payload', 'collision');
+      const before = native.prepare('SELECT * FROM pipeline_manifest').all();
+      for (const read of [
+        () => pipelineManifestShow('collision', testRoot),
+        () => pipelineManifestList({}, testRoot),
+        () => pipelineManifestRead(undefined, testRoot),
+      ]) {
+        expect(await read()).toMatchObject({
+          success: false,
+          error: {
+            code: 'E_MANIFEST_ID_CONFLICT',
+            details: {
+              entryId: 'collision',
+              candidates: expect.arrayContaining([
+                expect.objectContaining({ table: 'pipeline_manifest' }),
+                expect.objectContaining({ table: 'docs_pipeline_manifest' }),
+              ]),
+            },
+          },
+        });
+      }
+      await expect(readManifestEntries(testRoot)).rejects.toThrow('collision');
+      expect(await pipelineManifestAppend({ ...ENTRY_A, id: 'collision' }, testRoot)).toMatchObject(
+        { success: false, error: { code: 'E_MANIFEST_ID_CONFLICT' } },
+      );
+      expect(native.prepare('SELECT * FROM pipeline_manifest').all()).toEqual(before);
+    });
+
+    it('refuses mutations of legacy evidence and rolls back a mixed archive selection', async () => {
+      const native = await seedHistory('pipeline_manifest', 'legacy-only');
+      await seedHistory('docs_pipeline_manifest', 'modern-only');
+      const before = native.prepare('SELECT * FROM pipeline_manifest').all();
+      for (const mutate of [
+        () => pipelineManifestAppend({ ...ENTRY_A, id: 'legacy-only' }, testRoot),
+        () => pipelineManifestLink('T999', 'legacy-only', undefined, testRoot),
+        () => pipelineManifestArchive('2027-01-01', testRoot),
+        () => pipelineManifestCompact(testRoot),
+      ]) {
+        expect(await mutate()).toMatchObject({
+          success: false,
+          error: { code: 'E_MANIFEST_LEGACY_REPAIR_REQUIRED' },
+        });
+      }
+      expect(native.prepare('SELECT * FROM pipeline_manifest').all()).toEqual(before);
+      expect(native.prepare('SELECT archived_at FROM docs_pipeline_manifest').all()).toEqual([
+        { archived_at: null },
+      ]);
+    });
+
+    it('rolls back an archive when a later modern write fails', async () => {
+      const native = await seedHistory('docs_pipeline_manifest', 'first');
+      await seedHistory('docs_pipeline_manifest', 'second');
+      native.exec(
+        "CREATE TRIGGER reject_second BEFORE UPDATE ON docs_pipeline_manifest WHEN NEW.id='second' BEGIN SELECT RAISE(ABORT,'second archive rejected'); END",
+      );
+      expect(await pipelineManifestArchive('2027-01-01', testRoot)).toMatchObject({
+        success: false,
+        error: { message: expect.stringContaining('second archive rejected') },
+      });
+      expect(
+        native.prepare('SELECT id,archived_at FROM docs_pipeline_manifest ORDER BY id').all(),
+      ).toEqual([
+        { id: 'first', archived_at: null },
+        { id: 'second', archived_at: null },
+      ]);
+    });
+
+    it('keeps explicitly addressed projects separate under interleaved ambient pins', async () => {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const otherRoot = join(testRoot, 'other');
+      mkdirSync(join(otherRoot, '.cleo'), { recursive: true });
+      mkdirSync(join(otherRoot, '.git'));
+      const other = await bindTasksDomain(otherRoot);
+      other.native.exec('PRAGMA foreign_keys=ON');
+      expect(other.native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      vi.stubEnv('CLEO_ROOT', otherRoot);
+      vi.stubEnv('CLEO_DIR', join(otherRoot, '.cleo'));
+      expect(await pipelineManifestAppend(ENTRY_A, testRoot)).toMatchObject({ success: true });
+      expect(
+        await pipelineManifestAppend({ ...ENTRY_A, title: 'Other project' }, otherRoot),
+      ).toMatchObject({ success: true });
+      expect(await pipelineManifestShow(ENTRY_A.id, testRoot)).toMatchObject({
+        success: true,
+        data: {
+          title: ENTRY_A.title,
+          provenance: { databasePath: join(testRoot, '.cleo', 'cleo.db') },
+        },
+      });
+      expect(await pipelineManifestShow(ENTRY_A.id, otherRoot)).toMatchObject({
+        success: true,
+        data: {
+          title: 'Other project',
+          provenance: { databasePath: join(otherRoot, '.cleo', 'cleo.db') },
+        },
+      });
+    });
+
+    it('surfaces native storage causes and never turns a failed diagnostic read into empty success', async () => {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      native.exec(
+        "CREATE TRIGGER reject_manifest BEFORE INSERT ON docs_pipeline_manifest BEGIN SELECT RAISE(ABORT,'synthetic manifest storage failure'); END",
+      );
+      expect(await pipelineManifestAppend(ENTRY_A, testRoot)).toMatchObject({
+        success: false,
+        error: {
+          code: 'E_MANIFEST_APPEND',
+          message: expect.stringContaining('synthetic manifest storage failure'),
+        },
+      });
+      native.exec('DROP TABLE docs_pipeline_manifest');
+      expect(await pipelineManifestRead(undefined, testRoot)).toMatchObject({
+        success: false,
+        error: { message: expect.stringContaining('docs_pipeline_manifest') },
+      });
+      await expect(readManifestEntries(testRoot)).rejects.toThrow('docs_pipeline_manifest');
+    });
   });
 
   // =========================================================================

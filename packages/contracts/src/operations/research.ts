@@ -154,3 +154,39 @@ export interface ResearchManifestArchiveResult {
   entryIds: string[];
   filesMovedCount?: number;
 }
+
+/** Physical manifest table contributing authentic stored evidence.
+ * @remarks Table identity does not imply scientific or decision authority.
+ * @example
+ * ```ts
+ * const table: ManifestStorageTable = 'docs_pipeline_manifest';
+ * ```
+ */
+export type ManifestStorageTable = 'docs_pipeline_manifest' | 'pipeline_manifest';
+
+/** Physical provenance of a manifest read; multiple tables imply identical stored payloads.
+ * @remarks Database identity is observed on the captured project binding; tables are not inferred from recency.
+ * @example
+ * ```ts
+ * const source: ManifestStorageProvenance = { databasePath: '/project/.cleo/cleo.db', tables: ['docs_pipeline_manifest'] };
+ * ```
+ */
+export interface ManifestStorageProvenance {
+  /** Absolute path of the canonical project database actually read. */
+  databasePath: string;
+  /** Tables containing byte-equivalent persisted rows, modern first. */
+  tables: ManifestStorageTable[];
+}
+
+/** Existing manifest data augmented with its storage provenance.
+ * @typeParam T - Existing row or public entry contract.
+ * @remarks Adds provenance without replacing the existing manifest result fields.
+ * @example
+ * ```ts
+ * type SourcedEntry = ManifestWithProvenance<ManifestEntry>;
+ * ```
+ */
+export type ManifestWithProvenance<T> = T & {
+  /** Observed physical storage sources; never an authority ranking. */
+  provenance: ManifestStorageProvenance;
+};
