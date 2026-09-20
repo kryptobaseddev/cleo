@@ -30,8 +30,9 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resetDbState, validateGateVerify } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetDbState } from '../../store/sqlite.js';
+import { validateGateVerify } from '../engine-ops.js';
 
 /** Absolute project root for each test — recreated per test. */
 let TEST_ROOT: string;
@@ -148,15 +149,16 @@ describe('validateGateVerify — parent-type-matrix decoupling (T11907)', () => 
     // The matrix abort surfaces via the trigger's RAISE message; assert neither
     // the code nor the message carries the matrix violation through to verify
     // (the negative control — old full-column upsert — fails BOTH of these).
-    expect(result.error?.code).not.toBe('E_TASK_PARENT_TYPE_MATRIX');
-    expect(result.error?.message ?? '').not.toContain('E_TASK_PARENT_TYPE_MATRIX');
+    expect(result.success ? undefined : result.error.code).not.toBe('E_TASK_PARENT_TYPE_MATRIX');
+    expect(result.success ? '' : result.error.message).not.toContain('E_TASK_PARENT_TYPE_MATRIX');
     expect(result.success).toBe(true);
-    const data = result.data as Record<string, unknown>;
+    if (!result.success) throw new Error(result.error.message);
+    const data = result.data;
     expect(data.action).toBe('set_gate');
 
     // The verification persisted to the row.
     resetDbState();
-    const { createSqliteDataAccessor } = await import('@cleocode/core/internal');
+    const { createSqliteDataAccessor } = await import('../../store/sqlite-data-accessor.js');
     const accessor = await createSqliteDataAccessor(TEST_ROOT);
     const reloaded = await accessor.loadSingleTask('T1738');
     await accessor.close();
