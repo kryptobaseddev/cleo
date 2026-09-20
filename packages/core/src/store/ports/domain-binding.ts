@@ -51,14 +51,17 @@
  * @saga T11242 (SG-DB-SUBSTRATE-V2)
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { worktreeScope } from '../../project-scope.js';
 import {
   type CleoRuntime,
   createCleoRuntime,
   type GlobalStore,
   type ProjectStore,
   resolveDualScopeDbPath,
+  withStoreSchemaOwnership,
 } from '../dual-scope-db.js';
 
 /**
@@ -138,6 +141,16 @@ const _bindings = new Map<string, BindingRow>();
  */
 const _inflight = new Map<string, Promise<BindingRow>>();
 
+/** Membership in one awaited establishment chain; never a handle or grant cache. */
+interface DomainEstablishmentScope {
+  readonly parent?: DomainEstablishmentScope;
+  readonly key: string;
+  active: boolean;
+}
+
+/** Detect recursive self-establishment before it can wait on its own single flight. */
+const domainEstablishment = new AsyncLocalStorage<DomainEstablishmentScope>();
+
 /**
  * Build the composite registry key for a domain binding.
  *
@@ -204,12 +217,23 @@ async function bindAgainst<TDb>(
   store: ProjectStore | GlobalStore,
   establish: (native: DatabaseSync, store: never) => TDb | Promise<TDb>,
 ): Promise<BindingRow> {
+  const execution = worktreeScope.getStore()?.execution;
+  execution?.assertActive();
   const cached = reuseValid(key, store);
   if (cached) return cached;
+  const parent = domainEstablishment.getStore();
+  for (let frame = parent; frame; frame = frame.parent) {
+    if (frame.active && frame.key === key) {
+      throw new Error(
+        `Recursive domain establishment cannot await its own incomplete binding: ${key}`,
+      );
+    }
+  }
 
   const pending = _inflight.get(key);
   if (pending) {
     const row = await pending;
+    execution?.assertActive();
     // The in-flight establishment may have raced an eviction; re-validate.
     if (row.store === store && row.native.isOpen) return row;
     return bindAgainst(key, store, establish);
@@ -217,10 +241,20 @@ async function bindAgainst<TDb>(
 
   const native = nativeOf(store);
   const flight = (async (): Promise<BindingRow> => {
-    const db = await establish(native, store as never);
-    const row: BindingRow = { store, native, db };
-    // Publish only if this store is still the live one for the key. A close
-    // that landed during `establish` must not resurrect a dead binding.
+    const row = await withStoreSchemaOwnership(store, native, async () => {
+      const membership: DomainEstablishmentScope = { parent, key, active: true };
+      try {
+        const db = await domainEstablishment.run(membership, () =>
+          establish(native, store as never),
+        );
+        return { store, native, db };
+      } finally {
+        membership.active = false;
+      }
+    });
+    // Ownership and file-generation checks complete before publishing the binding.
+    // A deliberate callback close releases its independent lease handle first;
+    // bindLive can then reacquire without waiting on its own stranded claim.
     if (store.isOpen && native.isOpen) {
       _bindings.set(key, row);
     }
