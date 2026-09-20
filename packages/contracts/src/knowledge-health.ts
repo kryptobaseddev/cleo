@@ -5,6 +5,7 @@
  * against AGENTS.md. These contracts contain no runtime implementation.
  */
 
+import type { GraphAnalysisCapability, GraphFileRole } from './graph.js';
 import type {
   BackgroundJobStatus,
   JobFinalizationResult,
@@ -99,8 +100,64 @@ export interface KnowledgeInventoryCoverage {
   failed: number;
 }
 
+/**
+ * File counts for one requested analysis capability.
+ * @remarks Completion records performed processing, not complete runtime discovery.
+ * @example
+ * ```ts
+ * const calls: KnowledgeCapabilityCount = { requestedFiles: 3, completedFiles: 2, incompleteFiles: 1 };
+ * ```
+ */
+export interface KnowledgeCapabilityCount {
+  /** Assessed files that explicitly requested this capability. */
+  requestedFiles: number;
+  /** Requesting files whose report records this capability completed. */
+  completedFiles: number;
+  /** Requested minus completed files for this capability. */
+  incompleteFiles: number;
+}
+
+/**
+ * Capability progress and file roles retained independently of freshness checks.
+ * @remarks Counts cover assessed non-excluded reports only. Legacy reports have
+ * no trustworthy capability population and remain explicit gaps. Unknown totals
+ * are null, and unassessed files never contribute inferred completed capabilities.
+ * @example
+ * ```ts
+ * const capabilities: KnowledgeCapabilityCoverage = {
+ *   requestedFiles: null, assessedFiles: 0, unassessedFiles: null, excludedFiles: null,
+ *   legacyFiles: 0, incompleteFiles: 0, extractionFailedFiles: 0, byRole: {}, byCapability: {},
+ * };
+ * ```
+ */
+export interface KnowledgeCapabilityCoverage {
+  /** Persisted non-excluded reports requested; null before the population is known. */
+  requestedFiles: number | null;
+  /** Reports whose capability metadata has been assessed, including legacy gaps. */
+  assessedFiles: number;
+  /** Requested minus assessed reports; null before the population is known. */
+  unassessedFiles: number | null;
+  /** Explicitly excluded reports, including directory entries; null before inventory is known. */
+  excludedFiles: number | null;
+  /** Assessed reports lacking typed role and capability provenance. */
+  legacyFiles: number;
+  /** Assessed files with unresolved capability coverage, counting each file once. */
+  incompleteFiles: number;
+  /** Assessed reports recording failed extraction; freshness failures are separate. */
+  extractionFailedFiles: number;
+  /** Counts by explicitly recorded role; untyped legacy reports are not reclassified. */
+  byRole: Partial<Record<GraphFileRole, number>>;
+  /** Per-capability counts over explicit requests, without inventing missing requests. */
+  byCapability: Partial<Record<GraphAnalysisCapability, KnowledgeCapabilityCount>>;
+}
+
 /** Coverage is independent of impact severity and never implies complete runtime knowledge. */
 export interface KnowledgeCoverage {
+  /**
+   * Capability-specific progress for new assessments, independent of source freshness.
+   * @defaultValue undefined on legacy result shapes.
+   */
+  capabilities?: KnowledgeCapabilityCoverage;
   /**
    * Freshness progress for new assessments; absent only on legacy result shapes.
    * @defaultValue undefined for legacy results that did not assess inventory.

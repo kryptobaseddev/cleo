@@ -13,6 +13,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type {
   GraphIndexAssessment,
+  GraphIndexFileReport,
   KnowledgeCoverage,
   KnowledgeCoverageStatus,
   KnowledgeSymbolCandidate,
@@ -96,6 +97,68 @@ const sourceRootsSchema = z
       context.addIssue({ code: 'custom', message: 'Source root must be the first observation' });
   });
 
+const analysisCapabilitySchema = z.enum([
+  'file-evidence',
+  'documentary-evidence',
+  'configuration-evidence',
+  'schema-evidence',
+  'data-evidence',
+  'resource-evidence',
+  'declarations',
+  'imports',
+  'call-references',
+  'access-references',
+  'type-heritage',
+  'sql-schema-objects',
+  'sql-migrations',
+  'sql-triggers',
+  'sql-constraints',
+  'sql-literal-references',
+  'sql-dynamic-references',
+]);
+const fileCapabilitiesSchema = z
+  .object({
+    role: z.enum([
+      'executable',
+      'sql',
+      'documentation',
+      'configuration',
+      'schema',
+      'generated-data',
+      'data',
+      'asset',
+      'unknown',
+    ]),
+    classification: z.object({
+      basis: z.enum(['path', 'content', 'path-and-content', 'unknown']),
+      reason: z
+        .string()
+        .refine((reason) => reason.trim().length > 0, 'Classification reason must be nonempty'),
+    }),
+    requested: z
+      .array(analysisCapabilitySchema)
+      .refine(
+        (values) => new Set(values).size === values.length,
+        'Requested capabilities must be unique',
+      ),
+    completed: z
+      .array(analysisCapabilitySchema)
+      .refine(
+        (values) => new Set(values).size === values.length,
+        'Completed capabilities must be unique',
+      ),
+    limitations: z.array(z.string()),
+  })
+  .superRefine((value, context) => {
+    if (value.completed.some((capability) => !value.requested.includes(capability)))
+      context.addIssue({ code: 'custom', message: 'Completed capabilities must be requested' });
+    if (value.role !== 'unknown' && value.classification.basis === 'unknown')
+      context.addIssue({
+        code: 'custom',
+        message: 'A known role requires positive classification evidence',
+      });
+  });
+
 const assessmentSchema = z.object({
   generation: z.uuid().optional(),
   sourceRoots: sourceRootsSchema.optional(),
@@ -145,6 +208,7 @@ const assessmentSchema = z.object({
     z.object({
       path: z.string(),
       status: z.enum(['analyzed', 'excluded', 'unsupported', 'oversized', 'failed']),
+      capabilities: fileCapabilitiesSchema.optional(),
       reason: z.string().optional(),
       mtimeMs: z.number().optional(),
       size: z.number().optional(),
@@ -328,7 +392,19 @@ async function assessScopedCoverage(
     missing: 0,
     failed: 0,
   };
+  const capabilities: NonNullable<KnowledgeCoverage['capabilities']> = {
+    requestedFiles: null,
+    assessedFiles: 0,
+    unassessedFiles: null,
+    excludedFiles: null,
+    legacyFiles: 0,
+    incompleteFiles: 0,
+    extractionFailedFiles: 0,
+    byRole: {},
+    byCapability: {},
+  };
   const coverage: KnowledgeCoverage = {
+    capabilities,
     status: 'partial',
     projectId: projectId ?? (info?.projectId || info?.projectHash || legacyProjectId(projectRoot)),
     assessedRevision: null,
@@ -349,6 +425,7 @@ async function assessScopedCoverage(
         resolveDeferred({
           ...coverage,
           inventory: { ...inventory },
+          capabilities: structuredClone(capabilities),
           reasons: [...coverage.reasons],
           evidence: [...coverage.evidence],
           limitations: [...coverage.limitations],
@@ -365,6 +442,102 @@ async function assessScopedCoverage(
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+/** Account for one persisted role without equating resource evidence with executable coverage. */
+function assessFileCapabilities(file: GraphIndexFileReport, coverage: KnowledgeCoverage): void {
+  const summary = coverage.capabilities;
+  if (!summary) return;
+  if (file.status === 'excluded') {
+    coverage.limitations.push(
+      `Excluded source: ${file.path}: ${file.reason ?? 'No exclusion reason recorded'}`,
+    );
+    return;
+  }
+  summary.assessedFiles++;
+  if (summary.unassessedFiles !== null) summary.unassessedFiles--;
+  let incomplete = false;
+  const report = file.capabilities;
+  if (!report) {
+    summary.legacyFiles++;
+    incomplete = true;
+    recordKnowledgeGap(
+      coverage,
+      'partial',
+      `Legacy report lacks role and capability provenance: ${file.path}`,
+    );
+  } else {
+    summary.byRole[report.role] = (summary.byRole[report.role] ?? 0) + 1;
+    for (const capability of report.requested) {
+      const count = summary.byCapability[capability] ?? {
+        requestedFiles: 0,
+        completedFiles: 0,
+        incompleteFiles: 0,
+      };
+      count.requestedFiles++;
+      if (report.completed.includes(capability)) count.completedFiles++;
+      else count.incompleteFiles++;
+      summary.byCapability[capability] = count;
+    }
+    const missing = report.requested.filter((capability) => !report.completed.includes(capability));
+    const required =
+      report.role === 'executable' || report.role === 'unknown'
+        ? ([
+            'file-evidence',
+            'declarations',
+            'imports',
+            'call-references',
+            'access-references',
+            'type-heritage',
+          ] as const)
+        : report.role === 'sql'
+          ? ([
+              'file-evidence',
+              'sql-schema-objects',
+              'sql-migrations',
+              'sql-triggers',
+              'sql-constraints',
+              'sql-literal-references',
+              'sql-dynamic-references',
+            ] as const)
+          : (['file-evidence'] as const);
+    const unrequested = required.filter((capability) => !report.requested.includes(capability));
+    if (missing.length || unrequested.length || report.role === 'unknown') {
+      incomplete = true;
+      recordKnowledgeGap(
+        coverage,
+        'partial',
+        `Incomplete ${report.role} capabilities: ${file.path}; uncompleted=${missing.join(',') || 'none'}; unrequested=${unrequested.join(',') || 'none'}`,
+      );
+    }
+    for (const limitation of report.limitations)
+      if (!coverage.limitations.includes(limitation)) coverage.limitations.push(limitation);
+  }
+  if (file.status === 'failed') {
+    summary.extractionFailedFiles++;
+    incomplete = true;
+    recordKnowledgeGap(
+      coverage,
+      'failed',
+      `Extraction failed: ${file.path}${file.reason ? `: ${file.reason}` : ''}`,
+    );
+  }
+  if (file.status === 'unsupported' || file.status === 'oversized') {
+    if (
+      !report ||
+      report.role === 'executable' ||
+      report.role === 'sql' ||
+      report.role === 'unknown' ||
+      incomplete
+    ) {
+      incomplete = true;
+      recordKnowledgeGap(coverage, 'partial', `${file.status}: ${file.path}`);
+    } else
+      coverage.limitations.push(
+        `${file.status}: ${file.path}${file.reason ? `: ${file.reason}` : ''}`,
+      );
+  }
+  if (incomplete) summary.incompleteFiles++;
 }
 
 /**
@@ -401,6 +574,17 @@ async function assessCoverage(
     if (files.length === 0 && !assessment) {
       inventory.requested = 0;
       inventory.unassessed = 0;
+      coverage.capabilities = {
+        requestedFiles: 0,
+        assessedFiles: 0,
+        unassessedFiles: 0,
+        excludedFiles: 0,
+        legacyFiles: 0,
+        incompleteFiles: 0,
+        extractionFailedFiles: 0,
+        byRole: {},
+        byCapability: {},
+      };
       coverage.status = 'missing';
       coverage.reasons.push('No indexed graph is available; run cleo nexus analyze.');
       return coverage;
@@ -409,6 +593,11 @@ async function assessCoverage(
       const sourceFiles = assessment.files.filter((file) => file.status !== 'excluded');
       inventory.requested = sourceFiles.length;
       inventory.unassessed = sourceFiles.length;
+      if (coverage.capabilities) {
+        coverage.capabilities.requestedFiles = sourceFiles.length;
+        coverage.capabilities.unassessedFiles = sourceFiles.length;
+        coverage.capabilities.excludedFiles = assessment.files.length - sourceFiles.length;
+      }
       if (Date.now() >= deadline) {
         markCoveragePending(coverage);
         return coverage;
@@ -507,10 +696,11 @@ async function assessCoverage(
         coverage.nextAction = 'cleo nexus status';
       }
       for (const file of assessment.files) {
-        if (file.status === 'failed')
-          recordKnowledgeGap(coverage, 'failed', `Extraction failed: ${file.path}`);
-        if (file.status === 'unsupported' || file.status === 'oversized')
-          recordKnowledgeGap(coverage, 'partial', `${file.status}: ${file.path}`);
+        if (Date.now() >= deadline) {
+          markCoveragePending(coverage);
+          return coverage;
+        }
+        assessFileCapabilities(file, coverage);
       }
       for (const file of sourceFiles) {
         if (Date.now() >= deadline) {
