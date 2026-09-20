@@ -8,12 +8,13 @@
  * @epic T1093
  */
 
+import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getDb } from '../../store/sqlite.js';
+import { bindTasksDomain, type getDb } from '../../store/sqlite.js';
 import { ingestLooseAgentOutputs, ingestRcasdDirectories } from '../manifest-ingestion.js';
 
 /**
@@ -33,16 +34,22 @@ async function setupTestProject(): Promise<{
   mkdirSync(join(root, '.cleo', 'agent-outputs'), { recursive: true });
 
   // Get database
-  const db = await getDb(root);
+  mkdirSync(join(root, '.git'));
+  const { db, native, store } = await bindTasksDomain(root);
+  native.exec('PRAGMA foreign_keys=ON');
+  expect(native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+  for (const id of ['T001', 'T002', 'T003', 'T004', 'T042', 'T100']) {
+    native
+      .prepare(
+        "INSERT INTO tasks_tasks(id,title,status,created_at,updated_at) VALUES (?, 'Canonical task','pending','2026-09-20','2026-09-20')",
+      )
+      .run(id);
+  }
+  expect(native.prepare("SELECT count(*) AS n FROM tasks WHERE id='T001'").get()).toEqual({ n: 0 });
 
   const cleanup = () => {
-    // Clean up temp directory (in a real scenario)
-    try {
-      const fs = require('node:fs');
-      fs.rmSync(root, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors
-    }
+    store.close();
+    rmSync(root, { recursive: true, force: true });
   };
 
   return { root, db, cleanup };
@@ -263,8 +270,7 @@ describe('manifest-ingestion', () => {
       const { root, db, cleanup } = await setupTestProject();
 
       try {
-        // Don't create agent-outputs directory
-        mkdirSync(join(root, '.cleo'), { recursive: true });
+        rmSync(join(root, '.cleo', 'agent-outputs'), { recursive: true });
 
         // Ingest should handle gracefully
         const result = await ingestLooseAgentOutputs(root, db);
@@ -274,5 +280,187 @@ describe('manifest-ingestion', () => {
         cleanup();
       }
     });
+  });
+});
+
+describe.each(['rcasd', 'loose'] as const)('guarded %s manifest ingestion', (layout) => {
+  const ingest = layout === 'rcasd' ? ingestRcasdDirectories : ingestLooseAgentOutputs;
+  function directory(root: string) {
+    const path =
+      layout === 'rcasd'
+        ? join(root, '.cleo', 'rcasd', 'T001', 'research')
+        : join(root, '.cleo', 'agent-outputs');
+    mkdirSync(path, { recursive: true });
+    return path;
+  }
+
+  it('commits authentic content to modern storage and survives an independent process read', async () => {
+    const { root, db, cleanup } = await setupTestProject();
+    try {
+      const content = '# Authentic foreground learning\nπ | literal evidence  \n';
+      writeFileSync(join(directory(root), 'T001-note.md'), content);
+      expect(await ingest(root, db)).toEqual({ ingested: 1, skipped: 0 });
+      const { native, store } = await bindTasksDomain(root);
+      expect(native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      expect(native.prepare('SELECT task_id,content FROM docs_pipeline_manifest').all()).toEqual([
+        { task_id: 'T001', content },
+      ]);
+      expect(native.prepare('SELECT count(*) AS n FROM pipeline_manifest').get()).toEqual({ n: 0 });
+      const read = spawnSync(
+        process.execPath,
+        [
+          '--disable-warning=ExperimentalWarning',
+          '--input-type=module',
+          '-e',
+          'import { DatabaseSync } from "node:sqlite"; const db = new DatabaseSync(process.argv[1], {readOnly:true}); process.stdout.write(JSON.stringify(db.prepare("SELECT task_id,content FROM docs_pipeline_manifest").all())); db.close();',
+          store.dbPath,
+        ],
+        { encoding: 'utf8', timeout: 5000, env: { PATH: process.env.PATH } },
+      );
+      expect(read.error).toBeUndefined();
+      expect(read.status, read.stderr).toBe(0);
+      expect(JSON.parse(read.stdout)).toEqual([{ task_id: 'T001', content }]);
+      expect(await ingest(root, db)).toEqual({ ingested: 0, skipped: 1 });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects changed source under an existing identity without overwriting history', async () => {
+    const { root, db, cleanup } = await setupTestProject();
+    try {
+      const path = join(directory(root), 'T001-note.md');
+      writeFileSync(path, '# Original evidence');
+      await ingest(root, db);
+      const { native } = await bindTasksDomain(root);
+      const before = native.prepare('SELECT * FROM docs_pipeline_manifest').all();
+      writeFileSync(path, '# Different evidence');
+      await expect(ingest(root, db)).rejects.toMatchObject({ code: 'E_MANIFEST_ID_CONFLICT' });
+      expect(native.prepare('SELECT * FROM docs_pipeline_manifest').all()).toEqual(before);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rolls back the complete batch when a later storage write fails', async () => {
+    const { root, db, cleanup } = await setupTestProject();
+    try {
+      const dir = directory(root);
+      writeFileSync(join(dir, 'T001-a.md'), '# First');
+      writeFileSync(join(dir, 'T001-z.md'), '# Second');
+      const { native } = await bindTasksDomain(root);
+      native.exec(
+        "CREATE TRIGGER reject_later BEFORE INSERT ON docs_pipeline_manifest WHEN NEW.content='# Second' BEGIN SELECT RAISE(ABORT,'synthetic batch failure'); END",
+      );
+      await expect(ingest(root, db)).rejects.toThrow('synthetic batch failure');
+      expect(native.prepare('SELECT count(*) AS n FROM docs_pipeline_manifest').get()).toEqual({
+        n: 0,
+      });
+      expect(native.prepare('SELECT count(*) AS n FROM pipeline_manifest').get()).toEqual({ n: 0 });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('compares metadata even when content and hash are unchanged', async () => {
+    const { root, db, cleanup } = await setupTestProject();
+    try {
+      writeFileSync(join(directory(root), 'T001-note.md'), '# Evidence');
+      await ingest(root, db);
+      const { native } = await bindTasksDomain(root);
+      native.exec('UPDATE docs_pipeline_manifest SET metadata_json=\'{"historical":true}\'');
+      const before = native.prepare('SELECT * FROM docs_pipeline_manifest').all();
+      await expect(ingest(root, db)).rejects.toMatchObject({ code: 'E_MANIFEST_ID_CONFLICT' });
+      expect(native.prepare('SELECT * FROM docs_pipeline_manifest').all()).toEqual(before);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('retains explicit project ownership under contradictory ambient roots', async () => {
+    const a = await setupTestProject();
+    const b = await setupTestProject();
+    try {
+      writeFileSync(join(directory(a.root), 'T001-note.md'), '# Project A');
+      vi.stubEnv('CLEO_ROOT', b.root);
+      vi.stubEnv('CLEO_DIR', join(b.root, '.cleo'));
+      expect(await ingest(a.root, a.db)).toEqual({ ingested: 1, skipped: 0 });
+      for (const project of [a, b]) {
+        const read = spawnSync(
+          process.execPath,
+          [
+            '--disable-warning=ExperimentalWarning',
+            '--input-type=module',
+            '-e',
+            'import { DatabaseSync } from "node:sqlite"; const db=new DatabaseSync(process.argv[1],{readOnly:true}); process.stdout.write(JSON.stringify(db.prepare("SELECT content FROM docs_pipeline_manifest").all())); db.close();',
+            join(project.root, '.cleo', 'cleo.db'),
+          ],
+          { encoding: 'utf8', timeout: 5000, env: { PATH: process.env.PATH } },
+        );
+        expect(read.error).toBeUndefined();
+        expect(read.status, read.stderr).toBe(0);
+        expect(JSON.parse(read.stdout)).toEqual(project === a ? [{ content: '# Project A' }] : []);
+      }
+    } finally {
+      a.cleanup();
+      b.cleanup();
+    }
+  });
+
+  it('keeps legacy evidence intact and requires explicit repair', async () => {
+    const { root, db, cleanup } = await setupTestProject();
+    try {
+      writeFileSync(join(directory(root), 'T001-note.md'), '# Evidence');
+      const id = layout === 'rcasd' ? 'T001-rcasd-research-t001-note' : 'T001-loose-t001-note';
+      const { native } = await bindTasksDomain(root);
+      native
+        .prepare(
+          'INSERT INTO pipeline_manifest(id,type,content,status,created_at) VALUES (?,?,?,?,?)',
+        )
+        .run(id, 'implementation', '# Historical evidence', 'active', '2026-01-01');
+      const before = native.prepare('SELECT * FROM pipeline_manifest').all();
+      await expect(ingest(root, db)).rejects.toMatchObject({
+        code: 'E_MANIFEST_LEGACY_REPAIR_REQUIRED',
+      });
+      expect(native.prepare('SELECT * FROM pipeline_manifest').all()).toEqual(before);
+      expect(native.prepare('SELECT count(*) AS n FROM docs_pipeline_manifest').get()).toEqual({
+        n: 0,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a database supplied for a different project', async () => {
+    const a = await setupTestProject();
+    const b = await setupTestProject();
+    try {
+      writeFileSync(join(directory(a.root), 'T001-note.md'), '# Project A');
+      await expect(ingest(a.root, b.db)).rejects.toMatchObject({
+        code: 'E_MANIFEST_DATABASE_MISMATCH',
+      });
+      for (const project of [a, b]) {
+        const { native } = await bindTasksDomain(project.root);
+        expect(native.prepare('SELECT count(*) AS n FROM docs_pipeline_manifest').get()).toEqual({
+          n: 0,
+        });
+      }
+    } finally {
+      a.cleanup();
+      b.cleanup();
+    }
+  });
+
+  it('reports directory read failure rather than a successful empty scan', async () => {
+    const { root, db, cleanup } = await setupTestProject();
+    try {
+      const path =
+        layout === 'rcasd' ? join(root, '.cleo', 'rcasd') : join(root, '.cleo', 'agent-outputs');
+      rmSync(path, { recursive: true });
+      writeFileSync(path, 'not a directory');
+      await expect(ingest(root, db)).rejects.toThrow();
+    } finally {
+      cleanup();
+    }
   });
 });
