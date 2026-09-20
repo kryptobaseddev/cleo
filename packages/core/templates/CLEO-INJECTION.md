@@ -1,30 +1,23 @@
 # CLEO Protocol
 
-Version: 2.19.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.20.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
 
-1. **Orient.** Confirm the assigned project/worktree, then run `cleo briefing` and
-   `cleo focus <id>`. Follow explicit user scope and provider safety instructions.
-   Read relevant repository instructions before editing. A failed briefing is a
-   diagnostic, not evidence that the project has no history.
-2. **Check authority and coverage.** Distinguish current evidence, historical
-   guidance, conflicting claims, and missing knowledge. Fetch cited records and
-   their sourced successors. Recency or similarity alone does not establish authority.
-3. **Inspect evidence.** Before editing, inspect impact and its coverage. `UNKNOWN`
-   means assessment is incomplete; `NONE` means no impact detected in the assessed
-   graph. Static analysis cannot prove all runtime callers. Resolve ambiguous
-   symbols using qualified candidate identifiers and verify against source.
-4. **Act.** Use the repair matrix: scope, evidence, repair class, proposed operation,
-   prerequisites, verification, and recovery. Automatic repairs must be bounded and
-   reversible. The calling agent supplies sourced resolutions for ambiguous findings;
-   owner decisions stay explicit. No background LLM is required for repair.
-5. **Verify.** Run relevant checks, record validated evidence, then complete. Report
-   unresolved and failed findings and missing coverage rather than claiming success.
-6. **Learn.** Record actionable incident knowledge with source, project, revision,
-   observation, correction, and verification through `cleo memory observe`. Preserve
-   historical handoffs; present corrections separately. Avoid empty completion traces.
+1. **Orient.** Confirm the assigned project/worktree, then run `cleo briefing` and `cleo focus <id>`. Follow explicit user scope and provider safety instructions. Read relevant repository instructions before editing. A failed briefing is a diagnostic, not evidence that the project has no history.
+2. **Check authority and coverage.** Distinguish current evidence, historical guidance, conflicting claims, and missing knowledge. Fetch cited records and their sourced successors. Recency or similarity alone does not establish authority.
+3. **Inspect evidence.** Before editing, inspect impact and its coverage. `UNKNOWN` means assessment is incomplete; `NONE` means no impact detected in the assessed graph. Static analysis cannot prove all runtime callers. Resolve ambiguous symbols using qualified candidate identifiers and verify against source.
+4. **Act.** Use the repair matrix: scope, evidence, repair class, proposed operation, prerequisites, verification, and recovery. Automatic repairs must be bounded and reversible. The calling agent supplies sourced resolutions for ambiguous findings; owner decisions stay explicit. No background LLM is required for repair.
+5. **Verify.** Run relevant checks, record validated evidence, then complete. Report unresolved and failed findings and missing coverage rather than claiming success.
+6. **Learn.** Record actionable incident knowledge with source, project, revision, observation, correction, and verification through `cleo memory observe`. Preserve historical handoffs; present corrections separately. Avoid empty completion traces.
+
+Knowledge repair: `cleo doctor knowledge --dry-run`, then `--prepare FILE --actor AGENT`.
+Use `--apply JOB`, `--inspect JOB`, `--cancel JOB`, or `--resume JOB` with the original explicit `--actor AGENT --proposal-id PROPOSAL`; never borrow stored actor attribution.
+Verify receipts and paged lifecycle evidence (`--limit`/`--offset`); retain diagnostic failures and `prepared`/`attemptFailure` recovery details. Cancellation is a request, not rollback.
+Each invocation shares a default 2000ms budget (`--budget-ms`); a later explicit attempt is fresh, without renewing an active deadline or preempting synchronous SQLite.
+Resume preserves prior outcomes and uncertain expired attempts; live owners remain fenced. Stale source requires reassessment.
+Use `--rollback RECEIPT --actor AGENT --proposal-id NEW_ID` for guarded recovery: preserve unrelated changes, refuse affected-row conflicts, inspect original and rollback receipts. `cleo doctor repair` remains database recovery.
 
 Use `cleo <command> --help` and the `ct-cleo` skill for command details.
 Use `cleo show <id> --full` when focus is insufficient: the default projection
