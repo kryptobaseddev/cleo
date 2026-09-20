@@ -18,6 +18,8 @@ import type {
   SearchBrainCompactResult,
 } from '@cleocode/contracts';
 import { memoryFindHitNext } from '../../mvi-helpers.js';
+import { captureProjectScope, worktreeScope } from '../../project-scope.js';
+import { trackBackgroundOp } from '../../store/background-ops.js';
 import { hybridSearch, searchBrain } from '../brain-search.js';
 import { searchSimilar } from '../brain-similarity.js';
 import { isCurrentMemoryEntry, memoryEligibilityClause } from '../eligibility.js';
@@ -27,6 +29,31 @@ import { logRetrieval } from './log-retrieval.js';
 
 // Re-export budget types so callers that import from brain-retrieval.ts keep working.
 export type { BudgetedEntry, BudgetedResult, BudgetedRetrievalOptions } from '@cleocode/contracts';
+
+/** Capture session attribution before returning, then track both optional writes. */
+async function scheduleRetrievalTelemetry(
+  projectRoot: string,
+  query: string,
+  entryIds: string[],
+  source: string,
+): Promise<void> {
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+  const sessionId = await getCurrentSessionId(scope.worktreeRoot);
+  const execution = scope.execution;
+  // Keep both operations registered independently: one rejection must not release
+  // the lifecycle barrier while the other writer is still running.
+  trackBackgroundOp(
+    () => worktreeScope.run(scope, () => incrementCitationCounts(scope.worktreeRoot, entryIds)),
+    execution,
+  );
+  trackBackgroundOp(
+    () =>
+      worktreeScope.run(scope, () =>
+        logRetrieval(scope.worktreeRoot, query, entryIds, source, entryIds.length * 50, sessionId),
+      ),
+    execution,
+  );
+}
 
 // ============================================================================
 // Layer 1: Compact Search
@@ -42,6 +69,11 @@ export type { BudgetedEntry, BudgetedResult, BudgetedRetrievalOptions } from '@c
  * @param projectRoot - Project root directory
  * @param params - Search parameters
  * @returns Compact search results with token estimate
+ * @remarks Explicit project ownership and the inherited operation lifetime are
+ * captured before asynchronous reads. Optional citation and retrieval-log writes
+ * are registered before return so the existing background barrier can await them.
+ * Session attribution is resolved before scheduling. Telemetry remains best-effort;
+ * this result does not claim durable telemetry outcomes or complete runtime callers.
  *
  * @example
  * ```ts
@@ -60,6 +92,14 @@ export type { BudgetedEntry, BudgetedResult, BudgetedRetrievalOptions } from '@c
  * ```
  */
 export async function searchBrainCompact(
+  projectRoot: string,
+  params: SearchBrainCompactParams,
+): Promise<SearchBrainCompactResult> {
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+  return worktreeScope.run(scope, () => searchBrainCompactScoped(scope.worktreeRoot, params));
+}
+
+async function searchBrainCompactScoped(
   projectRoot: string,
   params: SearchBrainCompactParams,
 ): Promise<SearchBrainCompactResult> {
@@ -329,21 +369,7 @@ async function searchBrainCompactCurrent(
 
     if (results.length > 0) {
       const returnedIds = results.map((r) => r.id);
-      setImmediate(() => {
-        incrementCitationCounts(projectRoot, returnedIds).catch(() => {});
-        getCurrentSessionId(projectRoot)
-          .then((sessionId) => {
-            return logRetrieval(
-              projectRoot,
-              query,
-              returnedIds,
-              'find-rrf',
-              results.length * 50,
-              sessionId,
-            );
-          })
-          .catch(() => {});
-      });
+      await scheduleRetrievalTelemetry(projectRoot, query, returnedIds, 'find-rrf');
     }
 
     return { results, total: results.length, tokensEstimated: results.length * 50 };
@@ -428,21 +454,7 @@ async function searchBrainCompactCurrent(
   // Citation tracking + retrieval logging (non-blocking)
   if (results.length > 0) {
     const returnedIds = results.map((r) => r.id);
-    setImmediate(() => {
-      incrementCitationCounts(projectRoot, returnedIds).catch(() => {});
-      getCurrentSessionId(projectRoot)
-        .then((sessionId) => {
-          return logRetrieval(
-            projectRoot,
-            query,
-            returnedIds,
-            'find',
-            results.length * 50,
-            sessionId,
-          );
-        })
-        .catch(() => {});
-    });
+    await scheduleRetrievalTelemetry(projectRoot, query, returnedIds, 'find');
   }
 
   return {

@@ -33,7 +33,7 @@ import {
   _resetBrainWriterForTests,
   shutdownBrainWriter,
 } from '@cleocode/core/memory/brain-writer-thread';
-import { awaitBackgroundOps } from '@cleocode/core/store/background-ops';
+import { awaitBackgroundOps, pendingBackgroundOpCount } from '@cleocode/core/store/background-ops';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocsHandler } from '../docs.js';
 import { MemoryHandler } from '../memory.js';
@@ -168,6 +168,61 @@ describe('T9976 — docs.add emits memory observation (AC1 + AC2)', () => {
       `memory.find('${slug}', {tables: ['observations']}) did not surface the observation`,
     ).toBeDefined();
     expect(hit?.title).toContain(slug);
+  });
+
+  it('drains actual memory.find retrieval writes before fixture teardown', async () => {
+    const retrieval = await import('@cleocode/core/memory/retrieval/log-retrieval');
+    const original = retrieval.logRetrieval;
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const finished = Promise.withResolvers<void>();
+    const spy = vi.spyOn(retrieval, 'logRetrieval').mockImplementation(async (...args) => {
+      entered.resolve();
+      await release.promise;
+      try {
+        await original(...args);
+      } finally {
+        finished.resolve();
+      }
+    });
+    const slug = 't12283-retrieval-lifetime';
+    let drain: Promise<void> | undefined;
+    try {
+      const added = await docsHandler.mutate('add', {
+        ownerId: 'T9976',
+        file: fixtureFile,
+        slug,
+        attachedBy: 'test',
+      });
+      expect(added.success).toBe(true);
+      expect((added.data as DocsAddResult).projection).toMatchObject({ status: 'completed' });
+      expect(await findDocObservationBySlug(slug)).toBeDefined();
+      const found = await memoryHandler.query('find', { query: slug, tables: ['observations'] });
+      expect(found.success).toBe(true);
+      await entered.promise;
+      expect(pendingBackgroundOpCount()).toBeGreaterThan(0);
+      let drained = false;
+      drain = awaitBackgroundOps().then(() => {
+        drained = true;
+      });
+      await Promise.resolve();
+      expect(drained).toBe(false);
+      release.resolve();
+      await drain;
+      expect(pendingBackgroundOpCount()).toBe(0);
+      const { getBrainNativeDb } = await import('@cleocode/core/internal');
+      expect(
+        getBrainNativeDb(tempDir)
+          ?.prepare('SELECT query FROM brain_retrieval_log WHERE query = ?')
+          .get(slug),
+      ).toMatchObject({ query: slug });
+      expect(await findDocObservationBySlug(slug)).toBeDefined();
+    } finally {
+      release.resolve();
+      if (spy.mock.calls.length > 0) await finished.promise;
+      await drain;
+      spy.mockRestore();
+    }
   });
 
   it('emits a doc-attachment observation for URL attachments', async () => {
