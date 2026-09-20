@@ -25,7 +25,7 @@ import {
   createOperationExecutionContext,
   pendingBackgroundOpCount,
 } from '../../store/background-ops.js';
-import { getBrainAccessor } from '../../store/memory-accessor.js';
+import { BrainDataAccessor, getBrainAccessor } from '../../store/memory-accessor.js';
 import * as brain from '../../store/memory-sqlite.js';
 import { closeAllDatabases } from '../../store/sqlite.js';
 import type { verifyAndStore } from '../extraction-gate.js';
@@ -264,6 +264,117 @@ describe('resolver dispatch trace lifecycle', () => {
     } finally {
       db.close();
     }
+  });
+
+  it.each([
+    ['insert', 'cancel'],
+    ['update', 'cancel'],
+    ['insert', 'deadline'],
+    ['update', 'deadline'],
+  ] as const)('refuses the actual primary %s write after %s at the storage boundary', async (operation, stop) => {
+    const { first } = await fixture();
+    const scope = { worktreeRoot: first, projectHash: 'first' };
+    const params = {
+      type: 'workflow' as const,
+      pattern: 'Primary fence fixture',
+      context: 'Original row retained',
+      _skipGate: true,
+    };
+    const seed =
+      operation === 'update'
+        ? await worktreeScope.run(scope, () => storePattern(first, params))
+        : null;
+    await awaitBackgroundOps();
+    const abort = new AbortController();
+    const now = Date.now();
+    const execution = createOperationExecutionContext(
+      {
+        projectRoot: first,
+        projectId: 'first',
+        actor: 'test',
+        operation: 'memory.pattern',
+        idempotencyKey: operation + stop,
+      },
+      { deadlineAt: now + 10000, signal: abort.signal },
+    );
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    if (operation === 'insert') {
+      const original = BrainDataAccessor.prototype.addPattern;
+      vi.spyOn(BrainDataAccessor.prototype, 'addPattern').mockImplementationOnce(async function (
+        this: BrainDataAccessor,
+        ...args
+      ) {
+        entered.resolve();
+        await release.promise;
+        return original.apply(this, args);
+      });
+    } else {
+      const original = BrainDataAccessor.prototype.updatePattern;
+      vi.spyOn(BrainDataAccessor.prototype, 'updatePattern').mockImplementationOnce(async function (
+        this: BrainDataAccessor,
+        ...args
+      ) {
+        entered.resolve();
+        await release.promise;
+        return original.apply(this, args);
+      });
+    }
+    const pending = worktreeScope.run({ ...scope, execution }, () => storePattern(first, params));
+    try {
+      await entered.promise;
+      if (stop === 'cancel') abort.abort(new Error('Primary write cancelled'));
+      else vi.spyOn(Date, 'now').mockReturnValue(now + 20000);
+      release.resolve();
+      await expect(pending).rejects.toThrow(/cancel|deadline/i);
+      const rows = await worktreeScope.run(scope, async () =>
+        (await getBrainAccessor(first)).findPatterns({ includeHistory: true }),
+      );
+      expect(rows.map((row) => [row.id, row.frequency])).toEqual(seed ? [[seed.id, 1]] : []);
+    } finally {
+      release.resolve();
+      await pending.catch(() => undefined);
+    }
+  });
+
+  it('rolls back a scoped pattern insertion when required readback fails', async () => {
+    const { first } = await fixture();
+    const scope = { worktreeRoot: first, projectHash: 'first' };
+    const seed = await worktreeScope.run(scope, () =>
+      storePattern(first, {
+        type: 'workflow',
+        pattern: 'Seed pattern',
+        context: 'Independent committed row',
+        _skipGate: true,
+      }),
+    );
+    await awaitBackgroundOps();
+    const accessor = await worktreeScope.run(scope, () => getBrainAccessor(first));
+    const row = await accessor.getPattern(seed.id);
+    if (!row) throw new Error('Seed pattern missing');
+    const native = worktreeScope.run(scope, () => brain.getBrainNativeDb(first));
+    if (!native) throw new Error('Seed native handle missing');
+    native.exec(
+      `CREATE TRIGGER invalidate_readback AFTER INSERT ON brain_patterns WHEN NEW.id = 'P-rollback' BEGIN UPDATE brain_patterns SET frequency = 99 WHERE id = '${seed.id}'; DELETE FROM brain_patterns WHERE id = NEW.id; END`,
+    );
+    const execution = createOperationExecutionContext(
+      {
+        projectRoot: first,
+        projectId: 'first',
+        actor: 'test',
+        operation: 'memory.pattern',
+        idempotencyKey: 'readback-rollback',
+      },
+      { budgetMs: 10000 },
+    );
+    await expect(accessor.addPattern({ ...row, id: 'P-rollback' }, execution)).rejects.toThrow(
+      'Inserted pattern could not be read back',
+    );
+    expect(await accessor.getPattern('P-rollback')).toBeNull();
+    expect(await accessor.getPattern(seed.id)).toMatchObject({
+      pattern: 'Seed pattern',
+      frequency: 1,
+    });
   });
 
   it.each([

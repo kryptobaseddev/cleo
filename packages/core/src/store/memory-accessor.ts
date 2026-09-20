@@ -172,7 +172,36 @@ export class BrainDataAccessor {
   // Patterns CRUD
   // =========================================================================
 
-  async addPattern(row: NewBrainPatternRow): Promise<BrainPatternRow> {
+  /**
+   * Insert and read back a pattern within an optional captured write boundary.
+   * @param row - Caller-selected complete pattern row.
+   * @param execution - Original lifetime and optional job fence, never renewed.
+   * @returns The actual stored row after successful commit.
+   * @remarks Scoped insertion and readback share a synchronous transaction. Failure
+   * rolls back the transaction; cancellation after commit cannot undo its result.
+   * @example
+   * ```ts
+   * const stored = await accessor.addPattern(row, execution);
+   * ```
+   */
+  async addPattern(
+    row: NewBrainPatternRow,
+    execution?: OperationExecutionContext,
+  ): Promise<BrainPatternRow> {
+    if (execution) {
+      execution.assertActive();
+      return this.db.transaction((tx) => {
+        assertOperationWriteFence(tx, execution);
+        tx.insert(brainSchema.brainPatterns).values(row).run();
+        const stored = tx
+          .select()
+          .from(brainSchema.brainPatterns)
+          .where(eq(brainSchema.brainPatterns.id, row.id))
+          .get();
+        if (!stored) throw new Error('Inserted pattern could not be read back');
+        return stored;
+      });
+    }
     await this.db.insert(brainSchema.brainPatterns).values(row);
     const result = await this.db
       .select()
@@ -229,7 +258,37 @@ export class BrainDataAccessor {
     return query;
   }
 
-  async updatePattern(id: string, updates: Partial<NewBrainPatternRow>): Promise<void> {
+  /**
+   * Update a pattern within an optional original operation lifetime.
+   * @param id - Existing pattern identity.
+   * @param updates - Requested row fields.
+   * @param execution - Captured deadline, cancellation and optional job fence.
+   * @returns Completion of the committed update, or an explicit failure.
+   * @remarks Scoped writes check cancellation and the persisted job fence immediately
+   * before synchronous SQL. No timer can preempt a committed synchronous statement.
+   * @example
+   * ```ts
+   * await accessor.updatePattern(id, { frequency: 2 }, execution);
+   * ```
+   */
+  async updatePattern(
+    id: string,
+    updates: Partial<NewBrainPatternRow>,
+    execution?: OperationExecutionContext,
+  ): Promise<void> {
+    if (execution) {
+      execution.assertActive();
+      this.db.transaction((tx) => {
+        assertOperationWriteFence(tx, execution);
+        const result = tx
+          .update(brainSchema.brainPatterns)
+          .set({ ...updates, updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) })
+          .where(eq(brainSchema.brainPatterns.id, id))
+          .run();
+        if (Number(result.changes) !== 1) throw new Error('Pattern update target is unavailable');
+      });
+      return;
+    }
     await this.db
       .update(brainSchema.brainPatterns)
       .set({ ...updates, updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) })
