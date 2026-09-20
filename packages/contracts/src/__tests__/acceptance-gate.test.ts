@@ -11,6 +11,7 @@
  * @task T780
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type {
   AcceptanceGate,
@@ -902,5 +903,22 @@ describe('typed requirement verification binding (T12292)', () => {
     expect(acceptanceGateResultSchema.safeParse({ ...result, binding: invalid }).success).toBe(
       false,
     );
+  });
+});
+
+describe('published acceptance result schema (T12292)', () => {
+  it('retains binding and execution shapes while disclosing runtime-only invariants', () => {
+    const emitted = JSON.parse(
+      readFileSync(new URL('../../schemas/gate-result.schema.json', import.meta.url), 'utf8'),
+    );
+    expect(emitted.properties.binding.properties.gateHash.pattern).toBe('^[a-f0-9]{64}$');
+    expect(emitted.properties.binding.properties.artifacts.items.properties.sha256).toBeDefined();
+    expect(emitted.properties.execution.properties.cleanupObservation).toBeDefined();
+    expect(emitted.properties.binding.additionalProperties).toBe(false);
+    expect(emitted.$comment).toContain('acceptanceGateResultSchema');
+    expect(emitted.$comment).toContain('cross-field');
+    expect(emitted.$comment).toContain('not proof');
+    expect(emitted.required).not.toContain('binding');
+    expect(emitted.required).not.toContain('execution');
   });
 });

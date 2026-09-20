@@ -75,7 +75,8 @@ const schemaMap = {
   'gate-result.schema.json': {
     schema: acceptanceGateResultSchema,
     title: 'GateResult',
-    description: 'Result of running one acceptance gate — persisted to lifecycle_gate_results',
+    description: 'Observed acceptance-gate result with optional explicit verification binding',
+    comment: 'Shape only: authoritative runtime acceptanceGateResultSchema also checks cross-field consistency. JSON Schema validation is not proof of authentic execution, persistence, task ownership or current artifact freshness.',
   },
   'gate-result-details.schema.json': {
     schema: gateResultDetailsSchema,
@@ -108,7 +109,7 @@ function toJsonSchema(schema) {
 }
 
 let emitted = 0;
-for (const [filename, { schema, title, description }] of Object.entries(schemaMap)) {
+for (const [filename, { schema, title, description, comment }] of Object.entries(schemaMap)) {
   const jsonSchema = toJsonSchema(schema);
 
   // Augment top-level metadata (title/description may not be in the Zod schema itself)
@@ -116,6 +117,7 @@ for (const [filename, { schema, title, description }] of Object.entries(schemaMa
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     title,
     description,
+    ...(comment ? { $comment: comment } : {}),
     ...jsonSchema,
   };
 
