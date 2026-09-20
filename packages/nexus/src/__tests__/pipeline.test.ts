@@ -35,12 +35,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseOriginalSource } from '../code/parser.js';
 import type { ScannedFile } from '../pipeline/filesystem-walker.js';
 import { walkRepositoryPaths } from '../pipeline/filesystem-walker.js';
+import { buildImportResolutionContext } from '../pipeline/import-processor.js';
 import { runPipeline } from '../pipeline/index.js';
 import type { DrizzleTableRef } from '../pipeline/knowledge-graph.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { detectLanguageFromPath, isIndexableFile } from '../pipeline/language-detection.js';
-import { extractOriginalSource } from '../pipeline/parse-loop.js';
+import { extractOriginalSource, runParseLoop } from '../pipeline/parse-loop.js';
 import { processStructure } from '../pipeline/structure-processor.js';
+import { createSymbolTable } from '../pipeline/symbol-table.js';
 
 /**
  * Build a minimal stub `DrizzleTableRef` for flush-only tests.
@@ -251,6 +253,22 @@ describe('isolated shared extraction (T12262)', () => {
         assert.equal(publications.length, 1);
         assert.ok(publications[0].nodes.some(node => node.name === '解析'));
         assert.equal(publications[0].assessment.files.find(file => file.path === 'main.ts').status, 'analyzed');
+        const observedCapabilities = publications[0].assessment.files.find(file => file.path === 'main.ts').capabilities;
+        assert.equal(observedCapabilities.role, 'executable');
+        assert.deepEqual(observedCapabilities.requested, ['file-evidence','declarations','imports','call-references','access-references','type-heritage']);
+        assert.deepEqual(observedCapabilities.completed, observedCapabilities.requested);
+        assert.ok(observedCapabilities.limitations.some(value => value.includes('runtime')));
+        writeFileSync(new URL('README.md', repo), '# Documentary fixture');
+        writeFileSync(new URL('migration.sql', repo), 'CREATE TABLE fixture(id INTEGER);');
+        const mixedPublications = [];
+        await runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
+          parserExecution: execution, parserLimits: { workerHeapMb: 64 }, publishGraph(rows) { mixedPublications.push(rows); },
+        });
+        assert.deepEqual(mixedPublications[0].assessment.files.find(file => file.path === 'README.md').capabilities.completed, ['file-evidence','documentary-evidence']);
+        const sql = mixedPublications[0].assessment.files.find(file => file.path === 'migration.sql');
+        assert.equal(sql.status, 'unsupported');
+        assert.deepEqual(sql.capabilities.completed, ['file-evidence']);
+
         await assert.rejects(runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
           parserExecution: execution, parserLimits: { maxSourceBytes: 1, workerHeapMb: 64 }, publishGraph(rows) { publications.push(rows); },
         }), /E_PARSE_SIZE/);
@@ -377,6 +395,304 @@ describe('bounded original parser capacity (T12262)', () => {
     const source = 'const x = 1;\n'.repeat(20000);
     expect(() => parseOriginalSource(parser, source, { timeoutMs: 0.001 })).toThrow();
     expect(parseOriginalSource(parser, 'const 文 = 1;').rootNode.hasError).toBe(false);
+  });
+});
+
+describe('capability-specific file evidence (T12289)', () => {
+  it.each([
+    ['README.md', '# Explanation\n```js\nrun();\n```', 'documentation', 'documentary-evidence'],
+    ['records.json', '[{"value":1}]', 'data', 'data-evidence'],
+    [
+      'package.json',
+      '{"name":"fixture","scripts":{"test":"vitest"}}',
+      'configuration',
+      'configuration-evidence',
+    ],
+    [
+      'shape.json',
+      '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}',
+      'schema',
+      'schema-evidence',
+    ],
+    ['package-lock.json', '{"lockfileVersion":3,"packages":{}}', 'generated-data', 'data-evidence'],
+    [
+      '__snapshots__/page.snap',
+      '// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html\n\nexports[`page 1`] = `hello`;\n',
+      'generated-data',
+      'data-evidence',
+    ],
+    ['misleading.schema.json', '{"message":"ordinary user data"}', 'data', 'data-evidence'],
+    [
+      'generated.json',
+      '{"generated":true,"message":"ordinary user data"}',
+      'data',
+      'data-evidence',
+    ],
+  ])('assesses %s for its evidenced role without requesting caller analysis', async (path, content, role, capability) => {
+    const directory = makeTempDir();
+    try {
+      writeFile(directory, path, content);
+      const files = await walkRepositoryPaths(directory);
+      const reports: GraphIndexFileReport[] = [];
+      const graph = createKnowledgeGraph();
+      await runParseLoop(
+        files,
+        graph,
+        createSymbolTable(),
+        buildImportResolutionContext([path]),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports).toHaveLength(1);
+      expect(reports[0]).toMatchObject({
+        path,
+        status: 'analyzed',
+        capabilities: {
+          role,
+          requested: ['file-evidence', capability],
+          completed: ['file-evidence', capability],
+          classification: {
+            basis: expect.stringMatching(/path|content/),
+            reason: expect.any(String),
+          },
+        },
+      });
+      expect(reports[0]?.capabilities?.requested).not.toContain('call-references');
+      expect(reports[0]?.capabilities?.classification.reason.length).toBeGreaterThan(10);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('retains a verified image as resource evidence without pretending to extract symbols', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFileSync(
+        join(directory, 'image.png'),
+        Buffer.from('89504e470d0a1a0a0000000049454e44ae426082', 'hex'),
+      );
+      const files = await walkRepositoryPaths(directory);
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        files,
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['image.png']),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'analyzed',
+        capabilities: {
+          role: 'asset',
+          requested: ['file-evidence', 'resource-evidence'],
+          completed: ['file-evidence', 'resource-evidence'],
+          classification: { basis: 'path-and-content' },
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['component.svelte', '<script>run();</script>', 'executable'],
+    ['script.sh', 'echo hello', 'executable'],
+    ['page.mdx', 'export const value = run();\n# Heading', 'executable'],
+    ['entry', '#!/bin/sh\necho hello', 'executable'],
+    ['disguised.png', '#!/bin/sh\necho hello', 'executable'],
+    ['mystery.bin', 'unclassified content', 'unknown'],
+    ['image.png', 'not an image or a known executable', 'unknown'],
+    [
+      'injected.snap',
+      `// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html\nexports[\`case\`] = \`\${run()}\`;`,
+      'unknown',
+    ],
+    [
+      'unsafe.snap',
+      '// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html\nrun();',
+      'unknown',
+    ],
+  ])('keeps unsupported or uncertain executable scope %s explicit', async (path, content, role) => {
+    const directory = makeTempDir();
+    try {
+      writeFile(directory, path, content);
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext([path]),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'unsupported',
+        capabilities: {
+          role,
+          requested: expect.arrayContaining([
+            'file-evidence',
+            'declarations',
+            'imports',
+            'call-references',
+          ]),
+          completed: ['file-evidence'],
+        },
+      });
+      expect(reports[0]?.reason).toMatch(/unsupported|unclassified|extractor/i);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('discloses SQL schema and reference capabilities as uncompleted rather than inferring extraction from text', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFile(
+        directory,
+        'migration.sql',
+        'CREATE TABLE items(id INTEGER PRIMARY KEY); SELECT * FROM items; EXECUTE query;',
+      );
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['migration.sql']),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'unsupported',
+        capabilities: {
+          role: 'sql',
+          requested: [
+            'file-evidence',
+            'sql-schema-objects',
+            'sql-migrations',
+            'sql-triggers',
+            'sql-constraints',
+            'sql-literal-references',
+            'sql-dynamic-references',
+          ],
+          completed: ['file-evidence'],
+          limitations: expect.arrayContaining([expect.stringMatching(/dynamic SQL.*unresolved/i)]),
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('does not silently replace invalid UTF-8 in documentary evidence', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFileSync(join(directory, 'README.md'), Buffer.from([0xc3, 0x28]));
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['README.md']),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'failed',
+        reason: expect.stringMatching(/encoded data|encoding/i),
+        capabilities: { completed: [] },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('does not treat malformed JSON as completed data analysis', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFile(directory, 'data.json', '{"incomplete":');
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['data.json']),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'failed',
+        reason: expect.stringMatching(/JSON/),
+        capabilities: {
+          role: 'data',
+          requested: ['file-evidence', 'data-evidence'],
+          completed: ['file-evidence'],
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('records supported static extraction capabilities only after actual parser success', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFile(
+        directory,
+        'main.ts',
+        'function helper(){ return 1; } export function main(){ return helper(); }',
+      );
+      const reports: GraphIndexFileReport[] = [];
+      const graph = createKnowledgeGraph();
+      const result = await runParseLoop(
+        await walkRepositoryPaths(directory),
+        graph,
+        createSymbolTable(),
+        buildImportResolutionContext(['main.ts']),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(result.allCalls.some((call) => call.calledName === 'helper')).toBe(true);
+      expect(reports[0]).toMatchObject({
+        status: 'analyzed',
+        capabilities: {
+          role: 'executable',
+          requested: [
+            'file-evidence',
+            'declarations',
+            'imports',
+            'call-references',
+            'access-references',
+            'type-heritage',
+          ],
+          completed: [
+            'file-evidence',
+            'declarations',
+            'imports',
+            'call-references',
+            'access-references',
+            'type-heritage',
+          ],
+          limitations: expect.arrayContaining([expect.stringMatching(/runtime/)]),
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 
