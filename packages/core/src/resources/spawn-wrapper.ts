@@ -73,6 +73,7 @@ import { StringDecoder } from 'node:string_decoder';
 import type { ParserExecutionPort } from '@cleocode/contracts';
 import type {
   ProcessCaptureOptions,
+  ProcessCaptureResourceObservation,
   ProcessCaptureResult,
   ProcessCaptureStop,
   ProcessLaunchExecution,
@@ -120,6 +121,9 @@ export interface SliceResourceConfig {
    * Default: `'32G'`.  P2 target: 85 % of MemTotal (`0.85`).
    */
   memoryMax?: number | string;
+
+  /** Optional hard kernel task limit (processes and threads); omitted preserves manager defaults. */
+  tasksMax?: number;
 }
 
 /**
@@ -240,7 +244,7 @@ export const CLEO_SLICE = 'cleo.slice' as const;
  * P1: MemoryHigh disabled, MemoryMax=32G.
  * P2 target (after T11994 stall-escalator lands): memoryHigh=0.60, memoryMax=0.85.
  */
-export const DEFAULT_SCOPE_RESOURCES: Required<SliceResourceConfig> = {
+export const DEFAULT_SCOPE_RESOURCES: Required<Omit<SliceResourceConfig, 'tasksMax'>> = {
   memoryHigh: 'infinity', // P1: disabled — no throttle (safe until P2 stall-escalator)
   memoryMax: '32G', // P1: hard cap (benign cgroup kill; coredumps suppressed via ulimit -c 0)
 };
@@ -467,7 +471,7 @@ export function buildSpawnArgs(
   }
 
   const totalBytes = readMemTotalBytes();
-  const merged: Required<SliceResourceConfig> = {
+  const merged: Required<Omit<SliceResourceConfig, 'tasksMax'>> = {
     memoryHigh: resources.memoryHigh ?? DEFAULT_SCOPE_RESOURCES.memoryHigh,
     memoryMax: resources.memoryMax ?? DEFAULT_SCOPE_RESOURCES.memoryMax,
   };
@@ -490,6 +494,12 @@ export function buildSpawnArgs(
     '-p',
     'MemorySwapMax=0',
   ];
+
+  if (resources.tasksMax !== undefined) {
+    if (!Number.isSafeInteger(resources.tasksMax) || resources.tasksMax < 1)
+      throw new RangeError('Scope task limit must be a positive safe integer');
+    wrapArgs.push('-p', `TasksMax=${resources.tasksMax}`);
+  }
 
   // MemoryHigh: only emit the directive when it is a real limit (not infinity).
   if (highStr !== 'infinity') {
@@ -595,9 +605,41 @@ export function spawnWrapped(
 
 /** Transport reports target events separately from the enclosing scope wrapper. */
 const CAPTURE_TRANSPORT = String.raw`
+(() => {
 const { spawn } = require('node:child_process');
 const send = (event) => process.stdout.write(JSON.stringify(event) + '\n');
-const [command, ...args] = process.argv.slice(1);
+const [limitsJson, command, ...args] = process.argv.slice(1);
+const limits = JSON.parse(limitsJson);
+if (limits.memoryMaxBytes !== undefined || limits.tasksMax !== undefined) {
+  try {
+    const { readFileSync } = require('node:fs');
+    const { join } = require('node:path');
+    const entries = readFileSync('/proc/self/cgroup', 'utf8').trim().split('\n');
+    const unified = entries.find((entry) => entry.startsWith('0::'));
+    if (!unified) throw new Error('Unified cgroup membership unavailable');
+    const cgroup = unified.slice(3);
+    if (!cgroup.startsWith('/') || cgroup.split('/').includes('..') || !cgroup.split('/').includes(limits.unitName))
+      throw new Error('Transport is not inside the requested owned scope');
+    const readLimit = (name) => {
+      const value = readFileSync(join('/sys/fs/cgroup', cgroup, name), 'utf8').trim();
+      if (value === 'max') return null;
+      const limit = Number(value);
+      if (!Number.isSafeInteger(limit) || limit < 1) throw new Error('Invalid kernel limit: ' + name);
+      return limit;
+    };
+    const memoryMaxBytes = readLimit('memory.max');
+    const tasksMax = readLimit('pids.max');
+    if (limits.memoryMaxBytes !== undefined && (memoryMaxBytes === null || memoryMaxBytes > limits.memoryMaxBytes))
+      throw new Error('Requested memory ceiling was not observed');
+    if (limits.tasksMax !== undefined && (tasksMax === null || tasksMax > limits.tasksMax))
+      throw new Error('Requested task ceiling was not observed');
+    send({ type: 'resources', cgroup, memoryMaxBytes, tasksMax });
+  } catch (error) {
+    send({ type: 'resource-error', message: String(error.message) });
+    process.exitCode = 125;
+    return;
+  }
+}
 const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 child.once('spawn', () => send({ type: 'started', pid: child.pid }));
 child.once('error', (error) => send({ type: 'error', message: String(error.code || '') + ': ' + error.message }));
@@ -608,10 +650,20 @@ for (const stream of ['stdout', 'stderr']) {
   });
 }
 child.once('close', (code, signal) => send({ type: 'closed', code, signal }));
+})();
 `;
 
 /** Internal framing is validated before it can supply a target verdict. */
 const captureFrameSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('resource-error'), message: z.string() }).strict(),
+  z
+    .object({
+      type: z.literal('resources'),
+      cgroup: z.string(),
+      memoryMaxBytes: z.number().int().positive().safe().nullable(),
+      tasksMax: z.number().int().positive().safe().nullable(),
+    })
+    .strict(),
   z.object({ type: z.literal('started'), pid: z.number().int().positive() }).strict(),
   z.object({ type: z.literal('error'), message: z.string() }).strict(),
   z
@@ -636,8 +688,9 @@ const captureFrameSchema = z.discriminatedUnion('type', [
  * @remarks A fixed Node transport distinguishes the requested process from systemd/sh
  * launchers. Cleanup has a bounded additional manager timeout and can exceed the
  * execution deadline. POSIX process groups cannot contain deliberately escaped
- * descendants; Windows cleanup covers only the direct child and is reported as such.
- * Native-memory limits remain unverified. This is a transport, not a job scheduler.
+ * descendants; Windows capture is refused. Requested hard memory/task limits require
+ * observation inside the exact owned cgroup before the target is launched. Calls without
+ * requests retain unverified memory limits. This is a transport, not a job scheduler.
  * @example
  * ```typescript
  * const result = await captureWrapped('node', ['check.mjs'], {
@@ -659,6 +712,21 @@ export async function captureWrapped(
   const maxOutputBytes = options.maxOutputBytes ?? 1_048_576;
   if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1)
     throw new RangeError('Capture byte limit must be a positive safe integer');
+  const memoryMaxMb = options.memoryMaxMb;
+  const tasksMax = options.tasksMax;
+  for (const [name, value] of [
+    ['memoryMaxMb', memoryMaxMb],
+    ['tasksMax', tasksMax],
+  ] as const) {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 1))
+      throw new RangeError(`${name} must be a positive safe integer`);
+  }
+  const memoryMaxBytes = memoryMaxMb === undefined ? undefined : memoryMaxMb * 1024 * 1024;
+  if (memoryMaxBytes !== undefined && !Number.isSafeInteger(memoryMaxBytes))
+    throw new RangeError('Requested memory ceiling exceeds exact byte representation');
+  const scopeId = `${process.pid}-${randomUUID()}`;
+  const requestedLimits = { memoryMaxBytes, tasksMax, unitName: `cleo-tool-${scopeId}.scope` };
+  const requiresLimits = memoryMaxMb !== undefined || tasksMax !== undefined;
   const execution = { ...options.execution };
   const env = { ...options.env };
   const systemdControl = options.systemdControl ? { ...options.systemdControl } : undefined;
@@ -671,16 +739,20 @@ export async function captureWrapped(
     controller.signal.throwIfAborted();
     owned = spawnWrapped(
       process.execPath,
-      ['-e', CAPTURE_TRANSPORT, command, ...args],
+      ['-e', CAPTURE_TRANSPORT, JSON.stringify(requestedLimits), command, ...args],
       {
         cwd: options.cwd,
         env,
-        detached: process.platform !== 'win32',
+        detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       },
       {
         scopeClass: 'tool',
-        scopeId: `${process.pid}-${randomUUID()}`,
+        scopeId,
+        resources: {
+          ...(memoryMaxMb === undefined ? {} : { memoryMax: `${memoryMaxMb}M` }),
+          tasksMax,
+        },
         execution,
         systemdControl,
         noCoreFile: false,
@@ -692,6 +764,7 @@ export async function captureWrapped(
   }
   return new Promise<ProcessCaptureResult>((resolve) => {
     const { child } = owned;
+    let resourceLimits: ProcessCaptureResourceObservation | undefined;
     let started = false;
     let targetPid: number | null = null;
     let exitCode: number | null = null;
@@ -798,7 +871,30 @@ export async function captureWrapped(
           const frame = captureFrameSchema.parse(JSON.parse(line));
           if (closedFrame) throw new Error('Capture frame received after target close');
           switch (frame.type) {
+            case 'resource-error':
+              stop('resource-limit', `E_PROCESS_RESOURCE_LIMIT: ${frame.message}`);
+              break;
+            case 'resources':
+              if (
+                !requiresLimits ||
+                resourceLimits ||
+                started ||
+                owned.mode !== 'systemd' ||
+                !frame.cgroup.split('/').includes(requestedLimits.unitName) ||
+                (memoryMaxBytes !== undefined &&
+                  (frame.memoryMaxBytes === null || frame.memoryMaxBytes > memoryMaxBytes)) ||
+                (tasksMax !== undefined && (frame.tasksMax === null || frame.tasksMax > tasksMax))
+              )
+                throw new Error('Invalid or insufficient resource observation');
+              resourceLimits = {
+                cgroup: frame.cgroup,
+                memoryMaxBytes: frame.memoryMaxBytes,
+                tasksMax: frame.tasksMax,
+              };
+              break;
             case 'started':
+              if (requiresLimits && !resourceLimits)
+                throw new Error('Target started without required resource observation');
               if (started || error) throw new Error('Duplicate or contradictory target start');
               started = true;
               targetPid = frame.pid;
@@ -890,7 +986,8 @@ export async function captureWrapped(
         durationMs: Date.now() - startedAt,
         mode: owned.mode,
         ...(owned.unitName ? { unitName: owned.unitName } : {}),
-        nativeMemory: 'unverified',
+        nativeMemory: resourceLimits?.memoryMaxBytes ? 'observed-cgroup' : 'unverified',
+        ...(resourceLimits ? { resourceLimits } : {}),
         cleanupScope: 'process-group',
         transportClosed: true,
         targetCloseObserved: closedFrame,
