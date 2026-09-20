@@ -26,6 +26,7 @@ import {
   pendingBackgroundOpCount,
 } from '../../store/background-ops.js';
 import { getBrainAccessor } from '../../store/memory-accessor.js';
+import * as brain from '../../store/memory-sqlite.js';
 import { closeAllDatabases } from '../../store/sqlite.js';
 import type { verifyAndStore } from '../extraction-gate.js';
 import * as graph from '../graph-auto-populate.js';
@@ -263,6 +264,124 @@ describe('resolver dispatch trace lifecycle', () => {
     } finally {
       db.close();
     }
+  });
+
+  it.each([
+    'finish',
+    'cancel',
+    'deadline',
+    'sql-failure',
+  ] as const)('awaits and fences the actual duplicate citation write (%s)', async (mode) => {
+    const { first } = await fixture();
+    const gate =
+      await vi.importActual<typeof import('../extraction-gate.js')>('../extraction-gate.js');
+    const scope = { worktreeRoot: first, projectHash: 'first' };
+    const saved = await worktreeScope.run(scope, () =>
+      storePattern(first, {
+        type: 'workflow',
+        pattern: 'Exact citation fixture',
+        context: 'Duplicate trace',
+        _skipGate: true,
+      }),
+    );
+    await awaitBackgroundOps();
+    const abort = new AbortController();
+    let clock = Date.now();
+    const execution = createOperationExecutionContext(
+      {
+        projectRoot: first,
+        projectId: 'first',
+        actor: 'test',
+        operation: 'memory.gate',
+        idempotencyKey: mode,
+      },
+      { deadlineAt: clock + 10000, signal: abort.signal },
+    );
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const original = brain.getBrainDb;
+    let opens = 0;
+    vi.spyOn(brain, 'getBrainDb').mockImplementation(async (...args) => {
+      const db = await original(...args);
+      if (++opens === 2) {
+        entered.resolve();
+        await release.promise;
+      }
+      return db;
+    });
+    let finished = false;
+    const pending = worktreeScope
+      .run({ ...scope, execution }, () =>
+        gate.verifyAndStore(first, {
+          text: 'Exact citation fixture',
+          memoryType: 'procedural',
+          tier: 'short',
+          confidence: 1,
+          source: 'manual',
+          trusted: true,
+        }),
+      )
+      .then((result) => {
+        finished = true;
+        return result;
+      });
+    try {
+      await entered.promise;
+      // Drain the ready event-loop turn without releasing the controlled SQL boundary.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      if (mode === 'finish') expect(finished).toBe(false);
+      if (mode === 'cancel') abort.abort(new Error('Cancel before native citation UPDATE'));
+      if (mode === 'deadline') {
+        clock += 20000;
+        vi.spyOn(Date, 'now').mockReturnValue(clock);
+      }
+      if (mode === 'sql-failure') {
+        worktreeScope
+          .run(scope, () => brain.getBrainNativeDb(first))!
+          .exec(
+            "CREATE TRIGGER deny_citation BEFORE UPDATE OF citation_count ON brain_patterns BEGIN SELECT RAISE(ABORT, 'fixture citation denied'); END",
+          );
+      }
+      release.resolve();
+      const result = await pending;
+      if (mode === 'finish') expect(result.action).toBe('merged');
+      else
+        expect(result).toMatchObject({
+          action: 'rejected',
+          reason: expect.stringMatching(/cancel|deadline|denied/i),
+        });
+      const row = await worktreeScope.run(scope, async () =>
+        (await getBrainAccessor(first)).getPattern(saved.id),
+      );
+      expect(row?.citationCount).toBe(mode === 'finish' ? 1 : 0);
+    } finally {
+      release.resolve();
+      await pending;
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('does not authorize storing when canonical duplicate lookup fails', async () => {
+    const { first } = await fixture();
+    const gate =
+      await vi.importActual<typeof import('../extraction-gate.js')>('../extraction-gate.js');
+    vi.spyOn(brain, 'getBrainDb').mockRejectedValueOnce(
+      new Error('Independent canonical read failure'),
+    );
+    const result = await worktreeScope.run({ worktreeRoot: first, projectHash: 'first' }, () =>
+      gate.verifyCandidate(first, {
+        text: 'Unassessed candidate',
+        memoryType: 'procedural',
+        tier: 'short',
+        confidence: 1,
+        source: 'manual',
+        trusted: true,
+      }),
+    );
+    expect(result).toMatchObject({
+      action: 'rejected',
+      reason: expect.stringContaining('Independent canonical read failure'),
+    });
   });
 
   it.each([
