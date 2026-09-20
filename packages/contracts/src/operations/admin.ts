@@ -25,6 +25,7 @@
  */
 
 import type { BackgroundJobStatus } from '../jobs.js';
+import type { AcceptanceItem } from '../task.js';
 
 // ============================================================================
 // Shared primitive types
@@ -761,8 +762,8 @@ export interface AdminContextPullResult {
     title: string;
     /** Current status. */
     status: string;
-    /** Acceptance criteria array. */
-    acceptance: string[];
+    /** Canonical literal criteria and typed requirements, without projection loss. */
+    acceptance: AcceptanceItem[];
   };
   /** Relevant brain memory hits (up to 5). */
   relevantMemory: AdminContextPullMemoryHit[];

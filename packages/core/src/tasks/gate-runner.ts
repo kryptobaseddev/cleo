@@ -12,19 +12,19 @@
  *
  * Design constraints:
  *   - Each gate is self-contained (no cross-gate state).
- *   - Gates run sequentially unless the caller sets `parallel` options.
- *   - Default timeout is 60 000 ms per gate (overridable via `timeoutMs`
- *     on the gate or the `CLEO_GATE_TIMEOUT_MS` env variable).
+ *   - Gates run sequentially under the original shared deadline (two seconds by default).
+ *   - Per-gate timeouts can only tighten the shared deadline. Long work needs runtime admission.
+ *   - Structured test-count evidence and HTTP service startup require separate capabilities.
+ *   - Results are observations; this module does not persist completion authority.
  *
  * @epic T760
  * @task T781
  */
 
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
-import { promisify } from 'node:util';
+import { open, stat } from 'node:fs/promises';
+import { isAbsolute, join, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import type {
   AcceptanceGate,
   AcceptanceGateResult,
@@ -36,35 +36,42 @@ import type {
   ManualGate,
   TestGate,
 } from '@cleocode/contracts';
+import { acceptanceGateSchema } from '@cleocode/contracts';
+import type { AcceptanceGateRunOptions } from '@cleocode/contracts/acceptance-gate';
+import type {
+  ProcessCaptureOptions,
+  ProcessCaptureResult,
+} from '@cleocode/contracts/resource-governor';
 import { getProjectRoot } from '../paths.js';
+import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { truncateString } from '../render/helpers.js';
+import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
-
-const execFileAsync = promisify(execFile);
+import { registerTeardownAbort } from '../teardown-signal.js';
+import { heavyToolEnv } from './heavy-tool-env.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** Default gate timeout in milliseconds. Overridden by env or per-gate `timeoutMs`. */
 const DEFAULT_TIMEOUT_MS = Number(process.env['CLEO_GATE_TIMEOUT_MS'] ?? 60_000);
 
-/** Maximum evidence string length stored per gate result. */
-const MAX_EVIDENCE_BYTES = 2_000;
+/** Maximum evidence string character count retained per gate result. */
+const MAX_EVIDENCE_CHARS = 2_000;
 
 /** Agent identifier written into `checkedBy`. */
 const CHECKED_BY = process.env['CLEO_AGENT_ID'] ?? 'cleo-verify';
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/** Options for `runGates`. */
-export interface RunGatesOptions {
-  /** Absolute project root; defaults to `getProjectRoot()`. */
-  projectRoot?: string;
-  /**
-   * When `true`, manual gates are auto-skipped with a note.
-   * When `false` (default), they return `result: 'skipped'` with a prompt notice.
-   */
-  skipManual?: boolean;
-}
+/**
+ * Captured gate-runner options from the canonical shared contract.
+ * @remarks Nested invocations retain their original operation authority and deadline.
+ * @example
+ * ```typescript
+ * const options: RunGatesOptions = { projectRoot: '/project' };
+ * ```
+ */
+export type RunGatesOptions = AcceptanceGateRunOptions;
 
 /**
  * Execute all typed `AcceptanceGate` entries and return results.
@@ -75,6 +82,16 @@ export interface RunGatesOptions {
  * @param gates   - Typed gate objects (strings pre-filtered by caller).
  * @param options - Execution options.
  * @returns       Ordered `AcceptanceGateResult[]`, one per gate.
+ * @throws If explicit project authority conflicts, metadata is invalid, or admission options are invalid.
+ * @remarks Results retain the original gate requirement ID. Process outcomes include target,
+ * transport and cleanup observations; they do not by themselves authorize task completion.
+ * Declared operation bytes reserve the per-gate capture ceiling before admission. Filesystem
+ * calls and regular-expression CPU work are cooperatively checked, not synchronously preempted.
+ * Canonical attachment retrieval validates its declared size but is not a streaming read API.
+ * @example
+ * ```typescript
+ * const results = await runGates([{ kind: 'command', description: 'check', cmd: 'node', args: ['check.mjs'] }], { projectRoot: '/project' });
+ * ```
  *
  * @epic T760
  * @task T781
@@ -83,35 +100,84 @@ export async function runGates(
   gates: AcceptanceGate[],
   options: RunGatesOptions = {},
 ): Promise<AcceptanceGateResult[]> {
-  const projectRoot = options.projectRoot ?? getProjectRoot();
-  const skipManual = options.skipManual ?? true;
+  const inherited = worktreeScope.getStore();
+  if (inherited?.execution && options.execution && inherited.execution !== options.execution)
+    throw new Error('Gate execution cannot replace an active captured operation');
+  const execution = options.execution ?? inherited?.execution;
+  const projectRoot = resolve(
+    options.projectRoot ?? execution?.identity.projectRoot ?? getProjectRoot(),
+  );
+  if (execution && resolve(execution.identity.projectRoot) !== projectRoot)
+    throw new Error('Gate execution project does not match captured operation authority');
+  const scope = captureProjectScope(projectRoot, {
+    ...captureProjectScope(projectRoot, inherited),
+    execution,
+  });
+  const maxOutputBytes = options.maxOutputBytes ?? 1_048_576;
+  if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1)
+    throw new RangeError('Gate capture byte limit must be a positive safe integer');
+  const snapshot = structuredClone(gates);
+  const controller = new AbortController();
+  const deregister = registerTeardownAbort(controller);
+  const batch: ProcessCaptureOptions = {
+    cwd: projectRoot,
+    env: { ...(options.env ?? process.env) },
+    execution: {
+      deadlineAt: execution?.deadlineAt ?? Date.now() + 2000,
+      signal: execution
+        ? AbortSignal.any([execution.signal, controller.signal])
+        : controller.signal,
+    },
+    maxOutputBytes,
+    memoryMaxMb: options.memoryMaxMb,
+    tasksMax: options.tasksMax,
+    systemdControl: options.systemdControl,
+  };
+  const checkedBy = execution?.identity.actor ?? batch.env['CLEO_AGENT_ID'] ?? CHECKED_BY;
   const results: AcceptanceGateResult[] = [];
-
-  for (let i = 0; i < gates.length; i++) {
-    const gate = gates[i]!;
-    const startMs = Date.now();
-    let result: AcceptanceGateResult;
-
-    try {
-      result = await runOneGate(gate, i, projectRoot, skipManual);
-    } catch (err) {
-      const durationMs = Date.now() - startMs;
-      result = {
-        index: i,
-        req: gate.req,
-        kind: gate.kind,
-        result: 'error',
-        durationMs,
-        errorMessage: err instanceof Error ? err.message : String(err),
-        checkedAt: new Date().toISOString(),
-        checkedBy: CHECKED_BY,
-      };
-    }
-
-    results.push(result);
+  try {
+    return await worktreeScope.run(scope, async () => {
+      for (let i = 0; i < snapshot.length; i++) {
+        const gate = snapshot[i]!;
+        const startMs = Date.now();
+        try {
+          execution?.assertActive();
+          execution?.consume({
+            items: 1,
+            bytes: gate.kind === 'manual' ? 0 : maxOutputBytes,
+          });
+          assertGateActive(batch);
+          const parsed = acceptanceGateSchema.parse(gate);
+          if (!isDeepStrictEqual(parsed, gate))
+            throw new Error('Gate includes unsupported or noncanonical fields');
+          results.push(await runOneGate(parsed, i, projectRoot, options.skipManual ?? true, batch));
+        } catch (error) {
+          results.push(
+            makeResult(
+              i,
+              gate,
+              'error',
+              Date.now() - startMs,
+              undefined,
+              error instanceof Error ? error.message : String(error),
+            ),
+          );
+        }
+      }
+      return results.map((result) => ({ ...result, checkedBy }));
+    });
+  } finally {
+    deregister();
   }
+}
 
-  return results;
+/** Check the shared boundary without pretending to preempt synchronous operations. */
+function assertGateActive(context: ProcessCaptureOptions): void {
+  context.execution.signal?.throwIfAborted();
+  if (Date.now() >= context.execution.deadlineAt)
+    throw new Error(
+      'Gate did not finish: original shared deadline expired. This is NOT a failure verdict.',
+    );
 }
 
 // ─── Internal dispatcher ──────────────────────────────────────────────────────
@@ -121,20 +187,23 @@ async function runOneGate(
   index: number,
   projectRoot: string,
   skipManual: boolean,
+  context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
   const timeout = gate.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeout) || timeout < 1)
+    throw new Error('Gate timeout must be a positive safe integer');
 
   switch (gate.kind) {
     case 'test':
-      return runTestGate(gate, index, projectRoot, timeout);
+      return runTestGate(gate, index, projectRoot, timeout, context);
     case 'file':
-      return runFileGate(gate, index, projectRoot);
+      return runFileGate(gate, index, projectRoot, context);
     case 'command':
-      return runCommandGate(gate, index, projectRoot, timeout);
+      return runCommandGate(gate, index, projectRoot, timeout, context);
     case 'lint':
-      return runLintGate(gate, index, projectRoot, timeout);
+      return runLintGate(gate, index, projectRoot, timeout, context);
     case 'http':
-      return runHttpGate(gate, index, projectRoot, timeout);
+      return runHttpGate(gate, index, projectRoot, timeout, context);
     case 'manual':
       return runManualGate(gate, index, skipManual);
   }
@@ -142,87 +211,91 @@ async function runOneGate(
 
 // ─── Test gate ────────────────────────────────────────────────────────────────
 
+/** Execute a process gate through the existing captured resource service. */
+async function captureGateCommand(
+  command: string,
+  args: readonly string[],
+  cwd: string,
+  timeoutMs: number,
+  context: ProcessCaptureOptions,
+  overlay?: Readonly<Record<string, string>>,
+): Promise<ProcessCaptureResult> {
+  const env = { ...context.env, ...overlay };
+  return captureWrapped(command, args, {
+    ...context,
+    cwd,
+    env: { ...env, ...heavyToolEnv('test', env) },
+    execution: {
+      ...context.execution,
+      deadlineAt: Math.min(context.execution.deadlineAt, Date.now() + timeoutMs),
+    },
+  });
+}
+
+/** Preserve target failure independently from launch, cancellation and cleanup failures. */
+function processGateResult(
+  index: number,
+  gate: AcceptanceGate,
+  captured: ProcessCaptureResult,
+  verdict: 'pass' | 'fail',
+  reason?: string,
+): AcceptanceGateResult {
+  const incomplete =
+    !captured.started ||
+    !captured.targetCloseObserved ||
+    captured.exitCode === null ||
+    captured.signal !== null ||
+    captured.error !== null ||
+    captured.stopped !== null ||
+    captured.outputTruncated ||
+    captured.cleanupErrors.length > 0;
+  return {
+    ...makeResult(
+      index,
+      gate,
+      incomplete ? 'error' : verdict,
+      captured.durationMs,
+      truncateString(`${captured.stdout}\n${captured.stderr}`.trim(), MAX_EVIDENCE_CHARS),
+      incomplete
+        ? `Gate did not finish: ${captured.error ?? captured.stopped ?? captured.signal ?? (captured.cleanupErrors.join('; ') || 'target outcome missing')}. This is NOT a failure verdict.`
+        : reason,
+    ),
+    execution: captured,
+  };
+}
+
 async function runTestGate(
   gate: TestGate,
   index: number,
   projectRoot: string,
   timeoutMs: number,
+  context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
-  const startMs = Date.now();
-  const cwd = resolveCwd(projectRoot, gate.cwd);
-
-  // Split command string into binary + args if no explicit args provided
-  const [bin, ...defaultArgs] = gate.command.split(' ');
-  const args = gate.args ?? defaultArgs;
-
-  let stdout = '';
-  let stderr = '';
-  let exitCode = 0;
-  let timedOut = false;
-
-  try {
-    const out = await execFileAsync(bin!, args, {
-      cwd,
-      env: { ...process.env, ...gate.env },
-      timeout: timeoutMs,
-    });
-    stdout = out.stdout;
-    stderr = out.stderr;
-  } catch (err: unknown) {
-    const e = err as NodeJS.ErrnoException & {
-      code?: string;
-      killed?: boolean;
-      stdout?: string;
-      stderr?: string;
-      status?: number;
-    };
-    stdout = e.stdout ?? '';
-    stderr = e.stderr ?? '';
-    exitCode = typeof e.status === 'number' ? e.status : 1;
-    if (e.killed || e.code === 'ETIMEDOUT') {
-      timedOut = true;
-    }
-  }
-
-  const durationMs = Date.now() - startMs;
-  const combined = truncateString(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
-
-  if (timedOut) {
-    // T12137 (gh#1270): 'error', NOT 'fail'. A gate that was killed produced no
-    // verdict — it did not find a problem, it never finished looking. Recording
-    // it as 'fail' makes a false red indistinguishable from a real one, which
-    // costs an agent the work it actually completed. The distinction already
-    // existed in `AcceptanceGateResult['result']` and was simply unused here.
-    return makeResult(
-      index,
-      gate,
-      'error',
-      durationMs,
-      combined,
-      `Gate did not finish: killed after ${timeoutMs}ms. This is NOT a failure — the check never produced a verdict. Re-run it, or raise the timeout.`,
+  if (gate.minCount !== undefined && gate.minCount > 0)
+    throw new Error(
+      'Minimum test count requires a supported structured count result; exit0 alone cannot prove it',
     );
-  }
-
-  if (exitCode !== 0) {
-    return makeResult(index, gate, 'fail', durationMs, combined, `Exit code ${exitCode}`);
-  }
-
-  // For 'pass' mode, check for obvious failure indicators in stdout
-  if (gate.expect === 'pass') {
-    const failPattern = /\bFAIL\b|failing|Error:/i;
-    if (failPattern.test(stdout)) {
-      return makeResult(
-        index,
-        gate,
-        'fail',
-        durationMs,
-        combined,
-        'Failure pattern detected in output',
-      );
-    }
-  }
-
-  return makeResult(index, gate, 'pass', durationMs, combined);
+  const [command, ...defaults] = gate.command.trim().split(/\s+/);
+  const captured = await captureGateCommand(
+    command!,
+    gate.args ?? defaults,
+    resolveCwd(projectRoot, gate.cwd),
+    timeoutMs,
+    context,
+    gate.env,
+  );
+  const passed =
+    captured.exitCode === 0 &&
+    (gate.expect === 'exit0' || !/\bFAIL\b|failing|Error:/i.test(captured.stdout));
+  return processGateResult(
+    index,
+    gate,
+    captured,
+    passed ? 'pass' : 'fail',
+    captured.exitCode === 0
+      ? 'Failure pattern detected in output'
+      : `Exit code ${captured.exitCode}`,
+  );
 }
 
 // ─── File gate ────────────────────────────────────────────────────────────────
@@ -231,86 +304,95 @@ async function runFileGate(
   gate: FileGate,
   index: number,
   projectRoot: string,
+  context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
   const startMs = Date.now();
 
-  // Resolve file path: either from gate.path or via AttachmentStore by sha256.
+  let attachmentBytes: Buffer | undefined;
   let filePath: string;
   if (gate.attachmentSha256) {
-    // Resolve via AttachmentStore — fail fast if the attachment is missing.
     const store = createAttachmentStore();
-    const result = await store.get(gate.attachmentSha256);
-    if (!result) {
-      const durationMs = Date.now() - startMs;
+    const metadata = await store.getMetadata(gate.attachmentSha256, projectRoot);
+    assertGateActive(context);
+    if (!metadata)
       return makeResult(
         index,
         gate,
         'fail',
-        durationMs,
-        `attachment sha256=${gate.attachmentSha256} not found`,
-        `Attachment not found: ${gate.attachmentSha256}`,
+        Date.now() - startMs,
+        undefined,
+        'Attachment not found',
       );
-    }
-    // Derive the on-disk path from AttachmentStore internals via the metadata.
-    const mime =
-      'mime' in result.metadata.attachment
-        ? (result.metadata.attachment.mime as string)
-        : 'application/octet-stream';
-    // Reconstruct path: .cleo/attachments/sha256/<prefix>/<rest>.<ext>
-    const { getCleoDirAbsolute } = await import('../paths.js');
-    const { join: pathJoin } = await import('node:path');
-    const cleoDir = getCleoDirAbsolute(projectRoot);
-    const sha256 = gate.attachmentSha256;
-    const extMap: Record<string, string> = {
-      'text/markdown': '.md',
-      'text/plain': '.txt',
-      'application/json': '.json',
-      'application/pdf': '.pdf',
-      'text/html': '.html',
-    };
-    const ext = extMap[mime] ?? '.bin';
-    filePath = pathJoin(
-      cleoDir,
-      'attachments',
-      'sha256',
-      sha256.slice(0, 2),
-      `${sha256.slice(2)}${ext}`,
-    );
+    const attachment = metadata.attachment;
+    if (!('size' in attachment) || !Number.isSafeInteger(attachment.size) || attachment.size < 0)
+      throw new Error('Attachment gate requires declared byte size for bounded retrieval');
+    if (attachment.size > (context.maxOutputBytes ?? 1_048_576))
+      throw new Error('Attachment gate exceeds declared byte limit');
+    const result = await store.get(gate.attachmentSha256, projectRoot);
+    assertGateActive(context);
+    if (!result)
+      throw new Error('Attachment metadata exists but authenticated bytes are unavailable');
+    if (result.bytes.length > (context.maxOutputBytes ?? 1_048_576))
+      throw new Error('Attachment bytes exceed declared limit');
+    attachmentBytes = result.bytes;
+    filePath = `sha256:${gate.attachmentSha256}`;
   } else if (gate.path) {
     filePath = isAbsolute(gate.path) ? gate.path : join(projectRoot, gate.path);
-  } else {
-    const durationMs = Date.now() - startMs;
-    return makeResult(
-      index,
-      gate,
-      'fail',
-      durationMs,
-      'FileGate requires either path or attachmentSha256',
-      'FileGate missing path and attachmentSha256',
-    );
-  }
+  } else throw new Error('FileGate requires path or attachmentSha256');
 
   const failures: string[] = [];
-  const fileContent: string | null = null;
+  let fileContent: Buffer | undefined = attachmentBytes;
   let fileSize = 0;
   let fileExists = false;
 
   // Check existence first
   try {
-    const st = await stat(filePath);
+    const st = attachmentBytes ? { size: attachmentBytes.length } : await stat(filePath);
     fileExists = true;
     fileSize = st.size;
-  } catch {
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
     fileExists = false;
   }
 
   for (const assertion of gate.assertions) {
-    const failure = await checkFileAssertion(assertion, filePath, fileExists, fileSize, () => {
-      if (fileContent === null) {
-        return readFile(filePath, 'utf-8').catch(() => '');
-      }
-      return Promise.resolve(fileContent);
-    });
+    assertGateActive(context);
+    if (
+      ['contains', 'matches', 'sha256'].includes(assertion.type) &&
+      fileSize > (context.maxOutputBytes ?? 1_048_576)
+    )
+      throw new Error('File gate content exceeds declared byte limit');
+    const failure = await checkFileAssertion(
+      assertion,
+      filePath,
+      fileExists,
+      fileSize,
+      async () => {
+        if (fileContent === undefined) {
+          const limit = context.maxOutputBytes ?? 1_048_576;
+          const handle = await open(filePath, 'r');
+          try {
+            const chunks: Buffer[] = [];
+            let bytes = 0;
+            for (;;) {
+              assertGateActive(context);
+              const chunk = Buffer.alloc(Math.min(65536, limit - bytes + 1));
+              const read = await handle.read(chunk, 0, chunk.length, null);
+              assertGateActive(context);
+              if (read.bytesRead === 0) break;
+              bytes += read.bytesRead;
+              if (bytes > limit) throw new Error('File content exceeds declared byte limit');
+              chunks.push(chunk.subarray(0, read.bytesRead));
+            }
+            fileContent = Buffer.concat(chunks);
+          } finally {
+            await handle.close();
+          }
+        }
+        return fileContent;
+      },
+    );
+    assertGateActive(context);
     if (failure) {
       failures.push(failure);
     }
@@ -325,7 +407,7 @@ async function runFileGate(
       gate,
       'fail',
       durationMs,
-      truncateString(evidence, MAX_EVIDENCE_BYTES),
+      truncateString(evidence, MAX_EVIDENCE_CHARS),
       failures[0],
     );
   }
@@ -343,7 +425,7 @@ async function checkFileAssertion(
   filePath: string,
   fileExists: boolean,
   fileSize: number,
-  getContent: () => Promise<string>,
+  getContent: () => Promise<Buffer>,
 ): Promise<string | null> {
   switch (assertion.type) {
     case 'exists':
@@ -370,7 +452,7 @@ async function checkFileAssertion(
 
     case 'contains': {
       if (!fileExists) return `File does not exist: ${filePath}`;
-      const content = await getContent();
+      const content = (await getContent()).toString('utf8');
       return content.includes(assertion.value)
         ? null
         : `File does not contain: ${JSON.stringify(assertion.value)}`;
@@ -378,7 +460,7 @@ async function checkFileAssertion(
 
     case 'matches': {
       if (!fileExists) return `File does not exist: ${filePath}`;
-      const content = await getContent();
+      const content = (await getContent()).toString('utf8');
       const re = new RegExp(assertion.regex, assertion.flags);
       return re.test(content)
         ? null
@@ -387,7 +469,7 @@ async function checkFileAssertion(
 
     case 'sha256': {
       if (!fileExists) return `File does not exist: ${filePath}`;
-      const raw = await readFile(filePath);
+      const raw = await getContent();
       const hash = createHash('sha256').update(raw).digest('hex');
       return hash === assertion.value
         ? null
@@ -409,102 +491,27 @@ async function runCommandGate(
   index: number,
   projectRoot: string,
   timeoutMs: number,
+  context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
-  const startMs = Date.now();
-  const cwd = resolveCwd(projectRoot, gate.cwd);
-  const expectedExitCode = gate.exitCode ?? 0;
-
-  let stdout = '';
-  let stderr = '';
-  let actualExitCode = 0;
-  let timedOut = false;
-
-  try {
-    const out = await execFileAsync(gate.cmd, gate.args ?? [], {
-      cwd,
-      env: { ...process.env, ...gate.env },
-      timeout: timeoutMs,
-    });
-    stdout = out.stdout;
-    stderr = out.stderr;
-  } catch (err: unknown) {
-    const e = err as NodeJS.ErrnoException & {
-      code?: string;
-      killed?: boolean;
-      stdout?: string;
-      stderr?: string;
-      status?: number;
-    };
-    stdout = e.stdout ?? '';
-    stderr = e.stderr ?? '';
-    actualExitCode = typeof e.status === 'number' ? e.status : 1;
-    if (e.killed || e.code === 'ETIMEDOUT') {
-      timedOut = true;
-    }
-  }
-
-  const durationMs = Date.now() - startMs;
-  const combined = truncateString(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
-
-  if (timedOut) {
-    // T12137 (gh#1270): 'error', NOT 'fail'. A gate that was killed produced no
-    // verdict — it did not find a problem, it never finished looking. Recording
-    // it as 'fail' makes a false red indistinguishable from a real one, which
-    // costs an agent the work it actually completed. The distinction already
-    // existed in `AcceptanceGateResult['result']` and was simply unused here.
-    return makeResult(
-      index,
-      gate,
-      'error',
-      durationMs,
-      combined,
-      `Gate did not finish: killed after ${timeoutMs}ms. This is NOT a failure — the check never produced a verdict. Re-run it, or raise the timeout.`,
-    );
-  }
-
-  if (actualExitCode !== expectedExitCode) {
-    return makeResult(
-      index,
-      gate,
-      'fail',
-      durationMs,
-      combined,
-      `Exit code ${actualExitCode} (expected ${expectedExitCode})`,
-    );
-  }
-
-  if (gate.stdoutMatches) {
-    const re = new RegExp(gate.stdoutMatches);
-    if (!re.test(stdout)) {
-      return makeResult(
-        index,
-        gate,
-        'fail',
-        durationMs,
-        combined,
-        `stdout did not match /${gate.stdoutMatches}/`,
-      );
-    }
-  }
-
-  if (gate.stderrMatches) {
-    const re = new RegExp(gate.stderrMatches);
-    if (!re.test(stderr)) {
-      return makeResult(
-        index,
-        gate,
-        'fail',
-        durationMs,
-        combined,
-        `stderr did not match /${gate.stderrMatches}/`,
-      );
-    }
-  }
-
-  return makeResult(index, gate, 'pass', durationMs, combined);
+  const captured = await captureGateCommand(
+    gate.cmd,
+    gate.args ?? [],
+    resolveCwd(projectRoot, gate.cwd),
+    timeoutMs,
+    context,
+    gate.env,
+  );
+  const expected = gate.exitCode ?? 0;
+  let reason =
+    captured.exitCode === expected
+      ? undefined
+      : `Exit code ${captured.exitCode} (expected ${expected})`;
+  if (!reason && gate.stdoutMatches && !new RegExp(gate.stdoutMatches).test(captured.stdout))
+    reason = 'stdout pattern did not match';
+  if (!reason && gate.stderrMatches && !new RegExp(gate.stderrMatches).test(captured.stderr))
+    reason = 'stderr pattern did not match';
+  return processGateResult(index, gate, captured, reason ? 'fail' : 'pass', reason);
 }
-
-// ─── Lint gate ────────────────────────────────────────────────────────────────
 
 /** Tool-specific CLI arguments and failure patterns. */
 const LINT_TOOL_DEFAULTS: Record<
@@ -528,93 +535,26 @@ async function runLintGate(
   index: number,
   projectRoot: string,
   timeoutMs: number,
+  context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
-  const startMs = Date.now();
-  const cwd = resolveCwd(projectRoot, gate.cwd);
-  const toolDef = LINT_TOOL_DEFAULTS[gate.tool];
-  const args = gate.args ?? toolDef.defaultArgs;
-
-  let stdout = '';
-  let stderr = '';
-  let exitCode = 0;
-  let timedOut = false;
-
-  try {
-    const out = await execFileAsync(toolDef.cmd, args, { cwd, timeout: timeoutMs });
-    stdout = out.stdout;
-    stderr = out.stderr;
-  } catch (err: unknown) {
-    const e = err as NodeJS.ErrnoException & {
-      code?: string;
-      killed?: boolean;
-      stdout?: string;
-      stderr?: string;
-      status?: number;
-    };
-    stdout = e.stdout ?? '';
-    stderr = e.stderr ?? '';
-    exitCode = typeof e.status === 'number' ? e.status : 1;
-    if (e.killed || e.code === 'ETIMEDOUT') {
-      timedOut = true;
-    }
-  }
-
-  const durationMs = Date.now() - startMs;
-  const combined = truncateString(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
-
-  if (timedOut) {
-    // T12137 (gh#1270): 'error', NOT 'fail'. A gate that was killed produced no
-    // verdict — it did not find a problem, it never finished looking. Recording
-    // it as 'fail' makes a false red indistinguishable from a real one, which
-    // costs an agent the work it actually completed. The distinction already
-    // existed in `AcceptanceGateResult['result']` and was simply unused here.
-    return makeResult(
-      index,
-      gate,
-      'error',
-      durationMs,
-      combined,
-      `Gate did not finish: killed after ${timeoutMs}ms. This is NOT a failure — the check never produced a verdict. Re-run it, or raise the timeout.`,
-    );
-  }
-
-  // For 'noErrors' mode, exit code 0 = pass (warnings tolerated)
-  if (gate.expect === 'noErrors') {
-    const passed = exitCode === 0;
-    return makeResult(
-      index,
-      gate,
-      passed ? 'pass' : 'fail',
-      durationMs,
-      combined,
-      passed ? undefined : `${gate.tool} reported errors (exit ${exitCode})`,
-    );
-  }
-
-  // For 'clean' mode, check exit code AND optional error pattern
-  if (exitCode !== 0) {
-    return makeResult(
-      index,
-      gate,
-      'fail',
-      durationMs,
-      combined,
-      `${gate.tool} exited with ${exitCode}`,
-    );
-  }
-
-  if (toolDef.errorPattern?.test(combined)) {
-    return makeResult(
-      index,
-      gate,
-      'fail',
-      durationMs,
-      combined,
-      `${gate.tool} output matched error pattern`,
-    );
-  }
-
-  return makeResult(index, gate, 'pass', durationMs, combined);
+  const tool = LINT_TOOL_DEFAULTS[gate.tool];
+  const captured = await captureGateCommand(
+    tool.cmd,
+    gate.args ?? tool.defaultArgs,
+    resolveCwd(projectRoot, gate.cwd),
+    timeoutMs,
+    context,
+  );
+  const passed =
+    captured.exitCode === 0 &&
+    (gate.expect === 'noErrors' || !tool.errorPattern?.test(captured.stdout + captured.stderr));
+  return processGateResult(
+    index,
+    gate,
+    captured,
+    passed ? 'pass' : 'fail',
+    `${gate.tool} reported errors (exit ${captured.exitCode})`,
+  );
 }
 
 // ─── HTTP gate ────────────────────────────────────────────────────────────────
@@ -624,57 +564,72 @@ async function runHttpGate(
   index: number,
   _projectRoot: string,
   timeoutMs: number,
+  context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
   const startMs = Date.now();
-  let serverProcess: ReturnType<typeof import('node:child_process').spawn> | null = null;
-
-  // Start the server if configured
-  if (gate.startCommand) {
-    const { spawn } = await import('node:child_process');
-    const [cmd, ...args] = gate.startCommand.split(' ');
-    serverProcess = spawn(cmd!, args, { detached: true, stdio: 'ignore' });
-    serverProcess.unref();
-
-    // Wait for startup delay
-    const delayMs = gate.startupDelayMs ?? 2_000;
-    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-  }
-
+  if (gate.startCommand)
+    throw new Error(
+      'HTTP server startup requires an admitted owned service lifetime; unowned detached startup is unavailable',
+    );
   let statusCode = 0;
   let body = '';
   let errorMsg: string | undefined;
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(
+      () => controller.abort(),
+      Math.max(0, Math.min(timeoutMs, context.execution.deadlineAt - Date.now())),
+    );
 
     try {
       const response = await fetch(gate.url, {
         method: gate.method ?? 'GET',
         headers: gate.headers,
-        signal: controller.signal,
+        signal: context.execution.signal
+          ? AbortSignal.any([controller.signal, context.execution.signal])
+          : controller.signal,
       });
       statusCode = response.status;
-      body = await response.text();
+      if (response.body) {
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let bytes = 0;
+        try {
+          for (;;) {
+            assertGateActive(context);
+            const next = await reader.read();
+            if (next.done) break;
+            bytes += next.value.byteLength;
+            if (bytes > (context.maxOutputBytes ?? 1_048_576))
+              throw new Error('HTTP body exceeds declared byte limit');
+            chunks.push(next.value);
+          }
+          body = Buffer.concat(chunks).toString('utf8');
+        } finally {
+          await reader.cancel();
+          reader.releaseLock();
+        }
+      }
+      assertGateActive(context);
     } finally {
       clearTimeout(timer);
     }
-  } catch (err: unknown) {
+  } catch (err) {
     errorMsg = err instanceof Error ? err.message : String(err);
-  } finally {
-    if (serverProcess) {
-      try {
-        serverProcess.kill();
-      } catch {
-        // Best-effort cleanup
-      }
-    }
   }
 
   const durationMs = Date.now() - startMs;
 
   if (errorMsg) {
-    return makeResult(index, gate, 'fail', durationMs, errorMsg, errorMsg);
+    return makeResult(
+      index,
+      gate,
+      'error',
+      durationMs,
+      errorMsg,
+      `HTTP gate did not finish: ${errorMsg}`,
+    );
   }
 
   if (statusCode !== gate.status) {
