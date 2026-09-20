@@ -13,6 +13,7 @@ import { buildSync } from 'esbuild';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   assertOperationWriteFence,
+  type BackgroundJob,
   BackgroundJobManager,
   DurableJobStore,
 } from '../background-jobs.js';
@@ -84,10 +85,15 @@ import { drizzle } from 'drizzle-orm/node-sqlite';
     import { createOperationExecutionContext } from './ops.mjs';
     const native = new DatabaseSync(process.argv[2]);
     native.exec('PRAGMA busy_timeout=3000');
-    const store = new DurableJobStore(drizzle({client:native}), process.argv[3] === 'retry' ? {projectId:'project-A'} : {});
+    const store = new DurableJobStore(drizzle({client:native}), ['retry','page'].includes(process.argv[3]) ? {projectId:'project-A',actor:'fixture'} : {});
     let result;
     try {
-      if (process.argv[3] === 'retry') {
+      if (process.argv[3] === 'page') {
+        const query=JSON.parse(process.argv[5]);
+        const context=createOperationExecutionContext({projectId:'project-A',projectRoot:process.argv[4],
+          actor:'fixture',operation:query.operation,idempotencyKey:'inventory'});
+        try {result=store.listPage(query,context);} finally {context.close();}
+      } else if (process.argv[3] === 'retry') {
         const context = createOperationExecutionContext({projectId:'project-A',projectRoot:process.argv[4],
           actor:'fixture',operation:'docs.projection',idempotencyKey:'repair-key'});
         try { result={grant:store.retryAtomically('job',Date.now(),context,previous=>{
@@ -1927,5 +1933,330 @@ describe('domain writes fenced by persisted job authority', () => {
     } finally {
       context.close();
     }
+  });
+});
+
+describe('bounded durable candidate inventory', () => {
+  function scope(budgetMs = 2000) {
+    const store = new DurableJobStore(db, { projectId: 'project-A', actor: 'fixture' });
+    const execution = createOperationExecutionContext(
+      {
+        projectId: 'project-A',
+        projectRoot: root,
+        actor: 'fixture',
+        operation: 'docs.projection',
+        idempotencyKey: 'inventory',
+      },
+      { budgetMs },
+    );
+    return { store, execution };
+  }
+  function submit(id: string, at = 10, projectId = 'project-A', operation = 'docs.projection') {
+    const store = new DurableJobStore(db, { projectId, actor: 'submitter' });
+    store.defer(id, operation, at, {
+      projectId,
+      idempotencyKey: id,
+      proposalJson: JSON.stringify({ identity: { actor: 'immutable-principal' }, id }),
+    });
+    return store;
+  }
+
+  it('uses bounded SQL and immutable timestamp/ID cursors before materializing opaque payloads', () => {
+    submit('b');
+    submit('a');
+    submit('c', 20);
+    submit('other-project', 1, 'project-B');
+    submit('other-operation', 1, 'project-A', 'other');
+    new DurableJobStore(db).insert('legacy', 'docs.projection', 1);
+    native
+      .prepare('UPDATE background_jobs SET proposal_json=? WHERE id=?')
+      .run('x'.repeat(600000), 'c');
+    const { store, execution } = scope();
+    const prepare = vi.spyOn(native, 'prepare');
+    try {
+      const first = store.listPage({ operation: 'docs.projection', limit: 2 }, execution);
+      expect(first.candidates.map((job) => job.id)).toEqual(['a', 'b']);
+      expect(first).toMatchObject({
+        scannedCount: 2,
+        hasMoreCandidates: true,
+        matchingTotal: null,
+        observation: 'per-page-snapshot',
+        principalValidation: 'domain-required',
+        nextCursor: { startedAt: 10, id: 'b' },
+      });
+      const queries = prepare.mock.calls.map((call) => call[0]);
+      expect(queries.some((query) => /order by.*started_at.*id.*limit \?/i.test(query))).toBe(true);
+      expect(
+        queries
+          .filter((query) => /^select/i.test(query))
+          .every((query) => /limit \?/i.test(query) || / in \(/i.test(query)),
+      ).toBe(true);
+      expect(() =>
+        store.listPage(
+          { operation: 'docs.projection', limit: 2, after: first.nextCursor ?? undefined },
+          execution,
+        ),
+      ).toThrow('payload exceeds');
+      expect(
+        native.prepare('SELECT length(proposal_json) AS n FROM background_jobs WHERE id=?').get('c')
+          ?.n,
+      ).toBe(600000);
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('counts actual UTF-8 text bytes, refuses an undersized cap and leaves rows unchanged', () => {
+    submit('unicode');
+    native
+      .prepare('UPDATE background_jobs SET checkpoint_json=? WHERE id=?')
+      .run('🌱'.repeat(20), 'unicode');
+    const row = native.prepare('SELECT * FROM background_jobs WHERE id=?').get('unicode');
+    if (!row) throw new Error('Fixture missing');
+    const bytes = Object.values(row).reduce<number>(
+      (sum, value) => sum + (typeof value === 'string' ? Buffer.byteLength(value) : 0),
+      0,
+    );
+    const { store, execution } = scope();
+    try {
+      expect(() =>
+        store.listPage({ operation: 'docs.projection', maxPayloadBytes: bytes - 1 }, execution),
+      ).toThrow('payload exceeds');
+      expect(
+        store.listPage({ operation: 'docs.projection', maxPayloadBytes: bytes }, execution)
+          .candidates,
+      ).toHaveLength(1);
+      expect(native.prepare('SELECT * FROM background_jobs WHERE id=?').get('unicode')).toEqual(
+        row,
+      );
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('retains pending, failed and completed jobs across a fresh process and owner reassignment', () => {
+    submit('pending', 1);
+    const failed = submit('failed', 2);
+    failed.claim('failed', Date.now());
+    failed.fail('failed', 'retained failure', Date.now());
+    const original = submit('complete', 3);
+    original.claim('complete', Date.now());
+    native.exec("UPDATE background_jobs SET lease_expires_at=0 WHERE id='complete'");
+    const next = new DurableJobStore(db, { projectId: 'project-A', actor: 'different-owner' });
+    next.claim('complete', Date.now());
+    next.complete('complete', { verified: true }, Date.now());
+    const expired = submit('expired', 4);
+    expired.claim('expired', Date.now());
+    native.exec("UPDATE background_jobs SET lease_expires_at=0 WHERE id='expired'");
+    const before = native.prepare('SELECT * FROM background_jobs ORDER BY id').all();
+    const page = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          join(bundleRoot, 'client.mjs'),
+          path,
+          'page',
+          root,
+          JSON.stringify({ operation: 'docs.projection', limit: 4 }),
+        ],
+        { encoding: 'utf8', timeout: 10000 },
+      ),
+    );
+    expect(page.candidates.map((job: BackgroundJob) => job.id)).toEqual([
+      'pending',
+      'failed',
+      'complete',
+      'expired',
+    ]);
+    expect(page.candidates[2]).toMatchObject({
+      startedAt: '1970-01-01T00:00:00.003Z',
+      claimedBy: 'different-owner',
+      attempts: 2,
+      status: 'complete',
+    });
+    expect(JSON.parse(page.candidates[2].proposalJson).identity.actor).toBe('immutable-principal');
+    expect(page.candidates[3]).toMatchObject({
+      status: 'running',
+      ownership: 'expired',
+      attempts: 1,
+      leaseExpiresAt: 0,
+    });
+    expect(page.candidates[1]).toMatchObject({ status: 'failed', error: 'retained failure' });
+    expect(page).toMatchObject({
+      hasMoreCandidates: false,
+      nextCursor: null,
+      principalValidation: 'domain-required',
+    });
+    expect(native.prepare('SELECT * FROM background_jobs ORDER BY id').all()).toEqual(before);
+  });
+
+  it('binds every cursor field to the captured caller/query and permits a final empty page', () => {
+    submit('a');
+    submit('b');
+    const { store, execution } = scope();
+    try {
+      const first = store.listPage({ operation: 'docs.projection', limit: 1 }, execution);
+      if (!first.nextCursor) throw new Error('Missing cursor');
+      for (const change of [
+        { version: 2 },
+        { projectId: 'B' },
+        { projectRoot: root + '/other' },
+        { actor: 'other' },
+        { operation: 'other' },
+        { status: 'pending' },
+        { limit: 2 },
+        { maxPayloadBytes: 2 },
+        { startedAt: NaN },
+        { id: '' },
+      ]) {
+        const query = JSON.parse(
+          JSON.stringify({
+            operation: 'docs.projection',
+            limit: 1,
+            after: { ...first.nextCursor, ...change },
+          }),
+        );
+        expect(() => store.listPage(query, execution)).toThrow('cursor belongs');
+      }
+      const second = store.listPage(
+        { operation: 'docs.projection', limit: 1, after: first.nextCursor },
+        execution,
+      );
+      expect(second.candidates.map((job) => job.id)).toEqual(['b']);
+      native.exec("DELETE FROM background_jobs WHERE id='b'");
+      expect(
+        store.listPage(
+          { operation: 'docs.projection', limit: 1, after: first.nextCursor },
+          execution,
+        ),
+      ).toMatchObject({
+        candidates: [],
+        scannedCount: 0,
+        hasMoreCandidates: false,
+        nextCursor: null,
+      });
+      for (const change of [
+        { limit: 0 },
+        { limit: 101 },
+        { limit: 1.5 },
+        { maxPayloadBytes: 0 },
+        { maxPayloadBytes: 1048577 },
+        { status: 'fake' },
+      ])
+        expect(() =>
+          store.listPage(
+            JSON.parse(JSON.stringify({ operation: 'docs.projection', ...change })),
+            execution,
+          ),
+        ).toThrow('Invalid bounded candidate');
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('refuses cancelled/expired invocations before reading and cannot borrow an unrelated transaction', () => {
+    submit('job');
+    native.exec('PRAGMA busy_timeout=3000');
+    const { store, execution } = scope();
+    try {
+      native.exec('BEGIN IMMEDIATE');
+      native.exec("UPDATE background_jobs SET progress=7 WHERE id='job'");
+      expect(() => store.listPage({ operation: 'docs.projection' }, execution)).toThrow(
+        'another caller owns',
+      );
+      expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(3000);
+      expect(native.prepare('SELECT progress FROM background_jobs').get()?.progress).toBe(7);
+      native.exec('ROLLBACK');
+      execution.close();
+      expect(() => store.listPage({ operation: 'docs.projection' }, execution)).toThrow();
+      const expired = scope(0);
+      try {
+        expect(() =>
+          expired.store.listPage({ operation: 'docs.projection' }, expired.execution),
+        ).toThrow();
+      } finally {
+        expired.execution.close();
+      }
+      expect(store.get('job')?.progress).toBeUndefined();
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('enforces aggregate caller resources and preserves explicit diagnostics for malformed candidates', () => {
+    submit('a');
+    submit('b');
+    native.prepare('UPDATE background_jobs SET proposal_json=? WHERE id=?').run('malformed', 'b');
+    const { store, execution } = scope();
+    const bounded = createOperationExecutionContext(execution.identity, {
+      resources: { maxItems: 1 },
+    });
+    try {
+      const first = store.listPage({ operation: 'docs.projection', limit: 1 }, bounded);
+      if (!first.nextCursor) throw new Error('Missing cursor');
+      expect(() =>
+        store.listPage(
+          { operation: 'docs.projection', limit: 1, after: first.nextCursor },
+          bounded,
+        ),
+      ).toThrow('resource');
+      expect(
+        store.listPage({ operation: 'docs.projection', status: 'pending' }, execution)
+          .candidates[1],
+      ).toMatchObject({ id: 'b', diagnosticError: 'Pending job proposal is not valid JSON' });
+      expect(() =>
+        new DurableJobStore(db).listPage({ operation: 'docs.projection' }, execution),
+      ).toThrow('exact project');
+      expect(
+        store.listPage({ operation: 'docs.projection', status: 'complete' }, execution).candidates,
+      ).toEqual([]);
+    } finally {
+      bounded.close();
+      execution.close();
+    }
+  });
+
+  it('refuses a page if cancellation arrives before committing its read snapshot', () => {
+    submit('job');
+    const { store, execution } = scope();
+    const assertion = execution.assertActive;
+    let checks = 0;
+    const guarded = {
+      ...execution,
+      assertActive: () => {
+        checks++;
+        if (checks === 5) execution.close();
+        assertion();
+      },
+    };
+    const before = native.prepare('SELECT * FROM background_jobs').all();
+    try {
+      expect(() => store.listPage({ operation: 'docs.projection' }, guarded)).toThrow();
+      expect(checks).toBe(5);
+      expect(native.prepare('SELECT * FROM background_jobs').all()).toEqual(before);
+      native.exec('BEGIN IMMEDIATE');
+      native.exec('ROLLBACK');
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('bounds a real exclusive lock wait and restores timeout after read failure', () => {
+    submit('job');
+    native.exec('PRAGMA busy_timeout=3000');
+    const blocker = new DatabaseSync(path);
+    blocker.exec('BEGIN EXCLUSIVE');
+    const { store, execution } = scope(30);
+    const start = Date.now();
+    try {
+      expect(() => store.listPage({ operation: 'docs.projection' }, execution)).toThrow();
+      expect(Date.now() - start).toBeLessThan(500);
+      expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(3000);
+    } finally {
+      blocker.exec('ROLLBACK');
+      blocker.close();
+      execution.close();
+    }
+    expect(store.get('job')?.status).toBe('pending');
   });
 });
