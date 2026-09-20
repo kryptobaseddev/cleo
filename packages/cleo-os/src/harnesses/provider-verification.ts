@@ -173,6 +173,7 @@ export async function runProviderVerification(
     arguments: args,
     outcome: 'exited',
     exitCode: null,
+    exitSignal: null,
     startedAt: new Date(started).toISOString(),
     endedAt: '',
     deadlineAt: invocation.deadlineAt,
@@ -387,9 +388,10 @@ export async function runProviderVerification(
     diagnostics.push(error.message);
     stop('spawn-failed');
   });
-  child.once('close', (code) => {
+  child.once('close', (code, signal) => {
     if (finalized) return;
     result.exitCode = code;
+    result.exitSignal = signal;
     result.childClosed = true;
     settle();
   });

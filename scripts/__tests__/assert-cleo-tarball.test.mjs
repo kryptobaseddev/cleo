@@ -649,7 +649,14 @@ describe('independent provider repair data oracle', () => {
         idempotencyKey: 'proposal-authentic',
       },
       action: { operation: 'knowledge.quarantine-stubs' },
-      resources: [{ id: identity.noiseId, role: 'affected', kind: 'observation' }],
+      resources: [
+        {
+          id: identity.noiseId,
+          role: 'affected',
+          kind: 'observation',
+          beforeHash: createHash('sha256').update(before.observations[0].rowJson).digest('hex'),
+        },
+      ],
     };
     const proposalJson = JSON.stringify(proposal);
     const job = {
@@ -790,7 +797,12 @@ describe('independent provider repair data oracle', () => {
       };
       f.before.observations.push(row);
       f.after.observations.push({ ...row });
-      proposal.resources.push({ id, role: 'affected', kind: 'observation' });
+      proposal.resources.push({
+        id,
+        role: 'affected',
+        kind: 'observation',
+        beforeHash: createHash('sha256').update(row.rowJson).digest('hex'),
+      });
       f.receipt.execution.resources.push({
         id,
         beforeHash: 'c'.repeat(64),
@@ -856,6 +868,30 @@ describe('independent provider repair data oracle', () => {
     });
     return f;
   }
+  it('rejects a prepared operation made stale by later retrieval of an affected row', () => {
+    const f = fixture();
+    f.before.capturedAtMs = Date.parse('2026-09-20T00:00:01.500Z');
+    f.after.capturedAtMs = Date.parse('2026-09-20T00:00:03.500Z');
+    f.before.observations[0].rowJson = JSON.stringify({
+      ...JSON.parse(f.before.observations[0].rowJson),
+      citation_count: 0,
+      updated_at: null,
+    });
+    const proposal = JSON.parse(f.job.proposalJson);
+    proposal.resources[0].beforeHash = createHash('sha256')
+      .update(f.before.observations[0].rowJson)
+      .digest('hex');
+    f.job.proposalJson = JSON.stringify(proposal);
+    f.job.proposalHash = createHash('sha256').update(f.job.proposalJson).digest('hex');
+    f.after.observations[0].rowJson = JSON.stringify({
+      ...JSON.parse(f.before.observations[0].rowJson),
+      citation_count: 1,
+      updated_at: '2026-09-20 00:00:02',
+    });
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
+      'already stale',
+    );
+  });
   it('records legitimate measured read-side usage while retaining exact incident content', () => {
     const f = retrievedFixture();
     expect(
@@ -928,6 +964,115 @@ describe('independent provider repair data oracle', () => {
     expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
       'retained observation',
     );
+  });
+  function staleReplanFixture() {
+    const f = fixture();
+    f.repair();
+    const oldProposal = {
+      ...JSON.parse(f.job.proposalJson),
+      id: 'stale-proposal',
+      identity: { ...JSON.parse(f.job.proposalJson).identity, idempotencyKey: 'stale-proposal' },
+    };
+    const proposalJson = JSON.stringify(oldProposal);
+    const prior = {
+      id: 'stale-job',
+      status: 'failed',
+      proposalJson,
+      proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
+      resultJson: null,
+    };
+    const outcome = {
+      id: 'stale-job:1',
+      jobId: prior.id,
+      proposalId: oldProposal.id,
+      proposalHash: prior.proposalHash,
+      identity: oldProposal.identity,
+      status: 'failed',
+      errorCode: 'E_REPAIR_STALE',
+    };
+    prior.resultJson = JSON.stringify(outcome);
+    f.after.jobs.unshift(prior);
+    f.after.metadata.push({
+      key: 'knowledge_repair_attempt:stale-job:1',
+      valueJson: prior.resultJson,
+    });
+    const commands = [
+      {
+        arguments: [
+          'doctor',
+          'knowledge',
+          '--apply',
+          prior.id,
+          '--actor',
+          identity.actor,
+          '--proposal-id',
+          oldProposal.id,
+        ],
+        exitCode: 6,
+        stdout: JSON.stringify({
+          success: false,
+          error: { details: { attemptFailure: { attempt: outcome } } },
+        }),
+      },
+      {
+        arguments: [
+          'doctor',
+          'knowledge',
+          '--apply',
+          f.job.id,
+          '--actor',
+          identity.actor,
+          '--proposal-id',
+          f.receipt.id,
+        ],
+        exitCode: 0,
+        stdout: JSON.stringify({ success: true, data: f.receipt }),
+      },
+    ];
+    return { ...f, prior, commands };
+  }
+  it('authenticates a failed stale attempt followed by one scoped committed replan', () => {
+    const f = staleReplanFixture();
+    expect(
+      assertPackedProviderRepairState(f.before, f.after, identity, 'repaired', f.commands)
+        .receiptId,
+    ).toBe(f.receipt.id);
+    f.rollback();
+    expect(
+      assertPackedProviderRepairState(f.before, f.after, identity, 'rolled-back', f.commands)
+        .rollbackReceiptId,
+    ).toBe('recovery-authentic');
+  });
+  it.each([
+    'missing-command',
+    'wrong-actor',
+    'wrong-proposal',
+    'forged-outcome',
+    'extra-commit',
+    'other-operation',
+  ])('rejects unproven stale-replan history: %s', (kind) => {
+    const f = staleReplanFixture();
+    if (kind === 'missing-command') f.commands.shift();
+    if (kind === 'wrong-actor') f.commands[0].arguments[5] = 'another-actor';
+    if (kind === 'wrong-proposal') f.commands[1].arguments[7] = 'another-proposal';
+    if (kind === 'forged-outcome') f.after.metadata.at(-1).valueJson = '{}';
+    if (kind === 'extra-commit') f.after.jobs.push({ ...f.job, id: 'extra-committed-job' });
+    if (kind === 'other-operation') {
+      const proposal = {
+        ...JSON.parse(f.job.proposalJson),
+        action: { operation: 'unrelated.mutation' },
+      };
+      const proposalJson = JSON.stringify(proposal);
+      f.after.jobs.push({
+        ...f.job,
+        id: 'other-operation-job',
+        proposalJson,
+        proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
+      });
+    }
+    expect(() =>
+      assertPackedProviderRepairState(f.before, f.after, identity, 'repaired', f.commands),
+    ).toThrow();
   });
   it('requires separate durable rollback evidence and preserves the original receipt', () => {
     const f = fixture();
