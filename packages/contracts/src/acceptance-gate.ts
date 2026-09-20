@@ -19,7 +19,7 @@
  * @see {@link https://github.com/kryptobaseddev/cleo} T760 RCASD hardening
  */
 
-import type { OperationExecutionContext } from './jobs.js';
+import type { OperationExecutionContext, OperationExecutionIdentity } from './jobs.js';
 import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
@@ -352,15 +352,91 @@ export type GateResultDetails =
 // ─── Result ──────────────────────────────────────────────────────────────────
 
 /**
+ * Exact bytes observed for one declared task input or resolved verification harness.
+ * @remarks A missing input is explicit, with both digest and size null. This inventory
+ * does not claim coverage of undeclared runtime dependencies or external services.
+ * @example
+ * ```typescript
+ * const input: AcceptanceGateArtifact = { path: '/project/check.mjs', sha256: 'a'.repeat(64), bytes: 42 };
+ * ```
+ */
+export interface AcceptanceGateArtifact {
+  /** Captured absolute input path, resolved within the admitted project scope. */
+  path: string;
+  /** SHA-256 of actual input bytes; null only for an observed absent path. */
+  sha256: string | null;
+  /** Exact byte length, or null alongside an absent digest. */
+  bytes: number | null;
+}
+
+/**
+ * Executable invocation captured before launching a typed verification gate.
+ * @remarks Environment values are represented only by a digest; credentials must
+ * not be duplicated into receipts. The verifier compares actual launch inputs.
+ * @example
+ * ```typescript
+ * const invocation: AcceptanceGateInvocation = { command: 'node', args: ['check.mjs'], cwd: '/project', environmentHash: 'b'.repeat(64) };
+ * ```
+ */
+export interface AcceptanceGateInvocation {
+  /** Exact executable passed to the existing process port. */
+  command: string;
+  /** Ordered arguments, without shell re-interpretation. */
+  args: string[];
+  /** Captured absolute process working directory. */
+  cwd: string;
+  /** SHA-256 of the canonically ordered effective environment. */
+  environmentHash: string;
+}
+
+/**
+ * Task and input binding attached to an explicitly verified acceptance result.
+ * @remarks This is provenance, not authority by itself. Persistence and completion
+ * must compare current canonical task/AC rows, input bytes and captured execution.
+ * No gate runs implicitly on task creation or editing. Historical unbound results
+ * remain readable but do not establish typed requirement completion.
+ * @example
+ * ```typescript
+ * const owner = result.binding?.identity.projectId;
+ * ```
+ */
+export interface AcceptanceGateBinding {
+  /** Version of the captured binding contract. */
+  version: 1;
+  /** Unique verification attempt whose result and receipt commit atomically. */
+  verificationId: string;
+  /** Existing captured operation identity, including actor and retry identity. */
+  identity: OperationExecutionIdentity;
+  /** Exact canonical task owning this criterion. */
+  taskId: string;
+  /** Current normalized acceptance row identifier. */
+  criterionId: string;
+  /** SHA-256 over the criterion's canonical persisted payload. */
+  criterionHash: string;
+  /** SHA-256 over the complete canonical gate, including REQ and launch options. */
+  gateHash: string;
+  /** ISO time of input capture before execution. */
+  capturedAt: string;
+  /** Original admitted absolute deadline in epoch milliseconds; never renewed. */
+  deadlineAt: number;
+  /** Actual process inputs; required for executable gate kinds. */
+  invocation?: AcceptanceGateInvocation;
+  /** Explicit bounded input inventory, including untracked harness/task files. */
+  artifacts: AcceptanceGateArtifact[];
+}
+
+/**
  * Result of running one acceptance gate.
  *
- * Persisted to `lifecycle_gate_results` and summarised in
- * `task.verification.gateResults`.
+ * Returned by the runner. Canonical verification explicitly persists bound results;
+ * the result shape alone does not prove persistence or authorize completion.
  *
  * NOTE: Named `AcceptanceGateResult` (not `GateResult`) for historical
  * clarity — it describes acceptance-criterion gate outcomes specifically.
  */
 export interface AcceptanceGateResult {
+  /** Explicit verification binding; absent on historical/unpersisted runner observations. */
+  binding?: AcceptanceGateBinding;
   /** Zero-based index in the task's acceptance array. */
   index: number;
   /** REQ-ID if the gate had one, else `undefined`. */
