@@ -63,6 +63,7 @@ import {
   upsertSession,
   upsertTask,
 } from './db-helpers.js';
+import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import { resolveCurrentSession } from './session-store.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
@@ -423,7 +424,7 @@ async function createOwnedSqliteDataAccessor(
         // gh#391: every task mutation appends one audit row; retry on contention.
         await withWriteRetry(() =>
           db
-            .insert(schema.auditLog)
+            .insert(tasksAuditLog)
             .values({
               id: (entry.id as string) ?? generateAuditLogId(),
               timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
@@ -443,29 +444,29 @@ async function createOwnedSqliteDataAccessor(
       const db = await getDb(cwd);
       const conditions = [];
       if (query.taskIds && query.taskIds.length > 0) {
-        conditions.push(inArray(schema.auditLog.taskId, [...query.taskIds]));
+        conditions.push(inArray(tasksAuditLog.taskId, [...query.taskIds]));
       }
       if (query.actions && query.actions.length > 0) {
-        conditions.push(inArray(schema.auditLog.action, [...query.actions]));
+        conditions.push(inArray(tasksAuditLog.action, [...query.actions]));
       }
       if (query.since) {
-        conditions.push(sql`${schema.auditLog.timestamp} >= ${query.since}`);
+        conditions.push(sql`${tasksAuditLog.timestamp} >= ${query.since}`);
       }
       const limit = Math.max(1, Math.floor(query.limit ?? 100));
       const rows = await db
         .select({
-          id: schema.auditLog.id,
-          timestamp: schema.auditLog.timestamp,
-          action: schema.auditLog.action,
-          taskId: schema.auditLog.taskId,
-          actor: schema.auditLog.actor,
-          detailsJson: schema.auditLog.detailsJson,
-          beforeJson: schema.auditLog.beforeJson,
-          afterJson: schema.auditLog.afterJson,
+          id: tasksAuditLog.id,
+          timestamp: tasksAuditLog.timestamp,
+          action: tasksAuditLog.action,
+          taskId: tasksAuditLog.taskId,
+          actor: tasksAuditLog.actor,
+          detailsJson: tasksAuditLog.detailsJson,
+          beforeJson: tasksAuditLog.beforeJson,
+          afterJson: tasksAuditLog.afterJson,
         })
-        .from(schema.auditLog)
+        .from(tasksAuditLog)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(sql`${schema.auditLog.timestamp} DESC`)
+        .orderBy(sql`${tasksAuditLog.timestamp} DESC`)
         .limit(limit)
         .all();
       return rows.map((row) => ({

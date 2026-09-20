@@ -73,6 +73,75 @@ describe('task mutation durability', () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it('writes and queries canonical receipts without touching legacy audit records', async () => {
+    const store = await getTaskAccessor(projectA);
+    const native = getNativeTasksDb(projectA);
+    expect(native).not.toBeNull();
+    native!.exec(
+      "INSERT INTO audit_log(id,action,task_id,actor,details_json) VALUES('legacy-preserved','receipt.test','T101','historical','{\"old\":true}')",
+    );
+    const legacy = persisted(projectA, 'SELECT * FROM main.audit_log');
+    await store.appendLog({
+      id: 'canonical-receipt',
+      action: 'receipt.test',
+      taskId: 'T101',
+      actor: 'current',
+      details: { exact: 'λ | bytes' },
+    });
+    expect(
+      JSON.parse(
+        persisted(
+          projectA,
+          "SELECT id,actor,details_json FROM main.tasks_audit_log WHERE action='receipt.test'",
+        ),
+      ),
+    ).toEqual([
+      {
+        id: 'canonical-receipt',
+        actor: 'current',
+        details_json: JSON.stringify({ exact: 'λ | bytes' }),
+      },
+    ]);
+    expect(
+      (await store.queryAuditLog({ taskIds: ['T101'], actions: ['receipt.test'] })).map(
+        (row) => row.id,
+      ),
+    ).toEqual(['canonical-receipt']);
+    expect(persisted(projectA, 'SELECT * FROM main.audit_log')).toBe(legacy);
+  });
+
+  it('rolls task and AC writes back when a canonical receipt fails inside the same transaction', async () => {
+    const store = await getTaskAccessor(projectA);
+    await store.upsertSingleTask(task('T101', 'Before receipt'));
+    const beforeTask = persisted(projectA, "SELECT * FROM tasks_tasks WHERE id='T101'");
+    const beforeAc = persisted(projectA, 'SELECT * FROM tasks_task_acceptance_criteria');
+    const native = getNativeTasksDb(projectA);
+    expect(native).not.toBeNull();
+    native!.exec(
+      "CREATE TRIGGER reject_receipt BEFORE INSERT ON tasks_audit_log WHEN NEW.action='receipt.reject' BEGIN SELECT RAISE(ABORT,'canonical receipt fault'); END",
+    );
+    await expect(
+      store.transaction(async (tx) => {
+        await tx.updateTaskFields('T101', {
+          title: 'Must roll back',
+          verificationJson: '{"passed":true}',
+        });
+        await tx.insertAcRows([
+          { id: 'receipt-ac', taskId: 'T101', ordinal: 1, text: 'Must roll back' },
+        ]);
+        await tx.appendLog({ action: 'receipt.reject', taskId: 'T101' });
+      }),
+    ).rejects.toMatchObject({ cause: { message: 'canonical receipt fault' } });
+    expect(persisted(projectA, "SELECT * FROM tasks_tasks WHERE id='T101'")).toBe(beforeTask);
+    expect(persisted(projectA, 'SELECT * FROM tasks_task_acceptance_criteria')).toBe(beforeAc);
+    expect(
+      persisted(projectA, "SELECT id FROM tasks_audit_log WHERE action='receipt.reject'"),
+    ).toBe('[]');
+    expect(persisted(projectA, "SELECT id FROM audit_log WHERE action='receipt.reject'")).toBe(
+      '[]',
+    );
+  });
+
   it('shares one immutable capture policy across the public task alias and project leaf', () => {
     expect(captureTaskAccessorScope).toBe(captureProjectScope);
     vi.stubEnv('CLEO_ROOT', projectB);
@@ -411,9 +480,9 @@ describe('task mutation durability', () => {
     expect(persisted(projectA, "SELECT position, assignee FROM tasks_tasks WHERE id = 'T1'")).toBe(
       '[{"position":3,"assignee":"agent-committed"}]',
     );
-    expect(persisted(projectA, "SELECT id FROM main.audit_log WHERE id = 'durable-audit'")).toBe(
-      '[{"id":"durable-audit"}]',
-    );
+    expect(
+      persisted(projectA, "SELECT id FROM main.tasks_audit_log WHERE id = 'durable-audit'"),
+    ).toBe('[{"id":"durable-audit"}]');
     expect(await store.getMetaValue('accessor-marker')).toBe('durable');
     expect(await store.getMetaValue('exported-marker')).toBe('durable');
   });
