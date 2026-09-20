@@ -15,6 +15,7 @@ import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { resolveOrCwd } from '../paths.js';
 import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { logOperation } from '../tasks/add.js';
@@ -157,34 +158,22 @@ export async function startTask(
   }
   focus.sessionNotes.push(noteEntry);
 
-  await writeFocusState(acc, focusSessionId, focus);
-
-  // Set assignee on the task (claim semantics)
-  if (!task.assignee) {
-    await acc.updateTaskFields(taskId, { assignee: process.env['CLEO_AGENT_ID'] ?? 'local' });
-  }
-
-  await logOperation(
-    'task_start',
-    taskId,
-    {
-      previousTask,
-      title: task.title,
-    },
-    accessor,
-  );
-
-  // Dispatch PreToolUse hook (best-effort, don't await)
-  const { hooks } = await import('../hooks/registry.js');
-  hooks
-    .dispatch('PreToolUse', resolveOrCwd(cwd), {
-      timestamp: new Date().toISOString(),
-      taskId,
-      taskTitle: task.title,
-    })
-    .catch(() => {
-      /* Hooks are best-effort */
+  const projectRoot = resolveOrCwd(cwd);
+  await acc.transaction(async () => {
+    await writeFocusState(acc, focusSessionId, focus);
+    if (!task.assignee) {
+      await acc.updateTaskFields(taskId, { assignee: process.env['CLEO_AGENT_ID'] ?? 'local' });
+    }
+    await logOperation('task_start', taskId, { previousTask, title: task.title }, acc);
+    trackBackgroundOp(async () => {
+      const { hooks } = await import('../hooks/registry.js');
+      await hooks.dispatch('PreToolUse', projectRoot, {
+        timestamp: noteEntry.timestamp,
+        taskId,
+        taskTitle: task.title,
+      });
     });
+  });
 
   return {
     knowledgeCoverage: await assessKnowledgeCoverage(resolveOrCwd(cwd)),
@@ -223,31 +212,22 @@ export async function stopTask(
 
   const now = new Date().toISOString();
 
-  // Dispatch PostToolUse hook (best-effort, don't await)
-  if (taskId && task) {
-    const { hooks } = await import('../hooks/registry.js');
-    hooks
-      .dispatch('PostToolUse', resolveOrCwd(cwd), {
-        timestamp: now,
-        taskId,
-        taskTitle: task.title,
-        status: 'done',
-      })
-      .catch(() => {
-        /* Hooks are best-effort */
+  const projectRoot = resolveOrCwd(cwd);
+  await acc.transaction(async () => {
+    await writeFocusState(acc, focusSessionId, focus);
+    await logOperation('task_stop', previousTask ?? 'none', { previousTask }, acc);
+    if (taskId && task) {
+      trackBackgroundOp(async () => {
+        const { hooks } = await import('../hooks/registry.js');
+        await hooks.dispatch('PostToolUse', projectRoot, {
+          timestamp: now,
+          taskId,
+          taskTitle: task.title,
+          status: 'done',
+        });
       });
-  }
-
-  await writeFocusState(acc, focusSessionId, focus);
-
-  await logOperation(
-    'task_stop',
-    previousTask ?? 'none',
-    {
-      previousTask,
-    },
-    accessor,
-  );
+    }
+  });
 
   return { previousTask };
 }
