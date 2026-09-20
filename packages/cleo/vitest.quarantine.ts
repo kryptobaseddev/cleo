@@ -115,7 +115,6 @@ export const CLEO_TEST_QUARANTINE: readonly string[] = [
   'packages/cleo/src/dispatch/domains/__tests__/spawn-timeout.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/tasks-filters.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/tasks-show-attachments.test.ts',
-  'packages/cleo/src/dispatch/domains/__tests__/tasks.test.ts',
   'packages/cleo/src/dispatch/middleware/__tests__/budget-enforcement.test.ts',
   'packages/cleo/test/templates/release-fanout-render.test.ts',
   'packages/cleo/test/templates/release-prepare-render.test.ts',

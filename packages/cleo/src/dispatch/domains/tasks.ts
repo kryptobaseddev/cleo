@@ -39,6 +39,7 @@ import {
   repairSaga as coreSagaRepair,
   sagaRollup as coreSagaRollup,
 } from '@cleocode/core/sagas';
+import { parseGateJson, reqAdd, reqList, reqMigrate } from '@cleocode/core/tasks';
 import {
   addTaskWithSessionScope,
   completeTaskStrict,
@@ -630,6 +631,8 @@ const QUERY_OPS = new Set<string>([
   'saga.list',
   'saga.members',
   'saga.rollup',
+  'req.list',
+  'req.migrate.preview',
 ]);
 
 const MUTATE_OPS = new Set<string>([
@@ -668,6 +671,8 @@ const MUTATE_OPS = new Set<string>([
   'saga.detach',
   // T10121 — idempotent cron-safe auto-close repair (supersedes T10098 scope).
   'saga.reconcile',
+  'req.add',
+  'req.migrate',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -764,6 +769,8 @@ async function sagaReconcile(params: Record<string, unknown>): Promise<LafsEnvel
   return wrapCoreResult(
     await coreSagaReconcile(getProjectRoot(), { sagaId, dryRun }),
     'saga.reconcile',
+    'req.add',
+    'req.migrate',
   );
 }
 
@@ -882,6 +889,38 @@ export class TasksHandler implements DomainHandler {
     // Saga sub-domain query ops (ADR-073) — handled outside typed handler
     // because they call existing functions and don't need OpsFromCore inference.
     try {
+      if (operation === 'req.list' || operation === 'req.migrate.preview') {
+        if (typeof params?.taskId !== 'string' || !params.taskId.trim()) {
+          return errorResult(
+            'query',
+            'tasks',
+            operation,
+            'E_INVALID_INPUT',
+            'taskId is required',
+            startTime,
+          );
+        }
+        if (
+          operation === 'req.migrate.preview' &&
+          params.apply !== undefined &&
+          params.apply !== false
+        ) {
+          return errorResult(
+            'query',
+            'tasks',
+            operation,
+            'E_INVALID_INPUT',
+            'Migration query requires apply=false; use the mutate gateway with apply=true to write',
+            startTime,
+          );
+        }
+        const root = getProjectRoot();
+        const data =
+          operation === 'req.list'
+            ? await reqList(root, params.taskId)
+            : await reqMigrate(root, params.taskId, false);
+        return wrapResult({ success: true, data }, 'query', 'tasks', operation, startTime);
+      }
       if (operation === 'saga.list') {
         const envelope = await sagaList();
         return wrapResult(envelopeToEngineResult(envelope), 'query', 'tasks', operation, startTime);
@@ -947,6 +986,45 @@ export class TasksHandler implements DomainHandler {
 
     // Saga sub-domain mutate ops (ADR-073) — handled outside typed handler.
     try {
+      if (operation === 'req.add' || operation === 'req.migrate') {
+        if (typeof params?.taskId !== 'string' || !params.taskId.trim()) {
+          return errorResult(
+            'mutate',
+            'tasks',
+            operation,
+            'E_INVALID_INPUT',
+            'taskId is required',
+            startTime,
+          );
+        }
+        if (operation === 'req.add') {
+          if (typeof params.gate !== 'string') {
+            return errorResult(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'gate must be AcceptanceGate JSON text; use req add --gate',
+              startTime,
+            );
+          }
+          const gate = parseGateJson(params.gate);
+          const data = await reqAdd(getProjectRoot(), params.taskId, gate);
+          return wrapResult({ success: true, data }, 'mutate', 'tasks', operation, startTime);
+        }
+        if (params.apply !== true) {
+          return errorResult(
+            'mutate',
+            'tasks',
+            operation,
+            'E_INVALID_INPUT',
+            'Migration writes require apply=true; use the query gateway for preview',
+            startTime,
+          );
+        }
+        const data = await reqMigrate(getProjectRoot(), params.taskId, true);
+        return wrapResult({ success: true, data }, 'mutate', 'tasks', operation, startTime);
+      }
       if (operation === 'saga.create') {
         const envelope = await sagaCreate(params ?? {});
         return wrapResult(
@@ -1064,6 +1142,8 @@ export class TasksHandler implements DomainHandler {
         'saga.list',
         'saga.members',
         'saga.rollup',
+        'req.list',
+        'req.migrate.preview',
       ],
       mutate: [
         'add',
@@ -1096,6 +1176,8 @@ export class TasksHandler implements DomainHandler {
         'saga.detach',
         // T10121 — idempotent cron-safe auto-close repair.
         'saga.reconcile',
+        'req.add',
+        'req.migrate',
       ],
     };
   }
