@@ -635,7 +635,10 @@ export async function inspectBackupObservation(
     };
   } catch (error) {
     if (error instanceof BackupObservationInspectionError) throw error;
-    inspectionFailure('INVALID_SNAPSHOT', error instanceof Error ? error.message : String(error));
+    throw new BackupObservationInspectionError(
+      'INVALID_SNAPSHOT',
+      error instanceof Error ? error.message : String(error),
+    );
   } finally {
     try {
       snapshot?.close();
