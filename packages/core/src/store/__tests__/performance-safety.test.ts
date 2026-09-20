@@ -36,17 +36,25 @@ describe('Safety Performance', { retry: 2 }, () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-perf-'));
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    process.env['CLEO_DIR'] = cleoDir;
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    vi.stubEnv('CLEO_DIR', cleoDir);
+    await writeFile(
+      join(cleoDir, 'project-info.json'),
+      JSON.stringify({
+        projectId: 'performance-safety-fixture',
+        projectHash: 'performance-safety-fixture',
+      }),
+    );
 
     const { closeDb } = await import('../sqlite.js');
     closeDb();
   });
 
   afterEach(async () => {
-    delete process.env['CLEO_DIR'];
     const { closeDb } = await import('../sqlite.js');
     closeDb();
     await rm(tempDir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
   });
 
   describe('Single Task Operations', () => {
