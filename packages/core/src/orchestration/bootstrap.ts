@@ -9,8 +9,26 @@ import { join } from 'node:path';
 import type { BrainState } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from '../tasks/dependency-check.js';
 
-/** Build brain state for agent bootstrapping. */
+/**
+ * Build startup state from selected project tasks and explicit dependency evidence.
+ * @param projectRoot - Owning project root captured by the caller.
+ * @param opts - Existing bootstrap speed and optional detail selection.
+ * @param accessor - Optional canonical accessor bound to that project.
+ * @returns Startup state with archive-excluded progress and unresolved dependency IDs.
+ * @throws Error when task selection or required dependency evidence cannot be read.
+ * @remarks Dependency-only archived rows satisfy readiness without expanding the
+ * progress population. Stored blocked status is distinct from dependency state.
+ * Existing optional session and auxiliary-file handling is unchanged.
+ * @example
+ * ```ts
+ * const state = await buildBrainState(projectRoot, { speed: 'full' }, accessor);
+ * ```
+ */
 export async function buildBrainState(
   projectRoot: string,
   opts?: { speed?: 'fast' | 'full' | 'complete' },
@@ -64,12 +82,13 @@ export async function buildBrainState(
   }
 
   // --- Next Suggestion (simple: pick first pending task with all deps met) ---
-  const completedIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
-  const readyTasks = tasks.filter((t) => {
-    if (t.status !== 'pending') return false;
-    const deps = t.depends ?? [];
-    return deps.every((d) => completedIds.has(d));
-  });
+  const dependencyLookup = await loadReadinessDependencyLookup(tasks, acc);
+  const blockersByTask = new Map(
+    tasks.map((task) => [task.id, getReadinessDependencyBlockers(task.depends, dependencyLookup)]),
+  );
+  const readyTasks = tasks.filter(
+    (task) => task.status === 'pending' && blockersByTask.get(task.id)!.length === 0,
+  );
 
   if (readyTasks.length > 0) {
     // Sort by priority
@@ -87,12 +106,12 @@ export async function buildBrainState(
   if (speed === 'full' || speed === 'complete') {
     // Blockers
     const blockedTasks = tasks.filter(
-      (t) => t.status === 'blocked' || t.depends?.some((d) => !completedIds.has(d)),
+      (task) => task.status === 'blocked' || blockersByTask.get(task.id)!.length > 0,
     );
     brain.blockers = blockedTasks.slice(0, 10).map((b) => ({
       taskId: b.id,
       title: b.title,
-      blockedBy: b.depends || [],
+      blockedBy: blockersByTask.get(b.id)!,
     }));
 
     // Recent decisions (from decision-log in .cleo)
