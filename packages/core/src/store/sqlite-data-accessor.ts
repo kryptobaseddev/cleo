@@ -12,7 +12,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import {
   ARCHIVE_REASON_TOMBSTONE,
@@ -33,10 +33,9 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
-import { generateProjectHash } from '../nexus/hash.js';
 import {
+  captureProjectScope as captureTaskAccessorScope,
   getProjectRoot,
-  readProjectInfoAtDirectorySync,
   type WorktreeScope,
   worktreeScope,
 } from '../project-scope.js';
@@ -157,38 +156,15 @@ function activeTransactionScope(native: DatabaseSync): TaskTransactionScope | un
 }
 
 /**
- * Capture one accessor's explicit project and compatible operation authority.
- * @param projectRoot - Absolute root captured by the factory before awaiting.
- * @param inherited - Caller scope captured at the same synchronous boundary.
- * @returns Immutable scope retained for the accessor lifetime.
- * @remarks A portable project ID is compared only with persisted identity, never
- * with the path hash used by worktree routing. Ambient environment pins are not changed.
+ * Compatible task-accessor name for the shared project ownership capture policy.
+ * @remarks This is the same function as `captureProjectScope`; identity validation
+ * and routing policy live in the dependency-leaf project scope module.
  * @example
  * ```ts
  * const scope = captureTaskAccessorScope(getProjectRoot(), worktreeScope.getStore());
  * ```
  */
-export function captureTaskAccessorScope(
-  projectRoot: string,
-  inherited: WorktreeScope | undefined,
-): WorktreeScope {
-  const root = resolve(projectRoot);
-  const execution = inherited?.execution;
-  execution?.assertActive();
-  if (execution && resolve(execution.identity.projectRoot) !== root)
-    throw new Error('Task accessor project differs from captured execution ownership.');
-  const scope = Object.freeze({
-    ...inherited,
-    worktreeRoot: root,
-    projectHash: generateProjectHash(root),
-  });
-  if (execution) {
-    const info = readProjectInfoAtDirectorySync(root, join(root, '.cleo'));
-    if ((info.projectId || info.projectHash) !== execution.identity.projectId)
-      throw new Error('Task accessor identity differs from captured execution ownership.');
-  }
-  return scope;
-}
+export { captureProjectScope as captureTaskAccessorScope } from '../project-scope.js';
 
 /**
  * Bind all asynchronous accessor methods, including transaction ports, to one project.

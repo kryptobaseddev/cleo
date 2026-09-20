@@ -7,10 +7,15 @@ import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateProjectHash } from '../../nexus/hash.js';
 import { worktreeScope } from '../../paths.js';
+import { captureProjectScope } from '../../project-scope.js';
 import { createOperationExecutionContext } from '../background-ops.js';
 import { getTaskAccessor, type TransactionAccessor } from '../data-accessor.js';
 import { closeDb, getNativeTasksDb } from '../sqlite.js';
-import { createSqliteDataAccessor, setMetaValue } from '../sqlite-data-accessor.js';
+import {
+  captureTaskAccessorScope,
+  createSqliteDataAccessor,
+  setMetaValue,
+} from '../sqlite-data-accessor.js';
 
 function task(id: string, title: string, overrides: Partial<Task> = {}): Task {
   return {
@@ -66,6 +71,20 @@ describe('task mutation durability', () => {
     closeDb();
     vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
+  });
+
+  it('shares one immutable capture policy across the public task alias and project leaf', () => {
+    expect(captureTaskAccessorScope).toBe(captureProjectScope);
+    vi.stubEnv('CLEO_ROOT', projectB);
+    vi.stubEnv('CLEO_DIR', join(projectB, '.cleo'));
+    const inherited = { worktreeRoot: projectB, projectHash: 'prior-routing-hash' };
+    const captured = captureProjectScope(projectA, inherited);
+    inherited.worktreeRoot = root;
+    expect(Object.isFrozen(captured)).toBe(true);
+    expect(captured.worktreeRoot).toBe(projectA);
+    expect(captured.projectHash).toBe(generateProjectHash(projectA));
+    expect(process.env.CLEO_ROOT).toBe(projectB);
+    expect(process.env.CLEO_DIR).toBe(join(projectB, '.cleo'));
   });
 
   it.each([

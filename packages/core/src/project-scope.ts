@@ -14,6 +14,7 @@ import { ExitCode } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { isAbsolutePath } from '@cleocode/paths';
 import { CleoError } from './errors.js';
+import { generateProjectHash } from './nexus/hash.js';
 
 /**
  * Async context payload set by the spawn adapter when launching a subagent
@@ -82,6 +83,43 @@ export interface WorktreeScope {
  * @public
  */
 export const worktreeScope = new AsyncLocalStorage<WorktreeScope>();
+
+/**
+ * Capture explicit project ownership and compatible operation authority before awaiting.
+ * @param projectRoot - Requested project root, resolved independently of ambient pins.
+ * @param inherited - Caller scope captured at the same synchronous boundary.
+ * @returns Immutable scope retaining the original execution context and canonical path hash.
+ * @throws Error if execution is inactive or its project root or persisted identity differs.
+ * @remarks A portable project ID is compared only with persisted identity, never
+ * with the path hash used by worktree routing. Ambient environment pins are unchanged.
+ * Existing task-accessor error messages are retained for compatibility.
+ * @example
+ * ```ts
+ * const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+ * await worktreeScope.run(scope, () => performProjectOperation());
+ * ```
+ */
+export function captureProjectScope(
+  projectRoot: string,
+  inherited: WorktreeScope | undefined,
+): WorktreeScope {
+  const root = resolve(projectRoot);
+  const execution = inherited?.execution;
+  execution?.assertActive();
+  if (execution && resolve(execution.identity.projectRoot) !== root)
+    throw new Error('Task accessor project differs from captured execution ownership.');
+  const scope = Object.freeze({
+    ...inherited,
+    worktreeRoot: root,
+    projectHash: generateProjectHash(root),
+  });
+  if (execution) {
+    const info = readProjectInfoAtDirectorySync(root, join(root, '.cleo'));
+    if ((info.projectId || info.projectHash) !== execution.identity.projectId)
+      throw new Error('Task accessor identity differs from captured execution ownership.');
+  }
+  return scope;
+}
 
 /**
  * Attempt to resolve the main git repo root from a gitlink (.git as FILE).
