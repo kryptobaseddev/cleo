@@ -15,6 +15,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type {
   AtomicJobBookkeeping,
   AtomicJobMutation,
+  AtomicJobRetryBookkeeping,
   BackgroundJobExecutionContext,
   BackgroundJobFailureCode,
   BackgroundJobLease,
@@ -859,26 +860,123 @@ export class DurableJobStore {
             'Claim counter exhausted; explicit recovery is required',
           );
         }
-        return this.#db
-          .update(backgroundJobs)
-          .set({
-            status: 'running',
-            ownerId: this.#ownerId,
-            claimedBy: this.#options.actor ?? null,
-            fencingEpoch: prior.fencingEpoch + 1,
-            attempts: prior.attempts + 1,
-            heartbeatAt: now,
-            leaseExpiresAt: Date.now() + this.leaseMs,
-          })
-          .where(eq(backgroundJobs.id, id))
-          .returning()
-          .get();
+        return this.#claimRow(prior, now);
       },
       execution?.deadlineAt,
       (message) => this.#committedCleanupFailures.set(id, message),
       () => execution?.assertActive(),
     );
     if (!row) throw new BackgroundJobError('E_JOB_LEASE_LOST', 'Claimed job disappeared');
+    const grant = this.#grant(row);
+    this.#grants.set(id, grant);
+    return grant;
+  }
+
+  /** Assign the next owned epoch; terminal retry clears its retained previous outcome from the active row. */
+  #claimRow(prior: BackgroundJobRow, now: number, terminalRetry = false) {
+    return this.#db
+      .update(backgroundJobs)
+      .set({
+        status: 'running',
+        ownerId: this.#ownerId,
+        claimedBy: this.#options.actor ?? null,
+        fencingEpoch: prior.fencingEpoch + 1,
+        attempts: prior.attempts + 1,
+        heartbeatAt: now,
+        leaseExpiresAt: Date.now() + this.leaseMs,
+        ...(terminalRetry
+          ? {
+              completedAt: null,
+              result: null,
+              error: null,
+              cancellationRequestedAt: null,
+              progress: 0,
+            }
+          : {}),
+      })
+      .where(eq(backgroundJobs.id, prior.id))
+      .returning()
+      .get();
+  }
+
+  /**
+   * Start an explicit new attempt after retaining a failed or cancelled attempt atomically.
+   * @param id - Authentic terminal job with the same immutable proposal.
+   * @param now - New attempt timestamp.
+   * @param execution - Fresh bounded invocation; expired contexts or old fences cannot be renewed.
+   * @param retainOutcome - Trusted synchronous core callback that rechecks domain preconditions,
+   * appends the complete previous row image, and verifies its receipt before returning.
+   * @param maxRunning - Optional capacity limit enforced inside the same transaction.
+   * @returns New owned lease, without reapplying any domain operation.
+   * @throws BackgroundJobError when scope, terminal status, authentic input, counters, or receipt is invalid.
+   * @remarks Complete jobs are never reopened. Callback failure, cancellation, or claim failure
+   * rolls back both historical bookkeeping and the new claim. The caller must independently
+   * preserve its append-only history in the same database; this is not an arbitrary callback sandbox.
+   * @example
+   * ```ts
+   * const lease = store.retryAtomically(id, Date.now(), context, retainPreviousAttempt);
+   * ```
+   */
+  retryAtomically(
+    id: string,
+    now: number,
+    execution: OperationExecutionContext,
+    retainOutcome: AtomicJobRetryBookkeeping,
+    maxRunning?: number,
+  ): BackgroundJobLease {
+    execution.assertActive();
+    if (execution.writeFence)
+      throw new BackgroundJobError(
+        'E_JOB_INPUT_INVALID',
+        'Explicit retry requires a fresh invocation without an old attempt fence',
+      );
+    requireRunningLimit(maxRunning);
+    if (!Number.isSafeInteger(now))
+      throw new BackgroundJobError('E_JOB_INPUT_INVALID', 'Retry timestamp must be a safe integer');
+    const row = this.#write(
+      () => {
+        const prior = this.#row(id);
+        if (!prior || (prior.status !== 'failed' && prior.status !== 'cancelled'))
+          throw new BackgroundJobError(
+            'E_JOB_NOT_RECLAIMABLE',
+            'Explicit terminal retry requires failed or cancelled work; committed effects cannot be reopened',
+          );
+        this.#assertInvocation(execution, prior.operation, prior.projectId, prior.idempotencyKey);
+        if (
+          !prior.proposalJson ||
+          !prior.proposalHash ||
+          createHash('sha256').update(prior.proposalJson).digest('hex') !== prior.proposalHash
+        )
+          throw new BackgroundJobError(
+            'E_JOB_INPUT_INVALID',
+            'Terminal retry requires authentic immutable proposal bytes',
+          );
+        if (
+          !Number.isSafeInteger(prior.fencingEpoch + 1) ||
+          !Number.isSafeInteger(prior.attempts + 1)
+        )
+          throw new BackgroundJobError('E_JOB_INPUT_INVALID', 'Retry counter exhausted');
+        this.#requireCapacity(maxRunning, id);
+        const receipt = retainOutcome(JSON.stringify(prior));
+        if (typeof receipt !== 'string')
+          throw new BackgroundJobError(
+            'E_JOB_INPUT_INVALID',
+            'Retry bookkeeping must return synchronous JSON receipt bytes',
+          );
+        requireJson(receipt);
+        if (JSON.stringify(this.#row(id)) !== JSON.stringify(prior))
+          throw new BackgroundJobError(
+            'E_JOB_LEASE_LOST',
+            'Retry bookkeeping changed the original job before its new claim',
+          );
+        execution.assertActive();
+        return this.#claimRow(prior, now, true);
+      },
+      execution.deadlineAt,
+      (message) => this.#committedCleanupFailures.set(id, message),
+      () => execution.assertActive(),
+    );
+    if (!row) throw new BackgroundJobError('E_JOB_LEASE_LOST', 'Retried job disappeared');
     const grant = this.#grant(row);
     this.#grants.set(id, grant);
     return grant;

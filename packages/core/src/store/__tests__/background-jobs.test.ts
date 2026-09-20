@@ -66,6 +66,14 @@ beforeAll(() => {
     format: 'esm',
     packages: 'external',
   });
+  buildSync({
+    entryPoints: [fileURLToPath(new URL('../background-ops.ts', import.meta.url))],
+    outfile: join(bundleRoot, 'ops.mjs'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'external',
+  });
   writeFileSync(
     join(bundleRoot, 'client.mjs'),
     `
@@ -73,12 +81,21 @@ beforeAll(() => {
     import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-sqlite';
     import { DurableJobStore } from './jobs.mjs';
+    import { createOperationExecutionContext } from './ops.mjs';
     const native = new DatabaseSync(process.argv[2]);
     native.exec('PRAGMA busy_timeout=3000');
-    const store = new DurableJobStore(drizzle({client:native}));
+    const store = new DurableJobStore(drizzle({client:native}), process.argv[3] === 'retry' ? {projectId:'project-A'} : {});
     let result;
     try {
-      if (process.argv[3] === 'claim') result = {grant:store.claim('job',Date.now())};
+      if (process.argv[3] === 'retry') {
+        const context = createOperationExecutionContext({projectId:'project-A',projectRoot:process.argv[4],
+          actor:'fixture',operation:'docs.projection',idempotencyKey:'repair-key'});
+        try { result={grant:store.retryAtomically('job',Date.now(),context,previous=>{
+          const row=JSON.parse(previous);native.prepare('INSERT INTO retry_history(id,value) VALUES (?,?)').run(row.id+':'+row.fencingEpoch,previous);
+          return JSON.stringify({retained:row.id+':'+row.fencingEpoch});
+        })}; } finally {context.close();}
+      }
+      else if (process.argv[3] === 'claim') result = {grant:store.claim('job',Date.now())};
       else if (process.argv[3] === 'defer') result = {job:store.defer('writer-'+process.pid,'docs.projection',Date.now(),JSON.parse(process.argv[4]))};
       else if (process.argv[3] === 'resume') {
         store.claim('job',Date.now());
@@ -904,6 +921,220 @@ describe('shared invocation budget for pending submission, claim and cancellatio
     } finally {
       context.close();
     }
+  });
+});
+
+describe('explicit terminal retry composition', () => {
+  function terminal(status: 'failed' | 'cancelled' = 'failed') {
+    native.exec(
+      'PRAGMA foreign_keys=ON; CREATE TABLE retry_history(id TEXT PRIMARY KEY,value TEXT NOT NULL)',
+    );
+    const store = new DurableJobStore(db, { projectId: request.projectId, actor: 'fixture' });
+    store.defer('job', 'docs.projection', Date.now(), request);
+    store.claim('job', Date.now());
+    store.checkpoint('job', '{"stage":"verified input"}', Date.now());
+    if (status === 'failed') store.fail('job', 'Original observed failure', Date.now());
+    else {
+      store.requestCancel('job', Date.now());
+      store.cancel('job', Date.now());
+    }
+    return store;
+  }
+  function invocation(budgetMs = 2000) {
+    return createOperationExecutionContext(
+      {
+        projectId: request.projectId,
+        projectRoot: root,
+        actor: 'fixture',
+        operation: 'docs.projection',
+        idempotencyKey: request.idempotencyKey,
+      },
+      { budgetMs },
+    );
+  }
+  function retain(previous: string) {
+    native.prepare('INSERT INTO retry_history(id,value) VALUES (?,?)').run('job:1', previous);
+    return '{"retained":"job:1"}';
+  }
+
+  it.each([
+    'failed',
+    'cancelled',
+  ] as const)('retains the complete %s attempt before a fresh fenced claim', (status) => {
+    const store = terminal(status);
+    const old = store.get('job')!;
+    const context = invocation();
+    try {
+      const lease = store.retryAtomically('job', Date.now(), context, retain);
+      expect(lease.epoch).toBe(old.fencingEpoch + 1);
+      expect(store.get('job')).toMatchObject({
+        status: 'running',
+        attempts: 2,
+        checkpointJson: old.checkpointJson,
+        cancellationRequestedAt: null,
+      });
+      const fresh = new DatabaseSync(path, { readOnly: true });
+      try {
+        const prior = JSON.parse(
+          String(fresh.prepare('SELECT value FROM retry_history').get()?.value),
+        );
+        expect(prior).toMatchObject({
+          id: 'job',
+          status,
+          attempts: 1,
+          fencingEpoch: 1,
+          ownerId: old.ownerId,
+          checkpointJson: old.checkpointJson,
+          proposalJson: request.proposalJson,
+          proposalHash: old.proposalHash,
+          cancellationRequestedAt: old.cancellationRequestedAt,
+          error: old.error ?? null,
+          completedAt: Date.parse(old.completedAt!),
+        });
+        expect(
+          fresh
+            .prepare(
+              "SELECT attempts,status,result,error,completed_at FROM background_jobs WHERE id='job'",
+            )
+            .get(),
+        ).toMatchObject({
+          attempts: 2,
+          status: 'running',
+          result: null,
+          error: null,
+          completed_at: null,
+        });
+      } finally {
+        fresh.close();
+      }
+    } finally {
+      context.close();
+    }
+  });
+
+  it.each([
+    'history',
+    'claim',
+    'stale-source',
+    'cancel',
+    'promise',
+    'changed-job',
+  ] as const)('rolls back both retained outcome and new ownership on %s fault', (fault) => {
+    const store = terminal();
+    const old = store.get('job');
+    const context = invocation();
+    if (fault === 'claim')
+      native.exec(
+        "CREATE TEMP TRIGGER reject_retry BEFORE UPDATE OF owner_id ON background_jobs BEGIN SELECT RAISE(ABORT,'claim fault'); END",
+      );
+    if (fault === 'history')
+      native.exec(
+        "CREATE TEMP TRIGGER reject_history BEFORE INSERT ON retry_history BEGIN SELECT RAISE(ABORT,'history fault'); END",
+      );
+    try {
+      expect(() =>
+        Reflect.apply(store.retryAtomically, store, [
+          'job',
+          Date.now(),
+          context,
+          (previous: string) => {
+            const result = retain(previous);
+            if (fault === 'stale-source')
+              throw new Error('Independent domain precondition changed');
+            if (fault === 'cancel') context.close();
+            if (fault === 'changed-job')
+              native.exec("UPDATE background_jobs SET proposal_json='{}' WHERE id='job'");
+            return fault === 'promise' ? Promise.resolve(result) : result;
+          },
+        ]),
+      ).toThrow();
+      expect(store.get('job')).toEqual(old);
+      expect(native.prepare('SELECT * FROM retry_history').all()).toEqual([]);
+    } finally {
+      context.close();
+    }
+  });
+
+  it('refuses expired attempts instead of renewing their deadline', () => {
+    const store = terminal();
+    const context = invocation(0);
+    const retained = vi.fn(retain);
+    try {
+      expect(() => store.retryAtomically('job', Date.now(), context, retained)).toThrow();
+      expect(retained).not.toHaveBeenCalled();
+      expect(store.get('job')?.status).toBe('failed');
+    } finally {
+      context.close();
+    }
+  });
+
+  it('refuses already committed work without appending retry history or reapplying effects', () => {
+    const store = terminal();
+    const context = invocation();
+    store.retryAtomically('job', Date.now(), context, retain);
+    store.complete('job', { committed: 'original effect' }, Date.now());
+    const retained = vi.fn(retain);
+    const before = store.get('job');
+    try {
+      expect(() => store.retryAtomically('job', Date.now(), context, retained)).toThrow(
+        'committed effects cannot be reopened',
+      );
+      expect(retained).not.toHaveBeenCalled();
+      expect(store.get('job')).toEqual(before);
+      expect(native.prepare('SELECT * FROM retry_history').all()).toHaveLength(1);
+    } finally {
+      context.close();
+    }
+  });
+
+  it('returns the committed new claim when cancellation is observed after retry commit', () => {
+    const store = terminal();
+    const context = invocation();
+    const run = db.run.bind(db);
+    vi.spyOn(db, 'run').mockImplementation((query) => {
+      const result = run(query);
+      const fresh = new DatabaseSync(path, { readOnly: true });
+      try {
+        if (
+          fresh.prepare("SELECT status FROM background_jobs WHERE id='job'").get()?.status ===
+          'running'
+        )
+          context.close();
+      } finally {
+        fresh.close();
+      }
+      return result;
+    });
+    try {
+      const grant = store.retryAtomically('job', Date.now(), context, retain);
+      expect(grant.epoch).toBe(2);
+      expect(context.signal.aborted).toBe(true);
+      expect(store.get('job')?.status).toBe('running');
+      expect(native.prepare('SELECT * FROM retry_history').all()).toHaveLength(1);
+    } finally {
+      context.close();
+    }
+  });
+
+  it('lets exactly one of two independent resume processes retain and claim the terminal attempt', async () => {
+    terminal();
+    const results = await Promise.all([
+      execute(process.execPath, [join(bundleRoot, 'client.mjs'), path, 'retry', root], {
+        timeout: 10000,
+      }),
+      execute(process.execPath, [join(bundleRoot, 'client.mjs'), path, 'retry', root], {
+        timeout: 10000,
+      }),
+    ]);
+    const outcomes = results.map((result) => JSON.parse(result.stdout));
+    expect(outcomes.filter((result) => result.grant)).toHaveLength(1);
+    expect(outcomes.filter((result) => result.code === 'E_JOB_NOT_RECLAIMABLE')).toHaveLength(1);
+    expect(native.prepare('SELECT * FROM retry_history').all()).toHaveLength(1);
+    expect(
+      native
+        .prepare("SELECT status,attempts,fencing_epoch FROM background_jobs WHERE id='job'")
+        .get(),
+    ).toMatchObject({ status: 'running', attempts: 2, fencing_epoch: 2 });
   });
 });
 
