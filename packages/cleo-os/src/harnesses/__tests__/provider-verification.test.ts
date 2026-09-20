@@ -43,6 +43,7 @@ async function invocation(script: string): Promise<ProviderVerificationInvocatio
     'AGENTS_HOME',
     'CLAUDE_CONFIG_DIR',
     'CODEX_HOME',
+    'KIMI_CODE_HOME',
     'KIMI_HOME',
     'KIMI_CONFIG_DIR',
   ]) {
@@ -173,6 +174,13 @@ describe.skipIf(process.platform === 'win32')('bounded external provider observa
     expect(result.diagnostics.join(' ')).toContain(
       'cannot establish whether an in-flight CLEO mutation committed',
     );
+  });
+
+  it('rejects an escaped supported Kimi Code home before launch', async () => {
+    const input = await invocation("process.stdout.write('must not run');");
+    input.provider = 'kimi';
+    input.environment = { ...input.environment, KIMI_CODE_HOME: tmpdir() };
+    await expect(runProviderVerification(input)).rejects.toThrow('Writable root KIMI_CODE_HOME');
   });
 
   it('rejects a writable-root symlink escape before launch', async () => {

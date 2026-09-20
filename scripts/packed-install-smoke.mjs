@@ -98,6 +98,7 @@ export function packedEnvironment(root) {
     AGENTS_HOME: 'agents',
     CLAUDE_CONFIG_DIR: 'claude',
     CODEX_HOME: 'codex',
+    KIMI_CODE_HOME: 'kimi-code',
     KIMI_HOME: 'kimi',
     KIMI_CONFIG_DIR: 'kimi/config',
     OPENCODE_CONFIG_DIR: 'opencode',
