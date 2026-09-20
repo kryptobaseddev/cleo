@@ -7,6 +7,9 @@
 
 import type { GraphAnalysisCapability, GraphFileRole } from './graph.js';
 import type {
+  BackgroundJobPageCursor,
+  BackgroundJobPageQuery,
+  BackgroundJobPageScope,
   BackgroundJobStatus,
   JobFinalizationResult,
   OperationExecutionIdentity,
@@ -419,6 +422,75 @@ export interface KnowledgeRepairInspection {
   ledgerTotal: number;
   /** Whether this response contains the complete retained lifecycle ledger. */
   ledgerComplete: boolean;
+}
+
+/** Candidate scan options; knowledge repair operation is fixed by the service. */
+export type KnowledgeRepairInventoryQuery = Omit<BackgroundJobPageQuery, 'operation'>;
+
+/** Authenticated proposal identity with an observed job state, not a verified current receipt. */
+export interface KnowledgeRepairInventoryEntry {
+  /** Durable job to inspect; never inferred from a latest timestamp. */
+  jobId: string;
+  /** Immutable proposal/retry identity. */
+  proposalId: string;
+  /** Digest of the exact retained proposal bytes. */
+  proposalHash: string;
+  /** Immutable original proposal actor, independently validated. */
+  actor: string;
+  /** Mutable claimant label, separate from the proposal principal. */
+  claimedBy: string | null;
+  /** Observed lifecycle status; complete does not imply effects remain applied. */
+  status: BackgroundJobStatus;
+  /** Original submission timestamp, unaffected by claims or retries. */
+  submittedAt: string;
+  /** Number of issued attempt fences; prior outcomes remain in the inspection ledger. */
+  attempts: number;
+  /** Current fence epoch, without granting write authority. */
+  fencingEpoch: number;
+  /** Current lease deadline; expiry alone is not a failed outcome. */
+  leaseExpiresAt: number | null;
+  /** Cancellation request time, separate from terminal cancellation or rollback. */
+  cancellationRequestedAt: number | null;
+  /** Required next check before interpreting current effects or historical receipts. */
+  receiptVerification: 'inspection-required';
+  /** Exact existing CLI argument vector, invoked from the captured project root. */
+  inspectArgv: string[];
+}
+
+/** Unverifiable in-page evidence, retained as an explicit partial result. */
+export interface KnowledgeRepairInventoryDiagnostic {
+  /** Candidate identity whose bytes remain untouched. */
+  jobId: string;
+  /** Typed diagnostic category. */
+  code: string;
+  /** Reason authentication or lifecycle decoding was incomplete. */
+  message: string;
+}
+
+/** Bounded standalone durable repair discovery, independent of a live executor. */
+export interface KnowledgeRepairInventory {
+  /** Current means this candidate page was authenticated, not that every repair succeeded. */
+  status: 'current' | 'partial';
+  /** Exact immutable caller and query binding. */
+  scope: BackgroundJobPageScope;
+  /** Matching authenticated proposals, with observed lifecycle and inspection arguments. */
+  entries: KnowledgeRepairInventoryEntry[];
+  /** Explicit corrupt or unverified in-page records. */
+  diagnostics: KnowledgeRepairInventoryDiagnostic[];
+  /** Candidates examined, including nonmatching principals and diagnostics. */
+  scannedCount: number;
+  /** Authenticated candidates excluded because their original actor differs. */
+  excludedActorCount: number;
+  /** More storage candidates were observed; matching population remains unknown. */
+  hasMoreCandidates: boolean;
+  /** Continue after the last scanned candidate, even if entries is empty. */
+  nextCursor: BackgroundJobPageCursor | null;
+  /** No unbounded principal population count is performed. */
+  matchingTotal: null;
+  /** Each page is independently observed; concurrent writes can affect later pages. */
+  observation: 'per-page-snapshot';
+  /** Attempts/receipts are preserved and accessible by each entry's inspection command. */
+  history: 'retained-inspection-required';
 }
 
 /** Durable cancellation request plus actual observed state, not a rollback claim. */
