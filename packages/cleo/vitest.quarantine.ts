@@ -106,7 +106,6 @@ export const CLEO_TEST_QUARANTINE: readonly string[] = [
   'packages/cleo/src/dispatch/domains/__tests__/memory-llm-status.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/orchestrate-handoff.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/orchestrate.test.ts',
-  'packages/cleo/src/dispatch/domains/__tests__/pipeline-manifest.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/pipeline.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/registry-parity.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/release.test.ts',

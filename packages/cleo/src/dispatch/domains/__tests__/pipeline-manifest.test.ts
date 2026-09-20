@@ -2,11 +2,9 @@
  * Pipeline Domain — Manifest Operations (Post-Cutover)
  *
  * Tests that the PipelineHandler correctly delegates manifest.* operations
- * through the dispatch/lib/engine.js barrel to pipeline-manifest functions.
+ * through the runtime gateway to canonical pipeline-manifest functions.
  *
- * Updated for T5671: handler imports from dispatch/lib/engine.js, not
- * directly from core/memory/pipeline-manifest-sqlite.js. manifest.pending
- * was removed from the handler.
+ * The gateway dependency is mocked at its actual package boundary.
  *
  * @task T5241
  * @epic T5149
@@ -14,8 +12,9 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock engine functions — handler imports everything from dispatch/lib/engine.js
-vi.mock('../../lib/engine.js', () => ({
+// Mock the runtime gateway consumed by the handler.
+vi.mock('@cleocode/runtime/gateway', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/runtime/gateway')>()),
   lifecycleStatus: vi.fn(),
   lifecycleHistory: vi.fn(),
   lifecycleCheck: vi.fn(),
@@ -70,7 +69,7 @@ import {
   pipelineManifestList,
   pipelineManifestShow,
   pipelineManifestStats,
-} from '../../lib/engine.js';
+} from '@cleocode/runtime/gateway';
 import { PipelineHandler } from '../pipeline.js';
 
 describe('PipelineHandler manifest operations', () => {
@@ -155,6 +154,53 @@ describe('PipelineHandler manifest operations', () => {
         total: 2,
       });
       expect(pipelineManifestList).toHaveBeenCalled();
+    });
+
+    it('preserves structured conflict evidence instead of dropping diagnostic details', async () => {
+      const error = {
+        code: 'E_MANIFEST_ID_CONFLICT',
+        message: 'Stored histories conflict; inspect both sources before repair.',
+        details: {
+          entryId: 'R001',
+          databasePath: '/synthetic/project/.cleo/cleo.db',
+          candidates: [
+            {
+              table: 'docs_pipeline_manifest',
+              payload: { content: 'Current evidence' },
+              sha256: 'current-hash',
+            },
+            {
+              table: 'pipeline_manifest',
+              payload: { content: 'Historical evidence' },
+              sha256: 'historical-hash',
+            },
+          ],
+        },
+      };
+      vi.mocked(pipelineManifestList).mockResolvedValue({ success: false, error });
+      const result = await handler.query('manifest.list', {});
+      expect(result.success).toBe(false);
+      expect(result.error).toEqual(error);
+      expect(result.data).toBeUndefined();
+    });
+
+    it('preserves database and table provenance on successful history retrieval', async () => {
+      const entries = [
+        {
+          id: 'R001',
+          provenance: {
+            databasePath: '/synthetic/project/.cleo/cleo.db',
+            tables: ['docs_pipeline_manifest', 'pipeline_manifest'],
+          },
+        },
+      ];
+      vi.mocked(pipelineManifestList).mockResolvedValue({
+        success: true,
+        data: { entries, total: 1, filtered: 1 },
+      });
+      const result = await handler.query('manifest.list', {});
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({ entries, total: 1, filtered: 1 });
     });
 
     it('should pass filter params', async () => {
@@ -309,6 +355,35 @@ describe('PipelineHandler manifest operations', () => {
       expect(result.error?.code).toBe('E_INVALID_INPUT');
       expect(result.error?.message).toContain('beforeDate');
     });
+  });
+
+  it.each([
+    ['query', 'manifest.show', pipelineManifestShow, { entryId: 'R001' }],
+    ['query', 'manifest.find', pipelineManifestFind, { query: 'evidence' }],
+    ['query', 'manifest.stats', pipelineManifestStats, {}],
+    ['mutate', 'manifest.append', pipelineManifestAppend, { entry: { id: 'R001' } }],
+    ['mutate', 'manifest.archive', pipelineManifestArchive, { beforeDate: '2026-01-01' }],
+  ] as const)('preserves structured failures for %s %s', async (gateway, operation, mocked, params) => {
+    const error = {
+      code: 'E_MANIFEST_LEGACY_REPAIR_REQUIRED',
+      message: 'Historical evidence needs an explicit guarded repair.',
+      details: {
+        entries: [
+          {
+            entryId: 'R001',
+            provenance: {
+              databasePath: '/synthetic/project/.cleo/cleo.db',
+              tables: ['pipeline_manifest'],
+            },
+          },
+        ],
+      },
+    };
+    vi.mocked(mocked).mockResolvedValue({ success: false, error });
+    const result = await handler[gateway](operation, params);
+    expect(result.success).toBe(false);
+    expect(result.error).toEqual(error);
+    expect(result.data).toBeUndefined();
   });
 
   // =========================================================================
