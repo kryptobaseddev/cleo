@@ -176,9 +176,9 @@ export async function orchestrateStatus(
   epicId?: string,
   projectRoot?: string,
 ): Promise<EngineResult> {
-  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
-  return worktreeScope.run(scope, async () => {
-    try {
+  try {
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
       const root = scope.worktreeRoot;
       const tasks = await loadTasks(root);
 
@@ -197,10 +197,10 @@ export async function orchestrateStatus(
       // No epicId - return overall status
       const status = computeOverallStatus(tasks);
       return { success: true, data: status };
-    } catch (err: unknown) {
-      return engineError('E_GENERAL', (err as Error).message);
-    }
-  });
+    });
+  } catch (err: unknown) {
+    return engineError('E_GENERAL', (err as Error).message);
+  }
 }
 
 /**
@@ -217,20 +217,20 @@ export async function orchestrateAnalyze(
   projectRoot?: string,
   mode?: string,
 ): Promise<EngineResult> {
-  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
-  return worktreeScope.run(scope, async () => {
-    // Mode: critical-path (delegates to critical path engine)
-    if (mode === 'critical-path') {
-      const { orchestrateCriticalPath } = await import('./lifecycle-ops.js');
-      return orchestrateCriticalPath(scope.worktreeRoot);
-    }
+  try {
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      // Mode: critical-path (delegates to critical path engine)
+      if (mode === 'critical-path') {
+        const { orchestrateCriticalPath } = await import('./lifecycle-ops.js');
+        return orchestrateCriticalPath(scope.worktreeRoot);
+      }
 
-    // Default mode: analysis (requires epicId)
-    if (!epicId) {
-      return engineError('E_INVALID_INPUT', 'epicId is required for standard analysis');
-    }
+      // Default mode: analysis (requires epicId)
+      if (!epicId) {
+        return engineError('E_INVALID_INPUT', 'epicId is required for standard analysis');
+      }
 
-    try {
       const root = scope.worktreeRoot;
       const accessor = await getTaskAccessor(root);
       const result = await analyzeEpic(epicId, root, accessor);
@@ -252,11 +252,11 @@ export async function orchestrateAnalyze(
           dependencyGraph: depAnalysis.dependencyGraph,
         },
       };
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? 'E_GENERAL';
-      return engineError(code, (err as Error).message);
-    }
-  });
+    });
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code ?? 'E_GENERAL';
+    return engineError(code, (err as Error).message);
+  }
 }
 
 /**
@@ -316,13 +316,13 @@ export async function orchestrateReady(
   projectRoot?: string,
   opts?: OrchestrateReadyOptions,
 ): Promise<EngineResult> {
-  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
-  return worktreeScope.run(scope, async () => {
-    if (!epicId) {
-      return engineError('E_INVALID_INPUT', 'epicId is required');
-    }
+  try {
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      if (!epicId) {
+        return engineError('E_INVALID_INPUT', 'epicId is required');
+      }
 
-    try {
       const root = scope.worktreeRoot;
       // T929: verify the epic exists before computing the ready-set so that a
       // nonexistent epicId returns E_NOT_FOUND (exit 4) instead of success:{total:0}.
@@ -542,11 +542,11 @@ export async function orchestrateReady(
           ...(depsWarning !== undefined && { depsWarning }),
         },
       };
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? 'E_GENERAL';
-      return engineError(code, (err as Error).message);
-    }
-  });
+    });
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code ?? 'E_GENERAL';
+    return engineError(code, (err as Error).message);
+  }
 }
 
 /**
@@ -558,13 +558,13 @@ export async function orchestrateReady(
  * @task T4478
  */
 export async function orchestrateNext(epicId: string, projectRoot?: string): Promise<EngineResult> {
-  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
-  return worktreeScope.run(scope, async () => {
-    if (!epicId) {
-      return engineError('E_INVALID_INPUT', 'epicId is required');
-    }
+  try {
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      if (!epicId) {
+        return engineError('E_INVALID_INPUT', 'epicId is required');
+      }
 
-    try {
       const root = scope.worktreeRoot;
       const accessor = await getTaskAccessor(root);
       const nextTask = await getNextTask(epicId, root, accessor);
@@ -595,11 +595,11 @@ export async function orchestrateNext(epicId: string, projectRoot?: string): Pro
           totalReady: ready.length,
         },
       };
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? 'E_GENERAL';
-      return engineError(code, (err as Error).message);
-    }
-  });
+    });
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code ?? 'E_GENERAL';
+    return engineError(code, (err as Error).message);
+  }
 }
 
 /**
@@ -653,13 +653,13 @@ export async function orchestrateWaves(
   projectRoot?: string,
   _opts?: OrchestrateWavesOptions,
 ): Promise<EngineResult> {
-  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
-  return worktreeScope.run(scope, async () => {
-    if (!epicId) {
-      return engineError('E_INVALID_INPUT', 'epicId is required');
-    }
+  try {
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      if (!epicId) {
+        return engineError('E_INVALID_INPUT', 'epicId is required');
+      }
 
-    try {
       const root = scope.worktreeRoot;
       const accessor = await getTaskAccessor(root);
 
@@ -764,11 +764,11 @@ export async function orchestrateWaves(
           ...(skippedNested.length > 0 && { sagaNestedSkipped: skippedNested }),
         },
       };
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? 'E_GENERAL';
-      return engineError(code, (err as Error).message);
-    }
-  });
+    });
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code ?? 'E_GENERAL';
+    return engineError(code, (err as Error).message);
+  }
 }
 
 /**
@@ -796,9 +796,9 @@ export async function orchestrateContext(
   epicId?: string,
   projectRoot?: string,
 ): Promise<EngineResult> {
-  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
-  return worktreeScope.run(scope, async () => {
-    try {
+  try {
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
       const root = scope.worktreeRoot;
       const tasks = await loadTasks(root);
 
@@ -809,10 +809,10 @@ export async function orchestrateContext(
 
       const contextData = estimateContext(taskCount, root, epicId);
       return { success: true, data: contextData };
-    } catch (err: unknown) {
-      return engineError('E_GENERAL', (err as Error).message);
-    }
-  });
+    });
+  } catch (err: unknown) {
+    return engineError('E_GENERAL', (err as Error).message);
+  }
 }
 
 /**
@@ -827,21 +827,21 @@ export async function orchestrateValidate(
   taskId: string,
   projectRoot?: string,
 ): Promise<EngineResult> {
-  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
-  return worktreeScope.run(scope, async () => {
-    if (!taskId) {
-      return engineError('E_INVALID_INPUT', 'taskId is required');
-    }
+  try {
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      if (!taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required');
+      }
 
-    try {
       const root = scope.worktreeRoot;
       const accessor = await getTaskAccessor(root);
       const result = await validateSpawnReadiness(taskId, root, accessor);
       return { success: true, data: result };
-    } catch (err: unknown) {
-      return engineError('E_VALIDATION', (err as Error).message);
-    }
-  });
+    });
+  } catch (err: unknown) {
+    return engineError('E_VALIDATION', (err as Error).message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -876,13 +876,13 @@ export async function orchestrateReport(
   projectRoot?: string,
   params?: OrchestrateReportParams,
 ): Promise<EngineResult> {
-  const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
-  return worktreeScope.run(scope, async () => {
-    if (!epicId) {
-      return engineError('E_INVALID_INPUT', 'epicId is required');
-    }
+  try {
+    const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
+    return await worktreeScope.run(scope, async () => {
+      if (!epicId) {
+        return engineError('E_INVALID_INPUT', 'epicId is required');
+      }
 
-    try {
       const root = scope.worktreeRoot;
       const tasks = await loadTasks(root);
 
@@ -1075,9 +1075,9 @@ export async function orchestrateReport(
           },
         },
       };
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? 'E_GENERAL';
-      return engineError(code, (err as Error).message);
-    }
-  });
+    });
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code ?? 'E_GENERAL';
+    return engineError(code, (err as Error).message);
+  }
 }

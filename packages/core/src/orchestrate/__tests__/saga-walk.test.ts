@@ -38,6 +38,7 @@ import { createTask, orchestrateReady, orchestrateWaves, sagas } from '@cleocode
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureProjectScope, worktreeScope } from '../../project-scope.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { getNativeTasksDb } from '../../store/sqlite.js';
 import { loadTasks, orchestrateStatus } from '../query-ops.js';
@@ -439,6 +440,32 @@ describe('orchestrate query project ownership and diagnostics', () => {
     expect(original.map((task) => task.id)).toContain('T-S');
     expect(explicit.map((task) => task.id)).toContain('T-S');
     expect(empty).toEqual([]);
+  });
+
+  it('returns the established query error envelope when inherited authority has expired', async () => {
+    const controller = new AbortController();
+    const context = createOperationExecutionContext(
+      {
+        projectId: 'cancelled-query-fixture',
+        projectRoot: TEST_ROOT,
+        actor: 'test',
+        operation: 'orchestrate.status',
+        idempotencyKey: 'expired-query',
+      },
+      { signal: controller.signal },
+    );
+    controller.abort();
+    try {
+      const scope = { worktreeRoot: TEST_ROOT, projectHash: 'fixture', execution: context };
+      const result = await worktreeScope.run(scope, () => orchestrateStatus(undefined, TEST_ROOT));
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toMatch(/cancel|abort/i);
+      await expect(worktreeScope.run(scope, () => loadTasks(TEST_ROOT))).rejects.toThrow(
+        /cancel|abort/i,
+      );
+    } finally {
+      context.close();
+    }
   });
 
   it('surfaces a real storage read failure instead of reporting an empty healthy project', async () => {
