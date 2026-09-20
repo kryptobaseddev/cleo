@@ -658,6 +658,213 @@ describe('authentic durable pending work (T12265)', () => {
   });
 });
 
+describe('shared invocation budget for pending submission and claim', () => {
+  it.each([
+    'defer',
+    'claim',
+  ] as const)('bounds actual writer contention during %s without committing new ownership', async (phase) => {
+    const store = new DurableJobStore(db, { projectId: request.projectId });
+    if (phase === 'claim') store.defer('bounded-job', 'docs.projection', Date.now(), request);
+    native.exec('PRAGMA busy_timeout=3000');
+    const child = execFile(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        "import { DatabaseSync } from 'node:sqlite';const db=new DatabaseSync(process.argv[1]);db.exec('BEGIN IMMEDIATE');process.stdout.write('locked');setTimeout(()=>{db.exec('ROLLBACK');db.close()},500);",
+        path,
+      ],
+      { timeout: 5000 },
+    );
+    const finished = new Promise<void>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', (code) =>
+        code === 0 ? resolve() : reject(new Error(`Writer exit ${code}`)),
+      );
+    });
+    if (!child.stdout) throw new Error('Missing writer readiness stream');
+    await new Promise<void>((resolve, reject) => {
+      child.stdout?.once('data', () => resolve());
+      child.once('error', reject);
+    });
+    const context = createOperationExecutionContext(
+      {
+        projectId: request.projectId,
+        projectRoot: root,
+        actor: 'fixture',
+        operation: 'docs.projection',
+        idempotencyKey: request.idempotencyKey,
+      },
+      { budgetMs: 30 },
+    );
+    const startedAt = Date.now();
+    try {
+      expect(() =>
+        phase === 'claim'
+          ? store.claim('bounded-job', Date.now(), undefined, context)
+          : store.defer('bounded-job', 'docs.projection', Date.now(), request, context),
+      ).toThrow();
+      expect(Date.now() - startedAt).toBeLessThan(300);
+      expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(3000);
+      if (phase === 'claim')
+        expect(store.get('bounded-job')).toMatchObject({ status: 'pending', attempts: 0 });
+      else expect(store.get('bounded-job')).toBeUndefined();
+    } finally {
+      context.close();
+      await finished;
+    }
+  });
+
+  it.each([
+    'defer',
+    'claim',
+  ] as const)('refuses expired %s before any BEGIN and retains the original deadline', (phase) => {
+    const store = new DurableJobStore(db, { projectId: request.projectId });
+    if (phase === 'claim') store.defer('bounded-job', 'docs.projection', Date.now(), request);
+    const context = createOperationExecutionContext(
+      {
+        projectId: request.projectId,
+        projectRoot: root,
+        actor: 'fixture',
+        operation: 'docs.projection',
+        idempotencyKey: request.idempotencyKey,
+      },
+      { budgetMs: 0 },
+    );
+    const run = vi.spyOn(db, 'run');
+    try {
+      expect(() =>
+        phase === 'claim'
+          ? store.claim('bounded-job', Date.now(), undefined, context)
+          : store.defer('bounded-job', 'docs.projection', Date.now(), request, context),
+      ).toThrow();
+      expect(run).not.toHaveBeenCalled();
+      if (phase === 'claim')
+        expect(store.get('bounded-job')).toMatchObject({ status: 'pending', attempts: 0 });
+      else expect(store.get('bounded-job')).toBeUndefined();
+    } finally {
+      context.close();
+    }
+  });
+
+  it.each([
+    'defer',
+    'claim',
+  ] as const)('rolls back %s when cancellation or deadline arrives before commit', (phase) => {
+    native.exec('PRAGMA busy_timeout=3000');
+    for (const stop of ['cancel', 'deadline'] as const) {
+      const id = `bounded-${stop}`;
+      const submission = { ...request, idempotencyKey: id };
+      const store = new DurableJobStore(db, { projectId: request.projectId });
+      if (phase === 'claim') store.defer(id, 'docs.projection', Date.now(), submission);
+      const context = createOperationExecutionContext({
+        projectId: request.projectId,
+        projectRoot: root,
+        actor: 'fixture',
+        operation: 'docs.projection',
+        idempotencyKey: id,
+      });
+      native.function('stop_invocation', () => {
+        if (stop === 'cancel') context.close();
+        else {
+          vi.useFakeTimers();
+          vi.setSystemTime(context.deadlineAt + 1);
+        }
+        return 0;
+      });
+      native.exec(
+        `CREATE TEMP TRIGGER stop_invocation_trigger AFTER ${phase === 'claim' ? 'UPDATE OF owner_id' : 'INSERT'} ON background_jobs BEGIN SELECT stop_invocation(); END`,
+      );
+      try {
+        expect(() =>
+          phase === 'claim'
+            ? store.claim(id, Date.now(), undefined, context)
+            : store.defer(id, 'docs.projection', Date.now(), submission, context),
+        ).toThrow();
+        if (phase === 'claim')
+          expect(store.get(id)).toMatchObject({ status: 'pending', attempts: 0 });
+        else expect(store.get(id)).toBeUndefined();
+        expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(3000);
+      } finally {
+        context.close();
+        vi.useRealTimers();
+        native.exec('DROP TRIGGER stop_invocation_trigger');
+      }
+    }
+  });
+
+  it.each([
+    'defer',
+    'claim',
+  ] as const)('reports committed %s despite cancellation observed after commit', (phase) => {
+    const store = new DurableJobStore(db, { projectId: request.projectId });
+    if (phase === 'claim') store.defer('bounded-job', 'docs.projection', Date.now(), request);
+    const context = createOperationExecutionContext({
+      projectId: request.projectId,
+      projectRoot: root,
+      actor: 'fixture',
+      operation: 'docs.projection',
+      idempotencyKey: request.idempotencyKey,
+    });
+    const run = db.run.bind(db);
+    vi.spyOn(db, 'run').mockImplementation((query) => {
+      const result = run(query);
+      const fresh = new DatabaseSync(path, { readOnly: true });
+      try {
+        if (
+          fresh.prepare("SELECT status FROM background_jobs WHERE id='bounded-job'").get()
+            ?.status === (phase === 'claim' ? 'running' : 'pending')
+        )
+          context.close();
+      } finally {
+        fresh.close();
+      }
+      return result;
+    });
+    try {
+      const result =
+        phase === 'claim'
+          ? store.claim('bounded-job', Date.now(), undefined, context)
+          : store.defer('bounded-job', 'docs.projection', Date.now(), request, context);
+      expect(result).toBeDefined();
+      expect(context.signal.aborted).toBe(true);
+      expect(store.get('bounded-job')).toMatchObject({
+        status: phase === 'claim' ? 'running' : 'pending',
+        attempts: phase === 'claim' ? 1 : 0,
+      });
+    } finally {
+      context.close();
+    }
+  });
+
+  it.each([
+    'defer',
+    'claim',
+  ] as const)('rejects a mismatched %s invocation without borrowing its identity', (phase) => {
+    const store = new DurableJobStore(db, { projectId: request.projectId });
+    if (phase === 'claim') store.defer('bounded-job', 'docs.projection', Date.now(), request);
+    const context = createOperationExecutionContext({
+      projectId: 'other-project',
+      projectRoot: root,
+      actor: 'fixture',
+      operation: 'docs.projection',
+      idempotencyKey: request.idempotencyKey,
+    });
+    try {
+      expect(() =>
+        phase === 'claim'
+          ? store.claim('bounded-job', Date.now(), undefined, context)
+          : store.defer('bounded-job', 'docs.projection', Date.now(), request, context),
+      ).toThrow('Invocation differs');
+      if (phase === 'claim')
+        expect(store.get('bounded-job')).toMatchObject({ status: 'pending', attempts: 0 });
+      else expect(store.get('bounded-job')).toBeUndefined();
+    } finally {
+      context.close();
+    }
+  });
+});
+
 describe('domain writes fenced by persisted job authority', () => {
   function prepare() {
     const store = new DurableJobStore(db, { projectId: request.projectId, actor: 'fixture' });
