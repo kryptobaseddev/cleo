@@ -16,6 +16,8 @@
  * @adr resource-governor-never-oom-architecture §3.4
  */
 
+import type { OperationExecutionContext } from './jobs.js';
+
 /**
  * Governor arbitration mode. Mirrors the writer-lease mode shape
  * (`writer-lease.ts` {@link LeaseMode}).
@@ -132,3 +134,7 @@ export interface SystemdControlContext {
    */
   busAddress?: string;
 }
+
+/** Original execution deadline and optional cancellation observed at process-launch boundaries. */
+export type ProcessLaunchExecution = Pick<OperationExecutionContext, 'deadlineAt'> &
+  Partial<Pick<OperationExecutionContext, 'signal'>>;

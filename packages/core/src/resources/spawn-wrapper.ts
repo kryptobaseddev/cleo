@@ -69,7 +69,10 @@ import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import type { ParserExecutionPort } from '@cleocode/contracts';
-import type { SystemdControlContext } from '@cleocode/contracts/resource-governor';
+import type {
+  ProcessLaunchExecution,
+  SystemdControlContext,
+} from '@cleocode/contracts/resource-governor';
 import { registerTeardownAbort } from '../teardown-signal.js';
 
 // ---------------------------------------------------------------------------
@@ -117,6 +120,10 @@ export interface SliceResourceConfig {
  * Options for {@link buildSpawnArgs}.
  */
 export interface BuildSpawnArgsOptions {
+  /** Original caller deadline/cancellation, shared through probes and launch.
+   * @defaultValue No additional execution deadline; legacy probe ceilings still apply.
+   */
+  execution?: ProcessLaunchExecution;
   /**
    * Explicit local manager connection, separate from the child's isolated environment.
    * Only the launcher receives these path/address overrides; original child values
@@ -269,9 +276,22 @@ function managerEnvironment(
   };
 }
 
+/** Check the original launch boundary without claiming preemption of synchronous calls. */
+function launchRemaining(execution?: ProcessLaunchExecution): number {
+  execution?.signal?.throwIfAborted();
+  if (!execution) return 1000;
+  if (!Number.isSafeInteger(execution.deadlineAt))
+    throw new RangeError('Process deadline must be an absolute integer timestamp');
+  const remaining = execution.deadlineAt - Date.now();
+  if (remaining <= 0)
+    throw new Error('E_PROCESS_DEADLINE: original process launch deadline expired');
+  return remaining;
+}
+
 /**
  * Check whether the selected local user manager can launch transient scopes.
  * @param context - Explicit manager context; omitted callers retain ambient discovery.
+ * @param execution - Original deadline/cancellation; each synchronous probe uses its remaining budget.
  * @returns Whether systemd binaries and the selected user bus answered the bounded probes.
  * @remarks Availability does not prove that a later scope or resource bound was established.
  * Probe results are keyed by platform, executable search path and manager connection,
@@ -281,7 +301,11 @@ function managerEnvironment(
  * const available = hasSystemdRun({ runtimeDirectory: '/run/user/1000' });
  * ```
  */
-export function hasSystemdRun(context?: SystemdControlContext): boolean {
+export function hasSystemdRun(
+  context?: SystemdControlContext,
+  execution?: ProcessLaunchExecution,
+): boolean {
+  launchRemaining(execution);
   const env = managerEnvironment(context, process.env);
   if (_forcedSystemdRunAvailable !== undefined) return _forcedSystemdRunAvailable;
   const key = JSON.stringify([
@@ -294,15 +318,21 @@ export function hasSystemdRun(context?: SystemdControlContext): boolean {
   if (cached !== undefined) return cached;
   let available = false;
   if (process.platform === 'linux' && (env['DBUS_SESSION_BUS_ADDRESS'] || env['XDG_RUNTIME_DIR'])) {
-    const probe = spawnSync('systemd-run', ['--version'], { env, stdio: 'ignore', timeout: 1000 });
+    const probe = spawnSync('systemd-run', ['--version'], {
+      env,
+      stdio: 'ignore',
+      timeout: Math.min(1000, launchRemaining(execution)),
+    });
+    launchRemaining(execution);
     const bus =
       probe.status === 0
         ? spawnSync('systemctl', ['--user', 'show-environment'], {
             env,
             stdio: 'ignore',
-            timeout: 1000,
+            timeout: Math.min(1000, launchRemaining(execution)),
           })
         : null;
+    launchRemaining(execution);
     available = probe.status === 0 && bus?.status === 0;
   }
   // Bound contexts retained by long-lived callers with many synthetic workspaces.
@@ -410,7 +440,7 @@ export function buildSpawnArgs(
 ): SpawnArgsBuildResult {
   const { scopeClass = 'agent', scopeId, resources = {}, noCoreFile = true } = opts;
 
-  if (!hasSystemdRun(opts.systemdControl)) {
+  if (!hasSystemdRun(opts.systemdControl, opts.execution)) {
     if (!_pgidDemotionLogged) {
       _pgidDemotionLogged = true;
       process.stderr.write(
@@ -516,9 +546,16 @@ export function spawnWrapped(
   spawnOpts: Parameters<typeof spawn>[2] = {},
   wrapOpts: BuildSpawnArgsOptions = {},
 ): SpawnWrappedResult {
-  const control = wrapOpts.systemdControl;
+  const execution = wrapOpts.execution ? { ...wrapOpts.execution } : undefined;
+  const options = {
+    ...wrapOpts,
+    execution,
+    systemdControl: wrapOpts.systemdControl ? { ...wrapOpts.systemdControl } : undefined,
+  };
+  launchRemaining(execution);
+  const control = options.systemdControl;
   const childEnvironment = spawnOpts?.env ?? process.env;
-  const controlled = control !== undefined && hasSystemdRun(control);
+  const controlled = control !== undefined && hasSystemdRun(control, execution);
   // Only non-secret manager path/address values enter the env shim's argv.
   // Arbitrary child environment (including credentials) stays in the environment.
   const restored: string[] = [];
@@ -534,8 +571,9 @@ export function spawnWrapped(
   const built = buildSpawnArgs(
     controlled ? 'env' : command,
     controlled ? [...restored, command, ...args] : args,
-    wrapOpts,
+    options,
   );
+  launchRemaining(execution);
   const child = spawn(
     built.command,
     built.args,

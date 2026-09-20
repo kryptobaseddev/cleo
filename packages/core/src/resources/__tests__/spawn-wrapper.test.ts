@@ -15,7 +15,7 @@
  * @epic T11992
  */
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -447,5 +447,89 @@ describe.skipIf(process.platform !== 'linux')('explicit systemd manager context'
       }
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe.skipIf(process.platform !== 'linux')('original process launch deadline', () => {
+  it('does not start a provider after a synchronous availability probe exhausts the original budget', () => {
+    const successful = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+    vi.clearAllMocks();
+    let now = 1000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    _forceSystemdRunAvailable(undefined);
+    vi.mocked(spawnSync).mockImplementation(() => {
+      now += 20;
+      return successful;
+    });
+    vi.mocked(spawn).mockImplementation(() => {
+      throw new Error('provider-started');
+    });
+    expect(() =>
+      spawnWrapped(
+        'unused-provider',
+        [],
+        {},
+        {
+          systemdControl: { runtimeDirectory: '/manager' },
+          execution: { deadlineAt: 1010 },
+        },
+      ),
+    ).toThrow('E_PROCESS_DEADLINE');
+    expect(spawn).not.toHaveBeenCalled();
+    expect(spawnSync).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(spawnSync).mock.calls[0]?.[2]?.timeout).toBe(10);
+  });
+
+  it('propagates cancellation after a probe before any second probe or provider launch', () => {
+    const successful = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+    vi.clearAllMocks();
+    const controller = new AbortController();
+    _forceSystemdRunAvailable(undefined);
+    vi.mocked(spawnSync).mockImplementation(() => {
+      controller.abort(new Error('probe-cancelled'));
+      return successful;
+    });
+    vi.mocked(spawn).mockImplementation(() => {
+      throw new Error('provider-started');
+    });
+    expect(() =>
+      spawnWrapped(
+        'unused-provider',
+        [],
+        {},
+        {
+          systemdControl: { runtimeDirectory: '/manager' },
+          execution: { deadlineAt: Date.now() + 1000, signal: controller.signal },
+        },
+      ),
+    ).toThrow('probe-cancelled');
+    expect(spawn).not.toHaveBeenCalled();
+    expect(spawnSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses remaining time for each probe and rejects expired cached/fallback launches', () => {
+    const successful = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+    vi.clearAllMocks();
+    let now = 1000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    _forceSystemdRunAvailable(undefined);
+    vi.mocked(spawnSync).mockImplementation(() => {
+      now += 4;
+      return successful;
+    });
+    expect(hasSystemdRun({ runtimeDirectory: '/manager' }, { deadlineAt: 1010 })).toBe(true);
+    expect(vi.mocked(spawnSync).mock.calls.map((call) => call[2]?.timeout)).toEqual([10, 6]);
+    now = 1010;
+    expect(() => hasSystemdRun({ runtimeDirectory: '/manager' }, { deadlineAt: 1010 })).toThrow(
+      'E_PROCESS_DEADLINE',
+    );
+    _forceSystemdRunAvailable(false);
+    vi.mocked(spawn).mockImplementation(() => {
+      throw new Error('provider-started');
+    });
+    expect(() => spawnWrapped('unused', [], {}, { execution: { deadlineAt: 1010 } })).toThrow(
+      'E_PROCESS_DEADLINE',
+    );
+    expect(spawn).not.toHaveBeenCalled();
   });
 });
