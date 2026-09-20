@@ -1946,6 +1946,17 @@ export async function runKnowledgeDoctor(
         },
         evidence,
       };
+      // Use the same complete resource images that preparation guards. Retrieval
+      // changes usage metadata outside readState; a fresh assessment must not
+      // reuse the immutable pending job whose full-row preconditions are stale.
+      proposal.id = `quarantine-${hash(
+        JSON.stringify([
+          proposal.projectId,
+          proposal.expectedRevision,
+          proposal.expectedStateHash,
+          repairResources(db, proposal, projectRoot),
+        ]),
+      ).slice(0, 24)}`;
       result.proposals.push(proposal);
       const previousAttempt = readReceipt(db, proposal.id);
       if (previousAttempt?.receipt.state === 'failed')

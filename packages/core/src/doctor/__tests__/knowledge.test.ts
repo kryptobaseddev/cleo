@@ -9,6 +9,7 @@ import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import { scanBrainGraphOrphans, scanBrainNoise } from '../../memory/brain-doctor.js';
+import { incrementCitationCounts } from '../../memory/retrieval/increment-citation-counts.js';
 import { generateProjectHash } from '../../nexus/hash.js';
 import { getSymbolFullContext } from '../../nexus/living-brain.js';
 import { DurableJobStore } from '../../store/background-jobs.js';
@@ -960,6 +961,76 @@ describe('durable sourced knowledge repair preparation', () => {
     );
     expect(state.observation.invalid_at).toBeNull();
     expect(state.receipts).toEqual([]);
+  });
+
+  it('reassesses read-touched resources with a new identity while preserving the stale attempt', async () => {
+    const pending = await prepareKnowledgeRepair(context, proposal);
+    const native = getBrainNativeDb(root)!;
+    const before = native
+      .prepare("SELECT * FROM main.brain_observations WHERE id='O-prepared'")
+      .get();
+    await incrementCitationCounts(root, ['O-prepared']);
+    const touched = native
+      .prepare("SELECT * FROM main.brain_observations WHERE id='O-prepared'")
+      .get();
+    expect(touched?.citation_count).toBe(Number(before?.citation_count) + 1);
+    expect(touched?.narrative).toBe(before?.narrative);
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      code: 'E_REPAIR_STALE',
+    });
+    const failed = persisted();
+    expect(failed.jobs[0].status).toBe('failed');
+    await expect(resumePreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      code: 'E_REPAIR_STALE',
+    });
+    expect(persisted().jobs).toEqual(failed.jobs);
+    const reassessed = await runKnowledgeDoctor(root, { dryRun: true, budgetMs: 10000 });
+    const fresh = reassessed.proposals[0]!;
+    expect(fresh.expectedStateHash).toBe(proposal.expectedStateHash);
+    expect(fresh.id).not.toBe(proposal.id);
+    expect(
+      (await runKnowledgeDoctor(root, { dryRun: true, budgetMs: 10000 })).proposals[0],
+    ).toEqual(fresh);
+    context.close();
+    context = createOperationExecutionContext(
+      { ...context.identity, idempotencyKey: fresh.id },
+      { budgetMs: 10000 },
+    );
+    const prepared = await prepareKnowledgeRepair(context, fresh);
+    expect(prepared.jobId).not.toBe(pending.jobId);
+    expect(prepared.proposal.resources[0]?.beforeHash).toBe(
+      createHash('sha256').update(JSON.stringify(touched)).digest('hex'),
+    );
+    expect((await prepareKnowledgeRepair(context, fresh)).jobId).toBe(prepared.jobId);
+    const receipt = await applyPreparedKnowledgeRepair(context, prepared.jobId);
+    expect(receipt.state).toBe('repaired');
+    expect(await applyPreparedKnowledgeRepair(context, prepared.jobId)).toEqual(receipt);
+    const after = persisted();
+    expect(after.jobs).toHaveLength(2);
+    expect(after.jobs).toContainEqual(failed.jobs[0]);
+    expect(after.attemptOutcomes).toEqual(failed.attemptOutcomes);
+    expect(after.receipts).toHaveLength(1);
+    expect(after.observation.invalid_at).not.toBeNull();
+    expect(after.observation.narrative).toBe(before?.narrative);
+  });
+
+  it('binds assessed identity to full guarded images including timestamp-only changes', async () => {
+    const db = getBrainNativeDb(root)!;
+    const initial = db
+      .prepare("SELECT updated_at FROM main.brain_observations WHERE id='O-prepared'")
+      .get();
+    db.prepare(
+      "UPDATE main.brain_observations SET updated_at='2000-01-01 00:00:00' WHERE id='O-prepared'",
+    ).run();
+    const changed = await runKnowledgeDoctor(root, { dryRun: true, budgetMs: 10000 });
+    expect(changed.stateHash).toBe(proposal.expectedStateHash);
+    expect(changed.proposals[0]?.id).not.toBe(proposal.id);
+    db.prepare("UPDATE main.brain_observations SET updated_at=? WHERE id='O-prepared'").run(
+      initial?.updated_at ?? null,
+    );
+    expect(
+      (await runKnowledgeDoctor(root, { dryRun: true, budgetMs: 10000 })).proposals[0],
+    ).toEqual(proposal);
   });
 
   it('retains original immutable inputs on exact retry and refuses conflicting key reuse', async () => {
