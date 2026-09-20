@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.19.0
+  version: 2.20.0
   lastReviewed: 2026-09-19
   stability: stable
 ---
@@ -24,6 +24,33 @@ owner decisions, reject stale proposals, verify postconditions, and record usefu
 incident learning with project/revision evidence. A failed diagnostic is not clean.
 Provider reference delivery must be verified or embedded self-contained; static
 instruction checks do not establish live Codex, Claude, or Kimi behavior.
+
+
+## Guarded knowledge repair
+
+Use `cleo doctor knowledge --dry-run` to inspect findings and sourced proposals.
+Persist reviewed JSON with `cleo doctor knowledge --prepare proposal.json --actor AGENT`.
+For each job operation, supply the original explicit actor and proposal ID:
+`cleo doctor knowledge --apply JOB --actor AGENT --proposal-id PROPOSAL`;
+replace `--apply` with `--inspect`, `--cancel`, or `--resume` for that operation.
+Inspection returns original receipts, separate rollback corrections, diagnostic
+failures, and a paged append-only ledger; use `--limit` and `--offset` until covered.
+Never copy a stored actor merely to bypass `E_REPAIR_ACTOR`.
+
+Each invocation shares one two-second default budget across assessment, preparation,
+locks, application and verification (`--budget-ms` permits an explicit override).
+A later explicit apply/resume starts a new bounded attempt; it does not renew an
+expired attempt or bypass immutable resource checks. Synchronous SQLite is cooperative,
+not timer-preemptible. On failure, retain any `prepared` job and `attemptFailure`
+including pending finalization. Cancellation requests do not reverse committed effects.
+Resume retains failed/cancelled outcomes and uncertain expired-running history;
+live owners cannot be stolen and completed effects are not reapplied.
+
+Recover via `cleo doctor knowledge --rollback RECEIPT --actor AGENT --proposal-id NEW_ID`.
+Inspect both receipts: unrelated changes are preserved, conflicting affected-row edits
+refuse rollback, and stale proposals require fresh sourced assessment. `--resolve FILE`
+applies reviewed input through the same lifecycle; `--fix --actor AGENT` handles bounded
+confirmed stubs. `cleo doctor repair` retains its separate database-recovery semantics.
 
 
 <!-- thin-pointer: full protocol is in CLEO-INJECTION.md (T9148) -->
