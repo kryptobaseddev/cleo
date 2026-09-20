@@ -220,6 +220,7 @@ export const doctorKnowledgeSubcommand = defineCommand({
             prepared: pending,
             attemptFailure:
               error instanceof KnowledgeRepairError ? error.attemptFailure : undefined,
+            recoveryState: error instanceof KnowledgeRepairError ? error.recoveryState : undefined,
             deadlineAt: context?.deadlineAt,
             elapsedMs: Date.now() - startedAt,
           },

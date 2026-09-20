@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.20.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.20.1 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -16,7 +16,7 @@ Knowledge repair: `cleo doctor knowledge --dry-run`, then `--prepare FILE --acto
 Use `--apply JOB`, `--inspect JOB`, `--cancel JOB`, or `--resume JOB` with the original explicit `--actor AGENT --proposal-id PROPOSAL`; never borrow stored actor attribution.
 Verify receipts and paged lifecycle evidence (`--limit`/`--offset`); retain diagnostic failures and `prepared`/`attemptFailure` recovery details. Cancellation is a request, not rollback.
 Each invocation shares a default 2000ms budget (`--budget-ms`); a later explicit attempt is fresh, without renewing an active deadline or preempting synchronous SQLite.
-Resume preserves prior outcomes and uncertain expired attempts; live owners remain fenced. Stale source requires reassessment.
+Resume preserves prior outcomes and uncertain expired attempts; live owners remain fenced. Stale source requires reassessment. After rollback, apply/resume return `E_REPAIR_ROLLED_BACK` with original and rollback receipts in `recoveryState`, not current repaired effects.
 Use `--rollback RECEIPT --actor AGENT --proposal-id NEW_ID` for guarded recovery: preserve unrelated changes, refuse affected-row conflicts, inspect original and rollback receipts. `cleo doctor repair` remains database recovery.
 
 Use `cleo <command> --help` and the `ct-cleo` skill for command details.

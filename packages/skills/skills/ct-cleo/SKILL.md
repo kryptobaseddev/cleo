@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.20.0
+  version: 2.20.1
   lastReviewed: 2026-09-19
   stability: stable
 ---
@@ -45,6 +45,8 @@ not timer-preemptible. On failure, retain any `prepared` job and `attemptFailure
 including pending finalization. Cancellation requests do not reverse committed effects.
 Resume retains failed/cancelled outcomes and uncertain expired-running history;
 live owners cannot be stolen and completed effects are not reapplied.
+After rollback, apply/resume reject with `E_REPAIR_ROLLED_BACK`; inspect
+`recoveryState` for the original historical receipt and separate rollback receipt.
 
 Recover via `cleo doctor knowledge --rollback RECEIPT --actor AGENT --proposal-id NEW_ID`.
 Inspect both receipts: unrelated changes are preserved, conflicting affected-row edits
