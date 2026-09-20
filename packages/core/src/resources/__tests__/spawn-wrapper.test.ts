@@ -15,10 +15,14 @@
  * @epic T11992
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:child_process', { spy: true });
+
 import { _resetTeardownSignalForTests, markShuttingDown } from '../../teardown-signal.js';
 import {
   _forceSystemdRunAvailable,
@@ -26,6 +30,8 @@ import {
   CLEO_SLICE,
   createParserExecutionPort,
   DEFAULT_SCOPE_RESOURCES,
+  hasSystemdRun,
+  spawnWrapped,
 } from '../spawn-wrapper.js';
 
 // ---------------------------------------------------------------------------
@@ -34,6 +40,8 @@ import {
 // ---------------------------------------------------------------------------
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   // Reset to false (unavailable) so the next test gets a clean probe.
   _forceSystemdRunAvailable(false);
 });
@@ -327,6 +335,117 @@ describe('contained parser execution port (T12262)', () => {
       expect(() => createParserExecutionPort().spawn('unused.mjs', {})).toThrow('E_TEARDOWN');
     } finally {
       _resetTeardownSignalForTests();
+    }
+  });
+});
+
+describe.skipIf(process.platform !== 'linux')('explicit systemd manager context', () => {
+  it('keeps unavailable ambient and explicit manager probes separate without global env changes', () => {
+    const successful = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+    _forceSystemdRunAvailable(undefined);
+    vi.stubEnv('XDG_RUNTIME_DIR', undefined);
+    vi.stubEnv('DBUS_SESSION_BUS_ADDRESS', undefined);
+    vi.mocked(spawnSync).mockImplementation((command, _args, options) => {
+      if (command === 'systemctl' && options?.env?.['XDG_RUNTIME_DIR'] === '/unavailable-manager')
+        return { ...successful, status: 1 };
+      return successful;
+    });
+    expect(hasSystemdRun()).toBe(false);
+    expect(hasSystemdRun({ runtimeDirectory: '/available-manager' })).toBe(true);
+    expect(hasSystemdRun({ runtimeDirectory: '/unavailable-manager' })).toBe(false);
+    const calls = vi.mocked(spawnSync).mock.calls.length;
+    expect(hasSystemdRun({ runtimeDirectory: '/available-manager' })).toBe(true);
+    expect(vi.mocked(spawnSync).mock.calls).toHaveLength(calls);
+    expect(hasSystemdRun()).toBe(false);
+    expect(process.env['XDG_RUNTIME_DIR']).toBeUndefined();
+    expect(process.env['DBUS_SESSION_BUS_ADDRESS']).toBeUndefined();
+    const probe = vi
+      .mocked(spawnSync)
+      .mock.calls.find(
+        ([command, , options]) =>
+          command === 'systemctl' && options?.env?.['XDG_RUNTIME_DIR'] === '/available-manager',
+      );
+    expect(probe?.[2]?.env?.['DBUS_SESSION_BUS_ADDRESS']).toBe('unix:path=/available-manager/bus');
+  });
+
+  it('rejects relative manager paths and nonlocal buses before launching work', () => {
+    expect(() =>
+      buildSpawnArgs('unused', [], { systemdControl: { runtimeDirectory: 'relative' } }),
+    ).toThrow('absolute');
+    expect(() =>
+      buildSpawnArgs('unused', [], {
+        systemdControl: { runtimeDirectory: '/manager', busAddress: 'tcp:host=remote' },
+      }),
+    ).toThrow('local Unix');
+  });
+
+  it('restores isolated child roots and keeps credential values out of launcher argv', async () => {
+    _forceSystemdRunAvailable(true);
+    const directory = mkdtempSync(join(tmpdir(), 'cleo-manager-context-'));
+    const marker = join(directory, 'launcher.json');
+    const executable = join(directory, 'systemd-run');
+    writeFileSync(
+      executable,
+      `#!${process.execPath}\nconst cp=require('node:child_process');const fs=require('node:fs');const args=process.argv.slice(2);fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({args,runtime:process.env.XDG_RUNTIME_DIR,bus:process.env.DBUS_SESSION_BUS_ADDRESS}));const at=args.indexOf('--');const child=cp.spawn(args[at+1],args.slice(at+2),{stdio:'inherit',env:process.env});child.on('error',()=>{process.exitCode=1});child.on('close',code=>{process.exitCode=code??1});\n`,
+    );
+    chmodSync(executable, 0o700);
+    const secret = 'synthetic-credential-not-for-argv';
+    const owned = spawnWrapped(
+      process.execPath,
+      [
+        '-e',
+        'process.stdout.write(JSON.stringify({home:process.env.HOME,runtime:process.env.XDG_RUNTIME_DIR,bus:process.env.DBUS_SESSION_BUS_ADDRESS,secret:process.env.VERIFIER_TEST_SECRET}))',
+      ],
+      {
+        env: {
+          PATH: `${directory}:${process.env['PATH'] ?? ''}`,
+          HOME: join(directory, 'home'),
+          XDG_RUNTIME_DIR: join(directory, 'isolated-runtime'),
+          VERIFIER_TEST_SECRET: secret,
+        },
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+      {
+        systemdControl: { runtimeDirectory: join(directory, 'manager-runtime') },
+        scopeId: 'context-test',
+      },
+    );
+    let output = '';
+    owned.child.stdout?.on('data', (bytes: Buffer) => {
+      output += bytes.toString();
+    });
+    const timer = setTimeout(() => {
+      if (owned.child.pid) {
+        try {
+          process.kill(-owned.child.pid, 'SIGKILL');
+        } catch {}
+      }
+    }, 3000);
+    try {
+      const status = await new Promise<number | null>((resolve, reject) => {
+        owned.child.once('error', reject);
+        owned.child.once('close', resolve);
+      });
+      expect(status).toBe(0);
+      expect(JSON.parse(output)).toEqual({
+        home: join(directory, 'home'),
+        runtime: join(directory, 'isolated-runtime'),
+        secret,
+      });
+      const launcher = JSON.parse(readFileSync(marker, 'utf8'));
+      expect(launcher.runtime).toBe(join(directory, 'manager-runtime'));
+      expect(launcher.bus).toBe(`unix:path=${join(directory, 'manager-runtime', 'bus')}`);
+      expect(launcher.args.join(' ')).not.toContain(secret);
+      expect(owned.mode).toBe('systemd');
+    } finally {
+      clearTimeout(timer);
+      if (owned.child.pid) {
+        try {
+          process.kill(-owned.child.pid, 'SIGKILL');
+        } catch {}
+      }
+      rmSync(directory, { recursive: true, force: true });
     }
   });
 });

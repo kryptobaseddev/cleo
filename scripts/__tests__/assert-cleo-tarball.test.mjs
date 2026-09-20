@@ -20,6 +20,8 @@ import { checkCleoTarball } from '../../packages/cleo/scripts/check-cleo-tarball
 import { assertCleoTarball } from '../assert-cleo-tarball.mjs';
 import {
   assertPackedHealthResponse,
+  assertPackedProviderRepairState,
+  assertPackedProviderStaleRejection,
   assertPackedTaskResponse,
   assertPackedVersion,
   packedEnvironment,
@@ -466,5 +468,277 @@ describe('packed provider process prerequisites, not workflow certification', ()
     symlinkSync(dirname(root), packageRoot, 'dir');
     await expect(verifyPackedProviderProcess(app, input, inventories)).rejects.toThrow('escapes');
     expect(existsSync(join(root, 'fixture-launched'))).toBe(false);
+  });
+});
+
+describe('independent provider repair data oracle', () => {
+  const identity = {
+    projectId: 'synthetic-provider-project',
+    actor: 'verifier-owned-actor',
+    noiseId: 'O-noise',
+    incidentId: 'O-incident',
+  };
+  function fixture() {
+    const original = {
+      id: identity.noiseId,
+      title: 'Task complete: T123',
+      narrative: 'Task T123 completed with status: undefined',
+      invalid_at: null,
+      source: 'synthetic-fixture',
+    };
+    const before = {
+      observations: [
+        { id: identity.noiseId, rowJson: JSON.stringify(original) },
+        {
+          id: identity.incidentId,
+          rowJson: JSON.stringify({
+            id: identity.incidentId,
+            title: 'Image expiry incident',
+            narrative: 'Regenerate the signed image URL before rendering.',
+            invalid_at: null,
+          }),
+        },
+      ],
+      jobs: [],
+      metadata: [],
+    };
+    const proposal = {
+      id: 'proposal-authentic',
+      projectId: identity.projectId,
+      identity: {
+        projectId: identity.projectId,
+        actor: identity.actor,
+        operation: 'doctor.knowledge',
+        idempotencyKey: 'proposal-authentic',
+      },
+      action: { operation: 'knowledge.quarantine-stubs' },
+      resources: [{ id: identity.noiseId, role: 'affected', kind: 'observation' }],
+    };
+    const proposalJson = JSON.stringify(proposal);
+    const job = {
+      id: 'job-authentic',
+      status: 'pending',
+      proposalJson,
+      proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
+      resultJson: null,
+    };
+    const after = structuredClone(before);
+    after.jobs.push(job);
+    const receipt = {
+      id: proposal.id,
+      proposalId: proposal.id,
+      state: 'repaired',
+      projectId: identity.projectId,
+      execution: {
+        jobId: job.id,
+        proposalHash: job.proposalHash,
+        identity: { actor: identity.actor },
+        resources: [
+          { id: identity.noiseId, beforeHash: 'a'.repeat(64), afterHash: 'b'.repeat(64) },
+        ],
+      },
+    };
+    const repair = () => {
+      after.observations[0].rowJson = JSON.stringify({
+        ...original,
+        invalid_at: '2026-09-20T00:00:00.000Z',
+      });
+      job.status = 'complete';
+      job.resultJson = JSON.stringify(receipt);
+      after.metadata.push({
+        key: `knowledge_repair:${receipt.id}`,
+        valueJson: JSON.stringify({ receipt }),
+      });
+    };
+    const rollback = () => {
+      after.observations[0].rowJson = before.observations[0].rowJson;
+      const recoveryProposal = {
+        id: 'recovery-authentic',
+        projectId: identity.projectId,
+        identity: { actor: identity.actor },
+        action: { operation: 'knowledge.rollback' },
+        rollback: { receiptId: receipt.id },
+      };
+      const recoveryProposalJson = JSON.stringify(recoveryProposal);
+      const recovery = {
+        id: recoveryProposal.id,
+        state: 'repaired',
+        projectId: identity.projectId,
+        action: { operation: 'knowledge.rollback', arguments: { receiptId: receipt.id } },
+        execution: { jobId: 'job-recovery', identity: { actor: identity.actor } },
+      };
+      after.jobs.push({
+        id: 'job-recovery',
+        status: 'complete',
+        proposalJson: recoveryProposalJson,
+        proposalHash: createHash('sha256').update(recoveryProposalJson).digest('hex'),
+        resultJson: JSON.stringify(recovery),
+      });
+      after.metadata.push(
+        {
+          key: `knowledge_repair:${recovery.id}`,
+          valueJson: JSON.stringify({ receipt: recovery }),
+        },
+        {
+          key: `knowledge_rollback:${receipt.id}`,
+          valueJson: JSON.stringify({ receiptId: recovery.id }),
+        },
+      );
+    };
+    return { before, after, job, receipt, repair, rollback };
+  }
+  it('requires a durable scoped immutable pending job with unchanged evidence for preparation', () => {
+    const f = fixture();
+    expect(assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toMatchObject({
+      jobId: 'job-authentic',
+      receiptId: null,
+    });
+    f.job.proposalHash = '0'.repeat(64);
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
+      'hash differs',
+    );
+  });
+  it('rejects premature mutation during prepare even when the command returned success', () => {
+    const f = fixture();
+    f.repair();
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'prepared')).toThrow(
+      'Preparation mutated',
+    );
+  });
+  it('requires both actual quarantine and a matching committed job receipt', () => {
+    const f = fixture();
+    f.repair();
+    expect(assertPackedProviderRepairState(f.before, f.after, identity, 'repaired').receiptId).toBe(
+      'proposal-authentic',
+    );
+    f.after.observations[0].rowJson = f.before.observations[0].rowJson;
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'repaired')).toThrow(
+      'solely quarantine',
+    );
+  });
+  it('rejects changed incident knowledge and destroyed original records', () => {
+    const f = fixture();
+    f.repair();
+    f.after.observations[1].rowJson = JSON.stringify({
+      id: identity.incidentId,
+      narrative: 'empty completion',
+    });
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'repaired')).toThrow(
+      'incident evidence changed',
+    );
+    f.after.observations = [];
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'repaired')).toThrow(
+      'retained observation',
+    );
+  });
+  it('rejects unrelated or mismatching completion receipts', () => {
+    const f = fixture();
+    f.repair();
+    f.receipt.execution.jobId = 'unrelated-job';
+    f.after.metadata[0].valueJson = JSON.stringify({ receipt: f.receipt });
+    f.job.resultJson = JSON.stringify(f.receipt);
+    expect(() => assertPackedProviderRepairState(f.before, f.after, identity, 'repaired')).toThrow(
+      'do not agree',
+    );
+  });
+  it('requires separate durable rollback evidence and preserves the original receipt', () => {
+    const f = fixture();
+    f.repair();
+    const originalReceipt = f.after.metadata[0].valueJson;
+    f.rollback();
+    expect(
+      assertPackedProviderRepairState(f.before, f.after, identity, 'rolled-back'),
+    ).toMatchObject({ receiptId: 'proposal-authentic', rollbackReceiptId: 'recovery-authentic' });
+    expect(f.after.metadata[0].valueJson).toBe(originalReceipt);
+    expect(() =>
+      assertPackedProviderRepairState(f.before, f.after, identity, 'repaired'),
+    ).toThrow();
+    f.after.jobs.pop();
+    expect(() =>
+      assertPackedProviderRepairState(f.before, f.after, identity, 'rolled-back'),
+    ).toThrow('separate authentic recovery');
+  });
+  it('requires actual stale failure, preserved edited data and durable failed attempt evidence', () => {
+    const f = fixture();
+    const before = structuredClone(f.after);
+    const command = {
+      arguments: [
+        'doctor',
+        'knowledge',
+        '--apply',
+        f.job.id,
+        '--actor',
+        identity.actor,
+        '--proposal-id',
+        'proposal-authentic',
+      ],
+      exitCode: 6,
+      stdout: JSON.stringify({
+        success: false,
+        error: { details: { attemptFailure: { attempt: { errorCode: 'E_REPAIR_STALE' } } } },
+      }),
+    };
+    f.job.status = 'failed';
+    f.after.metadata.push({
+      key: 'knowledge_repair_attempt:authentic',
+      valueJson: JSON.stringify({
+        jobId: f.job.id,
+        identity: { actor: identity.actor, projectId: identity.projectId },
+        proposalId: 'proposal-authentic',
+        proposalHash: f.job.proposalHash,
+        errorCode: 'E_REPAIR_STALE',
+        status: 'failed',
+      }),
+    });
+    f.job.resultJson = f.after.metadata[0].valueJson;
+    expect(() =>
+      assertPackedProviderStaleRejection(before, f.after, f.job.id, command),
+    ).not.toThrow();
+    expect(() =>
+      assertPackedProviderStaleRejection(before, f.after, f.job.id, { ...command, exitCode: 0 }),
+    ).toThrow('unsuccessful apply');
+    expect(() =>
+      assertPackedProviderStaleRejection(before, f.after, f.job.id, {
+        ...command,
+        stdout: '{"success":true}',
+      }),
+    ).toThrow('stale-resource failure');
+    f.after.observations[0].rowJson = '{}';
+    expect(() => assertPackedProviderStaleRejection(before, f.after, f.job.id, command)).toThrow(
+      'intervening evidence',
+    );
+  });
+  it('rejects stale-error prose without a corresponding persisted failed attempt', () => {
+    const f = fixture();
+    const before = structuredClone(f.after);
+    f.job.status = 'failed';
+    const command = {
+      arguments: [
+        'doctor',
+        'knowledge',
+        '--apply',
+        f.job.id,
+        '--actor',
+        identity.actor,
+        '--proposal-id',
+        'proposal-authentic',
+      ],
+      exitCode: 6,
+      stdout: JSON.stringify({
+        success: false,
+        error: { details: { attemptFailure: { attempt: { errorCode: 'E_REPAIR_STALE' } } } },
+      }),
+    };
+    expect(() => assertPackedProviderStaleRejection(before, f.after, f.job.id, command)).toThrow(
+      'durable failed attempt',
+    );
+  });
+  it('does not accept restored data alone as proof that guarded rollback executed', () => {
+    const f = fixture();
+    f.repair();
+    f.after.observations[0].rowJson = f.before.observations[0].rowJson;
+    expect(() =>
+      assertPackedProviderRepairState(f.before, f.after, identity, 'rolled-back'),
+    ).toThrow('separate authentic recovery');
   });
 });

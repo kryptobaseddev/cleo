@@ -198,3 +198,82 @@ export interface PackedProviderProcessObservation {
   /** Repair, delivery and lifecycle evidence still required. */
   limitations: readonly string[];
 }
+
+/** One original synthetic observation image retained by the independent verifier. */
+export interface ProviderRepairObservationImage {
+  /** Authentic row identity, never an identifier supplied in a provider answer. */
+  id: string;
+  /** Complete SQLite row serialized by the fresh read-only verifier process. */
+  rowJson: string;
+}
+
+/** Durable job fields inspected independently of a provider transcript. */
+export interface ProviderRepairJobImage {
+  /** Existing durable job identity. */
+  id: string;
+  /** Persisted lifecycle status. */
+  status: string;
+  /** Original immutable prepared input bytes. */
+  proposalJson: string;
+  /** Persisted SHA-256 of proposalJson. */
+  proposalHash: string;
+  /** Persisted success or failure outcome bytes, when present. */
+  resultJson: string | null;
+}
+
+/** Append-only repair metadata captured without invoking domain repair code. */
+export interface ProviderRepairMetadataImage {
+  /** Canonical metadata key. */
+  key: string;
+  /** Exact retained JSON bytes. */
+  valueJson: string;
+}
+
+/** Fresh-process synthetic store snapshot; never a production store inspection request. */
+export interface ProviderRepairFixtureState {
+  /** Original observation rows, including quarantined rows. */
+  observations: readonly ProviderRepairObservationImage[];
+  /** Existing pending and terminal jobs. */
+  jobs: readonly ProviderRepairJobImage[];
+  /** Historical receipts, recovery links and lifecycle events. */
+  metadata: readonly ProviderRepairMetadataImage[];
+}
+
+/** Independently seeded identities, kept out of the model's expected answers. */
+export interface ProviderRepairFixtureIdentity {
+  /** Canonical synthetic project identity. */
+  projectId: string;
+  /** Explicit actor owned by this verification invocation. */
+  actor: string;
+  /** Seeded confirmed content-free trace identity. */
+  noiseId: string;
+  /** Seeded substantive incident identity that must be preserved. */
+  incidentId: string;
+}
+
+/** One independently assessed repair phase; this is not a provider certificate. */
+export type ProviderRepairVerificationPhase = 'prepared' | 'repaired' | 'rolled-back';
+
+/** Actual canonical identities demonstrated by an independent state oracle. */
+export interface ProviderRepairPhaseEvidence {
+  /** Phase whose data postconditions were independently checked. */
+  phase: ProviderRepairVerificationPhase;
+  /** Authentic durable job, not a reported success string. */
+  jobId: string;
+  /** Immutable sourced proposal associated with the job. */
+  proposalId: string;
+  /** Original committed receipt when the phase has one. */
+  receiptId: string | null;
+  /** Separate recovery receipt; original evidence remains retained. */
+  rollbackReceiptId: string | null;
+}
+
+/** Actual installed CLI process observation recorded outside the provider's answer. */
+export interface ProviderRepairCliObservation {
+  /** Literal CLI arguments seen by the independent execution observer. */
+  arguments: readonly string[];
+  /** Observed CLI exit status, null if no exit was established. */
+  exitCode: number | null;
+  /** Complete CLI envelope bytes; malformed or truncated JSON is not accepted. */
+  stdout: string;
+}

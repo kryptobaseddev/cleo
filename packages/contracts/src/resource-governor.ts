@@ -121,3 +121,14 @@ export const DEFAULT_RESOURCE_RETRY_AFTER_MS = 2_000;
 export function isResourceGrant(r: AdmissionResult): r is ResourceGrant {
   return r.deferred === false;
 }
+
+/** Explicit local user-manager connection for resource-controlled process launch. */
+export interface SystemdControlContext {
+  /** Absolute existing runtime directory used only by the manager probe and launcher. */
+  runtimeDirectory: string;
+  /**
+   * Optional local Unix bus address.
+   * @defaultValue The bus socket in runtimeDirectory.
+   */
+  busAddress?: string;
+}

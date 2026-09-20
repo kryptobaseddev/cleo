@@ -114,6 +114,223 @@ export function packedEnvironment(root) {
 }
 
 /**
+ * Assert synthetic data postconditions using fresh persisted rows, never provider claims.
+ * @param {import('@cleocode/contracts/capabilities').ProviderRepairFixtureState} before - Independent original fixture snapshot.
+ * @param {import('@cleocode/contracts/capabilities').ProviderRepairFixtureState} after - Fresh independent post-phase snapshot.
+ * @param {import('@cleocode/contracts/capabilities').ProviderRepairFixtureIdentity} identity - Seed identities held by the verifier.
+ * @param {import('@cleocode/contracts/capabilities').ProviderRepairVerificationPhase} phase - Required data postcondition.
+ * @returns {import('@cleocode/contracts/capabilities').ProviderRepairPhaseEvidence} Authentic operation identities; command delivery remains a separate oracle.
+ */
+export function assertPackedProviderRepairState(before, after, identity, phase) {
+  const image = (state, id) => {
+    const rows = state.observations.filter((row) => row.id === id);
+    if (rows.length !== 1) throw new Error(`Expected exactly one retained observation: ${id}`);
+    const parsed = JSON.parse(rows[0].rowJson);
+    if (parsed.id !== id) throw new Error('Observation image identity differs');
+    return parsed;
+  };
+  const initial = image(before, identity.noiseId);
+  const current = image(after, identity.noiseId);
+  if (
+    JSON.stringify(image(before, identity.incidentId)) !==
+    JSON.stringify(image(after, identity.incidentId))
+  )
+    throw new Error('Substantive incident evidence changed');
+  for (const row of before.observations.filter((row) => row.id !== identity.noiseId)) {
+    if (JSON.stringify(image(before, row.id)) !== JSON.stringify(image(after, row.id)))
+      throw new Error('Unrelated original observation changed');
+  }
+  const jobs = after.jobs.map((job) => {
+    if (sha256(Buffer.from(job.proposalJson)) !== job.proposalHash)
+      throw new Error('Prepared job input hash differs');
+    return { job, proposal: JSON.parse(job.proposalJson) };
+  });
+  const repairs = jobs.filter(
+    ({ proposal }) =>
+      proposal.action?.operation === 'knowledge.quarantine-stubs' &&
+      proposal.identity?.actor === identity.actor,
+  );
+  if (repairs.length !== 1) throw new Error('Expected one authentic prepared quarantine job');
+  const { job, proposal } = repairs[0];
+  if (
+    proposal.projectId !== identity.projectId ||
+    proposal.identity.projectId !== identity.projectId ||
+    proposal.identity.operation !== 'doctor.knowledge' ||
+    proposal.identity.idempotencyKey !== proposal.id
+  )
+    throw new Error('Prepared operation scope differs');
+  if (
+    proposal.resources?.length !== 1 ||
+    proposal.resources[0].id !== identity.noiseId ||
+    proposal.resources[0].role !== 'affected' ||
+    proposal.resources[0].kind !== 'observation'
+  )
+    throw new Error('Prepared repair affects unexpected resources');
+  const metadata = (key) => {
+    const matches = after.metadata.filter((entry) => entry.key === key);
+    if (matches.length > 1) throw new Error('Duplicate repair metadata identity');
+    return matches[0] ? JSON.parse(matches[0].valueJson) : null;
+  };
+  const stored = metadata(`knowledge_repair:${proposal.id}`);
+  if (phase === 'prepared') {
+    if (
+      job.status !== 'pending' ||
+      job.resultJson !== null ||
+      stored !== null ||
+      JSON.stringify(initial) !== JSON.stringify(current)
+    )
+      throw new Error('Preparation mutated evidence or reported a terminal result');
+    return {
+      phase,
+      jobId: job.id,
+      proposalId: proposal.id,
+      receiptId: null,
+      rollbackReceiptId: null,
+    };
+  }
+  const receipt = stored?.receipt;
+  if (
+    job.status !== 'complete' ||
+    !receipt ||
+    receipt.state !== 'repaired' ||
+    receipt.id !== proposal.id ||
+    receipt.proposalId !== proposal.id ||
+    receipt.projectId !== identity.projectId ||
+    receipt.execution?.jobId !== job.id ||
+    receipt.execution.proposalHash !== job.proposalHash ||
+    receipt.execution.identity?.actor !== identity.actor ||
+    JSON.stringify(JSON.parse(job.resultJson ?? 'null')) !== JSON.stringify(receipt)
+  )
+    throw new Error('Committed repair and authentic job receipt do not agree');
+  const mutation = receipt.execution.resources?.find(
+    (resource) => resource.id === identity.noiseId,
+  );
+  if (
+    !mutation ||
+    !/^[a-f0-9]{64}$/.test(mutation.beforeHash) ||
+    !/^[a-f0-9]{64}$/.test(mutation.afterHash) ||
+    mutation.beforeHash === mutation.afterHash
+  )
+    throw new Error('Receipt lacks a measured resource change');
+  if (phase === 'repaired') {
+    if (
+      typeof current.invalid_at !== 'string' ||
+      !current.invalid_at ||
+      JSON.stringify({ ...current, invalid_at: initial.invalid_at }) !== JSON.stringify(initial)
+    )
+      throw new Error('Repair did not solely quarantine and retain the original observation');
+    if (metadata(`knowledge_rollback:${receipt.id}`) !== null)
+      throw new Error('Historical repair receipt is already rolled back');
+    return {
+      phase,
+      jobId: job.id,
+      proposalId: proposal.id,
+      receiptId: receipt.id,
+      rollbackReceiptId: null,
+    };
+  }
+  if (phase !== 'rolled-back') throw new Error('Unsupported independent repair phase');
+  if (JSON.stringify(initial) !== JSON.stringify(current))
+    throw new Error('Rollback did not restore the complete original observation');
+  const link = metadata(`knowledge_rollback:${receipt.id}`);
+  const recovery = link ? metadata(`knowledge_repair:${link.receiptId}`)?.receipt : null;
+  const recoveryJob = jobs.find(
+    ({ job: candidate }) => candidate.id === recovery?.execution?.jobId,
+  );
+  if (
+    !recovery ||
+    recovery.state !== 'repaired' ||
+    recovery.action?.operation !== 'knowledge.rollback' ||
+    recovery.action.arguments?.receiptId !== receipt.id ||
+    recovery.projectId !== identity.projectId ||
+    recovery.execution.identity?.actor !== identity.actor ||
+    recoveryJob?.job.status !== 'complete' ||
+    recoveryJob.proposal.rollback?.receiptId !== receipt.id ||
+    JSON.stringify(JSON.parse(recoveryJob.job.resultJson ?? 'null')) !== JSON.stringify(recovery)
+  )
+    throw new Error('Rollback lacks its separate authentic recovery job and receipt');
+  return {
+    phase,
+    jobId: job.id,
+    proposalId: proposal.id,
+    receiptId: receipt.id,
+    rollbackReceiptId: recovery.id,
+  };
+}
+
+/**
+ * Prove that an actual stale apply failed while preserving intervening evidence.
+ * @param {import('@cleocode/contracts/capabilities').ProviderRepairFixtureState} before - Snapshot after the verifier's independent source edit.
+ * @param {import('@cleocode/contracts/capabilities').ProviderRepairFixtureState} after - Fresh snapshot after the provider attempted apply.
+ * @param {string} jobId - Prepared identity independently read before the source edit.
+ * @param {import('@cleocode/contracts/capabilities').ProviderRepairCliObservation} command - Independently observed actual CLI process, not model prose.
+ * @returns {void} Throws unless command, preserved data and durable failed attempt agree.
+ */
+export function assertPackedProviderStaleRejection(before, after, jobId, command) {
+  const original = before.jobs.find((job) => job.id === jobId);
+  const current = after.jobs.find((job) => job.id === jobId);
+  if (
+    !original ||
+    !current ||
+    original.proposalJson !== current.proposalJson ||
+    original.proposalHash !== current.proposalHash ||
+    sha256(Buffer.from(current.proposalJson)) !== current.proposalHash
+  )
+    throw new Error('Stale attempt did not preserve authentic prepared inputs');
+  const proposal = JSON.parse(current.proposalJson);
+  const flag = (name, value) =>
+    command.arguments.filter((arg) => arg === name).length === 1 &&
+    command.arguments[command.arguments.indexOf(name) + 1] === value;
+  if (
+    command.arguments[0] !== 'doctor' ||
+    command.arguments[1] !== 'knowledge' ||
+    !flag('--apply', jobId) ||
+    !flag('--actor', proposal.identity?.actor) ||
+    !flag('--proposal-id', proposal.id) ||
+    command.exitCode === null ||
+    command.exitCode === 0
+  )
+    throw new Error('No unsuccessful apply of the authentic prepared operation was observed');
+  const output = JSON.parse(command.stdout);
+  if (
+    output.success !== false ||
+    output.error?.details?.attemptFailure?.attempt?.errorCode !== 'E_REPAIR_STALE'
+  )
+    throw new Error('Actual CLI did not report the observed stale-resource failure');
+  for (const row of before.observations) {
+    const matches = after.observations.filter((item) => item.id === row.id);
+    if (matches.length !== 1 || matches[0].rowJson !== row.rowJson)
+      throw new Error('Stale apply lost or modified intervening evidence');
+  }
+  for (const entry of before.metadata) {
+    if (
+      !after.metadata.some((item) => item.key === entry.key && item.valueJson === entry.valueJson)
+    )
+      throw new Error('Stale apply rewrote prior repair evidence');
+  }
+  const attempt = after.metadata
+    .filter((entry) => entry.key.startsWith('knowledge_repair_attempt:'))
+    .map((entry) => JSON.parse(entry.valueJson))
+    .find(
+      (entry) =>
+        entry.jobId === jobId &&
+        entry.identity?.actor === proposal.identity.actor &&
+        entry.identity?.projectId === proposal.identity.projectId &&
+        entry.proposalId === proposal.id &&
+        entry.proposalHash === current.proposalHash &&
+        entry.errorCode === 'E_REPAIR_STALE' &&
+        entry.status === 'failed',
+    );
+  if (
+    current.status !== 'failed' ||
+    !attempt ||
+    JSON.stringify(JSON.parse(current.resultJson ?? 'null')) !== JSON.stringify(attempt) ||
+    after.metadata.some((entry) => entry.key === `knowledge_repair:${proposal.id}`)
+  )
+    throw new Error('Stale failure lacks a durable failed attempt or incorrectly committed repair');
+}
+
+/**
  * Verify installed packed bytes, stage managed instructions, and observe an external CLI.
  * This is deliberately a prerequisite, not a complete repair workflow certificate.
  * @param {string} app - Owned npm installation directory beneath the isolation root.
