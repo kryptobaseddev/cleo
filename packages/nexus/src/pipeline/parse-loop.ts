@@ -34,6 +34,7 @@
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
+import { basename, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   GraphIndexFileReport,
@@ -44,6 +45,12 @@ import type {
   ParserExecutionPort,
 } from '@cleocode/contracts';
 import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import type {
+  GraphAnalysisCapability,
+  GraphFileCapabilityCoverage,
+  GraphFileClassification,
+  GraphFileRole,
+} from '@cleocode/contracts/graph';
 import type Parser from 'tree-sitter';
 import { parseOriginalSource } from '../code/parser.js';
 import { extractGo } from './extractors/go-extractor.js';
@@ -466,6 +473,281 @@ export interface ParseLoopResult {
   barrelMap: BarrelExportMap;
 }
 
+const EXECUTABLE_CAPABILITIES: GraphAnalysisCapability[] = [
+  'file-evidence',
+  'declarations',
+  'imports',
+  'call-references',
+  'access-references',
+  'type-heritage',
+];
+const SQL_CAPABILITIES: GraphAnalysisCapability[] = [
+  'file-evidence',
+  'sql-schema-objects',
+  'sql-migrations',
+  'sql-triggers',
+  'sql-constraints',
+  'sql-literal-references',
+  'sql-dynamic-references',
+];
+const PARSEABLE_LANGUAGES = new Set(['typescript', 'javascript', 'python', 'go', 'rust']);
+const EXECUTABLE_LANGUAGES = new Set([
+  ...PARSEABLE_LANGUAGES,
+  'java',
+  'kotlin',
+  'c',
+  'cpp',
+  'csharp',
+  'php',
+  'ruby',
+  'swift',
+  'dart',
+  'vue',
+  'shell',
+  'cobol',
+]);
+
+/** Build a role observation from independently stated requested capabilities. */
+function roleCoverage(
+  role: GraphFileRole,
+  classification: GraphFileClassification,
+  evidence?: GraphAnalysisCapability,
+): GraphFileCapabilityCoverage {
+  return {
+    role,
+    classification,
+    requested:
+      role === 'sql'
+        ? [...SQL_CAPABILITIES]
+        : role === 'executable' || role === 'unknown'
+          ? [...EXECUTABLE_CAPABILITIES]
+          : ['file-evidence', ...(evidence ? [evidence] : [])],
+    completed: ['file-evidence', ...(evidence ? [evidence] : [])],
+    limitations:
+      role === 'sql'
+        ? [
+            'SQL extraction is unsupported; schema and literal references remain unassessed.',
+            'Dynamic SQL references remain unresolved.',
+          ]
+        : role === 'executable' || role === 'unknown'
+          ? ['Static extraction cannot establish complete runtime-call discovery.']
+          : [],
+  };
+}
+
+/** Identify known binary resources from both their extension and observed bytes. */
+function hasResourceSignature(extension: string, bytes: Buffer): boolean {
+  const prefix = bytes.subarray(0, 12);
+  if (extension === '.png')
+    return prefix.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
+  if (extension === '.jpg' || extension === '.jpeg')
+    return prefix.subarray(0, 3).equals(Buffer.from('ffd8ff', 'hex'));
+  if (extension === '.gif') return /^GIF8[79]a/.test(prefix.toString('ascii'));
+  if (extension === '.webp')
+    return (
+      prefix.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      prefix.subarray(8).toString('ascii') === 'WEBP'
+    );
+  if (extension === '.woff') return prefix.subarray(0, 4).toString('ascii') === 'wOFF';
+  if (extension === '.woff2') return prefix.subarray(0, 4).toString('ascii') === 'wOF2';
+  return false;
+}
+
+/** Classify only observed role evidence; unsupported or ambiguous code remains a gap. */
+async function classifyFileCapabilities(
+  file: ScannedFile,
+  repoPath: string,
+  signal?: AbortSignal,
+): Promise<GraphIndexFileReport> {
+  const path = file.path;
+  const extension = extname(path).toLowerCase();
+  const language = detectLanguageFromPath(path);
+  const bytes = await fs.readFile(path.startsWith('/') ? path : `${repoPath}/${path}`, { signal });
+  if (file.contentHash && createHash('sha256').update(bytes).digest('hex') !== file.contentHash)
+    throw new Error('Source changed between scanning and capability classification');
+  const report = (capabilities: GraphFileCapabilityCoverage): GraphIndexFileReport => ({
+    path,
+    status: capabilities.requested.every((capability) =>
+      capabilities.completed.includes(capability),
+    )
+      ? 'analyzed'
+      : 'unsupported',
+    ...(capabilities.role === 'sql'
+      ? { reason: 'No SQL schema or reference extractor is available' }
+      : capabilities.role === 'executable' || capabilities.role === 'unknown'
+        ? {
+            reason:
+              'Unsupported or unclassified executable capabilities require a symbol extractor',
+          }
+        : {}),
+    capabilities,
+  });
+  if (hasResourceSignature(extension, bytes))
+    return report(
+      roleCoverage(
+        'asset',
+        {
+          basis: 'path-and-content',
+          reason: `Resource extension ${extension} agrees with its observed binary signature`,
+        },
+        'resource-evidence',
+      ),
+    );
+  const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  if (/^\uFEFF?#!/.test(content))
+    return report(
+      roleCoverage('executable', {
+        basis: 'content',
+        reason: 'Observed executable shebang; an asset extension cannot override it',
+      }),
+    );
+  if (
+    EXECUTABLE_LANGUAGES.has(language ?? '') ||
+    ['.svelte', '.mdx', '.lua', '.pl', '.r', '.ps1', '.bat', '.cmd'].includes(extension) ||
+    /^(?:Makefile|Dockerfile)$/.test(basename(path))
+  )
+    return report(
+      roleCoverage('executable', {
+        basis: 'path',
+        reason: `Recognized executable language or filename: ${path}`,
+      }),
+    );
+  if (extension === '.sql')
+    return report(
+      roleCoverage('sql', {
+        basis: 'path',
+        reason: 'SQL source extension; no schema or reference extractor is implemented',
+      }),
+    );
+  if (extension === '.md' || extension === '.markdown')
+    return report(
+      roleCoverage(
+        'documentation',
+        {
+          basis: 'path-and-content',
+          reason: 'Readable documentary Markdown; embedded examples are not production callers',
+        },
+        'documentary-evidence',
+      ),
+    );
+  if (extension === '.json') {
+    let value: object | string | number | boolean | null;
+    try {
+      value = JSON.parse(content);
+    } catch (error) {
+      return {
+        path,
+        status: 'failed',
+        reason: `JSON evidence is malformed: ${error instanceof Error ? error.message : String(error)}`,
+        capabilities: {
+          ...roleCoverage(
+            'data',
+            {
+              basis: 'path',
+              reason:
+                'JSON extension with invalid content; role-specific analysis did not complete',
+            },
+            'data-evidence',
+          ),
+          completed: ['file-evidence'],
+        },
+      };
+    }
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      if (
+        '$schema' in value &&
+        typeof value.$schema === 'string' &&
+        /^https?:\/\/json-schema\.org\/(?:draft-0[467]|draft\/20\d\d-\d\d)\/schema#?$/.test(
+          value.$schema,
+        )
+      )
+        return report(
+          roleCoverage(
+            'schema',
+            {
+              basis: 'content',
+              reason: `Valid JSON declares the JSON Schema dialect ${value.$schema}`,
+            },
+            'schema-evidence',
+          ),
+        );
+      if (
+        basename(path) === 'package-lock.json' &&
+        'lockfileVersion' in value &&
+        typeof value.lockfileVersion === 'number' &&
+        'packages' in value &&
+        value.packages !== null &&
+        typeof value.packages === 'object' &&
+        !Array.isArray(value.packages)
+      )
+        return report(
+          roleCoverage(
+            'generated-data',
+            {
+              basis: 'path-and-content',
+              reason:
+                'npm lockfile path with numeric lockfileVersion and packages map; generated data evidence only',
+            },
+            'data-evidence',
+          ),
+        );
+      if (
+        ['package.json', 'tsconfig.json', 'jsconfig.json', 'composer.json', 'deno.json'].includes(
+          basename(path),
+        ) ||
+        /(?:^|\/)\.vscode\/(?:settings|extensions|launch|tasks)\.json$/.test(path)
+      )
+        return report(
+          roleCoverage(
+            'configuration',
+            {
+              basis: 'path-and-content',
+              reason: `Recognized configuration path ${path} contains a valid JSON object; it is not executed`,
+            },
+            'configuration-evidence',
+          ),
+        );
+    }
+    return report(
+      roleCoverage(
+        'data',
+        {
+          basis: 'content',
+          reason:
+            'Valid ordinary JSON without positive configuration, schema or generated-data provenance',
+        },
+        'data-evidence',
+      ),
+    );
+  }
+  if (extension === '.snap') {
+    const header = /^\/\/ (?:Vitest|Jest) Snapshot v1,[^\r\n]*\r?\n/.exec(content);
+    const literal = String.raw`\x60(?:\\[\s\S]|[^\x60\\$]|\$(?!\{))*\x60`;
+    if (
+      header &&
+      new RegExp(String.raw`^(?:\s*exports\[${literal}\]\s*=\s*${literal};\s*)+$`).test(
+        content.slice(header[0].length),
+      )
+    )
+      return report(
+        roleCoverage(
+          'generated-data',
+          {
+            basis: 'path-and-content',
+            reason: 'Recognized generated snapshot header and literal-only snapshot assignments',
+          },
+          'data-evidence',
+        ),
+      );
+  }
+  return report(
+    roleCoverage('unknown', {
+      basis: 'unknown',
+      reason: 'No positive role evidence; potentially executable content remains unassessed',
+    }),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main parse loop
 // ---------------------------------------------------------------------------
@@ -712,19 +994,57 @@ export async function runParseLoop(
 ): Promise<ParseLoopResult> {
   const { tsconfigPaths = null, namedImportMap = new Map(), onProgress } = options;
 
-  // Filter to languages supported by the parse loop (Wave I adds Python, Go, Rust)
-  const PARSEABLE_LANGUAGES = new Set(['typescript', 'javascript', 'python', 'go', 'rust']);
-  const parseableFiles = files.filter((f) => {
-    const lang = detectLanguageFromPath(f.path);
-    const supported = lang !== null && PARSEABLE_LANGUAGES.has(lang);
-    if (!supported)
-      options.onFileReport?.({
-        path: f.path,
-        status: 'unsupported',
-        reason: 'No symbol extractor for this language',
-      });
-    return supported;
-  });
+  // Attach one capability contract to sequential and worker-returned reports.
+  const callerReports = options.onFileReport;
+  const classifications = new Map<string, GraphFileCapabilityCoverage>();
+  const emitReport = (report: GraphIndexFileReport): void => {
+    const coverage = classifications.get(report.path);
+    if (!coverage) throw new Error(`Missing file capability classification: ${report.path}`);
+    callerReports?.({
+      ...report,
+      capabilities: {
+        ...coverage,
+        requested: [...coverage.requested],
+        completed:
+          report.status === 'analyzed' && coverage.role === 'executable'
+            ? [...coverage.requested]
+            : [...coverage.completed],
+        limitations: [...coverage.limitations],
+      },
+    });
+  };
+  options = { ...options, onFileReport: emitReport };
+  const parseableFiles: ScannedFile[] = [];
+  for (const file of files) {
+    options.parserLimits?.signal?.throwIfAborted();
+    let report: GraphIndexFileReport;
+    try {
+      report = await classifyFileCapabilities(file, repoPath, options.parserLimits?.signal);
+    } catch (error) {
+      options.parserLimits?.signal?.throwIfAborted();
+      report = {
+        path: file.path,
+        status: 'failed',
+        reason: `read: ${error instanceof Error ? error.message : String(error)}`,
+        capabilities: {
+          ...roleCoverage('unknown', {
+            basis: 'unknown',
+            reason: 'Role evidence unavailable because the source read failed',
+          }),
+          completed: [],
+        },
+      };
+    }
+    if (!report.capabilities) throw new Error(`Missing file capability assessment: ${file.path}`);
+    classifications.set(file.path, report.capabilities);
+    if (
+      report.status !== 'failed' &&
+      report.capabilities.role === 'executable' &&
+      PARSEABLE_LANGUAGES.has(detectLanguageFromPath(file.path) ?? '')
+    )
+      parseableFiles.push(file);
+    else emitReport(report);
+  }
 
   const total = parseableFiles.length;
   if (total === 0)
@@ -742,7 +1062,7 @@ export async function runParseLoop(
     total >= WORKER_FILE_THRESHOLD ||
     totalBytes >= WORKER_BYTE_THRESHOLD;
 
-  if (useWorkers && (options.parserExecution || !options.onFileReport)) {
+  if (useWorkers && (options.parserExecution || !callerReports)) {
     process.stderr.write(
       `[nexus] Parallel parse: ${total} files, ${Math.round(totalBytes / 1024)}KB total — spawning worker pool\n`,
     );
