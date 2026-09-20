@@ -18,8 +18,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLifecycleStatus } from '../../lifecycle/index.js';
+import * as lifecycleOps from '../../orchestrate/lifecycle-ops.js';
 import { initLoomForEpic, orchestrateStartup } from '../../orchestrate/lifecycle-ops.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { awaitBackgroundOps, pendingBackgroundOpCount } from '../../store/background-ops.js';
 import { type DataAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { addTask } from '../add.js';
@@ -41,8 +43,7 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
 
   // (a) Epic creation auto-initializes LOOM
   it('auto-initializes LOOM pipeline when an epic is created via addTask', async () => {
-    // LOOM init is fire-and-forget inside addTask, so we await the task creation
-    // and then check lifecycle status.
+    // Creation commits before the tracked, best-effort LOOM effect completes.
     const result = await addTask(
       {
         title: 'My Test Epic',
@@ -56,11 +57,8 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
     const epicId = result.task.id;
     expect(epicId).toBe('T001');
 
-    // Fire-and-forget microtasks need to flush before we read the DB.
-    // Yield to allow the promise chain to settle.
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    // Allow an additional macrotask tick for the dynamic import + async chain.
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    // Observe completion of the actual tracked work, not elapsed event-loop ticks.
+    await awaitBackgroundOps();
 
     const status = await getLifecycleStatus(env.tempDir, { epicId });
     expect(status.initialized).toBe(true);
@@ -68,6 +66,53 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
     // currentStage tracks the *last completed or skipped* stage; since research
     // is in_progress (not completed), currentStage is null and nextStage is 'research'.
     expect(status.nextStage).toBe('research');
+  });
+
+  it('keeps delayed LOOM work pending until the tracked barrier observes real initialization', async () => {
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const initialize = lifecycleOps.initLoomForEpic;
+    const heldInit = vi
+      .spyOn(lifecycleOps, 'initLoomForEpic')
+      .mockImplementationOnce(async (...args) => {
+        started.resolve();
+        await release.promise;
+        return initialize(...args);
+      });
+    try {
+      const result = await addTask(
+        {
+          title: 'Delayed lifecycle epic',
+          description: 'Real initialization waits behind an independently controlled barrier',
+          type: 'epic',
+          skipContainmentInvariant: true,
+        },
+        env.tempDir,
+        accessor,
+      );
+      await started.promise;
+      expect(pendingBackgroundOpCount()).toBeGreaterThan(0);
+      expect((await getLifecycleStatus(env.tempDir, { epicId: result.task.id })).initialized).toBe(
+        false,
+      );
+      let drained = false;
+      const completion = awaitBackgroundOps().then(() => {
+        drained = true;
+      });
+      await Promise.resolve();
+      expect(drained).toBe(false);
+      release.resolve();
+      await completion;
+      expect(pendingBackgroundOpCount()).toBe(0);
+      const after = await getLifecycleStatus(env.tempDir, { epicId: result.task.id });
+      expect(after.initialized).toBe(true);
+      expect(after.nextStage).toBe('research');
+      expect(heldInit).toHaveBeenCalledExactlyOnceWith(result.task.id, env.tempDir);
+    } finally {
+      release.resolve();
+      await awaitBackgroundOps();
+      heldInit.mockRestore();
+    }
   });
 
   // (b) Idempotent — re-running initLoomForEpic on already-initialized epic is a no-op
@@ -83,9 +128,7 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
       accessor,
     );
     const epicId = result.task.id;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    // Allow macrotask tick for dynamic import chain to complete.
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    await awaitBackgroundOps();
 
     // First explicit call after auto-init
     const first = await initLoomForEpic(epicId, env.tempDir);
@@ -160,7 +203,7 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
       env.tempDir,
       accessor,
     );
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await awaitBackgroundOps();
 
     const taskResult = await addTask(
       {
@@ -172,7 +215,7 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
       env.tempDir,
       accessor,
     );
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await awaitBackgroundOps();
 
     const status = await getLifecycleStatus(env.tempDir, { epicId: taskResult.task.id });
     // Tasks (non-epic) should NOT have a lifecycle pipeline
@@ -244,7 +287,7 @@ describe('backfillEpicLoom (T1634)', () => {
       env.tempDir,
       accessor,
     );
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await awaitBackgroundOps();
 
     // Verify LOOM is already initialized
     const priorStatus = await getLifecycleStatus(env.tempDir, { epicId: result.task.id });
