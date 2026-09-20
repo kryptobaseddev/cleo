@@ -12,7 +12,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -169,6 +169,10 @@ describe('pipeline-manifest-sqlite', () => {
         };
         await expect(readManifestEntries(testRoot)).rejects.toMatchObject(expected);
         expect(await pipelineManifestRead({}, testRoot)).toMatchObject({
+          success: false,
+          error: expected,
+        });
+        expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
           success: false,
           error: expected,
         });
@@ -373,6 +377,25 @@ describe('pipeline-manifest-sqlite', () => {
       }
     });
 
+    it('validates canonical task evidence against independently retrieved document bytes', async () => {
+      const { createDocsReadModel } = await import('../../docs/docs-read-model.js');
+      const content = '# Evidence\n\nVerified Unicode π output.  \n';
+      const stored = await storeDocument(testRoot, 'validation-evidence', content);
+      const model = createDocsReadModel(testRoot);
+      const doc = await model.resolveLatest('validation-evidence');
+      if (!doc) throw new Error('Independent document fixture did not resolve');
+      expect(await model.fetchContent(doc)).toBe(content);
+      expect(doc.sha256).toBe(createHash('sha256').update(content).digest('hex'));
+      expect(
+        await pipelineManifestAppend({ ...ENTRY_A, file: `cleo://docs/${stored.id}` }, testRoot),
+      ).toMatchObject({ success: true });
+      expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+        success: true,
+        data: { valid: true, entriesFound: 1, errorCount: 0, warningCount: 0, issues: [] },
+      });
+      expect(await model.fetchContent(doc)).toBe(content);
+    });
+
     it('pins document reads to the manifest project despite conflicting ambient roots', async () => {
       const otherRoot = mkdtempSync(join(tmpdir(), 'cleo-manifest-doc-other-'));
       mkdirSync(join(otherRoot, '.git'));
@@ -413,8 +436,18 @@ describe('pipeline-manifest-sqlite', () => {
           success: false,
           error: { code: 'E_MANIFEST_DOC_CONTENT_UNAVAILABLE' },
         });
+        fetch.mockResolvedValueOnce(null);
+        expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+          success: false,
+          error: { code: 'E_MANIFEST_DOC_CONTENT_UNAVAILABLE', details: { entryId: ENTRY_A.id } },
+        });
         fetch.mockRejectedValueOnce(new Error('synthetic document read failure'));
         expect(await pipelineManifestShow(ENTRY_A.id, testRoot)).toMatchObject({
+          success: false,
+          error: { code: 'E_MANIFEST_SHOW', message: 'synthetic document read failure' },
+        });
+        fetch.mockRejectedValueOnce(new Error('synthetic document read failure'));
+        expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
           success: false,
           error: { code: 'E_MANIFEST_SHOW', message: 'synthetic document read failure' },
         });
@@ -438,6 +471,10 @@ describe('pipeline-manifest-sqlite', () => {
       const entry = { ...ENTRY_A, file };
       expect(await pipelineManifestAppend(entry, testRoot)).toMatchObject({ success: true });
       expect(await pipelineManifestShow(entry.id, testRoot)).toMatchObject({
+        success: false,
+        error: { code, details: { entryId: entry.id, reference: file } },
+      });
+      expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
         success: false,
         error: { code, details: { entryId: entry.id, reference: file } },
       });
@@ -562,6 +599,7 @@ describe('pipeline-manifest-sqlite', () => {
         () => pipelineManifestShow('collision', testRoot),
         () => pipelineManifestList({}, testRoot),
         () => pipelineManifestRead(undefined, testRoot),
+        () => pipelineManifestValidate('T001', testRoot),
       ]) {
         expect(await read()).toMatchObject({
           success: false,
@@ -973,35 +1011,87 @@ describe('pipeline-manifest-sqlite', () => {
   // =========================================================================
 
   describe('pipelineManifestValidate', () => {
-    it('should return valid true when no entries for task', async () => {
+    it('rejects absent task evidence instead of treating an empty selection as valid', async () => {
       await seedEntries(testRoot, [ENTRY_A]);
-      const result = await pipelineManifestValidate('T999', testRoot);
-      expect(result.success).toBe(true);
-      expect((result.data as any).valid).toBe(true);
-      expect((result.data as any).entriesFound).toBe(0);
+      expect(await pipelineManifestValidate('T999', testRoot)).toMatchObject({
+        success: true,
+        data: { valid: false, entriesFound: 0, errorCount: 1, warningCount: 0 },
+      });
     });
 
-    it('should find linked entries and validate fields', async () => {
+    it('selects exact linked tasks and does not infer ownership from manifest IDs', async () => {
+      await seedEntries(testRoot, [
+        { ...ENTRY_A, id: 'T10-report', linked_tasks: ['T10'] },
+        { ...ENTRY_A, id: 'T1-unlinked', linked_tasks: [] },
+      ]);
+      expect(await pipelineManifestValidate('T1', testRoot)).toMatchObject({
+        success: true,
+        data: { valid: false, entriesFound: 0 },
+      });
+      const content = '  Verified T1 evidence π | literal.  \n';
+      writeFileSync(join(testRoot, 'exact.md'), content);
+      await seedEntries(testRoot, [
+        { ...ENTRY_A, id: 'unrelated-name', linked_tasks: ['T1'], file: 'exact.md' },
+      ]);
+      expect(await pipelineManifestValidate('T1', testRoot)).toMatchObject({
+        success: true,
+        data: { valid: true, entriesFound: 1, errorCount: 0, warningCount: 0, issues: [] },
+      });
+      expect(readFileSync(join(testRoot, 'exact.md'), 'utf8')).toBe(content);
+    });
+
+    it('finds linked entries and validates required output availability', async () => {
       await seedEntries(testRoot, [ENTRY_A, ENTRY_B, ENTRY_C]);
-      const result = await pipelineManifestValidate('T001', testRoot);
-      expect(result.success).toBe(true);
-      expect((result.data as any).entriesFound).toBeGreaterThanOrEqual(1);
+      expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+        success: true,
+        data: { valid: false, entriesFound: 2 },
+      });
     });
 
-    it('should warn on missing output file', async () => {
+    it('reports missing required output as an error', async () => {
       await seedEntries(testRoot, [ENTRY_A]);
-      const result = await pipelineManifestValidate('T001-research', testRoot);
-      expect(result.success).toBe(true);
-      const issues = (result.data as any).issues as any[];
-      const fileWarning = issues.find((i) => i.issue.includes('Output file not found'));
-      expect(fileWarning).toBeDefined();
-      expect(fileWarning.severity).toBe('warning');
+      expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+        success: true,
+        data: {
+          valid: false,
+          entriesFound: 1,
+          errorCount: 1,
+          issues: [
+            {
+              entryId: ENTRY_A.id,
+              issue: `Output file not found: ${ENTRY_A.file}`,
+              severity: 'error',
+            },
+          ],
+        },
+      });
     });
 
-    it('should return error for empty taskId', async () => {
-      const result = await pipelineManifestValidate('', testRoot);
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    it.each([
+      '',
+      ' \t\r\n',
+    ])('rejects empty required output without rewriting its bytes: %j', async (content) => {
+      writeFileSync(join(testRoot, 'empty.md'), content);
+      await seedEntries(testRoot, [{ ...ENTRY_A, file: 'empty.md' }]);
+      expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+        success: true,
+        data: {
+          valid: false,
+          entriesFound: 1,
+          errorCount: 1,
+          issues: [
+            { entryId: ENTRY_A.id, issue: 'Output content is empty: empty.md', severity: 'error' },
+          ],
+        },
+      });
+      expect(readFileSync(join(testRoot, 'empty.md'), 'utf8')).toBe(content);
+    });
+
+    it('returns an explicit error for an empty taskId', async () => {
+      expect(await pipelineManifestValidate('', testRoot)).toMatchObject({
+        success: false,
+        error: { code: 'E_INVALID_INPUT' },
+      });
     });
   });
 

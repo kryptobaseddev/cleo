@@ -862,7 +862,23 @@ export async function pipelineManifestCompact(projectRoot?: string): Promise<Eng
   }
 }
 
-/** pipeline.manifest.validate - Validate manifest entries for a task */
+/**
+ * Validate available manifest evidence explicitly linked to one task.
+ *
+ * @remarks
+ * This exported SDK helper is not a registered CLI operation. Selection uses
+ * exact linked-task membership; manifest ID wording establishes no ownership.
+ * Absent evidence, missing output, and blank output invalidate the assessment.
+ * Canonical document/read failures retain their structured diagnostics. Content
+ * availability does not establish implementation, testing, review, or authority.
+ * @param taskId - Exact task identity whose linked evidence is assessed.
+ * @param projectRoot - Project captured before any asynchronous store access.
+ * @returns Field and content assessment, or a structured diagnostic failure.
+ * @example
+ * ```ts
+ * const result = await pipelineManifestValidate('T001', '/project');
+ * ```
+ */
 export async function pipelineManifestValidate(
   taskId: string,
   projectRoot?: string,
@@ -873,22 +889,22 @@ export async function pipelineManifestValidate(
 
   try {
     const root = manifestScope(projectRoot).worktreeRoot;
-    const rows = await readRows(projectRoot);
-
-    const entries = rows.map(rowToEntry);
-    const linked = entries.filter(
-      (e) => e.id.startsWith(taskId) || e.linked_tasks?.includes(taskId),
-    );
+    const entries = await readManifestEntries(root);
+    const linked = entries.filter((entry) => entry.linked_tasks?.includes(taskId));
 
     if (linked.length === 0) {
       return {
         success: true,
         data: {
           taskId,
-          valid: true,
+          valid: false,
           entriesFound: 0,
           message: `No research entries found for task ${taskId}`,
-          issues: [],
+          issues: [
+            { entryId: taskId, issue: 'No explicitly linked evidence found', severity: 'error' },
+          ],
+          errorCount: 1,
+          warningCount: 0,
         },
       };
     }
@@ -917,12 +933,34 @@ export async function pipelineManifestValidate(
       }
 
       if (entry.file) {
-        const filePath = join(root, entry.file);
-        if (!existsSync(filePath)) {
+        const output = await pipelineManifestShow(entry.id, root);
+        if (!output.success) return output;
+        const data = output.data;
+        if (
+          !data ||
+          typeof data !== 'object' ||
+          !('fileExists' in data) ||
+          typeof data.fileExists !== 'boolean' ||
+          !('fileContent' in data) ||
+          (data.fileExists ? typeof data.fileContent !== 'string' : data.fileContent !== null)
+        ) {
+          throw new EngineResultError({
+            code: 'E_MANIFEST_RESULT_INVALID',
+            message: 'Canonical manifest show did not disclose consistent output availability',
+            details: { entryId: entry.id },
+          });
+        }
+        if (!data.fileExists) {
           issues.push({
             entryId: entry.id,
             issue: `Output file not found: ${entry.file}`,
-            severity: 'warning',
+            severity: 'error',
+          });
+        } else if (typeof data.fileContent === 'string' && data.fileContent.trim().length === 0) {
+          issues.push({
+            entryId: entry.id,
+            issue: `Output content is empty: ${entry.file}`,
+            severity: 'error',
           });
         }
       }
