@@ -19,41 +19,13 @@ import type {
 } from '@cleocode/contracts';
 import { memoryFindHitNext } from '../../mvi-helpers.js';
 import { captureProjectScope, worktreeScope } from '../../project-scope.js';
-import { trackBackgroundOp } from '../../store/background-ops.js';
 import { hybridSearch, searchBrain } from '../brain-search.js';
 import { searchSimilar } from '../brain-similarity.js';
 import { isCurrentMemoryEntry, memoryEligibilityClause } from '../eligibility.js';
-import { getCurrentSessionId } from './get-current-session-id.js';
-import { incrementCitationCounts } from './increment-citation-counts.js';
-import { logRetrieval } from './log-retrieval.js';
+import { scheduleCitationTracking, scheduleRetrievalTelemetry } from './telemetry.js';
 
 // Re-export budget types so callers that import from brain-retrieval.ts keep working.
 export type { BudgetedEntry, BudgetedResult, BudgetedRetrievalOptions } from '@cleocode/contracts';
-
-/** Capture session attribution before returning, then track both optional writes. */
-async function scheduleRetrievalTelemetry(
-  projectRoot: string,
-  query: string,
-  entryIds: string[],
-  source: string,
-): Promise<void> {
-  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
-  const sessionId = await getCurrentSessionId(scope.worktreeRoot);
-  const execution = scope.execution;
-  // Keep both operations registered independently: one rejection must not release
-  // the lifecycle barrier while the other writer is still running.
-  trackBackgroundOp(
-    () => worktreeScope.run(scope, () => incrementCitationCounts(scope.worktreeRoot, entryIds)),
-    execution,
-  );
-  trackBackgroundOp(
-    () =>
-      worktreeScope.run(scope, () =>
-        logRetrieval(scope.worktreeRoot, query, entryIds, source, entryIds.length * 50, sessionId),
-      ),
-    execution,
-  );
-}
 
 // ============================================================================
 // Layer 1: Compact Search
@@ -369,7 +341,13 @@ async function searchBrainCompactCurrent(
 
     if (results.length > 0) {
       const returnedIds = results.map((r) => r.id);
-      await scheduleRetrievalTelemetry(projectRoot, query, returnedIds, 'find-rrf');
+      await scheduleRetrievalTelemetry(
+        projectRoot,
+        query,
+        returnedIds,
+        'find-rrf',
+        results.length * 50,
+      );
     }
 
     return { results, total: results.length, tokensEstimated: results.length * 50 };
@@ -454,7 +432,7 @@ async function searchBrainCompactCurrent(
   // Citation tracking + retrieval logging (non-blocking)
   if (results.length > 0) {
     const returnedIds = results.map((r) => r.id);
-    await scheduleRetrievalTelemetry(projectRoot, query, returnedIds, 'find');
+    await scheduleRetrievalTelemetry(projectRoot, query, returnedIds, 'find', results.length * 50);
   }
 
   return {
@@ -488,18 +466,38 @@ const DEFAULT_TOKEN_BUDGET = 500;
  *   - Walk list, accumulate token cost (≈ textLen/4), stop at budget.
  *   - Episodic entries dropped first when budget is tight.
  *
- * Citation tracking: increments citationCount for returned entries in background (setImmediate).
+ * Citation tracking uses the existing background lifecycle barrier.
  *
  * @param projectRoot - Project root directory
  * @param query - Text to search for
  * @param tokenBudget - Maximum tokens to spend on results (default 500)
  * @param options - Optional filters (types, tiers, verified)
  * @returns Retrieved entries within budget with token accounting
+ * @remarks Explicit project scope and inherited execution are captured before
+ * reads. Citation writes retain that original deadline and cancellation; no new
+ * maintenance budget is created. Underlying telemetry remains best-effort and is
+ * not represented as a durable receipt in this result.
+ * @example
+ * ```ts
+ * const result = await retrieveWithBudget(projectRoot, 'authentication', 500);
+ * ```
  */
 export async function retrieveWithBudget(
   projectRoot: string,
   query: string,
   tokenBudget = DEFAULT_TOKEN_BUDGET,
+  options?: BudgetedRetrievalOptions,
+): Promise<BudgetedResult> {
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+  return worktreeScope.run(scope, () =>
+    retrieveWithBudgetScoped(scope.worktreeRoot, query, tokenBudget, options),
+  );
+}
+
+async function retrieveWithBudgetScoped(
+  projectRoot: string,
+  query: string,
+  tokenBudget: number,
   options?: BudgetedRetrievalOptions,
 ): Promise<BudgetedResult> {
   if (!query?.trim()) {
@@ -765,11 +763,7 @@ export async function retrieveWithBudget(
   // -------------------------------------------------------------------------
   if (result.length > 0) {
     const returnedIds = result.map((e) => e.id);
-    setImmediate(() => {
-      incrementCitationCounts(projectRoot, returnedIds).catch(() => {
-        /* best-effort */
-      });
-    });
+    scheduleCitationTracking(projectRoot, returnedIds);
   }
 
   return {
