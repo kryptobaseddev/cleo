@@ -13,16 +13,29 @@
  * @epic T1323
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { worktreeScope } from '../../project-scope.js';
+import { resolveAgent } from '../../store/agent-resolver.js';
+import {
+  awaitBackgroundOps,
+  createOperationExecutionContext,
+  pendingBackgroundOpCount,
+} from '../../store/background-ops.js';
+import type { verifyAndStore } from '../extraction-gate.js';
 
 // ---------------------------------------------------------------------------
 // Mock verifyAndStore so no real brain.db is opened
 // ---------------------------------------------------------------------------
 
-const mockVerifyAndStore = vi.fn().mockResolvedValue({ action: 'stored', id: 'O-test' });
+const mockVerifyAndStore = vi.hoisted(() => vi.fn<typeof verifyAndStore>());
+mockVerifyAndStore.mockResolvedValue({ action: 'stored', id: 'O-test', reason: 'fixture' });
 
 vi.mock('../extraction-gate.js', () => ({
-  verifyAndStore: (...args: unknown[]) => mockVerifyAndStore(...args),
+  verifyAndStore: mockVerifyAndStore,
 }));
 
 // ---------------------------------------------------------------------------
@@ -47,10 +60,10 @@ describe('emitDispatchTrace', () => {
 
     expect(mockVerifyAndStore).toHaveBeenCalledOnce();
 
-    const [projectRoot, candidate] = mockVerifyAndStore.mock.calls[0] as [string, unknown];
+    const [projectRoot, candidate] = mockVerifyAndStore.mock.calls[0]!;
     expect(projectRoot).toBe('/tmp/fake-project');
 
-    const c = candidate as Record<string, unknown>;
+    const c = candidate;
     // 'procedural' is the BRAIN schema value for process/dispatch knowledge
     // (task spec named this 'pattern' but the schema uses 'procedural')
     expect(c.memoryType).toBe('procedural');
@@ -81,16 +94,16 @@ describe('emitDispatchTrace', () => {
 
     expect(mockVerifyAndStore).toHaveBeenCalledOnce();
 
-    const [, candidate] = mockVerifyAndStore.mock.calls[0] as [string, unknown];
-    const c = candidate as Record<string, unknown>;
+    const [, candidate] = mockVerifyAndStore.mock.calls[0]!;
+    const c = candidate;
 
     // Title should signal universal fallback
-    expect(c.title as string).toContain('universal-fallback');
+    expect(c.title).toContain('universal-fallback');
 
     // Text must contain the resolver warning
-    expect(c.text as string).toContain('resolverWarning:');
-    expect(c.text as string).toContain('ghost-agent');
-    expect(c.text as string).toContain('fallbackUsed: true');
+    expect(c.text).toContain('resolverWarning:');
+    expect(c.text).toContain('ghost-agent');
+    expect(c.text).toContain('fallbackUsed: true');
   });
 
   it('registry-hit path — no resolverWarning in text', async () => {
@@ -110,11 +123,169 @@ describe('emitDispatchTrace', () => {
 
     expect(mockVerifyAndStore).toHaveBeenCalledOnce();
 
-    const [, candidate] = mockVerifyAndStore.mock.calls[0] as [string, unknown];
-    const c = candidate as Record<string, unknown>;
+    const [, candidate] = mockVerifyAndStore.mock.calls[0]!;
+    const c = candidate;
 
-    expect(c.text as string).not.toContain('resolverWarning');
-    expect(c.text as string).toContain('registryHit: true');
-    expect(c.text as string).toContain('fallbackUsed: false');
+    expect(c.text).not.toContain('resolverWarning');
+    expect(c.text).toContain('registryHit: true');
+    expect(c.text).toContain('fallbackUsed: false');
+  });
+});
+
+describe('resolver dispatch trace lifecycle', () => {
+  let directory: string | undefined;
+  afterEach(async () => {
+    await awaitBackgroundOps();
+    mockVerifyAndStore.mockReset();
+    mockVerifyAndStore.mockResolvedValue({ action: 'stored', id: 'O-test', reason: 'fixture' });
+    if (directory) await rm(directory, { recursive: true, force: true });
+    directory = undefined;
+  });
+
+  async function fixture() {
+    directory = await mkdtemp(join(tmpdir(), 'dispatch-lifecycle-'));
+    const first = join(directory, 'first');
+    const second = join(directory, 'second');
+    await mkdir(join(first, '.cleo'), { recursive: true });
+    await mkdir(join(second, '.cleo'), { recursive: true });
+    for (const [root, id] of [
+      [first, 'first'],
+      [second, 'second'],
+    ]) {
+      await writeFile(
+        join(root!, '.cleo/project-info.json'),
+        JSON.stringify({ projectId: id, projectHash: id, projectRoot: root }),
+      );
+    }
+    const cant = join(directory, 'base.cant');
+    await writeFile(cant, 'Synthetic universal protocol');
+    return { first, second, cant };
+  }
+
+  it('keeps actual resolver-emitter work pending through the completion barrier', async () => {
+    const { first, cant } = await fixture();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const finished = Promise.withResolvers<void>();
+    mockVerifyAndStore.mockImplementationOnce(async () => {
+      entered.resolve();
+      await release.promise;
+      finished.resolve();
+      return { action: 'stored', id: 'O-held', reason: 'controlled write completed' };
+    });
+    const db = new DatabaseSync(':memory:');
+    let barrierFinished = false;
+    try {
+      resolveAgent(db, 'fixture-worker', {
+        projectRoot: first,
+        preferTier: 'universal',
+        universalBasePath: cant,
+      });
+      await entered.promise;
+      expect(pendingBackgroundOpCount()).toBeGreaterThan(0);
+      const barrier = awaitBackgroundOps().then(() => {
+        barrierFinished = true;
+      });
+      await Promise.resolve();
+      expect(barrierFinished).toBe(false);
+      release.resolve();
+      await barrier;
+      expect(barrierFinished).toBe(true);
+      expect(pendingBackgroundOpCount()).toBe(0);
+    } finally {
+      release.resolve();
+      await finished.promise;
+      db.close();
+    }
+  });
+
+  it('retains interleaved caller roots and the original execution identity', async () => {
+    const { first, second, cant } = await fixture();
+    const seen: string[] = [];
+    const one = createOperationExecutionContext(
+      {
+        projectRoot: first,
+        projectId: 'first',
+        actor: 'test',
+        operation: 'agent.resolve',
+        idempotencyKey: 'one',
+      },
+      { budgetMs: 10000 },
+    );
+    const two = createOperationExecutionContext(
+      {
+        projectRoot: second,
+        projectId: 'second',
+        actor: 'test',
+        operation: 'agent.resolve',
+        idempotencyKey: 'two',
+      },
+      { budgetMs: 10000 },
+    );
+    mockVerifyAndStore.mockImplementation(async (root) => {
+      seen.push(root);
+      const execution = worktreeScope.getStore()?.execution;
+      expect(execution).toBe(root === first ? one : two);
+      return { action: 'stored', id: 'O-owned', reason: 'fixture' };
+    });
+    const db = new DatabaseSync(':memory:');
+    try {
+      for (const [root, execution] of [
+        [first, one],
+        [second, two],
+      ] as const) {
+        worktreeScope.run(
+          { worktreeRoot: root, projectHash: execution.identity.projectId, execution },
+          () =>
+            resolveAgent(db, 'fixture-worker', {
+              projectRoot: root,
+              preferTier: 'universal',
+              universalBasePath: cant,
+            }),
+        );
+      }
+      await awaitBackgroundOps();
+      expect(seen.toSorted()).toEqual([first, second].toSorted());
+    } finally {
+      db.close();
+    }
+  });
+
+  it.each([
+    'cancelled',
+    'expired',
+  ] as const)('does not start optional writes after the original lifetime is %s', async (stop) => {
+    const { first, cant } = await fixture();
+    const abort = new AbortController();
+    const execution = createOperationExecutionContext(
+      {
+        projectRoot: first,
+        projectId: 'first',
+        actor: 'test',
+        operation: 'agent.resolve',
+        idempotencyKey: stop,
+      },
+      { deadlineAt: stop === 'expired' ? 0 : Date.now() + 10000, signal: abort.signal },
+    );
+    const db = new DatabaseSync(':memory:');
+    mockVerifyAndStore.mockClear();
+    try {
+      worktreeScope.run({ worktreeRoot: first, projectHash: 'first', execution }, () => {
+        resolveAgent(db, 'fixture-worker', {
+          projectRoot: first,
+          preferTier: 'universal',
+          universalBasePath: cant,
+        });
+        if (stop === 'cancelled') abort.abort(new Error('Caller cancelled'));
+      });
+      await awaitBackgroundOps();
+      // Drain the original untracked import as well, making the defective-source oracle deterministic.
+      const { emitDispatchTrace } = await import('../dispatch-trace.js');
+      expect(emitDispatchTrace).toBeTypeOf('function');
+      await Promise.resolve();
+      expect(mockVerifyAndStore).not.toHaveBeenCalled();
+    } finally {
+      db.close();
+    }
   });
 });
