@@ -33,6 +33,7 @@ const WRITABLE_ROOTS = [
   'AGENTS_HOME',
   'CLAUDE_CONFIG_DIR',
   'CODEX_HOME',
+  'KIMI_CODE_HOME',
   'KIMI_HOME',
   'KIMI_CONFIG_DIR',
 ] as const;
