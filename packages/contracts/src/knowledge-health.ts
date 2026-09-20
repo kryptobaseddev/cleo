@@ -286,6 +286,64 @@ export interface KnowledgeRepairPreparation {
   deadlineExceeded: boolean;
 }
 
+/** Exact append-only lifecycle payload retained for later inspection. */
+export interface KnowledgeRepairLedgerEntry {
+  /** Stable original metadata identity. */
+  key: string;
+  /** Original JSON bytes; inspection never rewrites prior evidence. */
+  valueJson: string;
+}
+
+/** Authenticated current job state with separate historical attempt and receipt evidence. */
+export interface KnowledgeRepairInspection {
+  /** Existing durable operation identity. */
+  jobId: string;
+  /** Observed lifecycle state, independent of a cancellation request. */
+  status: BackgroundJobStatus;
+  /** Digest of the exact retained immutable proposal bytes. */
+  proposalHash: string;
+  /** Independently validated immutable input and project/actor scope. */
+  proposal: KnowledgePreparedRepairProposal;
+  /** Number of claimed attempts. */
+  attempts: number;
+  /** Latest persisted ownership epoch. */
+  fencingEpoch: number;
+  /** Current owner token, or null for unstarted work. */
+  ownerId: string | null;
+  /** Observed lease deadline, or null when absent. */
+  leaseExpiresAt: number | null;
+  /** Requested cancellation timestamp; does not imply committed effects were undone. */
+  cancellationRequestedAt: number | null;
+  /** Retained checkpoint bytes, or null when absent. */
+  checkpointJson: string | null;
+  /** Verified repair receipt, kept separate from unsuccessful attempt outcomes. */
+  receipt: KnowledgeRepairReceipt | null;
+  /** Separate current recovery receipt, preserving the original historical receipt above. */
+  rollbackReceipt: KnowledgeRepairReceipt | null;
+  /** Explicit stored-job diagnostic, including committed connection-cleanup failures. */
+  diagnosticError: string | null;
+  /** Historical entries in append order, limited by the requested page size. */
+  ledger: KnowledgeRepairLedgerEntry[];
+  /** Total retained matching entries, including those outside this page. */
+  ledgerTotal: number;
+  /** Whether this response contains the complete retained lifecycle ledger. */
+  ledgerComplete: boolean;
+}
+
+/** Durable cancellation request plus actual observed state, not a rollback claim. */
+export interface KnowledgeRepairCancellation {
+  /** Whether pending work was cancelled or a running attempt received a request. */
+  requested: boolean;
+  /** Actual job and receipt state after the request transaction. */
+  inspection: KnowledgeRepairInspection | null;
+  /** Diagnostic after a committed request; null means the inspection completed. */
+  diagnosticError: string | null;
+  /** Original invocation deadline, never renewed by cancellation bookkeeping. */
+  deadlineAt: number;
+  /** Whether the request committed after that deadline. */
+  deadlineExceeded: boolean;
+}
+
 /** Verified scoped provenance added by the owned repair execution path. */
 export interface KnowledgeRepairExecution {
   /** Original immutable receipt recovered by this operation. @defaultValue undefined */
