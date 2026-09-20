@@ -1537,7 +1537,8 @@ export interface ColdOpenLeaseOptions
 }
 
 /** A checkpoint for the actual persisted cold-open ownership grant.
- * @remarks This checks ownership; it cannot preempt or fence arbitrary callback writes.
+ * @remarks `mutate` fences opted-in synchronous writes in their own transaction.
+ * `assertHeld` cannot preempt or fence arbitrary callback writes.
  * @example
  * ```ts
  * await withColdOpenLease('project', native, async (ownership) => {
@@ -1552,6 +1553,14 @@ export interface ColdOpenLeaseGuard {
    * @returns Nothing when the persisted holder and epoch match.
    */
   assertHeld(target?: DatabaseSync): void;
+  /** Admit synchronous writes after checking this grant inside their SQLite transaction.
+   * @typeParam T - Synchronous mutation result.
+   * @param target - Native handle for the captured database file, without an active transaction.
+   * @param mutation - Synchronous writes; must not control or close the owned transaction.
+   * @returns The result after committed writes; throws and rolls back before commit on failure.
+   * @remarks Requires operation-owned schema authority. A checkpoint alone cannot fence writes.
+   */
+  mutate<T>(target: DatabaseSync, mutation: () => T): T;
 }
 
 /** Lexical membership expires when its owning callback returns. */
@@ -1646,7 +1655,9 @@ async function withRequiredColdOpenLease<T>(
           path,
           device: identity.dev,
           inode: identity.ino,
-          guard: grant,
+          get guard() {
+            return guard;
+          },
           execution: opts.execution,
           active: true,
         };
@@ -1654,6 +1665,71 @@ async function withRequiredColdOpenLease<T>(
           assertHeld(target) {
             assertColdOpenFile(frame);
             grant.assertHeld(target);
+          },
+          mutate(target, mutation) {
+            assertColdOpenFile(frame);
+            opts.execution?.assertActive();
+            if (target !== nativeDb) {
+              throw new LeaseUnavailableError(
+                scope,
+                'tasks',
+                'schema mutation requires its captured native handle',
+              );
+            }
+            if (target.isTransaction) {
+              throw new LeaseUnavailableError(
+                scope,
+                'tasks',
+                'schema mutation cannot borrow an active transaction',
+              );
+            }
+            const previousTimeout = Number(
+              target.prepare('PRAGMA busy_timeout').get()?.timeout ?? 0,
+            );
+            if (opts.execution) {
+              target.exec(
+                `PRAGMA busy_timeout = ${Math.max(0, Math.min(previousTimeout, opts.execution.deadlineAt - Date.now()))}`,
+              );
+            }
+            try {
+              target.exec('BEGIN IMMEDIATE');
+              // Read on the actual writer after its lock, so a competing epoch change
+              // cannot occur between ownership validation and these committed writes.
+              const assertMutationOwnership = (): void => {
+                guard.assertHeld(target);
+                const lease = target
+                  .prepare(
+                    `SELECT heartbeat_at, ttl_ms FROM main.${WRITER_LEASES_TABLE} WHERE scope = ? AND lane = 'tasks' AND active = 1`,
+                  )
+                  .get(scope);
+                if (!lease || Number(lease.heartbeat_at) + Number(lease.ttl_ms) <= Date.now()) {
+                  throw new LeaseUnavailableError(
+                    scope,
+                    'tasks',
+                    'schema mutation ownership expired',
+                  );
+                }
+                opts.execution?.assertActive();
+              };
+              assertMutationOwnership();
+              const result = mutation();
+              if (
+                result !== null &&
+                (typeof result === 'object' || typeof result === 'function') &&
+                'then' in result
+              ) {
+                throw new TypeError('schema mutation callback must be synchronous');
+              }
+              assertMutationOwnership();
+              target.exec('COMMIT');
+              return result;
+            } catch (error) {
+              if (target.isTransaction) target.exec('ROLLBACK');
+              throw error;
+            } finally {
+              if (target.isOpen && opts.execution)
+                target.exec(`PRAGMA busy_timeout = ${previousTimeout}`);
+            }
           },
         };
         // The random holder and epoch must be visible through the actual callback
@@ -1745,7 +1821,17 @@ async function runColdOpenLease<T>(
 ): Promise<T> {
   opts?.execution?.assertActive();
   const mode = required ? 'require' : effectiveMode();
-  const unleased: ColdOpenLeaseGuard = { assertHeld: () => opts?.execution?.assertActive() };
+  const rejectMutation = (): never => {
+    throw new LeaseUnavailableError(
+      scope,
+      'tasks',
+      'schema mutation requires operation-owned authority',
+    );
+  };
+  const unleased: ColdOpenLeaseGuard = {
+    assertHeld: () => opts?.execution?.assertActive(),
+    mutate: rejectMutation,
+  };
 
   // `off` mode — pure pass-through. busy_timeout=30000 on the connection still
   // serializes the migrate/reconcile write-txn exactly as before the lease.
@@ -1808,6 +1894,7 @@ async function runColdOpenLease<T>(
     // Retain an actual committed callback result even if cancellation arrives afterwards.
     opts?.execution?.assertActive();
     return await fn({
+      mutate: rejectMutation,
       assertHeld(target = nativeDb) {
         const row = target
           .prepare(
