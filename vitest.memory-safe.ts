@@ -57,9 +57,16 @@ export const RAM_BUDGET_PER_FORK_GB = 6;
  * run: the desktop session, browsers, language servers, and any OTHER agent
  * session sharing the machine.
  *
- * Without this the budget silently assumes a dedicated box.
+ * ZERO on CI, because none of that exists there — a runner is dedicated to this
+ * job, and reserving a developer-sized slice of it just halves the fan-out. On
+ * a 16 GB runner with ~14 GB available, a flat 12 GB reserve leaves 2 GB, which
+ * floors to one fork where two fit comfortably; measured as a ~2x wall-clock
+ * regression on the Ubuntu shards before this was split out.
+ *
+ * `CI` is set by GitHub Actions and every other major CI provider. The fallback
+ * is the developer case, which is the one that needs protecting.
  */
-export const RESERVED_HEADROOM_GB = 12;
+export const RESERVED_HEADROOM_GB = process.env['CI'] ? 0 : 12;
 
 /**
  * Hard ceiling on parallel forks regardless of machine size.
