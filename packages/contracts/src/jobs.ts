@@ -366,3 +366,59 @@ export type OperationWaitResult<T> =
       /** Wall time reached the shared deadline. */
       readonly deadlineExceeded: boolean;
     };
+
+/**
+ * Observed state of a single shutdown stage, not the outcome of all producer work.
+ * @remarks Optional on legacy receipts; missing state must not imply a timeout.
+ */
+export type ShutdownStepStatus = 'completed' | 'failed' | 'cancelled' | 'timed-out' | 'not-started';
+
+/** Evidence identifying why a shutdown step failed, stopped, or could not start. */
+export type ShutdownStepReason =
+  | 'step-rejected'
+  | 'operation-cancelled'
+  | 'operation-closed'
+  | 'execution-deadline'
+  | 'step-deadline'
+  | 'shutdown-deadline'
+  | 'background-pending'
+  | 'prior-step-incomplete'
+  | 'drain-incomplete';
+
+/**
+ * Compatible receipt for one deadline-bounded shutdown step.
+ * @remarks The original fields remain required and keep their meanings. New
+ * assessments populate status and any observed reason; legacy callers may omit
+ * those fields. A completed background barrier establishes settlement only and
+ * cannot certify producer results already discarded or swallowed by owners.
+ */
+export interface ShutdownStepOutcome {
+  /** Resource or producer-barrier name. */
+  readonly label: string;
+  /** The step settled within its wait, including an immediate rejection. */
+  readonly settled: boolean;
+  /** The observed step threw or rejected; false does not certify all producer results. */
+  readonly threw: boolean;
+  /** Elapsed wall time; zero for a step that was not started. */
+  readonly durationMs: number;
+  /** Assessed lifecycle state; absent on historical untyped receipts.
+   * @defaultValue undefined — legacy receipts do not establish a typed state.
+   */
+  readonly status?: ShutdownStepStatus;
+  /** Observed stop/refusal cause; never inferred from elapsed time alone.
+   * @defaultValue undefined — no structured cause was observed.
+   */
+  readonly reason?: ShutdownStepReason;
+  /** Original error message when the stage actually rejected.
+   * @defaultValue undefined — no rejection message was observed.
+   */
+  readonly error?: string;
+  /** Registry settlement alone leaves individual producer success unassessed.
+   * @defaultValue undefined — this receipt does not assess producer outcomes.
+   */
+  readonly producerOutcome?: 'unassessed';
+  /** Number of registered unsettled promises observed at this boundary.
+   * @defaultValue undefined — the registry was not counted for this receipt.
+   */
+  readonly pendingOperations?: number;
+}

@@ -25,9 +25,10 @@
  * ## The two guarantees
  *
  * 1. {@link withDeadline} — no single teardown step can stall the exit path.
- *    A step that misses its deadline is abandoned, not awaited. Abandoning is
- *    safe here precisely because teardown is best-effort: the worst case is a
- *    worker thread that outlives us by microseconds before the process exits.
+ *    A step that misses its deadline is abandoned, not awaited. Abandonment is
+ *    only a stop in waiting: it does not cancel the underlying operation or
+ *    prove that resources are safe to close. The shutdown coordinator must
+ *    report incomplete work and preserve resources still owned by that work.
  *
  * 2. {@link armExitBackstop} — an **unref'd** timer that force-exits if the
  *    loop is still alive after the grace period. Unref'd means the timer does
@@ -51,42 +52,17 @@
  * @task T12115
  */
 
+import type { ShutdownStepOutcome as StepOutcome } from '@cleocode/contracts/jobs';
+import { OperationExecutionError } from './store/background-ops.js';
+
+/** Compatible historical type export; canonical shared declaration lives in jobs contracts. */
+export type { ShutdownStepOutcome as StepOutcome } from '@cleocode/contracts/jobs';
+
 /** Per-step teardown budget, in ms. */
 export const STEP_DEADLINE_MS = 2_000;
 
 /** Grace period after teardown before the backstop force-exits, in ms. */
 export const EXIT_BACKSTOP_MS = 3_000;
-
-/** Outcome of one deadline-bounded teardown step. */
-export interface StepOutcome {
-  /** Human-readable step name, used in diagnostics. */
-  readonly label: string;
-  /**
-   * `true` when the step settled within its deadline.
-   *
-   * NOTE: settled includes "threw immediately" — see {@link threw}. Teardown is
-   * best-effort by policy, so a throwing step is not a failure of the exit
-   * path. It is still worth recording.
-   */
-  readonly settled: boolean;
-  /**
-   * `true` when the step threw rather than completing.
-   *
-   * Without this, `settled` alone made a throwing step **structurally
-   * invisible**: four steps that all threw and four that all succeeded
-   * produced byte-identical outcome arrays. That is absence reading as
-   * success, in the teardown path, in code written to fix exactly that.
-   *
-   * It matters unevenly. A throwing `logger` close is noise; a throwing
-   * `databases` close means an unclean SQLite shutdown, and this project has
-   * explicit history with WAL/sidecar desync (AGENTS.md, Runtime Data Safety).
-   * A throwing `brain-writer` plausibly means unflushed memory writes — every
-   * invocation, forever, with nothing to look at.
-   */
-  readonly threw: boolean;
-  /** Wall-clock time the step consumed, in ms. */
-  readonly durationMs: number;
-}
 
 /**
  * Run a teardown step, abandoning it if it outlives `deadlineMs`.
@@ -98,6 +74,9 @@ export interface StepOutcome {
  * @param step - the teardown work.
  * @param deadlineMs - budget before the step is abandoned.
  * @returns what happened, for the caller's diagnostics.
+ * @remarks Waiting is bounded cooperatively; synchronous work is not preempted.
+ * A timed-out receipt is a snapshot and never becomes successful when abandoned
+ * work later settles. Known operation cancellation retains its original reason.
  *
  * @example
  * ```ts
@@ -114,22 +93,32 @@ export async function withDeadline(
   let timer: NodeJS.Timeout | undefined;
 
   let threw = false;
+  let status: StepOutcome['status'] = 'completed';
+  let reason: StepOutcome['reason'];
+  let error: string | undefined;
 
   const settled = await Promise.race([
     (async () => {
       try {
         await step();
-      } catch {
-        // Best-effort teardown — a throwing step is still a settled step and
-        // must not abort the exit path. RECORDED rather than swallowed, so a
-        // teardown failing on every invocation is discoverable.
-        //
-        // Deliberately not logged here. `closeLogger` is itself step 4 of this
-        // sequence, so a catch that reaches for the logger can run against a
-        // subsystem that is mid-teardown or already closed — turning a recorded
-        // failure into a second, worse one. The caller surfaces `threw` on
-        // stderr instead, where nothing is being torn down.
+      } catch (cause) {
         threw = true;
+        status = 'failed';
+        reason = 'step-rejected';
+        error = cause instanceof Error ? cause.message : String(cause);
+        if (cause instanceof OperationExecutionError) {
+          if (cause.code === 'E_OPERATION_DEADLINE') {
+            status = 'timed-out';
+            reason = 'execution-deadline';
+          } else if (
+            cause.code === 'E_OPERATION_CANCELLED' ||
+            cause.code === 'E_OPERATION_CLOSED'
+          ) {
+            status = 'cancelled';
+            reason =
+              cause.code === 'E_OPERATION_CLOSED' ? 'operation-closed' : 'operation-cancelled';
+          }
+        }
       }
       return true;
     })(),
@@ -141,7 +130,59 @@ export async function withDeadline(
   ]);
 
   if (timer) clearTimeout(timer);
-  return { label, settled, threw, durationMs: Date.now() - startedAt };
+  return {
+    label,
+    settled,
+    threw,
+    durationMs: Date.now() - startedAt,
+    status: settled ? status : 'timed-out',
+    ...(!settled ? { reason: 'step-deadline' as const } : reason ? { reason } : {}),
+    ...(settled && error !== undefined ? { error } : {}),
+  };
+}
+
+/**
+ * Render assessed shutdown diagnostics without inferring reasons from legacy flags.
+ * @param outcomes - Existing stage receipts, including compatible older callers.
+ * @returns Stderr text, or an empty string when all resource steps completed.
+ * @remarks A settled registry barrier does not establish producer success. Error
+ * messages are JSON-escaped so they cannot inject additional diagnostic lines.
+ * The committed command result is preserved regardless of optional teardown.
+ * @example
+ * ```ts
+ * const text = formatShutdownOutcomes(await shutdownCliRuntime());
+ * process.stderr.write(text);
+ * ```
+ */
+export function formatShutdownOutcomes(outcomes: readonly StepOutcome[]): string {
+  const lines: string[] = [];
+  let incomplete = false;
+  for (const outcome of outcomes) {
+    const status =
+      outcome.status ?? (outcome.threw ? 'failed' : outcome.settled ? 'completed' : 'incomplete');
+    if (status === 'completed') {
+      if (outcome.producerOutcome === 'unassessed') {
+        lines.push(
+          `cleo: teardown ${outcome.label}: tracked promises settled; producer outcomes unassessed.`,
+        );
+      }
+      continue;
+    }
+    incomplete = true;
+    const wording =
+      status === 'timed-out' ? 'timed out' : status === 'not-started' ? 'not started' : status;
+    const reason = outcome.reason ?? 'reason unavailable (legacy outcome)';
+    lines.push(
+      `cleo: teardown ${outcome.label}: ${wording}; ${reason}` +
+        (outcome.error !== undefined ? `; error ${JSON.stringify(outcome.error)}` : '') +
+        '.',
+    );
+  }
+  if (incomplete)
+    lines.push(
+      "cleo: The command's own result stands; teardown did not establish complete resource closure.",
+    );
+  return lines.length === 0 ? '' : `${lines.join('\n')}\n`;
 }
 
 /**
