@@ -385,6 +385,7 @@ function assertCriterionProjection(task: Task, rows: readonly AcRow[]): void {
       (row, index) =>
         row.taskId !== task.id ||
         row.text !== acItemToText(acceptance[index]!) ||
+        (row.kind === 'evidence_bound') !== (typeof acceptance[index] !== 'string') ||
         (row.kind !== 'child_task' &&
           row.contentHash !== null &&
           row.contentHash !== acTextHash(row.text)),

@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
+  AcRow,
   KnowledgeCoverage,
   Task,
   TaskRecord,
@@ -314,7 +315,11 @@ async function canAutoCompleteParent(
 }
 
 /** Exclude only explicitly advisory typed rows after their canonical projection is validated. */
-function completionCoverageAccessor(task: Task, accessor: AcCoverageAccessor): AcCoverageAccessor {
+function completionCoverageAccessor(
+  task: Task,
+  accessor: AcCoverageAccessor,
+  capturedRows?: readonly AcRow[],
+): AcCoverageAccessor {
   const optional = new Map(
     (task.acceptance ?? []).flatMap((item, index) =>
       typeof item !== 'string' && item.advisory ? [[index, acItemToText(item)] as const] : [],
@@ -322,7 +327,7 @@ function completionCoverageAccessor(task: Task, accessor: AcCoverageAccessor): A
   );
   return {
     getAcRows: async (taskId) =>
-      (await accessor.getAcRows(taskId))
+      (capturedRows ? [...capturedRows] : await accessor.getAcRows(taskId))
         .sort((a, b) => a.ordinal - b.ordinal)
         .filter((row, index) => optional.get(index) !== row.text),
     getAcBindings: (ids) => accessor.getAcBindings(ids),
@@ -844,7 +849,12 @@ export async function completeTask(
     candidate: Task,
     tx: TransactionAccessor,
   ): Promise<void> => {
-    if (!(candidate.acceptance ?? []).some((item) => typeof item !== 'string')) return;
+    const criteria = await tx.getAcRows(candidate.id);
+    if (
+      !(candidate.acceptance ?? []).some((item) => typeof item !== 'string') &&
+      !criteria.some((row) => row.kind === 'evidence_bound')
+    )
+      return;
     try {
       if (!typedExecution) {
         const info = readProjectInfoAtDirectorySync(completionRoot, join(completionRoot, '.cleo'));
@@ -863,7 +873,7 @@ export async function completeTask(
       }
       typedExecution.assertActive();
       const results = candidate.verification?.gateResults ?? [];
-      await revalidateTaskGateResults(candidate, await tx.getAcRows(candidate.id), results, {
+      await revalidateTaskGateResults(candidate, criteria, results, {
         projectRoot: completionRoot,
         execution: typedExecution,
       });
@@ -920,9 +930,11 @@ export async function completeTask(
         // Gate status does not establish which criteria were proved. Require
         // explicit bindings; retain historical auto-coverage rows as history.
         const current = await acc.loadSingleTask(options.taskId);
+        const currentCriteria = await tx.getAcRows(options.taskId);
         if (
           (initialTask.acceptance ?? []).some((item) => typeof item !== 'string') ||
-          (current?.acceptance ?? []).some((item) => typeof item !== 'string')
+          (current?.acceptance ?? []).some((item) => typeof item !== 'string') ||
+          currentCriteria.some((row) => row.kind === 'evidence_bound')
         ) {
           if (!current || !isDeepStrictEqual(current, initialTask))
             throw new CleoError(
@@ -931,7 +943,11 @@ export async function completeTask(
             );
           await validateTypedCompletion(current, tx);
         }
-        await enforceAcCoverageGate(options, completionRoot, completionCoverageAccessor(task, tx));
+        await enforceAcCoverageGate(
+          options,
+          completionRoot,
+          completionCoverageAccessor(task, tx, currentCriteria),
+        );
 
         // Auto-advance pipelineStage: IVTR execution stages → release (T719)
         // When a task is completed, advance from implementation/validation/testing to release.

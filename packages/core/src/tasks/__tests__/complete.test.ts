@@ -187,6 +187,89 @@ describe('completeTask', () => {
     }
   });
 
+  it.each([
+    'stringified',
+    'removed',
+    'wrong-kind',
+  ] as const)('typed completion rejects inconsistent canonical representation: %s', async (change) => {
+    await typedFixture();
+    await verifyTypedFixture();
+    const [criterion] = await accessor.getAcRows('T001');
+    if (change === 'wrong-kind') {
+      getNativeTasksDb(env.tempDir)!
+        .prepare("UPDATE tasks_task_acceptance_criteria SET kind='text' WHERE id=?")
+        .run(criterion!.id);
+    } else {
+      await accessor.updateTaskFields('T001', {
+        acceptanceJson: JSON.stringify(change === 'removed' ? [] : [criterion!.text]),
+      });
+    }
+    const before = persistedCompletion("SELECT * FROM tasks_tasks WHERE id='T001'");
+    await expect(
+      completeTask(
+        {
+          taskId: 'T001',
+          waiveAc: 'AC1',
+          waiveReason: 'Generic waiver cannot repair erased gate identity',
+        },
+        env.tempDir,
+        accessor,
+      ),
+    ).rejects.toThrow(/inconsistent acceptance/);
+    expect(persistedCompletion("SELECT * FROM tasks_tasks WHERE id='T001'")).toBe(before);
+  });
+
+  it('does not auto-close a parent whose canonical typed row was demoted to literal JSON', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T100',
+        title: 'Parent',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T001',
+        parentId: 'T100',
+        title: 'Last child',
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await reqAdd(
+      env.tempDir,
+      'T100',
+      {
+        kind: 'test',
+        req: 'DEMOTED-PARENT',
+        description: 'Retained typed row',
+        command: process.execPath,
+        args: ['absent.mjs'],
+        expect: 'exit0',
+      },
+      accessor,
+    );
+    const [criterion] = await accessor.getAcRows('T100');
+    await accessor.updateTaskFields('T100', { acceptanceJson: JSON.stringify([criterion!.text]) });
+    await accessor.transaction((tx) =>
+      tx.insertAcBindings([
+        {
+          id: 'synthetic-covered',
+          acId: criterion!.id,
+          evidenceAtomId: 'note:generic coverage',
+          bindingType: 'satisfies',
+        },
+      ]),
+    );
+    const result = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+    expect(result.autoCompleted ?? []).not.toContain('T100');
+    expect((await accessor.loadSingleTask('T100'))?.status).toBe('pending');
+    expect((await accessor.loadSingleTask('T100'))?.acceptance).toEqual([criterion!.text]);
+  });
+
   it('typed completion keeps an unmet parent open even when generic AC bindings allow rollup', async () => {
     await seedTasks(accessor, [
       {
