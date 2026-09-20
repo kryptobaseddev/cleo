@@ -13,15 +13,18 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type {
+  AtomicJobBookkeeping,
   AtomicJobMutation,
   BackgroundJobExecutionContext,
   BackgroundJobFailureCode,
   BackgroundJobLease,
   BackgroundJobStoreOptions,
   BackgroundJobSubmission,
+  JobAttemptOutcome,
+  JobFinalizationResult,
   OperationExecutionContext,
 } from '@cleocode/contracts/jobs';
-import { and, eq, gt, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, gt, isNull, ne, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from './sqlite.js';
 import {
   BACKGROUND_JOB_STATUSES,
@@ -239,16 +242,19 @@ export function assertOperationWriteFence(
 function assertOperationJobState(
   db: Pick<NodeSQLiteDatabase, 'select'>,
   execution: OperationExecutionContext,
-  status: 'running' | 'complete',
+  status: 'running' | 'complete' | 'failed' | 'cancelled',
   resultJson?: string,
+  bookkeeping = false,
+  outcome?: JobAttemptOutcome,
 ): void {
-  execution.assertActive();
+  if (!bookkeeping) execution.assertActive();
   const fence = execution.writeFence;
   if (!fence) return;
   const row = db
     .select({
       proposalJson: sql<string | null>`${backgroundJobs.proposalJson}`,
       result: sql<string | null>`${backgroundJobs.result}`,
+      error: sql<string | null>`${backgroundJobs.error}`,
     })
     .from(sql`main.${backgroundJobs}`)
     .where(
@@ -258,7 +264,7 @@ function assertOperationJobState(
         eq(backgroundJobs.ownerId, fence.lease.ownerId),
         eq(backgroundJobs.fencingEpoch, fence.lease.epoch),
         gt(backgroundJobs.leaseExpiresAt, Date.now()),
-        isNull(backgroundJobs.cancellationRequestedAt),
+        bookkeeping ? undefined : isNull(backgroundJobs.cancellationRequestedAt),
         eq(backgroundJobs.projectId, execution.identity.projectId),
         eq(backgroundJobs.operation, execution.identity.operation),
         eq(backgroundJobs.idempotencyKey, execution.identity.idempotencyKey),
@@ -270,7 +276,8 @@ function assertOperationJobState(
   if (
     !row?.proposalJson ||
     createHash('sha256').update(row.proposalJson).digest('hex') !== fence.proposalHash ||
-    (resultJson !== undefined && row.result !== resultJson)
+    (resultJson !== undefined && row.result !== resultJson) ||
+    (outcome !== undefined && row.error !== outcome.message)
   ) {
     throw new BackgroundJobError(
       'E_JOB_LEASE_LOST',
@@ -278,6 +285,9 @@ function assertOperationJobState(
     );
   }
 }
+
+// Coordination only: no connection lifetime or domain cache is owned here.
+const boundedTransactionHandles = new WeakSet<object>();
 
 /**
  * Drizzle-backed ownership of the established active job table.
@@ -295,6 +305,7 @@ export class DurableJobStore {
   readonly #ownerId = randomUUID();
   readonly #options: BackgroundJobStoreOptions;
   readonly #grants = new Map<string, BackgroundJobLease>();
+  readonly #committedCleanupFailures = new Map<string, string>();
   /** Positive lease duration used for claims and heartbeats. */
   readonly leaseMs: number;
 
@@ -328,34 +339,149 @@ export class DurableJobStore {
   }
 
   #row(id: string): BackgroundJobRow | undefined {
+    const columns = getTableColumns(backgroundJobs);
     return this.#db
-      .select()
-      .from(backgroundJobs)
+      .select({
+        id: sql`${columns.id}`.mapWith(columns.id),
+        operation: sql`${columns.operation}`.mapWith(columns.operation),
+        status: sql`${columns.status}`.mapWith(columns.status),
+        startedAt: sql`${columns.startedAt}`.mapWith(columns.startedAt),
+        completedAt: sql`${columns.completedAt}`.mapWith(columns.completedAt),
+        result: sql`${columns.result}`.mapWith(columns.result),
+        error: sql`${columns.error}`.mapWith(columns.error),
+        progress: sql`${columns.progress}`.mapWith(columns.progress),
+        heartbeatAt: sql`${columns.heartbeatAt}`.mapWith(columns.heartbeatAt),
+        claimedBy: sql`${columns.claimedBy}`.mapWith(columns.claimedBy),
+        projectId: sql`${columns.projectId}`.mapWith(columns.projectId),
+        ownerId: sql`${columns.ownerId}`.mapWith(columns.ownerId),
+        leaseExpiresAt: sql`${columns.leaseExpiresAt}`.mapWith(columns.leaseExpiresAt),
+        fencingEpoch: sql`${columns.fencingEpoch}`.mapWith(columns.fencingEpoch),
+        attempts: sql`${columns.attempts}`.mapWith(columns.attempts),
+        cancellationRequestedAt: sql`${columns.cancellationRequestedAt}`.mapWith(
+          columns.cancellationRequestedAt,
+        ),
+        checkpointJson: sql`${columns.checkpointJson}`.mapWith(columns.checkpointJson),
+        checkpointAt: sql`${columns.checkpointAt}`.mapWith(columns.checkpointAt),
+        idempotencyKey: sql`${columns.idempotencyKey}`.mapWith(columns.idempotencyKey),
+        proposalHash: sql`${columns.proposalHash}`.mapWith(columns.proposalHash),
+        proposalJson: sql`${columns.proposalJson}`.mapWith(columns.proposalJson),
+      })
+      .from(sql`main.${backgroundJobs}`)
       .where(and(eq(backgroundJobs.id, id), this.#scope()))
       .get();
   }
 
-  #write<T>(operation: () => T): T {
-    // BEGIN outside the rollback scope: failure must never roll back another caller.
-    try {
-      this.#db.run(sql`BEGIN IMMEDIATE`);
-    } catch (error) {
-      if (error instanceof Error && /within a transaction/i.test(String(error.cause ?? error))) {
+  #write<T>(
+    operation: () => T,
+    deadlineAt?: number,
+    onCommittedCleanupFailure?: (message: string) => void,
+  ): T {
+    let outcome: { value: T } | undefined;
+    let failure: Error | undefined;
+    let handle: object | undefined;
+    let previousTimeout: number | undefined;
+    let installedTimeout: number | undefined;
+    if (deadlineAt !== undefined) {
+      if (Date.now() >= deadlineAt)
+        throw new BackgroundJobError(
+          'E_JOB_DEADLINE_EXCEEDED',
+          'No budget remains for job bookkeeping',
+        );
+      if (
+        !('$client' in this.#db) ||
+        typeof this.#db.$client !== 'object' ||
+        this.#db.$client === null
+      )
+        throw new BackgroundJobError(
+          'E_JOB_INPUT_INVALID',
+          'Bounded writes require the actual native handle identity',
+        );
+      handle = this.#db.$client;
+      if (boundedTransactionHandles.has(handle))
         throw new BackgroundJobError(
           'E_JOB_TRANSACTION_OWNED',
-          'Job write refused: another caller owns the native transaction',
+          'Another caller owns this bounded native transaction',
         );
-      }
-      throw error;
+      boundedTransactionHandles.add(handle);
     }
     try {
-      const value = operation();
-      this.#db.run(sql`COMMIT`);
-      return value;
+      if (deadlineAt !== undefined) {
+        previousTimeout = this.#db.get<{ timeout: number }>(sql`PRAGMA busy_timeout`).timeout;
+        installedTimeout = Math.max(
+          0,
+          Math.min(previousTimeout, Math.floor(deadlineAt - Date.now())),
+        );
+        this.#db.run(sql.raw(`PRAGMA busy_timeout=${installedTimeout}`));
+        if (Date.now() >= deadlineAt)
+          throw new BackgroundJobError(
+            'E_JOB_DEADLINE_EXCEEDED',
+            'Deadline elapsed before lock acquisition',
+          );
+      }
+      // BEGIN outside rollback scope: failure must not roll back another caller.
+      try {
+        this.#db.run(sql`BEGIN IMMEDIATE`);
+      } catch (error) {
+        if (error instanceof Error && /within a transaction/i.test(String(error.cause ?? error)))
+          throw new BackgroundJobError(
+            'E_JOB_TRANSACTION_OWNED',
+            'Job write refused: another caller owns the native transaction',
+          );
+        throw error;
+      }
+      try {
+        if (deadlineAt !== undefined && Date.now() >= deadlineAt)
+          throw new BackgroundJobError(
+            'E_JOB_DEADLINE_EXCEEDED',
+            'Deadline elapsed during lock acquisition',
+          );
+        const value = operation();
+        if (deadlineAt !== undefined && Date.now() >= deadlineAt)
+          throw new BackgroundJobError('E_JOB_DEADLINE_EXCEEDED', 'Deadline elapsed before commit');
+        if (
+          installedTimeout !== undefined &&
+          this.#db.get<{ timeout: number }>(sql`PRAGMA busy_timeout`).timeout !== installedTimeout
+        )
+          throw new BackgroundJobError(
+            'E_JOB_LOCK_POLICY_CONFLICT',
+            'Another caller changed the native lock policy',
+          );
+        this.#db.run(sql`COMMIT`);
+        outcome = { value };
+      } catch (error) {
+        this.#db.run(sql`ROLLBACK`);
+        throw error;
+      }
     } catch (error) {
-      this.#db.run(sql`ROLLBACK`);
-      throw error;
+      failure = error instanceof Error ? error : new Error(String(error));
+    } finally {
+      try {
+        // Do not overwrite a later caller's independently changed timeout value.
+        if (
+          previousTimeout !== undefined &&
+          installedTimeout !== undefined &&
+          this.#db.get<{ timeout: number }>(sql`PRAGMA busy_timeout`).timeout === installedTimeout
+        )
+          this.#db.run(sql.raw(`PRAGMA busy_timeout=${previousTimeout}`));
+      } catch (error) {
+        if (outcome && onCommittedCleanupFailure) onCommittedCleanupFailure(String(error));
+        else {
+          const cleanupFailure = error instanceof Error ? error : new Error(String(error));
+          failure = failure
+            ? new AggregateError(
+                [failure, cleanupFailure],
+                'Transaction and timeout cleanup failed',
+              )
+            : cleanupFailure;
+        }
+      } finally {
+        if (handle) boundedTransactionHandles.delete(handle);
+      }
     }
+    if (failure) throw failure;
+    if (!outcome)
+      throw new BackgroundJobError('E_JOB_INPUT_INVALID', 'Transaction produced no outcome');
+    return outcome.value;
   }
 
   #owned(id: string): BackgroundJobRow {
@@ -599,7 +725,10 @@ export class DurableJobStore {
    */
   get(id: string): BackgroundJob | undefined {
     const row = this.#row(id);
-    return row ? rowToJob(row) : undefined;
+    if (!row) return undefined;
+    const job = rowToJob(row);
+    const cleanupError = this.#committedCleanupFailures.get(id);
+    return cleanupError ? { ...job, diagnosticError: cleanupError } : job;
   }
 
   /**
@@ -836,19 +965,103 @@ export class DurableJobStore {
         'Atomic mutation requires a claimed job fence',
       );
     }
-    const resultJson = this.#write(() => {
-      this.#owned(fence.lease.jobId);
-      assertOperationWriteFence(this.#db, execution);
-      const receipt = mutation(execution);
-      requireJson(receipt);
-      assertOperationWriteFence(this.#db, execution);
-      this.#completeRow(fence.lease.jobId, receipt, Date.now());
-      assertOperationJobState(this.#db, execution, 'complete', receipt);
-      execution.assertActive();
-      return receipt;
-    });
+    const resultJson = this.#write(
+      () => {
+        this.#owned(fence.lease.jobId);
+        assertOperationWriteFence(this.#db, execution);
+        const receipt = mutation(execution);
+        requireJson(receipt);
+        assertOperationWriteFence(this.#db, execution);
+        this.#completeRow(fence.lease.jobId, receipt, Date.now());
+        assertOperationJobState(this.#db, execution, 'complete', receipt);
+        execution.assertActive();
+        return receipt;
+      },
+      execution.deadlineAt,
+      (message) => this.#committedCleanupFailures.set(fence.lease.jobId, message),
+    );
     this.#grants.delete(fence.lease.jobId);
     return resultJson;
+  }
+
+  /**
+   * Finalize trusted receipt/event metadata and a failed or cancelled attempt atomically.
+   * @param execution - Original bounded attempt identity and current ownership fence.
+   * @param outcome - Sourced observed outcome; expiry alone cannot supply this fact.
+   * @param bookkeeping - Synchronous metadata-only service callback returning JSON receipt bytes.
+   * @returns Committed receipt or explicit pending finalization with actual elapsed time.
+   * @remarks Cancellation allows bookkeeping only; domain repair remains forbidden.
+   * An exhausted deadline never acquires a lock. Failed finalization preserves the
+   * lease/checkpoint for inspection and a later explicit recovery attempt. No budget
+   * is renewed, and synchronous SQLite completion is not preempted by a timer.
+   * @example
+   * ```ts
+   * const result = store.finalizeAtomically(context, outcome, () => appendAttemptReceipt());
+   * ```
+   */
+  finalizeAtomically(
+    execution: OperationExecutionContext,
+    outcome: JobAttemptOutcome,
+    bookkeeping: AtomicJobBookkeeping,
+  ): JobFinalizationResult {
+    const startedAt = Date.now();
+    let cleanupError: string | undefined;
+    try {
+      if (outcome.status !== 'failed' && outcome.status !== 'cancelled')
+        throw new BackgroundJobError('E_JOB_INPUT_INVALID', 'Unsupported terminal attempt outcome');
+      requireText(outcome.message, 'outcome.message');
+      const fence = execution.writeFence;
+      if (!fence)
+        throw new BackgroundJobError(
+          'E_JOB_LEASE_LOST',
+          'Finalization requires a claimed job fence',
+        );
+      const resultJson = this.#write(
+        () => {
+          const row = this.#owned(fence.lease.jobId);
+          assertOperationJobState(this.#db, execution, 'running', undefined, true);
+          if (
+            outcome.status === 'cancelled' &&
+            row.cancellationRequestedAt === null &&
+            !execution.signal.aborted
+          )
+            throw new BackgroundJobError(
+              'E_JOB_INPUT_INVALID',
+              'Cancellation has not been observed or requested',
+            );
+          const receipt = bookkeeping();
+          requireJson(receipt);
+          this.#owned(fence.lease.jobId);
+          assertOperationJobState(this.#db, execution, 'running', undefined, true);
+          const now = Date.now();
+          this.#db.run(sql`UPDATE main.background_jobs SET status=${outcome.status},
+          completed_at=${now}, result=${receipt}, error=${outcome.message}, heartbeat_at=${now}
+          WHERE id=${fence.lease.jobId}`);
+          assertOperationJobState(this.#db, execution, outcome.status, receipt, true, outcome);
+          return receipt;
+        },
+        execution.deadlineAt,
+        (message) => {
+          cleanupError = message;
+          this.#committedCleanupFailures.set(fence.lease.jobId, message);
+        },
+      );
+      this.#grants.delete(fence.lease.jobId);
+      return {
+        state: 'finalized',
+        resultJson,
+        ...(cleanupError ? { cleanupError } : {}),
+        elapsedMs: Date.now() - startedAt,
+        deadlineExceeded: Date.now() >= execution.deadlineAt,
+      };
+    } catch (error) {
+      return {
+        state: 'pending-finalization',
+        reason: String(error),
+        elapsedMs: Date.now() - startedAt,
+        deadlineExceeded: Date.now() >= execution.deadlineAt,
+      };
+    }
   }
 
   /**

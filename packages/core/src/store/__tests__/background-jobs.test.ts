@@ -96,6 +96,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'cleo-job-store-'));
   path = join(root, 'fixture.db');
   native = new DatabaseSync(path);
+  native.exec('PRAGMA foreign_keys=ON');
   native.exec(baseSchema);
   native.exec(migration);
   native.exec(pendingMigration);
@@ -681,6 +682,332 @@ describe('domain writes fenced by persisted job authority', () => {
     native.exec('CREATE TABLE guarded_domain (id TEXT PRIMARY KEY)');
     return { store, context };
   }
+
+  it.each([
+    'failed',
+    'cancelled',
+  ] as const)('commits observed %s metadata with the terminal row and preserves the domain', (status) => {
+    const { store, context } = prepare();
+    expect(native.prepare('PRAGMA foreign_keys').get()?.foreign_keys).toBe(1);
+    native.exec(
+      "CREATE TABLE attempt_events (id TEXT PRIMARY KEY, job_id TEXT NOT NULL DEFAULT 'guarded-job' REFERENCES background_jobs(id))",
+    );
+    native.exec('PRAGMA busy_timeout=700');
+    if (status === 'cancelled') context.close();
+    try {
+      const result = store.finalizeAtomically(
+        context,
+        { status, message: 'observed fixture outcome' },
+        () => {
+          native.exec("INSERT INTO attempt_events(id) VALUES ('observed')");
+          return '{"event":"observed"}';
+        },
+      );
+      expect(result).toMatchObject({
+        state: 'finalized',
+        resultJson: '{"event":"observed"}',
+        deadlineExceeded: false,
+      });
+      expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(700);
+      const output = execFileSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          "import { DatabaseSync } from 'node:sqlite'; const db=new DatabaseSync(process.argv[1],{readOnly:true}); process.stdout.write(JSON.stringify({job:db.prepare('SELECT status,result FROM background_jobs').get(),events:db.prepare('SELECT * FROM attempt_events').all(),domain:db.prepare('SELECT * FROM guarded_domain').all()})); db.close();",
+          path,
+        ],
+        { encoding: 'utf8', timeout: 5000 },
+      );
+      expect(JSON.parse(output)).toEqual({
+        job: { status, result: '{"event":"observed"}' },
+        events: [{ id: 'observed', job_id: 'guarded-job' }],
+        domain: [],
+      });
+    } finally {
+      context.close();
+    }
+  });
+
+  it('does not begin finalization or call bookkeeping after the original deadline', () => {
+    const { store, context } = prepare();
+    const bookkeeping = vi.fn(() => '{}');
+    native.exec('PRAGMA busy_timeout=700');
+    vi.useFakeTimers();
+    vi.setSystemTime(context.deadlineAt + 1);
+    const run = vi.spyOn(db, 'run');
+    expect(
+      store.finalizeAtomically(
+        context,
+        { status: 'failed', message: 'observed failure' },
+        bookkeeping,
+      ),
+    ).toMatchObject({ state: 'pending-finalization', deadlineExceeded: true });
+    expect(bookkeeping).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(700);
+    expect(store.get('guarded-job')?.status).toBe('running');
+    context.close();
+  });
+
+  it.each([
+    'receipt',
+    'job',
+    'promise',
+    'deadline',
+    'fence',
+  ] as const)('keeps receipt and terminal state atomic on %s bookkeeping fault', (fault) => {
+    const { store, context } = prepare();
+    native.exec(
+      "CREATE TABLE attempt_events (id TEXT PRIMARY KEY, job_id TEXT NOT NULL DEFAULT 'guarded-job' REFERENCES background_jobs(id))",
+    );
+    native.exec('PRAGMA busy_timeout=700');
+    if (fault === 'job')
+      native.exec(
+        "CREATE TRIGGER fail_outcome BEFORE UPDATE OF status ON background_jobs WHEN NEW.status='failed' BEGIN SELECT RAISE(ABORT,'receipt fault'); END",
+      );
+    try {
+      const result = Reflect.apply(store.finalizeAtomically, store, [
+        context,
+        { status: 'failed', message: 'observed failure' },
+        () => {
+          native.exec("INSERT INTO attempt_events(id) VALUES ('event')");
+          if (fault === 'receipt') native.exec("INSERT INTO attempt_events(id) VALUES ('event')");
+          if (fault === 'deadline') {
+            vi.useFakeTimers();
+            vi.setSystemTime(context.deadlineAt + 1);
+          }
+          if (fault === 'fence')
+            native.exec('UPDATE background_jobs SET fencing_epoch=fencing_epoch+1');
+          return fault === 'promise' ? Promise.resolve('{}') : '{}';
+        },
+      ]);
+      expect(result).toMatchObject({ state: 'pending-finalization' });
+      expect(native.prepare('SELECT * FROM attempt_events').all()).toEqual([]);
+      expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(700);
+      expect(store.get('guarded-job')).toMatchObject({ status: 'running', fencingEpoch: 1 });
+    } finally {
+      context.close();
+    }
+  });
+
+  it('refuses a borrowed transaction without rolling it back and restores its timeout', () => {
+    const { store, context } = prepare();
+    native.exec("PRAGMA busy_timeout=700; BEGIN; INSERT INTO guarded_domain VALUES ('caller')");
+    const bookkeeping = vi.fn(() => '{}');
+    try {
+      expect(
+        store.finalizeAtomically(
+          context,
+          { status: 'failed', message: 'observed failure' },
+          bookkeeping,
+        ),
+      ).toMatchObject({
+        state: 'pending-finalization',
+        reason: expect.stringContaining('another caller owns'),
+      });
+      expect(bookkeeping).not.toHaveBeenCalled();
+      expect(native.prepare('SELECT id FROM guarded_domain').get()?.id).toBe('caller');
+      expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(700);
+      native.exec('ROLLBACK');
+    } finally {
+      context.close();
+    }
+  });
+
+  it('does not overwrite an independently changed native timeout', () => {
+    const { store, context } = prepare();
+    native.exec('PRAGMA busy_timeout=700');
+    try {
+      expect(
+        store.finalizeAtomically(context, { status: 'failed', message: 'observed failure' }, () => {
+          native.exec('PRAGMA busy_timeout=123');
+          return '{}';
+        }),
+      ).toMatchObject({
+        state: 'pending-finalization',
+        reason: expect.stringContaining('lock policy'),
+      });
+      expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(123);
+      expect(store.get('guarded-job')?.status).toBe('running');
+    } finally {
+      context.close();
+    }
+  });
+
+  it.each(['cancel', 'deadline'] as const)('does not invoke domain repair after %s', (kind) => {
+    const { store, context } = prepare();
+    const mutate = vi.fn(() => '{}');
+    if (kind === 'cancel') context.close();
+    else {
+      vi.useFakeTimers();
+      vi.setSystemTime(context.deadlineAt + 1);
+    }
+    try {
+      expect(() => store.completeAtomically(context, mutate)).toThrow();
+      expect(mutate).not.toHaveBeenCalled();
+    } finally {
+      context.close();
+    }
+  });
+
+  it.each([
+    'expired',
+    'stolen',
+    'proposal',
+    'error-rewritten',
+    'unrequested-cancel',
+  ] as const)('preserves pending inspection for %s finalization', (kind) => {
+    const { store, context } = prepare();
+    const bookkeeping = vi.fn(() => '{}');
+    if (kind === 'expired' || kind === 'stolen')
+      native.exec('UPDATE background_jobs SET lease_expires_at=0');
+    if (kind === 'stolen')
+      new DurableJobStore(db, { projectId: request.projectId }).claim('guarded-job', Date.now());
+    if (kind === 'proposal') native.exec("UPDATE background_jobs SET proposal_json='{}'");
+    if (kind === 'error-rewritten')
+      native.exec(
+        "CREATE TRIGGER rewrite_outcome AFTER UPDATE OF status ON background_jobs WHEN NEW.status='failed' BEGIN UPDATE background_jobs SET error='fabricated' WHERE id=NEW.id; END",
+      );
+    try {
+      expect(
+        store.finalizeAtomically(
+          context,
+          { status: kind === 'unrequested-cancel' ? 'cancelled' : 'failed', message: 'observed' },
+          bookkeeping,
+        ),
+      ).toMatchObject({ state: 'pending-finalization' });
+      expect(store.get('guarded-job')?.status).toBe('running');
+      if (kind !== 'error-rewritten') expect(bookkeeping).not.toHaveBeenCalled();
+    } finally {
+      context.close();
+    }
+  });
+
+  it('does not accept a temporary-table cancellation as main authority', () => {
+    const { store, context } = prepare();
+    native.exec('CREATE TEMP TABLE background_jobs AS SELECT * FROM main.background_jobs');
+    native.exec('UPDATE temp.background_jobs SET cancellation_requested_at=1');
+    const bookkeeping = vi.fn(() => '{}');
+    try {
+      expect(
+        store.finalizeAtomically(
+          context,
+          { status: 'cancelled', message: 'unsupported cancellation' },
+          bookkeeping,
+        ),
+      ).toMatchObject({ state: 'pending-finalization' });
+      expect(bookkeeping).not.toHaveBeenCalled();
+    } finally {
+      context.close();
+    }
+  });
+
+  it('bounds contention with a separate writer and restores the original timeout on BEGIN failure', async () => {
+    const { store, context } = prepare();
+    native.exec('PRAGMA busy_timeout=3000');
+    const child = execFile(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        "import { DatabaseSync } from 'node:sqlite'; const db=new DatabaseSync(process.argv[1]); db.exec('BEGIN IMMEDIATE'); process.stdout.write('locked'); setTimeout(()=>{db.exec('ROLLBACK');db.close()},500);",
+        path,
+      ],
+      { timeout: 5000 },
+    );
+    const finished = new Promise<void>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', (code) =>
+        code === 0 ? resolve() : reject(new Error(`Writer exit ${code}`)),
+      );
+    });
+    if (!child.stdout) throw new Error('Missing writer readiness stream');
+    await new Promise<void>((resolve, reject) => {
+      child.stdout?.once('data', () => resolve());
+      child.once('error', reject);
+    });
+    const bounded = createOperationExecutionContext(context.identity, {
+      budgetMs: 30,
+      writeFence: context.writeFence,
+    });
+    const bookkeeping = vi.fn(() => '{}');
+    try {
+      const result = store.finalizeAtomically(
+        bounded,
+        { status: 'failed', message: 'observed failure' },
+        bookkeeping,
+      );
+      expect(result).toMatchObject({ state: 'pending-finalization' });
+      expect(result.elapsedMs).toBeLessThan(300);
+      expect(bookkeeping).not.toHaveBeenCalled();
+      expect(native.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(3000);
+      expect(store.get('guarded-job')?.status).toBe('running');
+    } finally {
+      bounded.close();
+      context.close();
+      await finished;
+    }
+  });
+
+  it('retains committed finalization when cancellation and deadline are observed after COMMIT', () => {
+    const { store, context } = prepare();
+    const run = db.run.bind(db);
+    vi.spyOn(db, 'run').mockImplementation((query) => {
+      const result = run(query);
+      const fresh = new DatabaseSync(path, { readOnly: true });
+      try {
+        if (fresh.prepare('SELECT status FROM background_jobs').get()?.status === 'failed') {
+          context.close();
+          vi.useFakeTimers();
+          vi.setSystemTime(context.deadlineAt + 1);
+        }
+      } finally {
+        fresh.close();
+      }
+      return result;
+    });
+    try {
+      expect(
+        store.finalizeAtomically(context, { status: 'failed', message: 'observed' }, () => '{}'),
+      ).toMatchObject({ state: 'finalized', resultJson: '{}', deadlineExceeded: true });
+      expect(store.get('guarded-job')?.status).toBe('failed');
+    } finally {
+      context.close();
+    }
+  });
+
+  it('reports a postcommit timeout cleanup failure without inventing an uncommitted outcome', () => {
+    const { store, context } = prepare();
+    const run = db.run.bind(db);
+    let callsAfterCommit = 0;
+    vi.spyOn(db, 'run').mockImplementation((query) => {
+      const fresh = new DatabaseSync(path, { readOnly: true });
+      let committed = false;
+      try {
+        committed = fresh.prepare('SELECT status FROM background_jobs').get()?.status === 'failed';
+      } finally {
+        fresh.close();
+      }
+      if (committed && ++callsAfterCommit === 1) throw new Error('timeout cleanup fault');
+      return run(query);
+    });
+    try {
+      expect(
+        store.finalizeAtomically(context, { status: 'failed', message: 'observed' }, () => '{}'),
+      ).toMatchObject({
+        state: 'finalized',
+        resultJson: '{}',
+        cleanupError: expect.stringContaining('timeout cleanup fault'),
+      });
+      expect(store.get('guarded-job')).toMatchObject({
+        status: 'failed',
+        diagnosticError: expect.stringContaining('timeout cleanup fault'),
+      });
+    } finally {
+      context.close();
+    }
+  });
 
   it('commits domain rows, domain receipt and job outcome together, visible to a fresh process', () => {
     const { store, context } = prepare();
