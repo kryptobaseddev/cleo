@@ -900,8 +900,8 @@ export class DurableJobStore {
   }
 
   /**
-   * Start an explicit new attempt after retaining a failed or cancelled attempt atomically.
-   * @param id - Authentic terminal job with the same immutable proposal.
+   * Start an explicit new attempt after retaining terminal or expired owned work atomically.
+   * @param id - Authentic failed, cancelled or explicitly expired owned job with the same immutable proposal.
    * @param now - New attempt timestamp.
    * @param execution - Fresh bounded invocation; expired contexts or old fences cannot be renewed.
    * @param retainOutcome - Trusted synchronous core callback that rechecks domain preconditions,
@@ -909,7 +909,9 @@ export class DurableJobStore {
    * @param maxRunning - Optional capacity limit enforced inside the same transaction.
    * @returns New owned lease, without reapplying any domain operation.
    * @throws BackgroundJobError when scope, terminal status, authentic input, counters, or receipt is invalid.
-   * @remarks Complete jobs are never reopened. Callback failure, cancellation, or claim failure
+   * @remarks Complete jobs are never reopened. Expired running rows retain their authentic
+   * uncertain outcome; expiry does not invent failure. Explicit resume acknowledges a retained
+   * previous cancellation request and clears it only with the new claim. Callback failure, cancellation, or claim failure
    * rolls back both historical bookkeeping and the new claim. The caller must independently
    * preserve its append-only history in the same database; this is not an arbitrary callback sandbox.
    * @example
@@ -936,10 +938,15 @@ export class DurableJobStore {
     const row = this.#write(
       () => {
         const prior = this.#row(id);
-        if (!prior || (prior.status !== 'failed' && prior.status !== 'cancelled'))
+        const expiredOwned =
+          prior?.status === 'running' &&
+          prior.ownerId !== null &&
+          prior.leaseExpiresAt !== null &&
+          prior.leaseExpiresAt <= Date.now();
+        if (!prior || (prior.status !== 'failed' && prior.status !== 'cancelled' && !expiredOwned))
           throw new BackgroundJobError(
             'E_JOB_NOT_RECLAIMABLE',
-            'Explicit terminal retry requires failed or cancelled work; committed effects cannot be reopened',
+            'Explicit retry requires terminal or expired owned work; committed effects cannot be reopened',
           );
         this.#assertInvocation(execution, prior.operation, prior.projectId, prior.idempotencyKey);
         if (
