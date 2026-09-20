@@ -139,6 +139,9 @@ describe('shutdown waits for registered producers under one deadline (T12265)', 
         label: 'background-operations',
         settled: true,
         threw: false,
+        status: 'completed',
+        producerOutcome: 'unassessed',
+        pendingOperations: 0,
       });
       for (const closer of resourceClosers) expect(closer).toHaveBeenCalledTimes(1);
     } finally {
@@ -225,6 +228,17 @@ describe('shutdown waits for registered producers under one deadline (T12265)', 
         'logger',
       ]);
       expect(outcomes.every((outcome) => !outcome.settled && !outcome.threw)).toBe(true);
+      expect(outcomes[0]).toMatchObject({
+        status: 'timed-out',
+        reason: 'shutdown-deadline',
+        pendingOperations: 1,
+        producerOutcome: 'unassessed',
+      });
+      expect(outcomes.find((outcome) => outcome.label === 'databases')).toMatchObject({
+        status: 'not-started',
+        reason: 'background-pending',
+        pendingOperations: 1,
+      });
       for (const closer of resourceClosers) expect(closer).not.toHaveBeenCalled();
       release.resolve();
       await awaitBackgroundOps();
@@ -264,6 +278,8 @@ describe('shutdown waits for registered producers under one deadline (T12265)', 
       expect(outcomes.find((outcome) => outcome.label === 'embedding-queue')).toMatchObject({
         settled: false,
         durationMs: 300,
+        status: 'timed-out',
+        reason: 'shutdown-deadline',
       });
       expect(outcomes.find((outcome) => outcome.label === 'databases')).toMatchObject({
         settled: false,
@@ -293,6 +309,46 @@ describe('shutdown waits for registered producers under one deadline (T12265)', 
     expect(outcomes.find((outcome) => outcome.label === 'databases')).toMatchObject({
       settled: false,
       durationMs: 0,
+      status: 'not-started',
+      reason: 'shutdown-deadline',
     });
+  });
+});
+
+describe('shutdown producer result disclosure', () => {
+  it('does not call a rejected producer successful merely because the barrier drained', async () => {
+    const error = new Error('optional projection refused');
+    const result = trackBackgroundOp(Promise.reject(error));
+    expect(await result).toEqual({ status: 'rejected', reason: error });
+    const outcomes = await shutdownCliRuntime();
+    expect(outcomes[0]).toMatchObject({
+      status: 'completed',
+      producerOutcome: 'unassessed',
+      pendingOperations: 0,
+    });
+    expect(closeAllDatabasesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports newly registered producer ownership without inventing deadline expiry', async () => {
+    const release = Promise.withResolvers<void>();
+    shutdownBrainWriterMock.mockImplementation(async () => {
+      trackBackgroundOp(release.promise);
+    });
+    try {
+      const startedAt = Date.now();
+      const outcomes = await shutdownCliRuntime();
+      expect(Date.now()).toBe(startedAt);
+      expect(outcomes.find((outcome) => outcome.label === 'databases')).toMatchObject({
+        status: 'not-started',
+        reason: 'background-pending',
+        pendingOperations: 1,
+        settled: false,
+        threw: false,
+        durationMs: 0,
+      });
+      expect(closeAllDatabasesMock).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+    }
   });
 });

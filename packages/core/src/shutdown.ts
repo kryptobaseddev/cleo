@@ -68,8 +68,17 @@ async function safely(
   deadlineAt: number,
 ): Promise<StepOutcome> {
   const remainingMs = deadlineAt - Date.now();
-  if (remainingMs <= 0) return { label, settled: false, threw: false, durationMs: 0 };
-  return withDeadline(label, step, remainingMs);
+  if (remainingMs <= 0)
+    return {
+      label,
+      settled: false,
+      threw: false,
+      durationMs: 0,
+      status: 'not-started',
+      reason: 'shutdown-deadline',
+    };
+  const outcome = await withDeadline(label, step, remainingMs);
+  return outcome.reason === 'step-deadline' ? { ...outcome, reason: 'shutdown-deadline' } : outcome;
 }
 
 /**
@@ -100,6 +109,8 @@ async function safely(
  * work is outside this registry's guarantee, and synchronous work cannot be
  * preempted; the deadline is checked again before each subsequent step.
  * Already-settled best-effort failures do not undo committed command results.
+ * The producer barrier reports its observed pending count and leaves individual
+ * producer outcomes unassessed; settling is not proof that their work succeeded.
  *
  * @returns One {@link StepOutcome} per step, in run order. A step with
  *          `settled: false` did not finish, or was not started because the
@@ -133,8 +144,17 @@ export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
     },
     deadlineAt,
   );
-  const outcomes: StepOutcome[] = [drain];
+  const pendingAfterDrain = pendingBackgroundOpCount();
+  const outcomes: StepOutcome[] = [
+    {
+      ...drain,
+      ...(drain.threw && pendingAfterDrain > 0 ? { reason: 'drain-incomplete' as const } : {}),
+      producerOutcome: 'unassessed',
+      pendingOperations: pendingAfterDrain,
+    },
+  ];
   let mayClose = drain.settled && !drain.threw;
+  let blockedReason: StepOutcome['reason'] = mayClose ? undefined : 'drain-incomplete';
   const steps = [
     ['brain-writer', shutdownBrainWriter],
     ['embedding-queue', resetEmbeddingQueue],
@@ -143,15 +163,29 @@ export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
   ] as const;
   for (const [label, close] of steps) {
     // Recheck at each boundary: a closer may itself register more work.
-    mayClose = mayClose && pendingBackgroundOpCount() === 0;
+    const pendingOperations = pendingBackgroundOpCount();
+    if (pendingOperations > 0) {
+      mayClose = false;
+      blockedReason = 'background-pending';
+    }
     if (!mayClose) {
-      outcomes.push({ label, settled: false, threw: false, durationMs: 0 });
+      outcomes.push({
+        label,
+        settled: false,
+        threw: false,
+        durationMs: 0,
+        status: 'not-started',
+        reason: blockedReason,
+        pendingOperations,
+      });
       continue;
     }
     const outcome = await safely(label, close, deadlineAt);
     outcomes.push(outcome);
     // An unsettled closer can still own the resources later steps would close.
     mayClose = outcome.settled;
+    if (!mayClose)
+      blockedReason = outcome.status === 'not-started' ? outcome.reason : 'prior-step-incomplete';
   }
   return outcomes;
 }
