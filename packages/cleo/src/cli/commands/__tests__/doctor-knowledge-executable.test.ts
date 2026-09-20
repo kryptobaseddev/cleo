@@ -148,6 +148,24 @@ describe('doctor knowledge executable dispatch', () => {
       receipt,
       rollbackReceipt: { id: 'cli-recovery' },
     });
+    for (const operation of ['--apply', '--resume']) {
+      const historical = invoke([operation, pending.jobId, ...identity]);
+      expect(historical.status, historical.stderr + historical.stdout).toBe(6);
+      expect(JSON.parse(historical.stdout)).toMatchObject({
+        success: false,
+        error: {
+          codeName: 'E_REPAIR_ROLLED_BACK',
+          details: {
+            recoveryState: {
+              state: 'rolled-back',
+              originalReceipt: receipt,
+              rollbackReceipt: JSON.parse(rollback.stdout).data,
+            },
+          },
+        },
+      });
+    }
+
     expect(
       getBrainNativeDb(root)
         ?.prepare("SELECT invalid_at FROM main.brain_observations WHERE id='O-stub'")
