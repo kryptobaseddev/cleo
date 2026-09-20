@@ -34,7 +34,6 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import { trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import {
-  acItemToText,
   applyAcPlan,
   buildAcRowId,
   buildChildProjectionAcText,
@@ -1602,14 +1601,13 @@ export async function addTask(
     // PM-Core V2 WorkGraph projection sync: parent_id is the containment edge,
     // and each newly-added direct child is mirrored as a parent-owned AC row so
     // completion criteria readers can resolve child work without inspecting
-    // task_relations. Keep the legacy parent acceptance JSON in sync as a
-    // text-only compatibility projection while the row table carries typed
-    // child_task, source_key, and target_task_id state.
+    // task_relations. Preserve existing gate objects in the parent JSON while
+    // the row table carries child_task, source_key, and target_task_id state.
     if (parentId && parentTaskForProjection) {
       const parentAcRows = await tx.getAcRows(parentId);
-      // PM-Core V2 typed child_task AC projection. The legacy parent
-      // acceptance JSON remains text-only compatibility state, but the row
-      // table now carries machine-checkable target_task_id/source_key fields.
+      // PM-Core V2 child_task rows carry target_task_id/source_key fields.
+      // The mixed JSON view retains existing typed gates and appends only the
+      // new child projection as text. Text-input normalization is not a reader.
       const parentChildAcText = buildChildProjectionAcText(taskId, options.title);
       const parentChildOrdinal =
         parentAcRows.reduce((max, row) => Math.max(max, row.ordinal), 0) + 1;
@@ -1633,12 +1631,9 @@ export async function addTask(
       const currentParent = await dataAccessor.loadSingleTask(parentId);
       if (!currentParent)
         throw new CleoError(ExitCode.NOT_FOUND, `Parent task not found: ${parentId}`);
-      const parentAcceptance = normalizeAcceptance([
-        ...(currentParent.acceptance ?? []).map(acItemToText),
-        parentChildAcText,
-      ]);
+      const parentAcceptance = [...(currentParent.acceptance ?? []), parentChildAcText];
       await tx.updateTaskFields(parentId, {
-        acceptanceJson: JSON.stringify(parentAcceptance ?? []),
+        acceptanceJson: JSON.stringify(parentAcceptance),
         updatedAt: now,
       });
     }

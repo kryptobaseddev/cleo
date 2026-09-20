@@ -4,12 +4,14 @@
  * @epic T4454
  */
 
-import type { Task, TasksAddParams } from '@cleocode/contracts';
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+import type { AcceptanceGate, Task, TasksAddParams } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { resetDbState } from '../../store/sqlite.js';
+import { getNativeTasksDb, resetDbState } from '../../store/sqlite.js';
 import {
   addTask,
   findRecentDuplicate,
@@ -26,8 +28,8 @@ import {
   validateTaskType,
   validateTitle,
 } from '../add.js';
-
 import { tasksAddOp } from '../ops.js';
+import { reqAdd } from '../req.js';
 import { addTaskWithSessionScope } from '../session-scope.js';
 
 describe('normalizeAcceptance', () => {
@@ -512,6 +514,105 @@ describe('addTask (integration)', () => {
     );
     expect(child.task.parentId).toBe('T001');
     expect(child.task.type).toBe('task');
+  });
+
+  it('preserves typed parent gates when a later child adds its projection', async () => {
+    const gate: AcceptanceGate = {
+      kind: 'test',
+      req: 'PARENT-TYPED',
+      description: 'Parent harness remains executable',
+      command: 'node',
+      args: ['absent-parent.mjs'],
+      expect: 'exit0',
+      timeoutMs: 1800000,
+    };
+    const literal = JSON.stringify(gate);
+    await addTask(
+      {
+        title: 'Parent gate first',
+        description: 'Typed parent ordering fixture',
+        type: 'epic',
+        acceptance: [literal],
+        skipContainmentInvariant: true,
+      },
+      env.tempDir,
+      accessor,
+    );
+    await reqAdd(env.tempDir, 'T001', gate, accessor);
+    const before = await accessor.getAcRows('T001');
+    for (const title of ['First child', 'Second child']) {
+      await addTask(
+        { title, description: 'Preserve all existing parent criteria', parentId: 'T001' },
+        env.tempDir,
+        accessor,
+      );
+    }
+    const persisted = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        "import { DatabaseSync } from 'node:sqlite'; const db=new DatabaseSync(process.argv[1],{readOnly:true}); try { process.stdout.write(db.prepare(\"SELECT acceptance_json FROM tasks_tasks WHERE id='T001'\").get().acceptance_json); } finally { db.close(); }",
+        join(env.cleoDir, 'cleo.db'),
+      ],
+      { encoding: 'utf8', timeout: 10000 },
+    );
+    expect(persisted.status, persisted.stderr).toBe(0);
+    expect(JSON.parse(persisted.stdout)).toEqual([
+      literal,
+      gate,
+      'Complete child T002: First child',
+      'Complete child T003: Second child',
+    ]);
+    expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual(
+      JSON.parse(persisted.stdout),
+    );
+    expect((await accessor.getAcRows('T001')).slice(0, 2)).toEqual(before);
+  });
+
+  it('rolls child and parent typed projections back when the parent write fails', async () => {
+    await addTask(
+      {
+        title: 'Fault parent',
+        description: 'Atomic typed parent fixture',
+        type: 'epic',
+        skipContainmentInvariant: true,
+      },
+      env.tempDir,
+      accessor,
+    );
+    await reqAdd(
+      env.tempDir,
+      'T001',
+      {
+        kind: 'test',
+        req: 'PARENT-FAULT',
+        description: 'Typed requirement retained on failure',
+        command: 'node',
+        args: ['absent.mjs'],
+        expect: 'exit0',
+      },
+      accessor,
+    );
+    const before = await accessor.loadSingleTask('T001');
+    const rows = await accessor.getAcRows('T001');
+    getNativeTasksDb(env.tempDir)!.exec(
+      "CREATE TRIGGER reject_parent_projection BEFORE UPDATE OF acceptance_json ON tasks_tasks WHEN OLD.id='T001' BEGIN SELECT RAISE(ABORT,'parent projection fault'); END",
+    );
+    await expect(
+      addTask(
+        {
+          title: 'Rejected child',
+          description: 'Do not leave partially projected child',
+          parentId: 'T001',
+        },
+        env.tempDir,
+        accessor,
+      ),
+    ).rejects.toThrow();
+    expect(await accessor.loadSingleTask('T001')).toEqual(before);
+    expect(await accessor.getAcRows('T001')).toEqual(rows);
+    expect(await accessor.getChildren('T001')).toEqual([]);
   });
 
   it('normalizes child acceptance, creates parent child AC projection, and returns created IDs', async () => {
