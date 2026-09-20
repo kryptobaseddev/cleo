@@ -58,6 +58,34 @@ const REGEN_HINT =
 const REAL_OPS: HelpOperationDef[] = OPERATIONS as HelpOperationDef[];
 
 describe('cleo ops — real-registry tier-filter regression lock (T9845)', () => {
+  it('exposes the four canonical requirement routes at tier 1 without expanding tier 0', () => {
+    const routes = OPERATIONS.filter(
+      (operation) => operation.domain === 'tasks' && operation.operation.startsWith('req.'),
+    );
+    expect(routes.map(({ gateway, operation, tier }) => ({ gateway, operation, tier }))).toEqual([
+      { gateway: 'mutate', operation: 'req.add', tier: 1 },
+      { gateway: 'query', operation: 'req.list', tier: 1 },
+      { gateway: 'query', operation: 'req.migrate.preview', tier: 1 },
+      { gateway: 'mutate', operation: 'req.migrate', tier: 1 },
+    ]);
+    for (const tier of [0, 1, 2]) {
+      const result = computeHelp(REAL_OPS, tier, true);
+      const operations = result.operations;
+      if (!Array.isArray(operations)) throw new Error('Expected verbose operation list');
+      expect(
+        operations
+          .filter(
+            (operation) => operation.domain === 'tasks' && operation.operation.startsWith('req.'),
+          )
+          .map(({ gateway, operation }) => `${gateway}:${operation}`),
+      ).toEqual(
+        tier === 0
+          ? []
+          : ['mutate:req.add', 'query:req.list', 'query:req.migrate.preview', 'mutate:req.migrate'],
+      );
+    }
+  });
+
   it('Tier 0 — operation count snapshot', () => {
     const result = computeHelp(REAL_OPS, 0, false);
     expect(result.operationCount).toMatchSnapshot('tier-0-operationCount');
