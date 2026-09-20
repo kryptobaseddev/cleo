@@ -332,6 +332,51 @@ describe('captured encounter registration ownership', () => {
     });
   }
 
+  it('retains both immutable owners when their lossy legacy path aliases collide', async () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'cleo-encounter-common-prefix-'));
+    const projectA = join(fixture, 'project-a');
+    const projectB = join(fixture, 'project-b');
+    const idA = createTempCleoProject(projectA).infoProjectId;
+    const idB = createTempCleoProject(projectB).infoProjectId;
+    const home = join(fixture, 'global');
+    mkdirSync(home);
+    vi.stubEnv('CLEO_HOME', home);
+    const warning = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const { legacyProjectId } = await import('../nexus/identity.js');
+    expect(legacyProjectId(projectA)).toBe(legacyProjectId(projectB));
+    try {
+      await registerProjectOnEncounter(projectA, idA);
+      await registerProjectOnEncounter(projectB, idB);
+      const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+      const { projectRegistry, projectIdAliases } = await import('../store/schema/nexus-schema.js');
+      const { eq } = await import('drizzle-orm');
+      const db = await getNexusRegistryDb(home);
+      expect(
+        db
+          .select()
+          .from(projectRegistry)
+          .all()
+          .map((row) => row.projectId)
+          .sort(),
+      ).toEqual([idA, idB].sort());
+      expect(
+        db
+          .select()
+          .from(projectIdAliases)
+          .where(eq(projectIdAliases.legacyId, legacyProjectId(projectA)))
+          .get()?.canonicalId,
+      ).toBe(idA);
+      expect(warning).toHaveBeenCalledWith(
+        expect.stringContaining('omitted colliding legacy alias'),
+      );
+    } finally {
+      await awaitBackgroundOps();
+      const { closeAllDatabases } = await import('../store/sqlite.js');
+      await closeAllDatabases();
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
   it('rejects conflicting owners and rolls back a registry insert when alias storage fails', async () => {
     const fixture = mkdtempSync(join(tmpdir(), 'cleo-encounter-conflict-'));
     const project = join(fixture, 'project');
@@ -358,9 +403,24 @@ describe('captured encounter registration ownership', () => {
       await expect(registerProjectOnEncounter(second, secondId)).rejects.toThrow();
       expect(db.select().from(projectRegistry).all()).toEqual(before);
       db.run(sql`DROP TRIGGER reject_fixture_alias`);
+      const { canonicalProjectId } = await import('../nexus/identity.js');
+      const canonical = await canonicalProjectId(second);
+      db.insert(projectRegistry)
+        .values({
+          projectId: canonical.id,
+          projectHash: 'independent-owner',
+          projectPath: join(fixture, 'independent-owner'),
+          name: 'Existing canonical alias owner',
+        })
+        .run();
+      const beforeCanonicalConflict = db.select().from(projectRegistry).all();
+      await expect(registerProjectOnEncounter(second, secondId)).rejects.toThrow(
+        'another immutable identity',
+      );
+      expect(db.select().from(projectRegistry).all()).toEqual(beforeCanonicalConflict);
       writeFileSync(join(second, '.cleo', 'project-info.json'), '{malformed');
       await expect(registerProjectOnEncounter(second, secondId)).rejects.toThrow();
-      expect(db.select().from(projectRegistry).all()).toEqual(before);
+      expect(db.select().from(projectRegistry).all()).toEqual(beforeCanonicalConflict);
     } finally {
       await awaitBackgroundOps();
       const { closeAllDatabases } = await import('../store/sqlite.js');
