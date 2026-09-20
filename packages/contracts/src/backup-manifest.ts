@@ -187,3 +187,84 @@ export interface BackupManifest {
   /** Bundle integrity metadata (algorithm, checksums file, manifest self-hash). */
   integrity: BackupIntegrity;
 }
+
+/** Lossless SQLite value representation for an authentic observation payload. */
+export type BackupObservationValue =
+  | { type: 'null' }
+  | { type: 'integer'; decimal: string }
+  | { type: 'real'; ieee754Hex: string }
+  | { type: 'text' | 'blob'; bytesBase64: string };
+
+/** Explicit inputs for inspecting one snapshot; no ambient live-store routing. */
+export interface BackupObservationInspectOptions {
+  /** Absolute path to one authorized SQLite snapshot, never a live-store role. */
+  snapshotPath: string;
+  /** Exact observation identity; no substring or semantic matching. */
+  recordId: string;
+  /** Original caller-supplied backup label; advisory, never used for routing. */
+  label?: string;
+  /** Stable expected project identity, compared only with recorded project_id. */
+  expectedProjectId?: string;
+  /** Source byte ceiling, at most 1 GiB; default 512 MiB. */
+  maxSnapshotBytes?: number;
+  /** Sum of stored column byte lengths; at most 16 MiB, default 1 MiB. */
+  maxPayloadBytes?: number;
+}
+
+/** Supported diagnostic categories; none establish absence of a historical record. */
+export type BackupObservationInspectFailure =
+  | 'INVALID_INPUT'
+  | 'UNSUPPORTED_SOURCE'
+  | 'SOURCE_CHANGED'
+  | 'JOURNAL_PRESENT'
+  | 'SOURCE_LIMIT'
+  | 'PAYLOAD_LIMIT'
+  | 'INVALID_SNAPSHOT'
+  | 'UNSUPPORTED_SCHEMA'
+  | 'AMBIGUOUS_RECORD'
+  | 'PROJECT_MISMATCH';
+
+/** Authentic observation extracted from one exact, ordinary indexed table. */
+export interface BackupObservationRecord {
+  /** Actual table containing the row, independent of snapshot filename. */
+  table: 'brain_observations' | 'observations';
+  /** Exact column names mapped to lossless tagged SQLite values. */
+  payload: Record<string, BackupObservationValue>;
+  /** SHA256 of UTF-8 JSON for column-name-sorted [name, taggedValue] pairs. */
+  payloadSha256: string;
+  /** Sum of stored column byte lengths before JSON/base64 expansion. */
+  payloadBytes: number;
+}
+
+/** Scoped read-only result; not-found never means all backups were searched. */
+export interface BackupObservationInspection {
+  /** Whether this exact ID occurred in a supported table in this snapshot. */
+  status: 'found' | 'not-found';
+  /** Exact requested identity. */
+  recordId: string;
+  /** Canonical source path and byte identity, rechecked after inspection. */
+  source: {
+    path: string;
+    label: string | null;
+    sha256: string;
+    bytes: number;
+    mtimeNs: string;
+    ctimeNs: string;
+    atimeNs: string;
+  };
+  /** Actual SQLite schema marker; not an inferred product/schema version. */
+  userVersion: number;
+  /** Every supported table found and queried with indexed exact equality. */
+  inspectedTables: Array<'brain_observations' | 'observations'>;
+  /** Caller expectation is separate from recorded identity and never fills it in. */
+  projectIdentity: {
+    expected: string | null;
+    recorded: string | null;
+    status: 'matched' | 'recorded' | 'unknown';
+    evidence: string | null;
+  };
+  /** Full authentic row, or null only after eligible tables were inspected. */
+  record: BackupObservationRecord | null;
+  /** Explicit boundaries on completeness, identity and synchronous execution. */
+  limitations: string[];
+}
