@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.20.1
+  version: 2.20.2
   lastReviewed: 2026-09-19
   stability: stable
 ---
@@ -18,8 +18,7 @@ coverage, never proof of no runtime callers. Resolve ambiguous symbols explicitl
 Preserve historical handoffs and follow sourced corrections separately.
 
 Consume repair findings as a matrix of scope, evidence, responsibility, operation,
-prerequisites, verification, and recovery. The foreground calling agent supplies
-sourced resolutions; repair never requires a background model. Escalate unresolved
+prerequisites, verification, and recovery. The calling agent supplies sourced resolutions; no background model is required. Escalate unresolved
 owner decisions, reject stale proposals, verify postconditions, and record useful
 incident learning with project/revision evidence. A failed diagnostic is not clean.
 Provider reference delivery must be verified or embedded self-contained; static
