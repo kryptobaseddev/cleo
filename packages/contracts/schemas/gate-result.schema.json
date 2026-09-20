@@ -1,9 +1,168 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "GateResult",
-  "description": "Result of running one acceptance gate — persisted to lifecycle_gate_results",
+  "description": "Observed acceptance-gate result with optional explicit verification binding",
+  "$comment": "Shape only: authoritative runtime acceptanceGateResultSchema also checks cross-field consistency. JSON Schema validation is not proof of authentic execution, persistence, task ownership or current artifact freshness.",
   "type": "object",
   "properties": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "verificationId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "identity": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "projectRoot": {
+              "type": "string",
+              "minLength": 1
+            },
+            "actor": {
+              "type": "string",
+              "minLength": 1
+            },
+            "operation": {
+              "type": "string",
+              "const": "check.gate.verify"
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "projectId",
+            "projectRoot",
+            "actor",
+            "operation",
+            "idempotencyKey"
+          ],
+          "additionalProperties": false
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "criterionId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "criterionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "gateHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        },
+        "deadlineAt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "invocation": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "minLength": 1
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cwd": {
+              "type": "string",
+              "minLength": 1
+            },
+            "environmentHash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "command",
+            "args",
+            "cwd",
+            "environmentHash"
+          ],
+          "additionalProperties": false
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "bytes": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "path",
+              "sha256",
+              "bytes"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "version",
+        "verificationId",
+        "identity",
+        "taskId",
+        "criterionId",
+        "criterionHash",
+        "gateHash",
+        "capturedAt",
+        "deadlineAt",
+        "artifacts"
+      ],
+      "additionalProperties": false
+    },
     "index": {
       "type": "integer",
       "minimum": 0,
@@ -211,6 +370,196 @@
           "additionalProperties": false
         }
       ]
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "started": {
+          "type": "boolean"
+        },
+        "targetPid": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signal": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stopped": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "deadline",
+                "cancelled",
+                "teardown",
+                "output-limit",
+                "resource-limit",
+                "transport-error"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "outputTruncated": {
+          "type": "boolean"
+        },
+        "durationMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "systemd",
+            "pgid"
+          ]
+        },
+        "unitName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nativeMemory": {
+          "type": "string",
+          "enum": [
+            "unverified",
+            "observed-cgroup"
+          ]
+        },
+        "resourceLimits": {
+          "type": "object",
+          "properties": {
+            "cgroup": {
+              "type": "string",
+              "pattern": "^\\/.*"
+            },
+            "memoryMaxBytes": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "tasksMax": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "cgroup",
+            "memoryMaxBytes",
+            "tasksMax"
+          ],
+          "additionalProperties": false
+        },
+        "cleanupScope": {
+          "type": "string",
+          "enum": [
+            "process-group",
+            "direct-child"
+          ]
+        },
+        "transportClosed": {
+          "type": "boolean",
+          "const": true
+        },
+        "targetCloseObserved": {
+          "type": "boolean"
+        },
+        "cleanupObservation": {
+          "type": "string",
+          "enum": [
+            "scope-terminal",
+            "process-group-absent",
+            "process-group-signalled",
+            "unverified"
+          ]
+        },
+        "cleanupErrors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "started",
+        "targetPid",
+        "exitCode",
+        "signal",
+        "error",
+        "stopped",
+        "stdout",
+        "stderr",
+        "outputTruncated",
+        "durationMs",
+        "mode",
+        "nativeMemory",
+        "cleanupScope",
+        "transportClosed",
+        "targetCloseObserved",
+        "cleanupObservation",
+        "cleanupErrors"
+      ],
+      "additionalProperties": false
     },
     "evidence": {
       "type": "string"
