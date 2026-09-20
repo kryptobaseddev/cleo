@@ -75,7 +75,6 @@ export const CLEO_TEST_QUARANTINE: readonly string[] = [
   'packages/cleo/src/cli/commands/__tests__/auth-migrate.test.ts',
   'packages/cleo/src/cli/commands/__tests__/backup-export.test.ts',
   'packages/cleo/src/cli/commands/__tests__/backup-import.test.ts',
-  'packages/cleo/src/cli/commands/__tests__/backup-inspect.test.ts',
   'packages/cleo/src/cli/commands/__tests__/brain-export.test.ts',
   'packages/cleo/src/cli/commands/__tests__/docs-add-strict-body.test.ts',
   'packages/cleo/src/cli/commands/__tests__/docs-find-similar.test.ts',
