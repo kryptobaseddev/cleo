@@ -12,7 +12,7 @@
  * @epic T1566
  */
 
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
@@ -52,7 +52,11 @@ import {
   validateAtom,
 } from '../tasks/evidence.js';
 import { appendForceBypassLine, appendGateAuditLine } from '../tasks/gate-audit.js';
-import { revalidateTaskGateResults, runTaskGates } from '../tasks/gate-runner.js';
+import {
+  createTaskGateReceipt,
+  revalidateTaskGateResults,
+  runTaskGates,
+} from '../tasks/gate-runner.js';
 import {
   hasCallsiteCoverageLabel,
   hasEngineMigrationLabel,
@@ -889,12 +893,7 @@ export async function validateGateVerify(
             action: 'gate.verify.typed',
             taskId,
             actor: typedExecution.identity.actor,
-            details: {
-              verificationId: results[0]?.binding?.verificationId,
-              resultHash: createHash('sha256').update(JSON.stringify(results)).digest('hex'),
-              operation: typedExecution.identity.operation,
-              passed: verification.passed,
-            },
+            details: createTaskGateReceipt(results, verification.passed),
           });
         }
       });
