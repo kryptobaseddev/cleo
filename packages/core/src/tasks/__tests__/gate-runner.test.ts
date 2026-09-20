@@ -9,6 +9,7 @@
  * @epic T768
  */
 
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -27,7 +28,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { _forceSystemdRunAvailable } from '../../resources/spawn-wrapper.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { acItemToText, acTextHash, buildFreshAcRows } from '../ac-table.js';
-import { revalidateTaskGateResults, runGates, runTaskGates } from '../gate-runner.js';
+import {
+  createTaskGateReceipt,
+  revalidateTaskGateResults,
+  runGates,
+  runTaskGates,
+} from '../gate-runner.js';
 
 // ─── Setup ────────────────────────────────────────────────────────────────
 
@@ -795,6 +801,36 @@ describe('task-bound explicit gate verification (T12292)', () => {
   }
   beforeEach(() => _forceSystemdRunAvailable(false));
   afterEach(() => _forceSystemdRunAvailable(undefined));
+
+  it('serializes exact receipt bytes and rejects duplicate or mixed verification owners', async () => {
+    const script = 'receipt-pass.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    try {
+      const results = await runTaskGates(task, rows, { execution });
+      const expected = {
+        verificationId: results[0]!.binding!.verificationId,
+        resultHash: createHash('sha256').update(JSON.stringify(results)).digest('hex'),
+        operation: 'check.gate.verify',
+        passed: true,
+      };
+      expect(JSON.stringify(createTaskGateReceipt(results, true))).toBe(JSON.stringify(expected));
+      expect(createTaskGateReceipt(structuredClone(results), true)).toEqual(expected);
+      expect(() => createTaskGateReceipt([], true)).toThrow('bound result batch');
+      expect(() => createTaskGateReceipt([...results, ...results], true)).toThrow(
+        'unique criterion',
+      );
+      const second = await runTaskGates(task, rows, { execution });
+      expect(() => createTaskGateReceipt([...results, ...second], true)).toThrow('one batch owner');
+      expect(createTaskGateReceipt(results, false)).toEqual({ ...expected, passed: false });
+      const altered = structuredClone(results);
+      altered[0]!.evidence = 'different exact payload';
+      expect(createTaskGateReceipt(altered, true).resultHash).not.toBe(expected.resultHash);
+    } finally {
+      execution.close();
+    }
+  });
 
   it('binds actual untracked harness bytes, original mixed index and captured lifetime', async () => {
     const script = 'bound-pass.mjs';
