@@ -8,11 +8,12 @@
  * @epic T4638
  */
 
+import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Session } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tempDir: string;
 
@@ -32,10 +33,15 @@ describe('SQLite session-store', () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-sessstore-'));
     const cleoDir = join(tempDir, '.cleo');
-    process.env['CLEO_DIR'] = cleoDir;
+    vi.stubEnv('CLEO_DIR', cleoDir);
+    vi.stubEnv('CLEO_ROOT', tempDir);
 
     // Create .cleo dir and write test config so enforcement checks don't block
     await mkdir(cleoDir, { recursive: true });
+    await writeFile(
+      join(cleoDir, 'project-info.json'),
+      JSON.stringify({ projectId: 'session-store-fixture', projectHash: 'session-store-fixture' }),
+    );
     await writeFile(
       join(cleoDir, 'config.json'),
       JSON.stringify({
@@ -52,8 +58,82 @@ describe('SQLite session-store', () => {
   afterEach(async () => {
     const { closeDb } = await import('../sqlite.js');
     closeDb();
-    delete process.env['CLEO_DIR'];
+    vi.unstubAllEnvs();
     await rm(tempDir, { recursive: true, force: true });
+  });
+
+  describe('captured session project ownership', () => {
+    async function otherProject(): Promise<string> {
+      const root = join(tempDir, 'other');
+      await mkdir(join(root, '.cleo'), { recursive: true });
+      return root;
+    }
+    function persistedNames(root: string): string {
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          "import { DatabaseSync } from 'node:sqlite'; const db=new DatabaseSync(process.argv[1],{readOnly:true}); process.stdout.write(JSON.stringify(db.prepare('SELECT name FROM tasks_sessions ORDER BY id').all())); db.close();",
+          join(root, '.cleo/cleo.db'),
+        ],
+        { encoding: 'utf8', timeout: 10000 },
+      );
+      expect(result.status, result.stderr).toBe(0);
+      return result.stdout;
+    }
+    it('retains explicit A/B ownership for equal session IDs and interleaved updates', async () => {
+      const { createSession, getSession, listSessions, updateSession } = await import(
+        '../session-store.js'
+      );
+      const other = await otherProject();
+      await Promise.all([
+        createSession(makeSession({ id: 'same-session', name: 'A' }), tempDir),
+        createSession(makeSession({ id: 'same-session', name: 'B' }), other),
+      ]);
+      vi.stubEnv('CLEO_ROOT', other);
+      vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+      await Promise.all([
+        updateSession('same-session', { name: 'A updated' }, tempDir),
+        updateSession('same-session', { name: 'B updated' }, other),
+      ]);
+      expect((await getSession('same-session', tempDir))?.name).toBe('A updated');
+      expect((await getSession('same-session', other))?.name).toBe('B updated');
+      expect((await listSessions(undefined, tempDir)).map((session) => session.name)).toEqual([
+        'A updated',
+      ]);
+      expect(persistedNames(tempDir)).toBe('[{"name":"A updated"}]');
+      expect(persistedNames(other)).toBe('[{"name":"B updated"}]');
+    });
+    it('captures the default project before ambient pins change across an await', async () => {
+      const { createSession, getSession } = await import('../session-store.js');
+      const other = await otherProject();
+      const creating = createSession(makeSession({ id: 'captured-session', name: 'Captured A' }));
+      vi.stubEnv('CLEO_ROOT', other);
+      vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+      await creating;
+      expect((await getSession('captured-session', tempDir))?.name).toBe('Captured A');
+      expect(await getSession('captured-session', other)).toBeNull();
+      expect(persistedNames(tempDir)).toBe('[{"name":"Captured A"}]');
+      expect(persistedNames(other)).toBe('[]');
+    });
+    it('surfaces a failed write in the requested project without changing the ambient project', async () => {
+      const { createSession, updateSession } = await import('../session-store.js');
+      const { captureProjectScope, worktreeScope } = await import('../../project-scope.js');
+      const { getNativeTasksDb } = await import('../sqlite.js');
+      const other = await otherProject();
+      await createSession(makeSession({ id: 'same-session', name: 'A' }), tempDir);
+      await createSession(makeSession({ id: 'same-session', name: 'B' }), other);
+      const native = await worktreeScope.run(captureProjectScope(other, undefined), () =>
+        getNativeTasksDb(other),
+      );
+      native.exec(
+        "CREATE TRIGGER reject_session_update BEFORE UPDATE ON tasks_sessions BEGIN SELECT RAISE(ABORT, 'session write fault'); END",
+      );
+      await expect(updateSession('same-session', { name: 'Rejected' }, other)).rejects.toThrow();
+      expect(persistedNames(tempDir)).toBe('[{"name":"A"}]');
+      expect(persistedNames(other)).toBe('[{"name":"B"}]');
+    });
   });
 
   // === createSession ===
