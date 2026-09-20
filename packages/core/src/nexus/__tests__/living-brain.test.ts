@@ -13,11 +13,21 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
+import fsAsync from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
+import { compactKnowledgeCoverage } from '../../doctor/knowledge-summary.js';
 import { reasonWhySymbol } from '../../memory/brain-reasoning.js';
 import { EDGE_TYPES } from '../../memory/edge-types.js';
 import { getBrainDb, getBrainNativeDb, resetBrainDbState } from '../../store/memory-sqlite.js';
@@ -213,6 +223,309 @@ describe('living-brain SDK', () => {
   });
 
   describe('trustworthy knowledge coverage', () => {
+    async function seedCompleteInventory(count = 503) {
+      writeFileSync(
+        join(projectRoot, '.cleo/project-info.json'),
+        JSON.stringify({
+          projectId: 'fixture-parent-id',
+          projectHash: 'fixture-parent-hash',
+        }),
+      );
+      const sourceRoot = join(projectRoot, 'inventory-source');
+      mkdirSync(sourceRoot);
+      execFileSync('git', ['init', '--quiet', sourceRoot]);
+      const content = 'export const value = 1;\n';
+      const files = Array.from({ length: count }, (_, index) => {
+        const path = `file-${String(index).padStart(4, '0')}.ts`;
+        const absolute = join(sourceRoot, path);
+        writeFileSync(absolute, content);
+        utimesSync(absolute, new Date('2020-01-01'), new Date('2020-01-01'));
+        const stat = statSync(absolute);
+        return {
+          path,
+          status: 'analyzed' as const,
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+          contentHash: createHash('sha256').update(content).digest('hex'),
+        };
+      });
+      execFileSync('git', ['add', '.'], { cwd: sourceRoot });
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.name=Fixture',
+          '-c',
+          'user.email=fixture@example.invalid',
+          'commit',
+          '--quiet',
+          '--no-gpg-sign',
+          '--no-verify',
+          '-m',
+          'inventory fixture',
+        ],
+        { cwd: sourceRoot },
+      );
+      const sourceRoots = await resolveSourceRoots({
+        projectId: 'fixture-parent-id',
+        projectRoot,
+        sourceRoot,
+      });
+      const native = getNexusNativeDb(projectRoot);
+      if (!native) throw new Error('Missing inventory fixture database');
+      const assessment = JSON.stringify({
+        sourceRoots,
+        sourceRoot,
+        assessedRevision: sourceRoots.roots[0]?.revision,
+        assessedAt: new Date().toISOString(),
+        files,
+      });
+      native
+        .prepare(
+          "INSERT OR REPLACE INTO main._nexus_meta (key,value) VALUES ('graph_assessment',?)",
+        )
+        .run(assessment);
+      native
+        .prepare(
+          "INSERT OR REPLACE INTO main._nexus_meta (key,value) VALUES ('graph_generation','untouched-fixture-generation')",
+        )
+        .run();
+      return { sourceRoot, files, content, native, assessment };
+    }
+
+    it('assesses the complete persisted inventory beyond 500 without imposing a size-based gap', async () => {
+      const fixture = await seedCompleteInventory();
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage).toMatchObject({
+        status: 'current',
+        projectId: 'fixture-parent-id',
+        inventory: {
+          requested: 503,
+          completed: 503,
+          unassessed: 0,
+          changed: 0,
+          missing: 0,
+          failed: 0,
+        },
+      });
+      expect(coverage.limitations).toContain(
+        'Static analysis cannot prove that all runtime callers have been discovered.',
+      );
+      expect(
+        fixture.native
+          .prepare("SELECT value FROM main._nexus_meta WHERE key='graph_assessment'")
+          .get(),
+      ).toEqual({ value: fixture.assessment });
+      expect(
+        fixture.native
+          .prepare("SELECT value FROM main._nexus_meta WHERE key='graph_generation'")
+          .get(),
+      ).toEqual({ value: 'untouched-fixture-generation' });
+    });
+
+    it('reports persisted inventory even when its published graph has no nodes', async () => {
+      const fixture = await seedCompleteInventory();
+      fixture.native.exec('DELETE FROM main.nexus_relations; DELETE FROM main.nexus_nodes;');
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage).toMatchObject({
+        status: 'missing',
+        inventory: { requested: 503, completed: 503, unassessed: 0 },
+      });
+      expect(coverage.reasons).toContain('The published graph has no indexed nodes.');
+    });
+
+    it.each([
+      'edit',
+      'delete',
+      'rename',
+    ] as const)('detects %s beyond the former 500-file ceiling', async (change) => {
+      const fixture = await seedCompleteInventory();
+      const last = fixture.files[502]!;
+      const absolute = join(fixture.sourceRoot, last.path);
+      if (change === 'edit') {
+        writeFileSync(absolute, fixture.content.replace('1', '2'));
+        utimesSync(absolute, new Date(last.mtimeMs), new Date(last.mtimeMs));
+        expect(statSync(absolute).size).toBe(last.size);
+        expect(statSync(absolute).mtimeMs).toBe(last.mtimeMs);
+      } else if (change === 'delete') rmSync(absolute);
+      else renameSync(absolute, join(fixture.sourceRoot, 'renamed.ts'));
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage).toMatchObject({
+        status: 'stale',
+        inventory: {
+          requested: 503,
+          completed: 503,
+          unassessed: 0,
+          changed: change === 'edit' ? 1 : 0,
+          missing: change === 'edit' ? 0 : 1,
+          failed: 0,
+        },
+      });
+      expect(coverage.reasons.some((reason) => reason.includes(last.path))).toBe(true);
+    });
+
+    it('retains read failures and exact inventory counters through actual compact rendering', async () => {
+      const fixture = await seedCompleteInventory();
+      const last = fixture.files[502]!;
+      const absolute = join(fixture.sourceRoot, last.path);
+      rmSync(absolute);
+      mkdirSync(absolute);
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage).toMatchObject({
+        status: 'failed',
+        inventory: { requested: 503, completed: 503, unassessed: 0, failed: 1, missing: 0 },
+      });
+      expect(coverage.reasons.some((reason) => reason.includes(last.path))).toBe(true);
+      coverage.reasons.push('Extra example 1', 'Extra example 2', 'Extra example 3');
+      const compact = compactKnowledgeCoverage(coverage);
+      expect(compact.reasons).toHaveLength(2);
+      expect(compact).toMatchObject({
+        status: 'failed',
+        projectId: coverage.projectId,
+        indexedRevision: coverage.indexedRevision,
+        assessedRevision: coverage.assessedRevision,
+        inventory: coverage.inventory,
+        reasonCount: coverage.reasons.length,
+      });
+    });
+
+    it('stops inventory work at the original deadline and reports the unassessed remainder', async () => {
+      const fixture = await seedCompleteInventory();
+      let now = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+      let beginRead: () => void = () => {
+        throw new Error('Read barrier was not initialized');
+      };
+      let finishRead: (value: Buffer<ArrayBuffer>) => void = () => {
+        throw new Error('Read completion was not initialized');
+      };
+      const started = new Promise<void>((resolve) => {
+        beginRead = resolve;
+      });
+      const content = new Promise<Buffer<ArrayBuffer>>((resolve) => {
+        finishRead = resolve;
+      });
+      const reader = vi.spyOn(fsAsync, 'readFile').mockImplementationOnce(() => {
+        beginRead();
+        return content;
+      });
+      try {
+        const pending = assessKnowledgeCoverage(projectRoot, undefined, 10000);
+        expect(
+          await Promise.race([started.then(() => 'read'), pending.then(() => 'finished')]),
+        ).toBe('read');
+        now += 10001;
+        finishRead(Buffer.from(fixture.content));
+        const coverage = await pending;
+        expect(coverage).toMatchObject({
+          status: 'partial',
+          maintenanceState: 'pending',
+          inventory: { requested: 503, completed: 0, unassessed: 503, failed: 0 },
+        });
+        expect(reader).toHaveBeenCalledTimes(1);
+        expect(compactKnowledgeCoverage(coverage)).toMatchObject({
+          maintenanceState: 'pending',
+          inventory: coverage.inventory,
+          status: 'partial',
+        });
+      } finally {
+        finishRead(Buffer.from(fixture.content));
+        reader.mockRestore();
+        clock.mockRestore();
+      }
+    });
+
+    it('checks persisted unsupported sources without converting extraction gaps into freshness success', async () => {
+      const fixture = await seedCompleteInventory();
+      const last = fixture.files[502]!;
+      const assessment = await readKnowledgeIndexAssessment(projectRoot);
+      if (!assessment) throw new Error('Expected canonical inventory assessment');
+      assessment.files = assessment.files.map((file) =>
+        file.path === last.path ? { ...file, status: 'unsupported' } : file,
+      );
+      fixture.native
+        .prepare("UPDATE main._nexus_meta SET value=? WHERE key='graph_assessment'")
+        .run(JSON.stringify(assessment));
+      writeFileSync(join(fixture.sourceRoot, last.path), fixture.content.replace('1', '2'));
+      utimesSync(
+        join(fixture.sourceRoot, last.path),
+        new Date(last.mtimeMs),
+        new Date(last.mtimeMs),
+      );
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage).toMatchObject({
+        status: 'stale',
+        inventory: {
+          requested: 503,
+          completed: 503,
+          unassessed: 0,
+          changed: 1,
+          failed: 0,
+          missing: 0,
+        },
+      });
+      expect(coverage.reasons).toContain(`unsupported: ${last.path}`);
+      expect(coverage.reasons).toContain(`Source content changed after indexing: ${last.path}`);
+    });
+
+    it('returns an immutable progress snapshot when a read outlives the real foreground budget', async () => {
+      const fixture = await seedCompleteInventory();
+      let beginRead: () => void = () => {
+        throw new Error('Read barrier was not initialized');
+      };
+      let finishRead: (value: Buffer<ArrayBuffer>) => void = () => {
+        throw new Error('Read completion was not initialized');
+      };
+      const started = new Promise<void>((resolve) => {
+        beginRead = resolve;
+      });
+      const content = new Promise<Buffer<ArrayBuffer>>((resolve) => {
+        finishRead = resolve;
+      });
+      const reader = vi.spyOn(fsAsync, 'readFile').mockImplementationOnce(() => {
+        beginRead();
+        return content;
+      });
+      try {
+        const pending = assessKnowledgeCoverage(projectRoot);
+        expect(
+          await Promise.race([started.then(() => 'read'), pending.then(() => 'finished')]),
+        ).toBe('read');
+        const coverage = await pending;
+        expect(coverage).toMatchObject({
+          status: 'partial',
+          maintenanceState: 'pending',
+          inventory: {
+            requested: 503,
+            completed: 0,
+            unassessed: 503,
+            changed: 0,
+            missing: 0,
+            failed: 0,
+          },
+        });
+        const snapshot = JSON.stringify(coverage);
+        const compact = compactKnowledgeCoverage(coverage);
+        finishRead(Buffer.from(fixture.content));
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(JSON.stringify(coverage)).toBe(snapshot);
+        expect(compact.inventory).toEqual(coverage.inventory);
+        expect(reader).toHaveBeenCalledTimes(1);
+      } finally {
+        finishRead(Buffer.from(fixture.content));
+        reader.mockRestore();
+      }
+    });
+
+    it('discloses an unknown inventory population when the deadline expires before assessment', async () => {
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 0);
+      expect(coverage).toMatchObject({
+        status: 'partial',
+        maintenanceState: 'pending',
+        inventory: { requested: null, completed: 0, unassessed: null, failed: 0 },
+      });
+    });
+
     it('detects a newly staged source file missing from the recorded generation', async () => {
       writeFileSync(
         join(projectRoot, '.cleo/project-info.json'),

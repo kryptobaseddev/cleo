@@ -7,7 +7,8 @@
 
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
+import fs from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type {
@@ -300,59 +301,33 @@ export async function assessKnowledgeCoverage(
   );
 }
 
-/** Retain captured path ownership through assessment and its deferred response. */
+/** Disclose remaining work without erasing stronger observed defects. */
+function markCoveragePending(coverage: KnowledgeCoverage): void {
+  recordKnowledgeGap(
+    coverage,
+    'partial',
+    'Coverage assessment exceeded its shared maintenance deadline.',
+  );
+  coverage.maintenanceState = 'pending';
+  coverage.nextAction = 'cleo doctor knowledge';
+}
+
+/** Retain captured path ownership and observed progress through a deferred response. */
 async function assessScopedCoverage(
   projectRoot: string,
   projectId: string | undefined,
   budgetMs: number,
 ): Promise<KnowledgeCoverage> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deferred = new Promise<KnowledgeCoverage>((resolveDeferred) => {
-    timer = setTimeout(
-      () => {
-        const info = getProjectInfoSync(projectRoot);
-        resolveDeferred({
-          status: 'partial',
-          projectId:
-            projectId ?? (info?.projectId || info?.projectHash || legacyProjectId(projectRoot)),
-          assessedRevision: null,
-          indexedRevision: null,
-          assessedAt: new Date().toISOString(),
-          reasons: ['Coverage assessment exceeded its maintenance budget.'],
-          evidence: [],
-          limitations: [
-            'Static analysis cannot prove that all runtime callers have been discovered.',
-          ],
-          maintenanceState: 'pending',
-          nextAction: 'cleo doctor knowledge',
-        });
-      },
-      Math.max(0, budgetMs),
-    );
-  });
-  try {
-    return await Promise.race([
-      assessCoverage(projectRoot, projectId, Date.now() + Math.max(0, budgetMs)),
-      deferred,
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
-
-/**
- * Assess existing graph coverage with bounded filesystem checks and no mutations.
- *
- * Legacy indexes have no revision provenance and remain partial even when their
- * recorded files look fresh. At most 500 files are checked; a larger graph keeps
- * that limit explicit. Missing and failed graphs are never assessed as current.
- */
-async function assessCoverage(
-  projectRoot: string,
-  projectId: string | undefined,
-  deadline: number,
-): Promise<KnowledgeCoverage> {
+  const deadline = Date.now() + Math.max(0, budgetMs);
   const info = getProjectInfoSync(projectRoot);
+  const inventory: NonNullable<KnowledgeCoverage['inventory']> = {
+    requested: null,
+    completed: 0,
+    unassessed: null,
+    changed: 0,
+    missing: 0,
+    failed: 0,
+  };
   const coverage: KnowledgeCoverage = {
     status: 'partial',
     projectId: projectId ?? (info?.projectId || info?.projectHash || legacyProjectId(projectRoot)),
@@ -362,22 +337,82 @@ async function assessCoverage(
     reasons: [],
     evidence: [],
     limitations: ['Static analysis cannot prove that all runtime callers have been discovered.'],
+    inventory,
   };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deferred = new Promise<KnowledgeCoverage>((resolveDeferred) => {
+    timer = setTimeout(
+      () => {
+        markCoveragePending(coverage);
+        // A returned snapshot cannot be rewritten by a late read. The timer does
+        // not preempt synchronous native database or filesystem work.
+        resolveDeferred({
+          ...coverage,
+          inventory: { ...inventory },
+          reasons: [...coverage.reasons],
+          evidence: [...coverage.evidence],
+          limitations: [...coverage.limitations],
+        });
+      },
+      Math.max(0, deadline - Date.now()),
+    );
+  });
+  try {
+    return await Promise.race([
+      assessCoverage(projectRoot, projectId, deadline, coverage, inventory),
+      deferred,
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Assess the complete persisted inventory using cooperative async file checks.
+ * Legacy indexes remain partial without revision/content provenance. Population
+ * size never supplies an artificial freshness ceiling; the original deadline
+ * bounds further work and preserves an explicit unassessed remainder.
+ */
+async function assessCoverage(
+  projectRoot: string,
+  projectId: string | undefined,
+  deadline: number,
+  coverage: KnowledgeCoverage,
+  inventory: NonNullable<KnowledgeCoverage['inventory']>,
+): Promise<KnowledgeCoverage> {
+  const info = getProjectInfoSync(projectRoot);
+  if (Date.now() >= deadline) {
+    markCoveragePending(coverage);
+    return coverage;
+  }
   try {
     const db = await getNexusDb(projectRoot);
+    if (Date.now() >= deadline) {
+      markCoveragePending(coverage);
+      return coverage;
+    }
     const table = nexusSchema.nexusNodes;
     const files = db
       .select({ filePath: table.filePath, indexedAt: min(table.indexedAt) })
       .from(table)
       .groupBy(table.filePath)
       .all();
-    if (files.length === 0) {
+    const assessment = await readKnowledgeIndexAssessment(projectRoot);
+    if (files.length === 0 && !assessment) {
+      inventory.requested = 0;
+      inventory.unassessed = 0;
       coverage.status = 'missing';
       coverage.reasons.push('No indexed graph is available; run cleo nexus analyze.');
       return coverage;
     }
-    const assessment = await readKnowledgeIndexAssessment(projectRoot);
     if (assessment) {
+      const sourceFiles = assessment.files.filter((file) => file.status !== 'excluded');
+      inventory.requested = sourceFiles.length;
+      inventory.unassessed = sourceFiles.length;
+      if (Date.now() >= deadline) {
+        markCoveragePending(coverage);
+        return coverage;
+      }
       coverage.indexedRevision = assessment.assessedRevision;
       const sourceRoot = resolve(assessment.sourceRoot);
       if (!assessment.sourceRoots) {
@@ -461,6 +496,8 @@ async function assessCoverage(
           });
         }
       }
+      if (files.length === 0)
+        recordKnowledgeGap(coverage, 'missing', 'The published graph has no indexed nodes.');
       if (assessment.references?.length) {
         recordKnowledgeGap(
           coverage,
@@ -469,64 +506,103 @@ async function assessCoverage(
         );
         coverage.nextAction = 'cleo nexus status';
       }
-      const analyzed = assessment.files.filter((file) => file.status === 'analyzed');
-      if (analyzed.length > 500)
-        recordKnowledgeGap(
-          coverage,
-          'partial',
-          'Freshness checks are limited to 500 indexed files.',
-        );
       for (const file of assessment.files) {
         if (file.status === 'failed')
           recordKnowledgeGap(coverage, 'failed', `Extraction failed: ${file.path}`);
-        if (file.status === 'unsupported' || file.status === 'oversized') {
+        if (file.status === 'unsupported' || file.status === 'oversized')
           recordKnowledgeGap(coverage, 'partial', `${file.status}: ${file.path}`);
-        }
       }
-      for (const file of analyzed.slice(0, 500)) {
+      for (const file of sourceFiles) {
+        if (Date.now() >= deadline) {
+          markCoveragePending(coverage);
+          return coverage;
+        }
         const absolute = resolve(sourceRoot, file.path);
         const relativePath = relative(sourceRoot, absolute);
         if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+          inventory.failed++;
+          inventory.completed++;
+          inventory.unassessed--;
           recordKnowledgeGap(
             coverage,
-            'partial',
+            'failed',
             `Indexed path is outside source ownership: ${file.path}`,
           );
           continue;
         }
         try {
-          const stat = statSync(absolute);
+          const stat = await fs.stat(absolute);
+          if (Date.now() >= deadline) {
+            markCoveragePending(coverage);
+            return coverage;
+          }
+          if (!stat.isFile()) throw new Error('Indexed source is not a regular file');
+          let changed = false;
           if (!file.contentHash) {
             recordKnowledgeGap(coverage, 'partial', `No source content fingerprint: ${file.path}`);
             coverage.nextAction = 'cleo nexus analyze';
-          } else if (
-            createHash('sha256').update(readFileSync(absolute)).digest('hex') !== file.contentHash
-          ) {
-            recordKnowledgeGap(
-              coverage,
-              'stale',
-              `Source content changed after indexing: ${file.path}`,
-            );
-            coverage.nextAction = 'cleo nexus analyze';
+          } else {
+            const content = await fs.readFile(absolute, {
+              signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+            });
+            if (Date.now() >= deadline) {
+              markCoveragePending(coverage);
+              return coverage;
+            }
+            if (createHash('sha256').update(content).digest('hex') !== file.contentHash) {
+              changed = true;
+              recordKnowledgeGap(
+                coverage,
+                'stale',
+                `Source content changed after indexing: ${file.path}`,
+              );
+              coverage.nextAction = 'cleo nexus analyze';
+            }
           }
           if (file.mtimeMs === undefined || file.size === undefined) {
             recordKnowledgeGap(coverage, 'partial', `No file freshness evidence: ${file.path}`);
           } else if (stat.mtimeMs !== file.mtimeMs || stat.size !== file.size) {
+            changed = true;
             recordKnowledgeGap(coverage, 'stale', `Source changed after indexing: ${file.path}`);
           }
-        } catch {
-          recordKnowledgeGap(
-            coverage,
-            'stale',
-            `Indexed source is missing or unreadable: ${file.path}`,
-          );
+          if (changed) inventory.changed++;
+        } catch (error) {
+          if (Date.now() >= deadline) {
+            markCoveragePending(coverage);
+            return coverage;
+          }
+          if (
+            error instanceof Error &&
+            'code' in error &&
+            (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+          ) {
+            inventory.missing++;
+            recordKnowledgeGap(coverage, 'stale', `Indexed source is missing: ${file.path}`);
+          } else {
+            inventory.failed++;
+            recordKnowledgeGap(
+              coverage,
+              'failed',
+              `Source freshness read failed: ${file.path}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
         }
+        inventory.completed++;
+        inventory.unassessed--;
+      }
+      if (Date.now() >= deadline) {
+        markCoveragePending(coverage);
+        return coverage;
       }
       try {
         const { stdout } = await execFileAsync(
           'git',
           ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
-          { cwd: sourceRoot, timeout: 500, maxBuffer: 1024 * 1024 },
+          {
+            cwd: sourceRoot,
+            timeout: Math.max(1, Math.min(500, deadline - Date.now())),
+            maxBuffer: 1024 * 1024,
+          },
         );
         const recorded = new Set(assessment.files.map((file) => file.path));
         const added = stdout.split('\0').filter((path) => path && !recorded.has(path));
@@ -537,8 +613,10 @@ async function assessCoverage(
             'Unindexed files exist in the configured source root.',
           );
       } catch {
-        recordKnowledgeGap(coverage, 'partial', 'Unindexed-file detection was unavailable.');
+        if (Date.now() >= deadline) markCoveragePending(coverage);
+        else recordKnowledgeGap(coverage, 'partial', 'Unindexed-file detection was unavailable.');
       }
+      if (Date.now() >= deadline) markCoveragePending(coverage);
       coverage.evidence.push({
         id: 'graph_assessment',
         projectId: coverage.projectId,
@@ -558,16 +636,33 @@ async function assessCoverage(
       revision: null,
       precision: 'project',
     });
-    if (files.length > 500) {
-      coverage.reasons.push('Freshness checks are limited to 500 indexed files.');
-    }
+    const legacyFiles = files.filter((file) => file.filePath !== null);
+    inventory.requested = legacyFiles.length;
+    inventory.unassessed = legacyFiles.length;
     const root = resolve(projectRoot);
-    for (const file of files.slice(0, 500)) {
-      if (!file.filePath) continue;
+    for (const file of legacyFiles) {
+      if (Date.now() >= deadline) {
+        markCoveragePending(coverage);
+        return coverage;
+      }
+      if (!file.filePath) {
+        inventory.failed++;
+        inventory.completed++;
+        inventory.unassessed--;
+        recordKnowledgeGap(coverage, 'failed', 'Indexed source path is empty.');
+        continue;
+      }
       const absolute = resolve(root, file.filePath);
       const relativePath = relative(root, absolute);
       if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-        coverage.reasons.push(`Indexed path is outside project ownership: ${file.filePath}`);
+        inventory.failed++;
+        inventory.completed++;
+        inventory.unassessed--;
+        recordKnowledgeGap(
+          coverage,
+          'failed',
+          `Indexed path is outside project ownership: ${file.filePath}`,
+        );
         continue;
       }
       try {
@@ -577,14 +672,45 @@ async function assessCoverage(
         const indexedAt = Date.parse(timestamp);
         if (!Number.isFinite(indexedAt)) {
           coverage.reasons.push(`Index timestamp is missing or invalid: ${file.filePath}`);
-        } else if (statSync(absolute).mtimeMs > indexedAt) {
-          coverage.status = 'stale';
-          coverage.reasons.push(`Source changed after indexing: ${file.filePath}`);
+        } else {
+          const stat = await fs.stat(absolute);
+          if (Date.now() >= deadline) {
+            markCoveragePending(coverage);
+            return coverage;
+          }
+          if (!stat.isFile()) throw new Error('Indexed source is not a regular file');
+          if (stat.mtimeMs > indexedAt) {
+            inventory.changed++;
+            recordKnowledgeGap(
+              coverage,
+              'stale',
+              `Source changed after indexing: ${file.filePath}`,
+            );
+          }
         }
-      } catch {
-        coverage.status = 'stale';
-        coverage.reasons.push(`Indexed source is missing or unreadable: ${file.filePath}`);
+      } catch (error) {
+        if (Date.now() >= deadline) {
+          markCoveragePending(coverage);
+          return coverage;
+        }
+        if (
+          error instanceof Error &&
+          'code' in error &&
+          (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+        ) {
+          inventory.missing++;
+          recordKnowledgeGap(coverage, 'stale', `Indexed source is missing: ${file.filePath}`);
+        } else {
+          inventory.failed++;
+          recordKnowledgeGap(
+            coverage,
+            'failed',
+            `Source freshness read failed: ${file.filePath}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
       }
+      inventory.completed++;
+      inventory.unassessed--;
     }
   } catch (error) {
     coverage.status = 'failed';

@@ -70,8 +70,42 @@ export interface TaskKnowledgeEvidence {
   findings: KnowledgeRepairFinding[];
 }
 
+/**
+ * Freshness observations over a persisted source inventory within one caller deadline.
+ * @remarks Completed counts terminal observations, including changed, missing, or
+ * failed files; it does not mean every observation succeeded. Requested and
+ * unassessed are null until the persisted population is available. Extraction
+ * failures and runtime-call completeness are separate coverage dimensions.
+ * @example
+ * ```ts
+ * const inventory: KnowledgeInventoryCoverage = {
+ *   requested: 503, completed: 502, unassessed: 1,
+ *   changed: 1, missing: 0, failed: 0,
+ * };
+ * ```
+ */
+export interface KnowledgeInventoryCoverage {
+  /** Persisted non-excluded source entries requested; null when not yet known. */
+  requested: number | null;
+  /** Entries with terminal freshness observations by the deadline, including failures. */
+  completed: number;
+  /** Requested minus completed; null when the population is not yet known. */
+  unassessed: number | null;
+  /** Completed entries whose content or filesystem metadata changed, excluding missing files. */
+  changed: number;
+  /** Completed entries whose owned path is absent; this establishes stale evidence. */
+  missing: number;
+  /** Completed freshness checks with diagnostic/ownership/read failures, excluding absence. */
+  failed: number;
+}
+
 /** Coverage is independent of impact severity and never implies complete runtime knowledge. */
 export interface KnowledgeCoverage {
+  /**
+   * Freshness progress for new assessments; absent only on legacy result shapes.
+   * @defaultValue undefined for legacy results that did not assess inventory.
+   */
+  inventory?: KnowledgeInventoryCoverage;
   /** Total reasons before an orientation response selects a bounded sample. */
   reasonCount?: number;
   /** Total references before an orientation response selects a bounded sample. */
