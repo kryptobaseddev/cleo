@@ -527,7 +527,7 @@ describe('durable sourced knowledge repair preparation', () => {
         [
           '--input-type=module',
           '-e',
-          "import {DatabaseSync} from 'node:sqlite';const db=new DatabaseSync(process.argv[1],{readOnly:true});process.stdout.write(JSON.stringify({jobs:db.prepare('SELECT id,status,result,error,proposal_json,proposal_hash,attempts FROM main.background_jobs').all(),observation:db.prepare(\"SELECT invalid_at,narrative FROM main.brain_observations WHERE id='O-prepared'\").get(),attemptOutcomes:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_attempt:%'\").all(),events:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_event:%'\").all(),receipts:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair:%'\").all()}));db.close();",
+          "import {DatabaseSync} from 'node:sqlite';const db=new DatabaseSync(process.argv[1],{readOnly:true});process.stdout.write(JSON.stringify({jobs:db.prepare('SELECT id,status,result,error,proposal_json,proposal_hash,attempts FROM main.background_jobs').all(),decisions:db.prepare('SELECT id,decision,invalid_at,superseded_by,supersedes,confirmation_state FROM main.brain_decisions ORDER BY id').all(),observation:db.prepare(\"SELECT invalid_at,narrative FROM main.brain_observations WHERE id='O-prepared'\").get(),attemptOutcomes:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_attempt:%'\").all(),events:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair_event:%'\").all(),receipts:db.prepare(\"SELECT value FROM main._nexus_meta WHERE key LIKE 'knowledge_repair:%'\").all()}));db.close();",
           join(root, '.cleo/cleo.db'),
         ],
         { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] },
@@ -1066,6 +1066,304 @@ describe('durable sourced knowledge repair preparation', () => {
     expect(result.proposal.assessmentHash).toBe(
       createHash('sha256').update(JSON.stringify(assessment)).digest('hex'),
     );
+  });
+
+  async function prepareRollback(receiptId: string) {
+    context.close();
+    context = createOperationExecutionContext(
+      {
+        projectId: 'repair-A',
+        projectRoot: root,
+        actor: 'preparation-test',
+        operation: 'doctor.knowledge',
+        idempotencyKey: 'rollback-one',
+      },
+      { budgetMs: 10000 },
+    );
+    return prepareKnowledgeRepair(context, {
+      ...proposal,
+      id: 'rollback-one',
+      action: { operation: 'knowledge.rollback', arguments: { receiptId }, prerequisites: [] },
+    });
+  }
+
+  it('rolls back affected resources while preserving unrelated changes and original receipt bytes', async () => {
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    const originalBytes = persisted().receipts[0].value;
+    const db = getBrainNativeDb(root)!;
+    db.exec(
+      "INSERT INTO main.brain_observations(id,type,title,narrative) VALUES ('unrelated','discovery','Retain me','New evidence before preparation')",
+    );
+    const pending = await prepareRollback(original.id);
+    db.exec(
+      "UPDATE main.brain_observations SET narrative='Changed after preparation' WHERE id='unrelated'",
+    );
+    const laterGeneration = {
+      generation: '52c225b0-7ec5-4519-befe-dedb34b6d712',
+      sourceRoot: root,
+      assessedRevision: null,
+      assessedAt: '2026-09-19T00:00:00.000Z',
+      files: [],
+    };
+    db.prepare("INSERT INTO main._nexus_meta(key,value) VALUES ('graph_assessment',?)").run(
+      JSON.stringify(laterGeneration),
+    );
+    const result = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    expect(result.execution?.generation).toBe(laterGeneration.generation);
+    expect(result.execution?.rollback).toEqual({
+      receiptId: original.id,
+      receiptHash: createHash('sha256').update(originalBytes).digest('hex'),
+    });
+    expect(result.execution?.resources[0]?.afterHash).toBe(
+      original.execution?.resources[0]?.beforeHash,
+    );
+    const state = persisted();
+    expect(state.observation.invalid_at).toBeNull();
+    expect(state.receipts).toContainEqual({ value: originalBytes });
+    expect(state.receipts).toHaveLength(2);
+    expect(
+      db.prepare("SELECT narrative FROM main.brain_observations WHERE id='unrelated'").get()
+        ?.narrative,
+    ).toBe('Changed after preparation');
+    expect(await applyPreparedKnowledgeRepair(context, pending.jobId)).toEqual(result);
+    expect((await listKnowledgeRepairReceipts(root)).map((row) => row.id)).toEqual([
+      'rollback-one',
+    ]);
+    expect(persisted().events).toHaveLength(6);
+    expect(state.jobs).toHaveLength(2);
+    for (const job of state.jobs) expect(job.status).toBe('complete');
+  });
+
+  it.each([
+    'affected',
+    'invalidation',
+    'snapshot',
+  ] as const)('refuses rollback %s drift after preparation', async (change) => {
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    const pending = await prepareRollback(original.id);
+    const db = getBrainNativeDb(root)!;
+    if (change === 'affected')
+      db.exec(
+        "UPDATE main.brain_observations SET title='User edited affected row' WHERE id='O-prepared'",
+      );
+    else if (change === 'invalidation')
+      db.exec("UPDATE main.brain_observations SET invalid_at='user-mark' WHERE id='O-prepared'");
+    else
+      db.prepare(
+        "UPDATE main._nexus_meta SET value=json_set(value,'$.receipt.reasons',json(?)) WHERE key=?",
+      ).run(JSON.stringify(['Later correction']), `knowledge_repair:${original.id}`);
+    const before = persisted();
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      code: 'E_REPAIR_STALE',
+    });
+    const after = persisted();
+    expect(after.observation).toEqual(before.observation);
+    expect(after.receipts).toEqual(before.receipts);
+    expect(
+      db.prepare("SELECT 1 FROM main._nexus_meta WHERE key LIKE 'knowledge_rollback:%'").get(),
+    ).toBeUndefined();
+  });
+
+  it.each([
+    'receipt',
+    'marker',
+    'terminal',
+  ] as const)('atomically refuses rollback on %s persistence failure', async (fault) => {
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    const before = persisted();
+    const pending = await prepareRollback(original.id);
+    const db = getBrainNativeDb(root)!;
+    if (fault === 'terminal')
+      db.exec(
+        `CREATE TEMP TRIGGER rollback_terminal BEFORE UPDATE OF status ON main.background_jobs WHEN NEW.id='${pending.jobId}' AND NEW.status='complete' BEGIN SELECT RAISE(ABORT,'rollback terminal fault'); END`,
+      );
+    else
+      db.exec(
+        `CREATE TEMP TRIGGER rollback_receipt BEFORE INSERT ON main._nexus_meta WHEN NEW.key ${fault === 'receipt' ? "= 'knowledge_repair:rollback-one'" : "LIKE 'knowledge_rollback:%'"} BEGIN SELECT RAISE(ABORT,'rollback ledger fault'); END`,
+      );
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      attemptFailure: { finalization: { state: 'finalized' } },
+    });
+    const after = persisted();
+    expect(after.observation).toEqual(before.observation);
+    expect(after.receipts).toEqual(before.receipts);
+    expect(
+      db.prepare("SELECT 1 FROM main._nexus_meta WHERE key LIKE 'knowledge_rollback:%'").get(),
+    ).toBeUndefined();
+    expect(after.jobs.find((row: { id: string }) => row.id === pending.jobId)?.status).toBe(
+      'failed',
+    );
+  });
+
+  it('refuses rollback when restoration triggers change any part of an affected row', async () => {
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    const before = persisted();
+    const pending = await prepareRollback(original.id);
+    getBrainNativeDb(root)!.exec(
+      "CREATE TEMP TRIGGER mutate_rollback AFTER UPDATE OF invalid_at ON main.brain_observations WHEN NEW.invalid_at IS NULL BEGIN UPDATE brain_observations SET title='Unexpected side effect' WHERE id=NEW.id; END",
+    );
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      code: 'E_REPAIR_VERIFY',
+    });
+    expect(persisted().observation).toEqual(before.observation);
+    expect(persisted().receipts).toEqual(before.receipts);
+  });
+
+  it('rolls back recovery if a restoration trigger rewrites the original retained receipt', async () => {
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    const before = persisted();
+    const pending = await prepareRollback(original.id);
+    getBrainNativeDb(root)!.exec(
+      `CREATE TEMP TRIGGER rewrite_original AFTER UPDATE OF invalid_at ON main.brain_observations WHEN NEW.invalid_at IS NULL BEGIN UPDATE _nexus_meta SET value=json_set(value,'$.receipt.reasons',json('[]')) WHERE key='knowledge_repair:${original.id}'; UPDATE _nexus_meta SET value=json_set(value,'$.postHash','changed') WHERE key='knowledge_repair:${original.id}'; END`,
+    );
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      code: 'E_REPAIR_VERIFY',
+    });
+    expect(persisted().observation).toEqual(before.observation);
+    expect(persisted().receipts).toEqual(before.receipts);
+  });
+
+  it('restores sourced decision authority and retains its original evidence in a separate rollback receipt', async () => {
+    const db = getBrainNativeDb(root)!;
+    db.exec(`INSERT INTO main.brain_decisions(id,type,decision,rationale,confidence,confirmation_state)
+      VALUES ('D-old','architecture','Old rule','Historical evidence','high','accepted'),
+      ('D-new','architecture','New rule','Sourced correction','high','accepted')`);
+    const directive = 'Replace "Old rule" with "New rule".';
+    db.prepare("UPDATE main.brain_observations SET narrative=? WHERE id='O-prepared'").run(
+      directive,
+    );
+    const report = await runKnowledgeDoctor(root, { dryRun: true, budgetMs: 10000 });
+    proposal = {
+      ...proposal,
+      expectedStateHash: report.stateHash,
+      action: {
+        operation: 'knowledge.supersede-decision',
+        arguments: { previousId: 'D-old', successorId: 'D-new' },
+        prerequisites: [],
+      },
+      evidence: [
+        {
+          id: 'O-prepared',
+          projectId: 'repair-A',
+          source: 'memory',
+          revision: null,
+          precision: 'record',
+          excerpt: directive,
+          contentHash: createHash('sha256').update(directive).digest('hex'),
+        },
+      ],
+    };
+    const before = persisted().decisions;
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    const originalBytes = persisted().receipts[0].value;
+    const pending = await prepareRollback(original.id);
+    // Recovery restores stored authority fields, independent of later source wording.
+    db.prepare("UPDATE main.brain_observations SET narrative=? WHERE id='O-prepared'").run(
+      'Later source correction retained',
+    );
+    const receipt = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    expect(persisted().decisions).toEqual(before);
+    expect(persisted().observation.narrative).toBe('Later source correction retained');
+    expect(persisted().receipts).toContainEqual({ value: originalBytes });
+    expect(receipt.verificationEvidence).toEqual(original.verificationEvidence);
+    for (const resource of receipt.execution!.resources)
+      expect(resource.afterHash).toBe(
+        original.execution!.resources.find((row) => row.id === resource.id)?.beforeHash,
+      );
+  });
+
+  it('refuses rollback that would overwrite a later authority correction', async () => {
+    const db = getBrainNativeDb(root)!;
+    db.exec(`INSERT INTO main.brain_decisions(id,type,decision,rationale,confidence,confirmation_state)
+      VALUES ('D-old','architecture','Old rule','Original','high','accepted'),
+      ('D-new','architecture','New rule','Replacement','high','accepted')`);
+    const directive = 'Replace "Old rule" with "New rule".';
+    db.prepare("UPDATE main.brain_observations SET narrative=? WHERE id='O-prepared'").run(
+      directive,
+    );
+    const report = await runKnowledgeDoctor(root, { dryRun: true, budgetMs: 10000 });
+    proposal = {
+      ...proposal,
+      expectedStateHash: report.stateHash,
+      action: {
+        operation: 'knowledge.supersede-decision',
+        arguments: { previousId: 'D-old', successorId: 'D-new' },
+        prerequisites: [],
+      },
+      evidence: [
+        {
+          id: 'O-prepared',
+          projectId: 'repair-A',
+          source: 'memory',
+          revision: null,
+          precision: 'record',
+          excerpt: directive,
+          contentHash: createHash('sha256').update(directive).digest('hex'),
+        },
+      ],
+    };
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    const pending = await prepareRollback(original.id);
+    db.exec("UPDATE main.brain_decisions SET confirmation_state='proposed' WHERE id='D-new'");
+    const before = persisted();
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      code: 'E_REPAIR_STALE',
+    });
+    expect(persisted().decisions).toEqual(before.decisions);
+    expect(persisted().receipts).toEqual(before.receipts);
+  });
+
+  it('refuses a stale rollback owner without restoring any affected resource', async () => {
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    const pending = await prepareRollback(original.id);
+    const before = persisted();
+    const claim = DurableJobStore.prototype.claim;
+    vi.spyOn(DurableJobStore.prototype, 'claim').mockImplementationOnce(function (
+      this: DurableJobStore,
+      ...args
+    ) {
+      const lease = claim.apply(this, args);
+      getBrainNativeDb(root)!
+        .prepare('UPDATE main.background_jobs SET fencing_epoch=fencing_epoch+1 WHERE id=?')
+        .run(pending.jobId);
+      return lease;
+    });
+    await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
+      attemptFailure: { finalization: { state: 'pending-finalization' } },
+    });
+    expect(persisted().observation).toEqual(before.observation);
+    expect(persisted().receipts).toEqual(before.receipts);
+    expect(persisted().attemptOutcomes).toEqual([]);
+  });
+
+  it('retains successful rollback when cancellation is observed after commit', async () => {
+    const repair = await prepareKnowledgeRepair(context, proposal);
+    const original = await applyPreparedKnowledgeRepair(context, repair.jobId);
+    const pending = await prepareRollback(original.id);
+    const apply = DurableJobStore.prototype.completeAtomically;
+    vi.spyOn(DurableJobStore.prototype, 'completeAtomically').mockImplementationOnce(function (
+      this: DurableJobStore,
+      ...args
+    ) {
+      const result = apply.apply(this, args);
+      context.close();
+      return result;
+    });
+    const receipt = await applyPreparedKnowledgeRepair(context, pending.jobId);
+    expect(receipt.execution?.rollback?.receiptId).toBe(original.id);
+    expect(persisted().observation.invalid_at).toBeNull();
+    expect(persisted().jobs).toContainEqual(
+      expect.objectContaining({ id: pending.jobId, status: 'complete' }),
+    );
+    expect(persisted().attemptOutcomes).toEqual([]);
   });
 
   it('passes the original execution context into preparation storage before mutation', async () => {
