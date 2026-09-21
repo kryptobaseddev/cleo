@@ -293,7 +293,27 @@ describe('AUTO-005: Context budget compliance', () => {
     ]);
 
     const spawn = await prepareSpawn('T002', env.tempDir, accessor);
-    expect(spawn.prompt.length).toBeLessThan(40000);
+    // Raised 40000 -> 43000 (T12256), stated explicitly rather than quietly.
+    //
+    // A tier-1 spawn prompt embeds CLEO-INJECTION.md verbatim, so this budget is
+    // a real per-spawn token cost — roughly 10.4k tokens at the current 41,692
+    // characters. It is raised only because compression was TRIED FIRST and the
+    // content genuinely does not yield:
+    //   - Re-wrapping every prose paragraph onto single lines took the sibling
+    //     line-cap test from 499 to 436 lines against its cap of 470, WITHOUT
+    //     changing a single word. That fixed the line cap outright.
+    //   - Rewriting the three largest prose blocks not pinned by a retention
+    //     clause (knowledge repair, docs path policy, tool resolution) recovered
+    //     only 148 characters. The text was already dense; every further cut
+    //     would have dropped a fact.
+    //   - 26 clauses in injection-mvi-tiers.test.ts pin specific sentences that
+    //     MUST survive verbatim, which is the correct constraint and is why the
+    //     first compression attempt was reverted.
+    // The overflow is real content: two independent programs (#1499 hierarchy
+    // and the T12256 knowledge work) each added protocol to one file that was
+    // already compressed to fit. Headroom is deliberately ~1.3k characters, not
+    // a round number, so this stays a ratchet rather than a formality.
+    expect(spawn.prompt.length).toBeLessThan(43000);
   });
 
   it('orchestrator context summary is compact', async () => {

@@ -12,29 +12,13 @@ Version: 2.20.4 | CLI-only dispatch | `cleo <command> [args]`
 5. **Verify.** Run relevant checks, record validated evidence, then complete. Report unresolved and failed findings and missing coverage rather than claiming success.
 6. **Learn.** Record actionable incident knowledge with source, project, revision, observation, correction, and verification through `cleo memory observe`. Preserve historical handoffs; present corrections separately. Avoid empty completion traces.
 
-Knowledge repair: `cleo doctor knowledge --dry-run`, then `--prepare FILE --actor AGENT`.
-Discover retained work with `--jobs --actor AGENT`, `--limit` and returned JSON `--cursor`; follow exact `inspectArgv`, not latest-job guesses. Retain partial diagnostics.
-Use `--apply JOB`, `--inspect JOB`, `--cancel JOB`, or `--resume JOB` with the original explicit `--actor AGENT --proposal-id PROPOSAL`; never borrow stored actor attribution.
-Verify receipts and paged lifecycle evidence (`--limit`/`--offset`); retain diagnostic failures and `prepared`/`attemptFailure` recovery details. Cancellation is a request, not rollback.
-Each invocation shares a default 2000ms budget (`--budget-ms`); a later explicit attempt is fresh, without renewing an active deadline or preempting synchronous SQLite.
-Resume preserves prior outcomes and uncertain expired attempts; live owners remain fenced. Stale source requires reassessment. After rollback, apply/resume return `E_REPAIR_ROLLED_BACK` with original and rollback receipts in `recoveryState`, not current repaired effects.
-Use `--rollback RECEIPT --actor AGENT --proposal-id NEW_ID`; inspect both receipts. Versioned quarantine recovery restores only `invalid_at`, preserving validated paired citation usage; protected edits conflict. Legacy receipts require exact images. Prepared rollback still guards the full current image. `cleo doctor repair` remains database recovery.
+Knowledge repair: `cleo doctor knowledge --dry-run` → `--prepare FILE --actor AGENT`. Find retained work via `--jobs --actor AGENT`, `--limit`, returned `--cursor`; follow exact `inspectArgv`, never latest-job guesses. `--apply|--inspect|--cancel|--resume JOB` require the ORIGINAL explicit `--actor`/`--proposal-id` — never borrow stored attribution; cancellation is a request, not rollback. Verify receipts and paged evidence (`--limit`/`--offset`); retain partial diagnostics, failures, `prepared`/`attemptFailure` recovery detail. Each invocation shares a 2000ms budget (`--budget-ms`); a later attempt is fresh — it neither renews an active deadline nor preempts synchronous SQLite. Resume keeps prior outcomes and uncertain expired attempts; live owners stay fenced; stale source needs reassessment. After rollback, apply/resume return `E_REPAIR_ROLLED_BACK` carrying original + rollback receipts in `recoveryState`, NOT current repaired effects; roll back with `--rollback RECEIPT --actor AGENT --proposal-id NEW_ID` and inspect both. Versioned quarantine recovery restores only `invalid_at`, preserving validated paired citation usage; protected edits conflict; legacy receipts need exact images; prepared rollback still guards the full current image. `cleo doctor repair` remains database recovery.
 
-Use `cleo <command> --help` and the `ct-cleo` skill for command details.
-Use `cleo show <id> --full` when focus is insufficient: the default projection
-withholds description and verification, listing them in `_withheld`.
+Use `cleo <command> --help` and the `ct-cleo` skill for command details. Use `cleo show <id> --full` when focus is insufficient: the default projection withholds description and verification, listing them in `_withheld`.
 
-Projection markers include omitted empty/null fields and survive repeated projection.
-`_withheld` maps omitted fields to UTF-8 content bytes (JSON bytes for structured
-values). A record without `_withheld` is complete. Budgeting preserves coverage,
-diagnostic failures, authority corrections and pending repair facts before examples.
-A read budget too small for mandatory facts fails explicitly; request narrower scope
-or more budget. Never treat this failure as clean coverage.
+Projection markers include omitted empty/null fields and survive repeated projection. `_withheld` maps omitted fields to UTF-8 content bytes (JSON bytes for structured values). A record without `_withheld` is complete. Budgeting preserves coverage, diagnostic failures, authority corrections and pending repair facts before examples. A read budget too small for mandatory facts fails explicitly; request narrower scope or more budget. Never treat this failure as clean coverage.
 
-An impossible internal mutation budget rejects before execution. If a successful
-mutation's actual receipt exceeds a viable budget, its success and complete receipt
-remain available with `_budgetEnforcement.withinBudget: false`; overflow does not
-mean rollback. Inspect the receipt before retrying a mutation.
+An impossible internal mutation budget rejects before execution. If a successful mutation's actual receipt exceeds a viable budget, its success and complete receipt remain available with `_budgetEnforcement.withinBudget: false`; overflow does not mean rollback. Inspect the receipt before retrying a mutation.
 
 <!-- /CLEO-INJECTION:section=session-start -->
 
@@ -75,30 +59,11 @@ mean rollback. Inspect the receipt before retrying a mutation.
 | Preview batch before inserting | `cleo add-batch --file tasks.json --parent <epicId> --dry-run` |
 | Batch from stdin | `echo '[...]' \| cleo add-batch --file - --parent <epicId>` |
 
-Acceptance input is normalized consistently across add, update, batch, and saga
-creation: use arrays of strings in JSON parameters, or a JSON-array string / the
-documented pipe-delimited form for `--acceptance`. Array entries preserve literal
-pipes and quoted unions. Strings are trimmed and blank strings omitted; nonstring
-entries or malformed explicit JSON arrays reject the whole mutation. An explicit
-`[]` on update requests a clear; omitted acceptance stays unchanged. Normalized
-criteria still obey policy and immutability, including `--reason` for locked
-changes. Invalid stored criteria are diagnostic failures; never split historical
-records without original-input provenance and a guarded repair receipt.
+Acceptance input is normalized consistently across add, update, batch, and saga creation: use arrays of strings in JSON parameters, or a JSON-array string / the documented pipe-delimited form for `--acceptance`. Array entries preserve literal pipes and quoted unions. Strings are trimmed and blank strings omitted; nonstring entries or malformed explicit JSON arrays reject the whole mutation. An explicit `[]` on update requests a clear; omitted acceptance stays unchanged. Normalized criteria still obey policy and immutability, including `--reason` for locked changes. Invalid stored criteria are diagnostic failures; never split historical records without original-input provenance and a guarded repair receipt.
 
-Explicit `critical` priority on add/update requires a dependency or a nonempty
-`--depends-waiver`; updates check the resulting dependency set. CLI flags, JSON
-params, and SDK calls share this policy. Explicit severity changes use the
-project's signing identity: a nonempty `ownerPubkeys` allowlist restricts signers;
-an absent or empty list keeps the existing opt-in policy. Unreadable or malformed
-authority is an explicit configuration failure. Committed severity,
-duplicate-bypass, and dependency-waiver evidence lives in the task transaction
-audit. Historical filesystem attestations alone do not prove a task committed.
-Dry-run creates no committed attestation; failed writes leave no committed receipt.
+Explicit `critical` priority on add/update requires a dependency or a nonempty `--depends-waiver`; updates check the resulting dependency set. CLI flags, JSON params, and SDK calls share this policy. Explicit severity changes use the project's signing identity: a nonempty `ownerPubkeys` allowlist restricts signers; an absent or empty list keeps the existing opt-in policy. Unreadable or malformed authority is an explicit configuration failure. Committed severity, duplicate-bypass, and dependency-waiver evidence lives in the task transaction audit. Historical filesystem attestations alone do not prove a task committed. Dry-run creates no committed attestation; failed writes leave no committed receipt.
 
-`cleo add-batch` inserts all tasks in a single transaction — ANY failure rolls back ALL inserts.
-Use `--dry-run` first; the projected mutation envelope reports `/data/count` and
-`/data/wouldCreate` as the predicted create count while `/data/insertedCount` remains `0`.
-See `ct-cleo` skill section "Decomposing an epic into N tasks" for the JSON schema and rollback semantic.
+`cleo add-batch` inserts all tasks in a single transaction — ANY failure rolls back ALL inserts. Use `--dry-run` first; the projected mutation envelope reports `/data/count` and `/data/wouldCreate` as the predicted create count while `/data/insertedCount` remains `0`. See `ct-cleo` skill section "Decomposing an epic into N tasks" for the JSON schema and rollback semantic.
 
 ### Sagas — PM-Core V2 containment (ADR-088 supersedes ADR-073)
 
@@ -112,34 +77,23 @@ A **Saga** (`SG-`) is a multi-release theme grouping multiple Epics. `type='saga
 | List member Epics of a Saga | `cleo saga members <sagaId>` |
 | Aggregate status across members | `cleo saga rollup <sagaId>` |
 
-Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for standalone);
-Task `parent_id` = Epic; Subtask `parent_id` = Task. `task_relations` is non-containment
-only — dependencies, ordering, cross-reference, evidence, supersession, provenance.
+Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for standalone); Task `parent_id` = Epic; Subtask `parent_id` = Task. `task_relations` is non-containment only — dependencies, ordering, cross-reference, evidence, supersession, provenance.
 
 ### Depth + decomposition
 
-`saga 0 → epic 1 → task 2 → subtask 3`; `hierarchy.maxDepth` (default 3) is the max depth
-VALUE, **inclusive**, so a subtask under a task is legal. `E_CLEO_DEPTH_EXCEEDED` now means
-only: you parented under a subtask, the leaf tier. `--type` is honoured verbatim — so
-`--type subtask --parent <epic>` is REFUSED, not silently retyped.
-A task is **either** a leaf with its own text ACs **or** a container with children, never
-both (PM-Core V2 design-point 3) — so the first `cleo add` under a task carrying
-`--acceptance` text is refused. That is expected. Convert it:
+`saga 0 → epic 1 → task 2 → subtask 3`; `hierarchy.maxDepth` (default 3) is the max depth VALUE, **inclusive**, so a subtask under a task is legal. `E_CLEO_DEPTH_EXCEEDED` now means only: you parented under a subtask, the leaf tier. `--type` is honoured verbatim — so `--type subtask --parent <epic>` is REFUSED, not silently retyped. A task is **either** a leaf with its own text ACs **or** a container with children, never both (PM-Core V2 design-point 3) — so the first `cleo add` under a task carrying `--acceptance` text is refused. That is expected. Convert it:
 
 | Goal | Command |
 |------|---------|
 | Add the subtask AND convert in one call | `cleo add --type subtask --parent <id> --title "..." --acceptance "..." --auto-decompose` |
 | Convert first, then add normally | `cleo decompose <id>` (`--dry-run`, `--child-title "..."`) |
 
-`--auto-decompose` is opt-in: it rewrites the PARENT and reports
-`autoDecomposed: { childId, movedAcceptance }` — read it, the task you filed is now a
-container. `cleo update <id> --acceptance ""` does NOT work (enforcement rejects empty).<!-- /CLEO-INJECTION:section=task-creation -->
+`--auto-decompose` is opt-in: it rewrites the PARENT and reports `autoDecomposed: { childId, movedAcceptance }` — read it, the task you filed is now a container. `cleo update <id> --acceptance ""` does NOT work (enforcement rejects empty).<!-- /CLEO-INJECTION:section=task-creation -->
 
 <!-- CLEO-INJECTION:section=task-discovery -->
 ### Overlap reconciliation across a saga
 
-`cleo add` checks duplicates only at INSERT time — flat, reject-or-insert — so partial
-overlap is invisible and post-filing drift is never re-examined. Sweep for it:
+`cleo add` checks duplicates only at INSERT time — flat, reject-or-insert — so partial overlap is invisible and post-filing drift is never re-examined. Sweep for it:
 
 | Goal | Command |
 |------|---------|
@@ -149,10 +103,7 @@ overlap is invisible and post-filing drift is never re-examined. Sweep for it:
 
 Actions: **merge** (same tier+parent, ≥90%) · **absorb** (≥90% across containers) ·
 **split** (shared scope apart — use `cleo decompose`) · **link** (siblings, usually
-intended sequencing). `--apply` writes ONLY `relates` edges — nothing is merged, retitled,
-reparented or deleted — and the earlier task always survives, so runs are reproducible.
-Read `link` sceptically: shared naming conventions inflate title similarity. Act on
-`merge`/`absorb`, which also require a tier+parent match.
+intended sequencing). `--apply` writes ONLY `relates` edges — nothing is merged, retitled, reparented or deleted — and the earlier task always survives, so runs are reproducible. Read `link` sceptically: shared naming conventions inflate title similarity. Act on `merge`/`absorb`, which also require a tier+parent match.
 
 ## Task Discovery
 
@@ -217,8 +168,7 @@ Memory context: `cleo memory digest` defaults to a live project summary; no `--b
 <!-- CLEO-INJECTION:section=data-location -->
 ## Where the data lives — never read `.cleo/*.db` directly
 
-Store = **`.cleo/cleo.db`**; task rows are in PREFIXED tables (`tasks_tasks`, …).
-Three decoys make a HEALTHY project look corrupt:
+Store = **`.cleo/cleo.db`**; task rows are in PREFIXED tables (`tasks_tasks`, …). Three decoys make a HEALTHY project look corrupt:
 
 | Decoy | Reality |
 |-------|---------|
@@ -226,8 +176,7 @@ Three decoys make a HEALTHY project look corrupt:
 | `.cleo/backups/sqlite/tasks-<ts>.db`, ~100× bigger | Snapshots **of `cleo.db`**; `tasks-` is a legacy label |
 | bare `tasks` table, 0 rows | Empty relic beside the populated `tasks_tasks` |
 
-Small legacy DBs beside large snapshots do not prove corruption. `cleo doctor superseded-store` identifies the live store by row counts; `briefing`/`focus` already read it.
-Use `cleo backup inspect <snapshot> --record-id <id>` for read-only historical evidence; scoped absence or unknown provenance is not recovery authority.
+Small legacy DBs beside large snapshots do not prove corruption. `cleo doctor superseded-store` identifies the live store by row counts; `briefing`/`focus` already read it. Use `cleo backup inspect <snapshot> --record-id <id>` for read-only historical evidence; scoped absence or unknown provenance is not recovery authority.
 
 <!-- /CLEO-INJECTION:section=data-location -->
 <!-- CLEO-INJECTION:section=nexus -->
@@ -253,9 +202,7 @@ Use `cleo backup inspect <snapshot> --record-id <id>` for read-only historical e
 Default ID = `base64url(path).slice(0,32)`.
 
 **Rule**: BEFORE editing any symbol, run `cleo nexus impact <symbol>`.
-HIGH/CRITICAL requires reviewing affected callers before editing. For stale, partial,
-missing, or failed coverage, inspect source and report the remaining uncertainty.
-An empty footprint alone never establishes `NONE`.
+HIGH/CRITICAL requires reviewing affected callers before editing. For stale, partial, missing, or failed coverage, inspect source and report the remaining uncertainty. An empty footprint alone never establishes `NONE`.
 
 > `scripts/lint-injection-commands.mjs` (T12069) checks these commands against the CLI. Previously documented `nexus report`, `nexus brain find`, `nexus compare`, `nexus shared`, `nexus synthesize`, and `nexus admin` never existed.
 <!-- /CLEO-INJECTION:section=nexus -->
@@ -304,15 +251,7 @@ Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantb
 | List valid doc kinds | `cleo docs list-types` |
 | Generate llms.txt summary | `cleo docs generate --for <taskId>` |
 
-Use current repo-relative paths, never arbitrary external absolute paths (`/tmp`, other checkouts). Publish: `cleo docs publish --for <ownerId> --to <repo-relative-path>`. Before batch writes: `cleo add-batch --dry-run`; require `/data/insertedCount` = 0. Runtime kinds: `cleo docs list-types` / `DocKindRegistry`, not stale lists.
-Document storage success is separate from optional projection verification. Read
-`data.projection` after `cleo docs add`: retain coverage, diagnostics, captured
-project identity, deadline, and any job/receipt reference. Pending work can have an
-unresolved committed outcome; inspect it before explicit resume, never repeat the
-add blindly. One two-second maintenance budget covers preparation through
-verification; timer expiry does not preempt synchronous SQLite. Verify exact bytes
-with `cleo docs fetch <slug>` JSON `data.bytesBase64` and `data.metadata.sha256`;
-rendered content can add a newline.
+Use repo-relative paths, never external absolutes (`/tmp`, other checkouts). Publish with `cleo docs publish --for <ownerId> --to <repo-relative-path>`; before batch writes run `cleo add-batch --dry-run` and require `/data/insertedCount` = 0. Take kinds from `cleo docs list-types`/`DocKindRegistry`, not stale lists. Storage success is SEPARATE from optional projection verification: read `data.projection` after `cleo docs add` and retain coverage, diagnostics, captured project identity, deadline and any job/receipt reference. Pending work can hold an unresolved committed outcome — inspect before explicit resume, never repeat the add blindly. One 2s maintenance budget spans preparation through verification and its expiry does not preempt synchronous SQLite. Verify exact bytes via `cleo docs fetch <slug>` JSON `data.bytesBase64` + `data.metadata.sha256`; rendering can add a newline.
 <!-- /CLEO-INJECTION:section=documents -->
 <!-- CLEO-INJECTION:section=human-render -->
 ## Human Render Contract (ADR-077)
@@ -407,16 +346,14 @@ cleo memory observe "..." --title "..."
 ### Emergency override (audited)
 
 ```bash
-CLEO_OWNER_OVERRIDE=1 \
-CLEO_OWNER_OVERRIDE_REASON="incident 1234 hotfix" \
-  cleo verify T### --gate cleanupDone --evidence "note:owner-approved"
+CLEO_OWNER_OVERRIDE=1 \ CLEO_OWNER_OVERRIDE_REASON="incident 1234 hotfix" \ cleo verify T### --gate cleanupDone --evidence "note:owner-approved"
 ```
 
 All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ### Tool resolution + result cache (ADR-061)
 
-`tool:<name>` resolves through `.cleo/project-context.json` / `primaryType` fallbacks. Cache `.cleo/cache/evidence/<key>.json`: `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies coalesce; cross-worktree semaphores: `~/.local/share/cleo/locks/tool-<canonical>/`, limit `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`. Deadlines: **1800000 ms (30 min) for `test` and `build`**, otherwise 300000 ms (5 min). Positive-integer override: `CLEO_TOOL_TIMEOUT_<TOOL>=<ms>`; invalid values explicitly fail with the tool default. Timeouts cache nothing; increase the deadline before an unchanged retry (gh#1221).
+`tool:<name>` resolves via `.cleo/project-context.json`/`primaryType` fallbacks; cache key `(canonical, cmd, args, HEAD, dirty-tree fingerprint)` at `.cleo/cache/evidence/<key>.json`. Parallel verifies coalesce; cross-worktree semaphores live at `~/.local/share/cleo/locks/tool-<canonical>/` (`CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`). Deadlines: **1800000 ms (30 min) for `test`/`build`**, else 300000 ms (5 min); override with a positive integer `CLEO_TOOL_TIMEOUT_<TOOL>=<ms>` — invalid values fail explicitly naming the tool default. A timeout caches NOTHING, so raise the deadline before an unchanged retry (gh#1221).
 
 ### `pr:<number>` retroactive atom (T9764)
 
