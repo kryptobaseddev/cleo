@@ -87,7 +87,16 @@ function complete() {
   for (const path of required) put(path);
 }
 
-describe('real npm inventory through release wrappers', () => {
+// T12309: every case below drives `assertCleoTarball`, which runs
+// `execFileSync('npm', ['pack', '--dry-run', …])` — a real npm subprocess.
+// vitest's default per-test timeout is 5000ms, and npm's own startup is a
+// large fraction of that: this FILE takes ~9.3s on an idle developer machine.
+// On a CI shard competing with a full sweep one case crossed the line and the
+// suite failed with `Test timed out in 5000ms` on a tree that was otherwise
+// entirely green — a timing flake, not a defect, and indistinguishable from
+// one in the log. The budget is sized for a loaded runner; a genuine hang
+// still fails, 12x later.
+describe('real npm inventory through release wrappers', { timeout: 60_000 }, () => {
   it('accepts tiny complete content and preserves the negated files entry', () => {
     complete();
     put('dist/cli/index.js.map', 'excluded map');
