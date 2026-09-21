@@ -1735,9 +1735,18 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '2'
       NODE_OPTIONS: --max-old-space-size=4096
-      CLEO_PACKED_EVIDENCE_DIR: ${{ runner.temp }}/cleo-packed-evidence
     steps:
       - uses: actions/checkout@v4
+      # The `runner` context is NOT available in a job-level `env:` block — only
+      # `github`, `inputs`, `needs`, `vars`, `secrets`, `matrix` and `strategy`
+      # are. `CLEO_PACKED_EVIDENCE_DIR: ${{ runner.temp }}/...` there did not
+      # merely resolve empty: GitHub REJECTED THE WHOLE FILE, so every one of
+      # ci.yml's 56 jobs — including both unit-test shards — never ran, and the
+      # only trace was a jobless run captioned "this run likely failed because of
+      # a workflow file issue". Set it from $RUNNER_TEMP in a step instead, where
+      # the value is a plain environment variable.
+      - name: Resolve the packed-evidence directory
+        run: echo "CLEO_PACKED_EVIDENCE_DIR=$RUNNER_TEMP/cleo-packed-evidence" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'

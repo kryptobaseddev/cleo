@@ -79,7 +79,8 @@ const VALIDATE_SPAWN_MODULE = 'packages/core/src/orchestration/validate-spawn.ts
 /**
  * Skill-validator test that exercises ORC-004 / ORC-005 manifest checks.
  */
-const SKILL_VALIDATOR_TESTS = 'packages/core/src/skills/orchestrator/__tests__/validator.test.ts';
+const SKILL_VALIDATOR_TESTS =
+  'packages/core/src/skills/orchestrator/__tests__/validator.orchestrator.test.ts';
 
 /**
  * ADR-070 ORC-### invariants in declaration order.
