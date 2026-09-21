@@ -55,6 +55,23 @@ export type FileNamingConvention = 'kebab-case' | 'snake_case' | 'camelCase' | '
 /** Module import style. */
 export type ImportStyle = 'esm' | 'commonjs' | 'mixed';
 
+/**
+ * Evidence execution configured per project.
+ *
+ * @task gh#1466
+ */
+export interface ProjectEvidenceContext {
+  /**
+   * Checkout that `git`/`gh` evidence tools must run in, relative to the CLEO
+   * store root (an absolute path is also accepted).
+   *
+   * Needed only when the store root is not itself a git work tree AND parents
+   * more than one repository — CLEO resolves a single nested checkout, and a
+   * `commit:` atom whose SHA exists in exactly one sibling, without help.
+   */
+  gitRoot?: string;
+}
+
 /** Release and evidence behavior configured per project. */
 export interface ProjectReleaseContext {
   /** Branches whose reachable commits may satisfy `commit:` evidence atoms. */
@@ -121,6 +138,8 @@ export interface ProjectContext {
   };
   /** Release and evidence behavior for this project. */
   release?: ProjectReleaseContext;
+  /** Evidence execution overrides for this project (gh#1466). */
+  evidence?: ProjectEvidenceContext;
 }
 
 /**

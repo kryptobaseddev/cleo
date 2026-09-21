@@ -88,9 +88,14 @@ export interface GateBase {
 // ─── Variants ────────────────────────────────────────────────────────────────
 
 /**
- * Run a command and verify its actual exit status. Positive `minCount` requires
- * a structured test-count capability and currently returns an explicit error. Designed for test suites:
+ * Run a command and verify its actual exit status. Designed for test suites:
  * `{ kind: 'test', command: 'pnpm test', expect: 'pass' }`.
+ *
+ * A positive `minCount` additionally requires the gate's OWN command to emit a
+ * machine-readable report satisfying `testCountReportSchema` (e.g. by adding
+ * `--reporter=json`). A run that emits none is an error, never a pass: an exit
+ * code carries no count, and a report file written by some other invocation is
+ * not bound to this execution.
  */
 export interface TestGate extends GateBase {
   kind: 'test';
@@ -103,7 +108,13 @@ export interface TestGate extends GateBase {
    * - `"exit0"`: exit code 0 only (permissive mode).
    */
   expect: 'pass' | 'exit0';
-  /** Minimum test count; unsupported count evidence must return error, never infer a count from exit zero. */
+  /**
+   * Minimum number of PASSING tests the run must report.
+   *
+   * Satisfied only by a structured report emitted by this gate's own command;
+   * a run that produces none returns an error rather than inferring a count
+   * from exit zero (gh#1467).
+   */
   minCount?: number;
   /** Working directory relative to project root. Default `.`. */
   cwd?: string;

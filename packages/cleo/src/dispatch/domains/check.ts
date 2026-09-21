@@ -57,6 +57,7 @@ import {
   checkWorkflowCompliance,
   getLogger,
   getProjectRoot,
+  previewTaskGates,
   resolveWorktreeRouting,
   validateGateVerify,
   validateProtocolArchitectureDecision,
@@ -449,6 +450,31 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     );
   },
 
+  // gh#1468: `cleo verify <id> --run` — execute the task's typed gates and
+  // report them. A query, because it persists nothing: the results are an
+  // observation, and only `--evidence` turns an observation into an
+  // attestation. Restored because the spawn prompt has never stopped telling
+  // agents to run it.
+  'gate.run': async (params: ValidateGateParams) => {
+    const projectRoot = getProjectRoot();
+    if (!params.taskId) {
+      return lafsError('E_INVALID_INPUT', 'taskId is required', 'gate.run');
+    }
+    try {
+      const preview = await previewTaskGates(params.taskId, projectRoot, {
+        ...(params.agent ? { actor: params.agent } : {}),
+      });
+      return lafsSuccess(preview, 'gate.run');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return lafsError(
+        message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL',
+        message,
+        'gate.run',
+      );
+    }
+  },
+
   'verify.explain': async (params: ValidateVerifyExplainParams) => {
     const projectRoot = getProjectRoot();
     if (!params.taskId) {
@@ -779,6 +805,7 @@ export class CheckHandler implements DomainHandler {
         'test.coverage',
         'coherence',
         'gate.status',
+        'gate.run',
         'archive.stats',
         'grade',
         'grade.list',

@@ -1495,10 +1495,15 @@ function buildConduitSubscriptionBlock(config: ConduitSubscriptionConfig): strin
     '### CLI Equivalents',
     '',
     '```bash',
-    `cleo conduit subscribe --topicName "${waveTopic}"`,
-    `cleo conduit subscribe --topicName "${coordTopic}"`,
-    `cleo conduit publish --topicName "${waveTopic}" --content "Work complete" --kind notify`,
-    `cleo conduit listen --topicName "${waveTopic}"`,
+    // gh#1468: the flag is `--topic`. `topicName` is the DISPATCH parameter
+    // name, and citty parses non-strictly, so every agent that followed these
+    // lines had the topic silently discarded and then failed the required-arg
+    // check on a flag it had apparently supplied. Found by the gate that now
+    // scans this file; see `scripts/lint-agent-prompt-commands.mjs`.
+    `cleo conduit subscribe --topic "${waveTopic}"`,
+    `cleo conduit subscribe --topic "${coordTopic}"`,
+    `cleo conduit publish --topic "${waveTopic}" --content "Work complete" --kind notify`,
+    `cleo conduit listen --topic "${waveTopic}"`,
     '```',
   ].join('\n');
 }

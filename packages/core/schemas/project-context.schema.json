@@ -228,6 +228,18 @@
           "description": "Required successful checks for PR evidence atoms."
         }
       }
+    },
+    "evidence": {
+      "type": "object",
+      "description": "Evidence execution overrides (gh#1466).",
+      "additionalProperties": false,
+      "properties": {
+        "gitRoot": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Checkout that git/gh evidence tools run in, relative to the CLEO store root (absolute is also accepted). Needed only when the store root is not itself a git work tree and parents more than one repository."
+        }
+      }
     }
   }
 }

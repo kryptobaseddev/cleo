@@ -1,0 +1,177 @@
+#!/usr/bin/env node
+/**
+ * Lint rule: every `cleo …` command CLEO writes into an agent's prompt must
+ * exist, and every flag on it must be one the command accepts.
+ *
+ * ## Why (gh#1468)
+ *
+ * Gate 14 checks `CLEO-INJECTION.md`. Gate 15 checks workflow `run:` blocks.
+ * Neither checks the third agent-facing surface, and it is the one CLEO
+ * GENERATES: `cleo orchestrate spawn <id>` composes a prompt whose
+ * stage-specific guidance is a literal instruction list, embedded verbatim in
+ * every spawned agent's context.
+ *
+ * Measured on 2026-09-21, the Validation stage told every agent:
+ *
+ *     - Run `cleo verify <id> --run` and capture output
+ *
+ * `--run` had been the documented typed-gate driver since T768, and had been
+ * dropped from the command. The agent that followed the instruction got
+ * `Unknown flag: --run`, discovered that typed gates nevertheless execute as a
+ * side effect of an unrelated `--evidence` write, and had no supported way to
+ * ask the question the protocol had just told it to ask.
+ *
+ * That is the same defect class as T12069's five nonexistent Nexus commands,
+ * on a surface nobody was watching — and it is arguably worse, because a
+ * template is at least reviewable as text, while this instruction is assembled
+ * at runtime and only ever read inside somebody else's agent.
+ *
+ * ## What this checks
+ *
+ * The prompt-emitting modules listed in {@link PROMPT_SOURCES} are scanned for
+ * `cleo <verb> [<sub>] [--flags]` invocations. Verb and sub-verb must resolve
+ * against the CLI's command manifest; every long flag must be declared by that
+ * command, be a CLI global, or be hand-wired.
+ *
+ * Every rule and allowlist is imported from `lint-injection-commands.mjs`
+ * rather than restated. A second copy of the CLI's flag model would drift from
+ * the parser it models, and a gate that rejects flags the CLI accepts is worse
+ * than the silence it replaces.
+ *
+ * Modes: `--strict` / `--check` (identical — this surface is small and fully
+ * enumerable, so there is no baseline) and `--json`.
+ *
+ * @task gh#1468
+ */
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  extractInvocationsWithFlags,
+  findFlagViolations,
+  findViolations,
+  makeFlagChecker,
+} from './lint-injection-commands.mjs';
+
+const REPO_ROOT = process.cwd();
+
+/**
+ * Modules that write `cleo …` invocations into text an agent is told to follow.
+ *
+ * Deliberately an explicit list, not a glob. A glob over `packages/core/src`
+ * would sweep in error messages, comments and test fixtures, and the resulting
+ * noise is what gets a gate disabled. A module that starts emitting agent
+ * instructions gets added here in the same PR.
+ */
+export const PROMPT_SOURCES = [
+  'packages/core/src/orchestration/spawn-prompt.ts',
+  'packages/core/src/orchestration/harness-hint.ts',
+  'packages/core/src/agents/work-loop.ts',
+];
+
+/**
+ * Lines that are commentary about a command rather than an instruction to run
+ * it.
+ *
+ * A source module explains itself in prose, and a TSDoc line naming a retired
+ * verb while documenting its removal must not be read as telling an agent to
+ * run it — the same carve-out gate 14 makes for `RETIRED_COMMAND_ALLOWLIST`.
+ * Only `//`- and `*`-prefixed lines qualify: anything inside a template
+ * literal reaches the agent.
+ *
+ * @param raw - the matched invocation text.
+ * @param line - the full source line it was found on.
+ */
+function isCommentary(line) {
+  return /^\s*(?:\/\/|\/\*|\*)/.test(line);
+}
+
+/**
+ * Violations across every prompt source.
+ *
+ * @param repoRoot - absolute repo root.
+ * @returns `{ file, violations }` records for files with findings.
+ */
+export function findPromptViolations(repoRoot) {
+  const checker = makeFlagChecker(repoRoot);
+  const manifestSubs = new Map();
+  const results = [];
+  let scanned = 0;
+
+  for (const rel of PROMPT_SOURCES) {
+    let source;
+    try {
+      source = readFileSync(join(repoRoot, rel), 'utf-8');
+    } catch {
+      continue; // an emitter that moved is gate 20's problem, not a false fail
+    }
+    // Drop comment lines before scanning so prose about a command is never
+    // read as an instruction to run it.
+    const instructions = source
+      .split('\n')
+      .map((line) => (isCommentary(line) ? '' : line))
+      .join('\n');
+
+    scanned += extractInvocationsWithFlags(instructions).length;
+    const violations = [
+      ...findViolations(instructions, loadRegistry(repoRoot, manifestSubs)),
+      ...findFlagViolations(instructions, checker),
+    ];
+    if (violations.length > 0) results.push({ file: rel, violations });
+  }
+  return { results, scanned };
+}
+
+/**
+ * Verb → sub-verb registry, read from the manifest once and memoised.
+ *
+ * @param repoRoot - absolute repo root.
+ * @param cache - caller-owned memo map.
+ */
+function loadRegistry(repoRoot, cache) {
+  if (cache.has('registry')) return cache.get('registry');
+  const manifestSource = readFileSync(
+    join(repoRoot, 'packages/cleo/src/cli/generated/command-manifest.ts'),
+    'utf-8',
+  );
+  const registry = new Map();
+  for (const entry of manifestSource.matchAll(
+    /name:\s*'([^']+)',[\s\S]{0,400}?import\('\.\.\/commands\/([^']+)\.js'\)/g,
+  )) {
+    registry.set(entry[1], new Set());
+  }
+  registry.set('version', new Set());
+  const cliIndex = readFileSync(join(repoRoot, 'packages/cleo/src/cli/index.ts'), 'utf-8');
+  for (const m of cliIndex.matchAll(/^alias\('([^']+)'/gm)) registry.set(m[1], new Set());
+  cache.set('registry', registry);
+  return registry;
+}
+
+const isMain = import.meta.url === `file://${process.argv[1]}`;
+if (isMain) {
+  const asJson = process.argv.includes('--json');
+  const { results, scanned } = findPromptViolations(REPO_ROOT);
+  const total = results.reduce((n, r) => n + r.violations.length, 0);
+
+  if (asJson) {
+    process.stdout.write(`${JSON.stringify({ files: results }, null, 2)}\n`);
+  } else if (total > 0) {
+    process.stderr.write(
+      `Agent prompts contain ${total} unrunnable \`cleo\` invocation(s).\n` +
+        'These are written into the context of every agent CLEO spawns and are ' +
+        'phrased as instructions, so a command or flag that does not exist ' +
+        'burns the turn and teaches the agent the subsystem is broken.\n\n',
+    );
+    for (const { file, violations } of results) {
+      process.stderr.write(`  ${file}\n`);
+      for (const v of violations) process.stderr.write(`    ✗ ${v.raw}\n        ${v.reason}\n`);
+    }
+    process.stderr.write('\nFix the prompt, or implement the command / flag it names.\n');
+  } else {
+    process.stdout.write(
+      `Agent prompts: all ${scanned} \`cleo\` invocation(s) across ` +
+        `${PROMPT_SOURCES.length} emitter(s) name an existing command with declared flags.\n`,
+    );
+  }
+  process.exit(total > 0 ? 1 : 0);
+}

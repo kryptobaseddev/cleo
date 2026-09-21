@@ -512,6 +512,120 @@ describe('gate runner target verdict and shared execution (T12292)', () => {
     );
     expect(result?.result).toBe('error');
     expect(result?.errorMessage).toMatch(/count/i);
+    // gh#1467: the error must now say what would satisfy it. The message this
+    // replaced named no flag, no shape and no alternative, so the only move it
+    // suggested was deleting `minCount` — dropping the guarantee rather than
+    // meeting it.
+    expect(result?.errorMessage).toMatch(/reporter|--json/);
+  });
+});
+
+/**
+ * `minCount` was declarable and unsatisfiable (gh#1467).
+ *
+ * The contract accepted it, `cleo req add` stored it, and the runner rejected
+ * every positive value outright — so a task could carry a gate that no number
+ * of passing tests could turn green. `testCountReportSchema` had existed in
+ * `@cleocode/contracts` the whole time, written for exactly this, and was
+ * never wired to the runner.
+ *
+ * Provenance is the reason a separately supplied report still does not count:
+ * a JSON file named by the task could have come from any run of any code. Only
+ * the bytes THIS invocation emitted are bound to it.
+ */
+describe('minimum test count from a structured report (gh#1467)', () => {
+  /** A valid Vitest/Jest JSON report with `passing` passing assertions. */
+  function reportSource(passing: number, options: { noise?: boolean } = {}): string {
+    const assertions = Array.from({ length: passing }, (_, i) => ({
+      fullName: `case ${i}`,
+      status: 'passed',
+    }));
+    const report = {
+      numTotalTests: passing,
+      numPassedTests: passing,
+      numFailedTests: 0,
+      numPendingTests: 0,
+      numTodoTests: 0,
+      numTotalTestSuites: 1,
+      numPassedTestSuites: 1,
+      numFailedTestSuites: 0,
+      numPendingTestSuites: 0,
+      success: true,
+      testResults: [{ name: 'suite.test.ts', status: 'passed', assertionResults: assertions }],
+    };
+    const prefix = options.noise === true ? "process.stdout.write('RUN  v4.1.4\\n\\n');" : '';
+    return `${prefix}process.stdout.write(JSON.stringify(${JSON.stringify(report)}));`;
+  }
+
+  function gate(minCount: number, source: string): AcceptanceGate {
+    return {
+      kind: 'test',
+      description: `at least ${minCount} passing tests`,
+      command: process.execPath,
+      args: ['-e', source],
+      expect: 'exit0',
+      minCount,
+    };
+  }
+
+  it('passes when the run reports at least the required number of passing tests', async () => {
+    const [result] = await runGates([gate(3, reportSource(3))], { projectRoot });
+    expect(result?.result).toBe('pass');
+    expect(result?.errorMessage).toBeUndefined();
+  });
+
+  it('fails — not errors — when the count is short, and says both numbers', async () => {
+    const [result] = await runGates([gate(5, reportSource(3))], { projectRoot });
+    expect(result?.result).toBe('fail');
+    expect(result?.errorMessage).toContain('3');
+    expect(result?.errorMessage).toContain('5');
+  });
+
+  it('finds the report after the runner\u2019s progress output', async () => {
+    // Real runners prefix the JSON document with progress lines, so requiring
+    // stdout to BE the document would reject every genuine vitest invocation.
+    const [result] = await runGates([gate(3, reportSource(3, { noise: true }))], { projectRoot });
+    expect(result?.result).toBe('pass');
+  });
+
+  it('rejects a report whose summary contradicts its own assertions', async () => {
+    const lying = `process.stdout.write(JSON.stringify(${JSON.stringify({
+      numTotalTests: 99,
+      numPassedTests: 99,
+      numFailedTests: 0,
+      numPendingTests: 0,
+      numTodoTests: 0,
+      numTotalTestSuites: 1,
+      numPassedTestSuites: 1,
+      numFailedTestSuites: 0,
+      numPendingTestSuites: 0,
+      success: true,
+      testResults: [
+        {
+          name: 's.test.ts',
+          status: 'passed',
+          assertionResults: [{ fullName: 'a', status: 'passed' }],
+        },
+      ],
+    })}));`;
+    const [result] = await runGates([gate(50, lying)], { projectRoot });
+    expect(result?.result).toBe('error');
+  });
+
+  it('leaves gates without minCount on the plain exit-code path', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'exit code only',
+          command: process.execPath,
+          args: ['-e', 'process.exit(0)'],
+          expect: 'exit0',
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('pass');
   });
 });
 

@@ -33,8 +33,9 @@
  *    commit, and `pr:` hands `gh` the checkout (captured by a fake `gh` on
  *    PATH, so the assertion is about the cwd that reached the tool).
  * 3. When no checkout can be found, both atoms fail with
- *    `E_EVIDENCE_GIT_ROOT` and name `GIT_DIR`/`GIT_WORK_TREE` — distinct from
- *    `E_EVIDENCE_TOOL_FAILED`, which is the whole point of the issue.
+ *    `E_EVIDENCE_GIT_ROOT` and name a remediation — distinct from
+ *    `E_EVIDENCE_TOOL_FAILED`, which is the whole point of the issue. Which
+ *    remediation changed in gh#1466; see `evidence-multi-repo-git-root.test.ts`.
  *
  * @task gh#1462
  */
@@ -253,8 +254,17 @@ describe('a genuinely missing work tree fails distinctly (gh#1462)', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.codeName).toBe('E_EVIDENCE_GIT_ROOT');
-      expect(r.reason).toContain('GIT_DIR');
-      expect(r.reason).toContain('GIT_WORK_TREE');
+      // gh#1466 replaced the remediation this used to assert. The old text
+      // named the GIT_DIR/GIT_WORK_TREE pair, and that advice could not work:
+      // from a parent of the checkout those variables make `git rev-parse
+      // --is-inside-work-tree` answer `false` — the current directory is
+      // outside the declared tree — so following it reproduced this identical
+      // error. The assertion that matters is unchanged (the code says LAYOUT,
+      // not missing commit); what it names as the fix now has a test proving
+      // the fix resolves the layout.
+      expect(r.reason).toContain('CLEO_EVIDENCE_GIT_ROOT');
+      expect(r.reason).toContain('evidence');
+      expect(r.reason).not.toContain('GIT_DIR=');
     }
   });
 

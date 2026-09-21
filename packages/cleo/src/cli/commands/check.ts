@@ -676,6 +676,19 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-ai-sdk-surface.mjs',
         description: 'No unreviewed module reaches the AI SDK at runtime',
       },
+      {
+        // gh#1468: gate 14 checks the injection TEMPLATE and gate 15 the
+        // workflow `run:` blocks. The third agent-facing surface is the one
+        // CLEO GENERATES — the spawn prompt — and nothing checked it. It had
+        // been telling every validation-stage agent to run `cleo verify <id>
+        // --run` after that flag was dropped, and every orchestrated agent to
+        // pass `cleo conduit subscribe --topicName`, which is not the flag.
+        id: 'gate-23',
+        task: 'gh#1468',
+        script: 'scripts/lint-agent-prompt-commands.mjs',
+        description:
+          'Every `cleo` invocation CLEO writes into an agent prompt exists and is runnable',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

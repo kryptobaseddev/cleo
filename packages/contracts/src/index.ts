@@ -43,6 +43,7 @@ export {
   httpGateSchema,
   lintGateSchema,
   manualGateSchema,
+  testCountReportSchema,
   testGateSchema,
 } from './acceptance-gate-schema.js';
 // === Provider Adapter Contracts ===
@@ -1830,6 +1831,7 @@ export type {
   ValidateComplianceViolationsResult,
   ValidateGateParams,
   ValidateGateResult,
+  ValidateGateRunResult,
   ValidateGradeListParams,
   ValidateGradeListResult,
   ValidateGradeParams,

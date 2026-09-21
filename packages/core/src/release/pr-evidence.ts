@@ -48,7 +48,7 @@ import {
   PR_REQUIRED_WORKFLOWS_ENV_VAR,
 } from '@cleocode/contracts';
 import {
-  describeMissingGitWorkTree,
+  describeUnusableEvidenceGitRoot,
   E_EVIDENCE_GIT_ROOT,
   isGitWorkTree,
 } from '../git/work-tree.js';
@@ -201,6 +201,12 @@ function writeCacheEntry(projectRoot: string, entry: PrCacheEntry): void {
 export type FetchGhPrPayload = (
   prNumber: number,
   cwd: string,
+  /**
+   * CLEO store root, for failure text only (gh#1466). Optional so existing
+   * injected fetchers — which never shell out and never report a layout
+   * failure — keep their two-parameter shape.
+   */
+  storeRoot?: string,
 ) => Promise<
   { ok: true; payload: unknown } | { ok: false; reason: string; codeName?: 'E_EVIDENCE_GIT_ROOT' }
 >;
@@ -212,7 +218,11 @@ export type FetchGhPrPayload = (
  *
  * @task T9764
  */
-export const defaultFetchGhPrPayload: FetchGhPrPayload = async (prNumber: number, cwd: string) => {
+export const defaultFetchGhPrPayload: FetchGhPrPayload = async (
+  prNumber: number,
+  cwd: string,
+  storeRoot?: string,
+) => {
   // gh#1462: `gh` does its own repo discovery by walking up from its cwd. In a
   // layout where the CLEO root is a PARENT of the checkout — and nothing found
   // the child — `gh` reports "fatal: not a git repository", which surfaced as
@@ -221,7 +231,11 @@ export const defaultFetchGhPrPayload: FetchGhPrPayload = async (prNumber: number
   if (!isGitWorkTree(cwd)) {
     return {
       ok: false,
-      reason: describeMissingGitWorkTree(cwd),
+      // gh#1466: name the declaration or the sibling checkouts that made the
+      // layout unresolvable. Falls back to `cwd` for a direct caller that
+      // supplied no store root — the two are the same in the ordinary
+      // single-checkout project.
+      reason: describeUnusableEvidenceGitRoot(storeRoot ?? cwd, cwd),
       codeName: E_EVIDENCE_GIT_ROOT,
     };
   }
@@ -957,7 +971,13 @@ export async function resolvePrEvidenceAtom(
   }
 
   const fetch = opts.fetchGhPrPayload ?? defaultFetchGhPrPayload;
-  const fetched = await fetch(prNumber, executionRoot);
+  // gh#1466: the store root travels WITH the execution root so the default
+  // fetcher's work-tree failure can name the declaration that was honoured or
+  // the sibling checkouts that made the choice ambiguous. Deliberately passed
+  // rather than checked here: an injected fetcher does not shell out to `gh`,
+  // so it has no repository to discover and must keep bypassing the question
+  // entirely (gh#1462's original split, and what 29 tests depend on).
+  const fetched = await fetch(prNumber, executionRoot, projectRoot);
   if (!fetched.ok) {
     return {
       ok: false,

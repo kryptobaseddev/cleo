@@ -184,6 +184,29 @@ export interface ValidateCoherenceResult {
   warnings: string[];
 }
 
+/**
+ * Result of `check.gate.run` — typed gates executed, nothing persisted.
+ *
+ * Structurally the core preview payload; declared here so the dispatch layer
+ * narrows it without importing from core.
+ *
+ * @task gh#1468
+ */
+export interface ValidateGateRunResult {
+  /** Task whose typed gates were run. */
+  taskId: string;
+  /** Number of typed gates found on the acceptance array. */
+  gateCount: number;
+  /** One result per typed gate, in acceptance-array order. */
+  results: unknown[];
+  /** True when no gate returned `fail` or `error`. */
+  passed: boolean;
+  /** Always false — `--run` observes, `--evidence` attests. */
+  persisted: false;
+  /** Present when the task carries no typed gates. */
+  note?: string;
+}
+
 export interface ValidateGateParams {
   taskId: string;
   gate?: string;
@@ -365,6 +388,7 @@ export type CheckOps = {
   readonly coherence: readonly [ValidateCoherenceParams, ValidateCoherenceResult];
   readonly 'gate.status': readonly [ValidateGateParams, ValidateGateResult];
   readonly 'gate.set': readonly [ValidateGateParams, ValidateGateResult];
+  readonly 'gate.run': readonly [ValidateGateParams, ValidateGateRunResult];
   readonly 'verify.explain': readonly [ValidateVerifyExplainParams, ValidateVerifyExplainResult];
   readonly 'archive.stats': readonly [ValidateArchiveStatsParams, ValidateArchiveStatsResult];
   readonly grade: readonly [ValidateGradeParams, ValidateGradeResult];
