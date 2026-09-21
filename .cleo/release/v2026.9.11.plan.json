@@ -1,0 +1,124 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.9.11",
+  "resolvedVersion": "v2026.9.11",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12191",
+  "releaseKind": "regular",
+  "createdAt": "2026-09-21T22:09:51.676Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.9.10",
+  "previousTag": "v2026.9.10",
+  "previousShippedAt": "2026-09-21T19:40:26.917Z",
+  "tasks": [
+    {
+      "id": "T12309",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "release-prepare cannot prepare a release — it plans against a task store the runner does not have, under a timeout shorter than its own test step",
+      "evidenceAtoms": [
+        "commit:38310e48f32304330dd9f0d1730dde7f3671fe9d",
+        "files:packages/core/src/release/open.ts,packages/cleo/src/cli/commands/release.ts,.github/workflows/release-prepare.yml,packages/core/templates/workflows/release-prepare.yml.tmpl",
+        "tool:lint",
+        "tool:typecheck",
+        "test-run:/home/keatonhoskins/.temp/claude-1000/-mnt-projects-cleocode/72497aa7-76ab-41bb-9512-b62c8445da00/scratchpad/suite-9.11.json",
+        "commit:73c0e96b4cfc0b3f5b4bf81da3886072e1fcdf68",
+        "files:docs/release/verb-matrix.md"
+      ],
+      "epicAncestor": "T12191",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [],
+    "fixes": [
+      "T12309"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-21T22:09:51.676Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-21T22:09:51.676Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-21T22:09:51.676Z",
+      "resolvedCommand": "npx biome check .",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-21T22:09:51.676Z",
+      "resolvedCommand": "npx tsc --noEmit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-21T22:09:51.676Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-21T22:09:51.676Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 332 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.9.11 — 2026-09-21\n\n### Fixed\n\n- The release pipeline can prepare a release, and says so before spending a preflight on one it cannot _(provenance: [T12309](https://github.com/kryptobaseddev/cleo/search?q=T12309&type=commits))_\n",
+    "changesetEntryCount": 1,
+    "changesetIds": [
+      "t12309-release-prepare-could-not-prepare"
+    ],
+    "taskIds": [
+      "T12309"
+    ]
+  }
+}
