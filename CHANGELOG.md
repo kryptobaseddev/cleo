@@ -1,5 +1,20 @@
 # Changelog
 
+## [2026.9.11] (2026-09-21)
+
+**The release pipeline could not prepare a release.** `cleo release plan` → `cleo release open` is the documented path, and every part of it that failed did so only after ~20 minutes of proving a healthy tree healthy.
+
+### Fixed
+
+- **The default dispatch mode was structurally impossible.** `release-prepare.yml`'s "Resolve release plan" step has two branches. The committed-plan branch verifies a plan file by sha256 and works. The regenerate branch runs `cleo release plan --tasks|--epic` **on the runner** — and `.cleo/cleo.db` is deliberately untracked (ADR-013 §9 Runtime Data Safety), so a fresh checkout has zero tasks and the command exits `E_NOT_FOUND: One or more --tasks IDs were not found`. `cleo release open` defaulted to that branch, so the bare invocation always died. `commitPlan` now defaults to **true**: committing the plan is the only path that can succeed, so opting out (`--no-commit-plan`) is the explicit act. T12089 had already fixed one symptom here — a missing scope — but the scope it started forwarding is resolved against a store the runner does not have _(T12309)_
+- **That failure cost a full preflight to discover.** It landed in `prepare`, which `needs` all three preflight jobs. A new `dispatch-preconditions` job — 3-minute ceiling, checkout only, no build — asks the one question that decides whether the dispatch can succeed, and the preflight jobs now depend on it. An impossible dispatch fails in seconds naming the exact fix _(T12309)_
+- **The preflight test step could not fit the suite it runs.** `timeout-minutes: 20` against a sweep `ci.yml` gives 55, where a shard measured 17m04s. It timed out at 20:00 on a tree whose CI was fully green, so a release could not be prepared from a release-ready commit. Step raised to 55 to match `ci.yml`; the enclosing job's 30 raised to 60 so the job ceiling clears the step ceiling rather than pre-empting it and reporting a slow suite as a job timeout _(T12309)_
+- **Two suites raced default timeouts written for in-process assertions.** `spawn-wrapper`'s cancellation test asserted the target pid was gone in the same tick the capture resolved — the group has been signalled by then, but reaping is not synchronous. `assert-cleo-tarball` drives a real `npm pack --dry-run` under vitest's 5000ms default, in a file that takes ~9.3s on an idle machine. Both passed locally and failed on loaded CI shards, and a timing flake is indistinguishable from a defect in a log. Both now poll or budget to a bounded deadline that a genuine hang still exceeds _(T12309)_
+
+### Changed
+
+- **`docs/release/verb-matrix.md`** states that the plan must be committed **and pushed**, that this is the default, what `--no-commit-plan` is for, and why the runner cannot rebuild one. It had said only "passes version + plan path", which reads as though the runner can find the plan on its own _(T12309)_
+
 ## [2026.9.10] (2026-09-21)
 
 **This release is about a single defect shape: a surface that advertises a capability, or a remedy, it cannot deliver.** Three instances were reported from a project whose CLEO root is not a git checkout and parents thirteen repositories — none of them reproduce in this repo, which is the point. Driving the release itself turned up four more of the same shape, the last three found on purpose once the shape was named.
