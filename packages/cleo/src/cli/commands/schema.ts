@@ -133,7 +133,10 @@ export const schemaCommand = defineCommand({
       if ((args.format ?? 'json') === 'human') {
         setFormatContext({ format: 'human', source: 'flag', quiet: false });
       }
-      cliOutput({ operations, count: operations.length }, { operation: 'schema.list' });
+      cliOutput(
+        { operations, count: operations.length },
+        { command: 'schema', operation: 'schema.list' },
+      );
       return;
     }
 
