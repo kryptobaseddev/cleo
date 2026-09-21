@@ -9,6 +9,7 @@
  *
  * Usage:
  *   cleo reconcile release --tag <tag> [--dry-run]
+ *   cleo reconcile scope <sagaId|epicId> [--apply] [--threshold 0.6]
  *
  * Exit codes (per task spec):
  *   0  — all green (zero errors, zero unreconciled)
@@ -27,7 +28,60 @@
 
 import { release } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
+import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
+
+/**
+ * cleo reconcile scope — sweep a container for overlapping task scope.
+ *
+ * Dispatches to `tasks.reconcile-scope`. Read-only unless `--apply`, and even
+ * then the only mutation is writing `relates` edges: nothing is merged,
+ * retitled, reparented or deleted.
+ *
+ * @task T12299
+ */
+const scopeSubcommand = defineCommand({
+  meta: {
+    name: 'scope',
+    description: 'Find tasks with overlapping scope under a saga/epic and propose what to do',
+  },
+  args: {
+    rootId: {
+      type: 'positional',
+      description: 'Saga, epic or other container to sweep',
+      required: true,
+    },
+    apply: {
+      type: 'boolean',
+      description: 'Write the proposed relates edges (read-only without it)',
+    },
+    threshold: {
+      type: 'string',
+      description: 'Report pairs at or above this similarity score, 0-1 (default 0.55)',
+    },
+  },
+  async run({ args }) {
+    // Parsed here, VALIDATED in core so a bad value returns a proper LAFS
+    // envelope rather than a locally-constructed one.
+    const raw = args.threshold as string | undefined;
+    const threshold = raw === undefined ? undefined : Number(raw);
+
+    const response = await dispatchRaw('mutate', 'tasks', 'reconcile-scope', {
+      rootId: args.rootId,
+      apply: args.apply as boolean | undefined,
+      threshold,
+    });
+
+    if (!response.success) {
+      handleRawError(response, { command: 'reconcile scope', operation: 'tasks.reconcile-scope' });
+    }
+
+    cliOutput(response.data as Record<string, unknown>, {
+      command: 'reconcile scope',
+      operation: 'tasks.reconcile-scope',
+    });
+  },
+});
 
 /**
  * cleo reconcile release — run the registered invariants for a tag.
@@ -86,6 +140,7 @@ export const reconcileCommand = defineCommand({
   },
   subCommands: {
     release: releaseSubcommand,
+    scope: scopeSubcommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

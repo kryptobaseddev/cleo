@@ -7,7 +7,15 @@
  */
 
 import type { CleoConfig, Task } from '@cleocode/contracts';
-import { getChildren, getDepth, wouldCreateCircle } from './hierarchy.js';
+import { exceedsMaxDepth, getChildren, getDepth, wouldCreateCircle } from './hierarchy.js';
+
+/**
+ * Re-exported so every enforcement path can reach the depth rule through this
+ * module — the stated "single source of truth for all hierarchy enforcement".
+ * Defined in `./hierarchy.js` beside `getDepth`, since this module imports from
+ * there and the reverse direction would be a cycle.
+ */
+export { exceedsMaxDepth };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -158,7 +166,7 @@ export function validateHierarchyPlacement(
 
   // Depth check
   const parentDepth = getDepth(parentId, tasks);
-  if (parentDepth + 1 >= policy.maxDepth) {
+  if (exceedsMaxDepth(parentDepth, policy.maxDepth)) {
     return {
       valid: false,
       error: {

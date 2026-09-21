@@ -261,14 +261,30 @@ describe('validateHierarchy', () => {
     expect(result.error?.code).toBe('E_PARENT_NOT_FOUND');
   });
 
+  it('admits a subtask under a task on a saga-rooted spine (depth 3 == maxDepth)', () => {
+    // maxDepth is the maximum depth VALUE, inclusive: saga(0) → epic(1) →
+    // task(2) → subtask(3). Named by tier rather than by integer — the earlier
+    // version of this case asserted the arithmetic over untyped fixtures and so
+    // survived `saga` being inserted above `epic`, which is how the subtask tier
+    // came to be unreachable.
+    const tasks = [
+      makeTask({ id: 'T001', type: 'saga' }),
+      makeTask({ id: 'T002', type: 'epic', parentId: 'T001' }),
+      makeTask({ id: 'T003', type: 'task', parentId: 'T002' }),
+    ];
+    const result = validateHierarchy('T003', tasks);
+    expect(result.valid).toBe(true);
+  });
+
   it('rejects depth exceeding MAX_DEPTH', () => {
     const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002', parentId: 'T001' }),
-      makeTask({ id: 'T003', parentId: 'T002' }),
+      makeTask({ id: 'T001', type: 'saga' }),
+      makeTask({ id: 'T002', type: 'epic', parentId: 'T001' }),
+      makeTask({ id: 'T003', type: 'task', parentId: 'T002' }),
+      makeTask({ id: 'T004', type: 'subtask', parentId: 'T003' }),
     ];
-    // Adding child to T003 would make depth 3 which equals MAX_DEPTH
-    const result = validateHierarchy('T003', tasks);
+    // Adding a child to the subtask would make depth 4, past MAX_DEPTH (3).
+    const result = validateHierarchy('T004', tasks);
     expect(result.valid).toBe(false);
     expect(result.error?.code).toBe('E_DEPTH_EXCEEDED');
   });

@@ -136,7 +136,7 @@ ${focusLine}
 | 4 | \`E_NOT_FOUND\` | Use \`cleo find\` or \`cleo list\` to verify |
 | 6 | \`E_VALIDATION\` | Check field lengths, escape \`$\` as \`\\$\` |
 | 10 | \`E_PARENT_NOT_FOUND\` | Verify with \`cleo exists <parent-id>\` |
-| 11 | \`E_DEPTH_EXCEEDED\` | Exceeds configured hierarchy.maxDepth (default: 3) |
+| 11 | \`E_DEPTH_EXCEEDED\` | Deeper than hierarchy.maxDepth, inclusive (default 3 = saga 0, epic 1, task 2, subtask 3) |
 | 12 | \`E_SIBLING_LIMIT\` | Exceeds configured maxSiblings (default: unlimited) |
 
 **After EVERY command**: Check exit code (\`0\` = success), check \`"success"\` in JSON output.

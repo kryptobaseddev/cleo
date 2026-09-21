@@ -463,9 +463,13 @@ export async function getSubtree(rootId: string, cwd?: string): Promise<Task[]> 
   if (!nativeDb) return [];
   const rows = nativeDb
     .prepare(`
+    -- T12307: UNION, not UNION ALL — see getAncestorChain in
+    -- sqlite-data-accessor.ts. A self-parented row recurses forever under
+    -- UNION ALL; every column repeats verbatim on a revisit, so the dedupe
+    -- terminates it without dropping any legitimate descendant.
     WITH RECURSIVE subtree AS (
       SELECT * FROM tasks_tasks WHERE id = ?
-      UNION ALL
+      UNION
       SELECT t.* FROM tasks_tasks t
       JOIN subtree s ON t.parent_id = s.id
     )

@@ -5,24 +5,14 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import type { Task, TaskStatus, TaskType } from '@cleocode/contracts';
+import type { Task, TaskStatus } from '@cleocode/contracts';
 import { isAllowedWorkGraphParentType, TASK_STATUSES } from '@cleocode/contracts';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { childTypeForParentType } from './hierarchy.js';
 import { getHierarchyLimits } from './task-tree.js';
 
 /** Task record shape expected from the data layer. */
 type TaskRecord = Task;
-
-function typeForParent(
-  parentType: TaskRecord['type'] | null | undefined,
-  currentType?: TaskRecord['type'],
-): TaskType {
-  if (currentType === 'saga') return 'saga';
-  if (currentType === 'epic') return 'epic';
-  if (parentType === 'task') return 'subtask';
-  if (parentType === 'epic') return 'task';
-  return currentType === 'subtask' ? 'task' : (currentType ?? 'task');
-}
 
 function taskLogId(): string {
   return `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`;
@@ -129,7 +119,7 @@ export async function coreTaskReparent(
     [task.id, newParent?.type ?? null],
   ]);
   const plannedTypes = new Map<string, TaskRecord['type']>([
-    [task.id, typeForParent(newParent?.type ?? null, task.type)],
+    [task.id, childTypeForParentType(newParent?.type ?? null, task.type)],
   ]);
   const rootParentType = plannedParentTypes.get(task.id) ?? null;
   const rootPlannedType = plannedTypes.get(task.id)!;
@@ -144,7 +134,7 @@ export async function coreTaskReparent(
       const childDepth = parentDepthForNode + 1;
       plannedDepths.set(child.id, childDepth);
       plannedParentTypes.set(child.id, parentPlannedType);
-      const childPlannedType = typeForParent(parentPlannedType, child.type);
+      const childPlannedType = childTypeForParentType(parentPlannedType, child.type);
       plannedTypes.set(child.id, childPlannedType);
       if (parentPlannedType && !isAllowedWorkGraphParentType(childPlannedType, parentPlannedType)) {
         throw new Error(
