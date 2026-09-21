@@ -2,7 +2,7 @@
  * Typed-gate PREVIEW — run a task's `AcceptanceGate[]` and report the results
  * without recording anything.
  *
- * ## Why this exists (gh#1468)
+ * ## Why this exists (T12308)
  *
  * Typed gates had exactly one way to execute: as a side effect of
  * `cleo verify <id> --gate <g> --evidence <atoms>`. Every typed gate on the
@@ -21,7 +21,7 @@
  * which is also why it does not need the criterion bindings `runTaskGates`
  * builds: a result that is never stored cannot be mistaken for evidence later.
  *
- * @task gh#1468
+ * @task T12308
  */
 
 import { randomUUID } from 'node:crypto';
@@ -105,7 +105,7 @@ function previewBudgetMs(gates: readonly AcceptanceGate[]): number {
  * if (!preview.passed) console.error(preview.results);
  * ```
  *
- * @task gh#1468
+ * @task T12308
  */
 export async function previewTaskGates(
   projectRoot: string,

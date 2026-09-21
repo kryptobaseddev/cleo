@@ -512,7 +512,7 @@ describe('gate runner target verdict and shared execution (T12292)', () => {
     );
     expect(result?.result).toBe('error');
     expect(result?.errorMessage).toMatch(/count/i);
-    // gh#1467: the error must now say what would satisfy it. The message this
+    // T12308: the error must now say what would satisfy it. The message this
     // replaced named no flag, no shape and no alternative, so the only move it
     // suggested was deleting `minCount` — dropping the guarantee rather than
     // meeting it.
@@ -521,7 +521,7 @@ describe('gate runner target verdict and shared execution (T12292)', () => {
 });
 
 /**
- * `minCount` was declarable and unsatisfiable (gh#1467).
+ * `minCount` was declarable and unsatisfiable (T12308).
  *
  * The contract accepted it, `cleo req add` stored it, and the runner rejected
  * every positive value outright — so a task could carry a gate that no number
@@ -533,7 +533,7 @@ describe('gate runner target verdict and shared execution (T12292)', () => {
  * a JSON file named by the task could have come from any run of any code. Only
  * the bytes THIS invocation emitted are bound to it.
  */
-describe('minimum test count from a structured report (gh#1467)', () => {
+describe('minimum test count from a structured report (T12308)', () => {
   /** A valid Vitest/Jest JSON report with `passing` passing assertions. */
   function reportSource(passing: number, options: { noise?: boolean } = {}): string {
     const assertions = Array.from({ length: passing }, (_, i) => ({

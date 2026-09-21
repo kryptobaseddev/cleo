@@ -3,7 +3,7 @@
  * Lint rule: every `cleo …` command CLEO writes into an agent's prompt must
  * exist, and every flag on it must be one the command accepts.
  *
- * ## Why (gh#1468)
+ * ## Why (T12308)
  *
  * Gate 14 checks `CLEO-INJECTION.md`. Gate 15 checks workflow `run:` blocks.
  * Neither checks the third agent-facing surface, and it is the one CLEO
@@ -41,7 +41,7 @@
  * Modes: `--strict` / `--check` (identical — this surface is small and fully
  * enumerable, so there is no baseline) and `--json`.
  *
- * @task gh#1468
+ * @task T12308
  */
 
 import { execFileSync } from 'node:child_process';
@@ -71,7 +71,7 @@ export const PROMPT_SOURCES = [
 ];
 
 /**
- * Source trees whose RUNTIME ERROR remediations are checked (gh#1470).
+ * Source trees whose RUNTIME ERROR remediations are checked (T12308).
  *
  * A `fix:` string is the most load-bearing instruction CLEO emits: the reader
  * is already stuck, has just been told the thing they tried was wrong, and has
@@ -141,7 +141,7 @@ export function findPromptViolations(repoRoot) {
     if (violations.length > 0) results.push({ file: rel, violations });
   }
 
-  // gh#1470: the same rule, applied to runtime remediations.
+  // T12308: the same rule, applied to runtime remediations.
   for (const { file, text, count } of remediationLines(repoRoot)) {
     scanned += count;
     const violations = findFlagViolations(text, checker);

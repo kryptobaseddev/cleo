@@ -1624,7 +1624,7 @@ export {
   getForceBypassPath,
   getGateAuditPath,
 } from './tasks/gate-audit.js';
-// Typed-gate preview — `cleo verify <id> --run` (gh#1468)
+// Typed-gate preview — `cleo verify <id> --run` (T12308)
 export { previewTaskGates, type TaskGatePreview } from './tasks/gate-preview.js';
 export type { RunGatesOptions } from './tasks/gate-runner.js';
 // Gate runner (T813)

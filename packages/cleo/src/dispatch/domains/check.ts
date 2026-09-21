@@ -450,7 +450,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     );
   },
 
-  // gh#1468: `cleo verify <id> --run` — execute the task's typed gates and
+  // T12308: `cleo verify <id> --run` — execute the task's typed gates and
   // report them. A query, because it persists nothing: the results are an
   // observation, and only `--evidence` turns an observation into an
   // attestation. Restored because the spawn prompt has never stopped telling

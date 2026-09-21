@@ -202,7 +202,7 @@ export type FetchGhPrPayload = (
   prNumber: number,
   cwd: string,
   /**
-   * CLEO store root, for failure text only (gh#1466). Optional so existing
+   * CLEO store root, for failure text only (T12308). Optional so existing
    * injected fetchers — which never shell out and never report a layout
    * failure — keep their two-parameter shape.
    */
@@ -231,7 +231,7 @@ export const defaultFetchGhPrPayload: FetchGhPrPayload = async (
   if (!isGitWorkTree(cwd)) {
     return {
       ok: false,
-      // gh#1466: name the declaration or the sibling checkouts that made the
+      // T12308: name the declaration or the sibling checkouts that made the
       // layout unresolvable. Falls back to `cwd` for a direct caller that
       // supplied no store root — the two are the same in the ordinary
       // single-checkout project.
@@ -971,7 +971,7 @@ export async function resolvePrEvidenceAtom(
   }
 
   const fetch = opts.fetchGhPrPayload ?? defaultFetchGhPrPayload;
-  // gh#1466: the store root travels WITH the execution root so the default
+  // T12308: the store root travels WITH the execution root so the default
   // fetcher's work-tree failure can name the declaration that was honoured or
   // the sibling checkouts that made the choice ambiguous. Deliberately passed
   // rather than checked here: an injected fetcher does not shell out to `gh`,

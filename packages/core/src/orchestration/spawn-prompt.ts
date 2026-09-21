@@ -1495,7 +1495,7 @@ function buildConduitSubscriptionBlock(config: ConduitSubscriptionConfig): strin
     '### CLI Equivalents',
     '',
     '```bash',
-    // gh#1468: the flag is `--topic`. `topicName` is the DISPATCH parameter
+    // T12308: the flag is `--topic`. `topicName` is the DISPATCH parameter
     // name, and citty parses non-strictly, so every agent that followed these
     // lines had the topic silently discarded and then failed the required-arg
     // check on a flag it had apparently supplied. Found by the gate that now

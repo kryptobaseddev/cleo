@@ -1811,7 +1811,7 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
-  // gh#1468: the typed-gate runner `cleo verify <id> --run`. A query — it
+  // T12308: the typed-gate runner `cleo verify <id> --run`. A query — it
   // executes the gates and reports them, and records nothing. Documented as
   // the canonical driver since T768 and emitted into every validation-stage
   // spawn prompt, but the flag had been dropped from the command.
@@ -1820,7 +1820,7 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'check',
     operation: 'gate.run',
     description:
-      "check.gate.run (query) — execute a task's typed acceptance gates and report results; persists nothing (gh#1468)",
+      "check.gate.run (query) — execute a task's typed acceptance gates and report results; persists nothing (T12308)",
     tier: 1,
     idempotent: false,
     sessionRequired: false,

@@ -681,7 +681,7 @@ describe.skipIf(process.platform === 'win32')('captured target lifecycle', () =>
       expect(result.cleanupErrors).toEqual([]);
       const targetPid = result.targetPid;
       if (targetPid) {
-        // gh#1471: the group has been signalled by the time the capture
+        // T12308: the group has been signalled by the time the capture
         // resolves, but reaping is NOT synchronous — the kernel still has to
         // deliver the signal and reap the child. Asserting the pid is gone in
         // the same tick made this a race against runner load: it failed once

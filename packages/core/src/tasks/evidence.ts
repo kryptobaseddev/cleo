@@ -374,7 +374,7 @@ export async function validateAtom(
   // exactly how gh#1419 happened (a revalidation key derived from one root
   // while the validation answered about another). A required parameter makes
   // that divergence unrepresentable rather than merely discouraged.
-  // gh#1466: hand the resolver the SHA this evidence is about so a CLEO root
+  // T12308: hand the resolver the SHA this evidence is about so a CLEO root
   // that parents several repositories resolves itself. `files:` atoms carry no
   // SHA of their own, so the sibling `commit:`/`pr:` anchor supplies it — the
   // same anchor `validateFiles` already uses to read bytes at that commit.
@@ -1477,7 +1477,7 @@ interface VitestJsonLike {
  * What the evidence under validation reveals about which repository it belongs
  * to, used only to break a tie between sibling checkouts.
  *
- * @task gh#1466
+ * @task T12308
  */
 export interface EvidenceExecutionRootHints {
   /**
@@ -1512,7 +1512,7 @@ export interface EvidenceExecutionRootHints {
  * repository". The checkout is a direct child in that layout, so it is used
  * when exactly one child is a work tree.
  *
- * gh#1466 closed the two holes that layout still had. A root parenting SEVERAL
+ * T12308 closed the two holes that layout still had. A root parenting SEVERAL
  * repositories — the reported case had thirteen — had no resolution at all,
  * and the remediation the failure printed (`GIT_DIR`/`GIT_WORK_TREE`) could not
  * work, because the guard asks whether the CURRENT DIRECTORY is in a work tree
@@ -1537,7 +1537,7 @@ export interface EvidenceExecutionRootHints {
  *
  * @task T12112 (gh#1220, gh#1226, gh#1230)
  * @task gh#1462
- * @task gh#1466
+ * @task T12308
  */
 export function resolveEvidenceExecutionRoot(
   projectRoot: string,
@@ -1552,7 +1552,7 @@ export function resolveEvidenceExecutionRoot(
   cwd: string = process.cwd(), // CWD-OK: the caller's invocation dir is the subject, not a stand-in for the project root (gh#1220)
   hints: EvidenceExecutionRootHints = {},
 ): string {
-  // gh#1466: an explicit declaration outranks every inference. Returned even
+  // T12308: an explicit declaration outranks every inference. Returned even
   // when it is NOT a work tree, so the guard can reject it BY NAME — silently
   // falling back would measure a different checkout than the operator named
   // and attest the result as if it were theirs.
@@ -1597,7 +1597,7 @@ export function resolveEvidenceExecutionRoot(
   const candidates = findNestedGitWorkTrees(projectRoot);
   if (candidates.length === 1) return candidates[0]!;
 
-  // gh#1466: several children. The atom itself can still identify one — a SHA
+  // T12308: several children. The atom itself can still identify one — a SHA
   // exists in exactly one of these repositories in every layout that is not a
   // fork of itself. Zero or several matches stay unresolved.
   if (candidates.length > 1 && hints.commitSha !== undefined) {
@@ -2802,7 +2802,7 @@ export async function revalidateEvidence(
         const startedAt = Date.now();
         const cached = await revalidateCommitAtom(atom.sha, {
           storeRoot: projectRoot,
-          // gh#1466: same hint as validation used, so a multi-repo root cannot
+          // T12308: same hint as validation used, so a multi-repo root cannot
           // verify green and then re-validate against a different sibling.
           executionRoot: resolveEvidenceExecutionRoot(projectRoot, undefined, {
             commitSha: atom.sha,

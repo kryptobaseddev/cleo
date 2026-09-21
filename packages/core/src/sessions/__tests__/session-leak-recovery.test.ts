@@ -1,5 +1,5 @@
 /**
- * Recovering from leaked active sessions (gh#1469).
+ * Recovering from leaked active sessions (T12308).
  *
  * ## The defect
  *
@@ -104,10 +104,10 @@ function makeSession(id: string, overrides: Partial<Session> = {}): Session {
 }
 
 // ---------------------------------------------------------------------------
-// gh#1469 — enumeration and bulk recovery
+// T12308 — enumeration and bulk recovery
 // ---------------------------------------------------------------------------
 
-describe('sessionList --limit 0 enumerates every match (gh#1469)', () => {
+describe('sessionList --limit 0 enumerates every match (T12308)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetMetaValue.mockResolvedValue(undefined);
@@ -150,7 +150,7 @@ describe('sessionList --limit 0 enumerates every match (gh#1469)', () => {
   });
 });
 
-describe('E_SESSION_CONFLICT routes to bulk recovery when several leak (gh#1469)', () => {
+describe('E_SESSION_CONFLICT routes to bulk recovery when several leak (T12308)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetMetaValue.mockResolvedValue(undefined);

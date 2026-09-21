@@ -561,7 +561,7 @@ const CONTRIBUTION_RULES: ProtocolRule[] = [
     id: 'CONT-005',
     level: 'SHOULD',
     message: 'Should flag conflicts with other sessions',
-    // gh#1470: the flag is `--status active`; `--active` is rejected with
+    // T12308: the flag is `--status active`; `--active` is rejected with
     // E_UNKNOWN_FLAG, so this remediation failed for anyone who followed it.
     fix: 'Check for conflicting sessions: cleo session list --status active --limit 0',
     validate: (_entry, data) => {

@@ -1,5 +1,5 @@
 /**
- * A CLEO root that parents SEVERAL checkouts must still resolve (gh#1466).
+ * A CLEO root that parents SEVERAL checkouts must still resolve (T12308).
  *
  * ## The defect
  *
@@ -33,7 +33,7 @@
  * 4. The unresolvable case names the candidate checkouts, so the reader can
  *    act without reading the source.
  *
- * @task gh#1466
+ * @task T12308
  */
 
 import { execFileSync } from 'node:child_process';
@@ -99,7 +99,7 @@ function real(dir: string): string {
   return git(dir, ['rev-parse', '--show-toplevel']).trim();
 }
 
-describe('multi-repo CLEO root resolves by the commit under test (gh#1466)', () => {
+describe('multi-repo CLEO root resolves by the commit under test (T12308)', () => {
   it('picks the sibling checkout that contains the SHA, with no configuration', async () => {
     const { resolveEvidenceExecutionRoot } = await import('../evidence.js');
     expect(resolveEvidenceExecutionRoot(storeRoot, storeRoot, { commitSha: shaA })).toBe(
@@ -132,7 +132,7 @@ describe('multi-repo CLEO root resolves by the commit under test (gh#1466)', () 
   });
 });
 
-describe('declared evidence git roots are honoured (gh#1466)', () => {
+describe('declared evidence git roots are honoured (T12308)', () => {
   it('honours CLEO_EVIDENCE_GIT_ROOT, relative to the store root', async () => {
     process.env.CLEO_EVIDENCE_GIT_ROOT = 'app-b';
     const { resolveEvidenceExecutionRoot } = await import('../evidence.js');
@@ -140,7 +140,7 @@ describe('declared evidence git roots are honoured (gh#1466)', () => {
   });
 
   it('honours GIT_WORK_TREE — the workaround the old error text advertised', async () => {
-    // Regression test for the advice itself. Before gh#1466 this produced the
+    // Regression test for the advice itself. Before T12308 this produced the
     // same E_EVIDENCE_GIT_ROOT it was printed to resolve, because the guard
     // probed the CLEO root, which is outside the declared tree by definition.
     process.env.GIT_DIR = join(appA, '.git');
@@ -191,7 +191,7 @@ describe('declared evidence git roots are honoured (gh#1466)', () => {
   });
 });
 
-describe('the unresolvable failure names what the reader must choose between (gh#1466)', () => {
+describe('the unresolvable failure names what the reader must choose between (T12308)', () => {
   it('lists the candidate checkouts and the durable way to pin one', async () => {
     const { validateAtom } = await import('../evidence.js');
     const result = await validateAtom({ kind: 'commit', sha: 'deadbee' }, storeRoot);

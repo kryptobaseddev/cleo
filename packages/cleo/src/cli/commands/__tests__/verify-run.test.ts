@@ -1,5 +1,5 @@
 /**
- * `cleo verify <id> --run` — the typed-gate runner, restored (gh#1468).
+ * `cleo verify <id> --run` — the typed-gate runner, restored (T12308).
  *
  * ## The defect
  *
@@ -25,7 +25,7 @@
  *    because the gates already run during a write and the reader would have no
  *    way to tell an observed result from an attested one.
  *
- * @task gh#1468
+ * @task T12308
  */
 
 import { ExitCode } from '@cleocode/contracts';
@@ -76,7 +76,7 @@ async function runVerifyCommand(cliArgs: Record<string, unknown>): Promise<{
   return captured;
 }
 
-describe('verifyCommand exposes --run (gh#1468)', () => {
+describe('verifyCommand exposes --run (T12308)', () => {
   it('declares --run as a boolean flag', () => {
     const runArg = verifyCommand.args?.run;
     expect(runArg).toBeDefined();
@@ -90,7 +90,7 @@ describe('verifyCommand exposes --run (gh#1468)', () => {
   });
 });
 
-describe('--run routes to the read-only typed-gate runner (gh#1468)', () => {
+describe('--run routes to the read-only typed-gate runner (T12308)', () => {
   it('dispatches check.gate.run on the query gateway', async () => {
     const captured = await runVerifyCommand({ taskId: 'T489', run: true, value: 'true' });
     expect(captured?.gateway).toBe('query');
@@ -110,7 +110,7 @@ describe('--run routes to the read-only typed-gate runner (gh#1468)', () => {
   });
 });
 
-describe('--run cannot be combined with a write (gh#1468)', () => {
+describe('--run cannot be combined with a write (T12308)', () => {
   it.each([
     ['--gate', { gate: 'implemented', evidence: 'note:x' }],
     ['--all', { all: true }],

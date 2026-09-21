@@ -249,7 +249,7 @@ describe('cleo schema command (T340)', () => {
       expect(details.fix).toContain('cleo schema');
     });
 
-    it('and that hint names a flag the command actually declares (gh#1470)', () => {
+    it('and that hint names a flag the command actually declares (T12308)', () => {
       // This assertion is the one that was missing. The hint above has said
       // `cleo schema --list` since T340 and the flag did not exist, so the
       // remedy for "you do not know the operation key" was itself rejected
@@ -260,7 +260,7 @@ describe('cleo schema command (T340)', () => {
     });
   });
 
-  describe('--list (gh#1470)', () => {
+  describe('--list (T12308)', () => {
     it('returns every operation key, sorted, with its gateway', async () => {
       await invokeSchemaList();
 
