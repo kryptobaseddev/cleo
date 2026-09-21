@@ -104,6 +104,12 @@ export const schemaCommand = defineCommand({
         'Return the JSON Schema (draft-07) for the operation input payload, from OperationInputContract.schema (T9918)',
       default: false,
     },
+    list: {
+      type: 'boolean',
+      description:
+        'List every operation key (domain.operation) so an operation can be discovered before it is introspected (gh#1470).',
+      default: false,
+    },
     examples: {
       type: 'boolean',
       description:
@@ -112,6 +118,25 @@ export const schemaCommand = defineCommand({
     },
   },
   async run({ args, cmd }) {
+    // gh#1470: this command's own "unknown operation" error has been telling
+    // callers to `cleo schema --list` — a flag that did not exist, so the
+    // remediation for not knowing an operation key was itself rejected with
+    // E_UNKNOWN_FLAG. Implemented rather than reworded: discovering the key is
+    // exactly what a caller who just got that error needs, and nothing else
+    // in the CLI lists them.
+    if (args.list === true) {
+      const operations = OPERATIONS.map((op) => ({
+        key: `${op.domain}.${op.operation}`,
+        gateway: op.gateway,
+        description: op.description,
+      })).sort((a, b) => a.key.localeCompare(b.key));
+      if ((args.format ?? 'json') === 'human') {
+        setFormatContext({ format: 'human', source: 'flag', quiet: false });
+      }
+      cliOutput({ operations, count: operations.length }, { operation: 'schema.list' });
+      return;
+    }
+
     if (!args.operation) {
       await showUsage(cmd);
       return;

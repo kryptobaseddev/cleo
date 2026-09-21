@@ -44,6 +44,7 @@
  * @task gh#1468
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -68,6 +69,26 @@ export const PROMPT_SOURCES = [
   'packages/core/src/orchestration/harness-hint.ts',
   'packages/core/src/agents/work-loop.ts',
 ];
+
+/**
+ * Source trees whose RUNTIME ERROR remediations are checked (gh#1470).
+ *
+ * A `fix:` string is the most load-bearing instruction CLEO emits: the reader
+ * is already stuck, has just been told the thing they tried was wrong, and has
+ * no reason to doubt the one command offered as the way out. A remediation
+ * that does not run costs the turn AND the reader's trust in the subsystem.
+ *
+ * Measured 2026-09-21, scanning 255 remediation lines: two were unrunnable.
+ * `cleo session list --active` (the flag is `--status active`) was the advice
+ * for resolving a session conflict — the exact situation in which an agent is
+ * already blocked — and `cleo schema --list`, offered when an operation key is
+ * unknown, named a flag that had never existed, so the remedy for "you do not
+ * know the key" was itself rejected with E_UNKNOWN_FLAG.
+ *
+ * Both are the same defect the `E_EVIDENCE_GIT_ROOT` and `E_SESSION_CONFLICT`
+ * messages had: a remedy that cannot resolve what it reports.
+ */
+export const REMEDIATION_ROOTS = ['packages/core/src', 'packages/cleo/src'];
 
 /**
  * Lines that are commentary about a command rather than an instruction to run
@@ -119,7 +140,59 @@ export function findPromptViolations(repoRoot) {
     ];
     if (violations.length > 0) results.push({ file: rel, violations });
   }
+
+  // gh#1470: the same rule, applied to runtime remediations.
+  for (const { file, text, count } of remediationLines(repoRoot)) {
+    scanned += count;
+    const violations = findFlagViolations(text, checker);
+    if (violations.length > 0) results.push({ file, violations });
+  }
+
   return { results, scanned };
+}
+
+/**
+ * Remediation lines — a `fix:`/`Run …` string naming a `cleo` command.
+ *
+ * Narrow on purpose. A source file mentions commands in prose, in TSDoc and in
+ * tests; only a line that both reads as a remediation AND names a command is
+ * an instruction someone will follow. Comment lines are dropped first, so a
+ * docblock describing a retired verb is never read as advice to run it.
+ *
+ * @param repoRoot - absolute repo root.
+ * @returns one `{file, text, count}` record per file with remediation lines.
+ */
+function remediationLines(repoRoot) {
+  const out = [];
+  for (const root of REMEDIATION_ROOTS) {
+    let files;
+    try {
+      files = execFileSync(
+        'grep',
+        ['-rl', '--include=*.ts', '-E', String.raw`fix:\s*['\x60"]`, join(repoRoot, root)],
+        { encoding: 'utf-8' },
+      )
+        .trim()
+        .split('\n')
+        .filter(Boolean);
+    } catch {
+      continue; // grep exits 1 on no matches
+    }
+    for (const abs of files) {
+      if (abs.includes('__tests__')) continue;
+      const lines = readFileSync(abs, 'utf-8')
+        .split('\n')
+        .filter((l) => !isCommentary(l))
+        .filter((l) => /\bcleo\s+[a-z]/.test(l) && /fix:|Fix:|Run '|Run \x60/.test(l));
+      if (lines.length === 0) continue;
+      out.push({
+        file: abs.replace(`${repoRoot}/`, ''),
+        text: lines.join('\n'),
+        count: lines.length,
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -169,8 +242,9 @@ if (isMain) {
     process.stderr.write('\nFix the prompt, or implement the command / flag it names.\n');
   } else {
     process.stdout.write(
-      `Agent prompts: all ${scanned} \`cleo\` invocation(s) across ` +
-        `${PROMPT_SOURCES.length} emitter(s) name an existing command with declared flags.\n`,
+      `Agent prompts + runtime remediations: all ${scanned} \`cleo\` invocation(s) ` +
+        `across ${PROMPT_SOURCES.length} emitter(s) and ${REMEDIATION_ROOTS.length} source ` +
+        `tree(s) name an existing command with declared flags.\n`,
     );
   }
   process.exit(total > 0 ? 1 : 0);
