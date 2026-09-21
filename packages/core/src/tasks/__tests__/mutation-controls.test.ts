@@ -338,12 +338,41 @@ describe('canonical task mutation controls', () => {
       expect(persisted.audit[0].task_id).toBe(result.task.id);
       const mirror = await readFile(join(env.cleoDir, 'audit/duplicate-bypass.jsonl'), 'utf8');
       expect(JSON.parse(mirror)).toMatchObject({ taskId: result.task.id, status: 'committed' });
+      // PR #1499 changed what a REPEAT means, deliberately: `forceDuplicate`
+      // now suppresses the 60-second recent-duplicate short-circuit entirely.
+      // That window used to return the EXISTING task without inserting and
+      // without throwing, so a caller who had explicitly said "create it
+      // anyway" silently got back a row it never created — which `cleo
+      // decompose` hit every time, because the child it creates inherits the
+      // parent's title. These three lines previously asserted that old
+      // short-circuit. That is below this test's own subject, which is the
+      // provenance/commit invariant, so they are RETARGETED rather than
+      // deleted: the invariant must still hold across a second commit.
       const repeated = await tasksAddOp(env.tempDir, { ...input, forceDuplicate: true });
-      expect(repeated.duplicate).toBe(true);
-      expect(freshRead().audit).toHaveLength(1);
-      expect(await readFile(join(env.cleoDir, 'audit/duplicate-bypass.jsonl'), 'utf8')).toBe(
-        mirror,
-      );
+      expect(repeated.duplicate).toBeFalsy();
+      expect(repeated.task.id).not.toBe(result.task.id);
+
+      const afterRepeat = freshRead();
+      expect(afterRepeat.tasks).toHaveLength(2);
+      expect(afterRepeat.audit).toHaveLength(2);
+      // The second bypass is a real creation, so it carries its OWN committed
+      // provenance — provenance is still retained only on a committed
+      // transaction, which is what this test is named for.
+      expect(JSON.parse(afterRepeat.audit[1].details_json).forceDuplicate).toMatchObject({
+        requested: true,
+        bypassed: true,
+        status: 'committed',
+      });
+      expect(afterRepeat.audit[1].task_id).toBe(repeated.task.id);
+
+      const mirrorAfter = await readFile(join(env.cleoDir, 'audit/duplicate-bypass.jsonl'), 'utf8');
+      expect(mirrorAfter.startsWith(mirror)).toBe(true);
+      const mirrorLines = mirrorAfter.trim().split('\n');
+      expect(mirrorLines).toHaveLength(2);
+      expect(JSON.parse(mirrorLines[1] as string)).toMatchObject({
+        taskId: repeated.task.id,
+        status: 'committed',
+      });
     } finally {
       db.close();
     }

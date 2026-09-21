@@ -141,6 +141,9 @@ it('covers every accepted add field at the canonical mapper boundary', () => {
     scope: 'unit',
     severity: 'P1',
     forceDuplicate: true,
+    // T12298 (arrived via PR #1499): `--auto-decompose` is an accepted add
+    // field, so this ratchet requires an explicit sample for it.
+    autoDecompose: true,
   };
   const contract = INPUT_CONTRACTS['tasks.add'];
   if (!contract) throw new Error('tasks.add missing');
