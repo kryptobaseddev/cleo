@@ -40,7 +40,11 @@ import type {
   Task,
   TestGate,
 } from '@cleocode/contracts';
-import { acceptanceGateResultSchema, acceptanceGateSchema } from '@cleocode/contracts';
+import {
+  acceptanceGateResultSchema,
+  acceptanceGateSchema,
+  testCountReportSchema,
+} from '@cleocode/contracts';
 import type {
   AcceptanceGateArtifact,
   AcceptanceGateBinding,
@@ -689,6 +693,113 @@ function processGateResult(
   };
 }
 
+/**
+ * Index of the `}` closing the `{` at `start`, or `-1`.
+ *
+ * String literals are tracked so a brace inside a test NAME — which reports
+ * are full of — cannot terminate the object early.
+ */
+function matchingBrace(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * Structured test counts emitted by THIS gate's own process, or `null`.
+ *
+ * Validated with {@link testCountReportSchema} — the contract written for
+ * exactly this purpose, which cross-checks every summary counter against the
+ * individual assertion results, so a report cannot claim a total its own
+ * details contradict.
+ *
+ * The whole captured stream is searched rather than requiring `stdout` to BE
+ * the document, because a runner that writes a JSON report to stdout routinely
+ * prefixes it with progress output. Candidates are tried newest-first, since a
+ * summary is emitted after its noise.
+ *
+ * Provenance is the reason this reads the gate's OWN capture and nothing else:
+ * a report file named by the task could have been produced by any run, of any
+ * code, at any time. Only the bytes this invocation emitted are bound to it.
+ *
+ * @param captured - Result of running the gate command.
+ * @returns Validated counts, or `null` when the run emitted no usable report.
+ * @task gh#1467
+ */
+function structuredTestCounts(
+  captured: ProcessCaptureResult,
+): ReturnType<typeof testCountReportSchema.parse> | null {
+  const text = `${captured.stdout}\n${captured.stderr}`.trim();
+  if (text.length === 0) return null;
+  const tryParse = (candidate: string): ReturnType<typeof testCountReportSchema.parse> | null => {
+    try {
+      const report = testCountReportSchema.safeParse(JSON.parse(candidate));
+      return report.success ? report.data : null;
+    } catch {
+      return null;
+    }
+  };
+  const direct = tryParse(text);
+  if (direct !== null) return direct;
+  // `lastIndexOf(s, -1)` searches from index 0 and returns 0 for a leading
+  // brace, so decrementing past the start yields the SAME index forever. The
+  // loop is synchronous, so a vitest `testTimeout` cannot interrupt it — the
+  // run just dies on the job's wall clock with no failing assertion. Terminate
+  // on `start === 0` explicitly rather than relying on the search to run out.
+  let start = text.lastIndexOf('{');
+  while (start > -1) {
+    const end = matchingBrace(text, start);
+    if (end !== -1) {
+      const parsed = tryParse(text.slice(start, end + 1));
+      if (parsed !== null) return parsed;
+    }
+    if (start === 0) break;
+    start = text.lastIndexOf('{', start - 1);
+  }
+  return null;
+}
+
+/**
+ * The `minCount` remediation, naming the exact reporter flag for this runner.
+ *
+ * The message this replaced said only that a structured count was required. A
+ * reader had no way to learn what "supported" meant, what shape was expected,
+ * or which flag produced it — so the reported resolution was to delete the
+ * `minCount` from the gate, which removes the guarantee rather than meeting it.
+ *
+ * @param gate - Gate whose command needs a machine-readable reporter.
+ * @task gh#1467
+ */
+function describeMissingTestCount(gate: TestGate): string {
+  const invoked = [gate.command, ...(gate.args ?? [])].join(' ');
+  const flag = /jest/.test(invoked)
+    ? '--json'
+    : /vitest|pnpm|npm|yarn|bun/.test(invoked)
+      ? '--reporter=json'
+      : '<your runner\u2019s JSON reporter flag>';
+  return (
+    `minCount ${gate.minCount} cannot be proved: \`${invoked}\` emitted no machine-readable ` +
+    `test report, and an exit code alone carries no count. Add a JSON reporter to the gate ` +
+    `command itself (e.g. \`${invoked} ${flag}\`) so the run that is being attested is the ` +
+    `run that is counted. A report file produced by a separate invocation is deliberately not ` +
+    `accepted here \u2014 it is not bound to this execution; record that as \`test-run:<path>\` ` +
+    `evidence instead, or drop minCount if an exit code is the guarantee you want.`
+  );
+}
+
 async function runTestGate(
   gate: TestGate,
   index: number,
@@ -696,10 +807,6 @@ async function runTestGate(
   timeoutMs: number,
   context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
-  if (gate.minCount !== undefined && gate.minCount > 0)
-    throw new Error(
-      'Minimum test count requires a supported structured count result; exit0 alone cannot prove it',
-    );
   const invocation = executableInvocation(gate, projectRoot, context.env ?? process.env)!;
   const captured = await captureGateCommand(
     invocation.command,
@@ -709,14 +816,44 @@ async function runTestGate(
     context,
     gate.env,
   );
-  const passed =
+  const exitOk =
     captured.exitCode === 0 &&
     (gate.expect === 'exit0' || !/\bFAIL\b|failing|Error:/i.test(captured.stdout));
+
+  // gh#1467: `minCount` was declarable, storable and never satisfiable — the
+  // runner rejected any positive value outright, so a task could carry a gate
+  // that no amount of passing tests could turn green. The counts now come from
+  // this run's own validated report; only their ABSENCE is still an error,
+  // because inferring a count from exit zero is the thing that must not happen.
+  if (gate.minCount !== undefined && gate.minCount > 0) {
+    const report = structuredTestCounts(captured);
+    if (report === null) throw new Error(describeMissingTestCount(gate));
+    if (report.numPassedTests < gate.minCount)
+      return processGateResult(
+        index,
+        gate,
+        captured,
+        'fail',
+        `Structured report counts ${report.numPassedTests} passing tests, below the required minimum of ${gate.minCount}`,
+      );
+    if (!exitOk)
+      return processGateResult(
+        index,
+        gate,
+        captured,
+        'fail',
+        captured.exitCode === 0
+          ? 'Failure pattern detected in output'
+          : `Exit code ${captured.exitCode}`,
+      );
+    return processGateResult(index, gate, captured, 'pass');
+  }
+
   return processGateResult(
     index,
     gate,
     captured,
-    passed ? 'pass' : 'fail',
+    exitOk ? 'pass' : 'fail',
     captured.exitCode === 0
       ? 'Failure pattern detected in output'
       : `Exit code ${captured.exitCode}`,

@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.20.4 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.20.5 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -297,6 +297,7 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | — | `E_EVIDENCE_TOOL_FAILED` | Tool (biome/tsc/…) exited non-zero; fix source and re-run |
 | — | `E_EVIDENCE_STALE` | Files/commits changed since `verify`; re-verify with updated evidence |
 | — | `E_EVIDENCE_INVALID_DECISION` | `decision:<id>` atom — decision ID not found or not accepted/proposed in BRAIN |
+| — | `E_EVIDENCE_GIT_ROOT` | The CLEO root is not a git checkout — a LAYOUT fact, not a failing atom. One child repo, or a `commit:` SHA that exists in exactly one child, resolves automatically. Otherwise declare it: `"evidence": { "gitRoot": "<subdir>" }` in `.cleo/project-context.json`, or `CLEO_EVIDENCE_GIT_ROOT=<repo>` for one invocation |
 | — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` or `CLEO_OWNER_OVERRIDE=1` |
 | — | `E_IDEMPOTENCY_UNSUPPORTED` | That verb ignores `--idempotency-key`; the key was NOT applied. Query before retrying |
 | 143 / 137 | *(killed — no code)* | **A killed write carries NO information about whether it committed** |
@@ -328,6 +329,16 @@ Every gate takes `cleo verify T### --gate <gate> --evidence "<atoms>"`:
 A merged PR and green CI provide provenance. For `implemented`, pair `pr:<number>` with `files:<changed-paths>`; CLEO checks task linkage, complete changed-file coverage, and the actual merge commit's bytes. Documentation-only PRs cannot implement a code-fix task. Documentation and research tasks may use appropriate documentary artifacts.
 
 When a task has canonical acceptance criteria, name the criteria proved by each implementation, test, or review result using existing syntax such as `satisfies:T1234#AC1`. Example: `cleo verify T1234 --gate implemented --evidence "pr:42;files:src/fix.ts;satisfies:T1234#AC1"`. Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links. The receipt retains criterion hashes, artifact paths, and result references; changed criteria require fresh evidence. A valid child completion leaves any parent with unproven criteria open, and a child waiver does not waive parent criteria.
+
+### 1b. Typed acceptance gates — observe before you attest
+
+Typed gates (`cleo req add <id> --gate '<json>'`) EXECUTE during any `cleo verify … --gate … --evidence …` write on a task that carries them. To run them without recording anything:
+
+```bash
+cleo verify T### --run          # executes typed gates, reports results, persists nothing
+```
+
+`--run` is read-only and cannot be combined with `--gate`/`--all`/`--reset`. A `test` gate with `minCount` needs its OWN command to emit a machine-readable report (`--reporter=json` for vitest, `--json` for jest); an exit code carries no count, and a report file from a separate invocation is not bound to this run — record that as `test-run:<path>` evidence instead.
 
 ### 2. Then complete
 

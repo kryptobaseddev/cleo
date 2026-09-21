@@ -236,7 +236,19 @@ export async function sessionList(
 
     const total = sessions.length;
     const filtered = result.length;
-    const limit = params?.limit && params.limit > 0 ? params.limit : SESSION_LIST_DEFAULT_LIMIT;
+    // gh#1469: `--limit 0` means EVERY match on `list` and `find` (the CLI
+    // output contract, fixed for tasks in gh#1302). This guard read `0` as
+    // falsy and silently substituted the 10-row default, so the one documented
+    // way to enumerate returned a page — which is how 70 leaked active
+    // sessions stayed invisible while `session start` refused, one id at a
+    // time, to say how many there were.
+    const requested = typeof params?.limit === 'number' ? params.limit : undefined;
+    const limit =
+      requested === 0
+        ? Math.max(filtered, 1)
+        : requested !== undefined && requested > 0
+          ? requested
+          : SESSION_LIST_DEFAULT_LIMIT;
     const offset = typeof params?.offset === 'number' && params.offset > 0 ? params.offset : 0;
     const pageResult = paginate(result, limit, offset);
     const truncated = filtered !== pageResult.items.length || offset > 0;
@@ -468,12 +480,38 @@ export async function sessionStart(
       if (conflictsByHandle.length > 0) {
         const conflictId = conflictsByHandle[0]!.id;
         const handleSuffix = params.agentHandle ? ` for agent '${params.agentHandle}'` : '';
+
+        // gh#1469: `session end` ends ONE session, so naming a single blocker
+        // and saying "end it first" is only a fix when there IS one. Sessions
+        // leak active — an agent that crashes never ends its own — and the
+        // count reached 70 in this repo, some four months old. Following the
+        // old advice ended one, and the next `start` named a different id,
+        // with no count and no enumeration: a 70-step drain loop presented as
+        // a one-step fix. `session list` did not help either, because its
+        // default page is ten rows ordered oldest-first.
+        //
+        // Count the backlog and, past one, name `session gc` — which already
+        // existed and already does exactly this, and which nothing pointed at.
+        const allActive = (await accessor.loadSessions()).filter(
+          (s: Session) => s.status === 'active',
+        );
+        const stale = allActive.length;
+        const bulk =
+          stale > 1
+            ? ` ${stale} sessions are currently active; 'cleo session end' ends one at a time. ` +
+              `Clear the backlog with 'cleo session gc --max-age 1', or list them with ` +
+              `'cleo session list --status active --limit ${stale}'.`
+            : '';
         return engineError(
           'E_SESSION_CONFLICT',
-          `An active session already exists${handleSuffix} (${conflictId}). End it first with 'cleo session end'.`,
+          `An active session already exists${handleSuffix} (${conflictId}).` +
+            (stale > 1 ? bulk : " End it first with 'cleo session end'."),
           {
-            fix: "Run 'cleo session end' before starting a new session.",
-            details: { activeSessionId: conflictId },
+            fix:
+              stale > 1
+                ? `Run 'cleo session gc --max-age 1' to end all ${stale} stale sessions, then start again.`
+                : "Run 'cleo session end' before starting a new session.",
+            details: { activeSessionId: conflictId, activeSessionCount: stale },
           },
         );
       }

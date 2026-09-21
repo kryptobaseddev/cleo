@@ -37,8 +37,10 @@
  * @adr ADR-059
  */
 
+import { ExitCode } from '@cleocode/contracts';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliError } from '../renderers/index.js';
 
 /**
  * cleo verify <task-id> — view or modify verification gates.
@@ -90,6 +92,11 @@ export const verifyCommand = defineCommand({
       description:
         'Enrich read-only view with per-gate evidence breakdown, re-validation status, and blockers[] preventing `cleo complete` (T1013 / ADR-051).',
     },
+    run: {
+      type: 'boolean',
+      description:
+        "Execute the task's typed acceptance gates and report the results. Read-only: nothing is recorded, so use `--evidence` to attest (gh#1468).",
+    },
     'shared-evidence': {
       type: 'boolean',
       description:
@@ -103,10 +110,41 @@ export const verifyCommand = defineCommand({
     }
 
     const isWrite = !!(args.gate || args.all || args.reset);
+
+    // gh#1468: `--run` executes typed gates and records nothing. Combining it
+    // with a write would blur exactly the line it exists to draw — the gates
+    // already run implicitly during an evidence write, and the reader would
+    // have no way to tell which results were attested and which were merely
+    // observed. Rejected rather than silently ignored.
+    if (args.run === true && isWrite) {
+      // ADR-086: a rejection is still one LAFS envelope on stdout. A raw
+      // stderr write here would hand a machine consumer an exit code with no
+      // parseable reason — which is what the JSON-stream-hygiene gate exists
+      // to stop, and it caught this line.
+      cliError(
+        '--run reports typed gate results and records nothing; it cannot be combined with ' +
+          '--gate/--all/--reset.',
+        ExitCode.VALIDATION_ERROR,
+        {
+          name: 'E_VALIDATION',
+          fix: 'Run `cleo verify <id> --run` first, then attest with `cleo verify <id> --gate <name> --evidence <atoms>`',
+        },
+        { operation: 'check.gate.run' },
+      );
+      process.exitCode = ExitCode.VALIDATION_ERROR;
+      return;
+    }
+
     // --explain is a read-only enrichment; writes ignore it and keep prior behavior.
     const useExplain = !isWrite && args.explain === true;
 
-    const operation = isWrite ? 'gate.set' : useExplain ? 'verify.explain' : 'gate.status';
+    const operation = isWrite
+      ? 'gate.set'
+      : args.run === true
+        ? 'gate.run'
+        : useExplain
+          ? 'verify.explain'
+          : 'gate.status';
 
     await dispatchFromCli(
       isWrite ? 'mutate' : 'query',

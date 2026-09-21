@@ -494,6 +494,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "test.coverage",
       "coherence",
       "gate.status",
+      "gate.run",
       "archive.stats",
       "canon",
       "canon.docs",
@@ -866,7 +867,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `327`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `328`;
 
 exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — domain-grouped operations snapshot > tier-2-groupedOperations 1`] = `
 {
@@ -959,6 +960,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "test.coverage",
       "coherence",
       "gate.status",
+      "gate.run",
       "archive.stats",
       "grade",
       "grade.list",
@@ -1505,4 +1507,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `461`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `462`;

@@ -72,6 +72,27 @@ async function invokeSchema(
   } as Parameters<NonNullable<typeof schemaCommand.run>>[0]);
 }
 
+/**
+ * Invoke `cleo schema --list`.
+ *
+ * Mirrors {@link invokeSchema}'s shape — a full args record and the same single
+ * cast — rather than casting a partial object through `unknown`, which
+ * AGENTS.md forbids outright.
+ */
+async function invokeSchemaList(format = 'json'): Promise<void> {
+  await schemaCommand.run?.({
+    args: {
+      operation: undefined,
+      format,
+      'include-gates': true,
+      'include-examples': false,
+      list: true,
+    },
+    rawArgs: [],
+    cmd: schemaCommand,
+  } as Parameters<NonNullable<typeof schemaCommand.run>>[0]);
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -226,6 +247,42 @@ describe('cleo schema command (T340)', () => {
 
       const [, , details] = mockCliError.mock.calls[0] as [string, number, { fix: string }];
       expect(details.fix).toContain('cleo schema');
+    });
+
+    it('and that hint names a flag the command actually declares (gh#1470)', () => {
+      // This assertion is the one that was missing. The hint above has said
+      // `cleo schema --list` since T340 and the flag did not exist, so the
+      // remedy for "you do not know the operation key" was itself rejected
+      // with E_UNKNOWN_FLAG — and the test passed the whole time, because it
+      // only checked that the STRING was present.
+      expect(schemaCommand.args?.list).toBeDefined();
+      expect(schemaCommand.args?.list?.type).toBe('boolean');
+    });
+  });
+
+  describe('--list (gh#1470)', () => {
+    it('returns every operation key, sorted, with its gateway', async () => {
+      await invokeSchemaList();
+
+      expect(mockCliOutput).toHaveBeenCalledOnce();
+      const [payload] = mockCliOutput.mock.calls[0] as [
+        { operations: Array<{ key: string; gateway: string }>; count: number },
+      ];
+      expect(payload.count).toBeGreaterThan(100);
+      expect(payload.operations).toHaveLength(payload.count);
+      // Every entry is a usable `domain.operation` key — which is the whole
+      // point, since that is what `cleo schema <op>` takes.
+      for (const op of payload.operations) expect(op.key).toMatch(/^[a-z][\w-]*\.[\w.-]+$/);
+      const keys = payload.operations.map((o) => o.key);
+      expect([...keys].sort((a, b) => a.localeCompare(b))).toEqual(keys);
+      expect(keys).toContain('tasks.add');
+    });
+
+    it('does not fall into the usage path or exit non-zero', async () => {
+      await invokeSchemaList();
+
+      expect(mockCliError).not.toHaveBeenCalled();
+      expect(mockProcessExit).not.toHaveBeenCalled();
     });
 
     it('calls process.exit(4)', async () => {
