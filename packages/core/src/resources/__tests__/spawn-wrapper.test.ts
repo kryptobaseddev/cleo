@@ -679,7 +679,33 @@ describe.skipIf(process.platform === 'win32')('captured target lifecycle', () =>
       const result = await pending;
       expect(result.stopped).toBe('cancelled');
       expect(result.cleanupErrors).toEqual([]);
-      if (result.targetPid) expect(() => process.kill(result.targetPid, 0)).toThrow();
+      const targetPid = result.targetPid;
+      if (targetPid) {
+        // gh#1471: the group has been signalled by the time the capture
+        // resolves, but reaping is NOT synchronous — the kernel still has to
+        // deliver the signal and reap the child. Asserting the pid is gone in
+        // the same tick made this a race against runner load: it failed once
+        // on a CI shard that was competing with a full sweep, and passed on a
+        // re-run of the identical commit.
+        //
+        // The claim under test is the test's own name — that the group is
+        // STOPPED — not that it stops within one tick, so polling to a bounded
+        // deadline keeps the assertion exactly as strong while removing the
+        // timing dependency. A pid that never goes away still fails, after 5s.
+        await expect
+          .poll(
+            () => {
+              try {
+                process.kill(targetPid, 0);
+                return false;
+              } catch {
+                return true;
+              }
+            },
+            { timeout: 5000, interval: 25 },
+          )
+          .toBe(true);
+      }
     } finally {
       clearTimeout(timer);
     }
