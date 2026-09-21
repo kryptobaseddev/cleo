@@ -749,7 +749,26 @@ describe.skipIf(process.platform === 'win32')('captured target lifecycle', () =>
     expect(result.stopped).toBe('deadline');
     expect(result.stdout).toMatch(/^\d+$/);
     expect(result.cleanupErrors).toEqual([]);
-    expect(() => process.kill(Number(result.stdout), 0)).toThrow();
+    // T12309: the sibling of the race fixed above, and it failed the same way
+    // on a loaded shard — `expected [Function] to throw an error`, because the
+    // descendant had been signalled but not yet reaped when the assertion ran.
+    // Fixing one occurrence and leaving the other is what made this recur, so
+    // both now poll to a bounded deadline. The claim is unchanged: the pid is
+    // GONE, not gone within one tick.
+    const descendantPid = Number(result.stdout);
+    await expect
+      .poll(
+        () => {
+          try {
+            process.kill(descendantPid, 0);
+            return false;
+          } catch {
+            return true;
+          }
+        },
+        { timeout: 5000, interval: 25 },
+      )
+      .toBe(true);
   });
 
   it.each([
