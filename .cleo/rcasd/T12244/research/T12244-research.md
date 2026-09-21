@@ -9,6 +9,7 @@ created: 2026-09-18
 updated: 2026-09-20
 audience: maintainer
 title: Axiom audit findings and verification limits
+similarity-exempt: RCASD stage doc — each stage of one task's pipeline deliberately restates the prior stage's conclusions before advancing them, so sibling stages of the SAME task are expected to score high against each other. Every flagged pair here is T12244-vs-T12244; none crosses a task boundary. Collapsing them would destroy the stage record the pipeline exists to produce.
 ---
 # Axiom audit findings and verification limits
 
