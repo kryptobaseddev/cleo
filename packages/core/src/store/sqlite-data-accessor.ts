@@ -931,12 +931,25 @@ async function createOwnedSqliteDataAccessor(
 
       const idRows = nativeDb
         .prepare(
-          `WITH RECURSIVE ancestor_ids(id, depth) AS (
-            SELECT parent_id, 0 FROM tasks_tasks WHERE id = ? AND parent_id IS NOT NULL
+          // T12307: the `path` column is a cycle guard, not decoration. `depth`
+          // increments on every iteration, so with UNION ALL — and even with a
+          // plain UNION — (id, depth) is distinct on every revisit and a
+          // self-parented or cyclic row recurses forever. SQLite materialises
+          // that in NATIVE memory, which `--max-old-space-size` does not bound,
+          // so the symptom is a silent VM death rather than a heap error: one
+          // seeded `parentId === id` fixture row killed five CI runs and OOM-froze
+          // a workstation three times before the mechanism was found. A depth cap
+          // would also terminate, but it silently truncates a legitimately deep
+          // chain — unacceptable in the subsystem whose whole job is depth.
+          `WITH RECURSIVE ancestor_ids(id, depth, path) AS (
+            SELECT parent_id, 0, '/' || id || '/' || parent_id || '/'
+              FROM tasks_tasks WHERE id = ? AND parent_id IS NOT NULL
             UNION ALL
-            SELECT t.parent_id, a.depth + 1 FROM tasks_tasks t
-            JOIN ancestor_ids a ON t.id = a.id
-            WHERE t.parent_id IS NOT NULL
+            SELECT t.parent_id, a.depth + 1, a.path || t.parent_id || '/'
+              FROM tasks_tasks t
+              JOIN ancestor_ids a ON t.id = a.id
+             WHERE t.parent_id IS NOT NULL
+               AND a.path NOT LIKE '%/' || t.parent_id || '/%'
           )
           SELECT id FROM ancestor_ids ORDER BY depth DESC`,
         )
@@ -970,9 +983,13 @@ async function createOwnedSqliteDataAccessor(
       // Get IDs from the CTE, then load via Drizzle for proper conversion
       const idRows = nativeDb
         .prepare(
+          // T12307: UNION, not UNION ALL. Every column here repeats verbatim on
+          // a revisit, so the dedupe terminates a self-parented or cyclic row;
+          // UNION ALL recurses forever in native memory. A parent edge is
+          // single-valued, so no legitimate row is ever deduped away.
           `WITH RECURSIVE subtree AS (
             SELECT id FROM tasks_tasks WHERE id = ?
-            UNION ALL
+            UNION
             SELECT t.id FROM tasks_tasks t
             JOIN subtree s ON t.parent_id = s.id
           )

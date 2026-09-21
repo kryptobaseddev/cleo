@@ -1058,6 +1058,23 @@ export interface WorkGraphHierarchyValidationOptions {
   readonly throwOnViolation?: boolean;
 }
 
+/**
+ * Tiers that may sit at the root of a containment tree.
+ *
+ * Deliberately WIDER than the `cleo add` write path, which enforces strict-spine
+ * containment (T11811) and hard-rejects a net-new parentless `epic`. The two are
+ * not in conflict — they answer different questions. This set describes which
+ * shapes are structurally VALID (the WorkGraph scaffold subsystem builds and
+ * applies epic-rooted graphs, and the fleet still carries legacy root epics);
+ * T11811 governs what a net-new agent-authored `cleo add` may CREATE.
+ *
+ * Narrowing this to `['saga']` to match the add path was attempted and reverted:
+ * `validateWorkGraphHierarchy` never throws without `throwOnViolation`, but
+ * `scaffold-validate.ts` consumes the returned violations and fails the
+ * scaffold, so the change silently broke epic-rooted scaffolding. Tightening it
+ * is a behaviour change to that subsystem, not a set edit — it needs its own
+ * task, with the scaffold's root handling decided first.
+ */
 const ROOT_TASK_TYPES: ReadonlySet<TaskType> = new Set(['saga', 'epic']);
 
 const PARENT_TYPE_MATRIX: Readonly<Record<TaskType, readonly TaskType[]>> = {
@@ -1142,6 +1159,8 @@ function makeViolation(
  * may be roots, sagas may contain epics, epics may contain tasks, tasks may
  * contain subtasks, and subtasks are leaves. Saga membership uses `parentId`
  * containment, never `task_relations.groups`.
+ *
+ * Note that `cleo add` is STRICTER — see {@link ROOT_TASK_TYPES}.
  *
  * @param nodes - Task-like hierarchy rows to validate.
  * @param options - Optional fail-fast behavior for enforcement call sites.

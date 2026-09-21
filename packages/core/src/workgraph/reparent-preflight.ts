@@ -80,7 +80,7 @@ export interface WorkGraphReparentPreflightInput {
   readonly taskId: string;
   /** Proposed direct containment parent; null/undefined means reparent to root. */
   readonly newParentId?: string | null;
-  /** Maximum allowed containment depth. Defaults to CLEO's epic→task→subtask depth (2). */
+  /** Maximum allowed containment depth. Defaults to CLEO's saga→epic→task→subtask depth (3). */
   readonly maxDepth?: number;
 }
 
@@ -92,7 +92,12 @@ export interface WorkGraphReparentPreflightResult {
   readonly findings: readonly WorkGraphReparentFinding[];
 }
 
-const DEFAULT_MAX_DEPTH = 2;
+// Depth VALUE of the deepest legal tier, inclusive: saga(0) → epic(1) → task(2)
+// → subtask(3). Was 2 — the pre-saga epic→task→subtask spine — and was never
+// recalibrated when ADR-083 §2.5 / ADR-088 made `saga` a real `parent_id`
+// container. `cleo workgraph validate` passes `{}`, so the stale default flagged
+// every legitimate depth-3 subtask (163 of them live in this repo's own store).
+const DEFAULT_MAX_DEPTH = 3;
 
 function makeNodeIndex(
   nodes: readonly WorkGraphHierarchyInputNode[],

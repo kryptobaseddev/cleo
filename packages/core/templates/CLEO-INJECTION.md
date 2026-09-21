@@ -115,9 +115,45 @@ A **Saga** (`SG-`) is a multi-release theme grouping multiple Epics. `type='saga
 Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for standalone);
 Task `parent_id` = Epic; Subtask `parent_id` = Task. `task_relations` is non-containment
 only — dependencies, ordering, cross-reference, evidence, supersession, provenance.
-<!-- /CLEO-INJECTION:section=task-creation -->
+
+### Depth + decomposition
+
+`saga 0 → epic 1 → task 2 → subtask 3`; `hierarchy.maxDepth` (default 3) is the max depth
+VALUE, **inclusive**, so a subtask under a task is legal. `E_CLEO_DEPTH_EXCEEDED` now means
+only: you parented under a subtask, the leaf tier. `--type` is honoured verbatim — so
+`--type subtask --parent <epic>` is REFUSED, not silently retyped.
+A task is **either** a leaf with its own text ACs **or** a container with children, never
+both (PM-Core V2 design-point 3) — so the first `cleo add` under a task carrying
+`--acceptance` text is refused. That is expected. Convert it:
+
+| Goal | Command |
+|------|---------|
+| Add the subtask AND convert in one call | `cleo add --type subtask --parent <id> --title "..." --acceptance "..." --auto-decompose` |
+| Convert first, then add normally | `cleo decompose <id>` (`--dry-run`, `--child-title "..."`) |
+
+`--auto-decompose` is opt-in: it rewrites the PARENT and reports
+`autoDecomposed: { childId, movedAcceptance }` — read it, the task you filed is now a
+container. `cleo update <id> --acceptance ""` does NOT work (enforcement rejects empty).<!-- /CLEO-INJECTION:section=task-creation -->
 
 <!-- CLEO-INJECTION:section=task-discovery -->
+### Overlap reconciliation across a saga
+
+`cleo add` checks duplicates only at INSERT time — flat, reject-or-insert — so partial
+overlap is invisible and post-filing drift is never re-examined. Sweep for it:
+
+| Goal | Command |
+|------|---------|
+| Report overlapping scope (read-only) | `cleo reconcile scope <sagaId\|epicId>` |
+| Narrow to strongest signals | `cleo reconcile scope <id> --threshold 0.75` |
+| Write the proposed `relates` edges | `cleo reconcile scope <id> --apply` |
+
+Actions: **merge** (same tier+parent, ≥90%) · **absorb** (≥90% across containers) ·
+**split** (shared scope apart — use `cleo decompose`) · **link** (siblings, usually
+intended sequencing). `--apply` writes ONLY `relates` edges — nothing is merged, retitled,
+reparented or deleted — and the earlier task always survives, so runs are reproducible.
+Read `link` sceptically: shared naming conventions inflate title similarity. Act on
+`merge`/`absorb`, which also require a tier+parent match.
+
 ## Task Discovery
 
 Task search defaults to lexical. For approximate character-subsequence matches, use `cleo find "query" --fuzzy`. Check `match.kind`, `match.fields`, and reason before inferring related work or duplicates. Compact output retains fuzzy provenance; scalar/human output explains it on stderr. `--in title|description|notes|id` restricts fields. Semantic retrieval is separately identified.

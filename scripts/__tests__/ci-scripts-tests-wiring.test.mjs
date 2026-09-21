@@ -83,7 +83,16 @@ describe('gh#1403 — the scripts test project is reachable from CI', () => {
     // scripts/vitest.config.ts spreads MEMORY_SAFE_TEST_DEFAULTS from this
     // file. A change to it changes how every scripts test is bounded, so it
     // belongs in the filter even though it is not under scripts/.
-    expect(jobBlock(ci, 'changes')).toMatch(/^\s+- 'vitest\.memory-safe\.js'\s*$/m);
+    // T12307: this asserted '.js' while the tracked file is '.ts'. The
+    // assertion passed against a pattern that could never match a real path,
+    // so it locked the typo in rather than catching it. The file must appear in
+    // BOTH filters: `scripts` bounds the scripts project, `code` bounds the
+    // unit suite — and without `code` a change to the budget skipped the very
+    // tests it governs.
+    expect(jobBlock(ci, 'changes')).toMatch(/^\s+- 'vitest\.memory-safe\.ts'\s*$/m);
+    const changes = jobBlock(ci, 'changes');
+    const occurrences = changes.match(/- 'vitest\.memory-safe\.ts'/g) ?? [];
+    expect(occurrences.length).toBe(2);
   });
 
   it('exports the filter as a job output, or nothing can gate on it', () => {

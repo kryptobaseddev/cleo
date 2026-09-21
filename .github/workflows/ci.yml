@@ -117,6 +117,14 @@ jobs:
               - 'pnpm-lock.yaml'
               - 'tsconfig*.json'
               - 'vitest.config.ts'
+              # T12307: the tracked file is `vitest.memory-safe.ts`. It was listed
+              # ONLY under `scripts:` below, and spelled `.js` there, so it matched
+              # nothing anywhere — a PR changing the fork/heap budget that bounds
+              # this very suite skipped `unit-tests` altogether, and the `ci`
+              # aggregate accepts `skipped` as a pass. That is exactly the shape of
+              # commit 19eca3e05 ("zero the fork reserve on CI"), which therefore
+              # shipped without the suite it re-bounds ever running.
+              - 'vitest.memory-safe.ts'
               - 'build.mjs'
             # gh#1403: `scripts/**` is deliberately NOT in `code` above. The
             # scripts tests are a real vitest project (`scripts/vitest.config.ts`,
@@ -133,7 +141,8 @@ jobs:
             # which is the suite that can actually be affected.
             scripts:
               - 'scripts/**'
-              - 'vitest.memory-safe.js'
+              # T12307: was '.js'; the tracked file is '.ts', so this never matched.
+              - 'vitest.memory-safe.ts'
             # Native and package-manager inputs also change the installed artifact.
             packaging:
               - 'crates/**'

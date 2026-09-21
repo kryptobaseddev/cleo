@@ -190,6 +190,15 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
           (entry): entry is string => typeof entry === 'string',
         );
       }
+      // T12298 — `--auto-decompose` rewrote the PARENT to make room for this
+      // child, moving its acceptance criteria onto a new first subtask. That is
+      // a mutation to a row the caller only named as `--parent`, so it must
+      // appear in the envelope: an agent that cannot see it has no way to know
+      // the parent it is holding is no longer the task it filed.
+      const autoDecomposed = data['autoDecomposed'];
+      if (autoDecomposed && typeof autoDecomposed === 'object') {
+        envelope['autoDecomposed'] = autoDecomposed;
+      }
       return envelope;
     },
   },

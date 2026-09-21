@@ -2746,6 +2746,14 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Bypass duplicate rejection with committed decision provenance',
         cli: { flag: 'force-duplicate' },
       },
+      {
+        name: 'autoDecompose',
+        type: 'boolean',
+        required: false,
+        description:
+          "Move the parent's text acceptance criteria onto a new first subtask when they would otherwise block this add (PM-Core V2 design-point 3) (T12298)",
+        cli: { flag: 'auto-decompose' },
+      },
     ] satisfies ParamDef[],
   },
   {
@@ -3077,6 +3085,78 @@ export const OPERATIONS: OperationDef[] = [
         type: 'boolean',
         required: false,
         description: 'Archive all descendants with the selected task',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'reconcile-scope',
+    description:
+      'tasks.reconcile-scope (mutate) — sweep a saga/epic subtree for tasks whose scope overlaps and propose merge/absorb/split/link; read-only unless --apply',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['rootId'],
+    params: [
+      {
+        name: 'rootId',
+        type: 'string',
+        required: true,
+        description: 'Saga, epic or other container to sweep (its whole subtree is considered)',
+        cli: { positional: true },
+      },
+      {
+        name: 'apply',
+        type: 'boolean',
+        required: false,
+        description: 'Write the proposed `relates` edges (read-only without it)',
+        cli: { flag: 'apply' },
+      },
+      {
+        name: 'threshold',
+        type: 'number',
+        required: false,
+        description: 'Report pairs at or above this similarity score, 0-1 (default 0.55)',
+        cli: { flag: 'threshold' },
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'decompose',
+    description:
+      'tasks.decompose (mutate) — move a task’s free-text acceptance criteria onto a new first child, turning the leaf into a container (PM-Core V2 design-point 3)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Task whose text acceptance criteria move to a new child',
+        cli: { positional: true },
+      },
+      {
+        name: 'childTitle',
+        type: 'string',
+        required: false,
+        description: 'Title for the child that inherits the criteria (default: the parent’s)',
+      },
+      {
+        name: 'childDescription',
+        type: 'string',
+        required: false,
+        description: 'Description for the child (default: the parent’s)',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Preview the move without writing',
       },
     ] satisfies ParamDef[],
   },

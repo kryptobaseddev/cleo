@@ -296,6 +296,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/dash.js')).dashCommand as CommandDef,
   },
   {
+    exportName: 'decomposeCommand',
+    name: 'decompose',
+    description: 'Move a task',
+    load: async () => (await import('../commands/decompose.js')).decomposeCommand as CommandDef,
+  },
+  {
     exportName: 'decompositionCommand',
     name: 'decomposition',
     description: 'Validate decomposition protocol compliance (alias for ',

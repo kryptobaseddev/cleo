@@ -267,6 +267,15 @@ exports[`cleo schema command (T340) > tasks.add snapshot > full schema matches s
       "required": false,
       "type": "boolean",
     },
+    {
+      "cli": {
+        "flag": "auto-decompose",
+      },
+      "description": "Move the parent's text acceptance criteria onto a new first subtask when they would otherwise block this add (PM-Core V2 design-point 3) (T12298)",
+      "name": "autoDecompose",
+      "required": false,
+      "type": "boolean",
+    },
   ],
 }
 `;
