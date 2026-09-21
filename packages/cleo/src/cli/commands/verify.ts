@@ -37,8 +37,10 @@
  * @adr ADR-059
  */
 
+import { ExitCode } from '@cleocode/contracts';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliError } from '../renderers/index.js';
 
 /**
  * cleo verify <task-id> — view or modify verification gates.
@@ -115,12 +117,21 @@ export const verifyCommand = defineCommand({
     // have no way to tell which results were attested and which were merely
     // observed. Rejected rather than silently ignored.
     if (args.run === true && isWrite) {
-      process.stderr.write(
+      // ADR-086: a rejection is still one LAFS envelope on stdout. A raw
+      // stderr write here would hand a machine consumer an exit code with no
+      // parseable reason — which is what the JSON-stream-hygiene gate exists
+      // to stop, and it caught this line.
+      cliError(
         '--run reports typed gate results and records nothing; it cannot be combined with ' +
-          '--gate/--all/--reset. Run `cleo verify <id> --run` first, then attest with ' +
-          '`cleo verify <id> --gate <name> --evidence <atoms>`.\n',
+          '--gate/--all/--reset.',
+        ExitCode.VALIDATION_ERROR,
+        {
+          name: 'E_VALIDATION',
+          fix: 'Run `cleo verify <id> --run` first, then attest with `cleo verify <id> --gate <name> --evidence <atoms>`',
+        },
+        { operation: 'check.gate.run' },
       );
-      process.exitCode = 1;
+      process.exitCode = ExitCode.VALIDATION_ERROR;
       return;
     }
 

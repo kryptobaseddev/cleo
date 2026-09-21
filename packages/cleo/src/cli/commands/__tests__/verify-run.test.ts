@@ -28,6 +28,7 @@
  * @task gh#1468
  */
 
+import { ExitCode } from '@cleocode/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import type { Gateway } from '../../../dispatch/types.js';
 import { verifyCommand } from '../verify.js';
@@ -115,6 +116,11 @@ describe('--run cannot be combined with a write (gh#1468)', () => {
     ['--all', { all: true }],
     ['--reset', { reset: true }],
   ])('rejects %s rather than silently dropping one of the two', async (_label, write) => {
+    // The refusal travels as a LAFS envelope on stdout, like every other
+    // outcome (ADR-086). It used to be a raw `process.stderr.write`, which
+    // handed a machine consumer an exit code and nothing parseable — the
+    // JSON-stream-hygiene gate caught that line before it shipped.
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const originalExitCode = process.exitCode;
     try {
@@ -126,13 +132,23 @@ describe('--run cannot be combined with a write (gh#1468)', () => {
       });
       // Nothing dispatched: neither the observation nor the attestation ran.
       expect(captured).toBeNull();
-      expect(process.exitCode).toBe(1);
-      const message = stderr.mock.calls.map((c) => String(c[0])).join('');
-      expect(message).toContain('--run');
-      // The message must name the two-step recovery, not just refuse.
-      expect(message).toContain('--evidence');
+      // 6 is E_VALIDATION in the documented exit-code table, not a bare 1.
+      expect(process.exitCode).toBe(ExitCode.VALIDATION_ERROR);
+
+      const written = [...stdout.mock.calls, ...stderr.mock.calls]
+        .map((c) => String(c[0]))
+        .join('');
+      expect(written).toContain('--run');
+      // The refusal must name the two-step recovery, not just say no.
+      expect(written).toContain('--evidence');
+
+      // And it must be ONE parseable envelope, not prose.
+      const envelope = JSON.parse(written.trim().split('\n').pop() as string);
+      expect(envelope.success).toBe(false);
+      expect(envelope.error.codeName).toBe('E_VALIDATION');
     } finally {
       process.exitCode = originalExitCode;
+      stdout.mockRestore();
       stderr.mockRestore();
     }
   });

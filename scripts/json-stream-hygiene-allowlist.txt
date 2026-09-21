@@ -39,7 +39,6 @@ packages/cleo/src/cli/commands/web.ts 5
 
 # core/memory — brain lifecycle + auxiliary logging
 packages/core/src/memory/brain-lifecycle.ts 20
-packages/core/src/memory/brain-maintenance.ts 4
 packages/core/src/memory/brain-page-nodes.ts 6
 packages/core/src/memory/brain-purge.ts 1
 packages/core/src/memory/brain-reasoning.ts 1
@@ -47,16 +46,11 @@ packages/core/src/memory/brain-reconciler.ts 1
 packages/core/src/memory/brain-stdp.ts 2
 packages/core/src/memory/brain-sweep-executor.ts 3
 packages/core/src/memory/dream-cycle.ts 1
-packages/core/src/memory/extraction-gate.ts 1
-packages/core/src/memory/graph-auto-populate.ts 6
 packages/core/src/memory/graph-memory-bridge.ts 16
-packages/core/src/memory/manifest-ingestion.ts 2
-packages/core/src/memory/observer-reflector.ts 3
 packages/core/src/memory/sleep-consolidation.ts 6
 packages/core/src/memory/specialists.ts 1
 packages/core/src/memory/surprisal-tree.ts 2
 packages/core/src/memory/surprisal.ts 3
-packages/core/src/memory/temporal-supersession.ts 1
 
 # core/memory/retrieval — T9963 refactor long-tail
 packages/core/src/memory/retrieval/build-retrieval-bundle.ts 1

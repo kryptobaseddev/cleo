@@ -461,9 +461,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'gate.run');
     }
     try {
-      const preview = await previewTaskGates(params.taskId, projectRoot, {
-        ...(params.agent ? { actor: params.agent } : {}),
-      });
+      const preview = await previewTaskGates(projectRoot, params);
       return lafsSuccess(preview, 'gate.run');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

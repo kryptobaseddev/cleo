@@ -26,7 +26,12 @@
 
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import type { AcceptanceGate, AcceptanceGateResult, Task } from '@cleocode/contracts';
+import type {
+  AcceptanceGate,
+  AcceptanceGateResult,
+  Task,
+  ValidateGateParams,
+} from '@cleocode/contracts';
 import { readProjectInfoAtDirectorySync } from '../project-scope.js';
 import { createOperationExecutionContext } from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -86,25 +91,27 @@ function previewBudgetMs(gates: readonly AcceptanceGate[]): number {
 /**
  * Run every typed gate on a task and return the results, persisting nothing.
  *
- * @param taskId - Task to preview.
+ * Signature follows ADR-057: `(projectRoot, params)`, uniform with every other
+ * core function behind a dispatch operation.
+ *
  * @param projectRoot - Absolute CLEO store root.
- * @param options - Optional accessor reuse and actor attribution.
+ * @param params - Dispatch params; `taskId` selects the task, `agent` attributes the results.
  * @returns Per-gate results plus an aggregate verdict.
  * @throws When the task does not exist, or the project has no stable identity.
  *
  * @example
  * ```ts
- * const preview = await previewTaskGates('T489', projectRoot);
+ * const preview = await previewTaskGates(projectRoot, { taskId: 'T489' });
  * if (!preview.passed) console.error(preview.results);
  * ```
  *
  * @task gh#1468
  */
 export async function previewTaskGates(
-  taskId: string,
   projectRoot: string,
-  options: { actor?: string } = {},
+  params: ValidateGateParams,
 ): Promise<TaskGatePreview> {
+  const { taskId } = params;
   const root = resolve(projectRoot);
   const accessor = await getTaskAccessor(root);
   const task: Task | null = await accessor.loadSingleTask(taskId);
@@ -133,7 +140,7 @@ export async function previewTaskGates(
     {
       projectId: identity.projectId,
       projectRoot: root,
-      actor: options.actor ?? process.env['CLEO_AGENT_ID'] ?? 'cleo-verify',
+      actor: params.agent ?? process.env['CLEO_AGENT_ID'] ?? 'cleo-verify',
       operation: 'check.gate.verify',
       idempotencyKey: `${taskId}:preview:${randomUUID()}`,
     },
