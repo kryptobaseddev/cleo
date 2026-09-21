@@ -35,7 +35,7 @@
  * 3. When no checkout can be found, both atoms fail with
  *    `E_EVIDENCE_GIT_ROOT` and name a remediation — distinct from
  *    `E_EVIDENCE_TOOL_FAILED`, which is the whole point of the issue. Which
- *    remediation changed in gh#1466; see `evidence-multi-repo-git-root.test.ts`.
+ *    remediation changed in T12308; see `evidence-multi-repo-git-root.test.ts`.
  *
  * @task gh#1462
  */
@@ -254,7 +254,7 @@ describe('a genuinely missing work tree fails distinctly (gh#1462)', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.codeName).toBe('E_EVIDENCE_GIT_ROOT');
-      // gh#1466 replaced the remediation this used to assert. The old text
+      // T12308 replaced the remediation this used to assert. The old text
       // named the GIT_DIR/GIT_WORK_TREE pair, and that advice could not work:
       // from a parent of the checkout those variables make `git rev-parse
       // --is-inside-work-tree` answer `false` — the current directory is

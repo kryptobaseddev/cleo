@@ -737,7 +737,7 @@ function matchingBrace(text: string, start: number): number {
  *
  * @param captured - Result of running the gate command.
  * @returns Validated counts, or `null` when the run emitted no usable report.
- * @task gh#1467
+ * @task T12308
  */
 function structuredTestCounts(
   captured: ProcessCaptureResult,
@@ -781,7 +781,7 @@ function structuredTestCounts(
  * `minCount` from the gate, which removes the guarantee rather than meeting it.
  *
  * @param gate - Gate whose command needs a machine-readable reporter.
- * @task gh#1467
+ * @task T12308
  */
 function describeMissingTestCount(gate: TestGate): string {
   const invoked = [gate.command, ...(gate.args ?? [])].join(' ');
@@ -820,7 +820,7 @@ async function runTestGate(
     captured.exitCode === 0 &&
     (gate.expect === 'exit0' || !/\bFAIL\b|failing|Error:/i.test(captured.stdout));
 
-  // gh#1467: `minCount` was declarable, storable and never satisfiable — the
+  // T12308: `minCount` was declarable, storable and never satisfiable — the
   // runner rejected any positive value outright, so a task could carry a gate
   // that no amount of passing tests could turn green. The counts now come from
   // this run's own validated report; only their ABSENCE is still an error,

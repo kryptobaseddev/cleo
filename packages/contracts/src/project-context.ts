@@ -58,7 +58,7 @@ export type ImportStyle = 'esm' | 'commonjs' | 'mixed';
 /**
  * Evidence execution configured per project.
  *
- * @task gh#1466
+ * @task T12308
  */
 export interface ProjectEvidenceContext {
   /**
@@ -138,7 +138,7 @@ export interface ProjectContext {
   };
   /** Release and evidence behavior for this project. */
   release?: ProjectReleaseContext;
-  /** Evidence execution overrides for this project (gh#1466). */
+  /** Evidence execution overrides for this project (T12308). */
   evidence?: ProjectEvidenceContext;
 }
 

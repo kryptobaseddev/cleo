@@ -95,7 +95,7 @@ export const verifyCommand = defineCommand({
     run: {
       type: 'boolean',
       description:
-        "Execute the task's typed acceptance gates and report the results. Read-only: nothing is recorded, so use `--evidence` to attest (gh#1468).",
+        "Execute the task's typed acceptance gates and report the results. Read-only: nothing is recorded, so use `--evidence` to attest (T12308).",
     },
     'shared-evidence': {
       type: 'boolean',
@@ -111,7 +111,7 @@ export const verifyCommand = defineCommand({
 
     const isWrite = !!(args.gate || args.all || args.reset);
 
-    // gh#1468: `--run` executes typed gates and records nothing. Combining it
+    // T12308: `--run` executes typed gates and records nothing. Combining it
     // with a write would blur exactly the line it exists to draw — the gates
     // already run implicitly during an evidence write, and the reader would
     // have no way to tell which results were attested and which were merely

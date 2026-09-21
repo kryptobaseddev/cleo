@@ -43,7 +43,7 @@ export const E_EVIDENCE_GIT_ROOT = 'E_EVIDENCE_GIT_ROOT' as const;
  * beats every other signal because it is the only one that can only have been
  * set on purpose for this invocation.
  *
- * @task gh#1466
+ * @task T12308
  */
 export const EVIDENCE_GIT_ROOT_ENV = 'CLEO_EVIDENCE_GIT_ROOT';
 
@@ -62,7 +62,7 @@ export const EVIDENCE_GIT_ROOT_ENV = 'CLEO_EVIDENCE_GIT_ROOT';
  * {@link resolveDeclaredEvidenceGitRoot}, rather than by hoping git's ambient
  * state happens to agree.
  *
- * @task gh#1466
+ * @task T12308
  */
 const GIT_AMBIENT_REPO_VARS = [
   'GIT_DIR',
@@ -77,7 +77,7 @@ const GIT_AMBIENT_REPO_VARS = [
  *
  * @param env - Source environment. Defaults to the current process env.
  * @returns Environment safe for directory-discovery probes.
- * @task gh#1466
+ * @task T12308
  */
 function discoveryEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const copy = { ...env };
@@ -129,7 +129,7 @@ export function isGitWorkTree(dir: string): boolean {
  * none.
  *
  * @param dir - Directory to resolve from.
- * @task gh#1466
+ * @task T12308
  */
 export function gitToplevel(dir: string): string | null {
   const top = gitProbe(dir, ['rev-parse', '--show-toplevel']);
@@ -147,7 +147,7 @@ export function gitToplevel(dir: string): string | null {
  *
  * @param dir - Candidate parent directory (the CLEO store root).
  * @returns Canonical absolute paths; empty when there are none.
- * @task gh#1466
+ * @task T12308
  */
 export function findNestedGitWorkTrees(dir: string): string[] {
   let entries: string[];
@@ -194,7 +194,7 @@ export function findNestedGitWorkTree(dir: string): string | null {
  *
  * @param candidates - Checkouts to search, e.g. from {@link findNestedGitWorkTrees}.
  * @param sha - Commit SHA the evidence is about.
- * @task gh#1466
+ * @task T12308
  */
 export function findWorkTreeContainingCommit(
   candidates: readonly string[],
@@ -227,7 +227,7 @@ export interface DeclaredEvidenceGitRoot {
  * this tier has always been optional.
  *
  * @param storeRoot - CLEO store root holding `.cleo/`.
- * @task gh#1466
+ * @task T12308
  */
 function readConfiguredGitRoot(storeRoot: string): string | null {
   try {
@@ -262,7 +262,7 @@ function readConfiguredGitRoot(storeRoot: string): string | null {
  *
  * @param storeRoot - CLEO store root; relative declarations resolve against it.
  * @param env - Environment to read. Defaults to the current process env.
- * @task gh#1466
+ * @task T12308
  */
 export function resolveDeclaredEvidenceGitRoot(
   storeRoot: string,
@@ -310,7 +310,7 @@ export interface MissingGitWorkTreeContext {
  * @param dir - Directory the tools would have run in.
  * @param context - What else is known about the layout.
  * @task gh#1462
- * @task gh#1466
+ * @task T12308
  */
 export function describeMissingGitWorkTree(
   dir: string,
@@ -373,7 +373,7 @@ export function describeMissingGitWorkTree(
  *
  * @param storeRoot - Absolute CLEO store root.
  * @param executionRoot - Root the tools would have run in.
- * @task gh#1466
+ * @task T12308
  */
 export function describeUnusableEvidenceGitRoot(storeRoot: string, executionRoot: string): string {
   const declared = resolveDeclaredEvidenceGitRoot(storeRoot);

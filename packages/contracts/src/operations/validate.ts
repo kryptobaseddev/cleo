@@ -190,7 +190,7 @@ export interface ValidateCoherenceResult {
  * Structurally the core preview payload; declared here so the dispatch layer
  * narrows it without importing from core.
  *
- * @task gh#1468
+ * @task T12308
  */
 export interface ValidateGateRunResult {
   /** Task whose typed gates were run. */

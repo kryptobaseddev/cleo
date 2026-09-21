@@ -231,7 +231,7 @@
     },
     "evidence": {
       "type": "object",
-      "description": "Evidence execution overrides (gh#1466).",
+      "description": "Evidence execution overrides (T12308).",
       "additionalProperties": false,
       "properties": {
         "gitRoot": {

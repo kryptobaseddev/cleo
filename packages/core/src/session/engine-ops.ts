@@ -236,7 +236,7 @@ export async function sessionList(
 
     const total = sessions.length;
     const filtered = result.length;
-    // gh#1469: `--limit 0` means EVERY match on `list` and `find` (the CLI
+    // T12308: `--limit 0` means EVERY match on `list` and `find` (the CLI
     // output contract, fixed for tasks in gh#1302). This guard read `0` as
     // falsy and silently substituted the 10-row default, so the one documented
     // way to enumerate returned a page — which is how 70 leaked active
@@ -481,7 +481,7 @@ export async function sessionStart(
         const conflictId = conflictsByHandle[0]!.id;
         const handleSuffix = params.agentHandle ? ` for agent '${params.agentHandle}'` : '';
 
-        // gh#1469: `session end` ends ONE session, so naming a single blocker
+        // T12308: `session end` ends ONE session, so naming a single blocker
         // and saying "end it first" is only a fix when there IS one. Sessions
         // leak active — an agent that crashes never ends its own — and the
         // count reached 70 in this repo, some four months old. Following the

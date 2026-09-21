@@ -107,7 +107,7 @@ export const schemaCommand = defineCommand({
     list: {
       type: 'boolean',
       description:
-        'List every operation key (domain.operation) so an operation can be discovered before it is introspected (gh#1470).',
+        'List every operation key (domain.operation) so an operation can be discovered before it is introspected (T12308).',
       default: false,
     },
     examples: {
@@ -118,7 +118,7 @@ export const schemaCommand = defineCommand({
     },
   },
   async run({ args, cmd }) {
-    // gh#1470: this command's own "unknown operation" error has been telling
+    // T12308: this command's own "unknown operation" error has been telling
     // callers to `cleo schema --list` — a flag that did not exist, so the
     // remediation for not knowing an operation key was itself rejected with
     // E_UNKNOWN_FLAG. Implemented rather than reworded: discovering the key is

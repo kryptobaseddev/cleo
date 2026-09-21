@@ -113,7 +113,7 @@ export interface TestGate extends GateBase {
    *
    * Satisfied only by a structured report emitted by this gate's own command;
    * a run that produces none returns an error rather than inferring a count
-   * from exit zero (gh#1467).
+   * from exit zero (T12308).
    */
   minCount?: number;
   /** Working directory relative to project root. Default `.`. */
