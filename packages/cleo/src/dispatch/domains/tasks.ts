@@ -52,6 +52,7 @@ import {
   taskClaim,
   taskComplexityEstimate,
   taskCurrentGet,
+  taskDecompose,
   taskDelete,
   taskDepends,
   taskDepsCycles,
@@ -65,6 +66,7 @@ import {
   taskList,
   taskNext,
   taskPlan,
+  taskReconcileScope,
   taskRelates,
   taskRelatesAdd,
   taskRelatesAddBatch,
@@ -383,6 +385,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         severity: params.severity,
         // T1633: BRAIN duplicate-bypass flag
         forceDuplicate: params.forceDuplicate,
+        // T12298: resolve design-point 3 in-line instead of refusing
+        autoDecompose: params.autoDecompose,
       }),
       'add',
     );
@@ -484,6 +488,31 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         allowCascade: params.allowCascade,
       }),
       'cancel',
+    );
+  },
+
+  'reconcile-scope': async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(
+      await taskReconcileScope(projectRoot, {
+        rootId: params.rootId,
+        apply: params.apply,
+        threshold: params.threshold,
+      }),
+      'reconcile-scope',
+    );
+  },
+
+  decompose: async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(
+      await taskDecompose(projectRoot, {
+        taskId: params.taskId,
+        childTitle: params.childTitle,
+        childDescription: params.childDescription,
+        dryRun: params.dryRun,
+      }),
+      'decompose',
     );
   },
 
@@ -694,6 +723,8 @@ const MUTATE_OPS = new Set<string>([
   'update',
   'complete',
   'cancel',
+  'decompose',
+  'reconcile-scope',
   'delete',
   'archive',
   'restore',

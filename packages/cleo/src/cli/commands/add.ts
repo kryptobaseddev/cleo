@@ -216,6 +216,19 @@ export const addCommand = defineCommand({
         'Bypass BRAIN duplicate-task rejection (audited to .cleo/audit/duplicate-bypass.jsonl) (T1633)',
     },
     /**
+     * Resolve the PM-Core V2 design-point 3 guard in-line rather than failing.
+     *
+     * Without it, filing the first subtask under a task that carries its own
+     * text ACs costs three commands: add (rejected), decompose, add again.
+     *
+     * @task T12298
+     */
+    'auto-decompose': {
+      type: 'boolean',
+      description:
+        "Move the parent's text acceptance criteria to a new first subtask if they would block this add (T12298)",
+    },
+    /**
      * Waiver for the critical-priority dependency declaration requirement.
      *
      * Critical-priority tasks without declared dependencies silently break
@@ -392,6 +405,7 @@ export const addCommand = defineCommand({
     if (args.severity !== undefined) params['severity'] = args.severity;
     // T1633: BRAIN duplicate-bypass flag
     if (args['force-duplicate'] !== undefined) params['forceDuplicate'] = args['force-duplicate'];
+    if (args['auto-decompose'] !== undefined) params['autoDecompose'] = args['auto-decompose'];
 
     // T1856: Critical-priority tasks MUST declare dependencies or provide a waiver.
     // Undeclared dependencies on critical tasks silently break wave-order spawning

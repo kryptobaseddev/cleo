@@ -602,7 +602,7 @@
     },
     "hierarchy": {
       "type": "object",
-      "description": "Hierarchy constraints for Epic → Task → Subtask structure. LLM-Agent-First design: limits are organizational, not cognitive.",
+      "description": "Hierarchy constraints for the Saga → Epic → Task → Subtask structure. LLM-Agent-First design: limits are organizational, not cognitive.",
       "additionalProperties": false,
       "properties": {
         "maxSiblings": {
@@ -617,7 +617,7 @@
           "minimum": 1,
           "maximum": 10,
           "default": 3,
-          "description": "Maximum hierarchy depth (epic=0, task=1, subtask=2). Rarely needs changing."
+          "description": "Maximum containment depth VALUE, inclusive (saga=0, epic=1, task=2, subtask=3). The default 3 admits the full canonical spine. Rarely needs changing."
         },
         "countDoneInLimit": {
           "type": "boolean",

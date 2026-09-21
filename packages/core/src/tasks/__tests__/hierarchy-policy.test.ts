@@ -245,24 +245,44 @@ describe('validateHierarchyPlacement — unlimited siblings', () => {
 // ===========================================================================
 
 describe('validateHierarchyPlacement — depth enforcement', () => {
-  it('fails when adding child would exceed maxDepth', () => {
-    // depth 0: T001, depth 1: T002, depth 2: T003
-    // Adding child to T003 → depth 3, which is >= maxDepth(3) → FAIL
+  // `maxDepth` is the maximum depth VALUE, inclusive, over the canonical spine
+  // saga(0) → epic(1) → task(2) → subtask(3). These cases are written in TIER
+  // names rather than bare depth integers on purpose: the previous versions
+  // asserted the arithmetic over untyped fixtures, so when ADR-083/ADR-088 made
+  // `saga` a real containment parent and pushed every tier down one level, they
+  // kept passing while `--type subtask` became unreachable in every saga-rooted
+  // project. A depth test that cannot name the tier it is protecting cannot
+  // notice a tier being inserted above it.
+
+  it('admits a subtask under a task on a saga-rooted spine (depth 3 == maxDepth)', () => {
     const tasks = [
-      makeTask({ id: 'T001' }),
-      makeTask({ id: 'T002', parentId: 'T001' }),
-      makeTask({ id: 'T003', parentId: 'T002' }),
+      makeTask({ id: 'T001', type: 'saga' }),
+      makeTask({ id: 'T002', type: 'epic', parentId: 'T001' }),
+      makeTask({ id: 'T003', type: 'task', parentId: 'T002' }),
     ];
     const policy = llmPolicy(); // maxDepth=3
 
     const result = validateHierarchyPlacement('T003', tasks, policy);
+    expect(result.valid).toBe(true);
+  });
+
+  it('refuses a child of a subtask (depth 4 > maxDepth)', () => {
+    const tasks = [
+      makeTask({ id: 'T001', type: 'saga' }),
+      makeTask({ id: 'T002', type: 'epic', parentId: 'T001' }),
+      makeTask({ id: 'T003', type: 'task', parentId: 'T002' }),
+      makeTask({ id: 'T004', type: 'subtask', parentId: 'T003' }),
+    ];
+    const policy = llmPolicy(); // maxDepth=3
+
+    const result = validateHierarchyPlacement('T004', tasks, policy);
     expect(result.valid).toBe(false);
     expect(result.error?.code).toBe('E_DEPTH_EXCEEDED');
   });
 
   it('succeeds when adding child within maxDepth', () => {
     // depth 0: T001, depth 1: T002
-    // Adding child to T002 → depth 2, which is < maxDepth(3) → OK
+    // Adding child to T002 → depth 2, which is <= maxDepth(3) → OK
     const tasks = [makeTask({ id: 'T001' }), makeTask({ id: 'T002', parentId: 'T001' })];
     const policy = llmPolicy(); // maxDepth=3
 

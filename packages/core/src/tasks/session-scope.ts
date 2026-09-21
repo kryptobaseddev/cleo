@@ -230,6 +230,8 @@ export async function addTaskWithSessionScope(
      * Audited to `.cleo/audit/duplicate-bypass.jsonl`.
      */
     forceDuplicate?: boolean;
+    /** Resolve design-point 3 in-line by decomposing a text-AC parent. @task T12298 */
+    autoDecompose?: boolean;
   },
 ): Promise<
   EngineResult<{
@@ -242,6 +244,7 @@ export async function addTaskWithSessionScope(
      * parent (PM-Core V2 design-point 5). @saga T10538
      */
     reopenedAncestors?: string[];
+    autoDecomposed?: { childId: string; movedAcceptance: string[] };
     /**
      * Present when the parent was NOT a plain explicit argument — an inference
      * fired, was declined as stale, or the session lookup failed.
@@ -273,6 +276,7 @@ export async function addTaskWithSessionScope(
         dryRun?: boolean;
         warnings?: string[];
         reopenedAncestors?: string[];
+        autoDecomposed?: { childId: string; movedAcceptance: string[] };
       }>;
     }
 
@@ -302,6 +306,7 @@ export async function addTaskWithSessionScope(
         scope: params.scope as TaskScope | undefined,
         severity: params.severity as TaskSeverity | undefined,
         forceDuplicate: params.forceDuplicate,
+        autoDecompose: params.autoDecompose,
       },
       projectRoot,
       accessor,
@@ -315,6 +320,7 @@ export async function addTaskWithSessionScope(
       ...(inferenceNote ? { parentInference: { parentSource, note: inferenceNote } } : {}),
       ...(result.warnings?.length && { warnings: result.warnings }),
       // T10538 / design-point 5 — surface the ancestor reopen to the caller.
+      ...(result.autoDecomposed && { autoDecomposed: result.autoDecomposed }),
       ...(result.reopenedAncestors?.length && {
         reopenedAncestors: result.reopenedAncestors,
       }),
