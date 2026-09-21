@@ -54,6 +54,21 @@ export async function upsertTask(
   // In bulk/archive mode (allowOrphanParent=true) we silently null it out to
   // avoid FK violations during migrations. In normal mode we log a warning so
   // the data integrity issue surfaces without breaking the write.
+  // T12307: a row that parents itself is never legitimate, and BOTH production
+  // triggers miss it on INSERT — `tasks_parent_type_matrix_insert` and
+  // `tasks_parent_cycle_guard_insert` each resolve the parent with
+  // `WHERE parent.id = NEW.parent_id`, which matches nothing while the row is
+  // still being inserted, so their WHEN clauses are vacuously false. The
+  // self-edge then reached the recursive ancestor/subtree CTEs and recursed
+  // forever in native SQLite memory. Those CTEs now carry their own guards, so
+  // this is defence in depth — but the write is the right place to refuse it.
+  if (row.parentId && row.parentId === row.id) {
+    throw new Error(
+      `E_TASK_PARENT_SELF: task ${row.id} cannot be its own parent — ` +
+        'containment must form a tree. Pass the real parent id, or omit --parent for a root.',
+    );
+  }
+
   if (row.parentId) {
     const parent = await db
       .select({ id: schema.tasks.id })
