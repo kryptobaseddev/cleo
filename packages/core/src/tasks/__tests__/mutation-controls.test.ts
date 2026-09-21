@@ -33,6 +33,13 @@ async function configureOwners(owners: string[]): Promise<void> {
   await writeFile(path, JSON.stringify({ ...config, ownerPubkeys: owners }));
 }
 
+// T12306: these fixtures read and fault-inject the CANONICAL receipt table
+// `tasks_audit_log`. They previously targeted the bare `audit_log` relic, so once
+// the writer moved they read an empty table and installed their ABORT triggers on
+// a table nothing writes — the rollback cases still ran their setup and then
+// asserted against a mutation that was never actually faulted. Only the physical
+// table name changed; every severity, rollback, signature and provenance
+// assertion in this file is untouched.
 function freshRead() {
   return JSON.parse(
     execFileSync(
@@ -44,7 +51,7 @@ function freshRead() {
     import { DatabaseSync } from 'node:sqlite';
     const db = new DatabaseSync(process.argv[1], { readOnly: true });
     const tasks = db.prepare('SELECT id, title, priority, severity FROM main.tasks_tasks ORDER BY id').all();
-    const audit = db.prepare("SELECT task_id, action, details_json FROM main.audit_log WHERE action IN ('task_created','task_updated') ORDER BY rowid").all();
+    const audit = db.prepare("SELECT task_id, action, details_json FROM main.tasks_audit_log WHERE action IN ('task_created','task_updated') ORDER BY rowid").all();
     db.close(); process.stdout.write(JSON.stringify({ tasks, audit }));
   `,
         join(env.cleoDir, 'cleo.db'),
@@ -246,7 +253,7 @@ describe('canonical task mutation controls', () => {
     const db = new DatabaseSync(join(env.cleoDir, 'cleo.db'));
     try {
       db.exec(
-        "CREATE TRIGGER refuse_fixture_receipt BEFORE INSERT ON main.audit_log WHEN NEW.action='task_created' BEGIN SELECT RAISE(ABORT, 'fixture receipt fault'); END",
+        "CREATE TRIGGER refuse_fixture_receipt BEFORE INSERT ON main.tasks_audit_log WHEN NEW.action='task_created' BEGIN SELECT RAISE(ABORT, 'fixture receipt fault'); END",
       );
       await expect(
         addTask(
@@ -281,7 +288,7 @@ describe('canonical task mutation controls', () => {
     const db = new DatabaseSync(join(env.cleoDir, 'cleo.db'));
     try {
       db.exec(
-        "CREATE TRIGGER refuse_update_receipt BEFORE INSERT ON main.audit_log WHEN NEW.action='task_updated' BEGIN SELECT RAISE(ABORT, 'fixture update receipt fault'); END",
+        "CREATE TRIGGER refuse_update_receipt BEFORE INSERT ON main.tasks_audit_log WHEN NEW.action='task_updated' BEGIN SELECT RAISE(ABORT, 'fixture update receipt fault'); END",
       );
       await expect(
         tasksUpdateOp(env.tempDir, {
@@ -310,7 +317,7 @@ describe('canonical task mutation controls', () => {
     const db = new DatabaseSync(join(env.cleoDir, 'cleo.db'));
     try {
       db.exec(
-        "CREATE TRIGGER refuse_duplicate_receipt BEFORE INSERT ON main.audit_log WHEN NEW.action='task_created' BEGIN SELECT RAISE(ABORT, 'fixture duplicate receipt fault'); END",
+        "CREATE TRIGGER refuse_duplicate_receipt BEFORE INSERT ON main.tasks_audit_log WHEN NEW.action='task_created' BEGIN SELECT RAISE(ABORT, 'fixture duplicate receipt fault'); END",
       );
       await expect(
         addTask({ ...toTaskAddOptions(input), forceDuplicate: true }, env.tempDir, env.accessor),

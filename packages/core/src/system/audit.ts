@@ -248,32 +248,78 @@ export async function queryAuditLog(
 
   const { dbExists, getDb } = await import('../store/sqlite.js');
   if (!dbExists(projectRoot)) return emptyResult;
-  const { auditLog } = await import('../store/tasks-schema.js');
   const { sql } = await import('drizzle-orm');
   // Missing history is distinct from a failed read. Let DB and JSON errors
   // reach the dispatch error envelope instead of claiming an empty result.
   const db = await getDb(projectRoot);
 
+  // T12306: read the CANONICAL receipt table, and keep legacy history reachable.
+  //
+  // The writer moved to `tasks_audit_log` with the E6 prefixed-store cutover,
+  // while this public reader still selected from the bare `audit_log` relic. The
+  // two never diverged loudly — they diverged SILENTLY: every new receipt was
+  // written correctly and committed, and `cleo log` reported an empty history
+  // for it. An empty successful read is the worst possible shape for an audit
+  // surface, because it is indistinguishable from "nothing happened".
+  //
+  // Legacy rows are NOT migrated, rewritten or hidden here. Both tables are read
+  // and combined, so authentic pre-cutover history stays addressable by the same
+  // public query. `UNION` (not `UNION ALL`) collapses a row that exists
+  // byte-identically in both after a copy-forward, while two rows sharing an id
+  // but differing in content are BOTH surfaced rather than silently picking a
+  // winner — conflicting provenance is a finding, not something to resolve here.
+  const auditColumns = [
+    'id',
+    'timestamp',
+    'action',
+    'task_id',
+    'actor',
+    'details_json',
+    'before_json',
+    'after_json',
+    'domain',
+    'operation',
+    'session_id',
+    'request_id',
+    'duration_ms',
+    'success',
+    'source',
+    'gateway',
+    'error_message',
+  ].join(', ');
+
+  // A store created after the cutover legitimately has no legacy table. Its
+  // ABSENCE is normal and must not be read as a failure; a failure to ASK is
+  // still propagated, because that is a broken read, not a missing table.
+  const legacyPresence = await db.all<{ name: string }>(
+    sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'audit_log'`,
+  );
+  const hasLegacy = legacyPresence.length > 0;
+
+  const auditSource = hasLegacy
+    ? sql.raw(
+        `(SELECT ${auditColumns} FROM tasks_audit_log UNION SELECT ${auditColumns} FROM audit_log)`,
+      )
+    : sql.raw(`(SELECT ${auditColumns} FROM tasks_audit_log)`);
+
   const conditions: ReturnType<typeof sql>[] = [];
   if (filters?.operation) {
-    conditions.push(
-      sql`(${auditLog.action} = ${filters.operation} OR ${auditLog.operation} = ${filters.operation})`,
-    );
+    conditions.push(sql`(action = ${filters.operation} OR operation = ${filters.operation})`);
   }
   if (filters?.taskId) {
-    conditions.push(sql`${auditLog.taskId} = ${filters.taskId}`);
+    conditions.push(sql`task_id = ${filters.taskId}`);
   }
   if (filters?.since) {
-    conditions.push(sql`${auditLog.timestamp} >= ${filters.since}`);
+    conditions.push(sql`timestamp >= ${filters.since}`);
   }
   if (filters?.until) {
-    conditions.push(sql`${auditLog.timestamp} <= ${filters.until}`);
+    conditions.push(sql`timestamp <= ${filters.until}`);
   }
 
   const whereClause = conditions.length > 0 ? sql.join(conditions, sql` AND `) : sql`1=1`;
 
   const countResult = await db.all<{ cnt: number }>(
-    sql`SELECT count(*) as cnt FROM ${auditLog} WHERE ${whereClause}`,
+    sql`SELECT count(*) as cnt FROM ${auditSource} AS audit_entries WHERE ${whereClause}`,
   );
   const total = countResult[0]?.cnt ?? 0;
 
@@ -300,9 +346,9 @@ export async function queryAuditLog(
     gateway: string | null;
     error_message: string | null;
   }>(
-    sql`SELECT * FROM ${auditLog}
+    sql`SELECT * FROM ${auditSource} AS audit_entries
         WHERE ${whereClause}
-        ORDER BY ${auditLog.timestamp} DESC
+        ORDER BY timestamp DESC
         LIMIT ${limit} OFFSET ${offset}`,
   );
 
