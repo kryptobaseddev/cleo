@@ -24,75 +24,23 @@
  * @epic T9964
  */
 
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DocAttachmentObservationPayload } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { DocsAddResult } from '@cleocode/contracts/operations/docs';
+import {
+  _resetBrainWriterForTests,
+  shutdownBrainWriter,
+} from '@cleocode/core/memory/brain-writer-thread';
+import { awaitBackgroundOps, pendingBackgroundOpCount } from '@cleocode/core/store/background-ops';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocsHandler } from '../docs.js';
 import { MemoryHandler } from '../memory.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Wait up to `ms` milliseconds for `predicate()` to return truthy. */
-async function waitFor(predicate: () => Promise<boolean>, ms = 4000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    if (await predicate()) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
-
-/**
- * Best-effort settle window for fire-and-forget brain writers before teardown.
- *
- * `docs.add` emits its observation via an UN-awaited promise chain
- * (`emitDocAttachmentObservation` → `memoryObserve`), and a successful
- * `memory.find` schedules `setImmediate` follow-ups (citation increments,
- * retrieval logging, session-id resolution). Those tails can still be in
- * flight when the test body finishes; if they open or write `.cleo/cleo.db`
- * after `closeAllDatabases()` — or worse, mid-`rm` — they recreate files
- * inside `.cleo` and the recursive removal fails with ENOTEMPTY (the macOS
- * CI shard-1 flake on PRs #1188/#1191/#1202; Linux timing never lined up).
- * Two `setImmediate` ticks plus a short sleep let those tails land while the
- * handles are still open. {@link rmWithRetry} is the bounded backstop for
- * anything slower.
- *
- * @task T12101
- */
-async function drainPendingBrainWrites(): Promise<void> {
-  await new Promise((r) => setImmediate(r));
-  await new Promise((r) => setImmediate(r));
-  await new Promise((r) => setTimeout(r, 200));
-}
-
-/**
- * Recursive `rm` that retries the transient ENOTEMPTY/EBUSY/EPERM races
- * produced by late fire-and-forget writers (see {@link drainPendingBrainWrites}).
- * Bounded to ~2.5s; any other error is rethrown immediately.
- *
- * Handles are always closed via `closeAllDatabases()` BEFORE this runs — the
- * retry only covers stragglers that re-create a file during the removal walk,
- * never an openly held handle.
- *
- * @task T12101
- */
-async function rmWithRetry(path: string): Promise<void> {
-  const maxAttempts = 25;
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await rm(path, { recursive: true, force: true });
-      return;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      const transient = code === 'ENOTEMPTY' || code === 'EBUSY' || code === 'EPERM';
-      if (!transient || attempt >= maxAttempts) throw err;
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  }
-}
 
 /**
  * Search brain_observations directly via SQLite for doc-attachment entries.
@@ -139,21 +87,27 @@ beforeEach(async () => {
   // Both macOS-only symptoms are this one cause. Linux tmpdir is not symlinked,
   // which is why it never reproduced there.
   tempDir = await realpath(await mkdtemp(join(tmpdir(), 'cleo-docs-mem-')));
-  process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+  vi.stubEnv('CLEO_ROOT', tempDir);
+  vi.stubEnv('CLEO_DIR', join(tempDir, '.cleo'));
+  vi.stubEnv('CLEO_BRAIN_BYPASS_WRITER_THREAD', '1');
+  await mkdir(join(tempDir, '.cleo'));
+  await writeFile(
+    join(tempDir, '.cleo/project-info.json'),
+    JSON.stringify({ projectId: 'observation-fixture', projectRoot: tempDir }),
+  );
 
   fixtureFile = join(tempDir, 'spec.md');
   await writeFile(fixtureFile, '# Spec\n\nT9976 doc-attachment observation test', 'utf-8');
 });
 
 afterEach(async () => {
-  // T12101: settle fire-and-forget brain writers BEFORE closing handles, so
-  // they finish on the open DB instead of reopening `.cleo/cleo.db` during
-  // the recursive removal (ENOTEMPTY on macOS CI).
-  await drainPendingBrainWrites();
+  await awaitBackgroundOps();
+  await shutdownBrainWriter();
+  _resetBrainWriterForTests();
   const { closeAllDatabases } = await import('@cleocode/core/internal');
   await closeAllDatabases();
-  delete process.env['CLEO_DIR'];
-  await rmWithRetry(tempDir);
+  vi.unstubAllEnvs();
+  await rm(tempDir, { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -172,15 +126,13 @@ describe('T9976 — docs.add emits memory observation (AC1 + AC2)', () => {
       attachedBy: 'test',
     });
     expect(addResp.success, `docs.add failed: ${JSON.stringify(addResp.error)}`).toBe(true);
-    const addData = addResp.data as { attachmentId: string };
-
-    // AC1: poll brain.db directly (bypasses RRF/vector path) until the
-    // fire-and-forget observation lands.
-    let foundRow: { id: string; narrative: string | null } | undefined;
-    await waitFor(async () => {
-      foundRow = await findDocObservationBySlug(slug);
-      return foundRow !== undefined;
+    expect((addResp.data as DocsAddResult).projection, JSON.stringify(addResp.data)).toMatchObject({
+      status: 'completed',
     });
+    const addData = addResp.data as DocsAddResult;
+
+    // Completed projection makes its persisted observation immediately readable.
+    const foundRow = await findDocObservationBySlug(slug);
 
     expect(
       foundRow,
@@ -218,6 +170,61 @@ describe('T9976 — docs.add emits memory observation (AC1 + AC2)', () => {
     expect(hit?.title).toContain(slug);
   });
 
+  it('drains actual memory.find retrieval writes before fixture teardown', async () => {
+    const retrieval = await import('@cleocode/core/memory/retrieval/log-retrieval');
+    const original = retrieval.logRetrieval;
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const finished = Promise.withResolvers<void>();
+    const spy = vi.spyOn(retrieval, 'logRetrieval').mockImplementation(async (...args) => {
+      entered.resolve();
+      await release.promise;
+      try {
+        await original(...args);
+      } finally {
+        finished.resolve();
+      }
+    });
+    const slug = 't12283-retrieval-lifetime';
+    let drain: Promise<void> | undefined;
+    try {
+      const added = await docsHandler.mutate('add', {
+        ownerId: 'T9976',
+        file: fixtureFile,
+        slug,
+        attachedBy: 'test',
+      });
+      expect(added.success).toBe(true);
+      expect((added.data as DocsAddResult).projection).toMatchObject({ status: 'completed' });
+      expect(await findDocObservationBySlug(slug)).toBeDefined();
+      const found = await memoryHandler.query('find', { query: slug, tables: ['observations'] });
+      expect(found.success).toBe(true);
+      await entered.promise;
+      expect(pendingBackgroundOpCount()).toBeGreaterThan(0);
+      let drained = false;
+      drain = awaitBackgroundOps().then(() => {
+        drained = true;
+      });
+      await Promise.resolve();
+      expect(drained).toBe(false);
+      release.resolve();
+      await drain;
+      expect(pendingBackgroundOpCount()).toBe(0);
+      const { getBrainNativeDb } = await import('@cleocode/core/internal');
+      expect(
+        getBrainNativeDb(tempDir)
+          ?.prepare('SELECT query FROM brain_retrieval_log WHERE query = ?')
+          .get(slug),
+      ).toMatchObject({ query: slug });
+      expect(await findDocObservationBySlug(slug)).toBeDefined();
+    } finally {
+      release.resolve();
+      if (spy.mock.calls.length > 0) await finished.promise;
+      await drain;
+      spy.mockRestore();
+    }
+  });
+
   it('emits a doc-attachment observation for URL attachments', async () => {
     const slug = 't9976-url-slug';
 
@@ -228,13 +235,12 @@ describe('T9976 — docs.add emits memory observation (AC1 + AC2)', () => {
       attachedBy: 'test',
     });
     expect(addResp.success, `docs.add URL failed: ${JSON.stringify(addResp.error)}`).toBe(true);
-    const addData = addResp.data as { attachmentId: string };
-
-    let foundRow: { id: string; narrative: string | null } | undefined;
-    await waitFor(async () => {
-      foundRow = await findDocObservationBySlug(slug);
-      return foundRow !== undefined;
+    expect((addResp.data as DocsAddResult).projection, JSON.stringify(addResp.data)).toMatchObject({
+      status: 'completed',
     });
+    const addData = addResp.data as DocsAddResult;
+
+    const foundRow = await findDocObservationBySlug(slug);
 
     expect(
       foundRow,
@@ -265,18 +271,15 @@ describe('T9976 — memory.verify round-trips against docs store (AC3)', () => {
       attachedBy: 'test',
     });
     expect(addResp.success).toBe(true);
-
-    // Wait for observation to land in brain.db
-    let foundRow: { id: string; narrative: string | null } | undefined;
-    await waitFor(async () => {
-      foundRow = await findDocObservationBySlug(slug);
-      return foundRow !== undefined;
+    expect((addResp.data as DocsAddResult).projection, JSON.stringify(addResp.data)).toMatchObject({
+      status: 'completed',
     });
 
-    if (!foundRow) {
-      // Observation hasn't landed — skip verify check gracefully.
-      return;
-    }
+    // Verify the actual awaited projection, with no polling or missing-row skip.
+    const foundRow = await findDocObservationBySlug(slug);
+
+    expect(foundRow).toBeDefined();
+    if (!foundRow) throw new Error('Completed projection lacks its observation');
 
     const verifyResp = await memoryHandler.mutate('verify', { id: foundRow.id });
     expect(verifyResp.success).toBe(true);
@@ -302,15 +305,15 @@ describe('T9976 — memory.verify round-trips against docs store (AC3)', () => {
       attachedBy: 'test',
     });
     expect(addResp.success).toBe(true);
-    const addData = addResp.data as { attachmentId: string };
-
-    let foundRow: { id: string; narrative: string | null } | undefined;
-    await waitFor(async () => {
-      foundRow = await findDocObservationBySlug(slug);
-      return foundRow !== undefined;
+    expect((addResp.data as DocsAddResult).projection, JSON.stringify(addResp.data)).toMatchObject({
+      status: 'completed',
     });
+    const addData = addResp.data as DocsAddResult;
 
-    if (!foundRow) return;
+    const foundRow = await findDocObservationBySlug(slug);
+
+    expect(foundRow).toBeDefined();
+    if (!foundRow) throw new Error('Completed projection lacks its observation');
 
     // Remove the attachment so the next verify finds it missing
     const removeResp = await docsHandler.mutate('remove', {
@@ -348,8 +351,11 @@ describe('T9976 — memory.backfill-docs sweeps existing attachments (AC4)', () 
       attachedBy: 'test',
     });
     expect(addA.success).toBe(true);
+    expect((addA.data as DocsAddResult).projection, JSON.stringify(addA.data)).toMatchObject({
+      status: 'completed',
+    });
 
-    // First backfill run — should emit or skip (depending on whether auto-emit already fired)
+    // First backfill retains the already verified attachment observation.
     const backfillResp = await memoryHandler.mutate('backfill-docs', {});
     expect(
       backfillResp.success,
@@ -369,8 +375,7 @@ describe('T9976 — memory.backfill-docs sweeps existing attachments (AC4)', () 
     expect(typeof backfillData.hint).toBe('string');
     expect(backfillData.hint.length).toBeGreaterThan(0);
 
-    // Wait for any newly-emitted observations to land
-    await new Promise((r) => setTimeout(r, 200));
+    // Existing attachment observations must make repeated backfill immediately idempotent.
 
     // Second run must be fully idempotent — 0 emitted, all skipped
     const backfill2 = await memoryHandler.mutate('backfill-docs', {});

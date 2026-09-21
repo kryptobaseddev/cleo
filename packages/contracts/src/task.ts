@@ -21,7 +21,8 @@
  * @task T4456
  */
 
-import type { AcceptanceGate } from './acceptance-gate.js';
+import type { AcceptanceGate, AcceptanceGateResult } from './acceptance-gate.js';
+import type { AcRow } from './data-accessor.js';
 import type { TaskStatus } from './status-registry.js';
 
 export type { TaskStatus };
@@ -159,6 +160,29 @@ export type VerificationGate =
    */
   | 'nexusImpact';
 
+/** Task and criterion scope used while validating evidence, independent of PR metadata. */
+export interface EvidenceValidationContext {
+  /** Canonical current task intent; prose is never interpreted as a file declaration. */
+  task: Pick<Task, 'id' | 'kind' | 'labels' | 'files' | 'acceptance' | 'verification'>;
+  /** Gates requested by this verification operation. */
+  gates: readonly VerificationGate[];
+  /** Canonical criteria read for this verification operation. */
+  criteria: ReadonlyArray<Pick<AcRow, 'id' | 'text' | 'updatedAt'>>;
+  /** Verified PR merge whose immutable artifact bytes must be inspected. */
+  artifactCommitSha?: string;
+}
+
+/** Explicit criterion link to inspected artifacts and validated results in one gate receipt. */
+export interface CriterionEvidenceLink {
+  /** Canonical criterion identity and exact text hash at verification time. */
+  criterionId: string;
+  criterionHash: string;
+  /** Inspected changed artifacts; correspondence is asserted by the foreground caller. */
+  artifactPaths: string[];
+  /** Indices of actual validated result atoms in the containing gate's atoms array. */
+  resultAtomIndices: number[];
+}
+
 /** Verification failure log entry. */
 export interface VerificationFailure {
   /** Verification round number when the failure occurred. */
@@ -288,35 +312,9 @@ export type EvidenceAtom =
     }
   | {
       /**
-       * Pull-request atom — proves that a referenced GitHub PR shipped to
-       * the project's primary branch with CI green.
-       *
-       * Closes the release-verb dogfood gap (T9764): tasks that ship via the
-       * standard PR + admin-merge flow lacked a zero-friction way to record
-       * `implemented` / `testsPassed` / `qaPassed` evidence after the fact.
-       * Re-running `tool:test` against the entire monorepo is overkill for
-       * one-line tasks, and `note:` is rejected for hard gates on critical
-       * verifications.
-       *
-       * A `pr:<number>` atom satisfies `implemented`, `testsPassed`, and
-       * `qaPassed` simultaneously (T9838) when:
-       *   1. `state === 'MERGED'` (PR was actually shipped to main)
-       *   2. `mergedAt` is non-null (defends against API races)
-       *   3. The status-check rollup contains ≥1 SUCCESS check and zero
-       *      FAILURE checks in the required workflows
-       *      (`CI`, `Lockfile Check`, `Contracts Dep Lint`)
-       *
-       * Format: `pr:<positive integer>` (e.g. `pr:357`)
-       *
-       * Validation: CLEO calls `gh pr view <num> --json
-       * statusCheckRollup,mergeable,state,mergedAt,headRefOid` and parses
-       * the rollup. Results are cached under
-       * `.cleo/cache/evidence/pr-<num>.json` keyed on `(prNumber, mergedAt)`
-       * so re-verifies skip the network round trip.
-       *
-       * @task T9764
-       * @epic T9762
-       * @saga T9758
+       * Merged-PR provenance. Implementation additionally requires inspected
+       * changed artifacts and task/criterion linkage. Test and review gates
+       * require their own result atoms; merge status cannot satisfy them.
        */
       kind: 'pr';
       /** PR number (positive integer). */
@@ -329,6 +327,10 @@ export type EvidenceAtom =
       successCount: number;
       /** Total number of checks evaluated in the rollup. */
       totalChecks: number;
+      /** Complete PR changed-file inventory retained for task-scope checks and display. */
+      changedPaths?: string[];
+      /** Explicit task relationship established when this atom was accepted. */
+      taskId?: string;
     }
   | {
       /**
@@ -379,6 +381,13 @@ export type EvidenceAtom =
 export interface GateEvidence {
   /** One or more evidence atoms supporting this gate. */
   atoms: EvidenceAtom[];
+  /** Task and gate scope captured alongside explicitly linked criterion evidence. */
+  scope?: {
+    taskId: string;
+    gate: VerificationGate;
+    classification: 'code' | 'documentation' | 'research';
+    criteria: CriterionEvidenceLink[];
+  };
   /** ISO 8601 timestamp of when evidence was captured. */
   capturedAt: string;
   /** Agent identifier that captured the evidence. */
@@ -395,6 +404,8 @@ export interface GateEvidence {
 
 /** Task verification state. */
 export interface TaskVerification {
+  /** Explicitly verified acceptance results; only current authenticated bindings support completion. */
+  gateResults?: AcceptanceGateResult[];
   /** Whether all required verification gates have passed. */
   passed: boolean;
   /** Current verification round number (starts at 1). */
@@ -732,13 +743,13 @@ export type CancelledTask = Task & {
 };
 
 /**
- * Shape of a signed severity attestation line appended to the audit log.
+ * Severity assertion signed with the project identity.
  *
- * The attestation is produced whenever a task's `--severity` flag is
- * explicitly set.  It is signed with the project's CLEO Ed25519 identity and
- * appended to `.cleo/audit/severity-attestation.jsonl` as a single JSON line
- * (stable / sorted-key serialisation so verifiers can reconstruct the signed
- * payload).
+ * Explicit severity changes through CLI, params, or SDK receive signed
+ * assertions bound to the actual task ID in the same transaction as the task
+ * audit. Standalone legacy JSONL assertions remain historical evidence and
+ * do not establish that a task mutation committed. Sorted-key serialization
+ * lets verifiers reconstruct the signed payload.
  *
  * Renamed from the earlier `BugSeverityAttestation` (which was scoped only to
  * `cleo bug`).  The new name reflects that severity attestation is a
@@ -761,6 +772,17 @@ export interface SeverityAttestation {
   taskId?: string;
   /** Signer's Ed25519 public key (hex, 64 hex characters). */
   signerPub: string;
+}
+
+/** Signed severity assertion; task audit persistence establishes commit provenance. */
+export interface SignedSeverityAttestation extends SeverityAttestation {
+  /** Ed25519 signature of the canonical assertion, excluding this signature field. */
+  _sig: {
+    /** Hex-encoded signature. */
+    sig: string;
+    /** Hex-encoded signing public key, matching signerPub. */
+    pub: string;
+  };
 }
 
 /** Phase status. */

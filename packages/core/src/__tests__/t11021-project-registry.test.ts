@@ -10,11 +10,17 @@
  * the SAME row is updated in place (same projectId, new path + new projectHash) —
  * there is no second entry and no GC of an old-path row.
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { registerProjectOnEncounter, resolveProjectById } from '../paths.js';
+import { worktreeScope } from '../project-scope.js';
+import {
+  awaitBackgroundOps,
+  createOperationExecutionContext,
+  pendingBackgroundOpCount,
+} from '../store/background-ops.js';
 
 function createTempCleoProject(dir: string, opts?: { projectName?: string; projectId?: string }) {
   const pid = opts?.projectId ?? `pid-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -245,4 +251,236 @@ describe('registerProjectOnEncounter (T11021 AC2, AC3, AC5)', () => {
       else delete process.env['CLEO_HOME'];
     }
   });
+});
+
+describe('captured encounter registration ownership', () => {
+  afterEach(async () => {
+    await awaitBackgroundOps();
+    const { closeAllDatabases } = await import('../store/sqlite.js');
+    await closeAllDatabases();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  for (const changeAmbient of [false, true]) {
+    it(`registers globally while a project writer is held (ambient switch ${changeAmbient})`, async () => {
+      const fixture = mkdtempSync(join(tmpdir(), 'cleo-encounter-owned-'));
+      const project = join(fixture, 'project');
+      const other = join(fixture, 'other');
+      const home = join(fixture, 'global');
+      const otherHome = join(fixture, 'other-global');
+      mkdirSync(home, { recursive: true });
+      mkdirSync(otherHome, { recursive: true });
+      const { infoProjectId } = createTempCleoProject(project, { projectName: 'Captured project' });
+      createTempCleoProject(other);
+      vi.stubEnv('CLEO_HOME', home);
+      vi.stubEnv('CLEO_ROOT', project);
+      vi.stubEnv('CLEO_DIR', join(project, '.cleo'));
+      const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
+      const { peekProjectDomain } = await import('../store/ports/domain-binding.js');
+      await worktreeScope.run({ worktreeRoot: project, projectHash: 'fixture' }, () =>
+        getDb(project),
+      );
+      const native = getNativeTasksDb(project)!;
+      native.exec('BEGIN IMMEDIATE');
+      const identity = await import('../nexus/identity.js');
+      const original = identity.canonicalProjectId;
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      vi.spyOn(identity, 'canonicalProjectId').mockImplementationOnce(async (...args) => {
+        entered.resolve();
+        await release.promise;
+        return original(...args);
+      });
+      const pending = registerProjectOnEncounter(project, infoProjectId);
+      try {
+        await entered.promise;
+        const wasTracked = pendingBackgroundOpCount() > 0;
+        if (changeAmbient) {
+          vi.stubEnv('CLEO_HOME', otherHome);
+          vi.stubEnv('CLEO_ROOT', other);
+          vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+        }
+        release.resolve();
+        await pending;
+        expect(native.isTransaction).toBe(true);
+        expect(
+          worktreeScope.run({ worktreeRoot: project, projectHash: 'fixture' }, () =>
+            peekProjectDomain('nexus', project),
+          ),
+        ).toBeNull();
+        const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+        const { projectRegistry } = await import('../store/schema/nexus-schema.js');
+        const rows = (await getNexusRegistryDb(home)).select().from(projectRegistry).all();
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+          projectId: infoProjectId,
+          projectPath: project,
+          name: 'Captured project',
+        });
+        expect(existsSync(join(otherHome, 'cleo.db'))).toBe(false);
+        expect(wasTracked).toBe(true);
+      } finally {
+        release.resolve();
+        await pending.catch(() => {});
+        if (native.isTransaction) native.exec('ROLLBACK');
+        await awaitBackgroundOps();
+        const { closeAllDatabases } = await import('../store/sqlite.js');
+        await closeAllDatabases();
+        rmSync(fixture, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it('retains both immutable owners when their lossy legacy path aliases collide', async () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'cleo-encounter-common-prefix-'));
+    const projectA = join(fixture, 'project-a');
+    const projectB = join(fixture, 'project-b');
+    const idA = createTempCleoProject(projectA).infoProjectId;
+    const idB = createTempCleoProject(projectB).infoProjectId;
+    const home = join(fixture, 'global');
+    mkdirSync(home);
+    vi.stubEnv('CLEO_HOME', home);
+    const warning = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const { legacyProjectId } = await import('../nexus/identity.js');
+    expect(legacyProjectId(projectA)).toBe(legacyProjectId(projectB));
+    try {
+      await registerProjectOnEncounter(projectA, idA);
+      await registerProjectOnEncounter(projectB, idB);
+      const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+      const { projectRegistry, projectIdAliases } = await import('../store/schema/nexus-schema.js');
+      const { eq } = await import('drizzle-orm');
+      const db = await getNexusRegistryDb(home);
+      expect(
+        db
+          .select()
+          .from(projectRegistry)
+          .all()
+          .map((row) => row.projectId)
+          .sort(),
+      ).toEqual([idA, idB].sort());
+      expect(
+        db
+          .select()
+          .from(projectIdAliases)
+          .where(eq(projectIdAliases.legacyId, legacyProjectId(projectA)))
+          .get()?.canonicalId,
+      ).toBe(idA);
+      expect(warning).toHaveBeenCalledWith(
+        expect.stringContaining('omitted colliding legacy alias'),
+      );
+    } finally {
+      await awaitBackgroundOps();
+      const { closeAllDatabases } = await import('../store/sqlite.js');
+      await closeAllDatabases();
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects conflicting owners and rolls back a registry insert when alias storage fails', async () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'cleo-encounter-conflict-'));
+    const project = join(fixture, 'project');
+    const second = join(fixture, 'second');
+    const home = join(fixture, 'global');
+    mkdirSync(home);
+    const { infoProjectId } = createTempCleoProject(project);
+    const secondId = createTempCleoProject(second).infoProjectId;
+    vi.stubEnv('CLEO_HOME', home);
+    const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+    const { projectRegistry } = await import('../store/schema/nexus-schema.js');
+    const { sql } = await import('drizzle-orm');
+    try {
+      await registerProjectOnEncounter(project, infoProjectId);
+      const db = await getNexusRegistryDb(home);
+      const before = db.select().from(projectRegistry).all();
+      await expect(registerProjectOnEncounter(project, secondId)).rejects.toThrow(
+        'another immutable identity',
+      );
+      expect(db.select().from(projectRegistry).all()).toEqual(before);
+      db.run(
+        sql`CREATE TRIGGER reject_fixture_alias BEFORE INSERT ON nexus_project_id_aliases BEGIN SELECT RAISE(ABORT, 'fixture alias failure'); END`,
+      );
+      await expect(registerProjectOnEncounter(second, secondId)).rejects.toThrow();
+      expect(db.select().from(projectRegistry).all()).toEqual(before);
+      db.run(sql`DROP TRIGGER reject_fixture_alias`);
+      const { canonicalProjectId } = await import('../nexus/identity.js');
+      const canonical = await canonicalProjectId(second);
+      db.insert(projectRegistry)
+        .values({
+          projectId: canonical.id,
+          projectHash: 'independent-owner',
+          projectPath: join(fixture, 'independent-owner'),
+          name: 'Existing canonical alias owner',
+        })
+        .run();
+      const beforeCanonicalConflict = db.select().from(projectRegistry).all();
+      await expect(registerProjectOnEncounter(second, secondId)).rejects.toThrow(
+        'another immutable identity',
+      );
+      expect(db.select().from(projectRegistry).all()).toEqual(beforeCanonicalConflict);
+      writeFileSync(join(second, '.cleo', 'project-info.json'), '{malformed');
+      await expect(registerProjectOnEncounter(second, secondId)).rejects.toThrow();
+      expect(db.select().from(projectRegistry).all()).toEqual(beforeCanonicalConflict);
+    } finally {
+      await awaitBackgroundOps();
+      const { closeAllDatabases } = await import('../store/sqlite.js');
+      await closeAllDatabases();
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  for (const cancellation of ['caller', 'teardown'] as const) {
+    it(`retains ${cancellation} cancellation and does not publish a late registry row`, async () => {
+      const fixture = mkdtempSync(join(tmpdir(), 'cleo-encounter-cancel-'));
+      const project = join(fixture, 'project');
+      const home = join(fixture, 'global');
+      mkdirSync(home);
+      const { infoProjectId } = createTempCleoProject(project);
+      writeFileSync(
+        join(project, '.cleo', 'project-info.json'),
+        JSON.stringify({ projectId: infoProjectId, projectHash: 'fixture' }),
+      );
+      vi.stubEnv('CLEO_HOME', home);
+      const controller = new AbortController();
+      const execution = createOperationExecutionContext(
+        {
+          projectRoot: project,
+          projectId: infoProjectId,
+          actor: 'test',
+          operation: 'encounter',
+          idempotencyKey: 'cancel',
+        },
+        { signal: controller.signal },
+      );
+      const identity = await import('../nexus/identity.js');
+      const original = identity.canonicalProjectId;
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      vi.spyOn(identity, 'canonicalProjectId').mockImplementationOnce(async (...args) => {
+        entered.resolve();
+        await release.promise;
+        return original(...args);
+      });
+      const pending = worktreeScope.run(
+        { worktreeRoot: project, projectHash: 'fixture', execution },
+        () => registerProjectOnEncounter(project, infoProjectId),
+      );
+      const rejection = expect(pending).rejects.toMatchObject({ code: 'E_OPERATION_CANCELLED' });
+      try {
+        await entered.promise;
+        if (cancellation === 'caller') controller.abort(new Error('caller cancelled'));
+        else (await import('../teardown-signal.js')).markShuttingDown();
+        release.resolve();
+        await rejection;
+        expect(existsSync(join(home, 'cleo.db'))).toBe(false);
+        expect(pendingBackgroundOpCount()).toBe(0);
+      } finally {
+        release.resolve();
+        execution.close();
+        (await import('../teardown-signal.js'))._resetTeardownSignalForTests();
+        await pending.catch(() => {});
+        rmSync(fixture, { recursive: true, force: true });
+      }
+    });
+  }
 });

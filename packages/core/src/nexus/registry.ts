@@ -12,7 +12,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, realpath, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import {
   ExitCode,
@@ -25,11 +25,14 @@ import {
   type NexusSyncParams,
   type NexusUnregisterParams,
 } from '@cleocode/contracts';
+import { pushWarning } from '@cleocode/lafs';
+import { eq, or } from 'drizzle-orm';
+import { z } from 'zod';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { paginate } from '../pagination.js';
-import { getCleoHome } from '../paths.js';
+import { getCleoHome, worktreeScope } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 // Re-export only: resetNexusDbState used by tests and index barrel.
 import { resetNexusDbState } from '../store/nexus-sqlite.js';
@@ -296,55 +299,64 @@ export async function nexusInit(_projectRoot = '', _params: NexusInitParams = {}
   }
 }
 
-/** Check if a path contains a CLEO project (has readable task data). */
-async function isCleoProject(projectPath: string): Promise<boolean> {
-  try {
-    const { existsSync } = await import('node:fs');
-    if (existsSync(join(projectPath, '.cleo', 'project-info.json'))) {
-      return true;
-    }
-  } catch {
-    // Fall through to task-store validation.
-  }
-
-  try {
-    const accessor = await getTaskAccessor(projectPath);
-    await accessor.countTasks();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Read task metadata from a project's task file. */
+/** Read actual task metadata; an unavailable store is not an empty project. */
 async function readProjectMeta(
   projectPath: string,
 ): Promise<{ taskCount: number; labels: string[] }> {
   try {
     const accessor = await getTaskAccessor(projectPath);
     const { tasks } = await accessor.queryTasks({});
-    const allLabels = tasks.flatMap((t) => t.labels ?? []);
-    const uniqueLabels = [...new Set(allLabels)].sort();
-    return { taskCount: tasks.length, labels: uniqueLabels };
-  } catch {
-    return { taskCount: 0, labels: [] };
+    return {
+      taskCount: tasks.length,
+      labels: [...new Set(tasks.flatMap((task) => task.labels ?? []))].sort(),
+    };
+  } catch (error) {
+    throw new CleoError(
+      ExitCode.CONFIG_ERROR,
+      `Cannot read project task metadata at ${projectPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
-/**
- * Read project-info.json from a project directory for projectId.
- * Returns empty string if not available.
- */
+/** Read the declared immutable identity; absence differs from unreadable metadata. */
 async function readProjectId(projectPath: string): Promise<string> {
+  const infoPath = join(projectPath, '.cleo', 'project-info.json');
   try {
-    const { readFileSync, existsSync } = await import('node:fs');
-    const infoPath = join(projectPath, '.cleo', 'project-info.json');
-    if (!existsSync(infoPath)) return '';
-    const data = JSON.parse(readFileSync(infoPath, 'utf-8'));
-    return typeof data.projectId === 'string' ? data.projectId : '';
-  } catch {
-    return '';
+    return (
+      z
+        .object({ projectId: z.string().min(1).optional() })
+        .parse(JSON.parse(await readFile(infoPath, 'utf8'))).projectId ?? ''
+    );
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return '';
+    throw new CleoError(
+      ExitCode.CONFIG_ERROR,
+      `Cannot read project identity at ${infoPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
+}
+
+/** Reject path/hash/immutable-identity disagreement before encounter side effects or writes. */
+function validateRegistrationOwner(
+  rows: ProjectRegistryRow[],
+  projectPath: string,
+  projectHash: string,
+  declaredId: string,
+): ProjectRegistryRow | undefined {
+  if (
+    rows.some(
+      (row) =>
+        row.projectPath !== projectPath ||
+        row.projectHash !== projectHash ||
+        (declaredId && row.projectId !== declaredId),
+    )
+  ) {
+    throw new CleoError(
+      ExitCode.NEXUS_PROJECT_EXISTS,
+      `Conflicting project identity or path ownership: ${projectPath}`,
+    );
+  }
+  return rows[0];
 }
 
 /** Record alternate project identity tokens as aliases for registry lookup. */
@@ -369,8 +381,17 @@ async function recordProjectIdAliases(
 }
 
 /**
- * Register a project in the global registry (nexus.db).
- * @returns The project hash.
+ * Register or refresh the same immutable project in the global registry.
+ * @param _projectRoot - Calling context; the explicit params.path owns the registration.
+ * @param params - Target path and optional requested name and permission.
+ * @returns The canonical path fingerprint of the registered project.
+ * @remarks Metadata is read before a synchronous ownership recheck and atomic
+ * registry/alias transaction. Encounter-time store initialization and audit logging
+ * are separate operations. Conflicting identity ownership is never a project move.
+ * @example
+ * ```ts
+ * const hash = await nexusRegister(projectRoot, { path: projectRoot, name: 'app', permission: 'read' });
+ * ```
  */
 export async function nexusRegister(
   _projectRoot: string,
@@ -389,135 +410,171 @@ export async function nexusRegister(
 ): Promise<string> {
   let projectPath: string;
   let name: string | undefined;
-  let permissions: NexusPermissionLevel;
+  let permissions: NexusPermissionLevel | undefined;
 
   if (paramsOrName !== undefined && typeof paramsOrName === 'object') {
     // New normalized signature: (projectRoot, params)
     projectPath = paramsOrName.path;
     name = paramsOrName.name;
-    permissions = (paramsOrName.permission as NexusPermissionLevel | undefined) ?? 'read';
+    permissions =
+      paramsOrName.permission === undefined
+        ? undefined
+        : z.enum(['read', 'write', 'execute']).parse(paramsOrName.permission);
   } else {
     // Legacy positional signature
     projectPath = projectRootOrPath;
     name = paramsOrName as string | undefined;
-    permissions = permissionsArg ?? 'read';
+    permissions =
+      permissionsArg === undefined
+        ? undefined
+        : z.enum(['read', 'write', 'execute']).parse(permissionsArg);
   }
 
   if (!projectPath) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Project path required');
   }
 
-  // Validate project has readable task data
-  if (!(await isCleoProject(projectPath))) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Path missing .cleo/tasks.db: ${projectPath}`, {
-      fix: `cd ${projectPath} && cleo init`,
-    });
-  }
-
-  const projectName = name || basename(projectPath) || 'unnamed';
-  const projectHash = generateProjectHash(projectPath);
-
-  // Ensure nexus.db is initialized (internal call — projectRoot unused for global registry)
-  await nexusInit();
-  const { getNexusDb } = await import('../store/nexus-sqlite.js');
-  const { eq } = await import('drizzle-orm');
-  const db = await getNexusDb();
-
-  // Check if already registered
-  const existingRows = await db
-    .select()
-    .from(projectRegistry)
-    .where(eq(projectRegistry.projectHash, projectHash));
-  const existing = existingRows[0];
-
-  if (existing?.permissions) {
-    throw new CleoError(
-      ExitCode.NEXUS_PROJECT_EXISTS,
-      `Project already registered with hash: ${projectHash}`,
+  // Canonicalize before hashing so relative and symlink spelling cannot create owners.
+  const resolvedPath = await realpath(resolve(projectPath));
+  const projectHash = generateProjectHash(resolvedPath);
+  // Capture explicit ownership across awaits; ambient CLEO_ROOT/CLEO_DIR may
+  // belong to another project or change while metadata is being loaded.
+  return worktreeScope.run({ worktreeRoot: resolvedPath, projectHash }, async () => {
+    if (!(await stat(join(resolvedPath, '.cleo'))).isDirectory()) {
+      throw new CleoError(ExitCode.NOT_FOUND, `Path missing .cleo directory: ${resolvedPath}`);
+    }
+    const declaredId = await readProjectId(resolvedPath);
+    const canonicalIdentity = await canonicalProjectId(resolvedPath);
+    await nexusInit();
+    const { getNexusDb } = await import('../store/nexus-sqlite.js');
+    const ownershipFilter = or(
+      eq(projectRegistry.projectPath, resolvedPath),
+      eq(projectRegistry.projectHash, projectHash),
+      eq(projectRegistry.projectId, declaredId || canonicalIdentity.id),
     );
-  }
+    const before = await getNexusDb();
+    validateRegistrationOwner(
+      before.select().from(projectRegistry).where(ownershipFilter).all(),
+      resolvedPath,
+      projectHash,
+      declaredId,
+    );
 
-  // Check for name conflicts (new entries only)
-  if (!existing) {
-    const nameConflictRows = await db
-      .select()
-      .from(projectRegistry)
-      .where(eq(projectRegistry.name, projectName));
-    if (nameConflictRows.length > 0) {
+    // The accessor may auto-register this path. Never carry an absence observation
+    // across this await into the write transaction.
+    const meta = await readProjectMeta(resolvedPath);
+    if ((await readProjectId(resolvedPath)) !== declaredId) {
       throw new CleoError(
-        ExitCode.VALIDATION_ERROR,
-        `Project name '${projectName}' already exists in registry`,
+        ExitCode.NEXUS_PROJECT_EXISTS,
+        `Project identity changed during registration: ${resolvedPath}`,
       );
     }
-  }
+    const db = await getNexusDb();
+    const now = new Date().toISOString();
+    const legacyAlias = legacyProjectId(resolvedPath);
+    const skippedAliases: string[] = [];
+    const projectId = db.transaction(
+      (tx) => {
+        const existing = validateRegistrationOwner(
+          tx.select().from(projectRegistry).where(ownershipFilter).all(),
+          resolvedPath,
+          projectHash,
+          declaredId,
+        );
+        const immutableId = declaredId || existing?.projectId || canonicalIdentity.id;
+        const projectName = name || existing?.name || basename(resolvedPath) || 'unnamed';
+        const nameOwner = tx
+          .select()
+          .from(projectRegistry)
+          .where(eq(projectRegistry.name, projectName))
+          .all();
+        if (nameOwner.some((row) => row.projectId !== immutableId)) {
+          throw new CleoError(
+            ExitCode.VALIDATION_ERROR,
+            `Project name '${projectName}' already exists in registry`,
+          );
+        }
+        const metadata = {
+          name: projectName,
+          permissions: permissions ?? existing?.permissions ?? 'read',
+          lastSync: now,
+          taskCount: meta.taskCount,
+          labelsJson: JSON.stringify(meta.labels),
+          lastSeen: now,
+          brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
+          tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
+        };
+        if (existing)
+          tx.update(projectRegistry)
+            .set(metadata)
+            .where(eq(projectRegistry.projectId, immutableId))
+            .run();
+        else
+          tx.insert(projectRegistry)
+            .values({
+              ...metadata,
+              projectId: immutableId,
+              projectHash,
+              projectPath: resolvedPath,
+              registeredAt: now,
+              healthStatus: 'unknown',
+              statsJson: '{}',
+            })
+            .run();
+        for (const alias of new Set([canonicalIdentity.id, legacyAlias])) {
+          if (alias === immutableId) continue;
+          const aliasOwner = tx
+            .select()
+            .from(projectIdAliases)
+            .where(eq(projectIdAliases.legacyId, alias))
+            .get();
+          const directOwner = tx
+            .select()
+            .from(projectRegistry)
+            .where(eq(projectRegistry.projectId, alias))
+            .get();
+          if (
+            (aliasOwner && aliasOwner.canonicalId !== immutableId) ||
+            (directOwner && directOwner.projectId !== immutableId)
+          ) {
+            // The old truncated path token is lossy. Preserve its owner and disclose
+            // the omitted compatibility alias, never redirect another project.
+            if (alias === legacyAlias) {
+              skippedAliases.push(alias);
+              continue;
+            }
+            throw new CleoError(
+              ExitCode.NEXUS_PROJECT_EXISTS,
+              `Project identity alias already belongs to another project: ${alias}`,
+            );
+          }
+          tx.insert(projectIdAliases)
+            .values({ legacyId: alias, canonicalId: immutableId, createdAt: now })
+            .onConflictDoNothing()
+            .run();
+        }
+        return immutableId;
+      },
+      { behavior: 'immediate' },
+    );
+    if (skippedAliases.length)
+      pushWarning({
+        code: 'W_PROJECT_ALIAS_CONFLICT',
+        message: 'Registration retained existing owners of ambiguous legacy path aliases.',
+        severity: 'warn',
+        context: { projectId, aliases: skippedAliases },
+      });
 
-  // Read project metadata
-  const meta = await readProjectMeta(projectPath);
-  const now = new Date().toISOString();
-  let projectId = await readProjectId(projectPath);
-  const resolvedPath = resolve(projectPath);
-  const canonicalIdentity = await canonicalProjectId(resolvedPath);
-  const brainDbPath = join(resolvedPath, '.cleo', 'brain.db');
-  const tasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
-
-  if (existing) {
-    if (!projectId) {
-      projectId = existing.projectId;
-    }
-    // Merge nexus fields into existing entry
-    await db
-      .update(projectRegistry)
-      .set({
-        permissions,
-        lastSync: now,
-        taskCount: meta.taskCount,
-        labelsJson: JSON.stringify(meta.labels),
-        lastSeen: now,
-        brainDbPath,
-        tasksDbPath,
-      })
-      .where(eq(projectRegistry.projectHash, projectHash));
-  } else {
-    // Generate projectId fallback
-    if (!projectId) {
-      projectId = randomUUID();
-    }
-
-    // Create new entry
-    await db.insert(projectRegistry).values({
-      projectId,
+    await writeNexusAudit({
+      action: 'register',
       projectHash,
-      projectPath,
-      name: projectName,
-      registeredAt: now,
-      lastSeen: now,
-      healthStatus: 'unknown',
-      healthLastCheck: null,
-      permissions,
-      lastSync: now,
-      taskCount: meta.taskCount,
-      labelsJson: JSON.stringify(meta.labels),
-      brainDbPath,
-      tasksDbPath,
-      statsJson: '{}',
+      projectId,
+      operation: 'register',
+      success: true,
     });
-  }
 
-  await recordProjectIdAliases(
-    projectId,
-    [projectId, canonicalIdentity.id, legacyProjectId(resolvedPath)],
-    now,
-  );
-
-  await writeNexusAudit({
-    action: 'register',
-    projectHash,
-    projectId,
-    operation: 'register',
-    success: true,
+    return projectHash;
   });
-
-  return projectHash;
 }
 
 /**

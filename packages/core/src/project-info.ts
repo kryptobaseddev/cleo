@@ -10,23 +10,17 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getCleoDirAbsolute, resolveOrCwd } from './paths.js';
+import {
+  type ProjectInfo,
+  readProjectInfoAtDirectory,
+  readProjectInfoAtDirectorySync,
+} from './project-scope.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
-/** Fields consumed by logging, audit, and correlation subsystems. */
-export interface ProjectInfo {
-  /** 12-char SHA-256 hex of the normalized project path (per-install identity). */
-  projectHash: string;
-  /** Portable project-local UUID stored with `.cleo/project-info.json`. */
-  projectId: string;
-  /** Absolute path to the project root directory. */
-  projectRoot: string;
-  /** Human-readable project name (last segment of projectRoot). */
-  projectName: string;
-}
+export type { ProjectInfo } from './project-scope.js';
 
 // ── Implementation ───────────────────────────────────────────────────
 
@@ -42,24 +36,7 @@ export interface ProjectInfo {
 export async function getProjectInfo(cwd?: string): Promise<ProjectInfo> {
   const projectRoot = resolveOrCwd(cwd);
   const cleoDir = getCleoDirAbsolute(projectRoot);
-  const infoPath = join(cleoDir, 'project-info.json');
-
-  const raw = await readFile(infoPath, 'utf-8');
-  const data = JSON.parse(raw) as Record<string, unknown>;
-
-  if (typeof data.projectHash !== 'string' || data.projectHash.length === 0) {
-    throw new Error(`project-info.json missing required field: projectHash`);
-  }
-
-  const segments = projectRoot.replace(/[\\/]+$/, '').split(/[\\/]/);
-  const projectName = segments[segments.length - 1] ?? 'unknown';
-
-  return {
-    projectHash: data.projectHash,
-    projectId: typeof data.projectId === 'string' ? data.projectId : '',
-    projectRoot,
-    projectName,
-  };
+  return readProjectInfoAtDirectory(projectRoot, cleoDir);
 }
 
 /**
@@ -69,27 +46,8 @@ export async function getProjectInfo(cwd?: string): Promise<ProjectInfo> {
 export function getProjectInfoSync(cwd?: string): ProjectInfo | null {
   const projectRoot = resolveOrCwd(cwd);
   const cleoDir = getCleoDirAbsolute(projectRoot);
-  const infoPath = join(cleoDir, 'project-info.json');
-
-  if (!existsSync(infoPath)) return null;
-
   try {
-    const raw = readFileSync(infoPath, 'utf-8');
-    const data = JSON.parse(raw) as Record<string, unknown>;
-
-    if (typeof data.projectHash !== 'string' || data.projectHash.length === 0) {
-      return null;
-    }
-
-    const segments = projectRoot.replace(/[\\/]+$/, '').split(/[\\/]/);
-    const projectName = segments[segments.length - 1] ?? 'unknown';
-
-    return {
-      projectHash: data.projectHash,
-      projectId: typeof data.projectId === 'string' ? data.projectId : '',
-      projectRoot,
-      projectName,
-    };
+    return readProjectInfoAtDirectorySync(projectRoot, cleoDir);
   } catch {
     return null;
   }

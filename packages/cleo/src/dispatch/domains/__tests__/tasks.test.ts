@@ -1,3 +1,6 @@
+import { OPERATIONS } from '@cleocode/contracts';
+import { reconcileSaga } from '@cleocode/core/sagas';
+import { parseGateJson, reqAdd, reqList, reqMigrate } from '@cleocode/core/tasks';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock @cleocode/core/internal — createAttachmentStore added by T9966
@@ -8,8 +11,29 @@ vi.mock('@cleocode/core/internal', () => ({
   }),
 }));
 
+// Mock only the requirement service boundary; use its real canonical JSON validator.
+vi.mock('@cleocode/core/tasks', async () => {
+  const actual = await vi.importActual<typeof import('../../../../../core/src/tasks/req.js')>(
+    '../../../../../core/src/tasks/req.js',
+  );
+  return {
+    parseGateJson: actual.parseGateJson,
+    reqAdd: vi.fn(),
+    reqList: vi.fn(),
+    reqMigrate: vi.fn(),
+  };
+});
+
+vi.mock('@cleocode/core/sagas', async () => ({
+  ...(await vi.importActual<typeof import('@cleocode/core/sagas')>('@cleocode/core/sagas')),
+  reconcileSaga: vi.fn(),
+}));
+
 // Mock engine functions before importing the handler
-vi.mock('../../lib/engine.js', () => ({
+vi.mock('@cleocode/runtime/gateway', async () => ({
+  ...(await vi.importActual<typeof import('@cleocode/runtime/gateway')>(
+    '@cleocode/runtime/gateway',
+  )),
   taskShow: vi.fn(),
   taskShowOperation: vi.fn(),
   taskShowWithHistory: vi.fn(),
@@ -88,13 +112,13 @@ import {
   taskReorder,
   taskReparent,
   taskRestore,
-  taskShow,
-  taskShowIvtrHistory,
+  taskShowOperation,
   taskStart,
   taskStop,
   taskTree,
   taskUpdate,
-} from '../../lib/engine.js';
+} from '@cleocode/runtime/gateway';
+import * as typedAdapter from '../../adapters/typed.js';
 import { TasksHandler } from '../tasks.js';
 
 describe('TasksHandler', () => {
@@ -119,6 +143,8 @@ describe('TasksHandler', () => {
         'tree',
         'blockers',
         'depends',
+        'slice',
+        'context',
         'deps.validate',
         'deps.tree',
         'analyze',
@@ -135,6 +161,8 @@ describe('TasksHandler', () => {
         'saga.list',
         'saga.members',
         'saga.rollup',
+        'req.list',
+        'req.migrate.preview',
       ]);
     });
 
@@ -154,6 +182,9 @@ describe('TasksHandler', () => {
         'restore',
         'reparent',
         'reorder',
+        'reorder-rank',
+        'bulk-move',
+        'assignee',
         'relates.add',
         'relates.remove',
         'start',
@@ -168,6 +199,8 @@ describe('TasksHandler', () => {
         'saga.repair',
         'saga.detach',
         'saga.reconcile',
+        'req.add',
+        'req.migrate',
       ]);
     });
   });
@@ -177,7 +210,7 @@ describe('TasksHandler', () => {
   // -----------------------------------------------------------------------
 
   describe('query', () => {
-    it('show - delegates to taskShow', async () => {
+    it('show - delegates to canonical taskShowOperation', async () => {
       const mockTask = {
         id: 'T001',
         title: 'Test',
@@ -188,9 +221,9 @@ describe('TasksHandler', () => {
         updatedAt: null,
       };
       // T9966: taskShow core result shape must include view (may be null)
-      vi.mocked(taskShow).mockResolvedValue({
+      vi.mocked(taskShowOperation).mockResolvedValue({
         success: true,
-        data: { task: mockTask, view: null },
+        data: { task: mockTask, view: null, attachments: [] },
       });
 
       const result = await handler.query('show', { taskId: 'T001' });
@@ -198,10 +231,10 @@ describe('TasksHandler', () => {
       expect(result.success).toBe(true);
       // T9966: result now includes attachments: [] alongside task+view
       expect(result.data).toMatchObject({ task: mockTask, view: null, attachments: [] });
-      expect(taskShow).toHaveBeenCalledWith('/mock/project', 'T001');
+      expect(taskShowOperation).toHaveBeenCalledWith('/mock/project', { taskId: 'T001' });
     });
 
-    it('show --ivtr-history - delegates to taskShowIvtrHistory', async () => {
+    it('show --ivtr-history - forwards the requested mode to taskShowOperation', async () => {
       const mockData = {
         ivtrHistory: [
           {
@@ -222,17 +255,20 @@ describe('TasksHandler', () => {
           },
         ],
       };
-      vi.mocked(taskShowIvtrHistory).mockResolvedValue({ success: true, data: mockData });
+      vi.mocked(taskShowOperation).mockResolvedValue({ success: true, data: mockData });
 
       const result = await handler.query('show', { taskId: 'T001', ivtrHistory: true });
 
       expect(result.success).toBe(true);
       expect(result.data).toEqual(mockData);
-      expect(taskShowIvtrHistory).toHaveBeenCalledWith('/mock/project', 'T001');
+      expect(taskShowOperation).toHaveBeenCalledWith('/mock/project', {
+        taskId: 'T001',
+        ivtrHistory: true,
+      });
     });
 
     it('show --ivtr-history - returns empty ivtrHistory when task has no IVTR state', async () => {
-      vi.mocked(taskShowIvtrHistory).mockResolvedValue({
+      vi.mocked(taskShowOperation).mockResolvedValue({
         success: true,
         data: { ivtrHistory: [] },
       });
@@ -241,7 +277,10 @@ describe('TasksHandler', () => {
 
       expect(result.success).toBe(true);
       expect((result.data as Record<string, unknown>)?.ivtrHistory).toEqual([]);
-      expect(taskShowIvtrHistory).toHaveBeenCalledWith('/mock/project', 'T999');
+      expect(taskShowOperation).toHaveBeenCalledWith('/mock/project', {
+        taskId: 'T999',
+        ivtrHistory: true,
+      });
     });
 
     it('list - delegates to taskList', async () => {
@@ -510,7 +549,7 @@ describe('TasksHandler', () => {
     });
 
     it('handles engine exceptions gracefully', async () => {
-      vi.mocked(taskShow).mockRejectedValue(new Error('Connection failed'));
+      vi.mocked(taskShowOperation).mockRejectedValue(new Error('Connection failed'));
 
       const result = await handler.query('show', { taskId: 'T001' });
 
@@ -523,6 +562,50 @@ describe('TasksHandler', () => {
   // -----------------------------------------------------------------------
   // Mutate operations
   // -----------------------------------------------------------------------
+
+  describe('saga reconciliation dispatch identity', () => {
+    it('passes only the saga result and operation to the shared result adapter', async () => {
+      const data = {
+        total: 0,
+        closed: 0,
+        noOp: 0,
+        blocked: 0,
+        pending: 0,
+        errors: 0,
+        dryRun: true,
+        entries: [],
+      };
+      vi.mocked(reconcileSaga).mockResolvedValue({ success: true, data });
+      const adapter = vi.spyOn(typedAdapter, 'wrapCoreResult');
+      try {
+        const response = await handler.mutate('saga.reconcile', { sagaId: 'SG-1', dryRun: true });
+        expect(reconcileSaga).toHaveBeenCalledWith('/mock/project', {
+          sagaId: 'SG-1',
+          dryRun: true,
+        });
+        expect(response.success).toBe(true);
+        expect(response.data).toEqual(data);
+        expect(adapter).toHaveBeenCalledTimes(1);
+        // Requirement operation names are not saga fallback data or positional arguments.
+        expect(adapter).toHaveBeenCalledWith({ success: true, data }, 'saga.reconcile');
+      } finally {
+        adapter.mockRestore();
+      }
+    });
+
+    it('preserves a real saga service error without converting it into a requirement response', async () => {
+      vi.mocked(reconcileSaga).mockResolvedValue({
+        success: false,
+        error: { code: 'E_RECONCILE_FAILED', message: 'Explicit saga read failure' },
+      });
+      const response = await handler.mutate('saga.reconcile', { sagaId: 'SG-2', dryRun: true });
+      expect(response.success).toBe(false);
+      expect(response.error).toMatchObject({
+        code: 'E_RECONCILE_FAILED',
+        message: 'Explicit saga read failure',
+      });
+    });
+  });
 
   describe('mutate', () => {
     it('add - delegates to addTaskWithSessionScope', async () => {
@@ -925,7 +1008,7 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('delete', { taskId: 'T001', force: true });
 
       expect(result.success).toBe(true);
-      expect(taskDelete).toHaveBeenCalledWith('/mock/project', 'T001', true);
+      expect(taskDelete).toHaveBeenCalledWith('/mock/project', 'T001', true, undefined);
     });
 
     // -------------------------------------------------------------------
@@ -943,7 +1026,7 @@ describe('TasksHandler', () => {
     // These tests lock both fixes in place against the TasksHandler:
     //   - The 'cancel' op is dispatch-routable (handler.mutate('cancel', ...) returns
     //     a real envelope rather than E_UNKNOWN_OPERATION).
-    //   - The cancel handler delegates to `taskCancel(projectRoot, taskId, reason)`.
+    //   - The cancel handler delegates to `taskCancel(projectRoot, taskId, options)`.
     //   - `--reason` is forwarded to the engine.
     // -------------------------------------------------------------------
     it('cancel - delegates to taskCancel (T9947 regression lock)', async () => {
@@ -959,7 +1042,14 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('cancel', { taskId: 'T001' });
 
       expect(result.success).toBe(true);
-      expect(taskCancel).toHaveBeenCalledWith('/mock/project', 'T001', undefined);
+      expect(taskCancel).toHaveBeenCalledWith('/mock/project', 'T001', {
+        reason: undefined,
+        children: undefined,
+        reparentTo: undefined,
+        force: undefined,
+        cascadeThreshold: undefined,
+        allowCascade: undefined,
+      });
     });
 
     it('cancel - forwards --reason to engine (T9947)', async () => {
@@ -979,7 +1069,14 @@ describe('TasksHandler', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(taskCancel).toHaveBeenCalledWith('/mock/project', 'T002', 'Superseded by T003');
+      expect(taskCancel).toHaveBeenCalledWith('/mock/project', 'T002', {
+        reason: 'Superseded by T003',
+        children: undefined,
+        reparentTo: undefined,
+        force: undefined,
+        cascadeThreshold: undefined,
+        allowCascade: undefined,
+      });
     });
 
     it('cancel - surfaces idempotent re-cancel (alreadyCancelled=true) (T9947 / T9838)', async () => {
@@ -1160,7 +1257,7 @@ describe('TasksHandler', () => {
     });
 
     it('wraps engine error responses correctly', async () => {
-      vi.mocked(taskShow).mockResolvedValue({
+      vi.mocked(taskShowOperation).mockResolvedValue({
         success: false,
         error: { code: 'E_NOT_FOUND', message: 'Task not found' },
       });
@@ -1171,5 +1268,111 @@ describe('TasksHandler', () => {
       expect(result.error?.code).toBe('E_NOT_FOUND');
       expect(result.error?.message).toBe('Task not found');
     });
+  });
+});
+
+describe('typed requirement dispatch', () => {
+  const handler = new TasksHandler();
+  const gateJson = JSON.stringify({
+    kind: 'test',
+    command: 'node',
+    args: ['missing-harness.mjs'],
+    expect: 'exit0',
+    description: 'The task harness must pass',
+    req: 'PARTNER-121',
+    timeoutMs: 1800000,
+  });
+  beforeEach(() => vi.clearAllMocks());
+
+  it('declares all existing requirement CLI operations in the canonical registry', () => {
+    for (const [gateway, operation] of [
+      ['mutate', 'req.add'],
+      ['query', 'req.list'],
+      ['query', 'req.migrate.preview'],
+      ['mutate', 'req.migrate'],
+    ]) {
+      expect(
+        OPERATIONS.find(
+          (op) => op.domain === 'tasks' && op.gateway === gateway && op.operation === operation,
+        ),
+      ).toBeDefined();
+    }
+  });
+
+  it('keeps requirement operation gateway inference unambiguous', () => {
+    const operations = OPERATIONS.filter(
+      (operation) => operation.domain === 'tasks' && operation.operation.startsWith('req.'),
+    );
+    expect(new Set(operations.map((operation) => operation.operation)).size).toBe(
+      operations.length,
+    );
+    expect(operations).toHaveLength(4);
+  });
+
+  it('parses a validated gate and delegates creation without executing it', async () => {
+    const gate = parseGateJson(gateJson);
+    vi.mocked(reqAdd).mockResolvedValue({ task: { id: 'T121', acceptance: [gate] } });
+    const result = await handler.mutate('req.add', { taskId: 'T121', gate: gateJson });
+    expect(result.success).toBe(true);
+    expect(reqAdd).toHaveBeenCalledWith('/mock/project', 'T121', gate);
+    expect(result.data).toEqual({ task: { id: 'T121', acceptance: [gate] } });
+  });
+
+  it.each([
+    '{bad JSON',
+    '{"kind":"test"}',
+    '{"kind":"manual","description":"Review","prompt":"Approve?","unsupported":true}',
+  ])('rejects malformed gates before delegating: %s', async (gate) => {
+    const result = await handler.mutate('req.add', { taskId: 'T121', gate });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).not.toBe('E_INVALID_OPERATION');
+    expect(reqAdd).not.toHaveBeenCalled();
+  });
+
+  it('delegates requirement listing and preserves returned identities', async () => {
+    const data = {
+      taskId: 'T121',
+      gates: [
+        {
+          index: 2,
+          req: 'PARTNER-121',
+          kind: 'test' as const,
+          description: 'Harness',
+          advisory: false,
+        },
+      ],
+    };
+    vi.mocked(reqList).mockResolvedValue(data);
+    const result = await handler.query('req.list', { taskId: 'T121' });
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(data);
+    expect(reqList).toHaveBeenCalledWith('/mock/project', 'T121');
+  });
+
+  it('keeps migration query read-only and requires explicit apply for mutation', async () => {
+    vi.mocked(reqMigrate).mockResolvedValue({ proposals: [] });
+    expect(
+      (await handler.query('req.migrate.preview', { taskId: 'T121', apply: false })).success,
+    ).toBe(true);
+    expect(reqMigrate).toHaveBeenLastCalledWith('/mock/project', 'T121', false);
+    expect((await handler.mutate('req.migrate', { taskId: 'T121', apply: true })).success).toBe(
+      true,
+    );
+    expect(reqMigrate).toHaveBeenLastCalledWith('/mock/project', 'T121', true);
+    vi.mocked(reqMigrate).mockClear();
+    expect(
+      (await handler.query('req.migrate.preview', { taskId: 'T121', apply: true })).success,
+    ).toBe(false);
+    expect((await handler.mutate('req.migrate', { taskId: 'T121', apply: false })).success).toBe(
+      false,
+    );
+    expect(reqMigrate).not.toHaveBeenCalled();
+  });
+
+  it('surfaces service failures rather than returning an empty requirement list', async () => {
+    vi.mocked(reqList).mockRejectedValue(new Error('injected diagnostic read failure'));
+    const result = await handler.query('req.list', { taskId: 'T121' });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('injected diagnostic read failure');
   });
 });

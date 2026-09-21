@@ -77,7 +77,8 @@ describe('nexus.db fresh init — zero "Adding missing column" warnings', () => 
     //    `process.cwd()` (the real repo) cannot leak the project DB outside the
     //    sandbox.
     // ------------------------------------------------------------------
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => cleoHome,
       getCleoDirAbsolute: () => join(tempDir, '.cleo'),
       getProjectRoot: () => tempDir,

@@ -506,11 +506,23 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "add",
       "remove",
       "supersede",
+      "publish",
+      "publish-pr",
+      "sync",
+      "import",
       "update",
     ],
     "query": [
       "list",
       "fetch",
+      "status",
+      "export",
+      "search",
+      "find",
+      "merge",
+      "rank",
+      "versions",
+      "audit",
       "generate",
       "llm-output",
     ],
@@ -744,6 +756,8 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
   },
   "tasks": {
     "mutate": [
+      "req.add",
+      "req.migrate",
       "projection.repair",
       "add",
       "add-batch",
@@ -777,6 +791,8 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "unclaim",
     ],
     "query": [
+      "req.list",
+      "req.migrate.preview",
       "show",
       "traverse",
       "tree",
@@ -850,7 +866,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `311`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `327`;
 
 exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — domain-grouped operations snapshot > tier-2-groupedOperations 1`] = `
 {
@@ -982,11 +998,23 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "add",
       "remove",
       "supersede",
+      "publish",
+      "publish-pr",
+      "sync",
+      "import",
       "update",
     ],
     "query": [
       "list",
       "fetch",
+      "status",
+      "export",
+      "search",
+      "find",
+      "merge",
+      "rank",
+      "versions",
+      "audit",
       "generate",
       "llm-output",
     ],
@@ -1348,6 +1376,8 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
   },
   "tasks": {
     "mutate": [
+      "req.add",
+      "req.migrate",
       "projection.repair",
       "add",
       "add-batch",
@@ -1381,6 +1411,8 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "unclaim",
     ],
     "query": [
+      "req.list",
+      "req.migrate.preview",
       "show",
       "traverse",
       "tree",
@@ -1473,4 +1505,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `445`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `461`;

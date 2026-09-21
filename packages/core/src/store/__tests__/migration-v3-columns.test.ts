@@ -97,7 +97,10 @@ describe('T897 agent_registry v3 migration', () => {
   });
 
   it('agents table carries all eight T897 v3 columns with correct types + defaults', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -125,7 +128,10 @@ describe('T897 agent_registry v3 migration', () => {
   });
 
   it('agent_skills table carries the two new v3 columns', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -149,7 +155,10 @@ describe('T897 agent_registry v3 migration', () => {
   });
 
   it('creates idx_agent_registry_agents_tier, idx_agent_registry_agents_cant_path, and idx_agent_registry_agent_skills_source', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -178,7 +187,10 @@ describe('T897 agent_registry v3 migration', () => {
     // the generator output). The tier column constraint is enforced at the
     // application layer (agent-registry-accessor.ts) rather than at the DB layer.
     // This test verifies the column is present and accepts valid tier values.
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -234,7 +246,10 @@ describe('T897 agent_registry v3 migration', () => {
   });
 
   it('re-running ensureGlobalAgentRegistryDb is idempotent (no double-ALTER error)', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'
@@ -269,7 +284,10 @@ describe('T897 agent_registry v3 migration', () => {
     // correctly handles the case where a journal entry is removed and the migration
     // is re-tried — reconcileJournal detects the columns exist and re-inserts the
     // journal entry without re-running the DDL.
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
+      getCleoHome: () => cleoHome,
+    }));
 
     const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
       '../agent-registry-store.js'

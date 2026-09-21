@@ -65,6 +65,13 @@ function countRegistryRows(cleoHome: string): number {
 
 // ── AC1: Strict mode throws E_CWD_WALKUP_FORBIDDEN ────────────────────
 
+// Exercise explicit fixture roots without the setup project's default pins.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 describe('T11031 AC1 — CLEO_PATHS_STRICT integration', () => {
   const origCleoDir = process.env['CLEO_DIR'];
   const origCleoDebug = process.env['CLEO_DEBUG'];

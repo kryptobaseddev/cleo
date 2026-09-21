@@ -39,14 +39,15 @@
  * {@link shutdownCliRuntime} is the single chokepoint the CLI calls from its
  * success-path `finally` (after the envelope has been written to stdout) so the
  * loop can drain and the process exits rc:0. It is best-effort and idempotent:
- * every teardown is wrapped so one failure cannot mask another, and calling it
- * twice is a no-op for already-closed handles.
+ * outcomes name incomplete steps. Resource closure starts only after tracked
+ * producers settle, and no step receives time beyond the shared deadline.
+ * Calling it again is harmless for already-closed handles.
  *
  * This is NOT a `process.exit()` band-aid: the established CLI exit contract is
  * "drain the loop, then exit". Forcing teardown of the long-lived handles
- * restores that contract instead of papering over it. Mid-operation handles
- * (shared dual-scope `cleo.db`) are released here too, honoring the L4/L5
- * shared-handle rule that they close at PROCESS EXIT, not mid-operation.
+ * restores that contract when the producer barrier and resource steps finish.
+ * Mid-operation handles (shared dual-scope `cleo.db`) are released only after
+ * that barrier; incomplete teardown is surfaced for the existing exit backstop.
  *
  * @module
  * @task T11568
@@ -55,21 +56,29 @@
 import { closeLogger } from './logger.js';
 import { shutdownBrainWriter } from './memory/brain-writer-thread.js';
 import { resetEmbeddingQueue } from './memory/embedding-queue.js';
-import { type StepOutcome, withDeadline } from './shutdown-deadline.js';
+import { STEP_DEADLINE_MS, type StepOutcome, withDeadline } from './shutdown-deadline.js';
+import { awaitBackgroundOps, pendingBackgroundOpCount } from './store/background-ops.js';
 import { closeAllDatabases } from './store/sqlite.js';
 import { markShuttingDown } from './teardown-signal.js';
 
-/**
- * Run a teardown step under a deadline, swallowing both errors and stalls.
- *
- * T12115: the original helper swallowed only *throws*. A step that never
- * settles is not a throw, so a stalled worker handshake hung the exit path
- * forever — measured at 12.9 hours on a live host, with the process still
- * holding its SQLite descriptors because teardown never reached step 3.
- * Bounding each step is what makes "best-effort" actually best-effort.
- */
-async function safely(label: string, step: () => Promise<void> | void): Promise<StepOutcome> {
-  return withDeadline(label, step);
+/** Run only within the original shutdown deadline; never refresh a step's budget. */
+async function safely(
+  label: string,
+  step: () => Promise<void> | void,
+  deadlineAt: number,
+): Promise<StepOutcome> {
+  const remainingMs = deadlineAt - Date.now();
+  if (remainingMs <= 0)
+    return {
+      label,
+      settled: false,
+      threw: false,
+      durationMs: 0,
+      status: 'not-started',
+      reason: 'shutdown-deadline',
+    };
+  const outcome = await withDeadline(label, step, remainingMs);
+  return outcome.reason === 'step-deadline' ? { ...outcome, reason: 'shutdown-deadline' } : outcome;
 }
 
 /**
@@ -83,6 +92,7 @@ async function safely(label: string, step: () => Promise<void> | void): Promise<
  * rc:124.
  *
  * Order:
+ *   0. Cancel registered contexts, then await registered producer settlement.
  *   1. {@link shutdownBrainWriter} — terminate the BRAIN single-writer worker
  *      thread (the `MessagePort` proven to hang `cleo memory observe`).
  *   2. {@link resetEmbeddingQueue} — flush + terminate the embedding queue
@@ -92,12 +102,21 @@ async function safely(label: string, step: () => Promise<void> | void): Promise<
  *      native handles (releases file locks; required on Windows).
  *   4. {@link closeLogger} — flush + terminate the pino-roll transport worker.
  *
- * Every step is best-effort and idempotent — safe to call once per process at
- * exit, and harmless if a given subsystem was never initialized.
+ * @remarks All steps share one {@link STEP_DEADLINE_MS} budget captured at entry.
+ * Cancellation preserves producers' original contexts; waiting grants no new
+ * write budget. If tracked producers do not settle, resource closers are not
+ * started. A timed-out drain cannot later resume closing resources. Untracked
+ * work is outside this registry's guarantee, and synchronous work cannot be
+ * preempted; the deadline is checked again before each subsequent step.
+ * Already-settled best-effort failures do not undo committed command results.
+ * The producer barrier reports its observed pending count and leaves individual
+ * producer outcomes unassessed; settling is not proof that their work succeeded.
  *
- * @returns One {@link StepOutcome} per step, in run order. A step with
- *          `settled: false` blew its deadline and was abandoned — the caller
- *          should surface that, because it means something leaked.
+ * @returns One stage receipt using the outcome contract of {@link withDeadline},
+ *          in run order. A step with
+ *          `settled: false` did not finish, or was not started because the
+ *          shared budget or producer barrier prevented safe closure. The caller
+ *          must surface incomplete teardown; it is not successful resource closure.
  *
  * @example
  * ```ts
@@ -111,31 +130,63 @@ async function safely(label: string, step: () => Promise<void> | void): Promise<
  * @task T11568
  */
 export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
-  // 0. Declare teardown and abort registered in-flight background work, BEFORE
-  //    anything is closed (T12239). The dialectic hook in the runtime gateway
-  //    bounds its LLM call at 10s while the exit backstop fires at 3s, so a
-  //    dialectic still in flight holds a TCPSocketWrap for up to seven seconds
-  //    PAST the "event loop still alive 3000ms after teardown" warning. Closing
-  //    the writer first and cancelling second would abort that work only after
-  //    the resources it might touch are already gone.
+  const deadlineAt = Date.now() + STEP_DEADLINE_MS;
   markShuttingDown();
 
-  // 1. BRAIN single-writer worker thread — the live MessagePort that hangs
-  //    `cleo memory observe` / `cleo docs add` / any brain.db write path.
-  const outcomes: StepOutcome[] = [];
-  outcomes.push(await safely('brain-writer', () => shutdownBrainWriter()));
-
-  // 2. Embedding queue worker thread (T11655) — the second live MessagePort.
-  //    Flushes in-flight batches then terminates the worker, so an opportunistic
-  //    embed enqueued during the command cannot keep the loop alive at exit.
-  outcomes.push(await safely('embedding-queue', () => resetEmbeddingQueue()));
-
-  // 3. Close DB singletons (dual-scope cleo.db + brain/nexus native handles).
-  //    Releases SQLite file handles — required before tmpdir cleanup on Windows.
-  outcomes.push(await safely('databases', () => closeAllDatabases()));
-
-  // 4. Flush + terminate the pino-roll transport worker thread.
-  outcomes.push(await safely('logger', () => closeLogger()));
-
+  const drain = await safely(
+    'background-operations',
+    async () => {
+      await awaitBackgroundOps();
+      // The legacy barrier caps rescheduling rounds; a return alone does not
+      // establish that every registered producer has actually settled.
+      if (pendingBackgroundOpCount() !== 0) {
+        throw new Error('Registered background producers remain after the shutdown barrier');
+      }
+    },
+    deadlineAt,
+  );
+  const pendingAfterDrain = pendingBackgroundOpCount();
+  const outcomes: StepOutcome[] = [
+    {
+      ...drain,
+      ...(drain.threw && pendingAfterDrain > 0 ? { reason: 'drain-incomplete' as const } : {}),
+      producerOutcome: 'unassessed',
+      pendingOperations: pendingAfterDrain,
+    },
+  ];
+  let mayClose = drain.settled && !drain.threw;
+  let blockedReason: StepOutcome['reason'] = mayClose ? undefined : 'drain-incomplete';
+  const steps = [
+    ['brain-writer', shutdownBrainWriter],
+    ['embedding-queue', resetEmbeddingQueue],
+    ['databases', closeAllDatabases],
+    ['logger', closeLogger],
+  ] as const;
+  for (const [label, close] of steps) {
+    // Recheck at each boundary: a closer may itself register more work.
+    const pendingOperations = pendingBackgroundOpCount();
+    if (pendingOperations > 0) {
+      mayClose = false;
+      blockedReason = 'background-pending';
+    }
+    if (!mayClose) {
+      outcomes.push({
+        label,
+        settled: false,
+        threw: false,
+        durationMs: 0,
+        status: 'not-started',
+        reason: blockedReason,
+        pendingOperations,
+      });
+      continue;
+    }
+    const outcome = await safely(label, close, deadlineAt);
+    outcomes.push(outcome);
+    // An unsettled closer can still own the resources later steps would close.
+    mayClose = outcome.settled;
+    if (!mayClose)
+      blockedReason = outcome.status === 'not-started' ? outcome.reason : 'prior-step-incomplete';
+  }
   return outcomes;
 }

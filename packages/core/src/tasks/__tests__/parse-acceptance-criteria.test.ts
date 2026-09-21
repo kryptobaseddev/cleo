@@ -17,6 +17,28 @@ import { describe, expect, it } from 'vitest';
 import { parseAcceptanceCriteria } from '../infer-add-params.js';
 
 describe('parseAcceptanceCriteria', () => {
+  it.each([
+    '["valid", 3]',
+    '["valid", false]',
+    '["valid", null]',
+    '["valid", {}]',
+    '["valid", []]',
+  ])('rejects nonstring JSON criteria atomically: %s', (input) =>
+    expect(() => parseAcceptanceCriteria(input)).toThrow('Acceptance criterion'));
+
+  it.each([
+    '["unterminated]',
+    '["criterion",',
+    '[true,]',
+  ])('rejects malformed explicit JSON arrays: %s', (input) =>
+    expect(() => parseAcceptanceCriteria(input)).toThrow('Invalid JSON acceptance array'));
+
+  it('keeps JSON array entries literal while trimming and dropping blank strings', () => {
+    expect(
+      parseAcceptanceCriteria(JSON.stringify([' literal a|b ', "mode: 'a'|'b'", '', '  '])),
+    ).toEqual(['literal a|b', "mode: 'a'|'b'"]);
+  });
+
   // ─── Baseline pipe-split behaviour ────────────────────────────────────────
   it('splits a plain pipe-delimited string', () => {
     expect(parseAcceptanceCriteria('A|B|C')).toEqual(['A', 'B', 'C']);

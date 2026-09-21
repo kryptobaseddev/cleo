@@ -23,7 +23,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { orchestrateSpawn } from '@cleocode/core/internal';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Minimal task shape seeded through the store during setup.
@@ -111,6 +111,13 @@ const EPIC_NO_FILES: SeededTask = {
   createdAt: '2026-04-17T00:00:00Z',
   updatedAt: null,
 };
+
+// Each scenario owns its seeded task store and explicitly selected project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('T932 — orchestrate-engine integration with composeSpawnPayload', () => {
   beforeEach(async () => {

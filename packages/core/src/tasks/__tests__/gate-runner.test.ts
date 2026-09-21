@@ -9,34 +9,51 @@
  * @epic T768
  */
 
-import { rm } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import type {
+  AcceptanceGate,
+  AcRow,
   CommandGate,
   FileGate,
   HttpGate,
   LintGate,
   ManualGate,
+  Task,
   TestGate,
 } from '@cleocode/contracts';
-import { beforeAll, describe, expect, it } from 'vitest';
-import { getProjectRoot } from '../../paths.js';
-import { runGates } from '../gate-runner.js';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { _forceSystemdRunAvailable } from '../../resources/spawn-wrapper.js';
+import { createOperationExecutionContext } from '../../store/background-ops.js';
+import { acItemToText, acTextHash, buildFreshAcRows } from '../ac-table.js';
+import {
+  createTaskGateReceipt,
+  revalidateTaskGateResults,
+  runGates,
+  runTaskGates,
+} from '../gate-runner.js';
 
 // ─── Setup ────────────────────────────────────────────────────────────────
 
-const thisDir = dirname(fileURLToPath(import.meta.url));
-const projectRoot = getProjectRoot();
-const testDir = resolve(thisDir, '.gate-runner-test');
+let projectRoot: string;
 
 beforeAll(async () => {
-  // Create test directory
-  try {
-    await rm(testDir, { recursive: true, force: true });
-  } catch {
-    // Ignore
-  }
+  projectRoot = await mkdtemp(join(tmpdir(), 'cleo-gate-runner-'));
+  await writeFile(join(projectRoot, 'package.json'), JSON.stringify({ name: 'gate-fixture' }));
+  await mkdir(join(projectRoot, '.cleo'));
+  await writeFile(
+    join(projectRoot, '.cleo/project-info.json'),
+    JSON.stringify({
+      projectId: 'gate-fixture',
+      projectHash: 'gate-fixture-path',
+    }),
+  );
+});
+
+afterAll(async () => {
+  await rm(projectRoot, { recursive: true, force: true });
 });
 
 // ─── Gate Kind Tests ────────────────────────────────────────────────────────
@@ -86,7 +103,7 @@ describe('gate-runner — test gate', () => {
 
 describe('gate-runner — file gate', () => {
   it('validates file existence', async () => {
-    // Use an existing file from the project
+    // Verify the actual file created in the isolated gate project
     const existingFile = join(projectRoot, 'package.json');
 
     const gates: FileGate[] = [
@@ -169,26 +186,28 @@ describe('gate-runner — command gate', () => {
 });
 
 describe('gate-runner — lint gate', () => {
-  it('skips lint gate gracefully when command not found', async () => {
+  it('returns an incomplete observation when the requested lint tool cannot start', async () => {
     // This test verifies that lint gates handle missing tools gracefully
     const gates: LintGate[] = [
       {
         kind: 'lint',
         description: 'biome-format — validates lint gate',
-        linter: 'biome',
-        paths: ['packages/core/src/tasks/gate-runner.ts'],
-        mode: 'format',
+        tool: 'biome',
+        args: ['check', '.'],
+        expect: 'clean',
       },
     ];
 
-    const results = await runGates(gates, { projectRoot });
+    const results = await runGates(gates, { projectRoot, env: { PATH: projectRoot } });
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       kind: 'lint',
     });
-    // Should either pass or fail depending on whether biome is configured
-    expect(['pass', 'fail', 'warn', 'skipped', 'error']).toContain(results[0].result);
+    expect(results[0]).toMatchObject({
+      result: 'error',
+      execution: { started: false, exitCode: null },
+    });
   });
 });
 
@@ -225,7 +244,7 @@ describe('gate-runner — manual gate', () => {
       },
     ];
 
-    const results = await runGates(gates, { projectRoot }, { skipManual: true });
+    const results = await runGates(gates, { projectRoot, skipManual: true });
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
@@ -243,7 +262,7 @@ describe('gate-runner — manual gate', () => {
       },
     ];
 
-    const results = await runGates(gates, { projectRoot }, { skipManual: false });
+    const results = await runGates(gates, { projectRoot, skipManual: false });
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
@@ -255,7 +274,7 @@ describe('gate-runner — manual gate', () => {
 
 describe('gate-runner — multi-gate execution', () => {
   it('runs multiple gates sequentially', async () => {
-    const gates = [
+    const gates: AcceptanceGate[] = [
       {
         kind: 'test' as const,
         description: 'test-1 — multi-gate test gate',
@@ -275,13 +294,9 @@ describe('gate-runner — multi-gate execution', () => {
         description: 'manual-1 — multi-gate manual gate',
         prompt: 'Review test',
       },
-    ] as const;
+    ];
 
-    const results = await runGates(
-      gates as unknown as Parameters<typeof runGates>[0],
-      { projectRoot },
-      { skipManual: true },
-    );
+    const results = await runGates(gates, { projectRoot, skipManual: true });
 
     expect(results).toHaveLength(3);
     expect(results[0].result).toBe('pass');
@@ -317,7 +332,7 @@ describe('gate-runner — multi-gate execution', () => {
 
 describe('gate-runner — integration with contract types', () => {
   it('validates all gate kinds together', async () => {
-    const gates = [
+    const gates: AcceptanceGate[] = [
       {
         kind: 'test' as const,
         description: 'test-1 — integration test gate',
@@ -337,13 +352,9 @@ describe('gate-runner — integration with contract types', () => {
         description: 'manual-1 — integration manual gate',
         prompt: 'Review manual',
       },
-    ] as const;
+    ];
 
-    const results = await runGates(
-      gates as unknown as Parameters<typeof runGates>[0],
-      { projectRoot },
-      { skipManual: true },
-    );
+    const results = await runGates(gates, { projectRoot, skipManual: true });
 
     expect(results.length).toBeGreaterThanOrEqual(3);
     expect(results.every((r) => r.result)).toBe(true);
@@ -432,5 +443,623 @@ describe('gate-runner — a killed gate is not a failed gate (gh#1270)', () => {
     const results = await runGates(gates, { projectRoot });
 
     expect(results[0]?.result).toBe('fail');
+  });
+});
+
+describe('gate runner target verdict and shared execution (T12292)', () => {
+  it('does not pass a missing executable merely because exit1 was expected', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'command',
+          description: 'missing target',
+          cmd: '/no-such-cleo-gate-executable',
+          exitCode: 1,
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toContain('ENOENT');
+  });
+
+  it('uses actual nonzero target exit codes without inventing exit1', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'command',
+          description: 'actual exit7',
+          cmd: process.execPath,
+          args: ['-e', 'process.exit(7)'],
+          exitCode: 7,
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('pass');
+  });
+
+  it('retains a missing harness as an unmet test requirement', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'missing harness',
+          command: process.execPath,
+          args: [join(projectRoot, 'missing-harness.mjs')],
+          expect: 'exit0',
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('fail');
+    expect(result?.evidence).toContain('MODULE_NOT_FOUND');
+  });
+
+  it('does not silently accept an unmeasured minimum test count', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'zero tests cannot prove minimum',
+          command: process.execPath,
+          args: ['-e', 'process.exit(0)'],
+          expect: 'exit0',
+          minCount: 5,
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/count/i);
+  });
+});
+
+describe('gate runner immutable lifetime and bounded evidence', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    _forceSystemdRunAvailable(undefined);
+  });
+
+  function execution(options: Parameters<typeof createOperationExecutionContext>[1] = {}) {
+    return createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'gate-test',
+        operation: 'tasks.verify',
+        idempotencyKey: 'gate-fixture-check',
+      },
+      options,
+    );
+  }
+
+  it('does not renew the shared deadline for subsequent gates', async () => {
+    _forceSystemdRunAvailable(false);
+    const context = execution({ budgetMs: 150 });
+    const marker = join(projectRoot, 'late-deadline-marker');
+    try {
+      const results = await runGates(
+        [
+          {
+            kind: 'command',
+            description: 'slow first',
+            cmd: process.execPath,
+            args: ['-e', 'setInterval(()=>{},1000)'],
+            timeoutMs: 1800000,
+          },
+          {
+            kind: 'command',
+            description: 'must not start',
+            cmd: process.execPath,
+            args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)},'late')`],
+            timeoutMs: 1800000,
+          },
+        ],
+        { projectRoot, execution: context },
+      );
+      expect(results.map((result) => result.result)).toEqual(['error', 'error']);
+      expect(results[0]?.execution?.stopped).toBe('deadline');
+      await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      context.close();
+    }
+  });
+
+  it('rejects a project override outside the captured operation before execution', async () => {
+    const context = execution();
+    try {
+      await expect(
+        runGates(
+          [
+            {
+              kind: 'command',
+              description: 'wrong project',
+              cmd: process.execPath,
+              args: ['-e', 'process.exit(0)'],
+            },
+          ],
+          { projectRoot: join(projectRoot, 'other'), execution: context },
+        ),
+      ).rejects.toThrow(/project.*captured/i);
+    } finally {
+      context.close();
+    }
+  });
+
+  it('retains cancellation as interruption and prevents later gates', async () => {
+    _forceSystemdRunAvailable(false);
+    const controller = new AbortController();
+    const context = execution({ budgetMs: 2000, signal: controller.signal });
+    const timer = setTimeout(() => controller.abort(new Error('fixture cancellation')), 100);
+    try {
+      const results = await runGates(
+        [
+          {
+            kind: 'command',
+            description: 'cancel first',
+            cmd: process.execPath,
+            args: ['-e', 'setInterval(()=>{},1000)'],
+          },
+          { kind: 'manual', description: 'later', prompt: 'later manual' },
+        ],
+        { projectRoot, execution: context },
+      );
+      expect(results.map((result) => result.result)).toEqual(['error', 'error']);
+      expect(results[0]?.execution?.stopped).toBe('cancelled');
+    } finally {
+      clearTimeout(timer);
+      context.close();
+    }
+  });
+
+  it('charges aggregate admission before the next gate starts', async () => {
+    const context = execution({ resources: { maxItems: 1 } });
+    try {
+      const results = await runGates(
+        [
+          { kind: 'manual', description: 'first', prompt: 'first' },
+          { kind: 'manual', description: 'second', prompt: 'second' },
+        ],
+        { projectRoot, execution: context },
+      );
+      expect(results.map((result) => result.result)).toEqual(['skipped', 'error']);
+      expect(results[1]?.errorMessage).toMatch(/resource|item/i);
+    } finally {
+      context.close();
+    }
+  });
+
+  it('captures exact argv, environment, cwd and requirement before caller edits', async () => {
+    _forceSystemdRunAvailable(false);
+    const gate: CommandGate = {
+      kind: 'command',
+      description: 'captured gate',
+      req: 'PARTNER-EXACT',
+      cmd: process.execPath,
+      args: [
+        '-e',
+        'process.stdout.write(JSON.stringify({cwd:process.cwd(),value:process.env.GATE_VALUE,arg:process.argv[1]}))',
+        'quoted | ü',
+      ],
+    };
+    const env = { GATE_VALUE: 'original' };
+    const pending = runGates([gate], { projectRoot, env });
+    gate.req = 'MUTATED';
+    gate.args = ['-e', 'process.exit(9)'];
+    env.GATE_VALUE = 'changed';
+    const [result] = await pending;
+    expect(result).toMatchObject({ req: 'PARTNER-EXACT', result: 'pass' });
+    expect(JSON.parse(result?.execution?.stdout ?? '{}')).toEqual({
+      cwd: projectRoot,
+      value: 'original',
+      arg: 'quoted | ü',
+    });
+  });
+
+  it('rejects output truncation rather than accepting a prefix as proof', async () => {
+    _forceSystemdRunAvailable(false);
+    const [result] = await runGates(
+      [
+        {
+          kind: 'command',
+          description: 'oversized output',
+          cmd: process.execPath,
+          args: ['-e', "process.stdout.write('x'.repeat(2048))"],
+        },
+      ],
+      { projectRoot, maxOutputBytes: 32 },
+    );
+    expect(result).toMatchObject({
+      result: 'error',
+      execution: { stopped: 'output-limit', outputTruncated: true },
+    });
+  });
+
+  it('fails resource admission truthfully when requested native limits cannot be established', async () => {
+    _forceSystemdRunAvailable(false);
+    const [result] = await runGates(
+      [
+        {
+          kind: 'command',
+          description: 'bounded only',
+          cmd: process.execPath,
+          args: ['-e', 'process.exit(0)'],
+        },
+      ],
+      { projectRoot, memoryMaxMb: 4096, tasksMax: 256 },
+    );
+    expect(result).toMatchObject({
+      result: 'error',
+      execution: { started: false, stopped: 'resource-limit' },
+    });
+  });
+
+  it('does not convert a file read diagnostic into empty successful content', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'file',
+          description: 'directory is not content',
+          path: projectRoot,
+          assertions: [{ type: 'contains', value: '' }],
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/EISDIR/);
+  });
+
+  it('enforces file byte bounds for hashes as well as text predicates', async () => {
+    const path = join(projectRoot, 'oversized.bin');
+    await writeFile(path, Buffer.alloc(100, 1));
+    const [result] = await runGates(
+      [
+        {
+          kind: 'file',
+          description: 'bounded digest',
+          path,
+          assertions: [{ type: 'sha256', value: 'a'.repeat(64) }],
+        },
+      ],
+      { projectRoot, maxOutputBytes: 10 },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/byte limit/);
+  });
+
+  it('retains HTTP failure and oversized bodies as incomplete observations', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockRejectedValueOnce(new Error('fixture network failure'))
+        .mockResolvedValueOnce(new Response('x'.repeat(100))),
+    );
+    const gate: HttpGate = {
+      kind: 'http',
+      description: 'bounded response',
+      url: 'https://fixture.invalid',
+      status: 200,
+    };
+    const [failed] = await runGates([gate], { projectRoot });
+    expect(failed?.result).toBe('error');
+    const [oversized] = await runGates([gate], { projectRoot, maxOutputBytes: 10 });
+    expect(oversized?.result).toBe('error');
+    expect(oversized?.errorMessage).toMatch(/byte limit/);
+  });
+});
+
+describe('task-bound explicit gate verification (T12292)', () => {
+  function admitted() {
+    return createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'bound-agent',
+        operation: 'check.gate.verify',
+        idempotencyKey: 'bound-attempt',
+      },
+      { budgetMs: 2000 },
+    );
+  }
+  function taskAndRows(script: string) {
+    const task: Task = {
+      id: 'T122',
+      title: 'Bound verification',
+      description: 'Actual task-specific process verification fixture',
+      status: 'active',
+      type: 'task',
+      priority: 'medium',
+      createdAt: '2026-09-20T00:00:00.000Z',
+      files: [script],
+      acceptance: [
+        'Literal | text',
+        {
+          kind: 'test',
+          command: process.execPath,
+          args: [script, '--task', 'T122'],
+          expect: 'exit0',
+          req: 'PARTNER-122',
+          description: 'Actual harness must run',
+          timeoutMs: 1800000,
+        },
+      ],
+    };
+    const rows: AcRow[] = buildFreshAcRows(task.id, task.acceptance).map((row) => ({
+      ...row,
+      kind: row.kind ?? 'text',
+      sourceKey: row.sourceKey ?? '',
+      projection: row.projection ?? 'legacy',
+      targetTaskId: row.targetTaskId ?? null,
+      contentHash: row.contentHash ?? null,
+      createdAt: task.createdAt,
+      updatedAt: null,
+    }));
+    return { task, rows };
+  }
+  beforeEach(() => _forceSystemdRunAvailable(false));
+  afterEach(() => _forceSystemdRunAvailable(undefined));
+
+  it('serializes exact receipt bytes and rejects duplicate or mixed verification owners', async () => {
+    const script = 'receipt-pass.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    try {
+      const results = await runTaskGates(task, rows, { execution });
+      const expected = {
+        verificationId: results[0]!.binding!.verificationId,
+        resultHash: createHash('sha256').update(JSON.stringify(results)).digest('hex'),
+        operation: 'check.gate.verify',
+        passed: true,
+      };
+      expect(JSON.stringify(createTaskGateReceipt(results, true))).toBe(JSON.stringify(expected));
+      expect(createTaskGateReceipt(structuredClone(results), true)).toEqual(expected);
+      expect(() => createTaskGateReceipt([], true)).toThrow('bound result batch');
+      expect(() => createTaskGateReceipt([...results, ...results], true)).toThrow(
+        'unique criterion',
+      );
+      const second = await runTaskGates(task, rows, { execution });
+      expect(() => createTaskGateReceipt([...results, ...second], true)).toThrow('one batch owner');
+      expect(createTaskGateReceipt(results, false)).toEqual({ ...expected, passed: false });
+      const altered = structuredClone(results);
+      altered[0]!.evidence = 'different exact payload';
+      expect(createTaskGateReceipt(altered, true).resultHash).not.toBe(expected.resultHash);
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('binds actual untracked harness bytes, original mixed index and captured lifetime', async () => {
+    const script = 'bound-pass.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    try {
+      const results = await runTaskGates(task, rows, { execution });
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        index: 1,
+        req: 'PARTNER-122',
+        result: 'pass',
+        checkedBy: 'bound-agent',
+        binding: {
+          taskId: task.id,
+          criterionId: rows[1]!.id,
+          deadlineAt: execution.deadlineAt,
+          identity: execution.identity,
+          artifacts: [{ path: join(projectRoot, script), bytes: 16 }],
+        },
+      });
+      expect(results[0]!.binding!.invocation!.args).toEqual([script, '--task', 'T122']);
+      expect(results[0]!.binding!.artifacts[0]!.sha256).toMatch(/^[a-f0-9]{64}$/);
+      await expect(
+        revalidateTaskGateResults(task, rows, results, { execution }),
+      ).resolves.toBeUndefined();
+      await writeFile(join(projectRoot, script), 'process.exit(1);');
+      await expect(revalidateTaskGateResults(task, rows, results, { execution })).rejects.toThrow(
+        'input bytes changed',
+      );
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('records a missing real harness as unmet with explicit absent input', async () => {
+    const { task, rows } = taskAndRows('missing-bound-harness.mjs');
+    const execution = admitted();
+    try {
+      const results = await runTaskGates(task, rows, { execution });
+      expect(results[0]).toMatchObject({
+        result: 'fail',
+        binding: { artifacts: [{ sha256: null, bytes: null }] },
+      });
+      await expect(
+        revalidateTaskGateResults(task, rows, results, { execution }, false),
+      ).resolves.toBeUndefined();
+      await expect(revalidateTaskGateResults(task, rows, results, { execution })).rejects.toThrow(
+        'lacks a passing',
+      );
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('does not launch with incoherent JSON/AC rows, missing context or mismatched project', async () => {
+    const { task, rows } = taskAndRows('must-not-run.mjs');
+    const execution = admitted();
+    try {
+      await expect(runTaskGates(task, [], { execution })).rejects.toThrow(
+        'inconsistent acceptance',
+      );
+      await expect(runTaskGates(task, rows, {})).rejects.toThrow('explicitly admitted');
+      await expect(
+        runTaskGates(task, rows, { execution, projectRoot: dirname(projectRoot) }),
+      ).rejects.toThrow();
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('rejects changed gate payload, current environment, owner and duplicate or unbound proof', async () => {
+    const script = 'bound-freshness.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    try {
+      const options = { execution, env: { PATH: process.env.PATH, PROOF_ENV: 'original' } };
+      const results = await runTaskGates(task, rows, options);
+      await expect(
+        revalidateTaskGateResults(task, rows, results, {
+          ...options,
+          env: { ...options.env, PROOF_ENV: 'changed' },
+        }),
+      ).rejects.toThrow('environment changed');
+      await expect(
+        revalidateTaskGateResults(task, rows, [...results, ...results], options),
+      ).rejects.toThrow('unique verified');
+      await expect(
+        revalidateTaskGateResults(
+          task,
+          rows,
+          results.map((r) => ({ ...r, binding: undefined })),
+          options,
+        ),
+      ).rejects.toThrow('passing bound');
+      await expect(
+        revalidateTaskGateResults({ ...task, id: 'T999' }, rows, results, options),
+      ).rejects.toThrow('inconsistent acceptance');
+      const edited = structuredClone(task);
+      const gate = edited.acceptance![1]!;
+      if (typeof gate === 'string') throw new Error('Expected typed criterion');
+      gate.description = 'changed gate description';
+      const revisedRows = rows.map((row, index) =>
+        index === 1
+          ? {
+              ...row,
+              text: acItemToText(gate),
+              contentHash: acTextHash(acItemToText(gate)),
+            }
+          : row,
+      );
+      await expect(
+        revalidateTaskGateResults(edited, revisedRows, results, options),
+      ).rejects.toThrow('stale or belongs');
+      await expect(revalidateTaskGateResults(edited, rows, results, options)).rejects.toThrow(
+        'inconsistent acceptance',
+      );
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('refuses a harness that changes its input bytes during execution', async () => {
+    const script = 'bound-self-edit.mjs';
+    await writeFile(
+      join(projectRoot, script),
+      "import {writeFileSync} from 'node:fs'; writeFileSync(new URL(import.meta.url), 'process.exit(0);');",
+    );
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    try {
+      const results = await runTaskGates(task, rows, { execution });
+      expect(results[0]).toMatchObject({
+        result: 'error',
+        errorMessage: 'Verification inputs changed during execution',
+      });
+    } finally {
+      execution.close();
+    }
+  });
+  it('rejects authentic runner output with no task binding instead of treating exit0 as completion proof', async () => {
+    const script = 'bound-original-runner.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    const gate = task.acceptance![1]!;
+    if (typeof gate === 'string') throw new Error('Expected gate');
+    try {
+      const raw = await runGates([gate], { execution });
+      expect(raw[0]!.result).toBe('pass');
+      expect(raw[0]!.binding).toBeUndefined();
+      await expect(
+        revalidateTaskGateResults(
+          task,
+          rows,
+          raw.map((r) => ({ ...r, index: 1 })),
+          { execution },
+        ),
+      ).rejects.toThrow('passing bound');
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('refuses path escape, oversized inputs and expired admission before executing the harness', async () => {
+    const script = 'bound-budget.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    try {
+      await expect(
+        runTaskGates({ ...task, files: ['../outside'] }, rows, { execution }),
+      ).rejects.toThrow('escapes');
+    } finally {
+      execution.close();
+    }
+    const expired = createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'bound-agent',
+        operation: 'check.gate.verify',
+        idempotencyKey: 'expired',
+      },
+      { budgetMs: 0 },
+    );
+    try {
+      await expect(runTaskGates(task, rows, { execution: expired })).rejects.toThrow();
+    } finally {
+      expired.close();
+    }
+    const bounded = createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'bound-agent',
+        operation: 'check.gate.verify',
+        idempotencyKey: 'byte-bound',
+      },
+      { resources: { maxBytes: 4 } },
+    );
+    try {
+      await expect(runTaskGates(task, rows, { execution: bounded })).rejects.toThrow('byte limit');
+    } finally {
+      bounded.close();
+    }
+  });
+  it('refuses an escaping executable cwd even with no declared file inputs', async () => {
+    const { task, rows } = taskAndRows('cwd-gate.mjs');
+    const execution = admitted();
+    const gate = task.acceptance![1]!;
+    if (typeof gate === 'string' || gate.kind !== 'test') throw new Error('Expected test gate');
+    gate.cwd = '..';
+    gate.command = 'echo';
+    gate.args = ['must-not-run'];
+    task.files = [];
+    const revisedRows = rows.map((row, index) =>
+      index === 1
+        ? { ...row, text: acItemToText(gate), contentHash: acTextHash(acItemToText(gate)) }
+        : row,
+    );
+    try {
+      await expect(runTaskGates(task, revisedRows, { execution })).rejects.toThrow(
+        'working directory escapes',
+      );
+    } finally {
+      execution.close();
+    }
   });
 });

@@ -31,11 +31,17 @@
  * @module pipeline/processors/access-processor
  */
 
-import type { GraphRelation } from '@cleocode/contracts';
+import { createHash } from 'node:crypto';
+import type { GraphIndexReferenceReport, GraphRelation } from '@cleocode/contracts';
 import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import type { GraphLexicalResolution, GraphSourceSpan } from '@cleocode/contracts/graph';
+import type Parser from 'tree-sitter';
+import type { BarrelExportMap, NamedImportMap } from '../import-processor.js';
 import type { KnowledgeGraph } from '../knowledge-graph.js';
+import { detectLanguageFromPath } from '../language-detection.js';
+import { buildLexicalScopeModel, type LexicalScopeModel } from '../lexical-scope.js';
 import { TIER_CONFIDENCE } from '../resolution-context.js';
-import type { SymbolTable } from '../symbol-table.js';
+import { resolveLexicalReference, type SymbolTable } from '../symbol-table.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,12 +85,26 @@ export interface ExtractedAccess {
   receiverName?: string;
   /** Whether the member is read, written, or both. */
   accessMode: AccessMode;
+  /** Original UTF-16 access range when shared lexical extraction is supported. */
+  span?: GraphSourceSpan;
+  /** Source content generation, distinct from the eventual publication generation. */
+  generation?: string;
+  /** Immutable publication identity, distinct from source-content generation. */
+  publicationGeneration?: string;
+  /** Nearest receiver binding; an unknown local must block unrelated global candidates. */
+  lexical?: GraphLexicalResolution;
+  /** Computed or complex receiver expressions without a statically established target. */
+  dynamic?: boolean;
 }
 
 /**
  * Counters returned by {@link resolveAccesses}.
  */
 export interface AccessResolutionResult {
+  /** Every unresolved original access site, before relationship deduplication. */
+  references: GraphIndexReferenceReport[];
+  /** ACCESSES edges resolved through an explicit namespace import. */
+  tier2aCount: number;
   /** ACCESSES edges emitted at Tier 1 (same-file). */
   tier1Count: number;
   /** ACCESSES edges emitted at Tier 3 (global fallback). */
@@ -101,16 +121,7 @@ export interface AccessResolutionResult {
  * Minimal tree-sitter SyntaxNode shape required by this processor.
  * Avoids a hard dependency on any particular tree-sitter type package.
  */
-interface SyntaxNode {
-  type: string;
-  text: string;
-  children: SyntaxNode[];
-  namedChildren: SyntaxNode[];
-  namedChildCount: number;
-  parent: SyntaxNode | null;
-  childForFieldName(fieldName: string): SyntaxNode | null;
-  namedChild(index: number): SyntaxNode | null;
-}
+type SyntaxNode = Parser.SyntaxNode;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -283,9 +294,25 @@ function isWriteTarget(node: SyntaxNode): boolean {
  *
  * @param rootNode - AST root node (program, module, source_file, etc.)
  * @param filePath - File path relative to repo root
+ * @param model - Shared TS/JS scope model; other languages retain their existing capability.
  * @returns Array of extracted access records
  */
-export function extractAccesses(rootNode: SyntaxNode, filePath: string): ExtractedAccess[] {
+export function extractAccesses(
+  rootNode: SyntaxNode,
+  filePath: string,
+  model?: LexicalScopeModel,
+): ExtractedAccess[] {
+  const language = detectLanguageFromPath(filePath);
+  const lexicalModel =
+    model ??
+    (language === 'typescript' || language === 'javascript'
+      ? buildLexicalScopeModel(
+          rootNode,
+          filePath,
+          createHash('sha256').update(rootNode.text).digest('hex'),
+          language,
+        )
+      : undefined);
   const results: ExtractedAccess[] = [];
 
   /**
@@ -294,6 +321,7 @@ export function extractAccesses(rootNode: SyntaxNode, filePath: string): Extract
    */
   const ACCESS_NODE_TYPES: Record<string, { object: string; property: string }> = {
     member_expression: { object: 'object', property: 'property' },
+    subscript_expression: { object: 'object', property: 'index' },
     attribute: { object: 'object', property: 'attribute' },
     field_expression: { object: 'value', property: 'field' },
     selector_expression: { object: 'operand', property: 'field' },
@@ -315,10 +343,21 @@ export function extractAccesses(rootNode: SyntaxNode, filePath: string): Extract
 
         results.push({
           filePath,
-          sourceId: buildSourceId(node, filePath),
+          sourceId: lexicalModel?.ownerAt(node.startIndex) ?? buildSourceId(node, filePath),
           memberName,
           receiverName,
           accessMode,
+          ...(lexicalModel
+            ? {
+                span: lexicalModel.spanOf(node),
+                generation: lexicalModel.generation,
+                publicationGeneration: lexicalModel.publicationGeneration,
+                lexical: receiverName
+                  ? lexicalModel.resolve(receiverName, node.startIndex)
+                  : undefined,
+                dynamic: node.type === 'subscript_expression' || !receiverName,
+              }
+            : {}),
         });
       }
     }
@@ -350,7 +389,7 @@ function deduplicateAccesses(accesses: ExtractedAccess[]): ExtractedAccess[] {
   const seen = new Map<string, { access: ExtractedAccess; hasRead: boolean; hasWrite: boolean }>();
 
   for (const acc of accesses) {
-    const key = `${acc.sourceId}::${acc.memberName}`;
+    const key = `${acc.sourceId}::${acc.receiverName ?? '<dynamic>'}::${acc.memberName}`;
     const existing = seen.get(key);
     if (!existing) {
       seen.set(key, {
@@ -425,52 +464,112 @@ function resolveSingleAccess(
  * @param accesses - All access records accumulated during the parse loop
  * @param graph - KnowledgeGraph to write ACCESSES edges into
  * @param symbolTable - Fully-populated SymbolTable (all files parsed)
- * @returns Resolution counters
+ * @param namedImportMap - Explicit source-module bindings for lexical receivers.
+ * @param barrelMap - Re-export candidates for namespace access resolution.
+ * @returns Resolution counters and original unresolved sites
  */
 export async function resolveAccesses(
   accesses: ExtractedAccess[],
   graph: KnowledgeGraph,
   symbolTable: SymbolTable,
+  namedImportMap: NamedImportMap = new Map(),
+  barrelMap: BarrelExportMap = new Map(),
 ): Promise<AccessResolutionResult> {
   let tier1Count = 0;
+  let tier2aCount = 0;
   let tier3Count = 0;
   let unresolvedCount = 0;
-
-  // Deduplicate read+write pairs before resolution
-  const deduped = deduplicateAccesses(accesses);
-
+  const references: GraphIndexReferenceReport[] = [];
+  const resolvedEdges = new Map<
+    string,
+    { relation: GraphRelation; modes: Set<AccessMode>; provenance: string[] }
+  >();
+  // Preserve every lexical site. Only legacy language records lack source ranges.
+  const sites = [
+    ...accesses.filter((access) => access.generation),
+    ...deduplicateAccesses(accesses.filter((access) => !access.generation)),
+  ];
   let processed = 0;
-  for (const access of deduped) {
-    processed++;
-
-    // Yield to event loop periodically on large repos
-    if (processed % 100 === 0) {
-      await Promise.resolve();
-    }
-
-    const resolved = resolveSingleAccess(access, symbolTable);
-    if (!resolved) {
+  for (const access of sites) {
+    if (++processed % 100 === 0) await Promise.resolve();
+    const lexical = access.generation
+      ? resolveLexicalReference(
+          {
+            filePath: access.filePath,
+            sourceId: access.sourceId,
+            targetName: access.memberName,
+            relationship: 'accesses',
+            span: access.span,
+            generation: access.generation,
+            publicationGeneration: access.publicationGeneration,
+            lexical: access.lexical,
+            member: true,
+            dynamic: access.dynamic,
+          },
+          symbolTable,
+          graph.nodes,
+          namedImportMap,
+          barrelMap,
+        )
+      : undefined;
+    if (lexical && 'report' in lexical) {
+      references.push(lexical.report);
       unresolvedCount++;
       continue;
     }
-
-    const rel: GraphRelation = {
-      source: access.sourceId,
-      target: resolved.nodeId,
-      type: 'accesses',
-      confidence: resolved.confidence,
-      confidenceLabel: confidenceLabelFromNumeric(resolved.confidence),
-      reason: `${access.accessMode} access to ${access.memberName} (tier: ${resolved.tier})`,
-    };
-
-    graph.addRelation(rel);
-
-    if (resolved.tier === 'same-file') {
-      tier1Count++;
-    } else {
-      tier3Count++;
+    const resolved = lexical
+      ? {
+          nodeId: lexical.targetId,
+          confidence: Math.min(TIER_CONFIDENCE[lexical.tier], 0.8),
+          tier: lexical.tier,
+        }
+      : resolveSingleAccess(access, symbolTable);
+    if (!resolved) {
+      unresolvedCount++;
+      references.push({
+        kind: 'unresolved',
+        filePath: access.filePath,
+        sourceId: access.sourceId,
+        targetName: access.memberName,
+        relationship: 'accesses',
+        reason: 'Language-specific receiver target unresolved; lexical capability unavailable',
+        candidateIds: symbolTable
+          .lookupCallableByName(access.memberName)
+          .map((candidate) => candidate.nodeId),
+      });
+      continue;
     }
+    const key = `${access.sourceId}\0${resolved.nodeId}`;
+    let edge = resolvedEdges.get(key);
+    if (!edge) {
+      edge = {
+        relation: {
+          source: access.sourceId,
+          target: resolved.nodeId,
+          type: 'accesses',
+          confidence: resolved.confidence,
+          confidenceLabel: confidenceLabelFromNumeric(resolved.confidence),
+        },
+        modes: new Set(),
+        provenance: [],
+      };
+      resolvedEdges.set(key, edge);
+      if (resolved.tier === 'same-file') tier1Count++;
+      else if (resolved.tier === 'import-scoped') tier2aCount++;
+      else tier3Count++;
+    }
+    edge.modes.add(access.accessMode);
+    edge.provenance.push(
+      `${access.memberName} (tier: ${resolved.tier})${lexical ? `; ${lexical.reason}; utf16 ${access.span?.startIndex}:${access.span?.endIndex}; source ${access.generation}` : '; language-specific name resolution'}`,
+    );
   }
-
-  return { tier1Count, tier3Count, unresolvedCount };
+  for (const { relation, modes, provenance } of resolvedEdges.values()) {
+    const mode =
+      modes.has('readwrite') || (modes.has('read') && modes.has('write'))
+        ? 'readwrite'
+        : [...modes][0];
+    relation.reason = `${mode} access to ${provenance.join(' | ')}`;
+    graph.addRelation(relation);
+  }
+  return { tier1Count, tier2aCount, tier3Count, unresolvedCount, references };
 }

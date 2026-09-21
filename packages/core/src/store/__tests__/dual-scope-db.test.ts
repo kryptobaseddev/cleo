@@ -14,11 +14,14 @@
  * @saga T11242
  */
 
-import { mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { worktreeScope } from '../../paths.js';
 import * as governorModule from '../../resources/governor.js';
+import { createOperationExecutionContext } from '../background-ops.js';
 import {
   _resetDualScopeDbCache,
   type CleoRuntime,
@@ -29,6 +32,7 @@ import {
   resolveDualScopeDbPath,
   setRuntimeOpenFn,
 } from '../dual-scope-db.js';
+import { withColdOpenLease } from '../writer-lease.js';
 
 // ── Test directory management ─────────────────────────────────────────────────
 
@@ -36,6 +40,13 @@ let testRoot: string;
 let projectDir: string;
 let cleoDirProject: string;
 let globalDir: string;
+
+// Distinct explicit project roots must resolve to distinct fixture stores.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(() => {
   testRoot = join(
@@ -866,5 +877,181 @@ describe('CleoRuntime store registry', () => {
       expect(h2.dbPath).toBe(h1.dbPath);
       h1.close();
     }, 30_000);
+  });
+});
+
+describe('captured canonical opener lifetime', () => {
+  function context(key: string, budgetMs = 2000) {
+    return createOperationExecutionContext(
+      {
+        projectId: 'cold-open-fixture',
+        projectRoot: projectDir,
+        actor: 'fixture',
+        operation: 'docs.projection',
+        idempotencyKey: key,
+      },
+      { budgetMs },
+    );
+  }
+
+  it('rejects cancellation before directory creation, including dedicated opens', async () => {
+    const execution = context('expired', 0);
+    const target = join(testRoot, 'never-created', 'cleo.db');
+    try {
+      for (const dedicated of [false, true]) {
+        await expect(
+          openDualScopeDbAtPath('project', target, undefined, { execution, dedicated }),
+        ).rejects.toThrow();
+      }
+      expect(existsSync(join(testRoot, 'never-created'))).toBe(false);
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('refuses nested replacement of the captured execution through both openers', async () => {
+    const original = context('original');
+    const replacement = context('replacement');
+    try {
+      await worktreeScope.run(
+        { worktreeRoot: projectDir, projectHash: 'cold-open-fixture', execution: original },
+        async () => {
+          await expect(
+            openDualScopeDb('project', projectDir, { execution: replacement }),
+          ).rejects.toThrow('cannot replace');
+          await expect(
+            openDualScopeDbAtPath('project', join(cleoDirProject, 'cleo.db'), undefined, {
+              execution: replacement,
+            }),
+          ).rejects.toThrow('cannot replace');
+        },
+      );
+      expect(existsSync(join(cleoDirProject, 'cleo.db'))).toBe(false);
+    } finally {
+      original.close();
+      replacement.close();
+    }
+  });
+
+  it('cancels a real cold initializer and lets its live shared waiter retry safely', async () => {
+    const target = join(cleoDirProject, 'cleo.db');
+    const holderNative = new DatabaseSync(target);
+    let release = () => {};
+    let entered = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const holder = withColdOpenLease('project', holderNative, async () => {
+      entered();
+      await gate;
+    });
+    await ready;
+    const cancelled = context('cancelled', 30);
+    const live = context('live', 5000);
+    const first = openDualScopeDbAtPath('project', target, undefined, { execution: cancelled });
+    const firstRejected = expect(first).rejects.toThrow();
+    const second = openDualScopeDbAtPath('project', target, undefined, { execution: live });
+    try {
+      await firstRejected;
+      expect(holderNative.isOpen).toBe(true);
+      expect(
+        holderNative
+          .prepare("SELECT count(*) AS count FROM sqlite_master WHERE name='tasks_tasks'")
+          .get()?.count,
+      ).toBe(0);
+      release();
+      await holder;
+      const handle = await second;
+      expect(handle.isOpen).toBe(true);
+      expect(
+        handle.db.$client.prepare("SELECT name FROM sqlite_master WHERE name='tasks_tasks'").get()
+          ?.name,
+      ).toBe('tasks_tasks');
+      const fresh = new DatabaseSync(target, { readOnly: true });
+      try {
+        expect(
+          fresh.prepare("SELECT name FROM sqlite_master WHERE name='tasks_tasks'").get()?.name,
+        ).toBe('tasks_tasks');
+      } finally {
+        fresh.close();
+      }
+      cancelled.close();
+      expect(await openDualScopeDbAtPath('project', target)).toBe(handle);
+      expect(handle.db.$client.prepare('SELECT 1 AS alive').get()?.alive).toBe(1);
+    } finally {
+      release();
+      await holder;
+      await Promise.allSettled([first, second]);
+      cancelled.close();
+      live.close();
+      holderNative.close();
+    }
+  }, 15000);
+
+  it.each([
+    false,
+    true,
+  ])('stops delayed maintenance after cancellation (cleanup=%s)', async (cleanup) => {
+    let releaseAdmission = () => {};
+    let entered = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const releaseSlot = vi.fn(async () => {});
+    const spy = vi.spyOn(governorModule.governor, 'tryAcquire').mockImplementation(async () => {
+      entered();
+      await gate;
+      return {
+        deferred: false,
+        class: 'db-heavy',
+        slot: 0,
+        acquiredAtMs: Date.now(),
+        release: releaseSlot,
+      };
+    });
+    const execution = context('delayed-maintenance', 5000);
+    const target = join(cleoDirProject, 'cleo.db');
+    const first = openDualScopeDb('project', projectDir, { execution });
+    try {
+      await ready;
+      const live = await openDualScopeDbAtPath('project', target);
+      execution.close();
+      if (cleanup) {
+        _resetDualScopeDbCache();
+        rmSync(cleoDirProject, { recursive: true });
+      }
+      const rejected = expect(first).rejects.toThrow();
+      releaseAdmission();
+      await rejected;
+      expect(releaseSlot).toHaveBeenCalledTimes(1);
+      if (cleanup) expect(existsSync(cleoDirProject)).toBe(false);
+      else {
+        expect(live.isOpen).toBe(true);
+        expect(live.db.$client.prepare('SELECT 1 AS alive').get()?.alive).toBe(1);
+      }
+    } finally {
+      releaseAdmission();
+      await Promise.allSettled([first]);
+      execution.close();
+      spy.mockRestore();
+    }
+  });
+
+  it('never closes a cached live handle when a different caller is already cancelled', async () => {
+    const target = join(cleoDirProject, 'cleo.db');
+    const handle = await openDualScopeDbAtPath('project', target);
+    const execution = context('closed');
+    execution.close();
+    await expect(
+      openDualScopeDbAtPath('project', target, undefined, { execution }),
+    ).rejects.toThrow();
+    expect(handle.isOpen).toBe(true);
+    expect(handle.db.$client.prepare('SELECT 1 AS alive').get()?.alive).toBe(1);
   });
 });

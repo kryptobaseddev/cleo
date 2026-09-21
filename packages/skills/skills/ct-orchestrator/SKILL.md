@@ -1,9 +1,30 @@
 ---
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
+metadata:
+  version: 2.8.0
+  lastReviewed: 2026-09-19
+  stability: stable
 ---
 
 # Orchestrator Protocol
+
+## Trustworthy project knowledge
+
+After confirming the assigned worktree, orient with briefing/focus. Check current
+coverage and sourced authority before acting on retrieved guidance. `UNKNOWN`
+impact is incomplete assessment; `NONE` is no detected impact in assessed static
+coverage, never proof of no runtime callers. Resolve ambiguous symbols explicitly.
+Preserve historical handoffs and follow sourced corrections separately.
+
+Consume repair findings as a matrix of scope, evidence, responsibility, operation,
+prerequisites, verification, and recovery. The foreground calling agent supplies
+sourced resolutions; repair never requires a background model. Escalate unresolved
+owner decisions, reject stale proposals, verify postconditions, and record useful
+incident learning with project/revision evidence. A failed diagnostic is not clean.
+Provider reference delivery must be verified or embedded self-contained; static
+instruction checks do not establish live Codex, Claude, or Kimi behavior.
+
 
 > **The Mantra**: *Stay high-level. Never code directly. Delegate everything. Read only manifests. Spawn in wave order. Respect the pipeline.*
 
@@ -138,7 +159,9 @@ Agent({
 
 ### Valid Return Messages
 
-Subagents MUST return exactly one of:
+Capture exactly one `cleo manifest append` receipt (shorthand OR rich entry). Verify that same receipt has `success: true`, `data.appended: true`, and a nonempty `entryId`, then read it with `cleo manifest show <entryId>`. Never append again merely to capture or verify the receipt. On append or readback failure, report the failure; do not claim "Manifest appended". Static prompt checks do not prove storage or provider workflow success.
+
+After successful verification, subagents MUST return exactly one of:
 - `"[Type] complete. Manifest appended to pipeline_manifest."`
 - `"[Type] partial. Manifest appended to pipeline_manifest."`
 - `"[Type] blocked. Manifest appended to pipeline_manifest."`

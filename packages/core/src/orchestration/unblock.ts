@@ -6,6 +6,10 @@
 import type { Task, TaskRef } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from '../tasks/dependency-check.js';
 
 export interface HighImpactTask {
   taskId: string;
@@ -68,16 +72,30 @@ function countTransitiveDependents(
   return allDependents;
 }
 
-/** Analyze dependency graph for unblocking opportunities. */
+/**
+ * Analyze selected project tasks for dependency-unblocking opportunities.
+ * @param cwd - Explicit owning project root, when supplied.
+ * @param accessor - Optional canonical accessor already bound to that project.
+ * @returns Existing potential-impact rankings and unresolved single/common blockers.
+ * @throws Error when selected tasks or required dependency records cannot be read.
+ * @remarks Done and archived dependencies satisfy the shared spawn policy;
+ * cancelled and missing dependencies remain blockers. Lookup-only archive rows
+ * never expand selected tasks. High-impact counts are transitive potential, not
+ * proof that every dependent is immediately runnable or admitted.
+ * @example
+ * ```ts
+ * const opportunities = await getUnblockOpportunities(projectRoot, accessor);
+ * ```
+ */
 export async function getUnblockOpportunities(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<UnblockResult> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
   const { tasks } = await acc.queryTasks({});
-  const taskMap = new Map(tasks.map((t) => [t.id, t]));
-  const completedIds = new Set(
-    tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
+  const taskMap = await loadReadinessDependencyLookup(tasks, acc);
+  const blockersByTask = new Map(
+    tasks.map((task) => [task.id, getReadinessDependencyBlockers(task.depends, taskMap)]),
   );
   const nonDoneTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
   const reverseMap = buildReverseDependencyMap(tasks);
@@ -102,7 +120,7 @@ export async function getUnblockOpportunities(
   const singleBlocker: SingleBlockerTask[] = [];
   for (const task of tasks) {
     if (!task.depends || task.depends.length === 0) continue;
-    const incompleteDeps = task.depends.filter((depId) => !completedIds.has(depId));
+    const incompleteDeps = blockersByTask.get(task.id)!;
     if (incompleteDeps.length === 1) {
       const blockerId = incompleteDeps[0]!;
       const blockerTask = taskMap.get(blockerId);
@@ -120,13 +138,10 @@ export async function getUnblockOpportunities(
   // 3. Common blockers
   const blockerCounts = new Map<string, string[]>();
   for (const task of tasks) {
-    if (!task.depends) continue;
-    for (const depId of task.depends) {
-      if (!completedIds.has(depId)) {
-        const existing = blockerCounts.get(depId) || [];
-        existing.push(task.id);
-        blockerCounts.set(depId, existing);
-      }
+    for (const depId of blockersByTask.get(task.id)!) {
+      const existing = blockerCounts.get(depId) || [];
+      existing.push(task.id);
+      blockerCounts.set(depId, existing);
     }
   }
 

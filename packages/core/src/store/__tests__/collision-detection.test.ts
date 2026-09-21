@@ -8,9 +8,11 @@
  * @epic T4732
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock git-checkpoint to prevent real git operations
@@ -26,7 +28,15 @@ describe('Collision Detection', () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-collision-'));
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    process.env['CLEO_DIR'] = cleoDir;
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    vi.stubEnv('CLEO_DIR', cleoDir);
+    await writeFile(
+      join(cleoDir, 'project-info.json'),
+      JSON.stringify({
+        projectId: 'collision-detection-fixture',
+        projectHash: 'collision-detection-fixture',
+      }),
+    );
 
     // Reset SQLite singleton
     const { closeDb } = await import('../sqlite.js');
@@ -34,10 +44,88 @@ describe('Collision Detection', () => {
   });
 
   afterEach(async () => {
-    delete process.env['CLEO_DIR'];
     const { closeDb } = await import('../sqlite.js');
     closeDb();
     await rm(tempDir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+  });
+
+  async function otherProject(): Promise<string> {
+    const root = join(tempDir, 'other');
+    await mkdir(join(root, '.cleo'), { recursive: true });
+    await writeFile(
+      join(root, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'other-project', projectHash: 'other-project' }),
+    );
+    return root;
+  }
+
+  function candidate(id: string): Task {
+    return {
+      id,
+      title: 'Scoped candidate',
+      description: 'Synthetic ownership probe',
+      status: 'pending',
+      priority: 'medium',
+      createdAt: '2026-09-19T00:00:00.000Z',
+    };
+  }
+
+  it('honors an explicit project for collision and write verification against contradictory pins', async () => {
+    const other = await otherProject();
+    const { createTask } = await import('../tasks-sqlite.js');
+    const { checkTaskExists, verifyTaskWrite } = await import('../data-safety-central.js');
+    await createTask(candidate('T901'), other, { autoCheckpoint: false, validateSequence: false });
+    expect(await checkTaskExists('T901', other, { strictMode: false })).toBe(true);
+    expect(await verifyTaskWrite('T901', { title: 'Scoped candidate' }, other)).toBe(true);
+    expect(await checkTaskExists('T901', tempDir, { strictMode: false })).toBe(false);
+  });
+
+  it('retains the explicit project through a callback await and ambient pin changes', async () => {
+    const other = await otherProject();
+    const { createTask, getTask } = await import('../tasks-sqlite.js');
+    const { safeCreateTask } = await import('../data-safety-central.js');
+    const task = candidate('T902');
+    await safeCreateTask(
+      async () => {
+        await Promise.resolve();
+        vi.stubEnv('CLEO_ROOT', tempDir);
+        vi.stubEnv('CLEO_DIR', cleoDir);
+        return createTask(task, undefined, { autoCheckpoint: false, validateSequence: false });
+      },
+      task,
+      other,
+      { autoCheckpoint: false, validateSequence: false },
+    );
+    expect((await getTask(task.id, other))?.title).toBe(task.title);
+    expect(await getTask(task.id, tempDir)).toBeNull();
+    const persisted = execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        "import { DatabaseSync } from 'node:sqlite'; const db=new DatabaseSync(process.argv[1],{readOnly:true}); process.stdout.write(JSON.stringify(db.prepare('SELECT id,title FROM tasks_tasks WHERE id=?').all(process.argv[2])));db.close();",
+        join(other, '.cleo/cleo.db'),
+        task.id,
+      ],
+      { encoding: 'utf8', timeout: 5000 },
+    );
+    expect(JSON.parse(persisted)).toEqual([{ id: task.id, title: task.title }]);
+  });
+
+  it('surfaces the explicit project diagnostic failure instead of reporting no collision', async () => {
+    const other = await otherProject();
+    const { createTask } = await import('../tasks-sqlite.js');
+    const { checkTaskExists } = await import('../data-safety-central.js');
+    const { getNativeTasksDb } = await import('../sqlite.js');
+    const { captureProjectScope, worktreeScope } = await import('../../project-scope.js');
+    await createTask(candidate('T903'), other, { autoCheckpoint: false, validateSequence: false });
+    worktreeScope.run(captureProjectScope(other, undefined), () => {
+      const db = getNativeTasksDb(other);
+      if (!db) throw new Error('Synthetic target handle missing');
+      db.exec('ALTER TABLE tasks_tasks RENAME TO unavailable_tasks');
+    });
+    await expect(checkTaskExists('T903', other, { strictMode: false })).rejects.toThrow();
   });
 
   describe('checkTaskExists', () => {

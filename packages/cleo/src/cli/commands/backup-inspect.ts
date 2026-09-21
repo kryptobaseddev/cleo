@@ -1,5 +1,5 @@
 /**
- * `cleo backup inspect <bundle>` — manifest-only streaming read.
+ * `cleo backup inspect <bundle>` — bundle manifest or exact snapshot observation.
  *
  * Reads `manifest.json` from a `.cleobundle.tar.gz` (or encrypted
  * `.enc.cleobundle.tar.gz`) without extracting any other files and without
@@ -23,17 +23,20 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { ExitCode } from '@cleocode/contracts';
 import {
+  BackupObservationInspectionError,
   detectEncryption,
   ENC_MIN_LENGTH,
   ENC_VERSION_OFFSET,
   ENC_VERSION_SUPPORTED,
   extractManifestFromTar,
   fmtBytes,
+  inspectBackupObservation,
   verifyManifestHash,
-} from '@cleocode/core';
-import { defineCommand } from 'citty';
-import { cliError, humanLine } from '../renderers/index.js';
+} from '@cleocode/core/store/backup-inspect.js';
+import { defineCommand } from '../lib/define-cli-command.js';
+import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Report renderer (CLI-bound — uses humanLine)
@@ -297,7 +300,8 @@ async function inspectTarball(
  *
  * Stream-reads `manifest.json` from a `.cleobundle.tar.gz` (or encrypted
  * `.enc.cleobundle.tar.gz`) and prints a structured report without extracting
- * or modifying anything on disk.
+ * or modifying source content. With --record-id, delegates to the canonical
+ * private-copy snapshot inspector and returns scoped provenance/diagnostics.
  *
  * Imported by `backup.ts` and mounted under `subCommands.inspect`.
  *
@@ -307,16 +311,86 @@ async function inspectTarball(
 export const backupInspectSubCommand = defineCommand({
   meta: {
     name: 'inspect',
-    description: 'Show bundle manifest without extracting or modifying anything',
+    description: 'Inspect a bundle manifest or an exact observation in a read-only SQLite snapshot',
   },
   args: {
     bundle: {
       type: 'positional',
-      description: 'Path to the .cleobundle.tar.gz file',
+      description: 'Path to a backup bundle, or SQLite snapshot when --record-id is supplied',
       required: true,
     },
+    'record-id': {
+      type: 'string',
+      description: 'Exact observation ID to inspect in the supplied SQLite snapshot',
+    },
+    'expected-project-id': {
+      type: 'string',
+      description: 'Expected stable identity; absent historical provenance remains unknown',
+    },
+    label: {
+      type: 'string',
+      description: 'Advisory original snapshot label; does not establish ownership',
+    },
+    'max-snapshot-bytes': {
+      type: 'string',
+      description: 'Positive integer source byte ceiling (default 512 MiB, maximum 1 GiB)',
+    },
+    'max-payload-bytes': {
+      type: 'string',
+      description: 'Positive integer payload byte ceiling (default 1 MiB, maximum 16 MiB)',
+    },
+    json: { type: 'boolean', description: 'Output structured JSON' },
+    human: { type: 'boolean', description: 'Force human-readable output' },
+    quiet: { type: 'boolean', description: 'Suppress non-essential output' },
   },
   async run({ args }) {
-    await inspectAction(args.bundle);
+    const recordId = args['record-id'];
+    if (recordId === undefined) {
+      if (
+        [
+          args['expected-project-id'],
+          args.label,
+          args['max-snapshot-bytes'],
+          args['max-payload-bytes'],
+        ].some((value) => value !== undefined)
+      ) {
+        cliError(
+          'Snapshot inspection flags require --record-id.',
+          ExitCode.VALIDATION_ERROR,
+          { name: 'E_BACKUP_INSPECT_INVALID_INPUT' },
+          { operation: 'backup.inspect' },
+        );
+        process.exitCode = ExitCode.VALIDATION_ERROR;
+        return;
+      }
+      await inspectAction(args.bundle);
+      return;
+    }
+    try {
+      const result = await inspectBackupObservation({
+        snapshotPath: path.resolve(args.bundle),
+        recordId,
+        expectedProjectId: args['expected-project-id'],
+        label: args.label,
+        maxSnapshotBytes:
+          args['max-snapshot-bytes'] === undefined ? undefined : Number(args['max-snapshot-bytes']),
+        maxPayloadBytes:
+          args['max-payload-bytes'] === undefined ? undefined : Number(args['max-payload-bytes']),
+      });
+      cliOutput(result, { command: 'backup', operation: 'backup.inspect' });
+    } catch (error) {
+      cliError(
+        error instanceof Error ? error.message : String(error),
+        ExitCode.VALIDATION_ERROR,
+        {
+          name:
+            error instanceof BackupObservationInspectionError
+              ? `E_BACKUP_INSPECT_${error.code}`
+              : 'E_BACKUP_INSPECT_FAILED',
+        },
+        { operation: 'backup.inspect' },
+      );
+      process.exitCode = ExitCode.VALIDATION_ERROR;
+    }
   },
 });

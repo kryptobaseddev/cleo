@@ -2,12 +2,62 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.6.0
-  lastReviewed: 2026-05-27
+  version: 2.20.4
+  lastReviewed: 2026-09-20
   stability: stable
 ---
 
 # CLEO Protocol Guide
+
+## Trustworthy project knowledge
+
+After confirming the assigned worktree, orient with briefing/focus. Check current
+coverage and sourced authority before acting on retrieved guidance. `UNKNOWN`
+impact is incomplete assessment; `NONE` is no detected impact in assessed static
+coverage, never proof of no runtime callers. Resolve ambiguous symbols explicitly.
+Preserve historical handoffs and follow sourced corrections separately.
+
+Consume repair findings as a matrix of scope, evidence, responsibility, operation,
+prerequisites, verification, and recovery. The calling agent supplies sourced resolutions; no background model is required. Escalate unresolved
+owner decisions, reject stale proposals, verify postconditions, and record useful
+incident learning with project/revision evidence. A failed diagnostic is not clean.
+Provider reference delivery must be verified or embedded self-contained; static
+instruction checks do not establish live Codex, Claude, or Kimi behavior.
+
+
+## Guarded knowledge repair
+
+Use `cleo doctor knowledge --dry-run` to inspect findings and sourced proposals.
+Persist reviewed JSON with `cleo doctor knowledge --prepare proposal.json --actor AGENT`.
+Discover retained jobs with `--jobs --actor AGENT`; continue with `--limit` and returned
+JSON `--cursor`. Follow each `inspectArgv`; never guess the latest job. Partial diagnostics
+remain unresolved, and job status alone does not verify current effects.
+For job operations, supply the original explicit actor and proposal ID:
+`cleo doctor knowledge --apply JOB --actor AGENT --proposal-id PROPOSAL`;
+replace `--apply` with `--inspect`, `--cancel`, or `--resume` for that operation.
+Inspection returns original receipts, separate rollback corrections, diagnostic
+failures, and a paged append-only ledger; use `--limit` and `--offset` until covered.
+Never copy a stored actor merely to bypass `E_REPAIR_ACTOR`.
+
+Each invocation shares one two-second default budget across assessment, preparation,
+locks, application and verification (`--budget-ms` permits an explicit override).
+A later explicit apply/resume starts a new bounded attempt; it does not renew an
+expired attempt or bypass immutable resource checks. Synchronous SQLite is cooperative,
+not timer-preemptible. On failure, retain any `prepared` job and `attemptFailure`
+including pending finalization. Cancellation requests do not reverse committed effects.
+Resume retains failed/cancelled outcomes and uncertain expired-running history;
+live owners cannot be stolen and completed effects are not reapplied.
+After rollback, apply/resume reject with `E_REPAIR_ROLLED_BACK`; inspect
+`recoveryState` for the original historical receipt and separate rollback receipt.
+
+Recover via `cleo doctor knowledge --rollback RECEIPT --actor AGENT --proposal-id NEW_ID`.
+Inspect both receipts. Versioned quarantine recovery restores only `invalid_at`, preserving
+validated paired citation-count/timestamp usage; protected edits conflict. Legacy receipts
+require exact images. Recovery records actual before/after images, not byte restoration
+of old usage. Prepared rollback still guards the full current image; later reads require
+fresh preparation. Unrelated changes survive. Stale proposals need reassessment. `--resolve FILE`
+applies reviewed input through the same lifecycle; `--fix --actor AGENT` handles bounded
+confirmed stubs. `cleo doctor repair` retains its separate database-recovery semantics.
 
 <!-- thin-pointer: full protocol is in CLEO-INJECTION.md (T9148) -->
 Full protocol content lives in `~/.cleo/templates/CLEO-INJECTION.md`.
@@ -17,6 +67,14 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 · `task-discovery` · `task-relationships` · `session-commands` · `memory` · `nexus`
 · `orchestration` · `playbooks` · `documents` · `error-handling` · `pre-complete-gate`
 · `spawn-tiers` · `rules` · `memory-jit` · `escalation`
+
+Task find defaults to lexical query terms. Fuzzy character-subsequence matching requires `--fuzzy`; inspect per-row `match.kind` and `match.fields` before inferring related work. `--in` restricts the source field. Matching mode and fuzzy field explanations survive scalar/human output on stderr. Semantic retrieval remains separately identified.
+
+Compact SDK list/find records also carry `_withheld`: omission names and original UTF-8 sizes are recorded before fields are discarded, then retained through later CLI projections. Use full records to inspect those values; absence is not emptiness.
+
+List/find expose `data.population` with matched and returned counts, truncation, pagination, and archive eligibility. Count output equals emitted rows; use `--all` or `--limit 0` to enumerate all matches, and `--include-archive` to include archives under the same filters. Scalar/ID/table/summary modes preserve population facts on stderr. Do not treat a page as complete.
+
+Use `cleo backup inspect <snapshot> --record-id <id>` for read-only historical evidence; scoped absence or unknown provenance is not recovery authority.
 
 ## Quick Reference
 
@@ -37,12 +95,74 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 | Read a doc | `cleo docs fetch <slug>` |
 | Browse docs | `cleo docs list --task T###` |
 
+## Document projection outcomes
+
+`cleo docs add` preserves accepted canonical bytes when optional graph or sourced
+observation work fails. Read `data.projection` for captured project identity,
+coverage, diagnostics, deadline, and any durable job or verification receipt.
+`pending` can mean a write outcome is still unresolved; retain the job reference
+and inspect it before explicit resume. Repeating the add is not a recovery step.
+The original two-second maintenance budget covers preparation through verification;
+timer expiry does not preempt synchronous SQLite work.
+
+Verify storage with `cleo docs fetch <slug>` and its JSON `data.bytesBase64` plus
+`data.metadata.sha256`. Keep canonical storage success, optional projection
+verification, and installed-provider workflow verification as separate evidence.
+
+## Acceptance input and historical evidence
+
+Add, update, batch, and saga creation share one acceptance-input boundary. Pass
+arrays of strings in JSON parameters; `--acceptance` also accepts a JSON array
+string or the documented pipe-delimited form. Array entries keep literal pipes
+and quoted unions. Strings are trimmed and blank strings omitted; nonstring
+entries and malformed explicit JSON arrays reject the whole mutation. Bracketed
+prose and the existing delimiter escaping rules retain their interpretation.
+
+On update, an explicit `[]` (including an all-blank string array) requests a clear;
+omitting acceptance leaves it unchanged. Policy and immutability checks apply to
+normalized criteria, and a locked change still requires `--reason`. Fresh reads
+retain an empty acceptance array. Malformed stored criteria produce a diagnostic;
+valid historical strings and structured gates are preserved without normalization.
+Do not infer historical splits from pipes alone: repairs need original input or
+explicit provenance, a snapshot, and a guarded receipt.
+
+## Task controls and committed evidence
+
+Explicit `critical` priority on add/update requires a dependency or a nonempty
+`--depends-waiver`; updates check the resulting dependency set. CLI flags, JSON
+params, and SDK calls share this policy. Explicit severity changes use the
+project's signing identity: a nonempty `ownerPubkeys` allowlist restricts signers;
+an absent or empty list keeps the existing opt-in policy. Unreadable or malformed
+authority is an explicit configuration failure. Committed severity,
+duplicate-bypass, and dependency-waiver evidence lives in the task transaction
+audit. Historical filesystem attestations alone do not prove a task committed.
+Dry-run creates no committed attestation; failed writes leave no committed receipt.
+
+## Read completeness before editing
+
+Use `cleo show <id> --full` to inspect task fields before editing them. Compact
+records name every omitted field in `_withheld`, including empty or null values;
+the size is UTF-8 content bytes for strings and serialized JSON bytes otherwise.
+Repeated projection retains earlier omissions. A record without `_withheld` is
+complete at the record projection boundary; an envelope can separately report
+omitted records or fields. Never overwrite a field because a compact read omitted it.
+
+Coverage, failure diagnostics, authority corrections, and pending repair facts
+survive budgeting before examples. Read operations reject budgets too small for
+mandatory facts; request a narrower scope or a larger budget. Internal mutation
+budgets that cannot hold the minimum envelope reject before execution. If a
+successful mutation's actual receipt exceeds a viable budget, success and the
+complete receipt are preserved with `_budgetEnforcement.withinBudget: false`.
+Inspect the receipt before retrying; overflow is not rollback or clean coverage.
+This internal budget contract does not add a `--token-budget` flag to add/update.
+
 ## Skill-Specific Extensions
 
 - Task hierarchy, Saga commands, add-batch decomposition, docs policy, and CLI output details live in CLEO-INJECTION.md; emit `task-creation`, `documents`, and `pre-complete-gate` when needed.
 - For add-batch input, The top-level JSON MUST be an array of task objects, not an object wrapper like `{ "tasks": [...] }`.
 - Dry-run count semantics: `/data/count` and `/data/wouldCreate` predict writes; `/data/insertedCount` must be `0` for dry-run.
-- Mutation output paths: use `/data/created/0`, `/data/updated/0`, and `/data/deleted/0`; never parse legacy full records.
+- Mutation output paths: use `/data/created/0`, `/data/updated/0`, and `/data/deleted/0`; never parse legacy full records. `--output id` emits affected IDs once in created/updated/deleted order from these canonical arrays.
+- `cleo delete <id>` soft-archives the task. `--cascade` explicitly archives descendants; `--force` alone orphans and preserves children and permits dependents. Parents with children require one of these controls. Read `deleted[]` (or `--output id`) for all archived IDs, including cascade descendants.
 - Docs path policy and strict preflight: keep docs repo-relative. Do not pass arbitrary external absolute paths. The canonical six-verb docs path is **add, update, fetch, list, remove, publish** (T10516). Use `cleo docs list` for discovery; `cleo docs list-types` (ADVANCED) and `DocKindRegistry` resolve runtime kinds when `list` is insufficient.
 
 ### Task Relationship Systems — depends, blockedBy, relates
@@ -257,3 +377,7 @@ cite decisions by durable BRAIN decision IDs.
 **Migration rule:** When you encounter a decision ONLY in a markdown ledger
 (`.cleo/adrs/`, `.cleo/agent-outputs/`), store it in the BRAIN with
 `cleo memory store --type decision` and cite the BRAIN ID going forward.
+
+## Evidence must prove task criteria
+
+Merged PRs and passing CI are provenance. Implementation requires changed artifacts related to the task; testing and review require their own actual results. For tasks with canonical criteria, append explicit links such as `satisfies:T1234#AC1` to each relevant gate's evidence. Fetch the PR merge commit so artifact hashes can be inspected. A changed criterion invalidates its recorded proof. Completing a child preserves an open parent whose own criteria remain unproven; child waivers never transfer to parent criteria.

@@ -19,10 +19,21 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
+import { createStdoutBaseline, stdoutCallIdentities } from '../stdout-baseline-identity.mjs';
 
 const __dirname = resolve(fileURLToPath(import.meta.url), '..');
 const REPO_ROOT = resolve(__dirname, '../..');
@@ -101,5 +112,89 @@ describe('lint-stdout-write-allowlist — strict mode', () => {
     } else {
       expect(result.stdout).toMatch(/STRICT OK/);
     }
+  });
+});
+
+// Invoke both actual gates in checkout-shaped fixtures with no .git or history.
+describe.each(['discipline', 'write-allowlist'])('stdout %s isolated gate identity', (gate) => {
+  const sourceFile = 'packages/sample/src/writer.ts';
+  const original = 'process.stdout.write(\n  renderValue("a b")\n);\n';
+  function check(source, modifyBaseline = (baseline) => baseline) {
+    const root = mkdtempSync(join(tmpdir(), 'stdout-expression-gate-'));
+    try {
+      mkdirSync(join(root, 'packages/sample/src'), { recursive: true });
+      mkdirSync(join(root, 'scripts'));
+      writeFileSync(join(root, sourceFile), source);
+      const baseline = modifyBaseline(
+        createStdoutBaseline(stdoutCallIdentities(original, sourceFile)),
+      );
+      if (baseline !== null)
+        writeFileSync(
+          join(root, `scripts/.lint-stdout-${gate}-baseline.json`),
+          JSON.stringify(baseline),
+        );
+      const result = spawnSync(
+        process.execPath,
+        [join(REPO_ROOT, `scripts/lint-stdout-${gate}.mjs`)],
+        {
+          cwd: root,
+          env: { PATH: '', HOME: root },
+          encoding: 'utf8',
+          timeout: 5000,
+        },
+      );
+      expect(result.error).toBeUndefined();
+      expect(existsSync(join(root, '.git'))).toBe(false);
+      return { status: result.status, output: `${result.stdout}${result.stderr}` };
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  it('accepts movement/formatting with no runtime Git dependency', () => {
+    const result = check(
+      '// moved by an unrelated change\n\nprocess.stdout.write(renderValue( "a b" ));\n',
+    );
+    expect(result.status).toBe(0);
+    expect(result.output).toContain('baseline: 1');
+  });
+  it('rejects changed multiline argument at the same old location', () => {
+    const result = check(original.replace('"a b"', '"ab"'));
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('NEW');
+    expect(result.output).toContain('renderValue("ab")');
+  });
+  it('rejects a second occurrence of the same complete expression', () => {
+    const result = check(original + original);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('1 NEW');
+  });
+  it('refuses malformed allowance multiplicity and missing baselines', () => {
+    expect(check(original, (baseline) => ({ ...baseline, total: 2 })).status).toBe(1);
+    const missing = check(original, () => null);
+    expect(missing.status).toBe(1);
+    expect(missing.output).toContain('missing baseline');
+  });
+});
+
+describe('stdout jobs install their existing parser dependency', () => {
+  it.each([
+    'stdout-discipline',
+    'stdout-write-allowlist',
+  ])('keeps actual %s command after frozen dependency setup', (id) => {
+    const workflow = parseYaml(
+      readFileSync(join(REPO_ROOT, '.github/workflows/arch-boundary-check.yml'), 'utf8'),
+    );
+    const job = workflow.jobs[id];
+    const install = job.steps.findIndex((step) => step.run === 'pnpm install --frozen-lockfile');
+    const lint = job.steps.findIndex((step) => step.run?.startsWith(`node scripts/lint-${id}.mjs`));
+    expect(install).toBeGreaterThan(-1);
+    expect(lint).toBeGreaterThan(install);
+    expect(job.steps.find((step) => step.uses === 'pnpm/action-setup@v4').with.version).toBe(
+      '10.30.0',
+    );
+    expect(workflow.jobs['arch-boundary-check'].needs).toContain(id);
+    expect(workflow.on).toHaveProperty('pull_request');
+    expect(workflow.on).toHaveProperty('merge_group');
   });
 });

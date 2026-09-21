@@ -7,6 +7,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
+import type { DataAccessor } from '../store/data-accessor.js';
 
 /** Result of a dependency validation check. */
 export interface DependencyCheckResult {
@@ -28,6 +29,89 @@ export interface DependencyWarning {
   code: string;
   taskId: string;
   message: string;
+}
+
+/**
+ * Test whether an observed dependency status satisfies execution readiness.
+ *
+ * @remarks
+ * Only done and archived records satisfy the spawn contract. Cancelled work,
+ * missing status and unrecognized input remain unsatisfied. Completion waivers
+ * are a separate policy and are not applied by this predicate.
+ *
+ * @param status - Status observed from a dependency record, if available.
+ * @returns Whether the dependency supplies satisfactory readiness evidence.
+ * @example
+ * ```ts
+ * isReadinessDependencySatisfied('archived'); // true
+ * isReadinessDependencySatisfied('cancelled'); // false
+ * ```
+ */
+export function isReadinessDependencySatisfied(status: string | undefined): boolean {
+  return status === 'done' || status === 'archived';
+}
+
+/**
+ * Return dependencies that prevent a task from being spawned.
+ *
+ * @remarks
+ * Readiness follows the spawn contract: only done and archived dependencies
+ * satisfy it. Missing tasks and cancelled work remain blockers. Completion
+ * waivers apply to completion validation, not to this readiness decision.
+ * The caller owns loading the dependency population and surfacing read failures.
+ *
+ * @param depends - The task's explicit hard dependency identifiers.
+ * @param taskLookup - Successfully loaded dependency records, keyed by identity.
+ * @returns Blocking identifiers in their original dependency order.
+ *
+ * @example
+ * ```ts
+ * const blockers = getReadinessDependencyBlockers(['T1'], new Map());
+ * // blockers is ['T1']: absence is not evidence of completed work.
+ * ```
+ */
+export function getReadinessDependencyBlockers(
+  depends: readonly string[] | undefined,
+  taskLookup: ReadonlyMap<string, Task>,
+): string[] {
+  return (depends ?? []).filter((id) => {
+    const status = taskLookup.get(id)?.status;
+    return !isReadinessDependencySatisfied(status);
+  });
+}
+
+/**
+ * Resolve explicit hard dependency evidence beyond a selected task population.
+ *
+ * @remarks
+ * The returned lookup includes the selected rows and canonically loaded external
+ * dependencies, including archived records. It is evidence for readiness, not a
+ * replacement selection for counts, containment, scoring, or candidate discovery.
+ * Missing records remain absent so the readiness policy can report their IDs as
+ * blockers. Read failures propagate and never become a successful empty lookup.
+ *
+ * @param selected - Successfully loaded tasks whose dependencies will be assessed.
+ * @param accessor - Canonical accessor bound to the owning project.
+ * @returns A separate identity lookup containing selected and external evidence.
+ * @throws Error when the required canonical dependency read fails.
+ * @example
+ * ```ts
+ * const lookup = await loadReadinessDependencyLookup(selectedTasks, accessor);
+ * const blockers = getReadinessDependencyBlockers(selectedTasks[0]?.depends, lookup);
+ * ```
+ */
+export async function loadReadinessDependencyLookup(
+  selected: readonly Task[],
+  accessor: DataAccessor,
+): Promise<Map<string, Task>> {
+  const lookup = new Map(selected.map((task) => [task.id, task]));
+  const externalIds = [...new Set(selected.flatMap((task) => task.depends ?? []))].filter(
+    (id) => !lookup.has(id),
+  );
+  if (externalIds.length > 0) {
+    for (const task of await accessor.loadTasks(externalIds)) lookup.set(task.id, task);
+  }
+  return lookup;
 }
 
 /**

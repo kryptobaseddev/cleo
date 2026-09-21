@@ -28,6 +28,7 @@ import {
   type CanonRegistry,
   lintSessionForCanonViolations,
   loadCanonRegistry,
+  resolveCanonDocPathPolicy,
 } from '../canon-lint.js';
 
 // Canonical fixture — mirrors production `.cleo/canon.yml` (T9796) so the
@@ -104,6 +105,109 @@ describe('canon-lint (T9797 · agent-accountability)', () => {
     expect(reg?.version).toBe(1);
     expect(reg?.kinds['adr']?.rawMdAllowed).toBe(false);
     expect(reg?.kinds['changeset']?.rawMdAllowed).toBe(true);
+  });
+
+  it('honors the owned RCASD mirror while retaining nested raw-write prohibitions', () => {
+    const registry: CanonRegistry = {
+      version: 1,
+      kinds: {
+        research: {
+          canonicalHome: 'ssot',
+          publishMirror: 'docs/research/',
+          rawMdAllowed: false,
+          rawMdPaths: ['.cleo/rcasd/', '.cleo/research/', '.cleo/rcasd/private/'],
+        },
+        rcasd: { canonicalHome: 'ssot', publishMirror: '.cleo/rcasd/', rawMdAllowed: true },
+      },
+    };
+    writeFileSync(
+      transcriptPath,
+      [
+        toolUseLine('Write', `${projectRoot}/.cleo/rcasd/T1/report.md`, {
+          content: 'eligible mirror',
+        }),
+        toolUseLine('Write', `${projectRoot}/.cleo/rcasd/private/secret.md`, {
+          content: 'blocked nested',
+        }),
+        toolUseLine('Write', `${projectRoot}/.cleo/research/raw.md`, {
+          content: 'blocked research',
+        }),
+      ].join('\n'),
+    );
+    for (const kinds of [
+      registry.kinds,
+      Object.fromEntries(Object.entries(registry.kinds).reverse()),
+    ]) {
+      const result = lintSessionForCanonViolations({
+        transcriptPath,
+        projectRoot,
+        registry: { version: 1, kinds },
+      });
+      expect(result.scanned).toBe(3);
+      expect(result.violations.map((v) => v.path)).toEqual([
+        '.cleo/rcasd/private/secret.md',
+        '.cleo/research/raw.md',
+      ]);
+      expect(resolveCanonDocPathPolicy({ version: 1, kinds }, '.cleo/rcasd/T1/report.md')).toEqual({
+        docKind: 'rcasd',
+        matchedPath: '.cleo/rcasd/',
+        rawMdAllowed: true,
+        source: 'published-mirror',
+      });
+    }
+    expect(resolveCanonDocPathPolicy(registry, '.cleo/rcasd-neighbor/raw.md')).toBeUndefined();
+    expect(
+      resolveCanonDocPathPolicy(registry, '.cleo/rcasd/../research/raw.md')?.rawMdAllowed,
+    ).toBe(false);
+    expect(resolveCanonDocPathPolicy(registry, '.cleo\\rcasd\\private\\raw.md')?.rawMdAllowed).toBe(
+      false,
+    );
+  });
+
+  it('fails closed for conflicting raw path rules regardless of declaration order', () => {
+    const registry: CanonRegistry = {
+      version: 1,
+      kinds: {
+        blocked: {
+          canonicalHome: 'ssot',
+          publishMirror: 'docs/blocked/',
+          rawMdAllowed: false,
+          rawMdPaths: ['raw/'],
+        },
+        allowed: {
+          canonicalHome: 'ssot',
+          publishMirror: 'docs/allowed/',
+          rawMdAllowed: true,
+          rawMdPaths: ['raw/'],
+        },
+      },
+    };
+    for (const kinds of [
+      registry.kinds,
+      Object.fromEntries(Object.entries(registry.kinds).reverse()),
+    ]) {
+      expect(resolveCanonDocPathPolicy({ version: 1, kinds }, 'raw/note.md')).toMatchObject({
+        docKind: 'blocked',
+        rawMdAllowed: false,
+      });
+    }
+    expect(
+      resolveCanonDocPathPolicy(
+        {
+          version: 1,
+          kinds: {
+            guarded: {
+              canonicalHome: 'ssot',
+              publishMirror: 'docs/guarded/',
+              rawMdAllowed: false,
+              rawMdPaths: ['.'],
+            },
+            readme: { canonicalHome: 'ssot', publishMirror: '.', rawMdAllowed: true },
+          },
+        },
+        'private.md',
+      )?.rawMdAllowed,
+    ).toBe(false);
   });
 
   it('Write to .cleo/adrs/ produces an adr violation', () => {

@@ -43,8 +43,40 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { EvidenceValidationContext } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { validateAtom } from '../evidence.js';
+
+/**
+ * T12256 made `pr:` evidence require task/gate/criterion context, so a
+ * context-less call now short-circuits with `E_EVIDENCE_INSUFFICIENT` before
+ * the work-tree question is ever asked. These tests predate that requirement
+ * and were asserting gh#1462's git-root behaviour through a call shape that
+ * production never makes — `cleo verify` always supplies context.
+ *
+ * Supplying it here keeps every gh#1462 assertion intact AND exercises the real
+ * production path. The alternative, reordering the two checks in
+ * `validatePrAtom`, was rejected: it would weaken T12256's guard to accommodate
+ * a call shape that only exists in this file.
+ */
+const PR_CONTEXT: EvidenceValidationContext = {
+  task: {
+    id: 'T001',
+    kind: 'work',
+    labels: [],
+    files: [],
+    acceptance: ['pr evidence resolves from the checkout below the CLEO root'],
+    verification: undefined,
+  },
+  gates: ['implemented'],
+  criteria: [
+    {
+      id: 'AC1',
+      text: 'pr evidence resolves from the checkout below the CLEO root',
+      updatedAt: '2026-09-16T00:00:00Z',
+    },
+  ],
+};
 
 function git(dir: string, args: string[]): string {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf-8' });
@@ -81,12 +113,27 @@ function installFakeGh(binDir: string, payloadPath: string, cwdRecordPath: strin
 let storeRoot: string;
 let originalCwd: string;
 let originalPath: string | undefined;
+let originalCleoDir: string | undefined;
+let originalCleoRoot: string | undefined;
 
 beforeEach(() => {
   originalCwd = process.cwd();
   originalPath = process.env.PATH;
+  originalCleoDir = process.env.CLEO_DIR;
+  originalCleoRoot = process.env.CLEO_ROOT;
   storeRoot = mkdtempSync(join(tmpdir(), 'nested-root-'));
   mkdirSync(join(storeRoot, '.cleo'), { recursive: true });
+  // T12256's global `vitest.setup.ts` points CLEO_HOME/CLEO_ROOT/CLEO_DIR at a
+  // per-run sandbox so no test can touch the real project. An ABSOLUTE
+  // `CLEO_DIR` short-circuits `_resolveCleoDir`, so without this override
+  // `loadProjectContext(storeRoot)` reads the SANDBOX's `.cleo`, never this
+  // fixture's — the declared `prRequiredWorkflows: []` below is then invisible
+  // and `pr:` falls through to a branch-protection lookup that cannot work.
+  // The setup anticipates exactly this ("must not survive fixture CLEO_ROOT
+  // overrides"); pointing both at the fixture is the sanctioned override, and
+  // it is restored in afterEach so the isolation holds for every other test.
+  process.env.CLEO_ROOT = storeRoot;
+  process.env.CLEO_DIR = join(storeRoot, '.cleo');
   // Declared empty so a MERGED PR satisfies pr: without a branch-protection
   // lookup — the atom under test here is the directory, not the check list.
   writeFileSync(
@@ -102,6 +149,10 @@ afterEach(() => {
   else process.env.PATH = originalPath;
   delete process.env.CLEO_TEST_GH_CWD;
   delete process.env.CLEO_TEST_GH_PAYLOAD;
+  if (originalCleoDir === undefined) delete process.env.CLEO_DIR;
+  else process.env.CLEO_DIR = originalCleoDir;
+  if (originalCleoRoot === undefined) delete process.env.CLEO_ROOT;
+  else process.env.CLEO_ROOT = originalCleoRoot;
   rmSync(storeRoot, { recursive: true, force: true });
 });
 
@@ -156,10 +207,22 @@ describe('pr: from a CLEO root that parents the checkout (gh#1462)', () => {
     const cwdRecordPath = join(storeRoot, 'gh-cwd.txt');
     writeFileSync(
       payloadPath,
+      // T12256 widened what a `pr:` payload must carry before it can be bound
+      // as evidence: a verified `mergeCommit` (a head commit cannot substitute),
+      // complete changed-file coverage, and enough text to link the PR to the
+      // task. This fixture is enriched to a realistic MERGED PR so the test can
+      // reach its actual subject — WHICH DIRECTORY `gh` runs in — rather than
+      // failing earlier on payload completeness.
       JSON.stringify({
         state: 'MERGED',
         mergedAt: '2026-09-16T00:00:00Z',
         headRefOid: sha,
+        mergeCommit: { oid: sha },
+        title: 'T001: resolve pr evidence from the checkout below the CLEO root',
+        body: 'Fixture PR for T001.',
+        headRefName: 'task/T001',
+        files: [{ path: 'src/entry.ts' }],
+        changedFiles: 1,
         statusCheckRollup: [],
       }),
       'utf-8',
@@ -168,7 +231,13 @@ describe('pr: from a CLEO root that parents the checkout (gh#1462)', () => {
     process.env.PATH = `${binDir}:${originalPath ?? ''}`;
     process.chdir(storeRoot);
 
-    const r = await validateAtom({ kind: 'pr', prNumber: 689 }, storeRoot);
+    const r = await validateAtom(
+      { kind: 'pr', prNumber: 689 },
+      storeRoot,
+      undefined,
+      undefined,
+      PR_CONTEXT,
+    );
     if (!r.ok) throw new Error(`expected pr: to validate from the CLEO root, got: ${r.reason}`);
     // The single value that decided the production failure: gh walked up from
     // its cwd. From the CLEO root it found nothing; from the checkout it does.
@@ -194,7 +263,13 @@ describe('a genuinely missing work tree fails distinctly (gh#1462)', () => {
     process.env.PATH = join(storeRoot, 'empty-bin');
     process.chdir(storeRoot);
 
-    const r = await validateAtom({ kind: 'pr', prNumber: 689 }, storeRoot);
+    const r = await validateAtom(
+      { kind: 'pr', prNumber: 689 },
+      storeRoot,
+      undefined,
+      undefined,
+      PR_CONTEXT,
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.codeName).toBe('E_EVIDENCE_GIT_ROOT');
@@ -208,7 +283,13 @@ describe('a genuinely missing work tree fails distinctly (gh#1462)', () => {
     process.env.PATH = join(storeRoot, 'empty-bin');
     process.chdir(storeRoot);
 
-    const r = await validateAtom({ kind: 'pr', prNumber: 689 }, storeRoot);
+    const r = await validateAtom(
+      { kind: 'pr', prNumber: 689 },
+      storeRoot,
+      undefined,
+      undefined,
+      PR_CONTEXT,
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.codeName).toBe('E_EVIDENCE_GIT_ROOT');
   });

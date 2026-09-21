@@ -4,15 +4,21 @@
  * @epic T4540
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
-import { resetDbState } from '../../store/sqlite.js';
+import { awaitBackgroundOps } from '../../store/background-ops.js';
+import * as dataAccessors from '../../store/data-accessor.js';
+import { getNexusDb, getNexusNativeDb } from '../../store/nexus-sqlite.js';
+import { projectIdAliases } from '../../store/schema/nexus-schema.js';
+import { closeAllDatabases, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { generateProjectHash } from '../hash.js';
+import { canonicalProjectId } from '../identity.js';
 import {
   nexusGetProject,
   nexusInit,
@@ -40,16 +46,30 @@ async function createTestProjectDb(
 }
 
 let testDir: string;
+let originalCwd: string;
 let registryDir: string;
 let projectDir: string;
 
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'nexus-registry-test-'));
+  // No-argument registry calls need a caller project independent of registered targets.
+  await mkdir(join(testDir, '.cleo'), { recursive: true });
+  await mkdir(join(testDir, '.git'), { recursive: true });
+  originalCwd = process.cwd();
+  process.chdir(testDir);
+  vi.stubEnv('CLEO_ROOT', testDir);
+  vi.stubEnv('CLEO_PROJECT_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   registryDir = join(testDir, 'cleo-home');
   projectDir = join(testDir, 'test-project');
 
   // Create fake CLEO home
   await mkdir(registryDir, { recursive: true });
+
+  // Point env vars to test dirs — CLEO_HOME controls nexus.db location
+  vi.stubEnv('CLEO_HOME', registryDir);
+  vi.stubEnv('NEXUS_HOME', join(registryDir, 'nexus'));
+  vi.stubEnv('NEXUS_CACHE_DIR', join(registryDir, 'nexus', 'cache'));
 
   // Create a fake project with tasks.db
   await createTestProjectDb(projectDir, [
@@ -69,21 +89,17 @@ beforeEach(async () => {
     },
   ]);
 
-  // Point env vars to test dirs — CLEO_HOME controls nexus.db location
-  process.env['CLEO_HOME'] = registryDir;
-  process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
-  process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
-
   // Reset nexus.db singleton so each test gets a fresh database
   resetNexusDbState();
 });
 
 afterEach(async () => {
-  delete process.env['CLEO_HOME'];
-  delete process.env['NEXUS_HOME'];
-  delete process.env['NEXUS_CACHE_DIR'];
+  await awaitBackgroundOps();
   resetNexusDbState();
-  resetDbState();
+  await closeAllDatabases();
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  process.chdir(originalCwd);
   await rm(testDir, { recursive: true, force: true });
 });
 
@@ -116,6 +132,19 @@ describe('nexusInit', () => {
     expect(registry!.schemaVersion).toBe('1.0.0');
   });
 
+  it('binds caller and global registry handles to distinct synthetic fixtures', async () => {
+    await nexusInit();
+    const native = getNexusNativeDb();
+    if (!native) throw new Error('Expected initialized registry handle');
+    const databases = native.prepare('PRAGMA database_list').all();
+    expect(databases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'main', file: join(testDir, '.cleo', 'cleo.db') }),
+        expect.objectContaining({ name: 'nexus_global', file: join(registryDir, 'cleo.db') }),
+      ]),
+    );
+  });
+
   it('is idempotent', async () => {
     await nexusInit();
     await nexusInit(); // Should not throw
@@ -145,12 +174,18 @@ describe('nexusRegister', () => {
     expect(project!.labels).toEqual(['api', 'auth']);
   });
 
-  it('throws on duplicate registration', async () => {
-    await nexusRegister(projectDir, 'test-proj', 'read');
-
-    await expect(nexusRegister(projectDir, 'test-proj', 'read')).rejects.toThrow(
-      /already registered/,
-    );
+  it('repeats registration without replacing identity or omitted metadata', async () => {
+    const hash = await nexusRegister(projectDir, 'test-proj', 'write');
+    const original = await nexusGetProject(hash);
+    expect(await nexusRegister(projectDir)).toBe(hash);
+    expect(await nexusGetProject(hash)).toMatchObject({
+      projectId: original!.projectId,
+      registeredAt: original!.registeredAt,
+      name: 'test-proj',
+      permissions: 'write',
+      taskCount: 2,
+    });
+    expect(await nexusList()).toHaveLength(1);
   });
 
   it('registers empty project when directory has no pre-existing tasks.db', async () => {
@@ -165,6 +200,169 @@ describe('nexusRegister', () => {
     const project = await nexusGetProject('empty');
     expect(project).not.toBeNull();
     expect(project!.taskCount).toBe(0);
+  });
+
+  it('rejects changed immutable ownership without rewriting the registered row', async () => {
+    vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    const hash = await nexusRegister(projectDir, 'owner', 'write');
+    const before = await nexusGetProject(hash);
+    await writeFile(
+      join(projectDir, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'different-owner' }),
+    );
+    await expect(nexusRegister(projectDir, 'overwrite', 'read')).rejects.toThrow(
+      /Conflicting project identity/,
+    );
+    expect(await nexusGetProject(hash)).toEqual(before);
+  });
+
+  it('refuses to move another registered path merely because the declared IDs agree', async () => {
+    vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    await writeFile(
+      join(projectDir, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'immutable-owner' }),
+    );
+    const hash = await nexusRegister(projectDir, 'owner', 'write');
+    const before = await nexusGetProject(hash);
+    const other = join(testDir, 'other-owner');
+    await mkdir(join(other, '.cleo'), { recursive: true });
+    await writeFile(
+      join(other, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'immutable-owner' }),
+    );
+    await expect(nexusRegister(other, 'other')).rejects.toThrow(/Conflicting project identity/);
+    expect(await nexusGetProject(hash)).toEqual(before);
+    expect(await nexusList()).toHaveLength(1);
+  });
+
+  it('preserves a metadata read failure instead of replacing stored counts with zero', async () => {
+    vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    const hash = await nexusRegister(projectDir, 'owner', 'write');
+    const before = await nexusGetProject(hash);
+    vi.spyOn(dataAccessors, 'getTaskAccessor').mockRejectedValueOnce(
+      new Error('fixture task read failed'),
+    );
+    await expect(nexusRegister(projectDir, 'overwrite')).rejects.toThrow(
+      /Cannot read project task metadata.*fixture task read failed/,
+    );
+    expect(await nexusGetProject(hash)).toEqual(before);
+  });
+
+  it('rejects unreadable identity metadata instead of assigning a fallback identity', async () => {
+    vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    const hash = await nexusRegister(projectDir, 'owner');
+    const before = await nexusGetProject(hash);
+    await writeFile(join(projectDir, '.cleo/project-info.json'), '{broken');
+    await expect(nexusRegister(projectDir)).rejects.toThrow(/Cannot read project identity/);
+    expect(await nexusGetProject(hash)).toEqual(before);
+  });
+
+  it('rolls back requested metadata when alias persistence fails in the transaction', async () => {
+    vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    const hash = await nexusRegister(projectDir, 'owner', 'write');
+    const before = await nexusGetProject(hash);
+    const db = await getNexusDb();
+    await db.delete(projectIdAliases).where(eq(projectIdAliases.canonicalId, before!.projectId));
+    const native = getNexusNativeDb();
+    if (!native) throw new Error('Missing canonical fixture handle');
+    native.exec(
+      "CREATE TRIGGER nexus_global.fail_alias BEFORE INSERT ON nexus_project_id_aliases BEGIN SELECT RAISE(ABORT, 'fixture alias failure'); END",
+    );
+    try {
+      await expect(nexusRegister(projectDir, 'overwrite', 'execute')).rejects.toThrow();
+      expect(await nexusGetProject(hash)).toEqual(before);
+      expect(
+        await db
+          .select()
+          .from(projectIdAliases)
+          .where(eq(projectIdAliases.canonicalId, before!.projectId)),
+      ).toEqual([]);
+    } finally {
+      native.exec('DROP TRIGGER nexus_global.fail_alias');
+    }
+  });
+
+  it('refuses a canonical alias owned elsewhere and rolls back the new registration', async () => {
+    vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    await writeFile(
+      join(projectDir, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'declared-owner' }),
+    );
+    const { id: alias } = await canonicalProjectId(projectDir);
+    await nexusInit();
+    const db = await getNexusDb();
+    await db.insert(projectIdAliases).values({
+      legacyId: alias,
+      canonicalId: 'another-owner',
+      createdAt: new Date().toISOString(),
+    });
+    const aliasesBefore = await db.select().from(projectIdAliases);
+    await expect(nexusRegister(projectDir, 'new-name', 'write')).rejects.toThrow(
+      /alias already belongs to another project/,
+    );
+    expect(await nexusList()).toEqual([]);
+    expect(await db.select().from(projectIdAliases)).toEqual(aliasesBefore);
+  });
+
+  it.each([
+    false,
+    true,
+  ])('keeps explicit project metadata when ambient pins change: %s', async (changeDuringRead) => {
+    const explicitProject = join(testDir, 'explicit-project');
+    await createTestProjectDb(explicitProject, [
+      { id: 'T900', title: 'Only explicit B', status: 'pending', labels: ['project-b'] },
+    ]);
+    await writeFile(
+      join(explicitProject, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'explicit-project-b' }),
+    );
+    await writeFile(
+      join(projectDir, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'ambient-project-a' }),
+    );
+    const explicitAlias = (await canonicalProjectId(explicitProject)).id;
+    const originalAccessor = dataAccessors.getTaskAccessor;
+    const entered = Promise.withResolvers<void>();
+    const proceed = Promise.withResolvers<void>();
+    if (changeDuringRead) {
+      vi.spyOn(dataAccessors, 'getTaskAccessor').mockImplementationOnce(async (cwd) => {
+        entered.resolve();
+        await proceed.promise;
+        return originalAccessor(cwd);
+      });
+      vi.stubEnv('CLEO_ROOT', explicitProject);
+      vi.stubEnv('CLEO_DIR', join(explicitProject, '.cleo'));
+    } else {
+      vi.stubEnv('CLEO_ROOT', projectDir);
+      vi.stubEnv('CLEO_DIR', join(projectDir, '.cleo'));
+    }
+    const registration = nexusRegister(explicitProject, 'explicit-b', 'execute');
+    if (changeDuringRead) {
+      await entered.promise;
+      vi.stubEnv('CLEO_ROOT', projectDir);
+      vi.stubEnv('CLEO_DIR', join(projectDir, '.cleo'));
+      proceed.resolve();
+    }
+    const hash = await registration;
+    expect(await nexusGetProject(hash)).toMatchObject({
+      projectId: 'explicit-project-b',
+      path: explicitProject,
+      name: 'explicit-b',
+      permissions: 'execute',
+      taskCount: 1,
+      labels: ['project-b'],
+    });
+    const db = await getNexusDb();
+    expect(
+      await db.select().from(projectIdAliases).where(eq(projectIdAliases.legacyId, explicitAlias)),
+    ).toMatchObject([{ canonicalId: 'explicit-project-b' }]);
+    vi.stubEnv('CLEO_ROOT', testDir);
+    vi.stubEnv('CLEO_DIR', undefined);
+    const ambient = await originalAccessor(projectDir);
+    expect((await ambient.queryTasks({})).tasks.map((task) => task.id).sort()).toEqual([
+      'T001',
+      'T002',
+    ]);
   });
 
   it('throws on name conflict', async () => {

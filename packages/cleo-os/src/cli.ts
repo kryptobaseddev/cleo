@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPlatformPaths } from '@cleocode/core/system/platform-paths.js';
-import { renderDoctorReport, runDoctor } from './commands/doctor.js';
+import { renderDoctorReport, renderProviderMatrix, runDoctor } from './commands/doctor.js';
 import {
   renderFatalDriftError,
   renderWarnDrift,
@@ -94,19 +94,8 @@ async function handleDiagnosticsFlags(args: string[]): Promise<boolean> {
   if (wantProviders) {
     const matrix = new ProviderMatrix();
     const rows = await matrix.getMatrix();
-    console.log('CleoOS Provider Matrix (ADR-050)');
-    console.log('═══════════════════════════════════════════════════════════');
-    console.log(
-      `  ${'provider'.padEnd(18)} ${'installed'.padEnd(10)} ${'spawn'.padEnd(7)} ${'hooks'.padEnd(5)} adapter`,
-    );
-    console.log('  ─────────────────────────────────────────────────────────');
-    for (const r of rows) {
-      const installed = r.installed ? 'yes' : 'no';
-      const spawn = r.spawnImplemented ? 'yes' : 'stub';
-      console.log(
-        `  ${r.providerId.padEnd(18)} ${installed.padEnd(10)} ${spawn.padEnd(7)} ${String(r.hookSupport).padEnd(5)} ${r.adapterClass}`,
-      );
-    }
+    console.log(renderProviderMatrix(rows));
+    process.exitCode = rows.some((row) => row.source.status === 'failed') ? 1 : 0;
     return true;
   }
 

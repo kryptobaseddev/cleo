@@ -70,6 +70,13 @@ export interface IvtrHistoryEntry {
  *
  * @param task - The core Task domain object to convert
  * @returns TaskRecord compatible with the dispatch layer's response format
+ * @remarks Acceptance preserves the shared text/gate union. Nested gate payloads are
+ * copied so rendering or response consumers cannot mutate the source task.
+ * @example
+ * ```typescript
+ * const record = taskToRecord(task);
+ * // record.acceptance retains typed requirement gates alongside literal text.
+ * ```
  *
  * @task T1568
  * @epic T1566
@@ -103,7 +110,7 @@ export function taskToRecord(task: Task): TaskRecord {
     depends: task.depends,
     relates,
     files: task.files,
-    acceptance: task.acceptance?.filter((a): a is string => typeof a === 'string'),
+    acceptance: task.acceptance ? structuredClone(task.acceptance) : undefined,
     notes: task.notes,
     labels: task.labels,
     size: task.size ?? null,

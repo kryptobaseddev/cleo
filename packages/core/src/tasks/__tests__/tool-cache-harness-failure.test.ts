@@ -151,6 +151,13 @@ afterAll(() => {
 });
 
 let dir: string;
+// Resolve diagnostic state and verification commands from the synthetic project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
   hoisted.wrapperFails = false;
   dir = mkdtempSync(join(tmpdir(), 'harness-fail-repo-'));

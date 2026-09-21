@@ -24,6 +24,9 @@
  * @see packages/cleo/src/dispatch/domains/admin.ts
  */
 
+import type { BackgroundJobStatus } from '../jobs.js';
+import type { AcceptanceItem } from '../task.js';
+
 // ============================================================================
 // Shared primitive types
 // ============================================================================
@@ -759,8 +762,8 @@ export interface AdminContextPullResult {
     title: string;
     /** Current status. */
     status: string;
-    /** Acceptance criteria array. */
-    acceptance: string[];
+    /** Canonical literal criteria and typed requirements, without projection loss. */
+    acceptance: AcceptanceItem[];
   };
   /** Relevant brain memory hits (up to 5). */
   relevantMemory: AdminContextPullMemoryHit[];
@@ -1759,10 +1762,14 @@ export interface AdminJobCancelParams {
 
 /** Result of `admin.job.cancel`. */
 export interface AdminJobCancelResult {
-  /** The job ID that was cancelled. */
+  /** The inspected job identity. */
   jobId: string;
-  /** Whether the cancellation succeeded. */
+  /** Whether this call recorded or reaffirmed a request for running work. */
+  cancellationRequested: boolean;
+  /** Whether the executor has acknowledged terminal cancellation. */
   cancelled: boolean;
+  /** Persisted lifecycle state observed after the request. */
+  status: BackgroundJobStatus;
 }
 
 // ---------------------------------------------------------------------------

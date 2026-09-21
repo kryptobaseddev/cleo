@@ -95,6 +95,7 @@ exports[`cleo schema command (T340) > tasks.add snapshot > full schema matches s
       },
       "description": "Task type",
       "enum": [
+        "saga",
         "epic",
         "task",
         "subtask",
@@ -177,9 +178,91 @@ exports[`cleo schema command (T340) > tasks.add snapshot > full schema matches s
     },
     {
       "cli": {
+        "flag": "depends-waiver",
+      },
+      "description": "Nonempty reason waiving dependencies for explicit critical priority",
+      "name": "dependsWaiver",
+      "required": false,
+      "type": "string",
+    },
+    {
+      "cli": {
+        "flag": "files",
+      },
+      "description": "Associated repository file paths",
+      "name": "files",
+      "required": false,
+      "type": "array",
+    },
+    {
+      "cli": {
+        "flag": "dry-run",
+      },
+      "description": "Preview creation without task or committed audit writes",
+      "name": "dryRun",
+      "required": false,
+      "type": "boolean",
+    },
+    {
+      "cli": {
+        "flag": "parent-search",
+      },
+      "description": "Search term for resolving the parent task",
+      "name": "parentSearch",
+      "required": false,
+      "type": "string",
+    },
+    {
+      "cli": {
+        "flag": "kind",
+      },
+      "description": "Task intent, independent of hierarchy",
+      "enum": [
+        "work",
+        "research",
+        "experiment",
+        "bug",
+        "spike",
+        "release",
+      ],
+      "name": "kind",
+      "required": false,
+      "type": "string",
+    },
+    {
+      "cli": {
+        "flag": "scope",
+      },
+      "description": "Task granularity",
+      "enum": [
+        "project",
+        "feature",
+        "unit",
+      ],
+      "name": "scope",
+      "required": false,
+      "type": "string",
+    },
+    {
+      "cli": {
+        "flag": "severity",
+      },
+      "description": "Project-authorized severity with transactional signed evidence",
+      "enum": [
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+      ],
+      "name": "severity",
+      "required": false,
+      "type": "string",
+    },
+    {
+      "cli": {
         "flag": "force-duplicate",
       },
-      "description": "Bypass duplicate-task rejection, including the 60s exact-title window (T1633)",
+      "description": "Bypass duplicate rejection with committed decision provenance",
       "name": "forceDuplicate",
       "required": false,
       "type": "boolean",

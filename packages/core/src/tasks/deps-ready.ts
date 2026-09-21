@@ -10,15 +10,26 @@
  * @epic T4454
  */
 
-/** Completed/cancelled statuses that satisfy dependencies. */
-const SATISFIED_STATUSES = new Set<string>(['done', 'cancelled']);
+import { isReadinessDependencySatisfied } from './dependency-check.js';
 
 /**
  * Check if all dependencies of a task are satisfied.
  *
  * @param depends - Array of dependency task IDs (may be undefined/empty)
  * @param taskLookup - Map from task ID to a task-like object with at least { status: string }
- * @returns true if all dependencies are done/cancelled, or if no dependencies exist
+ * @returns True if every dependency is done or archived, or no dependencies exist.
+ *
+ * @remarks
+ * Uses the same execution-readiness policy as spawn validation. Cancelled work
+ * remains a blocker; completion waivers do not authorize execution. Missing and
+ * malformed dependency records are not evidence of satisfaction. Callers must
+ * supply canonical dependency records, including archived records when relevant,
+ * and surface read failures rather than passing an incomplete healthy lookup.
+ *
+ * @example
+ * ```ts
+ * depsReady(['T1'], new Map([['T1', { status: 'archived' }]])); // true
+ * ```
  */
 export function depsReady(
   depends: string[] | undefined,
@@ -28,7 +39,7 @@ export function depsReady(
   return depends.every((depId) => {
     const dep = taskLookup.get(depId);
     if (dep === undefined || dep === null || typeof dep !== 'object') return false;
-    const status = (dep as { status?: string }).status;
-    return typeof status === 'string' && SATISFIED_STATUSES.has(status);
+    const status = 'status' in dep ? dep.status : undefined;
+    return typeof status === 'string' && isReadinessDependencySatisfied(status);
   });
 }

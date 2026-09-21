@@ -126,6 +126,7 @@ const ROOT_FLATS = [
   'cleo.ts',
   'contracts.ts',
   'internal.ts',
+  'paths.ts',
   // R10-L2 (T11581) — thin submodule re-exports of internalized workspace
   // packages, exposed as @cleocode/core/<pkg> subpaths (batteries-included
   // prep). Each `export * from '@cleocode/<pkg>'` bundles to a flat dist file;
@@ -743,12 +744,22 @@ async function build() {
   // imports validateDocument/parseDocument from @cleocode/cant and its tsup
   // DTS step throws TS2307 if cant's .d.ts are missing.
   // ---------------------------------------------------------------------------
-  console.log('\n[build] Wave 3: worktree + git-shim + nexus + cant (parallel)');
+  // `animations` is here because it is a PUBLISHED package whose dist nothing in
+  // this orchestrator produced. The CLI bundle does not need it — build.mjs
+  // aliases `@cleocode/animations` to its SOURCE — so the gap was invisible from
+  // the bundle's point of view, and invisible locally too, because a dist left
+  // over from some earlier `tsc -b` satisfied every lookup. On a clean tree the
+  // package's own dist existed only as a byproduct of root `tsc -b` or of
+  // `prepack` at publish time, so `pnpm run build && pnpm --filter @cleocode/cleo
+  // typecheck` failed with three TS2307s for a package the build had just
+  // "completed". It depends on contracts alone (wave 2), so it belongs here.
+  console.log('\n[build] Wave 3: worktree + git-shim + nexus + cant + animations (parallel)');
   await Promise.all([
     buildPkg('@cleocode/worktree', 'packages/worktree/dist/'),
     buildPkg('@cleocode/git-shim', 'packages/git-shim/dist/'),
     buildPkg('@cleocode/nexus', 'packages/nexus/dist/'),
     buildPkg('@cleocode/cant', 'packages/cant/dist/'),
+    buildPkg('@cleocode/animations', 'packages/animations/dist/'),
   ]);
 
   // ---------------------------------------------------------------------------

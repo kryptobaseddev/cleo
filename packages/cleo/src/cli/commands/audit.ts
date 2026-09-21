@@ -23,8 +23,11 @@
  * @adr ADR-051
  */
 
-import { getProjectRoot, reconstructLineage } from '@cleocode/core/internal';
-import { defineCommand, showUsage } from 'citty';
+import { reconstructLineage } from '@cleocode/core/audit/reconstruct';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { renderAuditReconstruct } from '@cleocode/core/render/orchestration/audit-reconstruct';
+import { defineCommand, showUsage } from '../lib/define-cli-command.js';
+import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
@@ -56,37 +59,64 @@ const reconstructCommand = defineCommand({
       description: 'Emit raw JSON output instead of formatted summary',
       default: false,
     },
+    'budget-ms': {
+      type: 'string',
+      description: 'Shared bounded assessment deadline in milliseconds',
+      default: '2000',
+    },
+    'max-output-bytes': {
+      type: 'string',
+      description: 'Combined Git capture byte ceiling',
+      default: '8388608',
+    },
     'repo-root': {
       type: 'string',
       description: 'Path to the git repository root (defaults to current project root)',
     },
   },
   async run({ args }) {
-    const taskId = args['taskId'] as string;
+    const taskId = args.taskId.toUpperCase();
+    const budgetMs = Number(args['budget-ms']);
+    const maxOutputBytes = Number(args['max-output-bytes']);
+    const deadlineAt = Date.now() + budgetMs;
 
-    if (!taskId || !/^T\d+$/i.test(taskId)) {
+    if (
+      !/^T\d+$/.test(taskId) ||
+      !/^\d+$/.test(args['budget-ms']) ||
+      !/^\d+$/.test(args['max-output-bytes']) ||
+      !Number.isSafeInteger(budgetMs) ||
+      !Number.isSafeInteger(maxOutputBytes) ||
+      !Number.isSafeInteger(deadlineAt)
+    ) {
       cliError(
-        `taskId must match /^T\\d+$/ (e.g. T991). Got: ${JSON.stringify(taskId)}`,
+        'Task ID must be T followed by digits; budget-ms and max-output-bytes must be nonnegative safe integers.',
         1,
         { name: 'E_VALIDATION' },
         { operation: 'audit.reconstruct' },
       );
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
-    // Resolve repo root: explicit flag > project root detection > cwd
-    let repoRoot: string;
-    if (args['repo-root']) {
-      repoRoot = args['repo-root'] as string;
-    } else {
-      try {
-        repoRoot = getProjectRoot(process.cwd()) ?? process.cwd();
-      } catch {
-        repoRoot = process.cwd();
-      }
+    const repoRoot = args['repo-root'] ?? getProjectRoot(process.cwd()) ?? process.cwd();
+    const result = await reconstructLineage(taskId, repoRoot, {
+      execution: { deadlineAt },
+      maxOutputBytes,
+    });
+    if (result.assessment?.coverage !== 'current') {
+      process.exitCode = 1;
+      cliError(
+        renderAuditReconstruct({ ...result }, false),
+        1,
+        {
+          name: 'E_AUDIT_INCOMPLETE',
+          details: result,
+          fix: 'Inspect assessment diagnostics; request an explicit larger budget or restore missing evidence before retrying.',
+        },
+        { operation: 'audit.reconstruct' },
+      );
+      return;
     }
-
-    const result = await reconstructLineage(taskId, repoRoot);
 
     cliOutput(result, {
       command: 'audit-reconstruct',
@@ -117,7 +147,8 @@ export const auditCommand = defineCommand({
   subCommands: {
     reconstruct: reconstructCommand,
   },
-  async run({ args: _args }) {
-    await showUsage(auditCommand as Parameters<typeof showUsage>[0]);
+  async run({ cmd, rawArgs }) {
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
+    await showUsage(cmd);
   },
 });

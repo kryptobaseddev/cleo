@@ -11,10 +11,11 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
+import { captureProjectScope, worktreeScope } from '../project-scope.js';
+import { trackBackgroundOp } from '../store/background-ops.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { upsertGraphNode } from './graph-auto-populate.js';
 import { computePatternQuality } from './quality-scoring.js';
-import { detectSupersession, supersedeMemory } from './temporal-supersession.js';
 
 /** Pattern types from ADR-009. */
 export type PatternType = 'workflow' | 'blocker' | 'success' | 'failure' | 'optimization';
@@ -66,9 +67,20 @@ function generatePatternId(): string {
 /**
  * Store a new pattern.
  * If a similar pattern already exists (same type + matching text), increments frequency.
+ * @param projectRoot - Explicit owning project root captured before asynchronous work.
+ * @param params - Existing pattern fields and extraction-gate policy.
+ * @returns The stored or merged pattern; graph projection remains an optional tracked effect.
+ * @remarks Both graph branches retain the original execution context and completion
+ * barrier. Cancellation after a pattern commit can prevent graph projection without
+ * undoing the committed pattern. Scoped primary writes share the same original fence.
+ * @example
+ * ```ts
+ * await storePattern(root, { type: 'workflow', pattern: 'Run tests', context: 'Before release' });
+ * ```
  * @task T4768, T5241
  */
 export async function storePattern(projectRoot: string, params: StorePatternParams) {
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
   if (!params.pattern?.trim()) {
     throw new Error('Pattern description is required');
   }
@@ -84,7 +96,7 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     const { verifyCandidate } = await import('./extraction-gate.js');
     const isAuto = params.source?.startsWith('auto') ?? false;
     const sourceConf = isAuto ? ('speculative' as const) : ('agent' as const);
-    const gateResult = await verifyCandidate(projectRoot, {
+    const gateResult = await verifyCandidate(scope.worktreeRoot, {
       text: params.pattern.trim(),
       title: params.context.trim().slice(0, 120),
       memoryType: 'procedural',
@@ -96,7 +108,9 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     if (gateResult.action !== 'stored') {
       // Gate merged, rejected, or queued — return best available representation
       const existing = gateResult.id
-        ? await (await getBrainAccessor(projectRoot)).getPattern(gateResult.id).catch(() => null)
+        ? await (await getBrainAccessor(scope.worktreeRoot))
+            .getPattern(gateResult.id)
+            .catch(() => null)
         : null;
       if (existing) {
         return { ...existing, examples: JSON.parse(existing.examplesJson || '[]') };
@@ -132,7 +146,7 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     // Gate approved — fall through to native storage below (no recursion needed).
   }
 
-  const accessor = await getBrainAccessor(projectRoot);
+  const accessor = await getBrainAccessor(scope.worktreeRoot);
 
   // Search for duplicate pattern by normalized text within same type
   const existingPatterns = await accessor.findPatterns({ type: params.type });
@@ -149,30 +163,39 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     const newExamples: string[] = params.examples ?? [];
     const mergedExamples = Array.from(new Set([...existingExamples, ...newExamples]));
 
-    await accessor.updatePattern(duplicate.id, {
-      frequency: duplicate.frequency + 1,
-      extractedAt: now,
-      examplesJson: JSON.stringify(mergedExamples),
-    });
+    await accessor.updatePattern(
+      duplicate.id,
+      {
+        frequency: duplicate.frequency + 1,
+        extractedAt: now,
+        examplesJson: JSON.stringify(mergedExamples),
+      },
+      scope.execution,
+    );
 
     const updated = await accessor.getPattern(duplicate.id);
 
     // Refresh graph node for the updated (incremented) pattern (best-effort, T537).
-    upsertGraphNode(
-      projectRoot,
-      `pattern:${duplicate.id}`,
-      'pattern',
-      duplicate.pattern.substring(0, 200),
-      duplicate.qualityScore ?? 0.5,
-      duplicate.pattern + duplicate.context,
-      {
-        type: duplicate.type,
-        impact: duplicate.impact ?? undefined,
-        frequency: duplicate.frequency + 1,
-      },
-    ).catch(() => {
-      /* best-effort */
-    });
+    trackBackgroundOp(
+      () =>
+        worktreeScope.run(scope, () =>
+          upsertGraphNode(
+            scope.worktreeRoot,
+            `pattern:${duplicate.id}`,
+            'pattern',
+            duplicate.pattern.substring(0, 200),
+            duplicate.qualityScore ?? 0.5,
+            duplicate.pattern + duplicate.context,
+            {
+              type: duplicate.type,
+              impact: duplicate.impact ?? undefined,
+              frequency: duplicate.frequency + 1,
+            },
+            scope.execution,
+          ),
+        ),
+      scope.execution,
+    );
 
     return {
       ...updated!,
@@ -236,46 +259,28 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     contentHash: contentHashValue,
   };
 
-  const saved = await accessor.addPattern(entry);
+  const saved = await accessor.addPattern(entry, scope.execution);
 
   // Auto-populate graph node for the new pattern (best-effort, T537).
-  upsertGraphNode(
-    projectRoot,
-    `pattern:${saved.id}`,
-    'pattern',
-    saved.pattern.substring(0, 200),
-    qualityScore,
-    saved.pattern + saved.context,
-    { type: saved.type, impact: saved.impact ?? undefined },
-  ).catch(() => {
-    /* best-effort */
-  });
+  trackBackgroundOp(
+    () =>
+      worktreeScope.run(scope, () =>
+        upsertGraphNode(
+          scope.worktreeRoot,
+          `pattern:${saved.id}`,
+          'pattern',
+          saved.pattern.substring(0, 200),
+          qualityScore,
+          saved.pattern + saved.context,
+          { type: saved.type, impact: saved.impact ?? undefined },
+          scope.execution,
+        ),
+      ),
+    scope.execution,
+  );
 
-  // T738: Auto-fire detectSupersession only for high-trust writes.
-  // Agent/speculative confidence patterns rely on sleep-consolidation dedup instead.
-  // Only 'owner' or 'task-outcome' sourceConfidence triggers write-time supersession.
-  if ((sourceConfidence as string) === 'owner' || (sourceConfidence as string) === 'task-outcome') {
-    detectSupersession(projectRoot, {
-      id: saved.id,
-      text: saved.pattern + ' ' + saved.context,
-      createdAt: saved.extractedAt ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
-    })
-      .then((candidates) => {
-        for (const candidate of candidates) {
-          supersedeMemory(
-            projectRoot,
-            candidate.existingId,
-            saved.id,
-            'auto:pattern-supersedes — high overlap detected at store time',
-          ).catch(() => {
-            /* best-effort */
-          });
-        }
-      })
-      .catch(() => {
-        /* best-effort */
-      });
-  }
+  // Similarity identifies reconciliation candidates; it cannot establish authority.
+  // Replacement requires an explicit sourced operation from the calling agent.
 
   return {
     ...saved,

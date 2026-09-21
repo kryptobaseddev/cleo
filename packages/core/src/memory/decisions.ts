@@ -23,7 +23,6 @@ import { getDb } from '../store/sqlite.js';
 import { autoCrossLinkDecision } from './decision-cross-link.js';
 import { addGraphEdge, upsertGraphNode } from './graph-auto-populate.js';
 import { computeDecisionQuality } from './quality-scoring.js';
-import { detectSupersession, supersedeMemory } from './temporal-supersession.js';
 
 /** Parameters for storing a new decision. */
 export interface StoreDecisionParams {
@@ -68,6 +67,8 @@ export interface StoreDecisionParams {
    * External callers MUST NOT set this flag.
    */
   _skipGate?: boolean;
+  /** Explicitly request optional LLM conflict evaluation; sourced writes default to no model call. */
+  validateWithLlm?: boolean;
 }
 
 /** Parameters for searching decisions. */
@@ -136,7 +137,8 @@ async function resolveValidatorThreshold(projectRoot: string): Promise<number> {
  * ## Scope
  *
  * Only runs for ADR-typed writes (where `adrPath` is provided on the params).
- * Non-ADR writes skip validation entirely.
+ * Non-ADR writes skip validation entirely. `storeDecision` invokes this optional
+ * model-assisted check only when `validateWithLlm: true` is explicitly supplied.
  *
  * ## Env skip
  *
@@ -374,11 +376,9 @@ export async function storeDecision(
     }
   }
 
-  // T1828: LLM conflict-validator hook for ADR-typed writes.
-  // Runs BEFORE the verifyCandidate gate so bad writes are rejected early.
-  // Skipped when: (a) CLEO_ENV=test, (b) no adrPath set (non-ADR write),
-  // (c) _skipGate=true (internal bypass from storeVerifiedCandidate).
-  if (!params._skipGate && params.adrPath) {
+  // Optional synthesis is separate from recording sourced decisions. An ADR
+  // reference supplies evidence; it is not consent to invoke a background model.
+  if (params.validateWithLlm === true && !params._skipGate && params.adrPath) {
     const accessor = await getBrainAccessor(projectRoot);
     const existing = await accessor.findDecisions({});
     const validationResult = await validateDecisionConflicts(
@@ -651,28 +651,8 @@ export async function storeDecision(
     /* Graph population is best-effort — never block the primary return */
   }
 
-  // Detect supersession: check if this new decision supersedes any existing ones.
-  // Fire-and-forget — never block the primary return.
-  detectSupersession(projectRoot, {
-    id: saved.id,
-    text: saved.decision + ' ' + saved.rationale,
-    createdAt: saved.createdAt ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
-  })
-    .then((candidates) => {
-      for (const candidate of candidates) {
-        supersedeMemory(
-          projectRoot,
-          candidate.existingId,
-          saved.id,
-          'auto:decision-supersedes — high overlap detected at store time',
-        ).catch(() => {
-          /* best-effort */
-        });
-      }
-    })
-    .catch(() => {
-      /* best-effort */
-    });
+  // Similarity identifies reconciliation candidates; it cannot establish authority.
+  // Replacement requires an explicit sourced operation from the calling agent.
 
   return saved;
 }

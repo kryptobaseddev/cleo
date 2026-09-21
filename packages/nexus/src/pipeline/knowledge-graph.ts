@@ -20,7 +20,13 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { GraphNode, GraphRelation } from '@cleocode/contracts';
+import type {
+  GraphNode,
+  GraphPublicationRows,
+  GraphRelation,
+  NexusNodeInsertRow,
+  NexusRelationInsertRow,
+} from '@cleocode/contracts';
 import type { Column } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
@@ -75,38 +81,6 @@ export interface NexusTables {
 // `cleo.db`), so `project_id` was dropped from `nexus_nodes` / `nexus_relations`.
 // The insert rows below therefore no longer carry `projectId`.
 
-/** Insert row shape for nexus_nodes. */
-interface NexusNodeInsertRow {
-  id: string;
-  kind: string;
-  label: string;
-  name: string | null;
-  filePath: string | null;
-  startLine: number | null;
-  endLine: number | null;
-  language: string | null;
-  isExported: boolean;
-  parentId: string | null;
-  parametersJson: string | null;
-  returnType: string | null;
-  docSummary: string | null;
-  communityId: string | null;
-  metaJson: string | null;
-  indexedAt: string;
-}
-
-/** Insert row shape for nexus_relations. */
-interface NexusRelationInsertRow {
-  id: string;
-  sourceId: string;
-  targetId: string;
-  type: string;
-  confidence: number;
-  reason: string | null;
-  step: number | null;
-  indexedAt: string;
-}
-
 // ---------------------------------------------------------------------------
 // KnowledgeGraph implementation
 // ---------------------------------------------------------------------------
@@ -139,6 +113,8 @@ export interface KnowledgeGraph {
    * @param db - Drizzle database instance (from getNexusDb())
    * @param tables - Table references ({ nexusNodes, nexusRelations })
    */
+  /** Serialize and validate the staged generation before opening a write transaction. */
+  preparePublication(): GraphPublicationRows;
   flush(projectId: string, db: NexusDbInsert, tables: NexusTables): Promise<void>;
 }
 
@@ -159,7 +135,15 @@ export function createKnowledgeGraph(): KnowledgeGraph {
     }
   }
 
+  function canonicalEndpoint(id: string): string {
+    if (nodes.has(id) || !id.endsWith('::__file__')) return id;
+    const filePath = id.slice(0, -'::__file__'.length);
+    const file = nodes.get(filePath);
+    return file?.kind === 'file' && file.filePath === filePath ? filePath : id;
+  }
+
   function addRelation(rel: GraphRelation): void {
+    rel = { ...rel, source: canonicalEndpoint(rel.source), target: canonicalEndpoint(rel.target) };
     const key = `${rel.source}::${rel.target}::${rel.type}`;
     if (!relationKeys.has(key)) {
       relationKeys.add(key);
@@ -167,7 +151,7 @@ export function createKnowledgeGraph(): KnowledgeGraph {
     }
   }
 
-  async function flush(_projectId: string, db: NexusDbInsert, tables: NexusTables): Promise<void> {
+  function preparePublication(): GraphPublicationRows {
     const now = new Date().toISOString();
 
     // Build node insert rows (ADR-090 · T11648 — no `projectId`).
@@ -188,7 +172,13 @@ export function createKnowledgeGraph(): KnowledgeGraph {
         returnType: node.returnType ?? null,
         docSummary: node.docSummary ?? null,
         communityId: node.communityId ?? null,
-        metaJson: node.meta ? JSON.stringify(node.meta) : null,
+        metaJson:
+          node.meta || node.isExternal !== undefined
+            ? JSON.stringify({
+                ...node.meta,
+                ...(node.isExternal !== undefined ? { isExternal: node.isExternal } : {}),
+              })
+            : null,
         indexedAt: now,
       });
     }
@@ -207,6 +197,24 @@ export function createKnowledgeGraph(): KnowledgeGraph {
         indexedAt: now,
       });
     }
+
+    for (const relation of relations) {
+      if (!nodes.has(relation.source) || !nodes.has(relation.target)) {
+        throw new Error(`Invalid graph relationship: ${relation.source} -> ${relation.target}`);
+      }
+      if (
+        !Number.isFinite(relation.confidence) ||
+        relation.confidence < 0 ||
+        relation.confidence > 1
+      ) {
+        throw new Error(`Invalid graph confidence: ${relation.source} -> ${relation.target}`);
+      }
+    }
+    return { nodes: nodeRows, relations: relationRows };
+  }
+
+  async function flush(_projectId: string, db: NexusDbInsert, tables: NexusTables): Promise<void> {
+    const { nodes: nodeRows, relations: relationRows } = preparePublication();
 
     // Chunk-insert nodes
     for (let i = 0; i < nodeRows.length; i += CHUNK_SIZE) {
@@ -231,5 +239,6 @@ export function createKnowledgeGraph(): KnowledgeGraph {
     addNode,
     addRelation,
     flush,
+    preparePublication,
   };
 }

@@ -122,7 +122,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'backupInspectSubCommand',
     name: 'inspect',
-    description: 'Show bundle manifest without extracting or modifying anything',
+    description: 'Inspect a bundle manifest or an exact observation in a read-only SQLite snapshot',
     load: async () =>
       (await import('../commands/backup-inspect.js')).backupInspectSubCommand as CommandDef,
   },
@@ -538,7 +538,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'findCommand',
     name: 'find',
-    description: 'Fuzzy search tasks by title/description',
+    description: 'Lexical task search; fuzzy matching requires --fuzzy',
     load: async () => (await import('../commands/find.js')).findCommand as CommandDef,
   },
   {

@@ -13,6 +13,17 @@
 
 import { BOLD, CYAN, DIM, GREEN, NC } from '../colors.js';
 
+/**
+ * Render lineage examples after coverage, failure and local-scope limitations.
+ * @param data - Existing generic renderer boundary carrying an audit result.
+ * @param quiet - Explicit successful-output suppression; failures are rendered by the CLI without it.
+ * @returns Human-readable assessment and lineage, or an empty string in quiet mode.
+ * @remarks Legacy results without assessment are unknown, never inferred current from empty arrays.
+ * @example
+ * ```ts
+ * const output = renderAuditReconstruct({ taskId: 'T994' }, false);
+ * ```
+ */
 export function renderAuditReconstruct(data: Record<string, unknown>, quiet: boolean): string {
   if (quiet) return '';
 
@@ -26,12 +37,20 @@ export function renderAuditReconstruct(data: Record<string, unknown>, quiet: boo
   const firstSeenAt = data['firstSeenAt'] as string | null | undefined;
   const lastSeenAt = data['lastSeenAt'] as string | null | undefined;
 
-  const lines: string[] = [
-    `${BOLD}Lineage for ${taskId ?? '?'}${NC}`,
-    '='.repeat(40),
-    '',
-    `${DIM}Direct commits:${NC} ${directCommits.length}`,
-  ];
+  const assessment = data['assessment'];
+  const lines: string[] = [`${BOLD}Lineage for ${taskId ?? '?'}${NC}`, '='.repeat(40)];
+  if (assessment !== null && typeof assessment === 'object' && 'coverage' in assessment) {
+    lines.push(
+      `Coverage: ${typeof assessment.coverage === 'string' ? assessment.coverage : 'unknown'}`,
+    );
+    lines.push(`Assessment: ${JSON.stringify(assessment)}`);
+  } else {
+    lines.push(
+      'Coverage: unknown (legacy result has no assessment)',
+      'Missing assessment cannot prove absent history.',
+    );
+  }
+  lines.push('', `${DIM}Direct commits:${NC} ${directCommits.length}`);
 
   for (const c of directCommits) {
     const sha = typeof c['sha'] === 'string' ? c['sha'].slice(0, 10) : '?';

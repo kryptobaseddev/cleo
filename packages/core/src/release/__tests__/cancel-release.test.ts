@@ -10,7 +10,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 import { cancelRelease, prepareRelease, showRelease } from '../release-manifest.js';
@@ -20,6 +20,13 @@ let testDir: string;
 async function loadTasks(): Promise<[]> {
   return [];
 }
+
+// Release round-trips use each scenario's explicit fixture project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'cleo-cancel-release-'));

@@ -67,13 +67,17 @@ export default defineConfig({
   // Rollup never tries to bundle the binary. The wasmStubPlugin above handles
   // any .wasm imports that slip through during the SSR phase.
   ssr: {
-    // T1693: noExternal ensures Vite bundles @cleocode/* packages by default.
-    // The explicit excludes below override that for WASM-dependent packages.
-    noExternal: [/^@cleocode\//],
+    // Resolve and bundle dependencies before adapter-node relocates the Vite
+    // output. Otherwise undeclared bare imports can bind to unrelated packages
+    // in ancestor node_modules rather than each original importer's version.
+    // Existing explicit exclusions retain their installed runtime resolution.
+    noExternal: true,
     // T9593: @cleocode/cant ships as CommonJS (no "type":"module"). Vite ESM
     // SSR runner cannot inline CJS when noExternal forces bundling — every route
     // crashes via +layout.server.ts → @cleocode/core → @cleocode/caamp →
     // @cleocode/cant. Mark it external so Node.js resolves it natively.
-    external: ['loro-crdt', 'llmtxt', '@cleocode/cant'],
+    // Keep core's native/model assets relative to its installed package.
+    // The CLI already declares core as a runtime dependency.
+    external: ['loro-crdt', 'llmtxt', '@cleocode/cant', '@cleocode/core'],
   },
 });

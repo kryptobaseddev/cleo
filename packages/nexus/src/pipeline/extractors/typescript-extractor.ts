@@ -25,8 +25,12 @@
  * @module pipeline/extractors/typescript-extractor
  */
 
+import { createHash } from 'node:crypto';
 import type { GraphNode, GraphNodeKind } from '@cleocode/contracts';
+import type { GraphLexicalResolution, GraphSourceSpan } from '@cleocode/contracts/graph';
+import type Parser from 'tree-sitter';
 import type { ExtractedImport, NamedImportBinding } from '../import-processor.js';
+import { buildLexicalScopeModel, type LexicalScopeModel } from '../lexical-scope.js';
 
 // ---------------------------------------------------------------------------
 // Re-exported types consumed by the parse loop
@@ -59,20 +63,7 @@ export interface ExtractedHeritage {
  * Minimal tree-sitter SyntaxNode shape required by this extractor.
  * Avoids a hard dependency on any particular tree-sitter type package.
  */
-interface SyntaxNode {
-  type: string;
-  text: string;
-  startPosition: { row: number; column: number };
-  endPosition: { row: number; column: number };
-  children: SyntaxNode[];
-  namedChildren: SyntaxNode[];
-  namedChildCount: number;
-  isNamed: boolean;
-  parent: SyntaxNode | null;
-  previousSibling: SyntaxNode | null;
-  childForFieldName(fieldName: string): SyntaxNode | null;
-  namedChild(index: number): SyntaxNode | null;
-}
+type SyntaxNode = Parser.SyntaxNode;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -167,7 +158,7 @@ const EXPORTABLE_DECLARATION_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Walk the AST to extract all top-level definitions.
+ * Walk the AST to extract documentary/type declarations; the lexical model supplies callables.
  *
  * @param node - Current AST node
  * @param filePath - File path relative to repo root
@@ -181,18 +172,6 @@ function walkDefinitions(
   results: GraphNode[],
 ): void {
   switch (node.type) {
-    case 'function_declaration':
-    case 'generator_function_declaration': {
-      const fn = buildFunctionNode(node, filePath, language);
-      if (fn) results.push(fn);
-      break;
-    }
-    case 'class_declaration':
-    case 'abstract_class_declaration': {
-      const classNodes = buildClassNodes(node, filePath, language);
-      for (const n of classNodes) results.push(n);
-      break;
-    }
     case 'interface_declaration': {
       for (const n of buildInterfaceNodes(node, filePath, language)) results.push(n);
       break;
@@ -217,41 +196,6 @@ function walkDefinitions(
       }
       break;
     }
-    case 'lexical_declaration':
-    case 'variable_declaration': {
-      // Detect `const foo = () => {}` and `const foo = function() {}` patterns
-      for (let i = 0; i < node.namedChildCount; i++) {
-        const declarator = node.namedChild(i);
-        if (!declarator || declarator.type !== 'variable_declarator') continue;
-        const nameNode = declarator.childForFieldName('name');
-        const valueNode = declarator.childForFieldName('value');
-        if (!nameNode || !valueNode) continue;
-        if (valueNode.type !== 'arrow_function' && valueNode.type !== 'function_expression')
-          continue;
-        const name = nameNode.text;
-        if (!name) continue;
-
-        const paramsNode =
-          valueNode.childForFieldName('parameters') ??
-          valueNode.childForFieldName('formal_parameters');
-        const parameters = paramsNode ? extractParamNames(paramsNode) : [];
-
-        results.push({
-          id: nodeId(filePath, name),
-          kind: 'function' as GraphNodeKind,
-          name,
-          filePath,
-          startLine: toLine(node.startPosition.row),
-          endLine: toLine(node.endPosition.row),
-          language,
-          exported: isExported(node),
-          parameters,
-          returnType: extractReturnType(valueNode),
-          docSummary: extractDocSummary(node),
-        });
-      }
-      break;
-    }
     default:
       break;
   }
@@ -263,32 +207,6 @@ function walkDefinitions(
       if (child) walkDefinitions(child, filePath, language, results);
     }
   }
-}
-
-/** Build a GraphNode for a function_declaration. */
-function buildFunctionNode(node: SyntaxNode, filePath: string, language: string): GraphNode | null {
-  const nameNode = node.childForFieldName('name');
-  if (!nameNode) return null;
-  const name = nameNode.text;
-  if (!name) return null;
-
-  const paramsNode =
-    node.childForFieldName('parameters') ?? node.childForFieldName('formal_parameters');
-  const parameters = paramsNode ? extractParamNames(paramsNode) : [];
-
-  return {
-    id: nodeId(filePath, name),
-    kind: 'function' as GraphNodeKind,
-    name,
-    filePath,
-    startLine: toLine(node.startPosition.row),
-    endLine: toLine(node.endPosition.row),
-    language,
-    exported: isExported(node),
-    parameters,
-    returnType: extractReturnType(node),
-    docSummary: extractDocSummary(node),
-  };
 }
 
 /** Build GraphNodes for a class_declaration (class + methods + fields). */
@@ -861,20 +779,17 @@ export interface ExtractedCall {
    * E.g. `'user'` for `user.save()`.
    */
   receiverName?: string;
+  /** Original call range, when the language has the shared lexical capability. */
+  span?: GraphSourceSpan;
+  /** Source content generation used for lexical/anonymous identities. */
+  generation?: string;
+  /** Preallocated publication identity, distinct from the source content hash. */
+  publicationGeneration?: string;
+  /** Nearest callee binding for free calls, or receiver binding for member calls. */
+  lexical?: GraphLexicalResolution;
+  /** True when the original callee cannot be statically named; never silently discard it. */
+  dynamic?: boolean;
 }
-
-/**
- * AST node types that begin a function/method definition boundary.
- * Used to track the enclosing function when walking call expressions.
- */
-const ENCLOSING_FUNCTION_TYPES = new Set([
-  'function_declaration',
-  'function_expression',
-  'arrow_function',
-  'generator_function_declaration',
-  'generator_function',
-  'method_definition',
-]);
 
 /**
  * Count the direct argument nodes inside a `arguments` node.
@@ -887,151 +802,64 @@ function countArgs(argsNode: SyntaxNode): number {
 }
 
 /**
- * Build a stable source node ID for the call site.
- *
- * Walks up the AST to find the nearest enclosing function/method and returns
- * its node ID (matching the format used during definition extraction:
- * `<filePath>::<qualifiedName>`). Falls back to `<filePath>::<file>` for
- * module-level calls.
+ * Retain every call expression with shared lexical ownership and binding evidence.
+ * @param root - Original native AST root.
+ * @param filePath - Repository-relative source identity.
+ * @param model - Shared model, or a standalone TS/JS model when omitted.
+ * @returns Static call records, including explicit dynamic expressions.
+ * @remarks Lexical identity does not prove runtime dispatch or invocation.
+ * @example
+ * ```ts
+ * const calls = extractCalls(tree.rootNode, 'src/auth.ts', model);
+ * ```
  */
-function buildSourceId(callNode: SyntaxNode, filePath: string): string {
-  let current = callNode.parent;
-
-  while (current) {
-    if (ENCLOSING_FUNCTION_TYPES.has(current.type)) {
-      // method_definition: look for a name child
-      if (current.type === 'method_definition') {
-        const nameNode = current.childForFieldName('name');
-        if (nameNode?.text) {
-          // Try to find the enclosing class name for qualified ID
-          const classBody = current.parent; // class_body
-          const classDecl = classBody?.parent; // class_declaration
-          if (
-            classDecl &&
-            (classDecl.type === 'class_declaration' ||
-              classDecl.type === 'abstract_class_declaration')
-          ) {
-            const classNameNode = classDecl.childForFieldName('name');
-            if (classNameNode?.text) {
-              return `${filePath}::${classNameNode.text}.${nameNode.text}`;
-            }
-          }
-          return `${filePath}::${nameNode.text}`;
-        }
-      }
-
-      // function_declaration and generator_function_declaration: named function
-      if (
-        current.type === 'function_declaration' ||
-        current.type === 'generator_function_declaration'
-      ) {
-        const nameNode = current.childForFieldName('name');
-        if (nameNode?.text) {
-          return `${filePath}::${nameNode.text}`;
-        }
-      }
-
-      // function_expression / arrow_function: look at parent variable_declarator
-      if (current.type === 'function_expression' || current.type === 'arrow_function') {
-        const parent = current.parent;
-        if (parent?.type === 'variable_declarator') {
-          const nameNode = parent.childForFieldName('name');
-          if (nameNode?.text) {
-            return `${filePath}::${nameNode.text}`;
-          }
-        }
-      }
-    }
-
-    current = current.parent;
-  }
-
-  // Top-level (module scope) — use file pseudo-node ID
-  return `${filePath}::__file__`;
-}
-
-/**
- * Walk the full AST of a file and collect all call expressions.
- *
- * Extracted call forms:
- * - `call_expression` with an `identifier` callee → `free` call
- * - `call_expression` with a `member_expression` callee → `member` call
- * - `new_expression` → `constructor` call
- *
- * Ignores calls where the callee is not a simple name (e.g. IIFEs, dynamic
- * expressions). These cannot be resolved without type inference.
- *
- * @param root - AST root node (program node)
- * @param filePath - File path relative to repo root
- * @returns Array of extracted call records
- */
-export function extractCalls(root: SyntaxNode, filePath: string): ExtractedCall[] {
+export function extractCalls(
+  root: SyntaxNode,
+  filePath: string,
+  model = buildLexicalScopeModel(
+    root,
+    filePath,
+    createHash('sha256').update(root.text).digest('hex'),
+    'typescript',
+  ),
+): ExtractedCall[] {
   const results: ExtractedCall[] = [];
-
   function walk(node: SyntaxNode): void {
-    if (node.type === 'call_expression') {
-      const functionNode = node.childForFieldName('function');
-      const argsNode = node.childForFieldName('arguments');
-
-      if (functionNode) {
-        if (functionNode.type === 'identifier') {
-          // Free call: foo(args)
-          const calledName = functionNode.text;
-          if (calledName) {
-            results.push({
-              filePath,
-              calledName,
-              sourceId: buildSourceId(node, filePath),
-              argCount: argsNode ? countArgs(argsNode) : undefined,
-              callForm: 'free',
-            });
-          }
-        } else if (functionNode.type === 'member_expression') {
-          // Member call: obj.method(args)
-          const propNode = functionNode.childForFieldName('property');
-          const objNode = functionNode.childForFieldName('object');
-
-          if (propNode?.text) {
-            const calledName = propNode.text;
-            const receiverName = objNode?.type === 'identifier' ? objNode.text : undefined;
-
-            results.push({
-              filePath,
-              calledName,
-              sourceId: buildSourceId(node, filePath),
-              argCount: argsNode ? countArgs(argsNode) : undefined,
-              callForm: 'member',
-              receiverName,
-            });
-          }
-        }
-      }
-    } else if (node.type === 'new_expression') {
-      // Constructor call: new Foo(args)
-      const constructorNode = node.childForFieldName('constructor');
-      const argsNode = node.childForFieldName('arguments');
-
-      if (constructorNode?.type === 'identifier') {
-        const calledName = constructorNode.text;
-        if (calledName) {
-          results.push({
-            filePath,
-            calledName,
-            sourceId: buildSourceId(node, filePath),
-            argCount: argsNode ? countArgs(argsNode) : undefined,
-            callForm: 'constructor',
-          });
-        }
+    if (node.type === 'call_expression' || node.type === 'new_expression') {
+      const isConstructor = node.type === 'new_expression';
+      const callee = node.childForFieldName(isConstructor ? 'constructor' : 'function');
+      const args = node.childForFieldName('arguments');
+      if (callee) {
+        const member = callee.type === 'member_expression';
+        const receiver = member ? callee.childForFieldName('object') : null;
+        const property = member ? callee.childForFieldName('property') : null;
+        const receiverName =
+          receiver?.type === 'identifier' || receiver?.type === 'this' ? receiver.text : undefined;
+        const named =
+          callee.type === 'identifier' || (member && property?.type === 'property_identifier');
+        const calledName = member && property ? property.text : callee.text;
+        const bindingName = member
+          ? receiverName
+          : callee.type === 'identifier'
+            ? calledName
+            : undefined;
+        results.push({
+          filePath,
+          calledName,
+          sourceId: model.ownerAt(node.startIndex),
+          argCount: args ? countArgs(args) : undefined,
+          callForm: isConstructor ? 'constructor' : member ? 'member' : 'free',
+          receiverName,
+          span: model.spanOf(node),
+          generation: model.generation,
+          publicationGeneration: model.publicationGeneration,
+          lexical: bindingName ? model.resolve(bindingName, node.startIndex) : undefined,
+          dynamic: !named || (member && !receiverName),
+        });
       }
     }
-
-    // Recurse into all children
-    for (let i = 0; i < node.namedChildCount; i++) {
-      const child = node.namedChild(i);
-      if (child) walk(child);
-    }
+    for (const child of node.namedChildren) walk(child);
   }
-
   walk(root);
   return results;
 }
@@ -1071,12 +899,19 @@ export interface TypeScriptExtractionResult {
  * @param rootNode - The root (program) node of the parsed AST
  * @param filePath - File path relative to the repository root
  * @param language - Language string (`typescript` or `javascript`)
+ * @param model - One shared original-source scope model, reused by access extraction.
  * @returns Full extraction result for the file
  */
 export function extractTypeScript(
   rootNode: SyntaxNode,
   filePath: string,
   language: string,
+  model: LexicalScopeModel = buildLexicalScopeModel(
+    rootNode,
+    filePath,
+    createHash('sha256').update(rootNode.text).digest('hex'),
+    language,
+  ),
 ): TypeScriptExtractionResult {
   const definitions: GraphNode[] = [];
 
@@ -1086,9 +921,66 @@ export function extractTypeScript(
     if (child) walkDefinitions(child, filePath, language, definitions);
   }
 
+  // Preserve documentary/type declarations. Callable identities come exclusively
+  // from the shared model, including nested functions and object callbacks.
+  const scopeOwners = new Map(model.scopes.map((scope) => [scope.id, scope.ownerId]));
+  const parametersByOwner = new Map<string, string[]>();
+  for (const binding of model.bindings) {
+    if (binding.kind !== 'parameter') continue;
+    const owner = scopeOwners.get(binding.scopeId);
+    if (!owner) continue;
+    const parameters = parametersByOwner.get(owner) ?? [];
+    parameters.push(binding.name);
+    parametersByOwner.set(owner, parameters);
+  }
+  for (const declaration of model.declarations) {
+    const node = declaration.node;
+    let exportNode = node;
+    while (
+      exportNode.parent &&
+      ['variable_declarator', 'lexical_declaration', 'variable_declaration'].includes(
+        exportNode.parent.type,
+      )
+    )
+      exportNode = exportNode.parent;
+    const parameters = parametersByOwner.get(declaration.id) ?? [];
+    definitions.push({
+      id: declaration.id,
+      name: declaration.name,
+      kind:
+        declaration.kind === 'method' && declaration.name === 'constructor'
+          ? 'constructor'
+          : declaration.kind,
+      filePath,
+      language,
+      startLine: declaration.span.startLine,
+      endLine: declaration.span.endLine,
+      exported: declaration.parentId === undefined && isExported(exportNode),
+      parent: declaration.parentId,
+      parameters: declaration.kind === 'class' ? undefined : parameters,
+      returnType: extractReturnType(node),
+      docSummary: extractDocSummary(exportNode),
+      meta: {
+        lexicalCapability: 'typescript-javascript',
+        sourceGeneration: model.generation,
+        publicationGeneration: model.publicationGeneration,
+        sourceSpan: declaration.span,
+      },
+    });
+    if (declaration.kind === 'class') {
+      for (const field of buildClassNodes(node, filePath, language).filter(
+        (item) => item.kind === 'property',
+      ))
+        definitions.push({
+          ...field,
+          id: `${declaration.id}.${field.name}`,
+          parent: declaration.id,
+        });
+    }
+  }
   const imports = extractImports(rootNode, filePath);
   const heritage = extractHeritage(rootNode, filePath);
-  const calls = extractCalls(rootNode, filePath);
+  const calls = extractCalls(rootNode, filePath, model);
   const reExports = extractReExports(rootNode, filePath);
 
   return { definitions, imports, heritage, calls, reExports };

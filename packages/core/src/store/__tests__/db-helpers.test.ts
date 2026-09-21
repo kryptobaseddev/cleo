@@ -5,11 +5,21 @@
  * @task T585
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Task } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getReadyTasks } from '../../orchestration/index.js';
+import { validateSpawnReadiness } from '../../orchestration/validate-spawn.js';
+import { getEnrichedWaves } from '../../orchestration/waves.js';
+import { awaitBackgroundOps } from '../background-ops.js';
+import { getTaskAccessor } from '../data-accessor.js';
+import { loadDependenciesForTasks } from '../db-helpers.js';
+import { closeAllDatabases, getDb, getNativeDb } from '../sqlite.js';
+import * as schema from '../tasks-schema.js';
+import { createTask } from '../tasks-sqlite.js';
 
 let tempDir: string;
 
@@ -159,5 +169,89 @@ describe('upsertTask — orphan parent handling', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.parentId).toBeNull();
     expect(rows[0]!.status).toBe('archived');
+  });
+});
+
+describe('hard dependency read fidelity — T12293', () => {
+  let root: string;
+  const fixtureTask = (id: string, extra: Partial<Task> = {}): Task => ({
+    id,
+    title: id,
+    description: 'Independent dependency read oracle',
+    status: 'pending',
+    priority: 'medium',
+    type: 'task',
+    createdAt: '2026-09-20T00:00:00Z',
+    ...extra,
+  });
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'cleo-hard-dependency-read-'));
+    await mkdir(join(root, '.cleo'));
+    await mkdir(join(root, '.git'));
+    vi.stubEnv('CLEO_ROOT', root);
+    vi.stubEnv('CLEO_DIR', join(root, '.cleo'));
+    await createTask(fixtureTask('T100', { type: 'epic' }), root);
+    await createTask(fixtureTask('T101', { parentId: 'T100' }), root);
+  });
+
+  afterEach(async () => {
+    await awaitBackgroundOps();
+    await closeAllDatabases();
+    vi.unstubAllEnvs();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('keeps a persisted dangling hard edge visible to reads, ready, waves and spawn', async () => {
+    const db = await getDb(root);
+    const native = getNativeDb(root);
+    if (!native) throw new Error('Canonical native test handle is unavailable');
+    // Simulate an authentic legacy corruption; enforcement is ON for every read oracle.
+    native.exec('PRAGMA foreign_keys = OFF');
+    try {
+      await db.insert(schema.taskDependencies).values({ taskId: 'T101', dependsOn: 'T999' }).run();
+    } finally {
+      native.exec('PRAGMA foreign_keys = ON');
+    }
+    expect(native.prepare('PRAGMA foreign_keys').get()).toMatchObject({ foreign_keys: 1 });
+    expect(native.prepare('PRAGMA foreign_key_check').all()).toHaveLength(1);
+    const accessor = await getTaskAccessor(root);
+    expect(await accessor.loadSingleTask('T101')).toMatchObject({ depends: ['T999'] });
+    expect(await accessor.loadTasks(['T101'])).toMatchObject([{ depends: ['T999'] }]);
+    expect(await accessor.getChildren('T100')).toMatchObject([{ depends: ['T999'] }]);
+    expect(await getReadyTasks('T100', root, accessor)).toMatchObject([
+      { taskId: 'T101', ready: false, blockers: ['T999'] },
+    ]);
+    expect(await getEnrichedWaves('T100', root, accessor)).toMatchObject({
+      waves: [{ tasks: [{ id: 'T101', ready: false, blockedBy: ['T999'] }] }],
+    });
+    expect(await validateSpawnReadiness('T101', root, accessor)).toMatchObject({
+      ready: false,
+      issues: [expect.objectContaining({ code: 'V_MISSING_DEP' })],
+    });
+    expect(await db.select().from(schema.taskDependencies).all()).toMatchObject([
+      { taskId: 'T101', dependsOn: 'T999' },
+    ]);
+  });
+
+  it('loads external hard targets without treating a caller population as an eligibility filter', async () => {
+    await createTask(fixtureTask('T200'), root);
+    await createTask(fixtureTask('T201', { depends: ['T200'] }), root);
+    const accessor = await getTaskAccessor(root);
+    const selected = [fixtureTask('T201')];
+    await loadDependenciesForTasks(await getDb(root), selected, new Set(['T201']));
+    expect(selected).toMatchObject([{ id: 'T201', depends: ['T200'] }]);
+    expect(selected).toHaveLength(1);
+    expect(await accessor.loadTasks(['T200'])).toMatchObject([{ id: 'T200', status: 'pending' }]);
+  });
+
+  it('surfaces failed storage reads instead of returning an empty healthy dependency set', async () => {
+    const db = await getDb(root);
+    const failure = new Error('Independent dependency SELECT failure');
+    vi.spyOn(db, 'select').mockImplementationOnce(() => {
+      throw failure;
+    });
+    await expect(loadDependenciesForTasks(db, [fixtureTask('T101')])).rejects.toBe(failure);
+    vi.restoreAllMocks();
   });
 });

@@ -203,6 +203,26 @@ async function generateAndPersistIdentity(keyPath: string): Promise<AgentIdentit
 }
 
 /**
+ * Read the configured signing identity without generating or changing key files.
+ *
+ * @param cwd - Explicit project root used to locate the signing key.
+ * @returns Seed-derived or persisted identity, or null when no usable key exists.
+ * @remarks Uses the same seed override and persisted-key validation as provisioning.
+ * @example
+ * ```ts
+ * const signer = await readCleoIdentity(projectRoot);
+ * if (signer === null) throw new Error('Configure an authorized signer first');
+ * ```
+ */
+export async function readCleoIdentity(cwd?: string): Promise<AgentIdentity | null> {
+  const seedEnv = process.env[SEED_ENV];
+  if (seedEnv !== undefined && seedEnv.length === 64) {
+    return identityFromSeed(hexToBytes(seedEnv));
+  }
+  return loadPersistedIdentity(getCleoIdentityPath(cwd));
+}
+
+/**
  * Load-or-generate the persistent CLEO signing identity.
  *
  * Resolution order:
@@ -223,14 +243,8 @@ async function generateAndPersistIdentity(keyPath: string): Promise<AgentIdentit
  * @task T947
  */
 export async function getCleoIdentity(cwd?: string): Promise<AgentIdentity> {
-  const seedEnv = process.env[SEED_ENV];
-  if (seedEnv !== undefined && seedEnv.length === 64) {
-    const seed = hexToBytes(seedEnv);
-    return identityFromSeed(seed);
-  }
-
   const keyPath = getCleoIdentityPath(cwd);
-  const existing = await loadPersistedIdentity(keyPath);
+  const existing = await readCleoIdentity(cwd);
   if (existing !== null) {
     return existing;
   }

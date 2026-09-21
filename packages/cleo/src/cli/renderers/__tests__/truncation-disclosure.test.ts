@@ -13,8 +13,16 @@
  * @task T12123
  */
 
-import { describe, expect, it } from 'vitest';
-import { detectTruncation, formatTruncationWarning } from '../output-mode.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { setFormatContext } from '../../format-context.js';
+import { setOutputMode } from '../../output-context.js';
+import { cliOutput } from '../index.js';
+import {
+  detectTruncation,
+  formatTaskPopulation,
+  formatTruncationWarning,
+  renderOutputMode,
+} from '../output-mode.js';
 
 /** The measured shape from the bug report: 10 of 1075 pending tasks. */
 const TRUNCATED = {
@@ -145,6 +153,129 @@ describe('formatTruncationWarning (T12123)', () => {
   it('names table mode', () => {
     expect(formatTruncationWarning({ returned: 2, total: 40 }, 'table')).toContain(
       '--output table returned 2 of 40',
+    );
+  });
+});
+
+describe('canonical population render parity (T12200)', () => {
+  it('count equals emitted IDs and table rows while total matched remains explicit', () => {
+    const data = {
+      tasks: [
+        { id: 'T1', title: 'one' },
+        { id: 'T2', title: 'two' },
+      ],
+      total: 99,
+      filtered: 13,
+      population: {
+        matched: 13,
+        returned: 2,
+        truncated: true,
+        limit: 2,
+        offset: 0,
+        archive: 'excluded',
+      },
+    };
+    expect(renderOutputMode('count', data).text).toBe('2');
+    expect(renderOutputMode('id', data).text).toBe('T1\nT2');
+    expect(renderOutputMode('table', data).text).toContain('T1');
+    expect(renderOutputMode('table', data).text).toContain('T2');
+    expect(detectTruncation(data)).toEqual({ returned: 2, total: 13 });
+    expect(formatTaskPopulation(data)).toBe(
+      'cleo: population matched=13 returned=2 truncated=true archive=excluded limit=2 offset=0',
+    );
+  });
+  it('empty pages disclose existing matches and archive scope', () => {
+    const data = {
+      results: [],
+      total: 4,
+      population: {
+        matched: 4,
+        returned: 0,
+        truncated: true,
+        limit: null,
+        offset: 9,
+        archive: 'included',
+      },
+    };
+    expect(renderOutputMode('count', data).text).toBe('0');
+    expect(formatTaskPopulation(data)).toContain(
+      'matched=4 returned=0 truncated=true archive=included limit=all offset=9',
+    );
+  });
+});
+
+describe('population disclosure at the actual renderer funnel', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    setOutputMode('envelope');
+    setFormatContext({ format: 'json', source: 'default', quiet: false });
+  });
+  it.each([
+    'id',
+    'count',
+    'table',
+    'silent',
+    'human',
+  ] as const)('preserves population on %s without polluting stdout', (mode) => {
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    if (mode === 'human') setFormatContext({ format: 'human', source: 'flag', quiet: false });
+    else setOutputMode(mode);
+    cliOutput(
+      {
+        tasks: [{ id: 'T1', title: 'one', status: 'pending', priority: 'medium' }],
+        total: 30,
+        filtered: 3,
+        population: {
+          matched: 3,
+          returned: 1,
+          truncated: true,
+          archive: 'excluded',
+          limit: 1,
+          offset: 0,
+        },
+      },
+      { command: 'list', operation: 'tasks.list' },
+    );
+    expect(stderr.mock.calls.flat().join('')).toContain(
+      'population matched=3 returned=1 truncated=true archive=excluded',
+    );
+    expect(stdout.mock.calls.flat().join('')).not.toContain('population matched=');
+  });
+  it.each([
+    'id',
+    'count',
+    'table',
+    'silent',
+    'human',
+  ] as const)('explains explicit fuzzy row identity and fields on %s', (mode) => {
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    if (mode === 'human') setFormatContext({ format: 'human', source: 'flag', quiet: false });
+    else setOutputMode(mode);
+    cliOutput(
+      {
+        results: [
+          {
+            id: 'T7',
+            title: 'unrelated',
+            status: 'pending',
+            match: {
+              kind: 'fuzzy',
+              fields: ['description'],
+              terms: [],
+              reason: 'Explicit subsequence',
+            },
+          },
+        ],
+        total: 1,
+        searchType: 'fuzzy',
+      },
+      { command: 'find', operation: 'tasks.find' },
+    );
+    expect(stderr.mock.calls.flat().join('')).toContain('searchType=fuzzy');
+    expect(stderr.mock.calls.flat().join('')).toContain(
+      'match id=T7 kind=fuzzy fields=description',
     );
   });
 });

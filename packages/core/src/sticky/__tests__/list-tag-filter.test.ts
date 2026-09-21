@@ -14,7 +14,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeBrainDb, getBrainNativeDb } from '../../store/memory-sqlite.js';
 import { addSticky } from '../create.js';
 import { listStickies } from '../list.js';
@@ -23,11 +23,15 @@ let tempDir: string;
 
 describe('listStickies tag filtering (T11355)', () => {
   beforeEach(async () => {
+    // Each test owns a fresh store at the explicitly supplied project root.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-sticky-tagfilter-'));
     await mkdir(join(tempDir, '.cleo'), { recursive: true });
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     closeBrainDb();
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   });

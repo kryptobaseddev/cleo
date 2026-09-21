@@ -8,11 +8,25 @@
  * @packageDocumentation
  */
 
+import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { resolveSmokeExecOptions, resolveSmokeProjectRoot } from '../doctor.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ProviderMatrix } from '../../registry/provider-matrix.js';
+import {
+  renderDoctorReport,
+  renderProviderMatrix,
+  resolveSmokeExecOptions,
+  resolveSmokeProjectRoot,
+  runDoctor,
+} from '../doctor.js';
+
+vi.mock('node:child_process', () => ({
+  execFile: vi.fn(() => {
+    throw new Error('Unexpected provider subprocess in source diagnostics');
+  }),
+}));
 
 const ORIGINAL_CLEO_ROOT = process.env['CLEO_ROOT'];
 const ORIGINAL_INIT_CWD = process.env['INIT_CWD'];
@@ -99,4 +113,110 @@ describe('resolveSmokeProjectRoot', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+});
+
+describe('provider verification rendering', () => {
+  it('labels source hints and every independent stage without asserting installation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-provider-render-'));
+    try {
+      await mkdir(join(root, 'codex'));
+      await writeFile(join(root, 'codex', 'spawn.ts'), '// stub');
+      const rows = await new ProviderMatrix(root).getMatrix();
+      const text = renderProviderMatrix(rows);
+      expect(text).toContain('Source directories: 1');
+      expect(text).toContain('Spawn source files: 1');
+      expect(text).toContain(
+        'external-cli: declared=unverified, installed=unverified, delivery=unverified, workflow=unverified, lifecycle=unverified',
+      );
+      expect(text).toContain(
+        'programmatic-spawn: declared=unverified, installed=unverified, delivery=unverified, workflow=unverified, lifecycle=unverified',
+      );
+      expect(text).not.toContain('Installed:');
+      expect(text).not.toContain('providers ready');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not promote smoke success to live repair or lifecycle certification', async () => {
+    const rows = await new ProviderMatrix(
+      join(tmpdir(), 'absent-provider-render-fixture'),
+    ).getMatrix();
+    const text = renderDoctorReport({
+      providerRows: rows,
+      agents: [],
+      seedCount: 0,
+      userCount: 0,
+      policyResults: [],
+      smokeResults: [{ providerId: 'codex', passed: true, message: 'PASS' }],
+      issueCount: 0,
+    });
+    expect(text).toContain('provider verification incomplete');
+    expect(text).toContain('not live repair or lifecycle certification');
+    expect(text).toContain('workflow=unverified');
+    expect(text).toContain('lifecycle=unverified');
+    expect(text).not.toContain('Result: PASS');
+  });
+
+  it('keeps failed source diagnostics visible in compact provider output', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-provider-render-failure-'));
+    try {
+      await writeFile(join(root, 'codex'), 'not a directory');
+      const rows = await new ProviderMatrix(root).getMatrix();
+      const text = renderProviderMatrix(rows);
+      expect(text).toContain('codex: source=failed');
+      expect(text).toContain(`Source diagnostic: Expected directory at ${join(root, 'codex')}`);
+      expect(text).toContain('installed=unverified');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+it('does not launch provider smoke from source directory hints', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleo-provider-no-launch-'));
+  try {
+    await mkdir(join(root, 'codex'));
+    await writeFile(join(root, 'codex', 'spawn.ts'), '// source only');
+    const rows = await new ProviderMatrix(root).getMatrix();
+    const matrix = vi.spyOn(ProviderMatrix.prototype, 'getMatrix').mockResolvedValue(rows);
+    try {
+      const report = await runDoctor();
+      expect(report.smokeResults).toEqual([]);
+      expect(execFile).not.toHaveBeenCalled();
+    } finally {
+      matrix.mockRestore();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('counts and explains a failed capability independently of source absence', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleo-provider-failed-capability-'));
+  try {
+    const rows = await new ProviderMatrix(root).getMatrix();
+    const row = rows[0];
+    if (!row) throw new Error('Expected canonical provider row');
+    row.externalCli = {
+      ...row.externalCli,
+      levels: {
+        ...row.externalCli.levels,
+        lifecycle: { status: 'failed', reason: 'Observed child survived teardown', evidence: [] },
+      },
+    };
+    const matrix = vi.spyOn(ProviderMatrix.prototype, 'getMatrix').mockResolvedValue(rows);
+    try {
+      const report = await runDoctor();
+      expect(report.issueCount).toBe(1);
+      const text = renderDoctorReport(report);
+      expect(text).toContain('lifecycle=failed');
+      expect(text).toContain('Observed child survived teardown');
+      expect(text).toContain('Result: FAIL (1 issue)');
+    } finally {
+      matrix.mockRestore();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

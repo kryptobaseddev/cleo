@@ -20,13 +20,24 @@
 
 import type {
   AttachmentMetadata,
+  BrainCompactHit,
   BriefingFieldContract,
   ContractViolation,
+  KnowledgeCoverage,
+  KnowledgeHealth,
+  KnowledgeReplacement,
   RetrievalBundle,
   SessionBriefingShowParams,
   Task,
 } from '@cleocode/contracts';
+import { listKnowledgeRepairReceipts, runKnowledgeDoctor } from '../doctor/knowledge.js';
+import {
+  compactKnowledgeCorrections,
+  compactKnowledgeCoverage,
+  compactKnowledgeHealth,
+} from '../doctor/knowledge-summary.js';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
+import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { truncateString } from '../render/helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -162,6 +173,8 @@ export interface LastSessionInfo {
   endedAt: string;
   duration: number;
   handoff: HandoffData;
+  /** Handoff content records a previous session and is not current authority. */
+  authority?: 'historical';
 }
 
 /**
@@ -178,6 +191,14 @@ export interface CurrentTaskInfo {
  * Session briefing result.
  */
 export interface SessionBriefing {
+  /** Graph coverage is independent of task state and memory authority. */
+  knowledgeCoverage?: KnowledgeCoverage;
+  /** Bounded automatic maintenance and repair matrix for the calling agent. */
+  knowledgeHealth?: KnowledgeHealth;
+  /** Accepted, currently eligible decisions, separate from historical handoffs. */
+  currentGuidance?: BrainCompactHit[];
+  /** Receipt-backed corrections presented separately from immutable historical handoffs. */
+  corrections?: KnowledgeReplacement[];
   lastSession: LastSessionInfo | null;
   currentTask: CurrentTaskInfo | null;
   nextTasks: BriefingTask[];
@@ -282,6 +303,68 @@ export async function computeBriefing(
   // Compute in-scope task IDs (undefined = all tasks in scope)
   const scopeTaskIds = getScopeTaskIdSet(scopeFilter, tasks);
 
+  let knowledgeHealth: KnowledgeHealth;
+  try {
+    knowledgeHealth = (await runKnowledgeDoctor(projectRoot, { fix: true, budgetMs: 2000 })).health;
+  } catch (error) {
+    const coverage = await assessKnowledgeCoverage(projectRoot);
+    const reasons = [
+      `Knowledge maintenance failed: ${error instanceof Error ? error.message : String(error)}`,
+    ];
+    knowledgeHealth = {
+      coverage,
+      structure: { status: 'failed', reasons, evidence: [] },
+      semantics: { status: 'unavailable', reasons, evidence: [] },
+      extraction: { status: 'unavailable', reasons, evidence: [] },
+      findings: [],
+    };
+  }
+  const knowledgeCoverage = knowledgeHealth.coverage;
+  const knowledgeWarnings: string[] = [];
+  let currentGuidance: BrainCompactHit[] = [];
+  const corrections: KnowledgeReplacement[] = [];
+  try {
+    const { getBrainAccessor } = await import('../store/memory-accessor.js');
+    const brain = await getBrainAccessor(projectRoot);
+    currentGuidance = (await brain.findDecisions())
+      .filter((decision) => decision.confirmationState === 'accepted')
+      .slice(0, 5)
+      .map((decision) => ({
+        id: decision.id,
+        type: 'decision',
+        title: params.memoryDetail ? decision.decision : truncateString(decision.decision, 240),
+        date: decision.createdAt,
+        _next: { fetch: `cleo memory fetch ${decision.id}` },
+      }));
+  } catch (error) {
+    knowledgeWarnings.push(
+      `Current guidance unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  try {
+    const receipts = await listKnowledgeRepairReceipts(projectRoot);
+    for (const receipt of receipts
+      .filter((entry) => entry.action?.operation === 'knowledge.supersede-decision')
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+      .slice(0, 5)) {
+      if (!receipt.action) continue;
+      const { previousId, successorId } = receipt.action.arguments;
+      const [first, ...rest] = receipt.verificationEvidence;
+      if (typeof previousId !== 'string' || typeof successorId !== 'string' || !first) continue;
+      corrections.push({
+        previousId,
+        successorId,
+        reason: `Explicit sourced replacement verified by repair receipt ${receipt.id}.`,
+        evidence: [first, ...rest],
+      });
+    }
+  } catch (error) {
+    knowledgeWarnings.push(
+      `Sourced corrections unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
   // 1. Last session handoff
   const lastSession = await computeLastSession(projectRoot, scopeFilter);
 
@@ -351,8 +434,10 @@ export async function computeBriefing(
     } else {
       memoryContext = rawMemoryContext;
     }
-  } catch {
-    // Brain memory not available -- proceed without
+  } catch (error) {
+    knowledgeWarnings.push(
+      `Memory context unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   // 9. PSYCHE Wave 4 multi-pass retrieval bundle (optional, best-effort — T1091)
@@ -402,8 +487,10 @@ export async function computeBriefing(
         memoryDetail: params.memoryDetail ?? false,
       });
     }
-  } catch {
-    // Retrieval bundle not available -- proceed without
+  } catch (error) {
+    knowledgeWarnings.push(
+      `Memory bundle unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   // 10. Docs context — third pillar: task-attached references (optional, best-effort — T1616)
@@ -432,11 +519,12 @@ export async function computeBriefing(
     ? {
         ...lastSession,
         handoff: cleanHandoff(lastSession.handoff),
+        authority: 'historical',
       }
     : null;
 
   // Compute warnings
-  const warnings: string[] = [];
+  const warnings: string[] = [...knowledgeWarnings];
   if (currentTaskInfo?.blockedBy?.length) {
     warnings.push(
       `Focused task ${currentTaskInfo.id} is blocked by: ${currentTaskInfo.blockedBy.join(', ')}`,
@@ -445,9 +533,13 @@ export async function computeBriefing(
 
   // Build partial briefing for contract assertion
   const partialBriefing: SessionBriefing = {
-    lastSession: cleanedLastSession,
     currentTask: currentTaskInfo,
+    knowledgeCoverage: compactKnowledgeCoverage(knowledgeCoverage),
+    currentGuidance,
+    corrections: compactKnowledgeCorrections(corrections),
     nextTasks,
+    lastSession: cleanedLastSession,
+    knowledgeHealth: compactKnowledgeHealth(knowledgeHealth),
     openBugs,
     blockedTasks,
     activeEpics,
@@ -499,9 +591,7 @@ export async function computeBriefing(
   //     long-lived sentient host (CLEO_SENTIENT_DAEMON / CLEO_SENTIENT_SPAWN).
   //     The sentient daemon's tick loop owns consolidation directly via
   //     `checkAndDream`, so this gate does not affect that path.
-  const inLongLivedHost =
-    process.env['CLEO_SENTIENT_DAEMON'] === '1' || process.env['CLEO_SENTIENT_SPAWN'] === '1';
-  const dreamAllowed = params.allowOpportunisticDream === true || inLongLivedHost;
+  const dreamAllowed = params.allowOpportunisticDream === true;
   try {
     const { loadConfig } = await import('../config.js');
     const cfg = await loadConfig(projectRoot).catch(() => undefined);

@@ -4,12 +4,10 @@
  * @epic T9834
  */
 
-import type { ProjectMeta, Task } from '@cleocode/contracts';
+import type { ProjectMeta } from '@cleocode/contracts';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { loadReadinessDependencyLookup } from './dependency-check.js';
 import { depsReady } from './deps-ready.js';
-
-/** Task record shape expected from the data layer. */
-type TaskRecord = Task;
 
 const PRIORITY_SCORE: Record<string, number> = {
   critical: 100,
@@ -36,12 +34,6 @@ const SEVERITY_SCORE: Record<string, number> = {
   P1: 15,
 };
 
-async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
-  const accessor = await getTaskAccessor(projectRoot);
-  const { tasks } = await accessor.queryTasks({});
-  return tasks;
-}
-
 /**
  * Suggest next task to work on based on priority, phase, age, and deps.
  *
@@ -54,6 +46,11 @@ async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
  * @remarks
  * Scoring considers priority weight, current phase alignment, dependency readiness,
  * task age, and brain success/failure pattern matches. Results are sorted descending by score.
+ * Candidates retain the active query population; a separate canonical lookup
+ * resolves explicit dependencies, including archived records. Missing/cancelled
+ * prerequisites block selection, and required dependency-read failures propagate.
+ *
+ * @throws Error when required task or dependency evidence cannot be read.
  *
  * @example
  * ```typescript
@@ -78,14 +75,14 @@ export async function coreTaskNext(
   totalCandidates: number;
 }> {
   const accessor = await getTaskAccessor(projectRoot);
-  const allTasks = await loadAllTasks(projectRoot);
-  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
+  const { tasks: allTasks } = await accessor.queryTasks({});
+  const dependencyLookup = await loadReadinessDependencyLookup(allTasks, accessor);
 
   const projectMeta = await accessor.getMetaValue<ProjectMeta>('project_meta');
   const currentPhase = projectMeta?.currentPhase ?? null;
 
   const candidates = allTasks.filter(
-    (t) => t.status === 'pending' && !t.cancelledAt && depsReady(t.depends, taskMap),
+    (t) => t.status === 'pending' && !t.cancelledAt && depsReady(t.depends, dependencyLookup),
   );
 
   if (candidates.length === 0) {
@@ -113,7 +110,7 @@ export async function coreTaskNext(
         reasons.push(`phase alignment: ${currentPhase} (+20)`);
       }
 
-      if (depsReady(task.depends, taskMap)) {
+      if (depsReady(task.depends, dependencyLookup)) {
         score += 10;
         reasons.push('all dependencies satisfied (+10)');
       }

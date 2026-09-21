@@ -362,6 +362,328 @@ export interface GraphRelation {
   reason?: string;
 }
 
+/** Insert row shape for nexus_nodes. */
+export interface NexusNodeInsertRow {
+  id: string;
+  kind: GraphNodeKind;
+  label: string;
+  name: string | null;
+  filePath: string | null;
+  startLine: number | null;
+  endLine: number | null;
+  language: string | null;
+  isExported: boolean;
+  parentId: string | null;
+  parametersJson: string | null;
+  returnType: string | null;
+  docSummary: string | null;
+  communityId: string | null;
+  metaJson: string | null;
+  indexedAt: string;
+}
+
+/** Insert row shape for nexus_relations. */
+export interface NexusRelationInsertRow {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  type: GraphRelationType;
+  confidence: number;
+  reason: string | null;
+  step: number | null;
+  indexedAt: string;
+}
+
+/**
+ * Role supported by a file's recorded classification evidence.
+ * @remarks Unknown files retain potential executable gaps. Generated data is not
+ * generated executable code; executable files retain their code capabilities.
+ * @example
+ * ```ts
+ * const role: GraphFileRole = 'documentation';
+ * ```
+ */
+export type GraphFileRole =
+  | 'executable'
+  | 'sql'
+  | 'documentation'
+  | 'configuration'
+  | 'schema'
+  | 'generated-data'
+  | 'data'
+  | 'asset'
+  | 'unknown';
+
+/**
+ * One independently requested indexing capability, not a runtime completeness claim.
+ * @remarks Evidence capabilities retain available file content and its positively
+ * identified role. They do not validate scientific authority, execute configuration,
+ * or establish complete symbol/reference resolution. SQL capabilities are separate.
+ * @example
+ * ```ts
+ * const requested: GraphAnalysisCapability[] = ['file-evidence', 'call-references'];
+ * ```
+ */
+export type GraphAnalysisCapability =
+  | 'file-evidence'
+  | 'documentary-evidence'
+  | 'configuration-evidence'
+  | 'schema-evidence'
+  | 'data-evidence'
+  | 'resource-evidence'
+  | 'declarations'
+  | 'imports'
+  | 'call-references'
+  | 'access-references'
+  | 'type-heritage'
+  | 'sql-schema-objects'
+  | 'sql-migrations'
+  | 'sql-triggers'
+  | 'sql-constraints'
+  | 'sql-literal-references'
+  | 'sql-dynamic-references';
+
+/**
+ * Provenance for assigning a file role; recognition is not authority.
+ * @remarks Path-only recognition cannot prove an unknown file is non-executable.
+ * @example
+ * ```ts
+ * const classification: GraphFileClassification = {
+ *   basis: 'path-and-content', reason: 'PNG path and binary signature',
+ * };
+ * ```
+ */
+export interface GraphFileClassification {
+  /** Inputs that positively establish the recorded role, or unknown when unclassified. */
+  basis: 'path' | 'content' | 'path-and-content' | 'unknown';
+  /** Human-readable observation; never an inferred scientific or policy authority. */
+  reason: string;
+}
+
+/**
+ * Capability-specific observations for an existing per-file index report.
+ * @remarks Completed is a subset of requested and records performed extraction or
+ * available evidence, not the absence of unresolved references. Static limitations
+ * and uncompleted capabilities must survive compact reporting. Legacy reports may
+ * lack this object and cannot retrospectively be declared capability-complete.
+ * @example
+ * ```ts
+ * const capabilities: GraphFileCapabilityCoverage = {
+ *   role: 'documentation',
+ *   classification: { basis: 'path', reason: 'Documentary Markdown extension' },
+ *   requested: ['file-evidence', 'documentary-evidence'],
+ *   completed: ['file-evidence', 'documentary-evidence'],
+ *   limitations: [],
+ * };
+ * ```
+ */
+export interface GraphFileCapabilityCoverage {
+  /** Actual role supported by classification provenance. */
+  role: GraphFileRole;
+  /** Evidence explaining this role and its limits. */
+  classification: GraphFileClassification;
+  /** Capabilities required for this role in the assessed scope. */
+  requested: GraphAnalysisCapability[];
+  /** Requested capabilities whose processing actually completed. */
+  completed: GraphAnalysisCapability[];
+  /** Explicit limits, including unresolved dynamic/static analysis. */
+  limitations: string[];
+}
+
+/** Observed outcome for one file or explicitly excluded directory during indexing. */
+export interface GraphIndexFileReport {
+  /** Path relative to the assessed source root. */
+  path: string;
+  /**
+   * Processing outcome relative to requested capabilities; not a universal caller verdict.
+   * Unsupported or oversized executable capabilities remain gaps.
+   */
+  status: 'analyzed' | 'excluded' | 'unsupported' | 'oversized' | 'failed';
+  /**
+   * Role-specific capability evidence from current producers.
+   * @defaultValue undefined on legacy reports without capability provenance.
+   */
+  capabilities?: GraphFileCapabilityCoverage;
+  /** Explanation for skipped or failed extraction. */
+  reason?: string;
+  /** Filesystem modification time captured before parsing. */
+  mtimeMs?: number;
+  /** SHA-256 of the bytes analyzed; detects edits even when filesystem metadata is preserved. */
+  contentHash?: string;
+  /** File size captured before parsing. */
+  size?: number;
+}
+
+/** Original-source range; native parser indexes count UTF-16 code units, not UTF-8 bytes. */
+export interface GraphSourceSpan {
+  /** Inclusive start offset in original source. */
+  startIndex: number;
+  /** Exclusive end offset in original source. */
+  endIndex: number;
+  /** One-based start line. */
+  startLine: number;
+  /** One-based end line. */
+  endLine: number;
+  /** Zero-based start column in UTF-16 units. */
+  startColumn: number;
+  /** Zero-based end column in UTF-16 units. */
+  endColumn: number;
+  /** Explicit index encoding prevents byte/character confusion. */
+  offsetEncoding: 'utf16';
+}
+
+/** A binding introduced by syntax in an explicitly supported lexical model. */
+export interface GraphLexicalBinding {
+  /** Stable declaration identity, distinct from its visible name. */
+  id: string;
+  /** Identifier visible in the declaring scope. */
+  name: string;
+  /** Scope that owns the binding. */
+  scopeId: string;
+  /** Value binding category; type-only imports remain explicitly marked. */
+  kind: 'function' | 'class' | 'local' | 'parameter' | 'catch' | 'import';
+  /** Original declaration range. */
+  span: GraphSourceSpan;
+  /** Callable/class target established by syntax, absent for unknown local values. */
+  targetId?: string;
+  /** Literal import source, before repository resolution. */
+  importSource?: string;
+  /** Imported name; '*' identifies a namespace import. */
+  importedName?: string;
+  /** True when this declaration cannot provide a runtime value. */
+  typeOnly?: boolean;
+}
+
+/** One scope in a per-file lexical model, qualified by its containing scopes. */
+export interface GraphLexicalScope {
+  /** Unique scope identity. */
+  id: string;
+  /** Lexical parent; omitted only for the module. */
+  parentId?: string;
+  /** Scope semantics used for shadowing and var hoisting. */
+  kind: 'module' | 'function' | 'class' | 'block' | 'catch';
+  /** Nearest declared callable/class identity for reference ownership. */
+  ownerId: string;
+  /** Original syntax range. */
+  span: GraphSourceSpan;
+}
+
+/** Lexical lookup evidence; an unknown local value is never a global-name fallback. */
+export interface GraphLexicalResolution {
+  /** Outcome before repository import/member resolution. */
+  kind: 'resolved' | 'import' | 'shadowed' | 'ambiguous' | 'unbound';
+  /** Binding candidates in the nearest declaring scope, without arbitrary selection. */
+  bindings: GraphLexicalBinding[];
+  /** Why these bindings or their absence produced the outcome. */
+  reason: string;
+}
+
+/** An unresolved static reference retained with its available lexical and source evidence. */
+export interface GraphIndexReferenceReport {
+  /** Explicit extraction limitation; this record is not a resolved graph relationship. */
+  kind: 'unmodeled-source' | 'ambiguous' | 'external' | 'dynamic' | 'shadowed' | 'unresolved';
+  /** Analyzed source file containing the reference. */
+  filePath: string;
+  /** Enclosing qualified scope identifier extracted from original syntax. */
+  sourceId: string;
+  /** Known target, absent when syntax cannot establish one. */
+  targetId?: string;
+  /** Callee or member name retained for independent source inspection. */
+  targetName: string;
+  /** The kind of static relationship omitted from the published graph. */
+  relationship: 'calls' | 'accesses';
+  /** Extraction and resolution provenance from the attempted relationship. */
+  reason: string;
+  /** Original reference range; absent on historical or unsupported-language reports. */
+  span?: GraphSourceSpan;
+  /** Candidate identities retained without asserting an authoritative target. */
+  candidateIds?: string[];
+  /** Source-content generation tying reference evidence to analyzed bytes. */
+  generation?: string;
+  /** Preallocated publication identity; absent for standalone or historical extraction. */
+  publicationGeneration?: string;
+}
+
+/** One explicitly selected source root, without implying complete file or caller coverage. */
+export interface GraphSourceRoot {
+  /** Absolute normalized requested location, retained even when inaccessible. */
+  readonly requestedPath: string;
+  /** Real filesystem location; null when canonical ownership could not be observed. */
+  readonly canonicalPath: string | null;
+  /** Forward-slash prefix relative to the graph source root; empty for the root itself. */
+  readonly graphPrefix: string;
+  /** Whether the caller explicitly included this repository below the graph source root. */
+  readonly explicitlyIncluded: boolean;
+  /** Git HEAD observed at this root; null is never interpreted as a known revision. */
+  readonly revision: string | null;
+  /** Outcome of root/revision observation, distinct from file-analysis coverage. */
+  readonly status: 'available' | 'unversioned' | 'missing' | 'failed' | 'pending';
+  /** Diagnostic failures or limitations that must survive compact root rendering. */
+  readonly diagnostics: readonly string[];
+}
+
+/** Immutable provenance of explicitly owned roots under a stable parent project identity. */
+export interface GraphSourceRootAssessment {
+  /** Existing project identity supplied by the caller, never derived from Git roots. */
+  readonly projectId: string;
+  /** Absolute parent project location; canonicalized when it exists. */
+  readonly projectRoot: string;
+  /** Absolute graph source location; canonicalized when it exists. */
+  readonly sourceRoot: string;
+  /** Observation start time in ISO-8601 form. */
+  readonly assessedAt: string;
+  /** Source root followed by explicitly selected repository roots; no implicit nested discovery. */
+  readonly roots: readonly GraphSourceRoot[];
+}
+
+/** Explicit source ownership and bounded revision-assessment input. */
+export interface GraphSourceRootRequest {
+  /** Stable existing parent project identity. */
+  readonly projectId: string;
+  /** Parent project location; independent of repository ownership. */
+  readonly projectRoot: string;
+  /** Explicit graph source location; defaults to the parent project location. */
+  readonly sourceRoot?: string;
+  /** Repository paths relative to the source root; escaping or aliased ownership is invalid. */
+  readonly includedRepositories?: readonly string[];
+  /** Absolute epoch-millisecond deadline shared across every root; defaults to two seconds. */
+  readonly deadline?: number;
+  /** Caller cancellation; cancellation rejects instead of reporting successful observation. */
+  readonly signal?: AbortSignal;
+}
+
+/** Source provenance persisted with a complete published graph generation. */
+export interface GraphIndexAssessment {
+  /** Explicit parent identity and per-root revision observations; absent on historical indexes. */
+  sourceRoots?: GraphSourceRootAssessment;
+  /** Immutable publication identity allocated before extraction; absent on historical indexes. */
+  generation?: string;
+  /** Unmodeled AST scopes remain explicit limitations instead of fabricated declarations. */
+  references?: GraphIndexReferenceReport[];
+  /** Explicit nested repository/worktree scope retained for subsequent rebuilds. */
+  includedRepositories?: string[];
+  /** Canonical root whose relative file paths this graph describes. */
+  sourceRoot: string;
+  /** Git revision captured at assessment; null when no revision is available. */
+  assessedRevision: string | null;
+  /** ISO timestamp of the assessment. */
+  assessedAt: string;
+  /** Explicit extraction/exclusion outcomes, including partial coverage. */
+  files: GraphIndexFileReport[];
+}
+
+/** Validated rows staged before an atomic graph publication. */
+export interface GraphPublicationRows {
+  /** Immutable publication identity shared by anonymous symbols, rows and assessment. */
+  generation?: string;
+  /** Source provenance and coverage belonging to this generation. */
+  assessment?: GraphIndexAssessment;
+  /** Complete replacement node generation. */
+  nodes: NexusNodeInsertRow[];
+  /** Complete replacement relationship generation. */
+  relations: NexusRelationInsertRow[];
+}
+
 // ---------------------------------------------------------------------------
 // Impact analysis result
 // ---------------------------------------------------------------------------
@@ -385,12 +707,14 @@ export interface ImpactResult {
   /**
    * Overall risk classification based on the number and type of affected nodes.
    *
-   * - `low`: 0–3 direct dependants, no cross-module spread
+   * - `unknown`: target missing or evidence insufficient
+   * - `none`: assessed target with no detected static dependants
+   * - `low`: 1–3 direct dependants, no cross-module spread
    * - `medium`: 4–9 direct dependants, or limited cross-module spread
    * - `high`: 10+ direct dependants, or significant cross-module spread
    * - `critical`: Exported symbol with high cross-module usage
    */
-  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  riskLevel: 'unknown' | 'none' | 'low' | 'medium' | 'high' | 'critical';
   /** Human-readable summary of the impact analysis outcome. */
   summary: string;
   /** Nodes affected at each traversal depth. */

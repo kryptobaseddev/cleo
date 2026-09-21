@@ -7,7 +7,7 @@
  * storePattern, storeLearning, and task completion).
  *
  * Design constraints:
- * - All writes are BEST-EFFORT — never block or fail the primary operation.
+ * - Legacy writes are best-effort; scoped projections propagate failures.
  * - All writes are gated on brain.autoCapture via isAutoCaptureEnabled.
  * - Uses INSERT OR REPLACE (onConflictDoUpdate) for upsert semantics.
  * - Edge inserts are idempotent via the composite PK (fromId, toId, edgeType).
@@ -17,7 +17,13 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
+import type { DocsGraphProjectionResult } from '@cleocode/contracts/operations/docs';
+import { resolveCleoConfig } from '../config/registry.js';
 import { getLogger } from '../logger.js';
+import { generateProjectHash } from '../nexus/hash.js';
+import { worktreeScope } from '../paths.js';
+import { assertOperationWriteFence } from '../store/background-jobs.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
 import type { BrainEdgeType, BrainNodeType } from '../store/schema/memory-schema.js';
 import { brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
@@ -52,6 +58,42 @@ async function shouldAutoPopulateGraph(projectRoot: string): Promise<boolean> {
   }
 }
 
+/** Read the captured project's policy without silently treating read failures as disabled. */
+async function scopedGraphEnabled(context: OperationExecutionContext): Promise<boolean> {
+  context.assertActive();
+  const config = await resolveCleoConfig({
+    scope: 'merged',
+    projectRoot: context.identity.projectRoot,
+  });
+  context.assertActive();
+  const brain = config['brain'];
+  if (brain === undefined) return true;
+  if (typeof brain !== 'object' || brain === null || Array.isArray(brain)) {
+    throw new Error('Invalid brain configuration for graph projection');
+  }
+  if (!('autoCapture' in brain) || brain.autoCapture === undefined) return true;
+  if (typeof brain.autoCapture !== 'boolean') {
+    throw new Error('Invalid brain.autoCapture configuration for graph projection');
+  }
+  return brain.autoCapture;
+}
+
+/** Check cancellation and policy for strict callers; retain legacy best-effort behavior. */
+async function graphWriteEnabled(
+  projectRoot: string,
+  context?: OperationExecutionContext,
+): Promise<boolean> {
+  if (!context) return shouldAutoPopulateGraph(projectRoot);
+  context.assertActive();
+  if (projectRoot !== context.identity.projectRoot) {
+    throw new Error('Graph projection root differs from captured operation scope');
+  }
+  if (!(await scopedGraphEnabled(context))) {
+    throw new Error('Graph projection policy disabled during execution');
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -68,7 +110,7 @@ async function shouldAutoPopulateGraph(projectRoot: string): Promise<boolean> {
  * content; their hash will be null so duplicates are not rejected.
  *
  * This function is gated on brain.autoCapture. If the gate is disabled or any
- * error occurs, it returns silently without throwing.
+ * error occurs, legacy calls return silently. Context-aware calls throw failures.
  *
  * @param projectRoot - Absolute path to the project root directory.
  * @param nodeId - Stable composite ID in the form '<type>:<source-id>'.
@@ -77,7 +119,13 @@ async function shouldAutoPopulateGraph(projectRoot: string): Promise<boolean> {
  * @param qualityScore - 0.0 (noise) to 1.0 (canonical).
  * @param content - Canonical text used to derive the content hash.
  * @param metadata - Optional type-specific metadata blob.
+ * @param context - Captured scope; when supplied, failures throw and writes check cancellation.
  *
+ * @remarks Scoped calls pin storage routing and refuse to join an unowned transaction.
+ * @example
+ * ```ts
+ * await upsertGraphNode(root, 'task:T123', 'task', 'Task', 0.7, '');
+ * ```
  * @task T537
  */
 export async function upsertGraphNode(
@@ -88,47 +136,71 @@ export async function upsertGraphNode(
   qualityScore: number,
   content: string,
   metadata?: Record<string, unknown>,
+  context?: OperationExecutionContext,
 ): Promise<void> {
-  try {
-    if (!(await shouldAutoPopulateGraph(projectRoot))) return;
+  const write = async (): Promise<void> => {
+    try {
+      if (!(await graphWriteEnabled(projectRoot, context))) return;
 
-    const db = await getBrainDb(projectRoot);
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      context?.assertActive();
+      const db = await getBrainDb(projectRoot);
+      context?.assertActive();
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-    // Only compute a content hash for non-trivial content (external reference
-    // nodes like task/session/epic may have empty content).
-    const trimmed = content.trim().toLowerCase();
-    const contentHash = trimmed
-      ? createHash('sha256').update(trimmed).digest('hex').substring(0, 16)
-      : null;
+      // Only compute a content hash for non-trivial content (external reference
+      // nodes like task/session/epic may have empty content).
+      const trimmed = content.trim().toLowerCase();
+      const contentHash = trimmed
+        ? createHash('sha256').update(trimmed).digest('hex').substring(0, 16)
+        : null;
 
-    await db
-      .insert(brainPageNodes)
-      .values({
-        id: nodeId,
-        nodeType,
-        label: label.substring(0, 200),
-        qualityScore,
-        contentHash,
-        metadataJson: metadata ? JSON.stringify(metadata) : null,
-        lastActivityAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: brainPageNodes.id,
-        set: {
+      const query = db
+        .insert(brainPageNodes)
+        .values({
+          id: nodeId,
+          nodeType,
           label: label.substring(0, 200),
           qualityScore,
-          lastActivityAt: now,
-          updatedAt: now,
+          contentHash,
           metadataJson: metadata ? JSON.stringify(metadata) : null,
+          lastActivityAt: now,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: brainPageNodes.id,
+          set: {
+            label: label.substring(0, 200),
+            qualityScore,
+            lastActivityAt: now,
+            updatedAt: now,
+            metadataJson: metadata ? JSON.stringify(metadata) : null,
+          },
+        });
+      if (context) {
+        db.transaction((tx) => {
+          assertOperationWriteFence(tx, context);
+          query.run();
+        });
+      } else {
+        query.run();
+      }
+    } catch (err) {
+      if (context) throw err;
+      // Log but never surface — this is a best-effort side effect.
+      log.warn({ err }, 'upsertGraphNode failed');
+    }
+  };
+  return context
+    ? worktreeScope.run(
+        {
+          worktreeRoot: context.identity.projectRoot,
+          projectHash: generateProjectHash(context.identity.projectRoot),
+          execution: context,
         },
-      });
-  } catch (err) {
-    // Log but never surface — this is a best-effort side effect.
-    log.warn({ err }, 'upsertGraphNode failed');
-  }
+        write,
+      )
+    : write();
 }
 
 /**
@@ -139,7 +211,7 @@ export async function upsertGraphNode(
  * multiple times with the same arguments.
  *
  * This function is gated on brain.autoCapture. If the gate is disabled or any
- * error occurs, it returns silently without throwing.
+ * error occurs, legacy calls return silently. Context-aware calls throw failures.
  *
  * @param projectRoot - Absolute path to the project root directory.
  * @param fromId - Source node ID (brain_page_nodes.id).
@@ -147,7 +219,13 @@ export async function upsertGraphNode(
  * @param edgeType - Typed relationship from BRAIN_EDGE_TYPES.
  * @param weight - Edge confidence/weight (0.0–1.0). Defaults to 1.0.
  * @param provenance - Human-readable note on why this edge was emitted.
+ * @param context - Captured scope; when supplied, failures throw and writes check cancellation.
  *
+ * @remarks Scoped calls pin storage routing and refuse to join an unowned transaction.
+ * @example
+ * ```ts
+ * await addGraphEdge(root, 'task:T123', 'llmtxt:hash', 'embeds');
+ * ```
  * @task T537
  */
 export async function addGraphEdge(
@@ -157,27 +235,51 @@ export async function addGraphEdge(
   edgeType: BrainEdgeType,
   weight = 1.0,
   provenance?: string,
+  context?: OperationExecutionContext,
 ): Promise<void> {
-  try {
-    if (!(await shouldAutoPopulateGraph(projectRoot))) return;
+  const write = async (): Promise<void> => {
+    try {
+      if (!(await graphWriteEnabled(projectRoot, context))) return;
 
-    const db = await getBrainDb(projectRoot);
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      context?.assertActive();
+      const db = await getBrainDb(projectRoot);
+      context?.assertActive();
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-    await db
-      .insert(brainPageEdges)
-      .values({
-        fromId,
-        toId,
-        edgeType,
-        weight,
-        provenance: provenance ?? null,
-        createdAt: now,
-      })
-      .onConflictDoNothing();
-  } catch (err) {
-    log.warn({ err }, 'addGraphEdge failed');
-  }
+      const query = db
+        .insert(brainPageEdges)
+        .values({
+          fromId,
+          toId,
+          edgeType,
+          weight,
+          provenance: provenance ?? null,
+          createdAt: now,
+        })
+        .onConflictDoNothing();
+      if (context) {
+        db.transaction((tx) => {
+          assertOperationWriteFence(tx, context);
+          query.run();
+        });
+      } else {
+        query.run();
+      }
+    } catch (err) {
+      if (context) throw err;
+      log.warn({ err }, 'addGraphEdge failed');
+    }
+  };
+  return context
+    ? worktreeScope.run(
+        {
+          worktreeRoot: context.identity.projectRoot,
+          projectHash: generateProjectHash(context.identity.projectRoot),
+          execution: context,
+        },
+        write,
+      )
+    : write();
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +390,48 @@ export async function ensureLlmtxtNode(
   } catch (err) {
     log.warn({ err }, 'ensureLlmtxtNode failed');
   }
+}
+
+/**
+ * Project a canonical document into the graph with captured scope and visible failures.
+ *
+ * @remarks Each synchronous write checks the same absolute deadline. This does not preempt
+ * SQLite or promise atomicity across the node and edge; a failed edge leaves an
+ * idempotently resumable partial projection. Canonical document bytes are untouched.
+ *
+ * @param context - Caller-owned immutable identity, deadline and cancellation.
+ * @param sha256 - Canonical document content hash.
+ * @param ownerId - Qualified graph owner identity.
+ * @param label - Document display label.
+ * @returns Completed or explicitly disabled graph projection in the captured project.
+ * @throws Error - Configuration, storage, cancellation or deadline failure.
+ * @example
+ * ```ts
+ * const result = await ensureLlmtxtNodeScoped(context, sha256, 'task:T123', 'Design');
+ * ```
+ */
+export async function ensureLlmtxtNodeScoped(
+  context: OperationExecutionContext,
+  sha256: string,
+  ownerId: string,
+  label: string,
+): Promise<DocsGraphProjectionResult> {
+  const identity = context.identity;
+  const result = { projectId: identity.projectId, projectRoot: identity.projectRoot };
+  if (!(await scopedGraphEnabled(context))) return { ...result, status: 'disabled' };
+  const nodeId = `llmtxt:${sha256}`;
+  await upsertGraphNode(
+    identity.projectRoot,
+    nodeId,
+    'llmtxt',
+    label,
+    0.8,
+    sha256,
+    { sha256 },
+    context,
+  );
+  await addGraphEdge(identity.projectRoot, ownerId, nodeId, 'embeds', 1, 'auto:docs-add', context);
+  return { ...result, status: 'completed' };
 }
 
 /**

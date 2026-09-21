@@ -19,7 +19,7 @@ import {
   nexusRegister,
   resetDbState,
 } from '@cleocode/core/internal';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
 import { nexusCommand } from '../nexus.js';
 
@@ -40,6 +40,12 @@ async function createTestProject(
   await accessor.close();
   resetDbState();
 }
+
+// Multi-project scenarios resolve each store from its explicit fixture root.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
 
 beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'nexus-cli-test-'));
@@ -98,22 +104,24 @@ beforeEach(async () => {
     },
   ]);
 
-  // Set env vars
-  process.env['CLEO_HOME'] = registryDir;
-  process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
-  process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
-  process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
-  process.env['NEXUS_CURRENT_PROJECT'] = 'project-alpha';
+  // Ambient registry APIs still need an explicit, isolated project store.
+  // Registering B below must retain B's task ownership despite this A pin.
+  vi.stubEnv('CLEO_ROOT', projectDirA);
+  vi.stubEnv('CLEO_DIR', join(projectDirA, '.cleo'));
+  vi.stubEnv('CLEO_HOME', registryDir);
+  vi.stubEnv('NEXUS_HOME', join(registryDir, 'nexus'));
+  vi.stubEnv('NEXUS_CACHE_DIR', join(registryDir, 'nexus', 'cache'));
+  vi.stubEnv('NEXUS_SKIP_PERMISSION_CHECK', 'true');
+  vi.stubEnv('NEXUS_CURRENT_PROJECT', 'project-alpha');
 });
 
 afterEach(async () => {
-  delete process.env['CLEO_HOME'];
-  delete process.env['NEXUS_HOME'];
-  delete process.env['NEXUS_CACHE_DIR'];
-  delete process.env['NEXUS_SKIP_PERMISSION_CHECK'];
-  delete process.env['NEXUS_CURRENT_PROJECT'];
-  await closeAllDatabases();
-  await rm(testDir, { recursive: true, force: true });
+  try {
+    await closeAllDatabases();
+    await rm(testDir, { recursive: true, force: true });
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
 
 describe('nexusCommand', () => {

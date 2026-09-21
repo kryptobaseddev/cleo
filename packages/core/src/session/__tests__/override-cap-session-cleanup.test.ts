@@ -13,7 +13,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   checkAndIncrementOverrideCap,
@@ -28,6 +28,16 @@ import { sessionEnd, sessionStart, sessionStatus } from '../engine-ops.js';
 
 let tempDir: string;
 let cleoDir: string;
+
+// Explicit fixture cwd must resolve its own project and persisted records.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'cleo-override-cap-session-'));

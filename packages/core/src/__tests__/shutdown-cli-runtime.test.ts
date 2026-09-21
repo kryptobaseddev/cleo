@@ -14,64 +14,96 @@
  * never settles.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const closers = vi.hoisted(() => ({
+  brain: vi.fn(),
+  embedding: vi.fn(),
+  databases: vi.fn(),
+  logger: vi.fn(),
+}));
+vi.mock('../memory/brain-writer-thread.js', () => ({ shutdownBrainWriter: closers.brain }));
+vi.mock('../memory/embedding-queue.js', () => ({ resetEmbeddingQueue: closers.embedding }));
+vi.mock('../store/sqlite.js', () => ({ closeAllDatabases: closers.databases }));
+vi.mock('../logger.js', () => ({ closeLogger: closers.logger }));
+
+import { shutdownCliRuntime } from '../shutdown.js';
+import { STEP_DEADLINE_MS } from '../shutdown-deadline.js';
+import { awaitBackgroundOps, trackBackgroundOp } from '../store/background-ops.js';
+import { _resetTeardownSignalForTests } from '../teardown-signal.js';
 
 /** A promise that never settles — the shape of the real stall. */
 const neverSettles = () => new Promise<void>(() => {});
 
-afterEach(() => {
-  vi.resetModules();
-  vi.restoreAllMocks();
+beforeEach(() => {
+  vi.useFakeTimers();
+  _resetTeardownSignalForTests();
+  for (const closer of Object.values(closers)) closer.mockReset().mockResolvedValue(undefined);
+});
+afterEach(async () => {
+  await awaitBackgroundOps();
+  vi.useRealTimers();
+  _resetTeardownSignalForTests();
 });
 
 describe('shutdownCliRuntime', () => {
   it('returns even when a teardown step never settles', async () => {
-    vi.doMock('../memory/embedding-queue.js', () => ({
-      resetEmbeddingQueue: neverSettles,
-    }));
-
-    const { shutdownCliRuntime } = await import('../shutdown.js');
-
+    closers.embedding.mockImplementation(neverSettles);
     const startedAt = Date.now();
-    const outcomes = await shutdownCliRuntime();
-    const elapsed = Date.now() - startedAt;
-
-    // Against the old unbounded `safely()` this call never returns and the test
-    // dies by timeout instead of asserting.
-    expect(elapsed).toBeLessThan(10_000);
-
-    const stalled = outcomes.find((o) => o.label === 'embedding-queue');
-    expect(stalled?.settled).toBe(false);
+    const shutdown = shutdownCliRuntime();
+    await vi.advanceTimersByTimeAsync(STEP_DEADLINE_MS);
+    const outcomes = await shutdown;
+    expect(Date.now() - startedAt).toBe(STEP_DEADLINE_MS);
+    expect(outcomes.find((o) => o.label === 'embedding-queue')?.settled).toBe(false);
   });
 
-  it('runs every later step after an earlier one stalls', async () => {
-    // The descriptor evidence from the live host: teardown stalled at step 1 or
-    // 2, so `closeAllDatabases` (step 3) never ran and the SQLite handles
-    // stayed open. Abandoning a stalled step is what restores the later ones.
-    vi.doMock('../memory/brain-writer-thread.js', () => ({
-      shutdownBrainWriter: neverSettles,
-    }));
-
-    const closeAllDatabases = vi.fn(async () => {});
-    vi.doMock('../store/sqlite.js', () => ({ closeAllDatabases }));
-
-    const { shutdownCliRuntime } = await import('../shutdown.js');
-    const outcomes = await shutdownCliRuntime();
-
-    expect(closeAllDatabases).toHaveBeenCalledTimes(1);
+  it('reports later steps unstarted when an earlier stall consumes the shared deadline', async () => {
+    // The previous assertion required database closure after a producer failed
+    // to stop. One overall deadline cannot safely grant those closers a fresh
+    // budget; every omitted subsystem must remain explicitly incomplete.
+    closers.brain.mockImplementation(neverSettles);
+    const shutdown = shutdownCliRuntime();
+    await vi.advanceTimersByTimeAsync(STEP_DEADLINE_MS);
+    const outcomes = await shutdown;
+    expect(closers.databases).not.toHaveBeenCalled();
+    expect(closers.embedding).not.toHaveBeenCalled();
+    expect(closers.logger).not.toHaveBeenCalled();
     expect(outcomes.find((o) => o.label === 'brain-writer')?.settled).toBe(false);
-    expect(outcomes.find((o) => o.label === 'databases')?.settled).toBe(true);
+    expect(outcomes.find((o) => o.label === 'databases')).toMatchObject({
+      settled: false,
+      durationMs: 0,
+    });
   });
 
   it('reports every step so a caller can surface which subsystem leaked', async () => {
-    const { shutdownCliRuntime } = await import('../shutdown.js');
     const outcomes = await shutdownCliRuntime();
-
     expect(outcomes.map((o) => o.label)).toEqual([
+      'background-operations',
       'brain-writer',
       'embedding-queue',
       'databases',
       'logger',
     ]);
+    expect(outcomes.every((outcome) => outcome.settled && !outcome.threw)).toBe(true);
+  });
+
+  it('does not close subsequent resources when a closer registers unfinished work', async () => {
+    const release = Promise.withResolvers<void>();
+    closers.brain.mockImplementation(async () => {
+      trackBackgroundOp(release.promise);
+    });
+    try {
+      const outcomes = await shutdownCliRuntime();
+      expect(closers.brain).toHaveBeenCalledTimes(1);
+      expect(closers.embedding).not.toHaveBeenCalled();
+      expect(closers.databases).not.toHaveBeenCalled();
+      expect(closers.logger).not.toHaveBeenCalled();
+      expect(outcomes.find((outcome) => outcome.label === 'databases')).toMatchObject({
+        settled: false,
+        threw: false,
+      });
+    } finally {
+      release.resolve();
+    }
   });
 });

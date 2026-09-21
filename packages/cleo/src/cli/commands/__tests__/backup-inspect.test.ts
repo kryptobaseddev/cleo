@@ -3,7 +3,8 @@
  *
  * Builds real (but minimal) `.cleobundle.tar.gz` fixtures in a tmp directory
  * using Node.js built-in `zlib` and manual tar block construction.  No real
- * SQLite or CLEO project directories are touched.
+ * production SQLite or CLEO project directories are touched. Exact-record cases
+ * use synthetic SQLite files and the real argument parser, service and renderer.
  *
  * Test matrix:
  *   - Inspect on unencrypted bundle prints manifest contents.
@@ -22,31 +23,42 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import zlib from 'node:zlib';
+import { ExitCode } from '@cleocode/contracts';
+import { runCommand } from 'citty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setFormatContext } from '../../format-context.js';
+import { setOutputMode } from '../../output-context.js';
 import { backupCommand } from '../backup.js';
 
 // ---------------------------------------------------------------------------
-// Capture stdout/stderr written via console.log / console.error
+// Capture the actual renderer streams and resolve output mode explicitly
 // ---------------------------------------------------------------------------
 
-let consoleOutput: string[] = [];
-let consoleErrors: string[] = [];
+let stdoutParts: string[] = [];
+let stderrParts: string[] = [];
 
 beforeEach(() => {
-  consoleOutput = [];
-  consoleErrors = [];
-  vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
-    consoleOutput.push(args.map(String).join(' '));
+  stdoutParts = [];
+  stderrParts = [];
+  setFormatContext({ format: 'human', source: 'default', quiet: false });
+  setOutputMode('envelope');
+  vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+    stdoutParts.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString());
+    return true;
   });
-  vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
-    consoleErrors.push(args.map(String).join(' '));
+  vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+    stderrParts.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString());
+    return true;
   });
   process.exitCode = undefined;
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  setFormatContext({ format: 'json', source: 'default', quiet: false });
+  setOutputMode('envelope');
   process.exitCode = undefined;
   delete process.env['CLEO_BACKUP_PASSPHRASE'];
 });
@@ -186,16 +198,8 @@ function writeBundleFile(tmpDir: string, overrides: Record<string, unknown> = {}
  *
  * @param bundlePath - Path to the bundle file.
  */
-async function runInspect(bundlePath: string): Promise<void> {
-  const inspectCmd = backupCommand.subCommands?.['inspect'];
-  if (!inspectCmd || typeof inspectCmd !== 'object' || !('run' in inspectCmd)) {
-    throw new Error('backup inspect subcommand not found');
-  }
-  await (
-    inspectCmd as {
-      run: (ctx: { args: { bundle: string }; rawArgs: string[] }) => Promise<void>;
-    }
-  ).run({ args: { bundle: bundlePath }, rawArgs: [] });
+async function runInspect(bundlePath: string, flags: string[] = []): Promise<void> {
+  await runCommand(backupCommand, { rawArgs: ['inspect', bundlePath, ...flags] });
 }
 
 // ---------------------------------------------------------------------------
@@ -219,10 +223,14 @@ describe('T363 cleo backup inspect', () => {
 
   describe('non-existent bundle', () => {
     it('sets exitCode=4 and outputs an error when bundle does not exist', async () => {
+      setFormatContext({ format: 'json', source: 'default', quiet: false });
       await runInspect('/tmp/does-not-exist-cleo-T363.cleobundle.tar.gz');
 
       expect(process.exitCode).toBe(4);
-      expect(consoleErrors.join('\n')).toContain('"code":4');
+      expect(JSON.parse(stdoutParts.join(''))).toMatchObject({
+        success: false,
+        error: { code: 4 },
+      });
     });
   });
 
@@ -235,7 +243,7 @@ describe('T363 cleo backup inspect', () => {
       const bundlePath = writeBundleFile(tmpDir);
       await runInspect(bundlePath);
 
-      const out = consoleOutput.join('\n');
+      const out = stdoutParts.join('\n');
       // Bundle header
       expect(out).toContain('Bundle:');
       expect(out).toContain('test.cleobundle.tar.gz');
@@ -264,7 +272,7 @@ describe('T363 cleo backup inspect', () => {
 
       await runInspect(bundlePath);
 
-      const out = consoleOutput.join('\n');
+      const out = stdoutParts.join('\n');
       expect(out).toContain('[TAMPERED]');
       // Still exits 0 per spec §5.3 step 3
       expect(process.exitCode).toBe(0);
@@ -285,7 +293,7 @@ describe('T363 cleo backup inspect', () => {
       await runInspect(bundlePath);
 
       expect(process.exitCode).toBe(74);
-      expect(consoleErrors.join('\n')).toContain('manifest.json not found');
+      expect(stderrParts.join('\n')).toContain('manifest.json not found');
     });
   });
 
@@ -307,7 +315,7 @@ describe('T363 cleo backup inspect', () => {
 
       await runInspect(bundlePath);
 
-      const out = consoleOutput.join('\n');
+      const out = stdoutParts.join('\n');
       expect(out).toContain('encrypted');
       expect(out).toContain('CLEO_BACKUP_PASSPHRASE');
       // Must NOT reveal manifest contents
@@ -333,7 +341,7 @@ describe('T363 cleo backup inspect', () => {
 
       await runInspect(bundlePath);
 
-      const out = consoleOutput.join('\n');
+      const out = stdoutParts.join('\n');
       expect(out).toContain('tasks.db');
       expect(out).toContain('project');
       expect(out).toContain('[OK]');
@@ -349,11 +357,147 @@ describe('T363 cleo backup inspect', () => {
       fs.writeFileSync(bundlePath, encBuf);
 
       process.env['CLEO_BACKUP_PASSPHRASE'] = 'wrong-passphrase';
+      setFormatContext({ format: 'json', source: 'default', quiet: false });
 
       await runInspect(bundlePath);
 
       expect(process.exitCode).toBe(70);
-      expect(consoleErrors.join('\n')).toContain('"code":70');
+      expect(JSON.parse(stdoutParts.join(''))).toMatchObject({
+        success: false,
+        error: { code: 70 },
+      });
+    });
+  });
+
+  describe('exact snapshot record CLI', () => {
+    let snapshotPath: string;
+    beforeEach(() => {
+      snapshotPath = path.join(tmpDir, 'tasks-20260919-120000.db');
+      const db = new DatabaseSync(snapshotPath);
+      try {
+        db.exec(
+          "CREATE TABLE brain_observations(id TEXT PRIMARY KEY, narrative TEXT, project_id TEXT); INSERT INTO brain_observations VALUES ('O-exact', 'authentic | payload', 'project-B');",
+        );
+      } finally {
+        db.close();
+      }
+      setFormatContext({ format: 'json', source: 'default', quiet: false });
+    });
+
+    it('parses actual flags and emits one authentic source-provenance envelope', async () => {
+      const original = fs.readFileSync(snapshotPath);
+      const before = fs.statSync(snapshotPath, { bigint: true });
+      await runInspect(snapshotPath, [
+        '--record-id',
+        'O-exact',
+        '--expected-project-id',
+        'project-B',
+        '--label',
+        'legacy tasks snapshot',
+        '--max-snapshot-bytes',
+        String(original.length),
+        '--max-payload-bytes',
+        '4096',
+      ]);
+      expect(process.exitCode ?? 0).toBe(0);
+      expect(stderrParts).toEqual([]);
+      expect(JSON.parse(stdoutParts.join(''))).toMatchObject({
+        success: true,
+        data: {
+          status: 'found',
+          recordId: 'O-exact',
+          source: {
+            label: 'legacy tasks snapshot',
+            sha256: crypto.createHash('sha256').update(original).digest('hex'),
+          },
+          projectIdentity: { status: 'matched', recorded: 'project-B' },
+          record: {
+            table: 'brain_observations',
+            payload: {
+              narrative: {
+                type: 'text',
+                bytesBase64: Buffer.from('authentic | payload').toString('base64'),
+              },
+            },
+          },
+        },
+      });
+      const after = fs.statSync(snapshotPath, { bigint: true });
+      expect([after.atimeNs, after.mtimeNs, after.ctimeNs]).toEqual([
+        before.atimeNs,
+        before.mtimeNs,
+        before.ctimeNs,
+      ]);
+      expect(fs.readFileSync(snapshotPath)).toEqual(original);
+    });
+
+    it('returns scoped absence without inventing a payload', async () => {
+      await runInspect(snapshotPath, ['--record-id', 'O-exac']);
+      expect(process.exitCode ?? 0).toBe(0);
+      expect(JSON.parse(stdoutParts.join(''))).toMatchObject({
+        success: true,
+        data: { status: 'not-found', record: null, inspectedTables: ['brain_observations'] },
+      });
+    });
+
+    it.each([
+      '1.5',
+      '-1',
+      '0',
+      'NaN',
+      'Infinity',
+      '2000suffix',
+      '9007199254740992',
+    ])('rejects actual numeric flag %s without reading the source', async (raw) => {
+      const before = fs.statSync(snapshotPath, { bigint: true });
+      await runInspect(snapshotPath, ['--record-id', 'O-exact', '--max-snapshot-bytes', raw]);
+      expect(process.exitCode).toBe(ExitCode.VALIDATION_ERROR);
+      expect(JSON.parse(stdoutParts.join(''))).toMatchObject({
+        success: false,
+        error: { codeName: 'E_BACKUP_INSPECT_INVALID_INPUT' },
+      });
+      expect(fs.statSync(snapshotPath, { bigint: true }).atimeNs).toBe(before.atimeNs);
+    });
+
+    it.each([
+      'json',
+      'human',
+      'silent',
+      'count',
+      'table',
+      'id',
+    ] as const)('refuses conflicting provenance unsuccessfully in %s output', async (mode) => {
+      setFormatContext({
+        format: mode === 'human' ? 'human' : 'json',
+        source: 'default',
+        quiet: false,
+      });
+      if (mode !== 'json' && mode !== 'human') setOutputMode(mode);
+      await runInspect(snapshotPath, [
+        '--record-id',
+        'O-exact',
+        '--expected-project-id',
+        'project-A',
+      ]);
+      expect(process.exitCode).toBe(ExitCode.VALIDATION_ERROR);
+      if (mode !== 'human' && mode !== 'silent')
+        expect(JSON.parse(stdoutParts.join(''))).toMatchObject({
+          success: false,
+          error: { codeName: 'E_BACKUP_INSPECT_PROJECT_MISMATCH' },
+        });
+      else {
+        expect(stdoutParts).toEqual([]);
+        expect(stderrParts.join('')).toContain('conflicts');
+      }
+    });
+
+    it('rejects snapshot-only flags without an exact identity', async () => {
+      await runInspect(snapshotPath, ['--max-payload-bytes', '4096']);
+      expect(process.exitCode).toBe(ExitCode.VALIDATION_ERROR);
+      expect(JSON.parse(stdoutParts.join(''))).toMatchObject({
+        success: false,
+        error: { codeName: 'E_BACKUP_INSPECT_INVALID_INPUT' },
+      });
     });
   });
 

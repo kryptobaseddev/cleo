@@ -29,7 +29,10 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import TreeSitterParser from 'tree-sitter';
+import TypeScriptGrammar from 'tree-sitter-typescript';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { parseOriginalSource } from '../code/parser.js';
 import { extractGo } from '../pipeline/extractors/go-extractor.js';
 import { extractJava } from '../pipeline/extractors/java-extractor.js';
 import { extractPython } from '../pipeline/extractors/python-extractor.js';
@@ -38,7 +41,8 @@ import { extractTypeScript } from '../pipeline/extractors/typescript-extractor.j
 import { processHeritage } from '../pipeline/heritage-processor.js';
 import { buildImportResolutionContext } from '../pipeline/import-processor.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
-import { runParseLoop } from '../pipeline/parse-loop.js';
+import { buildLexicalScopeModel } from '../pipeline/lexical-scope.js';
+import { extractOriginalSource, runParseLoop } from '../pipeline/parse-loop.js';
 import { extractAccesses } from '../pipeline/processors/access-processor.js';
 import { createResolutionContext } from '../pipeline/resolution-context.js';
 import { createSymbolTable } from '../pipeline/symbol-table.js';
@@ -969,5 +973,240 @@ describe('Java extractor regression (fixture snapshot, T1861)', () => {
       result.heritage.length,
       JAVA_SNAPSHOT.heritage,
     );
+  });
+});
+
+describe('shared lexical scope model (T12264)', () => {
+  function model(source: string, generation = 'fixture-generation-1') {
+    const parser = new TreeSitterParser();
+    parser.setLanguage(TypeScriptGrammar.typescript);
+    return buildLexicalScopeModel(
+      parseOriginalSource(parser, source).rootNode,
+      'fixture.ts',
+      generation,
+      'typescript',
+    );
+  }
+
+  it('keeps test-local mocks and parameter shadows ahead of imported production symbols', () => {
+    const source = `import { orgNameTaken } from './production';
+      export function testCase() { const orgNameTaken = vi.fn(); return orgNameTaken('mock'); }
+      export function check(orgNameTaken) { return orgNameTaken('parameter'); }
+      export function GET() { return orgNameTaken('real'); }`;
+    const scope = model(source);
+    expect(scope.resolve('orgNameTaken', source.indexOf("orgNameTaken('mock')"))).toMatchObject({
+      kind: 'shadowed',
+      bindings: [{ kind: 'local' }],
+    });
+    expect(
+      scope.resolve('orgNameTaken', source.indexOf("orgNameTaken('parameter')")),
+    ).toMatchObject({ kind: 'shadowed', bindings: [{ kind: 'parameter' }] });
+    expect(scope.resolve('orgNameTaken', source.indexOf("orgNameTaken('real')"))).toMatchObject({
+      kind: 'import',
+      bindings: [{ importSource: './production', importedName: 'orgNameTaken' }],
+    });
+  });
+
+  it('qualifies nested same-name functions and resolves each call in its own scope', () => {
+    const source =
+      'function first(){ function local(){return 1;} return local(); } function second(){ function local(){return 2;} return local(); }';
+    const scope = model(source);
+    expect(
+      scope.declarations.filter((item) => item.name === 'local').map((item) => item.id),
+    ).toEqual(['fixture.ts::first.local', 'fixture.ts::second.local']);
+    expect(scope.resolve('local', source.indexOf('local();')).bindings[0].targetId).toBe(
+      'fixture.ts::first.local',
+    );
+    expect(scope.resolve('local', source.lastIndexOf('local();')).bindings[0].targetId).toBe(
+      'fixture.ts::second.local',
+    );
+  });
+
+  it('gives object methods and nested callbacks the same owner for calls and accesses', () => {
+    const source = `import { orgNameTaken } from './production';
+      const auth = { hooks: { beforeCreateOrganization: async (input) => orgNameTaken(input.name) },
+        inspect() { return this.value; } };`;
+    const scope = model(source);
+    const callback = scope.declarations.find((item) => item.name === 'beforeCreateOrganization');
+    expect(callback?.id).toBe('fixture.ts::auth.hooks.beforeCreateOrganization');
+    expect(scope.ownerAt(source.indexOf('orgNameTaken(input'))).toBe(callback?.id);
+    expect(scope.ownerAt(source.indexOf('input.name'))).toBe(callback?.id);
+    expect(scope.declarations.find((item) => item.name === 'inspect')?.id).toBe(
+      'fixture.ts::auth.inspect',
+    );
+    expect(scope.resolve('input', source.indexOf('input.name')).kind).toBe('shadowed');
+  });
+
+  it('models destructured parameters, locals, catch bindings and loop lexical boundaries', () => {
+    const source = `import { target } from './production';
+      function run({ value: parameter, ...remaining }, [item]) {
+        const { target: local, ...rest } = object;
+        { var lifted = () => 1; }
+        for (let target of list) { target(); }
+        target();
+        try {} catch ({ message }) { report(message); }
+        return lifted();
+      }`;
+    const scope = model(source);
+    expect(
+      scope.bindings
+        .filter((binding) => binding.kind === 'parameter')
+        .map((binding) => binding.name),
+    ).toEqual(['parameter', 'remaining', 'item']);
+    expect(
+      scope.bindings.filter((binding) => binding.kind === 'local').map((binding) => binding.name),
+    ).toEqual(['local', 'rest', 'target']);
+    expect(scope.resolve('target', source.indexOf('target();')).kind).toBe('shadowed');
+    expect(scope.resolve('target', source.lastIndexOf('target();')).kind).toBe('import');
+    expect(scope.resolve('lifted', source.lastIndexOf('lifted();')).kind).toBe('resolved');
+    expect(scope.resolve('message', source.indexOf('report(message)')).bindings[0].kind).toBe(
+      'catch',
+    );
+  });
+
+  it('binds anonymous identities to original Unicode spans and explicit generations', () => {
+    const source = '/*🌱資料*/ const handlers = [() => target(), () => target()];';
+    const first = model(source, 'generation-one');
+    const repeated = model(source, 'generation-one');
+    const next = model(source, 'generation-two');
+    expect(first.declarations.map((item) => item.id)).toEqual(
+      repeated.declarations.map((item) => item.id),
+    );
+    expect(first.declarations.map((item) => item.id)).not.toEqual(
+      next.declarations.map((item) => item.id),
+    );
+    expect(new Set(first.declarations.map((item) => item.id)).size).toBe(2);
+    const declaration = first.declarations[0];
+    expect(declaration.span.startIndex).toBe(source.indexOf('() =>'));
+    expect(declaration.span.startIndex).not.toBe(
+      Buffer.byteLength(source.slice(0, source.indexOf('() =>')), 'utf8'),
+    );
+    expect(source.slice(declaration.span.startIndex, declaration.span.endIndex)).toBe(
+      '() => target()',
+    );
+    expect(declaration.span.offsetEncoding).toBe('utf16');
+  });
+
+  it('retains ambiguous bindings, namespace aliases and type-only import limitations', () => {
+    const source = `import main, { target as alias, type Value } from './api'; import * as space from './api';
+      function duplicate() {} function duplicate() {} duplicate(); alias(); space.call();`;
+    const scope = model(source);
+    expect(scope.resolve('duplicate', source.lastIndexOf('duplicate();'))).toMatchObject({
+      kind: 'ambiguous',
+      bindings: [{ name: 'duplicate' }, { name: 'duplicate' }],
+    });
+    expect(scope.resolve('alias', source.indexOf('alias();')).bindings[0].importedName).toBe(
+      'target',
+    );
+    expect(scope.resolve('main', source.indexOf('alias();')).bindings[0].importedName).toBe(
+      'default',
+    );
+    expect(scope.resolve('space', source.indexOf('space.call')).bindings[0].importedName).toBe('*');
+    expect(scope.resolve('Value', source.indexOf('alias();')).kind).toBe('shadowed');
+    expect(scope.resolve('missing', source.indexOf('alias();'))).toMatchObject({
+      kind: 'unbound',
+      bindings: [],
+    });
+  });
+
+  it('rejects unsupported language claims instead of reusing TS binding semantics', () => {
+    const parser = new TreeSitterParser();
+    parser.setLanguage(TypeScriptGrammar.typescript);
+    const root = parseOriginalSource(parser, 'const x = 1;').rootNode;
+    expect(() => buildLexicalScopeModel(root, 'fixture.py', 'generation', 'python')).toThrow(
+      'E_SCOPE_LANGUAGE',
+    );
+    expect(() => buildLexicalScopeModel(root, 'fixture.ts', '', 'typescript')).toThrow(
+      'generation is required',
+    );
+  });
+});
+
+describe('lexical extraction ownership (T12264)', () => {
+  function extract(source: string) {
+    const parser = new TreeSitterParser();
+    parser.setLanguage(TypeScriptGrammar.typescript);
+    return extractTypeScript(parseOriginalSource(parser, source).rootNode, 'auth.ts', 'typescript');
+  }
+
+  it('retains nested declarations and exact object callback callers', () => {
+    const source = `import { orgNameTaken } from './production';
+function first(){ function local(){ return 1; } return local(); }
+function second(){ function local(){ return 2; } return local(); }
+const auth = { hooks: { beforeCreateOrganization: async (input) => orgNameTaken(input.name) } };`;
+    const result = extract(source);
+    const ids = result.definitions.map((node) => node.id);
+    expect(ids).toContain('auth.ts::first.local');
+    expect(ids).toContain('auth.ts::second.local');
+    expect(ids).toContain('auth.ts::auth.hooks.beforeCreateOrganization');
+    for (const name of ['first', 'second']) {
+      const call = result.calls.find(
+        (item) => item.calledName === 'local' && item.sourceId === `auth.ts::${name}`,
+      );
+      expect(call?.lexical?.kind).toBe('resolved');
+      expect(call?.lexical?.bindings[0].targetId).toBe(`auth.ts::${name}.local`);
+    }
+    const call = result.calls.find((item) => item.calledName === 'orgNameTaken');
+    expect(call?.sourceId).toBe('auth.ts::auth.hooks.beforeCreateOrganization');
+    expect(call?.lexical?.kind).toBe('import');
+    expect(source.slice(call?.span?.startIndex, call?.span?.endIndex)).toBe(
+      'orgNameTaken(input.name)',
+    );
+  });
+
+  it('retains local shadows and every dynamic call with original ranges', () => {
+    const source = `function testCase(){ const orgNameTaken=vi.fn(); orgNameTaken(); }
+function check(orgNameTaken){orgNameTaken();}
+const emoji='😀'; handlers[key](); (getHandler())(); (() => 1)();`;
+    const result = extract(source);
+    const shadows = result.calls.filter((item) => item.calledName === 'orgNameTaken');
+    expect(shadows).toHaveLength(2);
+    expect(shadows.map((item) => item.lexical?.bindings[0].kind)).toEqual(['local', 'parameter']);
+    expect(shadows.every((item) => item.lexical?.kind === 'shadowed')).toBe(true);
+    const dynamic = result.calls.filter((item) => item.dynamic);
+    expect(dynamic).toHaveLength(3);
+    expect(dynamic.map((item) => source.slice(item.span?.startIndex, item.span?.endIndex))).toEqual(
+      ['handlers[key]()', '(getHandler())()', '(() => 1)()'],
+    );
+    expect(result.calls.find((item) => item.calledName === 'getHandler')?.dynamic).toBe(false);
+    expect(new Set(result.calls.map((item) => item.generation)).size).toBe(1);
+  });
+});
+
+describe('shared call and access extraction (T12264)', () => {
+  it('uses the same original generation, qualified owner and UTF-16 ranges', () => {
+    const source = `// 😀 leading Unicode
+import { orgNameTaken } from './production';
+const auth = { hooks: { beforeCreateOrganization: async (input) => {
+  input.name = 'new'; orgNameTaken(input.name); input[key]();
+} } };`;
+    const result = extractOriginalSource(source, 'auth.ts');
+    const owner = 'auth.ts::auth.hooks.beforeCreateOrganization';
+    expect(result.calls.every((call) => call.sourceId === owner)).toBe(true);
+    expect(result.accesses?.every((access) => access.sourceId === owner)).toBe(true);
+    expect(result.accesses?.every((access) => access.lexical?.kind === 'shadowed')).toBe(true);
+    expect(
+      new Set([...result.calls, ...(result.accesses ?? [])].map((site) => site.generation)).size,
+    ).toBe(1);
+    const fields = result.accesses?.filter((access) => access.memberName === 'name') ?? [];
+    expect(fields.map((access) => access.accessMode)).toEqual(['write', 'read']);
+    for (const access of fields)
+      expect(source.slice(access.span?.startIndex, access.span?.endIndex)).toBe('input.name');
+    const dynamic = result.accesses?.find((access) => access.memberName === 'key');
+    expect(dynamic?.dynamic).toBe(true);
+    expect(source.slice(dynamic?.span?.startIndex, dynamic?.span?.endIndex)).toBe('input[key]');
+    const declaration = result.definitions.find((node) => node.id === owner);
+    expect(declaration?.meta?.sourceGeneration).toBe(result.calls[0].generation);
+  });
+
+  it('discloses lexical capability only for TypeScript and JavaScript extraction', () => {
+    const javascript = extractOriginalSource('function run(value){return value.name;}', 'plain.js');
+    expect(javascript.definitions[0].meta?.lexicalCapability).toBe('typescript-javascript');
+    expect(javascript.accesses?.[0].lexical?.bindings[0].kind).toBe('parameter');
+    const python = extractOriginalSource('def run(value):\n    return value.name\n', 'plain.py');
+    expect(python.definitions[0].name).toBe('run');
+    expect(python.accesses?.[0].memberName).toBe('name');
+    expect(python.accesses?.[0].lexical).toBeUndefined();
+    expect(python.definitions[0].meta?.lexicalCapability).toBeUndefined();
   });
 });

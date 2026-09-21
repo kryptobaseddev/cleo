@@ -21,12 +21,15 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createTestDb,
   seedTasks,
   type TestDbEnv,
 } from '../../../store/__tests__/test-db-helper.js';
+import { getTaskAccessor } from '../../../store/data-accessor.js';
 import { getDb } from '../../../store/sqlite.js';
 import * as schema from '../../../store/tasks-schema.js';
 import { validateAtom } from '../../../tasks/evidence.js';
@@ -103,7 +106,68 @@ describe('validateSatisfiesAtom — 5-check pipeline (T10507 · ADR-079-r2 §2.4
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await env.cleanup();
+  });
+
+  describe('explicit project evidence ownership', () => {
+    async function criterionProject(root: string, acId: string): Promise<void> {
+      await mkdir(join(root, '.cleo'), { recursive: true });
+      const accessor = await getTaskAccessor(root);
+      await accessor.upsertSingleTask({
+        id: 'T812',
+        title: `Evidence for ${root}`,
+        description: 'Project-specific criterion fixture',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: '2026-09-19T00:00:00Z',
+      });
+      await accessor.transaction(async (tx) => {
+        await tx.insertAcRows([
+          { id: acId, taskId: 'T812', ordinal: 1, text: `Criterion for ${root}` },
+        ]);
+      });
+    }
+    it('resolves identical task and criterion aliases to the requested project UUID', async () => {
+      const other = join(env.tempDir, 'other');
+      const a = uuid();
+      const b = uuid();
+      await criterionProject(env.tempDir, a);
+      await criterionProject(other, b);
+      vi.stubEnv('CLEO_ROOT', other);
+      vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+      const [first, second] = await Promise.all([
+        validateSatisfiesAtom(
+          { kind: 'satisfies', targetTaskId: 'T812', targetAcAlias: 'AC1' },
+          'T812',
+          env.tempDir,
+        ),
+        validateSatisfiesAtom(
+          { kind: 'satisfies', targetTaskId: 'T812', targetAcAlias: 'AC1' },
+          'T812',
+          other,
+        ),
+      ]);
+      expect(first).toMatchObject({ ok: true, atom: { resolvedAcUuid: a } });
+      expect(second).toMatchObject({ ok: true, atom: { resolvedAcUuid: b } });
+    });
+    it('retains the requested criterion identity when ambient pins change after invocation', async () => {
+      const other = join(env.tempDir, 'other');
+      const a = uuid();
+      const b = uuid();
+      await criterionProject(env.tempDir, a);
+      await criterionProject(other, b);
+      vi.stubEnv('CLEO_ROOT', other);
+      vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+      const reading = validateSatisfiesAtom(
+        { kind: 'satisfies', targetTaskId: 'T812', targetAcAlias: 'AC1' },
+        'T812',
+        env.tempDir,
+      );
+      vi.stubEnv('CLEO_ROOT', env.tempDir);
+      vi.stubEnv('CLEO_DIR', env.cleoDir);
+      expect(await reading).toMatchObject({ ok: true, atom: { resolvedAcUuid: a } });
+    });
   });
 
   // ---------------------------------------------------------------------

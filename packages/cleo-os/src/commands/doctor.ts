@@ -190,7 +190,7 @@ export function resolveSmokeExecOptions(): SmokeExecOptions {
 }
 
 /**
- * Run `cleo admin smoke --provider <id>` for a single installed provider.
+ * Run `cleo admin smoke --provider <id>` for a provider with independently verified programmatic installation.
  *
  * @param providerId - Canonical provider ID to smoke-test.
  * @returns `SmokeResult` with pass/fail and status message.
@@ -210,23 +210,20 @@ async function runProviderSmoke(providerId: string): Promise<SmokeResult> {
 }
 
 /**
- * Run sovereignty smoke checks for all installed providers.
+ * Run smoke checks only for independently verified programmatic installations.
  *
  * Returns `null` when the `cleo` CLI is not on `PATH` (skipped section).
  *
- * @param rows - Provider matrix rows; only installed providers are checked.
+ * @param rows - Provider matrix rows; source-directory hints never authorize smoke checks.
  * @returns Array of smoke results or `null` when cleo is unavailable.
  */
 async function runSmokeChecks(rows: ProviderMatrixRow[]): Promise<SmokeResult[] | null> {
+  const installed = rows.filter(
+    (row) => row.programmaticSpawn.levels.installed.status === 'verified',
+  );
+  if (installed.length === 0) return [];
   const available = await isCleoAvailable();
-  if (!available) {
-    return null;
-  }
-
-  const installed = rows.filter((r) => r.installed);
-  if (installed.length === 0) {
-    return [];
-  }
+  if (!available) return null;
 
   const results = await Promise.all(installed.map((r) => runProviderSmoke(r.providerId)));
   return results;
@@ -258,14 +255,22 @@ export async function runDoctor(): Promise<DoctorReport> {
   const smokeResults = await runSmokeChecks(providerRows);
 
   // Count issues:
-  // - A provider that is not installed is not an issue (not expected to be installed).
-  // - A provider that IS installed but has no spawn implementation is flagged.
+  // Source diagnostics are independent from unverified live capabilities.
+  // A present adapter directory missing spawn source is still a source inventory issue.
   // - A smoke check that failed is flagged.
   let issueCount = 0;
 
   for (const row of providerRows) {
-    if (row.installed && !row.spawnImplemented) {
+    if (
+      row.source.status === 'failed' ||
+      (row.source.directoryPresent && !row.source.spawnFilePresent)
+    ) {
       issueCount++;
+    }
+    for (const channel of [row.externalCli, row.programmaticSpawn]) {
+      issueCount += Object.values(channel.levels).filter(
+        (assessment) => assessment.status === 'failed',
+      ).length;
     }
   }
 
@@ -293,6 +298,46 @@ export async function runDoctor(): Promise<DoctorReport> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Render source inventory and independent channel assessments without promoting source hints.
+ *
+ * @param rows - Matrix rows produced by the provider inspector.
+ * @returns Human-readable source diagnostics and every verification stage.
+ * @example
+ * ```ts
+ * const text = renderProviderMatrix(await new ProviderMatrix().getMatrix());
+ * ```
+ */
+export function renderProviderMatrix(rows: readonly ProviderMatrixRow[]): string {
+  const lines = [
+    `[Provider Matrix]  ${rows.length} providers total`,
+    `   Source directories: ${rows.filter((row) => row.source.directoryPresent).length}`,
+    `   Spawn source files: ${rows.filter((row) => row.source.spawnFilePresent).length}`,
+    '   Source files and hook-name mentions do not prove installed or live support.',
+  ];
+  for (const row of rows) {
+    lines.push(
+      `   ${row.providerId}: source=${row.source.status}; hook-name mentions=${row.source.hookNameMentions}`,
+    );
+    for (const diagnostic of row.source.diagnostics)
+      lines.push(`      Source diagnostic: ${diagnostic}`);
+    for (const report of [row.externalCli, row.programmaticSpawn]) {
+      lines.push(
+        `      ${report.channel}: ${Object.entries(report.levels)
+          .map(([stage, assessment]) => `${stage}=${assessment.status}`)
+          .join(', ')}`,
+      );
+      for (const [stage, assessment] of Object.entries(report.levels)) {
+        if (assessment.status === 'failed') lines.push(`         ${stage}: ${assessment.reason}`);
+      }
+    }
+  }
+  lines.push(
+    '   Unverified stages require measured installed identities, delivered instructions, and independent scenario evidence.',
+  );
+  return lines.join('\n');
+}
+
+/**
  * Render a {@link DoctorReport} to a human-readable string.
  *
  * Follows the canonical CleoOS Doctor output format. Does not include a
@@ -304,19 +349,10 @@ export async function runDoctor(): Promise<DoctorReport> {
 export function renderDoctorReport(report: DoctorReport): string {
   const lines: string[] = [];
 
-  const installedCount = report.providerRows.filter((r) => r.installed).length;
-  const spawnCount = report.providerRows.filter((r) => r.installed && r.spawnImplemented).length;
-  const stubbedCount = installedCount - spawnCount;
-
   lines.push('CleoOS Doctor — Sovereignty Diagnostics');
   lines.push('═══════════════════════════════════════════════════════════');
   lines.push('');
-
-  // Provider Matrix
-  lines.push(`[Provider Matrix]  ${report.providerRows.length} providers total`);
-  lines.push(`   Installed:   ${installedCount}`);
-  lines.push(`   With spawn:  ${spawnCount}`);
-  lines.push(`   Stubbed:     ${stubbedCount}`);
+  lines.push(renderProviderMatrix(report.providerRows));
   lines.push('');
 
   // Agent Registry
@@ -337,11 +373,11 @@ export function renderDoctorReport(report: DoctorReport): string {
   lines.push('');
 
   // Sovereignty Invariants
-  lines.push('[Sovereignty Invariants]');
+  lines.push('[Sovereignty Smoke Checks — not live repair or lifecycle certification]');
   if (report.smokeResults === null) {
     lines.push('   skipped — cleo CLI not on PATH');
   } else if (report.smokeResults.length === 0) {
-    lines.push('   no installed providers to smoke-test');
+    lines.push('   no independently verified programmatic installations to smoke-test');
   } else {
     for (const r of report.smokeResults) {
       const status = r.passed ? 'PASS' : `FAIL`;
@@ -354,7 +390,16 @@ export function renderDoctorReport(report: DoctorReport): string {
   // Summary
   lines.push('───────────────────────────────────────────────────────────');
   if (report.issueCount === 0) {
-    lines.push('Result: PASS (0 issues)');
+    const incomplete = report.providerRows.some((row) =>
+      [row.externalCli, row.programmaticSpawn].some((channel) =>
+        Object.values(channel.levels).some((assessment) => assessment.status !== 'verified'),
+      ),
+    );
+    lines.push(
+      incomplete
+        ? 'Result: diagnostic checks passed (0 issues); provider verification incomplete'
+        : 'Result: diagnostic checks passed (0 issues)',
+    );
   } else {
     lines.push(`Result: FAIL (${report.issueCount} issue${report.issueCount === 1 ? '' : 's'})`);
   }

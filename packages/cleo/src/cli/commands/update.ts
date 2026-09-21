@@ -19,9 +19,8 @@
  * @epic T4454
  */
 
-import { ExitCode, TASK_SEVERITIES } from '@cleocode/contracts';
+import { ExitCode, TASK_SEVERITIES, type TaskRecord } from '@cleocode/contracts';
 import {
-  appendSignedSeverityAttestation,
   INPUT_CONTRACTS,
   isPipelineTransitionForward,
   isValidPipelineStage,
@@ -30,7 +29,12 @@ import {
   validateOperationInput,
 } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli, dispatchRaw, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
+import {
+  dispatchFromCli,
+  dispatchRaw,
+  handleRawError,
+  maybeEmitDescribe,
+} from '../../dispatch/adapters/cli.js';
 import { collectMutateInput } from '../lib/collect-input.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -174,9 +178,10 @@ export const updateCommand = defineCommand({
       type: 'string',
       description: 'Alias for --parent (legacy parentId compatibility)',
     },
-    'no-auto-complete': {
+    'auto-complete': {
       type: 'boolean',
-      description: 'Disable auto-complete for epic',
+      description: 'Enable auto-complete for epic',
+      negativeDescription: 'Disable auto-complete for epic',
     },
     'pipeline-stage': {
       type: 'string',
@@ -235,7 +240,7 @@ export const updateCommand = defineCommand({
      * Critical-priority tasks without declared dependencies silently break
      * wave-order spawning when downstream work assumes they are load-bearing.
      * Provide a justification string to waive the `--depends` requirement.
-     * The waiver is stored in task metadata for auditability.
+     * The waiver is stored in the task update audit log in the mutation transaction.
      *
      * @task T1856
      * @epic T1855
@@ -243,7 +248,7 @@ export const updateCommand = defineCommand({
     'depends-waiver': {
       type: 'string',
       description:
-        'Justification (string) to waive the "--depends required for critical priority" check. Only consulted when the task is being promoted to --priority critical AND no existing or new --depends are declared. Stored verbatim in task metadata as audit trail; ignored for non-critical updates. (gh-405 / T1856)',
+        'Non-empty justification to waive the dependency requirement for --priority critical. Stored verbatim in the transactional task update audit log. Rejected for non-critical updates. (gh-405 / T1856)',
     },
     /**
      * Related tasks — semantic relationships (non-dependency).
@@ -355,18 +360,10 @@ export const updateCommand = defineCommand({
       const validatedPayload = raw as Record<string, unknown>;
       const response = await dispatchRaw('mutate', 'tasks', 'update', validatedPayload);
       if (!response.success) {
-        cliError(
-          response.error?.message ?? 'Update failed',
-          response.error?.code ?? 'E_UPDATE_FAILED',
-          {
-            name: response.error?.code ?? 'E_UPDATE_FAILED',
-            fix: response.error?.fix ?? 'Check task fields and try again',
-          },
-          { operation: 'tasks.update' },
-        );
-        process.exit(1);
+        handleRawError(response, { command: 'update', operation: 'tasks.update' });
         return;
       }
+
       cliOutput(response.data, { command: 'update', operation: 'tasks.update' });
       return;
     }
@@ -428,9 +425,11 @@ export const updateCommand = defineCommand({
       const showResponse = await dispatchRaw('query', 'tasks', 'show', {
         taskId: args.taskId,
       });
-      const existingTask = showResponse.success
-        ? (showResponse.data as Record<string, unknown> | undefined)
-        : undefined;
+      if (!showResponse.success) {
+        handleRawError(showResponse, { command: 'update', operation: 'tasks.show' });
+        return;
+      }
+      const existingTask = showResponse.data as TaskRecord | undefined;
       const currentStage =
         typeof existingTask?.['pipelineStage'] === 'string'
           ? (existingTask['pipelineStage'] as string)
@@ -503,7 +502,8 @@ export const updateCommand = defineCommand({
     if (args['clear-blocked-by'] === true) params['clearBlockedBy'] = true;
     if (args.parent !== undefined) params['parent'] = args.parent;
     if (args['parent-id'] !== undefined) params['parent'] = params['parent'] ?? args['parent-id'];
-    if (args['no-auto-complete'] === true) params['noAutoComplete'] = true;
+    // citty strips --no- and sets the positive boolean to false.
+    if (args['auto-complete'] !== undefined) params['noAutoComplete'] = !args['auto-complete'];
     if (args['pipeline-stage'] !== undefined) params['pipelineStage'] = args['pipeline-stage'];
     // T944/T9072: --kind is canonical
     if (args.kind !== undefined) params['kind'] = args.kind;
@@ -513,66 +513,8 @@ export const updateCommand = defineCommand({
     // T1590: AC-immutability override reason — forwarded as `reason`.
     if (args.reason !== undefined) params['reason'] = args.reason;
 
-    // T1856: Critical-priority tasks MUST declare dependencies or provide a waiver.
-    // When --priority critical is being set, check if the caller is simultaneously
-    // declaring depends (via --depends or --add-depends) or providing a waiver.
-    // If neither is present, fetch the existing task to check for pre-existing depends
-    // before rejecting. Tasks created before this guard (with existing depends) pass.
-    if (
-      args.priority === 'critical' &&
-      !args.depends &&
-      !args['add-depends'] &&
-      args['depends-waiver'] === undefined
-    ) {
-      // Fetch the existing task to check for pre-existing dependency declarations.
-      const showResponse = await dispatchRaw('query', 'tasks', 'show', {
-        taskId: args.taskId,
-      });
-      const existingTask = showResponse.success
-        ? (showResponse.data as Record<string, unknown> | undefined)
-        : undefined;
-      const existingDepends = existingTask?.['depends'] as unknown[] | undefined;
-      const hasDependencies = Array.isArray(existingDepends) && existingDepends.length > 0;
-
-      if (!hasDependencies) {
-        cliError(
-          'Critical-priority tasks must declare at least one dependency (--depends) or provide a waiver (--depends-waiver "<reason>").',
-          'E_VALIDATION',
-          {
-            name: 'E_VALIDATION',
-            fix:
-              'Add --depends <taskId> to declare a dependency, or use --depends-waiver "<reason>" ' +
-              'to waive the requirement. Use `cleo find "<topic>"` to discover candidate dependencies.',
-          },
-          { operation: 'tasks.update' },
-        );
-        process.exit(6);
-        return;
-      }
-    }
+    // Core checks the effective dependency set and persists authorization atomically.
     if (args['depends-waiver'] !== undefined) params['dependsWaiver'] = args['depends-waiver'];
-
-    // T9073 / T9071: fire signed severity attestation for any role.
-    // Severity is orthogonal to priority — no auto-mapping here.
-    // Non-fatal outside CLEO project (falls through).
-    if (args.severity !== undefined) {
-      try {
-        await appendSignedSeverityAttestation({
-          timestamp: new Date().toISOString(),
-          title: String(args.taskId),
-          severity: args.severity,
-          taskId: String(args.taskId),
-        });
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        if (code === 'E_OWNER_ONLY') {
-          cliError((err as Error).message, 72, { name: 'E_OWNER_ONLY' });
-          process.exit(72);
-          return;
-        }
-        // Any other failure (e.g. not inside a CLEO project) is non-fatal.
-      }
-    }
 
     await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
   },

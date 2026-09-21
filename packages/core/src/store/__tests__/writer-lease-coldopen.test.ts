@@ -19,11 +19,12 @@
  * @epic T11625
  */
 
-import { mkdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createOperationExecutionContext } from '../background-ops.js';
 import {
   _resetDualScopeDbCache,
   insertIdempotent,
@@ -37,6 +38,7 @@ import {
   acquireWriterLease,
   assertWriterLeaseHeld,
   hasActiveGrant,
+  type LeaseHandle,
   type LeaseScope,
   type LeaseTarget,
   makeWriterLeaseIdentity,
@@ -44,6 +46,7 @@ import {
   resolveDbIdentity,
   WriterLeaseRequiredError,
   withColdOpenLease,
+  withWriterLease,
 } from '../writer-lease.js';
 import { WRITER_LEASES_TABLE, WRITER_QUEUE_TABLE } from '../writer-lease-schema.js';
 
@@ -171,6 +174,18 @@ describe('T12042 — registerDbIdentity hardening', () => {
     registerDbIdentity(db, id);
     expect(() => registerDbIdentity(db, id)).not.toThrow();
     expect(resolveDbIdentity(db)).toBe(id);
+  });
+
+  it('preserves legacy path-only registration without inventing file provenance later', () => {
+    const path = join(testRoot, 'not-opened-yet.db');
+    const key = {};
+    const original = makeWriterLeaseIdentity('project', path);
+    registerDbIdentity(key, original);
+    const native = new DatabaseSync(path);
+    native.close();
+    expect(() => registerDbIdentity(key, makeWriterLeaseIdentity('project', path))).not.toThrow();
+    expect(resolveDbIdentity(key)).toBe(original);
+    expect(resolveDbIdentity(key).fileDevice).toBeUndefined();
   });
 
   it('same DB with different scope must throw', () => {
@@ -650,4 +665,753 @@ describe('T14 — T5158 regression: concurrent cold-open writers serialize (loca
     expect(counterValue(verify)).toBeLessThan(WRITERS);
     verify.close();
   }, 60_000);
+});
+
+function context(budgetMs = 2000) {
+  return createOperationExecutionContext(
+    {
+      projectId: 'cold',
+      projectRoot: testRoot,
+      actor: 'fixture',
+      operation: 'docs.projection',
+      idempotencyKey: 'cold-open',
+    },
+    { budgetMs },
+  );
+}
+
+describe('captured cold-open lease lifetime', () => {
+  it('refuses expired scope before cold-open bootstrap mutations', async () => {
+    const native = new DatabaseSync(join(testRoot, 'empty.db'));
+    const execution = context(0);
+    try {
+      await expect(
+        withColdOpenLease('project', native, async () => 'forbidden', { execution }),
+      ).rejects.toThrow();
+      expect(native.prepare('SELECT name FROM sqlite_master').all()).toEqual([]);
+    } finally {
+      execution.close();
+      native.close();
+    }
+  });
+
+  it('cancels a genuinely contended cold-open without executing its migration callback', async () => {
+    const native = new DatabaseSync(join(testRoot, 'contended.db'));
+    let release = () => {};
+    let entered = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const holder = withColdOpenLease('project', native, async () => {
+      entered();
+      await gate;
+    });
+    await ready;
+    const execution = context(25);
+    let writes = 0;
+    try {
+      await expect(
+        withColdOpenLease(
+          'project',
+          native,
+          async () => {
+            writes += 1;
+          },
+          { execution },
+        ),
+      ).rejects.toThrow();
+      expect(writes).toBe(0);
+      expect(countActive(native, 'project', 'tasks')).toBe(1);
+      expect(countRows(native, WRITER_QUEUE_TABLE)).toBe(0);
+    } finally {
+      execution.close();
+      release();
+      await holder;
+      native.close();
+    }
+  });
+
+  it('cancels the actual default resolver before a contended cold opener can migrate later', async () => {
+    const target = join(testRoot, 'default-resolver.db');
+    const holderNative = new DatabaseSync(target);
+    let release = () => {};
+    let entered = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const holder = withColdOpenLease('project', holderNative, async () => {
+      entered();
+      await gate;
+    });
+    await ready;
+    const execution = context(30);
+    _setNativeDbResolverForTest(undefined);
+    try {
+      await expect(
+        acquireWriterLease('project', 'brain', { dbPath: target, execution }),
+      ).rejects.toThrow();
+      expect(holderNative.isOpen).toBe(true);
+      release();
+      await holder;
+      // The abandoned canonical initializer resumes after the lease releases.
+      // Observe beyond its polling interval to detect a late migration/publication.
+      await new Promise<void>((resolve) => setTimeout(resolve, 120));
+      const fresh = new DatabaseSync(target, { readOnly: true });
+      try {
+        expect(
+          fresh
+            .prepare("SELECT count(*) AS count FROM sqlite_master WHERE name='tasks_tasks'")
+            .get()?.count,
+        ).toBe(0);
+        expect(fresh.prepare('SELECT count(*) AS count FROM main._writer_queue').get()?.count).toBe(
+          0,
+        );
+      } finally {
+        fresh.close();
+      }
+      const retry = await openDualScopeDbAtPath('project', target);
+      expect(retry.isOpen).toBe(true);
+      expect(
+        retry.db.$client.prepare("SELECT name FROM sqlite_master WHERE name='tasks_tasks'").get()
+          ?.name,
+      ).toBe('tasks_tasks');
+    } finally {
+      execution.close();
+      release();
+      await holder;
+      holderNative.close();
+    }
+  });
+
+  it('never recreates a removed project when releasing a cancelled scoped lease', async () => {
+    const directory = join(testRoot, 'removed-project');
+    const target = join(directory, '.cleo', 'cleo.db');
+    const execution = context();
+    _setNativeDbResolverForTest(undefined);
+    const lease = await acquireWriterLease('project', 'brain', { dbPath: target, execution });
+    execution.close();
+    _resetDualScopeDbCache();
+    rmSync(directory, { recursive: true });
+    await lease.release();
+    await lease.release();
+    expect(existsSync(directory)).toBe(false);
+    expect(lease.cleanupPending).toBe(true);
+  });
+
+  it('scoped heartbeat and release never borrow an unrelated native transaction', async () => {
+    const target = join(testRoot, 'release-owned.db');
+    const execution = context();
+    const lease = await acquireWriterLease('project', 'brain', { dbPath: target, execution });
+    const opened = await openDualScopeDbAtPath('project', target);
+    const native = opened.db.$client;
+    const before = native
+      .prepare("SELECT heartbeat_at FROM main._writer_leases WHERE lane='brain'")
+      .get()?.heartbeat_at;
+    native.exec(
+      "CREATE TABLE release_owner_proof (value TEXT); BEGIN; INSERT INTO release_owner_proof VALUES ('unrelated')",
+    );
+    try {
+      lease.heartbeat();
+      await lease.release();
+      expect(native.isTransaction).toBe(true);
+      expect(native.prepare('SELECT value FROM release_owner_proof').get()?.value).toBe(
+        'unrelated',
+      );
+      expect(
+        native.prepare("SELECT heartbeat_at FROM main._writer_leases WHERE lane='brain'").get()
+          ?.heartbeat_at,
+      ).toBe(before);
+      expect(
+        native.prepare("SELECT active FROM main._writer_leases WHERE lane='brain'").get()?.active,
+      ).toBe(1);
+      expect(lease.cleanupPending).toBe(true);
+    } finally {
+      native.exec('ROLLBACK');
+      execution.close();
+    }
+  });
+
+  it.each([
+    'replacement',
+    'shared',
+  ] as const)('scoped release preserves a %s holder and remains idempotent', async (kind) => {
+    const target = join(testRoot, 'release-replacement.db');
+    const original = context();
+    const successor = context();
+    const first = await acquireWriterLease('project', 'brain', {
+      dbPath: target,
+      execution: original,
+    });
+    const opened = await openDualScopeDbAtPath('project', target);
+    const native = opened.db.$client;
+    if (kind === 'replacement')
+      native.exec("UPDATE main._writer_leases SET active=0 WHERE lane='brain'");
+    const second = await acquireWriterLease('project', 'brain', {
+      dbPath: target,
+      execution: successor,
+      reentrant: kind === 'shared',
+    });
+    try {
+      original.close();
+      await first.release();
+      await first.release();
+      expect(
+        native
+          .prepare("SELECT epoch FROM main._writer_leases WHERE lane='brain' AND active=1")
+          .get()?.epoch,
+      ).toBe(second.epoch);
+      expect(second.cleanupPending).toBe(false);
+      await second.release();
+      expect(
+        native
+          .prepare(
+            "SELECT count(*) AS count FROM main._writer_leases WHERE lane='brain' AND active=1",
+          )
+          .get()?.count,
+      ).toBe(0);
+    } finally {
+      original.close();
+      successor.close();
+      await second.release();
+    }
+  });
+
+  it('returns an admitted committed write even when scoped teardown cleanup must be deferred', async () => {
+    const target = join(testRoot, 'committed-release.db');
+    const execution = context();
+    let held: LeaseHandle | undefined;
+    const result = await withWriterLease(
+      'project',
+      'brain',
+      async (lease) => {
+        held = lease;
+        const opened = await openDualScopeDbAtPath('project', target);
+        opened.db.$client.exec(
+          "CREATE TABLE committed_release (value TEXT); INSERT INTO committed_release VALUES ('committed')",
+        );
+        execution.close();
+        _resetDualScopeDbCache();
+        return 'committed';
+      },
+      { dbPath: target, execution },
+    );
+    expect(result).toBe('committed');
+    expect(held?.cleanupPending).toBe(true);
+    const fresh = new DatabaseSync(target, { readOnly: true });
+    try {
+      expect(fresh.prepare('SELECT value FROM committed_release').get()?.value).toBe('committed');
+    } finally {
+      fresh.close();
+    }
+  });
+
+  it('preserves a completed migration result if cancellation follows its synchronous commit', async () => {
+    const native = new DatabaseSync(join(testRoot, 'committed.db'));
+    const execution = context();
+    try {
+      const result = await withColdOpenLease(
+        'project',
+        native,
+        async () => {
+          native.exec("CREATE TABLE proof (value TEXT); INSERT INTO proof VALUES ('committed')");
+          execution.close();
+          return 'committed';
+        },
+        { execution },
+      );
+      expect(result).toBe('committed');
+      expect(native.prepare('SELECT value FROM proof').get()?.value).toBe('committed');
+      expect(countActive(native, 'project', 'tasks')).toBe(0);
+    } finally {
+      execution.close();
+      native.close();
+    }
+  });
+});
+
+describe('required operation-owned schema leases', () => {
+  it('rejects a revoked owner before its mutation while retaining the successor', async () => {
+    const path = join(testRoot, 'mutation-stale', 'cleo.db');
+    const native = await openTempScope('project', dirname(path));
+    native.exec('CREATE TABLE stale_domain_write_probe (value TEXT)');
+    const peer = new DatabaseSync(path);
+    try {
+      await expect(
+        withColdOpenLease(
+          'project',
+          native,
+          async (ownership) => {
+            await Promise.resolve();
+            peer
+              .prepare(
+                `UPDATE ${WRITER_LEASES_TABLE} SET epoch = epoch + 1, holder_id = 'successor' WHERE active = 1`,
+              )
+              .run();
+            ownership.mutate(native, () =>
+              native.prepare('INSERT INTO stale_domain_write_probe VALUES (?)').run('stale write'),
+            );
+          },
+          { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+        ),
+      ).rejects.toThrow('stale');
+      expect(peer.prepare('SELECT value FROM stale_domain_write_probe').all()).toEqual([]);
+      expect(
+        peer.prepare(`SELECT holder_id FROM ${WRITER_LEASES_TABLE} WHERE active = 1`).get()
+          ?.holder_id,
+      ).toBe('successor');
+      expect(native.isTransaction).toBe(false);
+    } finally {
+      peer.close();
+    }
+  });
+
+  it('checks ownership while its actual write lock excludes a competing revocation', async () => {
+    const path = join(testRoot, 'mutation-lock', 'cleo.db');
+    const native = await openTempScope('project', dirname(path));
+    native.exec('CREATE TABLE mutation_proof (value TEXT)');
+    const peer = new DatabaseSync(path, { timeout: 1 });
+    try {
+      const result = await withColdOpenLease(
+        'project',
+        native,
+        async (ownership) =>
+          ownership.mutate(native, () => {
+            expect(native.isTransaction).toBe(true);
+            expect(() =>
+              peer
+                .prepare(`UPDATE ${WRITER_LEASES_TABLE} SET epoch = epoch + 1 WHERE active = 1`)
+                .run(),
+            ).toThrow(/locked/);
+            native.prepare('INSERT INTO mutation_proof VALUES (?)').run('committed');
+            return 'result';
+          }),
+        { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+      );
+      expect(result).toBe('result');
+      expect(peer.prepare('SELECT value FROM mutation_proof').all()).toEqual([
+        { value: 'committed' },
+      ]);
+    } finally {
+      peer.close();
+    }
+  });
+
+  it('rolls back thrown mutations and refuses borrowed transactions without ending them', async () => {
+    const path = join(testRoot, 'mutation-rollback', 'cleo.db');
+    const native = await openTempScope('project', dirname(path));
+    native.exec('CREATE TABLE mutation_proof (value TEXT)');
+    await withColdOpenLease(
+      'project',
+      native,
+      async (ownership) => {
+        const failure = new Error('original mutation failure');
+        expect(() =>
+          ownership.mutate(native, () => {
+            native.exec("INSERT INTO mutation_proof VALUES ('rollback')");
+            throw failure;
+          }),
+        ).toThrow(failure);
+        expect(native.prepare('SELECT * FROM mutation_proof').all()).toEqual([]);
+        native.exec('BEGIN');
+        try {
+          expect(() => ownership.mutate(native, () => 'not admitted')).toThrow('borrow');
+          expect(native.isTransaction).toBe(true);
+        } finally {
+          native.exec('ROLLBACK');
+        }
+      },
+      { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+    );
+  });
+
+  it('rolls back cancellation before commit but retains a result cancelled after commit', async () => {
+    const path = join(testRoot, 'mutation-cancel', 'cleo.db');
+    const native = await openTempScope('project', dirname(path));
+    native.exec('CREATE TABLE mutation_proof (value TEXT)');
+    const aborted = context();
+    await expect(
+      withColdOpenLease(
+        'project',
+        native,
+        async (ownership) =>
+          ownership.mutate(native, () => {
+            native.exec("INSERT INTO mutation_proof VALUES ('cancelled')");
+            aborted.close();
+          }),
+        { requiredIdentity: makeWriterLeaseIdentity('project', path), execution: aborted },
+      ),
+    ).rejects.toThrow();
+    expect(native.prepare('SELECT * FROM mutation_proof').all()).toEqual([]);
+    const committed = context();
+    const result = await withColdOpenLease(
+      'project',
+      native,
+      async (ownership) => {
+        const value = ownership.mutate(native, () => {
+          native.exec("INSERT INTO mutation_proof VALUES ('committed')");
+          return 'committed';
+        });
+        committed.close();
+        return value;
+      },
+      { requiredIdentity: makeWriterLeaseIdentity('project', path), execution: committed },
+    );
+    expect(result).toBe('committed');
+    expect(native.prepare('SELECT value FROM mutation_proof').all()).toEqual([
+      { value: 'committed' },
+    ]);
+  });
+
+  it('rejects expired ownership and another handle before admitting writes', async () => {
+    const path = join(testRoot, 'mutation-expired', 'cleo.db');
+    const native = await openTempScope('project', dirname(path));
+    const peer = new DatabaseSync(path);
+    try {
+      await withColdOpenLease(
+        'project',
+        native,
+        async (ownership) => {
+          expect(() => ownership.mutate(peer, () => 'wrong handle')).toThrow(
+            'captured native handle',
+          );
+          native
+            .prepare(`UPDATE ${WRITER_LEASES_TABLE} SET heartbeat_at = 0 WHERE active = 1`)
+            .run();
+          expect(() => ownership.mutate(native, () => 'expired')).toThrow('expired');
+          expect(native.isTransaction).toBe(false);
+        },
+        { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+      );
+    } finally {
+      peer.close();
+    }
+  });
+
+  it('rejects thenable results and rolls back synchronous writes already attempted', async () => {
+    const path = join(testRoot, 'mutation-thenable', 'cleo.db');
+    const native = await openTempScope('project', dirname(path));
+    native.exec('CREATE TABLE mutation_proof (value TEXT)');
+    await withColdOpenLease(
+      'project',
+      native,
+      async (ownership) => {
+        expect(() =>
+          ownership.mutate(native, () => {
+            native.exec("INSERT INTO mutation_proof VALUES ('rollback')");
+            return Promise.resolve('invalid asynchronous result');
+          }),
+        ).toThrow('must be synchronous');
+        expect(native.prepare('SELECT * FROM mutation_proof').all()).toEqual([]);
+      },
+      { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+    );
+  });
+
+  it('refuses mutation admission without a required grant', async () => {
+    const native = await openTempScope('project', join(testRoot, 'mutation-unleased'));
+    process.env.CLEO_WRITER_LEASE_MODE = 'off';
+    _resetWriterLeaseStateForTest();
+    await withColdOpenLease('project', native, async (ownership) => {
+      expect(() => ownership.mutate(native, () => 'not admitted')).toThrow(
+        'operation-owned authority',
+      );
+    });
+  });
+
+  it('keeps required exclusion when compatibility mode is off', async () => {
+    const native = await openTempScope('project', join(testRoot, 'required-off'));
+    const path = join(testRoot, 'required-off', 'cleo.db');
+    process.env.CLEO_WRITER_LEASE_MODE = 'off';
+    _resetWriterLeaseStateForTest();
+    await withColdOpenLease(
+      'project',
+      native,
+      async (ownership) => {
+        ownership.assertHeld(native);
+        expect(countActive(native, 'project', 'tasks')).toBe(1);
+      },
+      { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+    );
+    expect(countActive(native, 'project', 'tasks')).toBe(0);
+  });
+
+  it('excludes unrelated async callers but admits awaited lexical nesting', async () => {
+    const native = await openTempScope('project', join(testRoot, 'required-nesting'));
+    const path = join(testRoot, 'required-nesting', 'cleo.db');
+    let entered!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holder = withColdOpenLease(
+      'project',
+      native,
+      async () => {
+        await withColdOpenLease(
+          'project',
+          native,
+          async (nested) => {
+            nested.assertHeld(native);
+          },
+          { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+        );
+        entered();
+        await gate;
+      },
+      { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+    );
+    await ready;
+    let peerEntered = false;
+    const peer = withColdOpenLease(
+      'project',
+      native,
+      async () => {
+        peerEntered = true;
+      },
+      { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+    );
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(peerEntered).toBe(false);
+    } finally {
+      release();
+      await Promise.all([holder, peer]);
+    }
+    expect(peerEntered).toBe(true);
+    expect(countActive(native, 'project', 'tasks')).toBe(0);
+  });
+
+  it('releases its own handle after the callback closes the domain connection', async () => {
+    const native = await openTempScope('project', join(testRoot, 'required-close'));
+    const path = join(testRoot, 'required-close', 'cleo.db');
+    expect(
+      await withColdOpenLease(
+        'project',
+        native,
+        async () => {
+          native.close();
+          return 'closed intentionally';
+        },
+        { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+      ),
+    ).toBe('closed intentionally');
+    const fresh = new DatabaseSync(path);
+    try {
+      expect(countActive(fresh, 'project', 'tasks')).toBe(0);
+    } finally {
+      fresh.close();
+    }
+  });
+
+  it('preserves a thrown callback error after callback closure', async () => {
+    const native = await openTempScope('project', join(testRoot, 'required-throw'));
+    const path = join(testRoot, 'required-throw', 'cleo.db');
+    const original = new Error('original callback failure');
+    await expect(
+      withColdOpenLease(
+        'project',
+        native,
+        async () => {
+          native.close();
+          throw original;
+        },
+        { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+      ),
+    ).rejects.toBe(original);
+    const fresh = new DatabaseSync(path);
+    try {
+      expect(countActive(fresh, 'project', 'tasks')).toBe(0);
+    } finally {
+      fresh.close();
+    }
+  });
+
+  it('rejects a different callback file before entry and releases the claimed file', async () => {
+    const left = await openTempScope('project', join(testRoot, 'required-left'));
+    const right = await openTempScope('project', join(testRoot, 'required-right'));
+    let entered = false;
+    await expect(
+      withColdOpenLease(
+        'project',
+        left,
+        async () => {
+          entered = true;
+        },
+        {
+          requiredIdentity: makeWriterLeaseIdentity(
+            'project',
+            join(testRoot, 'required-right', 'cleo.db'),
+          ),
+        },
+      ),
+    ).rejects.toThrow('another database');
+    expect(entered).toBe(false);
+    expect(countActive(right, 'project', 'tasks')).toBe(0);
+  });
+
+  it('rejects a former handle generation after replacement at the identical path', async () => {
+    const path = join(testRoot, 'former-generation.db');
+    const original = new DatabaseSync(path);
+    await withColdOpenLease('project', original, async () => undefined);
+    const capturedIdentity = makeWriterLeaseIdentity('project', path);
+    renameSync(path, path + '.original');
+    copyFileSync(path + '.original', path);
+    let entered = false;
+    try {
+      await expect(
+        withColdOpenLease(
+          'project',
+          original,
+          async () => {
+            entered = true;
+          },
+          { requiredIdentity: capturedIdentity },
+        ),
+      ).rejects.toThrow('file was replaced');
+      expect(entered).toBe(false);
+    } finally {
+      original.close();
+    }
+    const fresh = new DatabaseSync(path);
+    try {
+      expect(countActive(fresh, 'project', 'tasks')).toBe(0);
+    } finally {
+      fresh.close();
+    }
+  });
+
+  it('cancels required contention without entering or taking a compatibility fallback', async () => {
+    const native = await openTempScope('project', join(testRoot, 'required-cancel'));
+    const path = join(testRoot, 'required-cancel', 'cleo.db');
+    let entered!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holder = withColdOpenLease(
+      'project',
+      native,
+      async () => {
+        entered();
+        await gate;
+      },
+      { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+    );
+    await ready;
+    const execution = createOperationExecutionContext(
+      {
+        projectId: 'fixture',
+        projectRoot: testRoot,
+        actor: 'fixture',
+        operation: 'schema',
+        idempotencyKey: 'cancel',
+      },
+      { budgetMs: 25 },
+    );
+    let peerEntered = false;
+    try {
+      await expect(
+        withColdOpenLease(
+          'project',
+          native,
+          async () => {
+            peerEntered = true;
+          },
+          {
+            requiredIdentity: makeWriterLeaseIdentity('project', path),
+            execution,
+          },
+        ),
+      ).rejects.toThrow();
+      expect(peerEntered).toBe(false);
+      expect(countActive(native, 'project', 'tasks')).toBe(1);
+      expect(countRows(native, WRITER_QUEUE_TABLE)).toBe(0);
+    } finally {
+      execution.close();
+      release();
+      await holder;
+    }
+  });
+
+  it('refuses a stale epoch at the explicit checkpoint without releasing its successor', async () => {
+    const native = await openTempScope('project', join(testRoot, 'required-stale'));
+    const path = join(testRoot, 'required-stale', 'cleo.db');
+    await expect(
+      withColdOpenLease(
+        'project',
+        native,
+        async (ownership) => {
+          native
+            .prepare(`UPDATE ${WRITER_LEASES_TABLE} SET epoch = epoch + 1 WHERE active = 1`)
+            .run();
+          ownership.assertHeld();
+        },
+        { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+      ),
+    ).rejects.toThrow('stale');
+    expect(countActive(native, 'project', 'tasks')).toBe(1);
+    native.exec(`UPDATE ${WRITER_LEASES_TABLE} SET active = 0`);
+  });
+
+  it('rejects same-path file replacement instead of publishing callback success', async () => {
+    const native = await openTempScope('project', join(testRoot, 'required-replacement'));
+    const path = join(testRoot, 'required-replacement', 'cleo.db');
+    await expect(
+      withColdOpenLease(
+        'project',
+        native,
+        async () => {
+          renameSync(path, path + '.original');
+          copyFileSync(path + '.original', path);
+          return 'must not publish';
+        },
+        { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+      ),
+    ).rejects.toThrow('file replaced');
+  });
+
+  it('expires detached lexical membership after its original callback exits', async () => {
+    const native = await openTempScope('project', join(testRoot, 'required-detached'));
+    const path = join(testRoot, 'required-detached', 'cleo.db');
+    let resume!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    let detached: Promise<void> | undefined;
+    let entered = false;
+    await withColdOpenLease(
+      'project',
+      native,
+      async () => {
+        detached = (async () => {
+          await gate;
+          await withColdOpenLease(
+            'project',
+            native,
+            async () => {
+              entered = true;
+            },
+            { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+          );
+        })();
+      },
+      { requiredIdentity: makeWriterLeaseIdentity('project', path) },
+    );
+    const outcome = expect(detached).rejects.toThrow('expired lexical');
+    resume();
+    await outcome;
+    expect(entered).toBe(false);
+  });
 });

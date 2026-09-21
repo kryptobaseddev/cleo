@@ -74,7 +74,13 @@ import {
   wrapCoreResult,
 } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { errorResult, getListParams, handleErrorResult } from './_base.js';
+import {
+  envelopeToEngineResult,
+  errorResult,
+  getListParams,
+  handleErrorResult,
+  wrapResult,
+} from './_base.js';
 import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
@@ -560,11 +566,7 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
   'manifest.list': async (params: PipelineOps['manifest.list'][0]) => {
     const result = await coreOps['manifest.list'](params);
     if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'manifest.list',
-      );
+      return wrapCoreResult(result, 'manifest.list');
     }
     // Embed engine page in data so outer query() can populate DispatchResponse.page.
     return lafsSuccess(
@@ -758,14 +760,13 @@ export class PipelineHandler implements DomainHandler {
       );
 
       if (!envelope.success) {
-        return {
-          meta: dispatchMeta('query', 'pipeline', operation, startTime),
-          success: false,
-          error: {
-            code: envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
-            message: envelope.error?.message ?? 'Unknown error',
-          },
-        };
+        return wrapResult(
+          envelopeToEngineResult(envelope),
+          'query',
+          'pipeline',
+          operation,
+          startTime,
+        );
       }
 
       // phase.list — pagination applied via helper (ADR-058 T1492/P1-1)
@@ -820,19 +821,13 @@ export class PipelineHandler implements DomainHandler {
         params ?? {},
       );
 
-      return {
-        meta: dispatchMeta('mutate', 'pipeline', operation, startTime),
-        success: envelope.success,
-        ...(envelope.success
-          ? { data: envelope.data as unknown }
-          : {
-              error: {
-                code:
-                  envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
-                message: envelope.error?.message ?? 'Unknown error',
-              },
-            }),
-      };
+      return wrapResult(
+        envelopeToEngineResult(envelope),
+        'mutate',
+        'pipeline',
+        operation,
+        startTime,
+      );
     } catch (error) {
       getLogger('domain:pipeline').error(
         { gateway: 'mutate', domain: 'pipeline', operation, err: error },

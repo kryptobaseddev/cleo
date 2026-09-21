@@ -19,8 +19,9 @@ import type {
   ExtractedHeritage,
 } from '../pipeline/extractors/typescript-extractor.js';
 import { buildHeritageMap, processHeritage } from '../pipeline/heritage-processor.js';
-import type { NamedImportMap } from '../pipeline/import-processor.js';
+import type { BarrelExportMap, NamedImportMap } from '../pipeline/import-processor.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
+import { extractOriginalSource } from '../pipeline/parse-loop.js';
 import { createResolutionContext } from '../pipeline/resolution-context.js';
 import { createSymbolTable } from '../pipeline/symbol-table.js';
 
@@ -138,6 +139,87 @@ describe('processHeritage', () => {
     expect(edges).toHaveLength(1);
     expect(edges[0]!.target).toBe('__heritage__ExternalBase');
     expect(edges[0]!.confidence).toBeLessThanOrEqual(0.95);
+  });
+
+  it('publishes a closed graph for external Error heritage with explicit unresolved metadata', () => {
+    const graph = createKnowledgeGraph();
+    const ctx = createResolutionContext();
+    const child = makeNode('script.ts::BasisAlignError', 'class', 'BasisAlignError', 'script.ts');
+    graph.addNode(child);
+    ctx.symbols.add('script.ts', 'BasisAlignError', child.id, 'class');
+    processHeritage(
+      [
+        {
+          filePath: 'script.ts',
+          typeName: 'BasisAlignError',
+          typeNodeId: child.id,
+          kind: 'extends',
+          parentName: 'Error',
+        },
+      ],
+      graph,
+      ctx,
+    );
+    const publication = graph.preparePublication();
+    expect(publication.relations).toHaveLength(1);
+    const external = graph.nodes.get('__heritage__Error');
+    expect(external).toMatchObject({
+      filePath: '',
+      isExternal: true,
+      meta: { resolution: 'unresolved', sourceAnalyzed: false },
+    });
+    expect(publication.nodes.find((node) => node.id === '__heritage__Error')?.metaJson).toContain(
+      'unresolved',
+    );
+  });
+
+  it('retains ambiguous heritage candidates without choosing a local definition', () => {
+    const graph = createKnowledgeGraph();
+    const ctx = createResolutionContext();
+    const child = makeNode('child.ts::Child', 'class', 'Child', 'child.ts');
+    graph.addNode(child);
+    ctx.symbols.add('child.ts', 'Child', child.id, 'class');
+    ctx.symbols.add('one.ts', 'Base', 'one.ts::Base', 'class');
+    ctx.symbols.add('two.ts', 'Base', 'two.ts::Base', 'class');
+    processHeritage(
+      [
+        {
+          filePath: 'child.ts',
+          typeName: 'Child',
+          typeNodeId: child.id,
+          kind: 'extends',
+          parentName: 'Base',
+        },
+      ],
+      graph,
+      ctx,
+    );
+    const target = graph.nodes.get(graph.relations[0]?.target ?? '');
+    expect(target?.meta).toMatchObject({
+      resolution: 'ambiguous',
+      candidates: ['one.ts::Base', 'two.ts::Base'],
+    });
+    expect(() => graph.preparePublication()).not.toThrow();
+  });
+
+  it('maps synthetic file-scope call/access endpoints only to verified canonical file nodes', () => {
+    const graph = createKnowledgeGraph();
+    graph.addNode(makeNode('script.ts', 'file', 'script.ts', 'script.ts'));
+    graph.addNode(makeNode('script.ts::run', 'function', 'run', 'script.ts'));
+    graph.addRelation({
+      source: 'script.ts::__file__',
+      target: 'script.ts::run',
+      type: 'calls',
+      confidence: 1,
+    });
+    expect(graph.preparePublication().relations[0]?.sourceId).toBe('script.ts');
+    graph.addRelation({
+      source: 'missing.ts::__file__',
+      target: 'script.ts::run',
+      type: 'accesses',
+      confidence: 1,
+    });
+    expect(() => graph.preparePublication()).toThrow('Invalid graph relationship');
   });
 
   it('skips record when child type not found in symbol table', () => {
@@ -526,5 +608,126 @@ describe('emitClassMemberEdges', () => {
     const result = emitClassMemberEdges(graph);
     expect(result.hasMethodCount).toBe(0);
     expect(result.hasPropertyCount).toBe(0);
+  });
+});
+
+describe('lexical call resolution (T12264)', () => {
+  it('links real imported callers and refuses mock/parameter production edges', async () => {
+    const files = {
+      'production.ts': 'export function orgNameTaken(name: string) { return false; }',
+      'route.ts':
+        'import { orgNameTaken } from "./production"; export function GET(){return orgNameTaken("real");}',
+      'hooks.ts':
+        'import { orgNameTaken } from "./production"; export const hooks = { beforeCreateOrganization: async (input) => orgNameTaken(input.name) };',
+      'mock.test.ts':
+        'export function testCase(){const orgNameTaken=vi.fn();return orgNameTaken("mock");}',
+      'parameter.ts': 'export function check(orgNameTaken){return orgNameTaken("parameter");}',
+      'nested.ts':
+        'function first(){function local(){return 1;}return local();} function second(){function local(){return 2;}return local();}',
+    };
+    const graph = createKnowledgeGraph();
+    const symbols = createSymbolTable();
+    const calls: ExtractedCall[] = [];
+    for (const [filePath, content] of Object.entries(files)) {
+      graph.addNode(makeNode(filePath, 'file', filePath, filePath));
+      const extracted = extractOriginalSource(content, filePath);
+      for (const node of extracted.definitions) {
+        graph.addNode(node);
+        symbols.add(filePath, node.name, node.id, node.kind, {
+          ownerId: node.parent,
+          parameterCount: node.parameters?.length,
+        });
+      }
+      calls.push(...extracted.calls);
+    }
+    const bindings: NamedImportMap = new Map(
+      ['route.ts', 'hooks.ts'].map((filePath) => [
+        filePath,
+        new Map([['orgNameTaken', { sourcePath: 'production.ts', exportedName: 'orgNameTaken' }]]),
+      ]),
+    );
+    const result = await resolveCalls(calls, graph, symbols, bindings);
+    const production = graph.relations.filter(
+      (edge) => edge.type === 'calls' && edge.target === 'production.ts::orgNameTaken',
+    );
+    expect(production.map((edge) => edge.source).sort()).toEqual([
+      'hooks.ts::hooks.beforeCreateOrganization',
+      'route.ts::GET',
+    ]);
+    for (const name of ['first', 'second']) {
+      expect(graph.relations).toContainEqual(
+        expect.objectContaining({
+          source: `nested.ts::${name}`,
+          target: `nested.ts::${name}.local`,
+          type: 'calls',
+        }),
+      );
+    }
+    expect(result.tier3Count).toBe(0);
+    const shadowReports = result.references.filter(
+      (report) => report.targetName === 'orgNameTaken',
+    );
+    expect(shadowReports.map((report) => report.kind)).toEqual(['shadowed', 'shadowed']);
+    expect(
+      shadowReports.every(
+        (report) => report.span && report.generation && report.candidateIds?.length,
+      ),
+    ).toBe(true);
+  });
+
+  it('retains ambiguous, dynamic and external candidates without binding them globally', async () => {
+    const source = `import { fetchRemote } from 'external';
+import { shared } from './barrel';
+function run(){ fetchRemote(); shared(); unbound(); handlers[key](); }`;
+    const graph = createKnowledgeGraph();
+    const symbols = createSymbolTable();
+    const own = extractOriginalSource(source, 'consumer.ts');
+    for (const node of own.definitions) {
+      graph.addNode(node);
+      symbols.add(node.filePath, node.name, node.id, node.kind, { ownerId: node.parent });
+    }
+    for (const file of ['left.ts', 'right.ts']) {
+      const node = makeNode(`${file}::shared`, 'function', 'shared', file);
+      graph.addNode(node);
+      symbols.add(file, node.name, node.id, node.kind);
+    }
+    const misleading = makeNode(
+      'elsewhere.ts::fetchRemote',
+      'function',
+      'fetchRemote',
+      'elsewhere.ts',
+    );
+    graph.addNode(misleading);
+    symbols.add(misleading.filePath, misleading.name, misleading.id, misleading.kind);
+    const global = makeNode('elsewhere.ts::unbound', 'function', 'unbound', 'elsewhere.ts');
+    graph.addNode(global);
+    symbols.add(global.filePath, global.name, global.id, global.kind);
+    const imports: NamedImportMap = new Map([
+      ['consumer.ts', new Map([['shared', { sourcePath: 'barrel.ts', exportedName: 'shared' }]])],
+    ]);
+    const barrels: BarrelExportMap = new Map([
+      [
+        'barrel.ts',
+        new Map([
+          ['*0', { canonicalFile: 'left.ts', canonicalName: '*' }],
+          ['*1', { canonicalFile: 'right.ts', canonicalName: '*' }],
+        ]),
+      ],
+    ]);
+    const result = await resolveCalls(own.calls, graph, symbols, imports, barrels);
+    expect(graph.relations.filter((edge) => edge.type === 'calls')).toHaveLength(0);
+    expect(result.references.map((report) => report.kind)).toEqual([
+      'external',
+      'ambiguous',
+      'unresolved',
+      'dynamic',
+    ]);
+    expect(result.references[1].candidateIds).toEqual(['left.ts::shared', 'right.ts::shared']);
+    expect(result.references[2].candidateIds).toEqual(['elsewhere.ts::unbound']);
+    for (const report of result.references) {
+      expect(report.span?.offsetEncoding).toBe('utf16');
+      expect(report.reason.length).toBeGreaterThan(10);
+      expect(source.slice(report.span?.startIndex, report.span?.endIndex)).toContain('(');
+    }
   });
 });

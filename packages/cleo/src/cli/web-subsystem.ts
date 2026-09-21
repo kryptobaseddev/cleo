@@ -26,12 +26,12 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { SubsystemHealth, SubsystemState } from '@cleocode/contracts';
-import { getCleoHome } from '@cleocode/core';
+import { ExitCode, type SubsystemHealth, type SubsystemState } from '@cleocode/contracts';
+import { CleoError, getCleoHome } from '@cleocode/core';
 import { defineSubsystem } from '@cleocode/runtime/daemon';
 
 // ---------------------------------------------------------------------------
@@ -57,6 +57,25 @@ const STARTUP_POLL_ITERATIONS = 30;
 // Path helpers
 // ---------------------------------------------------------------------------
 
+/** Identify a source checkout from the executing CLI's own layout, never from ambient cwd. */
+function resolveStudioCheckout(moduleUrl: string): string | undefined {
+  try {
+    const packageRoot = resolve(dirname(fileURLToPath(moduleUrl)), '..', '..');
+    const checkout = resolve(packageRoot, '..', '..');
+    if (packageRoot !== join(checkout, 'packages', 'cleo')) return undefined;
+    const markers = [
+      join(packageRoot, 'src', 'cli', 'web-subsystem.ts'),
+      join(checkout, 'pnpm-workspace.yaml'),
+      join(checkout, 'build.mjs'),
+      join(checkout, 'packages', 'studio', 'package.json'),
+      join(checkout, 'packages', 'studio', 'src', 'app.html'),
+    ];
+    return markers.every((path) => statSync(path).isFile()) ? checkout : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Resolve the Studio `build/` directory for the web server.
  *
@@ -68,25 +87,35 @@ const STARTUP_POLL_ITERATIONS = 30;
  *     monorepo `postbuild` copy step and included in the `@cleocode/cleo` npm
  *     tarball. This is the batteries-included path that works from a plain
  *     `npm install -g @cleocode/cleo` with no repo checkout (T11979).
- *  3. `<project-root>/packages/studio/build` relative to `CLEO_ROOT` / `cwd`
- *     — legacy dev-checkout fallback. Kept for backward compat; the
- *     `postbuild` step is required before `cleo web start` in a dev checkout.
+ *  3. `<source-checkout>/packages/studio/build` only when the executing CLI
+ *     belongs to that checkout and its source/build markers exist. Ambient
+ *     project roots cannot supply or trigger a build for an installed CLI.
  *
+ * @param moduleUrl - URL of the CLI module within `src/cli` or `dist/cli`;
+ *   defaults to this module, including when bundled into the CLI entry point.
  * @returns The absolute path to the Studio build directory, or `undefined` when
  *   none of the candidates exist on disk.
+ * @example
+ * ```ts
+ * const studioDir = resolveStudioDir();
+ * ```
  */
-export function resolveStudioDir(): string | undefined {
+export function resolveStudioDir(moduleUrl = import.meta.url): string | undefined {
   // 1. Explicit override.
   const envOverride = process.env['CLEO_STUDIO_DIR'];
-  if (envOverride !== undefined && envOverride.length > 0 && existsSync(envOverride)) {
+  if (
+    envOverride !== undefined &&
+    envOverride.length > 0 &&
+    existsSync(join(envOverride, 'index.js'))
+  ) {
     return envOverride;
   }
 
   // 2. Bundled path (T11979): <cleo-package-root>/studio-dist/
   //    import.meta.url resolves to the compiled .js file under dist/cli/;
-  //    walking up 3 levels reaches the package root.
+  //    walking up 2 levels reaches the package root (also true for src/cli/).
   try {
-    const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+    const pkgRoot = resolve(dirname(fileURLToPath(moduleUrl)), '..', '..');
     const bundled = join(pkgRoot, 'studio-dist');
     if (existsSync(join(bundled, 'index.js'))) {
       return bundled;
@@ -95,11 +124,11 @@ export function resolveStudioDir(): string | undefined {
     // import.meta.url unavailable or path resolution failed — fall through.
   }
 
-  // 3. Dev-checkout fallback: packages/studio/build relative to project root.
-  const projectRoot = process.env['CLEO_ROOT'] ?? process.cwd();
-  const devPath = join(projectRoot, 'packages', 'studio', 'build');
-  if (existsSync(join(devPath, 'index.js'))) {
-    return devPath;
+  // 3. Only the executing CLI's verified source layout may supply a dev build.
+  const checkout = resolveStudioCheckout(moduleUrl);
+  if (checkout) {
+    const devPath = join(checkout, 'packages', 'studio', 'build');
+    if (existsSync(join(devPath, 'index.js'))) return devPath;
   }
 
   return undefined;
@@ -255,6 +284,7 @@ export interface WebSubsystemOptions {
  *    SIGKILL on timeout, then removes the PID file.
  *
  * @param opts - Optional port / host overrides.
+ * @param moduleUrl - Executing CLI module URL, used to distinguish installed and source layouts.
  * @returns A frozen subsystem ready to `register()` with a `SubsystemRegistry`.
  *
  * @example
@@ -266,6 +296,7 @@ export interface WebSubsystemOptions {
  */
 export function createWebSubsystem(
   opts: WebSubsystemOptions = {},
+  moduleUrl = import.meta.url,
 ): ReturnType<typeof defineSubsystem<WebSubsystemContext>> {
   const port = opts.port ?? WEB_DEFAULT_PORT;
   const host = opts.host ?? WEB_DEFAULT_HOST;
@@ -295,13 +326,16 @@ export function createWebSubsystem(
         return ctx;
       }
 
-      // Resolve Studio build directory using the priority-ordered resolver
-      // (T11979): bundled path (npm install) → CLEO_STUDIO_DIR override →
-      // dev-checkout fallback.
-      const resolvedStudioDir = resolveStudioDir();
+      const resolvedStudioDir = resolveStudioDir(moduleUrl);
+      const checkout = resolveStudioCheckout(moduleUrl);
       const studioDir =
-        resolvedStudioDir ??
-        join(process.env['CLEO_ROOT'] ?? process.cwd(), 'packages', 'studio', 'build');
+        resolvedStudioDir ?? (checkout ? join(checkout, 'packages', 'studio', 'build') : undefined);
+      if (!studioDir) {
+        throw new CleoError(
+          ExitCode.NOT_FOUND,
+          'Packaged Studio bundle is missing its index.js entry. Reinstall a complete CLEO package or set CLEO_STUDIO_DIR to a built Studio bundle.',
+        );
+      }
       const webIndexPath = join(studioDir, 'index.js');
 
       // Ensure log directory and config file exist.
@@ -315,17 +349,21 @@ export function createWebSubsystem(
       try {
         await stat(webIndexPath);
       } catch {
-        const projectRoot = process.env['CLEO_ROOT'] ?? process.cwd();
+        if (!checkout || studioDir !== join(checkout, 'packages', 'studio', 'build')) {
+          throw new CleoError(ExitCode.NOT_FOUND, `Studio entry is missing: ${webIndexPath}`);
+        }
         try {
           execFileSync('pnpm', ['--filter', '@cleocode/studio', 'run', 'build'], {
-            cwd: projectRoot,
+            cwd: checkout,
             stdio: 'ignore',
+            timeout: 120_000,
           });
         } catch {
           throw new Error(
             `Studio build failed. Run: pnpm --filter @cleocode/studio run build\nLogs: ${logFile}`,
           );
         }
+        await stat(webIndexPath);
       }
 
       // Open log file for stdio redirection (O_CREAT | O_APPEND).

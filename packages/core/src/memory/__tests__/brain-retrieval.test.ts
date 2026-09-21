@@ -7,11 +7,16 @@
  * @epic T5149
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, aroundEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, aroundEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { worktreeScope } from '../../paths.js';
+import {
+  awaitBackgroundOps,
+  createOperationExecutionContext,
+  pendingBackgroundOpCount,
+} from '../../store/background-ops.js';
 
 let tempDir: string;
 let cleoDir: string;
@@ -41,6 +46,7 @@ describe('Brain Retrieval', () => {
   });
 
   afterEach(async () => {
+    await awaitBackgroundOps();
     try {
       const { shutdownBrainWriter, _resetBrainWriterForTests } = await import(
         '../brain-writer-thread.js'
@@ -81,6 +87,299 @@ describe('Brain Retrieval', () => {
   // ==========================================================================
 
   describe('searchBrainCompact', () => {
+    it.each([
+      'lexical',
+      'rrf',
+      'fetch',
+    ])('retains project/session ownership until telemetry finishes (%s)', async (method) => {
+      const { searchBrainCompact, fetchBrainEntries } = await import('../brain-retrieval.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      const { getDb, closeAllDatabases } = await import('../../store/sqlite.js');
+      const { sessions } = await import('../../store/tasks-schema.js');
+      const retrieval = await import('../retrieval/log-retrieval.js');
+      const original = retrieval.logRetrieval;
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const completed = Promise.withResolvers<void>();
+      const second = await mkdtemp(join(tmpdir(), 'cleo-retrieval-owner-b-'));
+      const spy = vi.spyOn(retrieval, 'logRetrieval').mockImplementation(async (...args) => {
+        if (args[0] === tempDir) {
+          entered.resolve();
+          await release.promise;
+        }
+        try {
+          await original(...args);
+        } finally {
+          if (args[0] === tempDir) completed.resolve();
+        }
+      });
+      try {
+        await mkdir(join(second, '.cleo'));
+        await worktreeScope.run({ worktreeRoot: second, projectHash: 'seed-b' }, async () => {
+          const secondDb = await getDb(second);
+          await secondDb
+            .insert(sessions)
+            .values({ id: 'S-B', name: 'second', status: 'active' })
+            .run();
+        });
+        for (const root of [tempDir, second]) {
+          await worktreeScope.run({ worktreeRoot: root, projectHash: 'seed' }, async () => {
+            const accessor = await getBrainAccessor(root);
+            await accessor.addObservation({
+              id: 'O-owner',
+              type: 'discovery',
+              title: 'ownershipneedle',
+              narrative: 'ownershipneedle',
+              sourceType: 'agent',
+            });
+          });
+        }
+        const first =
+          method === 'fetch'
+            ? await fetchBrainEntries(tempDir, { ids: ['O-owner'] })
+            : await searchBrainCompact(tempDir, {
+                query: 'ownershipneedle',
+                tables: ['observations'],
+                useRRF: method === 'rrf',
+              });
+        expect(first.results.map((hit) => hit.id)).toContain('O-owner');
+        await entered.promise;
+        expect(pendingBackgroundOpCount()).toBeGreaterThan(0);
+        const next =
+          method === 'fetch'
+            ? await fetchBrainEntries(second, { ids: ['O-owner'] })
+            : await searchBrainCompact(second, {
+                query: 'ownershipneedle',
+                tables: ['observations'],
+                useRRF: method === 'rrf',
+              });
+        expect(next.results.map((hit) => hit.id)).toContain('O-owner');
+        release.resolve();
+        await completed.promise;
+        await awaitBackgroundOps();
+        expect(pendingBackgroundOpCount()).toBe(0);
+        for (const [root, session] of [
+          [tempDir, 'S-123'],
+          [second, 'S-B'],
+        ]) {
+          const native = worktreeScope.run({ worktreeRoot: root, projectHash: 'read' }, () =>
+            getBrainNativeDb(root),
+          );
+          expect(
+            native
+              ?.prepare('SELECT session_id FROM brain_retrieval_log WHERE query = ?')
+              .all(method === 'fetch' ? 'O-owner' : 'ownershipneedle'),
+          ).toEqual([{ session_id: session }]);
+          expect(
+            native
+              ?.prepare('SELECT citation_count FROM brain_observations WHERE id = ?')
+              .get('O-owner'),
+          ).toMatchObject({ citation_count: 1 });
+        }
+      } finally {
+        release.resolve();
+        if (spy.mock.calls.some((args) => args[0] === tempDir)) await completed.promise;
+        await awaitBackgroundOps();
+        spy.mockRestore();
+        await closeAllDatabases();
+        await rm(second, { recursive: true, force: true });
+      }
+    });
+
+    it.each(
+      ['lexical', 'rrf', 'fetch'].flatMap((method) =>
+        ['cancel', 'deadline'].map((stop) => ({ method, stop })),
+      ),
+    )('prevents telemetry writes after the original operation $method $stop', async ({
+      method,
+      stop,
+    }) => {
+      const { searchBrainCompact, fetchBrainEntries } = await import('../brain-retrieval.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      const retrieval = await import('../retrieval/log-retrieval.js');
+      const original = retrieval.logRetrieval;
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const finished = Promise.withResolvers<void>();
+      await writeFile(
+        join(cleoDir, 'project-info.json'),
+        JSON.stringify({
+          projectId: 'telemetry-fixture',
+          projectHash: 'telemetry-fixture',
+          projectRoot: tempDir,
+        }),
+      );
+      const accessor = await getBrainAccessor(tempDir);
+      await accessor.addObservation({
+        id: 'O-cancel',
+        type: 'discovery',
+        title: 'cancelneedle',
+        narrative: 'cancelneedle',
+        sourceType: 'agent',
+      });
+      const abort = new AbortController();
+      const context = createOperationExecutionContext(
+        {
+          projectRoot: tempDir,
+          projectId: 'telemetry-fixture',
+          actor: 'test',
+          operation: 'memory.find',
+          idempotencyKey: stop,
+        },
+        { budgetMs: 10000, signal: abort.signal },
+      );
+      const spy = vi.spyOn(retrieval, 'logRetrieval').mockImplementation(async (...args) => {
+        entered.resolve();
+        await release.promise;
+        try {
+          await original(...args);
+        } finally {
+          finished.resolve();
+        }
+      });
+      try {
+        const found = await worktreeScope.run(
+          { worktreeRoot: tempDir, projectHash: 'test', execution: context },
+          () =>
+            method === 'fetch'
+              ? fetchBrainEntries(tempDir, { ids: ['O-cancel'] })
+              : searchBrainCompact(tempDir, {
+                  query: 'cancelneedle',
+                  tables: ['observations'],
+                  useRRF: method === 'rrf',
+                }),
+        );
+        expect(found.results.map((hit) => hit.id)).toContain('O-cancel');
+        await entered.promise;
+        expect(pendingBackgroundOpCount()).toBeGreaterThan(0);
+        if (stop === 'cancel') abort.abort();
+        else vi.spyOn(Date, 'now').mockReturnValue(context.deadlineAt + 1);
+        release.resolve();
+        await finished.promise;
+        await awaitBackgroundOps();
+        expect(pendingBackgroundOpCount()).toBe(0);
+        vi.restoreAllMocks();
+        const native = getBrainNativeDb(tempDir);
+        const table = native
+          ?.prepare("SELECT name FROM sqlite_master WHERE name = 'brain_retrieval_log'")
+          .get();
+        if (table)
+          expect(
+            native
+              ?.prepare('SELECT COUNT(*) AS count FROM brain_retrieval_log WHERE query = ?')
+              .get(method === 'fetch' ? 'O-cancel' : 'cancelneedle'),
+          ).toEqual({ count: 0 });
+        else expect(table).toBeUndefined();
+      } finally {
+        release.resolve();
+        if (spy.mock.calls.length > 0) await finished.promise;
+        await awaitBackgroundOps();
+        vi.restoreAllMocks();
+        context.close();
+      }
+    });
+
+    it.each([
+      'complete',
+      'cancel',
+      'deadline',
+    ])('tracks budget citation lifetime and ownership: %s', async (stop) => {
+      const { retrieveWithBudget } = await import('../brain-retrieval.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      const citation = await import('../retrieval/increment-citation-counts.js');
+      const original = citation.incrementCitationCounts;
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const finished = Promise.withResolvers<void>();
+      const second = await mkdtemp(join(tmpdir(), 'cleo-budget-owner-b-'));
+      await mkdir(join(second, '.cleo'));
+      await writeFile(
+        join(cleoDir, 'project-info.json'),
+        JSON.stringify({
+          projectId: 'budget-fixture',
+          projectHash: 'budget-fixture',
+          projectRoot: tempDir,
+        }),
+      );
+      for (const root of [tempDir, second]) {
+        await worktreeScope.run({ worktreeRoot: root, projectHash: 'seed' }, async () => {
+          const accessor = await getBrainAccessor(root);
+          await accessor.addObservation({
+            id: 'O-budget',
+            type: 'discovery',
+            title: 'budgetneedle',
+            narrative: 'budgetneedle durable evidence',
+            sourceType: 'agent',
+          });
+        });
+      }
+      const abort = new AbortController();
+      const context = createOperationExecutionContext(
+        {
+          projectRoot: tempDir,
+          projectId: 'budget-fixture',
+          actor: 'test',
+          operation: 'memory.retrieve',
+          idempotencyKey: stop,
+        },
+        { budgetMs: 10000, signal: abort.signal },
+      );
+      const spy = vi
+        .spyOn(citation, 'incrementCitationCounts')
+        .mockImplementation(async (...args) => {
+          if (args[0] === tempDir) {
+            entered.resolve();
+            await release.promise;
+          }
+          try {
+            await original(...args);
+          } finally {
+            if (args[0] === tempDir) finished.resolve();
+          }
+        });
+      try {
+        const result = await worktreeScope.run(
+          { worktreeRoot: tempDir, projectHash: 'test', execution: context },
+          () => retrieveWithBudget(tempDir, 'budgetneedle', 500),
+        );
+        expect(result.entries.map((entry) => entry.id)).toContain('O-budget');
+        await entered.promise;
+        expect(pendingBackgroundOpCount()).toBeGreaterThan(0);
+        if (stop === 'complete') {
+          const next = await retrieveWithBudget(second, 'budgetneedle', 500);
+          expect(next.entries.map((entry) => entry.id)).toContain('O-budget');
+        } else if (stop === 'cancel') abort.abort();
+        else vi.spyOn(Date, 'now').mockReturnValue(context.deadlineAt + 1);
+        release.resolve();
+        await finished.promise;
+        await awaitBackgroundOps();
+        expect(pendingBackgroundOpCount()).toBe(0);
+        vi.restoreAllMocks();
+        for (const root of [tempDir, second]) {
+          const native = worktreeScope.run({ worktreeRoot: root, projectHash: 'read' }, () =>
+            getBrainNativeDb(root),
+          );
+          expect(
+            native
+              ?.prepare('SELECT citation_count FROM brain_observations WHERE id = ?')
+              .get('O-budget'),
+          ).toEqual({ citation_count: stop === 'complete' ? 1 : 0 });
+        }
+      } finally {
+        release.resolve();
+        if (spy.mock.calls.some((args) => args[0] === tempDir)) await finished.promise;
+        await awaitBackgroundOps();
+        vi.restoreAllMocks();
+        context.close();
+        await closeAllDatabases();
+        await rm(second, { recursive: true, force: true });
+      }
+    });
+
     it('should return empty results for empty query', async () => {
       const { searchBrainCompact } = await import('../brain-retrieval.js');
       const { closeBrainDb } = await import('../../store/memory-sqlite.js');

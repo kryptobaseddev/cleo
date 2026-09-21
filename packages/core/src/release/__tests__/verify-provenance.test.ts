@@ -127,6 +127,16 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
+// Explicit release fixtures must resolve their own project store and documents.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('verifyProvenance — Phase 2 (T9529)', () => {
   let projectRoot: string;
   let cleanup: () => void;

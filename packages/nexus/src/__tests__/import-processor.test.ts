@@ -12,11 +12,15 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  type BarrelExportMap,
   buildImportResolutionContext,
   type ExtractedImport,
   processExtractedImports,
+  resolveBarrelBinding,
+  resolveBarrelCandidates,
 } from '../pipeline/import-processor.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
+import { processStructure } from '../pipeline/structure-processor.js';
 
 describe('processExtractedImports — T1062 Recovery', () => {
   it('emits imports edge for resolved local file import', async () => {
@@ -46,8 +50,8 @@ describe('processExtractedImports — T1062 Recovery', () => {
 
     // Verify the imports relation exists
     const relation = graph.relations[0];
-    expect(relation?.source).toBe('file:src/app.ts');
-    expect(relation?.target).toBe('file:src/models.ts');
+    expect(relation?.source).toBe('src/app.ts');
+    expect(relation?.target).toBe('src/models.ts');
     expect(relation?.type).toBe('imports');
     expect(relation?.reason).toBe('static import');
     expect(relation?.confidence).toBe(1.0);
@@ -110,9 +114,118 @@ describe('processExtractedImports — T1062 Recovery', () => {
 
     // Should create a normal imports edge between files
     const importRelation = graph.relations.find(
-      (r) =>
-        r.source === 'file:src/app.ts' && r.target === 'file:src/models.ts' && r.type === 'imports',
+      (r) => r.source === 'src/app.ts' && r.target === 'src/models.ts' && r.type === 'imports',
     );
     expect(importRelation).toBeDefined();
+  });
+
+  it('publishes local and external imports against canonical file nodes with external provenance', async () => {
+    const graph = createKnowledgeGraph();
+    const files = ['axiom-app/dbquery.js', 'axiom-app/local.js'];
+    processStructure(
+      files.map((path) => ({ path, size: 20, language: 'javascript' })),
+      graph,
+    );
+    await processExtractedImports({
+      graph,
+      importCtx: buildImportResolutionContext(files),
+      namedImportMap: new Map(),
+      tsconfigPaths: null,
+      imports: [
+        { filePath: files[0]!, rawImportPath: 'pg' },
+        { filePath: files[0]!, rawImportPath: './local' },
+      ],
+    });
+    const publication = graph.preparePublication();
+    expect(publication.relations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceId: files[0],
+          targetId: 'module:pg',
+          type: 'imports',
+          reason: 'unresolved external import',
+        }),
+        expect.objectContaining({
+          sourceId: files[0],
+          targetId: files[1],
+          type: 'imports',
+          reason: 'static import',
+        }),
+      ]),
+    );
+    const external = publication.nodes.find((node) => node.id === 'module:pg');
+    expect(external).toMatchObject({ kind: 'module', filePath: null });
+    expect(JSON.parse(external?.metaJson ?? '{}')).toEqual({ isExternal: true });
+  });
+
+  it.each([
+    'missing-source',
+    'missing-target',
+  ])('rejects an import with a %s before publication', (missing) => {
+    const graph = createKnowledgeGraph();
+    processStructure([{ path: 'src/app.ts', size: 20, language: 'typescript' }], graph);
+    graph.addRelation({
+      source: missing === 'missing-source' ? 'missing.ts' : 'src/app.ts',
+      target: missing === 'missing-target' ? 'module:missing' : 'src/app.ts',
+      type: 'imports',
+      confidence: 1,
+    });
+    expect(() => graph.preparePublication()).toThrow('Invalid graph relationship');
+  });
+});
+
+describe('barrel candidate preservation (T12264)', () => {
+  it('refuses first-wildcard selection and retains both candidate bindings', () => {
+    const map: BarrelExportMap = new Map([
+      [
+        'index.ts',
+        new Map([
+          ['*0', { canonicalFile: 'a.ts', canonicalName: '*' }],
+          ['*1', { canonicalFile: 'b.ts', canonicalName: '*' }],
+        ]),
+      ],
+    ]);
+    expect(resolveBarrelBinding('index.ts', 'shared', map)).toBeNull();
+    expect(resolveBarrelCandidates('index.ts', 'shared', map)).toEqual({
+      candidates: [
+        { canonicalFile: 'a.ts', canonicalName: 'shared' },
+        { canonicalFile: 'b.ts', canonicalName: 'shared' },
+      ],
+      incomplete: [],
+    });
+  });
+  it('bounds wildcard cycles including converging branches without losing diagnostics', () => {
+    const map: BarrelExportMap = new Map([
+      [
+        'root.ts',
+        new Map([
+          ['*0', { canonicalFile: 'b.ts', canonicalName: '*' }],
+          ['*1', { canonicalFile: 'c.ts', canonicalName: '*' }],
+        ]),
+      ],
+      ['b.ts', new Map([['*0', { canonicalFile: 'd.ts', canonicalName: '*' }]])],
+      ['c.ts', new Map([['*0', { canonicalFile: 'd.ts', canonicalName: '*' }]])],
+      ['d.ts', new Map([['*0', { canonicalFile: 'c.ts', canonicalName: '*' }]])],
+    ]);
+    expect(() => resolveBarrelBinding('root.ts', 'shared', map)).not.toThrow();
+    expect(resolveBarrelBinding('root.ts', 'shared', map)).toBeNull();
+    const result = resolveBarrelCandidates('root.ts', 'shared', map);
+    expect(result.candidates).toEqual([]);
+    expect(result.incomplete.some((reason) => reason.includes('Cyclic'))).toBe(true);
+  });
+  it('honors explicit named exports over wildcard branches', () => {
+    const map: BarrelExportMap = new Map([
+      [
+        'index.ts',
+        new Map([
+          ['shared', { canonicalFile: 'a.ts', canonicalName: 'actual' }],
+          ['*0', { canonicalFile: 'b.ts', canonicalName: '*' }],
+        ]),
+      ],
+    ]);
+    expect(resolveBarrelBinding('index.ts', 'shared', map)).toEqual({
+      canonicalFile: 'a.ts',
+      canonicalName: 'actual',
+    });
   });
 });

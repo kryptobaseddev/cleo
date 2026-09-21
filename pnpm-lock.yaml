@@ -670,6 +670,9 @@ importers:
       graphology-types:
         specifier: ^0.24.8
         version: 0.24.8
+      ignore:
+        specifier: 7.0.5
+        version: 7.0.5
       tree-sitter:
         specifier: 0.21.1
         version: 0.21.1
@@ -809,9 +812,6 @@ importers:
       '@cleocode/runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@cosmograph/cosmos':
-        specifier: ^2.0.0-beta.26
-        version: 2.0.0-beta.26
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
@@ -821,12 +821,6 @@ importers:
       '@sveltejs/adapter-node':
         specifier: ^5.2.13
         version: 5.5.4(@sveltejs/kit@2.57.1(@opentelemetry/api@1.9.0)(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.55.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)))(svelte@5.55.4)(typescript@5.9.3)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)))
-      '@sveltejs/kit':
-        specifier: ^2.20.6
-        version: 2.57.1(@opentelemetry/api@1.9.0)(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.55.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)))(svelte@5.55.4)(typescript@5.9.3)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
-      d3:
-        specifier: ^7.9.0
-        version: 7.9.0
       d3-force-3d:
         specifier: ^3.0.6
         version: 3.0.6
@@ -864,15 +858,24 @@ importers:
       '@axe-core/playwright':
         specifier: ^4.10.0
         version: 4.11.2(playwright-core@1.59.1)
+      '@cosmograph/cosmos':
+        specifier: ^2.0.0-beta.26
+        version: 2.0.0-beta.26
       '@playwright/test':
         specifier: ^1.59.1
         version: 1.59.1
+      '@sveltejs/kit':
+        specifier: ^2.20.6
+        version: 2.57.1(@opentelemetry/api@1.9.0)(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.55.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)))(svelte@5.55.4)(typescript@5.9.3)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.0.3
         version: 5.1.1(svelte@5.55.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
       '@types/three':
         specifier: ^0.183.1
         version: 0.183.1
+      d3:
+        specifier: ^7.9.0
+        version: 7.9.0
       postcss-html:
         specifier: ^1.7.0
         version: 1.8.1

@@ -32,10 +32,27 @@
  * @module pipeline/parse-loop
  */
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
+import { basename, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { GraphNode, GraphNodeKind, GraphRelation } from '@cleocode/contracts';
+import type {
+  GraphIndexFileReport,
+  GraphNode,
+  GraphNodeKind,
+  GraphRelation,
+  ParserExecutionLimits,
+  ParserExecutionPort,
+} from '@cleocode/contracts';
 import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import type {
+  GraphAnalysisCapability,
+  GraphFileCapabilityCoverage,
+  GraphFileClassification,
+  GraphFileRole,
+} from '@cleocode/contracts/graph';
+import type Parser from 'tree-sitter';
+import { parseOriginalSource } from '../code/parser.js';
 import { extractGo } from './extractors/go-extractor.js';
 import { extractPython } from './extractors/python-extractor.js';
 import { extractRust } from './extractors/rust-extractor.js';
@@ -54,17 +71,13 @@ import type {
   NamedImportMap,
   TsconfigPaths,
 } from './import-processor.js';
-import {
-  buildBarrelExportMap,
-  extractImportsViaRegex,
-  extractReExportsViaRegex,
-  processExtractedImports,
-} from './import-processor.js';
+import { buildBarrelExportMap, processExtractedImports } from './import-processor.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import { detectLanguageFromPath } from './language-detection.js';
+import { buildLexicalScopeModel } from './lexical-scope.js';
 import { type ExtractedAccess, extractAccesses } from './processors/access-processor.js';
 import type { SymbolTable } from './symbol-table.js';
-import type { ParseWorkerResult, WorkerParsedSymbol } from './workers/parse-worker.js';
+import type { ParseWorkerResult } from './workers/parse-worker.js';
 import { createWorkerPool } from './workers/worker-pool.js';
 
 // ---------------------------------------------------------------------------
@@ -92,9 +105,8 @@ import { createRequire } from 'node:module';
 const _require = createRequire(import.meta.url);
 
 /** Minimal NativeParser shape — mirrors code/parser.ts internals. */
-interface NativeParser {
+interface NativeParser extends Pick<Parser, 'parse' | 'reset' | 'setTimeoutMicros'> {
   setLanguage(lang: unknown): void;
-  parse(source: string): { rootNode: unknown };
 }
 
 type ParserConstructor = new () => NativeParser;
@@ -172,35 +184,6 @@ function loadGrammar(langKey: string): unknown | null {
 }
 
 // ---------------------------------------------------------------------------
-// Content sanitization
-// ---------------------------------------------------------------------------
-
-/**
- * Sanitize source content for tree-sitter parsing.
- *
- * tree-sitter 0.21.x Node.js bindings throw `Error: Invalid argument`
- * when source strings contain non-ASCII Unicode characters (e.g. em-dash
- * `—`, curly quotes, etc.) in comments. Since all structural elements that
- * nexus cares about (function names, export specifiers, import paths) are
- * ASCII, replacing non-ASCII characters with spaces is safe and preserves
- * line/column positions for line number reporting.
- *
- * @param content - Raw file content read from disk
- * @returns Content with non-ASCII characters replaced by spaces
- */
-function sanitizeForParsing(content: string): string {
-  // eslint-disable-next-line no-control-regex
-  return content.replace(/[^\x00-\x7F]/g, ' ');
-}
-
-/**
- * Hard limit for tree-sitter 0.21.x: native code uses a 15-bit byte-offset
- * counter that overflows at 32768 characters. Files larger than this use
- * regex-based fallback extraction.
- */
-const TREE_SITTER_MAX_CHARS = 32_767;
-
-// ---------------------------------------------------------------------------
 // Language key mapping
 // ---------------------------------------------------------------------------
 
@@ -233,12 +216,18 @@ function grammarKeyForLanguage(language: string): string | null {
  * `accesses` is populated by the access-processor after the language extractor
  * runs. It is optional here so existing extractors need not be modified.
  */
-interface CommonExtractionResult {
+export interface CommonExtractionResult {
+  /** Original declarations and qualified graph identities. */
   definitions: GraphNode[];
+  /** Imported bindings and source paths. */
   imports: ExtractedImport[];
+  /** Type inheritance evidence. */
   heritage: ExtractedHeritage[];
+  /** Static call evidence with unresolved references retained. */
   calls: ExtractedCall[];
+  /** Optional barrel re-export bindings. */
   reExports?: ExtractedReExport[];
+  /** Optional property access evidence. */
   accesses?: ExtractedAccess[];
 }
 
@@ -251,22 +240,35 @@ interface CommonExtractionResult {
  * @param language - Canonical language name from `detectLanguageFromPath`
  * @param rootNode - Parsed tree-sitter AST root node
  * @param filePath - File path relative to repo root
+ * @param sourceGeneration - SHA-256 of original source bytes, distinct from publication identity.
+ * @param publicationGeneration - Preallocated graph publication identity, when publishing.
  * @returns Uniform extraction result
  */
 function runExtractor(
   language: string,
-  rootNode: unknown,
+  rootNode: Parser.SyntaxNode,
   filePath: string,
+  sourceGeneration: string,
+  publicationGeneration?: string,
 ): CommonExtractionResult {
-  // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
-  const node = rootNode as any;
+  const node = rootNode;
+  const model =
+    language === 'typescript' || language === 'javascript'
+      ? buildLexicalScopeModel(
+          rootNode,
+          filePath,
+          sourceGeneration,
+          language,
+          publicationGeneration,
+        )
+      : undefined;
 
   let result: CommonExtractionResult;
 
   switch (language) {
     case 'typescript':
     case 'javascript':
-      result = extractTypeScript(node, filePath, language);
+      result = extractTypeScript(node, filePath, language, model);
       break;
     case 'python':
       result = extractPython(node, filePath);
@@ -284,9 +286,49 @@ function runExtractor(
   // Run access extraction on the parsed AST (Phase 3f — T1837).
   // Supports all languages with member_expression / attribute / field_expression /
   // selector_expression AST node types (TS, JS, Python, Go, Rust).
-  result.accesses = extractAccesses(node, filePath);
+  result.accesses = extractAccesses(node, filePath, model);
 
   return result;
+}
+
+/**
+ * Extract a file through the same native parser and language capabilities in either realm.
+ * @param source - Original Unicode source text.
+ * @param filePath - Repository-relative source path used for symbol identities.
+ * @param limits - Native source-byte and synchronous parsing deadline limits.
+ * @param publicationGeneration - Optional immutable publication identity passed by the pipeline.
+ * @returns Declarations, references, imports, heritage and access evidence.
+ * @remarks Static extraction does not establish complete runtime-call discovery.
+ * @example
+ * ```ts
+ * const extracted = extractOriginalSource('export const 文 = 1;', 'source.ts');
+ * ```
+ */
+export function extractOriginalSource(
+  source: string,
+  filePath: string,
+  limits?: ParserExecutionLimits,
+  publicationGeneration?: string,
+): CommonExtractionResult {
+  const language = detectLanguageFromPath(filePath);
+  const grammarKey = language
+    ? filePath.endsWith('.tsx')
+      ? 'tsx'
+      : grammarKeyForLanguage(language)
+    : null;
+  const parser = getParser();
+  const grammar = grammarKey ? loadGrammar(grammarKey) : null;
+  if (!language || !grammarKey) throw new Error('Unsupported source language');
+  if (!parser || !grammar) throw new Error(`Parser or grammar unavailable: ${grammarKey}`);
+  parser.setLanguage(grammar);
+  const tree = parseOriginalSource(parser, source, limits);
+  return runExtractor(
+    language,
+    tree.rootNode,
+    filePath,
+    createHash('sha256').update(source).digest('hex'),
+    publicationGeneration,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -388,6 +430,15 @@ function emitDefinesEdges(
 
 /** Options for the sequential parse loop. */
 export interface ParseLoopOptions {
+  /** Immutable graph publication identity shared by direct and worker extraction. */
+  publicationGeneration?: string;
+  /** Per-file native source/deadline limits and caller cancellation. */
+  parserLimits?: ParserExecutionLimits;
+  /** Existing runtime process containment; Nexus never imports core. */
+  parserExecution?: ParserExecutionPort;
+  /** Report extraction availability and failures for trustworthy graph publication. */
+  onFileReport?: (report: GraphIndexFileReport) => void;
+
   /** Optional tsconfig path aliases for import resolution. */
   tsconfigPaths?: TsconfigPaths | null;
   /** Named import map to populate (for Tier 2a resolution in later waves). */
@@ -422,6 +473,281 @@ export interface ParseLoopResult {
   barrelMap: BarrelExportMap;
 }
 
+const EXECUTABLE_CAPABILITIES: GraphAnalysisCapability[] = [
+  'file-evidence',
+  'declarations',
+  'imports',
+  'call-references',
+  'access-references',
+  'type-heritage',
+];
+const SQL_CAPABILITIES: GraphAnalysisCapability[] = [
+  'file-evidence',
+  'sql-schema-objects',
+  'sql-migrations',
+  'sql-triggers',
+  'sql-constraints',
+  'sql-literal-references',
+  'sql-dynamic-references',
+];
+const PARSEABLE_LANGUAGES = new Set(['typescript', 'javascript', 'python', 'go', 'rust']);
+const EXECUTABLE_LANGUAGES = new Set([
+  ...PARSEABLE_LANGUAGES,
+  'java',
+  'kotlin',
+  'c',
+  'cpp',
+  'csharp',
+  'php',
+  'ruby',
+  'swift',
+  'dart',
+  'vue',
+  'shell',
+  'cobol',
+]);
+
+/** Build a role observation from independently stated requested capabilities. */
+function roleCoverage(
+  role: GraphFileRole,
+  classification: GraphFileClassification,
+  evidence?: GraphAnalysisCapability,
+): GraphFileCapabilityCoverage {
+  return {
+    role,
+    classification,
+    requested:
+      role === 'sql'
+        ? [...SQL_CAPABILITIES]
+        : role === 'executable' || role === 'unknown'
+          ? [...EXECUTABLE_CAPABILITIES]
+          : ['file-evidence', ...(evidence ? [evidence] : [])],
+    completed: ['file-evidence', ...(evidence ? [evidence] : [])],
+    limitations:
+      role === 'sql'
+        ? [
+            'SQL extraction is unsupported; schema and literal references remain unassessed.',
+            'Dynamic SQL references remain unresolved.',
+          ]
+        : role === 'executable' || role === 'unknown'
+          ? ['Static extraction cannot establish complete runtime-call discovery.']
+          : [],
+  };
+}
+
+/** Identify known binary resources from both their extension and observed bytes. */
+function hasResourceSignature(extension: string, bytes: Buffer): boolean {
+  const prefix = bytes.subarray(0, 12);
+  if (extension === '.png')
+    return prefix.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
+  if (extension === '.jpg' || extension === '.jpeg')
+    return prefix.subarray(0, 3).equals(Buffer.from('ffd8ff', 'hex'));
+  if (extension === '.gif') return /^GIF8[79]a/.test(prefix.toString('ascii'));
+  if (extension === '.webp')
+    return (
+      prefix.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      prefix.subarray(8).toString('ascii') === 'WEBP'
+    );
+  if (extension === '.woff') return prefix.subarray(0, 4).toString('ascii') === 'wOFF';
+  if (extension === '.woff2') return prefix.subarray(0, 4).toString('ascii') === 'wOF2';
+  return false;
+}
+
+/** Classify only observed role evidence; unsupported or ambiguous code remains a gap. */
+async function classifyFileCapabilities(
+  file: ScannedFile,
+  repoPath: string,
+  signal?: AbortSignal,
+): Promise<GraphIndexFileReport> {
+  const path = file.path;
+  const extension = extname(path).toLowerCase();
+  const language = detectLanguageFromPath(path);
+  const bytes = await fs.readFile(path.startsWith('/') ? path : `${repoPath}/${path}`, { signal });
+  if (file.contentHash && createHash('sha256').update(bytes).digest('hex') !== file.contentHash)
+    throw new Error('Source changed between scanning and capability classification');
+  const report = (capabilities: GraphFileCapabilityCoverage): GraphIndexFileReport => ({
+    path,
+    status: capabilities.requested.every((capability) =>
+      capabilities.completed.includes(capability),
+    )
+      ? 'analyzed'
+      : 'unsupported',
+    ...(capabilities.role === 'sql'
+      ? { reason: 'No SQL schema or reference extractor is available' }
+      : capabilities.role === 'executable' || capabilities.role === 'unknown'
+        ? {
+            reason:
+              'Unsupported or unclassified executable capabilities require a symbol extractor',
+          }
+        : {}),
+    capabilities,
+  });
+  if (hasResourceSignature(extension, bytes))
+    return report(
+      roleCoverage(
+        'asset',
+        {
+          basis: 'path-and-content',
+          reason: `Resource extension ${extension} agrees with its observed binary signature`,
+        },
+        'resource-evidence',
+      ),
+    );
+  const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  if (/^\uFEFF?#!/.test(content))
+    return report(
+      roleCoverage('executable', {
+        basis: 'content',
+        reason: 'Observed executable shebang; an asset extension cannot override it',
+      }),
+    );
+  if (
+    EXECUTABLE_LANGUAGES.has(language ?? '') ||
+    ['.svelte', '.mdx', '.lua', '.pl', '.r', '.ps1', '.bat', '.cmd'].includes(extension) ||
+    /^(?:Makefile|Dockerfile)$/.test(basename(path))
+  )
+    return report(
+      roleCoverage('executable', {
+        basis: 'path',
+        reason: `Recognized executable language or filename: ${path}`,
+      }),
+    );
+  if (extension === '.sql')
+    return report(
+      roleCoverage('sql', {
+        basis: 'path',
+        reason: 'SQL source extension; no schema or reference extractor is implemented',
+      }),
+    );
+  if (extension === '.md' || extension === '.markdown')
+    return report(
+      roleCoverage(
+        'documentation',
+        {
+          basis: 'path-and-content',
+          reason: 'Readable documentary Markdown; embedded examples are not production callers',
+        },
+        'documentary-evidence',
+      ),
+    );
+  if (extension === '.json') {
+    let value: object | string | number | boolean | null;
+    try {
+      value = JSON.parse(content);
+    } catch (error) {
+      return {
+        path,
+        status: 'failed',
+        reason: `JSON evidence is malformed: ${error instanceof Error ? error.message : String(error)}`,
+        capabilities: {
+          ...roleCoverage(
+            'data',
+            {
+              basis: 'path',
+              reason:
+                'JSON extension with invalid content; role-specific analysis did not complete',
+            },
+            'data-evidence',
+          ),
+          completed: ['file-evidence'],
+        },
+      };
+    }
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      if (
+        '$schema' in value &&
+        typeof value.$schema === 'string' &&
+        /^https?:\/\/json-schema\.org\/(?:draft-0[467]|draft\/20\d\d-\d\d)\/schema#?$/.test(
+          value.$schema,
+        )
+      )
+        return report(
+          roleCoverage(
+            'schema',
+            {
+              basis: 'content',
+              reason: `Valid JSON declares the JSON Schema dialect ${value.$schema}`,
+            },
+            'schema-evidence',
+          ),
+        );
+      if (
+        basename(path) === 'package-lock.json' &&
+        'lockfileVersion' in value &&
+        typeof value.lockfileVersion === 'number' &&
+        'packages' in value &&
+        value.packages !== null &&
+        typeof value.packages === 'object' &&
+        !Array.isArray(value.packages)
+      )
+        return report(
+          roleCoverage(
+            'generated-data',
+            {
+              basis: 'path-and-content',
+              reason:
+                'npm lockfile path with numeric lockfileVersion and packages map; generated data evidence only',
+            },
+            'data-evidence',
+          ),
+        );
+      if (
+        ['package.json', 'tsconfig.json', 'jsconfig.json', 'composer.json', 'deno.json'].includes(
+          basename(path),
+        ) ||
+        /(?:^|\/)\.vscode\/(?:settings|extensions|launch|tasks)\.json$/.test(path)
+      )
+        return report(
+          roleCoverage(
+            'configuration',
+            {
+              basis: 'path-and-content',
+              reason: `Recognized configuration path ${path} contains a valid JSON object; it is not executed`,
+            },
+            'configuration-evidence',
+          ),
+        );
+    }
+    return report(
+      roleCoverage(
+        'data',
+        {
+          basis: 'content',
+          reason:
+            'Valid ordinary JSON without positive configuration, schema or generated-data provenance',
+        },
+        'data-evidence',
+      ),
+    );
+  }
+  if (extension === '.snap') {
+    const header = /^\/\/ (?:Vitest|Jest) Snapshot v1,[^\r\n]*\r?\n/.exec(content);
+    const literal = String.raw`\x60(?:\\[\s\S]|[^\x60\\$]|\$(?!\{))*\x60`;
+    if (
+      header &&
+      new RegExp(String.raw`^(?:\s*exports\[${literal}\]\s*=\s*${literal};\s*)+$`).test(
+        content.slice(header[0].length),
+      )
+    )
+      return report(
+        roleCoverage(
+          'generated-data',
+          {
+            basis: 'path-and-content',
+            reason: 'Recognized generated snapshot header and literal-only snapshot assignments',
+          },
+          'data-evidence',
+        ),
+      );
+  }
+  return report(
+    roleCoverage('unknown', {
+      basis: 'unknown',
+      reason: 'No positive role evidence; potentially executable content remains unassessed',
+    }),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main parse loop
 // ---------------------------------------------------------------------------
@@ -429,28 +755,6 @@ export interface ParseLoopResult {
 // ---------------------------------------------------------------------------
 // Parallel parse path helpers (Wave H — T540)
 // ---------------------------------------------------------------------------
-
-/**
- * Map a `WorkerParsedSymbol` to a `GraphNode` for consumption by the
- * knowledge graph. The worker's extraction mirrors the sequential extractor
- * in structure so this conversion is 1:1.
- */
-function workerSymbolToGraphNode(sym: WorkerParsedSymbol): GraphNode {
-  return {
-    id: sym.id,
-    kind: sym.kind as GraphNodeKind,
-    name: sym.name,
-    filePath: sym.filePath,
-    startLine: sym.startLine,
-    endLine: sym.endLine,
-    language: sym.language,
-    exported: sym.exported,
-    parameters: sym.parameters,
-    returnType: sym.returnType,
-    docSummary: sym.docSummary,
-    parent: sym.parent,
-  };
-}
 
 /**
  * Run the parse loop using a worker pool for parallel parsing.
@@ -489,25 +793,46 @@ async function runParallelParseLoop(
 
   // Read all file contents first (sequential I/O, then dispatch in parallel)
   const total = parseableFiles.length;
-  const workerInputs: Array<{ path: string; content: string }> = [];
+  const workerInputs: Array<{
+    path: string;
+    content: string;
+    limits?: Omit<ParserExecutionLimits, 'signal'>;
+    publicationGeneration?: string;
+  }> = [];
 
   for (let i = 0; i < parseableFiles.length; i++) {
     const file = parseableFiles[i];
     try {
       const absPath = file.path.startsWith('/') ? file.path : `${repoPath}/${file.path}`;
-      const content = await fs.readFile(absPath, 'utf-8');
-      workerInputs.push({ path: file.path, content });
-    } catch {
-      // Skip unreadable files
+      options.parserLimits?.signal?.throwIfAborted();
+      const bytes = await fs.readFile(absPath);
+      if (
+        file.contentHash &&
+        createHash('sha256').update(bytes).digest('hex') !== file.contentHash
+      ) {
+        throw new Error('Source changed between scanning and parsing');
+      }
+      const { signal: _signal, ...limits } = options.parserLimits ?? {};
+      workerInputs.push({
+        path: file.path,
+        content: bytes.toString('utf8'),
+        limits,
+        publicationGeneration: options.publicationGeneration,
+      });
+    } catch (error) {
+      options.parserLimits?.signal?.throwIfAborted();
+      throw new Error(
+        `Parser input unavailable: ${file.path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
-  let pool: ReturnType<typeof createWorkerPool>;
-  try {
-    pool = createWorkerPool(workerUrl);
-  } catch {
-    return null; // Worker script unavailable — fall back to sequential
-  }
+  const pool = createWorkerPool(
+    workerUrl,
+    undefined,
+    options.parserLimits,
+    options.parserExecution,
+  );
 
   let filesProcessedSoFar = 0;
 
@@ -523,11 +848,6 @@ async function runParallelParseLoop(
         }
       },
     );
-  } catch (err) {
-    await pool.terminate().catch(() => undefined);
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[nexus] Worker pool failed (${msg}), falling back to sequential.\n`);
-    return null;
   } finally {
     await pool.terminate().catch(() => undefined);
   }
@@ -539,17 +859,21 @@ async function runParallelParseLoop(
   const allParallelReExports: ExtractedReExportRecord[] = [];
   const allHeritage: ExtractedHeritage[] = [];
   const allCalls: ExtractedCall[] = [];
-  // Note: access extraction (Phase 3f) runs on the parsed AST in the main thread
-  // only. Workers do not transport ASTs, so parallel mode does not accumulate
-  // accesses via this path — the sequential fallback handles small repos and
-  // fixture tests. A future wave can add worker support for access extraction.
+  // Workers invoke the same extractor, including access records.
   const allParallelAccesses: ExtractedAccess[] = [];
 
   for (const workerResult of workerResults) {
+    for (const report of workerResult.reports) options.onFileReport?.(report);
+    const failed = workerResult.reports.filter((report) => report.status !== 'analyzed');
+    if (failed.length > 0)
+      throw new Error(
+        `Parser worker incomplete: ${failed.map((report) => `${report.path}: ${report.reason}`).join('; ')}`,
+      );
+    allParallelAccesses.push(...workerResult.accesses);
     // Register symbols into SymbolTable and add graph nodes
     const fileGraphNodes: Map<string, GraphNode[]> = new Map();
     for (const sym of workerResult.symbols) {
-      const graphNode = workerSymbolToGraphNode(sym);
+      const graphNode = sym;
       registerInSymbolTable([graphNode], symbolTable);
       graph.addNode(graphNode);
       // Group by filePath for defines edge emission below
@@ -564,43 +888,10 @@ async function runParallelParseLoop(
       emitDefinesEdges(filePath, nodes, graph);
     }
 
-    // Collect imports (including named bindings for Tier 2a resolution — T617)
-    for (const imp of workerResult.imports) {
-      allExtractedImports.push({
-        filePath: imp.filePath,
-        rawImportPath: imp.rawImportPath,
-        namedBindings: imp.namedBindings,
-      });
-    }
-
-    // Collect re-exports for barrel map construction (T617)
-    if (workerResult.reExports) {
-      for (const re of workerResult.reExports) {
-        allParallelReExports.push(re);
-      }
-    }
-
-    // Map heritage — worker uses same field names as sequential path
-    for (const h of workerResult.heritage) {
-      allHeritage.push({
-        filePath: h.filePath,
-        typeName: h.typeName,
-        typeNodeId: h.typeNodeId,
-        kind: h.kind,
-        parentName: h.parentName,
-      });
-    }
-
-    // Map calls from worker format to pipeline format
-    for (const c of workerResult.calls) {
-      allCalls.push({
-        filePath: c.filePath,
-        sourceId: c.sourceId,
-        calledName: c.calledName,
-        callForm: c.callForm,
-        receiverName: c.receiverName,
-      });
-    }
+    allExtractedImports.push(...workerResult.imports);
+    allParallelReExports.push(...workerResult.reExports);
+    allHeritage.push(...workerResult.heritage);
+    allCalls.push(...workerResult.calls);
   }
 
   if (onProgress && total > 0) {
@@ -639,7 +930,7 @@ async function runParallelParseLoop(
     );
     // Check if internal.ts had symbols or imports
     for (const wr of workerResults) {
-      const hasInternalSymbol = wr.symbols.some((s) => s.filePath.includes('core/src/internal'));
+      const hasInternalSymbol = wr.symbols.some((s) => s.filePath?.includes('core/src/internal'));
       const hasInternalImport = wr.imports.some((i) => i.filePath.includes('core/src/internal'));
       const hasInternalReExport = wr.reExports.some((r) =>
         r.filePath.includes('core/src/internal'),
@@ -703,12 +994,57 @@ export async function runParseLoop(
 ): Promise<ParseLoopResult> {
   const { tsconfigPaths = null, namedImportMap = new Map(), onProgress } = options;
 
-  // Filter to languages supported by the parse loop (Wave I adds Python, Go, Rust)
-  const PARSEABLE_LANGUAGES = new Set(['typescript', 'javascript', 'python', 'go', 'rust']);
-  const parseableFiles = files.filter((f) => {
-    const lang = detectLanguageFromPath(f.path);
-    return lang !== null && PARSEABLE_LANGUAGES.has(lang);
-  });
+  // Attach one capability contract to sequential and worker-returned reports.
+  const callerReports = options.onFileReport;
+  const classifications = new Map<string, GraphFileCapabilityCoverage>();
+  const emitReport = (report: GraphIndexFileReport): void => {
+    const coverage = classifications.get(report.path);
+    if (!coverage) throw new Error(`Missing file capability classification: ${report.path}`);
+    callerReports?.({
+      ...report,
+      capabilities: {
+        ...coverage,
+        requested: [...coverage.requested],
+        completed:
+          report.status === 'analyzed' && coverage.role === 'executable'
+            ? [...coverage.requested]
+            : [...coverage.completed],
+        limitations: [...coverage.limitations],
+      },
+    });
+  };
+  options = { ...options, onFileReport: emitReport };
+  const parseableFiles: ScannedFile[] = [];
+  for (const file of files) {
+    options.parserLimits?.signal?.throwIfAborted();
+    let report: GraphIndexFileReport;
+    try {
+      report = await classifyFileCapabilities(file, repoPath, options.parserLimits?.signal);
+    } catch (error) {
+      options.parserLimits?.signal?.throwIfAborted();
+      report = {
+        path: file.path,
+        status: 'failed',
+        reason: `read: ${error instanceof Error ? error.message : String(error)}`,
+        capabilities: {
+          ...roleCoverage('unknown', {
+            basis: 'unknown',
+            reason: 'Role evidence unavailable because the source read failed',
+          }),
+          completed: [],
+        },
+      };
+    }
+    if (!report.capabilities) throw new Error(`Missing file capability assessment: ${file.path}`);
+    classifications.set(file.path, report.capabilities);
+    if (
+      report.status !== 'failed' &&
+      report.capabilities.role === 'executable' &&
+      PARSEABLE_LANGUAGES.has(detectLanguageFromPath(file.path) ?? '')
+    )
+      parseableFiles.push(file);
+    else emitReport(report);
+  }
 
   const total = parseableFiles.length;
   if (total === 0)
@@ -721,9 +1057,12 @@ export async function runParseLoop(
 
   // Wave H: Check thresholds for parallel dispatch
   const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
-  const useWorkers = total >= WORKER_FILE_THRESHOLD || totalBytes >= WORKER_BYTE_THRESHOLD;
+  const useWorkers =
+    Boolean(options.parserExecution) ||
+    total >= WORKER_FILE_THRESHOLD ||
+    totalBytes >= WORKER_BYTE_THRESHOLD;
 
-  if (useWorkers) {
+  if (useWorkers && (options.parserExecution || !callerReports)) {
     process.stderr.write(
       `[nexus] Parallel parse: ${total} files, ${Math.round(totalBytes / 1024)}KB total — spawning worker pool\n`,
     );
@@ -734,17 +1073,18 @@ export async function runParseLoop(
         symbolTable,
         importCtx,
         repoPath,
-        { tsconfigPaths, namedImportMap, onProgress },
+        { ...options, tsconfigPaths, namedImportMap, onProgress },
       );
       if (parallelResult !== null) {
         process.stderr.write('[nexus] Parallel parse complete.\n');
         return parallelResult;
       }
+      if (options.parserExecution) throw new Error('Isolated parser executable unavailable');
       // Worker unavailable — fall through to sequential
       process.stderr.write('[nexus] Worker script not found — using sequential parse.\n');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[nexus] Parallel parse error (${msg}) — using sequential parse.\n`);
+      throw new Error(`Parallel parser failed; generation not published: ${msg}`);
     }
   }
 
@@ -756,6 +1096,13 @@ export async function runParseLoop(
 
   const parser = getParser();
   if (!parser) {
+    for (const file of parseableFiles) {
+      options.onFileReport?.({
+        path: file.path,
+        status: 'failed',
+        reason: 'tree-sitter native module unavailable',
+      });
+    }
     process.stderr.write(
       '[nexus] WARNING: tree-sitter native module not available — parse loop skipped.\n',
     );
@@ -770,6 +1117,7 @@ export async function runParseLoop(
   let filesProcessed = 0;
 
   for (const file of parseableFiles) {
+    options.parserLimits?.signal?.throwIfAborted();
     filesProcessed++;
 
     // Progress reporting (every file for small repos, every 10 for larger ones)
@@ -790,6 +1138,11 @@ export async function runParseLoop(
     // Load grammar
     const grammar = loadGrammar(grammarKey);
     if (!grammar) {
+      options.onFileReport?.({
+        path: file.path,
+        status: 'failed',
+        reason: `No grammar for ${lang}`,
+      });
       process.stderr.write(`[nexus] SKIP: no grammar for ${lang} (file: ${file.path})\n`);
       continue;
     }
@@ -798,43 +1151,31 @@ export async function runParseLoop(
     let source: string;
     try {
       const absPath = file.path.startsWith('/') ? file.path : `${repoPath}/${file.path}`;
-      source = await fs.readFile(absPath, 'utf-8');
+      const bytes = await fs.readFile(absPath);
+      if (
+        file.contentHash &&
+        createHash('sha256').update(bytes).digest('hex') !== file.contentHash
+      ) {
+        throw new Error('Source changed between scanning and parsing');
+      }
+      source = bytes.toString('utf-8');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      options.onFileReport?.({ path: file.path, status: 'failed', reason: `read: ${msg}` });
       process.stderr.write(`[nexus] SKIP read error: ${file.path}: ${msg}\n`);
       continue;
     }
 
-    // tree-sitter 0.21.x has a hard limit of 32767 chars per file (15-bit offset counter).
-    // Files larger than this use a regex fallback for imports and re-exports only.
-    const sanitized = sanitizeForParsing(source);
-    if (sanitized.length > TREE_SITTER_MAX_CHARS) {
-      // Regex-based fallback: extract re-exports and imports for barrel tracing.
-      // Symbol definitions, heritage, and calls are skipped for oversized files.
-      try {
-        const regexReExports = extractReExportsViaRegex(source, file.path);
-        for (const re of regexReExports) {
-          allReExports.push(re);
-        }
-        const regexImports = extractImportsViaRegex(source, file.path);
-        for (const imp of regexImports) {
-          allExtractedImports.push(imp);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[nexus] SKIP regex fallback error: ${file.path}: ${msg}\n`);
-      }
-      continue;
-    }
-
     // Parse with tree-sitter
-    let rootNode: unknown;
+    let rootNode: Parser.SyntaxNode;
     try {
       parser.setLanguage(grammar);
-      const tree = parser.parse(sanitized);
+      const tree = parseOriginalSource(parser, source, options.parserLimits);
       rootNode = tree.rootNode;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      options.onFileReport?.({ path: file.path, status: 'failed', reason: `parse: ${msg}` });
+      options.parserLimits?.signal?.throwIfAborted();
       process.stderr.write(`[nexus] SKIP parse error: ${file.path}: ${msg}\n`);
       continue;
     }
@@ -842,12 +1183,21 @@ export async function runParseLoop(
     // Extract definitions, imports, heritage, calls, and re-exports — dispatch by language
     let extracted: CommonExtractionResult;
     try {
-      extracted = runExtractor(lang, rootNode, file.path);
+      extracted = runExtractor(
+        lang,
+        rootNode,
+        file.path,
+        createHash('sha256').update(source).digest('hex'),
+        options.publicationGeneration,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      options.onFileReport?.({ path: file.path, status: 'failed', reason: `extract: ${msg}` });
       process.stderr.write(`[nexus] SKIP extract error: ${file.path}: ${msg}\n`);
       continue;
     }
+
+    options.onFileReport?.({ path: file.path, status: 'analyzed' });
 
     // Register in SymbolTable
     registerInSymbolTable(extracted.definitions, symbolTable);

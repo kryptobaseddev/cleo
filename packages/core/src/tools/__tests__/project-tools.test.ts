@@ -12,11 +12,18 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doctorProject } from '../../doctor/doctor-project.js';
 import { scaffoldProject } from '../../scaffold/scaffold-project.js';
 
 // ── scaffold-project ──────────────────────────────────────────────────
+
+// Scaffold and diagnose the explicitly requested fixture directory.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('scaffoldProject', () => {
   let tmpRoot: string;

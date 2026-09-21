@@ -8,11 +8,12 @@
  * @epic T4638
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tempDir: string;
 
@@ -31,7 +32,8 @@ describe('SQLite tasks-sqlite', () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-taskstore-'));
     const cleoDir = join(tempDir, '.cleo');
-    process.env['CLEO_DIR'] = cleoDir;
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    vi.stubEnv('CLEO_DIR', cleoDir);
 
     // Create .cleo dir and write test config so enforcement checks don't block
     await mkdir(cleoDir, { recursive: true });
@@ -41,6 +43,16 @@ describe('SQLite tasks-sqlite', () => {
         enforcement: { session: { requiredForMutate: false } },
         lifecycle: { mode: 'off' },
         verification: { enabled: false },
+      }),
+    );
+
+    const { generateProjectHash } = await import('../../nexus/hash.js');
+    await writeFile(
+      join(cleoDir, 'project-info.json'),
+      JSON.stringify({
+        projectId: 'task-store-fixture',
+        projectHash: generateProjectHash(tempDir),
+        projectRoot: tempDir,
       }),
     );
 
@@ -62,10 +74,173 @@ describe('SQLite tasks-sqlite', () => {
     } catch {
       /* ignore */
     }
-    delete process.env['CLEO_DIR'];
+    vi.unstubAllEnvs();
     // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
     // briefly after close(). 5 retries × 500 ms = 2.5 s max wait (T9182).
     await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  });
+
+  function readTasksInFreshProcess(root: string) {
+    return JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `
+      import {existsSync} from 'node:fs';
+      import {DatabaseSync} from 'node:sqlite';
+      if (!existsSync(process.argv[1])) process.stdout.write('[]');
+      else {
+        const db=new DatabaseSync(process.argv[1],{readOnly:true});
+        process.stdout.write(JSON.stringify(db.prepare('SELECT id,title FROM tasks_tasks ORDER BY id').all()));
+        db.close();
+      }
+    `,
+          join(root, '.cleo/cleo.db'),
+        ],
+        { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] },
+      ),
+    );
+  }
+
+  async function otherProject() {
+    const root = join(tempDir, 'other');
+    await mkdir(join(root, '.cleo'), { recursive: true });
+    await writeFile(
+      join(root, '.cleo/config.json'),
+      JSON.stringify({
+        enforcement: { session: { requiredForMutate: false } },
+        lifecycle: { mode: 'off' },
+        verification: { enabled: false },
+      }),
+    );
+    return root;
+  }
+
+  describe('captured legacy operation ownership', () => {
+    it('uses one canonical ROOT for create, reads and updates despite conflicting DIR', async () => {
+      const other = await otherProject();
+      vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+      const { createTask, getTask, updateTask, listTasks, findTasks, countTasks } = await import(
+        '../tasks-sqlite.js'
+      );
+      await createTask(makeTask({ id: 'T801', title: 'Captured alpha' }));
+      expect((await getTask('T801'))?.title).toBe('Captured alpha');
+      expect((await updateTask('T801', { title: 'Captured beta' }))?.title).toBe('Captured beta');
+      expect((await listTasks()).map((task) => task.id)).toEqual(['T801']);
+      expect((await findTasks('Captured beta')).map((task) => task.id)).toEqual(['T801']);
+      expect(await countTasks()).toBe(1);
+      expect(readTasksInFreshProcess(tempDir)).toEqual([{ id: 'T801', title: 'Captured beta' }]);
+      expect(readTasksInFreshProcess(other)).toEqual([]);
+    });
+
+    it('binds explicit project arguments before ambient ROOT or DIR', async () => {
+      const other = await otherProject();
+      const { createTask, getTask, updateTask } = await import('../tasks-sqlite.js');
+      await createTask(makeTask({ id: 'T802' }), other);
+      expect((await updateTask('T802', { title: 'Explicit project' }, other))?.title).toBe(
+        'Explicit project',
+      );
+      expect((await getTask('T802', other))?.title).toBe('Explicit project');
+      expect(readTasksInFreshProcess(other)).toEqual([{ id: 'T802', title: 'Explicit project' }]);
+      expect(readTasksInFreshProcess(tempDir)).toEqual([]);
+    });
+
+    it('retains a default captured project when environment changes during initialization', async () => {
+      const other = await otherProject();
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
+      const pending = createTask(makeTask({ id: 'T803', title: 'Original invocation' }));
+      vi.stubEnv('CLEO_ROOT', other);
+      vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+      await pending;
+      expect((await getTask('T803', tempDir))?.title).toBe('Original invocation');
+      expect(readTasksInFreshProcess(tempDir)).toEqual([
+        { id: 'T803', title: 'Original invocation' },
+      ]);
+      expect(readTasksInFreshProcess(other)).toEqual([]);
+    });
+
+    it('keeps interleaved explicit projects distinct across create and update', async () => {
+      const other = await otherProject();
+      const { createTask, updateTask } = await import('../tasks-sqlite.js');
+      await Promise.all([
+        createTask(makeTask({ id: 'T805', title: 'Project A' }), tempDir),
+        createTask(makeTask({ id: 'T805', title: 'Project B' }), other),
+      ]);
+      await Promise.all([
+        updateTask('T805', { title: 'Updated A' }, tempDir),
+        updateTask('T805', { title: 'Updated B' }, other),
+      ]);
+      expect(readTasksInFreshProcess(tempDir)).toEqual([{ id: 'T805', title: 'Updated A' }]);
+      expect(readTasksInFreshProcess(other)).toEqual([{ id: 'T805', title: 'Updated B' }]);
+    });
+
+    it.each([
+      'missing',
+      'different',
+    ] as const)('rejects %s project identity before opening a task store', async (kind) => {
+      if (kind === 'missing') await rm(join(tempDir, '.cleo/project-info.json'));
+      const { createOperationExecutionContext } = await import('../background-ops.js');
+      const { worktreeScope } = await import('../../project-scope.js');
+      const { generateProjectHash } = await import('../../nexus/hash.js');
+      const { createTask } = await import('../tasks-sqlite.js');
+      const execution = createOperationExecutionContext({
+        projectRoot: tempDir,
+        projectId: 'not-the-project',
+        actor: 'fixture',
+        operation: 'tasks.add',
+        idempotencyKey: 'scope-negative',
+      });
+      try {
+        await expect(
+          worktreeScope.run(
+            { worktreeRoot: tempDir, projectHash: generateProjectHash(tempDir), execution },
+            () => createTask(makeTask({ id: 'T806' })),
+          ),
+        ).rejects.toThrow(kind === 'missing' ? 'ENOENT' : 'identity differs');
+        expect(readTasksInFreshProcess(tempDir)).toEqual([]);
+      } finally {
+        execution.close();
+      }
+    });
+
+    it.each([
+      'dependency',
+      'acceptance',
+    ] as const)('rolls back the task on an injected %s fault without writing the other project', async (fault) => {
+      const other = await otherProject();
+      const { worktreeScope } = await import('../../project-scope.js');
+      const { generateProjectHash } = await import('../../nexus/hash.js');
+      const { getDb, getNativeDb } = await import('../sqlite.js');
+      const table =
+        fault === 'dependency' ? 'tasks_task_dependencies' : 'tasks_task_acceptance_criteria';
+      for (const root of [tempDir, other]) {
+        await worktreeScope.run(
+          { worktreeRoot: root, projectHash: generateProjectHash(root) },
+          async () => {
+            await getDb(root);
+            getNativeDb(root)!.exec(
+              `CREATE TRIGGER reject_related_write BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT,'injected related write fault'); END`,
+            );
+          },
+        );
+      }
+      vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+      const { createTask } = await import('../tasks-sqlite.js');
+      await expect(
+        createTask(
+          makeTask({
+            id: 'T804',
+            ...(fault === 'dependency'
+              ? { depends: ['T899'] }
+              : { acceptance: ['Independent criterion'] }),
+          }),
+        ),
+      ).rejects.toThrow();
+      expect(readTasksInFreshProcess(tempDir)).toEqual([]);
+      expect(readTasksInFreshProcess(other)).toEqual([]);
+    });
   });
 
   // === createTask ===

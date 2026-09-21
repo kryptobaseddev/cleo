@@ -24,9 +24,10 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { getReadinessDependencyBlockers, getUnresolvedDeps } from '../../tasks/dependency-check.js';
 import { MAX_WORKER_FILES } from '../atomicity.js';
 import { validateSpawnReadiness } from '../validate-spawn.js';
 
@@ -436,5 +437,74 @@ agent project-docs-worker:
     } finally {
       removeTempDirSync(base);
     }
+  });
+});
+
+describe('readiness dependency policy — T12293', () => {
+  it('keeps missing, abandoned and unfinished work blocked without mutating inputs', () => {
+    const records: Task[] = [
+      baseTask({ id: 'done', status: 'done' }),
+      baseTask({ id: 'archived', status: 'archived' }),
+      baseTask({ id: 'cancelled', status: 'cancelled' }),
+      baseTask({ id: 'pending', status: 'pending' }),
+      baseTask({ id: 'active', status: 'active' }),
+      baseTask({ id: 'blocked', status: 'blocked' }),
+      baseTask({ id: 'proposed', status: 'proposed' }),
+    ];
+    const depends = Object.freeze([
+      'done',
+      'missing',
+      'archived',
+      'cancelled',
+      'pending',
+      'active',
+      'blocked',
+      'proposed',
+    ]);
+    const lookup = new Map(records.map((task) => [task.id, task]));
+    const original = structuredClone(records);
+    expect(getReadinessDependencyBlockers(depends, lookup)).toEqual([
+      'missing',
+      'cancelled',
+      'pending',
+      'active',
+      'blocked',
+      'proposed',
+    ]);
+    expect(records).toEqual(original);
+    expect(getReadinessDependencyBlockers(undefined, lookup)).toEqual([]);
+    expect(getReadinessDependencyBlockers([], lookup)).toEqual([]);
+  });
+
+  it('preserves the distinct completion-oriented unresolved dependency policy', () => {
+    const tasks = [
+      baseTask({ depends: ['T9800'] }),
+      baseTask({ id: 'T9800', status: 'cancelled' }),
+    ];
+    expect(getUnresolvedDeps('T9801', tasks)).toEqual([]);
+    expect(
+      getReadinessDependencyBlockers(tasks[0]!.depends, new Map(tasks.map((t) => [t.id, t]))),
+    ).toEqual(['T9800']);
+  });
+
+  it('preserves missing versus unmet diagnostics for dependencies outside containment', async () => {
+    const task = baseTask({ parentId: 'T100', depends: ['T9800', 'T9999'] });
+    const dep = baseTask({ id: 'T9800', parentId: 'T200', status: 'cancelled' });
+    const accessor = makeAccessor([task, dep]);
+    const loaded = vi.spyOn(accessor, 'loadTasks');
+    const result = await validateSpawnReadiness(task.id, undefined, accessor);
+    expect(loaded).toHaveBeenCalledWith(['T9800', 'T9999']);
+    expect(result.ready).toBe(false);
+    expect(result.issues.map(({ code }) => code)).toEqual(['V_UNMET_DEP', 'V_MISSING_DEP']);
+    expect(result.issues[0]?.message).toContain('T9800');
+    expect(result.issues[1]?.message).toContain('T9999');
+  });
+
+  it('surfaces dependency read failure instead of declaring readiness', async () => {
+    const task = baseTask({ depends: ['T9800'] });
+    const accessor = makeAccessor([task]);
+    const failure = new Error('Independent dependency store failure');
+    vi.spyOn(accessor, 'loadTasks').mockRejectedValueOnce(failure);
+    await expect(validateSpawnReadiness(task.id, undefined, accessor)).rejects.toBe(failure);
   });
 });

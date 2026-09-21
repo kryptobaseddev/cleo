@@ -8,8 +8,11 @@
  * @epic T5149
  */
 
+import { statSync } from 'node:fs';
+import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { taskExistsInTasksDb, taskExistsInTasksDbFresh } from '../store/cross-db-cleanup.js';
-import { getBrainAccessor } from '../store/memory-accessor.js';
+import { BrainDataAccessor, getBrainAccessor } from '../store/memory-accessor.js';
+import { peekProjectDomain } from '../store/ports/domain-binding.js';
 import type {
   BRAIN_LINK_TYPES,
   BRAIN_MEMORY_TYPES,
@@ -23,14 +26,48 @@ import { getDb } from '../store/sqlite.js';
 type MemoryType = (typeof BRAIN_MEMORY_TYPES)[number];
 type LinkType = (typeof BRAIN_LINK_TYPES)[number];
 
+/** Authenticate the already-bound consolidated handle without reopening a moved path. */
+function retainedLinkAccessor(
+  projectRoot: string,
+  tasksDb: Awaited<ReturnType<typeof getDb>>,
+): BrainDataAccessor {
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+  const binding = worktreeScope.run(scope, () =>
+    peekProjectDomain<Awaited<ReturnType<typeof getDb>>>('tasks', scope.worktreeRoot),
+  );
+  if (!binding || binding.db !== tasksDb || !binding.store.isOpen || !binding.native.isOpen) {
+    throw new Error('Retained task handle is closed or does not belong to this project binding');
+  }
+  const identity = binding.store.identity;
+  if (identity.scope !== 'project' || !identity.fileDevice || !identity.fileInode) {
+    throw new Error('Retained task handle has no authenticated consolidated file identity');
+  }
+  const current = statSync(identity.dbPath, { bigint: true, throwIfNoEntry: false });
+  if (
+    current &&
+    (String(current.dev) !== identity.fileDevice || String(current.ino) !== identity.fileInode)
+  ) {
+    throw new Error('Retained task handle refers to a replaced database generation');
+  }
+  const table = binding.native
+    .prepare(
+      "SELECT name FROM main.sqlite_schema WHERE type = 'table' AND name = 'brain_memory_links'",
+    )
+    .get();
+  if (!table)
+    throw new Error('Retained consolidated database lacks required brain_memory_links schema');
+  return new BrainDataAccessor(tasksDb);
+}
+
 async function createMemoryTaskLink(
   projectRoot: string,
   memoryType: MemoryType,
   memoryId: string,
   taskId: string,
   linkType: LinkType,
+  retained?: BrainDataAccessor,
 ): Promise<BrainMemoryLinkRow> {
-  const accessor = await getBrainAccessor(projectRoot);
+  const accessor = retained ?? (await getBrainAccessor(projectRoot));
 
   const existingLinks = await accessor.getLinksForMemory(memoryType, memoryId);
   const duplicate = existingLinks.find((l) => l.taskId === taskId && l.linkType === linkType);
@@ -79,6 +116,8 @@ export async function linkMemoryToTask(
     throw new Error('memoryId and taskId are required');
   }
 
+  const retained = tasksDbOverride ? retainedLinkAccessor(projectRoot, tasksDbOverride) : undefined;
+
   // Write-guard: reject stale task IDs before creating cross-db reference
   let taskExists: boolean | undefined;
   let tasksDb: Awaited<ReturnType<typeof getDb>> | null = null;
@@ -103,7 +142,7 @@ export async function linkMemoryToTask(
     );
   }
 
-  return createMemoryTaskLink(projectRoot, memoryType, memoryId, taskId, linkType);
+  return createMemoryTaskLink(projectRoot, memoryType, memoryId, taskId, linkType, retained);
 }
 
 /**

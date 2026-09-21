@@ -6,7 +6,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { hooks } from '../../hooks/registry.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { awaitBackgroundOps } from '../../store/background-ops.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { currentTask, getWorkHistory, startTask, stopTask } from '../index.js';
 
@@ -193,6 +195,46 @@ describe('stopTask', () => {
     // Second stop should not throw and should return null previousTask
     const result = await stopTask(env.tempDir, accessor);
     expect(result.previousTask).toBeNull();
+  });
+
+  it('discards stop hooks when its enclosing task transaction rolls back', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Rollback focus',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await startTask('T001', env.tempDir, accessor);
+    await awaitBackgroundOps();
+    const delivered: string[] = [];
+    const unregister = hooks.register({
+      id: 'T12283-stop-rollback',
+      event: 'PostToolUse',
+      handler: async (root) => {
+        delivered.push(root);
+      },
+      priority: 1000,
+    });
+    try {
+      await expect(
+        accessor.transaction(async () => {
+          await stopTask(env.tempDir, accessor);
+          expect(delivered).toEqual([]);
+          throw new Error('outer focus rollback');
+        }),
+      ).rejects.toThrow('outer focus rollback');
+      await awaitBackgroundOps();
+      expect(delivered).toEqual([]);
+      expect((await currentTask(env.tempDir, accessor)).currentTask).toBe('T001');
+      await stopTask(env.tempDir, accessor);
+      await awaitBackgroundOps();
+      expect(delivered).toEqual([env.tempDir]);
+    } finally {
+      unregister();
+    }
   });
 
   it('calling stop with no prior session is a no-op', async () => {

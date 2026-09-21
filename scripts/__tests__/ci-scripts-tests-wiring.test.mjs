@@ -35,10 +35,13 @@
  * @task gh#1403
  */
 
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const CI_YML = path.join(REPO_ROOT, '.github/workflows/ci.yml');
@@ -160,5 +163,133 @@ describe('gh#1403 — the helper reads blocks, not the whole file', () => {
   it('does not bleed one job into the next', () => {
     const changes = jobBlock(ci, 'changes');
     expect(changes).not.toMatch(/vitest run --project=scripts/);
+  });
+});
+
+describe('T12273 package artifact checks reach the required PR and merge-group gate', () => {
+  const workflow = parseYaml(ci);
+  const job = workflow.jobs['packed-artifact'];
+  it('runs on both PR and merge-group events with relevant source/script/workflow inputs', () => {
+    expect(workflow.on).toHaveProperty('pull_request');
+    expect(workflow.on).toHaveProperty('merge_group');
+    expect(workflow.jobs.ci.needs).toContain('packed-artifact');
+    expect(job['continue-on-error']).toBeUndefined();
+  });
+  const changes = workflow.jobs.changes;
+  const filters = parseYaml(changes.steps.find((step) => step.id === 'filter').with.filters);
+  // Representative real build inputs are independent of filter names/patterns.
+  it.each(
+    [
+      'crates/worktree-napi/src/lib.rs',
+      'crates/worktrunk-core/Cargo.toml',
+      'Cargo.toml',
+      'Cargo.lock',
+      '.cargo/config.toml',
+      'rust-toolchain.toml',
+      '.npmrc',
+      '.pnpmfile.cjs',
+      '.npmignore',
+      '.gitignore',
+      'pnpm-workspace.yaml',
+      'pnpm-lock.yaml',
+      'package.json',
+      'build.mjs',
+      'tsconfig.base.json',
+      'packages/studio/svelte.config.js',
+      'packages/cleo/package.json',
+      'packages/core/src/store/sqlite.ts',
+      'scripts/packed-install-smoke.mjs',
+      '.github/workflows/ci.yml',
+      '.github/actions/install-ripgrep/action.yml',
+    ]
+      .map((changedPath) => [changedPath, true])
+      .concat([['docs/usage.md', false]]),
+  )('evaluates packed verification for the independent input %s as %s', (changedPath, expected) => {
+    const enabled = job.if
+      .split(' || ')
+      .map((term) => {
+        const parsed = /^needs\.changes\.outputs\.([a-z_]+) == 'true'$/.exec(term);
+        expect(parsed, `unsupported gate expression: ${term}`).not.toBeNull();
+        const name = parsed[1];
+        expect(changes.outputs[name]).toBe(`\${{ steps.filter.outputs.${name} }}`);
+        expect(filters[name]).toBeInstanceOf(Array);
+        return filters[name].some((pattern) => path.posix.matchesGlob(changedPath, pattern));
+      })
+      .some(Boolean);
+    expect(enabled).toBe(expected);
+  });
+  it.each([
+    ['failure', 1],
+    ['cancelled', 1],
+    ['success', 0],
+    ['skipped', 0],
+  ])('executes the real required aggregate with a packed result of %s', (result, expected) => {
+    const root = mkdtempSync(path.join(tmpdir(), 'packed-aggregate-'));
+    try {
+      const aggregate = workflow.jobs.ci.steps.find((step) => step.env?.NEEDS_JSON);
+      const needs = Object.fromEntries(
+        workflow.jobs.ci.needs.map((name) => [
+          name,
+          { result: name === 'packed-artifact' ? result : 'success' },
+        ]),
+      );
+      const run = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', aggregate.run], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          PATH: process.env.PATH,
+          RESULTS: Object.values(needs)
+            .map((entry) => entry.result)
+            .join(','),
+          NEEDS_JSON: JSON.stringify(needs),
+          ADVISORY_RESULT: 'success',
+          GITHUB_STEP_SUMMARY: path.join(root, 'summary'),
+        },
+      });
+      expect(run.error).toBeUndefined();
+      expect(run.status, run.stdout + run.stderr).toBe(expected);
+      if (expected !== 0) expect(run.stdout).toContain('packed-artifact');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('executes classifier, npm fixtures and wiring tests without changed-sibling selection', () => {
+    const run = job.steps.find(
+      (step) => step.name === 'Run package classifier and actual npm fixture regressions',
+    ).run;
+    for (const path of [
+      'packages/caamp/tests/unit/package-artifact.test.ts',
+      'scripts/__tests__/assert-cleo-tarball.test.mjs',
+      'scripts/__tests__/ci-scripts-tests-wiring.test.mjs',
+    ])
+      expect(run).toContain(path);
+    expect(run).toContain('--maxWorkers=2');
+    expect(run).not.toContain('SELECTED');
+  });
+  it('stages actual Studio output before invoking both gates and packed installation', () => {
+    const runs = job.steps.map((step) => step.run ?? '').join('\n');
+    for (const command of [
+      'pnpm run build',
+      'pnpm --filter @cleocode/studio run build',
+      'node packages/cleo/scripts/copy-studio-dist.mjs',
+      'node scripts/assert-cleo-tarball.mjs',
+      'node packages/cleo/scripts/check-cleo-tarball-size.mjs',
+      'node scripts/packed-install-smoke.mjs',
+    ])
+      expect(runs).toContain(command);
+    expect(runs.indexOf('copy-studio-dist.mjs')).toBeLessThan(
+      runs.indexOf('node scripts/assert-cleo-tarball.mjs'),
+    );
+    expect(runs.indexOf('node scripts/assert-cleo-tarball.mjs')).toBeLessThan(
+      runs.indexOf('node scripts/packed-install-smoke.mjs'),
+    );
+    expect(job.env.CARGO_BUILD_JOBS).toBe('2');
+  });
+  it('retains diagnostic evidence even when a packed check fails', () => {
+    const upload = job.steps.find((step) => step.uses === 'actions/upload-artifact@v4');
+    expect(upload.if).toBe('always()');
+    for (const part of ['tarballs/*.tgz', 'manifest.json', '**/*.log'])
+      expect(upload.with.path).toContain(part);
+    expect(upload.with['retention-days']).toBeGreaterThan(0);
   });
 });

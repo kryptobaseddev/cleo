@@ -27,6 +27,7 @@ import {
   parseBlocks,
   reconcile,
   removeInjection,
+  repairContent,
 } from '../../src/index.js';
 
 const REF = '@~/.cleo/templates/CLEO-INJECTION.md';
@@ -254,14 +255,14 @@ describe('removeInjection — no stateful-regex skipping', () => {
       const target = join(dir, `AGENTS-${i}.md`);
       await writeFile(target, `${START}\n${REF}\n${END}\n\nkeep me\n`, 'utf-8');
       expect(await removeInjection(target)).toBe(true);
-      expect(await readFile(target, 'utf-8')).toBe('keep me\n');
+      expect(await readFile(target, 'utf-8')).toBe('\n\nkeep me\n');
     }
   });
 
   it('removes a block whose markers were damaged', async () => {
     await writeFile(file, `!-- CAAMP:START -->\n${REF}\n${END}\n\nkeep me\n`, 'utf-8');
     expect(await removeInjection(file)).toBe(true);
-    expect(await readFile(file, 'utf-8')).toBe('keep me\n');
+    expect(await readFile(file, 'utf-8')).toBe('\n\nkeep me\n');
   });
 });
 
@@ -273,12 +274,12 @@ describe('reconcile — pure, so the rules are directly assertable', () => {
     expect(parseBlocks(result.content)).toHaveLength(1);
   });
 
-  it('always ends with exactly one trailing newline', () => {
-    for (const input of ['', `${START}\n${REF}\n${END}`, `${START}\n${REF}\n${END}\n\n\n\n`]) {
-      const { content } = reconcile(input, REF);
-      expect(content.endsWith('\n')).toBe(true);
-      expect(content.endsWith('\n\n')).toBe(false);
+  it('retains the exact user-owned trailing bytes instead of normalizing them', () => {
+    for (const suffix of ['', '\n', '\r\n\r\n\r\n', ' \t  ']) {
+      const input = `${START}\n${REF}\n${END}${suffix}`;
+      expect(reconcile(input, REF).content).toBe(input);
     }
+    expect(reconcile('', REF).content).toBe(`${START}\n${REF}\n${END}\n`);
   });
 });
 
@@ -342,5 +343,146 @@ describe('hardening found by adversarial review of the T12051 fix itself', () =>
 
     await withFileLock(target, async () => undefined);
     expect(ex(`${target}.lock`)).toBe(false);
+  });
+});
+
+describe('T12269 byte-preserving managed boundary', () => {
+  const prefix = '\uFEFF  # 用户 notes  \r\n\r\n\r\n\t';
+  const between = '\r\n\r\n\r\nUser island λ  \r\n\t';
+  const suffix = '  \r\n\r\n# Keep footer  \r\n \t';
+  const first = `${START}\r\n@first\r\n${END}`;
+  const second = `${START}\r\n@second\r\n${END}`;
+
+  it('preserves independently specified prefix, interblock and suffix byte buffers', () => {
+    const original = prefix + first + between + second + suffix;
+    const result = reconcile(original, '@replacement');
+    expect(Buffer.from(result.content)).toEqual(
+      Buffer.from(prefix + `${START}\n@replacement\n${END}` + between + suffix),
+    );
+    expect(result.blocksBefore).toBe(2);
+    expect(reconcile(result.content, '@replacement').content).toBe(result.content);
+  });
+
+  it.each([
+    'prepend',
+    'append',
+  ] as const)('insertion %s preserves original BOM and whitespace', (insert) => {
+    for (const original of ['  user text \r\n \t', '\r\n \t', '\uFEFF  User λ\r\n\r\n']) {
+      const result = reconcile(original, '@new', insert);
+      const block = parseBlocks(result.content)[0]!;
+      const outside =
+        result.content.slice(0, block.startIndex) + result.content.slice(block.endIndex);
+      expect(
+        Buffer.from(outside).includes(
+          Buffer.from(original.slice(original.startsWith('\uFEFF') ? 1 : 0)),
+        ),
+      ).toBe(true);
+      if (original.startsWith('\uFEFF')) expect(result.content.startsWith('\uFEFF')).toBe(true);
+      expect(reconcile(result.content, '@new', insert).content).toBe(result.content);
+    }
+  });
+
+  it('heals damaged delimiters without consuming BOM, indentation, CRLF or trailing spaces', () => {
+    const original = '\uFEFF\t!-- CAAMP:START --> \r\n@first\r\n  <!-- CAAMP:END --  \r\n';
+    const expected = `\uFEFF\t${START} \r\n@first\r\n  ${END}  \r\n`;
+    const result = normalizeMarkers(original);
+    expect(Buffer.from(result.content)).toEqual(Buffer.from(expected));
+    expect(result.repaired).toBe(2);
+    expect(normalizeMarkers(expected)).toEqual({ content: expected, repaired: 0 });
+  });
+
+  it('repair merges managed references while preserving every outside byte', () => {
+    const result = repairContent(prefix + first + between + second + suffix);
+    expect(Buffer.from(result.content)).toEqual(
+      Buffer.from(prefix + `${START}\n@first\n@second\n${END}` + between + suffix),
+    );
+    expect(repairContent(result.content).content).toBe(result.content);
+  });
+
+  it.each([
+    `${START}\nuser content without an end`,
+    `user content\n${END}`,
+    `${START}\nkeep ambiguous\n${START}\n@nested\n${END}\n${END}`,
+  ])('refuses ambiguous marker ownership without a write: %s', async (ambiguous) => {
+    await writeFile(file, prefix + ambiguous + suffix);
+    const before = await readFile(file);
+    expect(() => reconcile(prefix + ambiguous + suffix, '@new')).toThrow(
+      /ambiguous.*CAAMP|CAAMP.*ambiguous/i,
+    );
+    expect(() => repairContent(prefix + ambiguous + suffix)).toThrow(
+      /ambiguous.*CAAMP|CAAMP.*ambiguous/i,
+    );
+    await expect(inject(file, '@new')).rejects.toThrow(/ambiguous.*CAAMP|CAAMP.*ambiguous/i);
+    expect(await readFile(file)).toEqual(before);
+  });
+});
+
+describe('T12269 removal and deduplication own only marker spans', () => {
+  const prefix = '\uFEFF \t\r\nUser prefix  \r\n\r\n\r\n';
+  const gap = '\r\n\r\n\r\nUser island  \t\r\n';
+  const suffix = ' \t\r\nUser suffix  \r\n\r\n \t';
+  const block = `${START}\r\n@same\r\n${END}`;
+
+  it('removes complete regions while retaining all prefix, gap and suffix bytes', async () => {
+    await writeFile(file, prefix + block + gap + block + suffix);
+    expect(await removeInjection(file)).toBe(true);
+    expect(await readFile(file)).toEqual(Buffer.from(prefix + gap + suffix));
+    expect(await removeInjection(file)).toBe(false);
+    expect(await readFile(file)).toEqual(Buffer.from(prefix + gap + suffix));
+  });
+
+  it('preserves whitespace-only outside content as a real file', async () => {
+    const before = '\uFEFF\t\r\n';
+    const after = '  \r\n\r\n\t';
+    await writeFile(file, before + block + after);
+    expect(await removeInjection(file)).toBe(true);
+    expect(await readFile(file)).toEqual(Buffer.from(before + after));
+  });
+
+  it('dedupes by existing last-occurrence policy without changing any user bytes', async () => {
+    await writeFile(file, prefix + block + gap + block + suffix);
+    const result = await dedupeFile(file);
+    expect(result).toMatchObject({ removed: 1, kept: 1, modified: true });
+    const expected = Buffer.from(prefix + gap + block + suffix);
+    expect(await readFile(file)).toEqual(expected);
+    expect(await dedupeFile(file)).toMatchObject({ removed: 0, kept: 1, modified: false });
+    expect(await readFile(file)).toEqual(expected);
+  });
+
+  it.each([
+    `${START}\nunterminated user bytes`,
+    `unmatched end\n${END}`,
+    `${START}\nouter user bytes\n${START}\ninner\n${END}\n${END}`,
+  ])('rejects ambiguous removal and dedupe before changing disk: %s', async (ambiguous) => {
+    const expected = Buffer.from(prefix + ambiguous + suffix);
+    await writeFile(file, expected);
+    await expect(removeInjection(file)).rejects.toThrow(/Ambiguous CAAMP/);
+    expect(await readFile(file)).toEqual(expected);
+    await expect(dedupeFile(file)).rejects.toThrow(/Ambiguous CAAMP/);
+    expect(await readFile(file)).toEqual(expected);
+  });
+
+  it('does not create a file when desired content contains nested managed markers', async () => {
+    await expect(inject(file, `${START}\nambiguous\n${END}`)).rejects.toThrow(/Ambiguous CAAMP/);
+    await expect(readFile(file)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+describe('T12269 creation decision uses the locked file state', () => {
+  it('preserves bytes created by the previous lock holder before injection acquires ownership', async () => {
+    const { withFileLock } = await import('../../src/index.js');
+    const user = '\uFEFF# Concurrent user notes  \r\n\r\n \t';
+    let pending: ReturnType<typeof inject> | undefined;
+    await withFileLock(file, async () => {
+      // inject reaches its first await while this holder still owns the lock.
+      pending = inject(file, '@managed');
+      await writeFile(file, user);
+    });
+    const action = await pending;
+    const expected = `\uFEFF${START}\n@managed\n${END}\n\n${user.slice(1)}`;
+    expect(await readFile(file)).toEqual(Buffer.from(expected));
+    expect(action).toBe('added');
+    expect(await inject(file, '@managed')).toBe('intact');
+    expect(await readFile(file)).toEqual(Buffer.from(expected));
   });
 });

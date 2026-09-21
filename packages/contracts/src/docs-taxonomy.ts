@@ -711,6 +711,32 @@ function requireString(
 }
 
 /**
+ * Most specific configured ownership rule for a repository-relative document.
+ *
+ * @remarks
+ * Route eligibility does not prove canonical storage or publication provenance.
+ * A nested prohibition takes precedence over a broader permitted mirror.
+ *
+ * @example
+ * ```typescript
+ * const policy: CanonDocPathPolicy = {
+ *   docKind: 'research', matchedPath: '.cleo/research/',
+ *   rawMdAllowed: false, source: 'raw-path',
+ * };
+ * ```
+ */
+export interface CanonDocPathPolicy {
+  /** Kind declaring the selected directory rule. */
+  readonly docKind: string;
+  /** Normalized directory prefix with final slash; empty for the project root. */
+  readonly matchedPath: string;
+  /** Whether this rule permits raw markdown at the selected location. */
+  readonly rawMdAllowed: boolean;
+  /** Explicit raw path or permitted publication mirror that owns the path. */
+  readonly source: 'raw-path' | 'published-mirror';
+}
+
+/**
  * Build a best-effort example slug from a metadata entry's pattern.
  *
  * Used by {@link DocKindRegistry.validateSlug} to give the caller a

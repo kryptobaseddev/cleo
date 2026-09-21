@@ -212,6 +212,15 @@ export {
   type ScopeOverlap,
   taskReconcileScope,
 } from './reconcile-scope.js';
+export {
+  type MigrationApplyResult,
+  type MigrationProposal,
+  parseGateJson,
+  type ReqListEntry,
+  reqAdd,
+  reqList,
+  reqMigrate,
+} from './req.js';
 export { addTaskWithSessionScope, resolveParentFromSession } from './session-scope.js';
 // System-wide severity attestation primitive (T9071 / ADR-054 draft)
 export {

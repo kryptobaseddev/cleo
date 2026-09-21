@@ -52,6 +52,22 @@ describe('domain binding registry (T12037)', () => {
     await rm(dirB, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
   });
 
+  it('retains a captured global home while unscoped routing follows ambient changes', async () => {
+    const { resolveDualScopeDbPath } = await import('../dual-scope-db.js');
+    const previous = process.env['CLEO_HOME'];
+    try {
+      process.env['CLEO_HOME'] = dirA;
+      const captured = dirA;
+      process.env['CLEO_HOME'] = dirB;
+      expect(resolveDualScopeDbPath('global', undefined, captured)).toBe(join(dirA, 'cleo.db'));
+      expect(resolveDualScopeDbPath('global')).toBe(join(dirB, 'cleo.db'));
+      expect(resolveDualScopeDbPath('project', dirA, dirB)).toBe(join(dirA, '.cleo', 'cleo.db'));
+    } finally {
+      if (previous === undefined) delete process.env['CLEO_HOME'];
+      else process.env['CLEO_HOME'] = previous;
+    }
+  });
+
   it('keys bindings by canonical path — two projects coexist', async () => {
     const { bindTasksDomain } = await import('../sqlite.js');
 
@@ -134,6 +150,86 @@ describe('domain binding registry (T12037)', () => {
     expect(establishCalls).toBe(1);
     expect(first.db).toBe(second.db);
     expect(second.db).toBe(third.db);
+  });
+
+  it('serializes unrelated async domain establishment against one physical store', async () => {
+    const { bindProjectDomain } = await import('../ports/domain-binding.js');
+    let enterFirst!: () => void;
+    let releaseFirst!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enterFirst = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const first = bindProjectDomain('schema-owner-one', dirA, async () => {
+      enterFirst();
+      await release;
+      return 'first';
+    });
+    await entered;
+    let secondEntered = false;
+    const second = bindProjectDomain('schema-owner-two', dirA, () => {
+      secondEntered = true;
+      return 'second';
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(secondEntered).toBe(false);
+    } finally {
+      releaseFirst();
+      await Promise.all([first, second]);
+    }
+    expect(secondEntered).toBe(true);
+  });
+
+  it('admits awaited lexical nesting without sharing ownership with unrelated callers', async () => {
+    const { bindProjectDomain } = await import('../ports/domain-binding.js');
+    const outer = await bindProjectDomain('schema-nested-outer', dirA, async (native) => {
+      const inner = await bindProjectDomain('schema-nested-inner', dirA, (nestedNative) => {
+        expect(nestedNative).toBe(native);
+        return 'inner';
+      });
+      return inner.db;
+    });
+    expect(outer.db).toBe('inner');
+    expect(outer.native.isOpen).toBe(true);
+  });
+
+  it('refuses recursive self-establishment before waiting on its own promise', async () => {
+    const { bindProjectDomain } = await import('../ports/domain-binding.js');
+    await expect(
+      bindProjectDomain('schema-recursive', dirA, async () => {
+        await bindProjectDomain('schema-recursive', dirA, () => 'unreachable');
+      }),
+    ).rejects.toThrow('Recursive domain establishment');
+    const fresh = await bindProjectDomain('schema-recursive', dirA, () => 'recovered');
+    expect(fresh.db).toBe('recovered');
+  });
+
+  it('retains the original establishment error and does not cache a failed binding', async () => {
+    const { bindProjectDomain } = await import('../ports/domain-binding.js');
+    const failure = new Error('controlled schema establishment failure');
+    await expect(
+      bindProjectDomain('schema-failure', dirA, () => {
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+    const retry = await bindProjectDomain('schema-failure', dirA, () => 'recovered');
+    expect(retry.db).toBe('recovered');
+  });
+
+  it('reacquires a live store when establishment closes its original handle', async () => {
+    const { bindProjectDomain } = await import('../ports/domain-binding.js');
+    let attempts = 0;
+    const result = await bindProjectDomain('schema-closing', dirA, (_native, store) => {
+      attempts += 1;
+      if (attempts === 1) store.close();
+      return attempts;
+    });
+    expect(attempts).toBe(2);
+    expect(result.db).toBe(2);
+    expect(result.native.isOpen).toBe(true);
   });
 
   it('re-establishes when the bound connection was closed underneath it', async () => {

@@ -2,7 +2,7 @@
  * Pipeline Manifest SQLite Implementation
  *
  * Reimplements all 14 pipeline manifest operations using Drizzle ORM +
- * SQLite (tasks.db pipeline_manifest table) instead of JSONL file I/O.
+ * Canonical docs_pipeline_manifest writes and provenance-aware legacy history reads.
  *
  * Provides a one-time migration function to import existing MANIFEST.jsonl
  * entries into the new table.
@@ -14,41 +14,35 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { and, count, desc, eq, gte, isNull, like, lte, or, type SQL } from 'drizzle-orm';
-import type { EngineResult } from '../engine-result.js';
-import { pipelineManifest } from '../store/tasks-schema.js';
+import { isDeepStrictEqual } from 'node:util';
+import type { ManifestWithProvenance } from '@cleocode/contracts/operations/research';
+import { eq, like, or } from 'drizzle-orm';
+import { z } from 'zod';
+import { createDocsReadModel } from '../docs/docs-read-model.js';
+import { type EngineFailure, type EngineResult, EngineResultError } from '../engine-result.js';
+import { captureProjectScope, worktreeScope } from '../project-scope.js';
+import { docsPipelineManifest as pipelineManifest } from '../store/schema/cleo-project/docs.js';
+import { pipelineManifest as legacyManifest } from '../store/schema/manifest.js';
 
-async function getDb(cwd?: string): ReturnType<typeof import('../store/sqlite.js')['getDb']> {
-  const { getDb: _getDb } = await import('../store/sqlite.js');
-  return _getDb(cwd);
+function manifestScope(cwd?: string) {
+  return captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
 }
 
-/**
- * Resolve the project's native `DatabaseSync` handle.
- *
- * T12037: `getNativeDb` is path-keyed, so the caller's `cwd` MUST be forwarded.
- * The bare call used to return whichever project was opened LAST in the
- * process — under test isolation (or any multi-project run) that silently
- * pointed manifest archiving at the wrong database.
- *
- * @param cwd - Project working directory.
- */
-async function getNativeDb(
-  cwd?: string,
-): Promise<ReturnType<typeof import('../store/sqlite.js')['getNativeDb']>> {
-  const { getNativeDb: _getNativeDb } = await import('../store/sqlite.js');
-  return _getNativeDb(cwd);
+async function getBinding(cwd?: string) {
+  const scope = manifestScope(cwd);
+  const { bindTasksDomain } = await import('../store/sqlite.js');
+  return worktreeScope.run(scope, () => bindTasksDomain(scope.worktreeRoot));
 }
 
 import { createPage } from '../pagination.js';
 import { getProjectRoot, resolveCleoDir } from '../paths.js';
-import {
-  type ContradictionDetail,
-  type ExtendedManifestEntry,
-  filterManifestEntries,
-  type ResearchFilter,
-  type SupersededDetail,
+import type {
+  ContradictionDetail,
+  ExtendedManifestEntry,
+  ResearchFilter,
+  SupersededDetail,
 } from './index.js';
+import { filterManifestEntries } from './manifest-filter.js';
 
 // Re-export types for consumers that previously imported them from pipeline-manifest-compat
 export type ManifestEntry = ExtendedManifestEntry;
@@ -75,52 +69,176 @@ function effectivePageLimit(
   return limit ?? (offset !== undefined ? 50 : undefined);
 }
 
-function buildManifestSqlFilters(filter: ResearchFilter): {
-  conditions: SQL[];
-  requiresInMemoryFiltering: boolean;
-} {
-  const conditions: SQL[] = [isNull(pipelineManifest.archivedAt)];
-
-  if (filter.status) {
-    const storedStatus = filter.status === 'completed' ? 'active' : filter.status;
-    conditions.push(eq(pipelineManifest.status, storedStatus));
-  }
-
-  if (filter.agent_type) {
-    conditions.push(eq(pipelineManifest.type, filter.agent_type));
-  }
-
-  if (filter.dateAfter) {
-    conditions.push(gte(pipelineManifest.createdAt, `${filter.dateAfter} 00:00:00`));
-  }
-
-  if (filter.dateBefore) {
-    conditions.push(lte(pipelineManifest.createdAt, `${filter.dateBefore} 23:59:59`));
-  }
-
-  return {
-    conditions,
-    requiresInMemoryFiltering:
-      filter.taskId !== undefined || filter.topic !== undefined || filter.actionable !== undefined,
-  };
-}
-
-function applyManifestMemoryOnlyFilters(
-  entries: ExtendedManifestEntry[],
-  filter: ResearchFilter,
-): ExtendedManifestEntry[] {
-  const inMemoryFilter: ResearchFilter = {
-    taskId: filter.taskId,
-    topic: filter.topic,
-    actionable: filter.actionable,
-  };
-
-  return filterManifestEntries(entries, inMemoryFilter);
-}
-
 // ============================================================================
 // Internal helpers
 // ============================================================================
+
+function readStoredRows(
+  binding: Awaited<ReturnType<typeof getBinding>>,
+  includeArchived = false,
+  id?: string,
+): Array<ManifestWithProvenance<typeof pipelineManifest.$inferSelect>> {
+  const { db, store } = binding;
+  const modern = db
+    .select()
+    .from(pipelineManifest)
+    .where(id ? eq(pipelineManifest.id, id) : undefined)
+    .all();
+  const legacy = db
+    .select()
+    .from(legacyManifest)
+    .where(id ? eq(legacyManifest.id, id) : undefined)
+    .all();
+  const rows = new Map<string, ManifestWithProvenance<typeof pipelineManifest.$inferSelect>>();
+  for (const [table, sourceRows] of [
+    [pipelineManifest, modern],
+    [legacyManifest, legacy],
+  ] as const) {
+    const tableName = table === pipelineManifest ? 'docs_pipeline_manifest' : 'pipeline_manifest';
+    for (const row of sourceRows) {
+      const existing = rows.get(row.id);
+      if (existing) {
+        const { provenance, ...stored } = existing;
+        // Compare every persisted scalar, including raw content/metadata bytes and archival state.
+        // A short content hash or the lossy public projection cannot establish equality.
+        if (!isDeepStrictEqual(stored, row)) {
+          throw new EngineResultError({
+            code: 'E_MANIFEST_ID_CONFLICT',
+            message: `Manifest '${row.id}' has conflicting stored payloads; inspect both sources before repair.`,
+            details: {
+              entryId: row.id,
+              databasePath: store.dbPath,
+              candidates: [
+                {
+                  table: provenance.tables[0],
+                  payload: stored,
+                  sha256: createHash('sha256').update(JSON.stringify(stored)).digest('hex'),
+                },
+                {
+                  table: tableName,
+                  payload: row,
+                  sha256: createHash('sha256').update(JSON.stringify(row)).digest('hex'),
+                },
+              ],
+            },
+          });
+        }
+        provenance.tables.push(tableName);
+      } else {
+        rows.set(row.id, {
+          ...row,
+          provenance: { databasePath: store.dbPath, tables: [tableName] },
+        });
+      }
+    }
+  }
+  return [...rows.values()]
+    .filter((row) => includeArchived || row.archivedAt === null)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+}
+
+async function readRows(projectRoot?: string, includeArchived = false, id?: string) {
+  const binding = await getBinding(projectRoot);
+  return binding.db.transaction(() => readStoredRows(binding, includeArchived, id));
+}
+
+function requireModernRows(
+  rows: Array<ManifestWithProvenance<typeof pipelineManifest.$inferSelect>>,
+): void {
+  const legacy = rows.filter((row) => row.provenance.tables.includes('pipeline_manifest'));
+  if (legacy.length) {
+    throw new EngineResultError({
+      code: 'E_MANIFEST_LEGACY_REPAIR_REQUIRED',
+      message: 'Legacy manifest evidence requires an explicit guarded repair before mutation.',
+      details: { entries: legacy.map((row) => ({ entryId: row.id, provenance: row.provenance })) },
+    });
+  }
+}
+
+function manifestFailure(code: string, error: Error): EngineFailure {
+  if (error instanceof EngineResultError) {
+    return {
+      success: false,
+      error: { code: error.code, message: error.message, details: error.details },
+    };
+  }
+  const causes: string[] = [];
+  const seen = new Set<Error>();
+  let cause = error;
+  while (!seen.has(cause)) {
+    seen.add(cause);
+    causes.push(cause.message);
+    if (!(cause.cause instanceof Error)) break;
+    cause = cause.cause;
+  }
+  return { success: false, error: { code, message: causes.join(' → ') } };
+}
+
+/**
+ * Insert authentic prepared manifest rows in one guarded project transaction.
+ *
+ * @remarks
+ * Preserves caller handle ownership and both storage histories. Identical complete
+ * payloads are idempotent; differing identities and legacy rows never authorize
+ * replacement. Any batch failure rolls back all inserted rows.
+ * @param rows - Complete persisted payloads, including raw content and metadata.
+ * @param projectRoot - Explicit project identity captured before asynchronous binding.
+ * @param expectedDb - Caller-owned canonical task-domain handle for this project.
+ * @returns Number of newly inserted rows; identical stored rows are skipped.
+ * @throws If database identity, historical evidence, or any transactional write fails.
+ * @example
+ * ```ts
+ * const inserted = await insertManifestRows(preparedRows, projectRoot, db);
+ * ```
+ */
+export async function insertManifestRows(
+  rows: ReadonlyArray<typeof pipelineManifest.$inferSelect>,
+  projectRoot: string,
+  expectedDb: Awaited<ReturnType<typeof getBinding>>['db'],
+): Promise<number> {
+  try {
+    const binding = await getBinding(projectRoot);
+    if (expectedDb !== binding.db) {
+      throw new EngineResultError({
+        code: 'E_MANIFEST_DATABASE_MISMATCH',
+        message:
+          'Supplied database is not the captured canonical project binding; ownership is unverified.',
+        details: { databasePath: binding.store.dbPath },
+      });
+    }
+    return binding.db.transaction(
+      () => {
+        let inserted = 0;
+        for (const row of rows) {
+          const existing = readStoredRows(binding, true, row.id);
+          requireModernRows(existing);
+          if (existing[0]) {
+            const { provenance, ...stored } = existing[0];
+            if (!isDeepStrictEqual(stored, row)) {
+              throw new EngineResultError({
+                code: 'E_MANIFEST_ID_CONFLICT',
+                message: `Manifest '${row.id}' differs from the supplied payload; explicit repair is required.`,
+                details: { entryId: row.id, provenance, stored, incoming: row },
+              });
+            }
+            continue;
+          }
+          binding.db.insert(pipelineManifest).values(row).run();
+          inserted++;
+        }
+        return inserted;
+      },
+      { behavior: 'immediate' },
+    );
+  } catch (error) {
+    throw new EngineResultError(
+      manifestFailure(
+        'E_MANIFEST_INGEST',
+        error instanceof Error ? error : new Error(String(error)),
+      ).error,
+    );
+  }
+}
 
 function now(): string {
   return new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -133,35 +251,77 @@ function computeContentHash(content: string): string {
     .slice(0, 16);
 }
 
-/**
- * Convert a pipeline_manifest row back to ExtendedManifestEntry format
- * for backward-compatible output.
- */
-function rowToEntry(row: typeof pipelineManifest.$inferSelect): ExtendedManifestEntry {
-  let meta: Record<string, unknown> = {};
-  if (row.metadataJson) {
-    try {
-      meta = JSON.parse(row.metadataJson) as Record<string, unknown>;
-    } catch {
-      // ignore malformed JSON
-    }
-  }
+/** Validate only fields projected by the canonical reader; retain other provenance. */
+const manifestMetadataSchema = z.looseObject({
+  file: z.string().optional(),
+  title: z.string().optional(),
+  topics: z.array(z.string()).optional(),
+  key_findings: z.array(z.string()).optional(),
+  actionable: z.boolean().optional(),
+  needs_followup: z.array(z.string()).optional(),
+  linked_tasks: z.array(z.string()).optional(),
+  confidence: z.number().optional(),
+  file_checksum: z.string().optional(),
+  duration_seconds: z.number().optional(),
+});
 
+function readRowMetadata(row: ManifestWithProvenance<typeof pipelineManifest.$inferSelect>) {
+  const details = {
+    entryId: row.id,
+    tables: row.provenance.tables,
+    metadataSha256: createHash('sha256')
+      .update(row.metadataJson ?? '')
+      .digest('hex'),
+  };
+  let parsed: ReturnType<typeof manifestMetadataSchema.safeParse>;
+  try {
+    parsed = manifestMetadataSchema.safeParse(
+      row.metadataJson === null ? {} : JSON.parse(row.metadataJson),
+    );
+  } catch (error) {
+    throw new EngineResultError({
+      code: 'E_MANIFEST_METADATA_INVALID',
+      message: `Manifest '${row.id}' metadata is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      details: { ...details, field: 'metadata_json' },
+    });
+  }
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => ({
+      field: issue.path.join('.') || 'metadata_json',
+      message: issue.message,
+    }));
+    throw new EngineResultError({
+      code: 'E_MANIFEST_METADATA_INVALID',
+      message: `Manifest '${row.id}' metadata violates the stored field contract`,
+      details: { ...details, field: issues[0]?.field ?? 'metadata_json', issues },
+    });
+  }
+  return parsed.data;
+}
+
+/**
+ * Convert a validated canonical or historical row without rewriting stored bytes.
+ */
+function rowToEntry(
+  row: ManifestWithProvenance<typeof pipelineManifest.$inferSelect>,
+): ManifestWithProvenance<ExtendedManifestEntry> {
+  const meta = readRowMetadata(row);
   return {
     id: row.id,
-    file: (meta['file'] as string) ?? row.sourceFile ?? '',
-    title: (meta['title'] as string) ?? row.type,
+    provenance: row.provenance,
+    file: meta.file ?? row.sourceFile ?? '',
+    title: meta.title ?? row.type,
     date: row.createdAt.slice(0, 10),
     status: (row.status === 'active' ? 'completed' : row.status) as ExtendedManifestEntry['status'],
     agent_type: row.type,
-    topics: (meta['topics'] as string[]) ?? [],
-    key_findings: (meta['key_findings'] as string[]) ?? [],
-    actionable: (meta['actionable'] as boolean) ?? true,
-    needs_followup: (meta['needs_followup'] as string[]) ?? [],
-    linked_tasks: (meta['linked_tasks'] as string[]) ?? (row.taskId ? [row.taskId] : []),
-    confidence: meta['confidence'] as number | undefined,
-    file_checksum: meta['file_checksum'] as string | undefined,
-    duration_seconds: meta['duration_seconds'] as number | undefined,
+    topics: meta.topics ?? [],
+    key_findings: meta.key_findings ?? [],
+    actionable: meta.actionable ?? true,
+    needs_followup: meta.needs_followup ?? [],
+    linked_tasks: meta.linked_tasks ?? (row.taskId ? [row.taskId] : []),
+    confidence: meta.confidence,
+    file_checksum: meta.file_checksum,
+    duration_seconds: meta.duration_seconds,
   };
 }
 
@@ -212,7 +372,22 @@ function entryToRow(entry: ExtendedManifestEntry): typeof pipelineManifest.$infe
 // EngineResult-wrapped functions
 // ============================================================================
 
-/** pipeline.manifest.show - Get manifest entry details by ID */
+/**
+ * Retrieve a manifest and resolve its local file or canonical document reference.
+ *
+ * @remarks
+ * Supports `cleo://docs/<reference>` where the single percent-encoded segment is
+ * a document slug, attachment ID, or SHA-256 accepted by the canonical docs read
+ * model. URI syntax establishes no authority. Unsupported URIs and failed reads
+ * are explicit failures; missing ordinary files retain `fileExists: false`.
+ * @param researchId - Exact manifest identity, including historical entries.
+ * @param projectRoot - Explicit project directory used for both manifest and docs.
+ * @returns Manifest provenance and content, or a structured resolution failure.
+ * @example
+ * ```ts
+ * const result = await pipelineManifestShow('T001-report', '/project');
+ * ```
+ */
 export async function pipelineManifestShow(
   researchId: string,
   projectRoot?: string,
@@ -225,12 +400,8 @@ export async function pipelineManifestShow(
   }
 
   try {
-    const db = await getDb(projectRoot);
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(eq(pipelineManifest.id, researchId))
-      .limit(1);
+    const scope = manifestScope(projectRoot);
+    const rows = await readRows(scope.worktreeRoot, true, researchId);
 
     if (rows.length === 0) {
       return {
@@ -240,16 +411,68 @@ export async function pipelineManifestShow(
     }
 
     const entry = rowToEntry(rows[0]);
-    const root = getProjectRoot(projectRoot);
-
     let fileContent: string | null = null;
-    try {
-      const filePath = join(root, entry.file);
-      if (existsSync(filePath)) {
-        fileContent = readFileSync(filePath, 'utf-8');
+    if (/^[a-z][a-z\d+.-]*:/i.test(entry.file) && !/^[a-z]:[\\/]/i.test(entry.file)) {
+      const details = { entryId: researchId, reference: entry.file };
+      if (!entry.file.startsWith('cleo://docs/')) {
+        throw new EngineResultError({
+          code: 'E_MANIFEST_REFERENCE_UNSUPPORTED',
+          message:
+            'Only cleo://docs/<reference> document URIs are supported; no network lookup was attempted.',
+          details,
+        });
       }
-    } catch {
-      // File may not exist or be unreadable
+      const encoded = entry.file.slice('cleo://docs/'.length);
+      let reference: string;
+      try {
+        reference = decodeURIComponent(encoded);
+      } catch {
+        throw new EngineResultError({
+          code: 'E_MANIFEST_REFERENCE_INVALID',
+          message: 'Document reference contains invalid percent encoding.',
+          details,
+        });
+      }
+      if (
+        !reference ||
+        reference === '.' ||
+        reference === '..' ||
+        /[/\\?#\s\x00-\x1f]/.test(reference)
+      ) {
+        throw new EngineResultError({
+          code: 'E_MANIFEST_REFERENCE_INVALID',
+          message:
+            'Document URI requires one nonempty reference without path, query, or fragment components.',
+          details,
+        });
+      }
+      fileContent = await worktreeScope.run(scope, async () => {
+        const model = createDocsReadModel(scope.worktreeRoot);
+        const doc =
+          (await model.resolveLatest(reference)) ?? (await model.resolveByAttachmentId(reference));
+        if (!doc) {
+          throw new EngineResultError({
+            code: 'E_MANIFEST_DOC_NOT_FOUND',
+            message: 'Document reference was not found in the selected project.',
+            details,
+          });
+        }
+        const content = await model.fetchContent(doc);
+        if (content === null) {
+          throw new EngineResultError({
+            code: 'E_MANIFEST_DOC_CONTENT_UNAVAILABLE',
+            message: 'Document metadata resolved but its content is unavailable.',
+            details: { ...details, attachmentId: doc.id, sha256: doc.sha256 },
+          });
+        }
+        return content;
+      });
+    } else if (entry.file) {
+      try {
+        fileContent = readFileSync(join(scope.worktreeRoot, entry.file), 'utf-8');
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+      }
     }
 
     return {
@@ -257,13 +480,10 @@ export async function pipelineManifestShow(
       data: { ...entry, fileContent, fileExists: fileContent !== null },
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_SHOW',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return manifestFailure(
+      'E_MANIFEST_SHOW',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
@@ -273,82 +493,31 @@ export async function pipelineManifestList(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const db = await getDb(projectRoot);
-    const filter: ResearchFilter = { ...params };
-    if (params.type) {
-      filter.agent_type = params.type;
-    }
-
+    const entries = (await readRows(projectRoot)).map(rowToEntry);
     const limit = normalizeLimit(params.limit);
     const offset = normalizeOffset(params.offset);
     const pageLimit = effectivePageLimit(limit, offset);
-    const { conditions, requiresInMemoryFiltering } = buildManifestSqlFilters(filter);
-    const whereClause = and(...conditions);
-
-    const totalRow = await db
-      .select({ count: count() })
-      .from(pipelineManifest)
-      .where(isNull(pipelineManifest.archivedAt))
-      .get();
-    const total = totalRow?.count ?? 0;
-
-    if (!requiresInMemoryFiltering) {
-      const filteredRow = await db
-        .select({ count: count() })
-        .from(pipelineManifest)
-        .where(whereClause)
-        .get();
-      const filtered = filteredRow?.count ?? 0;
-
-      let query = db
-        .select()
-        .from(pipelineManifest)
-        .where(whereClause)
-        .orderBy(desc(pipelineManifest.createdAt));
-
-      if (pageLimit !== undefined) {
-        query = query.limit(pageLimit) as typeof query;
-      }
-      if (offset !== undefined) {
-        query = query.offset(offset) as typeof query;
-      }
-
-      const rows = await query;
-
-      return {
-        success: true,
-        data: { entries: rows.map(rowToEntry), total, filtered },
-        page: createPage({ total: filtered, limit: pageLimit, offset }),
-      };
-    }
-
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(whereClause)
-      .orderBy(desc(pipelineManifest.createdAt));
-
-    const filteredEntries = applyManifestMemoryOnlyFilters(rows.map(rowToEntry), filter);
-    const filtered = filteredEntries.length;
+    const filtered = filterManifestEntries(entries, {
+      ...params,
+      agent_type: params.type ?? params.agent_type,
+      limit: undefined,
+      offset: undefined,
+    });
     const start = offset ?? 0;
-    const pagedEntries =
-      pageLimit !== undefined
-        ? filteredEntries.slice(start, start + pageLimit)
-        : filteredEntries.slice(start);
-
     return {
       success: true,
-      data: { entries: pagedEntries, total, filtered },
-      page: createPage({ total: filtered, limit: pageLimit, offset }),
+      data: {
+        entries: filtered.slice(start, pageLimit === undefined ? undefined : start + pageLimit),
+        total: entries.length,
+        filtered: filtered.length,
+      },
+      page: createPage({ total: filtered.length, limit: pageLimit, offset }),
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_LIST',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return manifestFailure(
+      'E_MANIFEST_LIST',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
@@ -363,19 +532,35 @@ export async function pipelineManifestFind(
   }
 
   try {
-    const db = await getDb(projectRoot);
-    const likePattern = `%${query}%`;
-
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(
-        and(
-          isNull(pipelineManifest.archivedAt),
-          or(like(pipelineManifest.content, likePattern), like(pipelineManifest.type, likePattern)),
-        ),
-      )
-      .orderBy(desc(pipelineManifest.createdAt));
+    const binding = await getBinding(projectRoot);
+    const rows = binding.db.transaction(() => {
+      const merged = readStoredRows(binding);
+      const ids = new Set(
+        [
+          ...binding.db
+            .select({ id: pipelineManifest.id })
+            .from(pipelineManifest)
+            .where(
+              or(
+                like(pipelineManifest.content, `%${query}%`),
+                like(pipelineManifest.type, `%${query}%`),
+              ),
+            )
+            .all(),
+          ...binding.db
+            .select({ id: legacyManifest.id })
+            .from(legacyManifest)
+            .where(
+              or(
+                like(legacyManifest.content, `%${query}%`),
+                like(legacyManifest.type, `%${query}%`),
+              ),
+            )
+            .all(),
+        ].map((row) => row.id),
+      );
+      return merged.filter((row) => ids.has(row.id));
+    });
 
     const queryLower = query.toLowerCase();
     const entries = rows.map(rowToEntry);
@@ -408,13 +593,10 @@ export async function pipelineManifestFind(
       },
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_FIND',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return manifestFailure(
+      'E_MANIFEST_FIND',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
@@ -424,12 +606,7 @@ export async function pipelineManifestPending(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const db = await getDb(projectRoot);
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(isNull(pipelineManifest.archivedAt))
-      .orderBy(desc(pipelineManifest.createdAt));
+    const rows = await readRows(projectRoot);
 
     const entries = rows.map(rowToEntry);
 
@@ -458,13 +635,10 @@ export async function pipelineManifestPending(
       },
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_PENDING',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return manifestFailure(
+      'E_MANIFEST_PENDING',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
@@ -474,11 +648,7 @@ export async function pipelineManifestStats(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const db = await getDb(projectRoot);
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(isNull(pipelineManifest.archivedAt));
+    const rows = await readRows(projectRoot);
 
     const entries = rows.map(rowToEntry);
 
@@ -514,13 +684,10 @@ export async function pipelineManifestStats(
       },
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_STATS',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return manifestFailure(
+      'E_MANIFEST_STATS',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
@@ -530,12 +697,7 @@ export async function pipelineManifestRead(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const db = await getDb(projectRoot);
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(isNull(pipelineManifest.archivedAt))
-      .orderBy(desc(pipelineManifest.createdAt));
+    const rows = await readRows(projectRoot);
 
     const entries = rows.map(rowToEntry);
     const filtered = filter ? filterManifestEntries(entries, filter) : entries;
@@ -545,17 +707,14 @@ export async function pipelineManifestRead(
       data: { entries: filtered, total: filtered.length, filter: filter || {} },
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_READ',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return manifestFailure(
+      'E_MANIFEST_READ',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
-/** pipeline.manifest.append - Append entry to pipeline_manifest table */
+/** Append to canonical manifest storage after checking both histories for unresolved identities. */
 export async function pipelineManifestAppend(
   entry: ExtendedManifestEntry,
   projectRoot?: string,
@@ -585,33 +744,36 @@ export async function pipelineManifestAppend(
   }
 
   try {
-    const db = await getDb(projectRoot);
+    const binding = await getBinding(projectRoot);
     const row = entryToRow(entry);
-
-    await db
-      .insert(pipelineManifest)
-      .values(row)
-      .onConflictDoUpdate({
-        target: pipelineManifest.id,
-        set: {
-          content: row.content,
-          contentHash: row.contentHash,
-          status: row.status,
-          metadataJson: row.metadataJson,
-          sourceFile: row.sourceFile,
-          taskId: row.taskId,
-        },
-      });
+    binding.db.transaction(
+      () => {
+        requireModernRows(readStoredRows(binding, true, entry.id));
+        binding.db
+          .insert(pipelineManifest)
+          .values(row)
+          .onConflictDoUpdate({
+            target: pipelineManifest.id,
+            set: {
+              content: row.content,
+              contentHash: row.contentHash,
+              status: row.status,
+              metadataJson: row.metadataJson,
+              sourceFile: row.sourceFile,
+              taskId: row.taskId,
+            },
+          })
+          .run();
+      },
+      { behavior: 'immediate' },
+    );
 
     return { success: true, data: { appended: true, entryId: entry.id } };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_APPEND',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return manifestFailure(
+      'E_MANIFEST_APPEND',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
@@ -631,107 +793,92 @@ export async function pipelineManifestArchive(
   }
 
   try {
-    const db = await getDb(projectRoot);
-    const nativeDb = await getNativeDb(projectRoot);
-
-    if (!nativeDb) {
-      return {
-        success: false,
-        error: { code: 'E_DB_NOT_INITIALIZED', message: 'Database not initialized' },
-      };
-    }
-
-    // Find entries to archive (before date, not already archived)
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(isNull(pipelineManifest.archivedAt));
-
-    const toArchive = rows.filter((r) => r.createdAt.slice(0, 10) < beforeDate);
-
-    if (toArchive.length === 0) {
-      const remaining = rows.length;
-      return {
-        success: true,
-        data: { archived: 0, remaining, message: 'No entries found before the specified date' },
-      };
-    }
-
-    const archivedAt = now();
-    for (const row of toArchive) {
-      await db.update(pipelineManifest).set({ archivedAt }).where(eq(pipelineManifest.id, row.id));
-    }
-
-    const remaining = rows.length - toArchive.length;
-    return { success: true, data: { archived: toArchive.length, remaining } };
-  } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_ARCHIVE',
-        message: error instanceof Error ? error.message : String(error),
+    const binding = await getBinding(projectRoot);
+    return binding.db.transaction(
+      () => {
+        const rows = readStoredRows(binding);
+        const toArchive = rows.filter((row) => row.createdAt.slice(0, 10) < beforeDate);
+        requireModernRows(toArchive);
+        const archivedAt = now();
+        for (const row of toArchive) {
+          binding.db
+            .update(pipelineManifest)
+            .set({ archivedAt })
+            .where(eq(pipelineManifest.id, row.id))
+            .run();
+        }
+        return {
+          success: true,
+          data: { archived: toArchive.length, remaining: rows.length - toArchive.length },
+        };
       },
-    };
+      { behavior: 'immediate' },
+    );
+  } catch (error) {
+    return manifestFailure(
+      'E_MANIFEST_ARCHIVE',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
 /** pipeline.manifest.compact - Dedup by contentHash (keep newest by createdAt) */
 export async function pipelineManifestCompact(projectRoot?: string): Promise<EngineResult> {
   try {
-    const db = await getDb(projectRoot);
-
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(isNull(pipelineManifest.archivedAt))
-      .orderBy(desc(pipelineManifest.createdAt));
-
-    const originalCount = rows.length;
-    if (originalCount === 0) {
-      return { success: true, data: { compacted: false, message: 'No entries found' } };
-    }
-
-    // Dedup by contentHash — keep newest (first seen due to DESC order)
-    const seenHashes = new Set<string>();
-    const seenIds = new Set<string>();
-    const toDelete: string[] = [];
-
-    for (const row of rows) {
-      const hash = row.contentHash ?? computeContentHash(row.content);
-      if (seenHashes.has(hash) || seenIds.has(row.id)) {
-        toDelete.push(row.id);
-      } else {
-        seenHashes.add(hash);
-        seenIds.add(row.id);
-      }
-    }
-
-    for (const id of toDelete) {
-      await db.delete(pipelineManifest).where(eq(pipelineManifest.id, id));
-    }
-
-    return {
-      success: true,
-      data: {
-        compacted: true,
-        originalLines: originalCount,
-        malformedRemoved: 0,
-        duplicatesRemoved: toDelete.length,
-        remainingEntries: originalCount - toDelete.length,
+    const binding = await getBinding(projectRoot);
+    return binding.db.transaction(
+      () => {
+        const rows = readStoredRows(binding);
+        requireModernRows(rows);
+        if (!rows.length)
+          return { success: true, data: { compacted: false, message: 'No entries found' } };
+        // Hashes can collide; only the full stored content establishes duplicate payloads.
+        const seen = new Set<string>();
+        const toDelete: string[] = [];
+        for (const row of rows) {
+          if (seen.has(row.content)) toDelete.push(row.id);
+          else seen.add(row.content);
+        }
+        for (const id of toDelete)
+          binding.db.delete(pipelineManifest).where(eq(pipelineManifest.id, id)).run();
+        return {
+          success: true,
+          data: {
+            compacted: true,
+            originalLines: rows.length,
+            malformedRemoved: 0,
+            duplicatesRemoved: toDelete.length,
+            remainingEntries: rows.length - toDelete.length,
+          },
+        };
       },
-    };
+      { behavior: 'immediate' },
+    );
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_COMPACT_FAILED',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return manifestFailure(
+      'E_COMPACT_FAILED',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
-/** pipeline.manifest.validate - Validate manifest entries for a task */
+/**
+ * Validate available manifest evidence explicitly linked to one task.
+ *
+ * @remarks
+ * This exported SDK helper is not a registered CLI operation. Selection uses
+ * exact linked-task membership; manifest ID wording establishes no ownership.
+ * Absent evidence, missing output, and blank output invalidate the assessment.
+ * Canonical document/read failures retain their structured diagnostics. Content
+ * availability does not establish implementation, testing, review, or authority.
+ * @param taskId - Exact task identity whose linked evidence is assessed.
+ * @param projectRoot - Project captured before any asynchronous store access.
+ * @returns Field and content assessment, or a structured diagnostic failure.
+ * @example
+ * ```ts
+ * const result = await pipelineManifestValidate('T001', '/project');
+ * ```
+ */
 export async function pipelineManifestValidate(
   taskId: string,
   projectRoot?: string,
@@ -741,28 +888,23 @@ export async function pipelineManifestValidate(
   }
 
   try {
-    const db = await getDb(projectRoot);
-    const root = getProjectRoot(projectRoot);
-
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(isNull(pipelineManifest.archivedAt));
-
-    const entries = rows.map(rowToEntry);
-    const linked = entries.filter(
-      (e) => e.id.startsWith(taskId) || e.linked_tasks?.includes(taskId),
-    );
+    const root = manifestScope(projectRoot).worktreeRoot;
+    const entries = await readManifestEntries(root);
+    const linked = entries.filter((entry) => entry.linked_tasks?.includes(taskId));
 
     if (linked.length === 0) {
       return {
         success: true,
         data: {
           taskId,
-          valid: true,
+          valid: false,
           entriesFound: 0,
           message: `No research entries found for task ${taskId}`,
-          issues: [],
+          issues: [
+            { entryId: taskId, issue: 'No explicitly linked evidence found', severity: 'error' },
+          ],
+          errorCount: 1,
+          warningCount: 0,
         },
       };
     }
@@ -791,12 +933,34 @@ export async function pipelineManifestValidate(
       }
 
       if (entry.file) {
-        const filePath = join(root, entry.file);
-        if (!existsSync(filePath)) {
+        const output = await pipelineManifestShow(entry.id, root);
+        if (!output.success) return output;
+        const data = output.data;
+        if (
+          !data ||
+          typeof data !== 'object' ||
+          !('fileExists' in data) ||
+          typeof data.fileExists !== 'boolean' ||
+          !('fileContent' in data) ||
+          (data.fileExists ? typeof data.fileContent !== 'string' : data.fileContent !== null)
+        ) {
+          throw new EngineResultError({
+            code: 'E_MANIFEST_RESULT_INVALID',
+            message: 'Canonical manifest show did not disclose consistent output availability',
+            details: { entryId: entry.id },
+          });
+        }
+        if (!data.fileExists) {
           issues.push({
             entryId: entry.id,
             issue: `Output file not found: ${entry.file}`,
-            severity: 'warning',
+            severity: 'error',
+          });
+        } else if (typeof data.fileContent === 'string' && data.fileContent.trim().length === 0) {
+          issues.push({
+            entryId: entry.id,
+            issue: `Output content is empty: ${entry.file}`,
+            severity: 'error',
           });
         }
       }
@@ -825,13 +989,10 @@ export async function pipelineManifestValidate(
       },
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_VALIDATE',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return manifestFailure(
+      'E_MANIFEST_VALIDATE',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
@@ -841,11 +1002,7 @@ export async function pipelineManifestContradictions(
   params?: { topic?: string },
 ): Promise<EngineResult<{ contradictions: ContradictionDetail[] }>> {
   try {
-    const db = await getDb(projectRoot);
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(isNull(pipelineManifest.archivedAt));
+    const rows = await readRows(projectRoot);
 
     const entries = rows.map(rowToEntry);
 
@@ -913,13 +1070,10 @@ export async function pipelineManifestContradictions(
 
     return { success: true, data: { contradictions } };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_CONTRADICTIONS',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return manifestFailure(
+      'E_MANIFEST_CONTRADICTIONS',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
@@ -929,11 +1083,7 @@ export async function pipelineManifestSuperseded(
   params?: { topic?: string },
 ): Promise<EngineResult<{ superseded: SupersededDetail[] }>> {
   try {
-    const db = await getDb(projectRoot);
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(isNull(pipelineManifest.archivedAt));
+    const rows = await readRows(projectRoot);
 
     const entries = rows.map(rowToEntry);
 
@@ -967,13 +1117,10 @@ export async function pipelineManifestSuperseded(
 
     return { success: true, data: { superseded } };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_SUPERSEDED',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return manifestFailure(
+      'E_MANIFEST_SUPERSEDED',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
@@ -992,54 +1139,46 @@ export async function pipelineManifestLink(
   }
 
   try {
-    const db = await getDb(projectRoot);
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(eq(pipelineManifest.id, researchId))
-      .limit(1);
+    const binding = await getBinding(projectRoot);
+    return binding.db.transaction(
+      () => {
+        const rows = readStoredRows(binding, true, researchId);
+        if (!rows.length)
+          throw new EngineResultError({
+            code: 'E_NOT_FOUND',
+            message: `Research entry '${researchId}' not found`,
+          });
+        requireModernRows(rows);
+        const row = rows[0];
+        const entry = rowToEntry(row);
 
-    if (rows.length === 0) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_FOUND', message: `Research entry '${researchId}' not found` },
-      };
-    }
+        if (entry.linked_tasks?.includes(taskId)) {
+          return { success: true, data: { taskId, researchId, linked: true, alreadyLinked: true } };
+        }
 
-    const row = rows[0];
-    const entry = rowToEntry(row);
+        // Update linked_tasks in metadataJson
+        const updatedLinkedTasks = [...(entry.linked_tasks ?? []), taskId];
+        const meta = readRowMetadata(row);
+        meta['linked_tasks'] = updatedLinkedTasks;
 
-    if (entry.linked_tasks?.includes(taskId)) {
-      return { success: true, data: { taskId, researchId, linked: true, alreadyLinked: true } };
-    }
+        binding.db
+          .update(pipelineManifest)
+          .set({
+            taskId: row.taskId ?? taskId,
+            metadataJson: JSON.stringify(meta),
+          })
+          .where(eq(pipelineManifest.id, researchId))
+          .run();
 
-    // Update linked_tasks in metadataJson
-    const updatedLinkedTasks = [...(entry.linked_tasks ?? []), taskId];
-    let meta: Record<string, unknown> = {};
-    try {
-      meta = row.metadataJson ? (JSON.parse(row.metadataJson) as Record<string, unknown>) : {};
-    } catch {
-      // ignore
-    }
-    meta['linked_tasks'] = updatedLinkedTasks;
-
-    await db
-      .update(pipelineManifest)
-      .set({
-        taskId: row.taskId ?? taskId,
-        metadataJson: JSON.stringify(meta),
-      })
-      .where(eq(pipelineManifest.id, researchId));
-
-    return { success: true, data: { taskId, researchId, linked: true, notes: notes || null } };
-  } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_MANIFEST_LINK',
-        message: error instanceof Error ? error.message : String(error),
+        return { success: true, data: { taskId, researchId, linked: true, notes: notes || null } };
       },
-    };
+      { behavior: 'immediate' },
+    );
+  } catch (error) {
+    return manifestFailure(
+      'E_MANIFEST_LINK',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 }
 
@@ -1048,21 +1187,23 @@ export async function pipelineManifestLink(
 // ============================================================================
 
 /**
- * Read all manifest entries from the pipeline_manifest table.
- * Replaces readManifestEntries() from pipeline-manifest-compat.
+ * Read unarchived entries from both manifest histories with physical provenance.
+ * @param projectRoot - Explicit project root; takes priority over ambient project pins.
+ * @returns Entries retaining the existing fields and observed source tables/database path.
+ * @throws EngineResultError when the same identity has conflicting persisted payloads.
+ * @throws Error when storage reads fail; failure is never represented as an empty history.
+ * @remarks Identical rows are deduplicated only after comparing every stored scalar.
+ * Legacy-only evidence remains readable and is never implicitly migrated or rewritten.
+ * @example
+ * ```ts
+ * const entries = await readManifestEntries('/project');
+ * const sources = entries.map((entry) => entry.provenance.tables);
+ * ```
  */
-export async function readManifestEntries(projectRoot?: string): Promise<ExtendedManifestEntry[]> {
-  try {
-    const db = await getDb(projectRoot);
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(isNull(pipelineManifest.archivedAt))
-      .orderBy(desc(pipelineManifest.createdAt));
-    return rows.map(rowToEntry);
-  } catch {
-    return [];
-  }
+export async function readManifestEntries(
+  projectRoot?: string,
+): Promise<Array<ManifestWithProvenance<ExtendedManifestEntry>>> {
+  return (await readRows(projectRoot)).map(rowToEntry);
 }
 
 /**
@@ -1103,7 +1244,7 @@ export async function distillManifestEntry(
 export async function migrateManifestJsonlToSqlite(
   projectRoot?: string,
 ): Promise<{ migrated: number; skipped: number }> {
-  const root = getProjectRoot(projectRoot);
+  const root = manifestScope(projectRoot).worktreeRoot;
   const manifestPath = join(resolveCleoDir(root), 'MANIFEST.jsonl');
 
   if (!existsSync(manifestPath)) {
@@ -1128,7 +1269,8 @@ export async function migrateManifestJsonlToSqlite(
     return { migrated: 0, skipped: 0 };
   }
 
-  const db = await getDb(projectRoot);
+  const binding = await getBinding(projectRoot);
+  const db = binding.db;
 
   let migrated = 0;
   let skipped = 0;
@@ -1139,25 +1281,18 @@ export async function migrateManifestJsonlToSqlite(
       continue;
     }
 
-    // Check if already exists
-    const existing = await db
-      .select({ id: pipelineManifest.id })
-      .from(pipelineManifest)
-      .where(eq(pipelineManifest.id, entry.id))
-      .limit(1);
-
-    if (existing.length > 0) {
-      skipped++;
-      continue;
-    }
-
-    try {
-      const row = entryToRow(entry);
-      await db.insert(pipelineManifest).values(row);
-      migrated++;
-    } catch {
-      skipped++;
-    }
+    const inserted = db.transaction(
+      () => {
+        const existing = readStoredRows(binding, true, entry.id);
+        requireModernRows(existing);
+        if (existing.length) return false;
+        db.insert(pipelineManifest).values(entryToRow(entry)).run();
+        return true;
+      },
+      { behavior: 'immediate' },
+    );
+    if (inserted) migrated++;
+    else skipped++;
   }
 
   // Rename MANIFEST.jsonl to MANIFEST.jsonl.migrated

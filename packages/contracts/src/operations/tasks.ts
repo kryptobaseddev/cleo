@@ -18,6 +18,7 @@
  * @task T1703 — Fill Result=unknown stubs with canonical typed shapes
  */
 
+import type { TaskPopulation } from '../data-accessor.js';
 import type { ImpactReport } from '../facade.js';
 import type { TaskAnalysisResult, TaskRef } from '../results.js';
 /**
@@ -25,7 +26,7 @@ import type { TaskAnalysisResult, TaskRef } from '../results.js';
  */
 import type { TaskStatus } from '../status-registry.js';
 import type { TaskKind, TaskPriority, TaskSeverity, TaskType } from '../task.js';
-import type { TaskRecord } from '../task-record.js';
+import type { MinimalTaskRecord, TaskMatch, TaskRecord } from '../task-record.js';
 import type { ExternalTask, ExternalTaskLink, ReconcileResult } from '../task-sync.js';
 import type {
   CompletionEvaluateParams,
@@ -115,11 +116,14 @@ export interface TasksListParams {
   limit?: number;
   offset?: number;
   compact?: boolean;
+  /** Include archive rows under the same filters. */
+  includeArchive?: boolean;
 }
 export interface TasksListResult {
   tasks: TaskOp[];
   total: number;
   filtered: number;
+  population: TaskPopulation;
 }
 
 // tasks.find
@@ -142,6 +146,10 @@ export interface TasksFindParams {
   id?: string;
   /** When true, require exact string match instead of fuzzy. @task T963 */
   exact?: boolean;
+  /** Explicitly allow character-subsequence matching. Default is lexical. */
+  fuzzy?: boolean;
+  /** Restrict matching to this field; unsupported values reject. */
+  field?: string;
   /** Filter by status. @task T963 */
   status?: TaskStatus;
   /** When true, include archived tasks in the search. @task T963 */
@@ -201,7 +209,14 @@ export interface TasksFindParams {
    */
   parent?: string;
 }
-export type TasksFindResult = MinimalTask[];
+/** Canonical task-search wrapper, including retrieval basis and population scope. */
+export interface TasksFindResult {
+  results: (MinimalTaskRecord | TaskRecord)[];
+  total: number;
+  population: TaskPopulation;
+  query: string;
+  searchType: TaskMatch['kind'];
+}
 
 /**
  * Mutate Operations
@@ -1442,6 +1457,8 @@ export interface TasksAddParams {
    */
   parentSource?: 'explicit' | 'session-inference';
   depends?: string[];
+  /** Justification preserved in the creation audit for a critical-priority task. */
+  dependsWaiver?: string;
   priority?: string;
   labels?: string[];
   type?: TaskType; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 // ssot-exempt-ok: pre-existing exempt, narrowed string→TaskType (T10328)
@@ -1504,6 +1521,8 @@ export interface TasksUpdateQueryParams {
   description?: string;
   status?: string;
   priority?: string;
+  /** Project-defined task phase, persisted independently of pipelineStage. */
+  phase?: string;
   notes?: string;
   labels?: string[];
   addLabels?: string[];
@@ -1528,7 +1547,7 @@ export interface TasksUpdateQueryParams {
   scope?: string;
   /**
    * Severity level — valid for any kind (T9073). Orthogonal to priority.
-   * Appends a signed attestation to `.cleo/audit/severity-attestation.jsonl`.
+   * Persists a signed project-identity assertion in the task transaction audit.
    */
   severity?: string;
   /**
@@ -1540,6 +1559,8 @@ export interface TasksUpdateQueryParams {
   dependsWaiver?: string;
   /** Set the blockedBy free-text reason. @task T9241 (gh#1106) */
   blockedBy?: string;
+  /** Disable automatic parent completion when true; false restores automatic completion. */
+  noAutoComplete?: boolean;
   /** Clear the blockedBy free-text reason (set to undefined). @task T9241 */
   clearBlockedBy?: boolean;
   /** Set related tasks (replaces existing). @task T9327 */
@@ -1623,7 +1644,7 @@ export interface TasksCompleteQueryParams {
   /**
    * Reason for waiving the `E_CLEO_DEPENDENCY` gate when this task's own work
    * is done but its `depends` edges point at not-yet-terminal tasks (a stale or
-   * over-specified dependency). Recorded to `.cleo/audit/depends-waiver.jsonl`.
+   * over-specified dependency). Recorded with the task mutation in its transaction audit.
    *
    * @task T11954 (DHQ-071)
    */
@@ -1717,9 +1738,14 @@ export interface TasksDecomposeResult {
 }
 
 // tasks.delete (dispatch-level params)
+/** Canonical task deletion controls shared by dispatch and core wrappers. */
 export interface TasksDeleteQueryParams {
+  /** Task to move into the archive. */
   taskId: string;
+  /** Allow dependents and orphan children unless cascade is explicitly enabled. */
   force?: boolean;
+  /** Archive the entire descendant subtree rather than orphaning children. */
+  cascade?: boolean;
 }
 /**
  * Result of `tasks.delete` — deletion confirmation with cascade details.
@@ -2354,6 +2380,7 @@ export const TASKS_ADD_INPUT_SCHEMA: JsonSchema = {
     description: { type: 'string' },
     parent: { type: 'string' },
     depends: { type: 'array', items: { type: 'string' } },
+    dependsWaiver: { type: 'string', minLength: 1 },
     priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
     labels: { type: 'array', items: { type: 'string' } },
     type: { type: 'string', enum: ['saga', 'epic', 'task', 'subtask'] },
@@ -2521,6 +2548,7 @@ export const TASKS_UPDATE_INPUT_SCHEMA: JsonSchema = {
       enum: ['pending', 'active', 'blocked', 'done', 'cancelled'],
     },
     priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+    phase: { type: 'string' },
     notes: { type: 'string' },
     labels: { type: 'array', items: { type: 'string' } },
     addLabels: { type: 'array', items: { type: 'string' } },
@@ -2546,6 +2574,7 @@ export const TASKS_UPDATE_INPUT_SCHEMA: JsonSchema = {
     dependsWaiver: { type: 'string' },
     blockedBy: { type: 'string' },
     clearBlockedBy: { type: 'boolean' },
+    noAutoComplete: { type: 'boolean' },
     relates: {
       type: 'array',
       items: {

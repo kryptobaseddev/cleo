@@ -11,7 +11,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
@@ -21,7 +21,12 @@ describe('JSON to SQLite migration', () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-migrate-'));
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    process.env['CLEO_DIR'] = cleoDir;
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    vi.stubEnv('CLEO_DIR', cleoDir);
+    await writeFile(
+      join(cleoDir, 'project-info.json'),
+      JSON.stringify({ projectId: 'migration-fixture', projectHash: 'migration-fixture' }),
+    );
 
     const { closeDb } = await import('../sqlite.js');
     closeDb();
@@ -30,8 +35,8 @@ describe('JSON to SQLite migration', () => {
   afterEach(async () => {
     const { closeDb } = await import('../sqlite.js');
     closeDb();
-    delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
   });
 
   // === Basic migration ===

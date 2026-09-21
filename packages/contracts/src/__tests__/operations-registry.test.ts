@@ -20,6 +20,19 @@ describe('operations-registry', () => {
     expect(JSON.stringify(OPERATIONS)).toMatchSnapshot();
   });
 
+  it('declares deletion force and cascade as distinct optional boolean controls', () => {
+    const deletion = OPERATIONS.find(
+      (operation) => operation.domain === 'tasks' && operation.operation === 'delete',
+    );
+    expect(deletion?.requiredParams).toEqual(['taskId']);
+    expect(deletion?.params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'force', type: 'boolean', required: false }),
+        expect.objectContaining({ name: 'cascade', type: 'boolean', required: false }),
+      ]),
+    );
+  });
+
   it('OPERATIONS count is consistent', () => {
     expect(OPERATIONS.length).toBeGreaterThan(0);
     const queryCount = OPERATIONS.filter((o) => o.gateway === 'query').length;
@@ -38,6 +51,19 @@ describe('operations-registry', () => {
       expect(typeof op.sessionRequired).toBe('boolean');
       expect(Array.isArray(op.requiredParams)).toBe(true);
     }
+  });
+
+  it('registers docs.status as a read-only, session-independent query', () => {
+    const matches = OPERATIONS.filter(
+      (operation) => operation.domain === 'docs' && operation.operation === 'status',
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatchObject({
+      gateway: 'query',
+      idempotent: true,
+      sessionRequired: false,
+      requiredParams: [],
+    });
   });
 
   it('defineOp is an identity function', () => {

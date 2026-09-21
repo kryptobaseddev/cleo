@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   checkCleoGitignore,
   checkCoreFilesNotIgnored,
@@ -36,6 +36,16 @@ function makeTempDir(): string {
   );
   return dir;
 }
+
+// Explicit fixture cwd must select its own project rather than the setup pin.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('checkCleoGitignore', () => {
   let tempDir: string;

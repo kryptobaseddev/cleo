@@ -11,19 +11,45 @@
  * brain.db + tasks.db data, asserts >0 rows across substrates where seeded.
  */
 
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
+import fsAsync from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { GraphIndexFileReport } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
+import { compactKnowledgeCoverage } from '../../doctor/knowledge-summary.js';
+import { reasonWhySymbol } from '../../memory/brain-reasoning.js';
 import { EDGE_TYPES } from '../../memory/edge-types.js';
 import { getBrainDb, getBrainNativeDb, resetBrainDbState } from '../../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
+import { getDb } from '../../store/sqlite.js';
+import { tasks } from '../../store/tasks-schema.js';
+import { getSymbolContext } from '../context.js';
+import { getSymbolImpact } from '../impact.js';
+import {
+  assessKnowledgeCoverage,
+  KnowledgeSymbolAmbiguityError,
+  readKnowledgeIndexAssessment,
+} from '../knowledge.js';
 import {
   getBrainEntryCodeAnchors,
   getSymbolFullContext,
   getTaskCodeImpact,
+  nexusFullContext,
+  reasonImpactOfChange,
 } from '../living-brain.js';
+import { resolveSourceRoots } from '../source-roots.js';
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -117,18 +143,19 @@ async function seedBrainData(brainNative: ReturnType<typeof getBrainNativeDb>) {
     )
     .run(`task:${TASK_ID}`, SYMBOL_ID, EDGE_TYPES.TASK_TOUCHES_SYMBOL, 1.0, 'test', now);
 
-  // Insert brain decision in brain_decisions table
-  try {
-    brainNative
-      .prepare(
-        `INSERT OR IGNORE INTO brain_decisions
-         (id, decision, rationale, quality_score, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run('dec-001', 'Use testFunction for all test cases', 'Consistent API', 0.7, now, now);
-  } catch {
-    // brain_decisions table may have different schema; skip gracefully
-  }
+  // Seed a real current decision; a schema failure must fail the fixture.
+  brainNative
+    .prepare(
+      'INSERT INTO main.brain_decisions (id, type, decision, rationale, confidence, confirmation_state) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    .run(
+      'dec-001',
+      'architecture',
+      'Use testFunction for all test cases',
+      'Consistent API',
+      'high',
+      'accepted',
+    );
 
   // Insert a decision brain node stub in brain_page_nodes
   brainNative
@@ -186,6 +213,7 @@ describe('living-brain SDK', () => {
   });
 
   afterEach(() => {
+    vi.doUnmock('@cleocode/nexus');
     resetBrainDbState();
     resetNexusDbState();
     if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
@@ -193,6 +221,981 @@ describe('living-brain SDK', () => {
     if (prevCleoHome === undefined) delete process.env['CLEO_HOME'];
     else process.env['CLEO_HOME'] = prevCleoHome;
     removeTempDirSync(projectRoot);
+  });
+
+  describe('trustworthy knowledge coverage', () => {
+    const completeCodeCapabilities = (): NonNullable<GraphIndexFileReport['capabilities']> => ({
+      role: 'executable',
+      classification: {
+        basis: 'path-and-content',
+        reason: 'Fixture TypeScript source was extracted',
+      },
+      requested: [
+        'file-evidence',
+        'declarations',
+        'imports',
+        'call-references',
+        'access-references',
+        'type-heritage',
+      ],
+      completed: [
+        'file-evidence',
+        'declarations',
+        'imports',
+        'call-references',
+        'access-references',
+        'type-heritage',
+      ],
+      limitations: ['Static extraction does not prove all runtime calls.'],
+    });
+
+    async function seedCompleteInventory(count = 503) {
+      writeFileSync(
+        join(projectRoot, '.cleo/project-info.json'),
+        JSON.stringify({
+          projectId: 'fixture-parent-id',
+          projectHash: 'fixture-parent-hash',
+        }),
+      );
+      const sourceRoot = join(projectRoot, 'inventory-source');
+      mkdirSync(sourceRoot);
+      execFileSync('git', ['init', '--quiet', sourceRoot]);
+      const content = 'export const value = 1;\n';
+      const files = Array.from({ length: count }, (_, index) => {
+        const path = `file-${String(index).padStart(4, '0')}.ts`;
+        const absolute = join(sourceRoot, path);
+        writeFileSync(absolute, content);
+        utimesSync(absolute, new Date('2020-01-01'), new Date('2020-01-01'));
+        const stat = statSync(absolute);
+        return {
+          path,
+          status: 'analyzed' as const,
+          capabilities: completeCodeCapabilities(),
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+          contentHash: createHash('sha256').update(content).digest('hex'),
+        };
+      });
+      execFileSync('git', ['add', '.'], { cwd: sourceRoot });
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.name=Fixture',
+          '-c',
+          'user.email=fixture@example.invalid',
+          'commit',
+          '--quiet',
+          '--no-gpg-sign',
+          '--no-verify',
+          '-m',
+          'inventory fixture',
+        ],
+        { cwd: sourceRoot },
+      );
+      const sourceRoots = await resolveSourceRoots({
+        projectId: 'fixture-parent-id',
+        projectRoot,
+        sourceRoot,
+      });
+      const native = getNexusNativeDb(projectRoot);
+      if (!native) throw new Error('Missing inventory fixture database');
+      const assessment = JSON.stringify({
+        sourceRoots,
+        sourceRoot,
+        assessedRevision: sourceRoots.roots[0]?.revision,
+        assessedAt: new Date().toISOString(),
+        files,
+      });
+      native
+        .prepare(
+          "INSERT OR REPLACE INTO main._nexus_meta (key,value) VALUES ('graph_assessment',?)",
+        )
+        .run(assessment);
+      native
+        .prepare(
+          "INSERT OR REPLACE INTO main._nexus_meta (key,value) VALUES ('graph_generation','untouched-fixture-generation')",
+        )
+        .run();
+      return { sourceRoot, files, content, native, assessment };
+    }
+
+    async function replaceReports(files: GraphIndexFileReport[]): Promise<void> {
+      const assessment = await readKnowledgeIndexAssessment(projectRoot);
+      if (!assessment) throw new Error('Missing published assessment fixture');
+      assessment.files = files;
+      const native = getNexusNativeDb(projectRoot);
+      if (!native) throw new Error('Missing canonical fixture database');
+      native
+        .prepare("UPDATE main._nexus_meta SET value=? WHERE key='graph_assessment'")
+        .run(JSON.stringify(assessment));
+    }
+
+    it('round-trips capability provenance without dropping or rewriting its evidence', async () => {
+      const fixture = await seedCompleteInventory(1);
+      const capabilities = completeCodeCapabilities();
+      capabilities.classification.reason = '  Exact original classification observation  ';
+      await replaceReports([{ ...fixture.files[0]!, capabilities }]);
+      const published = await readKnowledgeIndexAssessment(projectRoot);
+      expect(published?.files[0]?.capabilities).toEqual(capabilities);
+    });
+
+    it('keeps positively classified documents, data and assets complete without invented caller gaps', async () => {
+      const fixture = await seedCompleteInventory(6);
+      const examples = [
+        {
+          path: 'guide.md',
+          body: Buffer.from('# Guide\n'),
+          role: 'documentation',
+          evidence: 'documentary-evidence',
+        },
+        {
+          path: 'package.json',
+          body: Buffer.from('{"name":"fixture","scripts":{}}'),
+          role: 'configuration',
+          evidence: 'configuration-evidence',
+        },
+        {
+          path: 'schema.json',
+          body: Buffer.from(
+            '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}',
+          ),
+          role: 'schema',
+          evidence: 'schema-evidence',
+        },
+        {
+          path: 'generated.json',
+          body: Buffer.from('{"generated":true,"rows":[]}'),
+          role: 'generated-data',
+          evidence: 'data-evidence',
+        },
+        {
+          path: 'values.json',
+          body: Buffer.from('[1,2,3]'),
+          role: 'data',
+          evidence: 'data-evidence',
+        },
+        {
+          path: 'logo.png',
+          body: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+          role: 'asset',
+          evidence: 'resource-evidence',
+        },
+      ] as const;
+      for (const file of fixture.files) rmSync(join(fixture.sourceRoot, file.path));
+      const files: GraphIndexFileReport[] = examples.map((example) => {
+        const absolute = join(fixture.sourceRoot, example.path);
+        writeFileSync(absolute, example.body);
+        const stat = statSync(absolute);
+        return {
+          path: example.path,
+          status: 'unsupported',
+          reason: 'Executable parser not applicable to this recorded role',
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+          contentHash: createHash('sha256').update(example.body).digest('hex'),
+          capabilities: {
+            role: example.role,
+            classification: {
+              basis: 'path-and-content',
+              reason: `Fixture ${example.path} has independently supplied ${example.role} content`,
+            },
+            requested: ['file-evidence', example.evidence],
+            completed: ['file-evidence', example.evidence],
+            limitations: [],
+          },
+        };
+      });
+      execFileSync('git', ['add', '-A'], { cwd: fixture.sourceRoot });
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.name=Fixture',
+          '-c',
+          'user.email=fixture@example.invalid',
+          'commit',
+          '--quiet',
+          '--no-gpg-sign',
+          '--no-verify',
+          '-m',
+          'role fixture',
+        ],
+        { cwd: fixture.sourceRoot },
+      );
+      const assessment = await readKnowledgeIndexAssessment(projectRoot);
+      if (!assessment) throw new Error('Missing role assessment');
+      assessment.sourceRoots = await resolveSourceRoots({
+        projectId: 'fixture-parent-id',
+        projectRoot,
+        sourceRoot: fixture.sourceRoot,
+      });
+      assessment.assessedRevision = assessment.sourceRoots.roots[0]?.revision ?? null;
+      assessment.files = files;
+      fixture.native
+        .prepare("UPDATE main._nexus_meta SET value=? WHERE key='graph_assessment'")
+        .run(JSON.stringify(assessment));
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage.status).toBe('current');
+      expect(coverage.capabilities).toMatchObject({
+        requestedFiles: 6,
+        assessedFiles: 6,
+        unassessedFiles: 0,
+        legacyFiles: 0,
+        incompleteFiles: 0,
+        extractionFailedFiles: 0,
+        byRole: {
+          documentation: 1,
+          configuration: 1,
+          schema: 1,
+          'generated-data': 1,
+          data: 1,
+          asset: 1,
+        },
+        byCapability: {
+          'file-evidence': { requestedFiles: 6, completedFiles: 6, incompleteFiles: 0 },
+        },
+      });
+      expect(coverage.capabilities?.byCapability['call-references']).toBeUndefined();
+      expect(
+        coverage.limitations.some((reason) => reason.includes('Executable parser not applicable')),
+      ).toBe(true);
+      const compact = compactKnowledgeCoverage(coverage);
+      expect(compact.capabilities).toEqual(coverage.capabilities);
+      expect(compact.limitations[0]).toContain('cannot prove');
+      // Even a positively classified resource must disclose an actual failed read/extraction.
+      files[5] = { ...files[5]!, status: 'failed', reason: 'Independent resource read failure' };
+      await replaceReports(files);
+      const failed = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(failed.status).toBe('failed');
+      expect(failed.capabilities).toMatchObject({ extractionFailedFiles: 1, incompleteFiles: 1 });
+      expect(
+        failed.reasons.some((reason) => reason.includes('Independent resource read failure')),
+      ).toBe(true);
+      expect(compactKnowledgeCoverage(failed).capabilities?.extractionFailedFiles).toBe(1);
+    });
+
+    it('retains imports-only executable gaps and exact requested/completed capability counts', async () => {
+      const fixture = await seedCompleteInventory(1);
+      const capabilities = completeCodeCapabilities();
+      capabilities.completed = ['file-evidence', 'imports'];
+      await replaceReports([{ ...fixture.files[0]!, capabilities }]);
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage.status).toBe('partial');
+      expect(coverage.capabilities).toMatchObject({
+        incompleteFiles: 1,
+        byCapability: {
+          imports: { requestedFiles: 1, completedFiles: 1, incompleteFiles: 0 },
+          declarations: { requestedFiles: 1, completedFiles: 0, incompleteFiles: 1 },
+          'call-references': { requestedFiles: 1, completedFiles: 0, incompleteFiles: 1 },
+        },
+      });
+      capabilities.requested = ['file-evidence', 'imports'];
+      await replaceReports([{ ...fixture.files[0]!, capabilities }]);
+      const omitted = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(omitted.status).toBe('partial');
+      expect(omitted.capabilities?.byCapability['call-references']).toBeUndefined();
+      expect(
+        omitted.reasons.some((reason) =>
+          reason.includes(
+            'unrequested=declarations,call-references,access-references,type-heritage',
+          ),
+        ),
+      ).toBe(true);
+    });
+
+    it('keeps SQL and unknown executable capabilities explicitly incomplete', async () => {
+      const fixture = await seedCompleteInventory(2);
+      const sqlCapabilities: NonNullable<GraphIndexFileReport['capabilities']> = {
+        role: 'sql',
+        classification: { basis: 'path', reason: 'SQL fixture role' },
+        requested: [
+          'file-evidence',
+          'sql-schema-objects',
+          'sql-migrations',
+          'sql-triggers',
+          'sql-constraints',
+          'sql-literal-references',
+          'sql-dynamic-references',
+        ],
+        completed: ['file-evidence'],
+        limitations: ['SQL extraction has not been implemented.'],
+      };
+      await replaceReports([
+        { ...fixture.files[0]!, capabilities: sqlCapabilities, status: 'unsupported' },
+        {
+          ...fixture.files[1]!,
+          capabilities: {
+            ...completeCodeCapabilities(),
+            role: 'unknown',
+            classification: { basis: 'unknown', reason: 'Unrecognized executable possibility' },
+            completed: ['file-evidence'],
+          },
+          status: 'unsupported',
+        },
+      ]);
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage.status).toBe('partial');
+      expect(coverage.capabilities).toMatchObject({
+        incompleteFiles: 2,
+        byRole: { sql: 1, unknown: 1 },
+        byCapability: {
+          'sql-triggers': { requestedFiles: 1, completedFiles: 0, incompleteFiles: 1 },
+        },
+      });
+      expect(coverage.limitations).toContain('SQL extraction has not been implemented.');
+    });
+
+    it('keeps untyped historical reports conservative instead of inferring complete extraction', async () => {
+      const fixture = await seedCompleteInventory(1);
+      const { capabilities: _capabilities, ...legacy } = fixture.files[0]!;
+      await replaceReports([legacy]);
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage.status).toBe('partial');
+      expect(coverage.capabilities).toMatchObject({
+        legacyFiles: 1,
+        incompleteFiles: 1,
+        byRole: {},
+        byCapability: {},
+      });
+    });
+
+    it.each([
+      { requested: ['imports'], completed: ['declarations'] },
+      { requested: ['imports', 'imports'], completed: [] },
+      { requested: ['invented-capability'], completed: [] },
+      { classification: { basis: 'unknown', reason: 'Unproven asset' }, role: 'asset' },
+      { classification: { basis: 'path', reason: '   ' } },
+    ])('rejects malformed capability metadata rather than dropping it: %j', async (invalid) => {
+      const fixture = await seedCompleteInventory(1);
+      const assessment = await readKnowledgeIndexAssessment(projectRoot);
+      if (!assessment) throw new Error('Missing invalid metadata fixture');
+      fixture.native
+        .prepare("UPDATE main._nexus_meta SET value=? WHERE key='graph_assessment'")
+        .run(
+          JSON.stringify({
+            ...assessment,
+            files: [
+              { ...fixture.files[0], capabilities: { ...completeCodeCapabilities(), ...invalid } },
+            ],
+          }),
+        );
+      await expect(readKnowledgeIndexAssessment(projectRoot)).rejects.toThrow();
+      expect((await assessKnowledgeCoverage(projectRoot, undefined, 10000)).status).toBe('failed');
+    });
+
+    it('assesses the complete persisted inventory beyond 500 without imposing a size-based gap', async () => {
+      const fixture = await seedCompleteInventory();
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage).toMatchObject({
+        status: 'current',
+        projectId: 'fixture-parent-id',
+        inventory: {
+          requested: 503,
+          completed: 503,
+          unassessed: 0,
+          changed: 0,
+          missing: 0,
+          failed: 0,
+        },
+      });
+      expect(coverage.limitations).toContain(
+        'Static analysis cannot prove that all runtime callers have been discovered.',
+      );
+      expect(
+        fixture.native
+          .prepare("SELECT value FROM main._nexus_meta WHERE key='graph_assessment'")
+          .get(),
+      ).toEqual({ value: fixture.assessment });
+      expect(
+        fixture.native
+          .prepare("SELECT value FROM main._nexus_meta WHERE key='graph_generation'")
+          .get(),
+      ).toEqual({ value: 'untouched-fixture-generation' });
+    });
+
+    it('reports persisted inventory even when its published graph has no nodes', async () => {
+      const fixture = await seedCompleteInventory();
+      fixture.native.exec('DELETE FROM main.nexus_relations; DELETE FROM main.nexus_nodes;');
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage).toMatchObject({
+        status: 'missing',
+        inventory: { requested: 503, completed: 503, unassessed: 0 },
+      });
+      expect(coverage.reasons).toContain('The published graph has no indexed nodes.');
+    });
+
+    it.each([
+      'edit',
+      'delete',
+      'rename',
+    ] as const)('detects %s beyond the former 500-file ceiling', async (change) => {
+      const fixture = await seedCompleteInventory();
+      const last = fixture.files[502]!;
+      const absolute = join(fixture.sourceRoot, last.path);
+      if (change === 'edit') {
+        writeFileSync(absolute, fixture.content.replace('1', '2'));
+        utimesSync(absolute, new Date(last.mtimeMs), new Date(last.mtimeMs));
+        expect(statSync(absolute).size).toBe(last.size);
+        expect(statSync(absolute).mtimeMs).toBe(last.mtimeMs);
+      } else if (change === 'delete') rmSync(absolute);
+      else renameSync(absolute, join(fixture.sourceRoot, 'renamed.ts'));
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage).toMatchObject({
+        status: 'stale',
+        inventory: {
+          requested: 503,
+          completed: 503,
+          unassessed: 0,
+          changed: change === 'edit' ? 1 : 0,
+          missing: change === 'edit' ? 0 : 1,
+          failed: 0,
+        },
+      });
+      expect(coverage.reasons.some((reason) => reason.includes(last.path))).toBe(true);
+    });
+
+    it('retains read failures and exact inventory counters through actual compact rendering', async () => {
+      const fixture = await seedCompleteInventory();
+      const last = fixture.files[502]!;
+      const absolute = join(fixture.sourceRoot, last.path);
+      rmSync(absolute);
+      mkdirSync(absolute);
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage).toMatchObject({
+        status: 'failed',
+        inventory: { requested: 503, completed: 503, unassessed: 0, failed: 1, missing: 0 },
+      });
+      expect(coverage.reasons.some((reason) => reason.includes(last.path))).toBe(true);
+      coverage.reasons.push('Extra example 1', 'Extra example 2', 'Extra example 3');
+      const compact = compactKnowledgeCoverage(coverage);
+      expect(compact.reasons).toHaveLength(2);
+      expect(compact).toMatchObject({
+        status: 'failed',
+        projectId: coverage.projectId,
+        indexedRevision: coverage.indexedRevision,
+        assessedRevision: coverage.assessedRevision,
+        inventory: coverage.inventory,
+        reasonCount: coverage.reasons.length,
+      });
+    });
+
+    it('stops inventory work at the original deadline and reports the unassessed remainder', async () => {
+      const fixture = await seedCompleteInventory();
+      let now = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+      let beginRead: () => void = () => {
+        throw new Error('Read barrier was not initialized');
+      };
+      let finishRead: (value: Buffer<ArrayBuffer>) => void = () => {
+        throw new Error('Read completion was not initialized');
+      };
+      const started = new Promise<void>((resolve) => {
+        beginRead = resolve;
+      });
+      const content = new Promise<Buffer<ArrayBuffer>>((resolve) => {
+        finishRead = resolve;
+      });
+      const reader = vi.spyOn(fsAsync, 'readFile').mockImplementationOnce(() => {
+        beginRead();
+        return content;
+      });
+      try {
+        const pending = assessKnowledgeCoverage(projectRoot, undefined, 10000);
+        expect(
+          await Promise.race([started.then(() => 'read'), pending.then(() => 'finished')]),
+        ).toBe('read');
+        now += 10001;
+        finishRead(Buffer.from(fixture.content));
+        const coverage = await pending;
+        expect(coverage).toMatchObject({
+          status: 'partial',
+          maintenanceState: 'pending',
+          inventory: { requested: 503, completed: 0, unassessed: 503, failed: 0 },
+        });
+        expect(reader).toHaveBeenCalledTimes(1);
+        expect(compactKnowledgeCoverage(coverage)).toMatchObject({
+          maintenanceState: 'pending',
+          inventory: coverage.inventory,
+          status: 'partial',
+        });
+      } finally {
+        finishRead(Buffer.from(fixture.content));
+        reader.mockRestore();
+        clock.mockRestore();
+      }
+    });
+
+    it('checks persisted unsupported sources without converting extraction gaps into freshness success', async () => {
+      const fixture = await seedCompleteInventory();
+      const last = fixture.files[502]!;
+      const assessment = await readKnowledgeIndexAssessment(projectRoot);
+      if (!assessment) throw new Error('Expected canonical inventory assessment');
+      assessment.files = assessment.files.map((file) =>
+        file.path === last.path ? { ...file, status: 'unsupported' } : file,
+      );
+      fixture.native
+        .prepare("UPDATE main._nexus_meta SET value=? WHERE key='graph_assessment'")
+        .run(JSON.stringify(assessment));
+      writeFileSync(join(fixture.sourceRoot, last.path), fixture.content.replace('1', '2'));
+      utimesSync(
+        join(fixture.sourceRoot, last.path),
+        new Date(last.mtimeMs),
+        new Date(last.mtimeMs),
+      );
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage).toMatchObject({
+        status: 'stale',
+        inventory: {
+          requested: 503,
+          completed: 503,
+          unassessed: 0,
+          changed: 1,
+          failed: 0,
+          missing: 0,
+        },
+      });
+      expect(coverage.reasons).toContain(`unsupported: ${last.path}`);
+      expect(coverage.reasons).toContain(`Source content changed after indexing: ${last.path}`);
+    });
+
+    it('returns an immutable progress snapshot when a read outlives the real foreground budget', async () => {
+      const fixture = await seedCompleteInventory();
+      let beginRead: () => void = () => {
+        throw new Error('Read barrier was not initialized');
+      };
+      let finishRead: (value: Buffer<ArrayBuffer>) => void = () => {
+        throw new Error('Read completion was not initialized');
+      };
+      const started = new Promise<void>((resolve) => {
+        beginRead = resolve;
+      });
+      const content = new Promise<Buffer<ArrayBuffer>>((resolve) => {
+        finishRead = resolve;
+      });
+      const reader = vi.spyOn(fsAsync, 'readFile').mockImplementationOnce(() => {
+        beginRead();
+        return content;
+      });
+      try {
+        const pending = assessKnowledgeCoverage(projectRoot);
+        expect(
+          await Promise.race([started.then(() => 'read'), pending.then(() => 'finished')]),
+        ).toBe('read');
+        const coverage = await pending;
+        expect(coverage).toMatchObject({
+          status: 'partial',
+          maintenanceState: 'pending',
+          inventory: {
+            requested: 503,
+            completed: 0,
+            unassessed: 503,
+            changed: 0,
+            missing: 0,
+            failed: 0,
+          },
+        });
+        const snapshot = JSON.stringify(coverage);
+        const compact = compactKnowledgeCoverage(coverage);
+        finishRead(Buffer.from(fixture.content));
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(JSON.stringify(coverage)).toBe(snapshot);
+        expect(compact.inventory).toEqual(coverage.inventory);
+        expect(compact.capabilities).toEqual(coverage.capabilities);
+        expect(coverage.capabilities).toMatchObject({
+          requestedFiles: 503,
+          assessedFiles: 503,
+          unassessedFiles: 0,
+          byCapability: {
+            'call-references': { requestedFiles: 503, completedFiles: 503, incompleteFiles: 0 },
+          },
+        });
+        expect(reader).toHaveBeenCalledTimes(1);
+      } finally {
+        finishRead(Buffer.from(fixture.content));
+        reader.mockRestore();
+      }
+    });
+
+    it('discloses an unknown inventory population when the deadline expires before assessment', async () => {
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 0);
+      expect(coverage).toMatchObject({
+        status: 'partial',
+        maintenanceState: 'pending',
+        inventory: { requested: null, completed: 0, unassessed: null, failed: 0 },
+        capabilities: {
+          requestedFiles: null,
+          assessedFiles: 0,
+          unassessedFiles: null,
+          byCapability: {},
+        },
+      });
+    });
+
+    it('detects a newly staged source file missing from the recorded generation', async () => {
+      writeFileSync(
+        join(projectRoot, '.cleo/project-info.json'),
+        JSON.stringify({ projectId: 'fixture-parent-id', projectHash: 'fixture-parent-hash' }),
+      );
+      const sourceRoot = join(projectRoot, 'source-checkout');
+      mkdirSync(sourceRoot);
+      execFileSync('git', ['init', '--quiet', sourceRoot]);
+      const source = 'export const current = 1;';
+      writeFileSync(join(sourceRoot, 'current.ts'), source);
+      execFileSync('git', ['add', 'current.ts'], { cwd: sourceRoot });
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.name=Fixture',
+          '-c',
+          'user.email=fixture@example.invalid',
+          'commit',
+          '--quiet',
+          '--no-gpg-sign',
+          '--no-verify',
+          '-m',
+          'fixture',
+        ],
+        { cwd: sourceRoot },
+      );
+      const revision = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: sourceRoot,
+        encoding: 'utf8',
+      }).trim();
+      const sourceRoots = await resolveSourceRoots({
+        projectId: 'fixture-parent-id',
+        projectRoot,
+        sourceRoot,
+      });
+      expect(sourceRoots.roots[0]?.revision).toBe(revision);
+      const stat = statSync(join(sourceRoot, 'current.ts'));
+      const native = getNexusNativeDb(projectRoot);
+      if (!native) throw new Error('Missing fixture database');
+      native
+        .prepare(
+          "INSERT OR REPLACE INTO main._nexus_meta (key, value) VALUES ('graph_assessment', ?)",
+        )
+        .run(
+          JSON.stringify({
+            sourceRoots,
+            sourceRoot,
+            assessedRevision: revision,
+            assessedAt: new Date().toISOString(),
+            files: [
+              {
+                path: 'current.ts',
+                status: 'analyzed',
+                capabilities: completeCodeCapabilities(),
+                size: stat.size,
+                mtimeMs: stat.mtimeMs,
+                contentHash: createHash('sha256').update(source).digest('hex'),
+              },
+            ],
+          }),
+        );
+      expect((await assessKnowledgeCoverage(projectRoot)).status).toBe('current');
+      writeFileSync(join(sourceRoot, 'new-caller.ts'), 'export const caller = 2;');
+      execFileSync('git', ['add', 'new-caller.ts'], { cwd: sourceRoot });
+      const coverage = await assessKnowledgeCoverage(projectRoot);
+      expect(coverage.status).toBe('partial');
+      expect(coverage.reasons).toContain('Unindexed files exist in the configured source root.');
+    });
+
+    it.each([
+      'available',
+      'import failure',
+      'execution failure',
+      'second execution failure',
+    ])('preserves T448 file evidence and symbol context with optional analyzer %s', async (availability) => {
+      mkdirSync(join(projectRoot, 'src'), { recursive: true });
+      writeFileSync(join(projectRoot, FILE_PATH), 'export function testFunction() {}');
+      const db = await getDb(projectRoot);
+      db.insert(tasks)
+        .values({
+          id: 'T448',
+          title: 'rushDueAt verification evidence',
+          type: 'epic',
+          filesJson: '[]',
+          verificationJson: JSON.stringify({
+            passed: true,
+            round: 1,
+            gates: {},
+            lastAgent: null,
+            lastUpdated: null,
+            failureLog: [],
+            evidence: {
+              implemented: {
+                atoms: [{ kind: 'files', files: [{ path: FILE_PATH, sha256: 'abc' }] }],
+                capturedAt: new Date().toISOString(),
+                capturedBy: 'test',
+              },
+            },
+          }),
+        })
+        .run();
+      getBrainNativeDb(projectRoot)!
+        .prepare(
+          'INSERT INTO brain_memory_links (memory_id, memory_type, task_id, link_type) VALUES (?, ?, ?, ?)',
+        )
+        .run('dec-001', 'decision', 'T448', 'applies_to');
+      const siblingId = `${FILE_PATH}::otherFunction`;
+      getNexusNativeDb(projectRoot)!
+        .prepare(
+          'INSERT INTO nexus_nodes (id, kind, name, file_path, label, indexed_at, is_exported) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          siblingId,
+          'function',
+          'otherFunction',
+          FILE_PATH,
+          'otherFunction',
+          new Date().toISOString(),
+          0,
+        );
+      if (availability !== 'available') {
+        vi.doMock('@cleocode/nexus', async () => {
+          if (availability === 'import failure')
+            throw new Error('Injected optional import failure');
+          const actual = await vi.importActual<typeof import('@cleocode/nexus')>('@cleocode/nexus');
+          let calls = 0;
+          return {
+            ...actual,
+            analyzeImpact: (...args: Parameters<typeof actual.analyzeImpact>) => {
+              calls += 1;
+              if (availability === 'execution failure' || calls === 2) {
+                throw new Error('Injected optional execution failure');
+              }
+              return actual.analyzeImpact(...args);
+            },
+          };
+        });
+      }
+      const footprint = await getTaskCodeImpact('T448', projectRoot);
+      expect(footprint.files).toContain(FILE_PATH);
+      expect(footprint.decisions).toContainEqual(
+        expect.objectContaining({
+          decisionId: 'dec-001',
+          decision: 'Use testFunction for all test cases',
+        }),
+      );
+      expect(footprint.symbols).toContainEqual(
+        expect.objectContaining({
+          nexusNodeId: SYMBOL_ID,
+          precision: 'file',
+          evidence: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'T448:verification:implemented',
+              source: 'verification',
+              precision: 'file',
+            }),
+          ]),
+        }),
+      );
+      expect(footprint.symbols.map((entry) => entry.nexusNodeId).sort()).toEqual(
+        [SYMBOL_ID, siblingId].sort(),
+      );
+      expect(footprint.symbols.every((entry) => entry.precision === 'file')).toBe(true);
+      if (availability === 'available') {
+        expect(footprint.findings).toEqual([]);
+        expect(footprint.blastRadius.symbolsAnalyzed).toBe(2);
+      } else {
+        expect(footprint.riskScore).toBe('UNKNOWN');
+        expect(footprint.blastRadius.maxRisk).toBe('UNKNOWN');
+        expect(footprint.blastRadius.symbolsAnalyzed).toBe(
+          availability === 'second execution failure' ? 1 : 0,
+        );
+        expect(footprint.symbols.every((entry) => entry.riskLevel === 'UNKNOWN')).toBe(true);
+        expect(footprint.coverage?.status).toBe('failed');
+        expect(footprint.coverage?.reasons.join(' ')).toContain(
+          availability === 'import failure' ? 'error when mocking a module' : 'Injected optional',
+        );
+        expect(footprint.coverage?.limitations.join(' ')).toContain(
+          'placeholders, not evidence of NONE',
+        );
+        expect(footprint.coverage?.nextAction).toContain('cleo doctor knowledge --task T448');
+        expect(footprint.findings).toContainEqual(
+          expect.objectContaining({
+            id: 'task-impact:T448',
+            state: 'failed',
+            proposedAction: null,
+            affectedRecordIds: expect.arrayContaining(['T448', SYMBOL_ID, siblingId]),
+          }),
+        );
+      }
+      vi.doUnmock('@cleocode/nexus');
+      const repeated = await getTaskCodeImpact('T448', projectRoot);
+      expect(repeated.symbols.map((entry) => entry.nexusNodeId)).toEqual(
+        footprint.symbols.map((entry) => entry.nexusNodeId),
+      );
+    });
+
+    it('retains every file association beyond the impact budget and discloses unassessed symbols', async () => {
+      mkdirSync(join(projectRoot, 'src'), { recursive: true });
+      writeFileSync(join(projectRoot, FILE_PATH), 'export function testFunction() {}');
+      const db = await getDb(projectRoot);
+      db.insert(tasks)
+        .values({
+          id: 'T449',
+          title: 'Many associated symbols',
+          filesJson: JSON.stringify([FILE_PATH]),
+        })
+        .run();
+      const insert = getNexusNativeDb(projectRoot)!.prepare(
+        'INSERT INTO nexus_nodes (id, kind, name, file_path, label, indexed_at) VALUES (?, ?, ?, ?, ?, ?)',
+      );
+      for (let index = 0; index < 50; index += 1) {
+        insert.run(
+          `${FILE_PATH}::extra${index}`,
+          'function',
+          `extra${index}`,
+          FILE_PATH,
+          `extra${index}`,
+          new Date().toISOString(),
+        );
+      }
+      const impact = await getTaskCodeImpact('T449', projectRoot);
+      expect(impact.symbols).toHaveLength(51);
+      expect(impact.symbols.every((entry) => entry.precision === 'file')).toBe(true);
+      expect(impact.blastRadius.symbolsAnalyzed).toBe(50);
+      expect(impact.riskScore).toBe('UNKNOWN');
+      expect(impact.coverage?.reasons.join(' ')).toContain(
+        'additional associations remain unassessed',
+      );
+      expect(impact.coverage?.limitations.join(' ')).toContain(
+        'placeholders, not evidence of NONE',
+      );
+      expect(impact.coverage?.nextAction).toBe('cleo doctor knowledge --task T449');
+    });
+
+    it('accepts qualified identifiers in impact without matching only the short name', async () => {
+      const impact = await getSymbolImpact(SYMBOL_ID, 'fixture-project', projectRoot);
+      expect(impact.targetNodeId).toBe(SYMBOL_ID);
+      expect(impact.totalImpactedNodes).toBe(1);
+      expect(impact.coverage.projectId).toBe('fixture-project');
+      expect(
+        (await getSymbolContext(SYMBOL_ID, 'fixture-project', projectRoot)).results[0]?.nodeId,
+      ).toBe(SYMBOL_ID);
+      expect((await reasonWhySymbol(SYMBOL_NAME, projectRoot)).chain.length).toBeGreaterThan(0);
+    });
+
+    it('returns qualified candidates for ambiguous names across all symbol entry points', async () => {
+      const native = getNexusNativeDb();
+      if (!native) throw new Error('Missing fixture database');
+      const otherId = 'other-checkout/test-file.ts::testFunction';
+      native
+        .prepare(`INSERT INTO nexus_nodes (id, kind, name, label, file_path)
+        VALUES (?, 'function', ?, ?, 'other-checkout/test-file.ts')`)
+        .run(otherId, SYMBOL_NAME, SYMBOL_NAME);
+      await expect(
+        getSymbolImpact(SYMBOL_NAME, 'fixture-project', projectRoot),
+      ).rejects.toBeInstanceOf(KnowledgeSymbolAmbiguityError);
+      await expect(
+        getSymbolContext(SYMBOL_NAME, 'fixture-project', projectRoot),
+      ).rejects.toBeInstanceOf(KnowledgeSymbolAmbiguityError);
+      await expect(reasonWhySymbol(SYMBOL_NAME, projectRoot)).rejects.toBeInstanceOf(
+        KnowledgeSymbolAmbiguityError,
+      );
+      const context = await nexusFullContext(SYMBOL_NAME, projectRoot);
+      expect(context.success).toBe(false);
+      if (!context.success) {
+        expect(context.error.code).toBe('E_AMBIGUOUS_SYMBOL');
+        expect(context.error.details).toMatchObject({
+          candidates: expect.arrayContaining([
+            expect.objectContaining({ id: SYMBOL_ID }),
+            expect.objectContaining({ id: otherId }),
+          ]),
+        });
+      }
+      await expect(reasonImpactOfChange(SYMBOL_NAME, projectRoot)).rejects.toBeInstanceOf(
+        KnowledgeSymbolAmbiguityError,
+      );
+      expect((await getSymbolFullContext(SYMBOL_ID, projectRoot)).nexus?.symbolId).toBe(SYMBOL_ID);
+    });
+
+    it('returns UNKNOWN and missing coverage for an absent symbol', async () => {
+      const impact = await getSymbolImpact('absent::symbol', 'fixture-project', projectRoot);
+      expect(impact.targetNodeId).toBeNull();
+      expect(impact.riskLevel).toBe('UNKNOWN');
+      expect(impact.coverage.status).toBe('missing');
+      const full = await reasonImpactOfChange('absent::symbol', projectRoot);
+      expect(full.mergedRiskScore).toBe('UNKNOWN');
+      expect(full.structural.riskLevel).toBe('UNKNOWN');
+    });
+
+    it('keeps legacy and dynamic references inspectable without inferring complete callers', async () => {
+      const native = getNexusNativeDb(projectRoot);
+      if (!native) throw new Error('Missing fixture database');
+      const references = [
+        {
+          kind: 'unmodeled-source',
+          filePath: FILE_PATH,
+          sourceId: `${FILE_PATH}::nested`,
+          targetId: SYMBOL_ID,
+          targetName: SYMBOL_NAME,
+          relationship: 'calls',
+          reason: 'AST scope lacks a declaration',
+        },
+        {
+          kind: 'dynamic',
+          filePath: FILE_PATH,
+          sourceId: CALLER_ID,
+          targetName: 'handlers[name]',
+          relationship: 'calls',
+          candidateIds: [],
+          span: {
+            startIndex: 0,
+            endIndex: 16,
+            startLine: 1,
+            endLine: 1,
+            startColumn: 0,
+            endColumn: 16,
+            offsetEncoding: 'utf16',
+          },
+          reason: 'Computed expression requires runtime evidence',
+        },
+      ];
+      native
+        .prepare(
+          "INSERT OR REPLACE INTO main._nexus_meta (key, value) VALUES ('graph_assessment', ?)",
+        )
+        .run(
+          JSON.stringify({
+            sourceRoot: projectRoot,
+            assessedRevision: null,
+            assessedAt: new Date().toISOString(),
+            files: [],
+            references,
+          }),
+        );
+      expect((await readKnowledgeIndexAssessment(projectRoot))?.references).toEqual(references);
+      const impact = await getSymbolImpact(SYMBOL_ID, 'fixture-project', projectRoot);
+      expect(impact.coverage.status).toBe('partial');
+      expect(impact.riskLevel).toBe('UNKNOWN');
+      expect(impact.coverage.reasons).toContain(
+        '2 unresolved or unmodeled static references remain; known callers are incomplete. Inspect assessment.references in cleo nexus status.',
+      );
+      expect(impact.coverage.nextAction).toBe('cleo nexus status');
+      expect(JSON.stringify(impact.impactByDepth)).toContain(CALLER_ID);
+    });
+
+    it('exposes malformed index diagnostics as failed rather than an empty healthy graph', async () => {
+      const native = getNexusNativeDb();
+      if (!native) throw new Error('Missing fixture database');
+      native
+        .prepare(
+          `INSERT OR REPLACE INTO _nexus_meta (key, value) VALUES ('graph_assessment', '{broken')`,
+        )
+        .run();
+      const coverage = await assessKnowledgeCoverage(projectRoot);
+      expect(coverage.status).toBe('failed');
+      expect(coverage.reasons.some((reason) => reason.includes('Graph assessment failed'))).toBe(
+        true,
+      );
+      const impact = await getSymbolImpact(SYMBOL_ID, 'fixture-project', projectRoot);
+      expect(impact.riskLevel).toBe('UNKNOWN');
+      expect(impact.coverage.status).toBe('failed');
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -280,12 +1283,12 @@ describe('living-brain SDK', () => {
       expect(impact.symbols.length).toBeGreaterThanOrEqual(0); // depends on getSymbolsForTask resolution
     });
 
-    it('returns riskScore based on blast radius (NONE if no symbols found)', async () => {
+    it('reports UNKNOWN when legacy graph freshness is unverified', async () => {
       const impact = await getTaskCodeImpact(TASK_ID, projectRoot);
 
-      // Risk score must be a valid RiskTier
-      const validTiers = ['NONE', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-      expect(validTiers).toContain(impact.riskScore);
+      expect(impact.riskScore).toBe('UNKNOWN');
+      expect(impact.coverage?.status).not.toBe('current');
+      expect(impact.coverage?.reasons.length).toBeGreaterThan(0);
     });
 
     it('returns empty decisions array gracefully when no brain_memory_links exist', async () => {
@@ -388,7 +1391,8 @@ describe('living-brain SDK', () => {
         const impact = await getTaskCodeImpact('T001', emptyRoot);
         expect(impact).toBeDefined();
         expect(impact.symbols).toEqual([]);
-        expect(impact.riskScore).toBe('NONE');
+        expect(impact.riskScore).toBe('UNKNOWN');
+        expect(impact.coverage?.status).not.toBe('current');
       } finally {
         resetBrainDbState();
         resetNexusDbState();

@@ -28,10 +28,20 @@
  * @epic T569
  */
 
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { DurableJobStore } from '../../store/background-jobs.js';
+import {
+  bindOperationWriteFence,
+  createOperationExecutionContext,
+} from '../../store/background-ops.js';
+import * as accessorModule from '../../store/memory-accessor.js';
+import { ensureLlmtxtNodeScoped } from '../graph-auto-populate.js';
+import { observeBrain } from '../retrieval/observe.js';
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -225,5 +235,363 @@ describe('T759: brain_observations provenance hotfix', () => {
 
       db.close();
     });
+  });
+});
+
+describe('captured observation write boundary', () => {
+  function context() {
+    return createOperationExecutionContext({
+      projectId: 'observation-fixture',
+      projectRoot: tempDir,
+      actor: 'fixture',
+      operation: 'docs.projection',
+      idempotencyKey: 'observation-boundary',
+    });
+  }
+
+  it('keeps all supplied provenance and canonical text without detached enrichment', async () => {
+    const execution = context();
+    const attachments = ['a'.repeat(64)];
+    try {
+      const stored = await observeBrain(
+        tempDir,
+        {
+          text: 'Unicode 😀 | canonical documentary statement',
+          title: 'Sourced document',
+          type: 'decision',
+          project: 'observation-fixture',
+          sourceType: 'agent',
+          agent: 'fixture',
+          sourceConfidence: 'agent',
+          attachmentRefs: attachments,
+          provenanceChain: ['O-source'],
+          origin: 'test',
+          crossRef: ['T12265'],
+          _skipGate: true,
+          _skipQueue: true,
+        },
+        execution,
+      );
+      const accessor = await accessorModule.getBrainAccessor(tempDir);
+      const row = await accessor.getObservation(stored.id);
+      expect(row).toMatchObject({
+        narrative: 'Unicode 😀 | canonical documentary statement',
+        title: 'Sourced document',
+        type: 'decision',
+        project: 'observation-fixture',
+        agent: 'fixture',
+        sourceType: 'agent',
+        sourceConfidence: 'agent',
+        origin: 'test',
+        verified: false,
+        attachmentsJson: JSON.stringify(attachments),
+        provenanceChain: JSON.stringify(['O-source']),
+        memoryTier: 'medium',
+      });
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      const native = getBrainNativeDb(tempDir)!;
+      expect(
+        native
+          .prepare('SELECT count(*) AS count FROM brain_page_nodes WHERE id=?')
+          .get('observation:' + stored.id)?.count,
+      ).toBe(0);
+      execution.close();
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
+      await rm(join(tempDir, '.cleo'), { recursive: true });
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      expect(existsSync(join(tempDir, '.cleo'))).toBe(false);
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('rejects a borrowed native transaction and preserves its unrelated write', async () => {
+    const accessor = await accessorModule.getBrainAccessor(tempDir);
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    const native = getBrainNativeDb(tempDir)!;
+    const execution = context();
+    native.exec(
+      "CREATE TABLE observation_owner_proof (value TEXT); BEGIN; INSERT INTO observation_owner_proof VALUES ('unrelated')",
+    );
+    try {
+      await expect(
+        accessor.addObservation(
+          { id: 'O-refused', type: 'discovery', title: 'refused' },
+          execution,
+        ),
+      ).rejects.toThrow();
+      expect(native.prepare('SELECT value FROM observation_owner_proof').get()?.value).toBe(
+        'unrelated',
+      );
+      expect(await accessor.getObservation('O-refused')).toBeNull();
+    } finally {
+      native.exec('ROLLBACK');
+      execution.close();
+    }
+  });
+
+  it('retains the committed result when cancellation arrives inside admitted synchronous SQL', async () => {
+    const accessor = await accessorModule.getBrainAccessor(tempDir);
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    const native = getBrainNativeDb(tempDir)!;
+    const execution = context();
+    native.function('fixture_cancel_observation', () => {
+      execution.close();
+      return 0;
+    });
+    native.exec(
+      'CREATE TRIGGER cancel_observation_after_insert AFTER INSERT ON brain_observations BEGIN SELECT fixture_cancel_observation(); END',
+    );
+    try {
+      const stored = await accessor.addObservation(
+        { id: 'O-committed', type: 'discovery', title: 'committed' },
+        execution,
+      );
+      expect(execution.signal.aborted).toBe(true);
+      expect(stored.id).toBe('O-committed');
+      expect(await accessor.getObservation(stored.id)).toMatchObject({ title: 'committed' });
+    } finally {
+      execution.close();
+      native.exec('DROP TRIGGER cancel_observation_after_insert');
+    }
+  });
+
+  it('rolls back a failed insert and preserves diagnostic failure', async () => {
+    const accessor = await accessorModule.getBrainAccessor(tempDir);
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    const native = getBrainNativeDb(tempDir)!;
+    const execution = context();
+    native.exec(
+      "CREATE TRIGGER fail_observation_after_insert AFTER INSERT ON brain_observations BEGIN SELECT RAISE(ABORT,'observation fault'); END",
+    );
+    try {
+      await expect(
+        accessor.addObservation({ id: 'O-fault', type: 'discovery', title: 'fault' }, execution),
+      ).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: expect.stringContaining('observation fault') }),
+      });
+      expect(await accessor.getObservation('O-fault')).toBeNull();
+    } finally {
+      execution.close();
+      native.exec('DROP TRIGGER fail_observation_after_insert');
+    }
+  });
+
+  it('pins actual storage while mutable CLEO_DIR and CLEO_ROOT move to another project', async () => {
+    const execution = context();
+    const original = accessorModule.getBrainAccessor;
+    let release = () => {};
+    let entered = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const spy = vi.spyOn(accessorModule, 'getBrainAccessor').mockImplementation(async (root) => {
+      entered();
+      await gate;
+      return original(root);
+    });
+    const other = join(tempDir, 'other-project');
+    const pending = observeBrain(
+      tempDir,
+      { text: 'Project A evidence', _skipGate: true, _skipQueue: true },
+      execution,
+    );
+    try {
+      await ready;
+      vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+      vi.stubEnv('CLEO_ROOT', other);
+      release();
+      const stored = await pending;
+      const { DatabaseSync } = await import('node:sqlite');
+      const fresh = new DatabaseSync(join(tempDir, '.cleo', 'cleo.db'), { readOnly: true });
+      try {
+        expect(
+          fresh.prepare('SELECT narrative FROM brain_observations WHERE id=?').get(stored.id)
+            ?.narrative,
+        ).toBe('Project A evidence');
+      } finally {
+        fresh.close();
+      }
+      expect(existsSync(join(other, '.cleo'))).toBe(false);
+    } finally {
+      release();
+      await Promise.allSettled([pending]);
+      execution.close();
+      spy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each([
+    'current',
+    'cancel',
+    'stale-owner',
+  ] as const)('fences actual observation and graph writes after persisted %s', async (kind) => {
+    const { getDb } = await import('../../store/sqlite.js');
+    const db = await getDb(tempDir);
+    const jobs = new DurableJobStore(db, { projectId: 'observation-fixture', actor: 'fixture' });
+    const proposalJson = JSON.stringify({ attachment: 'b'.repeat(64), owner: 'T12265' });
+    const job = jobs.defer('observation-job', 'docs.projection', Date.now(), {
+      projectId: 'observation-fixture',
+      idempotencyKey: 'observation-boundary',
+      proposalJson,
+    });
+    const original = context();
+    const execution = bindOperationWriteFence(original, {
+      dbPath: join(tempDir, '.cleo', 'cleo.db'),
+      proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
+      lease: jobs.claim(job.id, Date.now()),
+    });
+    const accessor = await accessorModule.getBrainAccessor(tempDir);
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    const native = getBrainNativeDb(tempDir)!;
+    if (kind === 'cancel') jobs.requestCancel(job.id, Date.now());
+    else if (kind === 'stale-owner') {
+      native.prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?').run(job.id);
+      new DurableJobStore(db, { projectId: 'observation-fixture' }).claim(job.id, Date.now());
+    }
+    try {
+      if (kind === 'current') {
+        const stored = await accessor.addObservation(
+          { id: 'O-job-fenced', type: 'discovery', title: 'allowed' },
+          execution,
+        );
+        expect(stored.title).toBe('allowed');
+        expect(
+          await ensureLlmtxtNodeScoped(execution, 'b'.repeat(64), 'T12265', 'allowed'),
+        ).toMatchObject({ status: 'completed' });
+        expect(
+          native
+            .prepare('SELECT count(*) AS count FROM brain_page_nodes WHERE id=?')
+            .get('llmtxt:' + 'b'.repeat(64))?.count,
+        ).toBe(1);
+        return;
+      }
+
+      await expect(
+        accessor.addObservation(
+          { id: 'O-job-fenced', type: 'discovery', title: 'forbidden' },
+          execution,
+        ),
+      ).rejects.toThrow('Domain write refused');
+      await expect(
+        ensureLlmtxtNodeScoped(execution, 'b'.repeat(64), 'T12265', 'forbidden'),
+      ).rejects.toThrow('Domain write refused');
+      expect(await accessor.getObservation('O-job-fenced')).toBeNull();
+      expect(
+        native
+          .prepare('SELECT count(*) AS count FROM brain_page_nodes WHERE id=?')
+          .get('llmtxt:' + 'b'.repeat(64))?.count,
+      ).toBe(0);
+    } finally {
+      execution.close();
+      original.close();
+    }
+  });
+
+  it('replays a committed fenced observation across a new lease epoch without replacing evidence', async () => {
+    const { getDb } = await import('../../store/sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    const db = await getDb(tempDir);
+    const jobs = new DurableJobStore(db, { projectId: 'observation-fixture', actor: 'fixture' });
+    const proposalJson = JSON.stringify({ attachment: 'b'.repeat(64), owner: 'T12265' });
+    const job = jobs.defer('replay-job', 'docs.projection', Date.now(), {
+      projectId: 'observation-fixture',
+      idempotencyKey: 'observation-boundary',
+      proposalJson,
+    });
+    const first = context();
+    const fence = {
+      dbPath: join(tempDir, '.cleo', 'cleo.db'),
+      proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
+      lease: jobs.claim(job.id, Date.now()),
+    };
+    const params = {
+      text: 'Sourced immutable 😀',
+      title: 'Replay proof',
+      sourceType: 'agent' as const,
+      _skipGate: true,
+      _skipQueue: true,
+    };
+    const stored = await observeBrain(tempDir, params, bindOperationWriteFence(first, fence));
+    first.close(); // Simulated caller loss after the domain commit, before recording a result.
+    const native = getBrainNativeDb(tempDir)!;
+    native.prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?').run(job.id);
+    const resumedStore = new DurableJobStore(db, {
+      projectId: 'observation-fixture',
+      actor: 'resumer',
+    });
+    const resumed = context();
+    const execution = bindOperationWriteFence(resumed, {
+      ...fence,
+      lease: resumedStore.claim(job.id, Date.now()),
+    });
+    try {
+      expect(execution.writeFence!.lease.epoch).toBeGreaterThan(fence.lease.epoch);
+      const repeated = await observeBrain(tempDir, params, execution);
+      expect(repeated).toEqual(stored);
+      await expect(
+        observeBrain(tempDir, { ...params, text: 'Conflicting payload' }, execution),
+      ).rejects.toThrow('replay conflicts');
+      expect(native.prepare('SELECT count(*) AS n FROM brain_observations').get()?.n).toBe(1);
+      expect(
+        native.prepare('SELECT narrative FROM brain_observations WHERE id=?').get(stored.id)
+          ?.narrative,
+      ).toBe(params.text);
+      native
+        .prepare('UPDATE brain_observations SET invalid_at=? WHERE id=?')
+        .run('2020-01-01 00:00:00', stored.id);
+      await expect(observeBrain(tempDir, params, execution)).rejects.toThrow('retracted');
+      native.prepare('UPDATE brain_observations SET invalid_at=NULL WHERE id=?').run(stored.id);
+      resumedStore.requestCancel(job.id, Date.now());
+      await expect(observeBrain(tempDir, params, execution)).rejects.toThrow(
+        'Domain write refused',
+      );
+    } finally {
+      resumed.close();
+    }
+  });
+
+  it('refuses delayed accessor continuation after cancellation and cleanup', async () => {
+    const accessor = await accessorModule.getBrainAccessor(tempDir);
+    let release = () => {};
+    let entered = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const spy = vi.spyOn(accessorModule, 'getBrainAccessor').mockImplementation(async () => {
+      entered();
+      await gate;
+      return accessor;
+    });
+    const execution = context();
+    const pending = observeBrain(
+      tempDir,
+      { text: 'Cancelled continuation', _skipGate: true, _skipQueue: true },
+      execution,
+    );
+    try {
+      await ready;
+      execution.close();
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
+      await rm(join(tempDir, '.cleo'), { recursive: true });
+      const rejected = expect(pending).rejects.toThrow();
+      release();
+      await rejected;
+      expect(existsSync(join(tempDir, '.cleo'))).toBe(false);
+    } finally {
+      release();
+      await Promise.allSettled([pending]);
+      execution.close();
+      spy.mockRestore();
+    }
   });
 });

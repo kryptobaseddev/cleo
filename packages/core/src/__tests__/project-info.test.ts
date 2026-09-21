@@ -1,8 +1,19 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { worktreeScope } from '../paths.js';
 import { getProjectInfo, getProjectInfoSync } from '../project-info.js';
+
+// Explicit cwd identifies each fixture; retain only the global sandbox bindings.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('getProjectInfo', () => {
   let tempDir: string;
@@ -194,5 +205,85 @@ describe('scaffold.ts ensureProjectInfo projectId backfill', () => {
 
     const afterCall = JSON.parse(await readFile(infoPath, 'utf-8'));
     expect(afterCall.projectId).toBe('existing-uuid-value');
+  });
+});
+
+describe('captured metadata ownership', () => {
+  let root: string;
+  let first: string;
+  let second: string;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'captured-project-info-'));
+    first = join(root, 'first');
+    second = join(root, 'second');
+    for (const [path, id] of [
+      [first, 'first-id'],
+      [second, 'second-id'],
+    ]) {
+      await mkdir(join(path!, '.cleo'), { recursive: true });
+      await writeFile(
+        join(path!, '.cleo/project-info.json'),
+        JSON.stringify({ projectHash: id + '-hash', projectId: id }),
+      );
+    }
+    vi.stubEnv('CLEO_DIR', join(first, '.cleo'));
+    vi.stubEnv('CLEO_ROOT', first);
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('uses captured ownership for asynchronous and synchronous metadata under another ambient project', async () => {
+    const result = await worktreeScope.run(
+      { worktreeRoot: second, projectHash: 'second-id-hash' },
+      async () => ({
+        async: await getProjectInfo(second),
+        sync: getProjectInfoSync(second),
+      }),
+    );
+    expect(result.async).toMatchObject({
+      projectId: 'second-id',
+      projectHash: 'second-id-hash',
+      projectRoot: second,
+    });
+    expect(result.sync).toMatchObject({
+      projectId: 'second-id',
+      projectHash: 'second-id-hash',
+      projectRoot: second,
+    });
+    expect(getProjectInfoSync(first)?.projectId).toBe('first-id');
+    expect(worktreeScope.getStore()).toBeUndefined();
+  });
+
+  it('keeps interleaved metadata reads scoped when ambient pins change between awaits', async () => {
+    const firstReady = Promise.withResolvers<void>();
+    const secondReady = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const pendingFirst = worktreeScope.run(
+      { worktreeRoot: first, projectHash: 'first-id-hash' },
+      async () => {
+        firstReady.resolve();
+        await release.promise;
+        return { async: await getProjectInfo(first), sync: getProjectInfoSync(first) };
+      },
+    );
+    const pendingSecond = worktreeScope.run(
+      { worktreeRoot: second, projectHash: 'second-id-hash' },
+      async () => {
+        secondReady.resolve();
+        await release.promise;
+        return { async: await getProjectInfo(second), sync: getProjectInfoSync(second) };
+      },
+    );
+    await Promise.all([firstReady.promise, secondReady.promise]);
+    vi.stubEnv('CLEO_DIR', join(root, 'unrelated/.cleo'));
+    vi.stubEnv('CLEO_ROOT', join(root, 'unrelated'));
+    release.resolve();
+    const [a, b] = await Promise.all([pendingFirst, pendingSecond]);
+    expect(a.async.projectId).toBe('first-id');
+    expect(a.sync?.projectId).toBe('first-id');
+    expect(b.async.projectId).toBe('second-id');
+    expect(b.sync?.projectId).toBe('second-id');
+    expect(worktreeScope.getStore()).toBeUndefined();
   });
 });

@@ -9,9 +9,12 @@
  * @task T5128
  */
 
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type { SQL } from 'drizzle-orm';
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { memoryEligibilityClause } from '../memory/eligibility.js';
+import { assertOperationWriteFence } from './background-jobs.js';
 import { getBrainDb } from './memory-sqlite.js';
 import { jsonbText } from './schema/jsonb.js';
 import type {
@@ -111,6 +114,8 @@ export class BrainDataAccessor {
       outcome?: (typeof brainSchema.BRAIN_OUTCOME_TYPES)[number];
       contextTaskId?: string;
       limit?: number;
+      /** Include invalidated and superseded records for historical inspection. */
+      includeHistory?: boolean;
       /**
        * T1830: when false (default), AGT-* agent dispatch rows
        * (`decision_category = 'agent_dispatch'`) are excluded from results.
@@ -119,7 +124,9 @@ export class BrainDataAccessor {
       includeAgentDispatch?: boolean;
     } = {},
   ): Promise<BrainDecisionRow[]> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = params.includeHistory
+      ? []
+      : [sql.raw(memoryEligibilityClause('decisions').replace(/^ AND /, ''))];
 
     if (params.type) {
       conditions.push(eq(brainSchema.brainDecisions.type, params.type));
@@ -165,7 +172,36 @@ export class BrainDataAccessor {
   // Patterns CRUD
   // =========================================================================
 
-  async addPattern(row: NewBrainPatternRow): Promise<BrainPatternRow> {
+  /**
+   * Insert and read back a pattern within an optional captured write boundary.
+   * @param row - Caller-selected complete pattern row.
+   * @param execution - Original lifetime and optional job fence, never renewed.
+   * @returns The actual stored row after successful commit.
+   * @remarks Scoped insertion and readback share a synchronous transaction. Failure
+   * rolls back the transaction; cancellation after commit cannot undo its result.
+   * @example
+   * ```ts
+   * const stored = await accessor.addPattern(row, execution);
+   * ```
+   */
+  async addPattern(
+    row: NewBrainPatternRow,
+    execution?: OperationExecutionContext,
+  ): Promise<BrainPatternRow> {
+    if (execution) {
+      execution.assertActive();
+      return this.db.transaction((tx) => {
+        assertOperationWriteFence(tx, execution);
+        tx.insert(brainSchema.brainPatterns).values(row).run();
+        const stored = tx
+          .select()
+          .from(brainSchema.brainPatterns)
+          .where(eq(brainSchema.brainPatterns.id, row.id))
+          .get();
+        if (!stored) throw new Error('Inserted pattern could not be read back');
+        return stored;
+      });
+    }
     await this.db.insert(brainSchema.brainPatterns).values(row);
     const result = await this.db
       .select()
@@ -188,9 +224,13 @@ export class BrainDataAccessor {
       impact?: (typeof brainSchema.BRAIN_IMPACT_LEVELS)[number];
       minFrequency?: number;
       limit?: number;
+      /** Include invalidated and superseded records for historical inspection. */
+      includeHistory?: boolean;
     } = {},
   ): Promise<BrainPatternRow[]> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = params.includeHistory
+      ? []
+      : [sql.raw(memoryEligibilityClause('patterns').replace(/^ AND /, ''))];
 
     if (params.type) {
       conditions.push(eq(brainSchema.brainPatterns.type, params.type));
@@ -218,7 +258,37 @@ export class BrainDataAccessor {
     return query;
   }
 
-  async updatePattern(id: string, updates: Partial<NewBrainPatternRow>): Promise<void> {
+  /**
+   * Update a pattern within an optional original operation lifetime.
+   * @param id - Existing pattern identity.
+   * @param updates - Requested row fields.
+   * @param execution - Captured deadline, cancellation and optional job fence.
+   * @returns Completion of the committed update, or an explicit failure.
+   * @remarks Scoped writes check cancellation and the persisted job fence immediately
+   * before synchronous SQL. No timer can preempt a committed synchronous statement.
+   * @example
+   * ```ts
+   * await accessor.updatePattern(id, { frequency: 2 }, execution);
+   * ```
+   */
+  async updatePattern(
+    id: string,
+    updates: Partial<NewBrainPatternRow>,
+    execution?: OperationExecutionContext,
+  ): Promise<void> {
+    if (execution) {
+      execution.assertActive();
+      this.db.transaction((tx) => {
+        assertOperationWriteFence(tx, execution);
+        const result = tx
+          .update(brainSchema.brainPatterns)
+          .set({ ...updates, updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) })
+          .where(eq(brainSchema.brainPatterns.id, id))
+          .run();
+        if (Number(result.changes) !== 1) throw new Error('Pattern update target is unavailable');
+      });
+      return;
+    }
     await this.db
       .update(brainSchema.brainPatterns)
       .set({ ...updates, updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) })
@@ -247,9 +317,16 @@ export class BrainDataAccessor {
   }
 
   async findLearnings(
-    params: { minConfidence?: number; actionable?: boolean; limit?: number } = {},
+    params: {
+      minConfidence?: number;
+      actionable?: boolean;
+      limit?: number;
+      includeHistory?: boolean;
+    } = {},
   ): Promise<BrainLearningRow[]> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = params.includeHistory
+      ? []
+      : [sql.raw(memoryEligibilityClause('learnings').replace(/^ AND /, ''))];
 
     if (params.minConfidence !== undefined) {
       conditions.push(gte(brainSchema.brainLearnings.confidence, params.minConfidence));
@@ -285,7 +362,60 @@ export class BrainDataAccessor {
   // Observations CRUD
   // =========================================================================
 
-  async addObservation(row: NewBrainObservationRow): Promise<BrainObservationRow> {
+  /**
+   * Insert and read back one observation with an optional guarded synchronous boundary.
+   * @param row - Complete observation payload, including its caller-selected identity.
+   * @param execution - Captured lifetime checked immediately before SQL execution.
+   * @returns The actual stored row after insertion or an exact fenced replay.
+   * @throws Error if cancellation, an existing native transaction, or SQL prevents insertion.
+   * @remarks Scoped writes use one synchronous transaction and cannot join an unrelated
+   * native transaction. Cancellation during admitted synchronous SQL cannot preempt it;
+   * its committed row remains the result. Fenced replay checks all supplied fields
+   * except the new attempt timestamp and preserves the original stored timestamp.
+   * Conflicting or retracted rows are never overwritten. Legacy callers retain their async path.
+   * @example
+   * ```ts
+   * const stored = await accessor.addObservation(row, execution);
+   * ```
+   */
+  async addObservation(
+    row: NewBrainObservationRow,
+    execution?: OperationExecutionContext,
+  ): Promise<BrainObservationRow> {
+    if (execution) {
+      execution.assertActive();
+      return this.db.transaction((tx) => {
+        assertOperationWriteFence(tx, execution);
+        if (execution.writeFence) {
+          const previous = tx
+            .select()
+            .from(brainSchema.brainObservations)
+            .where(eq(brainSchema.brainObservations.id, row.id))
+            .get();
+          if (previous) {
+            if (previous.invalidAt !== null || previous.expiredAt !== null) {
+              throw new Error('Observation replay conflicts with a retracted record');
+            }
+            for (const key of Object.keys(row) as (keyof NewBrainObservationRow)[]) {
+              // The first durable insertion owns its creation timestamp. A retry
+              // cannot replace it with the later attempt's clock.
+              if (key !== 'createdAt' && row[key] !== undefined && previous[key] !== row[key]) {
+                throw new Error(`Observation replay conflicts with stored ${key}`);
+              }
+            }
+            return previous;
+          }
+        }
+        tx.insert(brainSchema.brainObservations).values(row).run();
+        const stored = tx
+          .select()
+          .from(brainSchema.brainObservations)
+          .where(eq(brainSchema.brainObservations.id, row.id))
+          .get();
+        if (!stored) throw new Error('Inserted observation could not be read back');
+        return stored;
+      });
+    }
     await this.db.insert(brainSchema.brainObservations).values(row);
     const result = await this.db
       .select()
@@ -311,9 +441,13 @@ export class BrainDataAccessor {
       /** T417: filter by agent provenance name (Wave 8 mental models). */
       agent?: string;
       limit?: number;
+      /** Include invalidated and superseded records for historical inspection. */
+      includeHistory?: boolean;
     } = {},
   ): Promise<BrainObservationRow[]> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = params.includeHistory
+      ? []
+      : [sql.raw(memoryEligibilityClause('observations').replace(/^ AND /, ''))];
 
     if (params.type) {
       conditions.push(eq(brainSchema.brainObservations.type, params.type));

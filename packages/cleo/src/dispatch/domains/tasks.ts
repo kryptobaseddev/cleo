@@ -39,6 +39,7 @@ import {
   repairSaga as coreSagaRepair,
   sagaRollup as coreSagaRollup,
 } from '@cleocode/core/sagas';
+import { parseGateJson, reqAdd, reqList, reqMigrate } from '@cleocode/core/tasks';
 import {
   addTaskWithSessionScope,
   completeTaskStrict,
@@ -155,6 +156,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       limit: params.limit,
       offset: params.offset,
       compact: params.compact,
+      includeArchive: params.includeArchive,
     });
     if (!result.success) {
       return lafsError(
@@ -176,6 +178,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       await taskFind(projectRoot, params.query, params.limit, {
         id: params.id,
         exact: params.exact,
+        fuzzy: params.fuzzy,
+        field: params.field,
         status: params.status,
         includeArchive: params.includeArchive,
         offset: params.offset,
@@ -363,30 +367,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     const projectRoot = getProjectRoot();
     return wrapCoreResult(
       await addTaskWithSessionScope(projectRoot, {
-        title: params.title,
+        ...params,
         description: typeof params.description === 'string' ? params.description : undefined,
-        parent: params.parent,
-        // T12136: carry the CLI's inference decision through to core.
-        parentSource: params.parentSource,
-        depends: params.depends,
-        priority: params.priority,
-        labels: params.labels,
-        type: params.type,
-        acceptance: params.acceptance,
-        phase: params.phase,
-        size: params.size,
-        notes: params.notes,
-        files: params.files,
-        dryRun: params.dryRun,
-        parentSearch: params.parentSearch,
-        // T944/T9072: orthogonal axes — kind is the canonical wire field
-        kind: params.kind,
-        scope: params.scope,
-        severity: params.severity,
-        // T1633: BRAIN duplicate-bypass flag
-        forceDuplicate: params.forceDuplicate,
-        // T12298: resolve design-point 3 in-line instead of refusing
-        autoDecompose: params.autoDecompose,
       }),
       'add',
     );
@@ -394,50 +376,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   update: async (params) => {
     const projectRoot = getProjectRoot();
-    return wrapCoreResult(
-      await taskUpdate(projectRoot, params.taskId, {
-        title: params.title,
-        description: params.description,
-        status: params.status,
-        priority: params.priority,
-        notes: params.notes,
-        labels: params.labels,
-        addLabels: params.addLabels,
-        removeLabels: params.removeLabels,
-        depends: params.depends,
-        addDepends: params.addDepends,
-        removeDepends: params.removeDepends,
-        acceptance: params.acceptance,
-        // ADR-057 D2: canonical wire field — no alias fallback
-        parent: params.parent,
-        type: params.type,
-        size: params.size,
-        // T1014: wire --files through dispatch to engine (parity with add).
-        files: params.files,
-        addFiles: params.addFiles,
-        removeFiles: params.removeFiles,
-        // T834 / ADR-051 Decision 4: wire --pipelineStage end-to-end.
-        pipelineStage: params.pipelineStage,
-        // T944/T9072: kind axis (renamed from role)
-        kind: params.kind,
-        scope: params.scope,
-        // T9073: severity — orthogonal to priority, valid for any kind
-        severity: params.severity,
-        // T1590: AC-immutability override reason
-        reason: params.reason,
-        // T9241 / gh#1106: set/clear the free-text blockedBy reason. The set
-        // path (`blockedBy`) was previously dropped here — only `clearBlockedBy`
-        // was forwarded — so `cleo update --blocked-by "..."` produced
-        // E_CLEO_NO_CHANGE. Both paths must be wired.
-        blockedBy: params.blockedBy,
-        clearBlockedBy: params.clearBlockedBy,
-        // T9327: relates mutations
-        relates: params.relates,
-        addRelates: params.addRelates,
-        removeRelates: params.removeRelates,
-      }),
-      'update',
-    );
+    const { taskId, ...updates } = params;
+    return wrapCoreResult(await taskUpdate(projectRoot, taskId, updates), 'update');
   },
 
   complete: async (params) => {
@@ -518,7 +458,10 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   delete: async (params) => {
     const projectRoot = getProjectRoot();
-    return wrapCoreResult(await taskDelete(projectRoot, params.taskId, params.force), 'delete');
+    return wrapCoreResult(
+      await taskDelete(projectRoot, params.taskId, params.force, params.cascade),
+      'delete',
+    );
   },
 
   archive: async (params) => {
@@ -715,6 +658,8 @@ const QUERY_OPS = new Set<string>([
   'saga.list',
   'saga.members',
   'saga.rollup',
+  'req.list',
+  'req.migrate.preview',
 ]);
 
 const MUTATE_OPS = new Set<string>([
@@ -755,6 +700,8 @@ const MUTATE_OPS = new Set<string>([
   'saga.detach',
   // T10121 — idempotent cron-safe auto-close repair (supersedes T10098 scope).
   'saga.reconcile',
+  'req.add',
+  'req.migrate',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -969,6 +916,38 @@ export class TasksHandler implements DomainHandler {
     // Saga sub-domain query ops (ADR-073) — handled outside typed handler
     // because they call existing functions and don't need OpsFromCore inference.
     try {
+      if (operation === 'req.list' || operation === 'req.migrate.preview') {
+        if (typeof params?.taskId !== 'string' || !params.taskId.trim()) {
+          return errorResult(
+            'query',
+            'tasks',
+            operation,
+            'E_INVALID_INPUT',
+            'taskId is required',
+            startTime,
+          );
+        }
+        if (
+          operation === 'req.migrate.preview' &&
+          params.apply !== undefined &&
+          params.apply !== false
+        ) {
+          return errorResult(
+            'query',
+            'tasks',
+            operation,
+            'E_INVALID_INPUT',
+            'Migration query requires apply=false; use the mutate gateway with apply=true to write',
+            startTime,
+          );
+        }
+        const root = getProjectRoot();
+        const data =
+          operation === 'req.list'
+            ? await reqList(root, params.taskId)
+            : await reqMigrate(root, params.taskId, false);
+        return wrapResult({ success: true, data }, 'query', 'tasks', operation, startTime);
+      }
       if (operation === 'saga.list') {
         const envelope = await sagaList();
         return wrapResult(envelopeToEngineResult(envelope), 'query', 'tasks', operation, startTime);
@@ -1034,6 +1013,45 @@ export class TasksHandler implements DomainHandler {
 
     // Saga sub-domain mutate ops (ADR-073) — handled outside typed handler.
     try {
+      if (operation === 'req.add' || operation === 'req.migrate') {
+        if (typeof params?.taskId !== 'string' || !params.taskId.trim()) {
+          return errorResult(
+            'mutate',
+            'tasks',
+            operation,
+            'E_INVALID_INPUT',
+            'taskId is required',
+            startTime,
+          );
+        }
+        if (operation === 'req.add') {
+          if (typeof params.gate !== 'string') {
+            return errorResult(
+              'mutate',
+              'tasks',
+              operation,
+              'E_INVALID_INPUT',
+              'gate must be AcceptanceGate JSON text; use req add --gate',
+              startTime,
+            );
+          }
+          const gate = parseGateJson(params.gate);
+          const data = await reqAdd(getProjectRoot(), params.taskId, gate);
+          return wrapResult({ success: true, data }, 'mutate', 'tasks', operation, startTime);
+        }
+        if (params.apply !== true) {
+          return errorResult(
+            'mutate',
+            'tasks',
+            operation,
+            'E_INVALID_INPUT',
+            'Migration writes require apply=true; use the query gateway for preview',
+            startTime,
+          );
+        }
+        const data = await reqMigrate(getProjectRoot(), params.taskId, true);
+        return wrapResult({ success: true, data }, 'mutate', 'tasks', operation, startTime);
+      }
       if (operation === 'saga.create') {
         const envelope = await sagaCreate(params ?? {});
         return wrapResult(
@@ -1151,6 +1169,8 @@ export class TasksHandler implements DomainHandler {
         'saga.list',
         'saga.members',
         'saga.rollup',
+        'req.list',
+        'req.migrate.preview',
       ],
       mutate: [
         'add',
@@ -1183,6 +1203,8 @@ export class TasksHandler implements DomainHandler {
         'saga.detach',
         // T10121 — idempotent cron-safe auto-close repair.
         'saga.reconcile',
+        'req.add',
+        'req.migrate',
       ],
     };
   }

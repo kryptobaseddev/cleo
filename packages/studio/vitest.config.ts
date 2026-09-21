@@ -13,6 +13,7 @@
 
 import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
+import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
 
 export default defineConfig({
@@ -38,10 +39,13 @@ export default defineConfig({
       'src/**/__tests__/*.test.ts',
     ],
     exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**', '**/*.integration.test.ts', '**/*-integration.test.ts'],
-    // SvelteKit $lib alias resolution for server-side tests
-    alias: {
+    // File-based Vitest projects do not inherit root aliases. Resolve SDK
+    // imports to source so stale dist files cannot hide task-policy regressions.
+    alias: withWorkspaceSubpathAliases({
       $lib: new URL('./src/lib', import.meta.url).pathname,
-    },
+      '@cleocode/core': new URL('../core/src/index.ts', import.meta.url).pathname,
+      '@cleocode/contracts': new URL('../contracts/src/index.ts', import.meta.url).pathname,
+    }),
     server: {
       deps: {
         // Svelte runes-in-TS modules must be inlined so the plugin processes them.

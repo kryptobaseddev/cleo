@@ -12,7 +12,7 @@
  *    `Co-Authored-By:` trailers → agent name.
  * 3. Use the earliest Co-Authored-By agent as `modified_by`.
  * 4. Match `completedAt` against known sessions (±60 min window).
- * 5. Fall back to `"unknown-pre-adr-051"` when no evidence is found.
+ * 5. Leave provenance unchanged when assessment or authored evidence is unavailable.
  *
  * Security: git subprocess uses `execFileSync` with strict `argv` arrays —
  * no shell interpolation or user-controlled string concatenation in the
@@ -26,7 +26,8 @@
 
 import { execFileSync } from 'node:child_process';
 import type { Session, Task } from '@cleocode/contracts';
-import { getTaskAccessor, reconstructLineage } from '@cleocode/core/internal';
+import { reconstructLineage } from '@cleocode/core/audit/reconstruct';
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,7 +67,7 @@ export interface AuditColumnBackfillResult {
   alreadySet: number;
   /** Tasks where git evidence was found and modified_by was inferred. */
   inferred: number;
-  /** Tasks where no git evidence existed — fell back to unknown marker. */
+  /** Tasks with missing, incomplete or unauthored evidence; no provenance write authorized. */
   gapCount: number;
   /** IDs of gap tasks (no inference possible). */
   gapTaskIds: string[];
@@ -93,20 +94,22 @@ export interface AuditColumnBackfillOptions {
  *
  * @param cwd - Working directory.
  * @param args - Argument list passed directly to git.
- * @returns stdout as a trimmed UTF-8 string, or `""` on error.
+ * @param deadlineAt - Original lineage deadline; never reset for trailer reads.
+ * @returns Complete nonempty commit body; read failures propagate to the no-write guard.
  */
-function runGit(cwd: string, args: readonly string[]): string {
-  try {
-    const output = execFileSync('git', [...args], {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      maxBuffer: 4 * 1024 * 1024,
-    });
-    return output.trim();
-  } catch {
-    return '';
-  }
+function runGit(cwd: string, args: readonly string[], deadlineAt: number): string {
+  const remainingMs = deadlineAt - Date.now();
+  if (remainingMs <= 0)
+    throw new Error('E_OPERATION_DEADLINE: lineage deadline elapsed before trailer read');
+  const output = execFileSync('git', [...args], {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    timeout: remainingMs,
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  if (!output.trim()) throw new Error('E_GIT_READ_FAILED: commit body is unavailable');
+  return output.trim();
 }
 
 /**
@@ -117,9 +120,10 @@ function runGit(cwd: string, args: readonly string[]): string {
  *
  * @param repoRoot - Absolute path to the git repository.
  * @param sha - Full commit SHA.
+ * @param deadlineAt - Original lineage deadline shared with all trailer reads.
  */
-function extractCoAuthoredBy(repoRoot: string, sha: string): string | null {
-  const body = runGit(repoRoot, ['log', '-1', '--format=%B', sha]);
+function extractCoAuthoredBy(repoRoot: string, sha: string, deadlineAt: number): string | null {
+  const body = runGit(repoRoot, ['log', '-1', '--format=%B', sha], deadlineAt);
   if (!body) return null;
 
   for (const line of body.split('\n')) {
@@ -182,9 +186,10 @@ function findSessionForCompletedAt(sessions: Session[], completedAt: string | nu
  * mine git commit history, extracts the `Co-Authored-By` agent, and writes
  * the inferred values via `accessor.updateTaskFields`.
  *
- * Tasks with no git evidence receive the fallback marker
- * `"unknown-pre-adr-051"` as `modified_by` so they are no longer in the
- * null cohort (and the gap is documented).
+ * @remarks
+ * Failed, partial, missing or unauthored evidence remains an explicit gap without
+ * changing provenance. Existing historical values are preserved. A later task failure
+ * does not roll back earlier writes; canonical transactional repair is tracked separately.
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param options - Backfill options (dryRun, taskIds, repoRoot).
@@ -264,6 +269,11 @@ export async function backfillAuditColumns(
       const lineage = await reconstructLineage(task.id, repoRoot);
       directCommitCount = lineage.directCommits.length;
       hasGitEvidence = directCommitCount > 0;
+      if (lineage.assessment?.coverage !== 'current') {
+        throw new Error(
+          `E_AUDIT_INCOMPLETE: provenance cannot be inferred from ${lineage.assessment?.coverage ?? 'unassessed'} lineage; ${JSON.stringify(lineage.assessment?.diagnostics ?? [])}`,
+        );
+      }
 
       // Extract Co-Authored-By from earliest direct commit
       if (hasGitEvidence) {
@@ -272,7 +282,7 @@ export async function backfillAuditColumns(
           a.authorDate < b.authorDate ? -1 : a.authorDate > b.authorDate ? 1 : 0,
         );
         for (const commit of sorted) {
-          const coAuthor = extractCoAuthoredBy(repoRoot, commit.sha);
+          const coAuthor = extractCoAuthoredBy(repoRoot, commit.sha, lineage.assessment.deadlineAt);
           if (coAuthor) {
             coAuthoredBy = coAuthor;
             break;
@@ -280,7 +290,7 @@ export async function backfillAuditColumns(
         }
         // If no Co-Authored-By trailer found, use the commit author as fallback
         if (!coAuthoredBy && sorted[0]) {
-          coAuthoredBy = sorted[0].author;
+          coAuthoredBy = sorted[0].author.trim() || null;
         }
       }
     } catch (err) {
@@ -288,8 +298,10 @@ export async function backfillAuditColumns(
     }
 
     // Determine final modifiedBy value
-    const modifiedBy: string = coAuthoredBy ?? 'unknown-pre-adr-051';
-    const isGap = !hasGitEvidence || !coAuthoredBy;
+    const modifiedBy = errorMsg ? null : coAuthoredBy;
+    const isGap = !!errorMsg || !hasGitEvidence || !modifiedBy;
+    if (isGap && !errorMsg)
+      errorMsg = 'E_AUDIT_NO_AUTHORED_EVIDENCE: no recorded author is available';
     if (isGap) {
       gapCount++;
       gapTaskIds.push(task.id);
@@ -298,7 +310,7 @@ export async function backfillAuditColumns(
     }
 
     // Session ID: window-based lookup against task completedAt
-    const sessionId = findSessionForCompletedAt(sessions, task.completedAt ?? null);
+    const sessionId = isGap ? null : findSessionForCompletedAt(sessions, task.completedAt ?? null);
 
     const entry: AuditColumnBackfillEntry = {
       taskId: task.id,
@@ -314,7 +326,7 @@ export async function backfillAuditColumns(
     };
 
     // Write unless dry-run
-    if (!dryRun) {
+    if (!dryRun && !isGap && modifiedBy !== null) {
       try {
         await accessor.updateTaskFields(task.id, {
           modifiedBy,

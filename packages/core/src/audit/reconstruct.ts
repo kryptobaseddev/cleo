@@ -1,350 +1,344 @@
 /**
- * Audit lineage reconstruction — SDK primitive.
- *
- * Promotes git-log + release-tag lineage reconstruction to a first-class
- * SDK verb. Git IS the immutable hash-chained ledger; this module mines it
- * to produce a structured {@link ReconstructResult} consumed by T1216 audit tasks.
- *
- * No `.jsonl` sidecar is emitted — git's DAG is the source of truth (per
- * FP peer note, T1322 council verdict 2026-04-24).
- *
- * Security: all git subprocess calls use `execFileSync` with strict `argv`
- * arrays — no shell interpolation or user-controlled string concatenation
- * in the command string.
- *
- * @task T1322
- * @epic T1216
+ * Bounded reconstruction from the local Git ledger, with explicit coverage.
+ * Task proximity remains a heuristic, never authoritative containment.
+ * @packageDocumentation
  */
-
-import { execFileSync } from 'node:child_process';
-import type { CommitEntry, ReconstructResult, ReleaseTagEntry } from '@cleocode/contracts';
+import { resolve } from 'node:path';
+import { setImmediate } from 'node:timers/promises';
+import type { CommitEntry, ReconstructResult } from '@cleocode/contracts';
+import type { ReconstructAssessment, ReconstructOptions } from '@cleocode/contracts/audit';
 import { resolveOrCwd } from '../paths.js';
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Run a git command with strict argv (no shell interpolation).
- *
- * @param cwd - Working directory for the git process.
- * @param args - Argument list passed directly to git (not via shell).
- * @returns stdout as a trimmed UTF-8 string, or `""` on error.
- */
-function runGit(cwd: string, args: readonly string[]): string {
-  try {
-    const output = execFileSync('git', [...args], {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      maxBuffer: 8 * 1024 * 1024, // 8 MiB — generous for large repos
-    });
-    return output.trim();
-  } catch {
-    return '';
-  }
-}
+import { worktreeScope } from '../project-scope.js';
+import { extractTaskIds } from '../release/invariants/archive-reason-invariant.js';
+import { captureWrapped } from '../resources/spawn-wrapper.js';
 
 /**
- * Parse raw `--pretty=format:"%H\x1f%s\x1f%an\x1f%ai"` git log output into
- * an array of {@link CommitEntry} records.
- *
- * Uses the ASCII unit-separator (0x1F) as the field delimiter to avoid
- * collisions with commit subject text.
- *
- * @param raw - Raw stdout from git log with the expected format string.
- */
-function parseGitLog(raw: string): CommitEntry[] {
-  if (!raw) return [];
-  const results: CommitEntry[] = [];
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const parts = trimmed.split('\x1f');
-    if (parts.length < 4) continue;
-    const [sha, subject, author, authorDate] = parts as [string, string, string, string];
-    if (!sha || sha.length < 7) continue;
-    results.push({ sha, subject, author, authorDate });
-  }
-  return results;
-}
-
-/**
- * Run `git log --all --grep=<pattern>` with the standard pretty format and
- * return parsed commit entries.
- *
- * The `--fixed-strings` flag prevents the pattern from being interpreted as
- * a POSIX extended regex, which keeps the semantics predictable.
- *
- * @param repoRoot - Absolute path to the git repository.
- * @param pattern - Literal string to grep for in commit messages.
- */
-function gitLogGrep(repoRoot: string, pattern: string): CommitEntry[] {
-  const raw = runGit(repoRoot, [
-    'log',
-    '--all',
-    '--fixed-strings',
-    `--grep=${pattern}`,
-    '--pretty=format:%H\x1f%s\x1f%an\x1f%ai',
-  ]);
-  return parseGitLog(raw);
-}
-
-/**
- * Collect all release tags that contain a given commit SHA.
- *
- * Uses `git tag --contains <sha>` which lists all tags reachable from
- * the commit, not just the nearest one.
- *
- * @param repoRoot - Absolute path to the git repository.
- * @param sha - Full commit SHA to query.
- */
-function tagsContaining(repoRoot: string, sha: string): string[] {
-  const raw = runGit(repoRoot, ['tag', '--contains', sha]);
-  if (!raw) return [];
-  return raw
-    .split('\n')
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
-}
-
-/**
- * Resolve a tag name to its target commit SHA using `git rev-parse <tag>^{}`.
- *
- * The `^{}` dereferences annotated tags to the underlying commit object.
- *
- * @param repoRoot - Absolute path to the git repository.
- * @param tag - Tag name to resolve.
- */
-function resolveTagCommit(repoRoot: string, tag: string): string {
-  return runGit(repoRoot, ['rev-parse', `${tag}^{}`]);
-}
-
-/**
- * Fetch the commit subject for a given SHA.
- *
- * @param repoRoot - Absolute path to the git repository.
- * @param sha - Full commit SHA.
- */
-function commitSubject(repoRoot: string, sha: string): string {
-  return runGit(repoRoot, ['log', '-1', '--pretty=format:%s', sha]);
-}
-
-/**
- * Infer the numeric child ID range for a parent task ID.
- *
- * Strategy (in order of priority):
- * 1. Mine commit messages for adjacent task-ID mentions (e.g. T994, T995, …)
- *    from the parent's direct-commit subjects — zero git calls.
- * 2. Adjacency heuristic: issue ONE `git log --all` with an extended-regex
- *    pattern covering the ±20 window around the parent ID, then extract all
- *    matching task IDs from the output. This replaces 40 sequential git-log
- *    calls with a single pass.
- *
- * Returns `null` when no children can be inferred.
- *
- * @param repoRoot - Absolute path to the git repository.
- * @param parentNumeric - Numeric portion of the parent task ID (e.g. 991 for T991).
- * @param directCommits - The parent's own direct commits (used to extract sibling mentions).
- */
-function inferChildRange(
-  repoRoot: string,
-  parentNumeric: number,
-  directCommits: CommitEntry[],
-): { min: string; max: string; ids: string[] } | null {
-  const foundIds = new Set<number>();
-
-  // Step 1: Mine sibling mentions from direct-commit subjects (no git calls).
-  const combinedText = directCommits.map((c) => c.subject).join('\n');
-  const taskPattern = /\bT(\d+)\b/g;
-  let match: RegExpExecArray | null;
-  // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex loop
-  while ((match = taskPattern.exec(combinedText)) !== null) {
-    const n = parseInt(match[1] ?? '0', 10);
-    // Accept IDs within ±50 of the parent as likely sibling cluster members
-    if (n !== parentNumeric && Math.abs(n - parentNumeric) <= 50) {
-      foundIds.add(n);
-    }
-  }
-
-  // Step 2: Single-pass adjacency probe using ONE git log call with an ERE
-  // pattern that matches any T<n> in the ±20 window.
-  // Build an alternation of the 40 candidate IDs, avoiding shell interpolation
-  // by passing the pattern directly to git as an argument.
-  const lo = Math.max(1, parentNumeric - 20);
-  const hi = parentNumeric + 20;
-  const candidates: number[] = [];
-  for (let n = lo; n <= hi; n++) {
-    if (n !== parentNumeric) candidates.push(n);
-  }
-
-  // ERE alternation: \b(T971|T972|...|T1011)\b — git --regexp-ignore-case is
-  // NOT used so the pattern is case-sensitive (task IDs are always upper-case T).
-  const alternation = candidates.map((n) => `T${n}`).join('|');
-  const raw = runGit(repoRoot, [
-    'log',
-    '--all',
-    '--extended-regexp',
-    `--grep=\\b(${alternation})\\b`,
-    '--pretty=format:%s',
-  ]);
-
-  if (raw) {
-    const linePattern = /\bT(\d+)\b/g;
-    let lineMatch: RegExpExecArray | null;
-    // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex loop
-    while ((lineMatch = linePattern.exec(raw)) !== null) {
-      const n = parseInt(lineMatch[1] ?? '0', 10);
-      if (n !== parentNumeric && Math.abs(n - parentNumeric) <= 20) {
-        foundIds.add(n);
-      }
-    }
-  }
-
-  if (foundIds.size === 0) return null;
-
-  const sorted = [...foundIds].sort((a, b) => a - b);
-  const minId = sorted[0]!;
-  const maxId = sorted[sorted.length - 1]!;
-
-  return {
-    min: `T${minId}`,
-    max: `T${maxId}`,
-    ids: sorted.map((n) => `T${n}`),
-  };
-}
-
-/**
- * Compute the earliest ISO-8601 date across a flat list of commit entries.
- *
- * @param commits - Commit entries to examine.
- */
-function earliestDate(commits: CommitEntry[]): string | null {
-  if (commits.length === 0) return null;
-  return commits.reduce<string>(
-    (acc, c) => (c.authorDate < acc ? c.authorDate : acc),
-    commits[0]!.authorDate,
-  );
-}
-
-/**
- * Compute the latest ISO-8601 date across a flat list of commit entries.
- *
- * @param commits - Commit entries to examine.
- */
-function latestDate(commits: CommitEntry[]): string | null {
-  if (commits.length === 0) return null;
-  return commits.reduce<string>(
-    (acc, c) => (c.authorDate > acc ? c.authorDate : acc),
-    commits[0]!.authorDate,
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * Reconstruct the git-backed lineage for a task and its inferred children.
- *
- * This is the first-class SDK verb for audit lineage reconstruction (T1322).
- * It queries git directly and returns a fully-typed {@link ReconstructResult}
- * that T1216 audit tasks consume for their 4-outcome verdict.
- *
- * **Algorithm**:
- * 1. Find direct commits whose message references `taskId`.
- * 2. Infer child ID range from commit-message mining and numeric adjacency.
- * 3. Find child commits for each inferred child ID.
- * 4. Collect all release tags containing any direct or child commit.
- * 5. Compute first/last timestamps across the full commit set.
- *
- * @param taskId - The task ID to reconstruct (e.g. `"T991"`).
- * @param repoRoot - Absolute path to the git repository. Defaults to `process.cwd()`.
- * @returns A fully-typed {@link ReconstructResult} with all git-derived lineage data.
- *
+ * Reconstruct exact task references and containing tags from bounded local Git reads.
+ * @param taskId - Exact uppercase task token (for example T994), never a grep substring.
+ * @param repoRoot - Explicit repository root, otherwise the captured caller scope or cwd.
+ * @param options - Optional limits which cannot extend an inherited execution deadline.
+ * @returns Existing lineage fields plus mandatory assessment coverage on every new result.
+ * @remarks Reads commit messages and parents once, then propagates ancestry in topological
+ * order. Git failures, truncated output, shallow history and cancellation are explicit.
+ * No remote fetch or writes occur. Numeric child inference is retained for compatibility
+ * and is not proof of task ownership. CPU stages yield cooperatively; this is not preemption.
  * @example
  * ```ts
- * import { reconstructLineage } from '@cleocode/core/audit/reconstruct.js';
- *
- * const result = await reconstructLineage('T991');
- * console.log(result.releaseTags.map(t => t.tag));
- * // → ['v2026.4.98', 'v2026.4.99', ...]
+ * const lineage = await reconstructLineage('T994', '/project', {});
+ * if (lineage.assessment?.coverage !== 'current') return;
  * ```
- *
- * @task T1322
- * @epic T1216
  */
 export async function reconstructLineage(
   taskId: string,
   repoRoot?: string,
+  options: ReconstructOptions = {},
 ): Promise<ReconstructResult> {
-  repoRoot = resolveOrCwd(repoRoot);
-  // 1. Direct commits — messages that reference the exact task ID
-  const directCommits = gitLogGrep(repoRoot, taskId);
-
-  // 2. Infer child ID range
-  const numericMatch = taskId.match(/^T(\d+)$/i);
-  const parentNumeric = numericMatch ? parseInt(numericMatch[1] ?? '0', 10) : 0;
-
-  const rangeResult =
-    parentNumeric > 0 ? inferChildRange(repoRoot, parentNumeric, directCommits) : null;
-
-  const childIdRange: ReconstructResult['childIdRange'] = rangeResult
-    ? { min: rangeResult.min, max: rangeResult.max }
-    : null;
-
-  const inferredChildren: string[] = rangeResult ? rangeResult.ids : [];
-
-  // 3. Child commits — one git-log query per inferred child ID
-  const childCommits: Record<string, CommitEntry[]> = {};
-  for (const childId of inferredChildren) {
-    const hits = gitLogGrep(repoRoot, childId);
-    if (hits.length > 0) {
-      childCommits[childId] = hits;
-    }
-  }
-
-  // 4. Release tags — collect all tags containing any direct or child commit SHA
-  const allCommitShas = new Set<string>(directCommits.map((c) => c.sha));
-  for (const commits of Object.values(childCommits)) {
-    for (const c of commits) {
-      allCommitShas.add(c.sha);
-    }
-  }
-
-  const tagSet = new Set<string>();
-  for (const sha of allCommitShas) {
-    for (const tag of tagsContaining(repoRoot, sha)) {
-      tagSet.add(tag);
-    }
-  }
-
-  const releaseTags: ReleaseTagEntry[] = [...tagSet]
-    .sort()
-    .map((tag) => {
-      const commitSha = resolveTagCommit(repoRoot, tag);
-      const subject = commitSha ? commitSubject(repoRoot, commitSha) : '';
-      return { tag, commitSha, subject };
-    })
-    .filter((entry) => entry.commitSha.length > 0);
-
-  const releaseCommitShas = releaseTags.map((t) => t.commitSha);
-
-  // 5. Timing bounds
-  const allWorkCommits: CommitEntry[] = [...directCommits, ...Object.values(childCommits).flat()];
-
-  const firstSeenAt = earliestDate(allWorkCommits);
-  const lastSeenAt = latestDate(allWorkCommits);
-
-  return {
-    taskId,
-    directCommits,
-    childIdRange,
-    childCommits,
-    releaseTags,
-    releaseCommitShas,
-    firstSeenAt,
-    lastSeenAt,
-    inferredChildren,
+  const inherited = worktreeScope.getStore();
+  const root = resolve(resolveOrCwd(repoRoot ?? inherited?.worktreeRoot));
+  const startedAt = Date.now();
+  const caller = inherited?.execution;
+  const deadlineAt = Math.min(
+    caller?.deadlineAt ?? Infinity,
+    options.execution?.deadlineAt ?? (caller ? Infinity : startedAt + 2000),
+  );
+  const signals = [caller?.signal, options.execution?.signal].filter(
+    (signal): signal is AbortSignal => signal !== undefined,
+  );
+  const signal = signals.length ? AbortSignal.any(signals) : undefined;
+  const execution = { deadlineAt, signal };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_OPTIONAL_LOCKS: '0',
   };
+  // Explicit cwd owns this read, even when the caller was launched by another repository's hook.
+  for (const name of [
+    'GIT_DIR',
+    'GIT_WORK_TREE',
+    'GIT_COMMON_DIR',
+    'GIT_INDEX_FILE',
+    'GIT_OBJECT_DIRECTORY',
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_NAMESPACE',
+    'GIT_SHALLOW_FILE',
+  ])
+    delete env[name];
+  let remainingBytes = Math.min(
+    options.maxOutputBytes ?? 8 * 1024 * 1024,
+    caller?.resources.maxBytes ?? Infinity,
+  );
+  const assessment: ReconstructAssessment = {
+    repositoryRoot: root,
+    deadlineAt,
+    coverage: 'failed',
+    shallow: null,
+    observedCommits: 0,
+    historyComplete: false,
+    tagsComplete: false,
+    commands: [],
+    diagnostics: [],
+    limitations: [
+      'Only locally reachable refs are assessed; no remote history is fetched.',
+      'Numeric proximity and co-mentioned IDs suggest candidates, not authoritative child tasks.',
+      'Refs may change during assessment; the reads are not an atomic repository snapshot.',
+    ],
+  };
+  const result: ReconstructResult = {
+    taskId,
+    directCommits: [],
+    childIdRange: null,
+    childCommits: {},
+    releaseTags: [],
+    releaseCommitShas: [],
+    firstSeenAt: null,
+    lastSeenAt: null,
+    inferredChildren: [],
+    assessment,
+  };
+  const fail = (code: string, stage: string, message: string) => {
+    assessment.diagnostics.push({ code, stage, message });
+  };
+  const active = (stage: string): boolean => {
+    if (signal?.aborted) {
+      fail(
+        'E_OPERATION_CANCELLED',
+        stage,
+        'Original caller cancellation forbids further assessment.',
+      );
+      return false;
+    }
+    if (Date.now() >= deadlineAt) {
+      fail('E_OPERATION_DEADLINE', stage, 'Original execution deadline has elapsed.');
+      return false;
+    }
+    try {
+      caller?.assertActive();
+    } catch (error) {
+      fail('E_OPERATION_INACTIVE', stage, error instanceof Error ? error.message : String(error));
+      return false;
+    }
+    return true;
+  };
+  const git = async (stage: string, args: string[]): Promise<string | null> => {
+    if (!active(stage)) return null;
+    if (remainingBytes <= 0) {
+      fail('E_OUTPUT_LIMIT', stage, 'Aggregate Git output byte budget exhausted.');
+      return null;
+    }
+    try {
+      const { stdout, ...receipt } = await captureWrapped('git', args, {
+        cwd: root,
+        env,
+        execution,
+        maxOutputBytes: remainingBytes,
+      });
+      assessment.commands.push({ ...receipt, args });
+      const bytes = Buffer.byteLength(stdout) + Buffer.byteLength(receipt.stderr);
+      remainingBytes -= bytes;
+      caller?.consume({ bytes });
+      if (
+        !receipt.started ||
+        receipt.exitCode !== 0 ||
+        receipt.error ||
+        receipt.stopped ||
+        receipt.signal ||
+        receipt.outputTruncated ||
+        !receipt.targetCloseObserved ||
+        receipt.cleanupErrors.length
+      ) {
+        fail(
+          'E_GIT_READ_FAILED',
+          stage,
+          receipt.error ??
+            receipt.stopped ??
+            (receipt.stderr || `Git target did not complete cleanly (exit ${receipt.exitCode}).`),
+        );
+        return null;
+      }
+      if (!active(stage)) return null;
+      return stdout;
+    } catch (error) {
+      fail('E_GIT_READ_FAILED', stage, error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  };
+  if (
+    !/^T\d+$/.test(taskId) ||
+    !Number.isSafeInteger(deadlineAt) ||
+    !Number.isSafeInteger(remainingBytes) ||
+    remainingBytes < 0
+  ) {
+    fail('E_INVALID_INPUT', 'input', 'Task token, deadline and byte limit must be valid.');
+    return result;
+  }
+  if (caller && resolve(caller.identity.projectRoot) !== root) {
+    fail(
+      'E_PROJECT_SCOPE_MISMATCH',
+      'input',
+      'Explicit repository differs from inherited operation ownership.',
+    );
+    return result;
+  }
+  const shallow = await git('repository', ['rev-parse', '--is-shallow-repository']);
+  if (shallow === null) return result;
+  if (!['true', 'false'].includes(shallow.trim())) {
+    fail('E_GIT_PROTOCOL', 'repository', 'Git did not return a shallow-history verdict.');
+    return result;
+  }
+  assessment.shallow = shallow.trim() === 'true';
+  if (assessment.shallow)
+    fail('E_SHALLOW_HISTORY', 'repository', 'Shallow history cannot establish complete lineage.');
+  const history = await git('history', [
+    'log',
+    '--all',
+    '--topo-order',
+    '--no-show-signature',
+    '--no-color',
+    '--format=%H%x00%P%x00%an%x00%aI%x00%s%x00%B%x00',
+  ]);
+  if (history === null) return result;
+  // Git messages cannot contain NUL. Newlines between records are not field delimiters.
+  const fields = history.split('\0');
+  if (fields.pop()?.trim() !== '' || fields.length % 6 !== 0) {
+    fail('E_GIT_PROTOCOL', 'history', 'Malformed or incomplete commit fields.');
+    return result;
+  }
+  const commits: CommitEntry[] = [];
+  const parents = new Map<string, string[]>();
+  const refs = new Map<string, string[]>();
+  for (let i = 0; i < fields.length; i += 6) {
+    if (i % 1536 === 0) {
+      await setImmediate();
+      if (!active('history-parse')) return result;
+    }
+    const sha = fields[i]!.trim();
+    const parentIds = fields[i + 1]!.split(' ').filter(Boolean);
+    if (!/^[a-f0-9]{40,64}$/.test(sha) || parentIds.some((id) => !/^[a-f0-9]{40,64}$/.test(id))) {
+      fail('E_GIT_PROTOCOL', 'history', 'Malformed commit or parent identity.');
+      return result;
+    }
+    try {
+      caller?.consume({ items: 1 });
+    } catch (error) {
+      fail(
+        'E_OPERATION_RESOURCE_LIMIT',
+        'history-parse',
+        error instanceof Error ? error.message : String(error),
+      );
+      return result;
+    }
+    commits.push({
+      sha,
+      author: fields[i + 2]!,
+      authorDate: fields[i + 3]!,
+      subject: fields[i + 4]!,
+    });
+    parents.set(sha, parentIds);
+    refs.set(sha, extractTaskIds(fields[i + 5]!));
+  }
+  assessment.observedCommits = commits.length;
+  assessment.historyComplete = true;
+  assessment.coverage = 'partial';
+  result.directCommits = commits.filter((commit) => refs.get(commit.sha)!.includes(taskId));
+  const numericId = Number(taskId.slice(1));
+  const candidates = new Set<string>();
+  const directShas = new Set(result.directCommits.map((commit) => commit.sha));
+  for (let i = 0; i < commits.length; i++) {
+    if (i % 256 === 0) {
+      await setImmediate();
+      if (!active('task-matching')) return result;
+    }
+    const commit = commits[i]!;
+    const radius = directShas.has(commit.sha) ? 50 : 20;
+    for (const id of refs.get(commit.sha)!) {
+      if (id !== taskId && Math.abs(Number(id.slice(1)) - numericId) <= radius) candidates.add(id);
+    }
+  }
+  result.inferredChildren = [...candidates].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+  if (result.inferredChildren.length)
+    result.childIdRange = {
+      min: result.inferredChildren[0]!,
+      max: result.inferredChildren.at(-1)!,
+    };
+  const work = new Set(directShas);
+  for (const id of result.inferredChildren) result.childCommits[id] = [];
+  for (let index = 0; index < commits.length; index++) {
+    if (index % 256 === 0) {
+      await setImmediate();
+      if (!active('child-matching')) return result;
+    }
+    const commit = commits[index]!;
+    for (const id of refs.get(commit.sha)!) {
+      if (candidates.has(id)) {
+        result.childCommits[id]!.push(commit);
+        work.add(commit.sha);
+      }
+    }
+    if (work.has(commit.sha)) {
+      if (result.firstSeenAt === null || commit.authorDate < result.firstSeenAt)
+        result.firstSeenAt = commit.authorDate;
+      if (result.lastSeenAt === null || commit.authorDate > result.lastSeenAt)
+        result.lastSeenAt = commit.authorDate;
+    }
+  }
+  // Reverse topological traversal visits parents before their descendants, including merges.
+  const containsWork = new Set<string>();
+  for (let i = commits.length - 1; i >= 0; i--) {
+    if (i % 256 === 0) {
+      await setImmediate();
+      if (!active('ancestry')) return result;
+    }
+    const sha = commits[i]!.sha;
+    const ancestors = parents.get(sha)!;
+    if (ancestors.some((parent) => !parents.has(parent)))
+      fail('E_MISSING_PARENT', 'ancestry', `Commit ${sha} references unavailable history.`);
+    if (work.has(sha) || ancestors.some((parent) => containsWork.has(parent)))
+      containsWork.add(sha);
+  }
+  const tags = await git('tags', [
+    'for-each-ref',
+    '--sort=refname',
+    '--format=%(refname:strip=2)%00%(objecttype)%00%(objectname)%00%(*objecttype)%00%(*objectname)',
+    'refs/tags',
+  ]);
+  if (tags === null) return result;
+  const bySha = new Map(commits.map((commit) => [commit.sha, commit]));
+  let validTags = true;
+  const tagLines = tags.split('\n').filter(Boolean);
+  for (let index = 0; index < tagLines.length; index++) {
+    if (index % 256 === 0) await setImmediate();
+    if (!active('tag-matching')) return result;
+    const line = tagLines[index]!;
+    const parts = line.split('\0');
+    const [tag, type, object, peeledType, peeled] = parts;
+    const target = type === 'commit' ? object : peeledType === 'commit' ? peeled : undefined;
+    if (parts.length !== 5 || !tag || !object || (target && !bySha.has(target))) {
+      fail(
+        'E_GIT_PROTOCOL',
+        'tags',
+        `Tag ${tag ?? '(unknown)'} has missing or inconsistent commit evidence.`,
+      );
+      validTags = false;
+      continue;
+    }
+    if (type === 'tag' && peeledType === 'tag') {
+      fail(
+        'E_UNSUPPORTED_TAG_CHAIN',
+        'tags',
+        `Nested tag ${tag} requires further authenticated peeling.`,
+      );
+      validTags = false;
+      continue;
+    }
+    if (target && containsWork.has(target))
+      result.releaseTags.push({
+        tag,
+        commitSha: target,
+        subject: bySha.get(target)!.subject,
+      });
+  }
+  result.releaseCommitShas = [...new Set(result.releaseTags.map((tag) => tag.commitSha))];
+  assessment.tagsComplete = validTags;
+  if (active('complete') && !assessment.diagnostics.length) assessment.coverage = 'current';
+  return result;
 }

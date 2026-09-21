@@ -11,17 +11,38 @@
  * @task T532
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+
+import type { GraphIndexFileReport, GraphPublicationRows } from '@cleocode/contracts';
+import type { GraphSourceRootAssessment } from '@cleocode/contracts/graph';
+import { buildSync } from 'esbuild';
+import Parser from 'tree-sitter';
+import TypeScript from 'tree-sitter-typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseOriginalSource } from '../code/parser.js';
 import type { ScannedFile } from '../pipeline/filesystem-walker.js';
 import { walkRepositoryPaths } from '../pipeline/filesystem-walker.js';
+import { buildImportResolutionContext } from '../pipeline/import-processor.js';
 import { runPipeline } from '../pipeline/index.js';
 import type { DrizzleTableRef } from '../pipeline/knowledge-graph.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { detectLanguageFromPath, isIndexableFile } from '../pipeline/language-detection.js';
+import { extractOriginalSource, runParseLoop } from '../pipeline/parse-loop.js';
 import { processStructure } from '../pipeline/structure-processor.js';
+import { createSymbolTable } from '../pipeline/symbol-table.js';
 
 /**
  * Build a minimal stub `DrizzleTableRef` for flush-only tests.
@@ -58,6 +79,715 @@ function writeFile(root: string, relPath: string, content = 'x'): void {
 // ---------------------------------------------------------------------------
 // Language detection
 // ---------------------------------------------------------------------------
+
+describe('bounded parser workers (T12262)', () => {
+  it('proves heap exhaustion, per-file deadlines, cancellation and quiet termination in a clean process', () => {
+    const directory = makeTempDir();
+    try {
+      const poolPath = join(directory, 'pool.mjs');
+      buildSync({
+        entryPoints: [new URL('../pipeline/workers/worker-pool.ts', import.meta.url).pathname],
+        outfile: poolPath,
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+      });
+      const probePath = join(directory, 'probe.mjs');
+      writeFileSync(
+        probePath,
+        `
+        import assert from 'node:assert/strict';
+        import { writeFileSync } from 'node:fs';
+        import { createWorkerPool } from './pool.mjs';
+        function fixture(body) {
+          const url = new URL('./fixture.mjs', import.meta.url);
+          writeFileSync(url, "import {parentPort,resourceLimits} from 'node:worker_threads'; import {getHeapStatistics} from 'node:v8';\\n" + body);
+          return url;
+        }
+        let pool = createWorkerPool(fixture(\`
+          let count = 0;
+          parentPort.on('message', message => {
+            if (message.type === 'sub-batch') {
+              if (message.files.length !== 1) throw new Error('unbounded batch');
+              count++; parentPort.postMessage({ type: 'sub-batch-done' });
+            } else parentPort.postMessage({ type: 'result', data: { count, heap: getHeapStatistics().heap_size_limit } });
+          });
+        \`), 1, { workerHeapMb: 32 });
+        try {
+          const [result] = await pool.dispatch([1,2,3]);
+          assert.equal(result.count, 3);
+          assert.ok(result.heap < 64 * 1024 * 1024, 'actual V8 ceiling, not merely reported configuration');
+        } finally { await pool.terminate(); }
+        pool = createWorkerPool(fixture("parentPort.on('message', () => { while(true) {} });"), 1, { timeoutMs: 100 });
+        await assert.rejects(pool.dispatch([1]), /E_PARSE_WORKER_TIMEOUT/);
+        await assert.rejects(pool.dispatch([2]), /terminated/);
+        await pool.terminate();
+        const controller = new AbortController();
+        pool = createWorkerPool(fixture("parentPort.on('message', () => { while(true) {} });"), 1, { signal: controller.signal });
+        const pending = pool.dispatch([1]);
+        await assert.rejects(pool.dispatch([2]), /active dispatch/);
+        setTimeout(() => controller.abort(), 100);
+        await assert.rejects(pending, /E_PARSE_CANCELLED/);
+        await pool.terminate();
+        pool = createWorkerPool(fixture("parentPort.on('message', () => { const retained = []; while(true) retained.push(new Array(100000).fill('retained')); });"), 1, { workerHeapMb: 16 });
+        await assert.rejects(pool.dispatch([1]), /memory|heap|OOM/i);
+        await assert.rejects(pool.dispatch([2]), /terminated/);
+        await pool.terminate();
+        process.env.NODE_OPTIONS = '--max-old-space-size=1024';
+        assert.throws(() => createWorkerPool(new URL('./fixture.mjs', import.meta.url)), /E_PARSE_WORKER_HEAP_OVERRIDE/);
+      `,
+      );
+      execFileSync(process.execPath, [probePath], {
+        timeout: 20000,
+        env: {
+          PATH: process.env['PATH'],
+          HOME: directory,
+          TMPDIR: directory,
+          TMP: directory,
+          TEMP: directory,
+        },
+        stdio: 'pipe',
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('isolated shared extraction (T12262)', () => {
+  it('preserves language capabilities and per-file failures through actual process IPC', () => {
+    const directory = makeTempDir();
+    try {
+      symlinkSync(
+        new URL('../../node_modules', import.meta.url).pathname,
+        join(directory, 'node_modules'),
+        'dir',
+      );
+      const entries = [
+        ['worker', new URL('../pipeline/workers/parse-worker.ts', import.meta.url).pathname],
+        ['pipeline', new URL('../pipeline/index.ts', import.meta.url).pathname],
+        ['extractor', new URL('../pipeline/parse-loop.ts', import.meta.url).pathname],
+        ['pool', new URL('../pipeline/workers/worker-pool.ts', import.meta.url).pathname],
+        [
+          'provider',
+          new URL('../../../core/src/resources/spawn-wrapper.ts', import.meta.url).pathname,
+        ],
+      ];
+      for (const [name, entry] of entries) {
+        // The core provider has its own JavaScript dependencies. Resolve them
+        // from its original importer before relocating the fixture output;
+        // native parser entries retain their Nexus package installation.
+        const result = buildSync({
+          entryPoints: [entry],
+          outfile: join(directory, `${name}.mjs`),
+          bundle: true,
+          packages: name === 'provider' ? 'bundle' : 'external',
+          metafile: true,
+          platform: 'node',
+          format: 'esm',
+        });
+        if (name === 'provider') {
+          const runtimeImports = Object.values(result.metafile.outputs).flatMap(
+            (output) => output.imports,
+          );
+          expect(runtimeImports.every((binding) => binding.path.startsWith('node:'))).toBe(true);
+          expect(Object.keys(result.metafile.inputs).some((input) => input.includes('/zod/'))).toBe(
+            true,
+          );
+        }
+      }
+      const script = join(directory, 'probe.mjs');
+      writeFileSync(
+        script,
+        `
+        import assert from 'node:assert/strict';
+        import { createWorkerPool } from './pool.mjs';
+        import { runPipeline } from './pipeline.mjs';
+        import { extractOriginalSource } from './extractor.mjs';
+        import { mkdirSync, copyFileSync, writeFileSync } from 'node:fs';
+        import { fileURLToPath } from 'node:url';
+        import { createParserExecutionPort, _forceSystemdRunAvailable } from './provider.mjs';
+        _forceSystemdRunAvailable(false);
+        const inputs = [
+          { path: 'large.ts', content: '/*' + 'x'.repeat(65536) + '*/\\nimport { 源 } from "./資料🌱"; export function 解析(){return obj.値;} 解析();' },
+          { path: 'unicode.js', content: 'function 読む(){return obj.値;} 読む();' },
+          { path: 'unicode.py', content: 'def 読む():\\n    return obj.値\\n読む()\\n' },
+          { path: 'unicode.go', content: 'package main\\nfunc 読む(){ obj.値() }\\nfunc main(){読む()}\\n' },
+          { path: 'unicode.rs', content: 'fn 読む(){ obj.値(); } fn main(){読む();}' },
+          { path: 'lexical.ts', publicationGeneration: '44444444-4444-4444-8444-444444444444', content: '// 😀\\nimport { orgNameTaken } from "./production"; const hooks={beforeCreateOrganization:(input)=>orgNameTaken(input.name)}; function mock(orgNameTaken){return orgNameTaken();} [()=>orgNameTaken()];' },
+          { path: 'too-large.ts', content: 'const 文 = "🌱";', limits: { maxSourceBytes: 1 } },
+          { path: 'invalid.ts', content: 'export function broken( {' },
+        ];
+        let childCount = 0;
+        const actual = createParserExecutionPort();
+        const execution = { spawn(path, limits) { childCount++; return actual.spawn(path, limits); } };
+        const pool = createWorkerPool(new URL('./worker.mjs', import.meta.url), 2, { workerHeapMb: 64 }, execution);
+        try {
+          const results = await pool.dispatch(inputs);
+          assert.equal(childCount, 2, 'extractor must not recursively enter worker dispatch');
+          const symbols = results.flatMap(result => result.symbols);
+          const calls = results.flatMap(result => result.calls);
+          const accesses = results.flatMap(result => result.accesses);
+          const reports = results.flatMap(result => result.reports);
+          for (const input of inputs.slice(0, 5)) {
+            assert.ok(symbols.some(symbol => symbol.filePath === input.path && ['解析','読む'].includes(symbol.name)), input.path + ' declaration');
+            assert.ok(calls.some(call => call.filePath === input.path && ['解析','読む'].includes(call.calledName)), input.path + ' caller');
+            assert.ok(accesses.some(access => access.filePath === input.path), input.path + ' access');
+            assert.equal(reports.find(report => report.path === input.path).status, 'analyzed');
+          }
+          assert.ok(results.flatMap(result => result.imports).some(binding => binding.rawImportPath === './資料🌱'));
+          assert.match(reports.find(report => report.path === 'too-large.ts').reason, /E_PARSE_SIZE/);
+          assert.match(reports.find(report => report.path === 'invalid.ts').reason, /E_PARSE_SYNTAX/);
+          const lexicalInput = inputs.find(input => input.path === 'lexical.ts');
+          const direct = extractOriginalSource(lexicalInput.content, lexicalInput.path, undefined, lexicalInput.publicationGeneration);
+          const json = value => JSON.parse(JSON.stringify(value));
+          assert.deepEqual(symbols.filter(symbol => symbol.filePath === lexicalInput.path), json(direct.definitions));
+          assert.deepEqual(calls.filter(call => call.filePath === lexicalInput.path), json(direct.calls));
+          assert.deepEqual(accesses.filter(access => access.filePath === lexicalInput.path), json(direct.accesses));
+          assert.equal(direct.calls.find(call => call.sourceId === 'lexical.ts::mock').lexical.kind, 'shadowed');
+          assert.ok(direct.definitions.some(node => node.id.includes('#' + lexicalInput.publicationGeneration + '>')));
+          assert.ok(direct.calls.every(call => call.publicationGeneration === lexicalInput.publicationGeneration));
+          assert.notEqual(direct.calls[0].generation, lexicalInput.publicationGeneration);
+          assert.equal(results.reduce((sum, result) => sum + result.fileCount, 0), 6);
+          assert.equal(results.reduce((sum, result) => sum + result.skippedCount, 0), 2);
+        } finally { await pool.terminate(); }
+        mkdirSync(new URL('./workers/', import.meta.url));
+        copyFileSync(new URL('./worker.mjs', import.meta.url), new URL('./workers/parse-worker.js', import.meta.url));
+        writeFileSync(new URL('./package.json', import.meta.url), '{"type":"module"}');
+        const repo = new URL('./repo/', import.meta.url);
+        mkdirSync(repo);
+        writeFileSync(new URL('main.ts', repo), inputs[0].content);
+        const publications = [];
+        const noWrites = { insert() { throw new Error('unexpected live store mutation'); } };
+        const tables = { nexusNodes: {}, nexusRelations: {} };
+        await runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
+          parserExecution: execution, parserLimits: { workerHeapMb: 64 }, publishGraph(rows) { publications.push(rows); },
+        });
+        assert.equal(childCount, 3, 'production pipeline must use exactly one owned child for one file');
+        assert.equal(publications.length, 1);
+        assert.ok(publications[0].nodes.some(node => node.name === '解析'));
+        assert.equal(publications[0].assessment.files.find(file => file.path === 'main.ts').status, 'analyzed');
+        const observedCapabilities = publications[0].assessment.files.find(file => file.path === 'main.ts').capabilities;
+        assert.equal(observedCapabilities.role, 'executable');
+        assert.deepEqual(observedCapabilities.requested, ['file-evidence','declarations','imports','call-references','access-references','type-heritage']);
+        assert.deepEqual(observedCapabilities.completed, observedCapabilities.requested);
+        assert.ok(observedCapabilities.limitations.some(value => value.includes('runtime')));
+        writeFileSync(new URL('README.md', repo), '# Documentary fixture');
+        writeFileSync(new URL('migration.sql', repo), 'CREATE TABLE fixture(id INTEGER);');
+        const mixedPublications = [];
+        await runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
+          parserExecution: execution, parserLimits: { workerHeapMb: 64 }, publishGraph(rows) { mixedPublications.push(rows); },
+        });
+        assert.deepEqual(mixedPublications[0].assessment.files.find(file => file.path === 'README.md').capabilities.completed, ['file-evidence','documentary-evidence']);
+        const sql = mixedPublications[0].assessment.files.find(file => file.path === 'migration.sql');
+        assert.equal(sql.status, 'unsupported');
+        assert.deepEqual(sql.capabilities.completed, ['file-evidence']);
+
+        await assert.rejects(runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
+          parserExecution: execution, parserLimits: { maxSourceBytes: 1, workerHeapMb: 64 }, publishGraph(rows) { publications.push(rows); },
+        }), /E_PARSE_SIZE/);
+        assert.equal(publications.length, 1, 'failed file must not replace prior published generation');
+        const controller = new AbortController(); controller.abort(new Error('cancel before publication'));
+        await assert.rejects(runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
+          parserExecution: execution, parserLimits: { signal: controller.signal }, publishGraph(rows) { publications.push(rows); },
+        }), /cancel before publication/);
+        assert.equal(publications.length, 1);
+        const busy = new URL('./busy.cjs', import.meta.url);
+        writeFileSync(busy, "process.send({type:'ready',heapBytes:require('node:v8').getHeapStatistics().heap_size_limit}); process.on('message',()=>{process.send({type:'progress',filesProcessed:1}); while(true){};});");
+        let entered = false;
+        const deadlinePool = createWorkerPool(busy, 1, { timeoutMs: 300, workerHeapMb: 32 }, actual);
+        await assert.rejects(deadlinePool.dispatch([1], () => {entered = true;}), /E_PARSE_WORKER_TIMEOUT/);
+        assert.equal(entered, true, 'deadline must interrupt a running process, not just its startup');
+        await deadlinePool.terminate();
+        const cancel = new AbortController();
+        const cancelPool = createWorkerPool(busy, 1, { timeoutMs: 5000, workerHeapMb: 32, signal: cancel.signal }, actual);
+        await assert.rejects(cancelPool.dispatch([1], () => {setTimeout(() => cancel.abort(), 50);}), /E_PARSE_CANCELLED/);
+        await cancelPool.terminate();
+        const allocate = new URL('./allocate.cjs', import.meta.url);
+        writeFileSync(allocate, "process.send({type:'ready',heapBytes:require('node:v8').getHeapStatistics().heap_size_limit}); process.on('message',()=>{const retained=[];while(true) retained.push(new Array(100000).fill('retained'));});");
+        const heapPool = createWorkerPool(allocate, 1, { workerHeapMb: 16 }, actual);
+        await assert.rejects(heapPool.dispatch([1]), /OOM|heap|memory/i);
+        await heapPool.terminate();
+
+      `,
+      );
+      execFileSync(process.execPath, [script], {
+        timeout: 20000,
+        stdio: 'pipe',
+        env: {
+          PATH: process.env['PATH'],
+          NODE_OPTIONS: '--max-old-space-size=1024',
+          HOME: directory,
+          TMPDIR: directory,
+          TMP: directory,
+          TEMP: directory,
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('bounded original parser capacity (T12262)', () => {
+  function sourceOfLength(length: number): string {
+    const head = 'import { 源 } from "./資料🌱";\n/*';
+    const tail = '*/\nexport function 解析(入力: string) { return 源(入力); }\n解析("🌱");\n';
+    return head + 'x'.repeat(length - head.length - tail.length) + tail;
+  }
+
+  function nativeParser(): Parser {
+    const parser = new Parser();
+    parser.setLanguage(TypeScript.typescript);
+    return parser;
+  }
+
+  it.each([
+    32766, 32767, 32768, 65536, 262144,
+  ])('preserves original identifiers, imports and UTF-16 tail spans at %i units', (length) => {
+    const source = sourceOfLength(length);
+    const tree = parseOriginalSource(nativeParser(), source);
+    expect(tree.rootNode.hasError).toBe(false);
+    expect(tree.rootNode.endIndex).toBe(length);
+    const declaration = tree.rootNode.descendantsOfType('function_declaration')[0];
+    expect(declaration.childForFieldName('name')?.text).toBe('解析');
+    expect(tree.rootNode.descendantsOfType('import_statement')[0].text).toBe(
+      'import { 源 } from "./資料🌱";',
+    );
+    const call = tree.rootNode.descendantsOfType('call_expression').at(-1);
+    expect(call?.text).toBe('解析("🌱")');
+    expect(call?.startIndex).toBe(source.lastIndexOf('解析('));
+    expect(call?.endIndex).toBe(source.lastIndexOf('解析(') + '解析("🌱")'.length);
+    expect(call?.startIndex).not.toBe(Buffer.byteLength(source.slice(0, call?.startIndex), 'utf8'));
+  });
+
+  it.each([
+    32766, 32767, 32768, 65536, 262144,
+  ])('extracts tail declarations and calls from original %i-unit files', (length) => {
+    const extracted = extractOriginalSource(sourceOfLength(length), 'original.ts');
+    expect(extracted.definitions.some((node) => node.name === '解析')).toBe(true);
+    expect(extracted.imports[0].rawImportPath).toBe('./資料🌱');
+    expect(extracted.calls.some((call) => call.calledName === '解析')).toBe(true);
+  });
+
+  it('rejects native syntax error trees rather than declaring complete extraction', () => {
+    expect(() => parseOriginalSource(nativeParser(), 'export function broken( {')).toThrow(
+      'E_PARSE_SYNTAX',
+    );
+  });
+
+  it('retains the real default-buffer failure as a native negative control', () => {
+    expect(() => nativeParser().parse(sourceOfLength(32767))).not.toThrow();
+    expect(() => nativeParser().parse(sourceOfLength(32768))).toThrow('Invalid argument');
+  });
+
+  it('preserves an astral surrogate pair across the input chunk boundary', () => {
+    const source = '/*' + 'x'.repeat(4093) + '🌱*/\nconst 文 = "資料🌱";';
+    expect(source.charCodeAt(4095)).toBe(0xd83c);
+    const tree = parseOriginalSource(nativeParser(), source);
+    expect(tree.rootNode.hasError).toBe(false);
+    expect(tree.rootNode.text).toBe(source);
+    expect(tree.rootNode.descendantsOfType('identifier').map((node) => node.text)).toContain('文');
+  });
+
+  it('rejects excess source bytes and pre-cancelled work without corrupting parser reuse', () => {
+    const parser = nativeParser();
+    const source = 'const 文 = "🌱";';
+    expect(() => parseOriginalSource(parser, source, { maxSourceBytes: source.length })).toThrow(
+      'E_PARSE_SIZE',
+    );
+    const controller = new AbortController();
+    controller.abort(new Error('controlled cancellation'));
+    expect(() => parseOriginalSource(parser, source, { signal: controller.signal })).toThrow(
+      'controlled cancellation',
+    );
+    expect(parseOriginalSource(parser, source).rootNode.hasError).toBe(false);
+  });
+
+  it('enforces the native deadline and resets timed-out parser state', () => {
+    const parser = nativeParser();
+    const source = 'const x = 1;\n'.repeat(20000);
+    expect(() => parseOriginalSource(parser, source, { timeoutMs: 0.001 })).toThrow();
+    expect(parseOriginalSource(parser, 'const 文 = 1;').rootNode.hasError).toBe(false);
+  });
+});
+
+describe('capability-specific file evidence (T12289)', () => {
+  it.each([
+    ['README.md', '# Explanation\n```js\nrun();\n```', 'documentation', 'documentary-evidence'],
+    ['records.json', '[{"value":1}]', 'data', 'data-evidence'],
+    [
+      'package.json',
+      '{"name":"fixture","scripts":{"test":"vitest"}}',
+      'configuration',
+      'configuration-evidence',
+    ],
+    [
+      'shape.json',
+      '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}',
+      'schema',
+      'schema-evidence',
+    ],
+    ['package-lock.json', '{"lockfileVersion":3,"packages":{}}', 'generated-data', 'data-evidence'],
+    [
+      '__snapshots__/page.snap',
+      '// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html\n\nexports[`page 1`] = `hello`;\n',
+      'generated-data',
+      'data-evidence',
+    ],
+    ['misleading.schema.json', '{"message":"ordinary user data"}', 'data', 'data-evidence'],
+    [
+      'generated.json',
+      '{"generated":true,"message":"ordinary user data"}',
+      'data',
+      'data-evidence',
+    ],
+  ])('assesses %s for its evidenced role without requesting caller analysis', async (path, content, role, capability) => {
+    const directory = makeTempDir();
+    try {
+      writeFile(directory, path, content);
+      const files = await walkRepositoryPaths(directory);
+      const reports: GraphIndexFileReport[] = [];
+      const graph = createKnowledgeGraph();
+      await runParseLoop(
+        files,
+        graph,
+        createSymbolTable(),
+        buildImportResolutionContext([path]),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports).toHaveLength(1);
+      expect(reports[0]).toMatchObject({
+        path,
+        status: 'analyzed',
+        capabilities: {
+          role,
+          requested: ['file-evidence', capability],
+          completed: ['file-evidence', capability],
+          classification: {
+            basis: expect.stringMatching(/path|content/),
+            reason: expect.any(String),
+          },
+        },
+      });
+      expect(reports[0]?.capabilities?.requested).not.toContain('call-references');
+      expect(reports[0]?.capabilities?.classification.reason.length).toBeGreaterThan(10);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('retains a verified image as resource evidence without pretending to extract symbols', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFileSync(
+        join(directory, 'image.png'),
+        Buffer.from('89504e470d0a1a0a0000000049454e44ae426082', 'hex'),
+      );
+      const files = await walkRepositoryPaths(directory);
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        files,
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['image.png']),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'analyzed',
+        capabilities: {
+          role: 'asset',
+          requested: ['file-evidence', 'resource-evidence'],
+          completed: ['file-evidence', 'resource-evidence'],
+          classification: { basis: 'path-and-content' },
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['component.svelte', '<script>run();</script>', 'executable'],
+    ['script.sh', 'echo hello', 'executable'],
+    ['page.mdx', 'export const value = run();\n# Heading', 'executable'],
+    ['entry', '#!/bin/sh\necho hello', 'executable'],
+    ['disguised.png', '#!/bin/sh\necho hello', 'executable'],
+    ['mystery.bin', 'unclassified content', 'unknown'],
+    ['image.png', 'not an image or a known executable', 'unknown'],
+    [
+      'injected.snap',
+      `// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html\nexports[\`case\`] = \`\${run()}\`;`,
+      'unknown',
+    ],
+    [
+      'unsafe.snap',
+      '// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html\nrun();',
+      'unknown',
+    ],
+  ])('keeps unsupported or uncertain executable scope %s explicit', async (path, content, role) => {
+    const directory = makeTempDir();
+    try {
+      writeFile(directory, path, content);
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext([path]),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'unsupported',
+        capabilities: {
+          role,
+          requested: expect.arrayContaining([
+            'file-evidence',
+            'declarations',
+            'imports',
+            'call-references',
+          ]),
+          completed: ['file-evidence'],
+        },
+      });
+      expect(reports[0]?.reason).toMatch(/unsupported|unclassified|extractor/i);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('discloses SQL schema and reference capabilities as uncompleted rather than inferring extraction from text', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFile(
+        directory,
+        'migration.sql',
+        'CREATE TABLE items(id INTEGER PRIMARY KEY); SELECT * FROM items; EXECUTE query;',
+      );
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['migration.sql']),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'unsupported',
+        capabilities: {
+          role: 'sql',
+          requested: [
+            'file-evidence',
+            'sql-schema-objects',
+            'sql-migrations',
+            'sql-triggers',
+            'sql-constraints',
+            'sql-literal-references',
+            'sql-dynamic-references',
+          ],
+          completed: ['file-evidence'],
+          limitations: expect.arrayContaining([expect.stringMatching(/dynamic SQL.*unresolved/i)]),
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('does not silently replace invalid UTF-8 in documentary evidence', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFileSync(join(directory, 'README.md'), Buffer.from([0xc3, 0x28]));
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['README.md']),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'failed',
+        reason: expect.stringMatching(/encoded data|encoding/i),
+        capabilities: { completed: [] },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('does not treat malformed JSON as completed data analysis', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFile(directory, 'data.json', '{"incomplete":');
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['data.json']),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'failed',
+        reason: expect.stringMatching(/JSON/),
+        capabilities: {
+          role: 'data',
+          requested: ['file-evidence', 'data-evidence'],
+          completed: ['file-evidence'],
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('records supported static extraction capabilities only after actual parser success', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFile(
+        directory,
+        'main.ts',
+        'function helper(){ return 1; } export function main(){ return helper(); }',
+      );
+      const reports: GraphIndexFileReport[] = [];
+      const graph = createKnowledgeGraph();
+      const result = await runParseLoop(
+        await walkRepositoryPaths(directory),
+        graph,
+        createSymbolTable(),
+        buildImportResolutionContext(['main.ts']),
+        directory,
+        {
+          onFileReport: (report) => reports.push(report),
+        },
+      );
+      expect(result.allCalls.some((call) => call.calledName === 'helper')).toBe(true);
+      expect(reports[0]).toMatchObject({
+        status: 'analyzed',
+        capabilities: {
+          role: 'executable',
+          requested: [
+            'file-evidence',
+            'declarations',
+            'imports',
+            'call-references',
+            'access-references',
+            'type-heritage',
+          ],
+          completed: [
+            'file-evidence',
+            'declarations',
+            'imports',
+            'call-references',
+            'access-references',
+            'type-heritage',
+          ],
+          limitations: expect.arrayContaining([expect.stringMatching(/runtime/)]),
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('source evidence fidelity', () => {
+  it('honors escaped Git patterns, directory-only rules, and nested negation', async () => {
+    const root = makeTempDir();
+    try {
+      writeFile(
+        root,
+        '.gitignore',
+        String.raw`\#private.ts
+\!private.ts
+cache/
+*.tmp
+`,
+      );
+      writeFile(root, '#private.ts');
+      writeFile(root, '!private.ts');
+      writeFile(root, 'cache/hidden.ts');
+      writeFile(root, 'src/cache');
+      writeFile(root, 'src/.gitignore', '!keep.tmp');
+      writeFile(root, 'src/keep.tmp');
+      writeFile(root, 'src/drop.tmp');
+      const files = (await walkRepositoryPaths(root)).map((file) => file.path);
+      expect(files).toContain('src/cache');
+      expect(files).toContain('src/keep.tmp');
+      expect(files).not.toContain('src/drop.tmp');
+      expect(files).not.toContain('#private.ts');
+      expect(files).not.toContain('!private.ts');
+      expect(files).not.toContain('cache/hidden.ts');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uses Git repository and global excludes for an explicitly included nested repository', async () => {
+    const root = makeTempDir();
+    try {
+      const repo = join(root, 'app');
+      mkdirSync(repo);
+      execFileSync('git', ['init', '--quiet', repo]);
+      const globalExclude = join(root, 'global-ignore');
+      writeFile(root, 'global-ignore', 'global-secret.ts\n');
+      execFileSync('git', ['config', 'core.excludesFile', globalExclude], { cwd: repo });
+      writeFile(repo, '.git/info/exclude', 'repository-secret.ts\n');
+      writeFile(repo, 'global-secret.ts');
+      writeFile(repo, 'repository-secret.ts');
+      writeFile(repo, 'visible.ts');
+      const reports: GraphIndexFileReport[] = [];
+      const files = await walkRepositoryPaths(root, undefined, (report) => reports.push(report), [
+        'app',
+      ]);
+      expect(files.map((file) => file.path)).toContain('app/visible.ts');
+      expect(files.map((file) => file.path)).not.toContain('app/global-secret.ts');
+      expect(files.map((file) => file.path)).not.toContain('app/repository-secret.ts');
+      expect(
+        reports
+          .filter((report) => report.path.endsWith('-secret.ts'))
+          .map((report) => report.status),
+      ).toEqual(['excluded', 'excluded']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('detects content edits that preserve size and modification time', async () => {
+    const root = makeTempDir();
+    try {
+      writeFile(root, 'code.ts', 'export const x = 1;');
+      const before = await walkRepositoryPaths(root);
+      const stat = statSync(join(root, 'code.ts'));
+      writeFile(root, 'code.ts', 'export const x = 2;');
+      utimesSync(join(root, 'code.ts'), stat.atime, stat.mtime);
+      const after = await walkRepositoryPaths(root);
+      expect(before[0]?.size).toBe(after[0]?.size);
+      expect(before[0]?.contentHash).not.toBe(after[0]?.contentHash);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('detectLanguageFromPath', () => {
   it('detects TypeScript from .ts extension', () => {
@@ -132,6 +862,43 @@ describe('walkRepositoryPaths', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it('requires explicit inclusion for nested repositories and worktrees', async () => {
+    writeFile(tmpDir, 'src/main.ts');
+    writeFile(tmpDir, 'app/main.ts');
+    mkdirSync(join(tmpDir, '.cleo'));
+    execFileSync('git', [
+      'init',
+      '--quiet',
+      '--separate-git-dir',
+      join(tmpDir, '.cleo/git'),
+      join(tmpDir, 'app'),
+    ]);
+    const reports: GraphIndexFileReport[] = [];
+    const excluded = await walkRepositoryPaths(tmpDir, undefined, (report) => reports.push(report));
+    expect(excluded.map((file) => file.path)).not.toContain('app/main.ts');
+    expect(reports).toContainEqual({
+      path: 'app',
+      status: 'excluded',
+      reason: 'Nested repository requires explicit inclusion',
+    });
+    const included = await walkRepositoryPaths(tmpDir, undefined, undefined, ['app']);
+    expect(included.map((file) => file.path)).toContain('app/main.ts');
+  });
+
+  it('honors ordered negation and nested ignore files', async () => {
+    writeFile(tmpDir, '.gitignore', '*.generated.ts\n!keep.generated.ts\n');
+    writeFile(tmpDir, 'drop.generated.ts');
+    writeFile(tmpDir, 'keep.generated.ts');
+    writeFile(tmpDir, 'nested/.gitignore', 'private.ts\n');
+    writeFile(tmpDir, 'nested/private.ts');
+    writeFile(tmpDir, 'nested/public.ts');
+    const paths = (await walkRepositoryPaths(tmpDir)).map((file) => file.path);
+    expect(paths).toContain('keep.generated.ts');
+    expect(paths).toContain('nested/public.ts');
+    expect(paths).not.toContain('drop.generated.ts');
+    expect(paths).not.toContain('nested/private.ts');
+  });
+
   it('discovers files in nested directories', async () => {
     writeFile(tmpDir, 'src/index.ts');
     writeFile(tmpDir, 'src/utils/helpers.ts');
@@ -180,7 +947,7 @@ describe('walkRepositoryPaths', () => {
 
   it('excludes .git directory', async () => {
     writeFile(tmpDir, 'src/index.ts');
-    writeFile(tmpDir, '.git/HEAD', 'ref: refs/heads/main');
+    execFileSync('git', ['init', '--quiet', tmpDir]);
 
     const files = await walkRepositoryPaths(tmpDir);
     const paths = files.map((f) => f.path);
@@ -410,6 +1177,16 @@ describe('createKnowledgeGraph', () => {
       language: 'typescript',
       exported: false,
     });
+    graph.addNode({
+      id: 'src/',
+      kind: 'folder',
+      name: 'src',
+      filePath: 'src/',
+      startLine: 1,
+      endLine: 1,
+      language: '',
+      exported: false,
+    });
     graph.addRelation({
       source: 'src/',
       target: 'src/foo.ts',
@@ -458,6 +1235,477 @@ describe('runPipeline', () => {
 
   afterEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('reports only observed fingerprints before incremental owner validation', async () => {
+    const source = 'export const unchanged = true;';
+    writeFile(tmpDir, 'main.ts', source);
+    const nodes = stubTable();
+    const relations = stubTable();
+    const persisted = [
+      {
+        kind: 'file',
+        filePath: 'main.ts',
+        contentHash: createHash('sha256').update(source).digest('hex'),
+      },
+    ];
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const db = {
+      insert,
+      select: () => ({
+        from: async (table: DrizzleTableRef) => (table === nodes ? persisted : []),
+      }),
+    };
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    const output = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const result = await runPipeline(
+        tmpDir,
+        'project',
+        db,
+        { nexusNodes: nodes, nexusRelations: relations },
+        undefined,
+        { incremental: true, publishGraph },
+      );
+      expect(result.nodeCount).toBe(1);
+      expect(result.relationCount).toBe(0);
+      expect(publishGraph).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+      const text = output.mock.calls.map((call) => String(call[0])).join('');
+      expect(text).toContain('no source fingerprint changes; returning existing graph statistics');
+      expect(text).not.toContain('index is up to date');
+      expect(text).not.toContain('Pipeline complete:');
+    } finally {
+      output.mockRestore();
+    }
+  });
+
+  it('stages a validated complete generation without inserting live rows', async () => {
+    writeFile(tmpDir, 'main.ts', "import pg from 'pg'; export function example() { return pg; }");
+    const insert = vi.fn(() => {
+      throw new Error('Live graph must not be mutated during staging');
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    await runPipeline(
+      tmpDir,
+      'project',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      { publishGraph },
+    );
+    expect(insert).not.toHaveBeenCalled();
+    expect(publishGraph).toHaveBeenCalledOnce();
+    expect(publishGraph.mock.calls[0]![0].assessment?.files).toEqual([
+      expect.objectContaining({ path: 'main.ts', status: 'analyzed' }),
+    ]);
+    expect(publishGraph.mock.calls[0]![0].relations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceId: 'main.ts', targetId: 'module:pg', type: 'imports' }),
+      ]),
+    );
+  });
+
+  it.each([
+    'resolve',
+    'reject',
+  ])('waits for a delayed publisher to %s before reporting an outcome', async (outcome) => {
+    writeFile(tmpDir, 'main.ts', 'export const current = true;');
+    const native = new DatabaseSync(':memory:');
+    native.exec(`
+      CREATE TABLE nodes (id TEXT PRIMARY KEY, payload TEXT);
+      CREATE TABLE relations (id TEXT PRIMARY KEY, source TEXT, target TEXT);
+      CREATE TABLE generation (id TEXT PRIMARY KEY);
+      INSERT INTO nodes VALUES ('old-source', 'original'), ('old-target', 'original');
+      INSERT INTO relations VALUES ('old-edge', 'old-source', 'old-target');
+      INSERT INTO generation VALUES ('previous-generation');
+    `);
+    const inventory = () =>
+      JSON.stringify({
+        nodes: native.prepare('SELECT * FROM nodes ORDER BY id').all(),
+        relations: native.prepare('SELECT * FROM relations ORDER BY id').all(),
+        generation: native.prepare('SELECT * FROM generation').all(),
+      });
+    const before = inventory();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    // The old implementation discards the publisher promise. Keep its deliberate
+    // rejection observed so the oracle fails on premature success, not process noise.
+    const gate = release.promise.catch((error: Error) => {
+      throw error;
+    });
+    void gate.catch(() => {});
+    const settled = vi.fn();
+    const output = vi.spyOn(process.stderr, 'write');
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live graph write during staging');
+    });
+    const callback = vi.fn((rows: GraphPublicationRows) => {
+      entered.resolve();
+      const publication = gate.then(() => {
+        native.prepare('UPDATE generation SET id = ?').run(rows.generation!);
+      });
+      void publication.catch(() => {});
+      return publication;
+    });
+    const running = runPipeline(
+      tmpDir,
+      'project',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      { publishGraph: callback },
+    ).then(
+      (result) => {
+        settled('fulfilled');
+        return { result, error: null };
+      },
+      (error: Error) => {
+        settled('rejected');
+        return { result: null, error };
+      },
+    );
+    try {
+      await entered.promise;
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(settled).not.toHaveBeenCalled();
+      expect(output.mock.calls.some((call) => String(call[0]).includes('Pipeline complete:'))).toBe(
+        false,
+      );
+      expect(inventory()).toBe(before);
+      if (outcome === 'reject') release.reject(new Error('publisher precondition rejected'));
+      else release.resolve();
+      const completion = await running;
+      expect(callback).toHaveBeenCalledOnce();
+      expect(insert).not.toHaveBeenCalled();
+      if (outcome === 'reject') {
+        expect(completion.error?.message).toBe('publisher precondition rejected');
+        expect(completion.result).toBeNull();
+        expect(inventory()).toBe(before);
+        expect(
+          output.mock.calls.some((call) => String(call[0]).includes('Pipeline complete:')),
+        ).toBe(false);
+      } else {
+        expect(completion.error).toBeNull();
+        expect(completion.result?.fileCount).toBe(1);
+        expect(native.prepare('SELECT id FROM generation').get()?.id).toBe(
+          callback.mock.calls[0]?.[0].generation,
+        );
+        expect(
+          output.mock.calls.some((call) => String(call[0]).includes('Pipeline complete:')),
+        ).toBe(true);
+      }
+    } finally {
+      release.resolve();
+      await running;
+      await gate.catch(() => {});
+      output.mockRestore();
+      native.close();
+    }
+  });
+
+  it('reports committed publication success when cancellation arrives after commit', async () => {
+    writeFile(tmpDir, 'main.ts', 'export const current = true;');
+    const controller = new AbortController();
+    const native = new DatabaseSync(':memory:');
+    native.exec('CREATE TABLE generation (id TEXT PRIMARY KEY)');
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live graph write during staging');
+    });
+    try {
+      const result = await runPipeline(
+        tmpDir,
+        'project',
+        { insert },
+        { nexusNodes: stubTable(), nexusRelations: stubTable() },
+        undefined,
+        {
+          parserLimits: { signal: controller.signal },
+          async publishGraph(rows) {
+            await Promise.resolve();
+            native.prepare('INSERT INTO generation VALUES (?)').run(rows.generation!);
+            controller.abort(new Error('arrived after commit'));
+          },
+        },
+      );
+      expect(native.prepare('SELECT id FROM generation').get()?.id).toMatch(/^[a-f0-9-]{36}$/);
+      expect(result.fileCount).toBe(1);
+      expect(controller.signal.aborted).toBe(true);
+      expect(insert).not.toHaveBeenCalled();
+    } finally {
+      native.close();
+    }
+  });
+
+  it('retains supplied source-root provenance in the staged assessment', async () => {
+    writeFile(tmpDir, 'main.ts', 'export const current = true;');
+    const sourceRoots: GraphSourceRootAssessment = Object.freeze({
+      projectId: 'stable-parent',
+      projectRoot: join(tmpDir, 'identity'),
+      sourceRoot: tmpDir,
+      assessedAt: '2026-09-19T00:00:00.000Z',
+      roots: Object.freeze([
+        Object.freeze({
+          requestedPath: tmpDir,
+          canonicalPath: tmpDir,
+          graphPrefix: '',
+          explicitlyIncluded: false,
+          revision: null,
+          status: 'unversioned',
+          diagnostics: Object.freeze(['Identity root is not a Git repository.']),
+        }),
+      ]),
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live graph write');
+    });
+    const options = { sourceRoots, publishGraph };
+    const running = runPipeline(
+      tmpDir,
+      'stable-parent',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      options,
+    );
+    options.sourceRoots = { ...sourceRoots, projectId: 'changed-after-call' };
+    await running;
+    expect(publishGraph.mock.calls[0]?.[0].assessment?.sourceRoots).toEqual(sourceRoots);
+    expect(publishGraph.mock.calls[0]?.[0].assessment?.sourceRoots?.projectId).toBe(
+      'stable-parent',
+    );
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('allocates one publication identity before anonymous extraction and preserves the source hash separately', async () => {
+    writeFile(tmpDir, 'anonymous.ts', '// 😀\nexport const callbacks=[()=>missing()];');
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    await runPipeline(
+      tmpDir,
+      'project',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      { publishGraph },
+    );
+    const rows = publishGraph.mock.calls[0]![0];
+    expect(rows.generation).toMatch(/^[a-f0-9-]{36}$/);
+    expect(rows.assessment?.generation).toBe(rows.generation);
+    const anonymous = rows.nodes.find((node) => node.name?.startsWith('<anonymous@'));
+    expect(anonymous?.id).toContain(`#${rows.generation}>`);
+    const sourceHash = rows.assessment?.files.find(
+      (file) => file.path === 'anonymous.ts',
+    )?.contentHash;
+    expect(sourceHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(sourceHash).not.toBe(rows.generation);
+    expect(anonymous?.metaJson).toContain(`"sourceGeneration":"${sourceHash}"`);
+    expect(anonymous?.metaJson).toContain(`"publicationGeneration":"${rows.generation}"`);
+    expect(rows.assessment?.references?.[0]).toMatchObject({
+      generation: sourceHash,
+      publicationGeneration: rows.generation,
+    });
+  });
+
+  it('publishes every unresolved lexical call/access with original evidence', async () => {
+    const source = `// 😀 original span prefix
+import { orgNameTaken as production } from './production';
+import { remote } from 'external';
+export function GET(input) {
+  const orgNameTaken=vi.fn(); orgNameTaken(); remote(); choose();
+  input.orgNameTaken; input.orgNameTaken; input[key];
+  return production('real');
+}`;
+    writeFile(tmpDir, 'main.ts', source);
+    writeFile(
+      tmpDir,
+      'production.ts',
+      'export function orgNameTaken(name) {return false;} export function choose() {}',
+    );
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const result = await runPipeline(
+      tmpDir,
+      'project',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      { publishGraph },
+    );
+    const generation = publishGraph.mock.calls[0]?.[0];
+    const references = generation?.assessment?.references ?? [];
+    expect(result.references).toEqual(references);
+    expect(
+      references.some((site) => site.kind === 'external' && site.targetName === 'remote'),
+    ).toBe(true);
+    expect(
+      references.some(
+        (site) =>
+          site.kind === 'unresolved' &&
+          site.targetName === 'choose' &&
+          site.candidateIds?.includes('production.ts::choose'),
+      ),
+    ).toBe(true);
+    expect(
+      references.some((site) => site.kind === 'dynamic' && site.relationship === 'accesses'),
+    ).toBe(true);
+    const repeated = references.filter(
+      (site) => site.relationship === 'accesses' && site.targetName === 'orgNameTaken',
+    );
+    expect(repeated).toHaveLength(2);
+    expect(new Set(repeated.map((site) => site.span?.startIndex)).size).toBe(2);
+    for (const site of references) {
+      expect(site.sourceId).toBe('main.ts::GET');
+      expect(site.span?.offsetEncoding).toBe('utf16');
+      expect(site.generation).toMatch(/^[a-f0-9]{64}$/);
+      expect(site.reason.length).toBeGreaterThan(10);
+      expect(source.slice(site.span?.startIndex, site.span?.endIndex).length).toBeGreaterThan(0);
+    }
+    const productionEdges =
+      generation?.relations.filter((edge) => edge.targetId === 'production.ts::orgNameTaken') ?? [];
+    expect(productionEdges.filter((edge) => edge.type === 'calls')).toHaveLength(1);
+    expect(productionEdges.filter((edge) => edge.type === 'accesses')).toHaveLength(0);
+    expect(
+      generation?.relations.some(
+        (edge) => edge.type === 'imports' && edge.targetId === 'production.ts',
+      ),
+    ).toBe(true);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('publishes AST-proven nested and object scopes with matching call endpoints', async () => {
+    writeFile(
+      tmpDir,
+      'main.ts',
+      `
+export function known() { return 1; }
+export function modeled() { return known(); }
+export default { async fetch() { return known(); } };
+export function outer() { const nested = () => known(); return nested(); }
+`,
+    );
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    const result = await runPipeline(
+      tmpDir,
+      'project',
+      { insert },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      { publishGraph },
+    );
+    const generation = publishGraph.mock.calls[0]?.[0];
+    expect(generation).toBeDefined();
+    expect(generation?.assessment?.references).toEqual([]);
+    expect(result.references).toEqual(generation?.assessment?.references);
+    expect(generation?.nodes.map((node) => node.id)).toEqual(
+      expect.arrayContaining(['main.ts::fetch', 'main.ts::outer.nested']),
+    );
+    for (const sourceId of ['main.ts::fetch', 'main.ts::outer.nested']) {
+      expect(generation?.relations).toContainEqual(
+        expect.objectContaining({
+          sourceId,
+          targetId: 'main.ts::known',
+          type: 'calls',
+        }),
+      );
+    }
+    expect(generation?.relations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceId: 'main.ts::modeled',
+          targetId: 'main.ts::known',
+          type: 'calls',
+        }),
+      ]),
+    );
+    const ids = new Set(generation?.nodes.map((node) => node.id));
+    expect(
+      generation?.relations.every((edge) => ids.has(edge.sourceId) && ids.has(edge.targetId)),
+    ).toBe(true);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('retains the live graph when indexing is interrupted', async () => {
+    writeFile(tmpDir, 'main.ts', 'export function example() {}');
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    await expect(
+      runPipeline(
+        tmpDir,
+        'project',
+        { insert },
+        { nexusNodes: stubTable(), nexusRelations: stubTable() },
+        () => {
+          throw new Error('Cancelled');
+        },
+        { publishGraph },
+      ),
+    ).rejects.toThrow('Cancelled');
+    expect(insert).not.toHaveBeenCalled();
+    expect(publishGraph).not.toHaveBeenCalled();
+  });
+
+  it('rejects files added during staging before publishing mixed source state', async () => {
+    writeFile(tmpDir, 'main.ts', 'export function example() {}');
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    let progressCalls = 0;
+    await expect(
+      runPipeline(
+        tmpDir,
+        'project',
+        { insert },
+        { nexusNodes: stubTable(), nexusRelations: stubTable() },
+        () => {
+          progressCalls++;
+          if (progressCalls === 2) writeFile(tmpDir, 'added.ts', 'export function added() {}');
+        },
+        { publishGraph },
+      ),
+    ).rejects.toThrow('Source files changed');
+    expect(insert).not.toHaveBeenCalled();
+    expect(publishGraph).not.toHaveBeenCalled();
+  });
+
+  it('rejects source changes during staging even when size and timestamps are preserved', async () => {
+    writeFile(tmpDir, 'main.ts', 'export function example() { return 1; }');
+    const original = statSync(join(tmpDir, 'main.ts'));
+    const insert = vi.fn(() => {
+      throw new Error('Unexpected live mutation');
+    });
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    let progressCalls = 0;
+    await expect(
+      runPipeline(
+        tmpDir,
+        'project',
+        { insert },
+        { nexusNodes: stubTable(), nexusRelations: stubTable() },
+        () => {
+          if (++progressCalls === 2) {
+            writeFile(tmpDir, 'main.ts', 'export function example() { return 2; }');
+            utimesSync(join(tmpDir, 'main.ts'), original.atime, original.mtime);
+          }
+        },
+        { publishGraph },
+      ),
+    ).rejects.toThrow('Source changed between scanning and parsing');
+    expect(insert).not.toHaveBeenCalled();
+    expect(publishGraph).not.toHaveBeenCalled();
   });
 
   it('returns counts from a simple repository', async () => {

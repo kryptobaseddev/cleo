@@ -17,6 +17,7 @@
 import { join } from 'node:path';
 import { isMainThread } from 'node:worker_threads';
 import type { ObserveBrainResult } from '@cleocode/contracts';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { getLogger } from '../logger.js';
 import type {
   BrainDecisionOp,
@@ -67,9 +68,33 @@ function syncWorkerCleoDir(projectRoot: string): void {
  * envelope code converts the throw into an `ok:false` response.
  *
  * @param op - The discriminated write op.
+ * @param execution - Optional original operation lifetime and persisted document job fence.
+ * @throws Error when scope, cancellation, authority or the domain write fails.
+ * @remarks Scoped observations use their existing routing context and start no
+ * semantic enrichment. The committed result is not reclassified by late cancellation.
  * @returns A typed `BrainWriteResult` mirroring the op's `kind`.
+ * @example
+ * ```ts
+ * const result = await handleWriteOp(op, admittedContext);
+ * ```
  */
-export async function handleWriteOp(op: BrainWriteOp): Promise<BrainWriteResult> {
+export async function handleWriteOp(
+  op: BrainWriteOp,
+  execution?: OperationExecutionContext,
+): Promise<BrainWriteResult> {
+  execution?.assertActive();
+  if (execution) {
+    if (
+      !execution.writeFence ||
+      execution.identity.operation !== 'docs.projection' ||
+      op.kind !== 'observe' ||
+      !op.params._skipGate ||
+      op.projectRoot !== execution.identity.projectRoot
+    ) {
+      throw new Error('Scoped writer supports only authenticated document observations');
+    }
+    return handleObserve(op, execution);
+  }
   // Re-point CLEO_DIR to the op's project root on the worker thread so all
   // downstream `.cleo` resolution (incl. cross-db write-guards) is consistent
   // with the main thread regardless of the worker's stale env snapshot.
@@ -101,16 +126,24 @@ export async function handleWriteOp(op: BrainWriteOp): Promise<BrainWriteResult>
 // observe — full observeBrain pipeline on the writer side.
 // ---------------------------------------------------------------------------
 
-async function handleObserve(op: BrainObserveOp): Promise<BrainWriteResult> {
+async function handleObserve(
+  op: BrainObserveOp,
+  execution?: OperationExecutionContext,
+): Promise<BrainWriteResult> {
   // T10351: route to the direct-write path inside observeBrain so the
   // chokepoint actually performs the row insert. Passing `_skipQueue: true`
   // signals observeBrain to skip the queue and write directly (preventing
   // an infinite enqueue loop when the worker thread itself calls observeBrain).
   const { observeBrain } = await import('./retrieval/observe.js');
-  const result: ObserveBrainResult = await observeBrain(op.projectRoot, {
-    ...op.params,
-    _skipQueue: true,
-  });
+  execution?.assertActive();
+  const result: ObserveBrainResult = await observeBrain(
+    op.projectRoot,
+    {
+      ...op.params,
+      _skipQueue: true,
+    },
+    execution,
+  );
   return { kind: 'observe', result };
 }
 

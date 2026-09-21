@@ -127,7 +127,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { getLogger } from '../../logger.js';
 import { getCleoVersion } from '../../scaffold/ensure-config.js';
 import type { DualScopeDbHandle } from '../dual-scope-db.js';
-import { openDualScopeDbAtPath } from '../dual-scope-db.js';
+import { getDualScopeNativeDb, openDualScopeDbAtPath } from '../dual-scope-db.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import {
   buildEpochToIsoExpr,
@@ -139,6 +139,12 @@ import {
   typeDefaultLiteral,
 } from './column-transforms.js';
 import { STAGING_HEADROOM_FACTOR } from './plan.js';
+import {
+  ExodusRecoveryError,
+  hasExodusRecovery,
+  insertWithExodusReceipts,
+  prepareExodusRecovery,
+} from './recovery.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import type {
   ExodusJournal,
@@ -598,6 +604,8 @@ function copyTableFromAttached(
   attachAlias: string,
   legacyTableName: string,
   sourceName: string,
+  recoveryOperation: string,
+  sourcePath: string,
   targetSchema = 'main',
 ): CopyTableResult {
   // --- Step 1: Resolve the consolidated target table name (ROOT CAUSE 1) ---
@@ -802,12 +810,18 @@ function copyTableFromAttached(
     .get() as { c: number | bigint } | null;
   const existingBefore = Number(existingBeforeRow?.c ?? 0);
 
-  const stmt = targetNativeDb.prepare(
+  const insertSql =
     `INSERT OR IGNORE INTO "${targetSchema}"."${targetTableName}" (${colList}) ` +
-      `SELECT ${selectList} FROM "${attachAlias}"."${legacyTableName}"`,
+    `SELECT ${selectList} FROM "${attachAlias}"."${legacyTableName}"`;
+  const rowsCopied = insertWithExodusReceipts(
+    targetNativeDb,
+    targetSchema,
+    targetTableName,
+    insertSql,
+    recoveryOperation,
+    sourcePath,
+    legacyTableName,
   );
-  const result = stmt.run();
-  const rowsCopied = (result as unknown as { changes: number }).changes ?? 0;
 
   // --- Step 7: No-swallow assertion — idempotent dedup vs real loss (T11835) ---
   //
@@ -1019,22 +1033,19 @@ export async function runExodusMigrate(
       dedicated: true,
     });
 
-    // Extract the raw DatabaseSync from the Drizzle wrapper ($client pattern).
-    function extractNativeDb(handle: { db: unknown }): DatabaseSync {
-      const drizzleHandle = handle.db as Record<string, unknown>;
-      const client = drizzleHandle['$client'];
-      if (client && typeof (client as Record<string, unknown>)['prepare'] === 'function') {
-        return client as DatabaseSync;
-      }
-      // Fallback: the handle itself may be a DatabaseSync (unlikely but safe)
-      if (typeof (drizzleHandle as unknown as Record<string, unknown>)['prepare'] === 'function') {
-        return drizzleHandle as unknown as DatabaseSync;
-      }
-      throw new Error('Could not extract native DatabaseSync from dual-scope DB handle');
+    const projectNative = getDualScopeNativeDb(projectHandle);
+    const globalNative = getDualScopeNativeDb(globalHandle);
+    if (
+      journal.tables.some((entry) => entry.status === 'done') &&
+      (!hasExodusRecovery(projectNative, stagingDir) ||
+        !hasExodusRecovery(globalNative, stagingDir))
+    ) {
+      throw new ExodusRecoveryError(
+        'Existing Exodus journal lacks inserted-row ownership; inspect legacy recovery before resuming',
+      );
     }
-
-    const projectNative = extractNativeDb(projectHandle);
-    const globalNative = extractNativeDb(globalHandle);
+    prepareExodusRecovery(projectNative, stagingDir);
+    prepareExodusRecovery(globalNative, stagingDir);
 
     // 3. Per-scope sources migration (AC6)
     const projectSources = sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
@@ -1236,6 +1247,8 @@ async function migrateScope(
                 attachAlias,
                 tableName,
                 src.name,
+                stagingDir,
+                src.path,
                 targetSchema,
               );
               rowsCopied = copyResult.rowsCopied;
@@ -1263,6 +1276,7 @@ async function migrateScope(
                 // skipped stays false — the distinction is the reason field (data loss vs intentional skip)
               }
             } catch (err) {
+              if (err instanceof ExodusRecoveryError) throw err;
               const msg = err instanceof Error ? err.message : String(err);
               log.warn({ tableName, sourceDb: src.name, err }, 'Table copy failed — skipping');
               status = 'skipped';
@@ -1289,8 +1303,17 @@ async function migrateScope(
               journal.tables.push(entry);
             }
             journal.updatedAt = new Date().toISOString();
-            // Atomic journal write after each table (AC5 — crash-resumable)
-            writeJournal(stagingDir, journal);
+            // A journal cannot promise committed rows before the source COMMIT.
+            // A crash here must retry this source; INSERT OR IGNORE plus receipts
+            // handles the converse crash immediately after COMMIT safely.
+            writeJournal(stagingDir, {
+              ...journal,
+              tables: journal.tables.map((entry) =>
+                entry.sourceDb === src.name && entry.status === 'done'
+                  ? { ...entry, status: 'pending' as const }
+                  : entry,
+              ),
+            });
 
             allTableResults.push({
               sourceDb: src.name,
@@ -1304,6 +1327,7 @@ async function migrateScope(
           // Step 5: COMMIT all copies for this source.
           targetNativeDb.exec('COMMIT');
           txOpen = false;
+          writeJournal(stagingDir, journal);
         } catch (err) {
           if (txOpen) {
             try {

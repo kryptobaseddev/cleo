@@ -30,14 +30,14 @@
  * @module pipeline/call-processor
  */
 
-import type { GraphRelation } from '@cleocode/contracts';
+import type { GraphIndexReferenceReport, GraphRelation } from '@cleocode/contracts';
 import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type { ExtractedCall } from './extractors/typescript-extractor.js';
 import type { BarrelExportMap, NamedImportMap } from './import-processor.js';
 import { resolveBarrelBinding } from './import-processor.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import { TIER_CONFIDENCE } from './resolution-context.js';
-import type { SymbolTable } from './symbol-table.js';
+import { CLASS_KINDS, resolveLexicalReference, type SymbolTable } from './symbol-table.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,6 +47,8 @@ import type { SymbolTable } from './symbol-table.js';
  * Result counters from a call resolution run.
  */
 export interface CallResolutionResult {
+  /** Unresolved sites retained with their original binding and range evidence. */
+  references: GraphIndexReferenceReport[];
   /** CALLS edges emitted at Tier 1 (same-file confidence 0.95). */
   tier1Count: number;
   /** CALLS edges emitted at Tier 2a (named-import confidence 0.90). */
@@ -84,7 +86,7 @@ export function emitClassMemberEdges(graph: KnowledgeGraph): {
   let hasPropertyCount = 0;
 
   for (const node of graph.nodes.values()) {
-    if (!node.parent) continue;
+    if (!node.parent || !CLASS_KINDS.has(graph.nodes.get(node.parent)?.kind ?? 'file')) continue;
 
     if (node.kind === 'method' || node.kind === 'constructor') {
       const confidence = 0.99;
@@ -259,6 +261,7 @@ export async function resolveCalls(
   namedImportMap: NamedImportMap,
   barrelMap: BarrelExportMap = new Map(),
 ): Promise<CallResolutionResult> {
+  const references: GraphIndexReferenceReport[] = [];
   let tier1Count = 0;
   let tier2aCount = 0;
   let tier3Count = 0;
@@ -286,10 +289,55 @@ export async function resolveCalls(
     }
 
     for (const call of fileCalls) {
-      const resolved = resolveSingleCall(call, symbolTable, namedImportMap, barrelMap);
+      const lexical = call.generation
+        ? resolveLexicalReference(
+            {
+              filePath: call.filePath,
+              sourceId: call.sourceId,
+              targetName: call.calledName,
+              relationship: 'calls',
+              span: call.span,
+              generation: call.generation,
+              publicationGeneration: call.publicationGeneration,
+              lexical: call.lexical,
+              member:
+                call.callForm === 'member' ||
+                (call.callForm === 'constructor' && call.receiverName !== undefined),
+              dynamic: call.dynamic,
+            },
+            symbolTable,
+            graph.nodes,
+            namedImportMap,
+            barrelMap,
+          )
+        : undefined;
+      if (lexical && 'report' in lexical) {
+        references.push(lexical.report);
+        unresolvedCount++;
+        continue;
+      }
+      const resolved = lexical
+        ? {
+            nodeId: lexical.targetId,
+            confidence: TIER_CONFIDENCE[lexical.tier],
+            tier: lexical.tier,
+          }
+        : resolveSingleCall(call, symbolTable, namedImportMap, barrelMap);
 
       if (!resolved) {
         unresolvedCount++;
+        references.push({
+          kind: 'unresolved',
+          filePath: call.filePath,
+          sourceId: call.sourceId,
+          targetName: call.calledName,
+          relationship: 'calls',
+          reason:
+            'Language-specific resolver did not establish a target; lexical capability unavailable',
+          candidateIds: symbolTable
+            .lookupCallableByName(call.calledName)
+            .map((candidate) => candidate.nodeId),
+        });
         continue;
       }
 
@@ -299,7 +347,7 @@ export async function resolveCalls(
         type: 'calls',
         confidence: resolved.confidence,
         confidenceLabel: confidenceLabelFromNumeric(resolved.confidence),
-        reason: `${call.callForm} call to ${call.calledName} (tier: ${resolved.tier})`,
+        reason: `${call.callForm} call to ${call.calledName} (tier: ${resolved.tier})${lexical ? `; ${lexical.reason}; utf16 ${call.span?.startIndex}:${call.span?.endIndex}; source ${call.generation}` : '; language-specific name resolution'}`,
       };
 
       graph.addRelation(rel);
@@ -318,6 +366,7 @@ export async function resolveCalls(
   const { hasMethodCount, hasPropertyCount } = emitClassMemberEdges(graph);
 
   return {
+    references,
     tier1Count,
     tier2aCount,
     tier3Count,

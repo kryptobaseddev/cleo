@@ -76,6 +76,13 @@ vi.mock('../../logger.js', () => ({
 // Test 1: Fresh init — all 5 DBs apply migrations without error
 // ---------------------------------------------------------------------------
 
+// Migration and diagnostic reads must address the explicitly seeded fixture.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
   let tempDir: string;
 
@@ -149,7 +156,8 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
     // ADR-090 · T11648: getNexusDb() opens the PROJECT scope as `main` (the graph
     // home, resolved via resolveCleoDir) and ATTACHes the GLOBAL cleo.db (registry
     // home, resolved via getCleoHome). Mock BOTH resolvers to isolated tmpdirs.
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => cleoHome,
       getCleoDirAbsolute: () => projectCleoDir,
       getProjectRoot: () => join(tempDir, 'nexus-proj'),
@@ -201,7 +209,8 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
     const cleoHome = join(tempDir, 'signaldock-home');
     mkdirSync(cleoHome, { recursive: true });
 
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => cleoHome,
       getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : join(tempDir, '.cleo')),
       getProjectRoot: () => tempDir,
@@ -254,7 +263,8 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
     const cleoHome = join(tempDir, 'telemetry-home');
     mkdirSync(cleoHome, { recursive: true });
 
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => cleoHome,
       getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : join(tempDir, '.cleo')),
       getProjectRoot: () => tempDir,

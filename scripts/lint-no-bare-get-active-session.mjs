@@ -66,6 +66,7 @@ const SCAN_DIRS = ['packages'];
 const SKIP_DIR_SEGMENTS = new Set([
   'node_modules',
   'dist',
+  'studio-dist', // Packaged Studio output; assess its source modules instead.
   'build',
   '.git',
   '.svelte-kit',

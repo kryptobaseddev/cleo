@@ -18,13 +18,20 @@ import { mkdirSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DefaultVariableResolver,
   defaultResolver,
   loadProjectContext,
   substituteCantAgentBody,
 } from '../variable-substitution.js';
+
+// Project-context fixtures select their own explicit directory.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('DefaultVariableResolver', () => {
   const resolver = new DefaultVariableResolver();

@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { CaampInjectionAction } from '@cleocode/contracts/caamp-markers';
 import { writeFileAtomic } from '@cleocode/core/tools/fs.js';
 import type { InjectionCheckResult, InjectionStatus, Provider } from '../../types.js';
@@ -17,6 +17,7 @@ import { assertNotTornRead, withFileLock } from '../fs/atomic.js';
 import { getAgentsHome } from '../paths/standard.js';
 import { getProvider, getProviderInstructionReferences } from '../registry/providers.js';
 import {
+  assertBalancedMarkers,
   blockPattern,
   buildBlock,
   type CaampBlock,
@@ -25,7 +26,11 @@ import {
   reconcile,
   repairContent,
 } from './markers.js';
-import { buildInjectionContent, type InjectionTemplate } from './templates.js';
+import {
+  buildInjectionContent,
+  type InjectionTemplate,
+  resolveInstructionDelivery,
+} from './templates.js';
 
 export type { CaampBlock } from './markers.js';
 
@@ -120,6 +125,7 @@ export async function dedupeFile(filePath: string): Promise<DedupeResult> {
     // invisible to the strict pattern, so without this step the duplicates it
     // caused would be reported as "already clean" (T12051).
     const { content: healed, repaired } = normalizeMarkers(original);
+    assertBalancedMarkers(healed);
     const blocks = parseBlocks(healed);
 
     if (blocks.length === 0) {
@@ -152,15 +158,11 @@ export async function dedupeFile(filePath: string): Promise<DedupeResult> {
       if (keepSet.has(block)) {
         result += block.raw;
       }
-      // Removed duplicates contribute nothing — surrounding whitespace is
-      // normalized by the final collapse step below.
+      // Only the duplicate marker span is removed; user whitespace is retained.
     }
 
     // Emit any trailing text after the last block
     result += healed.slice(cursor);
-
-    // Normalize: collapse 3+ consecutive newlines → 2, trim trailing whitespace
-    result = `${result.replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;
 
     // Only rewrite when there is real work to do. Cosmetic differences alone
     // (a missing trailing newline, say) must not cause a write — callers batch
@@ -429,17 +431,15 @@ export async function inject(filePath: string, content: string): Promise<CaampIn
   // reconcile path agree on what "the same content" means. Without this a
   // whitespace-only difference reported `updated` forever.
   const body = content.trim();
-
-  if (!existsSync(filePath)) {
-    // Create new file with injection block. Still atomic + locked so a
-    // concurrent creator cannot interleave with us.
-    return withFileLock<CaampInjectionAction>(filePath, async () => {
-      await writeFileAtomic({ path: filePath, content: `${buildBlock(body)}\n` });
-      return 'created';
-    });
-  }
+  assertBalancedMarkers(buildBlock(body));
 
   return withFileLock<CaampInjectionAction>(filePath, async () => {
+    // Decide from the locked state: another holder may have created user text
+    // while this caller waited. A pre-lock existence check cannot authorize replacement.
+    if (!existsSync(filePath)) {
+      await writeFileAtomic({ path: filePath, content: `${buildBlock(body)}\n` });
+      return 'created';
+    }
     const existing = await readFile(filePath, 'utf-8');
 
     // Fail closed on a torn read. Our own writes are atomic, but callers
@@ -474,8 +474,9 @@ export async function inject(filePath: string, content: string): Promise<CaampIn
  * @returns `true` if a CAAMP block was found and removed, `false` otherwise
  *
  * @remarks
- * Cleans up any leftover blank lines after removing the block. If the file
- * would be entirely empty after removal, the file itself is deleted.
+ * Retains every byte outside the marker spans, including whitespace-only
+ * content. Deletes the file only when no outside bytes remain. Ambiguous
+ * marker ownership rejects removal before any file write.
  *
  * Blocks whose markers are damaged are healed first, so uninstall removes them
  * too rather than leaving orphaned fragments behind.
@@ -493,22 +494,20 @@ export async function removeInjection(filePath: string): Promise<boolean> {
   return withFileLock(filePath, async () => {
     const original = await readFile(filePath, 'utf-8');
     const { content } = normalizeMarkers(original);
+    assertBalancedMarkers(content);
 
     // A fresh pattern per call: a shared /g RegExp carries `lastIndex`, so the
     // previous `MARKER_PATTERN.test()` here skipped matches on alternate calls.
     if (parseBlocks(content).length === 0) return false;
 
-    const cleaned = content
-      .replace(blockPattern(), '')
-      .replace(/^\n{2,}/, '\n')
-      .trim();
+    const cleaned = content.replace(blockPattern(), '');
 
     if (!cleaned) {
       // File would be empty - remove it entirely
       const { rm } = await import('node:fs/promises');
       await rm(filePath);
     } else {
-      await writeFileAtomic({ path: filePath, content: `${cleaned}\n` });
+      await writeFileAtomic({ path: filePath, content: cleaned });
     }
 
     return true;
@@ -558,9 +557,27 @@ export async function checkAllInjections(
     if (checked.has(filePath)) continue;
     checked.add(filePath);
 
-    const status = await checkInjection(filePath, expectedContent);
+    let status = await checkInjection(filePath, expectedContent);
+    const delivery = await resolveInstructionDelivery(`@${filePath}`, dirname(filePath));
+    if (expectedContent !== undefined && status === 'outdated') {
+      delivery.findings.push({
+        kind: 'stale',
+        path: filePath,
+        reason: 'Managed content differs from the expected version.',
+      });
+    }
+    if (existsSync(filePath) && parseBlocks(await readFile(filePath, 'utf8')).length > 1) {
+      delivery.findings.push({
+        kind: 'duplicate',
+        path: filePath,
+        reason: 'Multiple managed blocks are delivered.',
+      });
+    }
+    if (delivery.findings.length > 0 && status === 'current') status = 'outdated';
 
     results.push({
+      deliveryFindings: delivery.findings,
+      liveEvaluation: delivery.liveEvaluation,
       file: filePath,
       provider: provider.id,
       status,
@@ -644,6 +661,8 @@ export interface EnsureProviderInstructionFileOptions {
   content?: string[];
   /** Whether this is a global or project-level file. @defaultValue `"project"` */
   scope?: 'project' | 'global';
+  /** Embed resolved sources; reference-only delivery requires an explicitly verified provider. */
+  delivery?: 'self-contained' | 'verified-references';
 }
 
 /**
@@ -709,14 +728,40 @@ export async function ensureProviderInstructionFile(
       : join(projectDir, provider.instructFile);
 
   // Fall back to the registry default when the caller omits references.
-  const references = options.references ?? getProviderInstructionReferences(providerId);
+  let references = options.references ?? getProviderInstructionReferences(providerId);
+  let content = options.content;
+  // This generated project artifact does not exist before the first memory
+  // refresh. Its absence is a visible capability limit, not a broken user source.
+  if (
+    options.delivery !== 'verified-references' &&
+    references.includes('@.cleo/memory-bridge.md') &&
+    !existsSync(join(dirname(filePath), '.cleo', 'memory-bridge.md'))
+  ) {
+    references = references.filter((reference) => reference !== '@.cleo/memory-bridge.md');
+    content = [
+      ...(content ?? []),
+      'Project memory bridge unavailable. Run `cleo memory digest` to inspect current evidence.',
+    ];
+  }
 
   const template: InjectionTemplate = {
     references,
-    content: options.content,
+    content,
   };
 
-  const injectionContent = buildInjectionContent(template);
+  let injectionContent = buildInjectionContent(template);
+  // Provider registry entries declare references, not proof that the runtime loads them.
+  // Resolve by default for every provider; preserve existing files if resolution fails.
+  if (options.delivery !== 'verified-references') {
+    const delivery = await resolveInstructionDelivery(injectionContent, dirname(filePath));
+    const failures = delivery.findings.filter((finding) => finding.kind !== 'duplicate');
+    if (failures.length > 0) {
+      throw new Error(
+        `Instruction delivery failed: ${failures.map((finding) => `${finding.kind}: ${finding.path}`).join('; ')}`,
+      );
+    }
+    injectionContent = delivery.content;
+  }
   const action = await inject(filePath, injectionContent);
 
   return {

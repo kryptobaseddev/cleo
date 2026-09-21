@@ -4,23 +4,107 @@
  * @epic T4454
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { addTask } from '../add.js';
-import { deleteTask } from '../delete.js';
+import { deleteTask, taskDelete } from '../delete.js';
+import { tasksDeleteOp } from '../ops.js';
 
 describe('deleteTask', () => {
   let env: TestDbEnv;
   let accessor: DataAccessor;
 
   beforeEach(async () => {
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_PROJECT_ROOT', undefined);
     env = await createTestDb();
     accessor = env.accessor;
   });
 
   afterEach(async () => {
     await env.cleanup();
+    vi.unstubAllEnvs();
+  });
+
+  it.each([
+    'blocked',
+    'cascade',
+    'force',
+  ] as const)('the engine wrapper preserves the %s deletion policy', async (policy) => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Parent',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Child',
+        parentId: 'T001',
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const result = await taskDelete(env.tempDir, 'T001', policy === 'force', policy === 'cascade');
+    const { tasks } = await accessor.queryTasks({});
+    const archive = await accessor.loadArchive();
+    if (policy === 'blocked') {
+      expect(result.success).toBe(false);
+      expect(tasks.map((task) => task.id).sort()).toEqual(['T001', 'T002']);
+      expect(archive?.archivedTasks ?? []).toEqual([]);
+    } else if (policy === 'cascade') {
+      expect(result.success, JSON.stringify(result)).toBe(true);
+      expect(result.data?.cascadeDeleted).toEqual(['T002']);
+      expect(tasks).toEqual([]);
+      expect(archive?.archivedTasks.map((task) => task.id).sort()).toEqual(['T001', 'T002']);
+    } else {
+      expect(result.success, JSON.stringify(result)).toBe(true);
+      expect(result.data?.cascadeDeleted).toBeUndefined();
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]).toMatchObject({ id: 'T002', type: 'task' });
+      expect(tasks[0]?.parentId).toBeUndefined();
+      expect(archive?.archivedTasks.map((task) => task.id)).toEqual(['T001']);
+    }
+  });
+
+  it('the canonical operation rejects unguarded parents and forwards explicit cascade', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Parent',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Child',
+        parentId: 'T001',
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await expect(tasksDeleteOp(env.tempDir, { taskId: 'T001' })).rejects.toThrow(/children/i);
+    expect((await accessor.queryTasks({})).tasks.map((task) => task.id).sort()).toEqual([
+      'T001',
+      'T002',
+    ]);
+    const result = await tasksDeleteOp(env.tempDir, { taskId: 'T001', cascade: true });
+    expect(result.cascadeDeleted).toEqual(['T002']);
+    expect((await accessor.queryTasks({})).tasks).toEqual([]);
+    expect((await accessor.loadArchive())?.archivedTasks.map((task) => task.id).sort()).toEqual([
+      'T001',
+      'T002',
+    ]);
   });
 
   it('deletes a leaf task (moves to archive)', async () => {

@@ -9,7 +9,7 @@ import { mkdirSync } from 'fs';
 import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let TEST_ROOT: string;
 
@@ -24,6 +24,16 @@ async function seedTasks(testRoot: string, tasks: any[]): Promise<void> {
     await createTask(task as any, testRoot);
   }
 }
+
+// Explicit fixture cwd takes effect after clearing the shared setup project pins.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 beforeEach(async () => {
   TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-report-test-'));

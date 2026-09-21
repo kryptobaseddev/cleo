@@ -94,6 +94,10 @@ export const PACKAGE_DEPS = Object.freeze({
     'packages/worktree/dist/',
   ]),
 
+  // Wave 3: animations — contracts only. Published package; see build.mjs wave 3
+  // for why it was absent from this graph until T12256.
+  'packages/animations/dist/': Object.freeze(['packages/contracts/dist/']),
+
   // Wave 6: runtime + adapters — both depend only on core (+ contracts).
   'packages/runtime/dist/': Object.freeze(['packages/contracts/dist/', 'packages/core/dist/']),
   'packages/adapters/dist/': Object.freeze(['packages/contracts/dist/', 'packages/core/dist/']),

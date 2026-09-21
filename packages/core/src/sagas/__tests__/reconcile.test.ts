@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTask, getDb, taskShow } from '@cleocode/core/internal';
 import { getCleoHome } from '@cleocode/paths';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
 import { acquireLock } from '../../store/lock.js';
@@ -126,6 +126,9 @@ function readAuditLines(testRoot: string): SagaReconcileAuditLine[] {
 }
 
 beforeEach(async () => {
+  // Explicit cwd must resolve this fixture rather than the shared setup project.
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-saga-reconcile-test-'));
   // Create project-info.json and register in nexus for all tests.
   const cleoDir = join(TEST_ROOT, '.cleo');
@@ -153,6 +156,7 @@ afterEach(async () => {
     // ignore cleanup errors
   }
   await rm(TEST_ROOT, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {

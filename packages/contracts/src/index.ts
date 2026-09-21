@@ -212,6 +212,9 @@ export type {
   CodeSymbol,
   CodeSymbolKind,
   ParseResult,
+  ParserExecutionLimits,
+  ParserExecutionPort,
+  ParserProcessHandle,
 } from './code-symbol.js';
 // === Conduit Protocol (agent-to-agent communication) ===
 export type {
@@ -343,6 +346,7 @@ export type {
   TaskAuditLogQuery,
   TaskAuditLogRow,
   TaskFieldUpdates,
+  TaskPopulation,
   TaskQueryFilters,
   TransactionAccessor,
 } from './data-accessor.js';
@@ -689,13 +693,19 @@ export type {
   ConfidenceProvenance,
   ExtractedProvenance,
   GraphEdgeConfidenceLabel,
+  GraphIndexAssessment,
+  GraphIndexFileReport,
+  GraphIndexReferenceReport,
   GraphNode,
   GraphNodeKind,
+  GraphPublicationRows,
   GraphRelation,
   GraphRelationType,
   ImpactResult,
   InferredProvenance,
   KnowledgeGraph,
+  NexusNodeInsertRow,
+  NexusRelationInsertRow,
   ProcessNode,
   SymbolIndex,
 } from './graph.js';
@@ -723,6 +733,34 @@ export {
 } from './invariants/index.js';
 // === Background Job Status (T9955 — promoted from core/store/tasks-schema.ts) ===
 export type { BackgroundJobStatus } from './jobs.js';
+// === Living Brain SDK Types (T1068 — 5-substrate traversal primitives) ===
+export type {
+  DecisionCodeEvidenceLink,
+  DecisionCodeEvidenceOptions,
+  DecisionCodeEvidenceResult,
+  KnowledgeAuthority,
+  KnowledgeAuthorityStatus,
+  KnowledgeBackfillOptions,
+  KnowledgeCoverage,
+  KnowledgeCoverageStatus,
+  KnowledgeDiagnostic,
+  KnowledgeDiagnosticStatus,
+  KnowledgeDoctorOptions,
+  KnowledgeDoctorResult,
+  KnowledgeEvidenceRef,
+  KnowledgeFileEvidence,
+  KnowledgeHealth,
+  KnowledgeRepairAction,
+  KnowledgeRepairClass,
+  KnowledgeRepairFinding,
+  KnowledgeRepairProposal,
+  KnowledgeRepairReceipt,
+  KnowledgeRepairRecovery,
+  KnowledgeRepairState,
+  KnowledgeReplacement,
+  KnowledgeSymbolCandidate,
+  TaskKnowledgeEvidence,
+} from './knowledge-health.js';
 export type {
   CleoResponse,
   ConformanceReport,
@@ -1047,7 +1085,6 @@ export type {
   HttpContract,
   TopicContract,
 } from './nexus-contract-ops.js';
-// === Living Brain SDK Types (T1068 — 5-substrate traversal primitives) ===
 // === Extended Code Reasoning Types (T1069 — reasonWhySymbol + reasonImpactOfChange) ===
 export type {
   BlastRadiusSummary,
@@ -2289,8 +2326,10 @@ export type {
   AcceptanceItem,
   CancelledTask,
   CompletedTask,
+  CriterionEvidenceLink,
   EpicLifecycle,
   EvidenceAtom,
+  EvidenceValidationContext,
   FileMeta,
   GateEvidence,
   Phase,
@@ -2302,6 +2341,7 @@ export type {
   SessionNote,
   // T9071 — system-wide severity attestation primitive
   SeverityAttestation,
+  SignedSeverityAttestation,
   Task,
   TaskCreate,
   // T944 new axes (T9072: renamed TaskRole → TaskKind)
@@ -2343,6 +2383,8 @@ export {
 // === TaskRecord Types (string-widened for dispatch/LAFS) ===
 export type {
   MinimalTaskRecord,
+  RecordProjectionDisclosure,
+  TaskMatch,
   TaskRecord,
   TaskRecordRelation,
   TaskRecordRelationCounts,

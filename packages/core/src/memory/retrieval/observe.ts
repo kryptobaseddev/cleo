@@ -12,6 +12,9 @@ import type {
   ObserveBrainParams,
   ObserveBrainResult,
 } from '@cleocode/contracts';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
+import { generateProjectHash } from '../../nexus/hash.js';
+import { worktreeScope } from '../../paths.js';
 import {
   sessionExistsInTasksDb,
   sessionExistsInTasksDbFresh,
@@ -103,6 +106,11 @@ async function autoLinkObservationToTask(
  *
  * @param projectRoot - Project root directory
  * @param params - Observation data
+ * @param execution - Optional captured lifetime for an explicitly guarded direct write.
+ * @throws Error when scoped routing, cancellation, or the supported direct-write contract fails.
+ * @remarks Scoped direct writes require already-validated input (`_skipGate`) and an
+ * explicit writer dispatch (`_skipQueue`). They retain the original payload and commit
+ * result without starting optional embeddings, graph, bridge, or task-link work.
  * @returns Created observation ID, type, and timestamp
  *
  * @example
@@ -124,7 +132,34 @@ async function autoLinkObservationToTask(
 export async function observeBrain(
   projectRoot: string,
   params: ObserveBrainParams,
+  execution?: OperationExecutionContext,
 ): Promise<ObserveBrainResult> {
+  if (execution) {
+    execution.assertActive();
+    if (projectRoot !== execution.identity.projectRoot) {
+      throw new Error('Observation root does not match its captured execution');
+    }
+    if (!params._skipGate || !params._skipQueue) {
+      throw new Error(
+        'Scoped observation requires validated input and guarded direct writer dispatch',
+      );
+    }
+    const inherited = worktreeScope.getStore()?.execution;
+    if (inherited && inherited !== execution) {
+      throw new Error('Observation cannot replace its captured execution context');
+    }
+    if (!inherited) {
+      const captured = structuredClone(params);
+      return worktreeScope.run(
+        {
+          worktreeRoot: execution.identity.projectRoot,
+          projectHash: generateProjectHash(execution.identity.projectRoot),
+          execution,
+        },
+        () => observeBrain(projectRoot, captured, execution),
+      );
+    }
+  }
   const {
     text,
     title: titleParam,
@@ -261,7 +296,8 @@ export async function observeBrain(
 
   // Load native DB handle for later embedding write (fire-and-forget).
   const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
-  const nativeDb = getBrainNativeDb();
+  execution?.assertActive();
+  const nativeDb = getBrainNativeDb(projectRoot);
 
   // Queued observations were validated before crossing the worker boundary.
   // Worker-internal dialectic observations carry their authoritative session ID.
@@ -275,36 +311,67 @@ export async function observeBrain(
     memoryTier,
   });
 
-  const id = `O-${Date.now().toString(36)}-${(observeSeq++ % 1000).toString(36)}`;
+  // A durable document proposal has one observation identity across lost replies,
+  // process restarts and lease epochs. No mutable attempt or clock enters the key.
+  const id = execution?.writeFence
+    ? `O-doc-${createHash('sha256')
+        .update(
+          JSON.stringify([
+            execution.identity.projectId,
+            execution.identity.operation,
+            execution.identity.idempotencyKey,
+            execution.writeFence.proposalHash,
+          ]),
+        )
+        .digest('hex')}`
+    : `O-${Date.now().toString(36)}-${(observeSeq++ % 1000).toString(36)}`;
   const accessor = await getBrainAccessor(projectRoot);
+  execution?.assertActive();
 
-  const row = await accessor.addObservation({
-    id,
-    type,
-    title,
-    narrative: text,
-    contentHash,
-    project: project ?? null,
-    sourceSessionId: validSessionId,
-    sourceType: sourceType ?? 'agent',
-    agent: agent ?? null,
-    qualityScore,
-    createdAt: now,
-    // T549 Wave 1-A: tier/type/confidence assigned at write time
-    memoryTier,
-    memoryType,
-    sourceConfidence: resolvedSourceConfidence,
-    verified,
-    // T799: optional attachment refs stored as JSON array
-    ...(attachmentRefs && attachmentRefs.length > 0
-      ? { attachmentsJson: JSON.stringify(attachmentRefs) }
-      : {}),
-    // T1897: provenance trust columns
-    ...(origin != null ? { origin } : {}),
-    ...(provenanceChain && provenanceChain.length > 0
-      ? { provenanceChain: JSON.stringify(provenanceChain) }
-      : {}),
-  });
+  const row = await accessor.addObservation(
+    {
+      id,
+      type,
+      title,
+      narrative: text,
+      contentHash,
+      project: project ?? null,
+      sourceSessionId: validSessionId,
+      sourceType: sourceType ?? 'agent',
+      agent: agent ?? null,
+      qualityScore,
+      createdAt: now,
+      // T549 Wave 1-A: tier/type/confidence assigned at write time
+      memoryTier,
+      memoryType,
+      sourceConfidence: resolvedSourceConfidence,
+      verified,
+      // T799: optional attachment refs stored as JSON array
+      ...(attachmentRefs && attachmentRefs.length > 0
+        ? { attachmentsJson: JSON.stringify(attachmentRefs) }
+        : {}),
+      // T1897: provenance trust columns
+      ...(origin != null ? { origin } : {}),
+      ...(provenanceChain && provenanceChain.length > 0
+        ? { provenanceChain: JSON.stringify(provenanceChain) }
+        : {}),
+      ...(execution?.writeFence
+        ? {
+            attachmentsJson: attachmentRefs?.length ? JSON.stringify(attachmentRefs) : null,
+            origin: origin ?? null,
+            provenanceChain: provenanceChain?.length ? JSON.stringify(provenanceChain) : null,
+          }
+        : {}),
+    },
+    execution,
+  );
+
+  if (execution) {
+    // The primary row has committed. Optional enrichment belongs to an explicitly
+    // prepared operation; do not launch detached work or convert late cancellation
+    // into a false failure for the already-durable observation.
+    return { id: row.id, type: row.type, createdAt: row.createdAt };
+  }
 
   // Populate embedding if provider is available (T5387).
   // Fire-and-forget: embedding runs in the background so it never blocks the CLI.

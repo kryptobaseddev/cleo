@@ -104,6 +104,22 @@ export interface QueryTasksResult {
   total: number;
 }
 
+/** Query scope and enumeration facts shared by every task read rendering. */
+export interface TaskPopulation {
+  /** Rows satisfying all filters before pagination. */
+  matched: number;
+  /** Rows actually present in this response; also the count projection. */
+  returned: number;
+  /** Whether this response omits any matching rows. */
+  truncated: boolean;
+  /** Requested page size; null means all matches after offset. */
+  limit: number | null;
+  /** Matching rows skipped before this page. */
+  offset: number;
+  /** Archive eligibility, independent of how many archived rows matched. */
+  archive: 'included' | 'excluded' | 'only';
+}
+
 /** Partial task row fields for updateTaskFields(). */
 export interface TaskFieldUpdates {
   title?: string;

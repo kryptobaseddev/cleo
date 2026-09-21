@@ -10,10 +10,12 @@
  * @epic T5576
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExtendedManifestEntry } from '../index.js';
 import {
   distillManifestEntry,
@@ -94,6 +96,16 @@ async function seedEntries(root: string, entries: ExtendedManifestEntry[]): Prom
 // Tests
 // ---------------------------------------------------------------------------
 
+// Resolve explicit fixture cwd values independently of the shared setup project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('pipeline-manifest-sqlite', () => {
   let testRoot: string;
 
@@ -110,6 +122,595 @@ describe('pipeline-manifest-sqlite', () => {
     if (existsSync(testRoot)) {
       rmSync(testRoot, { recursive: true, force: true });
     }
+  });
+
+  describe('persisted metadata diagnostics', () => {
+    const invalidMetadata = [
+      ['malformed JSON', '{', 'metadata_json'],
+      ['JSON null', 'null', 'metadata_json'],
+      ['array root', '[]', 'metadata_json'],
+      ['scalar root', '"text"', 'metadata_json'],
+      ['non-string file', '{"file":7}', 'file'],
+      ['non-string title', '{"title":false}', 'title'],
+      ['non-array topics', '{"topics":"topic"}', 'topics'],
+      ['invalid topic element', '{"topics":["valid",1]}', 'topics.1'],
+      ['invalid finding element', '{"key_findings":[null]}', 'key_findings.0'],
+      ['non-boolean actionable', '{"actionable":0}', 'actionable'],
+      ['invalid follow-up', '{"needs_followup":[{}]}', 'needs_followup.0'],
+      ['invalid task links', '{"linked_tasks":"T1"}', 'linked_tasks'],
+      ['invalid confidence', '{"confidence":"certain"}', 'confidence'],
+      ['invalid checksum', '{"file_checksum":9}', 'file_checksum'],
+      ['invalid duration', '{"duration_seconds":null}', 'duration_seconds'],
+    ] as const;
+
+    describe.each(['docs_pipeline_manifest', 'pipeline_manifest'] as const)('%s', (table) => {
+      it.each(
+        invalidMetadata,
+      )('rejects %s without rewriting historical bytes', async (_label, metadata, field) => {
+        const { bindTasksDomain } = await import('../../store/sqlite.js');
+        const { native } = await bindTasksDomain(testRoot);
+        native.exec('PRAGMA foreign_keys=ON');
+        expect(native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+        native
+          .prepare(
+            `INSERT INTO ${table}(id,type,content,status,metadata_json,created_at) VALUES (?,?,?,?,?,?)`,
+          )
+          .run(
+            'corrupt-metadata',
+            'research',
+            'Authentic retained payload',
+            'active',
+            metadata,
+            '2026-01-01',
+          );
+        const expected = {
+          code: 'E_MANIFEST_METADATA_INVALID',
+          details: { entryId: 'corrupt-metadata', tables: [table], field },
+        };
+        await expect(readManifestEntries(testRoot)).rejects.toMatchObject(expected);
+        expect(await pipelineManifestRead({}, testRoot)).toMatchObject({
+          success: false,
+          error: expected,
+        });
+        expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+          success: false,
+          error: expected,
+        });
+        expect(
+          native
+            .prepare(`SELECT metadata_json,content FROM ${table} WHERE id=?`)
+            .get('corrupt-metadata'),
+        ).toEqual({ metadata_json: metadata, content: 'Authentic retained payload' });
+      });
+    });
+
+    it('accepts absent metadata and preserves literal values plus unrelated metadata during linking', async () => {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      native.exec('PRAGMA foreign_keys=ON');
+      expect(native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      native
+        .prepare(
+          "INSERT INTO tasks_tasks(id,title,status,created_at,updated_at) VALUES ('T099','Link target','pending','2026-01-01','2026-01-01')",
+        )
+        .run();
+      native
+        .prepare(
+          'INSERT INTO docs_pipeline_manifest(id,type,content,status,source_file,metadata_json,created_at) VALUES (?,?,?,?,?,?,?)',
+        )
+        .run(
+          'no-metadata',
+          'research',
+          'Plain historical body',
+          'active',
+          'plain.md',
+          null,
+          '2026-01-01',
+        );
+      const metadata = {
+        topics: [' A | B '],
+        linked_tasks: [],
+        actionable: false,
+        extension: { original: [1, 'untouched'] },
+      };
+      native
+        .prepare(
+          'INSERT INTO docs_pipeline_manifest(id,type,content,status,metadata_json,created_at) VALUES (?,?,?,?,?,?)',
+        )
+        .run(
+          'literal-metadata',
+          'research',
+          'Original content',
+          'active',
+          JSON.stringify(metadata),
+          '2026-02-01',
+        );
+      const entries = await readManifestEntries(testRoot);
+      expect(entries.find((entry) => entry.id === 'no-metadata')).toMatchObject({
+        file: 'plain.md',
+        title: 'research',
+        topics: [],
+      });
+      expect(entries.find((entry) => entry.id === 'literal-metadata')).toMatchObject({
+        topics: [' A | B '],
+        actionable: false,
+      });
+      expect(
+        await pipelineManifestLink('T099', 'literal-metadata', undefined, testRoot),
+      ).toMatchObject({ success: true });
+      const stored = native
+        .prepare('SELECT metadata_json,content FROM docs_pipeline_manifest WHERE id=?')
+        .get('literal-metadata');
+      if (typeof stored?.metadata_json !== 'string') throw new Error('Missing stored metadata');
+      expect(JSON.parse(stored.metadata_json)).toEqual({ ...metadata, linked_tasks: ['T099'] });
+      expect(stored.content).toBe('Original content');
+    });
+
+    it('rejects invalid metadata before link mutation and preserves the original row', async () => {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      native
+        .prepare(
+          'INSERT INTO docs_pipeline_manifest(id,type,content,status,metadata_json,created_at) VALUES (?,?,?,?,?,?)',
+        )
+        .run(
+          'invalid-links',
+          'research',
+          'Original content',
+          'active',
+          '{"linked_tasks":null}',
+          '2026-01-01',
+        );
+      expect(
+        await pipelineManifestLink('T099', 'invalid-links', undefined, testRoot),
+      ).toMatchObject({
+        success: false,
+        error: {
+          code: 'E_MANIFEST_METADATA_INVALID',
+          details: { entryId: 'invalid-links', field: 'linked_tasks' },
+        },
+      });
+      expect(
+        native
+          .prepare('SELECT metadata_json,task_id FROM docs_pipeline_manifest WHERE id=?')
+          .get('invalid-links'),
+      ).toEqual({ metadata_json: '{"linked_tasks":null}', task_id: null });
+    });
+  });
+
+  describe('canonical storage with enforced foreign keys and retained history', () => {
+    beforeEach(async () => {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      native.exec('PRAGMA foreign_keys=ON');
+      expect(native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      native.exec(
+        "INSERT INTO tasks_tasks(id,title,status,created_at,updated_at) VALUES ('T001','Canonical task','pending','2026-09-20','2026-09-20')",
+      );
+      expect(native.prepare("SELECT count(*) AS n FROM tasks WHERE id='T001'").get()).toEqual({
+        n: 0,
+      });
+    });
+
+    async function seedHistory(table: 'pipeline_manifest' | 'docs_pipeline_manifest', id: string) {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      const entry = { ...ENTRY_A, id };
+      native
+        .prepare(
+          `INSERT INTO ${table}(id,type,content,status,source_file,metadata_json,created_at) VALUES (?,?,?,?,?,?,?)`,
+        )
+        .run(
+          id,
+          entry.agent_type,
+          JSON.stringify(entry),
+          'active',
+          entry.file,
+          JSON.stringify(entry),
+          '2026-01-15 00:00:00',
+        );
+      return native;
+    }
+
+    async function storeDocument(root: string, slug: string, content: string) {
+      const { createAttachmentStore } = await import('../../store/attachment-store.js');
+      const { reserveSlug } = await import('../../docs/slug-allocator.js');
+      expect(await reserveSlug('note', slug, { cwd: root })).toMatchObject({ ok: true });
+      vi.stubEnv('CLEO_STRICT_SLUG_ALLOCATOR', '1');
+      const descriptor = {
+        kind: 'blob' as const,
+        mime: 'text/markdown',
+        storageKey: 'pending',
+        size: Buffer.byteLength(content),
+      };
+      return createAttachmentStore().put(
+        content,
+        descriptor,
+        'task',
+        'T001',
+        'manifest-test',
+        root,
+        { slug, type: 'note' },
+      );
+    }
+
+    it('resolves a canonical docs URI to the exact independently retrieved document bytes', async () => {
+      const { createDocsReadModel } = await import('../../docs/docs-read-model.js');
+      const content = '# Authentic report\n\nUnicode π and literal | evidence.  \n';
+      const slug = 'manifest-doc-evidence';
+      const stored = await storeDocument(testRoot, slug, content);
+      const model = createDocsReadModel(testRoot);
+      const doc = await model.resolveLatest(slug);
+      expect(doc?.sha256).toBe(createHash('sha256').update(content).digest('hex'));
+      expect(doc).not.toBeNull();
+      if (!doc) throw new Error('Canonical fixture document failed to resolve');
+      expect(await model.fetchContent(doc)).toBe(content);
+      for (const reference of [slug, stored.id, stored.sha256]) {
+        const resolved =
+          (await model.resolveLatest(reference)) ?? (await model.resolveByAttachmentId(reference));
+        expect(resolved, `canonical docs reference ${reference}`).toMatchObject({
+          id: stored.id,
+          sha256: stored.sha256,
+          slug,
+          kind: 'note',
+        });
+        const entry = {
+          ...ENTRY_A,
+          id: `doc-${reference}`,
+          file: `cleo://docs/${encodeURIComponent(reference)}`,
+        };
+        expect(await pipelineManifestAppend(entry, testRoot)).toMatchObject({ success: true });
+        const shown = await pipelineManifestShow(entry.id, testRoot);
+        expect(shown).toMatchObject({
+          success: true,
+          data: {
+            file: entry.file,
+            fileExists: true,
+            fileContent: content,
+            provenance: { tables: ['docs_pipeline_manifest'] },
+          },
+        });
+        if (!shown.success) throw new Error(shown.error.message);
+        expect(createHash('sha256').update(String(shown.data.fileContent)).digest('hex')).toBe(
+          doc.sha256,
+        );
+      }
+    });
+
+    it('validates canonical task evidence against independently retrieved document bytes', async () => {
+      const { createDocsReadModel } = await import('../../docs/docs-read-model.js');
+      const content = '# Evidence\n\nVerified Unicode π output.  \n';
+      const stored = await storeDocument(testRoot, 'validation-evidence', content);
+      const model = createDocsReadModel(testRoot);
+      const doc = await model.resolveLatest('validation-evidence');
+      if (!doc) throw new Error('Independent document fixture did not resolve');
+      expect(await model.fetchContent(doc)).toBe(content);
+      expect(doc.sha256).toBe(createHash('sha256').update(content).digest('hex'));
+      expect(
+        await pipelineManifestAppend({ ...ENTRY_A, file: `cleo://docs/${stored.id}` }, testRoot),
+      ).toMatchObject({ success: true });
+      expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+        success: true,
+        data: { valid: true, entriesFound: 1, errorCount: 0, warningCount: 0, issues: [] },
+      });
+      expect(await model.fetchContent(doc)).toBe(content);
+    });
+
+    it('pins document reads to the manifest project despite conflicting ambient roots', async () => {
+      const otherRoot = mkdtempSync(join(tmpdir(), 'cleo-manifest-doc-other-'));
+      mkdirSync(join(otherRoot, '.git'));
+      mkdirSync(join(otherRoot, '.cleo'));
+      try {
+        const slug = 'shared-report-slug';
+        await storeDocument(testRoot, slug, '# Project A bytes');
+        await storeDocument(otherRoot, slug, '# Project B bytes');
+        expect(
+          await pipelineManifestAppend({ ...ENTRY_A, file: `cleo://docs/${slug}` }, testRoot),
+        ).toMatchObject({ success: true });
+        vi.stubEnv('CLEO_ROOT', otherRoot);
+        vi.stubEnv('CLEO_DIR', join(otherRoot, '.cleo'));
+        expect(await pipelineManifestShow(ENTRY_A.id, testRoot)).toMatchObject({
+          success: true,
+          data: { fileContent: '# Project A bytes', fileExists: true },
+        });
+      } finally {
+        const { resetDbState } = await import('../../store/sqlite.js');
+        resetDbState();
+        rmSync(otherRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('distinguishes unavailable document content and failed reads from missing files', async () => {
+      const { DocsReadModel } = await import('../../docs/docs-read-model.js');
+      await storeDocument(testRoot, 'unavailable-report', '# Retained evidence');
+      expect(
+        await pipelineManifestAppend(
+          { ...ENTRY_A, file: 'cleo://docs/unavailable-report' },
+          testRoot,
+        ),
+      ).toMatchObject({ success: true });
+      const fetch = vi.spyOn(DocsReadModel.prototype, 'fetchContent');
+      try {
+        fetch.mockResolvedValueOnce(null);
+        expect(await pipelineManifestShow(ENTRY_A.id, testRoot)).toMatchObject({
+          success: false,
+          error: { code: 'E_MANIFEST_DOC_CONTENT_UNAVAILABLE' },
+        });
+        fetch.mockResolvedValueOnce(null);
+        expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+          success: false,
+          error: { code: 'E_MANIFEST_DOC_CONTENT_UNAVAILABLE', details: { entryId: ENTRY_A.id } },
+        });
+        fetch.mockRejectedValueOnce(new Error('synthetic document read failure'));
+        expect(await pipelineManifestShow(ENTRY_A.id, testRoot)).toMatchObject({
+          success: false,
+          error: { code: 'E_MANIFEST_SHOW', message: 'synthetic document read failure' },
+        });
+        fetch.mockRejectedValueOnce(new Error('synthetic document read failure'));
+        expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+          success: false,
+          error: { code: 'E_MANIFEST_SHOW', message: 'synthetic document read failure' },
+        });
+      } finally {
+        fetch.mockRestore();
+      }
+    });
+
+    it.each([
+      ['cleo://docs/no-such-document', 'E_MANIFEST_DOC_NOT_FOUND'],
+      ['cleo://docs/', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/a/b', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/a?version=2', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/a#fragment', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/%ZZ', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/%2e%2e', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://docs/a%2fb', 'E_MANIFEST_REFERENCE_INVALID'],
+      ['cleo://other/report', 'E_MANIFEST_REFERENCE_UNSUPPORTED'],
+      ['https://example.invalid/report', 'E_MANIFEST_REFERENCE_UNSUPPORTED'],
+    ])('reports explicit resolution failure for %s', async (file, code) => {
+      const entry = { ...ENTRY_A, file };
+      expect(await pipelineManifestAppend(entry, testRoot)).toMatchObject({ success: true });
+      expect(await pipelineManifestShow(entry.id, testRoot)).toMatchObject({
+        success: false,
+        error: { code, details: { entryId: entry.id, reference: file } },
+      });
+      expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+        success: false,
+        error: { code, details: { entryId: entry.id, reference: file } },
+      });
+    });
+
+    it('keeps real file reads and missing-file behavior distinct from read failures', async () => {
+      const entry = { ...ENTRY_A, file: 'ordinary.md' };
+      expect(await pipelineManifestAppend(entry, testRoot)).toMatchObject({ success: true });
+      expect(await pipelineManifestShow(entry.id, testRoot)).toMatchObject({
+        success: true,
+        data: { fileExists: false, fileContent: null },
+      });
+      writeFileSync(join(testRoot, entry.file), '# Ordinary bytes');
+      expect(await pipelineManifestShow(entry.id, testRoot)).toMatchObject({
+        success: true,
+        data: { fileExists: true, fileContent: '# Ordinary bytes' },
+      });
+      rmSync(join(testRoot, entry.file));
+      mkdirSync(join(testRoot, entry.file));
+      expect(await pipelineManifestShow(entry.id, testRoot)).toMatchObject({
+        success: false,
+        error: { code: 'E_MANIFEST_SHOW' },
+      });
+    });
+
+    it('appends for a task that exists only in tasks_tasks with foreign_keys=1', async () => {
+      const result = await pipelineManifestAppend(ENTRY_A, testRoot);
+      expect(result).toMatchObject({
+        success: true,
+        data: { appended: true, entryId: ENTRY_A.id },
+      });
+      const { bindTasksDomain, resetDbState } = await import('../../store/sqlite.js');
+      const { native, store } = await bindTasksDomain(testRoot);
+      expect(native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      expect(native.prepare('SELECT id,task_id FROM docs_pipeline_manifest').all()).toEqual([
+        { id: ENTRY_A.id, task_id: 'T001' },
+      ]);
+      expect(native.prepare('SELECT count(*) AS n FROM pipeline_manifest').get()).toEqual({ n: 0 });
+      const path = store.dbPath;
+      // A fresh native process is the independent durability oracle; it reads
+      // only this synthetic database, with no inherited provider/store environment.
+      const freshRead = spawnSync(
+        process.execPath,
+        [
+          '--disable-warning=ExperimentalWarning',
+          '--input-type=module',
+          '-e',
+          'import { DatabaseSync } from "node:sqlite"; const db = new DatabaseSync(process.argv[1], { readOnly: true }); process.stdout.write(JSON.stringify(db.prepare("SELECT id,task_id,content FROM docs_pipeline_manifest").all())); db.close();',
+          path,
+        ],
+        { encoding: 'utf8', timeout: 5000, env: { PATH: process.env.PATH } },
+      );
+      expect(freshRead.error).toBeUndefined();
+      expect(freshRead.status, freshRead.stderr).toBe(0);
+      expect(JSON.parse(freshRead.stdout)).toEqual([
+        { id: ENTRY_A.id, task_id: 'T001', content: JSON.stringify(ENTRY_A) },
+      ]);
+      resetDbState();
+      expect(await pipelineManifestShow(ENTRY_A.id, testRoot)).toMatchObject({
+        success: true,
+        data: {
+          title: ENTRY_A.title,
+          provenance: { databasePath: path, tables: ['docs_pipeline_manifest'] },
+        },
+      });
+    });
+
+    it('retrieves both histories with physical source provenance without rewriting them', async () => {
+      const native = await seedHistory('pipeline_manifest', 'legacy-only');
+      await seedHistory('docs_pipeline_manifest', 'modern-only');
+      const before = native.prepare('SELECT * FROM pipeline_manifest').all();
+      expect(await pipelineManifestShow('legacy-only', testRoot)).toMatchObject({
+        success: true,
+        data: { provenance: { tables: ['pipeline_manifest'] } },
+      });
+      expect(await pipelineManifestShow('modern-only', testRoot)).toMatchObject({
+        success: true,
+        data: { provenance: { tables: ['docs_pipeline_manifest'] } },
+      });
+      expect(await pipelineManifestList({}, testRoot)).toMatchObject({
+        success: true,
+        data: {
+          total: 2,
+          filtered: 2,
+          entries: expect.arrayContaining([
+            expect.objectContaining({ id: 'legacy-only' }),
+            expect.objectContaining({ id: 'modern-only' }),
+          ]),
+        },
+      });
+      expect(native.prepare('SELECT * FROM pipeline_manifest').all()).toEqual(before);
+    });
+
+    it('deduplicates identical persisted rows only and discloses both sources', async () => {
+      const native = await seedHistory('pipeline_manifest', 'copied');
+      native.exec('INSERT INTO docs_pipeline_manifest SELECT * FROM pipeline_manifest');
+      expect(await pipelineManifestList({}, testRoot)).toMatchObject({
+        success: true,
+        data: {
+          total: 1,
+          entries: [
+            expect.objectContaining({
+              id: 'copied',
+              provenance: {
+                databasePath: expect.any(String),
+                tables: ['docs_pipeline_manifest', 'pipeline_manifest'],
+              },
+            }),
+          ],
+        },
+      });
+    });
+
+    it('rejects divergent same-ID payloads even when projected metadata looks identical', async () => {
+      const native = await seedHistory('pipeline_manifest', 'collision');
+      native.exec('INSERT INTO docs_pipeline_manifest SELECT * FROM pipeline_manifest');
+      native
+        .prepare('UPDATE docs_pipeline_manifest SET content=? WHERE id=?')
+        .run('different authentic payload', 'collision');
+      const before = native.prepare('SELECT * FROM pipeline_manifest').all();
+      for (const read of [
+        () => pipelineManifestShow('collision', testRoot),
+        () => pipelineManifestList({}, testRoot),
+        () => pipelineManifestRead(undefined, testRoot),
+        () => pipelineManifestValidate('T001', testRoot),
+      ]) {
+        expect(await read()).toMatchObject({
+          success: false,
+          error: {
+            code: 'E_MANIFEST_ID_CONFLICT',
+            details: {
+              entryId: 'collision',
+              candidates: expect.arrayContaining([
+                expect.objectContaining({ table: 'pipeline_manifest' }),
+                expect.objectContaining({ table: 'docs_pipeline_manifest' }),
+              ]),
+            },
+          },
+        });
+      }
+      await expect(readManifestEntries(testRoot)).rejects.toThrow('collision');
+      expect(await pipelineManifestAppend({ ...ENTRY_A, id: 'collision' }, testRoot)).toMatchObject(
+        { success: false, error: { code: 'E_MANIFEST_ID_CONFLICT' } },
+      );
+      expect(native.prepare('SELECT * FROM pipeline_manifest').all()).toEqual(before);
+    });
+
+    it('refuses mutations of legacy evidence and rolls back a mixed archive selection', async () => {
+      const native = await seedHistory('pipeline_manifest', 'legacy-only');
+      await seedHistory('docs_pipeline_manifest', 'modern-only');
+      const before = native.prepare('SELECT * FROM pipeline_manifest').all();
+      for (const mutate of [
+        () => pipelineManifestAppend({ ...ENTRY_A, id: 'legacy-only' }, testRoot),
+        () => pipelineManifestLink('T999', 'legacy-only', undefined, testRoot),
+        () => pipelineManifestArchive('2027-01-01', testRoot),
+        () => pipelineManifestCompact(testRoot),
+      ]) {
+        expect(await mutate()).toMatchObject({
+          success: false,
+          error: { code: 'E_MANIFEST_LEGACY_REPAIR_REQUIRED' },
+        });
+      }
+      expect(native.prepare('SELECT * FROM pipeline_manifest').all()).toEqual(before);
+      expect(native.prepare('SELECT archived_at FROM docs_pipeline_manifest').all()).toEqual([
+        { archived_at: null },
+      ]);
+    });
+
+    it('rolls back an archive when a later modern write fails', async () => {
+      const native = await seedHistory('docs_pipeline_manifest', 'first');
+      await seedHistory('docs_pipeline_manifest', 'second');
+      native.exec(
+        "CREATE TRIGGER reject_second BEFORE UPDATE ON docs_pipeline_manifest WHEN NEW.id='second' BEGIN SELECT RAISE(ABORT,'second archive rejected'); END",
+      );
+      expect(await pipelineManifestArchive('2027-01-01', testRoot)).toMatchObject({
+        success: false,
+        error: { message: expect.stringContaining('second archive rejected') },
+      });
+      expect(
+        native.prepare('SELECT id,archived_at FROM docs_pipeline_manifest ORDER BY id').all(),
+      ).toEqual([
+        { id: 'first', archived_at: null },
+        { id: 'second', archived_at: null },
+      ]);
+    });
+
+    it('keeps explicitly addressed projects separate under interleaved ambient pins', async () => {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const otherRoot = join(testRoot, 'other');
+      mkdirSync(join(otherRoot, '.cleo'), { recursive: true });
+      mkdirSync(join(otherRoot, '.git'));
+      const other = await bindTasksDomain(otherRoot);
+      other.native.exec('PRAGMA foreign_keys=ON');
+      expect(other.native.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      vi.stubEnv('CLEO_ROOT', otherRoot);
+      vi.stubEnv('CLEO_DIR', join(otherRoot, '.cleo'));
+      expect(await pipelineManifestAppend(ENTRY_A, testRoot)).toMatchObject({ success: true });
+      expect(
+        await pipelineManifestAppend({ ...ENTRY_A, title: 'Other project' }, otherRoot),
+      ).toMatchObject({ success: true });
+      expect(await pipelineManifestShow(ENTRY_A.id, testRoot)).toMatchObject({
+        success: true,
+        data: {
+          title: ENTRY_A.title,
+          provenance: { databasePath: join(testRoot, '.cleo', 'cleo.db') },
+        },
+      });
+      expect(await pipelineManifestShow(ENTRY_A.id, otherRoot)).toMatchObject({
+        success: true,
+        data: {
+          title: 'Other project',
+          provenance: { databasePath: join(otherRoot, '.cleo', 'cleo.db') },
+        },
+      });
+    });
+
+    it('surfaces native storage causes and never turns a failed diagnostic read into empty success', async () => {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      native.exec(
+        "CREATE TRIGGER reject_manifest BEFORE INSERT ON docs_pipeline_manifest BEGIN SELECT RAISE(ABORT,'synthetic manifest storage failure'); END",
+      );
+      expect(await pipelineManifestAppend(ENTRY_A, testRoot)).toMatchObject({
+        success: false,
+        error: {
+          code: 'E_MANIFEST_APPEND',
+          message: expect.stringContaining('synthetic manifest storage failure'),
+        },
+      });
+      native.exec('DROP TABLE docs_pipeline_manifest');
+      expect(await pipelineManifestRead(undefined, testRoot)).toMatchObject({
+        success: false,
+        error: { message: expect.stringContaining('docs_pipeline_manifest') },
+      });
+      await expect(readManifestEntries(testRoot)).rejects.toThrow('docs_pipeline_manifest');
+    });
   });
 
   // =========================================================================
@@ -410,35 +1011,87 @@ describe('pipeline-manifest-sqlite', () => {
   // =========================================================================
 
   describe('pipelineManifestValidate', () => {
-    it('should return valid true when no entries for task', async () => {
+    it('rejects absent task evidence instead of treating an empty selection as valid', async () => {
       await seedEntries(testRoot, [ENTRY_A]);
-      const result = await pipelineManifestValidate('T999', testRoot);
-      expect(result.success).toBe(true);
-      expect((result.data as any).valid).toBe(true);
-      expect((result.data as any).entriesFound).toBe(0);
+      expect(await pipelineManifestValidate('T999', testRoot)).toMatchObject({
+        success: true,
+        data: { valid: false, entriesFound: 0, errorCount: 1, warningCount: 0 },
+      });
     });
 
-    it('should find linked entries and validate fields', async () => {
+    it('selects exact linked tasks and does not infer ownership from manifest IDs', async () => {
+      await seedEntries(testRoot, [
+        { ...ENTRY_A, id: 'T10-report', linked_tasks: ['T10'] },
+        { ...ENTRY_A, id: 'T1-unlinked', linked_tasks: [] },
+      ]);
+      expect(await pipelineManifestValidate('T1', testRoot)).toMatchObject({
+        success: true,
+        data: { valid: false, entriesFound: 0 },
+      });
+      const content = '  Verified T1 evidence π | literal.  \n';
+      writeFileSync(join(testRoot, 'exact.md'), content);
+      await seedEntries(testRoot, [
+        { ...ENTRY_A, id: 'unrelated-name', linked_tasks: ['T1'], file: 'exact.md' },
+      ]);
+      expect(await pipelineManifestValidate('T1', testRoot)).toMatchObject({
+        success: true,
+        data: { valid: true, entriesFound: 1, errorCount: 0, warningCount: 0, issues: [] },
+      });
+      expect(readFileSync(join(testRoot, 'exact.md'), 'utf8')).toBe(content);
+    });
+
+    it('finds linked entries and validates required output availability', async () => {
       await seedEntries(testRoot, [ENTRY_A, ENTRY_B, ENTRY_C]);
-      const result = await pipelineManifestValidate('T001', testRoot);
-      expect(result.success).toBe(true);
-      expect((result.data as any).entriesFound).toBeGreaterThanOrEqual(1);
+      expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+        success: true,
+        data: { valid: false, entriesFound: 2 },
+      });
     });
 
-    it('should warn on missing output file', async () => {
+    it('reports missing required output as an error', async () => {
       await seedEntries(testRoot, [ENTRY_A]);
-      const result = await pipelineManifestValidate('T001-research', testRoot);
-      expect(result.success).toBe(true);
-      const issues = (result.data as any).issues as any[];
-      const fileWarning = issues.find((i) => i.issue.includes('Output file not found'));
-      expect(fileWarning).toBeDefined();
-      expect(fileWarning.severity).toBe('warning');
+      expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+        success: true,
+        data: {
+          valid: false,
+          entriesFound: 1,
+          errorCount: 1,
+          issues: [
+            {
+              entryId: ENTRY_A.id,
+              issue: `Output file not found: ${ENTRY_A.file}`,
+              severity: 'error',
+            },
+          ],
+        },
+      });
     });
 
-    it('should return error for empty taskId', async () => {
-      const result = await pipelineManifestValidate('', testRoot);
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    it.each([
+      '',
+      ' \t\r\n',
+    ])('rejects empty required output without rewriting its bytes: %j', async (content) => {
+      writeFileSync(join(testRoot, 'empty.md'), content);
+      await seedEntries(testRoot, [{ ...ENTRY_A, file: 'empty.md' }]);
+      expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+        success: true,
+        data: {
+          valid: false,
+          entriesFound: 1,
+          errorCount: 1,
+          issues: [
+            { entryId: ENTRY_A.id, issue: 'Output content is empty: empty.md', severity: 'error' },
+          ],
+        },
+      });
+      expect(readFileSync(join(testRoot, 'empty.md'), 'utf8')).toBe(content);
+    });
+
+    it('returns an explicit error for an empty taskId', async () => {
+      expect(await pipelineManifestValidate('', testRoot)).toMatchObject({
+        success: false,
+        error: { code: 'E_INVALID_INPUT' },
+      });
     });
   });
 

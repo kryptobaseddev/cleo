@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import type { Task, TaskRecord } from '@cleocode/contracts';
+import type { Task, TaskRecord, TasksDeleteQueryParams } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
@@ -16,11 +16,7 @@ import { removeChildProjectionAc } from './ac-table.js';
 import { taskToRecord } from './engine-converters.js';
 
 /** Options for deleting a task. */
-export interface DeleteTaskOptions {
-  taskId: string;
-  force?: boolean;
-  cascade?: boolean;
-}
+export type DeleteTaskOptions = TasksDeleteQueryParams;
 
 /** Result of deleting a task. */
 export interface DeleteTaskResult {
@@ -179,7 +175,8 @@ export async function deleteTask(
  *
  * @param projectRoot - Absolute path to the project root
  * @param taskId - Task identifier to delete
- * @param force - When true, enables cascade deletion of children
+ * @param force - Permit dependents and orphan children unless cascade is requested
+ * @param cascade - Archive descendants together with the parent
  * @returns EngineResult with the deleted task record and optional cascade info
  *
  * @task T1568
@@ -189,11 +186,12 @@ export async function taskDelete(
   projectRoot: string,
   taskId: string,
   force?: boolean,
+  cascade?: boolean,
 ): Promise<EngineResult<{ deletedTask: TaskRecord; deleted: boolean; cascadeDeleted?: string[] }>> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
     const result = await deleteTask(
-      { taskId, force: force ?? false, cascade: force ?? false },
+      { taskId, force: force ?? false, cascade: cascade ?? false },
       projectRoot,
       accessor,
     );

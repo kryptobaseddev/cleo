@@ -8,7 +8,6 @@ import type { Task, TaskRef } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
-import { getExecutionWaves } from '../phases/deps.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import {
   buildSpawnPrompt,
@@ -16,6 +15,7 @@ import {
   type SpawnProtocolPhase,
   type SpawnTier,
 } from './spawn-prompt.js';
+import { type EnrichedWave, getEnrichedWaves } from './waves.js';
 
 export type { CircularDependency, DependencyAnalysis, MissingDependency } from './analyze.js';
 // Re-export new core modules for barrel access
@@ -217,7 +217,23 @@ export async function startOrchestration(
 }
 
 /**
- * Analyze an epic's dependency structure.
+ * Analyze the direct children of an epic against their global prerequisites.
+ *
+ * @remarks
+ * Readiness and planned waves use the same dependency assessment as the wave
+ * renderer. Explicit hard dependencies are loaded canonically, including archived
+ * records; failed reads propagate. Completed counts describe selected children,
+ * while blocked tasks include selected nonterminal work that is not actionable.
+ *
+ * @param epicId - Epic whose direct children are selected.
+ * @param cwd - Explicit project root for the supplied accessor.
+ * @param accessor - Canonical accessor bound to that project.
+ * @returns Child-scoped analysis with global dependency readiness.
+ * @throws CleoError if the epic is missing; required store read failures propagate.
+ * @example
+ * ```ts
+ * const analysis = await analyzeEpic('T100', projectRoot, accessor);
+ * ```
  * @task T4466
  */
 export async function analyzeEpic(
@@ -232,26 +248,17 @@ export async function analyzeEpic(
   }
 
   const childTasks = await accessor!.getChildren(epicId);
-  const waves = await getExecutionWaves(epicId, cwd, accessor);
-
+  const { waves } = await getEnrichedWaves(epicId, cwd, accessor);
+  const readiness = projectChildReadiness(childTasks, waves);
   const completedTasks = childTasks.filter((t) => t.status === 'done').map((t) => t.id);
-  const blockedTasks = childTasks.filter((t) => t.status === 'blocked').map((t) => t.id);
-
-  // Find ready tasks (all deps complete, not yet started)
-  const completedSet = new Set(completedTasks);
-  const readyTasks = childTasks
-    .filter((t) => {
-      if (t.status === 'done' || t.status === 'cancelled') return false;
-      const deps = t.depends ?? [];
-      return deps.every((d) => completedSet.has(d));
-    })
-    .map((t) => t.id);
+  const readyTasks = readiness.filter((task) => task.ready).map((task) => task.taskId);
+  const blockedTasks = readiness.filter((task) => !task.ready).map((task) => task.taskId);
 
   return {
     epicId,
     totalTasks: childTasks.length,
     waves: waves.map((w) => ({
-      wave: w.wave,
+      wave: w.waveNumber,
       tasks: w.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status })),
     })),
     readyTasks,
@@ -260,36 +267,57 @@ export async function analyzeEpic(
   };
 }
 
+/** Project canonical wave assessments without changing child order or protocol dispatch. */
+function projectChildReadiness(children: Task[], waves: EnrichedWave[]): TaskReadiness[] {
+  const assessments = new Map(
+    waves.flatMap((wave) => wave.tasks.map((task) => [task.id, task] as const)),
+  );
+  return children.flatMap((task) => {
+    const assessment = assessments.get(task.id);
+    // Terminal children are absent from the canonical execution wave population.
+    if (!assessment) return [];
+    return [
+      {
+        taskId: task.id,
+        title: task.title,
+        priority: task.priority ?? 'medium',
+        depends: assessment.depends,
+        ready: assessment.ready,
+        blockers: assessment.blockedBy,
+        protocol: autoDispatch(task),
+      },
+    ];
+  });
+}
+
 /**
- * Get parallel-safe ready tasks for an epic.
+ * Assess the direct children of an epic for immediate execution.
+ *
+ * @remarks
+ * Preserves child selection and protocol dispatch while projecting the canonical
+ * wave assessment. Archived external dependencies are resolved by identity, not
+ * an active-only listing. Proposed or blocked children remain visible but are
+ * not actionable. Required dependency-read failures propagate to the caller.
+ *
+ * @param epicId - Epic whose direct children are selected.
+ * @param cwd - Explicit project root for the supplied accessor.
+ * @param accessor - Canonical accessor bound to that project.
+ * @returns Assessments for nonterminal children, preserving their input order.
+ * @throws Error when a required child or dependency read fails.
+ * @example
+ * ```ts
+ * const ready = (await getReadyTasks('T100', projectRoot, accessor)).filter(task => task.ready);
+ * ```
  * @task T4466
  */
 export async function getReadyTasks(
   epicId: string,
-  _cwd?: string,
+  cwd?: string,
   accessor?: DataAccessor,
 ): Promise<TaskReadiness[]> {
   const childTasks = await accessor!.getChildren(epicId);
-  const { tasks: allTasks } = await accessor!.queryTasks({});
-  const completedIds = new Set(allTasks.filter((t) => t.status === 'done').map((t) => t.id));
-
-  return childTasks
-    .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
-    .map((task) => {
-      const deps = task.depends ?? [];
-      const unmetDeps = deps.filter((d) => !completedIds.has(d));
-      const protocol = autoDispatch(task);
-
-      return {
-        taskId: task.id,
-        title: task.title,
-        priority: task.priority ?? 'medium',
-        depends: deps,
-        ready: unmetDeps.length === 0,
-        blockers: unmetDeps,
-        protocol,
-      };
-    });
+  const { waves } = await getEnrichedWaves(epicId, cwd, accessor);
+  return projectChildReadiness(childTasks, waves);
 }
 
 /**

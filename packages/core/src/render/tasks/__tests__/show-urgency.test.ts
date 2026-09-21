@@ -9,13 +9,13 @@
  * @task T9905
  */
 
-import type { Task } from '@cleocode/contracts';
+import type { Task, TestGate } from '@cleocode/contracts';
+import type { AdminContextPullResult } from '@cleocode/contracts/operations/admin';
 import { describe, expect, it } from 'vitest';
 import { renderShow } from '../show.js';
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
-    id: overrides.id,
     title: overrides.id,
     description: '',
     status: 'pending',
@@ -27,7 +27,7 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
     acceptance: [],
     createdAt: '2026-04-22T00:00:00Z',
     ...overrides,
-  } as Task;
+  };
 }
 
 /** Strip ANSI escape codes for legible assertion. */
@@ -49,5 +49,34 @@ describe('renderShow urgency line (T9905)', () => {
     const out = stripAnsi(renderShow({ task: makeTask({ id: 'T1', priority: 'high' }) }, false));
     expect(out).toMatch(/Urgency:/);
     expect(out).toMatch(/severity=—/);
+  });
+});
+
+describe('typed requirement read consumers (T12292)', () => {
+  it('retains literal text and every typed gate field in human output and admin task snapshots', () => {
+    const gate: TestGate = {
+      kind: 'test',
+      req: 'PARTNER-001',
+      description: 'Verify exact partner completion',
+      command: 'node',
+      args: ['axiom-app/scripts/verify-partner-completion.mjs', '--task', 'T001'],
+      expect: 'exit0',
+      cwd: 'included-root',
+      env: { FIXTURE_VALUE: 'literal | ü' },
+      timeoutMs: 1800000,
+    };
+    const task = makeTask({ id: 'T001', acceptance: ['literal | criterion', gate] });
+    const contextTask: AdminContextPullResult['task'] = {
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      acceptance: task.acceptance ?? [],
+    };
+    expect(contextTask.acceptance).toEqual(['literal | criterion', gate]);
+    const rendered = stripAnsi(renderShow({ task }, false));
+    expect(rendered).toContain('literal | criterion');
+    expect(rendered).toContain(JSON.stringify(gate));
+    expect(rendered).not.toContain('[object Object]');
+    expect(task.acceptance).toEqual(['literal | criterion', gate]);
   });
 });

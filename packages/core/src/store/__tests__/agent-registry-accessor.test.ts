@@ -112,7 +112,8 @@ async function bootstrapDbs(
   ensureGlobal: () => Promise<void>;
   ensureConduit: () => void;
 }> {
-  vi.doMock('../../paths.js', () => ({
+  vi.doMock('../../paths.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../paths.js')>()),
     getCleoHome: () => cleoHome,
     resolveCleoDir: (cwd) => join(cwd ?? projectRoot, '.cleo'),
   }));
@@ -158,7 +159,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-050: lookupAgent returns null for unknown agentId', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -184,7 +186,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-051: lookupAgent returns merged agent when ref exists with enabled=1', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -221,7 +224,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-052: lookupAgent returns null when project_agent_refs row has enabled=0', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -256,7 +260,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-053: lookupAgent with includeGlobal=true returns global agent even without project ref', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -305,7 +310,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-054: listAgentsForProject returns only project-attached agents by default', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -352,7 +358,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-055: listAgentsForProject with includeGlobal=true returns all global agents', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -409,7 +416,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-056: createProjectAgent writes to global cleo.db (agent_registry) AND project_agent_refs', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -460,7 +468,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-057: AgentRegistryAccessor.remove() sets project_agent_refs.enabled=0; global row intact', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -507,7 +516,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-058: AgentRegistryAccessor.removeGlobal() deletes row from global agent_registry_agents', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -549,7 +559,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-059: AgentRegistryAccessor.markUsed() updates last_used_at in both DBs', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -606,7 +617,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('lookupAgent logs warn and returns null for dangling soft-FK', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -647,7 +659,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('createProjectAgent re-enables a previously detached (enabled=0) project ref', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -696,7 +709,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('listAgentsForProject with includeDisabled=true includes enabled=0 rows', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -737,7 +751,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('AgentRegistryAccessor.list() returns only project-attached agents', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -783,7 +798,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('AgentRegistryAccessor.listGlobal() returns all global agents', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -830,7 +846,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('AgentRegistryAccessor.removeGlobal() throws when active project ref exists without force', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -872,7 +889,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('T11562: write-then-read round-trips through the consolidated global cleo.db (read/write aligned)', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));
@@ -917,7 +935,8 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   });
 
   it('T11622: read-first standalone read resolves against the prefixed agent_registry_agents table', async () => {
-    vi.doMock('../../paths.js', () => ({
+    vi.doMock('../../paths.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../paths.js')>()),
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
     }));

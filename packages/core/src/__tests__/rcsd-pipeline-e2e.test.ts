@@ -15,7 +15,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Barrel imports from index.ts
 import {
   PIPELINE_STAGES as BARREL_PIPELINE_STAGES,
@@ -42,6 +42,16 @@ import {
   PIPELINE_STAGES,
   validateStage,
 } from '../lifecycle/stages.js';
+
+// Explicit cwd selects the synthetic project after clearing default project pins.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('RCASD-IVTR+C Pipeline E2E', () => {
   let testDir: string;

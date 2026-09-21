@@ -95,14 +95,45 @@ describe('countOperationEntries', () => {
     expect(countOperationEntries(REGISTRY_FIXTURE)).toBe(3);
   });
 
-  it('counts only `operation:` properties assigned a quoted string (ignores prose/type refs)', () => {
-    const src = `// the operation: field is documented here\nconst x = { operation: 'real' };`;
-    // The comment text `operation:` has no following quoted string, and a type
-    // ref like `operation: string` is not quoted — only the quoted property
-    // assignment counts. This matches the triple regex's third capture group.
-    expect(countOperationEntries("  operation: 'a'\n  operation: 'b'\n")).toBe(2);
-    expect(countOperationEntries(src)).toBe(1);
+  it('ignores operation fields outside the registry', () => {
+    const source = `// operation: 'comment'\nconst x = { operation: 'real' };`;
+    expect(countOperationEntries(source)).toBe(0);
     expect(countOperationEntries('interface Op { operation: string }')).toBe(0);
+  });
+});
+
+describe('structural registry ownership (T12292)', () => {
+  it('counts only direct entries despite nested schema operation fields and fake comments', () => {
+    const source = `// gateway: 'query', domain: 'fake', operation: 'comment'
+      export const OPERATIONS = [
+        { gateway: 'mutate', domain: 'tasks', operation: 'req.add',
+          inputSchema: { operation: 'tasks.req.add', schema: {} } },
+      ];`;
+    expect(countOperationEntries(source)).toBe(1);
+    expect(parseOperations(source)).toEqual([{ gateway: 'mutate', key: 'tasks.req.add' }]);
+  });
+
+  it('accepts formatting/property order and literal assertions while retaining duplicate entries', () => {
+    const source = `export const OPERATIONS = ([
+      { operation: "tree", tier: 0, domain: 'tasks', gateway: ('query' as const) },
+      { gateway: 'query', domain: 'tasks', operation: 'tree' },
+    ] satisfies OperationDef[]);`;
+    expect(countOperationEntries(source)).toBe(2);
+    expect(parseOperations(source)).toEqual([
+      { gateway: 'query', key: 'tasks.tree' },
+      { gateway: 'query', key: 'tasks.tree' },
+    ]);
+  });
+
+  it.each([
+    'export const OPERATIONS = [...other];',
+    'export const OPERATIONS = getOperations();',
+    "export const OPERATIONS = [{...common, gateway:'query',domain:'tasks',operation:'show'}];",
+    "export const OPERATIONS = [{gateway:'query',gateway:'mutate',domain:'tasks',operation:'show'}];",
+    'export const OPERATIONS = [',
+  ])('refuses unsupported or malformed registry syntax: %s', (source) => {
+    expect(() => parseOperations(source)).toThrow(/registry|parse/i);
+    expect(() => countOperationEntries(source)).toThrow(/registry|parse/i);
   });
 });
 
@@ -145,8 +176,8 @@ describe('scanUncovered', () => {
     expect(uncovered).toEqual([]);
   });
 
-  it('flags PARSE DRIFT when an entry has a non-(query|mutate) gateway (triple regex skips it)', () => {
-    // A gateway value the ordered triple regex does not match (e.g. a future
+  it('flags PARSE DRIFT when an entry has a non-(query|mutate) gateway (unsupported gateway)', () => {
+    // A gateway value the supported operation model does not recognize (e.g. a future
     // 'stream' gateway) is skipped by parseOperations but still counted by
     // countOperationEntries → the gate must fail closed rather than report 100%.
     seedRegistry({
@@ -165,7 +196,7 @@ describe('real repository tree', () => {
   it('resolves a contract for EVERY registered operation (zero uncovered, zero drift)', () => {
     const { uncovered, total, covered, registryCount, parseDrift } = scanUncovered(REPO_ROOT);
     expect(parseDrift, parseDrift ?? undefined).toBeNull();
-    // The triple parse and the authoritative entry count agree.
+    // Supported operation identities and direct array entries agree.
     expect(total).toBe(registryCount);
     // 100% coverage by design (every registered op resolves a contract).
     expect(uncovered).toEqual([]);

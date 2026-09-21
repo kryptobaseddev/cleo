@@ -4,24 +4,41 @@
  * @epic T4454
  */
 
-import type { Task, TaskRecord, TaskRef, VerificationGate } from '@cleocode/contracts';
+import { randomUUID } from 'node:crypto';
+import { join, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+import type {
+  AcRow,
+  KnowledgeCoverage,
+  Task,
+  TaskRecord,
+  TaskRef,
+  VerificationGate,
+} from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode, TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { getRawConfigValue, loadConfig } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
+import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import {
   type AutoCompleteWorktreeResult,
   maybeAutoCompleteWorktreeForTask,
 } from '../orchestrate/worktree-complete.js';
 import { getProjectRoot, resolveOrCwd } from '../paths.js';
+import {
+  captureProjectScope,
+  readProjectInfoAtDirectorySync,
+  worktreeScope,
+} from '../project-scope.js';
 import { buildSagaAutoCloseEvidence, findSagasGroupingTask } from '../sagas/storage.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
-import { trackBackgroundOp } from '../store/background-ops.js';
+import { createOperationExecutionContext, trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveCurrentSession } from '../store/session-store.js';
@@ -34,9 +51,11 @@ import {
   resolveWaivers,
   type UnsatisfiedAc,
 } from './ac-coverage-gate.js';
+import { acItemToText } from './ac-table.js';
 import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { revalidateEvidence } from './evidence.js';
+import { validateTaskGateCompletion } from './gate-runner.js';
 import { validateNexusImpactGate } from './nexus-impact-gate.js';
 import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.js';
 
@@ -129,6 +148,8 @@ export interface TaskCompletionReceiptSummary {
 
 /** Result of completing a task. */
 export interface CompleteTaskResult {
+  /** Coverage assessed after completion without asserting all runtime callers are known. */
+  knowledgeCoverage?: KnowledgeCoverage;
   task: Task;
   autoCompleted?: string[];
   unblockedTasks?: Array<Pick<TaskRef, 'id' | 'title'>>;
@@ -251,18 +272,6 @@ export async function verifyEpicHasEvidence(task: Task, acc: DataAccessor): Prom
 }
 
 /**
- * Resolve the absolute project root to write audit logs to. The gate
- * call site has `cwd` as an optional parameter; we re-use the same
- * canonical fallback the rest of `completeTask` uses ({@link getProjectRoot}).
- *
- * @internal
- * @task T10509
- */
-function projectRootForGate(cwd: string | undefined): string {
-  return cwd ?? getProjectRoot();
-}
-
-/**
  * Enforce the AC-coverage gate (T10509). Throws when:
  *   - Any AC has zero `evidence_ac_bindings` rows AND no override clears it.
  *   - `--waive-ac` was supplied without a non-empty `--waive-reason`.
@@ -280,6 +289,50 @@ function projectRootForGate(cwd: string | undefined): string {
  * @task T10509
  */
 type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings'>;
+
+/** Parent rollups must satisfy their own criteria without inheriting child waivers. */
+async function canAutoCompleteParent(
+  parent: Task,
+  accessor: DataAccessor,
+  tx: TransactionAccessor,
+  validateTyped: (task: Task, tx: TransactionAccessor) => Promise<void>,
+): Promise<boolean> {
+  if (parent.noAutoComplete) return false;
+  try {
+    await validateTyped(parent, tx);
+  } catch (error) {
+    if (!(error instanceof CleoError) || error.code !== ExitCode.AC_COVERAGE_INCOMPLETE)
+      throw error;
+    getLogger('engine:complete').warn(
+      { parentId: parent.id, reason: error.message },
+      'Parent typed requirements remain unmet; auto-completion skipped',
+    );
+    return false;
+  }
+  return (
+    await computeAcCoverage(parent.id, { ...accessor, ...completionCoverageAccessor(parent, tx) })
+  ).ok;
+}
+
+/** Exclude only explicitly advisory typed rows after their canonical projection is validated. */
+function completionCoverageAccessor(
+  task: Task,
+  accessor: AcCoverageAccessor,
+  capturedRows?: readonly AcRow[],
+): AcCoverageAccessor {
+  const optional = new Map(
+    (task.acceptance ?? []).flatMap((item, index) =>
+      typeof item !== 'string' && item.advisory ? [[index, acItemToText(item)] as const] : [],
+    ),
+  );
+  return {
+    getAcRows: async (taskId) =>
+      (capturedRows ? [...capturedRows] : await accessor.getAcRows(taskId))
+        .sort((a, b) => a.ordinal - b.ordinal)
+        .filter((row, index) => optional.get(index) !== row.text),
+    getAcBindings: (ids) => accessor.getAcBindings(ids),
+  };
+}
 
 async function enforceAcCoverageGate(
   options: CompleteTaskOptions,
@@ -408,6 +461,18 @@ export async function withTaskWriteTransaction<T>(
 /**
  * Complete a task by ID.
  * Handles dependency checking and optional auto-completion of epics.
+ * @param options - Explicit completion request and separately audited text-criterion waivers.
+ * @param cwd - Owning project root; captured before asynchronous work.
+ * @param accessor - Optional caller-owned canonical task accessor.
+ * @returns Completed task and any parents whose own criteria also permit completion.
+ * @remarks Required typed gates need current bound results and the matching canonical
+ * receipt under the write transaction. Generic coverage and waivers cannot replace them.
+ * Advisory typed gates retain their nonblocking meaning. Declared file snapshots cannot
+ * make external filesystem mutations atomic with SQLite.
+ * @example
+ * ```ts
+ * const completed = await completeTask({ taskId: 'T123' }, projectRoot);
+ * ```
  * @task T4461
  */
 export async function completeTask(
@@ -415,13 +480,18 @@ export async function completeTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<CompleteTaskResult> {
-  const acc = accessor ?? (await getTaskAccessor(cwd));
+  const admittedAt = Date.now();
+  const capturedExecution = worktreeScope.getStore()?.execution;
+  const completionRoot = resolve(resolveOrCwd(cwd));
+  const acc = accessor ?? (await getTaskAccessor(completionRoot));
   const task = await acc.loadSingleTask(options.taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
       fix: `Use 'cleo find "${options.taskId}"' to search`,
     });
   }
+
+  const initialTask = structuredClone(task);
 
   // ---- T12102 (gh#1196): idempotent complete ----
   // Re-running `cleo complete` on an already-done task is a no-op SUCCESS,
@@ -436,7 +506,11 @@ export async function completeTask(
   // fresh shell. The `cleo verify` E_ALREADY_DONE guard (ADR-051 §11.1
   // evidence immutability) is a different path and is NOT loosened.
   if (task.status === 'done') {
-    return { task, alreadyCompleted: true };
+    return {
+      task,
+      alreadyCompleted: true,
+      knowledgeCoverage: await assessKnowledgeCoverage(resolveOrCwd(cwd)),
+    };
   }
 
   // gh#1194 / T12106 — name the exact recovery so an agent that recorded
@@ -769,6 +843,58 @@ export async function completeTask(
   const autoCompleted: string[] = [];
   const autoCompletedTasks: Task[] = [];
 
+  let typedExecution = capturedExecution;
+  let ownedTypedExecution: OperationExecutionContext | undefined;
+  const validateTypedCompletion = async (
+    candidate: Task,
+    tx: TransactionAccessor,
+  ): Promise<void> => {
+    const criteria = await tx.getAcRows(candidate.id);
+    if (
+      !(candidate.acceptance ?? []).some((item) => typeof item !== 'string') &&
+      !criteria.some((row) => row.kind === 'evidence_bound')
+    )
+      return;
+    try {
+      if (!typedExecution) {
+        const info = readProjectInfoAtDirectorySync(completionRoot, join(completionRoot, '.cleo'));
+        if (!info.projectId) throw new Error('Typed completion requires stable project identity');
+        ownedTypedExecution = createOperationExecutionContext(
+          {
+            projectId: info.projectId,
+            projectRoot: completionRoot,
+            actor: process.env.CLEO_AGENT_ID ?? 'cleo',
+            operation: 'tasks.complete',
+            idempotencyKey: `${options.taskId}:${randomUUID()}`,
+          },
+          { deadlineAt: admittedAt + 2000 },
+        );
+        typedExecution = ownedTypedExecution;
+      }
+      typedExecution.assertActive();
+      await validateTaskGateCompletion(
+        candidate,
+        criteria,
+        {
+          projectRoot: completionRoot,
+          execution: typedExecution,
+        },
+        acc,
+      );
+      typedExecution.assertActive();
+    } catch (error) {
+      // Cancellation/deadline remains an operation failure, never a parent-rollup skip.
+      typedExecution?.assertActive();
+      throw new CleoError(
+        ExitCode.AC_COVERAGE_INCOMPLETE,
+        `Typed requirements for ${candidate.id} cannot complete: ${error instanceof Error ? error.message : String(error)}`,
+        {
+          fix: `Run explicit verification for ${candidate.id} against current requirement inputs.`,
+        },
+      );
+    }
+  };
+
   const { receipt } = await wrapWithAgentSession(
     {
       sessionId:
@@ -788,32 +914,27 @@ export async function completeTask(
         // decision and status='done'/autoclose updates commit or roll back as
         // one atomic unit.
         //
-        // ---- T10644: Auto-bind ACs when all verification gates are green ----
-        // Workers often complete all 3 gates (implemented/testsPassed/qaPassed)
-        // but skip the AC evidence binding step. When all gates are green, we
-        // auto-create `coverage` bindings for any ACs lacking bindings so the
-        // complete gate passes without manual SQL injection by the Prime.
-        if (task.verification?.passed === true) {
-          const acRows = await acc.getAcRows(options.taskId);
-          if (acRows.length > 0) {
-            const acIds = acRows.map((ac) => ac.id);
-            const bindings = await acc.getAcBindings(acIds);
-            const boundAcIds = new Set(bindings.map((b: any) => b.acId));
-            const unbound = acRows.filter((ac) => !boundAcIds.has(ac.id));
-            if (unbound.length > 0) {
-              await tx.insertAcBindings(
-                unbound.map((ac) => ({
-                  id: `auto-coverage-${ac.id.slice(0, 8)}`,
-                  evidenceAtomId: 'auto-coverage-verification-passed',
-                  acId: ac.id,
-                  bindingType: 'coverage' as const,
-                })),
-              );
-            }
-          }
+        // Gate status does not establish which criteria were proved. Require
+        // explicit bindings; retain historical auto-coverage rows as history.
+        const current = await acc.loadSingleTask(options.taskId);
+        const currentCriteria = await tx.getAcRows(options.taskId);
+        if (
+          (initialTask.acceptance ?? []).some((item) => typeof item !== 'string') ||
+          (current?.acceptance ?? []).some((item) => typeof item !== 'string') ||
+          currentCriteria.some((row) => row.kind === 'evidence_bound')
+        ) {
+          if (!current || !isDeepStrictEqual(current, initialTask))
+            throw new CleoError(
+              ExitCode.CONCURRENT_MODIFICATION,
+              'Typed completion task changed before acquiring the write transaction',
+            );
+          await validateTypedCompletion(current, tx);
         }
-
-        await enforceAcCoverageGate(options, projectRootForGate(cwd), tx);
+        await enforceAcCoverageGate(
+          options,
+          completionRoot,
+          completionCoverageAccessor(task, tx, currentCriteria),
+        );
 
         // Auto-advance pipelineStage: IVTR execution stages → release (T719)
         // When a task is completed, advance from implementation/validation/testing to release.
@@ -922,7 +1043,10 @@ export async function completeTask(
                   } as typeof acc)
                 : true;
 
-              if (epicEvidencePassed) {
+              if (
+                epicEvidencePassed &&
+                (await canAutoCompleteParent(parent, acc, tx, validateTypedCompletion))
+              ) {
                 parent.status = 'done';
                 parent.completedAt = now;
                 parent.updatedAt = now;
@@ -979,17 +1103,23 @@ export async function completeTask(
                   '[complete] suppressing coordination-parent auto-close: un-waived cancelled children require `cleo complete --waive-cancelled-children`',
                 );
               }
-              if (allCpDone && !cpHasCancelledChild) {
+              if (
+                allCpDone &&
+                !cpHasCancelledChild &&
+                (await canAutoCompleteParent(coordinationParent, acc, tx, validateTypedCompletion))
+              ) {
                 // Synthesize verification evidence from children's gate state.
                 // The overlay adds the current task (not yet in DB) as done so
                 // buildRollupEvidence sees the post-write view.
                 const childrenForRollup: Task[] = cpChildren.map((c) =>
                   c.id === task.id ? { ...c, status: 'done' as const } : c,
                 );
-                coordinationParent.verification = buildRollupEvidence(
-                  coordinationParent.id,
-                  childrenForRollup,
-                );
+                coordinationParent.verification = {
+                  ...buildRollupEvidence(coordinationParent.id, childrenForRollup),
+                  ...(coordinationParent.verification?.gateResults
+                    ? { gateResults: coordinationParent.verification.gateResults }
+                    : {}),
+                };
                 coordinationParent.status = 'done';
                 coordinationParent.completedAt = now;
                 coordinationParent.updatedAt = now;
@@ -1050,7 +1180,11 @@ export async function completeTask(
             if (m.id === task.id) return true;
             return m.status === 'done' || m.status === 'cancelled';
           });
-          if (!allMembersTerminal) continue;
+          if (
+            !allMembersTerminal ||
+            !(await canAutoCompleteParent(saga, acc, tx, validateTypedCompletion))
+          )
+            continue;
 
           // Synthesize evidence + flip the saga to terminal. The saga write
           // joins `autoCompletedTasks` so the transaction below upserts it
@@ -1059,7 +1193,12 @@ export async function completeTask(
           const terminalMemberIds = memberTasks
             .filter((m) => m.id === task.id || m.status === 'done' || m.status === 'cancelled')
             .map((m) => m.id);
-          saga.verification = buildSagaAutoCloseEvidence(saga.id, terminalMemberIds, now);
+          saga.verification = {
+            ...buildSagaAutoCloseEvidence(saga.id, terminalMemberIds, now),
+            ...(saga.verification?.gateResults
+              ? { gateResults: saga.verification.gateResults }
+              : {}),
+          };
           saga.status = 'done';
           saga.completedAt = now;
           saga.updatedAt = now;
@@ -1074,27 +1213,44 @@ export async function completeTask(
         // Writes join the BEGIN IMMEDIATE transaction opened by
         // withTaskWriteTransaction above, keeping the gate decision and status
         // changes atomic (T10595).
-        await tx.upsertSingleTask(task);
-        for (const parentTask of autoCompletedTasks) {
-          await tx.upsertSingleTask(parentTask);
-        }
-        await tx.appendLog({
-          id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
-          timestamp: new Date().toISOString(),
-          action: 'task_completed',
-          taskId: options.taskId,
-          actor: 'system',
-          details: { title: task.title, previousStatus: before.status },
-          before: null,
-          after: { title: task.title, previousStatus: before.status },
-        });
+        const commitTasks = async () => {
+          await validateTypedCompletion(task, tx);
+          for (const parentTask of autoCompletedTasks)
+            await validateTypedCompletion(parentTask, tx);
+          typedExecution?.assertActive();
+          await tx.upsertSingleTask(task);
+          for (const parentTask of autoCompletedTasks) {
+            await tx.upsertSingleTask(parentTask);
+          }
+          await tx.appendLog({
+            id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+            timestamp: new Date().toISOString(),
+            action: 'task_completed',
+            taskId: options.taskId,
+            actor: 'system',
+            details: { title: task.title, previousStatus: before.status },
+            before: null,
+            after: { title: task.title, previousStatus: before.status },
+          });
+
+          typedExecution?.assertActive();
+        };
+        if (typedExecution)
+          await worktreeScope.run(
+            captureProjectScope(completionRoot, {
+              ...captureProjectScope(completionRoot, worktreeScope.getStore()),
+              execution: typedExecution,
+            }),
+            commitTasks,
+          );
+        else await commitTasks();
 
         // llmtxt tracks `documentIds` when contribute() returns a shape
         // matching `{ documentId?: string }`. CLEO tasks are not llmtxt
         // documents, so we return an empty object here — eventCount still
         // ticks to 1 on success, which is the signal the receipt needs.
         return {};
-      }),
+      }).finally(() => ownedTypedExecution?.close()),
   );
 
   // Compute newly unblocked tasks: dependents whose deps are now all satisfied
@@ -1261,6 +1417,7 @@ export async function completeTask(
       : undefined;
 
   return {
+    knowledgeCoverage: await assessKnowledgeCoverage(resolveOrCwd(cwd)),
     task,
     ...(autoCompleted.length > 0 && { autoCompleted }),
     ...(unblockedTasks.length > 0 && { unblockedTasks }),
@@ -1273,6 +1430,7 @@ export async function completeTask(
 // ---------------------------------------------------------------------------
 
 interface CompleteEngineSuccess {
+  knowledgeCoverage?: KnowledgeCoverage;
   task: TaskRecord;
   autoCompleted?: string[];
   unblockedTasks?: Array<{ id: string; title: string }>;
@@ -1401,6 +1559,7 @@ export async function taskComplete(
     if (result.alreadyCompleted) {
       return engineSuccess({
         task: result.task as TaskRecord,
+        knowledgeCoverage: result.knowledgeCoverage,
         alreadyDone: true,
         note: `Task ${taskId} is already done — complete was a no-op (idempotent).`,
       });
@@ -1439,6 +1598,7 @@ export async function taskComplete(
     );
 
     return engineSuccess({
+      knowledgeCoverage: result.knowledgeCoverage,
       task: result.task as TaskRecord,
       ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
       ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),

@@ -12,7 +12,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { memoryShow } from '../engine-compat.js';
 import {
   pipelineManifestAppend,
@@ -69,6 +69,13 @@ const SAMPLE_ENTRIES = [
     linked_tasks: ['T001', 'T003'],
   },
 ];
+
+// Read and write the selected project's manifest and bridge fixtures.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('Memory Engine Compat', () => {
   let testRoot: string;
@@ -346,25 +353,26 @@ describe('Pipeline Manifest SQLite (moved from memory domain)', () => {
   });
 
   describe('pipelineManifestValidate', () => {
-    it('should validate entries for task', async () => {
+    it('validates only explicit task links and reports missing evidence output', async () => {
       await seedEntries();
-      const result = await pipelineManifestValidate('T001', testRoot);
-      expect(result.success).toBe(true);
-      expect((result.data as any).taskId).toBe('T001');
-      expect((result.data as any).entriesFound).toBeGreaterThan(0);
+      expect(await pipelineManifestValidate('T001', testRoot)).toMatchObject({
+        success: true,
+        data: { taskId: 'T001', valid: false, entriesFound: 2 },
+      });
     });
 
-    it('should return error for empty taskId', async () => {
-      const result = await pipelineManifestValidate('', testRoot);
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    it('returns an error for empty taskId', async () => {
+      expect(await pipelineManifestValidate('', testRoot)).toMatchObject({
+        success: false,
+        error: { code: 'E_INVALID_INPUT' },
+      });
     });
 
-    it('should handle task with no entries', async () => {
-      const result = await pipelineManifestValidate('T999', testRoot);
-      expect(result.success).toBe(true);
-      expect((result.data as any).entriesFound).toBe(0);
-      expect((result.data as any).valid).toBe(true);
+    it('does not validate a task with no entries', async () => {
+      expect(await pipelineManifestValidate('T999', testRoot)).toMatchObject({
+        success: true,
+        data: { entriesFound: 0, valid: false, errorCount: 1 },
+      });
     });
   });
 

@@ -2,11 +2,11 @@
  * Acceptance gate discriminated union and result types.
  *
  * A machine-verifiable acceptance gate. Gates coexist with free-text criteria
- * in `Task.acceptance`; the runtime executes only gates and records results in
- * `task.verification.gateResults` and in the `lifecycle_gate_results` DB table.
+ * in `Task.acceptance`. The runner returns observed results; persistence and
+ * completion binding require the caller's explicit verification workflow.
  *
  * Six gate kinds are supported:
- * - `test`    — run a command and assert exit code / test-count
+ * - `test`    — run a command and assert exit code; unmeasured test-count requirements remain errors
  * - `file`    — assert properties of a file on disk
  * - `command` — run any CLI command and assert exit code / stdout
  * - `lint`    — run a static-analysis tool and require a clean result
@@ -18,6 +18,38 @@
  * @task T779
  * @see {@link https://github.com/kryptobaseddev/cleo} T760 RCASD hardening
  */
+
+import type { OperationExecutionContext, OperationExecutionIdentity } from './jobs.js';
+import type {
+  ProcessCaptureOptions,
+  ProcessCaptureResult,
+  SystemdControlContext,
+} from './resource-governor.js';
+
+/**
+ * Captured options for evaluating acceptance gates without renewing operation authority.
+ * @remarks An absent execution context receives a two-second shared foreground budget.
+ * Per-gate timeouts can tighten it; long work requires explicit runtime admission.
+ * @example
+ * ```typescript
+ * const options: AcceptanceGateRunOptions = { projectRoot: '/project', execution };
+ * ```
+ */
+export interface AcceptanceGateRunOptions
+  extends Pick<ProcessCaptureOptions, 'memoryMaxMb' | 'tasksMax'> {
+  /** Explicit project root, or the captured operation's project root. */
+  projectRoot?: string;
+  /** Manual gates remain skipped and never become machine proof. */
+  skipManual?: boolean;
+  /** Original admitted operation, including project identity, deadline and cancellation. */
+  execution?: OperationExecutionContext;
+  /** Explicit captured environment; defaults to a copy of the calling environment. */
+  env?: Readonly<Record<string, string | undefined>>;
+  /** Aggregate process output and file-content read bound per gate. */
+  maxOutputBytes?: number;
+  /** Existing manager context, separate from the child environment. */
+  systemdControl?: SystemdControlContext;
+}
 
 // ─── Base ────────────────────────────────────────────────────────────────────
 
@@ -48,7 +80,7 @@ export interface GateBase {
   /**
    * Gate timeout in milliseconds.
    *
-   * @defaultValue 120_000
+   * @defaultValue 60_000 (further bounded by the shared operation deadline)
    */
   timeoutMs?: number;
 }
@@ -56,8 +88,8 @@ export interface GateBase {
 // ─── Variants ────────────────────────────────────────────────────────────────
 
 /**
- * Run a command; pass when exit code is 0 and when at least `minCount`
- * tests have run. Designed for test suites:
+ * Run a command and verify its actual exit status. Positive `minCount` requires
+ * a structured test-count capability and currently returns an explicit error. Designed for test suites:
  * `{ kind: 'test', command: 'pnpm test', expect: 'pass' }`.
  */
 export interface TestGate extends GateBase {
@@ -71,7 +103,7 @@ export interface TestGate extends GateBase {
    * - `"exit0"`: exit code 0 only (permissive mode).
    */
   expect: 'pass' | 'exit0';
-  /** Minimum number of tests that must have run. */
+  /** Minimum test count; unsupported count evidence must return error, never infer a count from exit zero. */
   minCount?: number;
   /** Working directory relative to project root. Default `.`. */
   cwd?: string;
@@ -181,8 +213,8 @@ export interface LintGate extends GateBase {
 
 /**
  * Hit a URL and assert HTTP status and optional body match. For tasks that
- * ship a webapp or API. The runner starts a server only if `startCommand`
- * is set and tears it down after the probe.
+ * ship a webapp or API. Probing an existing service is supported; `startCommand`
+ * currently returns an explicit error pending an admitted owned service lifetime.
  */
 export interface HttpGate extends GateBase {
   kind: 'http';
@@ -320,15 +352,91 @@ export type GateResultDetails =
 // ─── Result ──────────────────────────────────────────────────────────────────
 
 /**
+ * Exact bytes observed for one declared task input or resolved verification harness.
+ * @remarks A missing input is explicit, with both digest and size null. This inventory
+ * does not claim coverage of undeclared runtime dependencies or external services.
+ * @example
+ * ```typescript
+ * const input: AcceptanceGateArtifact = { path: '/project/check.mjs', sha256: 'a'.repeat(64), bytes: 42 };
+ * ```
+ */
+export interface AcceptanceGateArtifact {
+  /** Captured absolute input path, resolved within the admitted project scope. */
+  path: string;
+  /** SHA-256 of actual input bytes; null only for an observed absent path. */
+  sha256: string | null;
+  /** Exact byte length, or null alongside an absent digest. */
+  bytes: number | null;
+}
+
+/**
+ * Executable invocation captured before launching a typed verification gate.
+ * @remarks Environment values are represented only by a digest; credentials must
+ * not be duplicated into receipts. The verifier compares actual launch inputs.
+ * @example
+ * ```typescript
+ * const invocation: AcceptanceGateInvocation = { command: 'node', args: ['check.mjs'], cwd: '/project', environmentHash: 'b'.repeat(64) };
+ * ```
+ */
+export interface AcceptanceGateInvocation {
+  /** Exact executable passed to the existing process port. */
+  command: string;
+  /** Ordered arguments, without shell re-interpretation. */
+  args: string[];
+  /** Captured absolute process working directory. */
+  cwd: string;
+  /** SHA-256 of the canonically ordered effective environment. */
+  environmentHash: string;
+}
+
+/**
+ * Task and input binding attached to an explicitly verified acceptance result.
+ * @remarks This is provenance, not authority by itself. Persistence and completion
+ * must compare current canonical task/AC rows, input bytes and captured execution.
+ * No gate runs implicitly on task creation or editing. Historical unbound results
+ * remain readable but do not establish typed requirement completion.
+ * @example
+ * ```typescript
+ * const owner = result.binding?.identity.projectId;
+ * ```
+ */
+export interface AcceptanceGateBinding {
+  /** Version of the captured binding contract. */
+  version: 1;
+  /** Unique verification attempt whose result and receipt commit atomically. */
+  verificationId: string;
+  /** Existing captured operation identity, including actor and retry identity. */
+  identity: OperationExecutionIdentity;
+  /** Exact canonical task owning this criterion. */
+  taskId: string;
+  /** Current normalized acceptance row identifier. */
+  criterionId: string;
+  /** SHA-256 over the criterion's canonical persisted payload. */
+  criterionHash: string;
+  /** SHA-256 over the complete canonical gate, including REQ and launch options. */
+  gateHash: string;
+  /** ISO time of input capture before execution. */
+  capturedAt: string;
+  /** Original admitted absolute deadline in epoch milliseconds; never renewed. */
+  deadlineAt: number;
+  /** Actual process inputs; required for executable gate kinds. */
+  invocation?: AcceptanceGateInvocation;
+  /** Explicit bounded input inventory, including untracked harness/task files. */
+  artifacts: AcceptanceGateArtifact[];
+}
+
+/**
  * Result of running one acceptance gate.
  *
- * Persisted to `lifecycle_gate_results` and summarised in
- * `task.verification.gateResults`.
+ * Returned by the runner. Canonical verification explicitly persists bound results;
+ * the result shape alone does not prove persistence or authorize completion.
  *
  * NOTE: Named `AcceptanceGateResult` (not `GateResult`) for historical
  * clarity — it describes acceptance-criterion gate outcomes specifically.
  */
 export interface AcceptanceGateResult {
+  /** Explicit verification binding; absent on historical/unpersisted runner observations. */
+  binding?: AcceptanceGateBinding;
   /** Zero-based index in the task's acceptance array. */
   index: number;
   /** REQ-ID if the gate had one, else `undefined`. */
@@ -356,6 +464,8 @@ export interface AcceptanceGateResult {
   result: 'pass' | 'fail' | 'warn' | 'skipped' | 'error';
   /** Wall-clock duration of the gate execution in milliseconds. */
   durationMs: number;
+  /** Actual process outcome and containment evidence; wrapper status is not target proof. */
+  execution?: ProcessCaptureResult;
   /**
    * Typed kind-specific detail payload.
    *
@@ -383,4 +493,16 @@ export interface AcceptanceGateResult {
   checkedAt: string;
   /** Agent identifier or `"human"` that ran or attested the gate. */
   checkedBy: string;
+}
+
+/** Canonical typed-verification audit details stored with results in the task transaction. */
+export interface AcceptanceGateVerificationReceipt {
+  /** One admitted verification batch identity shared by every result. */
+  verificationId: string;
+  /** SHA-256 of the exact persisted result-array JSON bytes. */
+  resultHash: string;
+  /** Explicit verification operation; never inferred from generic completion evidence. */
+  operation: 'check.gate.verify';
+  /** Overall generic-plus-typed verification outcome at this observation. */
+  passed: boolean;
 }

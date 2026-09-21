@@ -4,13 +4,25 @@
  * @epic T4454
  */
 
+import { spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { AcceptanceGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  captureProjectScope,
+  readProjectInfoAtDirectorySync,
+  worktreeScope,
+} from '../../project-scope.js';
+import { _forceSystemdRunAvailable } from '../../resources/spawn-wrapper.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { createOperationExecutionContext } from '../../store/background-ops.js';
 import type { DataAccessor, TransactionAccessor } from '../../store/data-accessor.js';
-import { resetDbState } from '../../store/sqlite.js';
+import { getNativeTasksDb, resetDbState } from '../../store/sqlite.js';
+import { validateGateVerify } from '../../validation/engine-ops.js';
+import { buildFreshAcRows } from '../ac-table.js';
 import { completeTask, completeTaskStrict, withTaskWriteTransaction } from '../complete.js';
+import { reqAdd } from '../req.js';
 
 describe('completeTask', () => {
   let env: TestDbEnv;
@@ -36,9 +48,402 @@ describe('completeTask', () => {
   };
 
   afterEach(async () => {
+    _forceSystemdRunAvailable(undefined);
     delete process.env['CLEO_DIR'];
     resetDbState();
     await env.cleanup();
+  });
+
+  function persistedCompletion(sql: string): string {
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import { DatabaseSync } from 'node:sqlite'; const db = new DatabaseSync(process.argv[1], {readOnly:true}); try { process.stdout.write(JSON.stringify(db.prepare(process.argv[2]).all())); } finally { db.close(); }`,
+        join(env.cleoDir, 'cleo.db'),
+        sql,
+      ],
+      { encoding: 'utf8', timeout: 10000 },
+    );
+    expect(child.status, child.stderr).toBe(0);
+    return child.stdout;
+  }
+
+  async function typedFixture(gate?: AcceptanceGate, literal?: string): Promise<void> {
+    _forceSystemdRunAvailable(false);
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Typed completion',
+        description: 'Controlled typed result',
+        acceptance: literal === undefined ? [] : [literal],
+        status: 'pending',
+        type: 'task',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    if (literal !== undefined)
+      await accessor.transaction((tx) => tx.insertAcRows(buildFreshAcRows('T001', [literal])));
+    await writeFile(join(env.tempDir, 'harness.mjs'), 'process.exit(0);');
+    await reqAdd(
+      env.tempDir,
+      'T001',
+      gate ?? {
+        kind: 'test',
+        command: process.execPath,
+        args: ['harness.mjs'],
+        expect: 'exit0',
+        req: 'COMPLETE-001',
+        description: 'Actual harness',
+      },
+      accessor,
+    );
+  }
+
+  async function verifyTypedFixture(): Promise<void> {
+    const verified = await validateGateVerify(env.tempDir, {
+      taskId: 'T001',
+      gate: 'cleanupDone',
+      evidence: 'note:explicit synthetic typed proof',
+    });
+    expect(verified.success, verified.success ? undefined : verified.error.message).toBe(true);
+    expect((await accessor.loadSingleTask('T001'))?.verification?.gateResults?.[0]?.result).toBe(
+      'pass',
+    );
+  }
+
+  it('typed completion refuses generic coverage and an AC waiver without actual requirement results', async () => {
+    await typedFixture();
+    const rows = await accessor.getAcRows('T001');
+    await accessor.transaction((tx) =>
+      tx.insertAcBindings([
+        {
+          id: 'generic-claim',
+          acId: rows[0]!.id,
+          evidenceAtomId: 'note:claimed complete',
+          bindingType: 'satisfies',
+        },
+      ]),
+    );
+    const before = persistedCompletion(
+      "SELECT status,verification_json FROM tasks_tasks WHERE id='T001'",
+    );
+    await expect(
+      completeTask(
+        {
+          taskId: 'T001',
+          waiveAc: rows[0]!.id,
+          waiveReason: 'generic waiver cannot prove an executable requirement',
+        },
+        env.tempDir,
+        accessor,
+      ),
+    ).rejects.toThrow(/typed|Typed/);
+    expect(
+      persistedCompletion("SELECT status,verification_json FROM tasks_tasks WHERE id='T001'"),
+    ).toBe(before);
+  });
+
+  it.each([
+    'unchanged',
+    'harness',
+    'gate',
+    'receipt',
+    'receipt-actor',
+    'receipt-details',
+    'project',
+  ] as const)('typed completion requires current authentic proof: %s', async (change) => {
+    await typedFixture();
+    await verifyTypedFixture();
+    if (change === 'harness') await writeFile(join(env.tempDir, 'harness.mjs'), 'process.exit(1);');
+    if (change === 'gate') {
+      const loaded = (await accessor.loadSingleTask('T001'))!;
+      const item = loaded.acceptance![0]!;
+      if (typeof item === 'string') throw new Error('Missing typed fixture');
+      await accessor.updateTaskFields('T001', {
+        acceptanceJson: JSON.stringify([{ ...item, description: 'Edited after verification' }]),
+      });
+    }
+    if (change === 'receipt')
+      getNativeTasksDb(env.tempDir)!
+        .prepare("DELETE FROM tasks_audit_log WHERE action='gate.verify.typed'")
+        .run();
+    if (change === 'receipt-actor')
+      getNativeTasksDb(env.tempDir)!
+        .prepare(
+          "UPDATE tasks_audit_log SET actor='unrelated-actor' WHERE action='gate.verify.typed'",
+        )
+        .run();
+    if (change === 'receipt-details')
+      getNativeTasksDb(env.tempDir)!
+        .prepare("UPDATE tasks_audit_log SET details_json='{}' WHERE action='gate.verify.typed'")
+        .run();
+    if (change === 'project')
+      await writeFile(
+        join(env.cleoDir, 'project-info.json'),
+        JSON.stringify({ projectId: 'different-owner', projectHash: 'different-owner' }),
+      );
+    const operation = completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+    if (change === 'unchanged') {
+      expect((await operation).task.status).toBe('done');
+      expect(persistedCompletion("SELECT status FROM tasks_tasks WHERE id='T001'")).toBe(
+        '[{"status":"done"}]',
+      );
+    } else {
+      await expect(operation).rejects.toThrow();
+      expect(persistedCompletion("SELECT status FROM tasks_tasks WHERE id='T001'")).toBe(
+        '[{"status":"pending"}]',
+      );
+    }
+  });
+
+  it.each([
+    'stringified',
+    'removed',
+    'wrong-kind',
+  ] as const)('typed completion rejects inconsistent canonical representation: %s', async (change) => {
+    await typedFixture();
+    await verifyTypedFixture();
+    const [criterion] = await accessor.getAcRows('T001');
+    if (change === 'wrong-kind') {
+      getNativeTasksDb(env.tempDir)!
+        .prepare("UPDATE tasks_task_acceptance_criteria SET kind='text' WHERE id=?")
+        .run(criterion!.id);
+    } else {
+      await accessor.updateTaskFields('T001', {
+        acceptanceJson: JSON.stringify(change === 'removed' ? [] : [criterion!.text]),
+      });
+    }
+    const before = persistedCompletion("SELECT * FROM tasks_tasks WHERE id='T001'");
+    await expect(
+      completeTask(
+        {
+          taskId: 'T001',
+          waiveAc: 'AC1',
+          waiveReason: 'Generic waiver cannot repair erased gate identity',
+        },
+        env.tempDir,
+        accessor,
+      ),
+    ).rejects.toThrow(/inconsistent acceptance/);
+    expect(persistedCompletion("SELECT * FROM tasks_tasks WHERE id='T001'")).toBe(before);
+  });
+
+  it('does not auto-close a parent whose canonical typed row was demoted to literal JSON', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T100',
+        title: 'Parent',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T001',
+        parentId: 'T100',
+        title: 'Last child',
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await reqAdd(
+      env.tempDir,
+      'T100',
+      {
+        kind: 'test',
+        req: 'DEMOTED-PARENT',
+        description: 'Retained typed row',
+        command: process.execPath,
+        args: ['absent.mjs'],
+        expect: 'exit0',
+      },
+      accessor,
+    );
+    const [criterion] = await accessor.getAcRows('T100');
+    await accessor.updateTaskFields('T100', { acceptanceJson: JSON.stringify([criterion!.text]) });
+    await accessor.transaction((tx) =>
+      tx.insertAcBindings([
+        {
+          id: 'synthetic-covered',
+          acId: criterion!.id,
+          evidenceAtomId: 'note:generic coverage',
+          bindingType: 'satisfies',
+        },
+      ]),
+    );
+    const result = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+    expect(result.autoCompleted ?? []).not.toContain('T100');
+    expect((await accessor.loadSingleTask('T100'))?.status).toBe('pending');
+    expect((await accessor.loadSingleTask('T100'))?.acceptance).toEqual([criterion!.text]);
+  });
+
+  it('typed completion keeps an unmet parent open even when generic AC bindings allow rollup', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T100',
+        title: 'Parent',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T001',
+        title: 'Last child',
+        type: 'task',
+        parentId: 'T100',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await reqAdd(
+      env.tempDir,
+      'T100',
+      {
+        kind: 'test',
+        command: process.execPath,
+        args: ['missing-parent-harness.mjs'],
+        expect: 'exit0',
+        req: 'PARENT-100',
+        description: 'Parent must prove own gate',
+      },
+      accessor,
+    );
+    const rows = await accessor.getAcRows('T100');
+    await accessor.transaction((tx) =>
+      tx.insertAcBindings([
+        {
+          id: 'parent-generic',
+          acId: rows[0]!.id,
+          evidenceAtomId: 'note:parent claimed',
+          bindingType: 'satisfies',
+        },
+      ]),
+    );
+    const completed = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+    expect(completed.task.status).toBe('done');
+    expect(completed.autoCompleted ?? []).not.toContain('T100');
+    expect(persistedCompletion("SELECT status FROM tasks_tasks WHERE id='T100'")).toBe(
+      '[{"status":"pending"}]',
+    );
+  });
+
+  it('typed completion preserves advisory semantics without inventing a hard generic AC', async () => {
+    await typedFixture({
+      kind: 'manual',
+      prompt: 'Optional review',
+      description: 'Optional review',
+      req: 'OPTIONAL',
+      advisory: true,
+    });
+    const completed = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+    expect(completed.task.status).toBe('done');
+    expect(
+      await accessor.getAcBindings((await accessor.getAcRows('T001')).map((row) => row.id)),
+    ).toEqual([]);
+  });
+
+  it('typed completion rejects an actual failed re-verification instead of reusing the earlier pass', async () => {
+    await typedFixture();
+    await verifyTypedFixture();
+    await writeFile(join(env.tempDir, 'harness.mjs'), 'process.exit(2);');
+    const failed = await validateGateVerify(env.tempDir, {
+      taskId: 'T001',
+      gate: 'cleanupDone',
+      evidence: 'note:actual second execution',
+    });
+    expect(failed.success).toBe(true);
+    expect((await accessor.loadSingleTask('T001'))?.verification?.gateResults?.[0]?.result).toBe(
+      'fail',
+    );
+    await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow(
+      'lacks a passing bound result',
+    );
+    expect(persistedCompletion("SELECT status FROM tasks_tasks WHERE id='T001'")).toBe(
+      '[{"status":"pending"}]',
+    );
+  });
+
+  it('typed completion rolls status back when its final canonical completion receipt fails', async () => {
+    await typedFixture();
+    await verifyTypedFixture();
+    const before = persistedCompletion("SELECT * FROM tasks_tasks WHERE id='T001'");
+    const bindings = persistedCompletion('SELECT * FROM tasks_evidence_ac_bindings');
+    const receipts = persistedCompletion('SELECT * FROM tasks_audit_log');
+    getNativeTasksDb(env.tempDir)!.exec(
+      "CREATE TRIGGER reject_completion_receipt BEFORE INSERT ON tasks_audit_log WHEN NEW.action='task_completed' BEGIN SELECT RAISE(ABORT,'completion receipt fault'); END",
+    );
+    await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toMatchObject({
+      cause: { message: 'completion receipt fault' },
+    });
+    expect(persistedCompletion("SELECT * FROM tasks_tasks WHERE id='T001'")).toBe(before);
+    expect(persistedCompletion('SELECT * FROM tasks_evidence_ac_bindings')).toBe(bindings);
+    expect(persistedCompletion('SELECT * FROM tasks_audit_log')).toBe(receipts);
+  });
+
+  it('typed completion retains captured cancellation through the final native write transaction', async () => {
+    await typedFixture();
+    await verifyTypedFixture();
+    const before = persistedCompletion("SELECT * FROM tasks_tasks WHERE id='T001'");
+    const receipts = persistedCompletion('SELECT * FROM tasks_audit_log');
+    const info = readProjectInfoAtDirectorySync(env.tempDir, env.cleoDir);
+    const execution = createOperationExecutionContext({
+      projectId: info.projectId!,
+      projectRoot: env.tempDir,
+      actor: 'completion-cancel',
+      operation: 'tasks.complete',
+      idempotencyKey: 'cancel-on-update',
+    });
+    const native = getNativeTasksDb(env.tempDir)!;
+    native.function('cancel_typed_completion', () => {
+      execution.close();
+      return 0;
+    });
+    native.exec(
+      "CREATE TRIGGER cancel_typed_completion AFTER UPDATE OF status ON tasks_tasks WHEN NEW.status='done' BEGIN SELECT cancel_typed_completion(); END",
+    );
+    try {
+      await expect(
+        worktreeScope.run(
+          captureProjectScope(env.tempDir, {
+            ...captureProjectScope(env.tempDir, undefined),
+            execution,
+          }),
+          () => completeTask({ taskId: 'T001' }, env.tempDir, accessor),
+        ),
+      ).rejects.toThrow();
+      expect(execution.signal.aborted).toBe(true);
+      expect(persistedCompletion("SELECT * FROM tasks_tasks WHERE id='T001'")).toBe(before);
+      expect(persistedCompletion('SELECT * FROM tasks_audit_log')).toBe(receipts);
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('typed completion never exempts a literal text criterion that resembles an advisory gate', async () => {
+    const gate: AcceptanceGate = {
+      kind: 'manual',
+      prompt: 'Optional',
+      description: 'Optional',
+      advisory: true,
+      req: 'OPTIONAL-EXACT',
+    };
+    await typedFixture(
+      gate,
+      '{"advisory":true,"description":"Optional","kind":"manual","prompt":"Optional","req":"OPTIONAL-EXACT"}',
+    );
+    const rows = await accessor.getAcRows('T001');
+    expect(rows[0]!.text).toBe(rows[1]!.text);
+    await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow('AC1');
+    expect(persistedCompletion("SELECT status FROM tasks_tasks WHERE id='T001'")).toBe(
+      '[{"status":"pending"}]',
+    );
   });
 
   it('completes a pending task', async () => {

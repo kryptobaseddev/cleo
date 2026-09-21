@@ -36,8 +36,9 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { accessSync, constants, realpathSync, statSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { type AuditRecord, writeAuditRecord } from './audit-log.js';
 import {
   type BoundaryViolation,
@@ -65,31 +66,80 @@ function getAgentRole(): string | null {
 }
 
 /**
- * Resolve the path to the real git binary.
+ * Identify a file independently of symlink spelling and hardlink aliases.
  *
- * Strategy:
- * 1. If CLEO_REAL_GIT_PATH env is set, use it (override for testing).
- * 2. Walk PATH entries, skip any that contain CLEO_SHIM_MARKER.
- * 3. Fall back to /usr/bin/git, /usr/local/bin/git, /opt/homebrew/bin/git.
+ * @param path - Canonical file path.
+ * @returns Stable device/inode identity for this delegation chain.
+ */
+function fileIdentity(path: string): string {
+  const stat = statSync(path, { bigint: true });
+  return `${stat.dev}:${stat.ino}`;
+}
+
+/**
+ * Resolve executable Git while excluding this shim and prior delegating copies.
+ *
+ * Explicit overrides must be valid; PATH and conventional fallback candidates
+ * are checked in order. Directory names never establish executable identity.
+ * The bounded chain is propagated to children so distinct shim copies cannot
+ * delegate indefinitely. Continuity requires the immediately delegating parent;
+ * Git hooks invoking Git again start a fresh chain after the real Git boundary.
+ * This is recursion protection, not a trust boundary.
  *
  * @returns Absolute path to real git, or null if not found.
  */
 function resolveRealGit(): string | null {
+  const inherited =
+    process.env['CLEO_GIT_SHIM_PARENT_PID'] === String(process.ppid)
+      ? (process.env['CLEO_GIT_SHIM_CHAIN'] ?? '')
+      : '';
+  const chain = inherited ? inherited.split(';') : [];
+  if (chain.length >= 16 || chain.some((identity) => !/^\d+:\d+$/.test(identity))) {
+    process.stderr.write('[git-shim] ERROR: invalid or exhausted executable delegation chain\n');
+    return null;
+  }
+  const self = realpathSync(fileURLToPath(import.meta.url));
+  const identity = fileIdentity(self);
+  if (chain.includes(identity)) {
+    process.stderr.write('[git-shim] ERROR: recursive executable delegation refused\n');
+    return null;
+  }
+  chain.push(identity);
+  const excluded = new Set(chain);
+  const candidatePath = (path: string): string | null => {
+    try {
+      const canonical = realpathSync(path);
+      if (canonical === self || excluded.has(fileIdentity(canonical))) return null;
+      if (!statSync(canonical).isFile()) return null;
+      accessSync(canonical, constants.X_OK);
+      return canonical;
+    } catch {
+      // Missing, inaccessible, and non-executable PATH entries are not Git.
+      return null;
+    }
+  };
+  process.env['CLEO_GIT_SHIM_CHAIN'] = chain.join(';');
+  process.env['CLEO_GIT_SHIM_PARENT_PID'] = String(process.pid);
   const override = process.env['CLEO_REAL_GIT_PATH'];
-  if (override && existsSync(override)) return override;
-
-  const shimMarker = process.env['CLEO_SHIM_MARKER'] ?? '.cleo/bin/git-shim';
-  const pathDirs = (process.env['PATH'] ?? '').split(':');
+  if (override) {
+    const candidate = candidatePath(override);
+    if (!candidate)
+      process.stderr.write(
+        '[git-shim] ERROR: CLEO_REAL_GIT_PATH must name an executable outside the shim delegation chain\n',
+      );
+    return candidate;
+  }
+  const pathDirs = (process.env['PATH'] ?? '').split(delimiter);
 
   for (const dir of pathDirs) {
-    if (dir.includes(shimMarker)) continue;
-    const candidate = join(dir, 'git');
-    if (existsSync(candidate)) return candidate;
+    const candidate = candidatePath(join(dir, 'git'));
+    if (candidate) return candidate;
   }
 
   const fallbacks = ['/usr/bin/git', '/usr/local/bin/git', '/opt/homebrew/bin/git'];
   for (const fb of fallbacks) {
-    if (existsSync(fb)) return fb;
+    const candidate = candidatePath(fb);
+    if (candidate) return candidate;
   }
   return null;
 }

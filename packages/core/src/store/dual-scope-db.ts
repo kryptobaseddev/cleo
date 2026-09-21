@@ -54,9 +54,12 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
 import { getCleoHome, resolveCleoDir } from '../paths.js';
+import { worktreeScope } from '../project-scope.js';
+import { observeOperation } from './background-ops.js';
 import { type ExodusAbortDetail, getRecordedExodusAbort } from './exodus/abort-events.js';
 import { migrateWithRetry, reconcileJournal } from './migration-manager.js';
 import {
@@ -134,11 +137,35 @@ export interface DualScopeDbHandle<TScope extends DualScope = DualScope> {
 }
 
 /**
+ * Obtain the native connection owned by an already-open dual-scope handle.
+ *
+ * Validates the driver's runtime client instead of casting the schema-typed
+ * Drizzle database, whose public type does not expose `$client`.
+ *
+ * @param handle - Exact cached or dedicated handle whose connection is required.
+ * @returns Its native SQLite connection; ownership remains with the handle.
+ * @throws When the driver exposes no native SQLite connection.
+ * @remarks Dedicated migration handles retain independent connection ownership.
+ * @example
+ * ```ts
+ * const native = getDualScopeNativeDb(handle);
+ * native.prepare('SELECT 1').get();
+ * ```
+ */
+export function getDualScopeNativeDb(handle: DualScopeDbHandle): DatabaseSync {
+  const db = handle.db;
+  if ('$client' in db && db.$client instanceof getDatabaseSyncCtor()) return db.$client;
+  throw new Error(`No native SQLite connection for ${handle.scope}::${handle.dbPath}`);
+}
+
+/**
  * Options for {@link openDualScopeDbAtPath}.
  *
  * @task T11782 (FIX D — dedicated migrate connection)
  */
 export interface OpenDualScopeAtPathOptions {
+  /** Captured operation lifetime; defaults to the existing async routing scope when present. */
+  readonly execution?: OperationExecutionContext;
   /**
    * When `true`, open a DEDICATED, NON-cached connection — a second SQLite
    * handle to the same file, independent of the singleton `_cache`. Used by the
@@ -259,6 +286,7 @@ function assertNoRecordedExodusAbort(): void {
 type CacheKey = string;
 
 interface CacheEntry {
+  execution?: OperationExecutionContext;
   handle: DualScopeDbHandle | null;
   nativeDb: DatabaseSync | null;
   initPromise: Promise<DualScopeDbHandle> | null;
@@ -280,13 +308,27 @@ function cacheKey(scope: DualScope, dbPath: string): CacheKey {
  * Resolve the absolute path to the dual-scope `cleo.db` for the given scope.
  *
  * - `project`: `resolveCleoDir(cwd)` + `'cleo.db'` (falls under `<root>/.cleo/`)
- * - `global`:  `getCleoHome()` + `'cleo.db'` (falls under XDG data home `/cleo/`)
+ * - `global`: `getCleoHome()` + `'cleo.db'` (falls under XDG data home `/cleo/`).
+ * @param scope - Project or global storage ownership.
+ * @param cwd - Explicit project root when resolving project storage.
+ * @param capturedGlobalHome - Previously captured global home, independent of later environment changes.
+ * @returns Canonical consolidated store path.
+ * @remarks Omitting the captured home preserves ambient global routing. A project
+ * resolution never uses the global home override. Capture ownership before awaiting.
+ * @example
+ * ```ts
+ * const path = resolveDualScopeDbPath('global', undefined, capturedHome);
+ * ```
  */
-export function resolveDualScopeDbPath(scope: DualScope, cwd?: string): string {
+export function resolveDualScopeDbPath(
+  scope: DualScope,
+  cwd?: string,
+  capturedGlobalHome?: string,
+): string {
   if (scope === 'project') {
     return join(resolveCleoDir(cwd), 'cleo.db');
   }
-  return join(getCleoHome(), 'cleo.db');
+  return join(capturedGlobalHome ?? getCleoHome(), 'cleo.db');
 }
 
 // ── Migration folder resolution ──────────────────────────────────────────────
@@ -395,6 +437,11 @@ function memoryBoundedPragmaOverrides(): { mmapSizeBytes?: number; cacheSizeKb?:
  *   per-user cross-project DB.
  * @param cwd - Optional working directory used to resolve the project root for
  *   the `'project'` scope. Ignored for `'global'`.
+ * @param options - Optional dedicated handle and captured operation lifetime.
+ * @throws Error if the operation expires or a nested call replaces its captured context.
+ * @remarks Cancellation guards asynchronous continuations and publication, but cannot
+ * preempt synchronous SQLite work. A cancelled initializer never closes a published
+ * handle which another caller may already use.
  * @returns A typed {@link DualScopeDbHandle} wrapping the Drizzle ORM instance
  *   bound to the consolidated schema for the requested scope. The handle is
  *   cached per (scope, dbPath) — subsequent calls return the same instance.
@@ -412,22 +459,46 @@ function memoryBoundedPragmaOverrides(): { mmapSizeBytes?: number; cacheSizeKb?:
 export async function openDualScopeDb(
   scope: 'project',
   cwd?: string,
+  options?: OpenDualScopeAtPathOptions,
 ): Promise<DualScopeDbHandle<'project'>>;
 export async function openDualScopeDb(
   scope: 'global',
   cwd?: string,
+  options?: OpenDualScopeAtPathOptions,
 ): Promise<DualScopeDbHandle<'global'>>;
-export async function openDualScopeDb(scope: DualScope, cwd?: string): Promise<DualScopeDbHandle> {
-  const dbPath = resolveDualScopeDbPath(scope, cwd);
-  // Dispatch on the scope literal so the overloaded path-aware opener resolves to
-  // the correct typed return; the union `scope` cannot satisfy either literal
-  // overload directly. The `cwd` is forwarded so the exodus-on-open hook
-  // (E6 · T11553) can build a correct legacy-source plan for THIS canonical
-  // open. The explicit-path form (test fixtures / legacy-path domains) never
-  // receives a `cwd` and therefore never auto-migrates.
-  return scope === 'project'
-    ? openDualScopeDbAtPath('project', dbPath, cwd)
-    : openDualScopeDbAtPath('global', dbPath, cwd);
+export async function openDualScopeDb(
+  scope: DualScope,
+  cwd?: string,
+  options?: OpenDualScopeAtPathOptions,
+): Promise<DualScopeDbHandle> {
+  const inherited = worktreeScope.getStore()?.execution;
+  if (inherited && options?.execution && inherited !== options.execution) {
+    throw new Error('Nested database opening cannot replace its captured execution context');
+  }
+  const execution = options?.execution ?? inherited;
+  execution?.assertActive();
+  const open = () => {
+    const dbPath = resolveDualScopeDbPath(scope, cwd);
+    // Dispatch on the scope literal so the overloaded path-aware opener resolves to
+    // the correct typed return; the union `scope` cannot satisfy either literal
+    // overload directly. The `cwd` is forwarded so the exodus-on-open hook
+    // (E6 · T11553) can build a correct legacy-source plan for THIS canonical
+    // open. The explicit-path form (test fixtures / legacy-path domains) never
+    // receives a `cwd` and therefore never auto-migrates.
+    return scope === 'project'
+      ? openDualScopeDbAtPath('project', dbPath, cwd, options)
+      : openDualScopeDbAtPath('global', dbPath, cwd, options);
+  };
+  return execution
+    ? worktreeScope.run(
+        {
+          worktreeRoot: execution.identity.projectRoot,
+          projectHash: execution.identity.projectId,
+          execution,
+        },
+        open,
+      )
+    : open();
 }
 
 /**
@@ -453,7 +524,9 @@ async function openDedicatedDualScopeDb(
   scope: DualScope,
   dbPath: string,
   log: ReturnType<typeof getLogger>,
+  execution?: OperationExecutionContext,
 ): Promise<DualScopeDbHandle> {
+  execution?.assertActive();
   log.debug({ scope, dbPath }, 'opening DEDICATED (non-cached) dual-scope cleo.db (T11782 FIX D)');
 
   // Ensure the directory exists before opening.
@@ -462,6 +535,7 @@ async function openDedicatedDualScopeDb(
     mkdirSync(dir, { recursive: true });
   }
 
+  execution?.assertActive();
   const DatabaseSyncCtor = getDatabaseSyncCtor();
   const nativeDb = new DatabaseSyncCtor(dbPath, { allowExtension: true });
 
@@ -486,6 +560,7 @@ async function openDedicatedDualScopeDb(
       scope,
       nativeDb,
       async (): Promise<DualScopeDbHandle> => {
+        execution?.assertActive();
         reconcileJournal(
           nativeDb,
           migrationsFolder,
@@ -493,6 +568,7 @@ async function openDedicatedDualScopeDb(
           `dual-scope-db[${scope}]`,
           resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
         );
+        execution?.assertActive();
         migrateWithRetry(
           db,
           migrationsFolder,
@@ -501,6 +577,7 @@ async function openDedicatedDualScopeDb(
           `dual-scope-db[${scope}]`,
         );
 
+        execution?.assertActive();
         log.debug({ scope, dbPath }, 'DEDICATED dual-scope cleo.db ready (T11782 FIX D)');
 
         const identity = makeWriterLeaseIdentity(scope, dbPath);
@@ -524,8 +601,10 @@ async function openDedicatedDualScopeDb(
           },
         };
       },
+      { execution },
     );
 
+    execution?.assertActive();
     return handle;
   } catch (err) {
     // Close the native handle on any failure after construction to avoid
@@ -560,6 +639,11 @@ async function openDedicatedDualScopeDb(
  * @param scope - The consolidated schema scope (`'project'` | `'global'`).
  * @param dbPath - The absolute path to the consolidated `cleo.db` file. The
  *   parent directory is created if absent.
+ * @param exodusCwd - Internal canonical root enabling migration-on-open checks.
+ * @param options - Optional dedicated handle and captured operation lifetime.
+ * @throws Error if opening, migration, cancellation, or initializer ownership checks fail.
+ * @remarks Scoped cancellation is cooperative; synchronous SQLite work can overrun
+ * the deadline. Live waiters may retry after their initializing caller is cancelled.
  * @returns A typed {@link DualScopeDbHandle} bound to the scope's schema.
  *
  * @task T11525 (E6-L5)
@@ -591,6 +675,25 @@ export async function openDualScopeDbAtPath(
   exodusCwd?: string,
   options?: OpenDualScopeAtPathOptions,
 ): Promise<DualScopeDbHandle> {
+  const inherited = worktreeScope.getStore()?.execution;
+  if (inherited && options?.execution && inherited !== options.execution) {
+    throw new Error('Nested database opening cannot replace its captured execution context');
+  }
+  const execution = options?.execution ?? inherited;
+  execution?.assertActive();
+  if (execution && !inherited) {
+    return worktreeScope.run(
+      {
+        worktreeRoot: execution.identity.projectRoot,
+        projectHash: execution.identity.projectId,
+        execution,
+      },
+      () =>
+        scope === 'project'
+          ? openDualScopeDbAtPath('project', dbPath, exodusCwd, options)
+          : openDualScopeDbAtPath('global', dbPath, exodusCwd, options),
+    );
+  }
   const dedicated = options?.dedicated === true;
   // Normalize the path before keying so equivalent spellings share one
   // cache entry — the chokepoint key mirrors the runtime's path.resolve.
@@ -611,7 +714,24 @@ export async function openDualScopeDbAtPath(
     const existing = _cache.get(key);
     if (existing) {
       if (existing.initPromise) {
-        return existing.initPromise;
+        try {
+          if (!execution) return await existing.initPromise;
+          const observed = await observeOperation(execution, existing.initPromise);
+          if (!observed.settled) throw observed.reason;
+          if (!observed.success) throw observed.error;
+          execution.assertActive();
+          return observed.value;
+        } catch (error) {
+          execution?.assertActive();
+          if (existing.execution?.signal.aborted && existing.execution !== execution) {
+            // The cancelled initializer owns only its unpublished connection. A live
+            // waiter gets its own attempt rather than inheriting that cancellation.
+            return scope === 'project'
+              ? openDualScopeDbAtPath('project', normalizedPath, exodusCwd, options)
+              : openDualScopeDbAtPath('global', normalizedPath, exodusCwd, options);
+          }
+          throw error;
+        }
       }
       if (existing.handle && existing.nativeDb?.isOpen) {
         return existing.handle;
@@ -623,7 +743,7 @@ export async function openDualScopeDbAtPath(
   const log = getLogger('dual-scope-db');
 
   if (dedicated) {
-    return openDedicatedDualScopeDb(scope, normalizedPath, log);
+    return openDedicatedDualScopeDb(scope, normalizedPath, log, execution);
   }
 
   // Create a placeholder entry so concurrent callers wait for the same init.
@@ -639,6 +759,7 @@ export async function openDualScopeDbAtPath(
   });
 
   _cache.set(key, {
+    execution,
     handle: null,
     nativeDb: null,
     initPromise,
@@ -665,7 +786,10 @@ export async function openDualScopeDbAtPath(
   // creation from the async IIFE ensures the cache placeholder exists before
   // any synchronous work runs inside withColdOpenLease's fn callback (T12035).
   (async (): Promise<void> => {
+    let openingNative: DatabaseSync | null = null;
+    let published = false;
     try {
+      execution?.assertActive();
       log.debug({ scope, dbPath: normalizedPath }, 'opening dual-scope cleo.db');
 
       // Ensure the directory exists before opening.
@@ -683,8 +807,10 @@ export async function openDualScopeDbAtPath(
       // via `enableLoadExtension`). Enabling the flag is harmless for every other
       // domain — no extension is loaded automatically, and the cache stays
       // single-keyed regardless of which domain opens the handle first.
+      execution?.assertActive();
       const DatabaseSyncCtor = getDatabaseSyncCtor();
       const nativeDb = new DatabaseSyncCtor(normalizedPath, { allowExtension: true });
+      openingNative = nativeDb;
 
       // Apply canonical pragma set (specs/sqlite-pragmas.json SSoT), bounding
       // per-connection memory for one-shot/CLI opens (full SSoT for daemon) — T11829.
@@ -728,6 +854,7 @@ export async function openDualScopeDbAtPath(
           // journal so their rows are not deleted as cross-lineage orphans (the confirmed
           // OOM root cause: each lineage previously deleted the others' rows so the shared
           // journal never converged).
+          execution?.assertActive();
           reconcileJournal(
             nativeDb,
             migrationsFolder,
@@ -737,6 +864,7 @@ export async function openDualScopeDbAtPath(
           );
 
           // Run any pending migrations.
+          execution?.assertActive();
           migrateWithRetry(
             db,
             migrationsFolder,
@@ -745,6 +873,7 @@ export async function openDualScopeDbAtPath(
             `dual-scope-db[${scope}]`,
           );
 
+          execution?.assertActive();
           log.debug({ scope, dbPath: normalizedPath }, 'dual-scope cleo.db ready');
 
           const identity = makeWriterLeaseIdentity(scope, normalizedPath);
@@ -775,16 +904,22 @@ export async function openDualScopeDbAtPath(
             },
           };
 
+          execution?.assertActive();
           // Update the cache entry to mark init complete.
           const entry = _cache.get(key);
+          if (!entry || entry.initPromise !== initPromise) {
+            throw new Error('Database initialization lost its cache ownership before publication');
+          }
           if (entry) {
             entry.initPromise = null;
             entry.handle = built;
             entry.nativeDb = nativeDb;
+            published = true;
           }
 
           return built;
         },
+        { execution },
       );
 
       // ── Exodus-on-open (E6 · T11553) — runs AFTER the cold-open lease releases ──
@@ -808,6 +943,7 @@ export async function openDualScopeDbAtPath(
       // Armed ONLY when `exodusCwd` was threaded through the canonical
       // `openDualScopeDb` AND `dbPath` is the canonical path for that scope+cwd —
       // never for explicit-path opens (test fixtures / legacy-path domains).
+      execution?.assertActive();
       let finalHandle = handle;
       if (exodusCwd !== undefined && normalizedPath === resolveDualScopeDbPath(scope, exodusCwd)) {
         // ── T12001 (Epic T11992) — db-heavy admission for the exodus auto-migrate ──
@@ -822,7 +958,9 @@ export async function openDualScopeDbAtPath(
         let releaseDbHeavy: (() => Promise<void>) | null = null;
         let dbHeavyDeferred = false;
         try {
+          execution?.assertActive();
           const { governor } = await import('../resources/governor.js');
+          execution?.assertActive();
           const admit = await governor.tryAcquire('db-heavy');
           if (admit.deferred) {
             dbHeavyDeferred = true;
@@ -830,9 +968,11 @@ export async function openDualScopeDbAtPath(
             releaseDbHeavy = admit.release;
           }
         } catch {
+          execution?.assertActive();
           // Governor unavailable — fail open (proceed un-gated).
         }
         if (dbHeavyDeferred) {
+          execution?.assertActive();
           log.debug(
             { scope, dbPath: normalizedPath },
             'exodus-on-open skipped this open — db-heavy deferred under memory pressure ' +
@@ -840,8 +980,11 @@ export async function openDualScopeDbAtPath(
           );
         } else {
           try {
+            execution?.assertActive();
             const { maybeRunExodusOnOpen } = await import('./exodus/on-open.js');
+            execution?.assertActive();
             const result = await maybeRunExodusOnOpen(scope, normalizedPath, nativeDb, exodusCwd);
+            execution?.assertActive();
             if (result.outcome === 'migrated' || result.outcome === 'aborted') {
               // The migrate engine closed our handle — re-open fresh (un-armed) so the
               // caller receives a valid, live handle bound to the now-(de)populated DB.
@@ -879,6 +1022,7 @@ export async function openDualScopeDbAtPath(
               }
             }
           } catch (err) {
+            execution?.assertActive();
             // Best-effort safety net: a hook failure must not make the DB
             // unopenable. Warn and re-open fresh; `cleo exodus migrate` remains the
             // manual path. (The handle may have been closed mid-migrate.)
@@ -898,8 +1042,16 @@ export async function openDualScopeDbAtPath(
         }
       }
 
+      execution?.assertActive();
       initResolve!(finalHandle);
     } catch (err) {
+      // Only the unpublished connection belongs exclusively to this initializer.
+      // Published handles may already be in use by another caller.
+      try {
+        if (!published && openingNative?.isOpen) openingNative.close();
+      } catch (closeError) {
+        log.warn({ closeError }, 'failed to close unpublished database initializer');
+      }
       initReject!(err);
     }
   })();
@@ -1041,6 +1193,34 @@ export interface GlobalStore {
    * multiple times (idempotent).
    */
   close(): void;
+}
+
+/**
+ * Run one domain establishment with the runtime store's captured file ownership.
+ * @typeParam T - Result produced by the domain establishment callback.
+ * @param store - Canonical project or global store whose immutable identity is required.
+ * @param native - Existing domain connection; its main file must expose the same lease grant.
+ * @param establish - Callback admitted under required cross-process schema exclusion.
+ * @returns The callback result after ownership checks and owned lease-handle cleanup.
+ * @remarks The lease handle is independent of the callback connection, allowing
+ * deliberate callback closure. File/epoch checkpoints do not preempt synchronous
+ * work or fence arbitrary uncooperative callback writes.
+ * @example
+ * ```ts
+ * const value = await withStoreSchemaOwnership(store, native, async () => {
+ *   return establishSchema(native);
+ * });
+ * ```
+ */
+export function withStoreSchemaOwnership<T>(
+  store: ProjectStore | GlobalStore,
+  native: DatabaseSync,
+  establish: () => Promise<T>,
+): Promise<T> {
+  return withColdOpenLease(store.scope, native, establish, {
+    requiredIdentity: store.identity,
+    execution: worktreeScope.getStore()?.execution,
+  });
 }
 
 /**

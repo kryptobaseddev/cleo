@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ResolvedAgent } from '@cleocode/contracts';
 import type { GuardedToolSurface } from '@cleocode/contracts/tools/skill-executor';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DispatchContext } from '../agent-dispatcher.js';
 import {
   createSkillNodeExecutor,
@@ -95,12 +95,15 @@ function makeContext(agentId: string, context: Record<string, unknown> = {}): Di
 }
 
 beforeEach(() => {
+  // Exercise the explicit CLEO_PROJECT_ROOT fixture fallback.
+  vi.stubEnv('CLEO_ROOT', undefined);
   projectRoot = mkdtempSync(join(tmpdir(), 'cleo-skill-node-exec-'));
   prevProjectRoot = process.env['CLEO_PROJECT_ROOT'];
   process.env['CLEO_PROJECT_ROOT'] = projectRoot;
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   if (prevProjectRoot === undefined) {
     delete process.env['CLEO_PROJECT_ROOT'];
   } else {

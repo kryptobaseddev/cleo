@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 import type { LoggingConfig } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pruneAuditLog } from '../audit-prune.js';
 
 /** Insert audit_log rows with given timestamps into a test DB. */
@@ -54,6 +54,13 @@ async function readGzipFile(filePath: string): Promise<string> {
   await pipeline(input, gunzip, collectStream);
   return Buffer.concat(chunks).toString('utf-8');
 }
+
+// Scope cleanup and durable session reads to the explicitly seeded fixture.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('pruneAuditLog', () => {
   let tempDir: string;

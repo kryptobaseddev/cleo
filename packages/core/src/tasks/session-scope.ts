@@ -20,20 +20,12 @@
  * @adr ADR-051
  */
 
-import type {
-  TaskKind,
-  TaskPriority,
-  TaskRecord,
-  TaskScope,
-  TaskSeverity,
-  TaskSize,
-  TaskType,
-} from '@cleocode/contracts';
+import type { TaskRecord, TasksAddParams } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
-import { addTask } from './add.js';
+import { addTask, toTaskAddOptions } from './add.js';
 import { taskToRecord } from './engine-converters.js';
 import { findTasks } from './find.js';
 
@@ -201,38 +193,7 @@ export async function resolveParentFromSession(
  */
 export async function addTaskWithSessionScope(
   projectRoot: string,
-  params: {
-    title: string;
-    description?: string;
-    parent?: string;
-    depends?: string[];
-    priority?: string;
-    labels?: string[];
-    type?: string;
-    phase?: string;
-    size?: string;
-    acceptance?: string[];
-    notes?: string;
-    files?: string[];
-    dryRun?: boolean;
-    parentSearch?: string;
-    /**
-     * Set by the CLI when it already inferred the parent from the session's
-     * `current` pointer, so core does not re-derive provenance it cannot see.
-     * @task T12136
-     */
-    parentSource?: 'explicit' | 'session-inference';
-    kind?: string;
-    scope?: string;
-    severity?: string;
-    /**
-     * Bypass the BRAIN duplicate-detection rejection guard (T1633).
-     * Audited to `.cleo/audit/duplicate-bypass.jsonl`.
-     */
-    forceDuplicate?: boolean;
-    /** Resolve design-point 3 in-line by decomposing a text-AC parent. @task T12298 */
-    autoDecompose?: boolean;
-  },
+  params: TasksAddParams,
 ): Promise<
   EngineResult<{
     task: TaskRecord;
@@ -283,8 +244,7 @@ export async function addTaskWithSessionScope(
     const accessor = await getTaskAccessor(projectRoot);
     const result = await addTask(
       {
-        title: params.title,
-        description: params.description,
+        ...toTaskAddOptions(params),
         parentId: resolvedParent,
         // T12136: so `E_CLEO_DEPTH_EXCEEDED` can say the parent was inherited
         // rather than named. The CLI may already have decided this upstream.
@@ -292,21 +252,6 @@ export async function addTaskWithSessionScope(
           params.parentSource === 'session-inference' || parentSource === 'session-inference'
             ? 'session-inference'
             : 'explicit',
-        depends: params.depends,
-        priority: (params.priority as TaskPriority) || 'medium',
-        labels: params.labels,
-        type: (params.type as TaskType) || undefined,
-        phase: params.phase,
-        size: params.size as TaskSize | undefined,
-        acceptance: params.acceptance,
-        notes: params.notes,
-        files: params.files,
-        dryRun: params.dryRun,
-        kind: params.kind as TaskKind | undefined,
-        scope: params.scope as TaskScope | undefined,
-        severity: params.severity as TaskSeverity | undefined,
-        forceDuplicate: params.forceDuplicate,
-        autoDecompose: params.autoDecompose,
       },
       projectRoot,
       accessor,

@@ -20,6 +20,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { applyPerfPragmas } from '@cleocode/core';
+import { openCleoDbSnapshot } from '@cleocode/core/store/open-cleo-db';
 import { dbExists, getAgentRegistryDbPath, getNexusDbPath } from '../cleo-home.js';
 import type { ProjectContext } from '../project-context.js';
 
@@ -167,4 +168,29 @@ export function getDbStatus(ctx: ProjectContext): {
     conduitPath,
     signaldockPath: getAgentRegistryDbPath(),
   };
+}
+
+/**
+ * Run a synchronous health read using one owned, read-only canonical snapshot.
+ * @typeParam T - Result produced before the snapshot is closed.
+ * @param dbPath - Explicit project or global database path selected by the caller.
+ * @param read - Synchronous probe; must not retain the borrowed connection.
+ * @returns Probe result, or null when the file is absent.
+ * @throws When opening or probing an existing database fails.
+ * @remarks The handle is closed in finally on both success and failure. It is
+ * independent of cached runtime handles and does not mutate persistent pragmas.
+ * Existing legacy getters remain caller-owned and are not migrated by this helper.
+ * @example
+ * ```ts
+ * const count = withStudioReadSnapshot(path, db => db.prepare('SELECT 1').get());
+ * ```
+ */
+export function withStudioReadSnapshot<T>(dbPath: string, read: (db: DatabaseSync) => T): T | null {
+  if (!existsSync(dbPath)) return null;
+  const snapshot = openCleoDbSnapshot(dbPath, { readOnly: true, applyPragmas: false });
+  try {
+    return read(snapshot.db);
+  } finally {
+    snapshot.close();
+  }
 }

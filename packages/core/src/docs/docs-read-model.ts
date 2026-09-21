@@ -259,8 +259,9 @@ export class DocsReadModel {
   /**
    * Resolve a single document by attachment ID or SHA-256 content hash.
    *
-   * Searches both tasks.db (by UUID attachment ID) and the blob store
-   * (by SHA-256 content address). Tasks.db is tried first.
+   * Searches attachment metadata by exact ID or full SHA-256 first, without
+   * requiring content bytes. Falls back to the blob store by SHA-256.
+   * Ambiguous ID/hash matches remain explicit failures.
    *
    * @param id - Attachment UUID or 64-char hex SHA-256.
    * @returns A resolved doc, or `null` if no match is found.
@@ -271,7 +272,7 @@ export class DocsReadModel {
     const meta = await store.getMetadata(id, this.projectRoot);
     if (meta) {
       // Fetch extras (slug, type, displayAlias) from the row
-      const extras = await store.getExtras(id, this.projectRoot);
+      const extras = await store.getExtras(meta.id, this.projectRoot);
       return this.enrichFromTasksDb(meta, {
         slug: extras?.slug ?? null,
         type: extras?.type ?? null,

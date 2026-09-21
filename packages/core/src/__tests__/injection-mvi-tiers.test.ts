@@ -23,7 +23,7 @@ const injectionPath = join(corePackageRoot, 'templates', 'CLEO-INJECTION.md');
 
 const templateExists = existsSync(injectionPath);
 
-describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
+describe('CLEO-INJECTION CLI-only template', () => {
   const content = templateExists ? readFileSync(injectionPath, 'utf-8') : '';
 
   it('template file exists at templates/CLEO-INJECTION.md', () => {
@@ -31,10 +31,16 @@ describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
   });
 
   describe('Version and identity', () => {
-    it('has version 2.6.0 (T882 spawn prompt rebuild — Spawn Prompt Contents section)', () => {
-      // v2.6.0 (T882): documents the canonical spawn prompt contract + tier system.
-      // v2.5.0 (T832/ADR-051) introduced evidence-based gate verification.
-      expect(content).toContain('Version: 2.6.0');
+    it('declares a release version matching the packaged protocol skill', () => {
+      const version = /^Version: ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) \|/m.exec(
+        content,
+      )?.[1];
+      expect(version).toBeDefined();
+      const skill = readFileSync(
+        join(corePackageRoot, '..', 'skills', 'skills', 'ct-cleo', 'SKILL.md'),
+        'utf-8',
+      );
+      expect(/^ {2}version: (.+)$/m.exec(skill)?.[1]).toBe(version);
     });
 
     it('declares CLI-only dispatch', () => {
@@ -45,7 +51,7 @@ describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
 
   describe('Contains essential sections', () => {
     it('includes Session Start sequence', () => {
-      expect(content).toContain('## Session Start');
+      expect(content).toContain('## Universal protocol');
       expect(content).toContain('cleo briefing');
       expect(content).toContain('cleo session status');
       expect(content).toContain('cleo current');
@@ -125,6 +131,70 @@ describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
 
     it('points to ct-orchestrator skill', () => {
       expect(content).toContain('ct-orchestrator');
+    });
+  });
+
+  describe('Mandatory protocol semantics survive compact delivery', () => {
+    it.each([
+      {
+        rule: 'authority and static-analysis limitations',
+        clauses: [
+          /Recency or similarity alone does not establish authority/,
+          /`UNKNOWN` means assessment is incomplete; `NONE` means no impact detected/,
+          /Static analysis cannot prove all runtime callers/,
+          /Preserve historical handoffs; present corrections separately/,
+        ],
+      },
+      {
+        rule: 'projection and population disclosure',
+        clauses: [
+          /`_withheld` maps omitted fields to UTF-8 content bytes/,
+          /Budgeting preserves coverage, diagnostic failures, authority corrections and pending repair facts before examples/,
+          /List\/find default to excluding archived rows/,
+          /`data.population` separates matched\/returned counts and archive scope/,
+        ],
+      },
+      {
+        rule: 'mutation outcomes and safe retry',
+        clauses: [
+          /An impossible internal mutation budget rejects before execution/,
+          /`_budgetEnforcement.withinBudget: false`; overflow does not mean rollback/,
+          /Never retry a killed mutation blindly/,
+          /a MISS proves nothing until (?:the writer|it) exits/,
+          /Deletion is a soft archive/,
+          /`--force` alone (?:preserves them as orphaned tasks|orphans children) and permits dependents/,
+        ],
+      },
+      {
+        rule: 'canonical acceptance and transactional control evidence',
+        clauses: [
+          /Array entries preserve literal pipes and quoted unions/,
+          /nonstring entries or malformed explicit JSON arrays reject the whole mutation/,
+          /never split historical records without original-input provenance and a guarded repair receipt/,
+          /failed writes leave no committed receipt/,
+        ],
+      },
+      {
+        rule: 'gate evidence and parent protection',
+        clauses: [
+          /Documentation-only PRs cannot implement a code-fix task/,
+          /Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links/,
+          /changed criteria require fresh evidence/,
+          /a child waiver does not waive parent criteria/,
+        ],
+      },
+      {
+        rule: 'guarded repair and model-independent learning',
+        clauses: [
+          /Automatic repairs must be bounded and reversible/,
+          /owner decisions stay explicit/,
+          /No background LLM is required for repair/,
+          /Avoid empty completion traces/,
+        ],
+      },
+    ])('retains $rule', ({ clauses }) => {
+      const text = content.replace(/\s+/g, ' ');
+      for (const clause of clauses) expect(text).toMatch(clause);
     });
   });
 

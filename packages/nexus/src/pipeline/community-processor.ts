@@ -230,35 +230,13 @@ export async function detectCommunities(graph: KnowledgeGraph): Promise<Communit
       `${isLarge ? ` (large-graph mode, filtered from ${symbolCount} symbols)` : ''}\n`,
   );
 
-  // Run Leiden (@aflsolutions/graphology-communities-leiden with 60-second timeout guard)
-  const LEIDEN_TIMEOUT_MS = 60_000;
-  let details: AflLeidenDetailedResult;
+  // This library is synchronous. A Promise.race timer cannot preempt it and
+  // previously kept successful analysis processes alive for another 60 seconds.
+  // Parser process deadlines do not claim to bound this separate graph phase.
   const t0 = performance.now();
-
-  try {
-    details = await Promise.race([
-      Promise.resolve(leidenAlgo.detailed(gGraph, { resolution: LEIDEN_RESOLUTION })),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Leiden timeout')), LEIDEN_TIMEOUT_MS),
-      ),
-    ]);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg === 'Leiden timeout') {
-      process.stderr.write('[nexus] Phase 5: Leiden timed out — falling back to single cluster\n');
-      const fallback: Record<string, number> = {};
-      gGraph.forEachNode((nodeId: string) => {
-        fallback[nodeId] = 0;
-      });
-      details = {
-        communities: fallback,
-        count: 1,
-        modularity: 0,
-      };
-    } else {
-      throw err;
-    }
-  }
+  const details: AflLeidenDetailedResult = leidenAlgo.detailed(gGraph, {
+    resolution: LEIDEN_RESOLUTION,
+  });
 
   const durationMs = performance.now() - t0;
 

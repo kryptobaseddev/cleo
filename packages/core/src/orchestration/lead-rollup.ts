@@ -3,7 +3,7 @@
  * an epic, producing a unified contract for the top-level Orchestrator.
  *
  * Reads from two sources:
- *   1. `pipeline_manifest` table — worker self-reports (manifest entries
+ *   1. Canonical modern and historical manifests — worker self-reports (entries
  *      linked to tasks in the wave).
  *   2. Task verification rows — gate state and evidence atoms.
  *
@@ -117,6 +117,10 @@ export async function resolveLeadRollupMode(projectRoot?: string): Promise<LeadR
 /**
  * Compute a roll-up for a single wave of an epic.
  *
+ * @remarks
+ * Uses exact linked task membership in active modern and historical manifests.
+ * Conflicting histories and failed reads reject rather than imply missing evidence.
+ *
  * @param epicId - Parent epic ID.
  * @param waveId - Wave number (0 = first wave). Must match `cleo deps waves`
  *   output.
@@ -126,6 +130,11 @@ export async function resolveLeadRollupMode(projectRoot?: string): Promise<LeadR
  * @param options - Optional inputs (conduit messages).
  * @returns A `WaveRollup` shape. Returns an empty wave (`workers: []`) when
  *   the wave has no tasks.
+ * @throws If manifest history conflicts or a canonical store read fails.
+ * @example
+ * ```ts
+ * const wave = await rollupWaveStatus("T100", 0, "/project", {});
+ * ```
  */
 export async function rollupWaveStatus(
   epicId: string,
@@ -292,6 +301,20 @@ function applyActiveModeHook(_workers: RollupWorker[], _blockers: RollupBlocker[
 /**
  * Roll-up every wave of an epic at once. Composes `rollupWaveStatus` per
  * wave and returns an `EpicRollup`.
+ *
+ * @remarks
+ * Each wave uses canonical evidence selection and preserves read diagnostics.
+ * A failed wave rejects the aggregate rather than returning partial counts.
+ *
+ * @param epicId - Parent epic ID.
+ * @param projectRoot - Optional explicit project root.
+ * @param options - Optional pre-collected conduit messages.
+ * @returns Rollups for every dependency wave and aggregate worker counts.
+ * @throws If manifest history conflicts or a canonical store read fails.
+ * @example
+ * ```ts
+ * const epic = await rollupEpicStatus("T100", "/project", {});
+ * ```
  */
 export async function rollupEpicStatus(
   epicId: string,
@@ -335,8 +358,8 @@ interface LatestManifestRow {
 
 /**
  * Pull the most recent manifest entry per task, indexed by task id.
- * Uses pipelineManifestList with a per-task filter — efficient for small
- * waves (typical 3-12 tasks per wave).
+ * Reads eligible modern and historical evidence once, in canonical newest-first
+ * order. Only explicit linked task membership establishes worker evidence.
  */
 async function loadLatestManifestPerTask(
   taskIds: string[],
@@ -345,21 +368,16 @@ async function loadLatestManifestPerTask(
   const out = new Map<string, LatestManifestRow>();
   if (taskIds.length === 0) return out;
 
-  const { pipelineManifestList } = await import('../memory/pipeline-manifest-sqlite.js');
+  const { readManifestEntries } = await import('../memory/pipeline-manifest-sqlite.js');
+  const entries = await readManifestEntries(projectRoot);
   for (const taskId of taskIds) {
-    const result = await pipelineManifestList(
-      { linkedTask: taskId, limit: 1 } as Parameters<typeof pipelineManifestList>[0],
-      projectRoot,
-    );
-    if (!result.success || !result.data) continue;
-    const data = result.data as { entries?: Array<{ id: string; status?: string; date?: string }> };
-    const entry = data.entries?.[0];
+    const entry = entries.find((candidate) => candidate.linked_tasks?.includes(taskId));
     if (entry) {
       out.set(taskId, {
         id: entry.id,
         taskId,
-        status: entry.status ?? 'unknown',
-        createdAt: entry.date ?? '',
+        status: entry.status,
+        createdAt: entry.date,
       });
     }
   }

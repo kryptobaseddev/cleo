@@ -13,6 +13,8 @@
  * @epic T1216
  */
 
+import type { ProcessCaptureResult, ProcessLaunchExecution } from './resource-governor.js';
+
 /**
  * A single commit entry extracted from git log.
  */
@@ -51,17 +53,22 @@ export interface ReleaseTagEntry {
  * necessarily from the task DB.
  */
 export interface ReconstructResult {
+  /** Assessment provenance; absent only on legacy results. New assessments always emit it.
+   * @defaultValue undefined on legacy records only
+   */
+  assessment?: ReconstructAssessment;
+
   /** The task ID being reconstructed (e.g. `T991`). */
   taskId: string;
 
   /**
    * Commits whose message directly references `taskId`.
-   * Pattern: `<taskId>:`, `(<taskId>):`, or `<taskId> ` (space-delimited).
+   * Exact word-boundary task tokens in the full subject and body, never numeric prefixes.
    */
   directCommits: CommitEntry[];
 
   /**
-   * Numeric child ID range inferred from commit-message mining and DB lookup.
+   * Numeric child ID range inferred from commit-message mining and numeric proximity (not authoritative containment).
    * Both bounds are inclusive. `null` when no children could be inferred.
    */
   childIdRange: { min: string; max: string } | null;
@@ -101,4 +108,67 @@ export interface ReconstructResult {
    * heuristics. May include IDs not present in the task DB.
    */
   inferredChildren: string[];
+}
+
+/** Options for bounded Git-backed lineage assessment.
+ * @remarks These options may shorten but never extend an inherited operation lifetime.
+ * @example
+ * ```ts
+ * const options: ReconstructOptions = { execution: { deadlineAt: Date.now() + 1000 } };
+ * ```
+ */
+export interface ReconstructOptions {
+  /** Original caller deadline and cancellation.
+   * @defaultValue inherited context, otherwise one two-second foreground budget
+   */
+  execution?: ProcessLaunchExecution;
+  /** Combined capture byte ceiling across all commands.
+   * @defaultValue 8388608
+   */
+  maxOutputBytes?: number;
+}
+
+/** Observed bounded command outcome without duplicating captured Git history.
+ * @remarks Target outcome and cleanup evidence remain distinct.
+ * @example
+ * ```ts
+ * const stopped = command.stopped;
+ * ```
+ */
+export interface ReconstructCommand extends Omit<ProcessCaptureResult, 'stdout' | 'stderr'> {
+  /** Exact requested Git arguments. */
+  args: readonly string[];
+  /** Diagnostic stderr, bounded by the shared output limit. */
+  stderr: string;
+}
+
+/** Coverage and failure truth for a lineage assessment.
+ * @remarks Current means the observed local Git scope was assessed, not complete remote history
+ * or proven task containment. Partial results must not authorize provenance repair.
+ * @example
+ * ```ts
+ * if (result.assessment?.coverage !== 'current') return;
+ * ```
+ */
+export interface ReconstructAssessment {
+  /** Absolute repository root captured before asynchronous work. */
+  repositoryRoot: string;
+  /** One absolute execution deadline, shared with every command and computation stage. */
+  deadlineAt: number;
+  /** Completeness of the observed local Git history and release-tag assessment. */
+  coverage: 'current' | 'partial' | 'failed';
+  /** Shallow history is explicitly incomplete; null means the probe did not complete. */
+  shallow: boolean | null;
+  /** Number of commits parsed from the bounded history, not total remote commits. */
+  observedCommits: number;
+  /** Whether all history records were parsed successfully. */
+  historyComplete: boolean;
+  /** Whether every commit-targeting tag was assessed successfully. */
+  tagsComplete: boolean;
+  /** Captured process verdicts and cleanup observations. */
+  commands: ReconstructCommand[];
+  /** Explicit failures and incomplete-scope reasons; never replaced with healthy empty arrays. */
+  diagnostics: Array<{ code: string; stage: string; message: string }>;
+  /** Non-authoritative inference and local-scope limitations retained even for current coverage. */
+  limitations: string[];
 }

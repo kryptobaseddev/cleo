@@ -20,7 +20,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { orchestrateReady, orchestrateWaves } from '@cleocode/core/internal';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let TEST_ROOT: string;
 
@@ -124,6 +124,13 @@ async function seedTasks(testRoot: string): Promise<void> {
     await createTask(task as Parameters<typeof createTask>[0], testRoot);
   }
 }
+
+// Each scenario owns its seeded task store and explicitly selected project.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(async () => {
   TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-ready-display-'));

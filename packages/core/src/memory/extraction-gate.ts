@@ -3,13 +3,13 @@
  *
  * Wraps all memory writes with three ordered checks:
  *   A. Content-hash deduplication (always runs — fast, no embedding needed)
- *   B. Cosine similarity deduplication (runs when embedding is available; skipped for trusted sources)
+ *   B. Similarity candidate discovery (runs when embedding is available; skipped for trusted sources)
  *   C. Confidence threshold enforcement (always runs)
  *
  * Trusted sources (manual, owner) bypass Check B but still run A and C.
  *
  * Design goals:
- * - NEVER block the primary write path on error — all checks wrapped in try/catch
+ * - Failed required checks reject storage rather than authorize unverified writes
  * - Degrade gracefully to hash-only dedup when embedding is unavailable
  * - Contradiction detection uses a polarity-flip heuristic (no LLM required)
  *
@@ -18,6 +18,8 @@
  */
 
 import { createHash } from 'node:crypto';
+import { captureProjectScope, worktreeScope } from '../project-scope.js';
+import { assertOperationWriteFence } from '../store/background-jobs.js';
 import type {
   BrainCognitiveType,
   BrainMemoryTier,
@@ -25,7 +27,6 @@ import type {
 } from '../store/schema/memory-schema.js';
 import { isEmbeddingAvailable } from './brain-embedding.js';
 import { searchSimilar } from './brain-similarity.js';
-import { addGraphEdge } from './graph-auto-populate.js';
 
 // ============================================================================
 // Types
@@ -81,13 +82,15 @@ export interface GateResult {
   reason: string;
   /** Cosine distance to the nearest match (when similarity check ran). */
   similarity?: number;
+  /** Similar or conflicting records requiring sourced caller review; never automatic authority. */
+  candidateIds?: string[];
 }
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-/** Cosine distance below which two entries are considered exact duplicates. */
+/** Cosine distance below which two entries are flagged as potential duplicate candidates. */
 const DUPLICATE_THRESHOLD = 0.15;
 
 /** Cosine distance below which two entries are considered closely related. */
@@ -180,79 +183,36 @@ function hasContradictingPolarity(existingText: string, newText: string): boolea
 }
 
 /**
- * Mark an existing entry as invalid (superseded).
- * Sets the invalid_at column to now on whichever typed table owns the entry.
- *
- * Determined by ID prefix conventions:
- *   D...  → brain_decisions
- *   P...  → brain_patterns
- *   L...  → brain_learnings
- *   O... / CM-... → brain_observations
- */
-async function invalidateEntry(projectRoot: string, entryId: string): Promise<void> {
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-
-  try {
-    const { getBrainNativeDb, getBrainDb } = await import('../store/memory-sqlite.js');
-    await getBrainDb(projectRoot);
-    const nativeDb = getBrainNativeDb(projectRoot);
-    if (!nativeDb) return;
-
-    // Route by ID prefix to correct table
-    if (entryId.startsWith('D-') || /^D\d/.test(entryId)) {
-      nativeDb
-        .prepare('UPDATE brain_decisions SET invalid_at = ? WHERE id = ? AND invalid_at IS NULL')
-        .run(now, entryId);
-    } else if (entryId.startsWith('P-') || /^P\d/.test(entryId)) {
-      nativeDb
-        .prepare('UPDATE brain_patterns SET invalid_at = ? WHERE id = ? AND invalid_at IS NULL')
-        .run(now, entryId);
-    } else if (entryId.startsWith('L-') || /^L\d/.test(entryId)) {
-      nativeDb
-        .prepare('UPDATE brain_learnings SET invalid_at = ? WHERE id = ? AND invalid_at IS NULL')
-        .run(now, entryId);
-    } else {
-      // O-, O[base36], CM- → observations
-      nativeDb
-        .prepare('UPDATE brain_observations SET invalid_at = ? WHERE id = ? AND invalid_at IS NULL')
-        .run(now, entryId);
-    }
-  } catch {
-    // Best-effort — invalidation failure must not block the primary write
-  }
-}
-
-/**
  * Increment the citation_count of an existing entry by 1.
- * Routes by the same ID-prefix convention as invalidateEntry.
+ * Routes to the canonical typed table using the record identifier.
  */
 async function incrementCitationCount(projectRoot: string, entryId: string): Promise<void> {
-  try {
-    const { getBrainNativeDb, getBrainDb } = await import('../store/memory-sqlite.js');
-    await getBrainDb(projectRoot);
-    const nativeDb = getBrainNativeDb(projectRoot);
-    if (!nativeDb) return;
-
-    if (entryId.startsWith('D-') || /^D\d/.test(entryId)) {
-      nativeDb
-        .prepare('UPDATE brain_decisions SET citation_count = citation_count + 1 WHERE id = ?')
-        .run(entryId);
-    } else if (entryId.startsWith('P-') || /^P\d/.test(entryId)) {
-      nativeDb
-        .prepare('UPDATE brain_patterns SET citation_count = citation_count + 1 WHERE id = ?')
-        .run(entryId);
-    } else if (entryId.startsWith('L-') || /^L\d/.test(entryId)) {
-      nativeDb
-        .prepare('UPDATE brain_learnings SET citation_count = citation_count + 1 WHERE id = ?')
-        .run(entryId);
-    } else {
-      nativeDb
-        .prepare('UPDATE brain_observations SET citation_count = citation_count + 1 WHERE id = ?')
-        .run(entryId);
-    }
-  } catch {
-    // Best-effort
-  }
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+  const { getBrainNativeDb, getBrainDb } = await import('../store/memory-sqlite.js');
+  scope.execution?.assertActive();
+  const db = await getBrainDb(scope.worktreeRoot);
+  scope.execution?.assertActive();
+  const nativeDb = getBrainNativeDb(scope.worktreeRoot);
+  if (!nativeDb) throw new Error('E_CITATION_STORAGE_UNAVAILABLE: canonical native handle absent');
+  if (scope.execution && nativeDb.isTransaction)
+    throw new Error('Citation write cannot join an unowned native transaction');
+  const table =
+    entryId.startsWith('D-') || /^D\d/.test(entryId)
+      ? 'brain_decisions'
+      : entryId.startsWith('P-') || /^P\d/.test(entryId)
+        ? 'brain_patterns'
+        : entryId.startsWith('L-') || /^L\d/.test(entryId)
+          ? 'brain_learnings'
+          : 'brain_observations';
+  db.transaction((tx) => {
+    scope.execution?.assertActive();
+    if (scope.execution) assertOperationWriteFence(tx, scope.execution);
+    const result = nativeDb
+      .prepare(`UPDATE ${table} SET citation_count = citation_count + 1 WHERE id = ?`)
+      .run(entryId);
+    if (Number(result.changes) !== 1)
+      throw new Error('E_CITATION_TARGET_MISSING: assessed entry changed before citation write');
+  });
 }
 
 /**
@@ -288,25 +248,21 @@ async function hashDedupCheck(
   text: string,
   table: HashDedupTable = 'brain_observations',
 ): Promise<{ matched: true; id: string } | { matched: false }> {
-  try {
-    const { getBrainNativeDb, getBrainDb } = await import('../store/memory-sqlite.js');
-    await getBrainDb(projectRoot);
-    const nativeDb = getBrainNativeDb(projectRoot);
-    if (!nativeDb) return { matched: false };
-
-    const hash = contentHashPrefix(text);
-    // Permanent dedup — no time window. A hash match means exact duplicate regardless of age.
-    const rows = nativeDb
-      .prepare(`SELECT id FROM ${table} WHERE content_hash = ? AND invalid_at IS NULL LIMIT 1`)
-      .all(hash) as Array<{ id: string }>;
-
-    if (rows.length > 0) {
-      return { matched: true, id: rows[0].id };
-    }
-  } catch {
-    // Degrade gracefully — if dedup check fails, allow the write
-  }
-  return { matched: false };
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+  const { getBrainNativeDb, getBrainDb } = await import('../store/memory-sqlite.js');
+  scope.execution?.assertActive();
+  await getBrainDb(scope.worktreeRoot);
+  scope.execution?.assertActive();
+  const nativeDb = getBrainNativeDb(scope.worktreeRoot);
+  if (!nativeDb) throw new Error('E_DEDUP_STORAGE_UNAVAILABLE: canonical native handle absent');
+  const hash = contentHashPrefix(text);
+  const row = nativeDb
+    .prepare(`SELECT id FROM ${table} WHERE content_hash = ? AND invalid_at IS NULL LIMIT 1`)
+    .all(hash)[0];
+  if (!row) return { matched: false };
+  if (typeof row.id !== 'string' || !row.id)
+    throw new Error('E_DEDUP_INVALID_RECORD: canonical duplicate has no valid identity');
+  return { matched: true, id: row.id };
 }
 
 /**
@@ -353,8 +309,8 @@ export async function checkHashDedup(
  *
  * Checks (in order):
  *   A0. Title-prefix blocklist (T993) — rejects known-noise titles before any DB work
- *   A. Content-hash deduplication (always; degrades to observations-only when DB unavailable)
- *   B. Cosine similarity deduplication + contradiction detection (skipped for trusted sources)
+ *   A. Content-hash deduplication (required; unavailable reads reject verification)
+ *   B. Similarity and contradiction candidates (skipped for trusted sources)
  *   C. Confidence threshold >= 0.40 (always)
  *
  * The gate NEVER stores the entry itself — it only decides whether the caller
@@ -365,129 +321,134 @@ export async function checkHashDedup(
  *
  * @param projectRoot - Project root for brain.db access
  * @param candidate - Candidate to verify
- * @returns GateResult describing what should happen
+ * @returns GateResult describing what should happen, including explicit verification failures.
+ * @remarks A duplicate citation is awaited before reporting merged. Required read/write
+ * failure cannot authorize storage; inherited deadlines and cancellation are retained.
+ * @example
+ * ```ts
+ * const result = await verifyCandidate(projectRoot, candidate);
+ * ```
  */
 export async function verifyCandidate(
   projectRoot: string,
   candidate: MemoryCandidate,
 ): Promise<GateResult> {
-  try {
-    // -----------------------------------------------------------------------
-    // Check A0: Title-prefix blocklist (T993) — fastest possible rejection.
-    // Rejects known-noise titles before any hash/similarity work runs.
-    // -----------------------------------------------------------------------
-    const candidateTitle = candidate.title ?? '';
-    if (BRAIN_NOISE_PREFIXES.some((prefix) => candidateTitle.startsWith(prefix))) {
-      return { action: 'rejected', id: null, reason: 'noise-prefix' };
-    }
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    try {
+      // -----------------------------------------------------------------------
+      // Check A0: Title-prefix blocklist (T993) — fastest possible rejection.
+      // Rejects known-noise titles before any hash/similarity work runs.
+      // -----------------------------------------------------------------------
+      const candidateTitle = candidate.title ?? '';
+      if (BRAIN_NOISE_PREFIXES.some((prefix) => candidateTitle.startsWith(prefix))) {
+        return { action: 'rejected', id: null, reason: 'noise-prefix' };
+      }
 
-    // -----------------------------------------------------------------------
-    // Check A: Content-hash dedup (always, fast)
-    // T737: Route to the correct typed table based on the candidate's memory type.
-    // -----------------------------------------------------------------------
-    const dedupTable: HashDedupTable =
-      candidate.memoryType === 'semantic'
-        ? // semantic defaults to learnings unless the caller routes to decisions
-          // (decisions bypass verifyCandidate and call storeDecision directly via
-          //  llm-extraction storeExtracted — this branch covers learnings path)
-          'brain_learnings'
-        : candidate.memoryType === 'procedural'
-          ? 'brain_patterns'
-          : 'brain_observations'; // episodic → observations
+      // -----------------------------------------------------------------------
+      // Check A: Content-hash dedup (always, fast)
+      // T737: Route to the correct typed table based on the candidate's memory type.
+      // -----------------------------------------------------------------------
+      const dedupTable: HashDedupTable =
+        candidate.memoryType === 'semantic'
+          ? // semantic defaults to learnings unless the caller routes to decisions
+            // (decisions bypass verifyCandidate and call storeDecision directly via
+            //  llm-extraction storeExtracted — this branch covers learnings path)
+            'brain_learnings'
+          : candidate.memoryType === 'procedural'
+            ? 'brain_patterns'
+            : 'brain_observations'; // episodic → observations
 
-    const hashCheck = await hashDedupCheck(projectRoot, candidate.text, dedupTable);
-    if (hashCheck.matched) {
-      // Bump citation count on the existing entry (fire-and-forget)
-      incrementCitationCount(projectRoot, hashCheck.id).catch(() => undefined);
-      return {
-        action: 'merged',
-        id: hashCheck.id,
-        reason: `exact-duplicate (hash match) of ${hashCheck.id}`,
-      };
-    }
+      const hashCheck = await hashDedupCheck(scope.worktreeRoot, candidate.text, dedupTable);
+      if (hashCheck.matched) {
+        // A merged result is truthful only after its citation write settles.
+        await incrementCitationCount(scope.worktreeRoot, hashCheck.id);
+        return {
+          action: 'merged',
+          id: hashCheck.id,
+          reason: `exact-duplicate (hash match) of ${hashCheck.id}`,
+        };
+      }
 
-    // -----------------------------------------------------------------------
-    // Check B: Cosine similarity + contradiction (skip for trusted sources)
-    // -----------------------------------------------------------------------
-    const trusted = isTrustedSource(candidate);
+      // -----------------------------------------------------------------------
+      // Check B: Cosine similarity + contradiction (skip for trusted sources)
+      // -----------------------------------------------------------------------
+      const trusted = isTrustedSource(candidate);
 
-    if (!trusted && isEmbeddingAvailable()) {
-      try {
-        const similar = await searchSimilar(candidate.text, projectRoot, 5);
+      if (!trusted && isEmbeddingAvailable()) {
+        try {
+          const similar = await searchSimilar(candidate.text, scope.worktreeRoot, 5);
 
-        if (similar.length > 0) {
-          const nearest = similar[0];
+          if (similar.length > 0) {
+            const nearest = similar[0];
 
-          if (nearest.distance < DUPLICATE_THRESHOLD) {
-            // Near-identical — merge into existing
-            incrementCitationCount(projectRoot, nearest.id).catch(() => undefined);
-            return {
-              action: 'merged',
-              id: nearest.id,
-              reason: `near-duplicate of ${nearest.id} (cosine distance=${nearest.distance.toFixed(3)})`,
-              similarity: nearest.distance,
-            };
-          }
-
-          if (nearest.distance < SIMILAR_THRESHOLD) {
-            // Related — check for contradiction
-            if (hasContradictingPolarity(nearest.text, candidate.text)) {
-              // New text supersedes old — invalidate old entry
-              await invalidateEntry(projectRoot, nearest.id);
-
-              // Record supersession graph edge (fire-and-forget)
-              // Note: we don't have the new entry's ID yet so we'll skip the edge here.
-              // The caller should add the supersedes edge after storage using the returned existingId.
+            if (nearest.distance < DUPLICATE_THRESHOLD) {
+              // Similarity cannot establish that two claims are interchangeable.
               return {
                 action: 'stored',
                 id: null,
-                reason: `contradiction-supersedes ${nearest.id}`,
+                candidateIds: [nearest.id],
+                reason: `potential-duplicate of ${nearest.id} (cosine distance=${nearest.distance.toFixed(3)})`,
                 similarity: nearest.distance,
               };
             }
 
-            // Similar but not contradicting — store as new (link will be added post-storage)
-            return {
-              action: 'stored',
-              id: null,
-              reason: `similar-but-distinct to ${nearest.id} (distance=${nearest.distance.toFixed(3)})`,
-              similarity: nearest.distance,
-            };
-          }
-        }
-      } catch {
-        // Embedding/similarity check failed — degrade to hash-only (already passed above)
-      }
-    }
+            if (nearest.distance < SIMILAR_THRESHOLD) {
+              // Related — check for contradiction
+              if (hasContradictingPolarity(nearest.text, candidate.text)) {
+                // Preserve both claims until the caller supplies sourced authority.
+                return {
+                  action: 'stored',
+                  id: null,
+                  reason: `potential-contradiction ${nearest.id}`,
+                  candidateIds: [nearest.id],
+                  similarity: nearest.distance,
+                };
+              }
 
-    // -----------------------------------------------------------------------
-    // Check C: Confidence threshold
-    // -----------------------------------------------------------------------
-    if (candidate.confidence < MINIMUM_CONFIDENCE) {
+              // Similar but not contradicting — store as new (link will be added post-storage)
+              return {
+                action: 'stored',
+                id: null,
+                reason: `similar-but-distinct to ${nearest.id} (distance=${nearest.distance.toFixed(3)})`,
+                similarity: nearest.distance,
+              };
+            }
+          }
+        } catch {
+          scope.execution?.assertActive();
+          // Embedding/similarity check failed — degrade to hash-only (already passed above)
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // Check C: Confidence threshold
+      // -----------------------------------------------------------------------
+      if (candidate.confidence < MINIMUM_CONFIDENCE) {
+        return {
+          action: 'pending',
+          id: null,
+          reason: `confidence ${candidate.confidence.toFixed(2)} below minimum ${MINIMUM_CONFIDENCE}`,
+        };
+      }
+
+      // All checks passed — caller may store only within the original lifetime.
+      scope.execution?.assertActive();
       return {
-        action: 'pending',
+        action: 'stored',
         id: null,
-        reason: `confidence ${candidate.confidence.toFixed(2)} below minimum ${MINIMUM_CONFIDENCE}`,
+        reason: 'verified-new',
+      };
+    } catch (err) {
+      // Unavailable verification cannot authorize a new write.
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        action: 'rejected',
+        id: null,
+        reason: `gate-error: ${message}`,
       };
     }
-
-    // All checks passed — caller should store
-    return {
-      action: 'stored',
-      id: null,
-      reason: 'verified-new',
-    };
-  } catch (err) {
-    // Safety net: gate errors must never block writes.
-    // Log a warning and allow the store to proceed.
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[extraction-gate] verifyCandidate error (allowing store): ${message}`);
-    return {
-      action: 'stored',
-      id: null,
-      reason: `gate-error-passthrough: ${message}`,
-    };
-  }
+  });
 }
 
 /**
@@ -597,47 +558,44 @@ export async function storeVerifiedCandidate(
  * For 'merged', increments the existing entry's citation_count (already done inside verifyCandidate).
  * For 'pending' and 'rejected', returns the GateResult with no storage.
  *
- * After storage, adds a supersedes edge when the gate returned a contradiction reason.
+ * Similarity findings remain review candidates and never create supersession edges.
  *
  * @param projectRoot - Project root for brain.db access
  * @param candidate - Candidate to verify and store
- * @returns Final GateResult with the stored/merged entry ID populated
+ * @returns Final GateResult with the stored/merged entry ID populated.
+ * @remarks Runs under captured project ownership and the original execution lifetime.
+ * Rejected verification is retained; cancellation cannot become authorization to store.
+ * @example
+ * ```ts
+ * const result = await verifyAndStore(projectRoot, candidate);
+ * ```
  */
 export async function verifyAndStore(
   projectRoot: string,
   candidate: MemoryCandidate,
 ): Promise<GateResult> {
-  const gateResult = await verifyCandidate(projectRoot, candidate);
+  const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const gateResult = await verifyCandidate(scope.worktreeRoot, candidate);
 
-  if (gateResult.action !== 'stored') {
-    return gateResult;
-  }
-
-  try {
-    const newId = await storeVerifiedCandidate(projectRoot, candidate);
-
-    // If this was a contradiction supersession, add a graph edge (best-effort)
-    if (gateResult.reason.startsWith('contradiction-supersedes ')) {
-      const oldId = gateResult.reason.replace('contradiction-supersedes ', '');
-      addGraphEdge(
-        projectRoot,
-        `observation:${newId}`,
-        `observation:${oldId}`,
-        'supersedes',
-        1.0,
-        'extraction-gate',
-      ).catch(() => undefined);
+    if (gateResult.action !== 'stored') {
+      return gateResult;
     }
 
-    return { ...gateResult, id: newId };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      action: 'rejected',
-      id: null,
-      reason: `storage-error: ${message}`,
-    };
-  }
+    try {
+      scope.execution?.assertActive();
+      const newId = await storeVerifiedCandidate(scope.worktreeRoot, candidate);
+
+      return { ...gateResult, id: newId };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        action: 'rejected',
+        id: null,
+        reason: `storage-error: ${message}`,
+      };
+    }
+  });
 }
 
 /**

@@ -13,6 +13,8 @@
  */
 
 import { z } from 'zod';
+import type { AcceptanceGateBinding } from './acceptance-gate.js';
+import type { ProcessCaptureResult } from './resource-governor.js';
 
 // ─── Base schema ──────────────────────────────────────────────────────────────
 
@@ -78,6 +80,90 @@ export const testGateSchema = gateBaseSchema.extend({
   cwd: z.string().optional(),
   env: z.record(z.string(), z.string()).optional(),
 });
+
+/**
+ * Validates the structured JSON reporter subset used for minimum test counts.
+ *
+ * @remarks
+ * Audited against Vitest 4.1.4 JSON output, including nested suites, skipped
+ * tests and todos. Jest-compatible producers must satisfy this same shape;
+ * this is not a claim that every Jest version or custom reporter is supported.
+ * Counts must match individual assertions. Passed tests alone satisfy a gate's
+ * minimum; this schema validates structure, not execution provenance or success.
+ * Extra reporter metadata is ignored. Runtime callers must bound input bytes
+ * and obtain the report from the actual owned process, not a saved report file.
+ *
+ * @example
+ * ```ts
+ * const report = testCountReportSchema.safeParse(JSON.parse(captured.stdout));
+ * if (report.success) console.info(report.data.numPassedTests);
+ * ```
+ */
+export const testCountReportSchema = z
+  .object({
+    numTotalTests: z.number().int().nonnegative().safe(),
+    numPassedTests: z.number().int().nonnegative().safe(),
+    numFailedTests: z.number().int().nonnegative().safe(),
+    numPendingTests: z.number().int().nonnegative().safe(),
+    numTodoTests: z.number().int().nonnegative().safe(),
+    numTotalTestSuites: z.number().int().nonnegative().safe(),
+    numPassedTestSuites: z.number().int().nonnegative().safe(),
+    numFailedTestSuites: z.number().int().nonnegative().safe(),
+    numPendingTestSuites: z.number().int().nonnegative().safe(),
+    success: z.boolean(),
+    testResults: z.array(
+      z.object({
+        name: z.string().min(1),
+        status: z.enum(['passed', 'failed']),
+        assertionResults: z.array(
+          z.object({
+            fullName: z.string(),
+            status: z.enum(['passed', 'failed', 'pending', 'skipped', 'todo']),
+          }),
+        ),
+      }),
+    ),
+  })
+  .superRefine((report, context) => {
+    const assertions = report.testResults.flatMap((file) => file.assertionResults);
+    const passed = assertions.filter((test) => test.status === 'passed').length;
+    const failed = assertions.filter((test) => test.status === 'failed').length;
+    const pending = assertions.filter(
+      (test) => test.status === 'pending' || test.status === 'skipped',
+    ).length;
+    const todo = assertions.filter((test) => test.status === 'todo').length;
+    if (
+      report.numTotalTests !== assertions.length ||
+      report.numPassedTests !== passed ||
+      report.numFailedTests !== failed ||
+      report.numPendingTests !== pending ||
+      report.numTodoTests !== todo
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Test counters disagree with assertion results',
+      });
+    }
+    if (
+      report.numTotalTestSuites !==
+      report.numPassedTestSuites + report.numFailedTestSuites + report.numPendingTestSuites
+    ) {
+      context.addIssue({ code: 'custom', message: 'Suite counters are inconsistent' });
+    }
+    if (
+      report.testResults.some(
+        (file) =>
+          file.status === 'passed' &&
+          file.assertionResults.some((test) => test.status === 'failed'),
+      ) ||
+      (report.success &&
+        (failed > 0 ||
+          report.numFailedTestSuites > 0 ||
+          report.testResults.some((file) => file.status === 'failed')))
+    ) {
+      context.addIssue({ code: 'custom', message: 'Success status contradicts failed results' });
+    }
+  });
 
 /** Zod schema for {@link FileGate}. */
 export const fileGateSchema = gateBaseSchema.extend({
@@ -221,26 +307,246 @@ export type GateResultDetailsInput = z.input<typeof gateResultDetailsSchema>;
 
 // ─── Result schema ────────────────────────────────────────────────────────────
 
+/** Validate captured transport observations without treating their shape as execution authority. */
+const capturedExecutionSchema: z.ZodType<ProcessCaptureResult> = z
+  .object({
+    started: z.boolean(),
+    targetPid: z.number().int().positive().safe().nullable(),
+    exitCode: z.number().int().nonnegative().safe().nullable(),
+    signal: z.string().min(1).nullable(),
+    error: z.string().nullable(),
+    stopped: z
+      .enum([
+        'deadline',
+        'cancelled',
+        'teardown',
+        'output-limit',
+        'resource-limit',
+        'transport-error',
+      ])
+      .nullable(),
+    stdout: z.string(),
+    stderr: z.string(),
+    outputTruncated: z.boolean(),
+    durationMs: z.number().finite().nonnegative(),
+    mode: z.enum(['systemd', 'pgid']),
+    unitName: z.string().min(1).optional(),
+    nativeMemory: z.enum(['unverified', 'observed-cgroup']),
+    resourceLimits: z
+      .object({
+        cgroup: z.string().startsWith('/'),
+        memoryMaxBytes: z.number().int().positive().safe().nullable(),
+        tasksMax: z.number().int().positive().safe().nullable(),
+      })
+      .strict()
+      .optional(),
+    cleanupScope: z.enum(['process-group', 'direct-child']),
+    transportClosed: z.literal(true),
+    targetCloseObserved: z.boolean(),
+    cleanupObservation: z.enum([
+      'scope-terminal',
+      'process-group-absent',
+      'process-group-signalled',
+      'unverified',
+    ]),
+    cleanupErrors: z.array(z.string()),
+  })
+  .strict()
+  .superRefine((execution, context) => {
+    if (
+      execution.started !== (execution.targetPid !== null) ||
+      (!execution.started && (execution.exitCode !== null || execution.signal !== null)) ||
+      (execution.exitCode !== null && execution.signal !== null) ||
+      (!execution.targetCloseObserved && (execution.exitCode !== null || execution.signal !== null))
+    )
+      context.addIssue({ code: 'custom', message: 'Contradictory target lifecycle observation' });
+    if (execution.nativeMemory === 'observed-cgroup' && !execution.resourceLimits?.memoryMaxBytes)
+      context.addIssue({
+        code: 'custom',
+        message: 'Observed native-memory claim requires a finite kernel limit',
+      });
+    if (
+      execution.resourceLimits &&
+      (execution.mode !== 'systemd' ||
+        !execution.unitName ||
+        !execution.resourceLimits.cgroup.split('/').includes(execution.unitName) ||
+        execution.resourceLimits.cgroup.split('/').includes('..'))
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Resource observation must name the exact owned scope',
+      });
+    if (
+      execution.cleanupObservation === 'scope-terminal' &&
+      (execution.mode !== 'systemd' || !execution.unitName)
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Terminal scope observation requires an identified systemd scope',
+      });
+  });
+
+/** Absolute captured paths; canonical ownership is checked by the runtime verifier. */
+const gateBindingPathSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(value) && !value.includes('\0'),
+    'Captured gate paths must be absolute and contain no null byte',
+  );
+
+/** Strict persistence shape for existing acceptance-result provenance. */
+const acceptanceGateBindingSchema: z.ZodType<AcceptanceGateBinding> = z
+  .object({
+    version: z.literal(1),
+    verificationId: z.string().uuid(),
+    identity: z
+      .object({
+        projectId: z.string().min(1),
+        projectRoot: gateBindingPathSchema,
+        actor: z.string().min(1),
+        operation: z.literal('check.gate.verify'),
+        idempotencyKey: z.string().min(1),
+      })
+      .strict(),
+    taskId: z.string().min(1),
+    criterionId: z.string().uuid(),
+    criterionHash: z.string().regex(/^[a-f0-9]{64}$/),
+    gateHash: z.string().regex(/^[a-f0-9]{64}$/),
+    capturedAt: z.string().datetime(),
+    deadlineAt: z.number().int().positive().safe(),
+    invocation: z
+      .object({
+        command: z.string().min(1),
+        args: z.array(z.string()),
+        cwd: gateBindingPathSchema,
+        environmentHash: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .strict()
+      .optional(),
+    artifacts: z.array(
+      z
+        .object({
+          path: gateBindingPathSchema,
+          sha256: z
+            .string()
+            .regex(/^[a-f0-9]{64}$/)
+            .nullable(),
+          bytes: z.number().int().nonnegative().safe().nullable(),
+        })
+        .strict()
+        .superRefine((artifact, context) => {
+          if ((artifact.sha256 === null) !== (artifact.bytes === null))
+            context.addIssue({
+              code: 'custom',
+              message: 'Absent input requires both null digest and size',
+            });
+        }),
+    ),
+  })
+  .strict()
+  .superRefine((binding, context) => {
+    if (new Set(binding.artifacts.map(({ path }) => path)).size !== binding.artifacts.length)
+      context.addIssue({
+        code: 'custom',
+        path: ['artifacts'],
+        message: 'Input paths must be unique',
+      });
+    if (Date.parse(binding.capturedAt) >= binding.deadlineAt)
+      context.addIssue({
+        code: 'custom',
+        path: ['deadlineAt'],
+        message: 'Input capture must precede the original deadline',
+      });
+  });
+
 /**
  * Zod schema for {@link AcceptanceGateResult}.
  *
  * Validates the shape produced by the gate runner and stored in
  * `lifecycle_gate_results`.
+ * @remarks Historical records without execution detail remain readable. New detail is
+ * preserved strictly; interrupted or contradictory observations cannot supply a verdict.
+ * Validation proves shape consistency, not freshness, task binding or authentic execution.
+ * @example
+ * ```typescript
+ * const result = acceptanceGateResultSchema.parse(storedResult);
+ * ```
  */
-export const acceptanceGateResultSchema = z.object({
-  index: z.number().int().nonnegative(),
-  req: z.string().optional(),
-  kind: z.enum(['test', 'file', 'command', 'lint', 'http', 'manual']),
-  result: z.enum(['pass', 'fail', 'warn', 'skipped', 'error']),
-  durationMs: z.number().nonnegative(),
-  /** Typed kind-specific detail payload (T802). */
-  details: gateResultDetailsSchema.optional(),
-  evidence: z.string().optional(),
-  errorMessage: z.string().optional(),
-  /** ISO 8601 timestamp. */
-  checkedAt: z.string().datetime(),
-  checkedBy: z.string().min(1),
-});
+export const acceptanceGateResultSchema = z
+  .object({
+    binding: acceptanceGateBindingSchema.optional(),
+    index: z.number().int().nonnegative(),
+    req: z.string().optional(),
+    kind: z.enum(['test', 'file', 'command', 'lint', 'http', 'manual']),
+    result: z.enum(['pass', 'fail', 'warn', 'skipped', 'error']),
+    durationMs: z.number().nonnegative(),
+    /** Typed kind-specific detail payload (T802). */
+    details: gateResultDetailsSchema.optional(),
+    /** Actual target/transport/containment observations when supplied by the runner. */
+    execution: capturedExecutionSchema.optional(),
+    evidence: z.string().optional(),
+    errorMessage: z.string().optional(),
+    /** ISO 8601 timestamp. */
+    checkedAt: z.string().datetime(),
+    checkedBy: z.string().min(1),
+  })
+  .superRefine((result, context) => {
+    const binding = result.binding;
+    if (binding) {
+      if (binding.identity.actor !== result.checkedBy)
+        context.addIssue({
+          code: 'custom',
+          path: ['binding', 'identity', 'actor'],
+          message: 'Result actor must match captured operation identity',
+        });
+      if (Date.parse(binding.capturedAt) > Date.parse(result.checkedAt))
+        context.addIssue({
+          code: 'custom',
+          path: ['binding', 'capturedAt'],
+          message: 'Result cannot precede input capture',
+        });
+      const executable = ['test', 'command', 'lint'].includes(result.kind);
+      if (executable && !binding.invocation)
+        context.addIssue({
+          code: 'custom',
+          path: ['binding', 'invocation'],
+          message: 'Executable gate requires captured invocation',
+        });
+      if (['pass', 'fail', 'warn'].includes(result.result)) {
+        if (executable && !result.execution)
+          context.addIssue({
+            code: 'custom',
+            path: ['execution'],
+            message: 'Bound executable verdict requires process observation',
+          });
+        if (Date.parse(result.checkedAt) > binding.deadlineAt)
+          context.addIssue({
+            code: 'custom',
+            path: ['checkedAt'],
+            message: 'Verdict exceeds the original admitted deadline',
+          });
+      }
+    }
+    const execution = result.execution;
+    if (
+      execution &&
+      ['pass', 'fail', 'warn'].includes(result.result) &&
+      (!execution.started ||
+        !execution.targetCloseObserved ||
+        execution.exitCode === null ||
+        execution.signal !== null ||
+        execution.error !== null ||
+        execution.stopped !== null ||
+        execution.outputTruncated ||
+        execution.cleanupErrors.length > 0)
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['execution'],
+        message: 'Incomplete process observation cannot establish a gate verdict',
+      });
+  });
 
 /** Inferred TypeScript type from {@link acceptanceGateResultSchema}. */
 export type AcceptanceGateResultInput = z.input<typeof acceptanceGateResultSchema>;

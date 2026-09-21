@@ -15,6 +15,7 @@ import type {
   TaskSeverity,
   TaskSize,
   TaskStatus,
+  TasksAddParams,
   TaskType,
   TaskVerification,
 } from '@cleocode/contracts';
@@ -33,7 +34,6 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import { trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import {
-  acItemToText,
   applyAcPlan,
   buildAcRowId,
   buildChildProjectionAcText,
@@ -41,6 +41,9 @@ import {
   childProjectionFreshnessFingerprint,
   childProjectionSourceKey,
 } from './ac-table.js';
+import { normalizeAcceptance } from './acceptance-input.js';
+
+import type { DuplicateBypassAuditEntry } from './duplicate-bypass-audit.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import {
   findEpicAncestor,
@@ -50,6 +53,9 @@ import {
 import { childTypeForParentType } from './hierarchy.js';
 import { exceedsMaxDepth, resolveHierarchyPolicy } from './hierarchy-policy.js';
 import { resolveDefaultPipelineStage, validatePipelineStage } from './pipeline-stage.js';
+import { prepareSignedSeverityAttestation } from './severity-attestation.js';
+
+export { normalizeAcceptance } from './acceptance-input.js';
 
 /**
  * Options for creating a task.
@@ -88,6 +94,8 @@ export interface AddTaskOptions {
   files?: string[];
   acceptance?: string[];
   depends?: string[];
+  /** Critical-priority justification committed with task_created audit provenance. */
+  dependsWaiver?: string;
   notes?: string;
   position?: number;
   addPhase?: boolean;
@@ -196,13 +204,68 @@ export interface AddTaskResult {
   reopenedAncestors?: string[];
 }
 
-/** Normalize AC arrays once so legacy JSON, AC rows, and projections stay aligned. */
-export function normalizeAcceptance(
-  acceptance: readonly string[] | undefined,
-): string[] | undefined {
-  if (!acceptance) return undefined;
-  const normalized = acceptance.map((item) => item.trim()).filter((item) => item.length > 0);
-  return normalized.length > 0 ? normalized : undefined;
+/**
+ * Translate canonical creation input into core options without dropping fields.
+ * @param params - Canonical task creation input.
+ * @returns Core options with the parent alias and enum boundaries resolved.
+ * @remarks Entry points share this boundary; CLI parsing does not establish authorization.
+ * @example
+ * ```ts
+ * toTaskAddOptions({ title: 'Fix persistence', description: 'Verify durable task writes' });
+ * ```
+ */
+export function toTaskAddOptions(params: TasksAddParams): AddTaskOptions {
+  const { parent, ...fields } = params;
+  return {
+    ...fields,
+    parentId: parent,
+    priority: params.priority as TaskPriority | undefined,
+    size: params.size as TaskSize | undefined,
+    kind: params.kind as TaskKind | undefined,
+    scope: params.scope as TaskScope | undefined,
+    severity: params.severity as TaskSeverity | undefined,
+  };
+}
+
+/**
+ * Enforce the established explicit-critical dependency policy before mutation.
+ * @param priority - Explicit requested priority; waivers require critical.
+ * @param justification - Original reason, retained verbatim in transaction audit details.
+ * @param dependencies - Effective dependencies after applying the requested changes.
+ * @throws CleoError for invalid waivers or critical mutations without dependencies.
+ * @remarks Entry points share this boundary; CLI parsing does not establish authorization.
+ * @example
+ * ```ts
+ * validateDependencyWaiver('critical', 'Independent restoration', []);
+ * ```
+ */
+export function validateDependencyWaiver(
+  priority: string | undefined,
+  justification: string | undefined,
+  dependencies: readonly string[],
+): void {
+  if (
+    justification !== undefined &&
+    (typeof justification !== 'string' ||
+      justification.trim().length === 0 ||
+      priority !== 'critical')
+  ) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      'Dependency waiver requires a non-empty justification and an explicit critical-priority mutation',
+      {
+        details: { field: 'dependsWaiver' },
+        fix: 'Supply a non-empty --depends-waiver with --priority critical, or omit the waiver',
+      },
+    );
+  }
+  if (priority === 'critical' && dependencies.length === 0 && justification === undefined) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      'Critical tasks must declare at least one dependency or supply a dependency waiver',
+      { details: { field: 'depends' }, fix: 'Supply --depends or a non-empty --depends-waiver' },
+    );
+  }
 }
 
 /**
@@ -820,8 +883,10 @@ export async function addTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<AddTaskResult> {
+  const normalizedAcceptance = normalizeAcceptance(options.acceptance);
   // Validate title (early-exit — can't proceed without a title)
   validateTitle(options.title);
+  validateDependencyWaiver(options.priority, options.dependsWaiver, options.depends ?? []);
 
   /** Set when `autoDecompose` converted a text-AC leaf parent into a container. */
   let autoDecomposed: AddTaskResult['autoDecomposed'];
@@ -836,7 +901,6 @@ export async function addTask(
   // preventing the common failure mode where agents drop flags like --parent.
   const issues: ValidationIssue[] = [];
   const warnings: string[] = [];
-  const normalizedAcceptance = normalizeAcceptance(options.acceptance);
 
   // Anti-hallucination: title and description must be different (T5698)
   if (
@@ -1350,7 +1414,9 @@ export async function addTask(
 
   // BRAIN-powered duplicate detection (T1633) — query active tasks for semantic similarity.
   // Runs before the exact-title duplicate check so warnings/rejections surface early.
-  // Skip on dry-run (no data written) and skip when forceDuplicate bypasses rejection.
+  // Capture the decision now; persist committed provenance with the task.
+  let duplicateBypass: DuplicateBypassAuditEntry | undefined;
+  // Skip on dry-run (no data written).
   if (!options.dryRun) {
     const { checkDuplicatesBounded, buildWarnMessage, buildRejectMessage } = await import(
       './duplicate-detector.js'
@@ -1381,19 +1447,14 @@ export async function addTask(
     }
 
     if (dupCheck.shouldReject && options.forceDuplicate) {
-      // User forced past the rejection — audit the bypass
-      const { appendDuplicateBypassAudit } = await import('./duplicate-bypass-audit.js');
-      await appendDuplicateBypassAudit(
-        {
-          incomingTitle: options.title,
-          incomingDescription: options.description ?? '',
-          matchedCandidates: dupCheck.candidates,
-          maxScore: dupCheck.maxScore,
-          timestamp: new Date().toISOString(),
-          agent: 'system',
-        },
-        resolveOrCwd(cwd),
-      );
+      duplicateBypass = {
+        incomingTitle: options.title,
+        incomingDescription: options.description ?? '',
+        matchedCandidates: dupCheck.candidates,
+        maxScore: dupCheck.maxScore,
+        timestamp: new Date().toISOString(),
+        agent: 'system',
+      };
     }
 
     if (dupCheck.shouldWarn) {
@@ -1618,6 +1679,20 @@ export async function addTask(
   const createdAcceptanceCriteriaIds: string[] = [];
   const reopenedAncestorIds: string[] = [];
   await dataAccessor.transaction(async (tx: TransactionAccessor) => {
+    const severityAttestation =
+      options.severity === undefined
+        ? undefined
+        : await prepareSignedSeverityAttestation(
+            {
+              timestamp: now,
+              title: task.title,
+              severity: options.severity,
+              taskId,
+              ...(parentId ? { epic: parentId } : {}),
+            },
+            { cwd },
+          );
+
     // Position shuffling via bulk SQL update (T025)
     if (options.position !== undefined) {
       await dataAccessor.shiftPositions(parentId, options.position, 1);
@@ -1641,14 +1716,13 @@ export async function addTask(
     // PM-Core V2 WorkGraph projection sync: parent_id is the containment edge,
     // and each newly-added direct child is mirrored as a parent-owned AC row so
     // completion criteria readers can resolve child work without inspecting
-    // task_relations. Keep the legacy parent acceptance JSON in sync as a
-    // text-only compatibility projection while the row table carries typed
-    // child_task, source_key, and target_task_id state.
+    // task_relations. Preserve existing gate objects in the parent JSON while
+    // the row table carries child_task, source_key, and target_task_id state.
     if (parentId && parentTaskForProjection) {
       const parentAcRows = await tx.getAcRows(parentId);
-      // PM-Core V2 typed child_task AC projection. The legacy parent
-      // acceptance JSON remains text-only compatibility state, but the row
-      // table now carries machine-checkable target_task_id/source_key fields.
+      // PM-Core V2 child_task rows carry target_task_id/source_key fields.
+      // The mixed JSON view retains existing typed gates and appends only the
+      // new child projection as text. Text-input normalization is not a reader.
       const parentChildAcText = buildChildProjectionAcText(taskId, options.title);
       const parentChildOrdinal =
         parentAcRows.reduce((max, row) => Math.max(max, row.ordinal), 0) + 1;
@@ -1667,12 +1741,14 @@ export async function addTask(
       await tx.insertAcRows([parentChildAcRow]);
       createdAcceptanceCriteriaIds.push(parentChildAcRow.id);
 
-      const parentAcceptance = normalizeAcceptance([
-        ...(parentTaskForProjection.acceptance ?? []).map(acItemToText),
-        parentChildAcText,
-      ]);
+      // Re-read under the transaction: sibling creators may have appended
+      // their parent projection after the initial validation snapshot.
+      const currentParent = await dataAccessor.loadSingleTask(parentId);
+      if (!currentParent)
+        throw new CleoError(ExitCode.NOT_FOUND, `Parent task not found: ${parentId}`);
+      const parentAcceptance = [...(currentParent.acceptance ?? []), parentChildAcText];
       await tx.updateTaskFields(parentId, {
-        acceptanceJson: JSON.stringify(parentAcceptance ?? []),
+        acceptanceJson: JSON.stringify(parentAcceptance),
         updatedAt: now,
       });
     }
@@ -1681,15 +1757,19 @@ export async function addTask(
     // holds the unsatisfied child injected above. Mirrors coreTaskReopen:
     // status→pending, clear completedAt, preserve completion history in notes.
     for (const ancestor of ancestorsToReopen) {
+      const currentAncestor = await dataAccessor.loadSingleTask(ancestor.id);
+      if (!currentAncestor)
+        throw new CleoError(ExitCode.NOT_FOUND, `Ancestor task not found: ${ancestor.id}`);
+      if (currentAncestor.status !== 'done') continue;
       const reopened: Task = {
-        ...ancestor,
+        ...currentAncestor,
         status: 'pending',
         completedAt: undefined,
         updatedAt: now,
         notes: [
-          ...(ancestor.notes ?? []),
-          ...(ancestor.completedAt
-            ? [`[${now}] completion-history: completedAt=${ancestor.completedAt}`]
+          ...(currentAncestor.notes ?? []),
+          ...(currentAncestor.completedAt
+            ? [`[${now}] completion-history: completedAt=${currentAncestor.completedAt}`]
             : []),
           `[${now}] Reopened by add of child ${taskId} (done parent gained an unsatisfied child)`,
         ],
@@ -1710,11 +1790,73 @@ export async function addTask(
       action: 'task_created',
       taskId,
       actor: 'system',
-      details: { title: options.title, status, priority },
+      details: {
+        title: options.title,
+        status,
+        priority,
+        ...(severityAttestation
+          ? { severityAttestation: { ...severityAttestation, status: 'committed' } }
+          : {}),
+        ...(options.forceDuplicate
+          ? {
+              forceDuplicate: {
+                ...duplicateBypass,
+                requested: true,
+                bypassed: duplicateBypass !== undefined,
+                status: 'committed',
+              },
+            }
+          : {}),
+        ...(options.dependsWaiver !== undefined ? { dependsWaiver: options.dependsWaiver } : {}),
+      },
       before: null,
       after: { title: options.title, status, priority },
     });
+    // T945 Stage A — mint a `task:T###` brain graph node at creation, not at
+    // completion. Lazy registration defers execution until the actual outer commit,
+    // including batch transactions; rollback never starts these graph effects.
+    // Tracked (T10490) so the test harness can flush it before tearing down the
+    // shared SQLite singleton; production still runs it fully detached.
+    trackBackgroundOp(() =>
+      import('../memory/graph-auto-populate.js')
+        .then(({ ensureTaskNode }) =>
+          ensureTaskNode(resolveOrCwd(cwd), taskId, options.title, {
+            status,
+            priority,
+            type: taskType,
+            ...(parentId ? { parentId } : {}),
+          }),
+        )
+        .catch(() => {
+          /* Graph population is best-effort — never fail addTask. */
+        }),
+    );
+
+    // T1634 — LOOM auto-init for new epics.
+    // Every new epic automatically initializes the RCASD-IVTR lifecycle pipeline
+    // at the 'research' stage so 'cleo orchestrate ready --epic <id>' always
+    // has a LOOM context (and never returns 'epic has no children' due to an
+    // uninitialized pipeline). Fire-and-forget: failures are swallowed inside
+    // initLoomForEpic so LOOM init never blocks or fails epic creation.
+    if (taskType === 'epic') {
+      // Tracked (T10490) — initLoomForEpic touches the shared tasks singleton via
+      // getDb(); flushing it before a test teardown prevents cross-test races.
+      trackBackgroundOp(() =>
+        import('../orchestrate/lifecycle-ops.js')
+          .then(({ initLoomForEpic }) => initLoomForEpic(taskId, resolveOrCwd(cwd)))
+          .catch(() => {
+            /* LOOM init is best-effort — never fail addTask. */
+          }),
+      );
+    }
   });
+
+  if (duplicateBypass) {
+    // Compatibility mirror only; the task transaction contains authoritative evidence.
+    const { appendDuplicateBypassAudit } = await import('./duplicate-bypass-audit.js');
+    const committedBypass = { ...duplicateBypass, taskId, status: 'committed' };
+    await appendDuplicateBypassAudit(committedBypass, resolveOrCwd(cwd));
+  }
 
   // T10538 / design-point 5: surface the ancestor reopen on the add result so
   // the operator is never surprised by a parent silently transitioning out of
@@ -1725,45 +1867,6 @@ export async function addTask(
         `${reopenedAncestorIds.length === 1 ? '' : 's'} (${reopenedAncestorIds.join(', ')}) ` +
         `because new child ${taskId} added unsatisfied work under a completed parent. ` +
         `Re-complete the ancestor(s) once ${taskId} is done.`,
-    );
-  }
-
-  // T945 Stage A — mint a `task:T###` brain graph node at creation, not at
-  // completion. Prior to this hook, addTask never wrote to the graph, so new
-  // tasks were invisible until completeTask ran. Fire-and-forget: any failure
-  // is swallowed inside ensureTaskNode so graph writes never fail task creation.
-  // Tracked (T10490) so the test harness can flush it before tearing down the
-  // shared SQLite singleton; production still runs it fully detached.
-  trackBackgroundOp(
-    import('../memory/graph-auto-populate.js')
-      .then(({ ensureTaskNode }) =>
-        ensureTaskNode(resolveOrCwd(cwd), taskId, options.title, {
-          status,
-          priority,
-          type: taskType,
-          ...(parentId ? { parentId } : {}),
-        }),
-      )
-      .catch(() => {
-        /* Graph population is best-effort — never fail addTask. */
-      }),
-  );
-
-  // T1634 — LOOM auto-init for new epics.
-  // Every new epic automatically initializes the RCASD-IVTR lifecycle pipeline
-  // at the 'research' stage so 'cleo orchestrate ready --epic <id>' always
-  // has a LOOM context (and never returns 'epic has no children' due to an
-  // uninitialized pipeline). Fire-and-forget: failures are swallowed inside
-  // initLoomForEpic so LOOM init never blocks or fails epic creation.
-  if (taskType === 'epic') {
-    // Tracked (T10490) — initLoomForEpic touches the shared tasks singleton via
-    // getDb(); flushing it before a test teardown prevents cross-test races.
-    trackBackgroundOp(
-      import('../orchestrate/lifecycle-ops.js')
-        .then(({ initLoomForEpic }) => initLoomForEpic(taskId, resolveOrCwd(cwd)))
-        .catch(() => {
-          /* LOOM init is best-effort — never fail addTask. */
-        }),
     );
   }
 

@@ -1,7 +1,7 @@
 /**
  * Studio re-export shim for the agent-lifecycle LANE RESOLVER.
  *
- * The lane model is now the SHARED SSoT in `@cleocode/core/tasks` so the Studio
+ * The lane model is now the SHARED SSoT in `@cleocode/core/tasks/agent-lifecycle-lane` so the Studio
  * Kanban board (T11926) and the `cleo tui` terminal cockpit (T11934) resolve
  * lanes with IDENTICAL semantics — same seven lanes, same precedence ladder
  * (`cancelled > done > blocked > review > running > ready > backlog`). This file
@@ -25,4 +25,4 @@ export {
   type AgentLifecycleSignal,
   type LaneGatesSnapshot,
   resolveAgentLifecycleLane,
-} from '@cleocode/core/tasks';
+} from '@cleocode/core/tasks/agent-lifecycle-lane';

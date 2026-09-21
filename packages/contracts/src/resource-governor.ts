@@ -16,6 +16,8 @@
  * @adr resource-governor-never-oom-architecture §3.4
  */
 
+import type { OperationExecutionContext } from './jobs.js';
+
 /**
  * Governor arbitration mode. Mirrors the writer-lease mode shape
  * (`writer-lease.ts` {@link LeaseMode}).
@@ -120,4 +122,134 @@ export const DEFAULT_RESOURCE_RETRY_AFTER_MS = 2_000;
 /** Type guard: did an admission attempt produce a usable grant? */
 export function isResourceGrant(r: AdmissionResult): r is ResourceGrant {
   return r.deferred === false;
+}
+
+/** Explicit local user-manager connection for resource-controlled process launch. */
+export interface SystemdControlContext {
+  /** Absolute existing runtime directory used only by the manager probe and launcher. */
+  runtimeDirectory: string;
+  /**
+   * Optional local Unix bus address.
+   * @defaultValue The bus socket in runtimeDirectory.
+   */
+  busAddress?: string;
+}
+
+/** Original execution deadline and optional cancellation observed at process-launch boundaries. */
+export type ProcessLaunchExecution = Pick<OperationExecutionContext, 'deadlineAt'> &
+  Partial<Pick<OperationExecutionContext, 'signal'>>;
+
+/**
+ * Captured inputs for a bounded process invocation; environment is copied before launch.
+ * @remarks The original absolute deadline covers launcher discovery and target execution;
+ * bounded cleanup may finish later. No caller environment is implicitly merged.
+ * @example
+ * ```typescript
+ * const options: ProcessCaptureOptions = { cwd: '/project', env: {}, execution: { deadlineAt: Date.now() + 2000 } };
+ * ```
+ */
+export interface ProcessCaptureOptions {
+  /** Explicit working directory for the requested executable. */
+  readonly cwd: string;
+  /** Explicit child environment; caller credentials are not added implicitly. */
+  readonly env: Readonly<Record<string, string | undefined>>;
+  /** Original shared deadline and cancellation, never reset between gates. */
+  readonly execution: ProcessLaunchExecution;
+  /** Aggregate stdout/stderr byte limit; exceeding it stops execution without a verdict. */
+  readonly maxOutputBytes?: number;
+  /** Requested hard native-memory ceiling in MiB; target admission requires observed cgroup enforcement. */
+  readonly memoryMaxMb?: number;
+  /** Requested kernel task ceiling (processes and threads); target admission requires observed cgroup enforcement. */
+  readonly tasksMax?: number;
+  /** Existing manager connection used only for launcher/control operations. */
+  readonly systemdControl?: SystemdControlContext;
+}
+
+/**
+ * Why capture stopped without a complete target verdict.
+ * @remarks Cancellation, deadline and malformed transport are not target test failures.
+ * @example
+ * ```typescript
+ * const stopped: ProcessCaptureStop = 'deadline';
+ * ```
+ */
+export type ProcessCaptureStop =
+  | 'deadline'
+  | 'cancelled'
+  | 'teardown'
+  | 'output-limit'
+  | 'resource-limit'
+  | 'transport-error';
+
+/**
+ * Kernel limits observed inside the owned cgroup before target admission.
+ * @remarks Values describe the capture scope, including its transport and descendants.
+ * They are observations at admission, not protection against later privileged reconfiguration.
+ * Null means the corresponding cgroup file contains an unlimited value.
+ * @example
+ * ```typescript
+ * const bounded = result.resourceLimits?.memoryMaxBytes === 4096 * 1024 * 1024;
+ * ```
+ */
+export interface ProcessCaptureResourceObservation {
+  /** Exact unified cgroup path containing the capture transport. */
+  readonly cgroup: string;
+  /** Observed memory.max bytes, or null when no finite ceiling was observed. */
+  readonly memoryMaxBytes: number | null;
+  /** Observed pids.max, counting kernel tasks including threads, or null. */
+  readonly tasksMax: number | null;
+}
+
+/**
+ * Observed target result, kept separate from wrapper and cleanup outcomes.
+ * @remarks A numeric exit alone is insufficient: started, stop/error and output completeness
+ * must also be checked. Cleanup scope does not cover descendants deliberately escaping it.
+ * @example
+ * ```typescript
+ * const completed = result.started && result.stopped === null && result.error === null;
+ * ```
+ */
+export interface ProcessCaptureResult {
+  /** True only after the transport observed the requested executable's spawn event. */
+  readonly started: boolean;
+  /** Requested executable PID when observed; distinct from the scope launcher. */
+  readonly targetPid: number | null;
+  /** Actual target close code, never synthesized from a wrapper or launch error. */
+  readonly exitCode: number | null;
+  /** Actual target terminating signal, if reported before transport termination. */
+  readonly signal: string | null;
+  /** Missing executable, permission or transport failure diagnostic. */
+  readonly error: string | null;
+  /** Original stop condition; stopped executions cannot establish a passing verdict. */
+  readonly stopped: ProcessCaptureStop | null;
+  /** Bounded UTF-8 standard output. */
+  readonly stdout: string;
+  /** Bounded UTF-8 standard error. */
+  readonly stderr: string;
+  /** Whether output exceeded the capture limit. */
+  readonly outputTruncated: boolean;
+  /** Total wall time including cleanup, which may exceed the execution deadline. */
+  readonly durationMs: number;
+  /** Actual selected launcher mode; does not establish observed memory containment. */
+  readonly mode: 'systemd' | 'pgid';
+  /** Exact scope name, where the launcher selected systemd. */
+  readonly unitName?: string;
+  /** Only a finite kernel ceiling observed inside the exact owned scope establishes this claim. */
+  readonly nativeMemory: 'unverified' | 'observed-cgroup';
+  /** Present only after validated pre-target observation of requested hard limits. */
+  readonly resourceLimits?: ProcessCaptureResourceObservation;
+  /** POSIX group cleanup covers members, not descendants that deliberately escape it. */
+  readonly cleanupScope: 'process-group' | 'direct-child';
+  /** Returned only after the owned transport emitted close; not a claim about escaped descendants. */
+  readonly transportClosed: true;
+  /** Whether the transport observed the requested target close before stopping. */
+  readonly targetCloseObserved: boolean;
+  /** Exact observed cleanup evidence, distinct from mere absence of an error. */
+  readonly cleanupObservation:
+    | 'scope-terminal'
+    | 'process-group-absent'
+    | 'process-group-signalled'
+    | 'unverified';
+  /** Cleanup failures remain visible; no successful cleanup claim is inferred from exit. */
+  readonly cleanupErrors: readonly string[];
 }

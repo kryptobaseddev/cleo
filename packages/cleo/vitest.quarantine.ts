@@ -55,7 +55,6 @@ export const CLEO_TEST_QUARANTINE: readonly string[] = [
   'packages/cleo/src/__tests__/lafs-conformance.test.ts',
   'packages/cleo/src/cli/__tests__/cancel.test.ts',
   'packages/cleo/src/cli/__tests__/changeset-add.test.ts',
-  'packages/cleo/src/cli/__tests__/check-canon-docs.test.ts',
   'packages/cleo/src/cli/__tests__/daemon-paths-compliance.test.ts',
   'packages/cleo/src/cli/__tests__/daemon-service.test.ts',
   'packages/cleo/src/cli/__tests__/docs-error-envelopes.test.ts',
@@ -75,7 +74,6 @@ export const CLEO_TEST_QUARANTINE: readonly string[] = [
   'packages/cleo/src/cli/commands/__tests__/auth-migrate.test.ts',
   'packages/cleo/src/cli/commands/__tests__/backup-export.test.ts',
   'packages/cleo/src/cli/commands/__tests__/backup-import.test.ts',
-  'packages/cleo/src/cli/commands/__tests__/backup-inspect.test.ts',
   'packages/cleo/src/cli/commands/__tests__/brain-export.test.ts',
   'packages/cleo/src/cli/commands/__tests__/docs-add-strict-body.test.ts',
   'packages/cleo/src/cli/commands/__tests__/docs-find-similar.test.ts',
@@ -107,7 +105,6 @@ export const CLEO_TEST_QUARANTINE: readonly string[] = [
   'packages/cleo/src/dispatch/domains/__tests__/memory-llm-status.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/orchestrate-handoff.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/orchestrate.test.ts',
-  'packages/cleo/src/dispatch/domains/__tests__/pipeline-manifest.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/pipeline.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/registry-parity.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/release.test.ts',
@@ -118,7 +115,6 @@ export const CLEO_TEST_QUARANTINE: readonly string[] = [
   'packages/cleo/src/dispatch/domains/__tests__/spawn-timeout.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/tasks-filters.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/tasks-show-attachments.test.ts',
-  'packages/cleo/src/dispatch/domains/__tests__/tasks.test.ts',
   'packages/cleo/src/dispatch/middleware/__tests__/budget-enforcement.test.ts',
   'packages/cleo/test/templates/release-fanout-render.test.ts',
   'packages/cleo/test/templates/release-prepare-render.test.ts',
@@ -132,4 +128,4 @@ export const CLEO_TEST_QUARANTINE: readonly string[] = [
  * Pinned so a PR that repairs a file must also decrement this number, making
  * the burn-down visible in review rather than a silent edit to a long list.
  */
-export const CLEO_TEST_QUARANTINE_BASELINE = 74;
+export const CLEO_TEST_QUARANTINE_BASELINE = 73;

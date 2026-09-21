@@ -1,29 +1,16 @@
 /**
- * CleoOS Provider Matrix — read-only health view of the 9 provider adapters.
- *
- * Scans `packages/adapters/src/providers/` at runtime to determine which
- * providers are installed, whether they expose a spawn implementation, and
- * how many hooks they declare. No CLI surface is added in this skeleton;
- * the matrix is consumed programmatically by orchestrators or a future
- * `cleo-os doctor` command (deferred per ADR-050).
- *
- * @remarks
- * The `adapterClass` field is always `"CLEOProviderAdapter"` — the shared
- * interface from `@cleocode/contracts` that every provider adapter implements.
- * It is included in `ProviderMatrixRow` to make the interface name self-documenting
- * for tooling that reflects on the matrix output.
- *
- * @see ADR-050 — CleoOS Sovereign Harness: Distribution Binding Charter
- * @see packages/contracts/src/adapter.ts — CLEOProviderAdapter interface
- * @task T640
- * @epic T636
+ * Read-only adapter source inventory with independent provider verification levels.
+ * Source presence does not establish installed, delivery, workflow, or lifecycle support.
  * @packageDocumentation
  */
 
-import { existsSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type {
+  ProviderChannelVerification,
+  ProviderSourceInspection,
+} from '@cleocode/contracts/capabilities';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -31,43 +18,35 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Public types
 // ---------------------------------------------------------------------------
 
-/**
- * A single row in the CleoOS provider matrix.
- *
- * Each row represents one of the 9 known CLEO provider adapters and summarises
- * its installation state and feature completeness as determined by filesystem
- * inspection.
- */
+/** A provider declaration, source inspection, and separate live capability assessments. */
 export interface ProviderMatrixRow {
-  /** Canonical provider identifier (e.g. `"claude-code"`, `"opencode"`). */
+  /** Canonical provider identifier (for example, "claude-code"). */
   providerId: string;
-  /** Human-readable display name for the provider. */
+  /** Human-readable provider name. */
   displayName: string;
   /**
-   * Whether the provider directory exists under
-   * `packages/adapters/src/providers/<providerId>/`.
+   * Whether the adapter source directory was observed.
+   * @deprecated Use source.directoryPresent; this never proved installation.
    */
   installed: boolean;
   /**
-   * Whether `spawn.ts` exists in the provider's directory.
-   *
-   * A spawn implementation is required for the provider to launch sub-agents.
+   * Whether a regular spawn.ts source file was observed.
+   * @deprecated Use source.spawnFilePresent; this never proved executable spawning.
    */
   spawnImplemented: boolean;
   /**
-   * Count of canonical CAAMP hook event names declared in `hooks.ts`.
-   *
-   * Computed by scanning for known event name identifiers. Returns `0` when
-   * `hooks.ts` is absent or contains no recognised declarations.
+   * Number of canonical hook names mentioned in source text, including comments.
+   * @deprecated Use source.hookNameMentions; this never proved hook support.
    */
   hookSupport: number;
-  /**
-   * Name of the shared adapter interface that this provider implements.
-   *
-   * Always `"CLEOProviderAdapter"` (from `packages/contracts/src/adapter.ts`).
-   * Included for tooling that reflects on matrix rows to identify the contract.
-   */
+  /** Declared adapter interface name, not a verified runtime implementation. */
   adapterClass: string;
+  /** Source-only inventory and diagnostic failures. */
+  source: ProviderSourceInspection;
+  /** External provider CLI capabilities, independent of CleoOS adapter spawning. */
+  externalCli: ProviderChannelVerification;
+  /** CleoOS programmatic spawning capabilities, independent of external CLI use. */
+  programmaticSpawn: ProviderChannelVerification;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +64,7 @@ const ADAPTER_CLASS = 'CLEOProviderAdapter' as const;
  * Canonical CAAMP hook event names used to count hook support in `hooks.ts`.
  *
  * Derived from the 16-event CAAMP taxonomy. Scanning for these identifiers
- * gives a conservative lower-bound count of declared hooks.
+ * counts name mentions, including comments, and cannot prove hook support.
  */
 const CANONICAL_HOOK_EVENTS: ReadonlyArray<string> = [
   'PreToolUse',
@@ -143,74 +122,97 @@ function resolveProvidersDir(): string {
   return join(monorepoRoot, 'packages', 'adapters', 'src', 'providers');
 }
 
-/**
- * Count canonical hook event names declared in a `hooks.ts` file.
- *
- * Reads the file as text and scans for occurrences of known CAAMP event name
- * identifiers. The count is a lower-bound estimate — it does not parse the
- * TypeScript AST.
- *
- * @param hooksPath - Absolute path to `hooks.ts`.
- * @returns Count of recognised hook event names (0 if file unreadable).
- */
-async function countHookDeclarations(hooksPath: string): Promise<number> {
+/** Whether the filesystem reports a genuinely absent entry. */
+function isMissing(error: object): boolean {
+  return 'code' in error && error.code === 'ENOENT';
+}
+
+/** Distinguish absent entries from failed reads and wrong filesystem types. */
+async function hasEntry(path: string, kind: 'directory' | 'file'): Promise<boolean> {
   try {
-    const source = await readFile(hooksPath, 'utf-8');
-    let count = 0;
-    for (const event of CANONICAL_HOOK_EVENTS) {
-      // Match the event name as a standalone word to avoid false positives
-      // e.g. "Stop" should not match "StopEvent"
-      const pattern = new RegExp(`\\b${event}\\b`);
-      if (pattern.test(source)) {
-        count++;
-      }
-    }
-    return count;
-  } catch {
-    return 0;
+    const info = await stat(path);
+    if (kind === 'directory' ? info.isDirectory() : info.isFile()) return true;
+    throw new Error(`Expected ${kind} at ${path}`);
+  } catch (error) {
+    if (error instanceof Error && isMissing(error)) return false;
+    throw error;
   }
 }
 
-/**
- * Build a single `ProviderMatrixRow` by inspecting the provider's directory.
- *
- * @param providerId - Canonical provider ID (e.g. `"claude-code"`).
- * @param displayName - Human-readable display name.
- * @param providersDir - Absolute path to `packages/adapters/src/providers/`.
- * @returns Populated matrix row.
- */
+/** Inspect source without converting unreadable or malformed paths into healthy absence. */
+async function inspectSource(directory: string): Promise<ProviderSourceInspection> {
+  const result: ProviderSourceInspection = {
+    directory,
+    status: 'missing',
+    directoryPresent: false,
+    spawnFilePresent: false,
+    hookNameMentions: 0,
+    diagnostics: [],
+  };
+  try {
+    result.directoryPresent = await hasEntry(directory, 'directory');
+    if (!result.directoryPresent) return result;
+    result.status = 'present';
+    result.spawnFilePresent = await hasEntry(join(directory, 'spawn.ts'), 'file');
+    const hooksPath = join(directory, 'hooks.ts');
+    if (await hasEntry(hooksPath, 'file')) {
+      const source = await readFile(hooksPath, 'utf-8');
+      result.hookNameMentions = CANONICAL_HOOK_EVENTS.filter((event) =>
+        new RegExp(`\\b${event}\\b`).test(source),
+      ).length;
+    }
+  } catch (error) {
+    result.status = 'failed';
+    result.diagnostics = [error instanceof Error ? error.message : String(error)];
+  }
+  return result;
+}
+
+/** Source discovery cannot supply an installed workflow's identities or receipts. */
+function unverifiedChannel(
+  channel: ProviderChannelVerification['channel'],
+): ProviderChannelVerification {
+  const pending = (reason: string) => ({ status: 'unverified' as const, reason, evidence: [] });
+  return {
+    channel,
+    identity: null,
+    levels: {
+      declared: pending(
+        'Registry presence is a source hint; channel capabilities were not inspected.',
+      ),
+      installed: pending('No executable or installed SDK identity was measured.'),
+      delivery: pending('No instruction delivery was observed in an installed invocation.'),
+      workflow: pending(
+        'No installed repair scenario and independent receipt verification were run.',
+      ),
+      lifecycle: pending(
+        'No installed cancellation, teardown, and descendant cleanup were observed.',
+      ),
+    },
+    limitations: [
+      'Source names, comments, version strings, and self-authored certificates do not certify live behavior.',
+      'Permission policy and account/interface availability remain unverified; no bypass flags were used.',
+    ],
+  };
+}
+
+/** Build the existing matrix row with explicit source and verification boundaries. */
 async function buildRow(
   providerId: string,
   displayName: string,
   providersDir: string,
 ): Promise<ProviderMatrixRow> {
-  const providerDir = join(providersDir, providerId);
-  const installed = existsSync(providerDir);
-
-  if (!installed) {
-    return {
-      providerId,
-      displayName,
-      installed: false,
-      spawnImplemented: false,
-      hookSupport: 0,
-      adapterClass: ADAPTER_CLASS,
-    };
-  }
-
-  const spawnPath = join(providerDir, 'spawn.ts');
-  const hooksPath = join(providerDir, 'hooks.ts');
-
-  const spawnImplemented = existsSync(spawnPath);
-  const hookSupport = existsSync(hooksPath) ? await countHookDeclarations(hooksPath) : 0;
-
+  const source = await inspectSource(join(providersDir, providerId));
   return {
     providerId,
     displayName,
-    installed: true,
-    spawnImplemented,
-    hookSupport,
+    installed: source.directoryPresent,
+    spawnImplemented: source.spawnFilePresent,
+    hookSupport: source.hookNameMentions,
     adapterClass: ADAPTER_CLASS,
+    source,
+    externalCli: unverifiedChannel('external-cli'),
+    programmaticSpawn: unverifiedChannel('programmatic-spawn'),
   };
 }
 
@@ -219,18 +221,12 @@ async function buildRow(
 // ---------------------------------------------------------------------------
 
 /**
- * Read-only health view of all 9 CLEO provider adapters.
- *
- * Inspects the `packages/adapters/src/providers/` directory tree to produce
- * a structured matrix of adapter installation state and feature completeness.
- * All operations are read-only; no files are created or modified.
+ * Read-only source inventory of known adapters, with live capabilities left unverified.
  *
  * @example
  * ```ts
- * const matrix = new ProviderMatrix();
- * const rows = await matrix.getMatrix();
- * const ready = rows.filter((r) => r.installed && r.spawnImplemented);
- * console.log(ready.length, 'providers ready to spawn agents');
+ * const rows = await new ProviderMatrix().getMatrix();
+ * const sourceFailures = rows.filter((row) => row.source.status === 'failed');
  * ```
  */
 export class ProviderMatrix {
@@ -243,7 +239,7 @@ export class ProviderMatrix {
    *   Primarily for testing. Defaults to the monorepo-relative path.
    */
   constructor(providersDir?: string) {
-    this.providersDir = providersDir ?? resolveProvidersDir();
+    this.providersDir = resolve(providersDir ?? resolveProvidersDir());
   }
 
   /**
@@ -268,17 +264,17 @@ export class ProviderMatrix {
    * including any that are not in the canonical `KNOWN_PROVIDERS` list. Useful
    * for detecting community-contributed or experimental adapters.
    *
-   * @returns Array of directory names (provider IDs) present on disk.
+   * @deprecated This lists source directories, not installed provider applications.
+   * @returns Array of source directory names present on disk.
+   * @throws Error when directory enumeration fails for a reason other than absence.
    */
   async listInstalledProviderIds(): Promise<string[]> {
-    if (!existsSync(this.providersDir)) {
-      return [];
-    }
     try {
       const entries = await readdir(this.providersDir, { withFileTypes: true });
       return entries.filter((e) => e.isDirectory()).map((e) => e.name);
-    } catch {
-      return [];
+    } catch (error) {
+      if (error instanceof Error && isMissing(error)) return [];
+      throw error;
     }
   }
 }

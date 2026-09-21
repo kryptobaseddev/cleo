@@ -8,7 +8,7 @@
  * @epic T4732
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,14 +26,22 @@ describe('Write Verification', () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-verify-'));
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    process.env['CLEO_DIR'] = cleoDir;
+    // Default writers and explicit verification readers address the same fixture.
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    vi.stubEnv('CLEO_DIR', cleoDir);
+    await writeFile(
+      join(cleoDir, 'project-info.json'),
+      JSON.stringify({
+        projectId: 'write-verification-fixture',
+        projectHash: 'write-verification-fixture',
+      }),
+    );
 
     const { closeDb } = await import('../sqlite.js');
     closeDb();
   });
 
   afterEach(async () => {
-    delete process.env['CLEO_DIR'];
     const { closeDb } = await import('../sqlite.js');
     closeDb();
     // safeDeleteTask (and deleteTask it delegates to) fires a void
@@ -49,6 +57,7 @@ describe('Write Verification', () => {
     }
     // maxRetries: Windows WAL sidecar files stay locked briefly (T9182).
     await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+    vi.unstubAllEnvs();
   });
 
   describe('verifyTaskWrite', () => {

@@ -17,7 +17,8 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createAttachmentStore } from '@cleocode/core/internal';
+import { closeAllDatabases, createAttachmentStore, getDb } from '@cleocode/core/internal';
+import { awaitBackgroundOps, pendingBackgroundOpCount } from '@cleocode/core/store/background-ops';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('llmtxt/similarity', () => ({
@@ -74,6 +75,8 @@ let prevCleoHome: string | undefined;
 let prevCwd: string;
 
 beforeEach(async () => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
   tmpProjectRoot = await mkdtemp(join(tmpdir(), 'cleo-viewer-regression-'));
   prevCleoHome = process.env.CLEO_HOME;
   process.env.CLEO_HOME = join(tmpProjectRoot, 'cleo-home');
@@ -94,31 +97,23 @@ beforeEach(async () => {
     JSON.stringify({ projectId, name: 'viewer-regression-test' }),
     'utf-8',
   );
-  // Register the project in nexus.db so resolveCanonicalCleoDir works.
-  const cleoHomeDir = process.env.CLEO_HOME!;
-  await mkdir(cleoHomeDir, { recursive: true });
-  const { DatabaseSync } = await import('node:sqlite');
-  // T11578 · AC3: the registry lives in the consolidated GLOBAL cleo.db, in the
-  // PREFIXED nexus_project_registry table (the standalone nexus.db is retired).
-  const nexusDb = new DatabaseSync(join(cleoHomeDir, 'cleo.db'));
-  nexusDb.exec(`
-    CREATE TABLE IF NOT EXISTS nexus_project_registry (
-      project_id TEXT PRIMARY KEY,
-      project_path TEXT NOT NULL
-    );
-    INSERT OR REPLACE INTO nexus_project_registry (project_id, project_path)
-    VALUES ('${projectId}', '${tmpProjectRoot}');
-  `);
-  nexusDb.close();
+  // Use the real registry schema/migrations, not a two-column stand-in that
+  // triggers migration recovery when document search opens the global store.
+  await getDb(tmpProjectRoot);
   process.chdir(tmpProjectRoot);
   vi.mocked(simMod.rankBySimilarity).mockReset();
 });
 
 afterEach(async () => {
+  // Resolve owned registration before closing handles or changing fixture ownership.
+  await awaitBackgroundOps();
+  expect(pendingBackgroundOpCount()).toBe(0);
+  await closeAllDatabases();
   process.chdir(prevCwd);
   if (prevCleoHome === undefined) delete process.env.CLEO_HOME;
   else process.env.CLEO_HOME = prevCleoHome;
   await rm(tmpProjectRoot, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 async function fetchJson(host: string, port: number, path: string) {

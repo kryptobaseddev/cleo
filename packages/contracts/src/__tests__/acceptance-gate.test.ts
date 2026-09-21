@@ -11,8 +11,14 @@
  * @task T780
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { AcceptanceGate, AcceptanceGateResult, FileAssertion } from '../acceptance-gate.js';
+import type {
+  AcceptanceGate,
+  AcceptanceGateBinding,
+  AcceptanceGateResult,
+  FileAssertion,
+} from '../acceptance-gate.js';
 import {
   acceptanceArraySchema,
   acceptanceGateResultSchema,
@@ -23,9 +29,11 @@ import {
   httpGateSchema,
   lintGateSchema,
   manualGateSchema,
+  testCountReportSchema,
   testGateSchema,
 } from '../acceptance-gate-schema.js';
 import type { AcceptanceItem } from '../index.js';
+import type { ProcessCaptureResult } from '../resource-governor.js';
 
 // ─── TestGate ────────────────────────────────────────────────────────────────
 
@@ -732,5 +740,278 @@ describe('acceptanceArraySchema — mixed (string | AcceptanceGate)[] (T780)', (
     // Compile-time structural check: parsed type must be assignable to AcceptanceItem[]
     const typed: AcceptanceItem[] = parsed;
     expect(typed).toHaveLength(2);
+  });
+});
+
+describe('acceptance result captured execution preservation (T12292)', () => {
+  const execution: ProcessCaptureResult = {
+    started: true,
+    targetPid: 1234,
+    exitCode: 0,
+    signal: null,
+    error: null,
+    stopped: null,
+    stdout: 'literal ü | output',
+    stderr: '',
+    outputTruncated: false,
+    durationMs: 12,
+    mode: 'systemd',
+    unitName: 'cleo-tool-fixture.scope',
+    nativeMemory: 'observed-cgroup',
+    resourceLimits: {
+      cgroup: '/user.slice/cleo-tool-fixture.scope',
+      memoryMaxBytes: 4294967296,
+      tasksMax: 256,
+    },
+    cleanupScope: 'process-group',
+    transportClosed: true,
+    targetCloseObserved: true,
+    cleanupObservation: 'scope-terminal',
+    cleanupErrors: [],
+  };
+  const result: AcceptanceGateResult = {
+    index: 3,
+    req: 'PARTNER-EXACT',
+    kind: 'test',
+    result: 'pass',
+    durationMs: 12,
+    checkedAt: '2026-09-20T17:00:00.000Z',
+    checkedBy: 'captured-agent',
+    execution,
+  };
+
+  it('preserves every execution field through JSON and runtime validation', () => {
+    expect(acceptanceGateResultSchema.parse(JSON.parse(JSON.stringify(result)))).toEqual(result);
+  });
+
+  it.each([
+    'deadline',
+    'cancelled',
+    'resource-limit',
+    'output-limit',
+    'transport-error',
+  ] as const)('retains %s as an incomplete observation without inventing a verdict', (stopped) => {
+    const interrupted: AcceptanceGateResult = {
+      ...result,
+      result: 'error',
+      execution: { ...execution, stopped, exitCode: null, targetCloseObserved: false },
+    };
+    expect(acceptanceGateResultSchema.parse(interrupted)).toEqual(interrupted);
+    expect(acceptanceGateResultSchema.safeParse({ ...interrupted, result: 'pass' }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects a completed verdict for an unstarted target', () => {
+    expect(
+      acceptanceGateResultSchema.safeParse({
+        ...result,
+        execution: { ...execution, started: false, targetPid: null, exitCode: null },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects malformed or contradictory process evidence instead of stripping it', () => {
+    for (const corrupt of [
+      { ...execution, unexpectedAuthority: true },
+      { ...execution, targetPid: 0 },
+      { ...execution, signal: 'SIGTERM' },
+      { ...execution, nativeMemory: 'observed-cgroup', resourceLimits: undefined },
+      { ...execution, resourceLimits: { ...execution.resourceLimits, cgroup: '/wrong-owner' } },
+      { ...execution, durationMs: Number.POSITIVE_INFINITY },
+    ])
+      expect(acceptanceGateResultSchema.safeParse({ ...result, execution: corrupt }).success).toBe(
+        false,
+      );
+  });
+});
+
+describe('typed requirement verification binding (T12292)', () => {
+  const binding: AcceptanceGateBinding = {
+    version: 1,
+    verificationId: '9f4a8d70-6325-4bf8-a30c-b719ade689da',
+    identity: {
+      projectId: 'stable-project',
+      projectRoot: '/project',
+      actor: 'agent-test',
+      operation: 'check.gate.verify',
+      idempotencyKey: 'verification-attempt',
+    },
+    taskId: 'T122',
+    criterionId: 'e1cf21de-92db-46e4-8e3d-156ab78a0b32',
+    criterionHash: 'a'.repeat(64),
+    gateHash: 'b'.repeat(64),
+    capturedAt: '2026-09-20T17:00:00.000Z',
+    deadlineAt: 1790000000000,
+    invocation: {
+      command: 'node',
+      args: ['scripts/verify.mjs', '--task', 'T122'],
+      cwd: '/project',
+      environmentHash: 'c'.repeat(64),
+    },
+    artifacts: [{ path: '/project/scripts/verify.mjs', sha256: 'd'.repeat(64), bytes: 81 }],
+  };
+  const result: AcceptanceGateResult = {
+    index: 3,
+    req: 'PARTNER-122',
+    kind: 'test',
+    result: 'error',
+    durationMs: 5,
+    checkedAt: '2026-09-20T17:00:00.005Z',
+    checkedBy: 'agent-test',
+    binding,
+  };
+
+  it('round-trips bound identity, invocation hashes and untracked input snapshots losslessly', () => {
+    expect(acceptanceGateResultSchema.parse(JSON.parse(JSON.stringify(result)))).toEqual(result);
+  });
+
+  it('preserves an explicitly observed absent input without fabricating a hash', () => {
+    const absent = {
+      ...result,
+      binding: {
+        ...binding,
+        artifacts: [{ path: '/project/scripts/missing.mjs', sha256: null, bytes: null }],
+      },
+    };
+    expect(acceptanceGateResultSchema.parse(absent)).toEqual(absent);
+  });
+
+  it('does not turn a bound process result into a verdict without an actual execution observation', () => {
+    expect(acceptanceGateResultSchema.safeParse({ ...result, result: 'pass' }).success).toBe(false);
+    const legacy = { ...result, binding: undefined, result: 'pass' };
+    expect(acceptanceGateResultSchema.parse(legacy)).toEqual(legacy);
+  });
+
+  it.each([
+    { ...binding, gateHash: 'not-a-hash' },
+    { ...binding, identity: { ...binding.identity, projectRoot: 'relative-root' } },
+    { ...binding, invocation: { ...binding.invocation, cwd: 'relative-cwd' } },
+    { ...binding, artifacts: [{ ...binding.artifacts[0], path: 'relative-input' }] },
+    { ...binding, verificationId: 'not-a-uuid' },
+    { ...binding, identity: { ...binding.identity, actor: 'different-agent' } },
+    { ...binding, capturedAt: '2026-09-20T17:00:01.000Z' },
+    { ...binding, deadlineAt: 1 },
+    { ...binding, artifacts: [binding.artifacts[0], binding.artifacts[0]] },
+    { ...binding, artifacts: [{ ...binding.artifacts[0], sha256: null }] },
+    { ...binding, artifacts: [{ ...binding.artifacts[0], bytes: -1 }] },
+    {
+      ...binding,
+      invocation: { ...binding.invocation, environmentHash: '', env: { SECRET: 'must-not-store' } },
+    },
+    { ...binding, authority: 'implicit' },
+  ])('rejects inconsistent or malformed persisted binding %#', (invalid) => {
+    expect(acceptanceGateResultSchema.safeParse({ ...result, binding: invalid }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('published acceptance result schema (T12292)', () => {
+  it('retains binding and execution shapes while disclosing runtime-only invariants', () => {
+    const emitted = JSON.parse(
+      readFileSync(new URL('../../schemas/gate-result.schema.json', import.meta.url), 'utf8'),
+    );
+    expect(emitted.properties.binding.properties.gateHash.pattern).toBe('^[a-f0-9]{64}$');
+    expect(emitted.properties.binding.properties.artifacts.items.properties.sha256).toBeDefined();
+    expect(emitted.properties.execution.properties.cleanupObservation).toBeDefined();
+    expect(emitted.properties.binding.additionalProperties).toBe(false);
+    expect(emitted.$comment).toContain('acceptanceGateResultSchema');
+    expect(emitted.$comment).toContain('cross-field');
+    expect(emitted.$comment).toContain('not proof');
+    expect(emitted.required).not.toContain('binding');
+    expect(emitted.required).not.toContain('execution');
+  });
+});
+
+describe('structured minimum-count report schema', () => {
+  // Captured Vitest 4.1.4 JSON: one nested suite, pass + skip + todo.
+  const report = {
+    numTotalTestSuites: 2,
+    numPassedTestSuites: 2,
+    numFailedTestSuites: 0,
+    numPendingTestSuites: 0,
+    numTotalTests: 3,
+    numPassedTests: 1,
+    numFailedTests: 0,
+    numPendingTests: 1,
+    numTodoTests: 1,
+    success: true,
+    testResults: [
+      {
+        name: '/fixture/reporter.test.ts',
+        status: 'passed',
+        assertionResults: [
+          { fullName: 'actual reporter passes', status: 'passed' },
+          { fullName: 'actual reporter skipped', status: 'skipped' },
+          { fullName: 'actual reporter later', status: 'todo' },
+        ],
+      },
+    ],
+  };
+
+  it('recognizes passed tests without counting skipped or todo assertions', () => {
+    const parsed = testCountReportSchema.parse(report);
+    expect(parsed.numPassedTests).toBe(1);
+    expect(parsed.numTotalTests).toBe(3);
+    expect(parsed.numTotalTestSuites).toBe(2);
+    expect(parsed.testResults).toHaveLength(1);
+  });
+
+  it.each([
+    { numPassedTests: 3 },
+    { numTotalTests: 99 },
+    { numPendingTests: 0 },
+    { numTodoTests: 0 },
+    { numPassedTests: 1.5 },
+    { numPassedTests: -1 },
+    { numTotalTests: Number.MAX_SAFE_INTEGER + 1 },
+    { numFailedTestSuites: 1 },
+  ])('rejects malformed or inconsistent counters: %j', (change) => {
+    expect(testCountReportSchema.safeParse({ ...report, ...change }).success).toBe(false);
+  });
+
+  it('rejects summary-only, missing counters, and unsupported assertion states', () => {
+    expect(testCountReportSchema.safeParse({ numPassedTests: 100, success: true }).success).toBe(
+      false,
+    );
+    expect(testCountReportSchema.safeParse({ ...report, numTodoTests: undefined }).success).toBe(
+      false,
+    );
+    expect(
+      testCountReportSchema.safeParse({
+        ...report,
+        testResults: [
+          {
+            ...report.testResults[0],
+            assertionResults: [{ fullName: 'test', status: 'invented' }],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('retains real failed suite reports without converting them into success', () => {
+    const failed = {
+      ...report,
+      success: false,
+      numPassedTestSuites: 1,
+      numFailedTestSuites: 1,
+      testResults: [{ ...report.testResults[0], status: 'failed' }],
+    };
+    expect(testCountReportSchema.parse(failed).success).toBe(false);
+    expect(testCountReportSchema.safeParse({ ...failed, success: true }).success).toBe(false);
+  });
+
+  it('accepts zero-count structure without claiming that any test ran', () => {
+    const empty = {
+      ...report,
+      numTotalTests: 0,
+      numPassedTests: 0,
+      numPendingTests: 0,
+      numTodoTests: 0,
+      testResults: [],
+    };
+    expect(testCountReportSchema.parse(empty).numPassedTests).toBe(0);
   });
 });

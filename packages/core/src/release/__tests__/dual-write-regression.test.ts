@@ -23,7 +23,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // T9784 / Saga T9782: the previous `vi.mock('../changelog-writer.js', ...)`
 // stub was deleted alongside the changelog-writer module itself.
@@ -139,6 +139,16 @@ async function readTasksJson(projectRoot: string, version: string): Promise<stri
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
+
+// Explicit release fixtures own their configuration, provenance store and documents.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('CLEO_PROVENANCE_DUAL_WRITE — retired (T9541)', () => {
   let projectRoot: string;
