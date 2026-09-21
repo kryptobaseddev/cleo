@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import type { CommitEntry, ReconstructResult } from '@cleocode/contracts';
 import type { ReconstructAssessment, ReconstructOptions } from '@cleocode/contracts/audit';
+import { resolveOrCwd } from '../paths.js';
 import { worktreeScope } from '../project-scope.js';
 import { extractTaskIds } from '../release/invariants/archive-reason-invariant.js';
 import { captureWrapped } from '../resources/spawn-wrapper.js';
@@ -33,7 +34,7 @@ export async function reconstructLineage(
   options: ReconstructOptions = {},
 ): Promise<ReconstructResult> {
   const inherited = worktreeScope.getStore();
-  const root = resolve(repoRoot ?? inherited?.worktreeRoot ?? process.cwd());
+  const root = resolve(resolveOrCwd(repoRoot ?? inherited?.worktreeRoot));
   const startedAt = Date.now();
   const caller = inherited?.execution;
   const deadlineAt = Math.min(

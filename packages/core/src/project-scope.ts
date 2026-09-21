@@ -360,7 +360,10 @@ export function getProjectRoot(cwd?: string): string {
     return cleoDirEnv;
   }
 
-  const start = resolve(cwd ?? process.cwd());
+  // This is the bottom of the resolution chain: the line lives INSIDE
+  // getProjectRoot, and resolveOrCwd() delegates to getProjectRoot(), so using
+  // the sanctioned helper here would recurse forever.
+  const start = resolve(cwd ?? process.cwd()); // CWD-OK: base case of getProjectRoot itself
   let current = start;
 
   // 2.5. T9092 + T11034: if `start` is inside a git worktree (i.e. has `.git` as a

@@ -1771,8 +1771,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Prepare Studio test configuration
         run: pnpm --filter @cleocode/studio exec svelte-kit sync
-      - name: Run package classifier and actual npm fixture regressions
-        run: pnpm exec vitest run --project @cleocode/caamp --project scripts packages/caamp/tests/unit/package-artifact.test.ts scripts/__tests__/assert-cleo-tarball.test.mjs scripts/__tests__/ci-scripts-tests-wiring.test.mjs --maxWorkers=2
       - name: Build release JavaScript and Studio content
         run: |
           pnpm run build
@@ -1783,6 +1781,14 @@ jobs:
           mkdir -p packages/worktree/native
           cp crates/worktree-napi/index.cjs packages/worktree/native/worktree-napi.cjs
           cp crates/worktree-napi/worktree-napi.linux-x64-gnu.node packages/worktree/native/
+      # MUST run after the build. `scripts/__tests__/assert-cleo-tarball.test.mjs`
+      # imports `packages/core/dist/resources/spawn-wrapper.js` — a BUILT
+      # artifact — so before the build step this file cannot even load and the
+      # step fails on a fresh runner. It passes on any developer machine that
+      # happens to have a dist lying around, which is exactly why the ordering
+      # was wrong and nobody noticed.
+      - name: Run package classifier and actual npm fixture regressions
+        run: pnpm exec vitest run --project @cleocode/caamp --project scripts packages/caamp/tests/unit/package-artifact.test.ts scripts/__tests__/assert-cleo-tarball.test.mjs scripts/__tests__/ci-scripts-tests-wiring.test.mjs --maxWorkers=2
       - name: Assess built content and retained upper budgets
         run: |
           node scripts/assert-cleo-tarball.mjs

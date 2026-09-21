@@ -13,7 +13,7 @@ import {
   pipelineManifestShow,
   readManifestEntries,
 } from '../../memory/pipeline-manifest-sqlite.js';
-import { getAgentOutputsAbsolute, getProjectRoot } from '../../paths.js';
+import { getAgentOutputsAbsolute, getProjectRoot, resolveOrCwd } from '../../paths.js';
 import { captureProjectScope, worktreeScope } from '../../project-scope.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import type { ComplianceResult, ManifestEntry, ManifestValidationResult } from '../types.js';
@@ -55,7 +55,7 @@ function readHistoricalEntries(cwd: string | undefined, manifestPath: string) {
   const issues: string[] = [];
   let content: string;
   try {
-    content = readFileSync(resolve(cwd ?? process.cwd(), manifestPath), 'utf8');
+    content = readFileSync(resolve(resolveOrCwd(cwd), manifestPath), 'utf8');
   } catch (error) {
     issues.push(
       `HISTORICAL_MANIFEST_READ_FAILED: ${error instanceof Error ? error.message : String(error)}`,
