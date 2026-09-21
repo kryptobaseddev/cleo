@@ -72,6 +72,27 @@ async function invokeSchema(
   } as Parameters<NonNullable<typeof schemaCommand.run>>[0]);
 }
 
+/**
+ * Invoke `cleo schema --list`.
+ *
+ * Mirrors {@link invokeSchema}'s shape — a full args record and the same single
+ * cast — rather than casting a partial object through `unknown`, which
+ * AGENTS.md forbids outright.
+ */
+async function invokeSchemaList(format = 'json'): Promise<void> {
+  await schemaCommand.run?.({
+    args: {
+      operation: undefined,
+      format,
+      'include-gates': true,
+      'include-examples': false,
+      list: true,
+    },
+    rawArgs: [],
+    cmd: schemaCommand,
+  } as Parameters<NonNullable<typeof schemaCommand.run>>[0]);
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -241,11 +262,7 @@ describe('cleo schema command (T340)', () => {
 
   describe('--list (gh#1470)', () => {
     it('returns every operation key, sorted, with its gateway', async () => {
-      await schemaCommand.run?.({
-        args: { list: true, format: 'json' },
-        rawArgs: [],
-        cmd: schemaCommand,
-      } as unknown as Parameters<NonNullable<typeof schemaCommand.run>>[0]);
+      await invokeSchemaList();
 
       expect(mockCliOutput).toHaveBeenCalledOnce();
       const [payload] = mockCliOutput.mock.calls[0] as [
@@ -262,11 +279,7 @@ describe('cleo schema command (T340)', () => {
     });
 
     it('does not fall into the usage path or exit non-zero', async () => {
-      await schemaCommand.run?.({
-        args: { list: true, format: 'json' },
-        rawArgs: [],
-        cmd: schemaCommand,
-      } as unknown as Parameters<NonNullable<typeof schemaCommand.run>>[0]);
+      await invokeSchemaList();
 
       expect(mockCliError).not.toHaveBeenCalled();
       expect(mockProcessExit).not.toHaveBeenCalled();
