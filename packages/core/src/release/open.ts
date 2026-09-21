@@ -551,7 +551,19 @@ export async function releaseOpen(
   const projectRoot = getProjectRoot(opts.projectRoot);
   const workflow = opts.workflow ?? DEFAULT_OPEN_WORKFLOW;
   const watch = opts.watch === true;
-  const commitPlan = opts.commitPlan === true;
+  // T12309: the workflow's regenerate branch cannot work for a task- or
+  // epic-scoped release. It runs `cleo release plan --tasks …` ON THE RUNNER,
+  // and the task store (`.cleo/cleo.db`) is deliberately untracked — ADR-013 §9
+  // Runtime Data Safety — so the checkout has zero tasks and the command exits
+  // `E_NOT_FOUND: One or more --tasks IDs were not found`. It does so at
+  // "Prepare bump-PR", i.e. AFTER lint, typecheck, both test shards and build
+  // have all gone green, so the entire cost of an impossible dispatch is paid
+  // before the impossibility is visible.
+  //
+  // The committed-plan branch is the one that can succeed, so it is now the
+  // default. `--no-commit-plan` remains for a caller who has arranged the plan
+  // some other way; it is opt-OUT of the working path rather than opt-in.
+  const commitPlan = opts.commitPlan !== false;
   const runner: ReleaseOpenRunner = runnerOverride ?? makeDefaultRunner();
 
   // ── R-050: plan file must exist + parse + schema-validate ─────────────

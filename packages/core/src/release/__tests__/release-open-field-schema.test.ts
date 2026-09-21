@@ -247,7 +247,7 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
 
     const runner = makeStubRunner();
     const result = await releaseOpen(
-      { version, projectRoot: testDir, epic: 'T9999', tasks: 'T101,T102' },
+      { version, projectRoot: testDir, commitPlan: false, epic: 'T9999', tasks: 'T101,T102' },
       runner,
     );
     expect(result.success).toBe(true);
@@ -286,7 +286,10 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
     await seedReleaseRow(version);
 
     const runner = makeStubRunner();
-    await releaseOpen({ version, projectRoot: testDir, epic: '', tasks: '' }, runner);
+    await releaseOpen(
+      { version, projectRoot: testDir, commitPlan: false, epic: '', tasks: '' },
+      runner,
+    );
 
     const dispatched = runner.calls.find((c) => c.args[0] === 'workflow' && c.args[1] === 'run');
     const joined = (dispatched?.args ?? []).join(' ');
@@ -306,7 +309,7 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
     await seedReleaseRow(version);
 
     const runner = makeStubRunner();
-    const result = await releaseOpen({ version, projectRoot: testDir }, runner);
+    const result = await releaseOpen({ version, projectRoot: testDir, commitPlan: false }, runner);
     expect(result.success).toBe(true);
 
     const dispatched = runner.calls.find((c) => c.args[0] === 'workflow' && c.args[1] === 'run');

@@ -96,8 +96,46 @@ jobs:
   #       is already green, tests can be skipped to avoid the redundant run.
   #   (b) The test step is sharded across 2 parallel matrix workers, keeping
   #       each shard under 10 min even without skipping.
+  # T12309: a dispatch that CANNOT succeed must not cost a full preflight.
+  #
+  # The "Resolve release plan" step has two branches. The committed-plan branch
+  # verifies a plan file by sha256 and works. The regenerate branch runs
+  # `cleo release plan --tasks|--epic` ON THIS RUNNER, and the task store
+  # (`.cleo/cleo.db`) is deliberately untracked (ADR-013 section 9, Runtime Data
+  # Safety), so a fresh checkout has zero tasks and the command exits
+  # `E_NOT_FOUND: One or more --tasks IDs were not found`.
+  #
+  # That failure landed in `prepare`, which needs all three preflight jobs, so
+  # ~20 minutes of lint, typecheck, two test shards and a build were spent
+  # proving a tree healthy before anyone learned the dispatch had been
+  # impossible from its first second. This job asks that question first.
+  dispatch-preconditions:
+    name: Dispatch preconditions
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: A scoped dispatch needs a committed plan
+        run: |
+          if [ -n "${{ inputs.plan-blob-sha256 }}" ]; then
+            echo "plan-blob-sha256 supplied - the committed-plan branch will be used."
+            exit 0
+          fi
+          if [ -z "${{ inputs.epic }}" ] && [ -z "${{ inputs.tasks }}" ]; then
+            echo "::error::No release scope supplied. Dispatch with 'epic' or 'tasks', or pass 'plan-blob-sha256' with a committed plan file."
+            exit 1
+          fi
+          if [ -f .cleo/cleo.db ]; then
+            echo "Task store present in the checkout - the regenerate branch can resolve the scope."
+            exit 0
+          fi
+          echo "::error::This dispatch cannot succeed. It supplies a scope (epic/tasks) but no 'plan-blob-sha256', so the workflow would regenerate the plan by running 'cleo release plan' here - and .cleo/cleo.db is untracked (ADR-013 section 9), so this checkout has no tasks to resolve."
+          echo "::error::Fix: run 'cleo release open <version>' locally. It commits the plan file (git add -f past the .cleo/ ignore), verifies it is on the branch this workflow checks out, and forwards its sha256 as 'plan-blob-sha256'. That is the default as of T12309."
+          exit 1
+
   preflight-lint-typecheck:
     name: Preflight (lint + typecheck)
+    needs: [dispatch-preconditions]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -135,8 +173,12 @@ jobs:
   preflight-test:
     name: Preflight (test shard ${{ matrix.shard }}/2)
     if: ${{ inputs.skip-tests != true }}
+    needs: [dispatch-preconditions]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # T12309: the job ceiling has to clear the step ceiling it contains. The
+    # step now gets 55 minutes (matching ci.yml); 30 here would have killed the
+    # job first and reported it as a job timeout rather than a slow suite.
+    timeout-minutes: 60
     strategy:
       fail-fast: true
       matrix:
@@ -210,7 +252,11 @@ jobs:
 
       - name: Test (shard ${{ matrix.shard }}/2)
         run: pnpm exec vitest run --shard=${{ matrix.shard }}/2
-        timeout-minutes: 20
+        # T12309: was 20, against a sweep that does not fit in it. ci.yml gives
+        # the same suite 55 minutes and a shard measured 17m04s there; this step
+        # timed out at 20:00 on a tree whose CI was fully green, so a release
+        # could not be prepared from a release-ready commit.
+        timeout-minutes: 55
 
   preflight-build:
     name: Preflight (build)
