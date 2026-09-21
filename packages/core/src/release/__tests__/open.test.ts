@@ -249,7 +249,7 @@ describe('releaseOpen — happy path', () => {
 
     const runner = makeStubRunner();
 
-    const result = await releaseOpen({ version, projectRoot: testDir }, runner);
+    const result = await releaseOpen({ version, projectRoot: testDir, commitPlan: false }, runner);
 
     expect(result.success).toBe(true);
     if (!result.success) throw new Error('unreachable');
@@ -311,7 +311,10 @@ describe('releaseOpen — error envelopes', () => {
     writeWorkflowFile();
     await seedReleaseRow(version, 'pr-merged');
 
-    const result = await releaseOpen({ version, projectRoot: testDir }, makeStubRunner());
+    const result = await releaseOpen(
+      { version, projectRoot: testDir, commitPlan: false },
+      makeStubRunner(),
+    );
 
     expect(result.success).toBe(false);
     if (result.success) throw new Error('unreachable');
@@ -328,7 +331,10 @@ describe('releaseOpen — error envelopes', () => {
     writeWorkflowFile();
     // intentionally NO seedReleaseRow
 
-    const result = await releaseOpen({ version, projectRoot: testDir }, makeStubRunner());
+    const result = await releaseOpen(
+      { version, projectRoot: testDir, commitPlan: false },
+      makeStubRunner(),
+    );
 
     expect(result.success).toBe(false);
     if (result.success) throw new Error('unreachable');
@@ -359,7 +365,10 @@ describe('releaseOpen — error envelopes', () => {
     // intentionally NO writeWorkflowFile()
     await seedReleaseRow(version, 'planned');
 
-    const result = await releaseOpen({ version, projectRoot: testDir }, makeStubRunner());
+    const result = await releaseOpen(
+      { version, projectRoot: testDir, commitPlan: false },
+      makeStubRunner(),
+    );
 
     expect(result.success).toBe(false);
     if (result.success) throw new Error('unreachable');
@@ -379,7 +388,7 @@ describe('releaseOpen — idempotency', () => {
     await seedReleaseRow(version, 'planned');
 
     const runner = makeStubRunner();
-    const first = await releaseOpen({ version, projectRoot: testDir }, runner);
+    const first = await releaseOpen({ version, projectRoot: testDir, commitPlan: false }, runner);
     expect(first.success).toBe(true);
 
     const dispatchCallsAfterFirst = runner.calls.filter(
@@ -387,7 +396,7 @@ describe('releaseOpen — idempotency', () => {
     ).length;
     expect(dispatchCallsAfterFirst).toBe(1);
 
-    const second = await releaseOpen({ version, projectRoot: testDir }, runner);
+    const second = await releaseOpen({ version, projectRoot: testDir, commitPlan: false }, runner);
     expect(second.success).toBe(true);
     if (!second.success) throw new Error('unreachable');
     expect(second.data.idempotent).toBe(true);
@@ -435,6 +444,30 @@ describe('releaseOpen — gh#1375: the plan must be on the dispatch branch', () 
   function dispatchOf(runner: { calls: Array<{ args: readonly string[] }> }) {
     return runner.calls.find((c) => c.args[0] === 'workflow' && c.args[1] === 'run');
   }
+
+  it('commits the plan by DEFAULT, because the branch it opts out of cannot work (T12309)', async () => {
+    // The workflow's regenerate branch runs `cleo release plan --tasks|--epic`
+    // ON THE RUNNER, and `.cleo/cleo.db` is untracked by design (ADR-013 §9),
+    // so a fresh checkout has no tasks and the command exits E_NOT_FOUND — at
+    // "Prepare bump-PR", after a full green preflight. A default that can only
+    // fail is not a default. Opting OUT is now the explicit act.
+    const version = 'v2026.6.0';
+    writePlanFile(version, makePlan(version));
+    writeWorkflowFile();
+    await seedReleaseRow(version, 'planned');
+    attachRemote();
+
+    const runner = makeStubRunner();
+    // No `commitPlan` key at all — this is the bare invocation an operator makes.
+    const result = await releaseOpen({ version, projectRoot: testDir }, runner);
+
+    // It takes the committed-plan path, so it reaches the push guard rather
+    // than dispatching a run that would die 20 minutes later.
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe(E_INVALID_STATE);
+    expect(dispatchOf(runner)).toBeUndefined();
+  });
 
   it('REFUSES when the plan is committed locally but never pushed, and does not dispatch', async () => {
     const version = 'v2026.6.0';

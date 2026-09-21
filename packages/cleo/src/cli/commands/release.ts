@@ -460,7 +460,9 @@ const openCommand = defineCommand({
     },
     'commit-plan': {
       type: 'boolean',
-      description: 'Commit the plan file to the active branch before dispatching',
+      description:
+        'Commit the plan file to the active branch before dispatching (DEFAULT). The workflow cannot regenerate a task- or epic-scoped plan on the runner — the task store is untracked — so the committed plan is the only path that can succeed (T12309).',
+      default: true,
     },
     // T12089: the workflow regenerates the plan when no committed plan is
     // supplied, and `cleo release plan` requires a scope — so one of these must
@@ -483,7 +485,10 @@ const openCommand = defineCommand({
         version: args.version,
         workflow: args.workflow as string | undefined,
         watch: args.watch === true,
-        commitPlan: args['commit-plan'] === true,
+        // citty synthesises `--no-commit-plan` for a boolean with `default: true`
+        // and delivers it as `commit-plan: false`, so the negation needs no arg
+        // of its own — declaring one listed it twice in `--help`.
+        commitPlan: args['commit-plan'] !== false,
         epic: args.epic as string | undefined,
         tasks: args.tasks as string | undefined,
       },
