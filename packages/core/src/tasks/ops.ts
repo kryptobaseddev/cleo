@@ -466,6 +466,8 @@ export declare const tasksCoreOps: {
   readonly update: TaskCoreOperation<'update'>;
   readonly complete: TaskCoreOperation<'complete'>;
   readonly cancel: TaskCoreOperation<'cancel'>;
+  readonly decompose: TaskCoreOperation<'decompose'>;
+  readonly 'reconcile-scope': TaskCoreOperation<'reconcile-scope'>;
   readonly delete: TaskCoreOperation<'delete'>;
   readonly archive: TaskCoreOperation<'archive'>;
   readonly restore: TaskCoreOperation<'restore'>;

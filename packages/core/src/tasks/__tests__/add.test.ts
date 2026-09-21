@@ -456,87 +456,64 @@ describe('addTask (integration)', () => {
   });
 
   // T11491 — DHQ-044: depth cap error message improvement
-  it('reports a clear actionable message with suggested parent epic when depth cap is exceeded', async () => {
-    // Build a saga→epic→task chain (depth 2 for the task).
-    await addTask({ title: 'Saga', description: 'Root saga', type: 'saga' }, env.tempDir, accessor); // T001 depth=0
+  // Both cases below build the FULL canonical spine — saga(0) → epic(1) →
+  // task(2) → subtask(3) — and then attempt a fifth level. They used to stop a
+  // tier short and attempt a child of the depth-2 task, which only failed
+  // because the guard was mis-calibrated (`parentDepth + 1 >= maxDepth`); that
+  // is the very defect that made `--type subtask` unreachable. Under the
+  // corrected inclusive rule a depth-2 task takes children normally, so the
+  // depth cap has to be provoked one level deeper to be exercised at all.
+  //
+  // The intermediate containers carry NO free-text ACs: a parent is either a
+  // text-AC leaf or a container, never both (PM-Core V2 design-point 3 / T11576).
 
+  /** saga → epic → task → subtask, returning the subtask's id. */
+  async function seedFullSpine(env: TestDbEnv, accessor: DataAccessor): Promise<string> {
+    await addTask({ title: 'Saga', description: 'Root saga', type: 'saga' }, env.tempDir, accessor); // T001 depth=0
     await addTask(
       { title: 'Epic', description: 'Epic under saga', type: 'epic', parentId: 'T001' },
       env.tempDir,
       accessor,
     ); // T002 depth=1
-
     await addTask(
-      {
-        title: 'Task',
-        description: 'Task under epic',
-        type: 'task',
-        parentId: 'T002',
-        acceptance: ['ac1'],
-      },
+      { title: 'Task', description: 'Task under epic', type: 'task', parentId: 'T002' },
       env.tempDir,
       accessor,
     ); // T003 depth=2
+    await addTask(
+      { title: 'Subtask', description: 'Subtask under task', type: 'subtask', parentId: 'T003' },
+      env.tempDir,
+      accessor,
+    ); // T004 depth=3 — the deepest tier the cap admits
+    return 'T004';
+  }
 
-    // Attempt to add a subtask under T003 (depth=3) — should fail with
-    // a message that names the parent epic T002.
+  it('reports a clear actionable message when the depth cap is exceeded', async () => {
+    const deepest = await seedFullSpine(env, accessor);
+
     await expect(
       addTask(
         {
           title: 'Too deep',
           description: 'Would exceed depth cap',
-          parentId: 'T003',
+          parentId: deepest,
           acceptance: ['ac1'],
         },
         env.tempDir,
         accessor,
       ),
-    ).rejects.toThrow(/depth cap.*would be exceeded|Cannot add a child/i);
+    ).rejects.toThrow(/past the hierarchy cap/i);
   });
 
-  it('depth cap error message names the grandparent epic as the suggested target', async () => {
-    // Epic→Task hierarchy (depth=1 for task parent).
-    await addTask(
-      { title: 'Epic', description: 'An epic', type: 'epic', skipContainmentInvariant: true },
-      env.tempDir,
-      accessor,
-    ); // T001 depth=0
+  it('depth cap error names a suggested target that is LEGAL for the requested tier', async () => {
+    const deepest = await seedFullSpine(env, accessor);
 
-    // T002/T003 are intermediate containers that gain children below, so they
-    // carry no free-text ACs (PM-Core V2 design-point 3 / T11576 — a parent is
-    // either a text-AC leaf or a container, not both).
-    await addTask(
-      {
-        title: 'Task',
-        description: 'Under epic',
-        type: 'task',
-        parentId: 'T001',
-      },
-      env.tempDir,
-      accessor,
-    ); // T002 depth=1
-
-    // Subtask under T002 would be depth=2, which is at the cap (maxDepth=3 means depth 0,1,2 are valid children).
-    // But T002 is a task at depth 1 so it CAN have a subtask (depth=2 < 3).
-    // Add the subtask.
-    await addTask(
-      {
-        title: 'Subtask',
-        description: 'Under task',
-        type: 'subtask',
-        parentId: 'T002',
-      },
-      env.tempDir,
-      accessor,
-    ); // T003 depth=2
-
-    // Trying to add under the subtask (depth=3) should fail with a hint to use T002 (the task)
-    // or T001 (the epic) — the message must suggest --parent and name the epic.
     const err = await addTask(
       {
         title: 'Too deep item',
         description: 'Below subtask',
-        parentId: 'T003',
+        type: 'subtask',
+        parentId: deepest,
         acceptance: ['ac1'],
       },
       env.tempDir,
@@ -544,10 +521,12 @@ describe('addTask (integration)', () => {
     ).catch((e: Error) => e);
 
     expect(err).toBeInstanceOf(Error);
-    // The error message must mention a suggested parent (T001 or T002).
-    expect(err.message).toMatch(/T00[12]/);
-    // Must include actionable fix guidance.
-    expect(err.message.toLowerCase()).toMatch(/parent|epic|reparent/);
+    // It must point at T003, the task — the only tier that may hold a subtask.
+    // Naming a shallower-but-illegal container (the epic T002) is what sent
+    // field reports from exit 11 straight into exit 6.
+    expect(err.message).toMatch(/T003/);
+    expect(err.message).not.toMatch(/--parent T002/);
+    expect(err.message.toLowerCase()).toMatch(/parent/);
   });
 });
 
