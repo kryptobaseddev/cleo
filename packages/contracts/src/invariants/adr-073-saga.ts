@@ -138,9 +138,9 @@ export const ADR_073_INVARIANTS: readonly RegisteredInvariant[] = Object.freeze(
   {
     adr: 'ADR-073',
     code: 'I7',
-    name: 'Maximum parent depth is 3',
+    name: 'No nested sagas',
     description:
-      'The parent ladder Subtask → Task → Epic is fixed at depth 3 (hierarchy.maxDepth=3). Sagas do NOT consume depth — they attach via groups relations, not parent edges. Enforced at runtime by assertSagaInvariantI7.',
+      'A saga-member candidate MUST NOT itself be saga-shaped. Enforced at runtime by assertSagaInvariantI7, which checks exactly this and nothing else. The depth clause this invariant used to carry — "the parent ladder Subtask → Task → Epic is fixed at depth 3; sagas do NOT consume depth, they attach via groups relations, not parent edges" — is SUPERSEDED BY ADR-088: member epics now attach via tasks.parent_id containment and task_relations.groups is non-containment provenance only, so a saga DOES consume a level. The canonical spine is saga(0) → epic(1) → task(2) → subtask(3) at hierarchy.maxDepth=3, inclusive; the depth rule lives in exceedsMaxDepth (core tasks/hierarchy.ts), never here. The stale clause outlived its premise by long enough for the write-path guards calibrated on it to make the subtask tier unreachable.',
     severity: 'error',
     runtimeGate: {
       module: SAGA_ENFORCEMENT_MODULE,

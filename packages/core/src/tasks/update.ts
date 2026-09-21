@@ -43,7 +43,8 @@ import {
   validateChildStageCeiling,
   validateEpicStageAdvancement,
 } from './epic-enforcement.js';
-import { resolveHierarchyPolicy } from './hierarchy-policy.js';
+import { childTypeForParentType } from './hierarchy.js';
+import { exceedsMaxDepth, resolveHierarchyPolicy } from './hierarchy-policy.js';
 import { validatePipelineTransition } from './pipeline-stage.js';
 
 const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'status'>> = [
@@ -76,17 +77,6 @@ const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'st
   'addRelates',
   'removeRelates',
 ];
-
-function typeForParent(
-  parentType: Task['type'] | null | undefined,
-  currentType: Task['type'] | undefined,
-): TaskType {
-  if (currentType === 'saga') return 'saga';
-  if (currentType === 'epic') return 'epic';
-  if (parentType === 'task') return 'subtask';
-  if (parentType === 'epic') return 'task';
-  return currentType === 'subtask' ? 'task' : (currentType ?? 'task');
-}
 
 function hasNonStatusDoneFields(options: UpdateTaskOptions): boolean {
   return NON_STATUS_DONE_FIELDS.some((field) => options[field] !== undefined);
@@ -533,7 +523,7 @@ export async function updateTask(
           });
         }
         const newParentType = newParent.type ?? 'task';
-        const updatedType = typeForParent(newParentType, task.type);
+        const updatedType = childTypeForParentType(newParentType, task.type);
         if (!isAllowedWorkGraphParentType(updatedType, newParentType)) {
           throw new CleoError(
             ExitCode.INVALID_PARENT_TYPE,
@@ -567,7 +557,7 @@ export async function updateTask(
         const parentDepth = ancestors.length;
         const config = await loadConfig(cwd);
         const policy = resolveHierarchyPolicy(config);
-        if (parentDepth + 1 >= policy.maxDepth) {
+        if (exceedsMaxDepth(parentDepth, policy.maxDepth)) {
           throw new CleoError(
             ExitCode.DEPTH_EXCEEDED,
             `Maximum nesting depth ${policy.maxDepth} would be exceeded`,

@@ -1343,6 +1343,8 @@ export interface TasksAddBatchParams {
     scope?: string;
     severity?: string;
     forceDuplicate?: boolean;
+    /** Resolve design-point 3 in-line by decomposing a text-AC parent. @task T12298 */
+    autoDecompose?: boolean;
   }>;
   /** Optional default parent ID applied when a task spec omits `parent`. */
   defaultParent?: string;
@@ -1464,6 +1466,8 @@ export interface TasksAddParams {
    * @task T1633
    */
   forceDuplicate?: boolean;
+  /** Resolve design-point 3 in-line by decomposing a text-AC parent. @task T12298 */
+  autoDecompose?: boolean;
 }
 /**
  * Result of `tasks.add` — the newly created task.
@@ -1637,6 +1641,79 @@ export interface TasksCompleteQueryResult {
   autoCompleted?: string[];
   /** Tasks that became unblocked by this completion. @defaultValue undefined */
   unblockedTasks?: Array<Pick<TaskRef, 'id' | 'title'>>;
+}
+
+// tasks.reconcile-scope (dispatch-level params) — containment-aware overlap sweep
+/**
+ * Params for `tasks.reconcile-scope` — sweep a container for tasks whose scope
+ * overlaps and propose merge / absorb / split / link for each pair.
+ *
+ * @task T12299
+ */
+export interface TasksReconcileScopeParams {
+  /** Saga, epic or any container to sweep; its whole subtree is considered. */
+  rootId: string;
+  /** Write the proposed `relates` edges. Read-only when false or omitted. */
+  apply?: boolean;
+  /** Report pairs at or above this similarity score (0-1). */
+  threshold?: number;
+}
+
+/** One overlapping pair and the action proposed for it. @task T12299 */
+export interface TasksScopeOverlap {
+  keepId: string;
+  keepTitle: string;
+  otherId: string;
+  otherTitle: string;
+  action: 'merge' | 'absorb' | 'split' | 'link';
+  score: number;
+  relation: 'duplicates' | 'absorbs' | 'related';
+  rationale: string;
+  sameParent: boolean;
+}
+
+/** Result of `tasks.reconcile-scope`. @task T12299 */
+export interface TasksReconcileScopeResult {
+  rootId: string;
+  scanned: number;
+  pairs: number;
+  overlaps: TasksScopeOverlap[];
+  applied: number;
+  truncated?: { limit: number; liveNodes: number };
+}
+
+// tasks.decompose (dispatch-level params) — PM-Core V2 design-point 3
+/**
+ * Params for `tasks.decompose` — move a task's free-text acceptance criteria
+ * onto a new first child so the task becomes a pure container.
+ *
+ * @task T12281
+ */
+export interface TasksDecomposeParams {
+  /** Task whose text acceptance criteria move to a new child. */
+  taskId: string;
+  /** Title for the child that inherits the criteria. Defaults to the parent's. */
+  childTitle?: string;
+  /** Description for the child. Defaults to the parent's. */
+  childDescription?: string;
+  /** Preview the move without writing. */
+  dryRun?: boolean;
+}
+
+/**
+ * Result of `tasks.decompose` — the container/child pair and the criteria moved.
+ *
+ * @task T12281
+ */
+export interface TasksDecomposeResult {
+  /** The task that is now a pure container. */
+  parentId: string;
+  /** The created child, or `null` on a dry run. */
+  childId: string | null;
+  /** The criteria texts moved from parent to child, in ordinal order. */
+  movedAcceptance: string[];
+  /** True when nothing was written. */
+  dryRun: boolean;
 }
 
 // tasks.delete (dispatch-level params)
@@ -2154,6 +2231,8 @@ export type TasksOps = {
   readonly update: readonly [TasksUpdateQueryParams, TasksUpdateQueryResult];
   readonly complete: readonly [TasksCompleteQueryParams, TasksCompleteQueryResult];
   readonly cancel: readonly [TasksCancelParams, TasksCancelResult];
+  readonly decompose: readonly [TasksDecomposeParams, TasksDecomposeResult];
+  readonly 'reconcile-scope': readonly [TasksReconcileScopeParams, TasksReconcileScopeResult];
   readonly delete: readonly [TasksDeleteQueryParams, TasksDeleteQueryResult];
   readonly archive: readonly [TasksArchiveQueryParams, TasksArchiveQueryResult];
   readonly restore: readonly [TasksRestoreParams, TasksRestoreResult];
@@ -2252,6 +2331,8 @@ export interface TasksAddBatchEntry {
   severity?: string;
   /** Bypass BRAIN duplicate-task rejection (audited). */
   forceDuplicate?: boolean;
+  /** Resolve design-point 3 in-line by decomposing a text-AC parent. @task T12298 */
+  autoDecompose?: boolean;
 }
 
 /**
@@ -2290,6 +2371,7 @@ export const TASKS_ADD_INPUT_SCHEMA: JsonSchema = {
     scope: { type: 'string', enum: ['project', 'feature', 'unit'] },
     severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
     forceDuplicate: { type: 'boolean' },
+    autoDecompose: { type: 'boolean' },
   },
 };
 
@@ -2369,6 +2451,7 @@ export const TASKS_ADD_BATCH_INPUT_SCHEMA: JsonSchema = {
           scope: { type: 'string', enum: ['project', 'feature', 'unit'] },
           severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
           forceDuplicate: { type: 'boolean' },
+          autoDecompose: { type: 'boolean' },
         },
       },
     },
