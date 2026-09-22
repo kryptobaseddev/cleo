@@ -47,6 +47,7 @@ import { generateProjectHash } from '../nexus/hash.js';
 import { getProjectRoot } from '../paths.js';
 import { getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
+import { resolveCommitPresenceInTag } from './commit-presence.js';
 import { normalizeVersion } from './version.js';
 
 // ─── Tag-reconcile plan synthesis (T11977 · DHQ-080) ─────────────────────────
@@ -788,18 +789,15 @@ function revalidateEvidenceStaleness(
       const value = atom.slice(colonIdx + 1);
 
       if (kind === 'commit') {
-        // Reachability: <sha> MUST be an ancestor of <tag>.
-        try {
-          execFileSync('git', ['merge-base', '--is-ancestor', value, tag], {
-            cwd: projectRoot,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            timeout: SUBPROCESS_TIMEOUT_MS,
-          });
-        } catch {
+        // Presence, not bare reachability: a squash merge discards the SHA the
+        // evidence recorded while preserving its patch, so asking only about
+        // ancestry reports shipped work as absent (T12311).
+        const presence = resolveCommitPresenceInTag(projectRoot, value, tag);
+        if (!presence.present) {
           staleTasks.push({
             taskId: task.id,
             atom,
-            reason: `commit ${value} is not reachable from tag ${tag}`,
+            reason: `${presence.reason}. ${presence.fix}`,
           });
         }
       } else if (kind === 'files') {
