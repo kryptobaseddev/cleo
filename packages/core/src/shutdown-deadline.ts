@@ -145,7 +145,9 @@ export async function withDeadline(
  * Render assessed shutdown diagnostics without inferring reasons from legacy flags.
  * @param outcomes - Existing stage receipts, including compatible older callers.
  * @returns Stderr text, or an empty string when all resource steps completed.
- * @remarks A settled registry barrier does not establish producer success. Error
+ * @remarks A settled registry barrier does not establish producer success, so an
+ * unassessed drain still discloses that limit. An assessed drain reports the number
+ * of producers that actually failed, and is silent when none did. Error
  * messages are JSON-escaped so they cannot inject additional diagnostic lines.
  * The committed command result is preserved regardless of optional teardown.
  * @example
@@ -165,6 +167,17 @@ export function formatShutdownOutcomes(outcomes: readonly StepOutcome[]): string
         lines.push(
           `cleo: teardown ${outcome.label}: tracked promises settled; producer outcomes unassessed.`,
         );
+      } else {
+        // An assessed drain discloses a number, and says nothing when every
+        // producer it observed succeeded. Teardown cancellation is not a
+        // producer failure and is already excluded from this count (T12310).
+        const failed = outcome.failedOperations ?? 0;
+        if (failed > 0)
+          lines.push(
+            `cleo: teardown ${outcome.label}: ${failed} background operation${
+              failed === 1 ? '' : 's'
+            } failed; the command's own result is unaffected.`,
+          );
       }
       continue;
     }
