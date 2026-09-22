@@ -27,7 +27,6 @@
  * @spec .cleo/rcasd/T9345/research/provenance-graph-design.md §11
  */
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { sql } from 'drizzle-orm';
@@ -35,11 +34,11 @@ import { type EngineResult, engineError, engineSuccess } from '../engine-result.
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
 import { getDb } from '../store/sqlite.js';
+import { resolveCommitPresenceInTag } from './commit-presence.js';
 
 const log = getLogger('release:verify-provenance');
 
 /** Default subprocess timeout for git invocations (60s per task rules). */
-const SUBPROCESS_TIMEOUT_MS = 60_000;
 
 /** Plan-file dir relative to project root. */
 const PLAN_DIR_REL = '.cleo/release';
@@ -187,17 +186,14 @@ function checkEvidenceStaleness(
       const value = atom.slice(colonIdx + 1);
 
       if (kind === 'commit') {
-        try {
-          execFileSync('git', ['merge-base', '--is-ancestor', value, version], {
-            cwd: projectRoot,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            timeout: SUBPROCESS_TIMEOUT_MS,
-          });
-        } catch {
+        // A squash merge destroys the recorded SHA and keeps its patch, so
+        // ancestry alone reports shipped work as missing (T12311).
+        const presence = resolveCommitPresenceInTag(projectRoot, value, version);
+        if (!presence.present) {
           stale.push({
             taskId,
             atom,
-            reason: `commit ${value} is not reachable from tag ${version}`,
+            reason: `${presence.reason}. ${presence.fix}`,
           });
         }
       } else if (kind === 'files') {
