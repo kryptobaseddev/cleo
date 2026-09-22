@@ -57,7 +57,11 @@ import { closeLogger } from './logger.js';
 import { shutdownBrainWriter } from './memory/brain-writer-thread.js';
 import { resetEmbeddingQueue } from './memory/embedding-queue.js';
 import { STEP_DEADLINE_MS, type StepOutcome, withDeadline } from './shutdown-deadline.js';
-import { awaitBackgroundOps, pendingBackgroundOpCount } from './store/background-ops.js';
+import {
+  awaitBackgroundOps,
+  type BackgroundDrainReport,
+  pendingBackgroundOpCount,
+} from './store/background-ops.js';
 import { closeAllDatabases } from './store/sqlite.js';
 import { markShuttingDown } from './teardown-signal.js';
 
@@ -133,10 +137,11 @@ export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
   const deadlineAt = Date.now() + STEP_DEADLINE_MS;
   markShuttingDown();
 
+  let report: BackgroundDrainReport | undefined;
   const drain = await safely(
     'background-operations',
     async () => {
-      await awaitBackgroundOps();
+      report = await awaitBackgroundOps();
       // The legacy barrier caps rescheduling rounds; a return alone does not
       // establish that every registered producer has actually settled.
       if (pendingBackgroundOpCount() !== 0) {
@@ -146,11 +151,18 @@ export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
     deadlineAt,
   );
   const pendingAfterDrain = pendingBackgroundOpCount();
+  // An abandoned drain produced no report, so its producers stay genuinely
+  // unassessed. A completed one assessed every producer it observed, and the
+  // count of real failures is disclosed instead of a standing caveat (T12310).
+  const assessment: Pick<StepOutcome, 'producerOutcome' | 'failedOperations'> =
+    report === undefined
+      ? { producerOutcome: 'unassessed' }
+      : { producerOutcome: 'assessed', failedOperations: report.failed };
   const outcomes: StepOutcome[] = [
     {
       ...drain,
       ...(drain.threw && pendingAfterDrain > 0 ? { reason: 'drain-incomplete' as const } : {}),
-      producerOutcome: 'unassessed',
+      ...assessment,
       pendingOperations: pendingAfterDrain,
     },
   ];

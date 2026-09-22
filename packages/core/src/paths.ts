@@ -47,8 +47,13 @@ import {
 export type { WorktreeScope } from './project-scope.js';
 export { getProjectRoot, validateProjectRoot, worktreeScope } from './project-scope.js';
 
-import { createOperationExecutionContext, trackBackgroundOp } from './store/background-ops.js';
+import {
+  createOperationExecutionContext,
+  isExpectedTeardownRejection,
+  trackBackgroundOp,
+} from './store/background-ops.js';
 import { getPlatformPaths } from './system/platform-paths.js';
+import { isShuttingDown } from './teardown-signal.js';
 
 /**
  * Lazily-resolved `node:sqlite` `DatabaseSync` constructor.
@@ -385,12 +390,7 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
     // test's explicit registration state. Off by default — production always
     // auto-registers on encounter.
     if (process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'] !== '1') {
-      registerProjectOnEncounter(
-        project.projectRoot,
-        project.legacyUUID ?? project.projectId,
-      ).catch((error: Error) => {
-        process.stderr.write(`[cleo] Project encounter registration failed: ${error.message}\n`);
-      });
+      scheduleProjectEncounter(project.projectRoot, project.legacyUUID ?? project.projectId);
     }
     try {
       const projectRoot = getProjectRoot(cwd);
@@ -1891,6 +1891,63 @@ function _readProjectNameFromInfo(projectRoot: string): string | undefined {
   const raw = readFileSync(infoPath, 'utf-8');
   const data = JSON.parse(raw) as Record<string, unknown>;
   return typeof data.name === 'string' && data.name.length > 0 ? data.name : undefined;
+}
+
+/**
+ * How long one process may reuse an earlier encounter before refreshing it.
+ *
+ * A one-shot CLI resolves paths many times and needs exactly one registry
+ * write; a long-lived host (Studio, a daemon) must still refresh `lastSeen`
+ * rather than freeze it at process start.
+ */
+export const PROJECT_ENCOUNTER_REFRESH_MS = 5 * 60_000;
+
+/** Monotonic scheduling time of the last encounter per captured identity key. */
+const _encountersScheduled = new Map<string, number>();
+
+/**
+ * Schedule the best-effort encounter registration for a resolved project, once.
+ *
+ * Path resolution runs repeatedly inside one command, and every call used to
+ * schedule its own detached registry write. Measured 2026-09-21 on
+ * `cleo show`: two writes per process, the first committing `lastSeen` and the
+ * second still in flight when teardown cancelled it — whose rejection was then
+ * printed as `Project encounter registration failed` on a command that had
+ * already succeeded AND already registered. The message named the one thing
+ * that had demonstrably worked.
+ *
+ * @param projectRoot - Resolved project ownership captured before any async work.
+ * @param infoProjectId - Existing immutable identity; never inferred.
+ * @remarks Deduplication is per process and per captured `(home, id, root)`, and
+ * expires after {@link PROJECT_ENCOUNTER_REFRESH_MS} so a long-lived host keeps
+ * refreshing. Skipping is not proof that an earlier encounter committed — it
+ * only means another attempt is already accounted for. Teardown cancellation is
+ * reported under `CLEO_DEBUG`; a genuine registry conflict is always disclosed.
+ * @example
+ * ```ts
+ * scheduleProjectEncounter(project.projectRoot, project.projectId);
+ * ```
+ */
+function scheduleProjectEncounter(projectRoot: string, infoProjectId: string): void {
+  // teardown-signal's contract: optional work checks this before STARTING.
+  // Work begun after teardown can only be cancelled by it.
+  if (isShuttingDown()) return;
+  const key = `${getCleoHome()}\u0000${infoProjectId}\u0000${projectRoot}`;
+  const previous = _encountersScheduled.get(key);
+  const now = Date.now();
+  if (previous !== undefined && now - previous < PROJECT_ENCOUNTER_REFRESH_MS) return;
+  _encountersScheduled.set(key, now);
+  registerProjectOnEncounter(projectRoot, infoProjectId).catch((error: Error) => {
+    if (isExpectedTeardownRejection(error)) {
+      // Abandoned by teardown, not failed. The next invocation registers again.
+      if (process.env['CLEO_DEBUG'])
+        process.stderr.write(
+          `[cleo][debug] Project encounter abandoned by teardown: ${error.message}\n`,
+        );
+      return;
+    }
+    process.stderr.write(`[cleo] Project encounter registration failed: ${error.message}\n`);
+  });
 }
 
 /**

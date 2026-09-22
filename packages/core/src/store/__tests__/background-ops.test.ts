@@ -58,7 +58,10 @@ describe('background-ops registry (T10490)', () => {
   it('swallows a rejected tracked op without leaking it', async () => {
     trackBackgroundOp(Promise.reject(new Error('best-effort failure')));
     // Must not throw and must drain to zero — the registry never re-raises.
-    await expect(awaitBackgroundOps()).resolves.toBeUndefined();
+    // T12310: the drain reports the rejection instead of re-raising it, so
+    // swallowing the error is no longer the same as discarding the fact.
+    const report = await awaitBackgroundOps();
+    expect(report).toMatchObject({ observed: 1, fulfilled: 0, failed: 1 });
     expect(pendingBackgroundOpCount()).toBe(0);
   });
 

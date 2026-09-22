@@ -44,8 +44,30 @@ import type {
 } from '@cleocode/contracts/jobs';
 import { registerTeardownAbort } from '../teardown-signal.js';
 
-/** Promises for best-effort background work that has not yet settled. */
-const inFlight = new Set<Promise<unknown>>();
+/** Completion promises for best-effort background work that has not yet settled.
+ *  Each resolves with its producer's settled result and never rejects, so the
+ *  drain barrier can assess producers instead of only observing settlement. */
+const inFlight = new Set<Promise<PromiseSettledResult<void>>>();
+
+/** How one tracked producer ended, recorded when it settles (T12310). */
+type ProducerDisposition = 'fulfilled' | 'failed' | 'cancelled' | 'discarded';
+
+/** Producer results recorded since the last drain consumed them.
+ *  Assessment happens at settle time, not by polling {@link inFlight}: a
+ *  descendant registered and settled inside one drain round is gone from the
+ *  registry before the next round can see it, and a producer that failed long
+ *  before teardown never appears there at all. */
+let producerLedger: Record<ProducerDisposition, number> = {
+  fulfilled: 0,
+  failed: 0,
+  cancelled: 0,
+  discarded: 0,
+};
+
+/** Record one producer's disposition for the next drain to report. */
+function recordProducerOutcome(disposition: ProducerDisposition): void {
+  producerLedger[disposition] += 1;
+}
 
 /** Work staged by an existing SQLite transaction, before its actual commit. */
 interface DeferredBackgroundOperation {
@@ -138,8 +160,16 @@ export function trackBackgroundOp(
   void tracked.then(() => inFlight.delete(tracked));
   const settle = (work: Promise<unknown>): void => {
     void work.then(
-      () => completion.resolve({ status: 'fulfilled', value: undefined }),
-      (reason: Error) => completion.resolve({ status: 'rejected', reason }),
+      () => {
+        recordProducerOutcome('fulfilled');
+        completion.resolve({ status: 'fulfilled', value: undefined });
+      },
+      (reason: Error) => {
+        // Teardown stops an in-flight producer by design; that is abandonment,
+        // not a failure the caller can act on (T12310).
+        recordProducerOutcome(isExpectedTeardownRejection(reason) ? 'cancelled' : 'failed');
+        completion.resolve({ status: 'rejected', reason });
+      },
     );
   };
   if (typeof op !== 'function') {
@@ -171,6 +201,9 @@ export function trackBackgroundOp(
     discard(error) {
       if (started) return;
       started = true;
+      // Never ran: its transaction rolled back, and that rollback is already
+      // the caller's own result. Not a background failure to disclose again.
+      recordProducerOutcome('discarded');
       completion.resolve({ status: 'rejected', reason: error });
     },
   };
@@ -188,17 +221,72 @@ export function trackBackgroundOp(
 }
 
 /**
- * Await every currently in-flight background op, then return. Safe to call
- * repeatedly and when nothing is pending. Loops until the set drains so an op
- * that schedules further tracked work during the flush is also awaited.
- * @remarks This legacy barrier can wait indefinitely on any one promise. It is
- * not the foreground maintenance budget or proof that untracked work stopped.
+ * What the drain barrier actually observed about the producers it awaited.
+ *
+ * Settlement alone never established producer success, which is why the
+ * shutdown receipt used to disclose every drain as `unassessed`. The registry
+ * stores each producer's own settled result, so the barrier can assess them
+ * and report a number instead of a caveat (T12310).
+ */
+export interface BackgroundDrainReport {
+  /** Tracked producers assessed since the previous drain consumed the ledger.
+   *  Untracked work is not included. */
+  readonly observed: number;
+  /** Producers that completed their own work. */
+  readonly fulfilled: number;
+  /** Producers that rejected for a reason other than an expected lifecycle stop. */
+  readonly failed: number;
+  /** Producers stopped by teardown cancellation, scope closure or deadline,
+   *  not by their own failure. */
+  readonly cancelled: number;
+  /** Staged producers never started because their transaction rolled back. */
+  readonly discarded: number;
+}
+
+/**
+ * Whether a producer rejection is an expected teardown outcome rather than a failure.
+ *
+ * Teardown cancels registered execution contexts before it drains them, so a
+ * best-effort producer that was still in flight rejects with a lifecycle code.
+ * That is the shutdown path working as designed: the work was abandoned, not
+ * attempted and failed, and the caller has nothing to act on.
+ *
+ * @param reason - The rejection reason observed from a tracked producer.
+ * @returns `true` for cancellation, scope closure and deadline expiry.
+ * @remarks An expected stop still means the work did not happen; it is silent
+ * because it is not actionable, never because it succeeded.
  * @example
  * ```ts
- * await awaitBackgroundOps();
+ * if (!isExpectedTeardownRejection(error)) reportFailure(error);
  * ```
  */
-export async function awaitBackgroundOps(): Promise<void> {
+export function isExpectedTeardownRejection(reason: unknown): boolean {
+  return (
+    reason instanceof OperationExecutionError &&
+    (reason.code === 'E_OPERATION_CANCELLED' ||
+      reason.code === 'E_OPERATION_CLOSED' ||
+      reason.code === 'E_OPERATION_DEADLINE')
+  );
+}
+
+/**
+ * Await every currently in-flight background op, then report what they did.
+ * Safe to call repeatedly and when nothing is pending. Loops until the set
+ * drains so an op that schedules further tracked work during the flush is also
+ * awaited.
+ * @returns Counts for every tracked producer assessed since the previous drain.
+ * @remarks This legacy barrier can wait indefinitely on any one promise. It is
+ * not the foreground maintenance budget or proof that untracked work stopped.
+ * The counts describe only the tracked subset and are CONSUMED by this call, so
+ * two drains never report the same producer twice; a zero `observed` means no
+ * tracked producer settled since the last drain, not that none exists.
+ * @example
+ * ```ts
+ * const report = await awaitBackgroundOps();
+ * if (report.failed > 0) disclose(report.failed);
+ * ```
+ */
+export async function awaitBackgroundOps(): Promise<BackgroundDrainReport> {
   if (backgroundCommitBoundary.getStore()?.active) {
     throw new Error('Cannot drain background work before its transaction commits');
   }
@@ -206,6 +294,15 @@ export async function awaitBackgroundOps(): Promise<void> {
   for (let i = 0; i < 100 && inFlight.size > 0; i++) {
     await Promise.allSettled(Array.from(inFlight));
   }
+  const ledger = producerLedger;
+  producerLedger = { fulfilled: 0, failed: 0, cancelled: 0, discarded: 0 };
+  return {
+    observed: ledger.fulfilled + ledger.failed + ledger.cancelled + ledger.discarded,
+    fulfilled: ledger.fulfilled,
+    failed: ledger.failed,
+    cancelled: ledger.cancelled,
+    discarded: ledger.discarded,
+  };
 }
 
 /**

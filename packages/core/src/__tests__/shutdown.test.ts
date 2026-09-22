@@ -39,7 +39,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { shutdownCliRuntime } from '../shutdown.js';
-import { STEP_DEADLINE_MS } from '../shutdown-deadline.js';
+import { formatShutdownOutcomes, STEP_DEADLINE_MS } from '../shutdown-deadline.js';
 import {
   awaitBackgroundOps,
   createOperationExecutionContext,
@@ -140,7 +140,8 @@ describe('shutdown waits for registered producers under one deadline (T12265)', 
         settled: true,
         threw: false,
         status: 'completed',
-        producerOutcome: 'unassessed',
+        producerOutcome: 'assessed',
+        failedOperations: 0,
         pendingOperations: 0,
       });
       for (const closer of resourceClosers) expect(closer).toHaveBeenCalledTimes(1);
@@ -316,16 +317,57 @@ describe('shutdown waits for registered producers under one deadline (T12265)', 
 });
 
 describe('shutdown producer result disclosure', () => {
+  it('prints no teardown diagnostics for a clean run (T12310)', async () => {
+    // The shipped 2026.9.11 binary printed the "producer outcomes unassessed"
+    // caveat on EVERY successful command, including runs where the barrier had
+    // observed no producer at all — nothing to assess, and a line anyway.
+    const outcomes = await shutdownCliRuntime();
+    expect(outcomes[0]).toMatchObject({
+      label: 'background-operations',
+      status: 'completed',
+      producerOutcome: 'assessed',
+      failedOperations: 0,
+    });
+    expect(formatShutdownOutcomes(outcomes)).toBe('');
+  });
+
+  it('stays silent when teardown itself cancelled an in-flight producer (T12310)', async () => {
+    const execution = createOperationExecutionContext({
+      projectId: 'p',
+      projectRoot: '/tmp/t12310',
+      actor: 'test',
+      operation: 'test.op',
+      idempotencyKey: 'k',
+    });
+    const release = Promise.withResolvers<void>();
+    trackBackgroundOp(async () => {
+      await release.promise;
+      execution.assertActive();
+    }, execution);
+    const shutdown = shutdownCliRuntime();
+    await vi.advanceTimersByTimeAsync(0);
+    release.resolve();
+    const outcomes = await shutdown;
+    // Abandonment by our own teardown is not a producer failure to report.
+    expect(outcomes[0]).toMatchObject({ producerOutcome: 'assessed', failedOperations: 0 });
+    expect(formatShutdownOutcomes(outcomes)).toBe('');
+    execution.close();
+  });
+
   it('does not call a rejected producer successful merely because the barrier drained', async () => {
     const error = new Error('optional projection refused');
     const result = trackBackgroundOp(Promise.reject(error));
     expect(await result).toEqual({ status: 'rejected', reason: error });
     const outcomes = await shutdownCliRuntime();
+    // T12310: the barrier assesses producers, so the rejection is DISCLOSED by
+    // count rather than covered by a standing "unassessed" caveat.
     expect(outcomes[0]).toMatchObject({
       status: 'completed',
-      producerOutcome: 'unassessed',
+      producerOutcome: 'assessed',
+      failedOperations: 1,
       pendingOperations: 0,
     });
+    expect(formatShutdownOutcomes(outcomes)).toContain('1 background operation failed');
     expect(closeAllDatabasesMock).toHaveBeenCalledTimes(1);
   });
 

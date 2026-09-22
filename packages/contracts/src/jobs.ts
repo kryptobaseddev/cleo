@@ -413,10 +413,17 @@ export interface ShutdownStepOutcome {
    * @defaultValue undefined — no rejection message was observed.
    */
   readonly error?: string;
-  /** Registry settlement alone leaves individual producer success unassessed.
+  /** Whether this receipt assessed its producers' own results, or only observed
+   * that the registry settled. Registry settlement alone leaves individual
+   * producer success unassessed.
    * @defaultValue undefined — this receipt does not assess producer outcomes.
    */
-  readonly producerOutcome?: 'unassessed';
+  readonly producerOutcome?: 'unassessed' | 'assessed';
+  /** Assessed producers that rejected for a reason other than teardown
+   * cancellation. Only meaningful alongside `producerOutcome: 'assessed'`.
+   * @defaultValue undefined — producer results were not assessed.
+   */
+  readonly failedOperations?: number;
   /** Number of registered unsettled promises observed at this boundary.
    * @defaultValue undefined — the registry was not counted for this receipt.
    */
