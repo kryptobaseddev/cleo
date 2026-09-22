@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.9.12] (2026-09-22)
+
+### Fixed
+
+- A successful command no longer reports the work that just succeeded as failed _(provenance: [T12310](https://github.com/kryptobaseddev/cleo/search?q=T12310&type=commits))_
+
 ## [2026.9.11] (2026-09-21)
 
 **The release pipeline could not prepare a release.** `cleo release plan` → `cleo release open` is the documented path, and every part of it that failed did so only after ~20 minutes of proving a healthy tree healthy.
