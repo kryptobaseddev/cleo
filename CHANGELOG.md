@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.9.13] (2026-09-22)
+
+### Fixed
+
+- A squash merge no longer makes shipped work look absent from the release it shipped in _(provenance: [T12311](https://github.com/kryptobaseddev/cleo/search?q=T12311&type=commits))_
+
 ## [2026.9.12] (2026-09-22)
 
 ### Fixed
