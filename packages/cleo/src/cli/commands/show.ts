@@ -82,7 +82,7 @@ export const showCommand = defineCommand({
     for (const taskId of ids) {
       const res = await dispatchRaw('query', 'tasks', 'show', { taskId, ...shared });
       if (res.success) {
-        tasks.push(res.data);
+        tasks.push(unwrapShowRecord(res.data));
       } else {
         // One bad id must not discard the other N-1 results — that would make
         // the batch strictly worse than the loop it replaces.
@@ -105,6 +105,30 @@ export const showCommand = defineCommand({
     }
   },
 });
+
+/**
+ * Unwrap the single-show payload to the task record itself.
+ *
+ * The `tasks.show` op answers with `{ task }`, which is right for one task and
+ * wrong for a collection: pushing it whole made every element of `tasks[]` a
+ * `{ task: … }` wrapper, so no record carried `id` or `title`. `--output table`
+ * printed a header over blank rows and `--output id` refused outright — the
+ * refusal was correct and is what surfaced this.
+ *
+ * @param data - The envelope payload from one `tasks.show` dispatch.
+ * @returns The task record when the payload wraps one, else the payload.
+ * @remarks Deliberately tolerant: an op that already answers with a bare record
+ * passes through, so this cannot double-unwrap.
+ * @example
+ * ```ts
+ * tasks.push(unwrapShowRecord(res.data));
+ * ```
+ */
+export function unwrapShowRecord(data: unknown): unknown {
+  if (typeof data !== 'object' || data === null || !('task' in data)) return data;
+  const wrapped: { task?: unknown } = data;
+  return typeof wrapped.task === 'object' && wrapped.task !== null ? wrapped.task : data;
+}
 
 /**
  * Collect the task ids for this invocation, in order, de-duplicated.
