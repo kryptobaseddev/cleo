@@ -74,6 +74,21 @@ export interface BatchParseResult {
   totalSymbols: number;
 }
 
+/**
+ * Smallest V8 old-space a parse worker may be given, in MiB.
+ *
+ * The bound lives here because it was previously hardcoded in BOTH the nexus
+ * worker pool and the core execution port. Raising one left the other
+ * rejecting the value the first had just accepted (T12312).
+ */
+export const PARSER_WORKER_HEAP_MIN_MB = 8;
+
+/** Largest V8 old-space a parse worker may be given, in MiB. */
+export const PARSER_WORKER_HEAP_MAX_MB = 4_096;
+
+/** Default V8 old-space per parse worker, in MiB. */
+export const PARSER_WORKER_HEAP_DEFAULT_MB = 128;
+
 /** Bounds for one native parser invocation; cancellation is cooperative in-process. */
 export interface ParserExecutionLimits {
   /** Maximum UTF-8 source bytes; defaults to 512 KiB. */

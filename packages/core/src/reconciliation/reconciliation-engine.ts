@@ -319,6 +319,14 @@ export async function reconcile(
                 // External-sync ingest legitimately creates standalone tasks
                 // mirroring an external provider; exempt from the T11811 guard.
                 skipContainmentInvariant: true,
+                // The provider's externalId is the identity here, and the
+                // provider has already decided these are distinct tasks. BRAIN's
+                // semantic duplicate check was inert for as long as embeddings
+                // could never load (T12129); the moment they can, two similar
+                // upstream tickets stop mirroring and the second is swallowed
+                // into action.error — a silent hole in the mirror. The bypass
+                // is audited, so the decision stays on the record.
+                forceDuplicate: true,
               },
               cwd,
               acc,

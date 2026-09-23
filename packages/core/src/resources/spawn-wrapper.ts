@@ -71,6 +71,11 @@ import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { ParserExecutionPort } from '@cleocode/contracts';
+import {
+  PARSER_WORKER_HEAP_DEFAULT_MB,
+  PARSER_WORKER_HEAP_MAX_MB,
+  PARSER_WORKER_HEAP_MIN_MB,
+} from '@cleocode/contracts';
 import type {
   ProcessCaptureOptions,
   ProcessCaptureResourceObservation,
@@ -1014,9 +1019,15 @@ export async function captureWrapped(
 export function createParserExecutionPort(): ParserExecutionPort {
   return {
     spawn(scriptPath, limits) {
-      const heapMb = limits.workerHeapMb ?? 128;
-      if (!Number.isSafeInteger(heapMb) || heapMb < 8 || heapMb > 512) {
-        throw new RangeError('Parser worker heap must be an integer from 8 to 512 MiB');
+      const heapMb = limits.workerHeapMb ?? PARSER_WORKER_HEAP_DEFAULT_MB;
+      if (
+        !Number.isSafeInteger(heapMb) ||
+        heapMb < PARSER_WORKER_HEAP_MIN_MB ||
+        heapMb > PARSER_WORKER_HEAP_MAX_MB
+      ) {
+        throw new RangeError(
+          `Parser worker heap must be an integer from ${PARSER_WORKER_HEAP_MIN_MB} to ${PARSER_WORKER_HEAP_MAX_MB} MiB`,
+        );
       }
       limits.signal?.throwIfAborted();
       const controller = new AbortController();

@@ -217,6 +217,11 @@ export type {
   ParserExecutionPort,
   ParserProcessHandle,
 } from './code-symbol.js';
+export {
+  PARSER_WORKER_HEAP_DEFAULT_MB,
+  PARSER_WORKER_HEAP_MAX_MB,
+  PARSER_WORKER_HEAP_MIN_MB,
+} from './code-symbol.js';
 // === Conduit Protocol (agent-to-agent communication) ===
 export type {
   ChannelAdapter,

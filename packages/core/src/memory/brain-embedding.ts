@@ -17,7 +17,16 @@ export interface EmbeddingProvider {
   embed(text: string): Promise<Float32Array>;
   /** Number of dimensions the provider produces. Must match vec0 table. */
   readonly dimensions: number;
-  /** Whether the provider is ready to produce embeddings. */
+  /**
+   * Whether the provider CAN produce embeddings — capability, not state.
+   *
+   * Implementations MUST NOT return "has already produced one": a provider
+   * that reports unavailable until it has embedded something can never be
+   * asked to embed anything, because every caller checks this first. That
+   * deadlock made local embeddings entirely inert (gh#1217). A provider whose
+   * model loads lazily is AVAILABLE before the first load; it becomes
+   * unavailable only once loading has actually failed.
+   */
   isAvailable(): boolean;
 }
 
@@ -57,10 +66,28 @@ export function clearEmbeddingProvider(): void {
  */
 export async function embedText(text: string): Promise<Float32Array | null> {
   if (!currentProvider?.isAvailable()) return null;
-  return currentProvider.embed(text);
+  try {
+    return await currentProvider.embed(text);
+  } catch {
+    // gh#1217: `isAvailable()` is capability, so the first real embed is also
+    // the first model load and CAN fail (offline with no cached model, for
+    // one). Callers treat `null` as "no vector — fall back to FTS5", which is
+    // the correct degradation. Throwing instead would reject the whole search,
+    // and on the fire-and-forget write path it would surface as an unhandled
+    // rejection. The provider latches its own failure, so this is not a retry
+    // loop.
+    return null;
+  }
 }
 
-/** Check whether embedding is currently available. */
+/**
+ * Check whether embedding is available — i.e. a provider is registered and
+ * has not failed to load.
+ *
+ * This is a CAPABILITY check. It is deliberately true before the first
+ * embedding is produced: gating the only call that can warm a lazy provider on
+ * that provider already being warm is the gh#1217 deadlock.
+ */
 export function isEmbeddingAvailable(): boolean {
   return currentProvider?.isAvailable() ?? false;
 }
