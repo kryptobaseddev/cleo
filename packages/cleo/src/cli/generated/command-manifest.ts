@@ -254,7 +254,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'consensusCommand',
     name: 'consensus',
-    description: 'Validate consensus protocol compliance (alias for ',
+    description:
+      'Validate consensus protocol compliance (alias for `cleo check protocol consensus`)',
     load: async () => (await import('../commands/consensus.js')).consensusCommand as CommandDef,
   },
   {
@@ -266,7 +267,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'contributionCommand',
     name: 'contribution',
-    description: 'Validate contribution protocol compliance (alias for ',
+    description:
+      'Validate contribution protocol compliance (alias for `cleo check protocol contribution`)',
     load: async () =>
       (await import('../commands/contribution.js')).contributionCommand as CommandDef,
   },
@@ -298,13 +300,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'decomposeCommand',
     name: 'decompose',
-    description: 'Move a task',
+    description: "Move a task's text acceptance criteria onto a new child so it can hold subtasks",
     load: async () => (await import('../commands/decompose.js')).decomposeCommand as CommandDef,
   },
   {
     exportName: 'decompositionCommand',
     name: 'decomposition',
-    description: 'Validate decomposition protocol compliance (alias for ',
+    description:
+      'Validate decomposition protocol compliance (alias for `cleo check protocol decomposition`)',
     load: async () =>
       (await import('../commands/decomposition.js')).decompositionCommand as CommandDef,
   },
@@ -411,14 +414,16 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'doctorLegacyReaperCommand',
     name: 'legacy-reaper',
-    description: 'Detect the legacy cleo-mcp-reaper user timer that kills processes by generic ',
+    description:
+      'Detect the legacy cleo-mcp-reaper user timer that kills processes by generic `MainThread` ',
     load: async () =>
       (await import('../commands/doctor-legacy-reaper.js')).doctorLegacyReaperCommand as CommandDef,
   },
   {
     exportName: 'doctorMalformedIdsCommand',
     name: 'malformed-ids',
-    description: 'Report task rows whose id is not a valid task identifier — rows that ',
+    description:
+      'Report task rows whose id is not a valid task identifier — rows that `cleo list` returns ',
     load: async () =>
       (await import('../commands/doctor-malformed-ids.js')).doctorMalformedIdsCommand as CommandDef,
   },
@@ -887,7 +892,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'reqCommand',
     name: 'req',
     description:
-      'Manage REQ-ID-addressable acceptance gates on tasks (in-task gates only). For cross-task dependency edges, use ',
+      'Manage REQ-ID-addressable acceptance gates on tasks (in-task gates only). For cross-task dependency edges, use `cleo update <id> --add-depends <ids>` or `cleo update <id> --add-relates <id>:blocks` (gh-394).',
     load: async () => (await import('../commands/req.js')).reqCommand as CommandDef,
   },
   {
@@ -982,7 +987,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'showCommand',
     name: 'show',
     description:
-      'Show task details by ID. MVI-projected (id + title + status + key metadata) by default; pass --verbose / --full to receive the complete record with description, acceptance, verification, evidence, etc. (T9922)',
+      'Show task details by ID. Accepts SEVERAL ids — `cleo show T1 T2 T3` returns them in one envelope and pays CLI startup once instead of per task (gh#1207). MVI-projected (id + title + status + key metadata) by default; pass --verbose / --full to receive the complete record with description, acceptance, verification, evidence, etc. (T9922)',
     load: async () => (await import('../commands/show.js')).showCommand as CommandDef,
   },
   {

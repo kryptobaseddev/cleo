@@ -65,8 +65,16 @@ export interface PendingExtractionRecord {
  * @param sessionId - The session UUID (e.g. `77edaed6-13e5-4af1-9311-ea94eae114f9`)
  * @returns Absolute path to the JSONL, or null.
  */
-export async function findSessionTranscriptPath(sessionId: string): Promise<string | null> {
-  const claudeProjectsRoot = join(homedir(), '.claude', 'projects');
+export async function findSessionTranscriptPath(
+  sessionId: string,
+  /**
+   * Override the Claude projects root. gh#1219: `--projects-dir` was declared
+   * on the CLI but never reached here, so the flag was inert and a
+   * non-default install location could not be scanned at all.
+   */
+  projectsDir?: string,
+): Promise<string | null> {
+  const claudeProjectsRoot = projectsDir ?? join(homedir(), '.claude', 'projects');
 
   try {
     const projectDirs = await readdir(claudeProjectsRoot, { withFileTypes: true });
@@ -158,8 +166,13 @@ export async function listAllTranscripts(options?: {
   projectFilter?: string;
   /** Maximum number of entries to return. */
   limit?: number;
+  /**
+   * Override the Claude projects root. gh#1219: `--projects-dir` was declared
+   * on the CLI but never reached here, so the flag was inert.
+   */
+  projectsDir?: string;
 }): Promise<TranscriptEntry[]> {
-  const claudeProjectsRoot = join(homedir(), '.claude', 'projects');
+  const claudeProjectsRoot = options?.projectsDir ?? join(homedir(), '.claude', 'projects');
   const entries: TranscriptEntry[] = [];
 
   const cutoffMs = options?.olderThanHours ? Date.now() - options.olderThanHours * 3600 * 1000 : 0;

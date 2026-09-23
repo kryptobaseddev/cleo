@@ -168,13 +168,22 @@ const extractCommand = defineCommand({
 
       const sessions: Array<{ sessionId: string; path: string }> = [];
 
+      // gh#1219: `--projects-dir` was declared on this command but never read.
+      const projectsDirOverride =
+        typeof args['projects-dir'] === 'string' && args['projects-dir'].length > 0
+          ? args['projects-dir']
+          : undefined;
+
       if (args['all-warm']) {
-        const allTranscripts = await listAllTranscripts({ olderThanHours: 1 });
+        const allTranscripts = await listAllTranscripts({
+          olderThanHours: 1,
+          projectsDir: projectsDirOverride,
+        });
         for (const t of allTranscripts) {
           sessions.push({ sessionId: t.sessionId, path: t.path });
         }
       } else if (args['session-id']) {
-        const path = await findSessionTranscriptPath(args['session-id']);
+        const path = await findSessionTranscriptPath(args['session-id'], projectsDirOverride);
         if (!path) {
           cliError(
             `Session JSONL not found for: ${args['session-id']}`,

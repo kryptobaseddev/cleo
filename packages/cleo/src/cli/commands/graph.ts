@@ -20,6 +20,7 @@
  */
 
 import path from 'node:path';
+import { pushWarning } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
@@ -172,16 +173,26 @@ const rawCommand = defineCommand({
   },
 });
 
-/** cleo graph discover — discover the codebase structure */
+/**
+ * cleo graph discover — find code relevant to a task query.
+ *
+ * gh#1218: the description used to read "Discover the codebase structure (file
+ * tree + symbol counts)", which describes a different command entirely — one
+ * that would take no arguments. Running it as documented produced
+ * `Missing required positional argument: TASKQUERY` for an argument the help
+ * text never mentioned, so the reporter reasonably concluded the router had
+ * bound the wrong operation. The router is correct; the description was not.
+ */
 const discoverCommand = defineCommand({
   meta: {
     name: 'discover',
-    description: 'Discover the codebase structure (file tree + symbol counts)',
+    description:
+      'Find code relevant to a task query (searches labels, descriptions, and file paths)',
   },
   args: {
     taskQuery: {
       type: 'positional',
-      description: 'Query string',
+      description: 'Task query to find relevant code for (required)',
       required: true,
     },
     method: {
@@ -662,9 +673,26 @@ const initCommand = defineCommand({
   },
 });
 
-/** cleo graph sync — re-analyze and sync the project graph */
+/**
+ * cleo graph sync — refresh REGISTRY metadata for known projects.
+ *
+ * gh#1218: the description used to read "Re-analyze and sync the project graph
+ * with the codebase", which promises code analysis. It performs none:
+ * `nexusSyncAll` updates each registered project's taskCount, labels and
+ * lastSync in the project registry and touches no source file. So on a 360-file
+ * repo it returned `{"success": true, "synced": 1}` — one metadata row — which
+ * reads as "one thing indexed", while `graph status` stayed `indexed: false`
+ * with zero nodes. A success envelope describing work that did not happen.
+ *
+ * Code indexing is `cleo nexus analyze`.
+ */
 const syncCommand = defineCommand({
-  meta: { name: 'sync', description: 'Re-analyze and sync the project graph with the codebase' },
+  meta: {
+    name: 'sync',
+    description:
+      'Refresh registry metadata (task counts, labels, last-seen) for registered projects. ' +
+      'Does NOT index source code — use `cleo nexus analyze` for the code graph.',
+  },
   args: {
     path: { type: 'positional', description: 'Project path (default: cwd)', required: false },
     json: { type: 'boolean', description: 'Output as JSON' },
@@ -672,6 +700,16 @@ const syncCommand = defineCommand({
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    // gh#1218: `synced: N` counts registry rows, not files. Say so, or the
+    // operator reads a truthful number as an answer to a different question.
+    pushWarning({
+      code: 'W_GRAPH_SYNC_IS_METADATA_ONLY',
+      severity: 'info',
+      message:
+        'graph sync refreshes project REGISTRY metadata only — the `synced` count is ' +
+        'registered projects, not source files. To build or refresh the code graph, ' +
+        'run `cleo nexus analyze` and check `cleo nexus status`.',
+    });
     await dispatchFromCli('mutate', 'nexus', 'sync', { path: repoPath }, { command: 'graph' });
   },
 });

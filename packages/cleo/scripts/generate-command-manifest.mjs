@@ -45,7 +45,12 @@ const COMMAND_BLOCK_RE =
   /export\s+const\s+(\w+Command)\s*(?::\s*\w+)?\s*=\s*defineCommand\s*\(\s*\{[\s\S]*?meta\s*:\s*\{([\s\S]*?)\}/g;
 
 const NAME_RE = /name\s*:\s*['"`]([^'"`]+)['"`]/;
-const DESC_RE = /description\s*:\s*['"`]((?:[^'"`\\]|\\.)*)['"`]/;
+// The delimiter is CAPTURED and the body runs lazily to the matching one.
+// The previous class excluded every quote character, so a description
+// delimited by ' that CONTAINED a ` terminated at the backtick and the
+// rest was silently dropped — `cleo show`'s help lost everything after
+// 'Accepts SEVERAL ids — '. These strings are what agents read in --help.
+const DESC_RE = /description\s*:\s*(['"`])((?:\\.|[^\\])*?)\1/;
 
 function extractFromFile(file) {
   const text = readFileSync(file, 'utf8');
@@ -60,7 +65,7 @@ function extractFromFile(file) {
     results.push({
       exportName,
       name: nameMatch[1],
-      description: descMatch ? descMatch[1] : '',
+      description: descMatch ? descMatch[2] : '',
     });
   }
   return results;

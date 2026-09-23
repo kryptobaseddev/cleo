@@ -276,6 +276,16 @@
       "import": "./dist/verification/*.js",
       "require": "./dist/verification/*.js"
     },
+    "./routing/*": {
+      "types": "./dist/routing/*.d.ts",
+      "import": "./dist/routing/*.js",
+      "require": "./dist/routing/*.js"
+    },
+    "./routing/*.js": {
+      "types": "./dist/routing/*.d.ts",
+      "import": "./dist/routing/*.js",
+      "require": "./dist/routing/*.js"
+    },
     "./docs/*": {
       "types": "./dist/docs/*.d.ts",
       "import": "./dist/docs/*.js",
