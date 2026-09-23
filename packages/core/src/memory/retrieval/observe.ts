@@ -23,7 +23,7 @@ import {
 import { getBrainAccessor } from '../../store/memory-accessor.js';
 import type { BrainMemoryTier } from '../../store/schema/memory-schema.js';
 import { getDb } from '../../store/sqlite.js';
-import { embedText, isEmbeddingAvailable } from '../brain-embedding.js';
+import { embedText, ensureEmbeddingProvider, isEmbeddingAvailable } from '../brain-embedding.js';
 import { addGraphEdge, upsertGraphNode } from '../graph-auto-populate.js';
 import { computeObservationQuality } from '../quality-scoring.js';
 
@@ -374,23 +374,29 @@ export async function observeBrain(
     return { id: row.id, type: row.type, createdAt: row.createdAt };
   }
 
-  // Populate embedding if provider is available (T5387).
+  // Populate embedding for this observation (T5387).
   // Fire-and-forget: embedding runs in the background so it never blocks the CLI.
-  if (isEmbeddingAvailable()) {
-    setImmediate(() => {
-      embedText(text)
-        .then((vector) => {
-          if (vector && nativeDb) {
-            nativeDb
-              .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
-              .run(id, Buffer.from(vector.buffer));
-          }
-        })
-        .catch(() => {
-          // Silently skip embedding failures — observation is already persisted
-        });
-    });
-  }
+  // T12314: the availability check used to happen HERE, before the deferred
+  // provider registration had run, so a write early in a process saw no
+  // provider and silently skipped embedding the observation it had just
+  // stored. The check now happens inside the deferred work, after ensuring a
+  // provider exists — registration is free, and the model load is bounded by
+  // the same fire-and-forget contract as before.
+  setImmediate(() => {
+    void (async () => {
+      try {
+        if (!(await ensureEmbeddingProvider())) return;
+        const vector = await embedText(text);
+        if (vector && nativeDb) {
+          nativeDb
+            .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
+            .run(id, Buffer.from(vector.buffer));
+        }
+      } catch {
+        // Silently skip embedding failures — observation is already persisted
+      }
+    })();
+  });
 
   // Regenerate memory bridge for high-value observation types (T5240).
   // Only learning and decision types trigger bridge refresh to avoid excessive writes.
@@ -526,17 +532,29 @@ export async function populateEmbeddings(
   // returned 0/0/0 on every run, forever, and said nothing about why.
   // `isAvailable()` is now capability, so this gate means what it reads as:
   // "is there a provider that could do this at all?"
-  if (!isEmbeddingAvailable()) {
+  // T12314: registration is scheduled by a setImmediate in the DB open path,
+  // so asking availability first races a registration this process cannot see.
+  // Registering costs nothing — the model download happens on first embed.
+  const registered = await ensureEmbeddingProvider();
+  if (!registered || !isEmbeddingAvailable()) {
     pushWarning({
       code: 'W_EMBEDDINGS_UNAVAILABLE',
       severity: 'warn',
-      message:
-        'Embedding backfill did nothing: no embedding provider is available. ' +
-        'If brain.embedding.enabled is true, the provider failed to load in this ' +
-        'process (commonly: no cached model and no network for the ~22 MB first-run ' +
-        'download). Hybrid search will fall back to FTS5.',
+      message: registered
+        ? 'Embedding backfill did nothing: the embedding provider is registered but ' +
+          'reported itself unavailable, which means a previous load failed in this ' +
+          'process (commonly: no cached model and no network for the ~22 MB first-run ' +
+          'download). Hybrid search will fall back to FTS5.'
+        : 'Embedding backfill did nothing: no embedding provider could be constructed. ' +
+          'Check that brain.embedding.enabled is true and that the transformers runtime ' +
+          'is installed. Hybrid search will fall back to FTS5.',
     });
-    return { processed: 0, skipped: 0, errors: 0, inactiveReason: 'no-provider' };
+    return {
+      processed: 0,
+      skipped: 0,
+      errors: 0,
+      inactiveReason: registered ? 'provider-load-failed' : 'no-provider',
+    };
   }
 
   const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
