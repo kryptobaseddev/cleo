@@ -109,3 +109,42 @@ export async function initDefaultProvider(): Promise<void> {
   const provider = new LocalEmbeddingProvider();
   setEmbeddingProvider(provider);
 }
+
+/**
+ * Register the default provider if nothing has registered one yet.
+ *
+ * ## Why a consumer must ask rather than assume (T12314)
+ *
+ * Registration is scheduled by a `setImmediate` in the brain DB open path and
+ * its failures are swallowed, so a consumer that asks
+ * {@link isEmbeddingAvailable} can legitimately be told "no" for two unrelated
+ * reasons: the provider failed, or it simply has not been registered yet. For
+ * as long as the availability check was unsatisfiable (T12129) that difference
+ * could not be observed. With the deadlock gone it is the whole story —
+ * measured against the installed 2026.9.14, the provider was absent at import,
+ * and registering it explicitly took **0 ms** and then produced a real
+ * 384-dimension vector.
+ *
+ * Registration is therefore free: the ~22 MB model download happens on the
+ * first {@link embedText}, not here. There is no cost argument for making a
+ * consumer race a deferred registration it cannot see.
+ *
+ * @returns `true` when a provider is registered once this resolves.
+ * @remarks A load failure is NOT hidden — the provider registers, and its
+ * subsequent failure latches and is reported by the consumer. Returning
+ * `false` here means no provider could be constructed at all.
+ * @example
+ * ```ts
+ * if (!(await ensureEmbeddingProvider())) reportUnavailable();
+ * ```
+ */
+export async function ensureEmbeddingProvider(): Promise<boolean> {
+  if (currentProvider !== null) return true;
+  try {
+    await initDefaultProvider();
+  } catch {
+    // Construction itself failed; the caller reports an unavailable provider.
+    return false;
+  }
+  return currentProvider !== null;
+}
