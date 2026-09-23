@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026.9.16] (2026-09-23)
+
+### Added
+
+- cleo show accepts several ids and pays CLI startup once instead of per task (gh#1207) _(provenance: [T12141](https://github.com/kryptobaseddev/cleo/search?q=T12141&type=commits))_
+
+### Fixed
+
+- Showing several tasks at once returns the tasks, not empty wrappers around them _(provenance: [T12141](https://github.com/kryptobaseddev/cleo/search?q=T12141&type=commits))_
+
 ## [2026.9.15] (2026-09-23)
 
 ### Added
