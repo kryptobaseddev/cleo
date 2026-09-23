@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.9.14] (2026-09-23)
+
+### Fixed
+
+- BRAIN embedding availability is capability, not "has already run" — breaks the deadlock that made local embeddings entirely inert (gh#1217) _(provenance: [T12129](https://github.com/kryptobaseddev/cleo/search?q=T12129&type=commits))_
+- Rebuilding the code index no longer fails on a slow machine, and says what happened when it does _(provenance: [T12312](https://github.com/kryptobaseddev/cleo/search?q=T12312&type=commits))_
+
 ## [2026.9.13] (2026-09-22)
 
 ### Fixed
