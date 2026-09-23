@@ -484,14 +484,29 @@ export function buildSpawnArgs(
   const highStr = resolveMemoryValue(merged.memoryHigh, totalBytes);
   const maxStr = resolveMemoryValue(merged.memoryMax, totalBytes);
 
-  // Build a deterministic, unique unit name.
+  // Build a unit name unique across PROCESSES, not just within one.
+  //
+  // T12313: the fallback was a bare in-process counter, so a caller that did
+  // not supply a scopeId produced `cleo-tool-1.scope`, `cleo-tool-2.scope`, …
+  // in every run. systemd keeps a FAILED transient unit loaded until it is
+  // reset, so the first failure permanently occupied that name and every later
+  // run died with "Unit cleo-tool-9.scope was already loaded or has a fragment
+  // file." Measured on this machine: nine such units, eight in `failed`, which
+  // made `cleo nexus analyze` fail for every repository until they were reset
+  // — a self-perpetuating outage whose cause was invisible because the
+  // worker's stderr was being discarded.
   const counter = ++_scopeCounter;
-  const discriminator = scopeId ? scopeId.replace(/[^a-zA-Z0-9-]/g, '-') : String(counter);
+  const discriminator = scopeId
+    ? scopeId.replace(/[^a-zA-Z0-9-]/g, '-')
+    : `${process.pid}-${counter}-${randomUUID().slice(0, 8)}`;
   const unitName = `cleo-${scopeClass}-${discriminator}.scope`;
 
   const wrapArgs: string[] = [
     '--user',
     '--scope',
+    // Garbage-collect the transient unit even when it fails. Without this a
+    // failed scope stays loaded and its name cannot be reused (T12313).
+    '--collect',
     `--slice=${CLEO_SLICE}`,
     `--unit=${unitName}`,
     '-p',
@@ -1016,6 +1031,18 @@ export async function captureWrapped(
  * const parserExecution = createParserExecutionPort();
  * ```
  */
+/** Bytes of a parse worker's stderr retained for diagnostics (T12313). */
+const PARSER_STDERR_TAIL_BYTES = 8_192;
+
+/**
+ * MiB allowed for a parse worker BEYOND its V8 heap, in its memory cgroup.
+ *
+ * Covers the Node baseline and tree-sitter's native allocations, neither of
+ * which `--max-old-space-size` bounds. Measured on a 128MiB-heap worker:
+ * ~251MiB resident (T12313).
+ */
+const PARSER_NATIVE_HEADROOM_MB = 256;
+
 export function createParserExecutionPort(): ParserExecutionPort {
   return {
     spawn(scriptPath, limits) {
@@ -1046,15 +1073,40 @@ export function createParserExecutionPort(): ParserExecutionPort {
             detached: process.platform !== 'win32',
             env: process.env,
           },
-          { scopeClass: 'tool', resources: { memoryMax: `${Math.max(256, heapMb * 2)}M` } },
+          {
+            scopeClass: 'tool',
+            // T12313: sizing the cgroup at twice the V8 heap counted only the
+            // managed heap. A worker also carries the Node baseline and
+            // tree-sitter's NATIVE arenas, which V8's ceiling does not bound.
+            // Measured: a 128MiB-heap worker reaches ~251MiB RSS and was
+            // killed against the 256MiB ceiling this produced — eighteen
+            // memcg oom-kills in one run, none of them visible as anything but
+            // a broken pipe. Allow the heap twice over PLUS a fixed allowance
+            // for everything V8 never counted.
+            resources: { memoryMax: `${Math.max(512, heapMb * 2 + PARSER_NATIVE_HEADROOM_MB)}M` },
+          },
         );
       } catch (error) {
         deregister();
         throw error;
       }
       const { child } = owned;
-      // Drain diagnostics to avoid blocking a child on a full stderr pipe.
-      child.stderr?.on('data', () => undefined);
+      // Drain diagnostics so a full stderr pipe cannot block the child — but
+      // RETAIN a bounded tail. Discarding it threw away the worker's own
+      // account of its death, which is why a crash surfaced only as the broken
+      // pipe the parent noticed afterwards (T12313).
+      const stderrChunks: string[] = [];
+      let stderrBytes = 0;
+      child.stderr?.on('data', (chunk: Buffer | string) => {
+        const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+        stderrChunks.push(text);
+        stderrBytes += text.length;
+        // Keep the NEWEST output: a stack trace arrives after the banner.
+        while (stderrBytes > PARSER_STDERR_TAIL_BYTES && stderrChunks.length > 1) {
+          const dropped = stderrChunks.shift();
+          stderrBytes -= dropped?.length ?? 0;
+        }
+      });
       let exited = false;
       const closed = new Promise<void>((resolve) => {
         child.once('close', () => {
@@ -1085,7 +1137,13 @@ export function createParserExecutionPort(): ParserExecutionPort {
         deregister();
       });
       if (limits.signal?.aborted || controller.signal.aborted) abort();
-      return { child, heapMb, nativeMemory: 'unverified', stop };
+      return {
+        child,
+        heapMb,
+        nativeMemory: 'unverified',
+        stop,
+        stderrTail: () => stderrChunks.join(''),
+      };
     },
   };
 }

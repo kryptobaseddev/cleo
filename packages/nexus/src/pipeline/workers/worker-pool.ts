@@ -111,6 +111,12 @@ export const WORKER_HEAP_ENV = 'CLEO_NEXUS_WORKER_HEAP_MB';
 /** Default V8 old-space cap per parse worker, in MiB. */
 const DEFAULT_WORKER_HEAP_MB = PARSER_WORKER_HEAP_DEFAULT_MB;
 
+// T12313: 128MiB was measured insufficient on a real repository — a worker
+// reached 162MiB of live old-space after Mark-Compact and died with
+// "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of
+// memory", which surfaced only as a broken pipe. The cap is a CEILING, not an
+// allocation: a worker that does not need the headroom never takes it.
+
 /** Highest cap an operator may request; the default stays conservative. */
 const MAX_WORKER_HEAP_MB = PARSER_WORKER_HEAP_MAX_MB;
 
@@ -145,6 +151,36 @@ function resolveParseTimeoutMs(
   const override = Number.parseInt(env[PARSE_TIMEOUT_ENV] ?? '', 10);
   if (Number.isFinite(override) && override > 0) return override;
   return SUB_BATCH_TIMEOUT_MS;
+}
+
+/**
+ * The worker's own account of its death, when the transport retained one.
+ *
+ * A thread-based worker has no separate stderr, and a child that said nothing
+ * yields nothing — both return an empty string rather than inventing a cause.
+ */
+function workerStderr(owned: Worker | ParserProcessHandle): string {
+  if (owned instanceof Worker) return '';
+  const tail = owned.stderrTail().trim();
+  return tail.length === 0 ? '' : ` The worker's own output was:\n${tail}`;
+}
+
+/**
+ * How the child actually ended, which the parent knows and never reported.
+ *
+ * A signal means something KILLED it — the pool's own abort, a memory cgroup,
+ * or the kernel — and no amount of raising a heap ceiling addresses that. A
+ * numeric code means it exited under its own control. Reporting the broken
+ * pipe without this left both indistinguishable (T12313).
+ */
+function workerExitCause(owned: Worker | ParserProcessHandle): string {
+  if (owned instanceof Worker) return '';
+  const { exitCode, signalCode } = owned.child;
+  if (signalCode !== null && signalCode !== undefined)
+    return ` The worker was KILLED by ${signalCode}, so it did not fail on its own — look for an abort, a deadline, or a memory ceiling rather than a parser defect.`;
+  if (exitCode !== null && exitCode !== undefined)
+    return ` The worker exited with code ${exitCode} under its own control.`;
+  return ' The worker had not recorded an exit code when the write failed.';
 }
 
 /** Best-effort path of a dispatched work item, for diagnostics only. */
@@ -225,6 +261,36 @@ export function createWorkerPool(
   };
 
   /**
+   * Retire the worker in `index` and put a fresh one in its place.
+   *
+   * A worker that has died cannot be written to again, so retrying its chunk
+   * requires a new process. Stopping the old one first keeps the accounting
+   * honest: a slot never holds two live workers (T12313).
+   *
+   * @param index - Slot to replace.
+   */
+  async function replaceWorker(index: number): Promise<void> {
+    const dead = workers[index];
+    if (dead !== undefined) {
+      try {
+        if (dead instanceof Worker) await dead.terminate();
+        else await dead.stop();
+      } catch {
+        // Already gone — which is the case this exists to handle.
+      }
+    }
+    workers[index] = execution
+      ? execution.spawn(workerPath, { ...limits, workerHeapMb })
+      : new Worker(workerUrl, {
+          resourceLimits: {
+            maxOldGenerationSizeMb: workerHeapMb,
+            maxYoungGenerationSizeMb: 16,
+            stackSizeMb: 4,
+          },
+        });
+  }
+
+  /**
    * Dispatch `items` to worker `workers[workerIndex]`, streaming sub-batches
    * of `SUB_BATCH_SIZE` files and collecting the final accumulated result.
    */
@@ -250,12 +316,13 @@ export function createWorkerPool(
               broken
                 ? new Error(
                     `Parse worker ${workerIndex} closed its channel while handling ` +
-                      `${inFlightDescription} (${error.message}). The write failed because the ` +
+                      `${inFlightDescription} (${error.message}); it had just finished ` +
+                      `${previousDescription}. The write failed because the ` +
                       `worker had already exited; the pipe is the symptom, not the cause. ` +
                       `Every file parsed so far is discarded. Check the kernel log for an ` +
                       `oom-kill naming this process, then raise ${WORKER_HEAP_ENV}=<MiB> or the ` +
                       `cgroup ceiling (CLEO_TOOL_MEMORY_MAX_MB); a native parser crash on one ` +
-                      `file presents the same way.`,
+                      `file presents the same way.${workerExitCause(owned)}${workerStderr(owned)}`,
                     { cause: error },
                   )
                 : error,
@@ -269,6 +336,9 @@ export function createWorkerPool(
       // Retained for diagnostics: a timeout that cannot name the file it was
       // parsing sends the reader looking through 4 498 of them.
       let inFlightDescription = '<not yet dispatched>';
+      // The send that FAILS names the file we were about to hand over — the
+      // one that killed the worker is the one it had just finished (T12313).
+      let previousDescription = '<none>';
 
       const cleanup = () => {
         if (subBatchTimer) {
@@ -308,6 +378,7 @@ export function createWorkerPool(
           return;
         }
         const subBatch = chunk.slice(start, start + SUB_BATCH_SIZE);
+        previousDescription = inFlightDescription;
         inFlightDescription = subBatch.map(describeWorkItem).join(', ');
         subBatchIdx++;
         resetSubBatchTimer();
@@ -374,7 +445,8 @@ export function createWorkerPool(
                   : `A non-null code means the worker THREW rather than being killed, so memory ` +
                     `limits are not the cause and raising them will not help. The named file is ` +
                     `the one dispatched to this worker; re-run with a single worker to confirm ` +
-                    `it is the trigger rather than a coincidence of timing.`),
+                    `it is the trigger rather than a coincidence of timing.`) +
+                workerStderr(owned),
             ),
           );
         }
@@ -443,7 +515,40 @@ export function createWorkerPool(
     );
 
     try {
-      return await Promise.all(promises);
+      // T12313: one worker dying used to discard EVERY file the others had
+      // already parsed — 3 499 of them in a measured run — because
+      // `Promise.all` rejects on the first failure and the generation is then
+      // never published. A worker that dies before it has processed anything
+      // is not evidence that the work is unparseable, so its chunk is retried
+      // once on a fresh worker before the run is abandoned.
+      const settled = await Promise.allSettled(promises);
+      const failures = settled.flatMap((outcome, index) =>
+        outcome.status === 'rejected' ? [{ index, reason: outcome.reason }] : [],
+      );
+      if (failures.length === 0)
+        return settled.map((outcome) =>
+          outcome.status === 'fulfilled' ? outcome.value : (undefined as unknown as TResult),
+        );
+
+      const results = settled.map((outcome) =>
+        outcome.status === 'fulfilled' ? outcome.value : (undefined as unknown as TResult),
+      );
+      for (const failure of failures) {
+        const chunk = chunks[failure.index];
+        if (chunk === undefined) throw failure.reason;
+        // Replace the dead slot; reusing it would fail the same way.
+        await replaceWorker(failure.index);
+        // A second death is a real defect, not a transient one — let it throw
+        // with its own diagnostic rather than silently publishing a partial
+        // index that reads as complete.
+        results[failure.index] = await dispatchToWorker<TInput, TResult>(
+          chunk,
+          failure.index,
+          workerProgress,
+          onProgress,
+        );
+      }
+      return results;
     } catch (error) {
       // Do not return while another worker can still mutate or allocate.
       await terminate();
