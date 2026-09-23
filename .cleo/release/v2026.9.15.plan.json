@@ -1,0 +1,231 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.9.15",
+  "resolvedVersion": "v2026.9.15",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12191",
+  "releaseKind": "regular",
+  "createdAt": "2026-09-23T12:33:07.030Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.9.13",
+  "previousTag": "v2026.9.13",
+  "previousShippedAt": "2026-09-22T06:19:04.198Z",
+  "tasks": [
+    {
+      "id": "T12314",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "The embedding provider is registered by a setImmediate that races every consumer, so embeddings still never populate",
+      "evidenceAtoms": [
+        "commit:0788ac9b5f7f32d38ea0c3b9938f2f1a25b0d1af",
+        "files:packages/core/src/memory/brain-embedding.ts,packages/cleo/scripts/generate-command-manifest.mjs",
+        "test-run:/home/keatonhoskins/.temp/claude-1000/-mnt-projects-cleocode/72497aa7-76ab-41bb-9512-b62c8445da00/scratchpad/evid-final.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12191",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12132",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1216: OpenAI-compatible providers misroute to api.openai.com — single SSoT for default base URLs",
+      "evidenceAtoms": [
+        "commit:0788ac9b5f7f32d38ea0c3b9938f2f1a25b0d1af",
+        "files:packages/core/src/memory/brain-embedding.ts,packages/cleo/scripts/generate-command-manifest.mjs",
+        "test-run:/home/keatonhoskins/.temp/claude-1000/-mnt-projects-cleocode/72497aa7-76ab-41bb-9512-b62c8445da00/scratchpad/evid-final.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12191",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12133",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1219: transcript extraction prompt contradicts its schema and drops response_format",
+      "evidenceAtoms": [
+        "commit:0788ac9b5f7f32d38ea0c3b9938f2f1a25b0d1af",
+        "files:packages/core/src/memory/brain-embedding.ts,packages/cleo/scripts/generate-command-manifest.mjs",
+        "test-run:/home/keatonhoskins/.temp/claude-1000/-mnt-projects-cleocode/72497aa7-76ab-41bb-9512-b62c8445da00/scratchpad/evid-final.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12191",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12135",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1218: graph sync and discover describe operations they do not perform",
+      "evidenceAtoms": [
+        "commit:0788ac9b5f7f32d38ea0c3b9938f2f1a25b0d1af",
+        "files:packages/core/src/memory/brain-embedding.ts,packages/cleo/scripts/generate-command-manifest.mjs",
+        "test-run:/home/keatonhoskins/.temp/claude-1000/-mnt-projects-cleocode/72497aa7-76ab-41bb-9512-b62c8445da00/scratchpad/evid-final.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12191",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12138",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1207: one barrel import costs 1.2s on every CLI invocation — narrow it and gate it",
+      "evidenceAtoms": [
+        "commit:0788ac9b5f7f32d38ea0c3b9938f2f1a25b0d1af",
+        "files:packages/core/src/memory/brain-embedding.ts,packages/cleo/scripts/generate-command-manifest.mjs",
+        "test-run:/home/keatonhoskins/.temp/claude-1000/-mnt-projects-cleocode/72497aa7-76ab-41bb-9512-b62c8445da00/scratchpad/evid-final.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12191",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12140",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "gh#494: per-kind lifecycle requirements — answer which stages each kind needs instead of adding a doc kind",
+      "evidenceAtoms": [
+        "commit:0788ac9b5f7f32d38ea0c3b9938f2f1a25b0d1af",
+        "files:packages/core/src/memory/brain-embedding.ts,packages/cleo/scripts/generate-command-manifest.mjs",
+        "test-run:/home/keatonhoskins/.temp/claude-1000/-mnt-projects-cleocode/72497aa7-76ab-41bb-9512-b62c8445da00/scratchpad/evid-final.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12191",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12141",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "gh#1207b: batch cleo show — amortise the fixed CLI startup floor across N tasks",
+      "evidenceAtoms": [
+        "commit:0788ac9b5f7f32d38ea0c3b9938f2f1a25b0d1af",
+        "files:packages/core/src/memory/brain-embedding.ts,packages/cleo/scripts/generate-command-manifest.mjs",
+        "test-run:/home/keatonhoskins/.temp/claude-1000/-mnt-projects-cleocode/72497aa7-76ab-41bb-9512-b62c8445da00/scratchpad/evid-final.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12191",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T12140",
+      "T12141"
+    ],
+    "fixes": [
+      "T12314",
+      "T12132",
+      "T12133",
+      "T12135",
+      "T12138"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T12:33:07.030Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T12:33:07.030Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T12:33:07.030Z",
+      "resolvedCommand": "npx biome check .",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T12:33:07.030Z",
+      "resolvedCommand": "npx tsc --noEmit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T12:33:07.030Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T12:33:07.030Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 334 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.9.15 — 2026-09-23\n\n### Added\n\n- per-kind lifecycle requirements — the staged pipeline gates only the kinds it describes (gh#494) _(provenance: [T12140](https://github.com/kryptobaseddev/cleo/search?q=T12140&type=commits))_\n- cleo show accepts several ids and pays CLI startup once instead of per task (gh#1207) _(provenance: [T12141](https://github.com/kryptobaseddev/cleo/search?q=T12141&type=commits))_\n\n### Fixed\n\n- one barrel import cost ~1.2s on every CLI invocation — narrowed, and gated so it cannot come back (gh#1207) _(provenance: [T12138](https://github.com/kryptobaseddev/cleo/search?q=T12138&type=commits))_\n- graph sync and discover describe the operations they actually perform (gh#1218) _(provenance: [T12135](https://github.com/kryptobaseddev/cleo/search?q=T12135&type=commits))_\n- OpenAI-compatible providers route to their own endpoint instead of api.openai.com (gh#1216) _(provenance: [T12132](https://github.com/kryptobaseddev/cleo/search?q=T12132&type=commits))_\n- Memories are actually embedded, instead of waiting on a registration nobody triggers _(provenance: [T12314](https://github.com/kryptobaseddev/cleo/search?q=T12314&type=commits))_\n- transcript extraction prompt agrees with its schema, sends a schema on the wire, and honours --projects-dir (gh#1219) _(provenance: [T12133](https://github.com/kryptobaseddev/cleo/search?q=T12133&type=commits))_\n",
+    "changesetEntryCount": 7,
+    "changesetIds": [
+      "cli-startup-barrel",
+      "graph-sync-discover-honesty",
+      "kind-lifecycle-requirements",
+      "provider-base-url-ssot",
+      "show-batch-lookup",
+      "t12314-embedding-provider-registration",
+      "transcript-extraction-schema-agreement"
+    ],
+    "taskIds": [
+      "T12314",
+      "T12132",
+      "T12133",
+      "T12135",
+      "T12138",
+      "T12140",
+      "T12141"
+    ]
+  }
+}

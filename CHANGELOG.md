@@ -1,5 +1,20 @@
 # Changelog
 
+## [2026.9.15] (2026-09-23)
+
+### Added
+
+- per-kind lifecycle requirements — the staged pipeline gates only the kinds it describes (gh#494) _(provenance: [T12140](https://github.com/kryptobaseddev/cleo/search?q=T12140&type=commits))_
+- cleo show accepts several ids and pays CLI startup once instead of per task (gh#1207) _(provenance: [T12141](https://github.com/kryptobaseddev/cleo/search?q=T12141&type=commits))_
+
+### Fixed
+
+- one barrel import cost ~1.2s on every CLI invocation — narrowed, and gated so it cannot come back (gh#1207) _(provenance: [T12138](https://github.com/kryptobaseddev/cleo/search?q=T12138&type=commits))_
+- graph sync and discover describe the operations they actually perform (gh#1218) _(provenance: [T12135](https://github.com/kryptobaseddev/cleo/search?q=T12135&type=commits))_
+- OpenAI-compatible providers route to their own endpoint instead of api.openai.com (gh#1216) _(provenance: [T12132](https://github.com/kryptobaseddev/cleo/search?q=T12132&type=commits))_
+- Memories are actually embedded, instead of waiting on a registration nobody triggers _(provenance: [T12314](https://github.com/kryptobaseddev/cleo/search?q=T12314&type=commits))_
+- transcript extraction prompt agrees with its schema, sends a schema on the wire, and honours --projects-dir (gh#1219) _(provenance: [T12133](https://github.com/kryptobaseddev/cleo/search?q=T12133&type=commits))_
+
 ## [2026.9.14] (2026-09-23)
 
 ### Fixed
