@@ -1,0 +1,123 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.9.16",
+  "resolvedVersion": "v2026.9.16",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12111",
+  "releaseKind": "regular",
+  "createdAt": "2026-09-23T14:25:21.935Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.9.13",
+  "previousTag": "v2026.9.13",
+  "previousShippedAt": "2026-09-22T06:19:04.198Z",
+  "tasks": [
+    {
+      "id": "T12141",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "gh#1207b: batch cleo show — amortise the fixed CLI startup floor across N tasks",
+      "evidenceAtoms": [
+        "commit:0788ac9b5f7f32d38ea0c3b9938f2f1a25b0d1af",
+        "files:packages/core/src/memory/brain-embedding.ts,packages/cleo/scripts/generate-command-manifest.mjs",
+        "test-run:/home/keatonhoskins/.temp/claude-1000/-mnt-projects-cleocode/72497aa7-76ab-41bb-9512-b62c8445da00/scratchpad/evid-final.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T12141"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "resolvedCommand": "npx biome check .",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "resolvedCommand": "npx tsc --noEmit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 340 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.9.16 — 2026-09-23\n\n### Added\n\n- cleo show accepts several ids and pays CLI startup once instead of per task (gh#1207) _(provenance: [T12141](https://github.com/kryptobaseddev/cleo/search?q=T12141&type=commits))_\n\n### Fixed\n\n- Showing several tasks at once returns the tasks, not empty wrappers around them _(provenance: [T12141](https://github.com/kryptobaseddev/cleo/search?q=T12141&type=commits))_\n",
+    "changesetEntryCount": 2,
+    "changesetIds": [
+      "show-batch-lookup",
+      "t12141-batch-show-record-shape"
+    ],
+    "taskIds": [
+      "T12141"
+    ]
+  }
+}
