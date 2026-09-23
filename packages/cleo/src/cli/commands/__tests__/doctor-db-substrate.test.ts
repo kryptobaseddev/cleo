@@ -948,12 +948,22 @@ describe('doctor db-substrate (T10307)', () => {
     // run was 0 ms (very fast DB), we fall back to timeout=0 which is
     // disabled — assertion is skipped via the `>= 0` early-out check
     // below.
-    const firstPass = surveyDbSubstrate(projectRoot, { autoQuarantine: false });
-    const firstTasks = firstPass.projects[0]?.dbs['tasks'];
-    if (!firstTasks || firstTasks.integrityCheckMs === null) {
-      throw new Error('first pass elapsed absent');
+    // T12141 follow-up: deriving the budget from ONE measurement assumed the
+    // next run could never be faster than it. Run-to-run variance says
+    // otherwise — a 3ms first pass and a 1ms second pass yields a 2ms budget
+    // that is never exceeded, and the assertion fails on a quiet runner. This
+    // failed a release preflight exactly that way. Take the MINIMUM of several
+    // samples so the budget sits below anything a later run can plausibly
+    // achieve, and require real headroom before asserting at all.
+    const samples: number[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const pass = surveyDbSubstrate(projectRoot, { autoQuarantine: false });
+      const elapsed = pass.projects[0]?.dbs['tasks']?.integrityCheckMs;
+      if (elapsed === undefined || elapsed === null) throw new Error('pass elapsed absent');
+      samples.push(elapsed);
     }
-    if (firstTasks.integrityCheckMs <= 1) {
+    const firstTasks = { integrityCheckMs: Math.min(...samples) };
+    if (firstTasks.integrityCheckMs <= 2) {
       // Sub-ms check — the timeout-mechanism still works but we can't
       // assert it deterministically. Verify the timeout=0 disable branch
       // instead.
