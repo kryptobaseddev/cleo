@@ -26,6 +26,11 @@ import type {
   ParserExecutionPort,
   ParserProcessHandle,
 } from '@cleocode/contracts';
+import {
+  PARSER_WORKER_HEAP_DEFAULT_MB,
+  PARSER_WORKER_HEAP_MAX_MB,
+  PARSER_WORKER_HEAP_MIN_MB,
+} from '@cleocode/contracts';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -80,10 +85,76 @@ type WorkerOutgoingMessage =
 const SUB_BATCH_SIZE = 1;
 
 /**
- * Per sub-batch timeout in milliseconds.
- * If a sub-batch takes longer than this, likely a pathological file.
+ * Per-file wall budget for a parse worker, in milliseconds.
+ *
+ * `SUB_BATCH_SIZE` is 1, so this is the time allowed for ONE file — and an
+ * overrun rejects the whole dispatch, discarding every file already parsed
+ * ("generation not published"). Measured 2026-09-23 on a fuseblk mount under
+ * concurrent load from other builds: `cleo nexus analyze` over 4 498 files died
+ * with `E_PARSE_WORKER_TIMEOUT: Worker 0 file timed out after 5000ms`, naming
+ * no file and no remedy, after 212 s of work.
+ *
+ * A normal parse is milliseconds; this budget exists to bound a pathological
+ * file, not to race a loaded machine. It is generous for that reason, and
+ * overridable per {@link PARSE_TIMEOUT_ENV}.
+ *
+ * @task T12312
  */
-const SUB_BATCH_TIMEOUT_MS = 5_000;
+const SUB_BATCH_TIMEOUT_MS = 30_000;
+
+/** Operator override for the per-file parse budget, in milliseconds. */
+export const PARSE_TIMEOUT_ENV = 'CLEO_NEXUS_PARSE_TIMEOUT_MS';
+
+/** Operator override for each parse worker's V8 old-space cap, in MiB. */
+export const WORKER_HEAP_ENV = 'CLEO_NEXUS_WORKER_HEAP_MB';
+
+/** Default V8 old-space cap per parse worker, in MiB. */
+const DEFAULT_WORKER_HEAP_MB = PARSER_WORKER_HEAP_DEFAULT_MB;
+
+/** Highest cap an operator may request; the default stays conservative. */
+const MAX_WORKER_HEAP_MB = PARSER_WORKER_HEAP_MAX_MB;
+
+/**
+ * V8 old-space cap for one parse worker, honouring the operator override.
+ *
+ * A worker that exceeds its cap exits with a null code and the dispatch
+ * rejects, discarding every file parsed in the run. Measured 2026-09-23 over
+ * 4 498 files: workers died both inside CLEO's `cleo-tool-*.scope` (a memcg
+ * kill at 251 MB RSS, confirmed in the kernel log) and outside it with no
+ * kernel OOM at all — the second being the V8 cap itself. The default is
+ * unchanged; what was missing was any way to raise it without editing source.
+ *
+ * @task T12312
+ */
+function resolveWorkerHeapMb(
+  explicit: number | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  if (explicit !== undefined) return explicit;
+  const override = Number.parseInt(env[WORKER_HEAP_ENV] ?? '', 10);
+  if (Number.isFinite(override) && override > 0) return override;
+  return DEFAULT_WORKER_HEAP_MB;
+}
+
+/** Per-file parse budget, honouring the operator override. */
+function resolveParseTimeoutMs(
+  explicit: number | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  if (explicit !== undefined) return explicit;
+  const override = Number.parseInt(env[PARSE_TIMEOUT_ENV] ?? '', 10);
+  if (Number.isFinite(override) && override > 0) return override;
+  return SUB_BATCH_TIMEOUT_MS;
+}
+
+/** Best-effort path of a dispatched work item, for diagnostics only. */
+function describeWorkItem(item: unknown): string {
+  if (typeof item === 'object' && item !== null && 'path' in item) {
+    const { path } = item as { path: unknown };
+    if (typeof path === 'string' && path.length > 0) return path;
+  }
+  return '<unknown file>';
+}
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -114,16 +185,22 @@ export function createWorkerPool(
   }
 
   const size = poolSize ?? Math.min(8, Math.max(1, os.cpus().length - 1));
-  const timeoutMs = limits.timeoutMs ?? SUB_BATCH_TIMEOUT_MS;
-  const workerHeapMb = limits.workerHeapMb ?? 128;
+  const timeoutMs = resolveParseTimeoutMs(limits.timeoutMs);
+  const workerHeapMb = resolveWorkerHeapMb(limits.workerHeapMb);
   if (!Number.isSafeInteger(size) || size < 1 || size > 8) {
     throw new RangeError('Parser pool size must be an integer from 1 to 8');
   }
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new RangeError('Parser worker timeout must be positive and finite');
   }
-  if (!Number.isSafeInteger(workerHeapMb) || workerHeapMb < 8 || workerHeapMb > 512) {
-    throw new RangeError('Parser worker heap must be an integer from 8 to 512 MiB');
+  if (
+    !Number.isSafeInteger(workerHeapMb) ||
+    workerHeapMb < PARSER_WORKER_HEAP_MIN_MB ||
+    workerHeapMb > MAX_WORKER_HEAP_MB
+  ) {
+    throw new RangeError(
+      `Parser worker heap must be an integer from ${PARSER_WORKER_HEAP_MIN_MB} to ${MAX_WORKER_HEAP_MB} MiB`,
+    );
   }
   // V8's process-level flags silently override Worker.resourceLimits. A claimed
   // per-worker ceiling would otherwise be false even when resourceLimits reports it.
@@ -164,13 +241,34 @@ export function createWorkerPool(
         if (owned instanceof Worker) owned.postMessage(message);
         else
           owned.child.send(message, (error) => {
-            if (error) errorHandler(error);
+            if (!error) return;
+            // A write error means the worker is already gone. Reporting EPIPE
+            // verbatim names the pipe, not the death — and settles the promise
+            // before the 'exit' handler can supply the actual reason (T12312).
+            const broken = /EPIPE|ERR_IPC_CHANNEL_CLOSED/.test(error.message);
+            errorHandler(
+              broken
+                ? new Error(
+                    `Parse worker ${workerIndex} closed its channel while handling ` +
+                      `${inFlightDescription} (${error.message}). The write failed because the ` +
+                      `worker had already exited; the pipe is the symptom, not the cause. ` +
+                      `Every file parsed so far is discarded. Check the kernel log for an ` +
+                      `oom-kill naming this process, then raise ${WORKER_HEAP_ENV}=<MiB> or the ` +
+                      `cgroup ceiling (CLEO_TOOL_MEMORY_MAX_MB); a native parser crash on one ` +
+                      `file presents the same way.`,
+                    { cause: error },
+                  )
+                : error,
+            );
           });
       };
       let settled = false;
       let ready = owned instanceof Worker;
       let subBatchTimer: ReturnType<typeof setTimeout> | null = null;
       let subBatchIdx = 0;
+      // Retained for diagnostics: a timeout that cannot name the file it was
+      // parsing sends the reader looking through 4 498 of them.
+      let inFlightDescription = '<not yet dispatched>';
 
       const cleanup = () => {
         if (subBatchTimer) {
@@ -191,7 +289,11 @@ export function createWorkerPool(
             cleanup();
             reject(
               new Error(
-                `E_PARSE_WORKER_TIMEOUT: Worker ${workerIndex} file timed out after ${timeoutMs}ms.`,
+                `E_PARSE_WORKER_TIMEOUT: worker ${workerIndex} exceeded ${timeoutMs}ms parsing ` +
+                  `${inFlightDescription}. Every file parsed so far in this run is discarded, so ` +
+                  `one slow file fails the whole index. Raise the per-file budget with ` +
+                  `${PARSE_TIMEOUT_ENV}=<ms> — a loaded machine or a network/FUSE mount can ` +
+                  `exceed the default, and a genuinely pathological file will still be bounded.`,
               ),
             );
           }
@@ -206,6 +308,7 @@ export function createWorkerPool(
           return;
         }
         const subBatch = chunk.slice(start, start + SUB_BATCH_SIZE);
+        inFlightDescription = subBatch.map(describeWorkItem).join(', ');
         subBatchIdx++;
         resetSubBatchTimer();
         send({ type: 'sub-batch', files: subBatch });
@@ -260,7 +363,18 @@ export function createWorkerPool(
           cleanup();
           reject(
             new Error(
-              `Worker ${workerIndex} exited with code ${code}. Possible OOM or native module failure.`,
+              `Parse worker ${workerIndex} exited with code ${code} while handling ` +
+                `${inFlightDescription}. Every file parsed so far is discarded. ` +
+                (code === null
+                  ? `A null code means it was KILLED rather than returning — most often the ` +
+                    `${workerHeapMb}MiB V8 old-space cap, or a memory-cgroup ceiling when CLEO ` +
+                    `confines the run. Raise ${WORKER_HEAP_ENV}=<MiB>; if the kernel log shows ` +
+                    `an oom-kill with constraint=CONSTRAINT_MEMCG, raise CLEO_TOOL_MEMORY_MAX_MB ` +
+                    `or disable confinement with CLEO_NO_TOOL_CGROUP=1.`
+                  : `A non-null code means the worker THREW rather than being killed, so memory ` +
+                    `limits are not the cause and raising them will not help. The named file is ` +
+                    `the one dispatched to this worker; re-run with a single worker to confirm ` +
+                    `it is the trigger rather than a coincidence of timing.`),
             ),
           );
         }

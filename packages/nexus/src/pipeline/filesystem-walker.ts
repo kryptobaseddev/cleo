@@ -20,7 +20,7 @@
  * @module pipeline/filesystem-walker
  */
 
-import { spawnSync } from 'node:child_process';
+import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -122,34 +122,132 @@ async function readIgnorePatterns(ignorePath: string): Promise<string[]> {
   }
 }
 
-/** Ask Git itself to apply repository, info/exclude and configured global excludes. */
+/** Paths handed to one `git check-ignore` invocation. */
+const GIT_IGNORE_BATCH_SIZE = 256;
+
+/** Floor for one ignore-assessment batch, before the per-path allowance. */
+export const GIT_IGNORE_BASE_TIMEOUT_MS = 10_000;
+
+/** Added per path in the batch, so the budget scales with the work asked of git. */
+export const GIT_IGNORE_PER_PATH_TIMEOUT_MS = 40;
+
+/** Budget for the one-shot `rev-parse` ownership probe. */
+export const GIT_PROBE_TIMEOUT_MS = 10_000;
+
+/** Multiplier applied to a batch's budget on its single retry. */
+const GIT_IGNORE_RETRY_FACTOR = 4;
+
+/** Operator override for the ignore-assessment budget, in milliseconds. */
+export const GIT_IGNORE_TIMEOUT_ENV = 'CLEO_NEXUS_GIT_TIMEOUT_MS';
+
+/**
+ * Milliseconds allowed for one ignore-assessment batch.
+ *
+ * Scales with batch size rather than standing at a constant, because the work
+ * git is asked to do scales with it and the filesystem underneath may be far
+ * slower than the one the constant was written on.
+ *
+ * @param batchSize - Paths in this invocation.
+ * @param env - Environment to read the operator override from.
+ * @returns The budget in milliseconds.
+ */
+function gitIgnoreTimeoutMs(batchSize: number, env: NodeJS.ProcessEnv = process.env): number {
+  const override = Number.parseInt(env[GIT_IGNORE_TIMEOUT_ENV] ?? '', 10);
+  if (Number.isFinite(override) && override > 0) return override;
+  return GIT_IGNORE_BASE_TIMEOUT_MS + batchSize * GIT_IGNORE_PER_PATH_TIMEOUT_MS;
+}
+
+/**
+ * Ask Git itself to apply repository, info/exclude and configured global excludes.
+ *
+ * ## Why the budget is not a constant (T12312)
+ *
+ * This used to allow `git rev-parse` 1 s and each `git check-ignore` batch 2 s,
+ * and to `throw result.error` verbatim on an overrun. Measured 2026-09-23 on a
+ * fuseblk mount 23–49× slower than local disk, warm cache, idle machine:
+ * rev-parse 152/152/188 ms, and check-ignore over 256 paths 797/974/**1701** ms
+ * — one run at 85 % of its budget, a 2.1× spread between runs. A repository of
+ * 9 141 tracked files is 36 batches, so that budget was rolled 36 times per
+ * `nexus analyze` and one slow roll killed the entire index rebuild with the
+ * bare Node string `spawnSync git ETIMEDOUT`: no invocation named, no budget
+ * quoted, no remedy. Intermittent by construction, which is why it reproduced
+ * for one agent and not the next.
+ *
+ * The budget now scales with the batch, a transient overrun is retried once
+ * with a larger one, and a genuine timeout says what it was doing and how to
+ * raise the ceiling. Being ignored is not something git can be asked about
+ * approximately, so an exhausted retry still fails the scan — loudly, rather
+ * than by silently indexing a vendored tree.
+ *
+ * @param repoPath - Repository to assess; never inferred from cwd.
+ * @param paths - Repo-relative paths to classify.
+ * @returns The subset git considers ignored.
+ */
 function gitExcludedPaths(repoPath: string, paths: readonly string[]): Set<string> {
   const probe = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], {
     cwd: repoPath,
     encoding: 'utf8',
-    timeout: 1000,
+    timeout: GIT_PROBE_TIMEOUT_MS,
   });
-  if (probe.error) throw probe.error;
+  if (probe.error) {
+    throw new Error(
+      `Git ownership probe (git rev-parse --is-inside-work-tree) in ${repoPath} did not complete ` +
+        `within ${GIT_PROBE_TIMEOUT_MS}ms: ${probe.error.message}. ` +
+        `Raise the ignore-assessment budget with ${GIT_IGNORE_TIMEOUT_ENV}=<ms>, or run the scan ` +
+        `from a faster filesystem — a network or FUSE mount can exceed this on a loaded machine.`,
+      { cause: probe.error },
+    );
+  }
   if (probe.status === 128 && !existsSync(path.join(repoPath, '.git'))) return new Set();
   if (probe.status !== 0)
     throw new Error(`Git source ownership check failed: ${probe.stderr.trim()}`);
   const excluded = new Set<string>();
-  for (let offset = 0; offset < paths.length; offset += 256) {
-    const batch = paths.slice(offset, offset + 256);
-    const result = spawnSync('git', ['check-ignore', '--no-index', '-z', '--stdin'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      input: `${batch.join('\0')}\0`,
-      timeout: 2000,
-      maxBuffer: 4 * 1024 * 1024,
-    });
-    if (result.error) throw result.error;
+  for (let offset = 0; offset < paths.length; offset += GIT_IGNORE_BATCH_SIZE) {
+    const batch = paths.slice(offset, offset + GIT_IGNORE_BATCH_SIZE);
+    const budget = gitIgnoreTimeoutMs(batch.length);
+    const batchNumber = Math.floor(offset / GIT_IGNORE_BATCH_SIZE) + 1;
+    const batchCount = Math.ceil(paths.length / GIT_IGNORE_BATCH_SIZE);
+    // One retry with a larger budget: an overrun under momentary load is not
+    // evidence that the budget is wrong, and abandoning a whole index rebuild
+    // on a single slow roll is the failure this replaces.
+    let result = runGitCheckIgnore(repoPath, batch, budget);
+    let elapsedBudget = budget;
+    if (result.error) {
+      elapsedBudget = budget * GIT_IGNORE_RETRY_FACTOR;
+      result = runGitCheckIgnore(repoPath, batch, elapsedBudget);
+    }
+    if (result.error) {
+      throw new Error(
+        `Git ignore assessment (git check-ignore) timed out on batch ${batchNumber} of ` +
+          `${batchCount} (${batch.length} paths) in ${repoPath}: allowed ${budget}ms, then ` +
+          `${elapsedBudget}ms on retry, and neither completed (${result.error.message}). ` +
+          `Raise the per-batch budget with ${GIT_IGNORE_TIMEOUT_ENV}=<ms>. The scan is abandoned ` +
+          `rather than continued, because a batch git could not classify would otherwise be ` +
+          `indexed as if nothing in it were ignored.`,
+        { cause: result.error },
+      );
+    }
     // Git documents exit 1 for no ignored paths; other failures invalidate the scan.
     if (result.status !== 0 && result.status !== 1)
       throw new Error(`Git ignore assessment failed: ${result.stderr.trim()}`);
     for (const ignored of result.stdout.split('\0')) if (ignored) excluded.add(ignored);
   }
   return excluded;
+}
+
+/** One `git check-ignore` invocation over a batch, under an explicit budget. */
+function runGitCheckIgnore(
+  repoPath: string,
+  batch: readonly string[],
+  timeout: number,
+): SpawnSyncReturns<string> {
+  return spawnSync('git', ['check-ignore', '--no-index', '-z', '--stdin'], {
+    cwd: repoPath,
+    encoding: 'utf8',
+    input: `${batch.join('\0')}\0`,
+    timeout,
+    maxBuffer: 4 * 1024 * 1024,
+  });
 }
 
 // ---------------------------------------------------------------------------
