@@ -19,6 +19,11 @@
 #   parent-repo ignore rules, this file must NOT re-include those four
 #   files — doing so would unignore them at the project repository level
 #   and re-open the T5158 data-loss vector.
+#
+# ADR-094 (amends ADR-013 §9, 2026-09-24, T12325): `project-id` IS tracked. It holds
+#   the write-once portable project identity. CLEO creates it once and never
+#   rewrites it, so git has nothing to overwrite — unlike the four mutable
+#   files above, whose hazard was git replacing live state CLEO rewrites.
 # =============================================================================
 
 # Step 1: Ignore everything in .cleo/
@@ -35,6 +40,8 @@
 # Step 3: Allow project configuration files that are SAFE to track
 # (detected project facts and bootstrap scripts — not runtime state).
 !project-context.json
+# T12325: write-once portable project identity (ADR-094, amends ADR-013 §9).
+!project-id
 # T12093: placeholder overrides consumed when the release workflows are
 # rendered. It is declarative project config (which command bumps versions),
 # not runtime state, and CI must be able to read it from a bare checkout.

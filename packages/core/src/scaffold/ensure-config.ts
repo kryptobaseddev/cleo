@@ -4,7 +4,6 @@
  * project-info.json, and related template/version utilities.
  */
 
-import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -13,6 +12,7 @@ import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import { generateProjectHash } from '../nexus/hash.js';
 import { getConfigPath, resolveCleoDir } from '../paths.js';
 import { saveJson } from '../store/json.js';
+import { decideProjectIdentity, ensurePortableProjectId } from './project-identity.js';
 
 /**
  * Resolve the `.cleo` directory for scaffold steps.
@@ -50,6 +50,9 @@ export const CLEO_GITIGNORE_FALLBACK = `# .cleo/.gitignore — Deny-by-default f
 # Recovery for all four runtime files (tasks.db, brain.db, config.json,
 # project-info.json) is provided by \`cleo backup add\` snapshots under
 # .cleo/backups/. See .cleo/adrs/ADR-013 for the full recovery story.
+#
+# ADR-094 (amends ADR-013 §9, T12325): project-id IS tracked — the write-once portable
+# project identity. CLEO never rewrites it, so git has nothing to overwrite.
 
 # Step 1: Ignore everything
 *
@@ -57,6 +60,7 @@ export const CLEO_GITIGNORE_FALLBACK = `# .cleo/.gitignore — Deny-by-default f
 # Allow list
 !.gitignore
 !project-context.json
+!project-id
 !setup-otel.sh
 !DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
 !adrs/
@@ -398,65 +402,88 @@ export async function ensureConfig(
 }
 
 /**
- * Create or refresh project-info.json.
+ * Create or refresh project-info.json, and adopt its id into the tracked,
+ * write-once `.cleo/project-id` (T12325).
  * Idempotent: skips if file exists (unless force).
+ *
+ * The id is never minted while it can be re-linked: an existing local id is
+ * kept, a committed `.cleo/project-id` is used by a fresh clone, and otherwise
+ * the global registry is searched before a new id is minted (see
+ * {@link decideProjectIdentity}).
  *
  * @param projectRoot - Absolute path to the project root directory
  * @param opts - Optional configuration
  * @param opts.force - When true, regenerate even if the file exists
- * @returns Scaffold result indicating the action taken
+ * @param opts.mintNewIdentity - Explicitly mint a new id instead of re-linking
+ * @returns Scaffold result indicating the action taken; `details` carries the
+ *   identity provenance and any conflict to report
  */
 export async function ensureProjectInfo(
   projectRoot: string,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; mintNewIdentity?: boolean },
 ): Promise<ScaffoldResult> {
   const cleoDir = resolveScaffoldCleoDir(projectRoot);
   const projectInfoPath = join(cleoDir, 'project-info.json');
 
-  if (existsSync(projectInfoPath) && !opts?.force) {
+  let existing: Record<string, unknown> | undefined;
+  if (existsSync(projectInfoPath)) {
     try {
-      const existing = JSON.parse(readFileSync(projectInfoPath, 'utf-8'));
-      let repaired = false;
-
-      if (typeof existing.projectId !== 'string' || existing.projectId.length === 0) {
-        existing.projectId = randomUUID();
-        existing.lastUpdated = new Date().toISOString();
-        repaired = true;
-      }
-
-      // Backfill missing name (cheap — always available from basename).
-      if (typeof existing.name !== 'string' || existing.name.length === 0) {
-        existing.name = basename(resolve(projectRoot));
-        existing.lastUpdated = new Date().toISOString();
-        repaired = true;
-      }
-
-      if (repaired) {
-        await writeFile(projectInfoPath, JSON.stringify(existing, null, 2));
-        return { action: 'repaired', path: projectInfoPath, details: 'Backfilled missing fields' };
-      }
-      return { action: 'skipped', path: projectInfoPath, details: 'Already exists' };
+      existing = JSON.parse(readFileSync(projectInfoPath, 'utf-8')) as Record<string, unknown>;
     } catch {
       // If parse fails, fall through to regenerate
     }
   }
+  const existingProjectId =
+    typeof existing?.['projectId'] === 'string' && existing['projectId'].length > 0
+      ? existing['projectId']
+      : undefined;
+  const identity = await decideProjectIdentity(projectRoot, existingProjectId, {
+    mintNewIdentity: opts?.mintNewIdentity,
+  });
+  const describeIdentity = async (): Promise<string> => {
+    const outcome = await ensurePortableProjectId(projectRoot, identity.projectId);
+    return [
+      `identity ${identity.projectId} (${identity.source}); .cleo/project-id ${outcome}`,
+      ...identity.diagnostics,
+    ].join('; ');
+  };
+
+  if (existing && !opts?.force) {
+    let repaired = false;
+
+    if (!existingProjectId) {
+      existing['projectId'] = identity.projectId;
+      existing['lastUpdated'] = new Date().toISOString();
+      repaired = true;
+    }
+
+    // Backfill missing name (cheap — always available from basename).
+    if (typeof existing['name'] !== 'string' || existing['name'].length === 0) {
+      existing['name'] = basename(resolve(projectRoot));
+      existing['lastUpdated'] = new Date().toISOString();
+      repaired = true;
+    }
+
+    if (repaired) {
+      await writeFile(projectInfoPath, JSON.stringify(existing, null, 2));
+      return {
+        action: 'repaired',
+        path: projectInfoPath,
+        details: `Backfilled missing fields; ${await describeIdentity()}`,
+      };
+    }
+    return {
+      action: 'skipped',
+      path: projectInfoPath,
+      details: `Already exists; ${await describeIdentity()}`,
+    };
+  }
 
   // Preserve immutable identity fields when force-regenerating.
-  let existingProjectId: string | undefined;
-  let existingCreatedAt: string | undefined;
-  if (opts?.force && existsSync(projectInfoPath)) {
-    try {
-      const existing = JSON.parse(readFileSync(projectInfoPath, 'utf-8'));
-      if (typeof existing.projectId === 'string' && existing.projectId.length > 0) {
-        existingProjectId = existing.projectId;
-      }
-      if (typeof existing.createdAt === 'string' && existing.createdAt.length > 0) {
-        existingCreatedAt = existing.createdAt;
-      }
-    } catch {
-      // If parse fails, treat as fresh creation.
-    }
-  }
+  const existingCreatedAt =
+    typeof existing?.['createdAt'] === 'string' && existing['createdAt'].length > 0
+      ? existing['createdAt']
+      : undefined;
 
   const projectHash = generateProjectHash(projectRoot);
   const cleoVersion = getCleoVersion();
@@ -480,7 +507,7 @@ export async function ensureProjectInfo(
   const projectInfo = {
     $schema: './schemas/project-info.schema.json',
     schemaVersion: '1.0.0',
-    projectId: existingProjectId ?? randomUUID(),
+    projectId: identity.projectId,
     projectHash,
     name: basename(resolve(projectRoot)),
     ...(remoteUrl && { remoteUrl }),
@@ -496,7 +523,7 @@ export async function ensureProjectInfo(
 
   await writeFile(projectInfoPath, JSON.stringify(projectInfo, null, 2));
   const action = opts?.force && existsSync(projectInfoPath) ? 'regenerated' : 'created';
-  return { action, path: projectInfoPath };
+  return { action, path: projectInfoPath, details: await describeIdentity() };
 }
 
 /**

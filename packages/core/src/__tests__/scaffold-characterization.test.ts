@@ -282,7 +282,9 @@ describe('characterization: ensureProjectInfo', () => {
     const result = await ensureProjectInfo(tmpDir);
     expect(result.action).toBe('repaired');
     // PM-Core V2 (c636c662b) backfills projectId AND name → generic message.
-    expect(result.details).toBe('Backfilled missing fields');
+    expect(result.details).toMatch(/^Backfilled missing fields; /);
+    // T12325: the backfilled id's provenance is reported, never silent.
+    expect(result.details).toContain('(minted)');
   });
 
   it('written file contains projectHash and cleoVersion', async () => {
