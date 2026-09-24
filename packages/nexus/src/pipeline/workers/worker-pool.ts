@@ -522,20 +522,19 @@ export function createWorkerPool(
       // is not evidence that the work is unparseable, so its chunk is retried
       // once on a fresh worker before the run is abandoned.
       const settled = await Promise.allSettled(promises);
-      const failures = settled.flatMap((outcome, index) =>
-        outcome.status === 'rejected' ? [{ index, reason: outcome.reason }] : [],
-      );
-      if (failures.length === 0)
-        return settled.map((outcome) =>
-          outcome.status === 'fulfilled' ? outcome.value : (undefined as unknown as TResult),
-        );
+      const results: TResult[] = [];
+      const failures: Array<{ index: number; outcome: PromiseRejectedResult }> = [];
+      settled.forEach((outcome, index) => {
+        if (outcome.status === 'fulfilled') results[index] = outcome.value;
+        else failures.push({ index, outcome });
+      });
 
-      const results = settled.map((outcome) =>
-        outcome.status === 'fulfilled' ? outcome.value : (undefined as unknown as TResult),
-      );
       for (const failure of failures) {
         const chunk = chunks[failure.index];
-        if (chunk === undefined) throw failure.reason;
+        // Cancellation is the caller's decision, not a transient fault: a retry
+        // would re-enter an aborted signal and surface a bare AbortError in
+        // place of the E_PARSE_CANCELLED the caller is owed.
+        if (chunk === undefined || limits.signal?.aborted) throw failure.outcome.reason;
         // Replace the dead slot; reusing it would fail the same way.
         await replaceWorker(failure.index);
         // A second death is a real defect, not a transient one — let it throw
