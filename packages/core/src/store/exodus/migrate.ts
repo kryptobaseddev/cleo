@@ -134,8 +134,11 @@ import {
   detectIsoGlobColumns,
   ENUM_NORMALIZATIONS,
   enumNormExpr,
+  legacyRowProjection,
   NUMERIC_CLAMPS,
+  notNullDefaultFill,
   numericClampExpr,
+  type RowProjectionFn,
   typeDefaultLiteral,
 } from './column-transforms.js';
 import { STAGING_HEADROOM_FACTOR } from './plan.js';
@@ -671,13 +674,10 @@ function buildSelectExpr(
   // and were silently discarded. `valid_at` falls back to the row's own
   // `created_at` (the fact was valid since it was recorded) before the default,
   // so migration time is never stamped onto historical memory.
-  if (tgtInfo.notnull === 1 && tgtInfo.dflt_value !== null) {
-    const rowFallback =
-      col === 'valid_at' && srcColumns.has('created_at')
-        ? `"${attachAlias}"."${legacyTable}"."created_at", `
-        : '';
-    return `COALESCE(${srcRef}, ${rowFallback}${tgtInfo.dflt_value}) AS "${col}"`;
-  }
+  const fill = notNullDefaultFill(col, tgtInfo, (name) =>
+    srcColumns.has(name) ? `"${attachAlias}"."${legacyTable}"."${name}"` : null,
+  );
+  if (fill !== null) return `COALESCE(${srcRef}, ${fill}) AS "${col}"`;
   return srcRef;
 }
 
@@ -917,14 +917,37 @@ function copyTableFromAttached(
   // the INSERT causes a "NOT NULL constraint failed" error, which INSERT OR IGNORE
   // silently converts to a dropped row. We must include these columns in the
   // INSERT with a literal type-default value so every row survives. (T11533 fix)
+  // --- Step 6a: Legacy row projections (T12346) — renamed / computed columns ---
+  // A projected column REPLACES the by-name copy (e.g. release_manifests.id →
+  // 'legacy:' || version) or supplies a target column the source only carries
+  // under another name (commit_sha → merge_commit_sha).
+  const projection = legacyRowProjection(targetTableName, legacyTableName);
+  const srcCol = (name: string): string => `"${attachAlias}"."${legacyTableName}"."${name}"`;
+  const projectedSelectExprs = selectExprs.map((expr, i) => {
+    const project = projection.get(sharedColumns[i] as string);
+    return project ? `${project(srcCol)} AS "${sharedColumns[i]}"` : expr;
+  });
+  const projectedExtraCols = [...projection.keys()].filter(
+    (col) => tgtColMap.has(col) && !sharedColumns.includes(col),
+  );
+
   const tgtOnlyNotNullCols = tgtOnlyColumns.filter((col) => {
     const info = tgtColMap.get(col);
-    return info !== undefined && info.notnull === 1 && info.dflt_value === null;
+    return (
+      info !== undefined &&
+      info.notnull === 1 &&
+      info.dflt_value === null &&
+      !projectedExtraCols.includes(col)
+    );
   });
 
-  const allInsertCols = [...sharedColumns, ...tgtOnlyNotNullCols];
+  const allInsertCols = [...sharedColumns, ...projectedExtraCols, ...tgtOnlyNotNullCols];
   const allSelectExprs = [
-    ...selectExprs,
+    ...projectedSelectExprs,
+    ...projectedExtraCols.map((col) => {
+      const project = projection.get(col) as RowProjectionFn;
+      return `${project(srcCol)} AS "${col}"`;
+    }),
     ...tgtOnlyNotNullCols.map((col) => {
       const info = tgtColMap.get(col)!;
       return `${typeDefaultLiteral(info.type)} AS "${col}"`;

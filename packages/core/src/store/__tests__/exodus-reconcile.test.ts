@@ -63,6 +63,13 @@ function buildLegacyStore(cleoDir: string): void {
       ('AC1', 'T2', 1, 'child T4 done', '2026-01-02T00:00:00Z', 'child_task', 'T4', 'legacy'),
       ('AC2', 'T2', 2, 'plain text',    '2026-01-02T00:00:00Z', 'text',       NULL, 'legacy');
     INSERT INTO task_relations VALUES ('T2', 'T4', 'related', 'duplicates the parent edge');
+    -- Pre-T9686-B2 release history (T12346): folded into tasks_releases.
+    CREATE TABLE release_manifests (
+      id TEXT PRIMARY KEY, version TEXT NOT NULL, status TEXT NOT NULL,
+      tasks_json TEXT NOT NULL DEFAULT '[]', commit_sha TEXT, created_at TEXT NOT NULL
+    );
+    INSERT INTO release_manifests VALUES
+      ('rel-v2026-1-1', 'v2026.1.1', 'pushed', '[]', 'abc123', '2026-01-10T00:00:00Z');
   `);
   tasks.close();
 
@@ -171,6 +178,10 @@ describe('reconcileSupersededStores (T12319)', () => {
     expect(scalar(liveDb, "SELECT valid_at FROM brain_observations WHERE id='O1'")).toBe(
       '2026-02-01 10:00:00',
     );
+    // release_manifests lands in the table the runtime reads, folded as T9686-B2 did.
+    expect(
+      scalar(liveDb, "SELECT merge_commit_sha FROM tasks_releases WHERE id='legacy:v2026.1.1'"),
+    ).toBe('abc123');
     // The grandfathered guards are back in force after the copy.
     expect(
       scalar(
@@ -197,6 +208,19 @@ describe('reconcileSupersededStores (T12319)', () => {
     expect(again.rowsCopied).toBe(0);
     expect(readdirSync(cleoDir).filter((n) => n.startsWith('exodus-'))).toEqual(stagingDirs);
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(5);
+  });
+
+  it('digests a NULL valid_at the way the copy fills it (verifier parity)', async () => {
+    const { buildDigestExpr } = await import('../exodus/column-transforms.js');
+    const expr = buildDigestExpr(
+      'brain_observations',
+      'valid_at',
+      'TEXT',
+      new Set(),
+      { notnull: 1, dflt_value: "(datetime('now'))", type: 'text' },
+      new Set(['valid_at', 'created_at']),
+    );
+    expect(expr).toBe(`COALESCE("valid_at", "created_at", (datetime('now')))`);
   });
 
   it('never overwrites a row already in cleo.db', async () => {

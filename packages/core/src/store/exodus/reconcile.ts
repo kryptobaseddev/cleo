@@ -47,6 +47,7 @@ import { resolveCleoDir } from '../../paths.js';
 import { resolveDualScopeDbPath } from '../dual-scope-db.js';
 import { withLock } from '../lock.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
+import { legacyRowProjection } from './column-transforms.js';
 import { orderTablesForCopy, runExodusMigrate } from './migrate.js';
 import { buildExodusPlan } from './plan.js';
 import { rollbackExodusReceipts } from './recovery.js';
@@ -109,8 +110,16 @@ function countMissing(
       }>
     ).map((c) => c.name),
   );
-  if (targetPk.length === 0 || !targetPk.every((c) => sourceCols.has(c))) return null;
-  const match = targetPk.map((c) => `t.${ident(c)} = s.${ident(c)}`).join(' AND ');
+  // A projected key (e.g. release_manifests.id → 'legacy:' || version, T12346)
+  // is compared in its PROJECTED form — the form migrate writes.
+  const projection = legacyRowProjection(targetTable, sourceTable);
+  const sourceKey = (c: string): string | null => {
+    const project = projection.get(c);
+    if (project) return project((name) => `s.${ident(name)}`);
+    return sourceCols.has(c) ? `s.${ident(c)}` : null;
+  };
+  if (targetPk.length === 0 || !targetPk.every((c) => sourceKey(c) !== null)) return null;
+  const match = targetPk.map((c) => `t.${ident(c)} = ${sourceKey(c)}`).join(' AND ');
   const row = live
     .prepare(
       `SELECT COUNT(*) AS n FROM ${ident(alias)}.${ident(sourceTable)} s ` +

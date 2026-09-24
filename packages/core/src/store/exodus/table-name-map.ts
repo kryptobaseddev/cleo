@@ -124,6 +124,11 @@ const TASKS_DB_MAP: ReadonlyMap<string, string> = new Map([
   ['pr_tasks', 'tasks_pr_tasks'],
   // provenance/releases.ts
   ['releases', 'tasks_releases'],
+  // T12346: pre-T9686-B2 release history. Folded into `tasks_releases` exactly
+  // as that migration did (see LEGACY_ROW_PROJECTIONS in column-transforms.ts);
+  // previously it fell through to the identity fallback and landed in a stale
+  // bare `release_manifests` table the runtime never reads.
+  ['release_manifests', 'tasks_releases'],
   ['release_commits', 'tasks_release_commits'],
   ['release_changes', 'tasks_release_changes'],
   ['release_changesets', 'tasks_release_changesets'],

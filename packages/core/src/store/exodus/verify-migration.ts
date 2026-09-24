@@ -56,6 +56,7 @@ import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import {
   buildDigestExpr,
   detectIsoGlobColumns,
+  legacyRowProjection,
   type TargetColumnInfo,
 } from './column-transforms.js';
 import {
@@ -132,6 +133,8 @@ interface DigestTransformSpec {
    * a false `hashMatch === false` (T11836).
    */
   readonly tgtColByCol: ReadonlyMap<string, TargetColumnInfo>;
+  /** Legacy source table name — selects its row projection (T12346). */
+  readonly sourceTableName: string;
 }
 
 /**
@@ -199,6 +202,12 @@ function computeTableDigest(
         if (transform === undefined) return `"${c}"`;
         // SOURCE side: route the raw value through the SAME transform migrate
         // applied, aliased back to `c` so the row key matches the target side.
+        // A projected column (T12346) digests in the form migrate wrote it.
+        const project = legacyRowProjection(
+          transform.targetTableName,
+          transform.sourceTableName,
+        ).get(c);
+        if (project) return `${project((name) => `"${name}"`)} AS "${c}"`;
         const srcType = transform.srcTypeByCol.get(c) ?? '';
         const tgtCol = transform.tgtColByCol.get(c);
         const expr = buildDigestExpr(
@@ -207,6 +216,7 @@ function computeTableDigest(
           srcType,
           transform.isoGlobCols,
           tgtCol,
+          new Set(transform.srcTypeByCol.keys()),
         );
         return `${expr} AS "${c}"`;
       })
@@ -332,7 +342,7 @@ function buildSourceDigestTransform(
         { notnull: r.notnull, dflt_value: r.dflt_value, type: r.type } satisfies TargetColumnInfo,
       ]),
     );
-    return { targetTableName, srcTypeByCol, isoGlobCols, tgtColByCol };
+    return { targetTableName, srcTypeByCol, isoGlobCols, tgtColByCol, sourceTableName: srcTable };
   } catch {
     return undefined;
   }

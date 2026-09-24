@@ -303,6 +303,65 @@ export function enumNormExpr(
 }
 
 // ---------------------------------------------------------------------------
+// Legacy row projections — renamed / computed target columns (T12346)
+// ---------------------------------------------------------------------------
+
+/**
+ * Computes one target column from a legacy source row. `col` resolves a SOURCE
+ * column of the same row to an SQL expression.
+ */
+export type RowProjectionFn = (col: (name: string) => string) => string;
+
+/**
+ * Target columns whose value a legacy table does not carry under the same name.
+ *
+ * Exodus copies by column NAME. A legacy table that an in-place legacy
+ * migration later folded into a differently-shaped table has no same-name home;
+ * its rows used to land in a stale bare table inside `cleo.db` that the
+ * runtime never reads (T12346). Each entry reproduces the legacy runtime's OWN
+ * fold, so a migrated row is the row that migration would have produced.
+ *
+ * Key: `${targetTable}<-${legacyTable}`.
+ *
+ * - `release_manifests` → `tasks_releases`: exactly the T9686-B2 fold
+ *   (`drizzle-tasks/20260519010000_t9686b2-unify-releases-tables`):
+ *   `id = 'legacy:' || version`, `merge_commit_sha = commit_sha`; `scheme`,
+ *   `channel` and `release_kind` take their schema defaults. The UNIQUE
+ *   `version` makes an already-present release win, as that fold's
+ *   `WHERE NOT EXISTS` did.
+ *
+ * @task T12346
+ */
+export const LEGACY_ROW_PROJECTIONS: ReadonlyMap<
+  string,
+  ReadonlyMap<string, RowProjectionFn>
+> = new Map([
+  [
+    'tasks_releases<-release_manifests',
+    new Map<string, RowProjectionFn>([
+      ['id', (col) => `'legacy:' || ${col('version')}`],
+      ['merge_commit_sha', (col) => col('commit_sha')],
+    ]),
+  ],
+]);
+
+/**
+ * The computed target columns for copying `legacyTable` into `targetTable`, or
+ * an empty map when every column copies by name.
+ *
+ * @param targetTable - Consolidated target table.
+ * @param legacyTable - Legacy source table.
+ * @returns Target column → projection.
+ * @task T12346
+ */
+export function legacyRowProjection(
+  targetTable: string,
+  legacyTable: string,
+): ReadonlyMap<string, RowProjectionFn> {
+  return LEGACY_ROW_PROJECTIONS.get(`${targetTable}<-${legacyTable}`) ?? new Map();
+}
+
+// ---------------------------------------------------------------------------
 // Non-finite numeric clamp layer (ROOT CAUSE fix — T11782 · FIX B)
 // ---------------------------------------------------------------------------
 
@@ -517,6 +576,35 @@ export interface TargetColumnInfo {
 }
 
 /**
+ * The fill for an explicit NULL headed for a NOT NULL column that HAS a schema
+ * default, or `null` when the column needs none.
+ *
+ * A schema default applies only when a column is OMITTED; an explicit NULL
+ * still violates NOT NULL and `INSERT OR IGNORE` drops the whole row (1,284 of
+ * 1,696 llmtxt observations had `valid_at IS NULL`, T12319). `valid_at` falls
+ * back to the row's own `created_at` — valid since recorded — before the
+ * default, so migration time is never stamped onto history. Shared by the copy
+ * (migrate) and the parity digest (verify) so the two cannot drift (T12346).
+ *
+ * @param col - Target column name.
+ * @param tgtCol - Target column metadata.
+ * @param sibling - Resolves another column of the same source row, or `null`
+ *   when the source has no such column.
+ * @returns The COALESCE tail (`created_at, default`), or `null`.
+ * @task T12319
+ * @task T12346
+ */
+export function notNullDefaultFill(
+  col: string,
+  tgtCol: TargetColumnInfo,
+  sibling: (name: string) => string | null,
+): string | null {
+  if (tgtCol.notnull !== 1 || tgtCol.dflt_value === null) return null;
+  const createdAt = col === 'valid_at' ? sibling('created_at') : null;
+  return createdAt !== null ? `${createdAt}, ${tgtCol.dflt_value}` : tgtCol.dflt_value;
+}
+
+/**
  * Wrap a digest value expression in the SAME `COALESCE(expr, type_default)`
  * substitution migrate's `buildSelectExpr` applies, when (and only when) the
  * matching TARGET column is NOT NULL without a schema default (T11836).
@@ -579,6 +667,8 @@ function maybeCoalesceNotNull(expr: string, tgtCol: TargetColumnInfo | undefined
  * @param isoGlobCols     - Set of target columns carrying an ISO GLOB CHECK.
  * @param tgtCol          - Target column metadata (NOT-NULL flag + default +
  *   affinity) for `col`, or `undefined` when unavailable.
+ * @param srcColumns      - Every column of the source row (enables the
+ *   `valid_at` → `created_at` fill); omit when unknown.
  * @returns A SQL value expression that maps the raw source value to the canonical
  *   value the target stores.
  */
@@ -588,6 +678,7 @@ export function buildDigestExpr(
   srcType: string,
   isoGlobCols: ReadonlySet<string>,
   tgtCol?: TargetColumnInfo,
+  srcColumns?: ReadonlySet<string>,
 ): string {
   const srcRef = `"${col}"`;
 
@@ -608,5 +699,12 @@ export function buildDigestExpr(
 
   // Priority 4: plain column reference, COALESCE-wrapped when the target is
   // NOT NULL without a default (mirrors migrate's T11533 substitution — T11836).
-  return maybeCoalesceNotNull(srcRef, tgtCol);
+  const coalesced = maybeCoalesceNotNull(srcRef, tgtCol);
+  if (coalesced !== srcRef || tgtCol === undefined) return coalesced;
+
+  // Priority 5: NOT NULL WITH a default, fed NULL — migrate's T12319 fill (T12346).
+  const fill = notNullDefaultFill(col, tgtCol, (name) =>
+    srcColumns?.has(name) ? `"${name}"` : null,
+  );
+  return fill === null ? srcRef : `COALESCE(${srcRef}, ${fill})`;
 }
