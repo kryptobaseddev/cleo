@@ -16,6 +16,9 @@ import { resolve } from 'node:path';
 import type {
   GraphIndexAssessment,
   GraphIndexFileReport,
+  GraphIndexRunSummary,
+  GraphParseCacheEntry,
+  GraphParseCacheUpdate,
   GraphPublicationRows,
   ParserExecutionLimits,
 } from '@cleocode/contracts';
@@ -28,6 +31,13 @@ import { worktreeScope } from '../paths.js';
 import { getProjectInfo } from '../project-info.js';
 import { createParserExecutionPort } from '../resources/spawn-wrapper.js';
 import { nexusNodes, nexusRelations } from '../store/schema/cleo-project/nexus-graph.js';
+import {
+  buildFileManifest,
+  clearFileManifest,
+  type GraphFileManifest,
+  writeFileManifest,
+  writeRunCost,
+} from './graph-manifest.js';
 import { generateProjectHash } from './hash.js';
 import { readKnowledgeIndexAssessment } from './knowledge.js';
 import { resolveSourceRoots } from './source-roots.js';
@@ -48,6 +58,71 @@ function rootFingerprint(roots: GraphSourceRootAssessment): string {
       diagnostics: root.diagnostics,
     })),
   });
+}
+
+/**
+ * Compare source OWNERSHIP only — never the observed revision.
+ *
+ * Reusing a file's extraction depends on its bytes (content hash), not on which
+ * commit produced them, so a new commit must not by itself force a full
+ * rebuild (T12315). The revision is still recorded as provenance and still
+ * guards against concurrent change via {@link rootFingerprint}.
+ */
+function ownershipFingerprint(roots: GraphSourceRootAssessment): string {
+  return JSON.stringify({
+    projectId: roots.projectId,
+    projectRoot: roots.projectRoot,
+    sourceRoot: roots.sourceRoot,
+    roots: roots.roots.map((root) => ({
+      requestedPath: root.requestedPath,
+      canonicalPath: root.canonicalPath,
+      graphPrefix: root.graphPrefix,
+      explicitlyIncluded: root.explicitlyIncluded,
+      status: root.status,
+    })),
+  });
+}
+
+/** Read the parse cache committed with the current generation (T12315). */
+export function readNexusParseCache(db: NodeSQLiteDatabase): GraphParseCacheEntry[] {
+  return db
+    .values(
+      sql`SELECT path, content_hash, fingerprint, generation, payload FROM main._nexus_parse_cache`,
+    )
+    .map((row) => {
+      const [path, contentHash, fingerprint, generation, payload] = row;
+      if (
+        typeof path !== 'string' ||
+        typeof contentHash !== 'string' ||
+        typeof fingerprint !== 'string' ||
+        typeof generation !== 'string' ||
+        !(payload instanceof Uint8Array)
+      )
+        throw new Error('Invalid nexus parse cache row');
+      return { path, contentHash, fingerprint, generation, payload };
+    });
+}
+
+/** Apply a parse-cache mutation inside the caller's publication transaction. */
+function applyParseCacheUpdate(tx: NodeSQLiteDatabase, update: GraphParseCacheUpdate): void {
+  if (update.reset) tx.run(sql`DELETE FROM main._nexus_parse_cache`);
+  for (let offset = 0; offset < update.deletePaths.length; offset += 500) {
+    const batch = update.deletePaths.slice(offset, offset + 500);
+    tx.run(
+      sql`DELETE FROM main._nexus_parse_cache WHERE path IN (${sql.join(
+        batch.map((path) => sql`${path}`),
+        sql`, `,
+      )})`,
+    );
+  }
+  for (const entry of update.upserts) {
+    if (entry.fingerprint !== update.fingerprint)
+      throw new Error(`Parse cache entry ${entry.path} carries a foreign extractor fingerprint`);
+    tx.run(sql`INSERT INTO main._nexus_parse_cache (path, content_hash, fingerprint, generation, payload)
+      VALUES (${entry.path}, ${entry.contentHash}, ${entry.fingerprint}, ${entry.generation}, ${entry.payload})
+      ON CONFLICT(path) DO UPDATE SET content_hash = excluded.content_hash,
+        fingerprint = excluded.fingerprint, generation = excluded.generation, payload = excluded.payload`);
+  }
 }
 
 /** Fail closed when a required root observation did not finish successfully. */
@@ -105,6 +180,14 @@ function includedRepositoryScope(db: NodeSQLiteDatabase, repoPath: string): stri
       if (typeof repository !== 'string') throw new Error('Invalid saved nested repository scope');
       return repository;
     });
+}
+
+/** Read the extractor fingerprint recorded with the committed generation (T12315). */
+function publishedExtractorFingerprint(db: NodeSQLiteDatabase): string | null {
+  const value = db.values(
+    sql`SELECT value FROM main._nexus_meta WHERE key = 'graph_extractor_fingerprint'`,
+  )[0]?.[0];
+  return typeof value === 'string' ? value : null;
 }
 
 /** Read the last committed graph generation without opening a write transaction. */
@@ -189,6 +272,18 @@ export function publishNexusGraph(
       ) {
         throw new Error('Staged lexical declaration publication generation does not match rows');
       }
+      if (rows.parseCache) applyParseCacheUpdate(tx, rows.parseCache);
+      // The fingerprint names the extractor build that produced these rows; a
+      // publisher without a parse cache leaves the build unproven.
+      if (rows.parseCache?.fingerprint) {
+        tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_extractor_fingerprint', ${rows.parseCache.fingerprint})
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
+      } else {
+        tx.run(sql`DELETE FROM main._nexus_meta WHERE key = 'graph_extractor_fingerprint'`);
+      }
+      if (rows.assessment)
+        writeFileManifest(tx, buildFileManifest(rows.assessment, rows.assessment.files));
+      else clearFileManifest(tx);
       if (rows.assessment) {
         tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_assessment', ${JSON.stringify(rows.assessment)})
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
@@ -198,6 +293,37 @@ export function publishNexusGraph(
     },
     { behavior: 'immediate' },
   );
+}
+
+/**
+ * Re-record source provenance for a generation whose files were just verified
+ * byte-identical to the current tree, without replacing any graph rows.
+ * @param db - Owning project graph database.
+ * @param assessment - The previous assessment with current roots and revision, or
+ *   `null` when only the file manifest needs re-recording.
+ * @param manifest - File manifest re-observed from the verified tree.
+ * @param expectedGeneration - Generation the verification was performed against.
+ * @returns The recorded assessment, or `null` when none was re-recorded.
+ * @throws When the generation changed since verification.
+ */
+function recordVerifiedProvenance(
+  db: NodeSQLiteDatabase,
+  assessment: GraphIndexAssessment | null,
+  manifest: GraphFileManifest,
+  expectedGeneration: string | null,
+): GraphIndexAssessment | null {
+  db.transaction(
+    (tx) => {
+      if (graphGeneration(tx) !== expectedGeneration)
+        throw new Error('Nexus graph changed during verification; provenance not updated.');
+      if (assessment)
+        tx.run(sql`UPDATE main._nexus_meta SET value = ${JSON.stringify(assessment)},
+          updated_at = strftime('%s', 'now') WHERE key = 'graph_assessment'`);
+      writeFileManifest(tx, manifest);
+    },
+    { behavior: 'immediate' },
+  );
+  return assessment;
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +340,16 @@ export interface NexusAnalysisParams {
   projectRoot?: string;
   /** Explicit existing identity override; otherwise require persisted parent identity. */
   projectIdOverride?: string;
-  /** When true, skip unchanged indexes and atomically rebuild changed generations. */
+  /**
+   * Parse every file instead of reusing the previous generation's extractions.
+   * When omitted, an analysis reuses what is provably current (T12315) and
+   * falls back to a full parse — reporting why — when it cannot.
+   */
+  full?: boolean;
+  /**
+   * @deprecated Incremental reuse is the default since T12315; this flag is
+   * accepted for compatibility and has no effect. Use `full` to force a rebuild.
+   */
   incremental?: boolean;
   /** Explicit relative paths of nested repositories authorized for source inclusion. */
   includedRepositories?: readonly string[];
@@ -229,7 +364,10 @@ export interface NexusAnalysisParams {
 export interface NexusAnalysisResult {
   projectId: string;
   repoPath: string;
+  /** Whether this run reused previous extractions (mode `incremental` or `unchanged`). */
   incremental: boolean;
+  /** Mode, reason, per-file counts and phase costs of this run. */
+  summary: GraphIndexRunSummary;
   nodeCount: number;
   relationCount: number;
   fileCount: number;
@@ -287,7 +425,7 @@ async function runScopedNexusAnalysis(
   params: NexusAnalysisParams,
   projectRoot: string,
 ): Promise<NexusAnalysisResult> {
-  const { projectIdOverride, incremental = false, onProgress } = params;
+  const { projectIdOverride, full = false, onProgress } = params;
   const execution = worktreeScope.getStore()?.execution;
   execution?.assertActive();
   const signals = [params.parserLimits?.signal, execution?.signal].filter(
@@ -337,10 +475,19 @@ async function runScopedNexusAnalysis(
   execution?.assertActive();
   const repoPath = sourceRoots.sourceRoot;
   const assessedRevision = sourceRoots.roots[0]?.revision ?? null;
-  const unchangedRoots =
+  const unchangedOwnership =
     previousAssessment?.sourceRoots !== undefined &&
-    rootFingerprint(previousAssessment.sourceRoots) === rootFingerprint(sourceRoots);
-  const useIncremental = incremental && expectedGeneration !== null && unchangedRoots;
+    ownershipFingerprint(previousAssessment.sourceRoots) === ownershipFingerprint(sourceRoots);
+  const fullReason = full
+    ? 'full rebuild requested (--full)'
+    : expectedGeneration === null
+      ? 'no previous generation to reuse'
+      : previousAssessment?.sourceRoots === undefined
+        ? 'the previous generation predates source-root provenance'
+        : !unchangedOwnership
+          ? 'source ownership (project root, source root or included repositories) changed since the previous generation'
+          : undefined;
+  const useIncremental = fullReason === undefined;
   let committedAssessment: GraphIndexAssessment | null = null;
 
   const recheckRoots = async (): Promise<void> => {
@@ -362,7 +509,7 @@ async function runScopedNexusAnalysis(
         'Source ownership or revision changed during indexing; previous graph retained.',
       );
   };
-  const recheckFiles = async (assessment: GraphIndexAssessment): Promise<void> => {
+  const recheckFiles = async (assessment: GraphIndexAssessment): Promise<ScannedFile[]> => {
     // Git observation yields. Reuse the full walker after it so an edit,
     // addition, rename or deletion during that await cannot publish stale bytes.
     const failures: string[] = [];
@@ -387,16 +534,21 @@ async function runScopedNexusAnalysis(
       )
     )
       throw new Error('Source files changed before publication; previous graph retained.');
+    return currentFiles;
   };
 
   const result = await runPipeline(repoPath, projectId, db, tables, onProgress, {
     parserExecution: createParserExecutionPort(),
     parserLimits: { ...params.parserLimits, signal },
     incremental: useIncremental,
+    ...(fullReason ? { fullReason } : {}),
+    loadParseCache: () => readNexusParseCache(db),
+    publishedFingerprint: publishedExtractorFingerprint(db),
     assessedRevision,
     sourceRoots,
     includedRepositories,
     publishGraph: async (rows: GraphPublicationRows) => {
+      const recheckStart = Date.now();
       await recheckRoots();
       if (
         !rows.assessment?.sourceRoots ||
@@ -406,7 +558,12 @@ async function runScopedNexusAnalysis(
       await recheckFiles(rows.assessment);
       execution?.assertActive();
       signal?.throwIfAborted();
+      const commitStart = Date.now();
       publishNexusGraph(db, rows, expectedGeneration);
+      process.stderr.write(
+        `[nexus] Publication: source recheck ${commitStart - recheckStart}ms, atomic commit of ` +
+          `${rows.nodes.length} nodes + ${rows.relations.length} relations ${Date.now() - commitStart}ms\n`,
+      );
       committedAssessment = rows.assessment;
     },
   });
@@ -415,9 +572,46 @@ async function runScopedNexusAnalysis(
     // Incremental no-op still needs current provenance: Git or source bytes can
     // change while the pipeline scans without ever invoking the publisher.
     await recheckRoots();
-    await recheckFiles(previousAssessment);
+    const verifiedFiles = await recheckFiles(previousAssessment);
     execution?.assertActive();
     signal?.throwIfAborted();
+    // T12315: a new commit with byte-identical sources no longer forces a full
+    // rebuild, so the unchanged graph must still record the revision it was
+    // just verified against — otherwise knowledge coverage would report it
+    // stale forever. The files were re-hashed above, so the claim is exact.
+    const provenance =
+      previousAssessment.sourceRoots &&
+      rootFingerprint(previousAssessment.sourceRoots) !== rootFingerprint(sourceRoots)
+        ? {
+            ...previousAssessment,
+            sourceRoots,
+            assessedRevision,
+            assessedAt: new Date().toISOString(),
+          }
+        : null;
+    // T12316: re-record current mtimes as well, so freshness checks keep taking
+    // the metadata fast path after a checkout or `touch` that changed no bytes.
+    committedAssessment =
+      recordVerifiedProvenance(
+        db,
+        provenance,
+        buildFileManifest(provenance ?? previousAssessment, verifiedFiles),
+        expectedGeneration,
+      ) ?? committedAssessment;
+  }
+
+  // Advisory: remember what a publishing run cost, so a later freshness check
+  // can estimate a refresh before starting one (T12316).
+  if (result.summary.mode !== 'unchanged') {
+    try {
+      writeRunCost(db, {
+        summary: result.summary,
+        durationMs: Date.now() - startTime,
+        recordedAt: new Date().toISOString(),
+      });
+    } catch {
+      // non-fatal: estimates degrade to "unknown cost"
+    }
   }
 
   // Best-effort: refresh nexus-bridge.md
@@ -456,7 +650,8 @@ async function runScopedNexusAnalysis(
   return {
     projectId,
     repoPath,
-    incremental: useIncremental,
+    incremental: result.summary.mode !== 'full',
+    summary: result.summary,
     nodeCount: result.nodeCount,
     relationCount: result.relationCount,
     fileCount: result.fileCount,

@@ -73,7 +73,7 @@ export {
   extractReExports,
   extractTypeScript,
 } from './extractors/typescript-extractor.js';
-export type { ScannedFile } from './filesystem-walker.js';
+export type { KnownFileFingerprint, ScannedFile, WalkOptions } from './filesystem-walker.js';
 export { walkRepositoryPaths } from './filesystem-walker.js';
 // Heritage processor (T536)
 export type { HeritageMap, HeritageProcessingResult } from './heritage-processor.js';
@@ -106,6 +106,13 @@ export {
 export type { KnowledgeGraph, NexusDbInsert, NexusTables } from './knowledge-graph.js';
 export { createKnowledgeGraph } from './knowledge-graph.js';
 export { detectLanguageFromPath, isIndexableFile } from './language-detection.js';
+// Parse cache (T12315)
+export type { FileExtraction } from './parse-cache.js';
+export {
+  computeExtractorFingerprint,
+  decodeParseCacheEntry,
+  encodeParseCacheEntry,
+} from './parse-cache.js';
 // Parse loop (T534, T536)
 export type { ParseLoopOptions, ParseLoopResult } from './parse-loop.js';
 export { runParseLoop } from './parse-loop.js';
@@ -154,6 +161,9 @@ import fs from 'node:fs/promises';
 import type {
   GraphIndexFileReport,
   GraphIndexReferenceReport,
+  GraphIndexRunSummary,
+  GraphParseCacheEntry,
+  GraphParseCacheUpdate,
   GraphPublicationRows,
   ParserExecutionLimits,
   ParserExecutionPort,
@@ -163,7 +173,6 @@ import { sql } from 'drizzle-orm';
 import { resolveCalls } from './call-processor.js';
 import { detectCommunities } from './community-processor.js';
 import type { ExtractedCall } from './extractors/typescript-extractor.js';
-import type { ScannedFile } from './filesystem-walker.js';
 import { walkRepositoryPaths } from './filesystem-walker.js';
 import { buildHeritageMap, processHeritage } from './heritage-processor.js';
 import {
@@ -173,6 +182,12 @@ import {
 } from './import-processor.js';
 import type { KnowledgeGraph, NexusDbInsert, NexusTables } from './knowledge-graph.js';
 import { createKnowledgeGraph } from './knowledge-graph.js';
+import {
+  computeExtractorFingerprint,
+  decodeParseCacheEntry,
+  encodeParseCacheEntry,
+  type FileExtraction,
+} from './parse-cache.js';
 import { runParseLoop } from './parse-loop.js';
 import { detectProcesses } from './process-processor.js';
 import { type ExtractedAccess, resolveAccesses } from './processors/access-processor.js';
@@ -192,14 +207,40 @@ export interface PipelineOptions {
   /** Existing runtime process launcher; required for isolated production parsing. */
   parserExecution?: ParserExecutionPort;
   /**
-   * When `true`, skip publication when indexed source files are unchanged.
-   * Otherwise rebuild a complete staged generation so cross-file resolution
-   * includes unchanged callers. No live rows are deleted during analysis.
-   * A caller-supplied `publishGraph` provides atomic replacement and recovery.
+   * When `true`, reuse the previous generation where that is provably exact
+   * (T12315): unchanged indexes publish nothing, and changed indexes re-parse
+   * only files without a reusable {@link GraphParseCacheEntry}, then re-run
+   * every resolution phase over the complete merged extraction. Falls back to a
+   * full parse — and says why in {@link PipelineResult.summary} — when there is
+   * no previous index or parse cache, the extractor build changed, or more than
+   * {@link PipelineOptions.maxIncrementalChangeRatio} of the files changed.
+   * No live rows are deleted during analysis; `publishGraph` replaces atomically.
    *
    * @default false
    */
   incremental?: boolean;
+  /** Owner-supplied reason reported when `incremental` is false (e.g. `--full`). */
+  fullReason?: string;
+  /**
+   * Share of files that may change before an incremental run falls back to a
+   * full rebuild. Above it, reuse saves little and a clean rebuild also sheds
+   * cache entries for files that no longer exist.
+   *
+   * @default 0.3
+   */
+  maxIncrementalChangeRatio?: number;
+  /**
+   * Read the parse cache committed with the previous generation. Required for
+   * incremental reuse; without it an incremental request parses every file.
+   */
+  loadParseCache?: () => GraphParseCacheEntry[] | Promise<GraphParseCacheEntry[]>;
+  /**
+   * Extractor fingerprint recorded with the published generation (`null` when
+   * none was recorded). An unchanged tree is reported `unchanged` only when it
+   * equals the current build's fingerprint; otherwise the published graph was
+   * produced by different extractor code and is rebuilt.
+   */
+  publishedFingerprint?: string | null;
   /** Explicit relative paths of nested repositories authorized for inclusion. */
   includedRepositories?: readonly string[];
   /** Revision captured by the owning project before indexing. */
@@ -318,7 +359,12 @@ export interface PipelineResult {
   processCount: number;
   /** Number of cross-community processes detected by Phase 6. */
   crossCommunityProcessCount: number;
+  /** Mode chosen (incremental, full or unchanged), why, file counts and phase costs. */
+  summary: GraphIndexRunSummary;
 }
+
+/** Default share of changed files above which an incremental run rebuilds fully. */
+export const DEFAULT_MAX_INCREMENTAL_CHANGE_RATIO = 0.3;
 
 // ---------------------------------------------------------------------------
 // getIndexStats
@@ -548,6 +594,13 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   options?.parserLimits?.signal?.throwIfAborted();
   const startTime = Date.now();
+  const phaseMs: Record<string, number> = {};
+  let phaseStart = startTime;
+  const endPhase = (name: string): void => {
+    const now = Date.now();
+    phaseMs[name] = (phaseMs[name] ?? 0) + (now - phaseStart);
+    phaseStart = now;
+  };
   const publicationGeneration = randomUUID();
   const sourceRoots = options?.sourceRoots ? structuredClone(options.sourceRoots) : undefined;
   const isIncremental = options?.incremental === true;
@@ -564,77 +617,131 @@ export async function runPipeline(
   );
   const scannedFiles = new Map(files.map((file) => [file.path, file]));
   process.stderr.write(`[nexus] Found ${files.length} files\n`);
+  endPhase('scan');
 
-  // Incremental mode detects whether a complete replacement is needed.
-  const filesToParse: ScannedFile[] = files;
+  // Mode decision (T12315). Extraction is reused only where it is provably what
+  // re-parsing would produce; everything downstream of extraction always reruns.
+  const fingerprint = options?.publishGraph ? computeExtractorFingerprint() : null;
+  let mode: 'incremental' | 'full' = 'full';
+  let reason = options?.fullReason ?? 'full rebuild requested';
+  let changedFiles = 0;
+  let addedFiles = 0;
+  let deletedFiles = 0;
+  const reusedExtractions = new Map<string, FileExtraction>();
+  let cachedPaths: string[] = [];
   if (isIncremental) {
-    process.stderr.write('[nexus] Incremental mode: computing changed files...\n');
     const readableDb = db as NexusDbReadInsert;
-    const indexedMtimes = await getIndexedFileHashes(projectId, readableDb, tables);
-
-    // If no files indexed yet, run full parse
-    if (indexedMtimes.size > 0) {
-      // Content fingerprints detect edits even when size and timestamps are preserved.
-      const changedPaths = new Set<string>();
-      for (const file of files) {
-        if (!file.contentHash || indexedMtimes.get(file.path) !== file.contentHash) {
-          changedPaths.add(file.path);
-        }
-      }
-
-      // Find deleted files (in DB but not in current filesystem)
-      const currentFileSet = new Set(files.map((f) => f.path));
-      for (const indexedPath of indexedMtimes.keys()) {
-        if (!currentFileSet.has(indexedPath)) {
-          changedPaths.add(indexedPath);
-        }
-      }
-
-      process.stderr.write(
-        `[nexus] Incremental: ${changedPaths.size} changed/new/deleted files (${indexedMtimes.size} previously indexed)\n`,
-      );
-
-      if (changedPaths.size === 0) {
-        process.stderr.write(
-          '[nexus] Incremental: no source fingerprint changes; returning existing graph statistics.\n',
-        );
-        // Return stats from existing index (no writes needed)
-        const existingNodeCount = (await readableDb.select().from(tables.nexusNodes)).length;
-        const existingRelationCount = (await readableDb.select().from(tables.nexusRelations))
-          .length;
-        return {
-          nodeCount: existingNodeCount,
-          relationCount: existingRelationCount,
-          fileCount: files.length,
-          durationMs: Date.now() - startTime,
-          extendsCount: 0,
-          implementsCount: 0,
-          callsTier1Count: 0,
-          callsTier2aCount: 0,
-          callsTier3Count: 0,
-          hasMethodCount: 0,
-          hasPropertyCount: 0,
-          accessesTier1Count: 0,
-          accessesTier3Count: 0,
-          communityCount: 0,
-          communityModularity: 0,
-          processCount: 0,
-          crossCommunityProcessCount: 0,
-        };
-      }
-
-      // Cross-file resolution needs the complete symbol table. Rebuild a staged
-      // generation when anything changed; never delete from the usable index here.
-      process.stderr.write('[nexus] Incremental: rebuilding changed generation in staging\n');
-    } else {
-      process.stderr.write('[nexus] Incremental: no existing index — running full parse\n');
+    const indexedHashes = await getIndexedFileHashes(projectId, readableDb, tables);
+    for (const file of files) {
+      const previous = indexedHashes.get(file.path);
+      if (previous === undefined) addedFiles++;
+      else if (!file.contentHash || previous !== file.contentHash) changedFiles++;
     }
+    const current = new Set(files.map((file) => file.path));
+    for (const indexedPath of indexedHashes.keys()) {
+      if (!current.has(indexedPath)) deletedFiles++;
+    }
+    const differing = changedFiles + addedFiles + deletedFiles;
+    const denominator = Math.max(1, indexedHashes.size, files.length);
+    const maxRatio = options?.maxIncrementalChangeRatio ?? DEFAULT_MAX_INCREMENTAL_CHANGE_RATIO;
+
+    const currentBuild = fingerprint !== null && options?.publishedFingerprint === fingerprint;
+    if (indexedHashes.size === 0) {
+      reason = 'no previous index to reuse';
+    } else if (differing === 0 && !currentBuild) {
+      reason = fingerprint
+        ? 'no source changed, but the published generation was produced by a different extractor build'
+        : 'no source changed, but the extractor build could not be fingerprinted to prove the published generation current';
+    } else if (differing === 0) {
+      process.stderr.write(
+        '[nexus] Incremental: no source fingerprint changes; returning existing graph statistics.\n',
+      );
+      // Return stats from existing index (no writes needed)
+      const existingNodeCount = (await readableDb.select().from(tables.nexusNodes)).length;
+      const existingRelationCount = (await readableDb.select().from(tables.nexusRelations)).length;
+      endPhase('compare');
+      return {
+        nodeCount: existingNodeCount,
+        relationCount: existingRelationCount,
+        fileCount: files.length,
+        durationMs: Date.now() - startTime,
+        extendsCount: 0,
+        implementsCount: 0,
+        callsTier1Count: 0,
+        callsTier2aCount: 0,
+        callsTier3Count: 0,
+        hasMethodCount: 0,
+        hasPropertyCount: 0,
+        accessesTier1Count: 0,
+        accessesTier3Count: 0,
+        communityCount: 0,
+        communityModularity: 0,
+        processCount: 0,
+        crossCommunityProcessCount: 0,
+        summary: {
+          mode: 'unchanged',
+          reason: `all ${files.length} files match the published generation`,
+          changedFiles: 0,
+          addedFiles: 0,
+          deletedFiles: 0,
+          parsedFiles: 0,
+          reusedFiles: 0,
+          resolvedFiles: 0,
+          phaseMs,
+        },
+      };
+    } else if (differing / denominator > maxRatio) {
+      reason =
+        `${differing} of ${denominator} files differ from the published generation ` +
+        `(${Math.round((differing / denominator) * 100)}%), above the ` +
+        `${Math.round(maxRatio * 100)}% incremental threshold`;
+    } else if (!fingerprint) {
+      reason = options?.publishGraph
+        ? 'the extractor build could not be fingerprinted, so no cached extraction is provably current'
+        : 'no atomic publisher was supplied, so no parse cache is maintained';
+    } else if (!options?.loadParseCache) {
+      reason = 'the caller supplied no parse cache';
+    } else {
+      endPhase('compare');
+      const entries = await options.loadParseCache();
+      endPhase('cacheRead');
+      cachedPaths = entries.map((entry) => entry.path);
+      const matching = entries.filter((entry) => entry.fingerprint === fingerprint);
+      if (entries.length === 0) {
+        reason = 'no parse cache was committed with the previous generation';
+      } else if (matching.length === 0) {
+        reason =
+          'the extractor build changed since the cached parse, so no cached extraction is current';
+      } else {
+        for (const entry of matching) {
+          const scanned = scannedFiles.get(entry.path);
+          if (!scanned?.contentHash || scanned.contentHash !== entry.contentHash) continue;
+          try {
+            reusedExtractions.set(entry.path, decodeParseCacheEntry(entry, publicationGeneration));
+          } catch (error) {
+            // An undecodable entry is re-parsed, never trusted.
+            process.stderr.write(
+              `[nexus] Incremental: cached extraction for ${entry.path} is unreadable (${error instanceof Error ? error.message : String(error)}); re-parsing it.\n`,
+            );
+          }
+        }
+        endPhase('cacheDecode');
+        mode = 'incremental';
+        reason =
+          `${changedFiles} changed, ${addedFiles} added, ${deletedFiles} deleted of ` +
+          `${indexedHashes.size} previously indexed files`;
+      }
+    }
+    process.stderr.write(
+      `[nexus] ${mode === 'incremental' ? 'Incremental' : 'Full rebuild'}: ${reason}\n`,
+    );
+    endPhase('compare');
   }
 
   // Phase 2: Build File + Folder nodes with CONTAINS edges
   // Include all files so the replacement graph has complete structure.
   process.stderr.write('[nexus] Phase 2: Building file structure...\n');
-  processStructure(isIncremental ? filesToParse : files, graph);
+  processStructure(files, graph);
 
   // Phase 3a: Build import resolution context (suffix index + tsconfig aliases)
   // Built once here and reused across all files in the repository so the
@@ -648,7 +755,6 @@ export async function runPipeline(
   const resolutionCtx = createResolutionContext();
   const symbolTable = resolutionCtx.symbols;
   const namedImportMap = resolutionCtx.namedImportMap;
-  // Use all files for import context so cross-file resolution works in incremental mode.
   const importCtx = buildImportResolutionContext(files.map((f) => f.path));
   const tsconfigPaths = await loadTsconfigPaths(repoPath);
   if (tsconfigPaths) {
@@ -661,25 +767,30 @@ export async function runPipeline(
       `[nexus] Loaded workspace packages: ${workspacePackageMap.size} entries\n`,
     );
   }
+  endPhase('structure');
 
-  // Phase 3: Parse loop — extract symbols, imports, heritage, calls
-  // A changed incremental index also parses every file.
-  // Heritage + call resolution runs on the full in-memory graph so
-  // cross-file call edges across the changed/unchanged boundary are preserved.
+  // Phase 3: Parse loop — extract symbols, imports, heritage, calls, then
+  // resolve imports and barrels over the MERGED extraction of every file.
   process.stderr.write('[nexus] Phase 3: Parsing files...\n');
-  const { allHeritage, allCalls, allAccesses, barrelMap } = await runParseLoop(
-    filesToParse,
-    graph,
-    symbolTable,
-    importCtx,
-    repoPath,
-    {
+  const cacheUpserts: GraphParseCacheEntry[] = [];
+  const { allHeritage, allCalls, allAccesses, barrelMap, parsedFileCount, reusedFileCount } =
+    await runParseLoop(files, graph, symbolTable, importCtx, repoPath, {
       tsconfigPaths,
       namedImportMap,
       publicationGeneration,
       onProgress,
       parserLimits: options?.parserLimits,
       parserExecution: options?.parserExecution,
+      reusedExtractions,
+      onFileExtracted: fingerprint
+        ? (file) => {
+            const contentHash = scannedFiles.get(file.path)?.contentHash;
+            if (contentHash)
+              cacheUpserts.push(
+                encodeParseCacheEntry(file, contentHash, fingerprint, publicationGeneration),
+              );
+          }
+        : undefined,
       onFileReport: (report) => {
         const file = scannedFiles.get(report.path);
         reports.set(report.path, {
@@ -689,8 +800,13 @@ export async function runPipeline(
           contentHash: file?.contentHash,
         });
       },
-    },
-  );
+    });
+  if (mode === 'incremental') {
+    process.stderr.write(
+      `[nexus] Incremental: parsed ${parsedFileCount} file(s), reused ${reusedFileCount} cached extraction(s); resolving all ${parsedFileCount + reusedFileCount} against the merged symbol table\n`,
+    );
+  }
+  endPhase('parse');
 
   // Phase 3c: Heritage resolution — emit EXTENDS + IMPLEMENTS edges
   // Uses resolutionCtx (fully populated after parse loop) for parent type lookup.
@@ -740,6 +856,7 @@ export async function runPipeline(
       `[nexus] Reference limitations: ${referenceReports.length} unresolved or unmodeled static sites retained with available evidence.\n`,
     );
   }
+  endPhase('resolve');
 
   // Phase 5: Community detection (Louvain)
   process.stderr.write('[nexus] Phase 5: Detecting communities...\n');
@@ -747,6 +864,7 @@ export async function runPipeline(
   process.stderr.write(
     `[nexus] Communities: ${communityResult.stats.totalCommunities} detected, modularity=${communityResult.stats.modularity.toFixed(3)}, nodes=${communityResult.stats.nodesProcessed}\n`,
   );
+  endPhase('communities');
 
   // Phase 6: Process (execution flow) detection
   process.stderr.write('[nexus] Phase 6: Detecting execution flows...\n');
@@ -754,6 +872,7 @@ export async function runPipeline(
   process.stderr.write(
     `[nexus] Processes: ${processResult.stats.totalProcesses} flows, cross-community=${processResult.stats.crossCommunityCount}, avg-steps=${processResult.stats.avgStepCount}\n`,
   );
+  endPhase('flows');
 
   // Flush all nodes and relations to Drizzle
   process.stderr.write('[nexus] Flushing to database...\n');
@@ -817,6 +936,7 @@ export async function runPipeline(
         `Source files changed during indexing; previous graph retained: ${changedPaths.slice(0, 20).join(', ')}${changedPaths.length > 20 ? ` (and ${changedPaths.length - 20} more)` : ''}`,
       );
     }
+    endPhase('verify');
     const publication = graph.preparePublication();
     publication.generation = publicationGeneration;
     publication.assessment = {
@@ -829,15 +949,23 @@ export async function runPipeline(
       assessedAt: new Date(startTime).toISOString(),
       files: [...reports.values()],
     };
+    publication.parseCache = buildParseCacheUpdate(
+      fingerprint,
+      mode,
+      cacheUpserts,
+      reusedExtractions,
+      cachedPaths,
+    );
     options.parserLimits?.signal?.throwIfAborted();
     await options.publishGraph(publication);
   } else {
     await graph.flush(projectId, db, tables);
   }
+  endPhase('publish');
 
   const durationMs = Date.now() - startTime;
   process.stderr.write(
-    `[nexus] Pipeline complete: ${graph.nodes.size} nodes, ${graph.relations.length} relations in ${durationMs}ms\n`,
+    `[nexus] Pipeline complete: ${graph.nodes.size} nodes, ${graph.relations.length} relations in ${durationMs}ms (${mode})\n`,
   );
 
   return {
@@ -860,5 +988,44 @@ export async function runPipeline(
     communityModularity: communityResult.stats.modularity,
     processCount: processResult.stats.totalProcesses,
     crossCommunityProcessCount: processResult.stats.crossCommunityCount,
+    summary: {
+      mode,
+      reason,
+      changedFiles,
+      addedFiles,
+      deletedFiles,
+      parsedFiles: parsedFileCount,
+      reusedFiles: reusedFileCount,
+      resolvedFiles: parsedFileCount + reusedFileCount,
+      phaseMs,
+    },
+  };
+}
+
+/**
+ * Derive the parse-cache mutation to commit with a generation.
+ *
+ * A full rebuild replaces the cache wholesale. An incremental run upserts what
+ * it parsed and deletes every previously cached path it neither reused nor
+ * re-parsed successfully (deleted files, files that now fail, entries from an
+ * older extractor build), so the committed cache describes exactly this
+ * generation's successfully extracted files.
+ */
+function buildParseCacheUpdate(
+  fingerprint: string | null,
+  mode: 'incremental' | 'full',
+  upserts: GraphParseCacheEntry[],
+  reused: ReadonlyMap<string, FileExtraction>,
+  cachedPaths: readonly string[],
+): GraphParseCacheUpdate {
+  // Without a fingerprint nothing can be proven current; clear rather than keep.
+  if (!fingerprint) return { fingerprint: '', reset: true, upserts: [], deletePaths: [] };
+  if (mode === 'full') return { fingerprint, reset: true, upserts, deletePaths: [] };
+  const written = new Set(upserts.map((entry) => entry.path));
+  return {
+    fingerprint,
+    reset: false,
+    upserts,
+    deletePaths: cachedPaths.filter((path) => !reused.has(path) && !written.has(path)),
   };
 }

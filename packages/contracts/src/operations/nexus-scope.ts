@@ -6,6 +6,8 @@
  * @module operations/nexus-scope
  */
 
+import type { GraphIndexFreshness } from '../graph.js';
+
 // ---------------------------------------------------------------------------
 // NexusScope — five-state discriminated union
 // ---------------------------------------------------------------------------
@@ -184,6 +186,13 @@ export interface NexusScopeMeta {
    * top-level CLI invocation (sub-calls inherit via `meta.requestId` lineage).
    */
   readonly indexFreshness?: 'fresh' | 'stale' | 'unknown';
+  /**
+   * The facts behind {@link NexusScopeMeta.indexFreshness}: last index time,
+   * stale file counts and samples, whether the queried symbol's own file is
+   * stale, the refresh command with its estimated cost, and any inline refresh
+   * the query performed before answering (T12316).
+   */
+  readonly freshness?: GraphIndexFreshness;
   /**
    * The canonical CLI command string for this operation (e.g. `"cleo nexus context"`).
    */

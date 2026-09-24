@@ -101,6 +101,29 @@ export interface ScannedFile {
   language: string | null;
 }
 
+/** Previously observed metadata and content hash of one file. */
+export interface KnownFileFingerprint {
+  /** File size in bytes when the hash was taken. */
+  size: number;
+  /** Modification time when the hash was taken. */
+  mtimeMs: number;
+  /** SHA-256 of the file's bytes. */
+  contentHash: string;
+}
+
+/** Optional walker behaviour. */
+export interface WalkOptions {
+  /**
+   * Files whose size AND mtime still equal a known record reuse its hash
+   * instead of being read. Only a freshness check should pass this: an index
+   * build must hash what it parses. A metadata-preserving edit can defeat it,
+   * which is why the published generation still verifies by content.
+   */
+  knownFiles?: ReadonlyMap<string, KnownFileFingerprint>;
+  /** Called for every file whose bytes were actually read and hashed. */
+  onHashed?: (path: string) => void;
+}
+
 // ---------------------------------------------------------------------------
 // Gitignore reader
 // ---------------------------------------------------------------------------
@@ -263,6 +286,9 @@ function runGitCheckIgnore(
  *
  * @param repoPath - Absolute path to the repository root
  * @param onProgress - Optional progress callback invoked for each processed file
+ * @param onFileReport - Optional receiver for exclusion, size and stat outcomes
+ * @param includedRepositories - Explicitly included nested repository paths
+ * @param options - Metadata fast path for freshness checks (T12316)
  * @returns Array of scanned file entries sorted by relative path
  */
 export async function walkRepositoryPaths(
@@ -270,6 +296,7 @@ export async function walkRepositoryPaths(
   onProgress?: (current: number, total: number, filePath: string) => void,
   onFileReport?: (report: GraphIndexFileReport) => void,
   includedRepositories: readonly string[] = [],
+  options: WalkOptions = {},
 ): Promise<ScannedFile[]> {
   // Load root .gitignore and .cleoignore patterns
   const gitignorePatterns = await readIgnorePatterns(path.join(repoPath, '.gitignore'));
@@ -402,13 +429,21 @@ export async function walkRepositoryPaths(
           });
           return null;
         }
+        const known = options.knownFiles?.get(relPath);
+        let contentHash: string;
+        if (known && known.size === stat.size && known.mtimeMs === stat.mtimeMs) {
+          contentHash = known.contentHash;
+        } else {
+          contentHash = createHash('sha256')
+            .update(await fs.readFile(fullPath))
+            .digest('hex');
+          options.onHashed?.(relPath);
+        }
         return {
           path: relPath,
           size: stat.size,
           mtimeMs: stat.mtimeMs,
-          contentHash: createHash('sha256')
-            .update(await fs.readFile(fullPath))
-            .digest('hex'),
+          contentHash,
           language: detectLanguageFromPath(relPath),
         };
       }),

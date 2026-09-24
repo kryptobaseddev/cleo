@@ -19,12 +19,17 @@
  * @task T1440 — Core-derived OpsFromCore inference
  */
 
+import { getNexusDescriptor, NEXUS_SCOPE_MAP } from '@cleocode/contracts';
 import type { nexus as coreNexus } from '@cleocode/core';
 import {
+  assessNexusFreshnessForQuery,
+  discloseNexusFreshness,
   getBrainNativeDb,
   getLogger,
   getNexusNativeDb,
   getProjectRoot,
+  judgeSymbolFiles,
+  type NexusFreshnessAssessment,
   type NexusPermissionLevel,
   nexusAugment,
   nexusBlockers,
@@ -88,6 +93,8 @@ import {
   nexusUnregisterProject,
   nexusWhy,
   nexusWiki,
+  querySymbolFiles,
+  withNexusFreshnessMeta,
 } from '@cleocode/core/internal';
 import { stampNexusMeta } from '@cleocode/runtime/gateway';
 import {
@@ -775,6 +782,42 @@ function nexusMutateEnvelopeToResponse(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Index freshness disclosure (T12316)
+// ---------------------------------------------------------------------------
+
+/**
+ * Index-sensitive ops that must NOT trigger a freshness pre-check: `diff`
+ * builds its own graph from source, so refreshing the published one first
+ * would change what it compares against.
+ */
+const FRESHNESS_EXEMPT_OPS: ReadonlySet<string> = new Set(['diff']);
+
+/** Narrow an op name to a scope-map key. */
+function isScopeMapOp(operation: string): operation is keyof typeof NEXUS_SCOPE_MAP {
+  return operation in NEXUS_SCOPE_MAP;
+}
+
+/** Whether a query op answers from the published code graph. */
+function answersFromGraph(operation: string): boolean {
+  if (FRESHNESS_EXEMPT_OPS.has(operation) || !isScopeMapOp(operation)) return false;
+  return getNexusDescriptor(operation).indexSensitive === true;
+}
+
+/** Stamp the freshness verdict onto `meta._nexus`, judging the answer's own symbol files. */
+function withFreshness(
+  response: DispatchResponse,
+  operation: string,
+  assessment: NexusFreshnessAssessment,
+): DispatchResponse {
+  const freshness = judgeSymbolFiles(assessment, querySymbolFiles(response.data));
+  discloseNexusFreshness(`nexus ${operation}`, freshness);
+  return {
+    ...response,
+    meta: { ...response.meta, ...withNexusFreshnessMeta(response.meta, freshness) },
+  };
+}
+
 /**
  * Domain handler for the `nexus` domain.
  *
@@ -798,7 +841,20 @@ export class NexusHandler implements DomainHandler {
     if (!QUERY_OPS.has(operation)) {
       return unsupportedOp('query', 'nexus', operation, startTime);
     }
+    // T12316: every answer from the published graph says how current it is.
+    if (answersFromGraph(operation)) {
+      const assessment = await assessNexusFreshnessForQuery(getProjectRoot());
+      return withFreshness(await this.answer(operation, params, startTime), operation, assessment);
+    }
+    return this.answer(operation, params, startTime);
+  }
 
+  /** Run one validated query op and stamp its `_nexus` scope metadata. */
+  private async answer(
+    operation: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
     // Complex multi-step ops bypass typed dispatch (they need startTime + raw
     // params for legacy DispatchResponse construction). Keep them in QUERY_OPS
     // + NexusOps for typed-key safety, but route to the OLD helper functions.

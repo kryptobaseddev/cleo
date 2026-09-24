@@ -2,8 +2,8 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.20.5
-  lastReviewed: 2026-09-21
+  version: 2.20.6
+  lastReviewed: 2026-09-24
   stability: stable
 ---
 
@@ -75,6 +75,8 @@ Compact SDK list/find records also carry `_withheld`: omission names and origina
 List/find expose `data.population` with matched and returned counts, truncation, pagination, and archive eligibility. Count output equals emitted rows; use `--all` or `--limit 0` to enumerate all matches, and `--include-archive` to include archives under the same filters. Scalar/ID/table/summary modes preserve population facts on stderr. Do not treat a page as complete.
 
 Use `cleo backup inspect <snapshot> --record-id <id>` for read-only historical evidence; scoped absence or unknown provenance is not recovery authority.
+
+Code-graph answers (`cleo nexus impact`, `context`, `full-context`, `why`, `search-code`, `task-symbols`, `clusters`, `flows`) carry `meta._nexus.freshness`: stale file count and sample, whether the queried symbol's own file is stale, and the refresh command with an estimated cost. A query refreshes up to 25 stale files inline within a 60 s budget (`nexus.autoRefresh.maxFiles`/`budgetMs`/`enabled`) and discloses it in `freshness.autoRefresh`; beyond that it answers from the stale index with `W_NEXUS_INDEX_STALE`. `unknown` freshness is never fresh. `cleo nexus analyze` re-parses only changed files, re-resolves every file, and reports `mode`, `reason` and per-phase cost; it falls back to a full parse (and says why) when there is no parse cache, the extractor build changed, or over 30% of files changed. `--full` forces a rebuild.
 
 ## Quick Reference
 

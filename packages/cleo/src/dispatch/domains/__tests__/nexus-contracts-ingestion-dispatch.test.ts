@@ -20,7 +20,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock core internals used by the handler
 // Mock the nexus-engine — stub all functions referenced by NexusHandler
-vi.mock('@cleocode/core/internal', () => ({
+vi.mock('@cleocode/core/internal', async () => ({
+  ...(await import('./freshness-mock.js')).freshnessMocks(),
   getProjectRoot: vi.fn(() => '/mock/project'),
   getLogger: vi.fn(() => ({
     error: vi.fn(),

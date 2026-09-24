@@ -682,6 +682,116 @@ export interface GraphPublicationRows {
   nodes: NexusNodeInsertRow[];
   /** Complete replacement relationship generation. */
   relations: NexusRelationInsertRow[];
+  /**
+   * Per-file extraction memo changes committed in the same transaction as the rows.
+   * Absent when the producer does not maintain a parse cache.
+   */
+  parseCache?: GraphParseCacheUpdate;
+}
+
+/**
+ * One file's memoized extraction output, valid only for the exact bytes and extractor build.
+ *
+ * Extraction is a pure function of `(path, content, extractor build, publication generation)`;
+ * the generation token embedded in anonymous identities is rewritten on reuse, so a reused
+ * entry yields exactly what re-parsing the same bytes would.
+ */
+export interface GraphParseCacheEntry {
+  /** Path relative to the assessed source root. */
+  path: string;
+  /** SHA-256 of the bytes that produced this extraction. */
+  contentHash: string;
+  /** Fingerprint of the extractor build (code + grammars) that produced it. */
+  fingerprint: string;
+  /** Publication generation embedded in the stored payload's anonymous identities. */
+  generation: string;
+  /** Compressed serialized extraction; opaque to every owner except the producing pipeline. */
+  payload: Uint8Array;
+}
+
+/** Parse-cache mutation applied atomically with a graph publication. */
+export interface GraphParseCacheUpdate {
+  /** Extractor fingerprint every retained and written entry must carry. */
+  fingerprint: string;
+  /** Delete every existing entry before applying `upserts` (full rebuilds). */
+  reset: boolean;
+  /** Entries for files parsed during this run. */
+  upserts: GraphParseCacheEntry[];
+  /** Paths whose entries no longer describe a current, successfully parsed file. */
+  deletePaths: string[];
+}
+
+/** Why and how an index run chose between reusing prior extraction and parsing everything. */
+export interface GraphIndexRunSummary {
+  /**
+   * `incremental` parsed only files without a reusable extraction; `full` parsed every file;
+   * `unchanged` found no source difference and published nothing.
+   */
+  mode: 'incremental' | 'full' | 'unchanged';
+  /** Human-readable reason for the mode, including every full-rebuild fallback. */
+  reason: string;
+  /** Previously indexed files whose content hash differs. */
+  changedFiles: number;
+  /** Files absent from the previous generation. */
+  addedFiles: number;
+  /** Previously indexed files no longer present. */
+  deletedFiles: number;
+  /** Files handed to the parser this run. */
+  parsedFiles: number;
+  /** Files whose extraction was reused from the parse cache instead of re-parsed. */
+  reusedFiles: number;
+  /**
+   * Files whose imports, calls, accesses and heritage were re-resolved. Resolution always runs
+   * over the complete merged symbol table, so this equals every extracted file; dependents of
+   * changed files are therefore never left pointing at stale targets.
+   */
+  resolvedFiles: number;
+  /** Wall-clock milliseconds per pipeline phase, for cost disclosure. */
+  phaseMs: Record<string, number>;
+}
+
+/**
+ * Freshness of a published code-graph index relative to the working tree.
+ *
+ * Computed by metadata comparison (mtime + size) with a content-hash fallback on mismatch, so
+ * a touched-but-identical file is not reported stale.
+ */
+export interface GraphIndexFreshness {
+  /** Whether a published index exists at all. */
+  indexed: boolean;
+  /** `fresh` when no indexed file differs from disk; `stale` otherwise; `unknown` if unassessed. */
+  status: 'fresh' | 'stale' | 'unknown';
+  /** Assessment timestamp of the published generation. */
+  lastIndexedAt: string | null;
+  /** Files recorded in the published generation's assessment. */
+  fileCount: number;
+  /** Modified, added and deleted source files. */
+  staleFileCount: number;
+  /** Up to a bounded sample of stale paths, for disclosure. */
+  stalePaths: string[];
+  /** Whether the queried symbol's own file is stale; absent when no symbol file is known. */
+  symbolFileStale?: boolean;
+  /** The symbol file the `symbolFileStale` verdict describes. */
+  symbolFile?: string;
+  /** Command that refreshes the index. */
+  refreshCommand: string;
+  /** Rough cost of that refresh, for the caller to decide whether to wait for it. */
+  refreshEstimate: string;
+  /** Milliseconds spent assessing freshness. */
+  checkMs: number;
+  /** Diagnostic reason when `status` is `unknown`. */
+  reason?: string;
+  /** Present when the query attempted to refresh the index inline before answering. */
+  autoRefresh?: {
+    /** Whether the inline refresh published a new generation. */
+    refreshed: boolean;
+    /** Stale files at the time the refresh was attempted. */
+    staleFiles: number;
+    /** Milliseconds the refresh took (or ran before it was abandoned). */
+    durationMs: number;
+    /** Why the refresh ran, was skipped, or failed. */
+    reason: string;
+  };
 }
 
 // ---------------------------------------------------------------------------

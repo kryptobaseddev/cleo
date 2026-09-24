@@ -5,8 +5,8 @@
  */
 import { getHeapStatistics } from 'node:v8';
 import { parentPort } from 'node:worker_threads';
-import type { GraphIndexFileReport, GraphNode, ParserExecutionLimits } from '@cleocode/contracts';
-import type { CommonExtractionResult } from '../parse-loop.js';
+import type { GraphIndexFileReport, ParserExecutionLimits } from '@cleocode/contracts';
+import type { FileExtraction } from '../parse-cache.js';
 import { extractOriginalSource } from '../parse-loop.js';
 
 /** Original file input; cancellation stays with the owning execution transport. */
@@ -21,22 +21,17 @@ export interface ParseWorkerInput {
   publicationGeneration?: string;
 }
 
-/** Per-worker results use exactly the same extractor capabilities as sequential parsing. */
+/**
+ * Per-worker results use exactly the same extractor capabilities as sequential parsing.
+ *
+ * Extractions stay grouped per file (T12315) so the pipeline can merge fresh and
+ * cached files in one deterministic order and capture a cache entry per file.
+ */
 export interface ParseWorkerResult {
   /** Per-file success and failure evidence. */
   reports: GraphIndexFileReport[];
-  /** Declarations retaining the original graph identities. */
-  symbols: GraphNode[];
-  /** Import bindings. */
-  imports: CommonExtractionResult['imports'];
-  /** Type inheritance evidence. */
-  heritage: CommonExtractionResult['heritage'];
-  /** Static call evidence, without claiming complete runtime discovery. */
-  calls: CommonExtractionResult['calls'];
-  /** Barrel re-export evidence. */
-  reExports: NonNullable<CommonExtractionResult['reExports']>;
-  /** Property access evidence. */
-  accesses: NonNullable<CommonExtractionResult['accesses']>;
+  /** One complete extraction per successfully parsed file, in dispatch order. */
+  files: FileExtraction[];
   /** Successfully extracted files. */
   fileCount: number;
   /** Failed files; never included in the success count. */
@@ -55,12 +50,7 @@ function send(message: object): void {
 function emptyResult(): ParseWorkerResult {
   return {
     reports: [],
-    symbols: [],
-    imports: [],
-    heritage: [],
-    calls: [],
-    reExports: [],
-    accesses: [],
+    files: [],
     fileCount: 0,
     skippedCount: 0,
   };
@@ -81,12 +71,17 @@ function receive(message: IncomingMessage): void {
         file.limits,
         file.publicationGeneration,
       );
-      accumulated.symbols.push(...extracted.definitions);
-      accumulated.imports.push(...extracted.imports);
-      accumulated.heritage.push(...extracted.heritage);
-      accumulated.calls.push(...extracted.calls);
-      accumulated.reExports.push(...(extracted.reExports ?? []));
-      accumulated.accesses.push(...(extracted.accesses ?? []));
+      accumulated.files.push({
+        path: file.path,
+        extraction: {
+          definitions: extracted.definitions,
+          imports: extracted.imports,
+          heritage: extracted.heritage,
+          calls: extracted.calls,
+          reExports: extracted.reExports ?? [],
+          accesses: extracted.accesses ?? [],
+        },
+      });
       accumulated.reports.push({ path: file.path, status: 'analyzed' });
       accumulated.fileCount++;
     } catch (error) {
