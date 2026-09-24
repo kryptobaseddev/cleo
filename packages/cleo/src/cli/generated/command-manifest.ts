@@ -375,7 +375,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'doctorCredentialsCommand',
     name: 'credentials',
     description:
-      "Report project credentials still encrypted under the legacy path-bound key (moving the project would strand them). --fix re-keys them to the project's identity in place. Idempotent; never deletes. Unrecoverable credentials are listed with their re-entry command.",
+      "Report project credentials still encrypted under the legacy path-bound key (moving the project would strand them) and agent registry keys that are not recoverable. --fix re-keys project credentials to the project's identity in place and flags unrecoverable agent keys requires_reauth. Idempotent; never deletes. Unrecoverable credentials are listed with their re-entry command.",
     load: async () =>
       (await import('../commands/doctor-credentials.js')).doctorCredentialsCommand as CommandDef,
   },
@@ -483,6 +483,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     description: 'Detect malformed CLEO databases (PRAGMA quick_check) and restore each from its ',
     load: async () =>
       (await import('../commands/doctor-repair.js')).doctorRepairCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorSplitBrainCommand',
+    name: 'split-brain',
+    description:
+      'Import rows that exist only in a diverged copy of a store (--source) into another (--target) ',
+    load: async () =>
+      (await import('../commands/doctor-split-brain.js')).doctorSplitBrainCommand as CommandDef,
   },
   {
     exportName: 'doctorSupersededStoreCommand',

@@ -45,6 +45,7 @@ import { doctorProjectIdentityCommand } from './doctor-project-identity.js';
 import { runDoctorProjects } from './doctor-projects.js';
 import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
 import { doctorRepairCommand } from './doctor-repair.js';
+import { doctorSplitBrainCommand } from './doctor-split-brain.js';
 import { doctorSupersededStoreCommand } from './doctor-superseded-store.js';
 import { doctorToolLocksCommand } from './doctor-tool-locks.js';
 import { readMigrationConflicts } from './migrate-agents-v2.js';
@@ -256,6 +257,8 @@ export const doctorCommand = defineCommand({
     'memory-guard': doctorMemoryGuardCommand,
     // T12353 — tracked .cleo/project-id vs project-info.json (+ --resolve re-key)
     'project-identity': doctorProjectIdentityCommand,
+    // T12329 — import rows only a diverged store copy has, under new ids (dry-run first)
+    'split-brain': doctorSplitBrainCommand,
     // T12157 — the two acceptance stores (json column vs text+child rows) must agree
     'acceptance-drift': doctorAcceptanceDriftCommand,
     // T12158 — tables nexus resolves by bare name must actually live where it assumes
