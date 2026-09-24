@@ -46,6 +46,7 @@ import {
   type PortableSectionBase,
   type PortableSkippedProject,
   type PortableSkipReason,
+  type PortableUnmigratedLegacyReport,
 } from '@cleocode/contracts';
 import { create as tarCreate } from 'tar';
 import { getCleoConfigDir, getCleoHome } from '../paths.js';
@@ -57,6 +58,7 @@ import {
   countRows,
   GLOBAL_HOME_RULES,
   LEGACY_STORE_BASENAMES,
+  LEGACY_TABLE_MAP,
   PRIMARY_STORE_BASENAME,
   PROJECT_SECTION_RULES,
   pickKeyCounts,
@@ -233,7 +235,8 @@ export function selectMachineProjects(
       skip(row, 'is-global-home');
       continue;
     }
-    if (!fs.existsSync(path.join(real, '.cleo', PRIMARY_STORE_BASENAME))) {
+    const storeNames = [PRIMARY_STORE_BASENAME, ...LEGACY_STORE_BASENAMES.project];
+    if (!storeNames.some((n) => fs.existsSync(path.join(real, '.cleo', n)))) {
       skip(row, 'no-live-store');
       continue;
     }
@@ -320,7 +323,17 @@ async function stageSection(
     omittedSecrets: [],
   };
 
-  if (primaryRelPath !== null && !scan.sqlite.includes(primaryRelPath)) {
+  const legacy = tier === 'config' ? new Set<string>() : LEGACY_STORE_BASENAMES[tier];
+  // A missing primary is fatal only when no legacy store could hold the data:
+  // some projects were never migrated and their ONLY copy is in tasks.db/brain.db.
+  const hasLegacyStore = scan.sqlite.some((rel) => legacy.has(rel));
+  const primaryAbs = primaryRelPath === null ? null : path.join(root, primaryRelPath);
+  const primaryUnreadable = primaryAbs !== null && fs.existsSync(primaryAbs);
+  if (
+    primaryRelPath !== null &&
+    !scan.sqlite.includes(primaryRelPath) &&
+    (primaryUnreadable || !hasLegacyStore)
+  ) {
     const abs = path.join(root, primaryRelPath);
     throw new PortableBundleError(
       fs.existsSync(abs) ? 'E_PRIMARY_STORE_UNREADABLE' : 'E_PRIMARY_STORE_MISSING',
@@ -330,7 +343,6 @@ async function stageSection(
     );
   }
 
-  const legacy = tier === 'config' ? new Set<string>() : LEGACY_STORE_BASENAMES[tier];
   for (const relPath of scan.sqlite) {
     const archivePath = toArchive(prefix, relPath);
     const staged = path.join(state.stagingDir, archivePath);
@@ -390,6 +402,38 @@ async function stageSection(
   return section;
 }
 
+/**
+ * Compare legacy per-domain tables with their consolidated counterparts.
+ *
+ * @param databases - Snapshotted databases of one root.
+ * @returns Report; `detected` when any legacy table holds more rows than the primary.
+ */
+export function detectUnmigratedLegacy(
+  databases: readonly PortableDatabaseEntry[],
+): PortableUnmigratedLegacyReport {
+  const primary = databases.find((d) => d.role === 'primary');
+  const evidence: PortableUnmigratedLegacyReport['evidence'] = [];
+  for (const db of databases.filter((d) => d.role === 'legacy')) {
+    for (const [table, primaryTable] of Object.entries(LEGACY_TABLE_MAP)) {
+      const legacyRows = db.rowCounts[table];
+      if (legacyRows === undefined || legacyRows === 0) continue;
+      const primaryRows = primary?.rowCounts[primaryTable] ?? 0;
+      if (legacyRows > primaryRows) {
+        const unprefixed = table === primaryTable ? undefined : primary?.rowCounts[table];
+        evidence.push({
+          database: db.relPath,
+          table,
+          legacyRows,
+          primaryTable,
+          primaryRows,
+          ...(unprefixed !== undefined ? { primaryUnprefixedRows: unprefixed } : {}),
+        });
+      }
+    }
+  }
+  return { detected: evidence.length > 0, evidence };
+}
+
 function readProjectInfo(cleoDir: string): { projectId: string | null; name: string | null } {
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(cleoDir, 'project-info.json'), 'utf-8')) as {
@@ -434,6 +478,7 @@ async function stageProject(
     projectId: info.projectId ?? (registryProjectId || null),
     name,
     keyCounts: primary ? pickKeyCounts(primary.rowCounts) : {},
+    unmigratedLegacyData: detectUnmigratedLegacy(base.databases),
   };
 }
 
@@ -528,7 +573,12 @@ export async function exportPortableBundle(
         ? await stageSection(state, configHome, 'global/config', CONFIG_HOME_RULES, 'config', null)
         : null;
       const primary = home.databases.find((d) => d.role === 'primary');
-      global = { home, config, keyCounts: primary ? pickKeyCounts(primary.rowCounts) : {} };
+      global = {
+        home,
+        config,
+        keyCounts: primary ? pickKeyCounts(primary.rowCounts) : {},
+        unmigratedLegacyData: detectUnmigratedLegacy(home.databases),
+      };
 
       if (scope === 'machine' && primary) {
         const rows = readRegistrySnapshot(path.join(stagingDir, primary.bundlePath));
@@ -596,11 +646,18 @@ export async function exportPortableBundle(
       sections: [
         ...(global
           ? [
-              summarise('global-home', global.home, global.keyCounts),
+              {
+                ...summarise('global-home', global.home, global.keyCounts),
+                unmigratedLegacyData: global.unmigratedLegacyData,
+              },
               ...(global.config ? [summarise('global-config', global.config)] : []),
             ]
           : []),
-        ...projects.map((p) => ({ ...summarise('project', p, p.keyCounts), name: p.name })),
+        ...projects.map((p) => ({
+          ...summarise('project', p, p.keyCounts),
+          name: p.name,
+          unmigratedLegacyData: p.unmigratedLegacyData,
+        })),
       ],
       ...(scope === 'machine'
         ? {

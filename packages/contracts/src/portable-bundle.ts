@@ -131,6 +131,38 @@ export interface PortableSectionBase {
   omittedSecrets: PortableOmittedSecret[];
 }
 
+/** One legacy table that holds more rows than its consolidated counterpart. */
+export interface PortableLegacyEvidence {
+  /** Legacy database (relative path, e.g. `tasks.db`). */
+  database: string;
+  /** Table in the legacy database. */
+  table: string;
+  /** Rows in the legacy table. */
+  legacyRows: number;
+  /** Consolidated table it maps to in the primary store. */
+  primaryTable: string;
+  /** Rows in the primary table (0 when the primary store or table is absent). */
+  primaryRows: number;
+  /**
+   * Rows in a same-named UNPREFIXED table inside the primary store (e.g. a
+   * bare `tasks` table in `cleo.db`), when it exists and differs from
+   * `primaryTable`. Pre-cutover data sometimes lives there instead.
+   */
+  primaryUnprefixedRows?: number;
+}
+
+/**
+ * Whether a root holds data that exists ONLY in pre-E6 legacy files (never
+ * migrated into `cleo.db`). Export preserves those files losslessly; it does
+ * not migrate them.
+ */
+export interface PortableUnmigratedLegacyReport {
+  /** True when any legacy table holds more rows than its consolidated counterpart. */
+  detected: boolean;
+  /** Per-table evidence. */
+  evidence: PortableLegacyEvidence[];
+}
+
 /** The key per-project record counts surfaced in results (subset of `rowCounts`). */
 export type PortableKeyCounts = Record<string, number>;
 
@@ -144,6 +176,8 @@ export interface PortableProjectSection extends PortableSectionBase {
   name: string;
   /** Counts of the key tables (tasks, sessions, brain records) in the primary store. */
   keyCounts: PortableKeyCounts;
+  /** Data present only in legacy per-domain files. */
+  unmigratedLegacyData: PortableUnmigratedLegacyReport;
 }
 
 /** The global CLEO home plus the config home. */
@@ -154,13 +188,15 @@ export interface PortableGlobalSection {
   config: PortableSectionBase | null;
   /** Counts of the key tables in the global primary store. */
   keyCounts: PortableKeyCounts;
+  /** Data present only in legacy per-domain files of the CLEO home. */
+  unmigratedLegacyData: PortableUnmigratedLegacyReport;
 }
 
 /**
  * Why `machine` scope skipped a registered project.
  *
  * - `path-missing`   — the registered directory no longer exists.
- * - `no-live-store`  — the directory has no `.cleo/cleo.db`.
+ * - `no-live-store`  — `.cleo/` has neither `cleo.db` nor any legacy per-domain store.
  * - `temp-path`      — the path is a temp or test-fixture directory.
  * - `duplicate-path` — resolves to a project already included.
  * - `is-global-home` — its `.cleo/` resolves to the global CLEO home (exported as the global section).
@@ -254,6 +290,8 @@ export interface PortableExportResult {
     files: number;
     /** Key table counts. */
     keyCounts?: PortableKeyCounts;
+    /** Legacy-only data report (global home and projects). */
+    unmigratedLegacyData?: PortableUnmigratedLegacyReport;
     /** Excluded material with sizes. */
     excluded: PortableExclusion[];
     /** Secrets omitted (unencrypted bundles). */
@@ -334,6 +372,8 @@ export interface PortableImportSectionResult {
   keyCounts: Array<PortableTableComparison>;
   /** Relocation report (projects placed at a different root only). */
   relocation?: PortableRelocationReport;
+  /** Legacy-only data carried over unmigrated (projects only). */
+  unmigratedLegacyData?: PortableUnmigratedLegacyReport;
   /** Global registry update for this project (projects only). */
   registry?: {
     /** Outcome. */

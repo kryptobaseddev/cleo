@@ -98,6 +98,7 @@ const IDENTITY_REMEDY =
 export const PROJECT_SECTION_RULES: SectionRules = {
   excludedDirs: {
     backups: 'local snapshots (regenerable; the live stores are captured via VACUUM INTO)',
+    '.backups': 'local snapshots (regenerable; the live stores are captured via VACUUM INTO)',
     cache: 'cache (regenerable)',
     logs: 'logs (machine-local)',
     locks: 'lock directory (machine-local runtime state)',
@@ -475,6 +476,19 @@ export const KEY_COUNT_TABLES: readonly string[] = [
   'nexus_project_registry',
   'nexus_nodes',
 ];
+
+/**
+ * Legacy (pre-E6) table → consolidated table in `cleo.db`, for detecting data
+ * that exists only in legacy files.
+ */
+export const LEGACY_TABLE_MAP: Readonly<Record<string, string>> = {
+  tasks: 'tasks_tasks',
+  sessions: 'tasks_sessions',
+  brain_observations: 'brain_observations',
+  brain_decisions: 'brain_decisions',
+  brain_learnings: 'brain_learnings',
+  brain_patterns: 'brain_patterns',
+};
 
 /**
  * Select the key-table subset of a row-count map.

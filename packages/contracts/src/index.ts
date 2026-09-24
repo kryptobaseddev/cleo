@@ -1963,6 +1963,7 @@ export type {
   PortableImportResult,
   PortableImportSectionResult,
   PortableKeyCounts,
+  PortableLegacyEvidence,
   PortableOmittedSecret,
   PortablePathFinding,
   PortableProjectSection,
@@ -1972,6 +1973,7 @@ export type {
   PortableSkipReason,
   PortableSymlinkEntry,
   PortableTableComparison,
+  PortableUnmigratedLegacyReport,
 } from './portable-bundle.js';
 // === PostgresDataAccessor Contracts — cloud-sync scaffold (T9062) ===
 export type {

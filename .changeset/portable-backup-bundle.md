@@ -23,13 +23,25 @@ Export now writes a **portable bundle (manifest v2)**:
   consistent snapshot under WAL without checkpointing or otherwise modifying
   the source. Legacy per-domain files are included only when present and are
   labelled `legacy`. The legacy names come from `DB_INVENTORY`.
-- **Fails loudly.** A missing primary store exits `E_PRIMARY_STORE_MISSING`
-  (exit 4). An unreadable one exits `E_PRIMARY_STORE_UNREADABLE` (exit 3).
+- **Unmigrated legacy data is preserved and reported, not migrated.** In
+  about 20 real projects the live `cleo.db` is an empty shell. In those
+  projects, the legacy `tasks.db` / `brain.db` hold the only copy of the data.
+  One measured example is `claude-todo`: 5,330 tasks and 5,148 observations,
+  with `tasks_tasks = 0`. Every SQLite file in `.cleo/` is always snapshotted,
+  with per-table row counts. Each project and the global home report
+  `unmigratedLegacyData: { detected, evidence[] }`. Each evidence entry holds
+  the legacy table, its row count, the consolidated table with its row count,
+  and the row count of any bare same-named table in `cleo.db`. A project that
+  has legacy stores but no `cleo.db` is exported, not rejected. On import,
+  such projects are not registered automatically: registering opens the store,
+  and opening can run the on-open legacy migration. The import result says so.
+- **Fails loudly.** A missing primary store with no legacy store to hold the
+  data exits `E_PRIMARY_STORE_MISSING` (exit 4). An unreadable one exits `E_PRIMARY_STORE_UNREADABLE` (exit 3).
   Both return a LAFS error envelope, and no bundle is written.
 - **Whole tree, explicit denylist.** The rest of `.cleo/`, the CLEO home and
   the config home is captured byte for byte. Any other SQLite file found in the
   tree is also snapshotted. Excluded material is listed in the result with its
-  size: `backups/`, `cache/`, `logs/`, `locks/`, `worktrees/`,
+  size: `backups/`, `.backups/`, `cache/`, `logs/`, `locks/`, `worktrees/`,
   `verification-archives/`, `_archive/`, WAL/SHM/journal sidecars, pid/lock/tmp
   files, and symlinks that point outside the root. Directories with more than
   200,000 entries report `sizeComplete: false`, and `bytes` is then a lower

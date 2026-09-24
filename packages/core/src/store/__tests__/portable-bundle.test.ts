@@ -207,8 +207,9 @@ describe('portable bundle v2 (T12318)', () => {
     expect(fs.existsSync(path.join(target, '.cleo', 'keys'))).toBe(false);
   });
 
-  it('fails loudly when the primary store is missing', async () => {
+  it('fails loudly when neither the primary store nor a legacy store exists', async () => {
     fs.rmSync(path.join(projectRoot, '.cleo', 'cleo.db'));
+    fs.rmSync(path.join(projectRoot, '.cleo', 'tasks.db'));
     const err = await exportPortableBundle({
       scope: 'project',
       projectRoot,
@@ -220,6 +221,86 @@ describe('portable bundle v2 (T12318)', () => {
     expect(err).toBeInstanceOf(PortableBundleError);
     expect((err as PortableBundleError).code).toBe('E_PRIMARY_STORE_MISSING');
     expect(fs.existsSync(path.join(tmp, 'out', 'x.cleobundle.tar.gz'))).toBe(false);
+  });
+
+  it('preserves and reports data that exists only in legacy stores', async () => {
+    // Empty-shell cleo.db (the measured 2026-08-12 case) beside a populated legacy tasks.db.
+    const cleo = path.join(projectRoot, '.cleo');
+    const shell = new DatabaseSync(path.join(cleo, 'cleo.db'));
+    shell.exec(
+      'DELETE FROM tasks_tasks; CREATE TABLE tasks (id INTEGER); INSERT INTO tasks VALUES (1), (2);',
+    );
+    shell.close();
+    const legacy = new DatabaseSync(path.join(cleo, 'tasks.db'));
+    legacy.exec('INSERT INTO tasks VALUES (2), (3);');
+    legacy.close();
+    const brain = new DatabaseSync(path.join(cleo, 'brain.db'));
+    brain.exec(
+      'CREATE TABLE brain_observations (id TEXT); INSERT INTO brain_observations VALUES (1),(2),(3);',
+    );
+    brain.close();
+
+    const bundle = path.join(tmp, 'out', 'legacy.cleobundle.tar.gz');
+    const exported = await exportPortableBundle({
+      scope: 'project',
+      projectRoot,
+      outputPath: bundle,
+      label: 'legacy',
+      cleoHome: home,
+      configHome,
+    });
+    expect(exported.sections[0]?.unmigratedLegacyData).toEqual({
+      detected: true,
+      evidence: [
+        {
+          database: 'brain.db',
+          table: 'brain_observations',
+          legacyRows: 3,
+          primaryTable: 'brain_observations',
+          primaryRows: 1,
+        },
+        {
+          database: 'tasks.db',
+          table: 'tasks',
+          legacyRows: 3,
+          primaryTable: 'tasks_tasks',
+          primaryRows: 0,
+          primaryUnprefixedRows: 2,
+        },
+      ],
+    });
+    let registerCalls = 0;
+    const imported = await importPortableBundle({
+      bundlePath: bundle,
+      target: path.join(tmp, 'legacy-dest'),
+      cleoHome: path.join(tmp, 'home-dest'),
+      registerProject: async () => {
+        registerCalls += 1;
+        return { status: 'registered', detail: 'should not be called' };
+      },
+    });
+    expect(registerCalls).toBe(0);
+    expect(imported.sections[0]?.registry?.status).toBe('skipped');
+    expect(imported.lossless).toBe(true);
+    expect(imported.sections[0]?.unmigratedLegacyData?.detected).toBe(true);
+    const restored = new DatabaseSync(path.join(tmp, 'legacy-dest', '.cleo', 'tasks.db'), {
+      readOnly: true,
+    });
+    const n = restored.prepare('SELECT COUNT(*) AS c FROM tasks').get() as { c: number };
+    restored.close();
+    expect(n.c).toBe(3);
+
+    // No cleo.db at all: the legacy stores alone are exported, not a failure.
+    fs.rmSync(path.join(cleo, 'cleo.db'));
+    const onlyLegacy = await exportPortableBundle({
+      scope: 'project',
+      projectRoot,
+      outputPath: path.join(tmp, 'out', 'only-legacy.cleobundle.tar.gz'),
+      label: 'only-legacy',
+      cleoHome: home,
+      configHome,
+    });
+    expect(onlyLegacy.sections[0]?.unmigratedLegacyData?.detected).toBe(true);
   });
 
   it('refuses to overwrite live data without force', async () => {

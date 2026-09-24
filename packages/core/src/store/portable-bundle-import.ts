@@ -546,9 +546,19 @@ export async function importPortableBundle(
         result.projectId = plan.project.projectId;
         const relocation = relocations.get(plan);
         if (relocation) result.relocation = relocation;
+        if (plan.project.unmigratedLegacyData) {
+          result.unmigratedLegacyData = plan.project.unmigratedLegacyData;
+        }
         const fromBundle = registryOutcomes.get(plan.project.originalPath);
         if (fromBundle) {
           result.registry = fromBundle;
+        } else if (plan.project.unmigratedLegacyData?.detected) {
+          // Registering opens the project store, and opening can run the
+          // on-open legacy migration. Import only preserves; it never migrates.
+          result.registry = {
+            status: 'skipped',
+            detail: `legacy-only data present (see unmigratedLegacyData); registering opens the store and may migrate it. Run \`cleo nexus projects register ${plan.destRoot}\` when you intend that`,
+          };
         } else if (input.registerProject) {
           try {
             result.registry = await input.registerProject(plan.project.projectId, plan.destRoot);
