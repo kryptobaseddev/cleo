@@ -75,6 +75,7 @@ import { buildBarrelExportMap, processExtractedImports } from './import-processo
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import { detectLanguageFromPath } from './language-detection.js';
 import { buildLexicalScopeModel } from './lexical-scope.js';
+import type { FileExtraction } from './parse-cache.js';
 import { type ExtractedAccess, extractAccesses } from './processors/access-processor.js';
 import type { SymbolTable } from './symbol-table.js';
 import type { ParseWorkerResult } from './workers/parse-worker.js';
@@ -450,6 +451,17 @@ export interface ParseLoopOptions {
    * @param filePath - Current file path being processed
    */
   onProgress?: (current: number, total: number, filePath: string) => void;
+  /**
+   * Extractions reused from the parse cache, keyed by path (T12315). A parseable
+   * file with an entry here is not re-parsed; its extraction is merged exactly
+   * where re-parsing it would have been, so resolution sees the same input.
+   */
+  reusedExtractions?: ReadonlyMap<string, FileExtraction>;
+  /**
+   * Called once per freshly and successfully parsed file, before any later phase
+   * can mutate its nodes — the moment a parse-cache entry must be captured.
+   */
+  onFileExtracted?: (file: FileExtraction) => void;
 }
 
 /**
@@ -471,6 +483,10 @@ export interface ParseLoopResult {
    * Used by the call resolution phase to trace imports through barrel index files.
    */
   barrelMap: BarrelExportMap;
+  /** Parseable files handed to the parser this run. */
+  parsedFileCount: number;
+  /** Parseable files whose extraction came from {@link ParseLoopOptions.reusedExtractions}. */
+  reusedFileCount: number;
 }
 
 const EXECUTABLE_CAPABILITIES: GraphAnalysisCapability[] = [
@@ -749,59 +765,57 @@ async function classifyFileCapabilities(
 }
 
 // ---------------------------------------------------------------------------
-// Main parse loop
+// Extraction phase — produces per-file results, never merged across files
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Parallel parse path helpers (Wave H — T540)
-// ---------------------------------------------------------------------------
+/** Per-file extraction outcomes produced by one extraction pass. */
+interface ExtractionPass {
+  /** Successful extractions keyed by path. */
+  extracted: Map<string, FileExtraction>;
+  /** Failure reports keyed by path; a file never appears in both maps. */
+  failures: Map<string, GraphIndexFileReport>;
+}
+
+/** Normalize an extractor result so every per-file array is present. */
+function completeExtraction(result: CommonExtractionResult): Required<CommonExtractionResult> {
+  return {
+    definitions: result.definitions,
+    imports: result.imports,
+    heritage: result.heritage,
+    calls: result.calls,
+    reExports: result.reExports ?? [],
+    accesses: result.accesses ?? [],
+  };
+}
 
 /**
- * Run the parse loop using a worker pool for parallel parsing.
+ * Extract files through the worker pool (Wave H — T540).
  *
- * Called by `runParseLoop` when the file count or total bytes exceeds the
- * worker pool thresholds. Falls back to returning `null` if the worker
- * script is not found so the caller can retry sequentially.
- *
- * @returns ParseLoopResult on success, or null if workers could not be used.
+ * @returns Per-file outcomes, or `null` when the worker script is not built.
  */
-async function runParallelParseLoop(
-  parseableFiles: ScannedFile[],
-  graph: KnowledgeGraph,
-  symbolTable: SymbolTable,
-  importCtx: ImportResolutionContext,
+async function extractInParallel(
+  files: ScannedFile[],
   repoPath: string,
   options: ParseLoopOptions,
-): Promise<ParseLoopResult | null> {
-  const { tsconfigPaths = null, namedImportMap = new Map(), onProgress } = options;
-
+): Promise<ExtractionPass | null> {
   // Resolve the compiled worker script path (parallel to this file in dist/)
   let workerUrl: URL;
   try {
-    // In ESM, import.meta.url resolves relative to the current module file.
-    // The worker script lives at the same directory level.
     workerUrl = new URL('./workers/parse-worker.js', import.meta.url);
-    const workerPath = fileURLToPath(workerUrl);
-    // Use dynamic require check — existsSync from 'node:fs'
     const { existsSync } = await import('node:fs');
-    if (!existsSync(workerPath)) {
-      return null; // Worker script not built yet — fall back to sequential
-    }
+    if (!existsSync(fileURLToPath(workerUrl))) return null; // not built — sequential fallback
   } catch {
     return null;
   }
 
-  // Read all file contents first (sequential I/O, then dispatch in parallel)
-  const total = parseableFiles.length;
+  const total = files.length;
   const workerInputs: Array<{
     path: string;
     content: string;
     limits?: Omit<ParserExecutionLimits, 'signal'>;
     publicationGeneration?: string;
   }> = [];
-
-  for (let i = 0; i < parseableFiles.length; i++) {
-    const file = parseableFiles[i];
+  for (const file of files) {
     try {
       const absPath = file.path.startsWith('/') ? file.path : `${repoPath}/${file.path}`;
       options.parserLimits?.signal?.throwIfAborted();
@@ -833,128 +847,137 @@ async function runParallelParseLoop(
     options.parserLimits,
     options.parserExecution,
   );
-
-  let filesProcessedSoFar = 0;
-
   let workerResults: ParseWorkerResult[];
   try {
     workerResults = await pool.dispatch<{ path: string; content: string }, ParseWorkerResult>(
       workerInputs,
       (filesProcessed) => {
-        filesProcessedSoFar = filesProcessed;
-        if (onProgress) {
-          const lastFile = parseableFiles[Math.min(filesProcessed, total) - 1];
-          onProgress(filesProcessed, total, lastFile?.path ?? '');
+        if (options.onProgress) {
+          const lastFile = files[Math.min(filesProcessed, total) - 1];
+          options.onProgress(filesProcessed, total, lastFile?.path ?? '');
         }
       },
     );
   } finally {
     await pool.terminate().catch(() => undefined);
   }
-
-  void filesProcessedSoFar; // used for progress, not needed after dispatch
-
-  // Merge all worker results into graph, symbolTable, and accumulator arrays
-  const allExtractedImports: ExtractedImport[] = [];
-  const allParallelReExports: ExtractedReExportRecord[] = [];
-  const allHeritage: ExtractedHeritage[] = [];
-  const allCalls: ExtractedCall[] = [];
-  // Workers invoke the same extractor, including access records.
-  const allParallelAccesses: ExtractedAccess[] = [];
-  /** Files no worker could parse; the publish step decides what they mean. */
-  const unparsedFiles: GraphIndexFileReport[] = [];
-
-  for (const workerResult of workerResults) {
-    for (const report of workerResult.reports) options.onFileReport?.(report);
-    // T12313: this threw on ANY unparsed file, which ended the run before the
-    // pipeline could weigh how much of the repository was actually affected.
-    // The reports are already forwarded above, so the failures travel onward
-    // and the publish step decides — it tolerates a small number of recorded,
-    // reported gaps and still refuses a generation that would misrepresent the
-    // codebase. Deciding that here, per worker, could only ever see one chunk.
-    const failed = workerResult.reports.filter((report) => report.status !== 'analyzed');
-    if (failed.length > 0) {
-      unparsedFiles.push(...failed);
-    }
-    allParallelAccesses.push(...workerResult.accesses);
-    // Register symbols into SymbolTable and add graph nodes
-    const fileGraphNodes: Map<string, GraphNode[]> = new Map();
-    for (const sym of workerResult.symbols) {
-      const graphNode = sym;
-      registerInSymbolTable([graphNode], symbolTable);
-      graph.addNode(graphNode);
-      // Group by filePath for defines edge emission below
-      if (graphNode.filePath) {
-        const bucket = fileGraphNodes.get(graphNode.filePath) ?? [];
-        bucket.push(graphNode);
-        fileGraphNodes.set(graphNode.filePath, bucket);
-      }
-    }
-    // Emit defines edges: file → each symbol it declares
-    for (const [filePath, nodes] of fileGraphNodes) {
-      emitDefinesEdges(filePath, nodes, graph);
-    }
-
-    allExtractedImports.push(...workerResult.imports);
-    allParallelReExports.push(...workerResult.reExports);
-    allHeritage.push(...workerResult.heritage);
-    allCalls.push(...workerResult.calls);
-  }
-
-  if (onProgress && total > 0) {
-    const lastFile = parseableFiles[total - 1];
-    onProgress(total, total, lastFile?.path ?? '');
-  } else if (!onProgress && total > 0) {
+  if (!options.onProgress && total > 0) {
     process.stderr.write(`[nexus] Parsing: ${total}/${total} files (100%) [parallel]\n`);
   }
 
-  // Batch-resolve all extracted imports
-  if (allExtractedImports.length > 0) {
-    await processExtractedImports({
-      imports: allExtractedImports,
-      graph,
-      importCtx,
-      namedImportMap,
-      tsconfigPaths,
-    });
-  }
-
-  // Build barrel export map from worker-collected re-export records (T617)
-  if (process.env['CLEO_BARREL_DEBUG']) {
-    const coreInternalRecords = allParallelReExports.filter((re) =>
-      re.filePath.includes('core/src/internal'),
-    );
-    process.stderr.write(
-      `[parse-loop-debug] allParallelReExports.length = ${allParallelReExports.length}\n`,
-    );
-    process.stderr.write(
-      `[parse-loop-debug] core/src/internal records = ${coreInternalRecords.length}\n`,
-    );
-    // Check if internal.ts was in the worker inputs
-    const internalInput = workerInputs.find((f) => f.path.includes('core/src/internal'));
-    process.stderr.write(
-      `[parse-loop-debug] internal.ts in workerInputs = ${internalInput ? 'YES: ' + internalInput.path : 'NO'}\n`,
-    );
-    // Check if internal.ts had symbols or imports
-    for (const wr of workerResults) {
-      const hasInternalSymbol = wr.symbols.some((s) => s.filePath?.includes('core/src/internal'));
-      const hasInternalImport = wr.imports.some((i) => i.filePath.includes('core/src/internal'));
-      const hasInternalReExport = wr.reExports.some((r) =>
-        r.filePath.includes('core/src/internal'),
-      );
-      if (hasInternalSymbol || hasInternalImport || hasInternalReExport) {
-        process.stderr.write(
-          `[parse-loop-debug] Worker result: symbols=${hasInternalSymbol}, imports=${hasInternalImport}, reExports=${hasInternalReExport}\n`,
-        );
-      }
+  const pass: ExtractionPass = { extracted: new Map(), failures: new Map() };
+  for (const workerResult of workerResults) {
+    // T12313: failures travel onward as reports; the publish step weighs how
+    // much of the repository they affect instead of one chunk deciding alone.
+    for (const report of workerResult.reports) {
+      if (report.status !== 'analyzed') pass.failures.set(report.path, report);
     }
+    for (const file of workerResult.files) pass.extracted.set(file.path, file);
   }
-  const parallelBarrelMap = buildBarrelExportMap(allParallelReExports, importCtx, tsconfigPaths);
-  process.stderr.write(
-    `[nexus] Barrel map: ${parallelBarrelMap.size} barrel files with re-export chains\n`,
-  );
+  return pass;
+}
 
-  return { allHeritage, allCalls, allAccesses: allParallelAccesses, barrelMap: parallelBarrelMap };
+/** Extract files one at a time in the calling thread. */
+async function extractSequentially(
+  files: ScannedFile[],
+  repoPath: string,
+  options: ParseLoopOptions,
+): Promise<ExtractionPass> {
+  const pass: ExtractionPass = { extracted: new Map(), failures: new Map() };
+  const fail = (path: string, reason: string): void => {
+    pass.failures.set(path, { path, status: 'failed', reason });
+  };
+  const parser = getParser();
+  if (!parser) {
+    for (const file of files) fail(file.path, 'tree-sitter native module unavailable');
+    process.stderr.write(
+      '[nexus] WARNING: tree-sitter native module not available — parse loop skipped.\n',
+    );
+    return pass;
+  }
+
+  const total = files.length;
+  let filesProcessed = 0;
+  for (const file of files) {
+    options.parserLimits?.signal?.throwIfAborted();
+    filesProcessed++;
+    if (
+      options.onProgress &&
+      (total <= 100 || filesProcessed % 10 === 0 || filesProcessed === total)
+    ) {
+      options.onProgress(filesProcessed, total, file.path);
+    } else if (!options.onProgress && filesProcessed % 50 === 0) {
+      const pct = Math.round((filesProcessed / total) * 100);
+      process.stderr.write(`[nexus] Parsing: ${filesProcessed}/${total} files (${pct}%)...\n`);
+    }
+
+    const lang = detectLanguageFromPath(file.path);
+    if (!lang) continue;
+    const grammarKey = grammarKeyForLanguage(lang);
+    if (!grammarKey) continue;
+    const grammar = loadGrammar(grammarKey);
+    if (!grammar) {
+      fail(file.path, `No grammar for ${lang}`);
+      process.stderr.write(`[nexus] SKIP: no grammar for ${lang} (file: ${file.path})\n`);
+      continue;
+    }
+
+    let source: string;
+    try {
+      const absPath = file.path.startsWith('/') ? file.path : `${repoPath}/${file.path}`;
+      const bytes = await fs.readFile(absPath);
+      if (
+        file.contentHash &&
+        createHash('sha256').update(bytes).digest('hex') !== file.contentHash
+      ) {
+        throw new Error('Source changed between scanning and parsing');
+      }
+      source = bytes.toString('utf-8');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      fail(file.path, `read: ${msg}`);
+      process.stderr.write(`[nexus] SKIP read error: ${file.path}: ${msg}\n`);
+      continue;
+    }
+
+    let rootNode: Parser.SyntaxNode;
+    try {
+      parser.setLanguage(grammar);
+      rootNode = parseOriginalSource(parser, source, options.parserLimits).rootNode;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      fail(file.path, `parse: ${msg}`);
+      options.parserLimits?.signal?.throwIfAborted();
+      process.stderr.write(`[nexus] SKIP parse error: ${file.path}: ${msg}\n`);
+      continue;
+    }
+
+    try {
+      const extracted = runExtractor(
+        lang,
+        rootNode,
+        file.path,
+        createHash('sha256').update(source).digest('hex'),
+        options.publicationGeneration,
+      );
+      pass.extracted.set(file.path, {
+        path: file.path,
+        extraction: completeExtraction(extracted),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      fail(file.path, `extract: ${msg}`);
+      process.stderr.write(`[nexus] SKIP extract error: ${file.path}: ${msg}\n`);
+      continue;
+    }
+
+    // Yield to event loop periodically on large repos
+    if (filesProcessed % 100 === 0) await Promise.resolve();
+  }
+  if (!options.onProgress && total > 0) {
+    process.stderr.write(`[nexus] Parsing: ${total}/${total} files (100%)\n`);
+  }
+  return pass;
 }
 
 // ---------------------------------------------------------------------------
@@ -962,34 +985,28 @@ async function runParallelParseLoop(
 // ---------------------------------------------------------------------------
 
 /**
- * Phase 3: Parse loop (parallel or sequential).
+ * Phase 3: Parse loop (parallel or sequential), then merge.
  *
- * For each TypeScript/JavaScript file in `files`:
- * 1. Read file content from disk
- * 2. Parse with tree-sitter (typescript or javascript grammar)
- * 3. Extract definitions → register in SymbolTable → add nodes to graph
- * 4. Extract imports → collect for batch resolution
- * 5. Extract heritage → accumulate for deferred edge emission
+ * 1. Classify every scanned file's role from its bytes.
+ * 2. Extract each parseable file that has no reusable cached extraction —
+ *    through the worker pool when the file count or byte volume warrants it.
+ * 3. Merge fresh and reused extractions **in scan order**: register symbols,
+ *    add nodes, emit DEFINES edges, and collect imports, re-exports, heritage,
+ *    calls and accesses. The merge order is the same whichever path produced
+ *    an extraction, so first-wins deduplication in the graph cannot depend on
+ *    which files happened to be re-parsed.
+ * 4. Resolve all imports and build the barrel map over the merged input.
  *
- * After all files are processed:
- * - Resolves all collected imports via `processExtractedImports`
- * - Emits EXTENDS/IMPLEMENTS edges from accumulated heritage
+ * Files that fail to parse are reported, not merged; the publish step decides
+ * what a given share of failures means.
  *
- * Files that fail to parse (grammar unavailable, syntax error, read error)
- * are skipped with a warning to stderr — the loop continues.
- *
- * **Parallel mode** (Wave H): When `parseableFiles.length >= 15` or total
- * bytes >= 512 KB, the parallel path via the worker pool is attempted first.
- * If the worker script is not found (e.g. running from source without a
- * build), the sequential path is used as a fallback.
- *
- * @param files - All scanned files (non-TypeScript/JavaScript files are filtered)
+ * @param files - All scanned files (non-parseable files are classified and reported only)
  * @param graph - Knowledge graph to add nodes and relations to
  * @param symbolTable - Symbol table to register extracted symbols in
  * @param importCtx - Pre-built import resolution context (from Phase 3a)
  * @param repoPath - Absolute path to the repository root (used to resolve relative paths)
- * @param options - Optional tsconfig paths, named import map, and progress callback
- * @returns Accumulated heritage and call records for Phase 3c and Phase 3e
+ * @param options - Resolution inputs, reuse map, progress and report callbacks
+ * @returns Accumulated heritage, call and access records plus the barrel map
  */
 export async function runParseLoop(
   files: ScannedFile[],
@@ -999,7 +1016,8 @@ export async function runParseLoop(
   repoPath: string,
   options: ParseLoopOptions = {},
 ): Promise<ParseLoopResult> {
-  const { tsconfigPaths = null, namedImportMap = new Map(), onProgress } = options;
+  const { tsconfigPaths = null, namedImportMap = new Map() } = options;
+  const reused = options.reusedExtractions ?? new Map<string, FileExtraction>();
 
   // Attach one capability contract to sequential and worker-returned reports.
   const callerReports = options.onFileReport;
@@ -1020,7 +1038,6 @@ export async function runParseLoop(
       },
     });
   };
-  options = { ...options, onFileReport: emitReport };
   const parseableFiles: ScannedFile[] = [];
   for (const file of files) {
     options.parserLimits?.signal?.throwIfAborted();
@@ -1053,208 +1070,62 @@ export async function runParseLoop(
     else emitReport(report);
   }
 
-  const total = parseableFiles.length;
-  if (total === 0)
-    return {
-      allHeritage: [],
-      allCalls: [],
-      allAccesses: [],
-      barrelMap: buildBarrelExportMap([], importCtx, tsconfigPaths),
-    };
-
-  // Wave H: Check thresholds for parallel dispatch
-  const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
-  const useWorkers =
-    Boolean(options.parserExecution) ||
-    total >= WORKER_FILE_THRESHOLD ||
-    totalBytes >= WORKER_BYTE_THRESHOLD;
-
-  if (useWorkers && (options.parserExecution || !callerReports)) {
-    process.stderr.write(
-      `[nexus] Parallel parse: ${total} files, ${Math.round(totalBytes / 1024)}KB total — spawning worker pool\n`,
-    );
-    try {
-      const parallelResult = await runParallelParseLoop(
-        parseableFiles,
-        graph,
-        symbolTable,
-        importCtx,
-        repoPath,
-        { ...options, tsconfigPaths, namedImportMap, onProgress },
+  const toParse = parseableFiles.filter((file) => !reused.has(file.path));
+  let pass: ExtractionPass = { extracted: new Map(), failures: new Map() };
+  if (toParse.length > 0) {
+    const totalBytes = toParse.reduce((acc, f) => acc + f.size, 0);
+    const useWorkers =
+      Boolean(options.parserExecution) ||
+      toParse.length >= WORKER_FILE_THRESHOLD ||
+      totalBytes >= WORKER_BYTE_THRESHOLD;
+    let parallel: ExtractionPass | null = null;
+    if (useWorkers && (options.parserExecution || !callerReports)) {
+      process.stderr.write(
+        `[nexus] Parallel parse: ${toParse.length} files, ${Math.round(totalBytes / 1024)}KB total — spawning worker pool\n`,
       );
-      if (parallelResult !== null) {
-        process.stderr.write('[nexus] Parallel parse complete.\n');
-        return parallelResult;
+      try {
+        parallel = await extractInParallel(toParse, repoPath, options);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(`Parallel parser failed; generation not published: ${msg}`);
       }
-      if (options.parserExecution) throw new Error('Isolated parser executable unavailable');
-      // Worker unavailable — fall through to sequential
-      process.stderr.write('[nexus] Worker script not found — using sequential parse.\n');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Parallel parser failed; generation not published: ${msg}`);
+      if (parallel === null) {
+        if (options.parserExecution) throw new Error('Isolated parser executable unavailable');
+        process.stderr.write('[nexus] Worker script not found — using sequential parse.\n');
+      } else {
+        process.stderr.write('[nexus] Parallel parse complete.\n');
+      }
     }
+    pass = parallel ?? (await extractSequentially(toParse, repoPath, options));
   }
 
+  // Merge in scan order — identical whether an extraction was fresh or reused.
   const allExtractedImports: ExtractedImport[] = [];
   const allReExports: ExtractedReExportRecord[] = [];
   const allHeritage: ExtractedHeritage[] = [];
   const allCalls: ExtractedCall[] = [];
   const allAccesses: ExtractedAccess[] = [];
-
-  const parser = getParser();
-  if (!parser) {
-    for (const file of parseableFiles) {
-      options.onFileReport?.({
-        path: file.path,
-        status: 'failed',
-        reason: 'tree-sitter native module unavailable',
-      });
-    }
-    process.stderr.write(
-      '[nexus] WARNING: tree-sitter native module not available — parse loop skipped.\n',
-    );
-    return {
-      allHeritage: [],
-      allCalls: [],
-      allAccesses: [],
-      barrelMap: buildBarrelExportMap([], importCtx, tsconfigPaths),
-    };
-  }
-
-  let filesProcessed = 0;
-
   for (const file of parseableFiles) {
-    options.parserLimits?.signal?.throwIfAborted();
-    filesProcessed++;
-
-    // Progress reporting (every file for small repos, every 10 for larger ones)
-    if (onProgress && (total <= 100 || filesProcessed % 10 === 0 || filesProcessed === total)) {
-      onProgress(filesProcessed, total, file.path);
-    } else if (!onProgress && filesProcessed % 50 === 0) {
-      // Fallback stderr progress for CLI usage without a callback
-      const pct = Math.round((filesProcessed / total) * 100);
-      process.stderr.write(`[nexus] Parsing: ${filesProcessed}/${total} files (${pct}%)...\n`);
-    }
-
-    // Determine grammar key
-    const lang = detectLanguageFromPath(file.path);
-    if (!lang) continue;
-    const grammarKey = grammarKeyForLanguage(lang);
-    if (!grammarKey) continue;
-
-    // Load grammar
-    const grammar = loadGrammar(grammarKey);
-    if (!grammar) {
-      options.onFileReport?.({
-        path: file.path,
-        status: 'failed',
-        reason: `No grammar for ${lang}`,
-      });
-      process.stderr.write(`[nexus] SKIP: no grammar for ${lang} (file: ${file.path})\n`);
+    const fresh = pass.extracted.get(file.path);
+    const fileExtraction = fresh ?? reused.get(file.path);
+    if (!fileExtraction) {
+      const failure = pass.failures.get(file.path);
+      // Unknown language/grammar keys are silently skipped exactly as before.
+      if (failure) emitReport(failure);
       continue;
     }
-
-    // Read file content — relative path from filesystem walker, read from repoPath
-    let source: string;
-    try {
-      const absPath = file.path.startsWith('/') ? file.path : `${repoPath}/${file.path}`;
-      const bytes = await fs.readFile(absPath);
-      if (
-        file.contentHash &&
-        createHash('sha256').update(bytes).digest('hex') !== file.contentHash
-      ) {
-        throw new Error('Source changed between scanning and parsing');
-      }
-      source = bytes.toString('utf-8');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      options.onFileReport?.({ path: file.path, status: 'failed', reason: `read: ${msg}` });
-      process.stderr.write(`[nexus] SKIP read error: ${file.path}: ${msg}\n`);
-      continue;
-    }
-
-    // Parse with tree-sitter
-    let rootNode: Parser.SyntaxNode;
-    try {
-      parser.setLanguage(grammar);
-      const tree = parseOriginalSource(parser, source, options.parserLimits);
-      rootNode = tree.rootNode;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      options.onFileReport?.({ path: file.path, status: 'failed', reason: `parse: ${msg}` });
-      options.parserLimits?.signal?.throwIfAborted();
-      process.stderr.write(`[nexus] SKIP parse error: ${file.path}: ${msg}\n`);
-      continue;
-    }
-
-    // Extract definitions, imports, heritage, calls, and re-exports — dispatch by language
-    let extracted: CommonExtractionResult;
-    try {
-      extracted = runExtractor(
-        lang,
-        rootNode,
-        file.path,
-        createHash('sha256').update(source).digest('hex'),
-        options.publicationGeneration,
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      options.onFileReport?.({ path: file.path, status: 'failed', reason: `extract: ${msg}` });
-      process.stderr.write(`[nexus] SKIP extract error: ${file.path}: ${msg}\n`);
-      continue;
-    }
-
-    options.onFileReport?.({ path: file.path, status: 'analyzed' });
-
-    // Register in SymbolTable
+    // Capture the cache entry before any later phase mutates these nodes.
+    if (fresh) options.onFileExtracted?.(fresh);
+    emitReport({ path: file.path, status: 'analyzed' });
+    const extracted = fileExtraction.extraction;
     registerInSymbolTable(extracted.definitions, symbolTable);
-
-    // Add nodes to graph
-    for (const node of extracted.definitions) {
-      graph.addNode(node);
-    }
-
-    // Emit defines edges: file → each symbol it declares (T1836)
+    for (const node of extracted.definitions) graph.addNode(node);
     emitDefinesEdges(file.path, extracted.definitions, graph);
-
-    // Collect imports for batch resolution
-    for (const imp of extracted.imports) {
-      allExtractedImports.push(imp);
-    }
-
-    // Collect re-exports for barrel map construction (T617)
-    if (extracted.reExports) {
-      for (const re of extracted.reExports) {
-        allReExports.push(re);
-      }
-    }
-
-    // Collect heritage for deferred Phase 3c processing
-    for (const h of extracted.heritage) {
-      allHeritage.push(h);
-    }
-
-    // Collect calls for deferred Phase 3e resolution
-    for (const c of extracted.calls) {
-      allCalls.push(c);
-    }
-
-    // Collect access sites for deferred Phase 3f resolution (T1837)
-    if (extracted.accesses) {
-      for (const a of extracted.accesses) {
-        allAccesses.push(a);
-      }
-    }
-
-    // Yield to event loop periodically on large repos
-    if (filesProcessed % 100 === 0) {
-      await Promise.resolve();
-    }
-  }
-
-  // Final stderr progress update
-  if (!onProgress && total > 0) {
-    process.stderr.write(`[nexus] Parsing: ${total}/${total} files (100%)\n`);
+    allExtractedImports.push(...extracted.imports);
+    allReExports.push(...extracted.reExports);
+    allHeritage.push(...extracted.heritage);
+    allCalls.push(...extracted.calls);
+    allAccesses.push(...extracted.accesses);
   }
 
   // Batch-resolve all extracted imports (populates namedImportMap for Phase 3e)
@@ -1268,13 +1139,19 @@ export async function runParseLoop(
     });
   }
 
-  // Build barrel export map from collected re-export records (T617)
+  // Build barrel export map from collected re-export records (T617).
   // Runs AFTER processExtractedImports so the resolve cache is warmed up.
   const barrelMap = buildBarrelExportMap(allReExports, importCtx, tsconfigPaths);
   process.stderr.write(
     `[nexus] Barrel map: ${barrelMap.size} barrel files with re-export chains\n`,
   );
 
-  // Return accumulated heritage, calls, accesses, and barrel map
-  return { allHeritage, allCalls, allAccesses, barrelMap };
+  return {
+    allHeritage,
+    allCalls,
+    allAccesses,
+    barrelMap,
+    parsedFileCount: toParse.length,
+    reusedFileCount: parseableFiles.length - toParse.length,
+  };
 }

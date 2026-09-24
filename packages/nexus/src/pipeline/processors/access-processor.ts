@@ -263,13 +263,26 @@ function isWriteTarget(node: SyntaxNode): boolean {
     parent.childForFieldName('left') ??
     parent.childForFieldName('left_side') ??
     parent.childForFieldName('pattern');
-  if (leftNode && leftNode === node) return true;
+  if (leftNode && sameSyntaxNode(leftNode, node)) return true;
 
   // For assignment nodes without a named `left` field, the first named child
   // is conventionally the left-hand side.
-  if (!leftNode && parent.namedChild(0) === node) return true;
+  const first = parent.namedChild(0);
+  if (!leftNode && first && sameSyntaxNode(first, node)) return true;
 
   return false;
+}
+
+/**
+ * Compare two syntax nodes by their source span, never by wrapper identity.
+ *
+ * node-tree-sitter hands out a JS wrapper per lookup and only sometimes returns
+ * a cached one, so `a === b` for the same node depended on process state: two
+ * full rebuilds of identical Rust sources disagreed on whether a field was
+ * written (T12315). Within one parent, a span identifies a child.
+ */
+function sameSyntaxNode(a: SyntaxNode, b: SyntaxNode): boolean {
+  return a.startIndex === b.startIndex && a.endIndex === b.endIndex;
 }
 
 // ---------------------------------------------------------------------------

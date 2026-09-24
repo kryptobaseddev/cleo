@@ -1104,28 +1104,37 @@ const analyzeCommand = defineCommand({
       description:
         'Comma-separated relative nested repository/worktree paths explicitly included in this project index',
     },
+    full: {
+      type: 'boolean',
+      description:
+        'Parse every file instead of reusing unchanged files (default: incremental, falling back to full with a stated reason)',
+    },
     incremental: {
       type: 'boolean',
-      description: 'Skip unchanged indexes; atomically rebuild the full graph when sources change',
+      description:
+        'Deprecated no-op: incremental analysis is now the default (use --full to rebuild)',
     },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
-    const isIncremental = !!args.incremental;
+    const full = !!args.full;
     const ctx = getFormatContext();
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
 
-    humanInfo(`[nexus] Analyzing: ${repoPath}${isIncremental ? ' (incremental)' : ''}`);
-    if (!isIncremental)
-      humanInfo('[nexus] Staging replacement graph; current index remains available...');
+    if (args.incremental)
+      humanWarn(
+        '[nexus] --incremental is deprecated and has no effect: incremental is the default.',
+      );
+    humanInfo(`[nexus] Analyzing: ${repoPath}${full ? ' (full rebuild)' : ''}`);
+    humanInfo('[nexus] Staging replacement graph; current index remains available...');
 
     try {
       const result = await runNexusAnalysis({
         repoPath,
         projectIdOverride,
-        incremental: isIncremental,
+        full,
         includedRepositories: args['include-repositories']
           ?.split(',')
           .map((entry) => entry.trim())
@@ -1144,11 +1153,18 @@ const analyzeCommand = defineCommand({
       humanInfo(`[nexus] nexus-bridge.md refreshed at ${repoPath}/.cleo/nexus-bridge.md`);
       humanInfo('[nexus] Project registered/updated in multi-project registry.');
 
+      humanInfo(
+        `[nexus] Mode: ${result.summary.mode} — ${result.summary.reason} ` +
+          `(parsed ${result.summary.parsedFiles}, reused ${result.summary.reusedFiles})`,
+      );
       cliOutput(
         {
           projectId: result.projectId,
           repoPath,
-          incremental: isIncremental,
+          incremental: result.incremental,
+          mode: result.summary.mode,
+          reason: result.summary.reason,
+          summary: result.summary,
           nodeCount: result.nodeCount,
           relationCount: result.relationCount,
           fileCount: result.fileCount,
