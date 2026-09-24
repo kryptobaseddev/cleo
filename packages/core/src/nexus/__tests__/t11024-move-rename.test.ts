@@ -107,8 +107,9 @@ describe('nexusMoveProject', () => {
     await mkProj(md, pid);
     await reg(md, pid, 'mdt');
     const r = await nexusMoveProject(pid, md);
-    expect(r.brainDbPath).toBe(join(resolve(md), '.cleo', 'brain.db'));
-    expect(r.tasksDbPath).toBe(join(resolve(md), '.cleo', 'tasks.db'));
+    // T12324: both columns name the live consolidated store at the new root.
+    expect(r.brainDbPath).toBe(join(resolve(md), '.cleo', 'cleo.db'));
+    expect(r.tasksDbPath).toBe(join(resolve(md), '.cleo', 'cleo.db'));
   });
   it('AC3: nexusReconcile called as final step', async () => {
     const pid = randomUUID();
@@ -305,8 +306,8 @@ describe('nexusReconcile Scenario 2', () => {
     expect(r.status).toBe('path_updated');
     const p = await nexusGetProject('s2');
     expect(p).not.toBeNull();
-    expect(p!.brainDbPath).toBe(join(resolve(md), '.cleo', 'brain.db'));
-    expect(p!.tasksDbPath).toBe(join(resolve(md), '.cleo', 'tasks.db'));
+    expect(p!.brainDbPath).toBe(join(resolve(md), '.cleo', 'cleo.db'));
+    expect(p!.tasksDbPath).toBe(join(resolve(md), '.cleo', 'cleo.db'));
   });
   it('idempotent', async () => {
     const pid = randomUUID();

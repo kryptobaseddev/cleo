@@ -4,13 +4,31 @@
  * Purges project_registry rows matching configurable path/status criteria.
  * Supports dry-run mode and returns a summary result.
  *
+ * T12324: every run classifies the whole registry (missing path, temp path,
+ * test path), and an applied run removes the matched rows together with their
+ * `nexus_project_id_aliases` rows and a `nexus_audit_log` receipt in ONE
+ * transaction on the GLOBAL registry store — the store `--vacuum` compacts.
+ *
  * @task T1473
+ * @task T12324
  */
 
+import { randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
+import type {
+  NexusProjectsCleanReason,
+  NexusProjectsCleanReceipt,
+  NexusProjectsCleanRemoval,
+  NexusProjectsCleanResult,
+  NexusRegistryClassification,
+} from '@cleocode/contracts';
+import { inArray, sql } from 'drizzle-orm';
+import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { getCleoHome } from '../paths.js';
+import { isEphemeralPath } from './registry-hygiene.js';
 
 /** Thrown when no filter criteria are provided to cleanProjects. */
 export class NoCriteriaError extends Error {
@@ -43,9 +61,9 @@ export interface CleanProjectsOptions {
   dryRun: boolean;
   /** JS regex pattern matched against project_path. */
   pattern?: string;
-  /** Match paths containing a .temp/ segment. */
+  /** Match paths containing a .temp/ segment or under the OS temp directory (T12324). */
   includeTemp?: boolean;
-  /** Match paths containing tmp/test/fixture/scratch/sandbox segments. */
+  /** Match paths containing tmp/test(s)/__tests__/fixture(s)/scratch/sandbox segments. */
   includeTests?: boolean;
   /** Match rows where health_status is 'unhealthy'. */
   matchUnhealthy?: boolean;
@@ -61,7 +79,7 @@ export interface CleanProjectsOptions {
   matchPolluted?: boolean;
   /** After DB delete, `rm -rf` each matched path that still exists on disk (T9117). */
   removeFs?: boolean;
-  /** After DB delete, run sqlite VACUUM on nexus.db to reclaim space (T9117). */
+  /** After delete, VACUUM the GLOBAL registry store to reclaim space (T9117 · T12324). */
   vacuum?: boolean;
   /**
    * When matchPolluted is set and dryRun is false, write an audit JSONL to
@@ -70,30 +88,12 @@ export interface CleanProjectsOptions {
   auditLog?: boolean;
 }
 
-/** Result envelope for {@link cleanProjects}. */
-export interface CleanProjectsResult {
-  /** Whether this was a dry-run (no deletions performed). */
-  dryRun: boolean;
-  /** Number of rows matching criteria. */
-  matched: number;
-  /** Number of rows actually deleted (0 when dryRun is true). */
-  purged: number;
-  /** Rows remaining after deletion. */
-  remaining: number;
-  /** Sample of matched project paths (first 10). */
-  sample: string[];
-  /** Total registry rows scanned. */
-  totalCount: number;
-  /** Number of on-disk paths successfully removed when `removeFs` is set (T9117). */
-  fsRemoved?: number;
-  /** Number of on-disk paths that failed to remove when `removeFs` is set (T9117). */
-  fsFailed?: number;
-  /** Bytes freed by VACUUM when `vacuum` is set (T9117). */
-  vacuumBytesFreed?: number;
-}
+/** Result envelope for {@link cleanProjects} (contract: `NexusProjectsCleanResult`). */
+export type CleanProjectsResult = NexusProjectsCleanResult;
 
 const TEMP_RE = /(^|\/)\.temp(\/|$)/;
-const TESTS_RE = /(^|\/)(tmp|test|fixture|scratch|sandbox)(\/|$)/;
+// T12324: `__tests__` and plural `tests`/`fixtures` are fixture homes too.
+const TESTS_RE = /(^|\/)(tmp|tests?|__tests__|fixtures?|scratch|sandbox)(\/|$)/;
 
 function portablePathForMatch(p: string): string {
   return p.replace(/\\/g, '/');
@@ -103,16 +103,46 @@ function pathSegmentCount(p: string): number {
   return portablePathForMatch(p).split('/').filter(Boolean).length;
 }
 
+/** Registry row fields the clean pass reads. */
+interface RegistryRow {
+  projectId: string;
+  projectPath: string;
+  healthStatus: string;
+  lastIndexed: string | null;
+}
+
+/** Report whether a registry path is temp-like (`.temp/` segment or OS temp root). */
+function isTempPath(projectPath: string): boolean {
+  return TEMP_RE.test(portablePathForMatch(projectPath)) || isEphemeralPath(projectPath);
+}
+
+/** Report whether a registry path carries a test-fixture segment. */
+function isTestPath(projectPath: string): boolean {
+  return TESTS_RE.test(portablePathForMatch(projectPath));
+}
+
+/** Total bytes of the store's pages, read before and after VACUUM. */
+function storeBytes(db: NodeSQLiteDatabase): number {
+  const pages = db.get<{ page_count: number }>(sql`PRAGMA page_count`).page_count;
+  const size = db.get<{ page_size: number }>(sql`PRAGMA page_size`).page_size;
+  return pages * size;
+}
+
 /**
  * Bulk-purge project registry rows matching configurable criteria.
  *
  * At least one of `pattern`, `includeTemp`, `includeTests`, `matchUnhealthy`,
- * or `matchNeverIndexed` must be set — otherwise throws {@link NoCriteriaError}.
- * If `pattern` is set but invalid, throws {@link InvalidPatternError}.
- * When `dryRun` is true, performs only a preview scan with no deletions.
+ * `matchNeverIndexed`, `matchOrphaned` or `matchPolluted` must be set —
+ * otherwise throws {@link NoCriteriaError}. If `pattern` is set but invalid,
+ * throws {@link InvalidPatternError}. When `dryRun` is true, performs only a
+ * preview scan with no deletions; the classification is reported either way.
+ *
+ * An applied run opens the GLOBAL registry store directly and, in one
+ * transaction, deletes the matched rows, every alias pointing at them, any
+ * pre-existing orphan alias, and writes the audit receipt.
  *
  * @param opts - Clean options.
- * @returns Clean result with match count and sample.
+ * @returns Clean result with match count, classification, and receipt.
  * @throws {NoCriteriaError} When no filter criteria are provided.
  * @throws {InvalidPatternError} When `opts.pattern` is not a valid regex.
  *
@@ -143,47 +173,29 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     }
   }
 
-  /**
-   * Return true if a project matches any active criteria.
-   */
-  function matchesCriteria(
-    projectPath: string,
-    healthStatus: string,
-    lastIndexed: string | null,
-  ): boolean {
-    const normalizedProjectPath = portablePathForMatch(projectPath);
-    if (patternRegex?.test(projectPath) || patternRegex?.test(normalizedProjectPath)) return true;
-    if (opts.includeTemp && TEMP_RE.test(normalizedProjectPath)) return true;
-    if (opts.includeTests && TESTS_RE.test(normalizedProjectPath)) return true;
-    if (opts.matchUnhealthy && healthStatus === 'unhealthy') return true;
-    if (opts.matchNeverIndexed && lastIndexed === null) return true;
-    if (opts.matchOrphaned && !existsSync(projectPath)) return true;
-    return false;
-  }
+  const { getNexusRegistryDb, getNexusRegistryDbPath } = await import('../store/nexus-sqlite.js');
+  const {
+    projectRegistry: regTable,
+    projectIdAliases: aliasTable,
+    projectPaths: pathTable,
+    nexusAuditLog: auditTable,
+  } = await import('../store/schema/nexus-schema.js');
+  // T12324: the registry lives in the GLOBAL store. Opening it directly (not
+  // through the project handle's ATTACH) makes `VACUUM` compact the store the
+  // rows were deleted from.
+  const cleoHome = getCleoHome();
+  const storePath = getNexusRegistryDbPath(cleoHome);
+  const db = await getNexusRegistryDb(cleoHome);
 
-  const { getNexusDb } = await import('../store/nexus-sqlite.js');
-  const { projectRegistry: regTable, nexusAuditLog: auditTable } = await import(
-    '../store/schema/nexus-schema.js'
-  );
-  const { randomUUID } = await import('node:crypto');
-  const { inArray, sql } = await import('drizzle-orm');
-  const db = await getNexusDb();
-
-  type RegistryRow = {
-    projectId: string;
-    projectPath: string;
-    healthStatus: string;
-    lastIndexed: string | null;
-  };
-
-  const allRows = (await db
+  const allRows: RegistryRow[] = db
     .select({
       projectId: regTable.projectId,
       projectPath: regTable.projectPath,
       healthStatus: regTable.healthStatus,
       lastIndexed: regTable.lastIndexed,
     })
-    .from(regTable)) as RegistryRow[];
+    .from(regTable)
+    .all();
 
   const pollutedIds: Set<string> = new Set();
   if (opts.matchPolluted) {
@@ -221,15 +233,52 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     }
   }
 
-  const matches = allRows.filter(
-    (row) =>
-      matchesCriteria(row.projectPath, row.healthStatus, row.lastIndexed) ||
-      pollutedIds.has(row.projectId),
-  );
+  const registryIds = new Set(allRows.map((row) => row.projectId));
+  const aliasRows = db
+    .select({ legacyId: aliasTable.legacyId, canonicalId: aliasTable.canonicalId })
+    .from(aliasTable)
+    .all();
+  const classification: NexusRegistryClassification = {
+    total: allRows.length,
+    missingPath: 0,
+    tempPath: 0,
+    testPath: 0,
+    stale: 0,
+    retained: 0,
+    aliases: aliasRows.length,
+    orphanAliases: aliasRows.filter((alias) => !registryIds.has(alias.canonicalId)).length,
+  };
+
+  const matchedByReason: Partial<Record<NexusProjectsCleanReason, number>> = {};
+  const removals: NexusProjectsCleanRemoval[] = [];
+  for (const row of allRows) {
+    const missing = !existsSync(row.projectPath);
+    const temp = isTempPath(row.projectPath);
+    const test = isTestPath(row.projectPath);
+    if (missing) classification.missingPath++;
+    if (temp) classification.tempPath++;
+    if (test) classification.testPath++;
+    if (missing || temp || test) classification.stale++;
+
+    const reasons: NexusProjectsCleanReason[] = [];
+    const normalizedProjectPath = portablePathForMatch(row.projectPath);
+    if (patternRegex?.test(row.projectPath) || patternRegex?.test(normalizedProjectPath))
+      reasons.push('pattern');
+    if (opts.includeTemp && temp) reasons.push('temp-path');
+    if (opts.includeTests && test) reasons.push('test-path');
+    if (opts.matchUnhealthy && row.healthStatus === 'unhealthy') reasons.push('unhealthy');
+    if (opts.matchNeverIndexed && row.lastIndexed === null) reasons.push('never-indexed');
+    if (opts.matchOrphaned && missing) reasons.push('missing-path');
+    if (pollutedIds.has(row.projectId)) reasons.push('path-divergent-duplicate');
+    if (reasons.length === 0) continue;
+    for (const reason of reasons) matchedByReason[reason] = (matchedByReason[reason] ?? 0) + 1;
+    removals.push({ projectId: row.projectId, projectPath: row.projectPath, reasons });
+  }
+  classification.retained = classification.total - classification.stale;
 
   const totalCount = allRows.length;
-  const matched = matches.length;
-  const sample = matches.slice(0, 10).map((r) => path.resolve(r.projectPath));
+  const matched = removals.length;
+  const sample = removals.slice(0, 10).map((r) => path.resolve(r.projectPath));
 
   if (opts.dryRun || matched === 0) {
     return {
@@ -239,11 +288,13 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
       remaining: totalCount,
       sample,
       totalCount,
+      classification,
+      matchedByReason,
     };
   }
 
   // Write audit JSONL before deletion (T9149 matchPolluted mode)
-  if (opts.matchPolluted && opts.auditLog && matches.length > 0) {
+  if (opts.matchPolluted && opts.auditLog && removals.length > 0) {
     try {
       const { appendFile: appendFn, mkdir: mkdirFn } = await import('node:fs/promises');
       const { homedir } = await import('node:os');
@@ -251,7 +302,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
       const auditDir = path.join(homedir(), '.local', 'state', 'cleo');
       await mkdirFn(auditDir, { recursive: true });
       const auditPath = path.join(auditDir, `nexus-cleanup-${ts}.jsonl`);
-      const records = matches
+      const records = removals
         .map((r) =>
           JSON.stringify({
             ts: new Date().toISOString(),
@@ -267,14 +318,61 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     }
   }
 
-  // Delete matched rows in chunks to keep SQL parameter counts safe (default
-  // SQLite limit is 999 bound variables per statement).
-  const CHUNK = 500;
-  const idsToDelete = matches.map((r) => r.projectId);
-  for (let i = 0; i < idsToDelete.length; i += CHUNK) {
-    const slice = idsToDelete.slice(i, i + CHUNK);
-    await db.delete(regTable).where(inArray(regTable.projectId, slice));
-  }
+  // Rows, their aliases, pre-existing orphan aliases, and the audit receipt
+  // commit together or not at all. Chunked to keep SQL parameter counts safe
+  // (default SQLite limit is 999 bound variables per statement).
+  const CHUNK = 400;
+  const idsToDelete = removals.map((r) => r.projectId);
+  const auditId = randomUUID();
+  const { aliasesRemoved, orphanAliasesRemoved } = db.transaction(
+    (tx) => {
+      let purgedAliases = 0;
+      for (let i = 0; i < idsToDelete.length; i += CHUNK) {
+        const slice = idsToDelete.slice(i, i + CHUNK);
+        tx.delete(regTable).where(inArray(regTable.projectId, slice)).run();
+        purgedAliases += Number(
+          tx.delete(aliasTable).where(inArray(aliasTable.canonicalId, slice)).run().changes,
+        );
+      }
+      // T12354: path-map rows go with their project, and none may outlive it.
+      tx.run(
+        sql`DELETE FROM ${pathTable} WHERE ${pathTable.projectId} NOT IN (SELECT ${regTable.projectId} FROM ${regTable})`,
+      );
+      const orphans = Number(
+        tx.run(
+          sql`DELETE FROM ${aliasTable} WHERE ${aliasTable.canonicalId} NOT IN (SELECT ${regTable.projectId} FROM ${regTable})`,
+        ).changes,
+      );
+      tx.insert(auditTable)
+        .values({
+          id: auditId,
+          action: 'projects.clean',
+          domain: 'nexus',
+          operation: 'projects.clean',
+          success: 1,
+          detailsJson: JSON.stringify({
+            pattern: opts.pattern ?? null,
+            presets: {
+              includeTemp: opts.includeTemp,
+              includeTests: opts.includeTests,
+              matchUnhealthy: opts.matchUnhealthy,
+              matchNeverIndexed: opts.matchNeverIndexed,
+              matchOrphaned: opts.matchOrphaned,
+              removeFs: opts.removeFs,
+              vacuum: opts.vacuum,
+            },
+            count: matched,
+            aliasesRemoved: purgedAliases,
+            orphanAliasesRemoved: orphans,
+            sample,
+            removed: removals,
+          }),
+        })
+        .run();
+      return { aliasesRemoved: purgedAliases, orphanAliasesRemoved: orphans };
+    },
+    { behavior: 'immediate' },
+  );
 
   const remaining = totalCount - matched;
 
@@ -286,7 +384,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   if (opts.removeFs) {
     fsRemoved = 0;
     fsFailed = 0;
-    for (const row of matches) {
+    for (const row of removals) {
       const p = row.projectPath;
       // Refuse to delete suspiciously short or root-ish paths even if the DB
       // says so. Anything < 8 chars or with fewer than 3 path segments under
@@ -310,53 +408,31 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     }
   }
 
-  // Optional VACUUM to reclaim disk space after large purges.
+  // Optional VACUUM of the GLOBAL registry store after large purges. The WAL
+  // is checkpointed so the file on disk actually shrinks.
+  let vacuum: NexusProjectsCleanReceipt['vacuum'];
   let vacuumBytesFreed: number | undefined;
   if (opts.vacuum) {
-    let beforeBytes = 0;
-    let afterBytes = 0;
     try {
-      const { statSync: stat } = await import('node:fs');
-      const { getNexusDbPath } = await import('../store/nexus-sqlite.js');
-      const dbPath = getNexusDbPath();
-      beforeBytes = stat(dbPath).size;
-      await db.run(sql`VACUUM`);
-      afterBytes = stat(dbPath).size;
+      const beforeBytes = storeBytes(db);
+      db.run(sql`VACUUM`);
+      db.run(sql`PRAGMA wal_checkpoint(TRUNCATE)`);
+      const afterBytes = storeBytes(db);
+      vacuum = { beforeBytes, afterBytes };
       vacuumBytesFreed = Math.max(0, beforeBytes - afterBytes);
     } catch {
       vacuumBytesFreed = 0;
     }
   }
 
-  // Audit log (best-effort)
-  try {
-    await db.insert(auditTable).values({
-      id: randomUUID(),
-      action: 'projects.clean',
-      domain: 'nexus',
-      operation: 'projects.clean',
-      success: 1,
-      detailsJson: JSON.stringify({
-        pattern: opts.pattern ?? null,
-        presets: {
-          includeTemp: opts.includeTemp,
-          includeTests: opts.includeTests,
-          matchUnhealthy: opts.matchUnhealthy,
-          matchNeverIndexed: opts.matchNeverIndexed,
-          matchOrphaned: opts.matchOrphaned,
-          removeFs: opts.removeFs,
-          vacuum: opts.vacuum,
-        },
-        count: matched,
-        fsRemoved,
-        fsFailed,
-        vacuumBytesFreed,
-        sample,
-      }),
-    });
-  } catch {
-    // Audit failure is non-fatal
-  }
+  const receipt: NexusProjectsCleanReceipt = {
+    auditId,
+    storePath,
+    removed: removals,
+    aliasesRemoved,
+    orphanAliasesRemoved,
+    ...(vacuum !== undefined ? { vacuum } : {}),
+  };
 
   return {
     dryRun: false,
@@ -365,6 +441,9 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     remaining,
     sample,
     totalCount,
+    classification,
+    matchedByReason,
+    receipt,
     ...(fsRemoved !== undefined ? { fsRemoved } : {}),
     ...(fsFailed !== undefined ? { fsFailed } : {}),
     ...(vacuumBytesFreed !== undefined ? { vacuumBytesFreed } : {}),

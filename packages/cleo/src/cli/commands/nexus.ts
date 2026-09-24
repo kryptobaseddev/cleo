@@ -18,11 +18,23 @@ import { statSync } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { ExitCode, type NexusTaskSymbolsResult } from '@cleocode/contracts';
+import {
+  ExitCode,
+  type NexusProjectsCleanResult,
+  type NexusTaskSymbolsResult,
+} from '@cleocode/contracts';
 import { getProjectRoot } from '@cleocode/core';
 import { getSymbolImpact } from '@cleocode/core/nexus';
 import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
 import { exportNexusGraph } from '@cleocode/core/nexus/export.js';
+import {
+  assessNexusFreshnessForQuery,
+  assessNexusIndexFreshness,
+  discloseNexusFreshness,
+  judgeSymbolFiles,
+  querySymbolFiles,
+  withNexusFreshnessMeta,
+} from '@cleocode/core/nexus/freshness.js';
 import { KnowledgeSymbolAmbiguityError } from '@cleocode/core/nexus/knowledge.js';
 import { runNexusWiki } from '@cleocode/core/nexus/wiki-orchestrator.js';
 import { defineCommand, showUsage } from 'citty';
@@ -152,6 +164,11 @@ const statusCommand = defineCommand({
       type: 'string',
       description: 'Override the project ID (default: auto-detected from path)',
     },
+    references: {
+      type: 'boolean',
+      description:
+        'Include every retained unresolved/unmodeled reference (large; the default reports referenceCount)',
+    },
     json: {
       type: 'boolean',
       description: 'Output as JSON (LAFS envelope format)',
@@ -279,12 +296,15 @@ const statusCommand = defineCommand({
     }
 
     try {
-      const [{ getNexusDb, nexusSchema }, { getIndexStats }, { readKnowledgeIndexAssessment }] =
-        await Promise.all([
-          import('@cleocode/core/store/nexus-sqlite' as string),
-          import('@cleocode/nexus/pipeline' as string),
-          import('@cleocode/core/nexus/knowledge' as string),
-        ]);
+      const [
+        { getNexusDb, nexusSchema },
+        { getIndexStats },
+        { readKnowledgeIndexAssessment, readKnowledgeIndexReferences },
+      ] = await Promise.all([
+        import('@cleocode/core/store/nexus-sqlite' as string),
+        import('@cleocode/nexus/pipeline' as string),
+        import('@cleocode/core/nexus/knowledge' as string),
+      ]);
 
       const projectId =
         projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
@@ -294,12 +314,31 @@ const statusCommand = defineCommand({
         nexusRelations: nexusSchema.nexusRelations,
       };
 
-      const stats = await getIndexStats(projectId, repoPath, db, tables);
-      const assessment = await readKnowledgeIndexAssessment(currentRoot);
+      // T12316: the manifest-based check also counts ADDED files, which a scan
+      // of indexed file nodes cannot see; prefer it whenever it is available.
+      const freshness = await assessNexusIndexFreshness(currentRoot);
+      // T12348: when the manifest answered, re-hashing every indexed file would
+      // only produce a staleFileCount that is overridden below.
+      const stats = await getIndexStats(projectId, repoPath, db, tables, {
+        staleScan: freshness.status === 'unknown',
+      });
+      // T12348: the summary by default; the reference list only on request.
+      const summary = await readKnowledgeIndexAssessment(currentRoot);
+      const assessment =
+        summary && args.references
+          ? { ...summary, references: await readKnowledgeIndexReferences(currentRoot) }
+          : summary;
       const durationMs = Date.now() - startTime;
 
       cliOutput(
-        { projectId, repoPath, ...stats, assessment },
+        {
+          projectId,
+          repoPath,
+          ...stats,
+          ...(freshness.status === 'unknown' ? {} : { staleFileCount: freshness.staleFileCount }),
+          freshness,
+          assessment,
+        },
         {
           command: 'nexus-status',
           operation: 'nexus.status',
@@ -1026,18 +1065,25 @@ const impactCommand = defineCommand({
     const maxDepth = Math.min(parseInt(args.depth as string, 10), 5);
     const symbolName = args.symbol as string;
     try {
+      // T12316: disclose how current the graph behind this answer is.
+      const assessment = await assessNexusFreshnessForQuery(repoPath);
       const result = await getSymbolImpact(symbolName, projectId, repoPath, {
         maxDepth,
         why: whyFlag,
       });
+      const freshness = judgeSymbolFiles(assessment, querySymbolFiles(result));
+      discloseNexusFreshness('nexus impact', freshness);
       const durationMs = Date.now() - startTime;
       cliOutput({ ...result, _symbolName: symbolName, _why: whyFlag } as Record<string, unknown>, {
         command: 'nexus-impact',
         operation: 'nexus.impact',
-        extensions: {
-          duration_ms: durationMs,
-          ...buildNexusMetaExtensions('impact', { symbol: symbolName, projectId }),
-        },
+        extensions: withNexusFreshnessMeta(
+          {
+            duration_ms: durationMs,
+            ...buildNexusMetaExtensions('impact', { symbol: symbolName, projectId }),
+          },
+          freshness,
+        ),
       });
     } catch (err) {
       const code =
@@ -1104,28 +1150,37 @@ const analyzeCommand = defineCommand({
       description:
         'Comma-separated relative nested repository/worktree paths explicitly included in this project index',
     },
+    full: {
+      type: 'boolean',
+      description:
+        'Parse every file instead of reusing unchanged files (default: incremental, falling back to full with a stated reason)',
+    },
     incremental: {
       type: 'boolean',
-      description: 'Skip unchanged indexes; atomically rebuild the full graph when sources change',
+      description:
+        'Deprecated no-op: incremental analysis is now the default (use --full to rebuild)',
     },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
-    const isIncremental = !!args.incremental;
+    const full = !!args.full;
     const ctx = getFormatContext();
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
 
-    humanInfo(`[nexus] Analyzing: ${repoPath}${isIncremental ? ' (incremental)' : ''}`);
-    if (!isIncremental)
-      humanInfo('[nexus] Staging replacement graph; current index remains available...');
+    if (args.incremental)
+      humanWarn(
+        '[nexus] --incremental is deprecated and has no effect: incremental is the default.',
+      );
+    humanInfo(`[nexus] Analyzing: ${repoPath}${full ? ' (full rebuild)' : ''}`);
+    humanInfo('[nexus] Staging replacement graph; current index remains available...');
 
     try {
       const result = await runNexusAnalysis({
         repoPath,
         projectIdOverride,
-        incremental: isIncremental,
+        full,
         includedRepositories: args['include-repositories']
           ?.split(',')
           .map((entry) => entry.trim())
@@ -1144,11 +1199,18 @@ const analyzeCommand = defineCommand({
       humanInfo(`[nexus] nexus-bridge.md refreshed at ${repoPath}/.cleo/nexus-bridge.md`);
       humanInfo('[nexus] Project registered/updated in multi-project registry.');
 
+      humanInfo(
+        `[nexus] Mode: ${result.summary.mode} — ${result.summary.reason} ` +
+          `(parsed ${result.summary.parsedFiles}, reused ${result.summary.reusedFiles})`,
+      );
       cliOutput(
         {
           projectId: result.projectId,
           repoPath,
-          incremental: isIncremental,
+          incremental: result.incremental,
+          mode: result.summary.mode,
+          reason: result.summary.reason,
+          summary: result.summary,
           nodeCount: result.nodeCount,
           relationCount: result.relationCount,
           fileCount: result.fileCount,
@@ -1405,11 +1467,12 @@ const projectsCleanCommand = defineCommand({
     },
     'include-temp': {
       type: 'boolean',
-      description: 'Preset: match paths containing a .temp/ segment',
+      description: 'Preset: match paths containing a .temp/ segment or under the OS temp directory',
     },
     'include-tests': {
       type: 'boolean',
-      description: 'Preset: match paths containing tmp/test/fixture/scratch/sandbox segments',
+      description:
+        'Preset: match paths containing tmp/test(s)/__tests__/fixture(s)/scratch/sandbox segments',
     },
     unhealthy: {
       type: 'boolean',
@@ -1430,7 +1493,8 @@ const projectsCleanCommand = defineCommand({
     },
     vacuum: {
       type: 'boolean',
-      description: 'After delete, run sqlite VACUUM on nexus.db to reclaim space (T9117)',
+      description:
+        'After delete, VACUUM the global registry store (<cleoHome>/cleo.db) to reclaim space',
     },
     yes: {
       type: 'boolean',
@@ -1478,13 +1542,19 @@ const projectsCleanCommand = defineCommand({
         process.exitCode = exitCode;
         return;
       }
-      const preview = previewResp.data as { matched: number; totalCount: number; sample: string[] };
-      const { matched: matchCount, totalCount, sample: samplePaths } = preview;
+      const preview = previewResp.data as NexusProjectsCleanResult;
+      const {
+        matched: matchCount,
+        totalCount,
+        sample: samplePaths,
+        classification,
+        matchedByReason,
+      } = preview;
 
       // Show preview in human mode
       if (ctx.format !== 'json') {
         cliOutput(
-          { matched: matchCount, totalCount, sample: samplePaths },
+          { matched: matchCount, totalCount, sample: samplePaths, classification },
           {
             command: 'nexus-projects-clean-preview',
             operation: 'nexus.projects.clean',
@@ -1502,6 +1572,8 @@ const projectsCleanCommand = defineCommand({
             purged: 0,
             remaining: totalCount,
             sample: samplePaths,
+            classification,
+            matchedByReason,
           },
           {
             command: 'nexus-projects-clean',
@@ -1554,15 +1626,7 @@ const projectsCleanCommand = defineCommand({
         process.exitCode = exitCode;
         return;
       }
-      const result = deleteResp.data as {
-        matched: number;
-        purged: number;
-        remaining: number;
-        sample: string[];
-        fsRemoved?: number;
-        fsFailed?: number;
-        vacuumBytesFreed?: number;
-      };
+      const result = deleteResp.data as NexusProjectsCleanResult;
       cliOutput(
         {
           dryRun: false,
@@ -1573,6 +1637,9 @@ const projectsCleanCommand = defineCommand({
           fsRemoved: result.fsRemoved,
           fsFailed: result.fsFailed,
           vacuumBytesFreed: result.vacuumBytesFreed,
+          classification: result.classification,
+          matchedByReason: result.matchedByReason,
+          receipt: result.receipt,
         },
         {
           command: 'nexus-projects-clean',

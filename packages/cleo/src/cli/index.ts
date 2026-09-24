@@ -506,6 +506,22 @@ async function runMainWithLafsEnvelope(
   const collector = new WarningCollector();
 
   await withWarningCollector(collector, async () => {
+    // T12354 — record this checkout in the registry path map and WAIT for it,
+    // BEFORE the command runs: many commands leave through process.exit (an
+    // empty `cleo list` exits 100), skipping any hook placed after them, and a
+    // detached encounter loses the race with teardown. Before this, only
+    // `init` / `nexus reconcile` — which await their write — followed a move.
+    const { recordProjectEncounter } = await import('@cleocode/core/internal');
+    try {
+      const outcome = await recordProjectEncounter();
+      if (process.env['CLEO_DEBUG'])
+        process.stderr.write(`[cleo][debug] Project encounter: ${outcome}\n`);
+    } catch (error) {
+      if (process.env['CLEO_DEBUG'])
+        process.stderr.write(
+          `[cleo][debug] Project encounter not recorded: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+    }
     try {
       await runCommand(cmd, { rawArgs });
     } catch (err) {

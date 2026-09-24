@@ -63,8 +63,9 @@
  * @see packages/core/src/store/dual-scope-db.ts — the open chokepoint that calls this
  */
 
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { VerifyMigrationResult } from '@cleocode/contracts';
 import { getLogger } from '../../logger.js';
@@ -84,6 +85,45 @@ const log = getLogger('exodus-on-open');
  * migration is already in flight.
  */
 let _exodusInProgress = false;
+
+/**
+ * Stores an explicit `cleo doctor superseded-store --reconcile` is working on
+ * in this process, by resolved path (T12355). exodus-on-open must never fire
+ * for such a store mid-reconcile: it would migrate and ARCHIVE the very legacy
+ * files the reconcile already planned to read ("unable to open database
+ * …/.cleo/tasks.db", found by the v2026.9.17 Stage A gate with
+ * CLEO_DISABLE_EXODUS_ON_OPEN unset). Scoped to the store and the reconcile's
+ * lifetime — never the env var, never other stores.
+ */
+const _reconcileInProgress = new Map<string, number>();
+
+/**
+ * Run `fn` with exodus-on-open suppressed for the store at `dbPath`.
+ *
+ * Whichever runs first, the two converge: if on-open already migrated (and
+ * archived) the legacy files, the reconcile finds no legacy source and reports
+ * nothing to do; if the reconcile ran first, the store is populated and on-open
+ * skips it. Both place every row in the table the runtime reads.
+ *
+ * @param dbPath - The project `cleo.db` being reconciled.
+ * @param fn - The reconcile.
+ * @returns `fn`'s result.
+ * @task T12355
+ */
+export async function withExodusOnOpenSuppressed<T>(
+  dbPath: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const key = resolve(dbPath);
+  _reconcileInProgress.set(key, (_reconcileInProgress.get(key) ?? 0) + 1);
+  try {
+    return await fn();
+  } finally {
+    const left = (_reconcileInProgress.get(key) ?? 1) - 1;
+    if (left <= 0) _reconcileInProgress.delete(key);
+    else _reconcileInProgress.set(key, left);
+  }
+}
 
 /**
  * Opt-out env flag. Set `CLEO_DISABLE_EXODUS_ON_OPEN=1` to skip the lazy
@@ -127,6 +167,35 @@ function safeRowCount(nativeDb: DatabaseSync, table: string): number {
  */
 function consolidatedIsEmpty(nativeDb: DatabaseSync, scope: DualScope): boolean {
   return safeRowCount(nativeDb, baseTableForScope(scope)) === 0;
+}
+
+/** Stranding warnings already emitted this process, keyed by target path. */
+const _strandedWarned = new Set<string>();
+
+/** Log a stranded-data warning once per target per process (every open would repeat it). */
+function warnStrandedOnce(dbPath: string, reason: string): void {
+  if (_strandedWarned.has(dbPath)) return;
+  _strandedWarned.add(dbPath);
+  log.warn({ dbPath }, `exodus-on-open: STRANDED LEGACY DATA — ${reason}`);
+}
+
+/** The supported remedy for a stranded scope. */
+function remedyFor(scope: DualScope): string {
+  return scope === 'project'
+    ? 'Run `cleo doctor superseded-store --reconcile --dry-run`, then `--reconcile`, to copy it in.'
+    : 'Run `cleo doctor exodus-health` and `cleo exodus migrate` to consolidate it.';
+}
+
+/**
+ * Names of this scope's legacy sources that still hold copyable rows. Only
+ * called once the consolidated store is known to be empty.
+ */
+async function strandedLegacySources(scope: DualScope, cwd: string | undefined): Promise<string[]> {
+  const { buildExodusPlan, legacySourcesHoldRows } = await import('./index.js');
+  return buildExodusPlan(cwd)
+    .sources.filter((s) => s.targetScope === scope && existsSync(s.path))
+    .filter((s) => legacySourcesHoldRows([s]))
+    .map((s) => s.name);
 }
 
 /** Recover only the inserted resources recorded by this staging operation. */
@@ -340,14 +409,33 @@ async function runExodusOnOpen(
   if (_exodusInProgress) {
     return { outcome: 'skipped', reason: 're-entrant open during active migration' };
   }
-  if (isDisabledByEnv()) {
-    return { outcome: 'skipped', reason: 'CLEO_DISABLE_EXODUS_ON_OPEN set' };
+  if (_reconcileInProgress.has(resolve(dbPath))) {
+    return {
+      outcome: 'skipped',
+      reason: 'an explicit superseded-store reconcile of this store is in progress',
+    };
   }
-
   // Fast path (unlocked): if the consolidated DB already has data, nothing to do.
   // This makes the second-open case a cheap COUNT(*) with no lock acquisition.
   if (!consolidatedIsEmpty(nativeDb, scope)) {
     return { outcome: 'skipped', reason: 'consolidated cleo.db already populated' };
+  }
+
+  // Kill-switch (T12319): honoured, but never SILENTLY. Exported machine-wide
+  // as an incident stopgap on 2026-06-04, it left ~21 projects running on an
+  // empty cleo.db while their legacy stores held every task — and nothing said
+  // so. Skip as asked, but when the skip strands real rows, say so loudly.
+  if (isDisabledByEnv()) {
+    const stranded = await strandedLegacySources(scope, cwd);
+    if (stranded.length === 0) {
+      return { outcome: 'skipped', reason: 'CLEO_DISABLE_EXODUS_ON_OPEN set' };
+    }
+    const reason =
+      `CLEO_DISABLE_EXODUS_ON_OPEN set while the consolidated ${scope} cleo.db is EMPTY and ` +
+      `legacy ${stranded.join(', ')} still hold rows — CLEO is running WITHOUT that data. ` +
+      remedyFor(scope);
+    warnStrandedOnce(dbPath, reason);
+    return { outcome: 'skipped', reason };
   }
 
   // Completion-marker gate (T11777): once this scope's cutover is recorded, the
@@ -355,7 +443,20 @@ async function runExodusOnOpen(
   // Gate on the committed MARKER rather than (only) the source-file existsSync,
   // so a re-appearing or stranded legacy DB can NEVER re-arm exodus-on-open even
   // if the consolidated base table momentarily reads empty (DHQ-052 · T11662).
+  //
+  // T12319: the marker must never HIDE data, though. An empty consolidated
+  // store beside legacy files that still hold rows contradicts the marker's own
+  // claim, so this is an abort (writes refuse via `assertWriteDurable`), not a
+  // skip — re-arming stays forbidden, and the operator gets the explicit remedy.
   if (hasExodusCompleteMarker(scope, cwd, dbPath, nativeDb)) {
+    const stranded = await strandedLegacySources(scope, cwd);
+    if (stranded.length > 0) {
+      const reason =
+        `exodus completion marker claims the ${scope} scope migrated, but its cleo.db is EMPTY ` +
+        `while legacy ${stranded.join(', ')} still hold rows. ${remedyFor(scope)}`;
+      warnStrandedOnce(dbPath, reason);
+      return { outcome: 'aborted', reason };
+    }
     return {
       outcome: 'skipped',
       reason: 'exodus completion marker present — scope already migrated (cutover sealed)',
@@ -415,10 +516,33 @@ async function runExodusOnOpen(
       );
 
       _exodusInProgress = true;
+      const bareScratch = mkdtempSync(join(tmpdir(), 'cleo-exodus-bare-'));
       try {
         // 1. Run the migration engine (copies BOTH scopes; idempotent + journaled).
-        const migrateResult = await runExodusMigrate(plan, false, (msg) =>
-          log.debug({ scope }, `exodus-on-open: ${msg}`),
+        // T12355: land every row where the RUNTIME reads it — the same targets
+        // `cleo doctor superseded-store --reconcile` uses — creating the
+        // runtime-bound tables first, since several exist only once the
+        // tasks-domain lineage has run.
+        const { buildRuntimeTargetResolver } = await import('./runtime-targets.js');
+        const resolveTarget = await buildRuntimeTargetResolver();
+        // The same unmigrated-bare-family source the reconcile reads, so the two
+        // converge whichever runs first. Never archived: it is not a legacy file.
+        const { unmigratedBareSources } = await import('./reconcile.js');
+        const bare =
+          scope === 'project'
+            ? await unmigratedBareSources(
+                dbPath,
+                resolveTarget,
+                plan.sources.find((s) => s.name === 'tasks' && existsSync(s.path))?.path,
+                bareScratch,
+              )
+            : { first: [], last: [] };
+        const migratePlan = { ...plan, sources: [...bare.first, ...plan.sources, ...bare.last] };
+        const migrateResult = await runExodusMigrate(
+          migratePlan,
+          false,
+          (msg) => log.debug({ scope }, `exodus-on-open: ${msg}`),
+          { resolveTarget, ensureRuntimeTables: true },
         );
 
         if (!migrateResult.ok) {
@@ -441,10 +565,11 @@ async function runExodusOnOpen(
         // 2. PARITY GATE (AC2): verifyMigration (T11551) — row-count + content
         //    digest + FK integrity + enum-drift equivalence legacy↔consolidated.
         const verifyResult = verifyMigration(
-          plan.sources,
+          migratePlan.sources,
           plan.projectDbPath,
           plan.globalDbPath,
           (msg) => log.debug({ scope }, `exodus-on-open verify: ${msg}`),
+          resolveTarget,
         );
 
         // Surface diagnostics (hash mismatch / source enum-drift) but do NOT
@@ -547,6 +672,7 @@ async function runExodusOnOpen(
         };
       } finally {
         _exodusInProgress = false;
+        rmSync(bareScratch, { recursive: true, force: true });
       }
     },
     // Tolerate a slow migration: a large fleet copy can take a while, so allow a

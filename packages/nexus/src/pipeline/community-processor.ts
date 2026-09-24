@@ -70,7 +70,32 @@ interface AflLeidenModule {
    * Run Leiden and return detailed result including modularity and mapping.
    * Does NOT mutate the graph.
    */
-  detailed(graph: GraphInstance, options?: { resolution?: number }): AflLeidenDetailedResult;
+  detailed(
+    graph: GraphInstance,
+    options?: { resolution?: number; rng?: () => number },
+  ): AflLeidenDetailedResult;
+}
+
+/** Fixed Leiden seed: the same graph must always yield the same communities (T12315). */
+const LEIDEN_SEED = 0x6c65_6964;
+
+/**
+ * Deterministic 32-bit PRNG (mulberry32) for Leiden's refinement step.
+ *
+ * The library defaults to `Math.random`, which made two analyses of identical
+ * source publish different community partitions — so no rebuild, incremental
+ * or full, could be compared to another, and `clusters`/`flows` answers
+ * changed between runs without any source change.
+ */
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+  };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -236,6 +261,7 @@ export async function detectCommunities(graph: KnowledgeGraph): Promise<Communit
   const t0 = performance.now();
   const details: AflLeidenDetailedResult = leidenAlgo.detailed(gGraph, {
     resolution: LEIDEN_RESOLUTION,
+    rng: seededRandom(LEIDEN_SEED),
   });
 
   const durationMs = performance.now() - t0;

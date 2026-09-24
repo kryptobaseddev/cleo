@@ -35,8 +35,18 @@ export interface AgentCredential {
   agentId: string;
   /** Human-readable display name. */
   displayName: string;
-  /** API key for authentication (`sk_live_*`). Stored encrypted at rest. */
+  /**
+   * API key for authentication (`sk_live_*`). Stored encrypted at rest (global
+   * KDF, T12352). When {@link AgentCredential.requiresReauth} is true this is
+   * NOT the real key — re-register it.
+   */
   apiKey: string;
+  /**
+   * True when the stored key is not recoverable (written before T12352, which
+   * stored a derived HMAC and discarded the key, or encrypted on another
+   * device). Re-register with `cleo agent register --id <id> --api-key <key>`.
+   */
+  requiresReauth?: boolean;
   /** Base URL of the messaging API (default: api.signaldock.io). */
   apiBaseUrl: string;
   /** Agent classification from the registry (e.g. 'code_dev', 'orchestrator'). */

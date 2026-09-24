@@ -54,6 +54,19 @@ vi.mock('../../logger.js', () => ({
   }),
 }));
 
+/**
+ * Where on-open lands each fixture table (T12355): the table the RUNTIME reads.
+ * `tasks-schema.ts` binds `architecture_decisions` and `token_usage` bare, so
+ * their rows land there — not in the consolidated `tasks_*` twins
+ * {@link FIXTURE_EXPECTED_ROWS} names, which no command reads.
+ */
+const ON_OPEN_EXPECTED_ROWS = {
+  tasks_tasks: FIXTURE_EXPECTED_ROWS.tasks_tasks,
+  architecture_decisions: FIXTURE_EXPECTED_ROWS.tasks_architecture_decisions,
+  token_usage: FIXTURE_EXPECTED_ROWS.tasks_token_usage,
+  brain_observations: FIXTURE_EXPECTED_ROWS.brain_observations,
+} as const;
+
 /** Count rows in a table of a DB opened read-only. */
 function countRows(dbPath: string, table: string): number {
   const db = new DatabaseSync(dbPath, { readOnly: true });
@@ -103,10 +116,21 @@ async function armFixture(
   // DBs on a DEDICATED connection via openDualScopeDbAtPath. Wire it to the same
   // fixture handles so the real migrate/rollback engines exercise the fixture
   // target DBs (keyed by the fixture path the engine passes).
-  vi.mocked(dualScope.openDualScopeDbAtPath).mockImplementation((scope: string, dbPath: string) => {
-    const native = dbPath === fx.globalDbPath || scope === 'global' ? globalDb : projectDb;
-    return Promise.resolve(makeFakeHandle(native) as never);
-  });
+  // Only the FIXTURE targets are faked; any other path (e.g. the throwaway
+  // fresh-project store exodus builds to recognise seed rows, T12355) opens for
+  // real, so a mock can never pass the fixture off as a fresh store.
+  const actualDualScope =
+    await vi.importActual<typeof import('../dual-scope-db.js')>('../dual-scope-db.js');
+  vi.mocked(dualScope.openDualScopeDbAtPath).mockImplementation(
+    (scope: string, dbPath: string, exodusCwd?: string, options?: never) => {
+      if (dbPath !== fx.globalDbPath && dbPath !== fx.projectDbPath)
+        return scope === 'project'
+          ? (actualDualScope.openDualScopeDbAtPath('project', dbPath, exodusCwd, options) as never)
+          : (actualDualScope.openDualScopeDbAtPath('global', dbPath, exodusCwd, options) as never);
+      const native = dbPath === fx.globalDbPath || scope === 'global' ? globalDb : projectDb;
+      return Promise.resolve(makeFakeHandle(native) as never);
+    },
+  );
   vi.mocked(dualScope.resolveDualScopeDbPath).mockImplementation((scope: string) =>
     scope === 'project' ? fx.projectDbPath : fx.globalDbPath,
   );
@@ -204,7 +228,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
 
     // PRIMARY ASSERTION (AC3): exact base-table row parity — zero deficit, the
     // 4465-tasks-preserved invariant at fixture scale.
-    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+    for (const [table, expected] of Object.entries(ON_OPEN_EXPECTED_ROWS)) {
       expect(
         countRows(fx.projectDbPath, table),
         `${table}: expected ${expected} rows after auto-migration`,
@@ -299,6 +323,10 @@ describe('exodus-on-open data-continuity (T11553)', () => {
 
     expect(result.outcome).toBe('skipped');
     expect(result.reason).toMatch(/CLEO_DISABLE_EXODUS_ON_OPEN/);
+    // T12319: the skip strands real legacy rows, so it must say so and name
+    // the remedy — never a bare "set" that hides the data.
+    expect(result.reason).toMatch(/running WITHOUT that data/);
+    expect(result.reason).toMatch(/superseded-store --reconcile/);
     // Target stays empty — no migration ran.
     expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(0);
   });
@@ -381,7 +409,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     expect(loserOutcome).toBe('skipped');
 
     // No double-copy: row counts are exactly the seeded counts, not 2×.
-    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+    for (const [table, expected] of Object.entries(ON_OPEN_EXPECTED_ROWS)) {
       expect(countRows(fx.projectDbPath, table), `${table}: no double-copy`).toBe(expected);
     }
   });
@@ -434,7 +462,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     // Every BASE table — including the FTS5 content table brain_decisions — has
     // exact row parity. The derived/meta tables were skipped (no consolidated
     // home), not counted as deficits.
-    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+    for (const [table, expected] of Object.entries(ON_OPEN_EXPECTED_ROWS)) {
       expect(countRows(fx.projectDbPath, table), `${table} parity`).toBe(expected);
     }
     expect(countRows(fx.projectDbPath, 'brain_decisions')).toBe(
@@ -466,7 +494,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
       FIXTURE_HAZARD_EXPECTED_ROWS.tasks_task_relations,
     );
     // Base parity unaffected.
-    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+    for (const [table, expected] of Object.entries(ON_OPEN_EXPECTED_ROWS)) {
       expect(countRows(fx.projectDbPath, table), `${table} parity`).toBe(expected);
     }
   });
@@ -524,12 +552,12 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     expect(retried.outcome, `retry should re-copy and succeed: ${retried.reason}`).toBe('migrated');
 
     // The retry actually re-copied every row (not a no-op resume over an empty DB).
-    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+    for (const [table, expected] of Object.entries(ON_OPEN_EXPECTED_ROWS)) {
       expect(countRows(fx.projectDbPath, table), `${table} re-copied on retry`).toBe(expected);
     }
   });
 
-  it('T11777 (c): completion marker present → SKIP even when a legacy DB is on disk', async () => {
+  it('T11777 (c) + T12319: completion marker never re-arms, but never HIDES stranded rows either', async () => {
     const { fx, projectDb, globalDb } = await armFixture(tmpDir);
     openProjectDb = projectDb;
     openGlobalDb = globalDb;
@@ -562,9 +590,13 @@ describe('exodus-on-open data-continuity (T11553)', () => {
       const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
       const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
 
-      expect(result.outcome).toBe('skipped');
+      // T12319: the marker claims a cutover the EMPTY target contradicts while
+      // the legacy file still holds rows — abort loudly (writes refuse) and
+      // name the explicit remedy, instead of silently running on an empty store.
+      expect(result.outcome).toBe('aborted');
       expect(result.reason).toMatch(/completion marker/i);
-      // No migration ran — consolidated stays empty, legacy untouched.
+      expect(result.reason).toMatch(/superseded-store --reconcile/);
+      // No migration ran — the marker still forbids re-arming; legacy untouched.
       expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(0);
       expect(countRows(fx.tasksDbPath, 'tasks')).toBe(FIXTURE_EXPECTED_ROWS.tasks_tasks);
     } finally {

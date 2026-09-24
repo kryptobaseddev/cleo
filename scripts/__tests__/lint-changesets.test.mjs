@@ -172,6 +172,22 @@ describe('scripts/lint-changesets.mjs (T9936)', () => {
     expect(stderr).toContain('t9936-bad-4.md');
   });
 
+  it('names the double-quote fix for a summary starting with a backtick (T12351)', () => {
+    const entry = (summaryLine) =>
+      ['---', 'id: t12351-tick', 'tasks: [T12351]', 'kind: fix', summaryLine, '---', ''].join('\n');
+    const bad = track(buildFixture({ 't12351-tick.md': entry('summary: `cleo show` works') }));
+    const failed = runLint(bad);
+    expect(failed.status).toBe(1);
+    expect(failed.stderr).toContain('Plain value cannot start with reserved character');
+    expect(failed.stderr).toContain(
+      "hint: 'summary' starts with the YAML-reserved character '`' — wrap the value in double quotes: summary: \"`cleo show` works\"",
+    );
+
+    // The suggested line passes: the fix is quoting, not a relaxed parser.
+    const good = track(buildFixture({ 't12351-tick.md': entry('summary: "`cleo show` works"') }));
+    expect(runLint(good).status).toBe(0);
+  });
+
   it('exits 1 and reports valid + invalid counts when mixed', () => {
     const dir = track(
       buildFixture({

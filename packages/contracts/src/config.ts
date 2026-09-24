@@ -752,6 +752,43 @@ export interface LeadRollupConfig {
 }
 
 /**
+ * Inline refresh policy for code-graph queries (T12316).
+ *
+ * Before answering, a graph query checks how far the published index lags the
+ * working tree. When only a few files are stale it refreshes the index inline
+ * (incrementally) and discloses that it did; above these bounds it answers
+ * from the stale index with a warning instead of blocking.
+ */
+export interface NexusAutoRefreshConfig {
+  /**
+   * Whether queries may refresh the index inline.
+   *
+   * @defaultValue true
+   */
+  enabled?: boolean;
+  /**
+   * Most stale files a query refreshes inline.
+   *
+   * @defaultValue 25
+   */
+  maxFiles?: number;
+  /**
+   * Wall-clock budget in milliseconds. A refresh whose recorded-cost estimate
+   * exceeds it is not started; a started one is cancelled at the budget and
+   * leaves the previous graph intact.
+   *
+   * @defaultValue 60000
+   */
+  budgetMs?: number;
+}
+
+/** Code-graph (`cleo nexus`) configuration. */
+export interface NexusConfig {
+  /** Inline refresh of a slightly stale index before graph queries answer. */
+  autoRefresh?: NexusAutoRefreshConfig;
+}
+
+/**
  * Daemon lifecycle configuration.
  *
  * Controls whether the postinstall hook is allowed to auto-enable and start
@@ -930,6 +967,13 @@ export interface CleoConfig {
    * @saga T10377
    */
   leadRollup?: LeadRollupConfig;
+  /**
+   * Code-graph behaviour — inline refresh bounds for stale-index queries.
+   *
+   * @defaultValue undefined (auto-refresh enabled, 25 files, 60 s)
+   * @task T12316
+   */
+  nexus?: NexusConfig;
   /**
    * Daemon lifecycle settings.
    *

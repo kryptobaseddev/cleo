@@ -21,6 +21,7 @@
  * @task T10132
  */
 
+import type { NexusProjectsCleanReceipt, NexusRegistryClassification } from '@cleocode/contracts';
 import { num, str } from '../_format.js';
 
 // ---------------------------------------------------------------------------
@@ -379,6 +380,12 @@ export function renderNexusProjectsClean(data: Record<string, unknown>, quiet: b
   const lines = [
     `[nexus] Purged ${purged} project(s). ${remaining} project(s) remaining in registry.`,
   ];
+  const receipt = data['receipt'] as NexusProjectsCleanReceipt | undefined;
+  if (receipt) {
+    lines.push(
+      `[nexus] Removed ${receipt.aliasesRemoved} alias(es) and ${receipt.orphanAliasesRemoved} orphan alias(es) from ${receipt.storePath} (audit ${receipt.auditId}).`,
+    );
+  }
   const fsRemoved = data['fsRemoved'];
   const fsFailed = data['fsFailed'];
   if (typeof fsRemoved === 'number') {
@@ -409,6 +416,12 @@ export function renderNexusProjectsCleanPreview(
   const lines: string[] = [
     `[nexus] Clean preview — ${matched} project(s) of ${totalCount} total match criteria:`,
   ];
+  const c = data['classification'] as NexusRegistryClassification | undefined;
+  if (c) {
+    lines.push(
+      `  registry: ${c.missingPath} missing path · ${c.tempPath} temp path · ${c.testPath} test path · ${c.stale} stale · ${c.retained} retained · ${c.orphanAliases}/${c.aliases} orphan aliases`,
+    );
+  }
   if (matched === 0) {
     lines.push('  (no matches)');
   } else {

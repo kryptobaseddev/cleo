@@ -20,10 +20,10 @@ let root: string;
 let cleoDir: string;
 
 /** Create a SQLite file with `table` populated by `rows` empty records. */
-function seed(path: string, table: string, rows: number): void {
+function seed(path: string, table: string, rows: number, firstId = 1): void {
   const db = new DatabaseSync(path); // db-open-allowed: test fixture seeding
   db.exec(`CREATE TABLE "${table}" (id INTEGER PRIMARY KEY)`);
-  for (let i = 0; i < rows; i++) db.exec(`INSERT INTO "${table}" (id) VALUES (${i + 1})`);
+  for (let i = 0; i < rows; i++) db.exec(`INSERT INTO "${table}" (id) VALUES (${i + firstId})`);
   db.close();
 }
 
@@ -75,17 +75,32 @@ describe('scanSupersededStores (T12095)', () => {
   });
 
   it('withholds the archive recommendation when the legacy file still holds rows', () => {
-    // Both populated → the migration may be incomplete. Naming it is useful;
-    // recommending deletion is not.
-    seed(join(cleoDir, 'tasks.db'), 'tasks', 7);
+    // Both populated, but the legacy rows are NOT in cleo.db (ids 5000+) → the
+    // migration is incomplete. Naming it is useful; recommending deletion is not.
+    seed(join(cleoDir, 'tasks.db'), 'tasks', 7, 5000);
     seed(join(cleoDir, LIVE_STORE_FILENAME), 'tasks_tasks', 1123);
     backdate(join(cleoDir, 'tasks.db'), 30);
     backdate(join(cleoDir, LIVE_STORE_FILENAME), 0);
 
     const [e] = scanSupersededStores(root).entries;
     expect(e?.rowsInSuperseded).toBe(7);
+    expect(e?.missingInLive).toBe(7);
     expect(e?.safeToArchive).toBe(false);
     expect(e?.reason).toContain('NOT recommended');
+    // T12319: the dead end now names the supported remedy.
+    expect(e?.reason).toContain('cleo doctor superseded-store --reconcile');
+  });
+
+  it('recommends archiving once every legacy row is present in cleo.db by key (T12319)', () => {
+    seed(join(cleoDir, 'tasks.db'), 'tasks', 7);
+    seed(join(cleoDir, LIVE_STORE_FILENAME), 'tasks_tasks', 1123);
+    backdate(join(cleoDir, 'tasks.db'), 30);
+    backdate(join(cleoDir, LIVE_STORE_FILENAME), 0);
+
+    const [e] = scanSupersededStores(root).entries;
+    expect(e?.missingInLive).toBe(0);
+    expect(e?.safeToArchive).toBe(true);
+    expect(e?.reason).toContain('reconciled');
   });
 
   it('ignores a legacy file NEWER than cleo.db', () => {

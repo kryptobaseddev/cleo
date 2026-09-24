@@ -817,6 +817,19 @@ export {
   nexusSearch,
   searchAcrossProjects,
 } from './nexus/discover.js';
+export {
+  assessNexusFreshnessForQuery,
+  assessNexusIndexFreshness,
+  discloseNexusFreshness,
+  ensureNexusIndexFresh,
+  judgeSymbolFiles,
+  NEXUS_REFRESH_COMMAND,
+  type NexusAutoRefreshPolicy,
+  type NexusFreshnessAssessment,
+  querySymbolFiles,
+  readNexusAutoRefreshPolicy,
+  withNexusFreshnessMeta,
+} from './nexus/freshness.js';
 export { installNexusAugmentHook } from './nexus/hooks-augment.js';
 // EngineResult wrapper (T1569 Wave 1)
 export { nexusImpact } from './nexus/impact.js';
@@ -1003,6 +1016,8 @@ export {
   getAgentsHome,
   getCleoGlobalCantAgentsDir,
   getProjectRoot,
+  type ProjectEncounterOutcome,
+  recordProjectEncounter,
   resolveOrCwd,
   resolveWorktreeFilePath,
   resolveWorktreeRouting,
@@ -2017,6 +2032,27 @@ export { getSticky } from './sticky/index.js';
 
 // Store — backup crypto (T363)
 export { decryptBundle, encryptBundle, isEncryptedBundle } from './store/backup-crypto.js';
+// T12326 — portable credentials: seal/unseal under a passphrase, list for re-entry,
+// redact staged snapshots, migrate the project KDF off the project path.
+export type {
+  AgentRegistryKeyAudit,
+  CredentialSources,
+  CredentialTargets,
+  CredentialTransferErrorCode,
+  ProjectRootCredentialMigration,
+} from './store/credential-transfer.js';
+export {
+  auditAgentRegistryKeys,
+  CredentialTransferError,
+  listCredentialsForReentry,
+  liveLlmCredentialStorePath,
+  migrateProjectCredentials,
+  migrateProjectCredentialsAtRoot,
+  redactCredentialCiphertexts,
+  reentryFor,
+  sealCredentials,
+  unsealCredentials,
+} from './store/credential-transfer.js';
 
 // Store (additional)
 export { resolveProjectRoot } from './store/file-utils.js';
@@ -2719,7 +2755,13 @@ export {
 export { ConduitClient } from './conduit/conduit-client.js';
 export { createConduit } from './conduit/factory.js';
 export { HttpTransport } from './conduit/http-transport.js';
-export { decrypt, decryptGlobal, encrypt, encryptGlobal } from './crypto/credentials.js';
+export {
+  decryptGlobal,
+  decryptProjectSecret,
+  encryptGlobal,
+  encryptProjectSecret,
+  getMachineKeyPath,
+} from './crypto/credentials.js';
 // T11917 (M5/AC3) — config-as-domain handler. Re-exported from the internal
 // barrel so the CLI admin DomainHandler (which imports from
 // @cleocode/core/internal) can delegate config.{get,list,validate,unset} to the

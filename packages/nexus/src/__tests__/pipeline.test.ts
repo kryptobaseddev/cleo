@@ -40,6 +40,7 @@ import { runPipeline } from '../pipeline/index.js';
 import type { DrizzleTableRef } from '../pipeline/knowledge-graph.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { detectLanguageFromPath, isIndexableFile } from '../pipeline/language-detection.js';
+import { computeExtractorFingerprint } from '../pipeline/parse-cache.js';
 import { extractOriginalSource, runParseLoop } from '../pipeline/parse-loop.js';
 import { processStructure } from '../pipeline/structure-processor.js';
 import { createSymbolTable } from '../pipeline/symbol-table.js';
@@ -225,9 +226,10 @@ describe('isolated shared extraction (T12262)', () => {
         try {
           const results = await pool.dispatch(inputs);
           assert.equal(childCount, 2, 'extractor must not recursively enter worker dispatch');
-          const symbols = results.flatMap(result => result.symbols);
-          const calls = results.flatMap(result => result.calls);
-          const accesses = results.flatMap(result => result.accesses);
+          const extractions = results.flatMap(result => result.files.map(file => file.extraction));
+          const symbols = extractions.flatMap(extraction => extraction.definitions);
+          const calls = extractions.flatMap(extraction => extraction.calls);
+          const accesses = extractions.flatMap(extraction => extraction.accesses);
           const reports = results.flatMap(result => result.reports);
           for (const input of inputs.slice(0, 5)) {
             assert.ok(symbols.some(symbol => symbol.filePath === input.path && ['解析','読む'].includes(symbol.name)), input.path + ' declaration');
@@ -235,7 +237,9 @@ describe('isolated shared extraction (T12262)', () => {
             assert.ok(accesses.some(access => access.filePath === input.path), input.path + ' access');
             assert.equal(reports.find(report => report.path === input.path).status, 'analyzed');
           }
-          assert.ok(results.flatMap(result => result.imports).some(binding => binding.rawImportPath === './資料🌱'));
+          assert.ok(extractions.flatMap(extraction => extraction.imports).some(binding => binding.rawImportPath === './資料🌱'));
+          // T12315: results stay grouped per file, one extraction per analyzed file.
+          assert.deepEqual(results.flatMap(result => result.files.map(file => file.path)).sort(), reports.filter(report => report.status === 'analyzed').map(report => report.path).sort());
           assert.match(reports.find(report => report.path === 'too-large.ts').reason, /E_PARSE_SIZE/);
           assert.match(reports.find(report => report.path === 'invalid.ts').reason, /E_PARSE_SYNTAX/);
           const lexicalInput = inputs.find(input => input.path === 'lexical.ts');
@@ -1267,7 +1271,8 @@ describe('runPipeline', () => {
         db,
         { nexusNodes: nodes, nexusRelations: relations },
         undefined,
-        { incremental: true, publishGraph },
+        // T12315: "unchanged" also requires the graph to come from this extractor build.
+        { incremental: true, publishGraph, publishedFingerprint: computeExtractorFingerprint() },
       );
       expect(result.nodeCount).toBe(1);
       expect(result.relationCount).toBe(0);

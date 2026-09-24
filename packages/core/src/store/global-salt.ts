@@ -66,9 +66,27 @@ export function getGlobalSaltPath(): string {
  */
 export function getGlobalSalt(): Buffer {
   if (cached !== null) return cached;
+  cached = loadGlobalSaltAt(getCleoHome());
+  return cached;
+}
 
-  const saltPath = getGlobalSaltPath();
-  const cleoHome = getCleoHome();
+/**
+ * Read (or generate on first use) the global salt of an EXPLICIT CLEO home,
+ * bypassing the process memo.
+ *
+ * {@link getGlobalSalt} memoizes the salt of the ambient home for the process
+ * lifetime. That is wrong for code that addresses a different home, or one
+ * whose salt file was just replaced — a backup import that places the bundled
+ * `global-salt` and then re-encrypts credentials under it (T12326). Same
+ * generation and validation rules as {@link getGlobalSalt}.
+ *
+ * @param cleoHome - Absolute CLEO home directory.
+ * @returns The 32-byte salt stored at `<cleoHome>/global-salt`.
+ * @throws {Error} If the salt file exists with wrong size or wrong permissions.
+ * @task T12326
+ */
+export function loadGlobalSaltAt(cleoHome: string): Buffer {
+  const saltPath = path.join(cleoHome, GLOBAL_SALT_FILENAME);
 
   if (!fs.existsSync(saltPath)) {
     // First-run generation: ensure the directory exists
@@ -84,9 +102,7 @@ export function getGlobalSalt(): Buffer {
     // Explicit chmod in case writeFileSync's mode arg is ignored on some FS
     fs.chmodSync(tmpPath, SALT_FILE_MODE);
     fs.renameSync(tmpPath, saltPath);
-
-    cached = salt;
-    return cached;
+    return salt;
   }
 
   // Existing file — validate before trusting
@@ -111,9 +127,7 @@ export function getGlobalSalt(): Buffer {
     }
   }
 
-  const salt = fs.readFileSync(saltPath);
-  cached = salt;
-  return cached;
+  return fs.readFileSync(saltPath);
 }
 
 /**

@@ -1254,6 +1254,9 @@ export async function runUpgrade(
     });
   }
 
+  // T12326: project credentials off the path-bound KDF (idempotent; dry-run previews).
+  actions.push(...(await credentialKdfMigrationActions(getProjectRoot(options.cwd), isDryRun)));
+
   const appliedActions = actions.filter((a) => a.status === 'applied');
   const skippedActions = actions.filter((a) => a.status === 'skipped');
   const errorActions = actions.filter((a) => a.status === 'error');
@@ -1284,6 +1287,69 @@ export async function runUpgrade(
     },
     storageMigration: storageMigrationResult,
   };
+}
+
+/**
+ * Upgrade step: re-encrypt project credentials still under the legacy
+ * path-bound KDF with the project-identity KDF (T12326), so moving the
+ * project directory can no longer strand them.
+ *
+ * Emits nothing when there is nothing to do. Credentials no candidate key
+ * opens are left untouched and reported as `skipped`, with the command that
+ * re-enters each one in `fix`. Never throws: a failure becomes an `error`
+ * action.
+ *
+ * @param projectRoot - Project root.
+ * @param dryRun - Preview instead of writing.
+ * @returns Actions to append to the upgrade result.
+ */
+async function credentialKdfMigrationActions(
+  projectRoot: string,
+  dryRun: boolean,
+): Promise<UpgradeAction[]> {
+  const out: UpgradeAction[] = [];
+  try {
+    const { auditAgentRegistryKeys, migrateProjectCredentialsAtRoot } = await import(
+      './store/credential-transfer.js'
+    );
+    const result = await migrateProjectCredentialsAtRoot(projectRoot, { dryRun });
+    // T12352: agent keys stored as a derived HMAC (real key discarded) are
+    // unrecoverable — flag them requires_reauth and say how to re-register.
+    const agents = await auditAgentRegistryKeys(join(getCleoHome(), 'cleo.db'), { dryRun });
+    for (const r of agents.reentry) {
+      out.push({
+        action: 'agent_key_storage',
+        status: 'skipped',
+        details: `Agent ${r.id} has no recoverable API key stored${dryRun ? '' : ' (flagged requires_reauth)'}`,
+        reason: r.reason,
+        fix: r.reentryCommand,
+      });
+    }
+    if (result.migrated.length > 0) {
+      out.push({
+        action: 'credential_kdf_migration',
+        status: dryRun ? 'preview' : 'applied',
+        details: `${dryRun ? 'Would re-key' : 'Re-keyed'} ${result.migrated.length} project credential(s) from the project path to the project identity: ${result.migrated.map((d) => d.id).join(', ')}`,
+      });
+    }
+    for (const r of result.reentry) {
+      out.push({
+        action: 'credential_kdf_migration',
+        status: 'skipped',
+        details: `Project credential ${r.id} could not be decrypted and was left unchanged`,
+        reason: r.reason,
+        fix: r.reentryCommand,
+      });
+    }
+  } catch (err) {
+    out.push({
+      action: 'credential_kdf_migration',
+      status: 'error',
+      details: `Credential KDF migration failed: ${err instanceof Error ? err.message : String(err)}`,
+      fix: 'cleo doctor credentials',
+    });
+  }
+  return out;
 }
 
 /**

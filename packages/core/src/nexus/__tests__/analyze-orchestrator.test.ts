@@ -51,6 +51,10 @@ beforeEach(() => {
     CREATE TABLE _nexus_meta (
       key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER DEFAULT 0
     );
+    CREATE TABLE _nexus_parse_cache (
+      path TEXT PRIMARY KEY NOT NULL, content_hash TEXT NOT NULL,
+      fingerprint TEXT NOT NULL, generation TEXT NOT NULL, payload BLOB NOT NULL
+    );
     CREATE VIRTUAL TABLE nexus_symbols_fts USING fts5(name);
     INSERT INTO nexus_nodes (id, kind, label, is_exported, indexed_at)
       VALUES ('old', 'function', 'old', 1, '2026-01-01');
@@ -168,9 +172,14 @@ describe('publishNexusGraph', () => {
     expect(
       native.prepare("SELECT value FROM _nexus_meta WHERE key='graph_generation'").get(),
     ).toEqual({ value: generation });
+    // T12348: the summary carries the count; the list is stored beside it.
+    const { references, ...summary } = rows.assessment;
     expect(
       native.prepare("SELECT value FROM _nexus_meta WHERE key='graph_assessment'").get(),
-    ).toEqual({ value: JSON.stringify(rows.assessment) });
+    ).toEqual({ value: JSON.stringify({ ...summary, referenceCount: 1 }) });
+    expect(
+      native.prepare("SELECT value FROM _nexus_meta WHERE key='graph_assessment_references'").get(),
+    ).toEqual({ value: JSON.stringify(references) });
     expect(native.prepare('SELECT meta_json FROM nexus_nodes').get()).toEqual({
       meta_json: rows.nodes[0]!.metaJson,
     });
@@ -595,10 +604,11 @@ describe('analysis root provenance integration', () => {
     });
   });
 
-  it('rebuilds unchanged source contents after an empty commit or included-root configuration change', async () => {
+  it('records a new revision without rebuilding identical sources, and rebuilds on a root configuration change', async () => {
     const first = await runNexusAnalysis({ repoPath: parent, includedRepositories: ['app'] });
     const unchanged = await runNexusAnalysis({ repoPath: parent, incremental: true });
     expect(unchanged.incremental).toBe(true);
+    expect(unchanged.summary.mode).toBe('unchanged');
     expect(unchanged.assessment?.generation).toBe(first.assessment?.generation);
     fixtureGit(
       join(parent, 'app'),
@@ -614,12 +624,16 @@ describe('analysis root provenance integration', () => {
       '-m',
       'revision only',
     );
+    // T12315: a commit that changes no bytes is not a reason to re-parse. The
+    // graph is kept, and the revision it was just re-verified against is
+    // recorded, so knowledge coverage does not report it stale.
     const next = await runNexusAnalysis({ repoPath: parent, incremental: true });
-    expect(next.incremental).toBe(false);
-    expect(next.assessment?.generation).not.toBe(first.assessment?.generation);
+    expect(next.summary.mode).toBe('unchanged');
+    expect(next.assessment?.generation).toBe(first.assessment?.generation);
     expect(next.assessment?.sourceRoots?.roots[1]?.revision).toBe(
       fixtureGit(join(parent, 'app'), 'rev-parse', 'HEAD'),
     );
+    expect(await readKnowledgeIndexAssessment(parent)).toEqual(next.assessment);
     await fixtureRepository(join(parent, 'other'), 'export const other = true;');
     const changed = await runNexusAnalysis({
       repoPath: parent,
@@ -627,6 +641,7 @@ describe('analysis root provenance integration', () => {
       incremental: true,
     });
     expect(changed.incremental).toBe(false);
+    expect(changed.summary.reason).toMatch(/source ownership .* changed/);
     expect(changed.assessment?.generation).not.toBe(next.assessment?.generation);
     expect(changed.assessment?.sourceRoots?.roots.map((root) => root.graphPrefix)).toEqual([
       '',

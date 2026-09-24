@@ -42,11 +42,13 @@ import {
   type ProjectStore,
   resolveDualScopeDbPath,
 } from './dual-scope-db.js';
+import { rebuildLegacyTasksLineage } from './legacy-tasks-lineage.js';
 import { withLock } from './lock.js';
 import type { RequiredColumn } from './migration-manager.js';
 import {
   createSafetyBackup,
   ensureColumns,
+  isSqliteBusy,
   migrateWithRetry,
   reconcileJournal,
   tableExists,
@@ -547,15 +549,50 @@ function establishTasksSchema(nativeDb: DatabaseSync, store: ProjectStore): Node
     nativeDb.exec('PRAGMA foreign_keys=OFF');
   }
 
-  // Seed schema version for new databases (no-op if already set).
+  seedTasksMeta(nativeDb);
+
+  return db;
+}
+
+/**
+ * The `task_id_sequence` value a fresh store is seeded with. The sequence module
+ * treats it as "no state" (`isSeedSequence`), so a real counter — e.g. one a
+ * legacy store carries — must always win over it.
+ */
+export const TASK_ID_SEQUENCE_SEED = '{"counter":0,"lastId":"T000","checksum":"seed"}';
+
+/**
+ * Seed the tasks domain's `schema_meta` defaults (no-op for keys already set).
+ *
+ * @param nativeDb - Connection on the project `cleo.db`.
+ */
+export function seedTasksMeta(nativeDb: DatabaseSync): void {
   nativeDb.exec(
     `INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schemaVersion', '${SCHEMA_VERSION}')`,
   );
-  nativeDb.exec(
-    `INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('task_id_sequence', '{"counter":0,"lastId":"T000","checksum":"seed"}')`,
-  );
+  nativeDb
+    .prepare("INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('task_id_sequence', ?)")
+    .run(TASK_ID_SEQUENCE_SEED);
+}
 
-  return db;
+/**
+ * Create the tables the tasks-domain RUNTIME binds on a project `cleo.db`
+ * without binding the domain: run the `drizzle-tasks` lineage (including the
+ * T12346 rebuild when it cannot be replayed) on the given connection.
+ *
+ * Exodus (on-open and reconcile) copies legacy rows into the tables the runtime
+ * reads — several of which (`audit_log`, `token_usage`, …) only this lineage
+ * creates — so they must exist before the copy. It runs on the migration's own
+ * dedicated connection: binding the domain from inside an open would wait on
+ * that very open. Defaults are NOT seeded here; the caller seeds after the copy
+ * ({@link seedTasksMeta}) so a legacy value is never shadowed by a default.
+ *
+ * @param nativeDb - Idle dedicated connection on the project `cleo.db`.
+ * @param dbPath - Absolute path of that database.
+ * @task T12355
+ */
+export function ensureTasksDomainTables(nativeDb: DatabaseSync, dbPath: string): void {
+  runMigrations(nativeDb, _getDrizzle()({ client: nativeDb }), dbPath);
 }
 
 /**
@@ -648,7 +685,29 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase, dbPath: s
   // Run pending migrations with SQLITE_BUSY retry.
   // Pass nativeDb + existenceTable so migrateWithRetry can auto-reconcile any
   // partial migration (Scenario 3) that slips through the proactive check above.
-  migrateWithRetry(db, migrationsFolder, nativeDb, 'tasks', 'sqlite');
+  try {
+    migrateWithRetry(db, migrationsFolder, nativeDb, 'tasks', 'sqlite');
+  } catch (error) {
+    // T12346: a consolidated cleo.db whose bare legacy family was copied from a
+    // high-water-era tasks.db cannot be replayed into shape. Rebuild that family
+    // fresh (snapshot first, atomic, prefixed tables untouched); if even that
+    // fails, the database is unchanged and the ORIGINAL error surfaces.
+    if (isSqliteBusy(error) || !tableExists(nativeDb, 'tasks_tasks')) throw error;
+    try {
+      rebuildLegacyTasksLineage(
+        nativeDb,
+        dbPath,
+        migrationsFolder,
+        resolveConsolidatedJournalSiblings('drizzle-tasks'),
+      );
+    } catch (rebuildError) {
+      getLogger('sqlite').error(
+        { rebuildError },
+        'legacy drizzle-tasks rebuild failed and was rolled back (T12346)',
+      );
+      throw error;
+    }
+  }
 
   // Defensive column safety net
   ensureColumns(nativeDb, 'tasks', REQUIRED_TASK_COLUMNS, 'sqlite');

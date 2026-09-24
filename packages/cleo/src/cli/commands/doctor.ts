@@ -30,6 +30,7 @@ import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { createDoctorProgress } from '../progress.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 import { doctorAcceptanceDriftCommand } from './doctor-acceptance-drift.js';
+import { doctorCredentialsCommand } from './doctor-credentials.js';
 import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
 import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
@@ -40,9 +41,11 @@ import { doctorLegacyReaperCommand } from './doctor-legacy-reaper.js';
 import { doctorMalformedIdsCommand } from './doctor-malformed-ids.js';
 import { doctorMemoryGuardCommand } from './doctor-memory-guard.js';
 import { doctorNexusResidencyCommand } from './doctor-nexus-residency.js';
+import { doctorProjectIdentityCommand } from './doctor-project-identity.js';
 import { runDoctorProjects } from './doctor-projects.js';
 import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
 import { doctorRepairCommand } from './doctor-repair.js';
+import { doctorSplitBrainCommand } from './doctor-split-brain.js';
 import { doctorSupersededStoreCommand } from './doctor-superseded-store.js';
 import { doctorToolLocksCommand } from './doctor-tool-locks.js';
 import { readMigrationConflicts } from './migrate-agents-v2.js';
@@ -252,12 +255,18 @@ export const doctorCommand = defineCommand({
     'superseded-store': doctorSupersededStoreCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify
     'memory-guard': doctorMemoryGuardCommand,
+    // T12353 — tracked .cleo/project-id vs project-info.json (+ --resolve re-key)
+    'project-identity': doctorProjectIdentityCommand,
+    // T12329 — import rows only a diverged store copy has, under new ids (dry-run first)
+    'split-brain': doctorSplitBrainCommand,
     // T12157 — the two acceptance stores (json column vs text+child rows) must agree
     'acceptance-drift': doctorAcceptanceDriftCommand,
     // T12158 — tables nexus resolves by bare name must actually live where it assumes
     'nexus-residency': doctorNexusResidencyCommand,
     // T12113 (gh#1222) — evidence-tool semaphore holders + orphan reaping
     'tool-locks': doctorToolLocksCommand,
+    // T12326 — project credentials still keyed by project PATH (+ --fix re-keys)
+    credentials: doctorCredentialsCommand,
     // T11777 / Saga T11242 / Epic T11249 — exodus stranded-residue check (+ --fix)
     'exodus-residue': doctorExodusResidueCommand,
     // T11837 / Saga T11242 / Epic T11833 — read-only exodus health report

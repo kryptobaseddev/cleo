@@ -97,7 +97,13 @@ function extractDocSummary(node: SyntaxNode): string | undefined {
   while (sibling?.type === 'decorator') {
     sibling = sibling.previousSibling;
   }
-  if (!sibling || sibling.type !== 'comment') return undefined;
+  if (!sibling) return undefined;
+  // Decide from the sibling's TEXT, not its `type` (T12315). node-tree-sitter
+  // 0.21 resolves `type` natively by node id, and a doc comment directly inside
+  // an interface body can share its id with that body — so it was reported as
+  // `interface_body`, and whether it was depended on per-process parser state.
+  // Two full rebuilds of identical bytes disagreed on 46 doc summaries. The
+  // text comes from the node's own recorded span and is not ambiguous.
   const raw = sibling.text;
   if (!raw.startsWith('/**') && !raw.startsWith('//')) return undefined;
   const lines = raw

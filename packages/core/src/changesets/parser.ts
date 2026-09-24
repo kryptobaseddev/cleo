@@ -116,6 +116,69 @@ function locateSchemaIssueLine(
   return lastMatchLine;
 }
 
+// ─── Reserved leading character hint (T12351) ────────────────────────────────
+
+/**
+ * Characters that cannot start a YAML plain scalar, or that silently change
+ * its meaning: backtick and `@` are reserved, `%` is a directive, `|`/`>`
+ * start block scalars, `*` an alias, `&` an anchor, `!` a tag, `#` a comment.
+ * Flow collections (`[`, `{`) are omitted — `tasks: [T1]` is legitimate — and
+ * so are quotes, which are the fix.
+ */
+const RESERVED_LEADING = new Set(['`', '@', '%', '|', '>', '*', '&', '!', '#']);
+
+/** An unquoted top-level value that starts with a reserved character. */
+interface ReservedLeadingValue {
+  /** 1-based line within the frontmatter. */
+  line: number;
+  /** The mapping key. */
+  key: string;
+  /** The raw value text as written. */
+  value: string;
+  /** The offending first character. */
+  char: string;
+}
+
+/**
+ * Find top-level `key: value` lines whose unquoted value starts with a
+ * YAML-reserved character. A bare block-scalar header (`summary: >-`) is a
+ * legitimate multi-line value and is not reported.
+ *
+ * @internal
+ * @task T12351
+ */
+function findReservedLeadingValues(frontmatter: string): ReservedLeadingValue[] {
+  const found: ReservedLeadingValue[] = [];
+  const lines = frontmatter.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i]?.match(/^([A-Za-z_][\w-]*):[ \t]+(\S.*?)\s*$/);
+    if (!match) continue;
+    const key = match[1] ?? '';
+    const value = match[2] ?? '';
+    const char = value[0] ?? '';
+    if (!RESERVED_LEADING.has(char)) continue;
+    if ((char === '|' || char === '>') && /^[|>][+-]?\d*$/.test(value)) continue;
+    found.push({ line: i + 1, key, value, char });
+  }
+  return found;
+}
+
+/**
+ * Build the remediation for a reserved leading character: the exact line to
+ * write, with the value wrapped in double quotes and inner quotes/backslashes
+ * escaped.
+ *
+ * @internal
+ * @task T12351
+ */
+function reservedLeadingHint(entry: ReservedLeadingValue): string {
+  const quoted = entry.value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return (
+    `'${entry.key}' starts with the YAML-reserved character '${entry.char}' — ` +
+    `wrap the value in double quotes: ${entry.key}: "${quoted}"`
+  );
+}
+
 // ─── Frontmatter splitting ────────────────────────────────────────────────────
 
 /**
@@ -204,11 +267,31 @@ export function parseChangesetFile(path: string): ChangesetEntry {
     // the surfaced line number matches the actual file line.
     const line = yamlLine !== null ? split.frontmatterStartLine + yamlLine : null;
     const snippet = yamlLine !== null ? extractSnippet(split.frontmatter, yamlLine) : undefined;
+    // T12351: name the fix. Prefer the reserved value on the reported line.
+    const reserved = findReservedLeadingValues(split.frontmatter);
+    const culprit = reserved.find((entry) => entry.line === yamlLine) ?? reserved[0];
     throw new ChangesetYamlInvalidError({
       file: path,
       line,
       ...(snippet !== undefined ? { snippet } : {}),
       parserMessage,
+      ...(culprit !== undefined ? { hint: reservedLeadingHint(culprit) } : {}),
+    });
+  }
+
+  // T12351: `&` (anchor), `!` (tag) and `#` (comment) do not fail to parse —
+  // they silently drop text from the value (`summary: &x fixed` reads as
+  // "fixed"). Any unquoted reserved leading character is rejected with the fix.
+  const silent = findReservedLeadingValues(split.frontmatter)[0];
+  if (silent !== undefined) {
+    const line = split.frontmatterStartLine + silent.line;
+    const snippet = extractSnippet(split.frontmatter, silent.line);
+    throw new ChangesetYamlInvalidError({
+      file: path,
+      line,
+      ...(snippet !== undefined ? { snippet } : {}),
+      parserMessage: `'${silent.key}' value starts with the YAML indicator '${silent.char}', which YAML reads as syntax, not text`,
+      hint: reservedLeadingHint(silent),
     });
   }
 

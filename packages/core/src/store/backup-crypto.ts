@@ -26,6 +26,7 @@
  */
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 
 /** Magic bytes that identify a CLEO encrypted bundle: ASCII "CLEOENC1". */
 const MAGIC = Buffer.from('CLEOENC1', 'utf8'); // 8 bytes
@@ -206,4 +207,173 @@ export function decryptBundle(encrypted: Buffer, passphrase: string): Buffer {
 export function isEncryptedBundle(header: Buffer): boolean {
   if (header.length < 8) return false;
   return header.subarray(0, 8).equals(MAGIC);
+}
+
+// ---------------------------------------------------------------------------
+// Streaming variant (format version 0x02) — T12318
+// ---------------------------------------------------------------------------
+
+/**
+ * Format version byte written by the streaming encryptor.
+ *
+ * The byte layout is identical to version 0x01; the distinct version lets a
+ * reader tell a portable v2 bundle (streamed, possibly many GB) from a v1
+ * bundle without decrypting it, and keeps v1 readers from buffering a file
+ * they cannot interpret.
+ */
+export const STREAM_FORMAT_VERSION = 0x02;
+
+/** Byte offset where ciphertext begins (magic + version + reserved + salt + nonce). */
+const STREAM_HEADER_SIZE = 8 + 1 + 7 + SALT_SIZE + NONCE_SIZE;
+
+/**
+ * Write one chunk to a stream, waiting for `drain` when the buffer is full.
+ *
+ * @param out - Destination write stream.
+ * @param chunk - Bytes to write.
+ */
+async function writeWithBackpressure(out: fs.WriteStream, chunk: Buffer): Promise<void> {
+  if (chunk.length === 0) return;
+  if (!out.write(chunk)) {
+    await new Promise<void>((resolve, reject) => {
+      out.once('drain', resolve);
+      out.once('error', reject);
+    });
+  }
+}
+
+/**
+ * Close a write stream and wait until its bytes are flushed.
+ *
+ * @param out - Stream to finish.
+ */
+async function endStream(out: fs.WriteStream): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    out.once('error', reject);
+    out.end(() => resolve());
+  });
+}
+
+/**
+ * Encrypt a file to another file without holding it in memory.
+ *
+ * Uses the same AES-256-GCM + scrypt construction and byte layout as
+ * {@link encryptBundle}, with format version {@link STREAM_FORMAT_VERSION}.
+ * Suitable for multi-GB machine bundles, which exceed a single Buffer.
+ *
+ * @param srcPath - Plaintext file.
+ * @param destPath - Encrypted output file (overwritten).
+ * @param passphrase - Non-empty passphrase.
+ * @throws {Error} When the passphrase is empty or I/O fails.
+ *
+ * @task T12318
+ */
+export async function encryptFileStream(
+  srcPath: string,
+  destPath: string,
+  passphrase: string,
+): Promise<void> {
+  if (passphrase.length === 0) {
+    throw new Error('encryptFileStream: passphrase cannot be empty');
+  }
+  const salt = crypto.randomBytes(SALT_SIZE);
+  const nonce = crypto.randomBytes(NONCE_SIZE);
+  const key = deriveKey(passphrase, salt);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
+  const out = fs.createWriteStream(destPath);
+  try {
+    await writeWithBackpressure(
+      out,
+      Buffer.concat([MAGIC, Buffer.from([STREAM_FORMAT_VERSION]), RESERVED, salt, nonce]),
+    );
+    for await (const chunk of fs.createReadStream(srcPath)) {
+      await writeWithBackpressure(out, cipher.update(chunk as Buffer));
+    }
+    await writeWithBackpressure(out, cipher.final());
+    await writeWithBackpressure(out, cipher.getAuthTag());
+  } finally {
+    await endStream(out);
+  }
+}
+
+/**
+ * Decrypt a file written by {@link encryptFileStream} without holding it in memory.
+ *
+ * The plaintext is written to `destPath` as it is decrypted, but it is only
+ * trustworthy once this function resolves: GCM authenticates at the end, so on
+ * a wrong passphrase or tampered ciphertext the partial output is deleted and
+ * the call rejects.
+ *
+ * @param srcPath - Encrypted file (version 0x02).
+ * @param destPath - Plaintext output file.
+ * @param passphrase - Passphrase used at encryption time.
+ * @throws {Error} On bad magic/version, authentication failure, or I/O failure.
+ *
+ * @task T12318
+ */
+export async function decryptFileStream(
+  srcPath: string,
+  destPath: string,
+  passphrase: string,
+): Promise<void> {
+  const size = fs.statSync(srcPath).size;
+  if (size < STREAM_HEADER_SIZE + AUTH_TAG_SIZE) {
+    throw new Error('decryptFileStream: payload too short');
+  }
+  const fd = fs.openSync(srcPath, 'r');
+  const header = Buffer.alloc(STREAM_HEADER_SIZE);
+  const tag = Buffer.alloc(AUTH_TAG_SIZE);
+  try {
+    fs.readSync(fd, header, 0, STREAM_HEADER_SIZE, 0);
+    fs.readSync(fd, tag, 0, AUTH_TAG_SIZE, size - AUTH_TAG_SIZE);
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (!header.subarray(0, 8).equals(MAGIC)) {
+    throw new Error('decryptFileStream: magic mismatch (not a cleo encrypted bundle)');
+  }
+  if (header[8] !== STREAM_FORMAT_VERSION) {
+    throw new Error(
+      `decryptFileStream: unsupported version ${header[8]}, expected ${STREAM_FORMAT_VERSION}`,
+    );
+  }
+  const salt = header.subarray(16, 16 + SALT_SIZE);
+  const nonce = header.subarray(16 + SALT_SIZE, STREAM_HEADER_SIZE);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', deriveKey(passphrase, salt), nonce);
+  decipher.setAuthTag(tag);
+  const out = fs.createWriteStream(destPath);
+  let authenticated = false;
+  try {
+    const body = fs.createReadStream(srcPath, {
+      start: STREAM_HEADER_SIZE,
+      end: size - AUTH_TAG_SIZE - 1,
+    });
+    for await (const chunk of body) {
+      await writeWithBackpressure(out, decipher.update(chunk as Buffer));
+    }
+    try {
+      await writeWithBackpressure(out, decipher.final());
+    } catch {
+      throw new Error(
+        'decryptFileStream: authentication failed (wrong passphrase or corrupted bundle)',
+      );
+    }
+    authenticated = true;
+  } finally {
+    await endStream(out);
+    if (!authenticated) fs.rmSync(destPath, { force: true });
+  }
+}
+
+/**
+ * Read the format version byte of an encrypted bundle header.
+ *
+ * @param header - At least 9 bytes from the start of the file.
+ * @returns The version byte, or null when the header is not a CLEO encrypted bundle.
+ *
+ * @task T12318
+ */
+export function encryptedBundleVersion(header: Buffer): number | null {
+  if (!isEncryptedBundle(header) || header.length < 9) return null;
+  return header[8] ?? null;
 }

@@ -14,6 +14,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { listRegisteredWorktrees } from '@cleocode/worktree';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
+import { inspectProjectIdentity } from '../../doctor/project-identity.js';
 import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
 import {
   getAgentsHome,
@@ -1837,6 +1838,39 @@ export async function checkExodusStrandedResidue(projectRoot?: string): Promise<
 }
 
 /**
+ * Check the portable project identity: `.cleo/project-id` against
+ * `project-info.json`, and whether git tracks the file (T12353 · ADR-094).
+ *
+ * A conflict or an invalid file is `failed`, because local state is keyed by an
+ * id no clone will ever share. A missing, uncommitted or ignored file is a
+ * `warning`: nothing is wrong locally yet, but a clone would mint its own id.
+ * Every non-passing result carries the exact remedy command in `fix`.
+ *
+ * @param projectRoot - Project root; defaults to the resolved current project.
+ * @returns The check result.
+ * @task T12353
+ */
+export function checkProjectIdentity(projectRoot?: string): CheckResult {
+  const report = inspectProjectIdentity(getProjectRoot(projectRoot));
+  const status: CheckResult['status'] =
+    report.state === 'ok'
+      ? 'passed'
+      : report.state === 'conflict' || report.state === 'invalid'
+        ? 'failed'
+        : report.state === 'uninitialized'
+          ? 'info'
+          : 'warning';
+  return {
+    id: 'project_identity',
+    category: 'configuration',
+    status,
+    message: report.message,
+    details: { state: report.state, trackedId: report.trackedId, localId: report.localId },
+    fix: report.remedy,
+  };
+}
+
+/**
  * Run all global health checks and return results array.
  * @task T4525
  */
@@ -1852,6 +1886,7 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     checkAgentsMdHub(projectRoot),
     checkRootGitignore(projectRoot),
     checkCleoGitignore(projectRoot),
+    checkProjectIdentity(projectRoot),
     checkWorktreeInclude(projectRoot),
     checkVitalFilesTracked(projectRoot),
     checkCoreFilesNotIgnored(projectRoot),

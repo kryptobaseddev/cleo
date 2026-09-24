@@ -280,7 +280,11 @@ function capitalize(s: string): string {
 }
 
 function sanitizeId(s: string): string {
+  // An anonymous scope's name ends in its generation token (`<anonymous@1:9#…>`);
+  // truncation used to keep that token's first character, so two builds of the
+  // same source minted different process ids (T12315).
   return s
+    .replace(/#[^#>]*>$/, '>')
     .replace(/[^a-zA-Z0-9]/g, '_')
     .substring(0, 20)
     .toLowerCase();

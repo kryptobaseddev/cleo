@@ -144,6 +144,12 @@ export const initCommand = defineCommand({
       description: 'With --workflows: print the rendered YAML without writing.',
       default: false,
     },
+    'new-identity': {
+      type: 'boolean',
+      description:
+        'Mint a new project identity instead of re-linking a registered one (T12325). Never rewrites an existing .cleo/project-id.',
+      default: false,
+    },
   },
   async run({ args }) {
     try {
@@ -203,6 +209,7 @@ export const initCommand = defineCommand({
         detect: !!args.detect,
         mapCodebase: !!args['map-codebase'],
         installSeedAgents: !!args['install-seed-agents'],
+        newIdentity: !!args['new-identity'],
       };
 
       const result = await initProject(initOpts);

@@ -291,6 +291,8 @@ export type {
   LoggingConfig,
   LogLevel,
   MemoryBridgeMode,
+  NexusAutoRefreshConfig,
+  NexusConfig,
   OutputConfig,
   OutputFormat,
   ProviderConfig,
@@ -307,6 +309,15 @@ export type {
   SystemBinding,
 } from './config.js';
 export type { AdapterContextMonitorProvider } from './context-monitor.js';
+// === Credential Transfer Types (T12326 — portable credentials) ===
+export type {
+  CredentialDescriptor,
+  CredentialReentry,
+  CredentialStoreKind,
+  ProjectCredentialMigrationResult,
+  SealCredentialsResult,
+  UnsealCredentialsResult,
+} from './credential-transfer.js';
 // === Claude Code credential parsing (T9307 — pure helper, no core imports) ===
 export type {
   ClaudeCodeOAuthBlock,
@@ -494,6 +505,10 @@ export type {
   SagaAuditResult,
   SagaAuditViolation,
   SagaAuditViolationKind,
+  SupersededStoreConflict,
+  SupersededStoreReconcileOutcome,
+  SupersededStoreReconcileResult,
+  SupersededStoreTableCount,
   WorktreeAnomaly,
   WorktreeAnomalyKind,
 } from './doctor.js';
@@ -701,9 +716,13 @@ export type {
   GraphEdgeConfidenceLabel,
   GraphIndexAssessment,
   GraphIndexFileReport,
+  GraphIndexFreshness,
   GraphIndexReferenceReport,
+  GraphIndexRunSummary,
   GraphNode,
   GraphNodeKind,
+  GraphParseCacheEntry,
+  GraphParseCacheUpdate,
   GraphPublicationRows,
   GraphRelation,
   GraphRelationType,
@@ -1478,9 +1497,13 @@ export type {
   NexusPermissionLevel,
   NexusPermissionSetParams,
   NexusPermissionSetResult,
+  NexusProjectCheckout,
   NexusProjectRecord,
   NexusProjectStats,
   NexusProjectsCleanParams,
+  NexusProjectsCleanReason,
+  NexusProjectsCleanReceipt,
+  NexusProjectsCleanRemoval,
   NexusProjectsCleanResult,
   NexusProjectsListParams,
   NexusProjectsListResult,
@@ -1498,6 +1521,7 @@ export type {
   NexusRefreshBridgeResult,
   NexusRegisterParams,
   NexusRegisterResult,
+  NexusRegistryClassification,
   NexusResolveParams,
   NexusResolveResult,
   NexusRouteMapParams,
@@ -1950,6 +1974,32 @@ export type {
   PlaybookRun,
   PlaybookRunStatus,
 } from './playbook.js';
+// === Portable Bundle (manifest v2) Types (T12318 — lossless machine migration) ===
+export type {
+  PortableBundleManifest,
+  PortableBundleScope,
+  PortableDatabaseEntry,
+  PortableDatabaseRole,
+  PortableExclusion,
+  PortableExportResult,
+  PortableFileEntry,
+  PortableGlobalSection,
+  PortableImportResult,
+  PortableImportSectionResult,
+  PortableKeyCounts,
+  PortableLegacyEvidence,
+  PortablePathFinding,
+  PortableProjectSection,
+  PortableReentryItem,
+  PortableRelocationReport,
+  PortableSealedCredentials,
+  PortableSectionBase,
+  PortableSkippedProject,
+  PortableSkipReason,
+  PortableSymlinkEntry,
+  PortableTableComparison,
+  PortableUnmigratedLegacyReport,
+} from './portable-bundle.js';
 // === PostgresDataAccessor Contracts — cloud-sync scaffold (T9062) ===
 export type {
   CreatePostgresDataAccessorFn,

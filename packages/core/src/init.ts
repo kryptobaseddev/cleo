@@ -43,7 +43,13 @@ import { ensureInjection } from './injection.js';
 import { writeMemoryBridge } from './memory/memory-bridge.js';
 import { migrateAgentOutputs } from './migration/agent-outputs.js';
 import { pushWarning } from './output.js';
-import { getAgentsHome, getCleoDirAbsolute, getProjectRoot, resolveCleoDir } from './paths.js';
+import {
+  getAgentsHome,
+  getCleoDirAbsolute,
+  getCleoHome,
+  getProjectRoot,
+  resolveCleoDir,
+} from './paths.js';
 // Shared utility imports
 import {
   ensureBrainDb,
@@ -82,6 +88,13 @@ export interface InitOptions {
    * one minor release to avoid breaking existing scripts.
    */
   installSeedAgents?: boolean;
+  /**
+   * Mint a new project identity instead of re-linking one the global
+   * registry already holds for this checkout (T12325). Has no effect when
+   * `project-info.json` or the tracked `.cleo/project-id` already declares
+   * an identity — neither is ever rewritten.
+   */
+  newIdentity?: boolean;
 }
 
 /** Result of the init operation. */
@@ -509,6 +522,14 @@ export async function initNexusRegistration(
   warnings: string[],
 ): Promise<void> {
   try {
+    const { shouldAutoRegisterProject } = await import('./nexus/registry-hygiene.js');
+    if (!shouldAutoRegisterProject(projectRoot, getCleoHome())) {
+      // T12324: a temp/scratch project never lands in a persistent registry.
+      warnings.push(
+        'NEXUS registration skipped: project is under a temp directory (register explicitly with `cleo nexus register`)',
+      );
+      return;
+    }
     const { nexusReconcile } = await import('./nexus/registry.js');
     const result = await nexusReconcile(projectRoot);
     if (result.status === 'auto_registered') {
@@ -985,11 +1006,22 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   }
 
   // T4684: Project info (.cleo/project-info.json)
-  const projectInfoResult = await ensureProjectInfo(projRoot, { force });
+  // T12325: the id is adopted into the tracked write-once .cleo/project-id;
+  // re-links, conflicts and missing registry coverage are reported, not hidden.
+  const projectInfoResult = await ensureProjectInfo(projRoot, {
+    force,
+    mintNewIdentity: opts.newIdentity,
+  });
   if (projectInfoResult.action === 'skipped') {
     skipped.push('project-info.json');
   } else {
     created.push('project-info.json');
+  }
+  if (
+    projectInfoResult.details &&
+    /re-linked|conflict|invalid|coverage missing/.test(projectInfoResult.details)
+  ) {
+    warnings.push(`Project identity: ${projectInfoResult.details}`);
   }
 
   // Project context detection (always run during init)
