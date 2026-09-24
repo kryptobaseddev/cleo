@@ -2,7 +2,7 @@
 id: nexus-incremental-analysis
 tasks: [T12315]
 kind: feat
-summary: `cleo nexus analyze` is incremental by default and provably equal to a full rebuild — it re-parses only changed files, re-resolves everything, and says why whenever it falls back to `--full`
+summary: "`cleo nexus analyze` is incremental by default and provably equal to a full rebuild — it re-parses only changed files, re-resolves everything, and says why whenever it falls back to `--full`"
 ---
 
 `--incremental` detected changed files correctly and then parsed every file
