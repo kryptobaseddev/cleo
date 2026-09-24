@@ -59,3 +59,35 @@ from 841 to 2,182 rows (the 1,341 legacy audit rows), and the 866
 acceptance criteria and 8 dependencies as conflicts. All 77,702 pre-existing
 live rows were unchanged (every table except the sqlite-vec `brain_embeddings`
 index, which can't be read without its extension and was not written), and a second run changes nothing.
+
+**Reconcile and the automatic migration no longer interfere, and give the same
+result in either order.** With `CLEO_DISABLE_EXODUS_ON_OPEN` unset (the default
+after v2026.9.17), a database open during a reconcile used to start the
+automatic migration. That migration archived `tasks.db`, which the reconcile was
+about to read, so it failed with `E_CLI_UNCAUGHT` "unable to open database
+…/.cleo/tasks.db". The v2026.9.17 Stage A gate caught this.
+
+- The reconcile now runs inside `withExodusOnOpenSuppressed(store)`, a scope
+  covering only that store and only that process. The automatic migration skips
+  a store while the scope is active.
+- If the automatic migration runs first, the reconcile then finds the legacy
+  files already archived and reports `nothing-to-reconcile`. The row placement
+  is identical either way.
+- If the reconcile runs first, the automatic migration then skips the store,
+  because it is already populated.
+- The automatic migration now also reads rows from an unmigrated `cleo.db`'s
+  old unprefixed task tables, the same extra source the reconcile reads.
+  Without it, llmtxt's 1,972 `task_labels` rows (which exist only in those
+  tables) were left behind.
+- Result on copies of llmtxt and claude-todo with the switch unset: running the
+  automatic migration first or the reconcile first gives identical row counts
+  in every table. The reconcile exits 0 in both orders.
+- The reconcile's check that existing live rows are unchanged now compares
+  only the columns the old and new tables share. On claude-todo it had
+  crashed with `E_CLI_UNCAUGHT` after the copy, because the rebuild adds
+  columns. A failure of the check itself now reverts the run and refuses,
+  instead of crashing.
+
+The reconcile and lineage test suites now run every case with the kill switch
+explicitly set and explicitly unset. A developer machine that exports the
+variable can no longer hide what CI (where it is unset) does.
