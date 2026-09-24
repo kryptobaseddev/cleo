@@ -54,7 +54,9 @@ import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { getLogger } from '../logger.js';
+import { orderTablesForCopy } from './exodus/migrate.js';
 import { sanitizeMigrationStatements, stripSqlComments } from './migration-manager.js';
+import { openCleoDbSnapshot } from './open-cleo-db.js';
 
 const log = getLogger('legacy-tasks-lineage');
 
@@ -96,6 +98,71 @@ export interface LegacyTasksLineageRebuild {
   readonly dropped: readonly string[];
   /** Lineage migrations executed afresh. */
   readonly migrationsApplied: number;
+  /**
+   * Per dropped table: rows in the snapshot and rows carried back into the
+   * recreated table. A shortfall stays in the snapshot (e.g. a row the new
+   * schema's CHECK or guard trigger rejects).
+   */
+  readonly carriedForward: readonly { table: string; snapshotRows: number; restored: number }[];
+}
+
+/** Quote an identifier. */
+function ident(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Copy every snapshot row of each dropped table back into its recreated
+ * table, parents first, INSERT OR IGNORE over the columns both shapes share.
+ * A table whose copy fails as a whole (a guard trigger's RAISE) is left empty;
+ * its rows remain in the snapshot and are counted as not restored.
+ */
+function carryForward(
+  nativeDb: DatabaseSync,
+  alias: string,
+  snapshotPath: string,
+  tables: ReadonlySet<string>,
+): { table: string; snapshotRows: number; restored: number }[] {
+  const snap = openCleoDbSnapshot(snapshotPath, { readOnly: true });
+  let order: string[];
+  try {
+    order = orderTablesForCopy(snap.db).filter((t) => tables.has(t));
+  } finally {
+    snap.close();
+  }
+  const columns = (schema: string, table: string): string[] =>
+    (
+      nativeDb.prepare(`PRAGMA ${ident(schema)}.table_info(${ident(table)})`).all() as Array<{
+        name: string;
+      }>
+    ).map((c) => c.name);
+  const results: { table: string; snapshotRows: number; restored: number }[] = [];
+  for (const table of order) {
+    const row = nativeDb
+      .prepare(`SELECT COUNT(*) AS n FROM ${ident(alias)}.${ident(table)}`)
+      .get() as { n: number } | undefined;
+    const snapshotRows = Number(row?.n ?? 0);
+    if (snapshotRows === 0) continue;
+    const target = new Set(columns('main', table));
+    const shared = columns(alias, table).filter((c) => target.has(c));
+    let restored = 0;
+    if (target.size > 0 && shared.length > 0) {
+      const cols = shared.map(ident).join(', ');
+      try {
+        restored = Number(
+          nativeDb
+            .prepare(
+              `INSERT OR IGNORE INTO main.${ident(table)} (${cols}) SELECT ${cols} FROM ${ident(alias)}.${ident(table)}`,
+            )
+            .run().changes,
+        );
+      } catch {
+        restored = 0;
+      }
+    }
+    results.push({ table, snapshotRows, restored });
+  }
+  return results;
 }
 
 /**
@@ -158,6 +225,13 @@ export function rebuildLegacyTasksLineage(
   // A fresh project has exactly this layout, so the pragma is lifted for the
   // rebuild — outside the transaction, the only place it takes effect.
   if (fkWasOn) nativeDb.exec('PRAGMA foreign_keys=OFF');
+  // The bare family is NOT all dead: the runtime still reads and writes bare
+  // lifecycle_*, audit_log, token_usage, attachments, releases, … — so every
+  // row is carried back into the recreated tables (ATTACH is illegal inside a
+  // transaction, hence here).
+  const alias = '_t12346_snapshot';
+  nativeDb.exec(`ATTACH DATABASE '${snapshotPath.replace(/'/g, "''")}' AS ${ident(alias)}`);
+  let carriedForward: { table: string; snapshotRows: number; restored: number }[] = [];
   try {
     nativeDb.exec('BEGIN');
     try {
@@ -166,10 +240,10 @@ export function rebuildLegacyTasksLineage(
           nativeDb.exec(`DROP ${kind.toUpperCase()} IF EXISTS main."${o.name}"`);
         }
       }
-      const del = nativeDb.prepare('DELETE FROM "__drizzle_migrations" WHERE hash = ?');
+      const del = nativeDb.prepare('DELETE FROM main."__drizzle_migrations" WHERE hash = ?');
       for (const hash of lineageHashes) del.run(hash);
       const journal = nativeDb.prepare(
-        'INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name", "applied_at") VALUES (?, ?, ?, ?)',
+        'INSERT INTO main."__drizzle_migrations" ("hash", "created_at", "name", "applied_at") VALUES (?, ?, ?, ?)',
       );
       for (const migration of migrations) {
         for (const stmt of migration.sql) nativeDb.exec(stmt);
@@ -180,20 +254,34 @@ export function rebuildLegacyTasksLineage(
           new Date().toISOString(),
         );
       }
+      carriedForward = carryForward(
+        nativeDb,
+        alias,
+        snapshotPath,
+        new Set(toDrop.filter((o) => o.type === 'table').map((o) => o.name)),
+      );
       nativeDb.exec('COMMIT');
     } catch (error) {
       nativeDb.exec('ROLLBACK');
       throw error;
     }
   } finally {
+    nativeDb.exec(`DETACH DATABASE ${ident(alias)}`);
     if (fkWasOn) nativeDb.exec('PRAGMA foreign_keys=ON');
   }
 
   const dropped = toDrop.map((o) => o.name);
+  const shortfalls = carriedForward.filter((c) => c.restored < c.snapshotRows);
   log.warn(
-    { snapshotPath, dropped: dropped.length, migrationsApplied: migrations.length },
+    {
+      snapshotPath,
+      dropped: dropped.length,
+      migrationsApplied: migrations.length,
+      restoredRows: carriedForward.reduce((n, c) => n + c.restored, 0),
+      notRestored: shortfalls.map((c) => `${c.table}(${c.snapshotRows - c.restored})`),
+    },
     'legacy drizzle-tasks family could not be migrated in place (high-water journal gaps); ' +
-      `rebuilt it fresh — the previous bare tables are preserved in ${snapshotPath} (T12346)`,
+      `rebuilt it fresh and carried its rows forward — the full prior state is in ${snapshotPath} (T12346)`,
   );
-  return { snapshotPath, dropped, migrationsApplied: migrations.length };
+  return { snapshotPath, dropped, migrationsApplied: migrations.length, carriedForward };
 }

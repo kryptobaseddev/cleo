@@ -153,6 +153,9 @@ export function assessSupersededProjectStores(
       const snap = openCleoDbSnapshot(src.path, { readOnly: true });
       try {
         for (const sourceTable of orderTablesForCopy(snap.db)) {
+          // The live store read as a source contributes ONLY its dead bare
+          // task-core family (T12346) — every other bare table is still live.
+          if (src.path === liveStorePath && !BARE_TASK_CORE_TABLES.has(sourceTable)) continue;
           const resolution = resolveConsolidatedTableName(src.name, sourceTable);
           if (resolution.kind === 'skip') continue;
           if (resolveTableTargetScope(src.name, sourceTable, 'project') !== 'project') continue;
@@ -208,6 +211,166 @@ export function legacySourcesHoldRows(sources: readonly LegacyDbDescriptor[]): b
     }
   }
   return false;
+}
+
+/**
+ * The bare legacy tables the runtime NO LONGER reads: `tasks-schema.ts`
+ * re-points exactly this family at its prefixed `tasks_*` twins. Every other
+ * bare table in `cleo.db` (lifecycle_*, audit_log, token_usage, attachments, …)
+ * is still read and written by the runtime and is never a reconcile source.
+ *
+ * @task T12346
+ */
+export const BARE_TASK_CORE_TABLES: ReadonlySet<string> = new Set([
+  'tasks',
+  'sessions',
+  'task_acceptance_criteria',
+  'task_acceptance_criteria_history',
+  'acceptance_projection_state',
+  'acceptance_projection_dirty',
+  'task_dependencies',
+  'task_labels',
+  'task_relations',
+  'task_work_history',
+  'external_task_links',
+  'session_handoff_entries',
+  'evidence_ac_bindings',
+]);
+
+/** Logical source name for the live store's bare task-core family. */
+const BARE_SOURCE_NAME = 'tasks (cleo.db bare task-core)';
+
+/**
+ * The live store's own bare task-core family as a reconcile source — item 2 of
+ * T12319, found real by the T12346 sweep: a stranded `cleo.db` can hold rows in
+ * dead bare tables that exist in NO legacy file (llmtxt: 1,972 `task_labels`;
+ * versionguard: 20 `task_dependencies`), so the runtime never shows them.
+ *
+ * Offered ONLY while the prefixed `tasks_tasks` is still empty — i.e. the
+ * project never ran on the consolidated store. Once it has, a bare row missing
+ * from the prefixed family may be one the runtime deliberately removed, and
+ * re-copying it would resurrect it.
+ *
+ * @returns The descriptor, or `null` when the bare family is not a source.
+ */
+function bareTaskCoreSource(liveStorePath: string): LegacyDbDescriptor | null {
+  const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
+  try {
+    if (hasTable(live.db, 'main', 'tasks_tasks') && countRows(live.db, 'main', 'tasks_tasks') > 0)
+      return null;
+    const holdsRows = [...BARE_TASK_CORE_TABLES].some(
+      (t) => hasTable(live.db, 'main', t) && countRows(live.db, 'main', t) > 0,
+    );
+    return holdsRows
+      ? { name: BARE_SOURCE_NAME, path: liveStorePath, targetScope: 'project' }
+      : null;
+  } finally {
+    live.close();
+  }
+}
+
+/**
+ * Materialise the bare task-core family as a standalone file in the staging
+ * dir, so the copy engine reads a snapshot instead of the file it writes.
+ *
+ * Built table by table from the live file's own DDL rather than by copying the
+ * whole database and pruning it: a live `cleo.db` can hold virtual tables
+ * (FTS5 shadow tables, sqlite-vec `vec0`) that cannot even be dropped without
+ * their module loaded ("no such module: vec0" in proxmox).
+ */
+function snapshotBareTaskCore(liveStorePath: string, stagingDir: string): string {
+  const path = join(stagingDir, 'cleo-bare-task-core.db');
+  const snap = openCleoDbSnapshot(path, { readOnly: false });
+  try {
+    snap.db.exec('PRAGMA foreign_keys=OFF');
+    snap.db.exec(`ATTACH DATABASE '${liveStorePath.replace(/'/g, "''")}' AS live`);
+    const tables = snap.db
+      .prepare("SELECT name, sql FROM live.sqlite_master WHERE type='table'")
+      .all() as Array<{ name: string; sql: string | null }>;
+    for (const t of tables) {
+      if (!BARE_TASK_CORE_TABLES.has(t.name) || t.sql === null) continue;
+      snap.db.exec(t.sql);
+      snap.db.exec(`INSERT INTO main.${ident(t.name)} SELECT * FROM live.${ident(t.name)}`);
+    }
+    snap.db.exec('DETACH DATABASE live');
+  } finally {
+    snap.close();
+  }
+  return path;
+}
+
+/**
+ * From the bare task-core snapshot, extract the rows that are strictly NEWER
+ * (`updated_at`) than the same-key row in the legacy `tasks.db`, into their own
+ * file — copied FIRST so the fresher version of a task wins.
+ *
+ * Legacy files normally hold the newer copy, but not always: in forge-ts 58 of
+ * the 65 tasks that differ were last updated in `cleo.db`'s bare table (7 with
+ * a different status). Copy order alone decides which version `INSERT OR
+ * IGNORE` keeps, so the freshest rows are given their own, earlier source.
+ *
+ * @returns The file path, or `null` when no bare row is fresher.
+ */
+function snapshotFresherBareRows(
+  barePath: string,
+  legacyTasksPath: string | undefined,
+  stagingDir: string,
+): string | null {
+  if (legacyTasksPath === undefined) return null;
+  const path = join(stagingDir, 'cleo-bare-task-core-fresher.db');
+  const snap = openCleoDbSnapshot(barePath, { readOnly: true });
+  try {
+    snap.db.exec(`VACUUM INTO '${path.replace(/'/g, "''")}'`);
+  } finally {
+    snap.close();
+  }
+  const fresher = openCleoDbSnapshot(path, { readOnly: false });
+  let kept = 0;
+  try {
+    fresher.db.exec('PRAGMA foreign_keys=OFF');
+    fresher.db.exec(`ATTACH DATABASE '${legacyTasksPath.replace(/'/g, "''")}' AS legacy`);
+    const tables = (
+      fresher.db.prepare("SELECT name FROM main.sqlite_master WHERE type='table'").all() as Array<{
+        name: string;
+      }>
+    ).map((t) => t.name);
+    for (const table of tables) {
+      const cols = fresher.db.prepare(`PRAGMA main.table_info(${ident(table)})`).all() as Array<{
+        name: string;
+        pk: number;
+      }>;
+      const pk = cols.filter((c) => c.pk > 0).map((c) => c.name);
+      const inLegacy = hasTable(fresher.db, 'legacy', table);
+      const legacyCols = inLegacy
+        ? new Set(
+            (
+              fresher.db.prepare(`PRAGMA legacy.table_info(${ident(table)})`).all() as Array<{
+                name: string;
+              }>
+            ).map((c) => c.name),
+          )
+        : new Set<string>();
+      const comparable =
+        inLegacy &&
+        pk.length > 0 &&
+        cols.some((c) => c.name === 'updated_at') &&
+        legacyCols.has('updated_at') &&
+        pk.every((k) => legacyCols.has(k));
+      if (!comparable) {
+        fresher.db.exec(`DELETE FROM main.${ident(table)}`);
+        continue;
+      }
+      const match = pk.map((k) => `l.${ident(k)} = b.${ident(k)}`).join(' AND ');
+      fresher.db.exec(
+        `DELETE FROM main.${ident(table)} WHERE rowid NOT IN (SELECT b.rowid FROM main.${ident(table)} b ` +
+          `JOIN legacy.${ident(table)} l ON ${match} WHERE COALESCE(b.updated_at, '') > COALESCE(l.updated_at, ''))`,
+      );
+      kept += countRows(fresher.db, 'main', table);
+    }
+  } finally {
+    fresher.close();
+  }
+  return kept > 0 ? path : null;
 }
 
 /** Whether an assessment shows every legacy row present in the live store. */
@@ -275,7 +438,10 @@ export async function reconcileSupersededStores(
   const dryRun = options.dryRun === true;
   const liveStorePath = resolveDualScopeDbPath('project', projectRoot);
   const plan = buildExodusPlan(projectRoot);
-  const sources = plan.sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
+  const fileSources = plan.sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
+  // Legacy FILES first so they win any key both hold; the bare family fills gaps.
+  const bare = existsSync(liveStorePath) ? bareTaskCoreSource(liveStorePath) : null;
+  const sources = bare ? [...fileSources, bare] : fileSources;
   const base = {
     dryRun,
     projectRoot,
@@ -295,7 +461,7 @@ export async function reconcileSupersededStores(
       before: [],
       reason:
         sources.length === 0
-          ? 'no legacy project store (tasks.db / brain.db / conduit.db) is present'
+          ? 'no legacy project store (tasks.db / brain.db / conduit.db, or bare task tables in an unmigrated cleo.db) is present'
           : `no live store at ${liveStorePath}; the legacy files are still the live data`,
     };
   }
@@ -324,7 +490,24 @@ export async function reconcileSupersededStores(
     .replace(/\..+Z$/, 'Z');
   const stagingDir = join(resolveCleoDir(projectRoot), `${RECONCILE_DIR_PREFIX}${iso}`);
   mkdirSync(stagingDir, { recursive: true });
-  const reconcilePlan = { ...plan, sources, stagingDir, resumeFromStaging: false };
+  const copySources = sources.map((s) =>
+    s === bare ? { ...s, path: snapshotBareTaskCore(liveStorePath, stagingDir) } : s,
+  );
+  const bareCopy = copySources.find((s) => s.name === BARE_SOURCE_NAME);
+  const fresherPath = bareCopy
+    ? snapshotFresherBareRows(
+        bareCopy.path,
+        fileSources.find((s) => s.name === 'tasks')?.path,
+        stagingDir,
+      )
+    : null;
+  if (fresherPath !== null)
+    copySources.unshift({
+      name: `${BARE_SOURCE_NAME} (fresher)`,
+      path: fresherPath,
+      targetScope: 'project',
+    });
+  const reconcilePlan = { ...plan, sources: copySources, stagingDir, resumeFromStaging: false };
 
   // Serialise with exodus-on-open, which takes the same lock on this target.
   const result = await withLock(

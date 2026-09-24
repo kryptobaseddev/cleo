@@ -100,14 +100,19 @@ describe('legacy drizzle-tasks family rebuild (T12346)', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('opens by rebuilding the bare family, snapshotting first, prefixed tables untouched', async () => {
+  it('opens by rebuilding the bare family, snapshotting first, prefixed tables untouched, rows carried forward', async () => {
     const { getDb, closeDb, resolveMigrationsFolder } = await import('../sqlite.js');
     await expect(getDb(join(root, 'project'))).resolves.toBeDefined();
     closeDb();
 
-    // Live data survives; the stale bare row is gone from cleo.db …
+    // Live data survives, and the bare rows are CARRIED FORWARD into the
+    // recreated tables — the runtime still reads bare lifecycle_*, audit_log,
+    // attachments, … so dropping them would hide real history.
     expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T9'")).toBe('live row');
-    expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks')).toBe(0);
+    expect(scalar(liveDb, "SELECT title FROM tasks WHERE id='T1'")).toBe('stale bare row');
+    expect(
+      scalar(liveDb, "SELECT supersedes_id FROM architecture_decisions WHERE id='ADR-006'"),
+    ).toBe('ADR-001');
     // … but preserved byte-for-byte in the pre-repair snapshot.
     const snapshots = readdirSync(join(cleoDir, 'backups')).filter((n) =>
       n.startsWith('cleo-pre-t12346-lineage-rebuild-'),
@@ -132,5 +137,48 @@ describe('legacy drizzle-tasks family rebuild (T12346)', () => {
     expect(
       readdirSync(join(cleoDir, 'backups')).filter((n) => n.startsWith('cleo-pre-t12346-')),
     ).toHaveLength(1);
+  });
+});
+
+describe('version-0 shared journal upgrade (T12346)', () => {
+  it('names rows any lineage knows, leaves unknown ones unnamed, and is idempotent', async () => {
+    const { upgradeSharedJournalFormat } = await import('../migration-manager.js');
+    const { resolveCorePackageMigrationsFolder } = await import('../resolve-migrations-folder.js');
+    const tasksFolder = resolveCorePackageMigrationsFolder('drizzle-tasks');
+    const projectFolder = resolveCorePackageMigrationsFolder('drizzle-cleo-project');
+    const known = readMigrationFiles({ migrationsFolder: tasksFolder })[0];
+    if (known === undefined) throw new Error('fixture migrations missing');
+
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-t12346-journal-'));
+    try {
+      const db = new DatabaseSync(join(dir, 'cleo.db'));
+      // The pre-baseline shape found in clawmsgr/execdash/screennest: NULL ids.
+      db.exec(
+        'CREATE TABLE "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)',
+      );
+      db.prepare('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)').run(
+        known.hash,
+        known.folderMillis,
+      );
+      db.prepare('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)').run(
+        'pre-baseline-hash-no-lineage-knows',
+        1771905619000,
+      );
+
+      expect(upgradeSharedJournalFormat(db, [projectFolder, tasksFolder])).toEqual({
+        named: 1,
+        unnamed: 1,
+      });
+      const names = (
+        db.prepare('SELECT name FROM "__drizzle_migrations" ORDER BY rowid').all() as Array<{
+          name: string | null;
+        }>
+      ).map((r) => r.name);
+      expect(names).toEqual([known.name, null]);
+      expect(upgradeSharedJournalFormat(db, [projectFolder, tasksFolder])).toBeNull();
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -574,6 +574,75 @@ function ensureJournalHashUnique(nativeDb: DatabaseSync): void {
 }
 
 /**
+ * Upgrade a version-0 `__drizzle_migrations` journal (`id, hash, created_at`,
+ * no `name`) against EVERY lineage that shares it, before drizzle sees it.
+ *
+ * Drizzle's own 0→1 upgrade (`upgradeSyncIfNeeded`) matches each journal row
+ * against the ONE lineage being migrated and throws on any row it cannot place
+ * ("migrations in the database that do not match any local migration"). In the
+ * consolidated `cleo.db` the journal is SHARED, and a pre-consolidation store
+ * that was renamed to `cleo.db` carries rows from a lineage that no longer
+ * exists at all (clawmsgr, execdash, screennest: 19–25 pre-baseline rows with
+ * NULL ids) — so every open threw before a single migration ran (T12346).
+ *
+ * This performs the same schema upgrade (add `name` + `applied_at`) and names
+ * every row whose hash is a known migration of ANY sharing lineage. Rows no
+ * lineage knows keep a NULL name: drizzle then ignores them, and
+ * {@link reconcileJournal}'s orphan handling treats them as it treats any
+ * true orphan. Idempotent: a journal that already has `name` is untouched.
+ *
+ * @param nativeDb - Connection on the database holding the journal.
+ * @param lineageFolders - Every lineage folder sharing this journal.
+ * @returns Rows named / left unnamed, or `null` when no upgrade was needed.
+ * @task T12346
+ */
+export function upgradeSharedJournalFormat(
+  nativeDb: DatabaseSync,
+  lineageFolders: readonly string[],
+): { named: number; unnamed: number } | null {
+  if (!tableExists(nativeDb, '__drizzle_migrations')) return null;
+  const cols = new Set(
+    (
+      nativeDb.prepare('PRAGMA main.table_info("__drizzle_migrations")').all() as Array<{
+        name: string;
+      }>
+    ).map((c) => c.name),
+  );
+  if (cols.has('name')) return null;
+  const nameByHash = new Map<string, string>();
+  for (const folder of lineageFolders) {
+    try {
+      for (const m of readMigrationFiles({ migrationsFolder: folder })) {
+        if (m.name) nameByHash.set(m.hash, m.name);
+      }
+    } catch {
+      // A missing sibling folder contributes no names (same stance as readSiblingMigrationHashes).
+    }
+  }
+  nativeDb.exec('ALTER TABLE main."__drizzle_migrations" ADD COLUMN "name" text');
+  if (!cols.has('applied_at'))
+    nativeDb.exec('ALTER TABLE main."__drizzle_migrations" ADD COLUMN "applied_at" TEXT');
+  const rows = nativeDb
+    .prepare('SELECT rowid AS r, hash FROM main."__drizzle_migrations"')
+    .all() as Array<{ r: number; hash: string }>;
+  const setName = nativeDb.prepare(
+    'UPDATE main."__drizzle_migrations" SET "name" = ? WHERE rowid = ?',
+  );
+  let named = 0;
+  for (const row of rows) {
+    const name = nameByHash.get(row.hash);
+    if (name === undefined) continue;
+    setName.run(name, row.r);
+    named++;
+  }
+  getLogger('migration-manager').warn(
+    { named, unnamed: rows.length - named },
+    'upgraded a version-0 shared __drizzle_migrations journal across all lineages (T12346)',
+  );
+  return { named, unnamed: rows.length - named };
+}
+
+/**
  * Bootstrap and reconcile the Drizzle migration journal.
  *
  * Handles four scenarios:
@@ -640,6 +709,11 @@ export function reconcileJournal(
   // post-cutover ones are left for migrate() to RUN. Resolved from the sibling
   // consolidation migration on disk.
   const cutoverPrefix = resolveConsolidationCutoverPrefix(migrationsFolder);
+
+  // T12346: a version-0 journal shared by several lineages must be upgraded
+  // across all of them — drizzle's per-lineage upgrade throws on the others' rows.
+  if (siblingMigrationsFolders.length > 0)
+    upgradeSharedJournalFormat(nativeDb, [migrationsFolder, ...siblingMigrationsFolders]);
 
   // Scenario 1: Tables exist but no migration journal — bootstrap baseline
   if (tableExists(nativeDb, existenceTable) && !tableExists(nativeDb, '__drizzle_migrations')) {

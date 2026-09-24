@@ -223,6 +223,65 @@ describe('reconcileSupersededStores (T12319)', () => {
     expect(expr).toBe(`COALESCE("valid_at", "created_at", (datetime('now')))`);
   });
 
+  it('recovers rows found only in the unmigrated cleo.db bare task-core family, fresher version first', async () => {
+    // Legacy tasks.db gains updated_at so versions are comparable.
+    const legacy = new DatabaseSync(join(cleoDir, 'tasks.db'));
+    legacy.exec('ALTER TABLE tasks ADD COLUMN updated_at TEXT');
+    legacy.exec("UPDATE tasks SET updated_at = '2026-01-10T00:00:00Z'");
+    legacy.close();
+    // The live store still carries its pre-consolidation bare family: a label
+    // no legacy FILE has, and a newer edit of T2.
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL,
+        priority TEXT NOT NULL, type TEXT, parent_id TEXT, created_at TEXT NOT NULL, updated_at TEXT);
+      INSERT INTO tasks VALUES ('T2', 'renamed later', 'active', 'medium', 'task', 'T1',
+        '2026-01-02T00:00:00Z', '2026-05-01T00:00:00Z');
+      CREATE TABLE task_labels (task_id TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY (task_id, label));
+      INSERT INTO task_labels VALUES ('T1', 'only-in-cleo-db');
+    `);
+    live.close();
+
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'));
+
+    expect(result.outcome).toBe('reconciled');
+    expect(scalar(liveDb, "SELECT label FROM tasks_task_labels WHERE task_id='T1'")).toBe(
+      'only-in-cleo-db',
+    );
+    expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T2'")).toBe('renamed later');
+    // The bare family is untouched and a second run is a no-op.
+    expect(scalar(liveDb, 'SELECT COUNT(*) FROM task_labels')).toBe(1);
+    const again = await reconcileSupersededStores(join(root, 'project'));
+    expect(again.outcome).toBe('nothing-to-reconcile');
+  });
+
+  it('copies into a table whose FTS5 content-sync trigger the runtime installed', async () => {
+    // proxmox/kodomeet: the runtime's brain FTS triggers write the derived index
+    // on insert; the recovery authorizer used to refuse that as an untracked effect.
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      CREATE VIRTUAL TABLE brain_observations_fts
+        USING fts5(id, title, narrative, content=brain_observations, content_rowid=rowid);
+      CREATE TRIGGER brain_observations_ai AFTER INSERT ON brain_observations BEGIN
+        INSERT INTO brain_observations_fts(rowid, id, title, narrative)
+        VALUES (new.rowid, new.id, new.title, new.narrative);
+      END;
+    `);
+    live.close();
+
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'));
+
+    expect(result.outcome).toBe('reconciled');
+    expect(
+      scalar(
+        liveDb,
+        "SELECT COUNT(*) FROM brain_observations_fts WHERE brain_observations_fts MATCH 'dated'",
+      ),
+    ).toBe(1);
+  });
+
   it('never overwrites a row already in cleo.db', async () => {
     const live = new DatabaseSync(liveDb);
     live
