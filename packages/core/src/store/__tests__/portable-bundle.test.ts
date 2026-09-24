@@ -110,6 +110,7 @@ function seedGlobalHome(home: string, projectRoot: string): void {
   g.close();
   fs.writeFileSync(path.join(home, 'global-salt'), crypto.randomBytes(32));
   fs.writeFileSync(path.join(home, 'device-id'), 'dev-1');
+  fs.writeFileSync(path.join(home, 'machine-key'), crypto.randomBytes(32));
 }
 
 async function archiveEntries(bundle: string): Promise<string[]> {
@@ -369,10 +370,9 @@ describe('portable bundle v2 (T12318)', () => {
       isTempPath: (p) => p.includes('fixture-temp'),
     });
     expect(exported.machine).toEqual({ registered: 1, included: 1, skippedByReason: {} });
-    expect(exported.sections.find((s) => s.kind === 'global-home')?.excluded[0]).toMatchObject({
-      relPath: 'worktrees',
-      bytes: 2048,
-    });
+    expect(exported.sections.find((s) => s.kind === 'global-home')?.excluded).toContainEqual(
+      expect.objectContaining({ relPath: 'worktrees', bytes: 2048 }),
+    );
 
     const newPrefix = path.join(tmp, 'new-machine');
     const destHome = path.join(tmp, 'home-dest');
@@ -435,6 +435,11 @@ describe('portable bundle v2 (T12318)', () => {
     });
     expect(ok.lossless).toBe(true);
     expect(ok.requiresReentry).toEqual([]);
+    // machine-key is device-bound: never exported, not even encrypted (T12326).
+    expect(fs.existsSync(path.join(tmp, 'home-dest', 'machine-key'))).toBe(false);
+    expect(
+      exported.sections.find((s) => s.kind === 'global-home')?.excluded.map((e) => e.relPath),
+    ).toContain('machine-key');
     const agents = new DatabaseSync(path.join(tmp, 'home-dest', 'cleo.db'), { readOnly: true });
     const key = agents
       .prepare('SELECT api_key_encrypted AS k FROM agent_registry_agents')

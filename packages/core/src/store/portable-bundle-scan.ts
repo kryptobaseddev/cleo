@@ -76,6 +76,8 @@ export interface SectionRules {
   excludedDirs: Readonly<Record<string, string>>;
   /** Directory basenames excluded at ANY depth, with a reason. */
   excludedDirNamesAnywhere: Readonly<Record<string, string>>;
+  /** Files (relative paths) never exported, not even in encrypted bundles, with a reason. */
+  excludedFiles?: Readonly<Record<string, string>>;
   /** Returns the remedy when `relPath` is a secret, else null. */
   secretRemedy: (relPath: string) => string | null;
 }
@@ -115,8 +117,6 @@ export const PROJECT_SECTION_RULES: SectionRules = {
 const GLOBAL_SECRETS: Readonly<Record<string, string>> = {
   'global-salt':
     'Global salt for agent API-key derivation. A new salt is generated on first use; every registered agent must re-authenticate (re-issue agent API keys).',
-  'machine-key':
-    'Machine key (encrypts stored agent credentials). A new key is generated on first use; stored agent credentials cannot be decrypted and must be re-entered.',
   'llm-credentials.json':
     'Stored LLM provider credentials. Re-run provider login / re-enter API keys.',
   'anthropic-oauth.json': 'Anthropic OAuth session. Re-run the Anthropic login.',
@@ -149,6 +149,13 @@ export const GLOBAL_HOME_RULES: SectionRules = {
   excludedDirNamesAnywhere: {
     node_modules: 'dependency install (regenerable)',
     __pycache__: 'Python bytecode cache (regenerable)',
+  },
+  excludedFiles: {
+    // Device-bound (T12326): restoring it would overwrite the target's key and
+    // break every credential already stored there. Credentials move by being
+    // re-sealed under the bundle passphrase instead.
+    'machine-key':
+      'device-bound machine key; never exported, even encrypted (restoring it would break credentials already on the target). Credentials encrypted with it need re-entry or the T12326 credential transfer',
   },
   secretRemedy: (relPath) => {
     const explicit = GLOBAL_SECRETS[relPath];
@@ -308,6 +315,17 @@ function classifyFile(
       fileCount: 1,
       sizeComplete: true,
     });
+    return;
+  }
+  const never = rules.excludedFiles?.[relPath];
+  if (never !== undefined) {
+    let size = 0;
+    try {
+      size = fs.lstatSync(abs).size;
+    } catch {
+      // vanished
+    }
+    scan.excluded.push({ relPath, reason: never, bytes: size, fileCount: 1, sizeComplete: true });
     return;
   }
   const remedy = rules.secretRemedy(relPath);
