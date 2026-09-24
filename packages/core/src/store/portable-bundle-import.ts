@@ -80,6 +80,11 @@ export interface ImportPortableBundleInput {
   configHome?: string;
   /** Overwrite existing live data. */
   force?: boolean;
+  /**
+   * Throw `E_RESTORE_MISMATCH` (carrying the full report) when any restored
+   * table count differs from the manifest, instead of returning `lossless: false`.
+   */
+  requireLossless?: boolean;
   /** Directory in which to create the staging directory (defaults to the parent of `cleoHome`). */
   stagingParent?: string;
   /**
@@ -322,21 +327,33 @@ function relocateRegistryRows(
       }
       // Mirrors nexusMoveProject's column set; done on the staged file so the
       // live registry is never half-updated.
-      const result = db
-        .prepare(
-          'UPDATE nexus_project_registry SET project_path = ?, project_hash = ?, brain_db_path = ?, tasks_db_path = ?, last_seen = ? WHERE project_id = ?',
-        )
-        .run(
-          move.to,
-          generateProjectHash(move.to),
-          path.join(move.to, '.cleo', 'brain.db'),
-          path.join(move.to, '.cleo', 'tasks.db'),
-          new Date().toISOString(),
-          move.projectId,
+      let changes = 0;
+      try {
+        changes = Number(
+          db
+            .prepare(
+              'UPDATE nexus_project_registry SET project_path = ?, project_hash = ?, brain_db_path = ?, tasks_db_path = ?, last_seen = ? WHERE project_id = ?',
+            )
+            .run(
+              move.to,
+              generateProjectHash(move.to),
+              path.join(move.to, '.cleo', 'brain.db'),
+              path.join(move.to, '.cleo', 'tasks.db'),
+              new Date().toISOString(),
+              move.projectId,
+            ).changes,
         );
+      } catch (err) {
+        // e.g. another (stale) registry row already owns the new path.
+        outcomes.set(move.from, {
+          status: 'failed',
+          detail: `${err instanceof Error ? err.message : String(err)} — resolve with \`cleo nexus projects list\` then \`cleo nexus projects register ${move.to}\``,
+        });
+        continue;
+      }
       outcomes.set(
         move.from,
-        Number(result.changes) > 0
+        changes > 0
           ? { status: 'updated', detail: `registry row ${move.projectId} -> ${move.to}` }
           : {
               status: 'not-in-registry',
@@ -414,7 +431,7 @@ function compareCounts(plan: Placement): {
  * @example
  * ```ts
  * const r = await importPortableBundle({ bundlePath: '/b/p.cleobundle.tar.gz', target: '/new/p' });
- * if (!r.lossless) process.exitCode = 86;
+ * if (!r.lossless) throw new Error('restore is not lossless');
  * ```
  */
 export async function importPortableBundle(
@@ -484,6 +501,7 @@ export async function importPortableBundle(
         rewritten: [],
         leftUnderOldRoot: [],
         leftOutsideRoot: [],
+        rewrittenTargetMissing: [],
       };
       for (const d of plan.section.databases) {
         relocateDatabase(path.join(extractDir, d.bundlePath), d.relPath, from, to, report);
@@ -559,7 +577,7 @@ export async function importPortableBundle(
         omittedSecrets.push({ ...s, section: plan.destDir });
       }
     }
-    return {
+    const result: PortableImportResult = {
       bundlePath: path.resolve(input.bundlePath),
       scope: manifest.backup.scope,
       sections,
@@ -567,6 +585,14 @@ export async function importPortableBundle(
       secretsIncluded: manifest.backup.secretsIncluded,
       omittedSecrets,
     };
+    if (input.requireLossless === true && !result.lossless) {
+      throw new PortableBundleError(
+        'E_RESTORE_MISMATCH',
+        'Restored row counts differ from the bundle manifest (see details.sections[].mismatches)',
+        result,
+      );
+    }
+    return result;
   } finally {
     fs.rmSync(stagingDir, { recursive: true, force: true });
   }

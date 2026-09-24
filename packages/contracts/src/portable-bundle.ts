@@ -302,6 +302,12 @@ export interface PortableRelocationReport {
   leftUnderOldRoot: PortablePathFinding[];
   /** Absolute paths outside the old root, left unchanged. */
   leftOutsideRoot: PortablePathFinding[];
+  /**
+   * Rewritten locators whose new target does not exist on this machine at
+   * import time (e.g. the repository has not been cloned there yet, or the
+   * project was re-rooted into a subdirectory that does not contain it).
+   */
+  rewrittenTargetMissing: PortablePathFinding[];
 }
 
 /** Restore outcome for one section. */

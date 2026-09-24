@@ -611,16 +611,9 @@ async function portableImport(
       target,
       maps: core.parsePathMappings(mapValues),
       force: force === true,
+      requireLossless: true,
       registerProject: core.registerRelocatedProject,
     });
-    if (!result.lossless) {
-      cliError('Restored row counts differ from the bundle manifest', 86, {
-        name: 'E_RESTORE_MISMATCH',
-        details: result,
-      });
-      process.exitCode = 86;
-      return;
-    }
     cliOutput(result, { command: 'backup', operation: 'backup.import' });
   } catch (err) {
     reportBundleError(err, err instanceof PortableBundleError ? err : null, 'E_IMPORT_FAILED');
@@ -638,12 +631,13 @@ async function portableImport(
  */
 function reportBundleError(
   err: unknown,
-  bundleErr: { code: string; exitCode: number } | null,
+  bundleErr: { code: string; exitCode: number; details?: unknown } | null,
   fallbackName: string,
 ): void {
   const exitCode = bundleErr?.exitCode ?? 1;
   cliError(err instanceof Error ? err.message : String(err), exitCode, {
     name: bundleErr?.code ?? fallbackName,
+    ...(bundleErr?.details !== undefined ? { details: bundleErr.details } : {}),
   });
   process.exitCode = exitCode;
 }

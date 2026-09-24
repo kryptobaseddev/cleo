@@ -34,16 +34,18 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import type {
-  PortableBundleManifest,
-  PortableBundleScope,
-  PortableDatabaseEntry,
-  PortableExportResult,
-  PortableFileEntry,
-  PortableProjectSection,
-  PortableSectionBase,
-  PortableSkippedProject,
-  PortableSkipReason,
+import {
+  ExitCode,
+  type PortableBundleManifest,
+  type PortableBundleScope,
+  type PortableDatabaseEntry,
+  type PortableExportResult,
+  type PortableFileEntry,
+  type PortableImportResult,
+  type PortableProjectSection,
+  type PortableSectionBase,
+  type PortableSkippedProject,
+  type PortableSkipReason,
 } from '@cleocode/contracts';
 import { create as tarCreate } from 'tar';
 import { getCleoConfigDir, getCleoHome } from '../paths.js';
@@ -88,19 +90,23 @@ export type PortableBundleErrorCode =
   | 'E_TARGET_AMBIGUOUS'
   | 'E_RESTORE_MISMATCH';
 
-/** Numeric exit codes for {@link PortableBundleErrorCode}. */
+/**
+ * Numeric exit codes for {@link PortableBundleErrorCode}. Decrypt / format /
+ * integrity / data-exists keep the v1 bundle codes (ADR-038 §4.3) so scripts
+ * written against v1 keep working; the rest reuse the shared `ExitCode` enum.
+ */
 export const PORTABLE_BUNDLE_EXIT_CODES: Readonly<Record<PortableBundleErrorCode, number>> = {
-  E_PRIMARY_STORE_MISSING: 80,
-  E_PRIMARY_STORE_UNREADABLE: 81,
-  E_NO_PROJECT: 82,
-  E_REGISTRY_UNREADABLE: 83,
-  E_PASSPHRASE_REQUIRED: 84,
+  E_PRIMARY_STORE_MISSING: ExitCode.NOT_FOUND,
+  E_PRIMARY_STORE_UNREADABLE: ExitCode.FILE_ERROR,
+  E_NO_PROJECT: ExitCode.NOT_FOUND,
+  E_REGISTRY_UNREADABLE: ExitCode.FILE_ERROR,
+  E_PASSPHRASE_REQUIRED: ExitCode.INVALID_INPUT,
   E_BUNDLE_DECRYPT: 70,
   E_BUNDLE_FORMAT: 71,
   E_BUNDLE_INTEGRITY: 72,
   E_DATA_EXISTS: 78,
-  E_TARGET_AMBIGUOUS: 85,
-  E_RESTORE_MISMATCH: 86,
+  E_TARGET_AMBIGUOUS: ExitCode.INVALID_INPUT,
+  E_RESTORE_MISMATCH: ExitCode.CHECKSUM_MISMATCH,
 };
 
 /**
@@ -114,10 +120,12 @@ export class PortableBundleError extends Error {
   /**
    * @param code - Symbolic error code.
    * @param message - Human-readable description.
+   * @param details - Structured context (e.g. the full import report on a mismatch).
    */
   constructor(
     public readonly code: PortableBundleErrorCode,
     message: string,
+    public readonly details?: PortableImportResult,
   ) {
     super(message);
     this.name = 'PortableBundleError';
@@ -147,6 +155,8 @@ export interface ExportPortableBundleInput {
   cleoHome?: string;
   /** Config home (defaults to `getCleoConfigDir()`). */
   configHome?: string;
+  /** Machine scope: predicate for temp/fixture paths (defaults to {@link isTempProjectPath}). */
+  isTempPath?: (absPath: string) => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,11 +199,13 @@ function realpathOrNull(p: string): string | null {
  *
  * @param rows - Registry rows.
  * @param cleoHome - Global home (a project whose `.cleo/` IS the home is skipped).
+ * @param isTempPath - Temp/fixture predicate.
  * @returns Included project roots and skipped rows with reasons.
  */
 export function selectMachineProjects(
   rows: readonly RegistryRow[],
   cleoHome: string,
+  isTempPath: (absPath: string) => boolean = isTempProjectPath,
 ): { included: RegistryRow[]; skipped: PortableSkippedProject[] } {
   const included: RegistryRow[] = [];
   const skipped: PortableSkippedProject[] = [];
@@ -203,7 +215,7 @@ export function selectMachineProjects(
     skipped.push({ path: row.path, projectId: row.projectId, reason });
   };
   for (const row of [...rows].sort((a, b) => a.path.localeCompare(b.path))) {
-    if (isTempProjectPath(row.path)) {
+    if (isTempPath(row.path)) {
       skip(row, 'temp-path');
       continue;
     }
@@ -212,7 +224,7 @@ export function selectMachineProjects(
       skip(row, 'path-missing');
       continue;
     }
-    if (isTempProjectPath(real)) {
+    if (isTempPath(real)) {
       skip(row, 'temp-path');
       continue;
     }
@@ -520,7 +532,7 @@ export async function exportPortableBundle(
       if (scope === 'machine' && primary) {
         const rows = readRegistrySnapshot(path.join(stagingDir, primary.bundlePath));
         registeredCount = rows.length;
-        const selection = selectMachineProjects(rows, cleoHome);
+        const selection = selectMachineProjects(rows, cleoHome, input.isTempPath);
         skippedProjects = selection.skipped;
         for (const row of selection.included) {
           projects.push(await stageProject(state, row.path, projects.length));

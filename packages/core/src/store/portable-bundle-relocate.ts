@@ -74,11 +74,12 @@ function rewriteJson(
   from: string,
   to: string,
   onOutside: (value: string) => void,
+  onRewrite: (newValue: string) => void,
 ): { value: unknown; changed: number } {
   if (Array.isArray(node)) {
     let changed = 0;
     const out = node.map((item) => {
-      const r = rewriteJson(item, from, to, onOutside);
+      const r = rewriteJson(item, from, to, onOutside, onRewrite);
       changed += r.changed;
       return r.value;
     });
@@ -91,6 +92,7 @@ function rewriteJson(
       if (typeof value === 'string' && PATH_JSON_KEY.test(key) && value.startsWith('/')) {
         if (isUnderRoot(value, from)) {
           out[key] = relocatePath(value, from, to);
+          onRewrite(out[key] as string);
           changed += 1;
         } else {
           onOutside(value);
@@ -98,7 +100,7 @@ function rewriteJson(
         }
         continue;
       }
-      const r = rewriteJson(value, from, to, onOutside);
+      const r = rewriteJson(value, from, to, onOutside, onRewrite);
       changed += r.changed;
       out[key] = r.value;
     }
@@ -145,6 +147,13 @@ export function relocateDatabase(
   const rewritten = new FindingSet();
   const leftUnder = new FindingSet();
   const leftOutside = new FindingSet();
+  const missing = new FindingSet();
+  const destCleo = `${to}/.cleo`;
+  const checkTarget = (location: string, next: string): void => {
+    // Files under the new .cleo/ are placed after relocation; anything else
+    // must already exist (or be restored by the user, e.g. a git clone).
+    if (!isUnderRoot(next, destCleo) && !fs.existsSync(next)) missing.add(location, next);
+  };
   const db = new DatabaseSync(dbPath);
   try {
     const tables = db
@@ -178,11 +187,13 @@ export function relocateDatabase(
           const mentionsRoot = row.v.includes(from);
           if (pathColumn && row.v.startsWith('/')) {
             if (isUnderRoot(row.v, from)) {
+              const next = relocatePath(row.v, from, to);
               db.prepare(`UPDATE ${quoteIdent(table.name)} SET ${col} = ? WHERE rowid = ?`).run(
-                relocatePath(row.v, from, to),
+                next,
                 row.rid,
               );
               rewritten.add(location, row.v);
+              checkTarget(location, next);
             } else {
               leftOutside.add(location, row.v);
             }
@@ -196,7 +207,13 @@ export function relocateDatabase(
               parsed = undefined;
             }
             if (parsed !== undefined) {
-              const r = rewriteJson(parsed, from, to, (v) => leftOutside.add(location, v));
+              const r = rewriteJson(
+                parsed,
+                from,
+                to,
+                (v) => leftOutside.add(location, v),
+                (v) => checkTarget(location, v),
+              );
               if (r.changed > 0) {
                 const next = JSON.stringify(r.value);
                 db.prepare(`UPDATE ${quoteIdent(table.name)} SET ${col} = ? WHERE rowid = ?`).run(
@@ -219,6 +236,7 @@ export function relocateDatabase(
   report.rewritten.push(...rewritten.list());
   report.leftUnderOldRoot.push(...leftUnder.list());
   report.leftOutsideRoot.push(...leftOutside.list());
+  report.rewrittenTargetMissing.push(...missing.list());
 }
 
 /** Project JSON files whose string values are relocated wholesale. */
