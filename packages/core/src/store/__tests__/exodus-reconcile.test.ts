@@ -323,6 +323,53 @@ describe('reconcileSupersededStores (T12319)', () => {
     expect(audit.map((a) => a.operation)).toEqual(['add']);
   });
 
+  it('additive mode fills history for a live project, never touches its task graph, lists every conflict', async () => {
+    // A project already running on cleo.db: its live task graph holds the
+    // tasks, and a NEWER criterion occupies T2's first slot.
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      INSERT INTO tasks_tasks (id, title, status, priority, type, parent_id, created_at) VALUES
+        ('T1', 'epic (live)', 'active', 'high', 'epic', NULL, '2026-01-01T00:00:00Z'),
+        ('T2', 'task (live)', 'active', 'medium', 'task', 'T1', '2026-01-02T00:00:00Z');
+      INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, kind, text, created_at)
+        VALUES ('AC-live', 'T2', 1, 'text', 'rewritten after cutover', '2026-06-01T00:00:00Z');
+    `);
+    live.close();
+    const legacy = new DatabaseSync(join(cleoDir, 'tasks.db'));
+    legacy.exec(`
+      CREATE TABLE audit_log (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, action TEXT NOT NULL,
+        task_id TEXT NOT NULL, actor TEXT NOT NULL DEFAULT 'system', domain TEXT, operation TEXT,
+        session_id TEXT, success INTEGER);
+      INSERT INTO audit_log VALUES
+        ('A1', '2026-01-03T00:00:00Z', 'task_created', 'T1', 'agent', 'tasks', 'add', 'S-legacy', 1);
+    `);
+    legacy.close();
+    const liveBefore = (sql: string) => scalar(liveDb, sql);
+    const titleBefore = liveBefore("SELECT title FROM tasks_tasks WHERE id='T1'");
+
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { additive: true });
+
+    expect(result.outcome).toBe('reconciled');
+    expect(result.mode).toBe('additive');
+    // History landed where the runtime reads it …
+    const { queryAudit } = await import('../../audit.js');
+    expect((await queryAudit({ sessionId: 'S-legacy' })).map((a) => a.operation)).toEqual(['add']);
+    expect(scalar(liveDb, 'SELECT COUNT(*) FROM brain_observations')).toBe(2);
+    // … the live task graph was not written …
+    expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T1'")).toBe(titleBefore);
+    expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(2);
+    expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_acceptance_criteria')).toBe(1);
+    // … and every legacy row left behind is reported.
+    const conflict = (t: string) => result.conflicts.find((c) => c.targetTable === t);
+    expect(conflict('tasks_tasks')).toMatchObject({ rows: 3, reason: 'live-authoritative' });
+    expect(conflict('tasks_task_acceptance_criteria')).toMatchObject({
+      rows: 2,
+      reason: 'live-authoritative',
+    });
+    expect(conflict('tasks_task_relations')).toMatchObject({ rows: 1 });
+  });
+
   it('never overwrites a row already in cleo.db', async () => {
     const live = new DatabaseSync(liveDb);
     live

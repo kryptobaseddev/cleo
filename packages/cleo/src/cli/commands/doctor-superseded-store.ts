@@ -19,6 +19,9 @@
  * Read-only by default. It never deletes anything — the recommendation is
  * printed and the operator decides.
  *
+ * `--reconcile --additive` (T12355) is for a project already running on
+ * `cleo.db`: it fills in missing history rows only and reports every conflict.
+ *
  * `--reconcile` (T12319) copies the rows a superseded file still holds that
  * are missing from `cleo.db`, through the exodus copy engine: additive only,
  * verified by key afterwards, reverted on any mismatch, legacy file left in
@@ -58,6 +61,13 @@ export const doctorSupersededStoreCommand = defineCommand({
         'Copy rows the superseded files hold that are missing from cleo.db (additive, verified, ' +
         'reverted on mismatch; legacy files are never touched). Writes a receipt.',
     },
+    additive: {
+      type: 'boolean',
+      description:
+        'With --reconcile, for a project already running on cleo.db: copy only history rows whose ' +
+        'keys are absent from live, never write the live task graph, and list every row left ' +
+        'uncopied as a conflict in the receipt',
+    },
     'dry-run': {
       type: 'boolean',
       description:
@@ -71,6 +81,7 @@ export const doctorSupersededStoreCommand = defineCommand({
     if (args.reconcile === true) {
       const receipt = await reconcileSupersededStores(getProjectRoot(), {
         dryRun: args['dry-run'] === true,
+        additive: args.additive === true,
       });
       if (receipt.outcome === 'refused') {
         cliError(receipt.reason, 'E_RECONCILE_REFUSED', {

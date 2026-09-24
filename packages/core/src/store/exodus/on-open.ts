@@ -472,8 +472,17 @@ async function runExodusOnOpen(
       _exodusInProgress = true;
       try {
         // 1. Run the migration engine (copies BOTH scopes; idempotent + journaled).
-        const migrateResult = await runExodusMigrate(plan, false, (msg) =>
-          log.debug({ scope }, `exodus-on-open: ${msg}`),
+        // T12355: land every row where the RUNTIME reads it — the same targets
+        // `cleo doctor superseded-store --reconcile` uses — creating the
+        // runtime-bound tables first, since several exist only once the
+        // tasks-domain lineage has run.
+        const { buildRuntimeTargetResolver } = await import('./runtime-targets.js');
+        const resolveTarget = await buildRuntimeTargetResolver();
+        const migrateResult = await runExodusMigrate(
+          plan,
+          false,
+          (msg) => log.debug({ scope }, `exodus-on-open: ${msg}`),
+          { resolveTarget, ensureRuntimeTables: true },
         );
 
         if (!migrateResult.ok) {
@@ -500,6 +509,7 @@ async function runExodusOnOpen(
           plan.projectDbPath,
           plan.globalDbPath,
           (msg) => log.debug({ scope }, `exodus-on-open verify: ${msg}`),
+          resolveTarget,
         );
 
         // Surface diagnostics (hash mismatch / source enum-drift) but do NOT

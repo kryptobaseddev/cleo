@@ -1094,6 +1094,33 @@ export interface SupersededStoreTableCount {
 }
 
 /**
+ * A legacy row set an additive reconcile did NOT copy (T12355). Every one is
+ * listed; none is silently dropped.
+ *
+ * - `live-authoritative` — the table's runtime home is part of the task graph
+ *   the project has been editing on the consolidated store; a legacy row
+ *   missing there may have been deleted or rewritten since, so copying it
+ *   could resurrect or contradict live state.
+ * - `collides-with-live` — inserting the row would violate a live key or
+ *   constraint (e.g. a `(task_id, ordinal)` slot a newer criterion now holds),
+ *   i.e. it could only land by overwriting live data.
+ *
+ * @task T12355
+ */
+export interface SupersededStoreConflict {
+  /** Logical legacy source. */
+  sourceDb: string;
+  /** Table in the legacy file. */
+  sourceTable: string;
+  /** Table the runtime reads it from. */
+  targetTable: string;
+  /** Legacy rows left uncopied. */
+  rows: number;
+  /** Why they were left. */
+  reason: 'live-authoritative' | 'collides-with-live';
+}
+
+/**
  * Outcome of `cleo doctor superseded-store --reconcile`.
  *
  * - `nothing-to-reconcile` — every legacy row is already present; no write.
@@ -1119,6 +1146,15 @@ export type SupersededStoreReconcileOutcome =
 export interface SupersededStoreReconcileResult {
   /** Final outcome; `refused` is the only non-zero exit. */
   outcome: SupersededStoreReconcileOutcome;
+  /**
+   * `full` — every legacy row must end up present (stranded projects).
+   * `additive` — for a project already running on the consolidated store:
+   * copy only rows whose keys are absent from live history tables, never
+   * touch the live task graph, and list everything left in `conflicts`.
+   */
+  mode: 'full' | 'additive';
+  /** Legacy rows deliberately left uncopied (additive mode); empty in full mode. */
+  conflicts: SupersededStoreConflict[];
   /** `true` when nothing was written. */
   dryRun: boolean;
   /** Absolute project root. */

@@ -1079,8 +1079,12 @@ function checkSchemaVersion(journal: ExodusJournal, forceCrossVersion: boolean):
  * @param onProgress         - Optional progress callback called after each table.
  * @param options            - `projectOnly` opens and writes ONLY the project
  *   target (the superseded-store reconcile); the global `cleo.db` is not opened.
- *   `resolveTarget` overrides where project-scope rows land (the reconcile
- *   passes the runtime-read targets, T12346).
+ *   `resolveTarget` overrides where project-scope rows land (on-open and the
+ *   reconcile pass the runtime-read targets, T12355). `ensureRuntimeTables`
+ *   first creates the tables the tasks-domain runtime binds on the project
+ *   target, since several runtime-read targets exist only once that lineage has
+ *   run; a default `task_id_sequence` is set aside for the copy so a legacy
+ *   counter replaces it, and defaults are re-seeded afterwards.
  *
  * @returns {@link ExodusMigrateResult}
  *
@@ -1092,7 +1096,11 @@ export async function runExodusMigrate(
   plan: ExodusPlan,
   forceCrossVersion = false,
   onProgress?: (msg: string) => void,
-  options?: { readonly projectOnly?: boolean; readonly resolveTarget?: TargetResolver },
+  options?: {
+    readonly projectOnly?: boolean;
+    readonly resolveTarget?: TargetResolver;
+    readonly ensureRuntimeTables?: boolean;
+  },
 ): Promise<ExodusMigrateResult> {
   const projectOnly = options?.projectOnly === true;
   const { sources, stagingDir, diskPreflight, projectDbPath, globalDbPath } = plan;
@@ -1163,6 +1171,7 @@ export async function runExodusMigrate(
   // singleton cache).
   let projectHandle: DualScopeDbHandle | null = null;
   let globalHandle: DualScopeDbHandle | null = null;
+  let reseedProject: (() => void) | null = null;
 
   try {
     // 1. Back up existing source DBs into staging dir and acquire advisory locks.
@@ -1213,6 +1222,14 @@ export async function runExodusMigrate(
 
     const projectNative = getDualScopeNativeDb(projectHandle);
     const globalNative = globalHandle ? getDualScopeNativeDb(globalHandle) : null;
+    if (options?.ensureRuntimeTables === true) {
+      const tasksDomain = await import('../sqlite.js');
+      tasksDomain.ensureTasksDomainTables(projectNative, projectDbPath);
+      projectNative
+        .prepare("DELETE FROM main.schema_meta WHERE key = 'task_id_sequence' AND value = ?")
+        .run(tasksDomain.TASK_ID_SEQUENCE_SEED);
+      reseedProject = () => tasksDomain.seedTasksMeta(projectNative);
+    }
     if (
       journal.tables.some((entry) => entry.status === 'done') &&
       (!hasExodusRecovery(projectNative, stagingDir) ||
@@ -1272,6 +1289,15 @@ export async function runExodusMigrate(
     // FIX D (T11782): always close the DEDICATED migrate connections (success OR
     // failure) so the second SQLite handle does not leak a file descriptor. A
     // dedicated handle is never cached, so this is the only thing that closes it.
+    try {
+      // Defaults fill only what the copy (or a failure) left unset.
+      reseedProject?.();
+    } catch (seedErr) {
+      log.warn(
+        { err: seedErr },
+        'Exodus: re-seeding tasks-domain defaults failed (next open seeds them)',
+      );
+    }
     try {
       projectHandle?.close();
     } catch {
