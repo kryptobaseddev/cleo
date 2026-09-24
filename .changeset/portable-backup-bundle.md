@@ -52,7 +52,7 @@ Export now writes a **portable bundle (manifest v2)**:
   bundle is unencrypted, the notice says so in plain words and recommends
   `--encrypt`.
 - **Credentials only when encrypted (ADR-093 `portable-secret`).** An
-  unencrypted bundle leaves out secret files: `global-salt`, `machine-key`,
+  unencrypted bundle leaves out secret files: `global-salt`,
   `llm-credentials.json`, OAuth/key files, config-home `auth/` and project
   `keys/`. It also clears credential columns inside each database snapshot,
   for example agent API keys, session owner tokens, OAuth tokens and service
@@ -61,7 +61,13 @@ Export now writes a **portable bundle (manifest v2)**:
   `VACUUM`, so the old values are not left in free pages. If a column cannot
   be cleared, the export fails (`E_REDACTION_FAILED`). Every omission is
   listed under `requiresReentry` with what to redo. Encrypted bundles carry
-  credentials untouched. Re-wrapping them per device is T12326. Encryption now
+  credentials untouched. `machine-key` is never exported, not even when the
+  bundle is encrypted. It is device-bound, and restoring it would overwrite the
+  target's key and break every credential already stored there. As a result,
+  values encrypted with the source machine-key (for example agent
+  `api_key_encrypted`) cannot be decrypted on the target until the T12326
+  credential transfer re-seals them under the bundle passphrase. Until that
+  integration lands, re-enter them. Encryption now
   streams (format byte `0x02`), so multi-GB bundles never sit in one Buffer.
 - **Verifiable, and scriptable.** The manifest records every table's row count. Import checks
   the manifest self-hash, every file's SHA-256 and `PRAGMA integrity_check`
@@ -137,9 +143,11 @@ For such a layout the recommended move keeps the same relative layout: keep
 ## After importing
 
 - **Unencrypted bundles.** Recreate each listed secret. For example, a new
-  `global-salt` means registered agents must re-authenticate, and a new
-  `machine-key` means stored agent credentials must be re-entered. Or re-export
+  `global-salt` means registered agents must re-authenticate. Or re-export
   with `--encrypt` to carry them.
+- **Any bundle.** The target keeps its own `machine-key`. Credentials that
+  were encrypted with the source key must be re-entered until the T12326
+  credential transfer is wired in.
 - **Worktrees** are never bundled. Recreate them with `cleo orchestrate spawn`.
 - **Registry rows.** The bundled registry also carries the stale rows of the
   source machine (temp paths, deleted projects). Prune them with
