@@ -28,6 +28,11 @@ exports[`T11578 AC3 — nexus DDL snapshot (post-cutover prefixed shape + FTS5) 
     "type": "table",
   },
   {
+    "name": "nexus_project_paths",
+    "sql": "CREATE TABLE \`nexus_project_paths\` ( \`project_path\` text PRIMARY KEY NOT NULL, \`project_id\` text NOT NULL, \`project_hash\` text NOT NULL, \`first_seen\` text NOT NULL DEFAULT (datetime('now')), \`last_seen\` text NOT NULL DEFAULT (datetime('now')), CHECK ("first_seen" IS NULL OR "first_seen" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("last_seen" IS NULL OR "last_seen" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
     "name": "nexus_project_registry",
     "sql": "CREATE TABLE \`nexus_project_registry\` ( \`project_id\` text PRIMARY KEY, \`project_hash\` text NOT NULL, \`project_path\` text NOT NULL UNIQUE, \`name\` text NOT NULL, \`registered_at\` text DEFAULT (datetime('now')) NOT NULL, \`last_seen\` text DEFAULT (datetime('now')) NOT NULL, \`health_status\` text DEFAULT 'unknown' NOT NULL, \`health_last_check\` text, \`permissions\` text DEFAULT 'read' NOT NULL, \`last_sync\` text DEFAULT (datetime('now')) NOT NULL, \`task_count\` integer DEFAULT 0 NOT NULL, \`labels_json\` text DEFAULT '[]' NOT NULL, \`brain_db_path\` text, \`tasks_db_path\` text, \`last_indexed\` text, \`stats_json\` text DEFAULT '{}' NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("registered_at" IS NULL OR "registered_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
     "type": "table",

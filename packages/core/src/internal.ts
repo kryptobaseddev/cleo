@@ -1003,6 +1003,8 @@ export {
   getAgentsHome,
   getCleoGlobalCantAgentsDir,
   getProjectRoot,
+  type ProjectEncounterOutcome,
+  recordProjectEncounter,
   resolveOrCwd,
   resolveWorktreeFilePath,
   resolveWorktreeRouting,

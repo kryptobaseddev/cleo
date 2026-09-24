@@ -1906,6 +1906,24 @@ export const PROJECT_ENCOUNTER_REFRESH_MS = 5 * 60_000;
 /** Monotonic scheduling time of the last encounter per captured identity key. */
 const _encountersScheduled = new Map<string, number>();
 
+/** The encounter registration currently in flight per captured identity key. */
+const _encountersInFlight = new Map<string, Promise<void>>();
+
+/** Start (or join) the encounter registration for one captured identity key. */
+function startProjectEncounter(
+  key: string,
+  projectRoot: string,
+  infoProjectId: string,
+): Promise<void> {
+  const inFlight = _encountersInFlight.get(key);
+  if (inFlight) return inFlight;
+  const started = registerProjectOnEncounter(projectRoot, infoProjectId).finally(() => {
+    _encountersInFlight.delete(key);
+  });
+  _encountersInFlight.set(key, started);
+  return started;
+}
+
 /**
  * Schedule the best-effort encounter registration for a resolved project, once.
  *
@@ -1942,7 +1960,7 @@ function scheduleProjectEncounter(projectRoot: string, infoProjectId: string): v
   const now = Date.now();
   if (previous !== undefined && now - previous < PROJECT_ENCOUNTER_REFRESH_MS) return;
   _encountersScheduled.set(key, now);
-  registerProjectOnEncounter(projectRoot, infoProjectId).catch((error: Error) => {
+  startProjectEncounter(key, projectRoot, infoProjectId).catch((error: Error) => {
     if (isExpectedTeardownRejection(error)) {
       // Abandoned by teardown, not failed. The next invocation registers again.
       if (process.env['CLEO_DEBUG'])
@@ -1953,6 +1971,78 @@ function scheduleProjectEncounter(projectRoot: string, infoProjectId: string): v
     }
     process.stderr.write(`[cleo] Project encounter registration failed: ${error.message}\n`);
   });
+}
+
+/** What {@link recordProjectEncounter} did for the current project. */
+export type ProjectEncounterOutcome =
+  | 'no-project'
+  | 'disabled'
+  | 'ephemeral'
+  | 'shutting-down'
+  | 'current'
+  | 'recorded';
+
+/**
+ * Record the current project's checkout in the registry and path map, and WAIT
+ * for it — the deterministic counterpart of the fire-and-forget encounter.
+ *
+ * Root cause (T12354): the encounter was a side effect of the deprecated
+ * CWD-walk-up branch of {@link getCleoDirAbsolute}, which commands resolved
+ * through `getProjectRoot`/`resolveCleoDir` (e.g. `cleo list`) never reach; and
+ * where it was reached (e.g. `cleo briefing`) it ran detached, so CLI teardown
+ * cancelled it before it committed. After a move, only `cleo init` and
+ * `cleo nexus reconcile` — which await their registry write — updated the path.
+ *
+ * The CLI calls this once per successful project command, before teardown.
+ * When the registry row already names this checkout and the path map already
+ * holds it, the call is one indexed read; only a new or moved checkout pays
+ * for the full registration.
+ *
+ * @param cwd - Directory to resolve the project from; defaults to the ambient project root.
+ * @returns What was done; never throws for an unregistrable context.
+ * @example
+ * ```ts
+ * await recordProjectEncounter();
+ * ```
+ */
+export async function recordProjectEncounter(cwd?: string): Promise<ProjectEncounterOutcome> {
+  if (isShuttingDown()) return 'shutting-down';
+  if (process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'] === '1') return 'disabled';
+  let start: string;
+  try {
+    start = cwd ?? getProjectRoot();
+  } catch {
+    return 'no-project';
+  }
+  const project = _pathsResolveProjectByCwd(start);
+  if (project === null) return 'no-project';
+  const infoProjectId = project.legacyUUID ?? project.projectId;
+  const cleoHome = getCleoHome();
+  if (!shouldAutoRegisterProject(project.projectRoot, cleoHome)) return 'ephemeral';
+  const checkout = captureProjectScope(project.projectRoot, worktreeScope.getStore()).worktreeRoot;
+
+  const { getNexusRegistryDb, getNexusRegistryDbPath } = await import('./store/nexus-sqlite.js');
+  if (existsSync(getNexusRegistryDbPath(cleoHome))) {
+    const { eq } = await import('drizzle-orm');
+    const { projectPaths, projectRegistry } = await import('./store/schema/nexus-schema.js');
+    const db = await getNexusRegistryDb(cleoHome);
+    const row = db
+      .select({ projectPath: projectRegistry.projectPath })
+      .from(projectRegistry)
+      .where(eq(projectRegistry.projectId, infoProjectId))
+      .get();
+    const mapped = db
+      .select({ projectId: projectPaths.projectId })
+      .from(projectPaths)
+      .where(eq(projectPaths.projectPath, checkout))
+      .get();
+    if (row?.projectPath === checkout && mapped?.projectId === infoProjectId) return 'current';
+  }
+
+  const key = `${cleoHome}\u0000${infoProjectId}\u0000${project.projectRoot}`;
+  _encountersScheduled.set(key, Date.now());
+  await startProjectEncounter(key, project.projectRoot, infoProjectId);
+  return 'recorded';
 }
 
 /**
@@ -2001,6 +2091,7 @@ export async function registerProjectOnEncounter(
           const { projectRegistry, projectIdAliases } = await import(
             './store/schema/nexus-schema.js'
           );
+          const { recordProjectCheckout } = await import('./nexus/path-map.js');
           const db = await getNexusRegistryDb(capturedHome);
           execution.assertActive();
           const projectHash = generateProjectHash(resolvedPath);
@@ -2060,6 +2151,13 @@ export async function registerProjectOnEncounter(
                   })
                   .run();
               }
+              // T12354: every checkout is recorded; the row above names the latest.
+              recordProjectCheckout(tx, {
+                projectId: infoProjectId,
+                projectPath: resolvedPath,
+                projectHash,
+                now,
+              });
               for (const alias of aliases) {
                 const owner = tx
                   .select()

@@ -177,6 +177,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   const {
     projectRegistry: regTable,
     projectIdAliases: aliasTable,
+    projectPaths: pathTable,
     nexusAuditLog: auditTable,
   } = await import('../store/schema/nexus-schema.js');
   // T12324: the registry lives in the GLOBAL store. Opening it directly (not
@@ -333,6 +334,10 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
           tx.delete(aliasTable).where(inArray(aliasTable.canonicalId, slice)).run().changes,
         );
       }
+      // T12354: path-map rows go with their project, and none may outlive it.
+      tx.run(
+        sql`DELETE FROM ${pathTable} WHERE ${pathTable.projectId} NOT IN (SELECT ${regTable.projectId} FROM ${regTable})`,
+      );
       const orphans = Number(
         tx.run(
           sql`DELETE FROM ${aliasTable} WHERE ${aliasTable.canonicalId} NOT IN (SELECT ${regTable.projectId} FROM ${regTable})`,

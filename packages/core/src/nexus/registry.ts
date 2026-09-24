@@ -37,9 +37,15 @@ import { getTaskAccessor } from '../store/data-accessor.js';
 // Re-export only: resetNexusDbState used by tests and index barrel.
 import { resetNexusDbState } from '../store/nexus-sqlite.js';
 import type { ProjectRegistryRow } from '../store/schema/nexus-schema.js';
-import { nexusAuditLog, projectIdAliases, projectRegistry } from '../store/schema/nexus-schema.js';
+import {
+  nexusAuditLog,
+  projectIdAliases,
+  projectPaths,
+  projectRegistry,
+} from '../store/schema/nexus-schema.js';
 import { generateProjectHash } from './hash.js';
 import { canonicalProjectId, legacyProjectId } from './identity.js';
+import { recordProjectCheckout } from './path-map.js';
 import { normalizeRegistryStorePath, registryStorePath } from './registry-hygiene.js';
 
 // ── Domain types ─────────────────────────────────────────────────────
@@ -523,6 +529,13 @@ export async function nexusRegister(
               statsJson: '{}',
             })
             .run();
+        // T12354: record this checkout in the device-local path map.
+        recordProjectCheckout(tx, {
+          projectId: immutableId,
+          projectPath: resolvedPath,
+          projectHash,
+          now,
+        });
         for (const alias of new Set([canonicalIdentity.id, legacyAlias])) {
           if (alias === immutableId) continue;
           const aliasOwner = tx
@@ -607,6 +620,8 @@ export async function nexusUnregister(
   const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
   await db.delete(projectRegistry).where(eq(projectRegistry.projectHash, project.hash));
+  // T12354: an unregistered project keeps no checkouts in the path map.
+  await db.delete(projectPaths).where(eq(projectPaths.projectId, project.projectId));
 
   await writeNexusAudit({
     action: 'unregister',
@@ -990,6 +1005,12 @@ export async function nexusReconcile(
           .update(projectRegistry)
           .set({ lastSeen: now })
           .where(eq(projectRegistry.projectId, projectId));
+        recordProjectCheckout(db, {
+          projectId,
+          projectPath: projectRoot,
+          projectHash: currentHash,
+          now,
+        });
         await writeNexusAudit({
           action: 'reconcile',
           projectHash: currentHash,
@@ -1020,6 +1041,12 @@ export async function nexusReconcile(
           tasksDbPath: newTasksDbPath,
         })
         .where(eq(projectRegistry.projectId, projectId));
+      recordProjectCheckout(db, {
+        projectId,
+        projectPath: projectRoot,
+        projectHash: currentHash,
+        now,
+      });
       await writeNexusAudit({
         action: 'reconcile',
         projectHash: currentHash,

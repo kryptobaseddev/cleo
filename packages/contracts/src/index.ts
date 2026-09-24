@@ -1478,6 +1478,7 @@ export type {
   NexusPermissionLevel,
   NexusPermissionSetParams,
   NexusPermissionSetResult,
+  NexusProjectCheckout,
   NexusProjectRecord,
   NexusProjectStats,
   NexusProjectsCleanParams,

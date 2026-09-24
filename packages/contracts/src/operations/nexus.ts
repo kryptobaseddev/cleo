@@ -1363,6 +1363,20 @@ export interface NexusProjectsCleanParams {
   vacuum?: boolean;
 }
 
+/** One checkout of a project recorded in the device-local path map (T12354). */
+export interface NexusProjectCheckout {
+  /** Absolute checkout root on this device. */
+  projectPath: string;
+  /** Path fingerprint of the checkout. */
+  projectHash: string;
+  /** ISO 8601 timestamp the checkout was first recorded. */
+  firstSeen: string;
+  /** ISO 8601 timestamp the checkout was last encountered. */
+  lastSeen: string;
+  /** Whether the checkout directory exists now. */
+  exists: boolean;
+}
+
 /** Why a registry row matched `nexus.projects.clean` criteria (T12324). */
 export type NexusProjectsCleanReason =
   | 'pattern'

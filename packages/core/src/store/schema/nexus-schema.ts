@@ -153,6 +153,41 @@ export const projectIdAliases = sqliteTable(
 export type ProjectIdAliasRow = typeof projectIdAliases.$inferSelect;
 export type NewProjectIdAliasRow = typeof projectIdAliases.$inferInsert;
 
+// === PROJECT_PATHS TABLE (T12354) ===
+
+/**
+ * Device-local path map: every checkout of a project seen on this device.
+ *
+ * `nexus_project_registry` holds ONE row per immutable `project_id`, so its
+ * `project_path` can name only one checkout. Two checkouts of the same project
+ * on one device each get a row here, keyed by path; a path belongs to exactly
+ * one project. Rows whose directory no longer exists are pruned when their
+ * project is next encountered.
+ *
+ * @task T12354
+ */
+export const projectPaths = sqliteTable(
+  'nexus_project_paths',
+  {
+    /** Absolute checkout root on this device. */
+    projectPath: text('project_path').primaryKey(),
+    /** Immutable project id (soft FK → nexus_project_registry.project_id). */
+    projectId: text('project_id').notNull(),
+    /** Path fingerprint of this checkout. */
+    projectHash: text('project_hash').notNull(),
+    /** ISO 8601 timestamp this checkout was first recorded. */
+    firstSeen: text('first_seen').notNull().default(sql`(datetime('now'))`),
+    /** ISO 8601 timestamp this checkout was last encountered. */
+    lastSeen: text('last_seen').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [index('idx_nexus_project_paths_project_id').on(table.projectId)],
+);
+
+/** Row type for `nexus_project_paths` (T12354). */
+export type ProjectPathRow = typeof projectPaths.$inferSelect;
+/** Insert type for `nexus_project_paths` (T12354). */
+export type NewProjectPathRow = typeof projectPaths.$inferInsert;
+
 // === NEXUS_AUDIT_LOG TABLE ===
 
 /** Append-only audit log for all Nexus operations across projects. */
