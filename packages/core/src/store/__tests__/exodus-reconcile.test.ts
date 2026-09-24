@@ -24,6 +24,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const _require = createRequire(import.meta.url);
@@ -440,6 +441,58 @@ describe.each(
     } finally {
       live.close();
     }
+  });
+
+  it('verifies live rows unchanged even when the run WIDENS a target table (claude-todo regression)', async () => {
+    // The live store carries its bare family at the INITIAL lineage schema with
+    // a high-water journal (initial + a late migration) — the claude-todo shape.
+    // The reconcile's tasks-domain step then migrates that family forward,
+    // adding `idempotency_key` to the bare `audit_log` — which is also a copy
+    // target (the runtime reads it bare). The
+    // unchanged-row proof used `SELECT * … EXCEPT SELECT *` and died with
+    // "SELECTs to the left and right of EXCEPT do not have the same number of
+    // result columns" after the data had landed.
+    const { resolveMigrationsFolder } = await import('../sqlite.js');
+    const migrations = readMigrationFiles({ migrationsFolder: resolveMigrationsFolder() });
+    const initial = migrations[0];
+    const late = migrations.find((m) => m.name?.includes('t10277-saga-tasktype'));
+    if (initial === undefined || late === undefined) throw new Error('fixture migrations missing');
+    const live = new DatabaseSync(liveDb);
+    for (const stmt of initial.sql) if (stmt.trim()) live.exec(stmt);
+    live.exec(
+      "INSERT INTO audit_log (id, timestamp, action, task_id, actor) VALUES ('A-live', '2026-03-01T00:00:00Z', 'task_created', 'T1', 'agent')",
+    );
+    const journal = live.prepare(
+      'INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name") VALUES (?, ?, ?)',
+    );
+    journal.run(initial.hash, initial.folderMillis, initial.name ?? null);
+    journal.run(late.hash, late.folderMillis, late.name ?? null);
+    const colsBefore = (
+      live.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('audit_log')").get() as {
+        n: number;
+      }
+    ).n;
+    live.close();
+    const legacy = new DatabaseSync(join(cleoDir, 'tasks.db'));
+    legacy.exec(`
+      CREATE TABLE audit_log (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, action TEXT NOT NULL,
+        task_id TEXT NOT NULL, actor TEXT NOT NULL DEFAULT 'system');
+      INSERT INTO audit_log VALUES ('A-legacy', '2026-02-01T00:00:00Z', 'task_updated', 'T2', 'agent');
+    `);
+    legacy.close();
+
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'));
+
+    expect(result.reason).not.toMatch(/EXCEPT|verification failed|changed in/);
+    expect(result.outcome).toBe('reconciled');
+    // The table really was widened, the pre-existing row survived it, and the
+    // legacy row landed where the runtime reads it.
+    expect(scalar(liveDb, "SELECT COUNT(*) FROM pragma_table_info('audit_log')")).toBeGreaterThan(
+      colsBefore,
+    );
+    expect(scalar(liveDb, "SELECT action FROM audit_log WHERE id='A-live'")).toBe('task_created');
+    expect(scalar(liveDb, "SELECT action FROM audit_log WHERE id='A-legacy'")).toBe('task_updated');
   });
 
   it('never overwrites a row already in cleo.db', async () => {

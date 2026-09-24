@@ -519,7 +519,9 @@ function snapshotLive(liveStorePath: string, to: string): void {
 
 /**
  * Tables among the copy targets in which a row that existed before the copy is
- * no longer present unchanged. The tasks-domain default `task_id_sequence` is
+ * no longer present unchanged — compared over the columns both shapes share,
+ * so a column a migration ADDS during the run is not an alteration, while a
+ * dropped column that held data is. The tasks-domain default `task_id_sequence` is
  * not data (the sequence module treats it as "no state") and is expected to
  * yield to a legacy counter, so `sequenceSeed` rows are exempt.
  */
@@ -539,9 +541,14 @@ function alteredLiveTables(
         table === 'schema_meta'
           ? ` WHERE NOT (key = 'task_id_sequence' AND value = '${sequenceSeed.replace(/'/g, "''")}')`
           : '';
-      // Compare over the columns both shapes share: the tasks-domain lineage
-      // step may have rebuilt a bare table with new columns (T12346), which
-      // restores every prior row verbatim but widens the row.
+      // The table's SHAPE may legitimately change during the run: the
+      // tasks-domain lineage step can rebuild a bare table with new columns
+      // (T12346; claude-todo). Decided deliberately:
+      // - a column ADDED by a migration is not an alteration of any
+      //   pre-existing row — it did not exist before, so it is not compared;
+      // - a column DROPPED is an alteration if it held any value — that data is
+      //   no longer in the row — and harmless if it was NULL throughout;
+      // - every column both shapes share must still hold every prior row.
       const colsOf = (schema: string): string[] =>
         (
           live.db.prepare(`PRAGMA ${ident(schema)}.table_info(${ident(table)})`).all() as Array<{
@@ -549,7 +556,25 @@ function alteredLiveTables(
           }>
         ).map((c) => c.name);
       const after = new Set(colsOf('main'));
-      const shared = colsOf('before').filter((c) => after.has(c));
+      const beforeCols = colsOf('before');
+      const dropped = beforeCols.filter((c) => !after.has(c));
+      const droppedWithData = dropped.filter(
+        (c) =>
+          Number(
+            (
+              live.db
+                .prepare(
+                  `SELECT COUNT(*) AS n FROM before.${ident(table)} WHERE ${ident(c)} IS NOT NULL`,
+                )
+                .get() as { n: number } | undefined
+            )?.n ?? 0,
+          ) > 0,
+      );
+      if (droppedWithData.length > 0) {
+        altered.push(`${table} (dropped populated column(s): ${droppedWithData.join(', ')})`);
+        continue;
+      }
+      const shared = beforeCols.filter((c) => after.has(c));
       if (shared.length === 0) {
         altered.push(table);
         continue;
