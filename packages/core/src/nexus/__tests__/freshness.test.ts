@@ -5,11 +5,14 @@ import { mkdir, mkdtemp, rm, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { GraphIndexFreshness } from '@cleocode/contracts';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { drainWarnings } from '../../output.js';
 import { runNexusAnalysis } from '../analyze-orchestrator.js';
 import {
   assessNexusIndexFreshness,
+  discloseNexusFreshness,
   ensureNexusIndexFresh,
   judgeSymbolFiles,
   querySymbolFiles,
@@ -164,5 +167,53 @@ describe('index freshness (T12316)', () => {
     });
     expect(querySymbolFiles({ targetNodeId: 'src/a.ts::alpha' })).toEqual(['src/a.ts']);
     expect(querySymbolFiles({ total: 3 })).toEqual([]);
+  });
+});
+
+describe('discloseNexusFreshness keeps stdout/stderr clean (T9775 · T12316)', () => {
+  const base: GraphIndexFreshness = {
+    indexed: true,
+    status: 'fresh',
+    lastIndexedAt: '2026-09-24T00:00:00.000Z',
+    fileCount: 2,
+    staleFileCount: 0,
+    stalePaths: [],
+    refreshCommand: 'cleo nexus analyze',
+    refreshEstimate: 'about 1s',
+    checkMs: 1,
+  };
+
+  /** Disclose; return the envelope warnings drained and whether stderr was written. */
+  const disclose = (freshness: GraphIndexFreshness) => {
+    drainWarnings();
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      discloseNexusFreshness('nexus impact', freshness);
+      return { warnings: drainWarnings() ?? [], stderrCalls: stderr.mock.calls.length };
+    } finally {
+      stderr.mockRestore();
+    }
+  };
+
+  it('reports an inline refresh as an info warning, not on stderr', () => {
+    const { warnings, stderrCalls } = disclose({
+      ...base,
+      autoRefresh: { refreshed: true, staleFiles: 1, durationMs: 12, reason: '1 stale file' },
+    });
+    expect(stderrCalls).toBe(0);
+    expect(warnings.map((w) => [w.code, w.severity])).toEqual([
+      ['W_NEXUS_INDEX_REFRESHED', 'info'],
+    ]);
+  });
+
+  it('reports a stale index once, as a warning only', () => {
+    const { warnings, stderrCalls } = disclose({
+      ...base,
+      status: 'stale',
+      staleFileCount: 1,
+      stalePaths: ['a.ts'],
+    });
+    expect(stderrCalls).toBe(0);
+    expect(warnings.map((w) => w.code)).toEqual(['W_NEXUS_INDEX_STALE']);
   });
 });
