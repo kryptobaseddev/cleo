@@ -164,6 +164,11 @@ const statusCommand = defineCommand({
       type: 'string',
       description: 'Override the project ID (default: auto-detected from path)',
     },
+    references: {
+      type: 'boolean',
+      description:
+        'Include every retained unresolved/unmodeled reference (large; the default reports referenceCount)',
+    },
     json: {
       type: 'boolean',
       description: 'Output as JSON (LAFS envelope format)',
@@ -291,12 +296,15 @@ const statusCommand = defineCommand({
     }
 
     try {
-      const [{ getNexusDb, nexusSchema }, { getIndexStats }, { readKnowledgeIndexAssessment }] =
-        await Promise.all([
-          import('@cleocode/core/store/nexus-sqlite' as string),
-          import('@cleocode/nexus/pipeline' as string),
-          import('@cleocode/core/nexus/knowledge' as string),
-        ]);
+      const [
+        { getNexusDb, nexusSchema },
+        { getIndexStats },
+        { readKnowledgeIndexAssessment, readKnowledgeIndexReferences },
+      ] = await Promise.all([
+        import('@cleocode/core/store/nexus-sqlite' as string),
+        import('@cleocode/nexus/pipeline' as string),
+        import('@cleocode/core/nexus/knowledge' as string),
+      ]);
 
       const projectId =
         projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
@@ -306,11 +314,20 @@ const statusCommand = defineCommand({
         nexusRelations: nexusSchema.nexusRelations,
       };
 
-      const stats = await getIndexStats(projectId, repoPath, db, tables);
-      const assessment = await readKnowledgeIndexAssessment(currentRoot);
       // T12316: the manifest-based check also counts ADDED files, which a scan
       // of indexed file nodes cannot see; prefer it whenever it is available.
       const freshness = await assessNexusIndexFreshness(currentRoot);
+      // T12348: when the manifest answered, re-hashing every indexed file would
+      // only produce a staleFileCount that is overridden below.
+      const stats = await getIndexStats(projectId, repoPath, db, tables, {
+        staleScan: freshness.status === 'unknown',
+      });
+      // T12348: the summary by default; the reference list only on request.
+      const summary = await readKnowledgeIndexAssessment(currentRoot);
+      const assessment =
+        summary && args.references
+          ? { ...summary, references: await readKnowledgeIndexReferences(currentRoot) }
+          : summary;
       const durationMs = Date.now() - startTime;
 
       cliOutput(

@@ -172,9 +172,14 @@ describe('publishNexusGraph', () => {
     expect(
       native.prepare("SELECT value FROM _nexus_meta WHERE key='graph_generation'").get(),
     ).toEqual({ value: generation });
+    // T12348: the summary carries the count; the list is stored beside it.
+    const { references, ...summary } = rows.assessment;
     expect(
       native.prepare("SELECT value FROM _nexus_meta WHERE key='graph_assessment'").get(),
-    ).toEqual({ value: JSON.stringify(rows.assessment) });
+    ).toEqual({ value: JSON.stringify({ ...summary, referenceCount: 1 }) });
+    expect(
+      native.prepare("SELECT value FROM _nexus_meta WHERE key='graph_assessment_references'").get(),
+    ).toEqual({ value: JSON.stringify(references) });
     expect(native.prepare('SELECT meta_json FROM nexus_nodes').get()).toEqual({
       meta_json: rows.nodes[0]!.metaJson,
     });

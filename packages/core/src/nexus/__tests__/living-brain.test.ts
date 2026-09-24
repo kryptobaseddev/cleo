@@ -1173,7 +1173,7 @@ describe('living-brain SDK', () => {
       expect(impact.coverage.status).toBe('partial');
       expect(impact.riskLevel).toBe('UNKNOWN');
       expect(impact.coverage.reasons).toContain(
-        '2 unresolved or unmodeled static references remain; known callers are incomplete. Inspect assessment.references in cleo nexus status.',
+        '2 unresolved or unmodeled static references remain; known callers are incomplete. Inspect them with cleo nexus status --references.',
       );
       expect(impact.coverage.nextAction).toBe('cleo nexus status');
       expect(JSON.stringify(impact.impactByDepth)).toContain(CALLER_ID);

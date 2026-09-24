@@ -371,6 +371,15 @@ export const DEFAULT_MAX_INCREMENTAL_CHANGE_RATIO = 0.3;
 // ---------------------------------------------------------------------------
 
 /**
+ * Share of a repository that may fail to parse before a generation is refused.
+ *
+ * Below it the unparsed files are recorded and reported and the rest is
+ * published; above it the generation would misrepresent the codebase, so the
+ * previous graph is retained instead (T12313).
+ */
+export const UNPARSED_FILE_REFUSAL_RATIO = 0.1;
+
+/**
  * Return freshness statistics for the code intelligence index of a project.
  *
  * An empty readable graph returns `{ indexed: false, ... }`. Database failures
@@ -381,29 +390,17 @@ export const DEFAULT_MAX_INCREMENTAL_CHANGE_RATIO = 0.3;
  * @param repoPath - Absolute path to the repository root (used for mtime checks)
  * @param db - Drizzle database instance
  * @param tables - Drizzle table references
+ * @param options - `staleScan: false` skips re-hashing every indexed file and
+ *   reports `staleFileCount: -1`; for callers with a cheaper freshness answer (T12348).
+ * @returns Counts, last indexed time and stale-file count.
  */
-/**
- * Share of a repository that may fail to parse before a generation is refused.
- *
- * Below it the unparsed files are recorded and reported and the rest is
- * published; above it the generation would misrepresent the codebase, so the
- * previous graph is retained instead (T12313).
- */
-export const UNPARSED_FILE_REFUSAL_RATIO = 0.1;
-
 export async function getIndexStats(
   _projectId: string,
   repoPath: string,
   db: NexusDbReadInsert,
   tables: NexusTables,
+  options: { staleScan?: boolean } = {},
 ): Promise<IndexStats> {
-  type NodeRow = {
-    filePath: string | null;
-    indexedAt: string;
-    kind: string;
-    contentHash: string | null;
-  };
-
   // Column accessors — DrizzleTableRef declares string-indexed Column properties
   // so eq() / db.select() can take them directly without per-call casts (T9767).
   const nodesTable = tables.nexusNodes;
@@ -411,17 +408,19 @@ export async function getIndexStats(
 
   // ADR-090 · T11648: the graph tables are PROJECT-scoped (one project per
   // `cleo.db`), so these queries no longer filter by `project_id`.
-  const raw = await db
+  //
+  // T12348: aggregates in SQL. Loading all 89k node rows and 185k relation
+  // ids into JS to count them dominated `cleo nexus status`. `NULLIF` keeps
+  // the previous rule that an empty `indexedAt` never wins.
+  const [totals] = (await db
     .select({
-      kind: nodesTable['kind'],
-      filePath: nodesTable['filePath'],
-      indexedAt: nodesTable['indexedAt'],
-      contentHash: sql`json_extract(${nodesTable['metaJson']}, '$.contentHash')`,
+      nodeCount: sql<number>`count(*)`,
+      lastIndexedAt: sql<string | null>`max(nullif(${nodesTable['indexedAt']}, ''))`,
     })
-    .from(tables.nexusNodes);
-  const rows = raw as NodeRow[];
+    .from(tables.nexusNodes)) as Array<{ nodeCount: number; lastIndexedAt: string | null }>;
+  const nodeCount = Number(totals?.nodeCount ?? 0);
 
-  if (rows.length === 0) {
+  if (nodeCount === 0) {
     return {
       indexed: false,
       nodeCount: 0,
@@ -432,48 +431,52 @@ export async function getIndexStats(
     };
   }
 
-  // Count distinct file nodes (filePath !== null)
-  const fileRows = rows.filter((r) => r.kind === 'file' && r.filePath !== null);
-  const fileCount = new Set(fileRows.map((row) => row.filePath)).size;
+  const [relations] = (await db
+    .select({ relationCount: sql<number>`count(*)` })
+    .from(relationsTable)) as Array<{ relationCount: number }>;
+  const relationCount = Number(relations?.relationCount ?? 0);
 
-  // Find most recent indexedAt
-  let lastIndexedAt: string | null = null;
-  for (const row of rows) {
-    if (row.indexedAt && (!lastIndexedAt || row.indexedAt > lastIndexedAt)) {
-      lastIndexedAt = row.indexedAt;
-    }
-  }
-
-  // Count relations
-  const relRows = await db.select({ id: relationsTable['id'] }).from(tables.nexusRelations);
-  const relationCount = relRows.length;
-
-  // Check stale files — compare filesystem mtime against indexedAt
-  let staleFileCount = 0;
+  // Distinct file nodes (filePath !== null), with the hash each was indexed at.
+  const fileRows = (await db
+    .select({
+      filePath: nodesTable['filePath'],
+      contentHash: sql`json_extract(${nodesTable['metaJson']}, '$.contentHash')`,
+    })
+    .from(tables.nexusNodes)
+    .where(
+      sql`${nodesTable['kind']} = 'file' AND ${nodesTable['filePath']} IS NOT NULL`,
+    )) as Array<{ filePath: string | null; contentHash: string | null }>;
   const filePathMap = new Map<string, string>();
   for (const row of fileRows) {
     if (row.filePath) filePathMap.set(row.filePath, row.contentHash ?? '');
   }
+  const fileCount = filePathMap.size;
 
-  for (const [relPath, contentHash] of filePathMap) {
-    const absPath = relPath.startsWith('/') ? relPath : `${repoPath}/${relPath}`;
-    try {
-      const currentHash = createHash('sha256')
-        .update(await fs.readFile(absPath))
-        .digest('hex');
-      if (!contentHash || currentHash !== contentHash) staleFileCount++;
-    } catch {
-      // File deleted — counts as stale
-      staleFileCount++;
+  // Check stale files — re-hash every indexed file. A caller that already has
+  // a cheaper freshness answer (the file manifest, T12316) skips this and
+  // receives -1, the existing "not assessed" value.
+  let staleFileCount = options.staleScan === false ? -1 : 0;
+  if (options.staleScan !== false) {
+    for (const [relPath, contentHash] of filePathMap) {
+      const absPath = relPath.startsWith('/') ? relPath : `${repoPath}/${relPath}`;
+      try {
+        const currentHash = createHash('sha256')
+          .update(await fs.readFile(absPath))
+          .digest('hex');
+        if (!contentHash || currentHash !== contentHash) staleFileCount++;
+      } catch {
+        // File deleted — counts as stale
+        staleFileCount++;
+      }
     }
   }
 
   return {
     indexed: true,
-    nodeCount: rows.length,
+    nodeCount,
     relationCount,
     fileCount,
-    lastIndexedAt,
+    lastIndexedAt: totals?.lastIndexedAt ?? null,
     staleFileCount,
   };
 }

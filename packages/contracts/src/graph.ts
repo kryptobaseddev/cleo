@@ -658,8 +658,19 @@ export interface GraphIndexAssessment {
   sourceRoots?: GraphSourceRootAssessment;
   /** Immutable publication identity allocated before extraction; absent on historical indexes. */
   generation?: string;
-  /** Unmodeled AST scopes remain explicit limitations instead of fabricated declarations. */
+  /**
+   * Unmodeled AST scopes remain explicit limitations instead of fabricated declarations.
+   * Absent on a summary read: the list is stored beside the assessment (T12348)
+   * and loaded only on request; {@link GraphIndexAssessment.referenceCount} still
+   * reports how many there are.
+   */
   references?: GraphIndexReferenceReport[];
+  /**
+   * Number of retained references, recorded whenever the list is stored
+   * separately from this summary (T12348). Absent on historical indexes, whose
+   * `references` are inline.
+   */
+  referenceCount?: number;
   /** Explicit nested repository/worktree scope retained for subsequent rebuilds. */
   includedRepositories?: string[];
   /** Canonical root whose relative file paths this graph describes. */
