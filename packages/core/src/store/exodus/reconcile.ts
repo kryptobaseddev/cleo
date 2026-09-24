@@ -570,9 +570,24 @@ export async function reconcileSupersededStores(
   projectRoot: string,
   options: { readonly dryRun?: boolean; readonly additive?: boolean } = {},
 ): Promise<SupersededStoreReconcileResult> {
+  const liveStorePath = resolveDualScopeDbPath('project', projectRoot);
+  // Never let exodus-on-open fire for this store while it is being reconciled
+  // (it would archive the legacy files mid-run). Everything — including the
+  // plan's source discovery — happens inside the suppression.
+  const { withExodusOnOpenSuppressed } = await import('./on-open.js');
+  return withExodusOnOpenSuppressed(liveStorePath, () =>
+    reconcileSuppressed(projectRoot, options, liveStorePath),
+  );
+}
+
+/** {@link reconcileSupersededStores} with exodus-on-open suppressed for the store. */
+async function reconcileSuppressed(
+  projectRoot: string,
+  options: { readonly dryRun?: boolean; readonly additive?: boolean },
+  liveStorePath: string,
+): Promise<SupersededStoreReconcileResult> {
   const dryRun = options.dryRun === true;
   const additive = options.additive === true;
-  const liveStorePath = resolveDualScopeDbPath('project', projectRoot);
   const plan = buildExodusPlan(projectRoot);
   // Rows land where the RUNTIME reads them (T12346), derived from its bindings.
   const resolveTarget = await buildRuntimeTargetResolver();

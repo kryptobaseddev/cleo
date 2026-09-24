@@ -86,6 +86,45 @@ const log = getLogger('exodus-on-open');
 let _exodusInProgress = false;
 
 /**
+ * Stores an explicit `cleo doctor superseded-store --reconcile` is working on
+ * in this process, by resolved path (T12355). exodus-on-open must never fire
+ * for such a store mid-reconcile: it would migrate and ARCHIVE the very legacy
+ * files the reconcile already planned to read ("unable to open database
+ * …/.cleo/tasks.db", found by the v2026.9.17 Stage A gate with
+ * CLEO_DISABLE_EXODUS_ON_OPEN unset). Scoped to the store and the reconcile's
+ * lifetime — never the env var, never other stores.
+ */
+const _reconcileInProgress = new Map<string, number>();
+
+/**
+ * Run `fn` with exodus-on-open suppressed for the store at `dbPath`.
+ *
+ * Whichever runs first, the two converge: if on-open already migrated (and
+ * archived) the legacy files, the reconcile finds no legacy source and reports
+ * nothing to do; if the reconcile ran first, the store is populated and on-open
+ * skips it. Both place every row in the table the runtime reads.
+ *
+ * @param dbPath - The project `cleo.db` being reconciled.
+ * @param fn - The reconcile.
+ * @returns `fn`'s result.
+ * @task T12355
+ */
+export async function withExodusOnOpenSuppressed<T>(
+  dbPath: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const key = resolve(dbPath);
+  _reconcileInProgress.set(key, (_reconcileInProgress.get(key) ?? 0) + 1);
+  try {
+    return await fn();
+  } finally {
+    const left = (_reconcileInProgress.get(key) ?? 1) - 1;
+    if (left <= 0) _reconcileInProgress.delete(key);
+    else _reconcileInProgress.set(key, left);
+  }
+}
+
+/**
  * Opt-out env flag. Set `CLEO_DISABLE_EXODUS_ON_OPEN=1` to skip the lazy
  * auto-migration entirely (e.g. for tooling that intentionally inspects an
  * empty consolidated DB). The manual `cleo exodus migrate` path is unaffected.
@@ -368,6 +407,12 @@ async function runExodusOnOpen(
   // Re-entrancy: the nested opens from runExodusMigrate must never recurse.
   if (_exodusInProgress) {
     return { outcome: 'skipped', reason: 're-entrant open during active migration' };
+  }
+  if (_reconcileInProgress.has(resolve(dbPath))) {
+    return {
+      outcome: 'skipped',
+      reason: 'an explicit superseded-store reconcile of this store is in progress',
+    };
   }
   // Fast path (unlocked): if the consolidated DB already has data, nothing to do.
   // This makes the second-open case a cheap COUNT(*) with no lock acquisition.
