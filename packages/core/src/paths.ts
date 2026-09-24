@@ -36,6 +36,7 @@ import {
   resolveCanonicalCleoDir as _resolveCanonicalCleoDir,
 } from '@cleocode/paths';
 import { CleoError } from './errors.js';
+import { registryStorePath, shouldAutoRegisterProject } from './nexus/registry-hygiene.js';
 import {
   _resolveMainRepoFromGitlink,
   captureProjectScope,
@@ -1932,7 +1933,11 @@ function scheduleProjectEncounter(projectRoot: string, infoProjectId: string): v
   // teardown-signal's contract: optional work checks this before STARTING.
   // Work begun after teardown can only be cancelled by it.
   if (isShuttingDown()) return;
-  const key = `${getCleoHome()}\u0000${infoProjectId}\u0000${projectRoot}`;
+  const cleoHome = getCleoHome();
+  // T12324: a temp/scratch project never lands in a persistent registry. A
+  // sandboxed run (temp CLEO_HOME) still registers its temp fixtures.
+  if (!shouldAutoRegisterProject(projectRoot, cleoHome)) return;
+  const key = `${cleoHome}\u0000${infoProjectId}\u0000${projectRoot}`;
   const previous = _encountersScheduled.get(key);
   const now = Date.now();
   if (previous !== undefined && now - previous < PROJECT_ENCOUNTER_REFRESH_MS) return;
@@ -2029,8 +2034,8 @@ export async function registerProjectOnEncounter(
                     projectPath: resolvedPath,
                     projectHash,
                     lastSeen: now,
-                    brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
-                    tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
+                    brainDbPath: registryStorePath(resolvedPath),
+                    tasksDbPath: registryStorePath(resolvedPath),
                   })
                   .where(eq(projectRegistry.projectId, infoProjectId))
                   .run();
@@ -2049,8 +2054,8 @@ export async function registerProjectOnEncounter(
                     lastSync: now,
                     taskCount: 0,
                     labelsJson: '[]',
-                    brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
-                    tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
+                    brainDbPath: registryStorePath(resolvedPath),
+                    tasksDbPath: registryStorePath(resolvedPath),
                     statsJson: '{}',
                   })
                   .run();

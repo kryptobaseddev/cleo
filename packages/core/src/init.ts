@@ -43,7 +43,13 @@ import { ensureInjection } from './injection.js';
 import { writeMemoryBridge } from './memory/memory-bridge.js';
 import { migrateAgentOutputs } from './migration/agent-outputs.js';
 import { pushWarning } from './output.js';
-import { getAgentsHome, getCleoDirAbsolute, getProjectRoot, resolveCleoDir } from './paths.js';
+import {
+  getAgentsHome,
+  getCleoDirAbsolute,
+  getCleoHome,
+  getProjectRoot,
+  resolveCleoDir,
+} from './paths.js';
 // Shared utility imports
 import {
   ensureBrainDb,
@@ -509,6 +515,14 @@ export async function initNexusRegistration(
   warnings: string[],
 ): Promise<void> {
   try {
+    const { shouldAutoRegisterProject } = await import('./nexus/registry-hygiene.js');
+    if (!shouldAutoRegisterProject(projectRoot, getCleoHome())) {
+      // T12324: a temp/scratch project never lands in a persistent registry.
+      warnings.push(
+        'NEXUS registration skipped: project is under a temp directory (register explicitly with `cleo nexus register`)',
+      );
+      return;
+    }
     const { nexusReconcile } = await import('./nexus/registry.js');
     const result = await nexusReconcile(projectRoot);
     if (result.status === 'auto_registered') {

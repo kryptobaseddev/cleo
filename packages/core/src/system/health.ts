@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { DependencyReport } from '@cleocode/contracts';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
 import { checkInjection } from '../injection.js';
-import { getAgentsHome, isProjectInitialized, resolveOrCwd } from '../paths.js';
+import { getAgentsHome, getCleoHome, isProjectInitialized, resolveOrCwd } from '../paths.js';
 import { getSystemInfo, type SystemInfo } from '../platform.js';
 import {
   checkBrainDb,
@@ -1544,12 +1544,19 @@ export async function startupHealthCheck(projectRoot?: string): Promise<StartupH
 
   // NEXUS auto-registration (best-effort, never blocks startup)
   try {
-    const { nexusReconcile } = await import('../nexus/registry.js');
-    await nexusReconcile(root);
+    const { shouldAutoRegisterProject } = await import('../nexus/registry-hygiene.js');
+    // T12324: a temp/scratch project never lands in a persistent registry.
+    const register = shouldAutoRegisterProject(root, getCleoHome());
+    if (register) {
+      const { nexusReconcile } = await import('../nexus/registry.js');
+      await nexusReconcile(root);
+    }
     checks.push({
       check: 'nexus_registration',
       status: 'pass',
-      message: 'NEXUS registry reconciled',
+      message: register
+        ? 'NEXUS registry reconciled'
+        : 'NEXUS registration skipped (temp-directory project)',
     });
   } catch {
     checks.push({

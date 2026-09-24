@@ -40,6 +40,7 @@ import type { ProjectRegistryRow } from '../store/schema/nexus-schema.js';
 import { nexusAuditLog, projectIdAliases, projectRegistry } from '../store/schema/nexus-schema.js';
 import { generateProjectHash } from './hash.js';
 import { canonicalProjectId, legacyProjectId } from './identity.js';
+import { normalizeRegistryStorePath, registryStorePath } from './registry-hygiene.js';
 
 // ── Domain types ─────────────────────────────────────────────────────
 //
@@ -73,9 +74,9 @@ export interface NexusProject {
   lastSync: string;
   taskCount: number;
   labels: string[];
-  /** Absolute path to the project's brain.db. Null if not yet populated. */
+  /** Absolute path to the project's live store holding brain tables (`.cleo/cleo.db`). Null if not yet populated. */
   brainDbPath: string | null;
-  /** Absolute path to the project's tasks.db. Null if not yet populated. */
+  /** Absolute path to the project's live store holding task tables (`.cleo/cleo.db`). Null if not yet populated. */
   tasksDbPath: string | null;
   /** ISO 8601 timestamp of the last code intelligence index run. Null if never indexed. */
   lastIndexed: string | null;
@@ -145,8 +146,9 @@ function rowToProject(row: ProjectRegistryRow): NexusProject {
     lastSync: row.lastSync,
     taskCount: row.taskCount,
     labels,
-    brainDbPath: row.brainDbPath ?? null,
-    tasksDbPath: row.tasksDbPath ?? null,
+    // T12324: rows written before the fix still name the pre-E6 relics.
+    brainDbPath: normalizeRegistryStorePath(row.brainDbPath ?? null),
+    tasksDbPath: normalizeRegistryStorePath(row.tasksDbPath ?? null),
     lastIndexed: row.lastIndexed ?? null,
     stats,
   };
@@ -501,8 +503,8 @@ export async function nexusRegister(
           taskCount: meta.taskCount,
           labelsJson: JSON.stringify(meta.labels),
           lastSeen: now,
-          brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
-          tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
+          brainDbPath: registryStorePath(resolvedPath),
+          tasksDbPath: registryStorePath(resolvedPath),
         };
         if (existing)
           tx.update(projectRegistry)
@@ -1006,8 +1008,8 @@ export async function nexusReconcile(
 
       // Scenario 2: path changed — update path, hash, lastSeen, and DB paths
       const oldPath = existing.projectPath;
-      const newBrainDbPath = join(projectRoot, '.cleo', 'brain.db');
-      const newTasksDbPath = join(projectRoot, '.cleo', 'tasks.db');
+      const newBrainDbPath = registryStorePath(projectRoot);
+      const newTasksDbPath = registryStorePath(projectRoot);
       await db
         .update(projectRegistry)
         .set({
@@ -1103,8 +1105,8 @@ export async function nexusMoveProject(projectId: string, newPath: string): Prom
   const resolvedPath = resolve(newPath);
   const newHash = generateProjectHash(resolvedPath);
   const now = new Date().toISOString();
-  const newBrainDbPath = join(resolvedPath, '.cleo', 'brain.db');
-  const newTasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
+  const newBrainDbPath = registryStorePath(resolvedPath);
+  const newTasksDbPath = registryStorePath(resolvedPath);
   const oldPath = existing.projectPath;
   await db
     .update(projectRegistry)
