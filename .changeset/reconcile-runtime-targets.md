@@ -1,6 +1,6 @@
 ---
 id: reconcile-runtime-targets
-tasks: [T12346]
+tasks: [T12355, T12346]
 kind: fix
 summary: "Reconcile now copies each legacy row into the table the runtime reads, worked out from the runtime's own table definitions; the lineage rebuild verifies that every prior row is restored"
 ---
