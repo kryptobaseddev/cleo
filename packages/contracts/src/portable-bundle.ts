@@ -101,10 +101,24 @@ export interface PortableExclusion {
   sizeComplete: boolean;
 }
 
-/** A secret that an unencrypted bundle omitted, and what the user must redo. */
-export interface PortableOmittedSecret {
-  /** Path relative to the section root. */
+/**
+ * Credential material (`portable-secret`, ADR-093) that an UNENCRYPTED bundle
+ * left out, and what the user must re-enter on the target machine.
+ *
+ * - a whole secret file: `relPath` is the file, `table`/`columns` are absent;
+ * - credential COLUMNS inside a database: `relPath` is the database, and the
+ *   listed columns were cleared (set to NULL/empty) in `rows` rows of `table`.
+ *   The rows themselves (identities, sessions) are kept.
+ */
+export interface PortableReentryItem {
+  /** Secret file, or the database holding the redacted columns (relative to the section root). */
   relPath: string;
+  /** Table whose credential columns were cleared (column redaction only). */
+  table?: string;
+  /** Cleared columns (column redaction only). */
+  columns?: string[];
+  /** Rows whose credential columns were cleared (column redaction only). */
+  rows?: number;
   /** What must be redone on the target machine. */
   remedy: string;
 }
@@ -127,8 +141,8 @@ export interface PortableSectionBase {
   symlinks: PortableSymlinkEntry[];
   /** Deliberately excluded material, with sizes. */
   excluded: PortableExclusion[];
-  /** Secrets omitted because the bundle is not encrypted. */
-  omittedSecrets: PortableOmittedSecret[];
+  /** Credentials left out because the bundle is not encrypted (empty for encrypted bundles). */
+  requiresReentry: PortableReentryItem[];
 }
 
 /** One legacy table that holds more rows than its consolidated counterpart. */
@@ -244,6 +258,8 @@ export interface PortableBundleManifest {
     encrypted: boolean;
     /** Whether secrets are present in the archive (true only when encrypted). */
     secretsIncluded: boolean;
+    /** Memory tables are always included (ADR-093); recorded so readers need not infer it. */
+    memoriesIncluded: true;
   };
   /** Global section, present for `global` / `all` / `machine`. */
   global: PortableGlobalSection | null;
@@ -276,6 +292,20 @@ export interface PortableExportResult {
   encrypted: boolean;
   /** Whether secrets were included. */
   secretsIncluded: boolean;
+  /**
+   * Memory disclosure (ADR-093): memories are always exported, encrypted or
+   * not. `counts` sums the memory tables across every database in the bundle.
+   */
+  memory: {
+    /** Always true. */
+    included: true;
+    /** Whether they are protected by bundle encryption. */
+    encrypted: boolean;
+    /** Summed row counts per memory table. */
+    counts: Record<string, number>;
+    /** Plain-language notice (recommends `--encrypt` when unencrypted). */
+    notice: string;
+  };
   /** Per-section summary. */
   sections: Array<{
     /** `global-home`, `global-config`, or `project`. */
@@ -294,8 +324,8 @@ export interface PortableExportResult {
     unmigratedLegacyData?: PortableUnmigratedLegacyReport;
     /** Excluded material with sizes. */
     excluded: PortableExclusion[];
-    /** Secrets omitted (unencrypted bundles). */
-    omittedSecrets: PortableOmittedSecret[];
+    /** Credentials left out (unencrypted bundles). */
+    requiresReentry: PortableReentryItem[];
   }>;
   /** Machine scope: included/skipped tallies. */
   machine?: {
@@ -366,6 +396,15 @@ export interface PortableImportSectionResult {
   databasesWritten: number;
   /** Tables compared across all databases in the section. */
   tablesCompared: number;
+  /**
+   * Files and databases whose placed SHA-256 was compared with the manifest.
+   * Entries rewritten by relocation are excluded (listed in `hashSkipped`).
+   */
+  hashesCompared: number;
+  /** Placed entries whose SHA-256 differs from the manifest (empty = byte-identical). */
+  hashMismatches: string[];
+  /** Entries not hash-compared because relocation rewrote them by design. */
+  hashSkipped: string[];
   /** Tables whose restored count differs from the manifest (empty = lossless). */
   mismatches: Array<PortableTableComparison & { database: string }>;
   /** Key counts, expected vs actual. */
@@ -391,10 +430,10 @@ export interface PortableImportResult {
   scope: PortableBundleScope;
   /** Per-section outcomes. */
   sections: PortableImportSectionResult[];
-  /** True when every table in every section matched. */
+  /** True when every table count matched and every non-relocated entry is byte-identical. */
   lossless: boolean;
   /** Whether secrets were present in the bundle. */
   secretsIncluded: boolean;
-  /** Secrets the user must recreate (unencrypted bundles). */
-  omittedSecrets: Array<PortableOmittedSecret & { section: string }>;
+  /** Credentials the user must re-enter (unencrypted bundles). */
+  requiresReentry: Array<PortableReentryItem & { section: string }>;
 }

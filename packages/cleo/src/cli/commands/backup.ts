@@ -212,6 +212,7 @@ const exportCommand = defineCommand({
       });
       cliOutput(result, { command: 'backup', operation: 'backup.export' });
       humanInfo(`Bundle written to ${result.bundlePath} (${result.size} bytes)`);
+      humanInfo(result.memory.notice);
     } catch (err) {
       reportBundleError(err, err instanceof PortableBundleError ? err : null, 'E_EXPORT_FAILED');
     }

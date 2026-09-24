@@ -46,17 +46,33 @@ Export now writes a **portable bundle (manifest v2)**:
   files, and symlinks that point outside the root. Directories with more than
   200,000 entries report `sizeComplete: false`, and `bytes` is then a lower
   bound. Nothing outside `.cleo/` is read for a project.
-- **Secrets only when encrypted.** `global-salt`, `machine-key`,
+- **Memories always travel (ADR-093).** Brain tables are part of the system
+  of record and are in every bundle, including unencrypted ones. The export
+  result carries `memory: { included, encrypted, counts, notice }`. When the
+  bundle is unencrypted, the notice says so in plain words and recommends
+  `--encrypt`.
+- **Credentials only when encrypted (ADR-093 `portable-secret`).** An
+  unencrypted bundle leaves out secret files: `global-salt`, `machine-key`,
   `llm-credentials.json`, OAuth/key files, config-home `auth/` and project
-  `keys/` travel only in `--encrypt` bundles. Unencrypted bundles report
-  `secretsIncluded: false` and list each omitted file with what must be redone.
-  Encryption now streams (format byte `0x02`), so multi-GB bundles never sit in
-  one Buffer.
-- **Verifiable.** The manifest records every table's row count. Import checks
+  `keys/`. It also clears credential columns inside each database snapshot,
+  for example agent API keys, session owner tokens, OAuth tokens and service
+  secrets. The rows themselves are kept, so identities and sessions survive
+  with unchanged row counts. Clearing uses `secure_delete` followed by
+  `VACUUM`, so the old values are not left in free pages. If a column cannot
+  be cleared, the export fails (`E_REDACTION_FAILED`). Every omission is
+  listed under `requiresReentry` with what to redo. Encrypted bundles carry
+  credentials untouched. Re-wrapping them per device is T12326. Encryption now
+  streams (format byte `0x02`), so multi-GB bundles never sit in one Buffer.
+- **Verifiable, and scriptable.** The manifest records every table's row count. Import checks
   the manifest self-hash, every file's SHA-256 and `PRAGMA integrity_check`
   before it places anything. After placing, it re-counts every table and
-  compares the counts with the manifest. Any mismatch exits
-  `E_RESTORE_MISMATCH` (exit 20) and includes the full per-table report.
+  compares the counts with the manifest. It also re-hashes every placed file
+  and database, except the entries that relocation rewrote on purpose, which
+  are listed in `hashSkipped`. Any count or hash mismatch exits
+  `E_RESTORE_MISMATCH` (exit 20) and includes the full report. For a
+  restore-and-compare gate:
+  `cleo backup import <bundle> --target <dir> --field /data/lossless` prints
+  `true` and exits 0 only when the restore is lossless.
 - **`--scope machine`** exports the global home plus every registered project
   whose path exists and holds a live `cleo.db`. It skips temp and test-fixture
   paths, missing paths, duplicates, and any registered project whose `.cleo/`

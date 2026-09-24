@@ -42,6 +42,8 @@ function seedProjectDb(dbPath: string, root: string): void {
     CREATE TABLE tasks_tasks (id TEXT PRIMARY KEY, title TEXT);
     CREATE TABLE brain_observations (id TEXT PRIMARY KEY, narrative TEXT);
     CREATE TABLE attachments (id TEXT PRIMARY KEY, attachment_json TEXT);
+    CREATE TABLE tasks_sessions (id TEXT PRIMARY KEY, owner_auth_token TEXT);
+    INSERT INTO tasks_sessions VALUES ('S1', 'OWNER-TOKEN-SECRET-9f3a'), ('S2', NULL);
   `);
   const ins = db.prepare('INSERT INTO tasks_tasks VALUES (?, ?)');
   for (let i = 0; i < 25; i++) ins.run(`T${i}`, `task ${i}`);
@@ -102,6 +104,10 @@ function seedGlobalHome(home: string, projectRoot: string): void {
     `${projectRoot}/.cleo/tasks.db`,
   );
   db.close();
+  const g = new DatabaseSync(path.join(home, 'cleo.db'));
+  g.exec(`CREATE TABLE agent_registry_agents (id TEXT PRIMARY KEY, name TEXT NOT NULL, api_key_encrypted TEXT NOT NULL);
+    INSERT INTO agent_registry_agents VALUES ('a1', 'worker', 'AGENT-KEY-SECRET-77b1');`);
+  g.close();
   fs.writeFileSync(path.join(home, 'global-salt'), crypto.randomBytes(32));
   fs.writeFileSync(path.join(home, 'device-id'), 'dev-1');
 }
@@ -146,8 +152,23 @@ describe('portable bundle v2 (T12318)', () => {
     expect(section?.keyCounts).toMatchObject({ tasks_tasks: 25, brain_observations: 1 });
     expect(section?.excluded.map((e) => e.relPath)).toContain('backups');
     expect(section?.excluded.find((e) => e.relPath === 'backups')?.bytes).toBe(4096);
-    expect(section?.omittedSecrets.map((s) => s.relPath)).toEqual(['keys/cleo-identity.json']);
+    expect(section?.requiresReentry).toEqual([
+      expect.objectContaining({
+        relPath: 'cleo.db',
+        table: 'tasks_sessions',
+        columns: ['owner_auth_token'],
+        rows: 1,
+      }),
+      expect.objectContaining({ relPath: 'keys/cleo-identity.json' }),
+    ]);
     expect(exported.secretsIncluded).toBe(false);
+    // ADR-093: memories always travel, and the result says they are unprotected.
+    expect(exported.memory).toMatchObject({
+      included: true,
+      encrypted: false,
+      counts: { brain_observations: 1 },
+    });
+    expect(exported.memory.notice).toContain('PLAIN TEXT');
 
     const entries = await archiveEntries(bundle);
     expect(entries[0]).toBe('manifest.json');
@@ -166,6 +187,9 @@ describe('portable bundle v2 (T12318)', () => {
     expect(imported.lossless).toBe(true);
     const proj = imported.sections[0];
     expect(proj?.mismatches).toEqual([]);
+    expect(proj?.hashMismatches).toEqual([]);
+    expect(proj?.hashesCompared).toBe(2); // agent-outputs/note.md + tasks.db
+    expect(proj?.hashSkipped.sort()).toEqual(['cleo.db', 'config.json', 'project-info.json']);
     expect(proj?.keyCounts.find((k) => k.table === 'tasks_tasks')).toEqual({
       table: 'tasks_tasks',
       expected: 25,
@@ -182,6 +206,16 @@ describe('portable bundle v2 (T12318)', () => {
     };
     db.close();
     expect(JSON.parse(a1.j).path).toBe(`${target}/docs/spec.md`);
+    // credential cleared, row kept
+    const sess = new DatabaseSync(path.join(target, '.cleo', 'cleo.db'), { readOnly: true });
+    const tokens = sess
+      .prepare('SELECT id, owner_auth_token AS t FROM tasks_sessions ORDER BY id')
+      .all() as Array<{ id: string; t: string | null }>;
+    sess.close();
+    expect(tokens).toEqual([
+      { id: 'S1', t: null },
+      { id: 'S2', t: null },
+    ]);
     expect(o1.n).toContain(projectRoot);
     const reloc = proj?.relocation;
     expect(reloc?.leftUnderOldRoot.map((f) => f.location)).toContain(
@@ -361,7 +395,11 @@ describe('portable bundle v2 (T12318)', () => {
     db.close();
     expect(row.p).toBe(path.join(newPrefix, 'demo'));
     expect(row.h).toBe(generateProjectHash(path.join(newPrefix, 'demo')));
-    expect(imported.omittedSecrets.map((s) => s.relPath).sort()).toEqual([
+    expect(
+      imported.requiresReentry.map((s) => `${s.relPath}${s.table ? `#${s.table}` : ''}`).sort(),
+    ).toEqual([
+      'cleo.db#agent_registry_agents',
+      'cleo.db#tasks_sessions',
       'global-salt',
       'keys/cleo-identity.json',
     ]);
@@ -396,6 +434,15 @@ describe('portable bundle v2 (T12318)', () => {
       configHome: path.join(tmp, 'config-dest'),
     });
     expect(ok.lossless).toBe(true);
+    expect(ok.requiresReentry).toEqual([]);
+    const agents = new DatabaseSync(path.join(tmp, 'home-dest', 'cleo.db'), { readOnly: true });
+    const key = agents
+      .prepare('SELECT api_key_encrypted AS k FROM agent_registry_agents')
+      .get() as {
+      k: string;
+    };
+    agents.close();
+    expect(key.k).toBe('AGENT-KEY-SECRET-77b1');
     expect(fs.readFileSync(path.join(tmp, 'home-dest', 'global-salt'))).toEqual(
       fs.readFileSync(path.join(home, 'global-salt')),
     );
@@ -454,6 +501,38 @@ describe('portable bundle v2 (T12318)', () => {
     expect(result.sections[0]?.mismatches).toEqual([
       { database: 'cleo.db', table: 'tasks_tasks', expected: 26, actual: 25 },
     ]);
+  });
+
+  it('an unencrypted bundle carries no credential bytes, only a requiresReentry list', async () => {
+    const bundle = path.join(tmp, 'out', 'plain.cleobundle.tar.gz');
+    const exported = await exportPortableBundle({
+      scope: 'all',
+      projectRoot,
+      outputPath: bundle,
+      label: 'plain',
+      cleoHome: home,
+      configHome,
+    });
+    const reentry = exported.sections.flatMap((s) => s.requiresReentry);
+    expect(reentry).toContainEqual(
+      expect.objectContaining({
+        relPath: 'cleo.db',
+        table: 'agent_registry_agents',
+        columns: ['api_key_encrypted'],
+        rows: 1,
+      }),
+    );
+    const unpacked = path.join(tmp, 'plain-unpacked');
+    fs.mkdirSync(unpacked);
+    await tarExtract({ file: bundle, cwd: unpacked });
+    const everything = fs
+      .readdirSync(unpacked, { recursive: true, withFileTypes: true })
+      .filter((f) => f.isFile())
+      .map((f) => fs.readFileSync(path.join(f.parentPath, f.name)).toString('latin1'))
+      .join('');
+    expect(everything).not.toContain('AGENT-KEY-SECRET-77b1');
+    expect(everything).not.toContain('OWNER-TOKEN-SECRET-9f3a');
+    expect(everything).toContain('edited'); // memory text is present in plain text (ADR-093)
   });
 
   it('classifies temp and fixture paths', () => {

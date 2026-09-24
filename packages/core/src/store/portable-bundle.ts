@@ -59,9 +59,11 @@ import {
   GLOBAL_HOME_RULES,
   LEGACY_STORE_BASENAMES,
   LEGACY_TABLE_MAP,
+  MEMORY_TABLES,
   PRIMARY_STORE_BASENAME,
   PROJECT_SECTION_RULES,
   pickKeyCounts,
+  redactCredentials,
   type SectionRules,
   scanSection,
   sha256File,
@@ -90,7 +92,8 @@ export type PortableBundleErrorCode =
   | 'E_BUNDLE_INTEGRITY'
   | 'E_DATA_EXISTS'
   | 'E_TARGET_AMBIGUOUS'
-  | 'E_RESTORE_MISMATCH';
+  | 'E_RESTORE_MISMATCH'
+  | 'E_REDACTION_FAILED';
 
 /**
  * Numeric exit codes for {@link PortableBundleErrorCode}. Decrypt / format /
@@ -109,6 +112,7 @@ export const PORTABLE_BUNDLE_EXIT_CODES: Readonly<Record<PortableBundleErrorCode
   E_DATA_EXISTS: 78,
   E_TARGET_AMBIGUOUS: ExitCode.INVALID_INPUT,
   E_RESTORE_MISMATCH: ExitCode.CHECKSUM_MISMATCH,
+  E_REDACTION_FAILED: ExitCode.GENERAL_ERROR,
 };
 
 /**
@@ -320,7 +324,7 @@ async function stageSection(
     files: [],
     symlinks: scan.symlinks,
     excluded: scan.excluded,
-    omittedSecrets: [],
+    requiresReentry: [],
   };
 
   const legacy = tier === 'config' ? new Set<string>() : LEGACY_STORE_BASENAMES[tier];
@@ -356,11 +360,39 @@ async function stageSection(
           `Cannot snapshot primary store ${path.join(root, relPath)}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-      // A non-primary SQLite file that cannot be opened is still captured
-      // byte-for-byte so nothing is lost; it is reported as a plain file.
       fs.rmSync(staged, { force: true });
-      scan.files.push(relPath);
+      if (state.includeSecrets) {
+        // Encrypted bundle: capture the unreadable file byte-for-byte so nothing is lost.
+        scan.files.push(relPath);
+      } else {
+        // Unencrypted: a raw copy could carry credential columns that cannot be cleared.
+        section.excluded.push({
+          relPath,
+          reason: `SQLite file could not be opened for a snapshot (${err instanceof Error ? err.message : String(err)}); not copied raw into an unencrypted bundle because its credential columns cannot be cleared — re-export with --encrypt to carry it`,
+          bytes: fs.statSync(path.join(root, relPath)).size,
+          fileCount: 1,
+          sizeComplete: true,
+        });
+      }
       continue;
+    }
+    if (!state.includeSecrets) {
+      try {
+        for (const r of redactCredentials(staged)) {
+          section.requiresReentry.push({
+            relPath,
+            table: r.table,
+            columns: r.columns,
+            rows: r.rows,
+            remedy: r.remedy,
+          });
+        }
+      } catch (err) {
+        throw new PortableBundleError(
+          'E_REDACTION_FAILED',
+          `Cannot clear credential columns in the snapshot of ${path.join(root, relPath)}; refusing to write an unencrypted bundle that could carry them (use --encrypt): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
     const counts = countRows(staged);
     const entry: PortableDatabaseEntry = {
@@ -397,7 +429,7 @@ async function stageSection(
   for (const relPath of scan.files.sort()) await copyFile(relPath, false);
   for (const s of scan.secrets) {
     if (state.includeSecrets) await copyFile(s.relPath, true);
-    else section.omittedSecrets.push({ relPath: s.relPath, remedy: s.remedy });
+    else section.requiresReentry.push({ relPath: s.relPath, remedy: s.remedy });
   }
   return section;
 }
@@ -606,6 +638,7 @@ export async function exportPortableBundle(
         sourceHost: os.hostname(),
         encrypted: encrypt,
         secretsIncluded: encrypt,
+        memoriesIncluded: true,
       },
       global,
       projects,
@@ -643,6 +676,7 @@ export async function exportPortableBundle(
       scope,
       encrypted: encrypt,
       secretsIncluded: encrypt,
+      memory: memoryDisclosure(manifest, encrypt),
       sections: [
         ...(global
           ? [
@@ -676,6 +710,38 @@ export async function exportPortableBundle(
   }
 }
 
+/**
+ * Build the ADR-093 memory disclosure: memories always travel, and the result
+ * says whether bundle encryption protects them.
+ *
+ * @param manifest - Written manifest.
+ * @param encrypted - Whether the bundle is encrypted.
+ * @returns Disclosure block for the export result.
+ */
+function memoryDisclosure(
+  manifest: PortableBundleManifest,
+  encrypted: boolean,
+): PortableExportResult['memory'] {
+  const counts: Record<string, number> = {};
+  for (const section of allSections(manifest)) {
+    // Live and legacy stores only; auxiliary `.bak` snapshots would double-count.
+    for (const db of section.databases.filter((d) => d.role !== 'auxiliary')) {
+      for (const table of MEMORY_TABLES) {
+        const n = db.rowCounts[table];
+        if (n !== undefined) counts[table] = (counts[table] ?? 0) + n;
+      }
+    }
+  }
+  return {
+    included: true,
+    encrypted,
+    counts,
+    notice: encrypted
+      ? 'Memories (brain observations, decisions, learnings, patterns) are included and protected by bundle encryption.'
+      : 'Memories (brain observations, decisions, learnings, patterns) are included in PLAIN TEXT in this unencrypted bundle (ADR-093). Re-export with --encrypt to protect them.',
+  };
+}
+
 function summarise(
   kind: PortableExportResult['sections'][number]['kind'],
   section: PortableSectionBase,
@@ -688,7 +754,7 @@ function summarise(
     files: section.files.length,
     ...(keyCounts ? { keyCounts } : {}),
     excluded: section.excluded,
-    omittedSecrets: section.omittedSecrets,
+    requiresReentry: section.requiresReentry,
   };
 }
 

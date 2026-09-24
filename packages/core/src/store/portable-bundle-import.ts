@@ -415,6 +415,52 @@ function compareCounts(plan: Placement): {
 }
 
 /**
+ * Relative paths of a section that relocation rewrote on purpose, so their
+ * placed bytes legitimately differ from the manifest.
+ */
+function rewrittenEntries(
+  plan: Placement,
+  relocations: ReadonlyMap<Placement, PortableRelocationReport>,
+  registryOutcomes: ReadonlyMap<string, NonNullable<PortableImportSectionResult['registry']>>,
+): Set<string> {
+  const out = new Set<string>();
+  const report = relocations.get(plan);
+  for (const finding of report?.rewritten ?? []) {
+    const sep = finding.location.indexOf(':');
+    out.add(sep === -1 ? finding.location : finding.location.slice(0, sep));
+  }
+  if (
+    plan.kind === 'global-home' &&
+    [...registryOutcomes.values()].some((o) => o.status === 'updated')
+  ) {
+    for (const d of plan.section.databases) if (d.role === 'primary') out.add(d.relPath);
+  }
+  return out;
+}
+
+/** Hash every placed file/database of a section against the manifest. */
+async function compareHashes(
+  plan: Placement,
+  rewritten: ReadonlySet<string>,
+): Promise<{ compared: number; mismatches: string[]; skipped: string[] }> {
+  let compared = 0;
+  const mismatches: string[] = [];
+  const skipped: string[] = [];
+  for (const entry of [...plan.section.databases, ...plan.section.files]) {
+    if (rewritten.has(entry.relPath)) {
+      skipped.push(entry.relPath);
+      continue;
+    }
+    compared += 1;
+    const placed = path.join(plan.destDir, entry.relPath);
+    if (!fs.existsSync(placed) || (await sha256File(placed)) !== entry.sha256) {
+      mismatches.push(entry.relPath);
+    }
+  }
+  return { compared, mismatches, skipped };
+}
+
+/**
  * Import a portable (manifest v2) bundle.
  *
  * @param input - Import options.
@@ -531,12 +577,19 @@ export async function importPortableBundle(
     for (const plan of plans) {
       const written = placeSection(extractDir, plan);
       const counts = compareCounts(plan);
+      const hashes = await compareHashes(
+        plan,
+        rewrittenEntries(plan, relocations, registryOutcomes),
+      );
       const result: PortableImportSectionResult = {
         kind: plan.kind,
         originalRoot: plan.section.originalRoot,
         destinationRoot: plan.destRoot ?? plan.destDir,
         filesWritten: written.files,
         databasesWritten: written.dbs,
+        hashesCompared: hashes.compared,
+        hashMismatches: hashes.mismatches,
+        hashSkipped: hashes.skipped,
         tablesCompared: counts.tablesCompared,
         mismatches: counts.mismatches,
         keyCounts: counts.keyCounts,
@@ -578,19 +631,19 @@ export async function importPortableBundle(
       sections.push(result);
     }
 
-    const omittedSecrets: PortableImportResult['omittedSecrets'] = [];
+    const requiresReentry: PortableImportResult['requiresReentry'] = [];
     for (const plan of plans) {
-      for (const s of plan.section.omittedSecrets) {
-        omittedSecrets.push({ ...s, section: plan.destDir });
+      for (const item of plan.section.requiresReentry) {
+        requiresReentry.push({ ...item, section: plan.destDir });
       }
     }
     const result: PortableImportResult = {
       bundlePath: path.resolve(input.bundlePath),
       scope: manifest.backup.scope,
       sections,
-      lossless: sections.every((s) => s.mismatches.length === 0),
+      lossless: sections.every((s) => s.mismatches.length === 0 && s.hashMismatches.length === 0),
       secretsIncluded: manifest.backup.secretsIncluded,
-      omittedSecrets,
+      requiresReentry,
     };
     if (input.requireLossless === true && !result.lossless) {
       throw new PortableBundleError(

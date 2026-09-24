@@ -506,6 +506,131 @@ export function pickKeyCounts(rowCounts: Record<string, number>): Record<string,
 }
 
 // ---------------------------------------------------------------------------
+// Credential columns (ADR-093 `portable-secret`) and memory tables
+// ---------------------------------------------------------------------------
+
+/**
+ * Credential-bearing columns, by table, that an UNENCRYPTED bundle clears.
+ * Found by auditing the live project and global stores for secret-, token-,
+ * password- and key-bearing columns (usage counters such as `tokens_used`
+ * are not credentials). The rows are kept; only these values are cleared.
+ *
+ * Interim list: the table classification registry (T12332) is the intended
+ * long-term source for the `portable-secret` class.
+ */
+export const CREDENTIAL_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  // project scope
+  agent_credentials: ['api_key_encrypted'],
+  tasks_agent_credentials: ['api_key_encrypted'],
+  sessions: ['owner_auth_token'],
+  tasks_sessions: ['owner_auth_token'],
+  playbook_approvals: ['token'],
+  tasks_playbook_approvals: ['token'],
+  // global scope
+  accounts: ['secret_enc'],
+  agent_registry_accounts: ['access_token', 'refresh_token', 'id_token', 'password'],
+  agent_registry_agents: ['webhook_secret', 'api_key_hash', 'api_key_encrypted'],
+  agent_registry_sessions: ['token'],
+  agent_registry_users: ['password_hash'],
+  service_configs: ['client_secret_enc'],
+  service_connections: ['credentials_enc'],
+};
+
+/** What losing each credential table's secrets costs on the target machine. */
+const CREDENTIAL_REMEDIES: Readonly<Record<string, string>> = {
+  agent_credentials: 'Stored agent API keys: re-issue or re-enter them.',
+  tasks_agent_credentials: 'Stored agent API keys: re-issue or re-enter them.',
+  sessions: 'Session owner tokens: start a new session (`cleo session start`) to own work again.',
+  tasks_sessions:
+    'Session owner tokens: start a new session (`cleo session start`) to own work again.',
+  playbook_approvals:
+    'Pending HITL resume tokens: re-run the paused playbook step to mint new ones.',
+  tasks_playbook_approvals:
+    'Pending HITL resume tokens: re-run the paused playbook step to mint new ones.',
+  accounts: 'Stored account secrets: re-enter them.',
+  agent_registry_accounts: 'Provider OAuth tokens / passwords: sign in again.',
+  agent_registry_agents: 'Agent API keys and webhook secrets: re-issue agent keys.',
+  agent_registry_sessions: 'Agent registry sessions: sign in again.',
+  agent_registry_users: 'Registry user passwords: reset them.',
+  service_configs: 'Service client secrets: re-enter them.',
+  service_connections: 'Service connection credentials: reconnect the services.',
+};
+
+/** Memory (ADR-093 `portable`) tables whose counts are disclosed on export. */
+export const MEMORY_TABLES: readonly string[] = [
+  'brain_observations',
+  'brain_decisions',
+  'brain_learnings',
+  'brain_patterns',
+  'brain_sticky_notes',
+];
+
+/** One table's cleared credential columns. */
+export interface CredentialRedaction {
+  /** Table. */
+  table: string;
+  /** Columns cleared. */
+  columns: string[];
+  /** Rows that held a non-empty credential value. */
+  rows: number;
+  /** Remedy text. */
+  remedy: string;
+}
+
+/**
+ * Clear credential columns in a SNAPSHOT (never a live store), then rebuild
+ * the file with `secure_delete` + `VACUUM` so the old values are not left in
+ * free pages. Rows are kept, so row counts are unchanged.
+ *
+ * @param snapshotPath - A VACUUM snapshot owned by the export staging area.
+ * @returns Per-table redactions (tables with no credential values are omitted).
+ * @throws {Error} When a credential column cannot be cleared; the caller must
+ *   not ship the snapshot.
+ */
+export function redactCredentials(snapshotPath: string): CredentialRedaction[] {
+  const out: CredentialRedaction[] = [];
+  const db = new DatabaseSync(snapshotPath);
+  try {
+    db.exec('PRAGMA secure_delete = ON');
+    for (const [table, wanted] of Object.entries(CREDENTIAL_COLUMNS)) {
+      const present = (
+        db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{
+          name: string;
+          notnull: number;
+        }>
+      ).filter((c) => wanted.includes(c.name));
+      if (present.length === 0) continue;
+      const cond = present
+        .map((c) => `("${c.name}" IS NOT NULL AND "${c.name}" <> '')`)
+        .join(' OR ');
+      const rows = Number(
+        (db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE ${cond}`).get() as { n: number }).n,
+      );
+      if (rows === 0) continue;
+      const assignments = present
+        .map((c) => `"${c.name}" = ${c.notnull ? "''" : 'NULL'}`)
+        .join(', ');
+      db.exec(`UPDATE "${table}" SET ${assignments} WHERE ${cond}`);
+      const left = Number(
+        (db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE ${cond}`).get() as { n: number }).n,
+      );
+      if (left !== 0)
+        throw new Error(`credential columns of ${table} were not cleared (${left} rows remain)`);
+      out.push({
+        table,
+        columns: present.map((c) => c.name),
+        rows,
+        remedy: CREDENTIAL_REMEDIES[table] ?? 'Re-enter the credentials.',
+      });
+    }
+    if (out.length > 0) db.exec('VACUUM');
+  } finally {
+    db.close();
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Hashing
 // ---------------------------------------------------------------------------
 
