@@ -539,9 +539,25 @@ function alteredLiveTables(
         table === 'schema_meta'
           ? ` WHERE NOT (key = 'task_id_sequence' AND value = '${sequenceSeed.replace(/'/g, "''")}')`
           : '';
+      // Compare over the columns both shapes share: the tasks-domain lineage
+      // step may have rebuilt a bare table with new columns (T12346), which
+      // restores every prior row verbatim but widens the row.
+      const colsOf = (schema: string): string[] =>
+        (
+          live.db.prepare(`PRAGMA ${ident(schema)}.table_info(${ident(table)})`).all() as Array<{
+            name: string;
+          }>
+        ).map((c) => c.name);
+      const after = new Set(colsOf('main'));
+      const shared = colsOf('before').filter((c) => after.has(c));
+      if (shared.length === 0) {
+        altered.push(table);
+        continue;
+      }
+      const list = shared.map(ident).join(', ');
       const row = live.db
         .prepare(
-          `SELECT COUNT(*) AS n FROM (SELECT * FROM before.${ident(table)}${seed} EXCEPT SELECT * FROM main.${ident(table)})`,
+          `SELECT COUNT(*) AS n FROM (SELECT ${list} FROM before.${ident(table)}${seed} EXCEPT SELECT ${list} FROM main.${ident(table)})`,
         )
         .get() as { n: number } | undefined;
       if (Number(row?.n ?? 0) > 0) altered.push(table);
@@ -550,6 +566,39 @@ function alteredLiveTables(
   } finally {
     live.close();
   }
+}
+
+/**
+ * The unmigrated `cleo.db`'s own dead bare task-core family as exodus sources,
+ * for exodus-on-open (T12355): the same source the reconcile reads, so the two
+ * converge whichever runs first — without it, on-open left e.g. llmtxt's 1,972
+ * bare-only `task_labels` behind while a reconcile recovered them.
+ *
+ * @param liveStorePath - The project `cleo.db` being migrated.
+ * @param resolveTarget - The runtime target resolver.
+ * @param legacyTasksPath - The legacy `tasks.db`, if present (its fresher-row comparison).
+ * @param outDir - Scratch directory the materialised sources are written to.
+ * @returns Sources to copy BEFORE the legacy files (bare rows newer than their
+ *   legacy copy) and AFTER them (the rest of the bare family); both empty when
+ *   the bare family is not a source.
+ * @task T12355
+ */
+export async function unmigratedBareSources(
+  liveStorePath: string,
+  resolveTarget: TargetResolver,
+  legacyTasksPath: string | undefined,
+  outDir: string,
+): Promise<{ first: LegacyDbDescriptor[]; last: LegacyDbDescriptor[] }> {
+  const bare = await bareTaskCoreSource(liveStorePath, resolveTarget, outDir);
+  if (bare === null) return { first: [], last: [] };
+  const fresher = snapshotFresherBareRows(bare.path, legacyTasksPath, outDir);
+  return {
+    first:
+      fresher === null
+        ? []
+        : [{ name: `${BARE_SOURCE_NAME} (fresher)`, path: fresher, targetScope: 'project' }],
+    last: [bare],
+  };
 }
 
 /**
@@ -570,9 +619,24 @@ export async function reconcileSupersededStores(
   projectRoot: string,
   options: { readonly dryRun?: boolean; readonly additive?: boolean } = {},
 ): Promise<SupersededStoreReconcileResult> {
+  const liveStorePath = resolveDualScopeDbPath('project', projectRoot);
+  // Never let exodus-on-open fire for this store while it is being reconciled
+  // (it would archive the legacy files mid-run). Everything — including the
+  // plan's source discovery — happens inside the suppression.
+  const { withExodusOnOpenSuppressed } = await import('./on-open.js');
+  return withExodusOnOpenSuppressed(liveStorePath, () =>
+    reconcileSuppressed(projectRoot, options, liveStorePath),
+  );
+}
+
+/** {@link reconcileSupersededStores} with exodus-on-open suppressed for the store. */
+async function reconcileSuppressed(
+  projectRoot: string,
+  options: { readonly dryRun?: boolean; readonly additive?: boolean },
+  liveStorePath: string,
+): Promise<SupersededStoreReconcileResult> {
   const dryRun = options.dryRun === true;
   const additive = options.additive === true;
-  const liveStorePath = resolveDualScopeDbPath('project', projectRoot);
   const plan = buildExodusPlan(projectRoot);
   // Rows land where the RUNTIME reads them (T12346), derived from its bindings.
   const resolveTarget = await buildRuntimeTargetResolver();
@@ -734,9 +798,17 @@ async function reconcileWithScratch(
         : [];
       const lost = shrunk(before, after);
       const { TASK_ID_SEQUENCE_SEED } = await import('../sqlite.js');
-      const altered = migrated.ok
-        ? alteredLiveTables(liveStorePath, liveBefore, before, TASK_ID_SEQUENCE_SEED)
-        : [];
+      let altered: string[] = [];
+      if (migrated.ok) {
+        try {
+          altered = alteredLiveTables(liveStorePath, liveBefore, before, TASK_ID_SEQUENCE_SEED);
+        } catch (error) {
+          // An unverifiable run is refused and reverted, never reported as done.
+          altered = [
+            `(verification failed: ${error instanceof Error ? error.message : String(error)})`,
+          ];
+        }
+      }
       const conflicts = additive ? conflictsOf(after) : [];
       const settled = additive ? true : isComplete(after);
       if (migrated.ok && settled && lost.length === 0 && altered.length === 0) {

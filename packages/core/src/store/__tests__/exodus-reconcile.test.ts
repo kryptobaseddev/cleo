@@ -102,7 +102,21 @@ function digest(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
-describe('reconcileSupersededStores (T12319)', () => {
+/**
+ * Every case runs with the exodus-on-open kill switch BOTH set and unset,
+ * explicitly: a developer machine that exports CLEO_DISABLE_EXODUS_ON_OPEN
+ * (the owner's did) must not mask what CI — where it is unset — does (T12355).
+ */
+const KILL_SWITCH_MODES = [
+  ['unset', undefined],
+  ['set', '1'],
+] as const;
+
+describe.each(
+  KILL_SWITCH_MODES,
+)('reconcileSupersededStores (T12319) — CLEO_DISABLE_EXODUS_ON_OPEN %s', (_mode, killSwitch) => {
+  const savedKillSwitch = process.env.CLEO_DISABLE_EXODUS_ON_OPEN;
+
   let root: string;
   let cleoDir: string;
   let liveDb: string;
@@ -110,6 +124,8 @@ describe('reconcileSupersededStores (T12319)', () => {
   const savedDir = process.env.CLEO_DIR;
 
   beforeEach(async () => {
+    if (killSwitch === undefined) delete process.env.CLEO_DISABLE_EXODUS_ON_OPEN;
+    else process.env.CLEO_DISABLE_EXODUS_ON_OPEN = killSwitch;
     root = mkdtempSync(join(tmpdir(), 'cleo-t12319-'));
     cleoDir = join(root, 'project', '.cleo');
     mkdirSync(cleoDir, { recursive: true });
@@ -124,6 +140,8 @@ describe('reconcileSupersededStores (T12319)', () => {
   });
 
   afterEach(async () => {
+    if (savedKillSwitch === undefined) delete process.env.CLEO_DISABLE_EXODUS_ON_OPEN;
+    else process.env.CLEO_DISABLE_EXODUS_ON_OPEN = savedKillSwitch;
     const { closeDb } = await import('../sqlite.js');
     closeDb();
     if (savedHome === undefined) delete process.env.CLEO_HOME;
@@ -368,6 +386,60 @@ describe('reconcileSupersededStores (T12319)', () => {
       reason: 'live-authoritative',
     });
     expect(conflict('tasks_task_relations')).toMatchObject({ rows: 1 });
+  });
+
+  it.skipIf(killSwitch !== undefined)(
+    'converges with exodus-on-open whichever runs first (on-open first → reconcile has nothing to do)',
+    async () => {
+      const { openDualScopeDb, _resetDualScopeDbCache } = await import('../dual-scope-db.js');
+      // An ARMED open with the kill switch unset migrates and archives the legacy files.
+      await openDualScopeDb('project', join(root, 'project'));
+      _resetDualScopeDbCache('project');
+      expect(existsSync(join(cleoDir, 'tasks.db'))).toBe(false);
+      const counts = {
+        tasks: scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks'),
+        criteria: scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_acceptance_criteria'),
+        observations: scalar(liveDb, 'SELECT COUNT(*) FROM brain_observations'),
+        releases: scalar(liveDb, 'SELECT COUNT(*) FROM tasks_releases'),
+      };
+      // The same placement a reconcile-first run produces (see the tests above).
+      expect(counts).toEqual({ tasks: 5, criteria: 2, observations: 2, releases: 1 });
+
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+      expect(result.outcome).toBe('nothing-to-reconcile');
+    },
+  );
+
+  it.skipIf(killSwitch !== undefined)(
+    'converges with exodus-on-open whichever runs first (reconcile first → on-open skips)',
+    async () => {
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      expect((await reconcileSupersededStores(join(root, 'project'))).outcome).toBe('reconciled');
+      const { openDualScopeDb, _resetDualScopeDbCache } = await import('../dual-scope-db.js');
+      await openDualScopeDb('project', join(root, 'project'));
+      _resetDualScopeDbCache('project');
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(5);
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_releases')).toBe(1);
+      // on-open found a populated store and left the legacy files in place.
+      expect(existsSync(join(cleoDir, 'tasks.db'))).toBe(true);
+    },
+  );
+
+  it('suppresses exodus-on-open for the store being reconciled, and only that store', async () => {
+    const { withExodusOnOpenSuppressed, maybeRunExodusOnOpen } = await import(
+      '../exodus/on-open.js'
+    );
+    const live = new DatabaseSync(liveDb);
+    try {
+      const inside = await withExodusOnOpenSuppressed(liveDb, () =>
+        maybeRunExodusOnOpen('project', liveDb, live, join(root, 'project')),
+      );
+      expect(inside.outcome).toBe('skipped');
+      expect(inside.reason).toMatch(/reconcile of this store is in progress/);
+    } finally {
+      live.close();
+    }
   });
 
   it('never overwrites a row already in cleo.db', async () => {

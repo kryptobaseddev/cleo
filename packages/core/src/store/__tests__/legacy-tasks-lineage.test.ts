@@ -44,13 +44,29 @@ function scalar(dbPath: string, sql: string): unknown {
   }
 }
 
-describe('legacy drizzle-tasks family rebuild (T12346)', () => {
+/**
+ * Every case runs with the exodus-on-open kill switch BOTH set and unset,
+ * explicitly: a developer machine that exports CLEO_DISABLE_EXODUS_ON_OPEN
+ * (the owner's did) must not mask what CI — where it is unset — does (T12355).
+ */
+const KILL_SWITCH_MODES = [
+  ['unset', undefined],
+  ['set', '1'],
+] as const;
+
+describe.each(
+  KILL_SWITCH_MODES,
+)('legacy drizzle-tasks family rebuild (T12346) — CLEO_DISABLE_EXODUS_ON_OPEN %s', (_mode, killSwitch) => {
+  const savedKillSwitch = process.env.CLEO_DISABLE_EXODUS_ON_OPEN;
+
   let root: string;
   let cleoDir: string;
   let liveDb: string;
   const saved = { home: process.env.CLEO_HOME, dir: process.env.CLEO_DIR };
 
   beforeEach(async () => {
+    if (killSwitch === undefined) delete process.env.CLEO_DISABLE_EXODUS_ON_OPEN;
+    else process.env.CLEO_DISABLE_EXODUS_ON_OPEN = killSwitch;
     root = mkdtempSync(join(tmpdir(), 'cleo-t12346-'));
     cleoDir = join(root, 'project', '.cleo');
     mkdirSync(cleoDir, { recursive: true });
@@ -91,6 +107,8 @@ describe('legacy drizzle-tasks family rebuild (T12346)', () => {
   });
 
   afterEach(async () => {
+    if (savedKillSwitch === undefined) delete process.env.CLEO_DISABLE_EXODUS_ON_OPEN;
+    else process.env.CLEO_DISABLE_EXODUS_ON_OPEN = savedKillSwitch;
     const { closeDb } = await import('../sqlite.js');
     closeDb();
     if (saved.home === undefined) delete process.env.CLEO_HOME;
