@@ -543,6 +543,11 @@ export interface ChangesetYamlInvalidDetails {
   snippet?: string;
   /** Underlying parser message, propagated verbatim for diagnostics. */
   parserMessage: string;
+  /**
+   * Remediation naming the fix when the failure is a value starting with a
+   * YAML-reserved character, e.g. wrap it in double quotes (T12351).
+   */
+  hint?: string;
 }
 
 /**
@@ -588,7 +593,8 @@ export class ChangesetYamlInvalidError extends Error {
   constructor(details: ChangesetYamlInvalidDetails) {
     const linePart = details.line !== null ? `:${details.line}` : '';
     super(
-      `E_CHANGESET_YAML_INVALID: ${details.file}${linePart} invalid YAML frontmatter: ${details.parserMessage}`,
+      `E_CHANGESET_YAML_INVALID: ${details.file}${linePart} invalid YAML frontmatter: ${details.parserMessage}` +
+        (details.hint !== undefined ? `\n  hint: ${details.hint}` : ''),
     );
     this.name = 'ChangesetYamlInvalidError';
     this.details = details;
