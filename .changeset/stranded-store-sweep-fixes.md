@@ -15,10 +15,8 @@ rebuild treated every bare `drizzle-tasks` table as dead. Only the task-core
 tables that `tasks-schema.ts` re-points at `tasks_*` are unused. The runtime
 still reads and writes the bare `lifecycle_*`, `audit_log`, `token_usage`,
 `attachments`, `releases` and similar tables. After the tables are recreated,
-the rebuild now copies every snapshot row back in, in the same transaction.
-In claude-todo that is 16,942 rows, including all 45 lifecycle pipelines and
-252 stages. Rows the new schema rejects, such as the unused bare `tasks` rows,
-stay only in the snapshot, and the log lists them.
+the rebuild now copies every snapshot row back in and checks that each one is
+present (see `reconcile-runtime-targets` for how that check works).
 
 **The old migration-journal format blocked every open** (clawmsgr, execdash,
 screennest and a t3code worktree). Their `cleo.db` is a renamed store from
