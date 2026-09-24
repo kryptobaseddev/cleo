@@ -329,6 +329,7 @@ Runbooks: `docs/release/merge-queue-runbook.md`, `docs/release/verb-matrix.md`, 
 - A conflict with `project-info.json` is reported, and the local id is kept.
 - A missing file is re-linked from `project-info.json` or the global registry. A new id is minted only when nothing can be re-linked, or explicitly with `cleo init --new-identity`.
 - A fork inherits the id; see ADR-094 for the fork caveat.
+- Check it with `cleo doctor project-identity`. It reports missing, conflicting, invalid, uncommitted or gitignored ids with the exact remedy. `--resolve --dry-run` shows the plan; `--resolve` applies it. A conflict is re-keyed to the tracked id through the alias table, so no registry row is lost and the old id still resolves (T12353).
 
 **NEVER** `git add` any of these four files. Root and nested `.gitignore` block this; manual overrides re-open the T5158 data-loss vector.
 

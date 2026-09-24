@@ -40,6 +40,7 @@ import { doctorLegacyReaperCommand } from './doctor-legacy-reaper.js';
 import { doctorMalformedIdsCommand } from './doctor-malformed-ids.js';
 import { doctorMemoryGuardCommand } from './doctor-memory-guard.js';
 import { doctorNexusResidencyCommand } from './doctor-nexus-residency.js';
+import { doctorProjectIdentityCommand } from './doctor-project-identity.js';
 import { runDoctorProjects } from './doctor-projects.js';
 import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
 import { doctorRepairCommand } from './doctor-repair.js';
@@ -252,6 +253,8 @@ export const doctorCommand = defineCommand({
     'superseded-store': doctorSupersededStoreCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify
     'memory-guard': doctorMemoryGuardCommand,
+    // T12353 — tracked .cleo/project-id vs project-info.json (+ --resolve re-key)
+    'project-identity': doctorProjectIdentityCommand,
     // T12157 — the two acceptance stores (json column vs text+child rows) must agree
     'acceptance-drift': doctorAcceptanceDriftCommand,
     // T12158 — tables nexus resolves by bare name must actually live where it assumes

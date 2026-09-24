@@ -445,6 +445,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorNexusResidencyCommand as CommandDef,
   },
   {
+    exportName: 'doctorProjectIdentityCommand',
+    name: 'project-identity',
+    description:
+      'Check .cleo/project-id against project-info.json (missing / conflict / invalid / untracked) ',
+    load: async () =>
+      (await import('../commands/doctor-project-identity.js'))
+        .doctorProjectIdentityCommand as CommandDef,
+  },
+  {
     exportName: 'doctorProjectsCommand',
     name: 'doctor-projects',
     description: 'Probe every registered project (nexus.db) for DB + config health',
