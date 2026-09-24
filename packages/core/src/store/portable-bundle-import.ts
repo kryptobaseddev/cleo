@@ -314,13 +314,6 @@ function relocateRegistryRows(
   const db = new DatabaseSync(stagedGlobalDb);
   try {
     for (const move of moves) {
-      if (!move.projectId) {
-        outcomes.set(move.from, {
-          status: 'skipped',
-          detail: 'project has no projectId in project-info.json; register it manually',
-        });
-        continue;
-      }
       if (move.from === move.to) {
         outcomes.set(move.from, { status: 'unchanged', detail: 'project path unchanged' });
         continue;
@@ -332,7 +325,7 @@ function relocateRegistryRows(
         changes = Number(
           db
             .prepare(
-              'UPDATE nexus_project_registry SET project_path = ?, project_hash = ?, brain_db_path = ?, tasks_db_path = ?, last_seen = ? WHERE project_id = ?',
+              'UPDATE nexus_project_registry SET project_path = ?, project_hash = ?, brain_db_path = ?, tasks_db_path = ?, last_seen = ? WHERE project_path = ? OR (? IS NOT NULL AND project_id = ?)',
             )
             .run(
               move.to,
@@ -340,6 +333,8 @@ function relocateRegistryRows(
               path.join(move.to, '.cleo', 'brain.db'),
               path.join(move.to, '.cleo', 'tasks.db'),
               new Date().toISOString(),
+              move.from,
+              move.projectId,
               move.projectId,
             ).changes,
         );
@@ -354,10 +349,10 @@ function relocateRegistryRows(
       outcomes.set(
         move.from,
         changes > 0
-          ? { status: 'updated', detail: `registry row ${move.projectId} -> ${move.to}` }
+          ? { status: 'updated', detail: `registry row for ${move.from} -> ${move.to}` }
           : {
               status: 'not-in-registry',
-              detail: `projectId ${move.projectId} not in the bundled registry; run \`cleo nexus projects register ${move.to}\``,
+              detail: `neither ${move.from} nor projectId ${move.projectId ?? '(none)'} is in the bundled registry; run \`cleo nexus projects register ${move.to}\``,
             },
       );
     }
@@ -503,7 +498,9 @@ export async function importPortableBundle(
         leftOutsideRoot: [],
         rewrittenTargetMissing: [],
       };
-      for (const d of plan.section.databases) {
+      // Only the live store is relocated. Legacy files, archives and `.bak`
+      // snapshots are historical copies and are restored byte-identical.
+      for (const d of plan.section.databases.filter((db) => db.role === 'primary')) {
         relocateDatabase(path.join(extractDir, d.bundlePath), d.relPath, from, to, report);
       }
       relocateProjectFiles(

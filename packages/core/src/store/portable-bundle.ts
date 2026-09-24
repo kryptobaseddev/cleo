@@ -409,6 +409,7 @@ async function stageProject(
   state: StagingState,
   projectRoot: string,
   index: number,
+  registryProjectId?: string,
 ): Promise<PortableProjectSection> {
   const cleoDir = path.join(projectRoot, '.cleo');
   if (!fs.existsSync(cleoDir)) {
@@ -430,7 +431,7 @@ async function stageProject(
   return {
     ...base,
     originalPath: projectRoot,
-    projectId: info.projectId,
+    projectId: info.projectId ?? (registryProjectId || null),
     name,
     keyCounts: primary ? pickKeyCounts(primary.rowCounts) : {},
   };
@@ -535,7 +536,7 @@ export async function exportPortableBundle(
         const selection = selectMachineProjects(rows, cleoHome, input.isTempPath);
         skippedProjects = selection.skipped;
         for (const row of selection.included) {
-          projects.push(await stageProject(state, row.path, projects.length));
+          projects.push(await stageProject(state, row.path, projects.length, row.projectId));
         }
       }
     }

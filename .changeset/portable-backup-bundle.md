@@ -53,8 +53,11 @@ Export now writes a **portable bundle (manifest v2)**:
 - **Relocation.** `cleo backup import <bundle> --target <root>` places a
   single project at a new root. `--map <old>=<new>` (repeatable, longest
   prefix wins) relocates a machine bundle. The global registry row is
-  rewritten by projectId in the staged store before placement. Structural
-  locators are rewritten: path-named columns, path-named keys in `*_json`
+  rewritten in the staged store before placement. It is matched by original
+  path or projectId, because many older projects have no projectId in
+  `project-info.json`. Only the live store is relocated. Legacy files,
+  archives and `.bak` snapshots are restored byte-identical. In the live store,
+  structural locators are rewritten: path-named columns, path-named keys in `*_json`
   columns such as attachment paths, `config.json`, `project-context.json`, and
   the `projectHash` in `project-info.json`. Historical records are reported but
   never edited: audit logs, observations, narratives, captured tool output and

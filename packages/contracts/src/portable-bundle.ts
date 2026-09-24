@@ -138,7 +138,7 @@ export type PortableKeyCounts = Record<string, number>;
 export interface PortableProjectSection extends PortableSectionBase {
   /** Absolute project root on the source machine (parent of `.cleo/`). */
   originalPath: string;
-  /** `projectId` from `.cleo/project-info.json`, or null when absent. */
+  /** `projectId` from `.cleo/project-info.json`, else the registry row's id (machine scope), else null. */
   projectId: string | null;
   /** Project name (project-info.json `name`, else the directory basename). */
   name: string;

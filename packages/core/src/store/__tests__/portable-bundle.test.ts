@@ -240,7 +240,10 @@ describe('portable bundle v2 (T12318)', () => {
     expect((err as PortableBundleError).code).toBe('E_DATA_EXISTS');
   });
 
-  it('machine scope re-registers moved projects by projectId via --map', async () => {
+  it('machine scope re-registers moved projects via --map (even without a projectId in project-info)', async () => {
+    // Many real projects predate project-info.projectId; the registry row must still move.
+    const infoPath = path.join(projectRoot, '.cleo', 'project-info.json');
+    fs.writeFileSync(infoPath, JSON.stringify({ name: 'demo' }));
     const bundle = path.join(tmp, 'out', 'm.cleobundle.tar.gz');
     const exported = await exportPortableBundle({
       scope: 'machine',
@@ -268,6 +271,7 @@ describe('portable bundle v2 (T12318)', () => {
     const proj = imported.sections.find((s) => s.kind === 'project');
     expect(proj?.destinationRoot).toBe(path.join(newPrefix, 'demo'));
     expect(proj?.registry?.status).toBe('updated');
+    expect(proj?.projectId).toBe(PROJECT_ID);
 
     const db = new DatabaseSync(path.join(destHome, 'cleo.db'), { readOnly: true });
     const row = db
