@@ -129,6 +129,35 @@ function consolidatedIsEmpty(nativeDb: DatabaseSync, scope: DualScope): boolean 
   return safeRowCount(nativeDb, baseTableForScope(scope)) === 0;
 }
 
+/** Stranding warnings already emitted this process, keyed by target path. */
+const _strandedWarned = new Set<string>();
+
+/** Log a stranded-data warning once per target per process (every open would repeat it). */
+function warnStrandedOnce(dbPath: string, reason: string): void {
+  if (_strandedWarned.has(dbPath)) return;
+  _strandedWarned.add(dbPath);
+  log.warn({ dbPath }, `exodus-on-open: STRANDED LEGACY DATA — ${reason}`);
+}
+
+/** The supported remedy for a stranded scope. */
+function remedyFor(scope: DualScope): string {
+  return scope === 'project'
+    ? 'Run `cleo doctor superseded-store --reconcile --dry-run`, then `--reconcile`, to copy it in.'
+    : 'Run `cleo doctor exodus-health` and `cleo exodus migrate` to consolidate it.';
+}
+
+/**
+ * Names of this scope's legacy sources that still hold copyable rows. Only
+ * called once the consolidated store is known to be empty.
+ */
+async function strandedLegacySources(scope: DualScope, cwd: string | undefined): Promise<string[]> {
+  const { buildExodusPlan, legacySourcesHoldRows } = await import('./index.js');
+  return buildExodusPlan(cwd)
+    .sources.filter((s) => s.targetScope === scope && existsSync(s.path))
+    .filter((s) => legacySourcesHoldRows([s]))
+    .map((s) => s.name);
+}
+
 /** Recover only the inserted resources recorded by this staging operation. */
 async function rollbackBothScopes(plan: ExodusPlan): Promise<ExodusRecoveryResult> {
   const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
@@ -340,14 +369,27 @@ async function runExodusOnOpen(
   if (_exodusInProgress) {
     return { outcome: 'skipped', reason: 're-entrant open during active migration' };
   }
-  if (isDisabledByEnv()) {
-    return { outcome: 'skipped', reason: 'CLEO_DISABLE_EXODUS_ON_OPEN set' };
-  }
-
   // Fast path (unlocked): if the consolidated DB already has data, nothing to do.
   // This makes the second-open case a cheap COUNT(*) with no lock acquisition.
   if (!consolidatedIsEmpty(nativeDb, scope)) {
     return { outcome: 'skipped', reason: 'consolidated cleo.db already populated' };
+  }
+
+  // Kill-switch (T12319): honoured, but never SILENTLY. Exported machine-wide
+  // as an incident stopgap on 2026-06-04, it left ~21 projects running on an
+  // empty cleo.db while their legacy stores held every task — and nothing said
+  // so. Skip as asked, but when the skip strands real rows, say so loudly.
+  if (isDisabledByEnv()) {
+    const stranded = await strandedLegacySources(scope, cwd);
+    if (stranded.length === 0) {
+      return { outcome: 'skipped', reason: 'CLEO_DISABLE_EXODUS_ON_OPEN set' };
+    }
+    const reason =
+      `CLEO_DISABLE_EXODUS_ON_OPEN set while the consolidated ${scope} cleo.db is EMPTY and ` +
+      `legacy ${stranded.join(', ')} still hold rows — CLEO is running WITHOUT that data. ` +
+      remedyFor(scope);
+    warnStrandedOnce(dbPath, reason);
+    return { outcome: 'skipped', reason };
   }
 
   // Completion-marker gate (T11777): once this scope's cutover is recorded, the
@@ -355,7 +397,20 @@ async function runExodusOnOpen(
   // Gate on the committed MARKER rather than (only) the source-file existsSync,
   // so a re-appearing or stranded legacy DB can NEVER re-arm exodus-on-open even
   // if the consolidated base table momentarily reads empty (DHQ-052 · T11662).
+  //
+  // T12319: the marker must never HIDE data, though. An empty consolidated
+  // store beside legacy files that still hold rows contradicts the marker's own
+  // claim, so this is an abort (writes refuse via `assertWriteDurable`), not a
+  // skip — re-arming stays forbidden, and the operator gets the explicit remedy.
   if (hasExodusCompleteMarker(scope, cwd, dbPath, nativeDb)) {
+    const stranded = await strandedLegacySources(scope, cwd);
+    if (stranded.length > 0) {
+      const reason =
+        `exodus completion marker claims the ${scope} scope migrated, but its cleo.db is EMPTY ` +
+        `while legacy ${stranded.join(', ')} still hold rows. ${remedyFor(scope)}`;
+      warnStrandedOnce(dbPath, reason);
+      return { outcome: 'aborted', reason };
+    }
     return {
       outcome: 'skipped',
       reason: 'exodus completion marker present — scope already migrated (cutover sealed)',

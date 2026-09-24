@@ -150,9 +150,10 @@ export function prepareExodusRecovery(db: DatabaseSync, operation: string, schem
 
 /**
  * Compile on the dedicated migration handle under SQLite's effect authorizer.
- * Guard triggers are read-only. The only supported extra mutation is the
+ * Guard triggers are read-only. The supported extra mutations are the
  * canonical session handoff mirror, whose complete changed-row set is captured
- * below. Extension/UDF functions are refused because their effects are opaque.
+ * below, and FTS5 content-sync inserts into the copied table's own derived
+ * index (T12346). Extension/UDF functions are refused because their effects are opaque.
  * These dedicated handles are created by Exodus without an existing authorizer;
  * the temporary policy is always removed before receipt statements execute.
  */
@@ -198,6 +199,19 @@ function inspectEffects(
         mirrorsHandoff = true;
         return constants.SQLITE_OK;
       }
+      // T12346: an FTS5 content-sync trigger on the copied table (the runtime's
+      // `brain_observations_ai` → `brain_observations_fts`) writes only the
+      // table's own derived full-text index. Reverting the row fires the paired
+      // `_ad` trigger, which removes the index entry again, so it needs no receipt.
+      if (
+        trigger &&
+        action === constants.SQLITE_INSERT &&
+        code === constants.SQLITE_INSERT &&
+        dbName === schema &&
+        typeof name === 'string' &&
+        (name === `${table}_fts` || name.startsWith(`${table}_fts_`))
+      )
+        return constants.SQLITE_OK;
       refusal = `untracked trigger side effects: ${String(dbName)}.${String(name)} ${String(column)}`;
       return constants.SQLITE_DENY;
     }

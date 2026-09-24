@@ -1063,3 +1063,82 @@ export interface LegacyBackupScanResult {
    */
   errors: Array<{ path: string; error: string }>;
 }
+
+// ============================================================================
+// Superseded-store reconcile — `cleo doctor superseded-store --reconcile` (T12319)
+// ============================================================================
+
+/**
+ * Per-table row accounting for one legacy source table reconciled into the
+ * live project `cleo.db`.
+ *
+ * `missingInLive` counts SOURCE rows whose primary key is absent from the live
+ * table — the rows a reconcile must still copy. It is `null` only when the key
+ * cannot be compared (no shared primary key); such a table is judged by counts.
+ *
+ * @task T12319
+ */
+export interface SupersededStoreTableCount {
+  /** Logical legacy source (`tasks`, `brain (project)`, `conduit`). */
+  sourceDb: string;
+  /** Table name in the legacy file. */
+  sourceTable: string;
+  /** Consolidated table in `cleo.db` the rows land in. */
+  targetTable: string;
+  /** Rows in the legacy table. */
+  sourceRows: number;
+  /** Rows in the live table. */
+  liveRows: number;
+  /** Source rows whose key is absent from the live table, or `null` if not comparable. */
+  missingInLive: number | null;
+}
+
+/**
+ * Outcome of `cleo doctor superseded-store --reconcile`.
+ *
+ * - `nothing-to-reconcile` — every legacy row is already present; no write.
+ * - `planned` — dry-run; `before` shows what an apply would copy.
+ * - `reconciled` — rows copied and re-verified; `after` proves zero missing.
+ * - `refused` — the post-copy verification found a mismatch; every row this
+ *   run inserted was reverted (see `rolledBack`) and the command exits non-zero.
+ *
+ * @task T12319
+ */
+export type SupersededStoreReconcileOutcome =
+  | 'nothing-to-reconcile'
+  | 'planned'
+  | 'reconciled'
+  | 'refused';
+
+/**
+ * Receipt of a superseded-store reconcile. Written verbatim to
+ * `<staging>/reconcile-receipt.json` for an apply.
+ *
+ * @task T12319
+ */
+export interface SupersededStoreReconcileResult {
+  /** Final outcome; `refused` is the only non-zero exit. */
+  outcome: SupersededStoreReconcileOutcome;
+  /** `true` when nothing was written. */
+  dryRun: boolean;
+  /** Absolute project root. */
+  projectRoot: string;
+  /** Absolute path of the live project `cleo.db`. */
+  liveStorePath: string;
+  /** Legacy files read (never modified, moved or deleted). */
+  sourcePaths: string[];
+  /** Per-table accounting before any write. */
+  before: SupersededStoreTableCount[];
+  /** Per-table accounting after the copy; empty unless a copy ran. */
+  after: SupersededStoreTableCount[];
+  /** Rows inserted into `cleo.db` by this run (0 for dry-run / no-op). */
+  rowsCopied: number;
+  /** Rows reverted after a refused verification (0 otherwise). */
+  rolledBack: number;
+  /** Staging directory holding the journal, source backups and receipt, or `null`. */
+  stagingDir: string | null;
+  /** Absolute path of the written receipt, or `null` when none was written. */
+  receiptPath: string | null;
+  /** Human-readable explanation, suitable for printing verbatim. */
+  reason: string;
+}

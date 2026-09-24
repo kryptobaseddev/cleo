@@ -56,9 +56,14 @@ import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import {
   buildDigestExpr,
   detectIsoGlobColumns,
+  legacyRowProjection,
   type TargetColumnInfo,
 } from './column-transforms.js';
-import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
+import {
+  resolveConsolidatedTableName,
+  resolveTableTargetScope,
+  reverseLookup,
+} from './table-name-map.js';
 import type { ExodusScope, LegacyDbDescriptor } from './types.js';
 
 const log = getLogger('verify-migration');
@@ -128,6 +133,8 @@ interface DigestTransformSpec {
    * a false `hashMatch === false` (T11836).
    */
   readonly tgtColByCol: ReadonlyMap<string, TargetColumnInfo>;
+  /** Legacy source table name — selects its row projection (T12346). */
+  readonly sourceTableName: string;
 }
 
 /**
@@ -195,6 +202,12 @@ function computeTableDigest(
         if (transform === undefined) return `"${c}"`;
         // SOURCE side: route the raw value through the SAME transform migrate
         // applied, aliased back to `c` so the row key matches the target side.
+        // A projected column (T12346) digests in the form migrate wrote it.
+        const project = legacyRowProjection(
+          transform.targetTableName,
+          transform.sourceTableName,
+        ).get(c);
+        if (project) return `${project((name) => `"${name}"`)} AS "${c}"`;
         const srcType = transform.srcTypeByCol.get(c) ?? '';
         const tgtCol = transform.tgtColByCol.get(c);
         const expr = buildDigestExpr(
@@ -203,6 +216,7 @@ function computeTableDigest(
           srcType,
           transform.isoGlobCols,
           tgtCol,
+          new Set(transform.srcTypeByCol.keys()),
         );
         return `${expr} AS "${c}"`;
       })
@@ -328,7 +342,7 @@ function buildSourceDigestTransform(
         { notnull: r.notnull, dflt_value: r.dflt_value, type: r.type } satisfies TargetColumnInfo,
       ]),
     );
-    return { targetTableName, srcTypeByCol, isoGlobCols, tgtColByCol };
+    return { targetTableName, srcTypeByCol, isoGlobCols, tgtColByCol, sourceTableName: srcTable };
   } catch {
     return undefined;
   }
@@ -614,6 +628,70 @@ function orphanSignature(
 
   // Fallback: rowid-qualified signature (only collides with itself).
   return `${childTable}|${parentTable}|rowid:${v.rowid ?? '?'}`;
+}
+
+/**
+ * Decide whether a TARGET orphan's missing parent ever existed in a legacy source.
+ *
+ * An orphan is migration-INTRODUCED only if the migration LOST its parent — i.e.
+ * the referenced key is present in the source table that feeds the parent. When
+ * no source holds that key, the reference was already dangling before the
+ * migration. {@link sourceOrphanSignatures} cannot see that case when the legacy
+ * schema never DECLARED the foreign key (e.g. pre-T1408 `architecture_decisions`
+ * in claude-todo: `ADR-006.supersedes_id = 'ADR-001'`, no `ADR-001` anywhere),
+ * because `PRAGMA foreign_key_check` only reports declared constraints (T12319).
+ *
+ * Returns `true` (the strict, "introduced" direction) whenever the question
+ * cannot be answered — unreadable FK metadata, a composite key, or no source
+ * table mapped to the parent.
+ *
+ * @param targetDb - Consolidated DB holding the orphan row.
+ * @param fk - One target `PRAGMA foreign_key_check` row.
+ * @param sources - Legacy source descriptors of this verification.
+ * @returns Whether any source table feeding `fk.parent` holds the missing key.
+ * @task T12319
+ */
+function parentKeyExistsInSources(
+  targetDb: DatabaseSync,
+  fk: { table: string; rowid: number | null; parent: string; fkid: number },
+  sources: readonly LegacyDbDescriptor[],
+): boolean {
+  if (fk.rowid === null) return true;
+  try {
+    const refs = (
+      targetDb.prepare(`PRAGMA foreign_key_list("${fk.table}")`).all() as Array<{
+        id: number;
+        from: string;
+        to: string | null;
+      }>
+    ).filter((r) => r.id === fk.fkid);
+    const ref = refs[0];
+    if (refs.length !== 1 || ref === undefined || ref.to === null) return true;
+    const row = targetDb
+      .prepare(`SELECT "${ref.from}" AS v FROM "${fk.table}" WHERE rowid = ?`)
+      .get(fk.rowid) as { v: unknown } | undefined;
+    const key = row?.v;
+    if (typeof key !== 'string' && typeof key !== 'number' && typeof key !== 'bigint') return true;
+    const feeders = reverseLookup(fk.parent, sources);
+    if (feeders.length === 0) return true;
+    for (const feeder of feeders) {
+      const src = sources.find((s) => s.name === feeder.sourceName);
+      if (src === undefined || !existsSync(src.path)) continue;
+      const snap = openCleoDbSnapshot(src.path, { readOnly: true });
+      try {
+        if (!tableExists(snap.db, feeder.legacyTable)) continue;
+        const hit = snap.db
+          .prepare(`SELECT 1 AS ok FROM "${feeder.legacyTable}" WHERE "${ref.to}" = ? LIMIT 1`)
+          .get(key);
+        if (hit !== undefined) return true;
+      } finally {
+        snap.close();
+      }
+    }
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -911,7 +989,8 @@ export function verifyMigration(
       // orphan lives in whichever scope DB declares the child table.
       const orphanDb = tableExists(projectSnap.db, fk.table) ? projectSnap.db : globalSnap.db;
       const sig = orphanSignature(orphanDb, fk);
-      const preExisting = sourceOrphanSigs.has(sig);
+      const preExisting =
+        sourceOrphanSigs.has(sig) || !parentKeyExistsInSources(orphanDb, fk, sources);
       if (preExisting) {
         preExistingForeignKeyViolations.push(fk);
       } else {

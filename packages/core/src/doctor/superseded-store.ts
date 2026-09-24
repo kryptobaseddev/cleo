@@ -63,6 +63,12 @@ export interface SupersededStoreEntry {
   /** Rows found in the LIVE store's prefixed table. */
   readonly rowsInLive: number | null;
   /**
+   * Rows of the superseded table whose `id` is ABSENT from the live table —
+   * what `--reconcile` would still copy. `0` means every row is already in
+   * `cleo.db`; `null` means the comparison could not be made (T12319).
+   */
+  readonly missingInLive: number | null;
+  /**
    * True when the live store demonstrably holds the data and this file does
    * not — i.e. it is safe to archive. False keeps the entry but withholds the
    * recommendation, because "delete the other database" must never be advised
@@ -134,6 +140,45 @@ function countRows(dbPath: string, table: string): number | null {
 }
 
 /**
+ * Count rows of `supersededPath#bareTable` whose `id` is absent from
+ * `livePath#liveTable`, or `null` when either side cannot be read.
+ *
+ * Read-only: the live file is opened `readOnly` and the superseded file is
+ * ATTACHed to that connection, which SQLite opens read-only as well.
+ */
+function countMissingById(
+  livePath: string,
+  supersededPath: string,
+  bareTable: string,
+  liveTable: string,
+): number | null {
+  let db: DatabaseSync | null = null;
+  try {
+    // db-open-allowed: read-only forensic comparison of a SUPERSEDED file against the live store (same rationale as countRows)
+    db = new DatabaseSync(livePath, { readOnly: true }); // db-open-allowed: read-only probe of a superseded, unowned file
+    db.exec(`ATTACH DATABASE '${supersededPath.replace(/'/g, "''")}' AS superseded`);
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM superseded."${bareTable}" s ` +
+          `WHERE NOT EXISTS (SELECT 1 FROM main."${liveTable}" l WHERE l.id = s.id)`,
+      )
+      .get() as { c: number } | undefined;
+    return row?.c ?? null;
+  } catch {
+    return null;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      /* already closed or never opened */
+    }
+  }
+}
+
+/** The supported command that copies stranded rows into `cleo.db` (T12319). */
+export const SUPERSEDED_STORE_RECONCILE_COMMAND = 'cleo doctor superseded-store --reconcile';
+
+/**
  * Scan a project for store files superseded by `cleo.db`.
  *
  * Read-only — deletes nothing and opens nothing for write. The caller decides
@@ -185,7 +230,11 @@ export function scanSupersededStores(projectRoot: string): SupersededStoreScanRe
     // "I could not read it" is not "it is empty". Coalescing the two would
     // recommend archiving precisely the file whose contents are unknown, which
     // is the one case where being wrong loses data.
-    const safeToArchive = (rowsInLive ?? 0) > 0 && rowsInSuperseded === 0;
+    // T12319: a file whose every row is already in cleo.db (reconciled) is
+    // equally dead — proven by key, never by a count comparison.
+    const missingInLive =
+      stat.size === 0 ? 0 : countMissingById(liveStorePath, path, bareTable, liveTable);
+    const safeToArchive = (rowsInLive ?? 0) > 0 && (rowsInSuperseded === 0 || missingInLive === 0);
 
     let reason: string;
     if (stat.size === 0 && safeToArchive) {
@@ -193,6 +242,10 @@ export function scanSupersededStores(projectRoot: string): SupersededStoreScanRe
         `${file} is 0 bytes — an empty file holds zero rows by definition, so there is ` +
         `nothing to reconcile. The live store ${LIVE_STORE_FILENAME}#${liveTable} holds ` +
         `${rowsInLive} rows. Safe to archive.`;
+    } else if (safeToArchive && rowsInSuperseded !== 0) {
+      reason =
+        `every one of the ${rowsInSuperseded} rows in ${file}#${bareTable} is already present in ` +
+        `${LIVE_STORE_FILENAME}#${liveTable} (${rowsInLive} rows) — reconciled. Safe to archive.`;
     } else if (safeToArchive) {
       reason =
         `superseded by ${LIVE_STORE_FILENAME}: ${rowsInSuperseded ?? 0} rows in ${file}#${bareTable} ` +
@@ -205,8 +258,11 @@ export function scanSupersededStores(projectRoot: string): SupersededStoreScanRe
     } else {
       reason =
         `predates ${LIVE_STORE_FILENAME} but still holds ${rowsInSuperseded ?? 'an unknown number of'} ` +
-        `rows in ${bareTable} (live ${liveTable}: ${rowsInLive ?? 'unreadable'}). NOT recommended for ` +
-        `removal — reconcile the contents first.`;
+        `rows in ${bareTable} (live ${liveTable}: ${rowsInLive ?? 'unreadable'}; ` +
+        `${missingInLive ?? 'an unknown number of'} missing from it). NOT recommended for removal. ` +
+        `Preview the copy with \`${SUPERSEDED_STORE_RECONCILE_COMMAND} --dry-run\`, then run ` +
+        `\`${SUPERSEDED_STORE_RECONCILE_COMMAND}\` to copy the missing rows into ` +
+        `${LIVE_STORE_FILENAME} (additive, verified, legacy file left in place).`;
     }
 
     entries.push({
@@ -216,6 +272,7 @@ export function scanSupersededStores(projectRoot: string): SupersededStoreScanRe
       modifiedAt: stat.mtime.toISOString(),
       rowsInSuperseded,
       rowsInLive,
+      missingInLive,
       safeToArchive,
       reason,
     });

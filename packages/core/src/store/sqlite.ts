@@ -42,11 +42,13 @@ import {
   type ProjectStore,
   resolveDualScopeDbPath,
 } from './dual-scope-db.js';
+import { rebuildLegacyTasksLineage } from './legacy-tasks-lineage.js';
 import { withLock } from './lock.js';
 import type { RequiredColumn } from './migration-manager.js';
 import {
   createSafetyBackup,
   ensureColumns,
+  isSqliteBusy,
   migrateWithRetry,
   reconcileJournal,
   tableExists,
@@ -648,7 +650,29 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase, dbPath: s
   // Run pending migrations with SQLITE_BUSY retry.
   // Pass nativeDb + existenceTable so migrateWithRetry can auto-reconcile any
   // partial migration (Scenario 3) that slips through the proactive check above.
-  migrateWithRetry(db, migrationsFolder, nativeDb, 'tasks', 'sqlite');
+  try {
+    migrateWithRetry(db, migrationsFolder, nativeDb, 'tasks', 'sqlite');
+  } catch (error) {
+    // T12346: a consolidated cleo.db whose bare legacy family was copied from a
+    // high-water-era tasks.db cannot be replayed into shape. Rebuild that family
+    // fresh (snapshot first, atomic, prefixed tables untouched); if even that
+    // fails, the database is unchanged and the ORIGINAL error surfaces.
+    if (isSqliteBusy(error) || !tableExists(nativeDb, 'tasks_tasks')) throw error;
+    try {
+      rebuildLegacyTasksLineage(
+        nativeDb,
+        dbPath,
+        migrationsFolder,
+        resolveConsolidatedJournalSiblings('drizzle-tasks'),
+      );
+    } catch (rebuildError) {
+      getLogger('sqlite').error(
+        { rebuildError },
+        'legacy drizzle-tasks rebuild failed and was rolled back (T12346)',
+      );
+      throw error;
+    }
+  }
 
   // Defensive column safety net
   ensureColumns(nativeDb, 'tasks', REQUIRED_TASK_COLUMNS, 'sqlite');
