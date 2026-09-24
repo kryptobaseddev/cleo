@@ -24,7 +24,7 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { getCleoHome } from '../paths.js';
-import { getGlobalSalt } from '../store/global-salt.js';
+import { getGlobalSalt, loadGlobalSaltAt } from '../store/global-salt.js';
 
 /** AES-256-GCM constants. */
 const ALGORITHM = 'aes-256-gcm' as const;
@@ -52,11 +52,27 @@ const CIPHERTEXT_VERSION = 0x01;
  * backup bundle. Credentials move between devices through
  * `store/credential-transfer.ts` instead.
  *
+ * @param cleoHome - CLEO home to resolve against (defaults to the ambient home).
  * @returns Absolute path to the machine key.
  * @task T12326
  */
-export function getMachineKeyPath(): string {
-  return join(getCleoHome(), 'machine-key');
+export function getMachineKeyPath(cleoHome: string = getCleoHome()): string {
+  return join(cleoHome, 'machine-key');
+}
+
+/**
+ * Options shared by every credential encrypt/decrypt call.
+ *
+ * @task T12326
+ */
+export interface CredentialKeyOptions {
+  /**
+   * CLEO home whose `machine-key` (and `global-salt`, for the global KDF) keys
+   * the operation. Defaults to the ambient home. A backup import passes the
+   * home it is restoring INTO, which need not be the process's own; an explicit
+   * home also reads the salt fresh instead of from the process memo.
+   */
+  readonly cleoHome?: string;
 }
 
 /**
@@ -65,8 +81,8 @@ export function getMachineKeyPath(): string {
  *
  * @throws If the machine key exists but has wrong permissions (not 0600).
  */
-async function getMachineKey(): Promise<Buffer> {
-  const keyPath = getMachineKeyPath();
+async function getMachineKey(cleoHome?: string): Promise<Buffer> {
+  const keyPath = getMachineKeyPath(cleoHome);
 
   try {
     // Verify key file permissions
@@ -220,7 +236,7 @@ export type ProjectCredentialKdf = 'project-id' | 'legacy-path';
  *
  * @task T12326
  */
-export interface ProjectSecretContext {
+export interface ProjectSecretContext extends CredentialKeyOptions {
   /**
    * Stable project identity — the `projectId` of `.cleo/project-info.json`
    * (or its tracked successor). Travels with the project directory, so a
@@ -259,11 +275,11 @@ export interface ProjectSecretReadResult {
  * @throws {Error} If `projectId` is empty — an empty id would collapse every
  *   project onto one key.
  */
-async function deriveProjectIdKey(projectId: string): Promise<Buffer> {
+async function deriveProjectIdKey(projectId: string, cleoHome?: string): Promise<Buffer> {
   if (projectId.length === 0) {
     throw new Error('Cannot derive a project credential key: projectId is empty');
   }
-  const machineKey = await getMachineKey();
+  const machineKey = await getMachineKey(cleoHome);
   return createHmac('sha256', machineKey)
     .update(PROJECT_ID_KDF_CONTEXT + projectId, 'utf8')
     .digest();
@@ -273,8 +289,8 @@ async function deriveProjectIdKey(projectId: string): Promise<Buffer> {
  * Derive the LEGACY path-bound project key, `HMAC-SHA256(machine-key, path)`.
  * Used only to read pre-T12326 ciphertexts during migration.
  */
-async function deriveLegacyPathKey(projectPath: string): Promise<Buffer> {
-  const machineKey = await getMachineKey();
+async function deriveLegacyPathKey(projectPath: string, cleoHome?: string): Promise<Buffer> {
+  const machineKey = await getMachineKey(cleoHome);
   return createHmac('sha256', machineKey).update(projectPath).digest();
 }
 
@@ -289,11 +305,16 @@ async function deriveLegacyPathKey(projectPath: string): Promise<Buffer> {
  *
  * @param plaintext - The secret (e.g. an agent API key).
  * @param projectId - Stable project identity.
+ * @param options - Key options (which CLEO home's machine-key).
  * @returns Base64 ciphertext, version byte {@link PROJECT_CIPHERTEXT_VERSION_PROJECT_ID}.
  * @task T12326
  */
-export async function encryptProjectSecret(plaintext: string, projectId: string): Promise<string> {
-  const key = await deriveProjectIdKey(projectId);
+export async function encryptProjectSecret(
+  plaintext: string,
+  projectId: string,
+  options: CredentialKeyOptions = {},
+): Promise<string> {
+  const key = await deriveProjectIdKey(projectId, options.cleoHome);
   return sealWithKey(plaintext, key, PROJECT_CIPHERTEXT_VERSION_PROJECT_ID);
 }
 
@@ -320,7 +341,10 @@ export async function decryptProjectSecret(
   const parts = unframe(ciphertext);
 
   if (parts.version === PROJECT_CIPHERTEXT_VERSION_PROJECT_ID) {
-    const plaintext = openWithKey(parts, await deriveProjectIdKey(context.projectId));
+    const plaintext = openWithKey(
+      parts,
+      await deriveProjectIdKey(context.projectId, context.cleoHome),
+    );
     if (plaintext === null) {
       throw new Error(
         `Cannot decrypt project credential for project ${context.projectId}: ` +
@@ -334,12 +358,12 @@ export async function decryptProjectSecret(
   if (parts.version === PROJECT_CIPHERTEXT_VERSION_LEGACY_PATH) {
     const candidates = [...new Set(context.legacyProjectPaths ?? [])];
     for (const candidate of candidates) {
-      const plaintext = openWithKey(parts, await deriveLegacyPathKey(candidate));
+      const plaintext = openWithKey(parts, await deriveLegacyPathKey(candidate, context.cleoHome));
       if (plaintext !== null) {
         return {
           plaintext,
           kdf: 'legacy-path',
-          rewrapped: await encryptProjectSecret(plaintext, context.projectId),
+          rewrapped: await encryptProjectSecret(plaintext, context.projectId, context),
         };
       }
     }
@@ -387,9 +411,9 @@ export async function decryptProjectSecret(
  * @see getGlobalSalt — global-salt source of truth (store/global-salt.ts)
  * @task T11710
  */
-async function deriveGlobalKey(id: string): Promise<Buffer> {
-  const machineKey = await getMachineKey();
-  const globalSalt = getGlobalSalt();
+async function deriveGlobalKey(id: string, cleoHome?: string): Promise<Buffer> {
+  const machineKey = await getMachineKey(cleoHome);
+  const globalSalt = cleoHome === undefined ? getGlobalSalt() : loadGlobalSaltAt(cleoHome);
   // HMAC key = machine-key || globalSalt (concatenation); message = id.
   const hmacKey = Buffer.concat([machineKey, globalSalt]);
   return createHmac('sha256', hmacKey).update(id).digest();
@@ -411,13 +435,18 @@ async function deriveGlobalKey(id: string): Promise<Buffer> {
  *
  * @param plaintext - The string to encrypt (e.g. an LLM API key).
  * @param id - The stable identity used for key derivation (e.g. an agentId).
+ * @param options - Key options (which CLEO home's machine-key + salt).
  * @returns Base64-encoded ciphertext.
  *
  * @see decryptGlobal — the inverse operation.
  * @task T11710
  */
-export async function encryptGlobal(plaintext: string, id: string): Promise<string> {
-  const key = await deriveGlobalKey(id);
+export async function encryptGlobal(
+  plaintext: string,
+  id: string,
+  options: CredentialKeyOptions = {},
+): Promise<string> {
+  const key = await deriveGlobalKey(id, options.cleoHome);
   return sealWithKey(plaintext, key, CIPHERTEXT_VERSION);
 }
 
@@ -428,6 +457,7 @@ export async function encryptGlobal(plaintext: string, id: string): Promise<stri
  * @param ciphertext - Base64-encoded string from {@link encryptGlobal}.
  * @param id - The identity used at encryption time. A mismatched `id` derives a
  *   different key and fails the GCM auth tag (throws).
+ * @param options - Key options (which CLEO home's machine-key + salt).
  * @returns The original plaintext string.
  * @throws If decryption fails (wrong id, corrupted data, or machine-key/
  *   global-salt mismatch).
@@ -435,7 +465,11 @@ export async function encryptGlobal(plaintext: string, id: string): Promise<stri
  * @see encryptGlobal — the inverse operation.
  * @task T11710
  */
-export async function decryptGlobal(ciphertext: string, id: string): Promise<string> {
+export async function decryptGlobal(
+  ciphertext: string,
+  id: string,
+  options: CredentialKeyOptions = {},
+): Promise<string> {
   const parts = unframe(ciphertext);
   if (parts.version !== CIPHERTEXT_VERSION) {
     throw new Error(
@@ -443,7 +477,7 @@ export async function decryptGlobal(ciphertext: string, id: string): Promise<str
         'Re-register agents to re-encrypt with the current format.',
     );
   }
-  const plaintext = openWithKey(parts, await deriveGlobalKey(id));
+  const plaintext = openWithKey(parts, await deriveGlobalKey(id, options.cleoHome));
   if (plaintext === null) {
     throw new Error(
       'Cannot decrypt global credentials. Machine key / global-salt mismatch, ' +

@@ -30,6 +30,7 @@ import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { createDoctorProgress } from '../progress.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 import { doctorAcceptanceDriftCommand } from './doctor-acceptance-drift.js';
+import { doctorCredentialsCommand } from './doctor-credentials.js';
 import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
 import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
@@ -258,6 +259,8 @@ export const doctorCommand = defineCommand({
     'nexus-residency': doctorNexusResidencyCommand,
     // T12113 (gh#1222) — evidence-tool semaphore holders + orphan reaping
     'tool-locks': doctorToolLocksCommand,
+    // T12326 — project credentials still keyed by project PATH (+ --fix re-keys)
+    credentials: doctorCredentialsCommand,
     // T11777 / Saga T11242 / Epic T11249 — exodus stranded-residue check (+ --fix)
     'exodus-residue': doctorExodusResidueCommand,
     // T11837 / Saga T11242 / Epic T11833 — read-only exodus health report

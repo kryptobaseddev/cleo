@@ -14,6 +14,8 @@
  * @module portable-bundle
  */
 
+import type { CredentialDescriptor, CredentialReentry } from './credential-transfer.js';
+
 // ============================================================================
 // Scope
 // ============================================================================
@@ -121,6 +123,31 @@ export interface PortableReentryItem {
   rows?: number;
   /** What must be redone on the target machine. */
   remedy: string;
+  /**
+   * The individual credentials behind this item, each with the one command
+   * that re-enters it (T12326). Present when the store's credentials are
+   * enumerable; absent for opaque secret files and tables with no re-entry
+   * command.
+   */
+  credentials?: CredentialReentry[];
+}
+
+/**
+ * Credentials sealed under the bundle passphrase for one section (encrypted
+ * bundles only, T12326). The payload holds the credential VALUES, never the
+ * machine-key: the importing device re-encrypts them under its own key.
+ */
+export interface PortableSealedCredentials {
+  /** Archive path of the sealed payload. */
+  bundlePath: string;
+  /** Payload size in bytes. */
+  size: number;
+  /** SHA-256 of the payload. */
+  sha256: string;
+  /** Credentials carried (identities only). */
+  credentials: CredentialDescriptor[];
+  /** Credentials the exporting device could not decrypt; the target must re-enter them. */
+  reentry: CredentialReentry[];
 }
 
 // ============================================================================
@@ -143,6 +170,8 @@ export interface PortableSectionBase {
   excluded: PortableExclusion[];
   /** Credentials left out because the bundle is not encrypted (empty for encrypted bundles). */
   requiresReentry: PortableReentryItem[];
+  /** Credentials sealed under the passphrase (encrypted bundles with credentials only). */
+  sealedCredentials?: PortableSealedCredentials;
 }
 
 /** One legacy table that holds more rows than its consolidated counterpart. */
@@ -436,4 +465,12 @@ export interface PortableImportResult {
   secretsIncluded: boolean;
   /** Credentials the user must re-enter (unencrypted bundles). */
   requiresReentry: Array<PortableReentryItem & { section: string }>;
+  /**
+   * Sealed credentials re-encrypted under the target machine-key, and those
+   * that could not be (each with its re-entry command). Encrypted bundles only.
+   */
+  credentials?: {
+    restored: Array<CredentialDescriptor & { section: string }>;
+    reentry: Array<CredentialReentry & { section: string }>;
+  };
 }

@@ -2023,13 +2023,16 @@ export type {
   CredentialSources,
   CredentialTargets,
   CredentialTransferErrorCode,
+  ProjectRootCredentialMigration,
 } from './store/credential-transfer.js';
 export {
   CredentialTransferError,
   listCredentialsForReentry,
   liveLlmCredentialStorePath,
   migrateProjectCredentials,
+  migrateProjectCredentialsAtRoot,
   redactCredentialCiphertexts,
+  reentryFor,
   sealCredentials,
   unsealCredentials,
 } from './store/credential-transfer.js';

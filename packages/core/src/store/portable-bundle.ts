@@ -13,7 +13,10 @@
  * - captures the rest of the root byte-for-byte, except an explicit denylist
  *   whose sizes are reported, and SQLite files, which are also snapshotted;
  * - includes secrets only in encrypted bundles, recording what was omitted
- *   and what the user must redo;
+ *   and what the user must redo (each credential with its re-entry command);
+ * - never carries the machine-key: encrypted bundles instead carry the
+ *   credential VALUES sealed under the passphrase (`secrets/<section>.sealed`,
+ *   T12326), which the importing device re-encrypts under its own key;
  * - records per-table row counts so import can prove the restore lossless.
  *
  * Archive layout:
@@ -22,6 +25,7 @@
  *   global/home/<rel>                 <cleoHome> content
  *   global/config/<rel>               <configHome> content
  *   projects/<nnn>-<name>/cleo/<rel>  a project's .cleo/ content
+ *   secrets/<section>.sealed          passphrase-sealed credentials (encrypted only)
  *
  * @task T12318
  * @epic T12317
@@ -35,6 +39,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import {
+  type CredentialReentry,
+  type CredentialStoreKind,
   ExitCode,
   type PortableBundleManifest,
   type PortableBundleScope,
@@ -52,6 +58,11 @@ import { create as tarCreate } from 'tar';
 import { getCleoConfigDir, getCleoHome } from '../paths.js';
 import { getCleoVersion } from '../scaffold/ensure-config.js';
 import { encryptFileStream } from './backup-crypto.js';
+import {
+  type CredentialSources,
+  listCredentialsForReentry,
+  sealCredentials,
+} from './credential-transfer.js';
 import { resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
   CONFIG_HOME_RULES,
@@ -291,6 +302,53 @@ interface StagingState {
   archivePaths: string[];
   skipAbsolute: Set<string>;
   includeSecrets: boolean;
+  /** Bundle passphrase (encrypted bundles only) — also seals the credentials. */
+  passphrase: string | null;
+  /** Source CLEO home, whose machine-key decrypts the credentials being sealed. */
+  cleoHome: string;
+}
+
+/** Credential tables whose rows {@link listCredentialsForReentry} enumerates, by store. */
+const CREDENTIAL_STORE_BY_TABLE: Readonly<Record<string, CredentialStoreKind>> = {
+  tasks_agent_credentials: 'project-agent',
+  service_connections: 'service-connection',
+};
+
+/** The LLM pool file in the global home. */
+const LLM_POOL_RELPATH = 'llm-credentials.json';
+
+/**
+ * Seal a section's credentials under the bundle passphrase (encrypted bundles
+ * only) and stage the payload at `secrets/<key>.sealed`. The payload carries
+ * credential values — never the machine-key — so the importing device can
+ * re-encrypt them under its own key (T12326).
+ *
+ * @param state - Staging accumulator.
+ * @param section - Section to annotate.
+ * @param key - Unique payload name within the bundle.
+ * @param sources - Staged snapshot paths (+ project identity) to read.
+ */
+async function sealSectionCredentials(
+  state: StagingState,
+  section: PortableSectionBase,
+  key: string,
+  sources: CredentialSources,
+): Promise<void> {
+  if (state.passphrase === null) return;
+  const sealed = await sealCredentials({ ...sources, cleoHome: state.cleoHome }, state.passphrase);
+  if (sealed.sealedCredentials.length === 0 && sealed.reentry.length === 0) return;
+  const archivePath = `secrets/${key}.sealed`;
+  const staged = path.join(state.stagingDir, archivePath);
+  fs.mkdirSync(path.dirname(staged), { recursive: true });
+  fs.writeFileSync(staged, sealed.sealed, { mode: 0o600 });
+  section.sealedCredentials = {
+    bundlePath: archivePath,
+    size: fs.statSync(staged).size,
+    sha256: await sha256File(staged),
+    credentials: [...sealed.sealedCredentials],
+    reentry: [...sealed.reentry],
+  };
+  state.archivePaths.push(archivePath);
 }
 
 function toArchive(prefix: string, relPath: string): string {
@@ -378,13 +436,25 @@ async function stageSection(
     }
     if (!state.includeSecrets) {
       try {
+        // Enumerate BEFORE clearing: afterwards the rows no longer say which
+        // credentials they held.
+        const enumerable: CredentialReentry[] =
+          tier === 'project'
+            ? listCredentialsForReentry({ projectDbPath: staged })
+            : tier === 'global'
+              ? listCredentialsForReentry({ globalDbPath: staged })
+              : [];
         for (const r of redactCredentials(staged)) {
+          const credentials = enumerable.filter(
+            (c) => CREDENTIAL_STORE_BY_TABLE[r.table] === c.store,
+          );
           section.requiresReentry.push({
             relPath,
             table: r.table,
             columns: r.columns,
             rows: r.rows,
             remedy: r.remedy,
+            ...(credentials.length > 0 ? { credentials } : {}),
           });
         }
       } catch (err) {
@@ -428,8 +498,19 @@ async function stageSection(
 
   for (const relPath of scan.files.sort()) await copyFile(relPath, false);
   for (const s of scan.secrets) {
-    if (state.includeSecrets) await copyFile(s.relPath, true);
-    else section.requiresReentry.push({ relPath: s.relPath, remedy: s.remedy });
+    if (state.includeSecrets) {
+      await copyFile(s.relPath, true);
+      continue;
+    }
+    const credentials =
+      tier === 'global' && s.relPath === LLM_POOL_RELPATH
+        ? listCredentialsForReentry({ llmStorePath: path.join(root, s.relPath) })
+        : [];
+    section.requiresReentry.push({
+      relPath: s.relPath,
+      remedy: s.remedy,
+      ...(credentials.length > 0 ? { credentials } : {}),
+    });
   }
   return section;
 }
@@ -504,10 +585,18 @@ async function stageProject(
     PRIMARY_STORE_BASENAME,
   );
   const primary = base.databases.find((d) => d.role === 'primary');
+  const projectId = info.projectId ?? (registryProjectId || null);
+  if (primary) {
+    await sealSectionCredentials(state, base, `project-${String(index).padStart(3, '0')}`, {
+      projectDbPath: path.join(state.stagingDir, primary.bundlePath),
+      ...(projectId !== null ? { projectId } : {}),
+      legacyProjectPaths: [projectRoot],
+    });
+  }
   return {
     ...base,
     originalPath: projectRoot,
-    projectId: info.projectId ?? (registryProjectId || null),
+    projectId,
     name,
     keyCounts: primary ? pickKeyCounts(primary.rowCounts) : {},
     unmigratedLegacyData: detectUnmigratedLegacy(base.databases),
@@ -576,6 +665,8 @@ export async function exportPortableBundle(
     archivePaths: [],
     skipAbsolute: new Set([stagingDir, partialPath, tarPath, outputPath]),
     includeSecrets: encrypt,
+    passphrase: encrypt && input.passphrase ? input.passphrase : null,
+    cleoHome,
   };
 
   try {
@@ -605,6 +696,11 @@ export async function exportPortableBundle(
         ? await stageSection(state, configHome, 'global/config', CONFIG_HOME_RULES, 'config', null)
         : null;
       const primary = home.databases.find((d) => d.role === 'primary');
+      if (primary) {
+        await sealSectionCredentials(state, home, 'global-home', {
+          globalDbPath: path.join(stagingDir, primary.bundlePath),
+        });
+      }
       global = {
         home,
         config,
@@ -652,6 +748,8 @@ export async function exportPortableBundle(
     for (const section of allSections(manifest)) {
       for (const d of section.databases) checksumLines.push(`${d.sha256}  ${d.bundlePath}`);
       for (const f of section.files) checksumLines.push(`${f.sha256}  ${f.bundlePath}`);
+      const sealed = section.sealedCredentials;
+      if (sealed) checksumLines.push(`${sealed.sha256}  ${sealed.bundlePath}`);
     }
     fs.writeFileSync(path.join(stagingDir, 'checksums.sha256'), `${checksumLines.join('\n')}\n`);
 

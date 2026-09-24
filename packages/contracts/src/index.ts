@@ -1977,6 +1977,7 @@ export type {
   PortableProjectSection,
   PortableReentryItem,
   PortableRelocationReport,
+  PortableSealedCredentials,
   PortableSectionBase,
   PortableSkippedProject,
   PortableSkipReason,

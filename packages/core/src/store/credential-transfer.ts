@@ -102,6 +102,8 @@ export interface CredentialSources {
   readonly globalDbPath?: string;
   /** LLM credential pool file. Defaults to none; pass `credentialsStorePath()` for the live pool. */
   readonly llmStorePath?: string;
+  /** CLEO home whose machine-key (and global-salt) decrypt the stores. Defaults to the ambient home. */
+  readonly cleoHome?: string;
 }
 
 /**
@@ -117,8 +119,17 @@ export interface CredentialTargets {
   readonly projectId?: string;
   /** Restored global `cleo.db`. */
   readonly globalDbPath?: string;
-  /** Write `llm-pool` entries into the local pool (`<cleoHome>/llm-credentials.json`). Default `true`. */
+  /**
+   * Write `llm-pool` entries into the local pool (`<cleoHome>/llm-credentials.json`).
+   * Default `true`. Only the AMBIENT home's pool can be written; with a
+   * different `cleoHome` the entries are reported for re-entry instead.
+   */
   readonly restoreLlmPool?: boolean;
+  /**
+   * CLEO home whose machine-key (and global-salt) re-encrypt the credentials —
+   * the home being restored INTO. Defaults to the ambient home.
+   */
+  readonly cleoHome?: string;
 }
 
 /**
@@ -192,8 +203,16 @@ function shellArg(value: string): string {
   return /^[A-Za-z0-9_./:@-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-/** Build the re-entry record for a credential. */
-function reentryFor(descriptor: CredentialDescriptor, reason: string): CredentialReentry {
+/**
+ * Build the re-entry record for a credential: its identity, why it must be
+ * re-entered, and the one command that re-enters it.
+ *
+ * @param descriptor - The credential.
+ * @param reason - Why it could not be carried over.
+ * @returns The re-entry record.
+ * @task T12326
+ */
+export function reentryFor(descriptor: CredentialDescriptor, reason: string): CredentialReentry {
   return { ...descriptor, reason, reentryCommand: reentryCommandFor(descriptor) };
 }
 
@@ -432,11 +451,14 @@ async function openRow(row: StoredRow, sources: CredentialSources): Promise<stri
       const result = await decryptProjectSecret(row.material, {
         projectId,
         legacyProjectPaths: sources.legacyProjectPaths,
+        cleoHome: sources.cleoHome,
       });
       return result.plaintext;
     }
     case 'service-connection':
-      return decryptGlobal(row.material, `service:${row.descriptor.id}`);
+      return decryptGlobal(row.material, `service:${row.descriptor.id}`, {
+        cleoHome: sources.cleoHome,
+      });
     case 'llm-pool':
       return row.material;
   }
@@ -454,9 +476,8 @@ async function openRow(row: StoredRow, sources: CredentialSources): Promise<stri
  *
  * @param sources - Stores to read (live stores or staged snapshots).
  * @param passphrase - User passphrase; the same one opens the payload.
- * @returns Sealed bytes plus what was sealed and what needs re-entry.
- * @throws {CredentialTransferError} `E_CREDENTIAL_PROJECT_ID` when project
- *   credentials exist but `sources.projectId` is missing.
+ * @returns Sealed bytes plus what was sealed and what needs re-entry. A
+ *   project credential with no `sources.projectId` is reported for re-entry.
  * @task T12326
  */
 export async function sealCredentials(
@@ -464,9 +485,6 @@ export async function sealCredentials(
   passphrase: string,
 ): Promise<SealCredentialsResult> {
   const rows = readAllRows(sources);
-  if (rows.some((r) => r.descriptor.store === 'project-agent')) {
-    requireProjectId(sources.projectId, 'seal');
-  }
 
   const entries: SealedEntry[] = [];
   const reentry: CredentialReentry[] = [];
@@ -587,7 +605,8 @@ function updateCell(dbPath: string, table: string, sql: string, params: string[]
  * has no target, is reported for re-entry instead of being dropped silently.
  *
  * Call after the restored database files and any restored `global-salt` are in
- * place: the global KDF reads the salt, and {@link getGlobalSalt} memoizes it.
+ * place: the global KDF reads the salt. Pass `targets.cleoHome` so the salt is
+ * read fresh from that home rather than from the process memo.
  *
  * @param sealed - Bytes from {@link sealCredentials}.
  * @param passphrase - The passphrase used to seal.
@@ -636,7 +655,9 @@ export async function unsealCredentials(
           reentry.push(reentryFor(descriptor, 'no project store to restore into'));
           break;
         }
-        const ciphertext = await encryptProjectSecret(entry.secret, projectId);
+        const ciphertext = await encryptProjectSecret(entry.secret, projectId, {
+          cleoHome: targets.cleoHome,
+        });
         writes.push({
           entry,
           apply: async () =>
@@ -655,7 +676,9 @@ export async function unsealCredentials(
           reentry.push(reentryFor(descriptor, 'no global store to restore into'));
           break;
         }
-        const ciphertext = await encryptGlobal(entry.secret, `service:${entry.id}`);
+        const ciphertext = await encryptGlobal(entry.secret, `service:${entry.id}`, {
+          cleoHome: targets.cleoHome,
+        });
         const { provider, label } = splitProviderLabel(entry.id);
         writes.push({
           entry,
@@ -672,6 +695,15 @@ export async function unsealCredentials(
       case 'llm-pool': {
         if (targets.restoreLlmPool === false) {
           reentry.push(reentryFor(descriptor, 'LLM pool restore was not requested'));
+          break;
+        }
+        if (
+          targets.cleoHome !== undefined &&
+          canonicalPath(targets.cleoHome) !== canonicalPath(getCleoHome())
+        ) {
+          reentry.push(
+            reentryFor(descriptor, 'the LLM pool of a non-active CLEO home cannot be written'),
+          );
           break;
         }
         let credential: unknown;
@@ -724,16 +756,22 @@ export async function unsealCredentials(
  * left alone. A credential no candidate key opens is left UNTOUCHED (never
  * deleted) and reported with its re-entry command — typically because it was
  * encrypted at a path not in `legacyProjectPaths`, or on another device.
- * Idempotent: a second run reports everything as `current`.
+ * Idempotent: a second run reports everything as `current`. With `dryRun`
+ * nothing is written and `migrated` lists what WOULD be migrated.
  *
  * @param sources - `projectDbPath`, `projectId`, and `legacyProjectPaths`.
+ * @param options - `dryRun` to report without writing.
  * @returns Migrated, already-current, and unrecoverable credentials.
  * @throws {CredentialTransferError} `E_CREDENTIAL_PROJECT_ID` when rows exist
  *   and `projectId` is missing.
  * @task T12326
  */
 export async function migrateProjectCredentials(
-  sources: Pick<CredentialSources, 'projectDbPath' | 'projectId' | 'legacyProjectPaths'>,
+  sources: Pick<
+    CredentialSources,
+    'projectDbPath' | 'projectId' | 'legacyProjectPaths' | 'cleoHome'
+  >,
+  options: { readonly dryRun?: boolean } = {},
 ): Promise<ProjectCredentialMigrationResult> {
   const rows = readProjectAgentRows(sources.projectDbPath);
   const migrated: CredentialDescriptor[] = [];
@@ -751,6 +789,7 @@ export async function migrateProjectCredentials(
       result = await decryptProjectSecret(row.material, {
         projectId,
         legacyProjectPaths: sources.legacyProjectPaths,
+        cleoHome: sources.cleoHome,
       });
     } catch (err) {
       reentry.push(reentryFor(row.descriptor, err instanceof Error ? err.message : String(err)));
@@ -758,6 +797,10 @@ export async function migrateProjectCredentials(
     }
     if (result.rewrapped === null) {
       current.push(row.descriptor);
+      continue;
+    }
+    if (options.dryRun === true) {
+      migrated.push(row.descriptor);
       continue;
     }
     // Compare-and-swap on the old ciphertext: a concurrent writer wins.
@@ -770,6 +813,74 @@ export async function migrateProjectCredentials(
     (swapped ? migrated : current).push(row.descriptor);
   }
   return { migrated, current, reentry };
+}
+
+/**
+ * Outcome of {@link migrateProjectCredentialsAtRoot}.
+ *
+ * @task T12326
+ */
+export interface ProjectRootCredentialMigration extends ProjectCredentialMigrationResult {
+  /** Project store examined. */
+  readonly projectDbPath: string;
+  /** Project identity keying the new KDF (null when project-info.json has none). */
+  readonly projectId: string | null;
+  /** Whether this was a dry run (nothing written). */
+  readonly dryRun: boolean;
+}
+
+/**
+ * Migrate a project's stored credentials off the path-bound KDF, resolving
+ * everything from the project root: the store is `<root>/.cleo/cleo.db`, the
+ * identity is `projectId` from `.cleo/project-info.json`, and the legacy
+ * candidates are the root as given and its real path.
+ *
+ * This is the trigger used by `cleo upgrade` and `cleo doctor credentials`.
+ * It is idempotent and never deletes; unrecoverable rows come back in
+ * `reentry` with the command that re-enters each one. A project with no
+ * credential rows returns empty lists without opening anything for write.
+ *
+ * @param projectRoot - Absolute project root.
+ * @param options - `dryRun` to report without writing; `cleoHome` to key with another home.
+ * @returns What was (or would be) migrated, what is current, and what must be re-entered.
+ * @throws {CredentialTransferError} `E_CREDENTIAL_PROJECT_ID` when credential
+ *   rows exist but project-info.json has no `projectId`.
+ * @task T12326
+ */
+export async function migrateProjectCredentialsAtRoot(
+  projectRoot: string,
+  options: { readonly dryRun?: boolean; readonly cleoHome?: string } = {},
+): Promise<ProjectRootCredentialMigration> {
+  const root = path.resolve(projectRoot);
+  const cleoDir = path.join(root, '.cleo');
+  const projectDbPath = path.join(cleoDir, 'cleo.db');
+  let projectId: string | null = null;
+  try {
+    const parsed: unknown = JSON.parse(
+      fs.readFileSync(path.join(cleoDir, 'project-info.json'), 'utf-8'),
+    );
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'projectId' in parsed &&
+      typeof parsed.projectId === 'string' &&
+      parsed.projectId.length > 0
+    ) {
+      projectId = parsed.projectId;
+    }
+  } catch {
+    projectId = null;
+  }
+  const result = await migrateProjectCredentials(
+    {
+      projectDbPath,
+      ...(projectId !== null ? { projectId } : {}),
+      legacyProjectPaths: [root, canonicalPath(root)],
+      ...(options.cleoHome !== undefined ? { cleoHome: options.cleoHome } : {}),
+    },
+    { dryRun: options.dryRun === true },
+  );
+  return { ...result, projectDbPath, projectId, dryRun: options.dryRun === true };
 }
 
 /**

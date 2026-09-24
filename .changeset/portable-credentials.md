@@ -40,6 +40,36 @@ outside tests called them.
   re-entry command (`cleo agent register …`, `cleo service connect …`,
   `cleo llm add … --api-key-stdin`).
 
+**Wired into the portable bundle v2 (T12318).** An encrypted
+`cleo backup export` now writes one sealed payload per section
+(`secrets/global-home.sealed`, `secrets/project-<nnn>.sealed`). The manifest
+records each payload's size, SHA-256 and the credentials it carries, and the
+importer checks them like any other entry. After every database is placed,
+import unseals the payloads and re-encrypts each credential under the TARGET
+home's machine-key and the project's `projectId`. The result reports
+`credentials.restored`, plus `credentials.reentry`, which gives each
+unrestorable credential with its command. Proven end to end: device A exports,
+then device B imports it with a different machine-key and a different project
+path. The service connection and the project agent credential decrypt on B,
+B's machine-key is untouched, and A's key no longer opens the restored
+ciphertexts. Unencrypted bundles keep their redaction. Each `requiresReentry`
+item now also lists its individual credentials with commands, including the
+entries of the LLM pool file.
+
+**Crypto calls can name a CLEO home.** `encryptGlobal`, `decryptGlobal`,
+`encryptProjectSecret` and `decryptProjectSecret` take an optional
+`{ cleoHome }`. Import restores INTO a home that need not be the process's own.
+The new `loadGlobalSaltAt(home)` reads that home's salt fresh instead of from
+the process memo, which would otherwise return the salt from before the bundled
+`global-salt` was placed.
+
+**Migration trigger.** `cleo upgrade` re-keys project credentials that still
+use the path-bound KDF (action `credential_kdf_migration`); `--dry-run`
+previews. `cleo doctor credentials` reports the same thing and re-keys with
+`--fix`. Both are idempotent and never delete. An unrecoverable credential is
+left untouched and reported with its re-entry command. `doctor credentials`
+exits 1 while anything is pending or unrecoverable.
+
 **Machine-key path follows `CLEO_HOME`.** `crypto/credentials.ts` used to derive
 the XDG path itself and ignore `CLEO_HOME`. With `CLEO_HOME` set, the machine
 key and the global salt were read from different directories. The default path

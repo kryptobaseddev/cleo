@@ -372,6 +372,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorAcceptanceDriftCommand as CommandDef,
   },
   {
+    exportName: 'doctorCredentialsCommand',
+    name: 'credentials',
+    description:
+      "Report project credentials still encrypted under the legacy path-bound key (moving the project would strand them). --fix re-keys them to the project's identity in place. Idempotent; never deletes. Unrecoverable credentials are listed with their re-entry command.",
+    load: async () =>
+      (await import('../commands/doctor-credentials.js')).doctorCredentialsCommand as CommandDef,
+  },
+  {
     exportName: 'doctorDbSubstrateCommand',
     name: 'db-substrate',
     description: 'Walk every DB in the inventory + report integrity, row counts, orphan dirs. ',
