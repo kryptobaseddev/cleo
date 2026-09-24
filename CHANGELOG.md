@@ -1,6 +1,6 @@
 # Changelog
 
-## [2026.9.16] (2026-09-23)
+## [2026.9.16] (2026-09-24)
 
 ### Added
 
@@ -8,7 +8,9 @@
 
 ### Fixed
 
+- `cleo nexus analyze` survives its own parser workers — five defects behind one mask, verified on a CLEO root that sits above its git root _(provenance: [T12313](https://github.com/kryptobaseddev/cleo/search?q=T12313&type=commits), [T12312](https://github.com/kryptobaseddev/cleo/search?q=T12312&type=commits))_
 - Showing several tasks at once returns the tasks, not empty wrappers around them _(provenance: [T12141](https://github.com/kryptobaseddev/cleo/search?q=T12141&type=commits))_
+- Rebuilding the code index no longer fails on a slow machine, and says what happened when it does _(provenance: [T12312](https://github.com/kryptobaseddev/cleo/search?q=T12312&type=commits))_
 
 ## [2026.9.15] (2026-09-23)
 

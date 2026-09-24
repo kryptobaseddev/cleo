@@ -7,7 +7,7 @@
   "channel": "latest",
   "epicId": "T12111",
   "releaseKind": "regular",
-  "createdAt": "2026-09-23T14:25:21.935Z",
+  "createdAt": "2026-09-24T17:44:31.274Z",
   "createdBy": "keatonhoskins",
   "previousVersion": "v2026.9.13",
   "previousTag": "v2026.9.13",
@@ -27,13 +27,47 @@
       ],
       "epicAncestor": "T12111",
       "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12313",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "A parse worker exits code 1 mid-run, so cleo nexus analyze still cannot publish a generation",
+      "evidenceAtoms": [
+        "pr:1530",
+        "files:packages/contracts/src/code-symbol.ts,packages/core/src/resources/spawn-wrapper.ts,packages/nexus/src/pipeline/index.ts,packages/nexus/src/pipeline/parse-loop.ts,packages/nexus/src/pipeline/workers/worker-pool.ts",
+        "test-run:.cleo/test-runs/T12313-nexus.json",
+        "test-run:.cleo/test-runs/T12313-core.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12312",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleo nexus analyze dies on a fixed 2s git budget rolled once per 256 files, with an opaque ETIMEDOUT",
+      "evidenceAtoms": [
+        "commit:6a8448e92adf46af5dd4beb2306fae9271753e39",
+        "files:packages/nexus/src/pipeline/filesystem-walker.ts,packages/nexus/src/pipeline/workers/worker-pool.ts,packages/core/src/memory/embedding-local.ts,packages/core/src/memory/brain-embedding.ts,packages/contracts/src/code-symbol.ts",
+        "test-run:/home/keatonhoskins/.temp/claude-1000/-mnt-projects-cleocode/72497aa7-76ab-41bb-9512-b62c8445da00/scratchpad/ship-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "contribution"
     }
   ],
   "changelog": {
     "features": [
       "T12141"
     ],
-    "fixes": [],
+    "fixes": [
+      "T12313",
+      "T12312"
+    ],
     "chores": [],
     "breaking": []
   },
@@ -42,7 +76,7 @@
       "name": "test",
       "atom": "tool:test",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "lastVerifiedAt": "2026-09-24T17:44:31.274Z",
       "resolvedCommand": "pnpm run test",
       "resolvedSource": "project-context"
     },
@@ -50,7 +84,7 @@
       "name": "build",
       "atom": "tool:build",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "lastVerifiedAt": "2026-09-24T17:44:31.274Z",
       "resolvedCommand": "pnpm run build",
       "resolvedSource": "project-context"
     },
@@ -58,7 +92,7 @@
       "name": "lint",
       "atom": "tool:lint",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "lastVerifiedAt": "2026-09-24T17:44:31.274Z",
       "resolvedCommand": "npx biome check .",
       "resolvedSource": "language-default"
     },
@@ -66,7 +100,7 @@
       "name": "typecheck",
       "atom": "tool:typecheck",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "lastVerifiedAt": "2026-09-24T17:44:31.274Z",
       "resolvedCommand": "npx tsc --noEmit",
       "resolvedSource": "language-default"
     },
@@ -74,7 +108,7 @@
       "name": "audit",
       "atom": "tool:audit",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "lastVerifiedAt": "2026-09-24T17:44:31.274Z",
       "resolvedCommand": "npm audit",
       "resolvedSource": "language-default"
     },
@@ -82,7 +116,7 @@
       "name": "security-scan",
       "atom": "tool:security-scan",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-09-23T14:25:21.935Z",
+      "lastVerifiedAt": "2026-09-24T17:44:31.274Z",
       "resolvedCommand": "npm audit",
       "resolvedSource": "language-default"
     }
@@ -100,7 +134,7 @@
     "epicCompletenessClean": true,
     "doubleListingClean": true,
     "preflightWarnings": [
-      "Skipped 340 out-of-scope changeset entries whose task anchors are not part of this release plan"
+      "Skipped 339 out-of-scope changeset entries whose task anchors are not part of this release plan"
     ]
   },
   "workflowRunUrl": null,
@@ -110,14 +144,18 @@
   "meta": {
     "firstEverRelease": false,
     "archetype": "node",
-    "releaseNotes": "## v2026.9.16 — 2026-09-23\n\n### Added\n\n- cleo show accepts several ids and pays CLI startup once instead of per task (gh#1207) _(provenance: [T12141](https://github.com/kryptobaseddev/cleo/search?q=T12141&type=commits))_\n\n### Fixed\n\n- Showing several tasks at once returns the tasks, not empty wrappers around them _(provenance: [T12141](https://github.com/kryptobaseddev/cleo/search?q=T12141&type=commits))_\n",
-    "changesetEntryCount": 2,
+    "releaseNotes": "## v2026.9.16 — 2026-09-24\n\n### Added\n\n- cleo show accepts several ids and pays CLI startup once instead of per task (gh#1207) _(provenance: [T12141](https://github.com/kryptobaseddev/cleo/search?q=T12141&type=commits))_\n\n### Fixed\n\n- `cleo nexus analyze` survives its own parser workers — five defects behind one mask, verified on a CLEO root that sits above its git root _(provenance: [T12313](https://github.com/kryptobaseddev/cleo/search?q=T12313&type=commits), [T12312](https://github.com/kryptobaseddev/cleo/search?q=T12312&type=commits))_\n- Showing several tasks at once returns the tasks, not empty wrappers around them _(provenance: [T12141](https://github.com/kryptobaseddev/cleo/search?q=T12141&type=commits))_\n- Rebuilding the code index no longer fails on a slow machine, and says what happened when it does _(provenance: [T12312](https://github.com/kryptobaseddev/cleo/search?q=T12312&type=commits))_\n",
+    "changesetEntryCount": 4,
     "changesetIds": [
+      "nexus-worker-lifecycle",
       "show-batch-lookup",
-      "t12141-batch-show-record-shape"
+      "t12141-batch-show-record-shape",
+      "t12312-nexus-analyze-fixed-budgets"
     ],
     "taskIds": [
-      "T12141"
+      "T12141",
+      "T12313",
+      "T12312"
     ]
   }
 }
