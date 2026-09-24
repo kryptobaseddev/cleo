@@ -87,7 +87,7 @@ export const PARSER_WORKER_HEAP_MIN_MB = 8;
 export const PARSER_WORKER_HEAP_MAX_MB = 4_096;
 
 /** Default V8 old-space per parse worker, in MiB. */
-export const PARSER_WORKER_HEAP_DEFAULT_MB = 128;
+export const PARSER_WORKER_HEAP_DEFAULT_MB = 512;
 
 /** Bounds for one native parser invocation; cancellation is cooperative in-process. */
 export interface ParserExecutionLimits {
@@ -111,6 +111,18 @@ export interface ParserProcessHandle {
   nativeMemory: 'unverified';
   /** Kill owned execution and wait until it has exited. */
   stop(): Promise<void>;
+  /**
+   * The tail of the child's own standard error, bounded in size.
+   *
+   * The stream was drained and discarded so a full pipe could not block the
+   * child. Draining is right; discarding is not — it threw away the only
+   * account of why a worker died, leaving the parent to report the broken pipe
+   * it noticed afterwards. Retaining a bounded tail keeps the pipe moving and
+   * keeps the cause (T12313).
+   *
+   * @returns Captured stderr, newest content last; empty when the child said nothing.
+   */
+  stderrTail(): string;
 }
 
 /** Dependency-inverted access to the existing runtime process containment service. */

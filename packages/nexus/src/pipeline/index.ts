@@ -336,6 +336,15 @@ export interface PipelineResult {
  * @param db - Drizzle database instance
  * @param tables - Drizzle table references
  */
+/**
+ * Share of a repository that may fail to parse before a generation is refused.
+ *
+ * Below it the unparsed files are recorded and reported and the rest is
+ * published; above it the generation would misrepresent the codebase, so the
+ * previous graph is retained instead (T12313).
+ */
+export const UNPARSED_FILE_REFUSAL_RATIO = 0.1;
+
 export async function getIndexStats(
   _projectId: string,
   repoPath: string,
@@ -750,10 +759,35 @@ export async function runPipeline(
   process.stderr.write('[nexus] Flushing to database...\n');
   options?.parserLimits?.signal?.throwIfAborted();
   if (options?.publishGraph) {
+    // T12313: refusing the whole generation over individual unparseable files
+    // meant a repository containing ANY of them could never be indexed at all.
+    // Measured on a 3 499-file project: two files the parser rejected — both
+    // of which `tsc` accepts as syntactically valid — discarded every other
+    // file's symbols and left the caller with no index and no way forward.
+    //
+    // An index missing two files is far more useful than no index, PROVIDED
+    // the gap is stated rather than implied. The generation is published with
+    // the unparsed files recorded and reported; silence about a gap is the
+    // failure this project keeps fixing, and a loud refusal is its mirror
+    // image rather than its remedy.
     const failed = [...reports.values()].filter((report) => report.status === 'failed');
     if (failed.length > 0) {
-      throw new Error(
-        `Index generation failed for ${failed.length} file(s); previous graph retained: ${failed.map((report) => `${report.path}: ${report.reason}`).join('; ')}`,
+      const ratio = failed.length / Math.max(1, reports.size);
+      // A systemic failure differs in kind from a few awkward files: if most of
+      // the repository will not parse, the generation would misrepresent it.
+      if (ratio > UNPARSED_FILE_REFUSAL_RATIO) {
+        throw new Error(
+          `Index generation failed for ${failed.length} of ${reports.size} file(s) — more than ` +
+            `${Math.round(UNPARSED_FILE_REFUSAL_RATIO * 100)}% of the repository, so the ` +
+            `generation would misrepresent it and the previous graph is retained: ${failed
+              .map((report) => `${report.path}: ${report.reason}`)
+              .join('; ')}`,
+        );
+      }
+      process.stderr.write(
+        `[nexus] ${failed.length} of ${reports.size} file(s) could not be parsed and are ABSENT ` +
+          `from this index; every other file was indexed. Symbols defined in them will not be ` +
+          `found:\n${failed.map((report) => `  ${report.path}: ${report.reason}`).join('\n')}\n`,
       );
     }
     // Refuse a generation built from files edited, removed, or renamed while

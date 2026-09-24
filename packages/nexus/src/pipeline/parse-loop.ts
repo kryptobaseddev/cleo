@@ -861,14 +861,21 @@ async function runParallelParseLoop(
   const allCalls: ExtractedCall[] = [];
   // Workers invoke the same extractor, including access records.
   const allParallelAccesses: ExtractedAccess[] = [];
+  /** Files no worker could parse; the publish step decides what they mean. */
+  const unparsedFiles: GraphIndexFileReport[] = [];
 
   for (const workerResult of workerResults) {
     for (const report of workerResult.reports) options.onFileReport?.(report);
+    // T12313: this threw on ANY unparsed file, which ended the run before the
+    // pipeline could weigh how much of the repository was actually affected.
+    // The reports are already forwarded above, so the failures travel onward
+    // and the publish step decides — it tolerates a small number of recorded,
+    // reported gaps and still refuses a generation that would misrepresent the
+    // codebase. Deciding that here, per worker, could only ever see one chunk.
     const failed = workerResult.reports.filter((report) => report.status !== 'analyzed');
-    if (failed.length > 0)
-      throw new Error(
-        `Parser worker incomplete: ${failed.map((report) => `${report.path}: ${report.reason}`).join('; ')}`,
-      );
+    if (failed.length > 0) {
+      unparsedFiles.push(...failed);
+    }
     allParallelAccesses.push(...workerResult.accesses);
     // Register symbols into SymbolTable and add graph nodes
     const fileGraphNodes: Map<string, GraphNode[]> = new Map();
