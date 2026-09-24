@@ -468,6 +468,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-repair.js')).doctorRepairCommand as CommandDef,
   },
   {
+    exportName: 'doctorSplitBrainCommand',
+    name: 'split-brain',
+    description:
+      'Import rows that exist only in a diverged copy of a store (--source) into another (--target) ',
+    load: async () =>
+      (await import('../commands/doctor-split-brain.js')).doctorSplitBrainCommand as CommandDef,
+  },
+  {
     exportName: 'doctorSupersededStoreCommand',
     name: 'superseded-store',
     description:
