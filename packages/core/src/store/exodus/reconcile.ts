@@ -40,17 +40,15 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  SupersededStoreConflict,
   SupersededStoreReconcileResult,
   SupersededStoreTableCount,
 } from '@cleocode/contracts';
-import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { getLogger } from '../../logger.js';
 import { resolveCleoDir } from '../../paths.js';
 import { resolveDualScopeDbPath } from '../dual-scope-db.js';
 import { withLock } from '../lock.js';
-import { sanitizeMigrationStatements } from '../migration-manager.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
-import { resolveCorePackageMigrationsFolder } from '../resolve-migrations-folder.js';
 import { legacyRowProjection } from './column-transforms.js';
 import { orderTablesForCopy, runExodusMigrate } from './migrate.js';
 import { buildExodusPlan } from './plan.js';
@@ -252,19 +250,20 @@ const BARE_SOURCE_NAME = 'tasks (cleo.db bare task-core)';
  * Materialised as a standalone file in `outDir` holding exactly the qualifying
  * rows, built table by table from the live file's own DDL (a whole-file copy
  * cannot be pruned: sqlite-vec `vec0` tables cannot be dropped without their
- * module). Rows the drizzle-tasks lineage SEEDS into every fresh store (e.g. its
- * 18 backfilled `commits`) are not project data and are excluded — a fresh
- * project has them bare and not in the prefixed twin, and so must this one.
+ * module). Rows a FRESH project store already holds (e.g. the lineage's 18
+ * backfilled `commits`) are not project data and are excluded — measured by
+ * building such a store, not by guessing — so a reconciled project ends up
+ * with exactly what a fresh one has there, the same as exodus-on-open.
  * The table set is fixed when the file is built, so the post-copy verification
  * judges exactly what was copied.
  *
  * @returns The descriptor (path = the materialised file), or `null`.
  */
-function bareTaskCoreSource(
+async function bareTaskCoreSource(
   liveStorePath: string,
   resolveTarget: TargetResolver,
   outDir: string,
-): LegacyDbDescriptor | null {
+): Promise<LegacyDbDescriptor | null> {
   const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
   let tables: Array<{ name: string; sql: string }>;
   try {
@@ -282,8 +281,7 @@ function bareTaskCoreSource(
   }
   if (tables.length === 0) return null;
 
-  const seedPath = join(outDir, 'drizzle-tasks-seed.db');
-  buildLineageSeedDb(seedPath);
+  const seedPath = await buildFreshProjectStore(join(outDir, 'fresh-project-seed.db'));
   const path = join(outDir, 'cleo-bare-task-core.db');
   const snap = openCleoDbSnapshot(path, { readOnly: false });
   let kept = 0;
@@ -302,19 +300,21 @@ function bareTaskCoreSource(
             }>
           ).map((c) => c.name),
         );
-        const shared = (
-          snap.db.prepare(`PRAGMA main.table_info(${ident(t.name)})`).all() as Array<{
-            name: string;
-          }>
-        )
-          .map((c) => c.name)
-          .filter((c) => seedCols.has(c));
-        if (shared.length > 0) {
-          const same = shared.map((c) => `s.${ident(c)} IS m.${ident(c)}`).join(' AND ');
+        const cols = snap.db.prepare(`PRAGMA main.table_info(${ident(t.name)})`).all() as Array<{
+          name: string;
+          pk: number;
+        }>;
+        // A seed row is identified by its KEY: seeded rows carry the time they
+        // were seeded (e.g. `commits.created_at`), so whole-row equality never
+        // matches a seed written on another day. Keyless tables compare rows.
+        const pk = cols.filter((c) => c.pk > 0 && seedCols.has(c.name)).map((c) => c.name);
+        const match = (pk.length > 0 ? pk : cols.map((c) => c.name).filter((c) => seedCols.has(c)))
+          .map((c) => `s.${ident(c)} IS m.${ident(c)}`)
+          .join(' AND ');
+        if (match.length > 0)
           snap.db.exec(
-            `DELETE FROM main.${ident(t.name)} AS m WHERE EXISTS (SELECT 1 FROM seed.${ident(t.name)} s WHERE ${same})`,
+            `DELETE FROM main.${ident(t.name)} AS m WHERE EXISTS (SELECT 1 FROM seed.${ident(t.name)} s WHERE ${match})`,
           );
-        }
       }
       const n = countRows(snap.db, 'main', t.name);
       if (n === 0) snap.db.exec(`DROP TABLE main.${ident(t.name)}`);
@@ -329,30 +329,23 @@ function bareTaskCoreSource(
 }
 
 /**
- * Write a database holding only what the drizzle-tasks lineage itself seeds,
- * by running the lineage on an empty file. Statements that need the rest of a
- * real store (consolidated tables) are skipped — only their seeds would be
- * missed, never project data.
+ * Build a FRESH project store — consolidated schema plus the tasks-domain
+ * lineage, exactly as a brand-new project gets it — and return its path. Its
+ * rows are, by construction, only what CLEO seeds (e.g. the 18 backfilled
+ * `commits`), never project data.
  */
-function buildLineageSeedDb(path: string): void {
-  const migrations = sanitizeMigrationStatements(
-    readMigrationFiles({ migrationsFolder: resolveCorePackageMigrationsFolder('drizzle-tasks') }),
-  );
-  const seed = openCleoDbSnapshot(path, { readOnly: false });
+async function buildFreshProjectStore(path: string): Promise<string> {
+  const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
+  const { ensureTasksDomainTables, seedTasksMeta } = await import('../sqlite.js');
+  const handle = await openDualScopeDbAtPath('project', path, undefined, { dedicated: true });
   try {
-    seed.db.exec('PRAGMA foreign_keys=OFF');
-    for (const migration of migrations) {
-      for (const stmt of migration.sql) {
-        try {
-          seed.db.exec(stmt);
-        } catch {
-          // Needs objects a real store has; contributes no seed rows here.
-        }
-      }
-    }
+    const native = getDualScopeNativeDb(handle);
+    ensureTasksDomainTables(native, path);
+    seedTasksMeta(native);
   } finally {
-    seed.close();
+    handle.close();
   }
+  return path;
 }
 
 /**
@@ -474,6 +467,92 @@ async function revertReconcile(liveStorePath: string, stagingDir: string): Promi
 }
 
 /**
+ * Whether a legacy table's runtime home belongs to the task graph the project
+ * edits live — derived, like every target, from the runtime bindings: a tasks
+ * table the runtime re-points at a prefixed twin (`tasks`, `task_dependencies`,
+ * `task_acceptance_criteria`, `lifecycle_*`, …). A missing legacy row there may
+ * have been deleted or rewritten since the cutover, so an additive run never
+ * writes it. History tables the runtime reads under their own name
+ * (`audit_log`, `token_usage`, `pipeline_manifest`, …) and brain/conduit rows
+ * are append-only and may be filled in.
+ */
+function isLiveAuthoritative(sourceName: string, legacyTable: string, target: string): boolean {
+  return sourceName.toLowerCase().startsWith('tasks') && target !== legacyTable;
+}
+
+/** Every legacy row set an assessment shows as still missing, as conflicts. */
+function conflictsOf(counts: readonly SupersededStoreTableCount[]): SupersededStoreConflict[] {
+  return counts
+    .map((c) => ({
+      c,
+      rows: c.missingInLive ?? Math.max(0, c.sourceRows - c.liveRows),
+    }))
+    .filter(({ rows }) => rows > 0)
+    .map(({ c, rows }) => ({
+      sourceDb: c.sourceDb,
+      sourceTable: c.sourceTable,
+      targetTable: c.targetTable,
+      rows,
+      reason: isLiveAuthoritative(c.sourceDb, c.sourceTable, c.targetTable)
+        ? ('live-authoritative' as const)
+        : ('collides-with-live' as const),
+    }));
+}
+
+/** One line naming every conflict. */
+function describeConflicts(conflicts: readonly SupersededStoreConflict[]): string {
+  if (conflicts.length === 0) return 'no conflicts';
+  return `left ${conflicts.reduce((n, c) => n + c.rows, 0)} row(s) uncopied: ${conflicts
+    .map((c) => `${c.targetTable} ${c.rows} (${c.reason})`)
+    .join(', ')}`;
+}
+
+/** Full-fidelity snapshot of the live store (reads through WAL). */
+function snapshotLive(liveStorePath: string, to: string): void {
+  const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
+  try {
+    live.db.exec(`VACUUM INTO '${to.replace(/'/g, "''")}'`);
+  } finally {
+    live.close();
+  }
+}
+
+/**
+ * Tables among the copy targets in which a row that existed before the copy is
+ * no longer present unchanged. The tasks-domain default `task_id_sequence` is
+ * not data (the sequence module treats it as "no state") and is expected to
+ * yield to a legacy counter, so `sequenceSeed` rows are exempt.
+ */
+function alteredLiveTables(
+  liveStorePath: string,
+  beforePath: string,
+  counts: readonly SupersededStoreTableCount[],
+  sequenceSeed: string,
+): string[] {
+  const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
+  try {
+    live.db.exec(`ATTACH DATABASE '${beforePath.replace(/'/g, "''")}' AS before`);
+    const altered: string[] = [];
+    for (const table of new Set(counts.map((c) => c.targetTable))) {
+      if (!hasTable(live.db, 'before', table) || !hasTable(live.db, 'main', table)) continue;
+      const seed =
+        table === 'schema_meta'
+          ? ` WHERE NOT (key = 'task_id_sequence' AND value = '${sequenceSeed.replace(/'/g, "''")}')`
+          : '';
+      const row = live.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM (SELECT * FROM before.${ident(table)}${seed} EXCEPT SELECT * FROM main.${ident(table)})`,
+        )
+        .get() as { n: number } | undefined;
+      if (Number(row?.n ?? 0) > 0) altered.push(table);
+    }
+    return altered;
+  } finally {
+    live.close();
+  }
+}
+
+/**
  * Reconcile a project's stranded legacy stores into its live `cleo.db`.
  *
  * @param projectRoot - Absolute project root.
@@ -489,9 +568,10 @@ async function revertReconcile(liveStorePath: string, stagingDir: string): Promi
  */
 export async function reconcileSupersededStores(
   projectRoot: string,
-  options: { readonly dryRun?: boolean } = {},
+  options: { readonly dryRun?: boolean; readonly additive?: boolean } = {},
 ): Promise<SupersededStoreReconcileResult> {
   const dryRun = options.dryRun === true;
+  const additive = options.additive === true;
   const liveStorePath = resolveDualScopeDbPath('project', projectRoot);
   const plan = buildExodusPlan(projectRoot);
   // Rows land where the RUNTIME reads them (T12346), derived from its bindings.
@@ -503,6 +583,7 @@ export async function reconcileSupersededStores(
     return await reconcileWithScratch(
       projectRoot,
       dryRun,
+      additive,
       liveStorePath,
       plan,
       resolveTarget,
@@ -517,18 +598,33 @@ export async function reconcileSupersededStores(
 async function reconcileWithScratch(
   projectRoot: string,
   dryRun: boolean,
+  additive: boolean,
   liveStorePath: string,
   plan: ReturnType<typeof buildExodusPlan>,
   resolveTarget: TargetResolver,
   scratch: string,
 ): Promise<SupersededStoreReconcileResult> {
   const fileSources = plan.sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
-  const bare = existsSync(liveStorePath)
-    ? bareTaskCoreSource(liveStorePath, resolveTarget, scratch)
-    : null;
+  // An additive run is for a project already live on the consolidated store;
+  // its bare family is not a source (and bareTaskCoreSource agrees).
+  const bare =
+    !additive && existsSync(liveStorePath)
+      ? await bareTaskCoreSource(liveStorePath, resolveTarget, scratch)
+      : null;
+  // Additive: the live task graph is never written — only history tables.
+  const copyResolver: TargetResolver = additive
+    ? (sourceName, legacyTable) => {
+        const r = resolveTarget(sourceName, legacyTable);
+        return r.kind !== 'skip' && isLiveAuthoritative(sourceName, legacyTable, r.targetName)
+          ? { kind: 'skip', reason: 'additive: live-authoritative task graph' }
+          : r;
+      }
+    : resolveTarget;
   // Legacy FILES first so they win any key both hold; the bare family fills gaps.
   const sources = bare ? [...fileSources, bare] : fileSources;
   const base = {
+    mode: additive ? ('additive' as const) : ('full' as const),
+    conflicts: [] as SupersededStoreConflict[],
     dryRun,
     projectRoot,
     liveStorePath,
@@ -553,6 +649,21 @@ async function reconcileWithScratch(
   }
 
   const before = assessSupersededProjectStores(liveStorePath, sources, resolveTarget);
+  const plannedConflicts = additive ? conflictsOf(before) : [];
+  // Additive: gaps that are ALL live-authoritative leave nothing to copy.
+  const onlyConflicts =
+    additive &&
+    plannedConflicts.length > 0 &&
+    plannedConflicts.every((c) => c.reason === 'live-authoritative');
+  if (onlyConflicts) {
+    return {
+      ...base,
+      conflicts: plannedConflicts,
+      outcome: 'nothing-to-reconcile',
+      before,
+      reason: `every history row is already present; ${describeConflicts(plannedConflicts)}`,
+    };
+  }
   if (isComplete(before)) {
     return {
       ...base,
@@ -564,9 +675,14 @@ async function reconcileWithScratch(
   if (dryRun) {
     return {
       ...base,
+      conflicts: plannedConflicts.filter((c) => c.reason === 'live-authoritative'),
       outcome: 'planned',
       before,
-      reason: `would copy the missing rows of: ${describeGaps(before)}`,
+      reason: additive
+        ? `would copy the missing rows of the history tables; ${describeConflicts(
+            plannedConflicts.filter((c) => c.reason === 'live-authoritative'),
+          )} (key collisions are counted after the copy)`
+        : `would copy the missing rows of: ${describeGaps(before)}`,
     };
   }
 
@@ -599,34 +715,42 @@ async function reconcileWithScratch(
     });
   const reconcilePlan = { ...plan, sources: copySources, stagingDir, resumeFromStaging: false };
 
-  // The runtime-read bare tables are created by the tasks domain's own schema
-  // bind; bind it first (outside the lock — it can run exodus-on-open, which
-  // takes the same lock) so every runtime target exists before the copy.
-  const { getDb } = await import('../sqlite.js');
-  await getDb(projectRoot);
-
   // Serialise with exodus-on-open, which takes the same lock on this target.
   const result = await withLock(
     `${liveStorePath}.exodus-on-open.lock`,
     async (): Promise<SupersededStoreReconcileResult> => {
+      // Prove "never overwrites": every live row that existed before the copy
+      // must still exist, byte for byte, afterwards.
+      const liveBefore = join(scratch, 'live-before.db');
+      snapshotLive(liveStorePath, liveBefore);
       const migrated = await runExodusMigrate(reconcilePlan, false, (msg) => log.debug(msg), {
         projectOnly: true,
-        resolveTarget,
+        resolveTarget: copyResolver,
+        ensureRuntimeTables: true,
       });
       const rowsCopied = migrated.tables.reduce((n, t) => n + t.rowsCopied, 0);
       const after = migrated.ok
         ? assessSupersededProjectStores(liveStorePath, sources, resolveTarget)
         : [];
       const lost = shrunk(before, after);
-      if (migrated.ok && isComplete(after) && lost.length === 0) {
+      const { TASK_ID_SEQUENCE_SEED } = await import('../sqlite.js');
+      const altered = migrated.ok
+        ? alteredLiveTables(liveStorePath, liveBefore, before, TASK_ID_SEQUENCE_SEED)
+        : [];
+      const conflicts = additive ? conflictsOf(after) : [];
+      const settled = additive ? true : isComplete(after);
+      if (migrated.ok && settled && lost.length === 0 && altered.length === 0) {
         return {
           ...base,
+          conflicts,
           outcome: 'reconciled',
           before,
           after,
           rowsCopied,
           stagingDir,
-          reason: `copied ${rowsCopied} row(s); every legacy row is now present in cleo.db`,
+          reason: additive
+            ? `copied ${rowsCopied} row(s) with keys absent from live; live rows unchanged; ${describeConflicts(conflicts)}`
+            : `copied ${rowsCopied} row(s); every legacy row is now present in cleo.db`,
         };
       }
       const rolledBack = await revertReconcile(liveStorePath, stagingDir);
@@ -634,7 +758,9 @@ async function reconcileWithScratch(
         ? `copy failed: ${migrated.error ?? `the copy engine gave no message — inspect the journal in ${stagingDir}`}`
         : lost.length > 0
           ? `live tables shrank: ${lost.join(', ')}`
-          : `rows still missing after copy: ${describeGaps(after)}`;
+          : altered.length > 0
+            ? `pre-existing live rows changed in: ${altered.join(', ')}`
+            : `rows still missing after copy: ${describeGaps(after)}`;
       return {
         ...base,
         outcome: 'refused',

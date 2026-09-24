@@ -59,6 +59,7 @@ import {
   legacyRowProjection,
   type TargetColumnInfo,
 } from './column-transforms.js';
+import type { TargetResolver } from './runtime-targets.js';
 import {
   resolveConsolidatedTableName,
   resolveTableTargetScope,
@@ -307,7 +308,8 @@ function sharedColumnsSorted(
  * @param srcDb           - Source database handle.
  * @param srcTable        - Physical legacy source table name.
  * @param tgtDb           - Target database handle (consolidated cleo.db).
- * @param targetTableName - Physical consolidated target table name.
+ * @param targetTableName - Physical target table name (column metadata source).
+ * @param transformTableName - Consolidated name the value transforms are keyed on.
  * @returns A transform spec, or `undefined` when source metadata is unavailable.
  */
 function buildSourceDigestTransform(
@@ -315,6 +317,7 @@ function buildSourceDigestTransform(
   srcTable: string,
   tgtDb: DatabaseSync,
   targetTableName: string,
+  transformTableName: string = targetTableName,
 ): DigestTransformSpec | undefined {
   try {
     const srcTypeByCol = new Map<string, string>(
@@ -342,7 +345,13 @@ function buildSourceDigestTransform(
         { notnull: r.notnull, dflt_value: r.dflt_value, type: r.type } satisfies TargetColumnInfo,
       ]),
     );
-    return { targetTableName, srcTypeByCol, isoGlobCols, tgtColByCol, sourceTableName: srcTable };
+    return {
+      targetTableName: transformTableName,
+      srcTypeByCol,
+      isoGlobCols,
+      tgtColByCol,
+      sourceTableName: srcTable,
+    };
   } catch {
     return undefined;
   }
@@ -648,6 +657,8 @@ function orphanSignature(
  * @param targetDb - Consolidated DB holding the orphan row.
  * @param fk - One target `PRAGMA foreign_key_check` row.
  * @param sources - Legacy source descriptors of this verification.
+ * @param resolveTarget - Where legacy tables were copied; a same-named legacy
+ *   table routed to the parent feeds it too.
  * @returns Whether any source table feeding `fk.parent` holds the missing key.
  * @task T12319
  */
@@ -655,6 +666,7 @@ function parentKeyExistsInSources(
   targetDb: DatabaseSync,
   fk: { table: string; rowid: number | null; parent: string; fkid: number },
   sources: readonly LegacyDbDescriptor[],
+  resolveTarget: TargetResolver = resolveConsolidatedTableName,
 ): boolean {
   if (fk.rowid === null) return true;
   try {
@@ -672,7 +684,14 @@ function parentKeyExistsInSources(
       .get(fk.rowid) as { v: unknown } | undefined;
     const key = row?.v;
     if (typeof key !== 'string' && typeof key !== 'number' && typeof key !== 'bigint') return true;
+    // Legacy tables whose rows land in the parent: the consolidated mapping plus
+    // a same-named legacy table the target resolver routes there (T12355).
     const feeders = reverseLookup(fk.parent, sources);
+    for (const src of sources) {
+      const routed = resolveTarget(src.name, fk.parent);
+      if (routed.kind !== 'skip' && routed.targetName === fk.parent)
+        feeders.push({ sourceName: src.name, legacyTable: fk.parent });
+    }
     if (feeders.length === 0) return true;
     for (const feeder of feeders) {
       const src = sources.find((s) => s.name === feeder.sourceName);
@@ -752,6 +771,8 @@ function sourceOrphanSignatures(db: DatabaseSync, sourceName: string, scope: str
  * @param projectDbPath - Absolute path to the consolidated project `cleo.db`.
  * @param globalDbPath  - Absolute path to the consolidated global `cleo.db`.
  * @param onProgress    - Optional progress callback.
+ * @param resolveTarget - Where each legacy table was copied (defaults to the
+ *   consolidated map; on-open passes the runtime-read targets, T12355).
  *
  * @returns A {@link VerifyMigrationResult}. `ok === false` (with `error`
  *   populated) on any count mismatch, content mismatch, FK orphan, or enum
@@ -764,6 +785,7 @@ export function verifyMigration(
   projectDbPath: string,
   globalDbPath: string,
   onProgress?: (msg: string) => void,
+  resolveTarget: TargetResolver = resolveConsolidatedTableName,
 ): VerifyMigrationResult {
   const tables: MigrationTableParity[] = [];
   const enumDrift: MigrationEnumDrift[] = [];
@@ -834,12 +856,16 @@ export function verifyMigration(
         for (const legacyTableName of sourceTables) {
           onProgress?.(`Verifying ${src.name}.${legacyTableName}…`);
 
-          const resolution = resolveConsolidatedTableName(src.name, legacyTableName);
+          const resolution = resolveTarget(src.name, legacyTableName);
           if (resolution.kind === 'skip') {
             onProgress?.(`  [skip] ${src.name}.${legacyTableName} — ${resolution.reason}`);
             continue;
           }
           const targetTableName = resolution.targetName;
+          // Value transforms are registered under the CONSOLIDATED name (T12355).
+          const consolidated = resolveConsolidatedTableName(src.name, legacyTableName);
+          const transformTableName =
+            consolidated.kind === 'skip' ? targetTableName : consolidated.targetName;
 
           // Per-table scope override (ADR-090 · T11539): the four nexus graph
           // tables come from the GLOBAL `nexus.db` source but land in PROJECT
@@ -912,6 +938,7 @@ export function verifyMigration(
             legacyTableName,
             targetSnap.db,
             targetTableName,
+            transformTableName,
           );
           const srcDigest = computeTableDigest(srcSnap.db, legacyTableName, cols, srcTransform);
           const tgtDigest = computeTableDigest(targetSnap.db, targetTableName, cols);
@@ -990,7 +1017,8 @@ export function verifyMigration(
       const orphanDb = tableExists(projectSnap.db, fk.table) ? projectSnap.db : globalSnap.db;
       const sig = orphanSignature(orphanDb, fk);
       const preExisting =
-        sourceOrphanSigs.has(sig) || !parentKeyExistsInSources(orphanDb, fk, sources);
+        sourceOrphanSigs.has(sig) ||
+        !parentKeyExistsInSources(orphanDb, fk, sources, resolveTarget);
       if (preExisting) {
         preExistingForeignKeyViolations.push(fk);
       } else {

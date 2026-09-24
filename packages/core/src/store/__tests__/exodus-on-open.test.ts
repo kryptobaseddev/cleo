@@ -54,6 +54,19 @@ vi.mock('../../logger.js', () => ({
   }),
 }));
 
+/**
+ * Where on-open lands each fixture table (T12355): the table the RUNTIME reads.
+ * `tasks-schema.ts` binds `architecture_decisions` and `token_usage` bare, so
+ * their rows land there — not in the consolidated `tasks_*` twins
+ * {@link FIXTURE_EXPECTED_ROWS} names, which no command reads.
+ */
+const ON_OPEN_EXPECTED_ROWS = {
+  tasks_tasks: FIXTURE_EXPECTED_ROWS.tasks_tasks,
+  architecture_decisions: FIXTURE_EXPECTED_ROWS.tasks_architecture_decisions,
+  token_usage: FIXTURE_EXPECTED_ROWS.tasks_token_usage,
+  brain_observations: FIXTURE_EXPECTED_ROWS.brain_observations,
+} as const;
+
 /** Count rows in a table of a DB opened read-only. */
 function countRows(dbPath: string, table: string): number {
   const db = new DatabaseSync(dbPath, { readOnly: true });
@@ -204,7 +217,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
 
     // PRIMARY ASSERTION (AC3): exact base-table row parity — zero deficit, the
     // 4465-tasks-preserved invariant at fixture scale.
-    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+    for (const [table, expected] of Object.entries(ON_OPEN_EXPECTED_ROWS)) {
       expect(
         countRows(fx.projectDbPath, table),
         `${table}: expected ${expected} rows after auto-migration`,
@@ -385,7 +398,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     expect(loserOutcome).toBe('skipped');
 
     // No double-copy: row counts are exactly the seeded counts, not 2×.
-    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+    for (const [table, expected] of Object.entries(ON_OPEN_EXPECTED_ROWS)) {
       expect(countRows(fx.projectDbPath, table), `${table}: no double-copy`).toBe(expected);
     }
   });
@@ -438,7 +451,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     // Every BASE table — including the FTS5 content table brain_decisions — has
     // exact row parity. The derived/meta tables were skipped (no consolidated
     // home), not counted as deficits.
-    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+    for (const [table, expected] of Object.entries(ON_OPEN_EXPECTED_ROWS)) {
       expect(countRows(fx.projectDbPath, table), `${table} parity`).toBe(expected);
     }
     expect(countRows(fx.projectDbPath, 'brain_decisions')).toBe(
@@ -470,7 +483,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
       FIXTURE_HAZARD_EXPECTED_ROWS.tasks_task_relations,
     );
     // Base parity unaffected.
-    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+    for (const [table, expected] of Object.entries(ON_OPEN_EXPECTED_ROWS)) {
       expect(countRows(fx.projectDbPath, table), `${table} parity`).toBe(expected);
     }
   });
@@ -528,7 +541,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     expect(retried.outcome, `retry should re-copy and succeed: ${retried.reason}`).toBe('migrated');
 
     // The retry actually re-copied every row (not a no-op resume over an empty DB).
-    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+    for (const [table, expected] of Object.entries(ON_OPEN_EXPECTED_ROWS)) {
       expect(countRows(fx.projectDbPath, table), `${table} re-copied on retry`).toBe(expected);
     }
   });
