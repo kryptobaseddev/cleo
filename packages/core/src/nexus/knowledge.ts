@@ -14,6 +14,7 @@ import { promisify } from 'node:util';
 import type {
   GraphIndexAssessment,
   GraphIndexFileReport,
+  GraphIndexReferenceReport,
   KnowledgeCoverage,
   KnowledgeCoverageStatus,
   KnowledgeSymbolCandidate,
@@ -24,6 +25,7 @@ import { z } from 'zod';
 import { worktreeScope } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import { getNexusDb, getNexusNativeDb, nexusSchema } from '../store/nexus-sqlite.js';
+import { ASSESSMENT_KEY, ASSESSMENT_REFERENCES_KEY } from './assessment-store.js';
 import { generateProjectHash } from './hash.js';
 import { resolveSourceRoots } from './source-roots.js';
 
@@ -159,6 +161,35 @@ const fileCapabilitiesSchema = z
       });
   });
 
+/** One retained unresolved or unmodeled static reference (T12348: stored separately). */
+const referenceSchema = z.object({
+  kind: z.enum(['unmodeled-source', 'ambiguous', 'external', 'dynamic', 'shadowed', 'unresolved']),
+  filePath: z.string(),
+  sourceId: z.string(),
+  targetId: z.string().optional(),
+  targetName: z.string(),
+  relationship: z.enum(['calls', 'accesses']),
+  reason: z.string(),
+  candidateIds: z.array(z.string()).optional(),
+  generation: z.string().optional(),
+  publicationGeneration: z.uuid().optional(),
+  span: z
+    .object({
+      startIndex: z.number().int().nonnegative(),
+      endIndex: z.number().int().nonnegative(),
+      startLine: z.number().int().positive(),
+      endLine: z.number().int().positive(),
+      startColumn: z.number().int().nonnegative(),
+      endColumn: z.number().int().nonnegative(),
+      offsetEncoding: z.literal('utf16'),
+    })
+    .refine(
+      (span) => span.endIndex >= span.startIndex && span.endLine >= span.startLine,
+      'Reference span must be an ordered original source range',
+    )
+    .optional(),
+});
+
 const assessmentSchema = z.object({
   generation: z.uuid().optional(),
   sourceRoots: sourceRootsSchema.optional(),
@@ -166,44 +197,8 @@ const assessmentSchema = z.object({
   assessedRevision: z.string().nullable(),
   assessedAt: z.string(),
   includedRepositories: z.array(z.string()).optional(),
-  references: z
-    .array(
-      z.object({
-        kind: z.enum([
-          'unmodeled-source',
-          'ambiguous',
-          'external',
-          'dynamic',
-          'shadowed',
-          'unresolved',
-        ]),
-        filePath: z.string(),
-        sourceId: z.string(),
-        targetId: z.string().optional(),
-        targetName: z.string(),
-        relationship: z.enum(['calls', 'accesses']),
-        reason: z.string(),
-        candidateIds: z.array(z.string()).optional(),
-        generation: z.string().optional(),
-        publicationGeneration: z.uuid().optional(),
-        span: z
-          .object({
-            startIndex: z.number().int().nonnegative(),
-            endIndex: z.number().int().nonnegative(),
-            startLine: z.number().int().positive(),
-            endLine: z.number().int().positive(),
-            startColumn: z.number().int().nonnegative(),
-            endColumn: z.number().int().nonnegative(),
-            offsetEncoding: z.literal('utf16'),
-          })
-          .refine(
-            (span) => span.endIndex >= span.startIndex && span.endLine >= span.startLine,
-            'Reference span must be an ordered original source range',
-          )
-          .optional(),
-      }),
-    )
-    .optional(),
+  references: z.array(referenceSchema).optional(),
+  referenceCount: z.number().int().nonnegative().optional(),
   files: z.array(
     z.object({
       path: z.string(),
@@ -219,6 +214,11 @@ const assessmentSchema = z.object({
 
 /**
  * Read validated generation provenance without treating malformed metadata as healthy.
+ *
+ * T12348: this is the SUMMARY — the retained reference list is stored
+ * separately and reported as `referenceCount`; read it with
+ * {@link readKnowledgeIndexReferences}. A historical value with inline
+ * `references` is returned as stored.
  * @param projectRoot - Explicit project root, or the ambient canonical project when omitted.
  * @returns The published assessment, or null for a legacy generation.
  * @remarks Reads only through the canonical project store. Malformed metadata throws.
@@ -234,8 +234,8 @@ export async function readKnowledgeIndexAssessment(
   const native = getNexusNativeDb(projectRoot);
   if (!native) throw new Error('The graph database is unavailable.');
   const row = native
-    .prepare(`SELECT value FROM main._nexus_meta WHERE key = 'graph_assessment'`)
-    .get();
+    .prepare('SELECT value FROM main._nexus_meta WHERE key = ?')
+    .get(ASSESSMENT_KEY);
   if (!row) return null;
   if (typeof row.value !== 'string') throw new Error('Graph assessment metadata is not text.');
   const assessment = assessmentSchema.parse(JSON.parse(row.value));
@@ -251,6 +251,43 @@ export async function readKnowledgeIndexAssessment(
       throw new Error('Root observations disagree with graph source scope or revision.');
   }
   return assessment;
+}
+
+/**
+ * Read the published generation's retained reference list — the detail behind
+ * `referenceCount` (T12348).
+ *
+ * This is the expensive read (hundreds of MB on a large repository), so only
+ * explicit detail requests make it. A historical assessment with inline
+ * `references` is honoured; a published graph with neither yields an empty list.
+ * @param projectRoot - Explicit project root, or the ambient canonical project when omitted.
+ * @returns Every retained reference, validated; `null` when no graph is published.
+ * @example
+ * ```ts
+ * const references = await readKnowledgeIndexReferences(projectRoot);
+ * ```
+ */
+export async function readKnowledgeIndexReferences(
+  projectRoot?: string,
+): Promise<GraphIndexReferenceReport[] | null> {
+  const assessment = await readKnowledgeIndexAssessment(projectRoot);
+  if (!assessment) return null;
+  if (assessment.references) return assessment.references;
+  const native = getNexusNativeDb(projectRoot);
+  if (!native) throw new Error('The graph database is unavailable.');
+  const row = native
+    .prepare('SELECT value FROM main._nexus_meta WHERE key = ?')
+    .get(ASSESSMENT_REFERENCES_KEY);
+  if (!row) {
+    if ((assessment.referenceCount ?? 0) > 0)
+      throw new Error('Graph assessment reports references, but none are stored.');
+    return [];
+  }
+  if (typeof row.value !== 'string') throw new Error('Graph reference metadata is not text.');
+  const references = z.array(referenceSchema).parse(JSON.parse(row.value));
+  if (assessment.referenceCount !== undefined && references.length !== assessment.referenceCount)
+    throw new Error('Stored graph references disagree with the assessment reference count.');
+  return references;
 }
 
 /**
@@ -687,11 +724,12 @@ async function assessCoverage(
       }
       if (files.length === 0)
         recordKnowledgeGap(coverage, 'missing', 'The published graph has no indexed nodes.');
-      if (assessment.references?.length) {
+      const referenceCount = assessment.referenceCount ?? assessment.references?.length ?? 0;
+      if (referenceCount > 0) {
         recordKnowledgeGap(
           coverage,
           'partial',
-          `${assessment.references.length} unresolved or unmodeled static references remain; known callers are incomplete. Inspect assessment.references in cleo nexus status.`,
+          `${referenceCount} unresolved or unmodeled static references remain; known callers are incomplete. Inspect them with cleo nexus status --references.`,
         );
         coverage.nextAction = 'cleo nexus status';
       }

@@ -157,9 +157,15 @@ function snapshot(): {
     .map(({ id: _id, indexed_at: _indexedAt, ...row }) => normalize(row, generation))
     .sort();
   const files = assessment.files.map((file) => normalize(file, generation)).sort();
-  const references = (assessment.references ?? [])
-    .map((reference) => normalize(reference, generation))
-    .sort();
+  // T12348: the reference list is stored beside the summary; read it where it
+  // lives so this comparison keeps covering it.
+  const storedReferences = native
+    .prepare("SELECT value FROM _nexus_meta WHERE key = 'graph_assessment_references'")
+    .get() as Row | undefined;
+  const referenceList =
+    assessment.references ??
+    (storedReferences ? (JSON.parse(String(storedReferences.value)) as Row[]) : []);
+  const references = referenceList.map((reference) => normalize(reference, generation)).sort();
   const cache = (native.prepare('SELECT path, content_hash FROM _nexus_parse_cache').all() as Row[])
     .map((row) => `${String(row.path)}@${String(row.content_hash)}`)
     .sort();
@@ -178,6 +184,8 @@ async function expectIncrementalEqualsFull(): Promise<NexusAnalysisResult> {
   expect(afterIncremental.relations).toEqual(afterFull.relations);
   expect(afterIncremental.files).toEqual(afterFull.files);
   expect(afterIncremental.references).toEqual(afterFull.references);
+  // Non-vacuous: the fixture retains references, so the comparison compared something.
+  expect(afterFull.references.length).toBeGreaterThan(0);
   expect(afterIncremental.cache).toEqual(afterFull.cache);
   return incremental;
 }

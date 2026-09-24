@@ -31,6 +31,7 @@ import { worktreeScope } from '../paths.js';
 import { getProjectInfo } from '../project-info.js';
 import { createParserExecutionPort } from '../resources/spawn-wrapper.js';
 import { nexusNodes, nexusRelations } from '../store/schema/cleo-project/nexus-graph.js';
+import { assessmentSummary, writeAssessment } from './assessment-store.js';
 import {
   buildFileManifest,
   clearFileManifest,
@@ -284,10 +285,8 @@ export function publishNexusGraph(
       if (rows.assessment)
         writeFileManifest(tx, buildFileManifest(rows.assessment, rows.assessment.files));
       else clearFileManifest(tx);
-      if (rows.assessment) {
-        tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_assessment', ${JSON.stringify(rows.assessment)})
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
-      }
+      // T12348: summary and reference list are written together, separately.
+      if (rows.assessment) writeAssessment(tx, rows.assessment);
       tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_generation', ${generation})
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
     },
@@ -316,9 +315,8 @@ function recordVerifiedProvenance(
     (tx) => {
       if (graphGeneration(tx) !== expectedGeneration)
         throw new Error('Nexus graph changed during verification; provenance not updated.');
-      if (assessment)
-        tx.run(sql`UPDATE main._nexus_meta SET value = ${JSON.stringify(assessment)},
-          updated_at = strftime('%s', 'now') WHERE key = 'graph_assessment'`);
+      // A re-recorded summary keeps the stored reference list of this generation.
+      if (assessment) writeAssessment(tx, assessment);
       writeFileManifest(tx, manifest);
     },
     { behavior: 'immediate' },
@@ -372,7 +370,10 @@ export interface NexusAnalysisResult {
   relationCount: number;
   fileCount: number;
   durationMs: number;
-  /** Committed per-file outcomes and source provenance. */
+  /**
+   * Committed per-file outcomes and source provenance, as a summary: the
+   * reference list is reported as `referenceCount` (T12348).
+   */
   assessment: GraphIndexAssessment | null;
 }
 
@@ -564,7 +565,7 @@ async function runScopedNexusAnalysis(
         `[nexus] Publication: source recheck ${commitStart - recheckStart}ms, atomic commit of ` +
           `${rows.nodes.length} nodes + ${rows.relations.length} relations ${Date.now() - commitStart}ms\n`,
       );
-      committedAssessment = rows.assessment;
+      committedAssessment = rows.assessment ? assessmentSummary(rows.assessment) : null;
     },
   });
 
@@ -647,6 +648,7 @@ async function runScopedNexusAnalysis(
     // non-fatal
   }
 
+  const reportedAssessment = committedAssessment ?? previousAssessment;
   return {
     projectId,
     repoPath,
@@ -656,6 +658,7 @@ async function runScopedNexusAnalysis(
     relationCount: result.relationCount,
     fileCount: result.fileCount,
     durationMs: Date.now() - startTime,
-    assessment: committedAssessment ?? previousAssessment,
+    // T12348: the summary; the reference list is detail (`nexus status --references`).
+    assessment: reportedAssessment ? assessmentSummary(reportedAssessment) : null,
   };
 }
