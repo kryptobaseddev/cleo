@@ -2,7 +2,7 @@
 id: nexus-worker-lifecycle
 tasks: [T12313, T12312]
 kind: fix
-summary: `cleo nexus analyze` survives its own parser workers — five defects behind one mask, verified on a CLEO root that sits above its git root
+summary: "`cleo nexus analyze` survives its own parser workers — five defects behind one mask, verified on a CLEO root that sits above its git root"
 ---
 
 A nexus rebuild could never complete on larger repositories. Five defects
