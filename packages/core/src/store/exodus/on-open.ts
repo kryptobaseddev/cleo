@@ -63,8 +63,9 @@
  * @see packages/core/src/store/dual-scope-db.ts — the open chokepoint that calls this
  */
 
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { VerifyMigrationResult } from '@cleocode/contracts';
 import { getLogger } from '../../logger.js';
@@ -515,6 +516,7 @@ async function runExodusOnOpen(
       );
 
       _exodusInProgress = true;
+      const bareScratch = mkdtempSync(join(tmpdir(), 'cleo-exodus-bare-'));
       try {
         // 1. Run the migration engine (copies BOTH scopes; idempotent + journaled).
         // T12355: land every row where the RUNTIME reads it — the same targets
@@ -523,8 +525,21 @@ async function runExodusOnOpen(
         // tasks-domain lineage has run.
         const { buildRuntimeTargetResolver } = await import('./runtime-targets.js');
         const resolveTarget = await buildRuntimeTargetResolver();
+        // The same unmigrated-bare-family source the reconcile reads, so the two
+        // converge whichever runs first. Never archived: it is not a legacy file.
+        const { unmigratedBareSources } = await import('./reconcile.js');
+        const bare =
+          scope === 'project'
+            ? await unmigratedBareSources(
+                dbPath,
+                resolveTarget,
+                plan.sources.find((s) => s.name === 'tasks' && existsSync(s.path))?.path,
+                bareScratch,
+              )
+            : { first: [], last: [] };
+        const migratePlan = { ...plan, sources: [...bare.first, ...plan.sources, ...bare.last] };
         const migrateResult = await runExodusMigrate(
-          plan,
+          migratePlan,
           false,
           (msg) => log.debug({ scope }, `exodus-on-open: ${msg}`),
           { resolveTarget, ensureRuntimeTables: true },
@@ -550,7 +565,7 @@ async function runExodusOnOpen(
         // 2. PARITY GATE (AC2): verifyMigration (T11551) — row-count + content
         //    digest + FK integrity + enum-drift equivalence legacy↔consolidated.
         const verifyResult = verifyMigration(
-          plan.sources,
+          migratePlan.sources,
           plan.projectDbPath,
           plan.globalDbPath,
           (msg) => log.debug({ scope }, `exodus-on-open verify: ${msg}`),
@@ -657,6 +672,7 @@ async function runExodusOnOpen(
         };
       } finally {
         _exodusInProgress = false;
+        rmSync(bareScratch, { recursive: true, force: true });
       }
     },
     // Tolerate a slow migration: a large fleet copy can take a while, so allow a

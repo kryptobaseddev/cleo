@@ -116,10 +116,21 @@ async function armFixture(
   // DBs on a DEDICATED connection via openDualScopeDbAtPath. Wire it to the same
   // fixture handles so the real migrate/rollback engines exercise the fixture
   // target DBs (keyed by the fixture path the engine passes).
-  vi.mocked(dualScope.openDualScopeDbAtPath).mockImplementation((scope: string, dbPath: string) => {
-    const native = dbPath === fx.globalDbPath || scope === 'global' ? globalDb : projectDb;
-    return Promise.resolve(makeFakeHandle(native) as never);
-  });
+  // Only the FIXTURE targets are faked; any other path (e.g. the throwaway
+  // fresh-project store exodus builds to recognise seed rows, T12355) opens for
+  // real, so a mock can never pass the fixture off as a fresh store.
+  const actualDualScope =
+    await vi.importActual<typeof import('../dual-scope-db.js')>('../dual-scope-db.js');
+  vi.mocked(dualScope.openDualScopeDbAtPath).mockImplementation(
+    (scope: string, dbPath: string, exodusCwd?: string, options?: never) => {
+      if (dbPath !== fx.globalDbPath && dbPath !== fx.projectDbPath)
+        return scope === 'project'
+          ? (actualDualScope.openDualScopeDbAtPath('project', dbPath, exodusCwd, options) as never)
+          : (actualDualScope.openDualScopeDbAtPath('global', dbPath, exodusCwd, options) as never);
+      const native = dbPath === fx.globalDbPath || scope === 'global' ? globalDb : projectDb;
+      return Promise.resolve(makeFakeHandle(native) as never);
+    },
+  );
   vi.mocked(dualScope.resolveDualScopeDbPath).mockImplementation((scope: string) =>
     scope === 'project' ? fx.projectDbPath : fx.globalDbPath,
   );
