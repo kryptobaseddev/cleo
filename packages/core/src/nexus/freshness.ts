@@ -405,9 +405,11 @@ export async function assessNexusFreshnessForQuery(
 }
 
 /**
- * Disclose a non-fresh index on stderr and as an envelope warning
- * (`W_NEXUS_INDEX_STALE` / `W_NEXUS_INDEX_FRESHNESS_UNKNOWN`); silent when
- * fresh apart from reporting an inline refresh that just happened.
+ * Disclose a non-fresh index as an envelope warning
+ * (`W_NEXUS_INDEX_STALE` / `W_NEXUS_INDEX_FRESHNESS_UNKNOWN`), and an inline
+ * refresh that just happened as `W_NEXUS_INDEX_REFRESHED` (info). Warnings
+ * reach `meta.warnings` through the active collector — never stderr, which
+ * would break the one-envelope stream contract (T9775).
  *
  * @param subject - What answered, e.g. `nexus impact`.
  * @param freshness - Freshness of the index the answer came from.
@@ -415,9 +417,11 @@ export async function assessNexusFreshnessForQuery(
 export function discloseNexusFreshness(subject: string, freshness: GraphIndexFreshness): void {
   const refresh = freshness.autoRefresh;
   if (refresh?.refreshed) {
-    process.stderr.write(
-      `[nexus] Refreshed the index inline before answering (${refresh.staleFiles} stale file(s), ${refresh.durationMs}ms): ${refresh.reason}\n`,
-    );
+    pushWarning({
+      code: 'W_NEXUS_INDEX_REFRESHED',
+      severity: 'info',
+      message: `Refreshed the index inline before answering (${refresh.staleFiles} stale file(s), ${refresh.durationMs}ms): ${refresh.reason}`,
+    });
   }
   if (freshness.status === 'fresh') return;
   const symbol =
@@ -431,7 +435,6 @@ export function discloseNexusFreshness(subject: string, freshness: GraphIndexFre
         `Refresh: ${freshness.refreshCommand} — ${freshness.refreshEstimate}.` +
         (refresh && !refresh.refreshed ? ` Not refreshed inline: ${refresh.reason}.` : '')
       : `${subject} could not establish index freshness: ${freshness.reason ?? 'unknown reason'}.`;
-  process.stderr.write(`[nexus] ${message}\n`);
   pushWarning({
     code: freshness.status === 'stale' ? 'W_NEXUS_INDEX_STALE' : 'W_NEXUS_INDEX_FRESHNESS_UNKNOWN',
     severity: 'warn',

@@ -561,10 +561,10 @@ async function runScopedNexusAnalysis(
       signal?.throwIfAborted();
       const commitStart = Date.now();
       publishNexusGraph(db, rows, expectedGeneration);
-      process.stderr.write(
+      const timing =
         `[nexus] Publication: source recheck ${commitStart - recheckStart}ms, atomic commit of ` +
-          `${rows.nodes.length} nodes + ${rows.relations.length} relations ${Date.now() - commitStart}ms\n`,
-      );
+        `${rows.nodes.length} nodes + ${rows.relations.length} relations ${Date.now() - commitStart}ms\n`;
+      process.stderr.write(timing); // json-stream-hygiene-allowed: analyze progress telemetry on stderr, same channel as the pipeline phase log
       committedAssessment = rows.assessment ? assessmentSummary(rows.assessment) : null;
     },
   });
