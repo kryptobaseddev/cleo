@@ -16,17 +16,24 @@
  * call: it names the superseded file and PROVES which store is authoritative by
  * counting rows in both.
  *
- * Read-only. It never deletes anything — the recommendation is printed and the
- * operator decides.
+ * Read-only by default. It never deletes anything — the recommendation is
+ * printed and the operator decides.
+ *
+ * `--reconcile` (T12319) copies the rows a superseded file still holds that
+ * are missing from `cleo.db`, through the exodus copy engine: additive only,
+ * verified by key afterwards, reverted on any mismatch, legacy file left in
+ * place, receipt written. `--dry-run` reports what it would copy.
  *
  * @task T12095
+ * @task T12319
  * @see ADR-068 — dual-scope DB chokepoint
  */
 
 import { getProjectRoot } from '@cleocode/core';
 import { scanSupersededStores } from '@cleocode/core/doctor/superseded-store.js';
+import { reconcileSupersededStores } from '@cleocode/core/store/exodus/index.js';
 import { defineCommand } from '../lib/define-cli-command.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * `cleo doctor superseded-store` subcommand.
@@ -45,11 +52,45 @@ export const doctorSupersededStoreCommand = defineCommand({
       'Read-only — deletes nothing.',
   },
   args: {
+    reconcile: {
+      type: 'boolean',
+      description:
+        'Copy rows the superseded files hold that are missing from cleo.db (additive, verified, ' +
+        'reverted on mismatch; legacy files are never touched). Writes a receipt.',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description:
+        'With --reconcile: report per-table counts and what would be copied; write nothing',
+    },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },
     quiet: { type: 'boolean', description: 'Suppress non-essential output' },
   },
-  async run() {
+  async run({ args }) {
+    if (args.reconcile === true) {
+      const receipt = await reconcileSupersededStores(getProjectRoot(), {
+        dryRun: args['dry-run'] === true,
+      });
+      if (receipt.outcome === 'refused') {
+        cliError(receipt.reason, 'E_RECONCILE_REFUSED', {
+          details: receipt,
+          fix: `Inspect ${receipt.receiptPath ?? 'the receipt'}; the legacy files are unchanged, so it is safe to retry after fixing the cause.`,
+        });
+        process.exitCode = 1;
+        return;
+      }
+      cliOutput(
+        { kind: 'generic', ...receipt },
+        {
+          command: 'doctor',
+          operation: 'doctor.superseded-store.reconcile',
+          message: receipt.reason,
+        },
+      );
+      return;
+    }
+
     const result = scanSupersededStores(getProjectRoot());
 
     cliOutput(result, {

@@ -494,6 +494,9 @@ export type {
   SagaAuditResult,
   SagaAuditViolation,
   SagaAuditViolationKind,
+  SupersededStoreReconcileOutcome,
+  SupersededStoreReconcileResult,
+  SupersededStoreTableCount,
   WorktreeAnomaly,
   WorktreeAnomalyKind,
 } from './doctor.js';
