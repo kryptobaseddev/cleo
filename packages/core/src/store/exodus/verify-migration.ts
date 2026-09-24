@@ -640,35 +640,41 @@ function orphanSignature(
 }
 
 /**
- * Decide whether a TARGET orphan's missing parent ever existed in a legacy source.
+ * Decide whether a TARGET orphan was ALREADY an orphan in the legacy source.
  *
- * An orphan is migration-INTRODUCED only if the migration LOST its parent — i.e.
- * the referenced key is present in the source table that feeds the parent. When
- * no source holds that key, the reference was already dangling before the
- * migration. {@link sourceOrphanSignatures} cannot see that case when the legacy
- * schema never DECLARED the foreign key (e.g. pre-T1408 `architecture_decisions`
- * in claude-todo: `ADR-006.supersedes_id = 'ADR-001'`, no `ADR-001` anywhere),
- * because `PRAGMA foreign_key_check` only reports declared constraints (T12319).
+ * Pre-existing only if the SAME child row — identified by the target child
+ * table's primary key — exists in a legacy table that feeds the child table,
+ * holds the SAME value in the FK column, and that value was already dangling
+ * there: no legacy table feeding the parent holds it. That covers a reference
+ * the legacy schema never declared as an FK, which `PRAGMA foreign_key_check`
+ * cannot report (claude-todo: `ADR-006.supersedes_id = 'ADR-001'`, no
+ * `ADR-001` anywhere, T12319).
  *
- * Returns `true` (the strict, "introduced" direction) whenever the question
- * cannot be answered — unreadable FK metadata, a composite key, or no source
- * table mapped to the parent.
+ * Everything else in a table the migration WROTE is INTRODUCED: a child row
+ * absent from every source, a child whose FK value differs from its source row
+ * (a clean `1 → 1` that became `1 → 99` is corruption the migration made, even
+ * though `99` exists nowhere), a keyless child table, or any question that
+ * cannot be answered.
+ *
+ * A child table NO legacy table feeds was not written by the migration (e.g. a
+ * bare table the tasks-domain lineage rebuild restored from the store's own
+ * prior rows — claude-todo's `releases` → `commits`); an orphan there is
+ * introduced only if the migration lost its parent, i.e. a source held the key.
  *
  * @param targetDb - Consolidated DB holding the orphan row.
  * @param fk - One target `PRAGMA foreign_key_check` row.
  * @param sources - Legacy source descriptors of this verification.
- * @param resolveTarget - Where legacy tables were copied; a same-named legacy
- *   table routed to the parent feeds it too.
- * @returns Whether any source table feeding `fk.parent` holds the missing key.
- * @task T12319
+ * @param resolveTarget - Where legacy tables were copied.
+ * @returns `true` only when the same source row carried the same dangling reference.
+ * @task T12355
  */
-function parentKeyExistsInSources(
+function orphanAlreadyInSource(
   targetDb: DatabaseSync,
   fk: { table: string; rowid: number | null; parent: string; fkid: number },
   sources: readonly LegacyDbDescriptor[],
   resolveTarget: TargetResolver = resolveConsolidatedTableName,
 ): boolean {
-  if (fk.rowid === null) return true;
+  if (fk.rowid === null) return false;
   try {
     const refs = (
       targetDb.prepare(`PRAGMA foreign_key_list("${fk.table}")`).all() as Array<{
@@ -678,38 +684,98 @@ function parentKeyExistsInSources(
       }>
     ).filter((r) => r.id === fk.fkid);
     const ref = refs[0];
-    if (refs.length !== 1 || ref === undefined || ref.to === null) return true;
-    const row = targetDb
-      .prepare(`SELECT "${ref.from}" AS v FROM "${fk.table}" WHERE rowid = ?`)
-      .get(fk.rowid) as { v: unknown } | undefined;
-    const key = row?.v;
-    if (typeof key !== 'string' && typeof key !== 'number' && typeof key !== 'bigint') return true;
-    // Legacy tables whose rows land in the parent: the consolidated mapping plus
-    // a same-named legacy table the target resolver routes there (T12355).
-    const feeders = reverseLookup(fk.parent, sources);
-    for (const src of sources) {
-      const routed = resolveTarget(src.name, fk.parent);
-      if (routed.kind !== 'skip' && routed.targetName === fk.parent)
-        feeders.push({ sourceName: src.name, legacyTable: fk.parent });
-    }
-    if (feeders.length === 0) return true;
-    for (const feeder of feeders) {
-      const src = sources.find((s) => s.name === feeder.sourceName);
-      if (src === undefined || !existsSync(src.path)) continue;
-      const snap = openCleoDbSnapshot(src.path, { readOnly: true });
-      try {
-        if (!tableExists(snap.db, feeder.legacyTable)) continue;
-        const hit = snap.db
-          .prepare(`SELECT 1 AS ok FROM "${feeder.legacyTable}" WHERE "${ref.to}" = ? LIMIT 1`)
-          .get(key);
-        if (hit !== undefined) return true;
-      } finally {
-        snap.close();
+    if (refs.length !== 1 || ref === undefined || ref.to === null) return false;
+    const refFrom = ref.from;
+    const refTo = ref.to;
+    const pk = (
+      targetDb.prepare(`PRAGMA table_info("${fk.table}")`).all() as Array<{
+        name: string;
+        pk: number;
+      }>
+    )
+      .filter((c) => c.pk > 0)
+      .sort((a, b) => a.pk - b.pk)
+      .map((c) => c.name);
+    if (pk.length === 0) return false;
+    const child = targetDb
+      .prepare(
+        `SELECT ${[...pk, refFrom].map((c) => `"${c}"`).join(', ')} FROM "${fk.table}" WHERE rowid = ?`,
+      )
+      .get(fk.rowid) as Record<string, string | number | bigint | null> | undefined;
+    if (child === undefined) return false;
+    const key = child[refFrom];
+    if (key === null || key === undefined) return false;
+    const pkValues = pk.map((c) => child[c] ?? null);
+
+    /** Legacy (source, table) pairs whose rows land in `targetTable`. */
+    const feedersOf = (targetTable: string) => {
+      const feeders = reverseLookup(targetTable, sources);
+      for (const src of sources) {
+        const routed = resolveTarget(src.name, targetTable);
+        if (routed.kind !== 'skip' && routed.targetName === targetTable)
+          feeders.push({ sourceName: src.name, legacyTable: targetTable });
       }
-    }
-    return false;
+      return feeders;
+    };
+    /** Run `probe` against each existing feeder table; true if any hit. */
+    const anyFeeder = (
+      targetTable: string,
+      probe: (db: DatabaseSync, legacyTable: string, cols: ReadonlySet<string>) => boolean,
+    ): boolean => {
+      for (const feeder of feedersOf(targetTable)) {
+        const src = sources.find((s) => s.name === feeder.sourceName);
+        if (src === undefined || !existsSync(src.path)) continue;
+        const snap = openCleoDbSnapshot(src.path, { readOnly: true });
+        try {
+          if (!tableExists(snap.db, feeder.legacyTable)) continue;
+          const cols = new Set(
+            (
+              snap.db.prepare(`PRAGMA table_info("${feeder.legacyTable}")`).all() as Array<{
+                name: string;
+              }>
+            ).map((c) => c.name),
+          );
+          if (probe(snap.db, feeder.legacyTable, cols)) return true;
+        } finally {
+          snap.close();
+        }
+      }
+      return false;
+    };
+
+    const parentExistedInSource = (): boolean =>
+      anyFeeder(fk.parent, (db, legacyTable, cols) => {
+        if (!cols.has(refTo)) return false;
+        return (
+          db
+            .prepare(`SELECT 1 AS ok FROM "${legacyTable}" WHERE "${refTo}" = ? LIMIT 1`)
+            .get(key) !== undefined
+        );
+      });
+
+    // A child table no legacy table feeds was not written by this migration
+    // (e.g. a bare table the tasks-domain lineage rebuild restored from the
+    // store's own prior state). The migration can only have introduced such
+    // an orphan by LOSING its parent — i.e. if a source held the parent key.
+    // "Feeds" means a source that actually HAS such a table — the identity
+    // fallback maps any name, so a bare name alone proves nothing.
+    const writtenByMigration = anyFeeder(fk.table, () => true);
+    if (!writtenByMigration) return !parentExistedInSource();
+
+    const sameChildSameReference = anyFeeder(fk.table, (db, legacyTable, cols) => {
+      if (!pk.every((c) => cols.has(c)) || !cols.has(refFrom)) return false;
+      const where = [...pk, refFrom].map((c) => `"${c}" IS ?`).join(' AND ');
+      return (
+        db
+          .prepare(`SELECT 1 AS ok FROM "${legacyTable}" WHERE ${where} LIMIT 1`)
+          .get(...pkValues, key) !== undefined
+      );
+    });
+    if (!sameChildSameReference) return false;
+
+    return !parentExistedInSource();
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -1017,8 +1083,7 @@ export function verifyMigration(
       const orphanDb = tableExists(projectSnap.db, fk.table) ? projectSnap.db : globalSnap.db;
       const sig = orphanSignature(orphanDb, fk);
       const preExisting =
-        sourceOrphanSigs.has(sig) ||
-        !parentKeyExistsInSources(orphanDb, fk, sources, resolveTarget);
+        sourceOrphanSigs.has(sig) || orphanAlreadyInSource(orphanDb, fk, sources, resolveTarget);
       if (preExisting) {
         preExistingForeignKeyViolations.push(fk);
       } else {
