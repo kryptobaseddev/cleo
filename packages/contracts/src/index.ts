@@ -307,6 +307,15 @@ export type {
   SystemBinding,
 } from './config.js';
 export type { AdapterContextMonitorProvider } from './context-monitor.js';
+// === Credential Transfer Types (T12326 — portable credentials) ===
+export type {
+  CredentialDescriptor,
+  CredentialReentry,
+  CredentialStoreKind,
+  ProjectCredentialMigrationResult,
+  SealCredentialsResult,
+  UnsealCredentialsResult,
+} from './credential-transfer.js';
 // === Claude Code credential parsing (T9307 — pure helper, no core imports) ===
 export type {
   ClaudeCodeOAuthBlock,

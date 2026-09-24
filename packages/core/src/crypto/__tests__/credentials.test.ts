@@ -1,25 +1,36 @@
 /**
  * Credentials (AES-256-GCM) test suite.
  *
- * Tests the encrypt/decrypt roundtrip, version-byte validation,
- * truncated-ciphertext rejection, and wrong-project-key failure.
+ * Tests the project-KDF encrypt/decrypt roundtrip (keyed by project identity
+ * since T12326), version-byte validation, truncated-ciphertext rejection, and
+ * wrong-project-key failure. Path-move and legacy migration coverage lives in
+ * `store/__tests__/credential-transfer.test.ts`.
  * Each test is fully isolated — no shared state, no file system
  * dependencies beyond the auto-generated machine key.
  *
  * @see packages/core/src/crypto/credentials.ts
  * @task T180
+ * @task T12326
  */
 
 import { describe, expect, it } from 'vitest';
-import { decrypt, encrypt } from '../credentials.js';
+import { decryptProjectSecret, encryptProjectSecret } from '../credentials.js';
+
+/** Encrypt under the project-identity KDF. */
+const encrypt = encryptProjectSecret;
+
+/** Decrypt a project-identity ciphertext, returning only the plaintext. */
+async function decrypt(ciphertext: string, projectId: string): Promise<string> {
+  return (await decryptProjectSecret(ciphertext, { projectId })).plaintext;
+}
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-/** A stable project path used as the encryption context. */
-const PROJECT_A = '/tmp/test-project-a';
-const PROJECT_B = '/tmp/test-project-b';
+/** Stable project identities used as the encryption context. */
+const PROJECT_A = 'project-id-a';
+const PROJECT_B = 'project-id-b';
 
 // ============================================================================
 // Roundtrip
@@ -85,14 +96,14 @@ describe('credentials', () => {
   // --------------------------------------------------------------------------
 
   describe('cross-project key isolation', () => {
-    it('rejects ciphertext encrypted for a different project path', async () => {
+    it('rejects ciphertext encrypted for a different project id', async () => {
       const plaintext = 'secret-for-project-a';
       const ciphertext = await encrypt(plaintext, PROJECT_A);
-      // PROJECT_B produces a different derived key — decryption MUST fail
+      // PROJECT_B derives a different key — decryption MUST fail
       await expect(decrypt(ciphertext, PROJECT_B)).rejects.toThrow();
     });
 
-    it('accepts ciphertext when project path matches exactly', async () => {
+    it('accepts ciphertext when the project id matches exactly', async () => {
       const plaintext = 'cross-check';
       const ciphertext = await encrypt(plaintext, PROJECT_B);
       await expect(decrypt(ciphertext, PROJECT_B)).resolves.toBe(plaintext);
@@ -112,11 +123,13 @@ describe('credentials', () => {
     });
 
     it('throws on ciphertext with unknown version byte', async () => {
-      // Build a buffer that satisfies the minimum length but has version byte 0x02.
+      // Build a buffer that satisfies the minimum length but has an unassigned version byte.
       const fakeVersion = Buffer.alloc(1 + 12 + 0 + 16); // version + iv + 0 ciphertext + authTag
-      fakeVersion[0] = 0x02; // unsupported version
+      fakeVersion[0] = 0x7f; // unsupported version
       const encoded = fakeVersion.toString('base64');
-      await expect(decrypt(encoded, PROJECT_A)).rejects.toThrow(/[Uu]nknown ciphertext version/);
+      await expect(decrypt(encoded, PROJECT_A)).rejects.toThrow(
+        /[Uu]nknown project ciphertext version/,
+      );
     });
 
     it('throws on bit-flipped (corrupted) ciphertext — auth tag mismatch', async () => {
