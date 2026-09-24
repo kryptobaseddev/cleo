@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.20.5 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.20.6 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -194,9 +194,9 @@ Small legacy DBs beside large snapshots do not prove corruption. `cleo doctor su
 | Symbols touched by a task | `cleo nexus task-symbols <taskId>` |
 | Why does this symbol exist / who needs it | `cleo nexus why <symbol>` |
 | Detected communities / execution flows | `cleo nexus clusters` / `flows` |
-| Rebuild the index | `cleo nexus analyze` |
+| Refresh the index | `cleo nexus analyze` |
 
-**FIRST CALL IS `cleo nexus status`.** Check `nodeCount`, `lastIndexedAt`, `staleFileCount`/`fileCount`. No auto-refresh: newer symbols may return `E_NOT_FOUND`. For stale coverage, run `cleo nexus analyze` or inspect source with `git grep` and disclose that basis. Impact/context `E_NOT_FOUND` includes index size, median age and a repair command; inspect these first.
+**FIRST CALL IS `cleo nexus status`.** Check `nodeCount`, `lastIndexedAt`, `staleFileCount`/`fileCount`. Queries report `_nexus.freshness` and auto-refresh ≤25 stale files; beyond that they warn `W_NEXUS_INDEX_STALE`. `analyze` is incremental (`--full` rebuilds). For stale coverage, refresh or inspect source with `git grep` and disclose that basis. Impact/context `E_NOT_FOUND` includes index size, median age and a repair command; inspect these first.
 
 **Project resolution**: `--project-id` > `--path` > `cwd`.
 Default ID = `base64url(path).slice(0,32)`.

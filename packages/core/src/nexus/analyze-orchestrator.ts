@@ -31,6 +31,13 @@ import { worktreeScope } from '../paths.js';
 import { getProjectInfo } from '../project-info.js';
 import { createParserExecutionPort } from '../resources/spawn-wrapper.js';
 import { nexusNodes, nexusRelations } from '../store/schema/cleo-project/nexus-graph.js';
+import {
+  buildFileManifest,
+  clearFileManifest,
+  type GraphFileManifest,
+  writeFileManifest,
+  writeRunCost,
+} from './graph-manifest.js';
 import { generateProjectHash } from './hash.js';
 import { readKnowledgeIndexAssessment } from './knowledge.js';
 import { resolveSourceRoots } from './source-roots.js';
@@ -274,6 +281,9 @@ export function publishNexusGraph(
       } else {
         tx.run(sql`DELETE FROM main._nexus_meta WHERE key = 'graph_extractor_fingerprint'`);
       }
+      if (rows.assessment)
+        writeFileManifest(tx, buildFileManifest(rows.assessment, rows.assessment.files));
+      else clearFileManifest(tx);
       if (rows.assessment) {
         tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_assessment', ${JSON.stringify(rows.assessment)})
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
@@ -289,22 +299,27 @@ export function publishNexusGraph(
  * Re-record source provenance for a generation whose files were just verified
  * byte-identical to the current tree, without replacing any graph rows.
  * @param db - Owning project graph database.
- * @param assessment - The previous assessment with current roots and revision.
+ * @param assessment - The previous assessment with current roots and revision, or
+ *   `null` when only the file manifest needs re-recording.
+ * @param manifest - File manifest re-observed from the verified tree.
  * @param expectedGeneration - Generation the verification was performed against.
- * @returns The recorded assessment.
+ * @returns The recorded assessment, or `null` when none was re-recorded.
  * @throws When the generation changed since verification.
  */
 function recordVerifiedProvenance(
   db: NodeSQLiteDatabase,
-  assessment: GraphIndexAssessment,
+  assessment: GraphIndexAssessment | null,
+  manifest: GraphFileManifest,
   expectedGeneration: string | null,
-): GraphIndexAssessment {
+): GraphIndexAssessment | null {
   db.transaction(
     (tx) => {
       if (graphGeneration(tx) !== expectedGeneration)
         throw new Error('Nexus graph changed during verification; provenance not updated.');
-      tx.run(sql`UPDATE main._nexus_meta SET value = ${JSON.stringify(assessment)},
-        updated_at = strftime('%s', 'now') WHERE key = 'graph_assessment'`);
+      if (assessment)
+        tx.run(sql`UPDATE main._nexus_meta SET value = ${JSON.stringify(assessment)},
+          updated_at = strftime('%s', 'now') WHERE key = 'graph_assessment'`);
+      writeFileManifest(tx, manifest);
     },
     { behavior: 'immediate' },
   );
@@ -494,7 +509,7 @@ async function runScopedNexusAnalysis(
         'Source ownership or revision changed during indexing; previous graph retained.',
       );
   };
-  const recheckFiles = async (assessment: GraphIndexAssessment): Promise<void> => {
+  const recheckFiles = async (assessment: GraphIndexAssessment): Promise<ScannedFile[]> => {
     // Git observation yields. Reuse the full walker after it so an edit,
     // addition, rename or deletion during that await cannot publish stale bytes.
     const failures: string[] = [];
@@ -519,6 +534,7 @@ async function runScopedNexusAnalysis(
       )
     )
       throw new Error('Source files changed before publication; previous graph retained.');
+    return currentFiles;
   };
 
   const result = await runPipeline(repoPath, projectId, db, tables, onProgress, {
@@ -556,27 +572,45 @@ async function runScopedNexusAnalysis(
     // Incremental no-op still needs current provenance: Git or source bytes can
     // change while the pipeline scans without ever invoking the publisher.
     await recheckRoots();
-    await recheckFiles(previousAssessment);
+    const verifiedFiles = await recheckFiles(previousAssessment);
     execution?.assertActive();
     signal?.throwIfAborted();
     // T12315: a new commit with byte-identical sources no longer forces a full
     // rebuild, so the unchanged graph must still record the revision it was
     // just verified against — otherwise knowledge coverage would report it
     // stale forever. The files were re-hashed above, so the claim is exact.
-    if (
+    const provenance =
       previousAssessment.sourceRoots &&
       rootFingerprint(previousAssessment.sourceRoots) !== rootFingerprint(sourceRoots)
-    ) {
-      committedAssessment = recordVerifiedProvenance(
+        ? {
+            ...previousAssessment,
+            sourceRoots,
+            assessedRevision,
+            assessedAt: new Date().toISOString(),
+          }
+        : null;
+    // T12316: re-record current mtimes as well, so freshness checks keep taking
+    // the metadata fast path after a checkout or `touch` that changed no bytes.
+    committedAssessment =
+      recordVerifiedProvenance(
         db,
-        {
-          ...previousAssessment,
-          sourceRoots,
-          assessedRevision,
-          assessedAt: new Date().toISOString(),
-        },
+        provenance,
+        buildFileManifest(provenance ?? previousAssessment, verifiedFiles),
         expectedGeneration,
-      );
+      ) ?? committedAssessment;
+  }
+
+  // Advisory: remember what a publishing run cost, so a later freshness check
+  // can estimate a refresh before starting one (T12316).
+  if (result.summary.mode !== 'unchanged') {
+    try {
+      writeRunCost(db, {
+        summary: result.summary,
+        durationMs: Date.now() - startTime,
+        recordedAt: new Date().toISOString(),
+      });
+    } catch {
+      // non-fatal: estimates degrade to "unknown cost"
     }
   }
 

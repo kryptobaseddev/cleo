@@ -14,7 +14,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock @cleocode/core/internal so NexusHandler can be imported without a real DB.
-vi.mock('@cleocode/core/internal', () => ({
+vi.mock('@cleocode/core/internal', async () => ({
+  ...(await import('./freshness-mock.js')).freshnessMocks(),
   getProjectRoot: vi.fn(() => '/mock/project'),
   getLogger: vi.fn(() => ({
     error: vi.fn(),

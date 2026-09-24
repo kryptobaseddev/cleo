@@ -73,7 +73,7 @@ export {
   extractReExports,
   extractTypeScript,
 } from './extractors/typescript-extractor.js';
-export type { ScannedFile } from './filesystem-walker.js';
+export type { KnownFileFingerprint, ScannedFile, WalkOptions } from './filesystem-walker.js';
 export { walkRepositoryPaths } from './filesystem-walker.js';
 // Heritage processor (T536)
 export type { HeritageMap, HeritageProcessingResult } from './heritage-processor.js';

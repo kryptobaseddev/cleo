@@ -817,6 +817,19 @@ export {
   nexusSearch,
   searchAcrossProjects,
 } from './nexus/discover.js';
+export {
+  assessNexusFreshnessForQuery,
+  assessNexusIndexFreshness,
+  discloseNexusFreshness,
+  ensureNexusIndexFresh,
+  judgeSymbolFiles,
+  NEXUS_REFRESH_COMMAND,
+  type NexusAutoRefreshPolicy,
+  type NexusFreshnessAssessment,
+  querySymbolFiles,
+  readNexusAutoRefreshPolicy,
+  withNexusFreshnessMeta,
+} from './nexus/freshness.js';
 export { installNexusAugmentHook } from './nexus/hooks-augment.js';
 // EngineResult wrapper (T1569 Wave 1)
 export { nexusImpact } from './nexus/impact.js';

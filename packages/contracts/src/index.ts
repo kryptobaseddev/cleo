@@ -291,6 +291,8 @@ export type {
   LoggingConfig,
   LogLevel,
   MemoryBridgeMode,
+  NexusAutoRefreshConfig,
+  NexusConfig,
   OutputConfig,
   OutputFormat,
   ProviderConfig,

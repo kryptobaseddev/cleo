@@ -125,6 +125,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'write',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'share.status': {
     op: 'share.status',
@@ -149,6 +150,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   impact: {
     op: 'impact',
@@ -166,6 +168,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'task-footprint': {
     op: 'task-footprint',
@@ -174,6 +177,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph', 'tasks'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'brain-anchors': {
     op: 'brain-anchors',
@@ -182,6 +186,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph', 'brain'],
     requiresProject: true,
+    indexSensitive: true,
   },
   why: {
     op: 'why',
@@ -190,6 +195,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph', 'brain'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'impact-full': {
     op: 'impact-full',
@@ -207,6 +213,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'shape-check': {
     op: 'shape-check',
@@ -215,6 +222,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'search-code': {
     op: 'search-code',
@@ -223,6 +231,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph', 'fs'],
     requiresProject: true,
+    indexSensitive: true,
   },
   wiki: {
     op: 'wiki',
@@ -247,6 +256,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph', 'tasks'],
     requiresProject: true,
+    indexSensitive: true,
   },
 
   // ── Profile ops ───────────────────────────────────────────────────────────
@@ -435,6 +445,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   flows: {
     op: 'flows',
@@ -443,6 +454,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   context: {
     op: 'context',
@@ -517,6 +529,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'hot-paths': {
     op: 'hot-paths',
@@ -525,6 +538,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'hot-nodes': {
     op: 'hot-nodes',
@@ -533,6 +547,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'cold-symbols': {
     op: 'cold-symbols',
@@ -541,6 +556,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
 } as const satisfies Record<keyof NexusOps, NexusOperationDescriptor>;
 

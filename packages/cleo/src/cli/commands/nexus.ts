@@ -23,6 +23,14 @@ import { getProjectRoot } from '@cleocode/core';
 import { getSymbolImpact } from '@cleocode/core/nexus';
 import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
 import { exportNexusGraph } from '@cleocode/core/nexus/export.js';
+import {
+  assessNexusFreshnessForQuery,
+  assessNexusIndexFreshness,
+  discloseNexusFreshness,
+  judgeSymbolFiles,
+  querySymbolFiles,
+  withNexusFreshnessMeta,
+} from '@cleocode/core/nexus/freshness.js';
 import { KnowledgeSymbolAmbiguityError } from '@cleocode/core/nexus/knowledge.js';
 import { runNexusWiki } from '@cleocode/core/nexus/wiki-orchestrator.js';
 import { defineCommand, showUsage } from 'citty';
@@ -296,10 +304,20 @@ const statusCommand = defineCommand({
 
       const stats = await getIndexStats(projectId, repoPath, db, tables);
       const assessment = await readKnowledgeIndexAssessment(currentRoot);
+      // T12316: the manifest-based check also counts ADDED files, which a scan
+      // of indexed file nodes cannot see; prefer it whenever it is available.
+      const freshness = await assessNexusIndexFreshness(currentRoot);
       const durationMs = Date.now() - startTime;
 
       cliOutput(
-        { projectId, repoPath, ...stats, assessment },
+        {
+          projectId,
+          repoPath,
+          ...stats,
+          ...(freshness.status === 'unknown' ? {} : { staleFileCount: freshness.staleFileCount }),
+          freshness,
+          assessment,
+        },
         {
           command: 'nexus-status',
           operation: 'nexus.status',
@@ -1026,18 +1044,25 @@ const impactCommand = defineCommand({
     const maxDepth = Math.min(parseInt(args.depth as string, 10), 5);
     const symbolName = args.symbol as string;
     try {
+      // T12316: disclose how current the graph behind this answer is.
+      const assessment = await assessNexusFreshnessForQuery(repoPath);
       const result = await getSymbolImpact(symbolName, projectId, repoPath, {
         maxDepth,
         why: whyFlag,
       });
+      const freshness = judgeSymbolFiles(assessment, querySymbolFiles(result));
+      discloseNexusFreshness('nexus impact', freshness);
       const durationMs = Date.now() - startTime;
       cliOutput({ ...result, _symbolName: symbolName, _why: whyFlag } as Record<string, unknown>, {
         command: 'nexus-impact',
         operation: 'nexus.impact',
-        extensions: {
-          duration_ms: durationMs,
-          ...buildNexusMetaExtensions('impact', { symbol: symbolName, projectId }),
-        },
+        extensions: withNexusFreshnessMeta(
+          {
+            duration_ms: durationMs,
+            ...buildNexusMetaExtensions('impact', { symbol: symbolName, projectId }),
+          },
+          freshness,
+        ),
       });
     } catch (err) {
       const code =
