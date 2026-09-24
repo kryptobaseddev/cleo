@@ -1950,6 +1950,31 @@ export type {
   PlaybookRun,
   PlaybookRunStatus,
 } from './playbook.js';
+// === Portable Bundle (manifest v2) Types (T12318 — lossless machine migration) ===
+export type {
+  PortableBundleManifest,
+  PortableBundleScope,
+  PortableDatabaseEntry,
+  PortableDatabaseRole,
+  PortableExclusion,
+  PortableExportResult,
+  PortableFileEntry,
+  PortableGlobalSection,
+  PortableImportResult,
+  PortableImportSectionResult,
+  PortableKeyCounts,
+  PortableLegacyEvidence,
+  PortablePathFinding,
+  PortableProjectSection,
+  PortableReentryItem,
+  PortableRelocationReport,
+  PortableSectionBase,
+  PortableSkippedProject,
+  PortableSkipReason,
+  PortableSymlinkEntry,
+  PortableTableComparison,
+  PortableUnmigratedLegacyReport,
+} from './portable-bundle.js';
 // === PostgresDataAccessor Contracts — cloud-sync scaffold (T9062) ===
 export type {
   CreatePostgresDataAccessorFn,

@@ -25,7 +25,7 @@ import {
   RESTORE_CONFLICTS_MD,
   RESTORE_IMPORTED_SUBDIR,
 } from '../paths.js';
-import { cliOutput, humanInfo } from '../renderers/index.js';
+import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 import { backupInspectSubCommand } from './backup-inspect.js';
 import { backupRecoverSubCommand } from './backup-recover.js';
 import { backupVerifySubCommand } from './backup-verify.js';
@@ -144,19 +144,25 @@ const listCommand = defineCommand({
 });
 
 /**
- * `cleo backup export <name>` — export project + global state to a portable archive.
+ * `cleo backup export <name>` — export CLEO state to a portable bundle (manifest v2).
  *
- * Delegates to `packBundle` from `@cleocode/core/store/backup-pack.js`. When `--encrypt`
- * is requested, the passphrase is read from the `CLEO_BACKUP_PASSPHRASE`
- * environment variable (agent-friendly) or prompted interactively on a TTY.
+ * Delegates to `exportPortableBundle` in `@cleocode/core`. Scopes: `project`
+ * (this project's `.cleo/`), `global` (CLEO home + config home), `all`
+ * (both), `machine` (global + every registered live project, temp paths
+ * skipped). A missing primary store fails the export — it never reports
+ * success for an empty bundle. When `--encrypt` is requested the passphrase
+ * is read from `CLEO_BACKUP_PASSPHRASE` or prompted on a TTY; only encrypted
+ * bundles carry secrets.
  *
  * @task T359
+ * @task T12318
  * @epic T311
  */
 const exportCommand = defineCommand({
   meta: {
     name: 'export',
-    description: 'Export project + global state to a portable .cleobundle.tar.gz',
+    description:
+      'Export CLEO state to a portable .cleobundle.tar.gz (scopes: project | global | all | machine)',
   },
   args: {
     name: {
@@ -166,12 +172,13 @@ const exportCommand = defineCommand({
     },
     scope: {
       type: 'string',
-      description: 'project | global | all',
+      description: 'project | global | all | machine',
       default: 'project',
     },
     encrypt: {
       type: 'boolean',
-      description: 'Encrypt bundle with passphrase (AES-256-GCM via scrypt)',
+      description:
+        'Encrypt bundle with passphrase (AES-256-GCM via scrypt); required to carry secrets',
     },
     out: {
       type: 'string',
@@ -179,70 +186,35 @@ const exportCommand = defineCommand({
     },
   },
   async run({ args }): Promise<void> {
-    const scope = args.scope as 'project' | 'global' | 'all';
-
-    const { packBundle } = await import('@cleocode/core/store/backup-pack.js');
-    const { getProjectRoot } = await import('@cleocode/core');
-
-    const includesProject = scope === 'project' || scope === 'all';
-    const projectRoot = includesProject ? getProjectRoot() : undefined;
-
-    let passphrase: string | undefined;
-    if (args.encrypt === true) {
-      passphrase = process.env['CLEO_BACKUP_PASSPHRASE'];
-      if (!passphrase) {
-        try {
-          passphrase = await promptPassphrase();
-        } catch (promptErr) {
-          const msg = promptErr instanceof Error ? promptErr.message : String(promptErr);
-          process.stderr.write(
-            JSON.stringify({ success: false, error: { code: 6, message: msg } }) + '\n',
-          );
-          process.exitCode = 6;
-          return;
-        }
-      }
-      if (!passphrase) {
-        process.stderr.write(
-          JSON.stringify({
-            success: false,
-            error: { code: 6, message: '--encrypt requires a passphrase' },
-          }) + '\n',
-        );
-        process.exitCode = 6;
-        return;
-      }
+    const scope = args.scope;
+    if (scope !== 'project' && scope !== 'global' && scope !== 'all' && scope !== 'machine') {
+      cliError(`--scope must be project, global, all or machine (got "${scope}")`, 6, {
+        name: 'E_VALIDATION',
+      });
+      process.exitCode = 6;
+      return;
     }
-
+    const { exportPortableBundle, PortableBundleError } = await import(
+      '@cleocode/core/store/portable-bundle.js'
+    );
+    const { getProjectRoot } = await import('@cleocode/core');
+    const passphrase = args.encrypt === true ? await resolvePassphrase() : undefined;
+    if (args.encrypt === true && passphrase === undefined) return;
     const encSuffix = args.encrypt === true ? 'enc.' : '';
-    const outputPath = args.out ?? `./${args.name}.${encSuffix}cleobundle.tar.gz`;
-
     try {
-      const result = await packBundle({
+      const result = await exportPortableBundle({
         scope,
-        projectRoot,
-        outputPath,
+        projectRoot: scope === 'project' || scope === 'all' ? getProjectRoot() : undefined,
+        outputPath: args.out ?? `./${args.name}.${encSuffix}cleobundle.tar.gz`,
         encrypt: args.encrypt === true,
         passphrase,
-        projectName: args.name,
+        label: args.name,
       });
-      cliOutput(
-        {
-          bundlePath: result.bundlePath,
-          size: result.size,
-          fileCount: result.fileCount,
-          scope,
-          encrypted: args.encrypt === true,
-        },
-        { command: 'backup', operation: 'backup.add' },
-      );
-      humanInfo(
-        `Bundle written to ${result.bundlePath} (${result.size} bytes, ${result.fileCount} files)`,
-      );
+      cliOutput(result, { command: 'backup', operation: 'backup.export' });
+      humanInfo(`Bundle written to ${result.bundlePath} (${result.size} bytes)`);
+      humanInfo(result.memory.notice);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      process.stderr.write(JSON.stringify({ success: false, error: { code: 1, message } }) + '\n');
-      process.exitCode = 1;
+      reportBundleError(err, err instanceof PortableBundleError ? err : null, 'E_EXPORT_FAILED');
     }
   },
 });
@@ -278,9 +250,24 @@ const importCommand = defineCommand({
       type: 'boolean',
       description: 'Overwrite existing live data at target without aborting',
     },
+    target: {
+      type: 'string',
+      description:
+        'Portable bundles: place a single-project bundle at this project root (paths are relocated)',
+    },
+    map: {
+      type: 'string',
+      description:
+        'Portable bundles: rewrite project paths <oldPrefix>=<newPrefix> (repeatable; longest prefix wins)',
+    },
   },
-  async run({ args }): Promise<void> {
+  async run({ args, rawArgs }): Promise<void> {
     const bundlePath = args.bundle;
+    const { detectBundleFormat } = await import('@cleocode/core/store/portable-bundle-import.js');
+    if ((await detectBundleFormat(bundlePath)) === 'v2') {
+      await portableImport(bundlePath, args.target, collectFlagValues(rawArgs, 'map'), args.force);
+      return;
+    }
     const { getProjectRoot, getCleoHome, getCleoVersion } = await import('@cleocode/core');
     const { BundleError, cleanupStaging, unpackBundle } = await import(
       '@cleocode/core/store/backup-unpack.js'
@@ -544,6 +531,117 @@ export const backupCommand = defineCommand({
     await dispatchFromCli('mutate', 'admin', 'backup', {}, { command: 'backup' });
   },
 });
+
+// ---------------------------------------------------------------------------
+// T12318 portable-bundle helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the bundle passphrase from `CLEO_BACKUP_PASSPHRASE` or a TTY prompt.
+ * Emits a LAFS error and sets the exit code when none is available.
+ *
+ * @returns The passphrase, or undefined after reporting the failure.
+ *
+ * @task T12318
+ */
+async function resolvePassphrase(): Promise<string | undefined> {
+  let passphrase = process.env['CLEO_BACKUP_PASSPHRASE'];
+  if (!passphrase) {
+    try {
+      passphrase = await promptPassphrase();
+    } catch (promptErr) {
+      passphrase = undefined;
+      cliError(promptErr instanceof Error ? promptErr.message : String(promptErr), 6, {
+        name: 'E_PASSPHRASE_REQUIRED',
+      });
+    }
+  }
+  if (!passphrase) {
+    if (process.exitCode === undefined) cliError('a passphrase is required', 6);
+    process.exitCode = 6;
+    return undefined;
+  }
+  return passphrase;
+}
+
+/**
+ * Collect every value of a repeatable `--<flag> <v>` / `--<flag>=<v>` option.
+ *
+ * @param rawArgs - Raw argv of the subcommand.
+ * @param flag - Flag name without dashes.
+ * @returns Values in order.
+ *
+ * @task T12318
+ */
+function collectFlagValues(rawArgs: readonly string[], flag: string): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i] ?? '';
+    if (arg === `--${flag}` && i + 1 < rawArgs.length) values.push(rawArgs[++i] ?? '');
+    else if (arg.startsWith(`--${flag}=`)) values.push(arg.slice(flag.length + 3));
+  }
+  return values;
+}
+
+/**
+ * Import a portable (manifest v2) bundle and emit the per-section report.
+ * Exits non-zero on any integrity failure or row-count mismatch.
+ *
+ * @param bundlePath - Bundle file.
+ * @param target - Optional single-project destination root.
+ * @param mapValues - Raw `--map` values.
+ * @param force - Overwrite existing live data.
+ *
+ * @task T12318
+ */
+async function portableImport(
+  bundlePath: string,
+  target: string | undefined,
+  mapValues: string[],
+  force: boolean | undefined,
+): Promise<void> {
+  const core = await import('@cleocode/core/store/portable-bundle-import.js');
+  const { PortableBundleError } = await import('@cleocode/core/store/portable-bundle.js');
+  try {
+    const needsPass = isBundleEncrypted(bundlePath);
+    const passphrase = needsPass ? await resolvePassphrase() : undefined;
+    if (needsPass && passphrase === undefined) return;
+    const result = await core.importPortableBundle({
+      bundlePath,
+      passphrase,
+      target,
+      maps: core.parsePathMappings(mapValues),
+      force: force === true,
+      requireLossless: true,
+      registerProject: core.registerRelocatedProject,
+    });
+    cliOutput(result, { command: 'backup', operation: 'backup.import' });
+  } catch (err) {
+    reportBundleError(err, err instanceof PortableBundleError ? err : null, 'E_IMPORT_FAILED');
+  }
+}
+
+/**
+ * Emit a LAFS error for a failed export/import and set the exit code.
+ *
+ * @param err - The thrown value.
+ * @param bundleErr - The same value when it is a `PortableBundleError`, else null.
+ * @param fallbackName - Code name for unexpected errors.
+ *
+ * @task T12318
+ */
+function reportBundleError(
+  err: unknown,
+  bundleErr: { code: string; exitCode: number; details?: unknown } | null,
+  fallbackName: string,
+): void {
+  const exitCode = bundleErr?.exitCode ?? 1;
+  cliError(err instanceof Error ? err.message : String(err), exitCode, {
+    name: bundleErr?.code ?? fallbackName,
+    ...(bundleErr?.details !== undefined ? { details: bundleErr.details } : {}),
+  });
+  process.exitCode = exitCode;
+}
 
 // ---------------------------------------------------------------------------
 // T361 private helpers
