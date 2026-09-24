@@ -26,6 +26,7 @@ import {
   type NexusUnregisterParams,
 } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/lafs';
+import { readPortableProjectId } from '@cleocode/paths';
 import { eq, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
@@ -318,17 +319,28 @@ async function readProjectMeta(
   }
 }
 
-/** Read the declared immutable identity; absence differs from unreadable metadata. */
+/**
+ * Read the declared immutable identity; absence differs from unreadable metadata.
+ *
+ * The local `project-info.json` id wins (ADR-094, T12325: local state
+ * is keyed by it); a checkout that has not run `cleo init` yet declares the
+ * tracked write-once `.cleo/project-id`, so a fresh clone never registers under
+ * a path-derived fallback.
+ */
 async function readProjectId(projectPath: string): Promise<string> {
   const infoPath = join(projectPath, '.cleo', 'project-info.json');
+  const tracked = (): string => {
+    const read = readPortableProjectId(projectPath);
+    return read.status === 'valid' ? read.projectId : '';
+  };
   try {
     return (
       z
         .object({ projectId: z.string().min(1).optional() })
-        .parse(JSON.parse(await readFile(infoPath, 'utf8'))).projectId ?? ''
+        .parse(JSON.parse(await readFile(infoPath, 'utf8'))).projectId ?? tracked()
     );
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return '';
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return tracked();
     throw new CleoError(
       ExitCode.CONFIG_ERROR,
       `Cannot read project identity at ${infoPath}: ${error instanceof Error ? error.message : String(error)}`,

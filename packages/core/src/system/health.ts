@@ -39,6 +39,7 @@ import {
   checkCoreFilesNotIgnored,
   checkLegacyAgentOutputs,
   checkNodeVersion,
+  checkProjectIdentity,
   checkVitalFilesTracked,
 } from '../validation/doctor/checks.js';
 import { checkAllDependencies } from './dependencies.js';
@@ -336,6 +337,24 @@ export async function getSystemHealth(
     }
   } else {
     checks.push({ name: 'config_json', status: 'warn', message: 'config.json not found' });
+  }
+
+  // T12353 / ADR-094: tracked write-once identity vs project-info.json.
+  {
+    const { inspectProjectIdentity } = await import('../doctor/project-identity.js');
+    const identity = inspectProjectIdentity(projectRoot);
+    if (identity.state !== 'uninitialized') {
+      checks.push({
+        name: 'project_identity',
+        status:
+          identity.state === 'ok'
+            ? 'pass'
+            : identity.state === 'conflict' || identity.state === 'invalid'
+              ? 'fail'
+              : 'warn',
+        message: identity.remedy ? `${identity.message} Run: ${identity.remedy}` : identity.message,
+      });
+    }
   }
 
   // Check for stale JSON files alongside tasks.db
@@ -933,6 +952,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   checks.push(mapHookResults(hookResults));
 
   checks.push(mapCheckResult(checkProjectInfo(projectRoot)));
+  // T12353: tracked write-once identity vs project-info.json (ADR-094)
+  checks.push(mapCheckResult(checkProjectIdentity(projectRoot)));
 
   // Project context check
   checks.push(mapCheckResult(checkProjectContext(projectRoot)));

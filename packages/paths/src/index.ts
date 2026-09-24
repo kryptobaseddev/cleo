@@ -15,6 +15,7 @@
  *   {@link resolveWorktreeRootForHash}, {@link resolveTaskWorktreePath},
  *   {@link getCleoWorktreesRoot}, {@link resolveWorktreeIndexPath}
  * - {@link isAbsolutePath} — cross-platform abs-path check
+ * - Portable identity: {@link readPortableProjectId} (tracked `.cleo/project-id`, T12325)
  *
  * @packageDocumentation
  * @task T1883
@@ -55,6 +56,15 @@ export {
   type PlatformPathsResolver,
   type SystemInfo,
 } from './platform-paths.js';
+export {
+  formatPortableProjectId,
+  isValidPortableProjectId,
+  PORTABLE_PROJECT_ID_FILE,
+  type PortableProjectIdRead,
+  parsePortableProjectId,
+  portableProjectIdPath,
+  readPortableProjectId,
+} from './portable-project-id.js';
 export {
   computeProjectHash,
   getCleoWorktreesRoot,

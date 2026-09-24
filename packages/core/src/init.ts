@@ -82,6 +82,13 @@ export interface InitOptions {
    * one minor release to avoid breaking existing scripts.
    */
   installSeedAgents?: boolean;
+  /**
+   * Mint a new project identity instead of re-linking one the global
+   * registry already holds for this checkout (T12325). Has no effect when
+   * `project-info.json` or the tracked `.cleo/project-id` already declares
+   * an identity — neither is ever rewritten.
+   */
+  newIdentity?: boolean;
 }
 
 /** Result of the init operation. */
@@ -985,11 +992,22 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   }
 
   // T4684: Project info (.cleo/project-info.json)
-  const projectInfoResult = await ensureProjectInfo(projRoot, { force });
+  // T12325: the id is adopted into the tracked write-once .cleo/project-id;
+  // re-links, conflicts and missing registry coverage are reported, not hidden.
+  const projectInfoResult = await ensureProjectInfo(projRoot, {
+    force,
+    mintNewIdentity: opts.newIdentity,
+  });
   if (projectInfoResult.action === 'skipped') {
     skipped.push('project-info.json');
   } else {
     created.push('project-info.json');
+  }
+  if (
+    projectInfoResult.details &&
+    /re-linked|conflict|invalid|coverage missing/.test(projectInfoResult.details)
+  ) {
+    warnings.push(`Project identity: ${projectInfoResult.details}`);
   }
 
   // Project context detection (always run during init)

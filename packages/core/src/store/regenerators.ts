@@ -28,6 +28,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { readPortableProjectId } from '@cleocode/paths';
 import { generateProjectHash } from '../nexus/hash.js';
 import { createDefaultConfig, getCleoVersion } from '../scaffold.js';
 import { getSchemaVersion } from '../schema-management.js';
@@ -130,7 +131,9 @@ export function regenerateConfigJson(projectRoot: string): RegeneratedFile {
  *
  * Captures machine-local fields:
  *   - `projectHash` — SHA-256 of the resolved absolute path (first 12 chars)
- *   - `projectId`   — fresh UUID (volatile; each call produces a new value)
+ *   - `projectId`   — the tracked write-once `.cleo/project-id` when present
+ *                     (T12325 — a restore must not re-key a portable project);
+ *                     otherwise a fresh UUID (volatile; each call differs)
  *   - `lastUpdated` — current ISO timestamp (volatile)
  *   - `cleoVersion` — read from `@cleocode/core/package.json` at runtime
  *   - `schemas.*`   — schema version strings from bundled JSON schema files
@@ -149,6 +152,7 @@ export function regenerateConfigJson(projectRoot: string): RegeneratedFile {
 export function regenerateProjectInfoJson(projectRoot: string): RegeneratedFile {
   const resolvedRoot = resolve(projectRoot);
   const projectHash = generateProjectHash(resolvedRoot);
+  const trackedId = readPortableProjectId(resolvedRoot);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
 
@@ -160,7 +164,7 @@ export function regenerateProjectInfoJson(projectRoot: string): RegeneratedFile 
   const content: Record<string, unknown> = {
     $schema: './schemas/project-info.schema.json',
     schemaVersion: '1.0.0',
-    projectId: randomUUID(),
+    projectId: trackedId.status === 'valid' ? trackedId.projectId : randomUUID(),
     projectHash,
     cleoVersion,
     lastUpdated: now,
