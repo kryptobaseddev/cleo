@@ -174,6 +174,30 @@ export const nexusProjectIdAliases = sqliteTable(
   (table) => [index('idx_nexus_project_id_aliases_canonical').on(table.canonicalId)],
 );
 
+/**
+ * `nexus_project_paths` — device-local path map: every checkout of a project
+ * seen on this device, keyed by path (T12354). The registry row holds one path
+ * per `project_id`; this table lets two checkouts of one project coexist.
+ *
+ * @task T12354
+ */
+export const nexusProjectPaths = sqliteTable(
+  'nexus_project_paths',
+  {
+    /** Absolute checkout root on this device. Primary key. */
+    projectPath: text('project_path').primaryKey(),
+    /** Immutable project id (soft FK → nexus_project_registry). */
+    projectId: text('project_id').notNull(),
+    /** Path fingerprint of this checkout. */
+    projectHash: text('project_hash').notNull(),
+    /** ISO-8601 UTC first-recorded instant (canonical TEXT, §4). */
+    firstSeen: text('first_seen').notNull().default(sql`(datetime('now'))`),
+    /** ISO-8601 UTC last-encountered instant (canonical TEXT, §4). */
+    lastSeen: text('last_seen').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [index('idx_nexus_project_paths_project_id').on(table.projectId)],
+);
+
 // ---------------------------------------------------------------------------
 // Audit + schema meta
 // ---------------------------------------------------------------------------
@@ -340,6 +364,10 @@ export type NewNexusProjectRegistryRow = typeof nexusProjectRegistry.$inferInser
 export type NexusProjectIdAliasRow = typeof nexusProjectIdAliases.$inferSelect;
 /** Row type for `nexus_project_id_aliases` INSERT (target shape). */
 export type NewNexusProjectIdAliasRow = typeof nexusProjectIdAliases.$inferInsert;
+/** Row type for `nexus_project_paths` SELECT (T12354). */
+export type NexusProjectPathRow = typeof nexusProjectPaths.$inferSelect;
+/** Row type for `nexus_project_paths` INSERT (T12354). */
+export type NewNexusProjectPathRow = typeof nexusProjectPaths.$inferInsert;
 /** Row type for `nexus_audit_log` SELECT (target shape). */
 export type NexusAuditLogRow = typeof nexusAuditLog.$inferSelect;
 /** Row type for `nexus_audit_log` INSERT (target shape). */

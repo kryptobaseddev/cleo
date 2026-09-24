@@ -6965,7 +6965,12 @@ export const OPERATIONS: OperationDef[] = [
         required: false,
         description: 'JS regex matched against project_path',
       },
-      { name: 'includeTemp', type: 'boolean', required: false, description: 'Match .temp/ paths' },
+      {
+        name: 'includeTemp',
+        type: 'boolean',
+        required: false,
+        description: 'Match .temp/ or OS temp-directory paths',
+      },
       {
         name: 'includeTests',
         type: 'boolean',
@@ -7000,7 +7005,8 @@ export const OPERATIONS: OperationDef[] = [
         name: 'vacuum',
         type: 'boolean',
         required: false,
-        description: 'After delete, run sqlite VACUUM on nexus.db to reclaim space (T9117)',
+        description:
+          'After delete, VACUUM the global registry store (<cleoHome>/cleo.db) to reclaim space (T9117 · T12324)',
       },
     ],
   },

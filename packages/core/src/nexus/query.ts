@@ -22,6 +22,7 @@ import { getTaskAccessor } from '../store/data-accessor.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusNativeDb } from '../store/nexus-sqlite.js';
 import { nexusGetProject, readRegistry } from './registry.js';
+import { registryStorePath } from './registry-hygiene.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -153,13 +154,13 @@ export async function resolveProjectPath(projectName: string): Promise<string> {
  * Read tasks from a project's task database.
  */
 async function readProjectTasks(projectPath: string): Promise<Task[]> {
-  const tasksDbPath = join(projectPath, '.cleo', 'tasks.db');
+  const storePath = registryStorePath(projectPath);
   try {
     const accessor = await getTaskAccessor(projectPath);
     const { tasks } = await accessor.queryTasks({});
     return tasks;
   } catch {
-    throw new CleoError(ExitCode.NOT_FOUND, `Project task data not found: ${tasksDbPath}`);
+    throw new CleoError(ExitCode.NOT_FOUND, `Project task data not found: ${storePath}`);
   }
 }
 

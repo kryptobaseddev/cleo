@@ -116,9 +116,9 @@ export interface NexusProjectRecord {
   taskCount: number;
   /** Project-level labels. */
   labels: string[];
-  /** Absolute path to project's brain.db (nullable until populated). */
+  /** Absolute path to the project's live store holding brain tables (`.cleo/cleo.db`; nullable until populated). */
   brainDbPath: string | null;
-  /** Absolute path to project's tasks.db (nullable until populated). */
+  /** Absolute path to the project's live store holding task tables (`.cleo/cleo.db`; nullable until populated). */
   tasksDbPath: string | null;
   /** ISO 8601 timestamp of the last code-intelligence index run. */
   lastIndexed: string | null;
@@ -1347,9 +1347,9 @@ export interface NexusProjectsCleanParams {
   dryRun?: boolean;
   /** JS regex matched against project_path. */
   pattern?: string;
-  /** Match paths containing a .temp/ segment. */
+  /** Match paths containing a .temp/ segment or under the OS temp directory (T12324). */
   includeTemp?: boolean;
-  /** Match paths containing tmp/test/fixture/scratch/sandbox segments. */
+  /** Match paths containing tmp/test(s)/__tests__/fixture(s)/scratch/sandbox segments. */
   includeTests?: boolean;
   /** Also match unhealthy rows. */
   matchUnhealthy?: boolean;
@@ -1359,9 +1359,85 @@ export interface NexusProjectsCleanParams {
   matchOrphaned?: boolean;
   /** Also `rm -rf` matched paths from disk after DB delete (T9117). */
   removeFs?: boolean;
-  /** Run sqlite VACUUM on nexus.db after delete to reclaim space (T9117). */
+  /** VACUUM the GLOBAL registry store (`<cleoHome>/cleo.db`) after delete (T9117 · T12324). */
   vacuum?: boolean;
 }
+
+/** One checkout of a project recorded in the device-local path map (T12354). */
+export interface NexusProjectCheckout {
+  /** Absolute checkout root on this device. */
+  projectPath: string;
+  /** Path fingerprint of the checkout. */
+  projectHash: string;
+  /** ISO 8601 timestamp the checkout was first recorded. */
+  firstSeen: string;
+  /** ISO 8601 timestamp the checkout was last encountered. */
+  lastSeen: string;
+  /** Whether the checkout directory exists now. */
+  exists: boolean;
+}
+
+/** Why a registry row matched `nexus.projects.clean` criteria (T12324). */
+export type NexusProjectsCleanReason =
+  | 'pattern'
+  | 'temp-path'
+  | 'test-path'
+  | 'unhealthy'
+  | 'never-indexed'
+  | 'missing-path'
+  | 'path-divergent-duplicate';
+
+/**
+ * Criteria-independent classification of every registry row (T12324).
+ *
+ * Categories overlap (a missing temp dir counts in both); `stale` is their
+ * union and `retained` its complement.
+ */
+export interface NexusRegistryClassification {
+  /** Registry rows scanned. */
+  total: number;
+  /** Rows whose `project_path` no longer exists on disk. */
+  missingPath: number;
+  /** Rows under a `.temp/` segment or the OS temp directory. */
+  tempPath: number;
+  /** Rows with a tmp/test(s)/__tests__/fixture(s)/scratch/sandbox path segment. */
+  testPath: number;
+  /** Rows in at least one of the categories above. */
+  stale: number;
+  /** Rows in none of the categories above. */
+  retained: number;
+  /** Rows in `nexus_project_id_aliases`. */
+  aliases: number;
+  /** Alias rows whose canonical project no longer has a registry row. */
+  orphanAliases: number;
+}
+
+/** One registry row removed by `nexus.projects.clean` (T12324). */
+export interface NexusProjectsCleanRemoval {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered project path. */
+  projectPath: string;
+  /** Every criterion the row matched. */
+  reasons: NexusProjectsCleanReason[];
+}
+
+/** Durable record of an applied `nexus.projects.clean` (T12324). */
+export interface NexusProjectsCleanReceipt {
+  /** `nexus_audit_log.id` written in the same transaction as the deletes. */
+  auditId: string;
+  /** Global store the rows were removed from. */
+  storePath: string;
+  /** Every removed registry row. */
+  removed: NexusProjectsCleanRemoval[];
+  /** Alias rows removed because their project row was removed. */
+  aliasesRemoved: number;
+  /** Pre-existing orphan alias rows swept in the same transaction. */
+  orphanAliasesRemoved: number;
+  /** Global store size before/after VACUUM, when `vacuum` was requested. */
+  vacuum?: { beforeBytes: number; afterBytes: number };
+}
+
 /** Result of `nexus.projects.clean`. */
 export interface NexusProjectsCleanResult {
   /** Whether this was a dry-run (no deletions performed). */
@@ -1382,6 +1458,12 @@ export interface NexusProjectsCleanResult {
   fsFailed?: number;
   /** Bytes freed by VACUUM when `vacuum` is set (T9117). */
   vacuumBytesFreed?: number;
+  /** Classification of every registry row, independent of criteria (T12324). */
+  classification: NexusRegistryClassification;
+  /** Matched-row counts per criterion; a row matching several counts in each (T12324). */
+  matchedByReason: Partial<Record<NexusProjectsCleanReason, number>>;
+  /** Receipt of the applied removal; absent on dry-run or when nothing matched (T12324). */
+  receipt?: NexusProjectsCleanReceipt;
 }
 
 /** Parameters for `nexus.refresh-bridge`. */

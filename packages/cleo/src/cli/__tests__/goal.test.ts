@@ -60,6 +60,10 @@ function runCli(
     CLEO_PROJECT_ROOT: projectRoot,
     CLEO_ROOT: projectRoot,
     CLEO_DIR: join(projectRoot, '.cleo'),
+    // T12324: pin the global home beside the fixture so the spawned CLI can
+    // never register this temp project in the host's real registry, even if
+    // the inherited environment is not the vitest fork sandbox.
+    CLEO_HOME: join(projectRoot, '.cleo-home'),
     CLEO_OUTPUT_FORMAT: 'json',
   };
   if (identity) {

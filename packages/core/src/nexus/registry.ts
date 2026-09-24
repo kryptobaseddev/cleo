@@ -38,9 +38,16 @@ import { getTaskAccessor } from '../store/data-accessor.js';
 // Re-export only: resetNexusDbState used by tests and index barrel.
 import { resetNexusDbState } from '../store/nexus-sqlite.js';
 import type { ProjectRegistryRow } from '../store/schema/nexus-schema.js';
-import { nexusAuditLog, projectIdAliases, projectRegistry } from '../store/schema/nexus-schema.js';
+import {
+  nexusAuditLog,
+  projectIdAliases,
+  projectPaths,
+  projectRegistry,
+} from '../store/schema/nexus-schema.js';
 import { generateProjectHash } from './hash.js';
 import { canonicalProjectId, legacyProjectId } from './identity.js';
+import { recordProjectCheckout } from './path-map.js';
+import { normalizeRegistryStorePath, registryStorePath } from './registry-hygiene.js';
 
 // ── Domain types ─────────────────────────────────────────────────────
 //
@@ -74,9 +81,9 @@ export interface NexusProject {
   lastSync: string;
   taskCount: number;
   labels: string[];
-  /** Absolute path to the project's brain.db. Null if not yet populated. */
+  /** Absolute path to the project's live store holding brain tables (`.cleo/cleo.db`). Null if not yet populated. */
   brainDbPath: string | null;
-  /** Absolute path to the project's tasks.db. Null if not yet populated. */
+  /** Absolute path to the project's live store holding task tables (`.cleo/cleo.db`). Null if not yet populated. */
   tasksDbPath: string | null;
   /** ISO 8601 timestamp of the last code intelligence index run. Null if never indexed. */
   lastIndexed: string | null;
@@ -146,8 +153,9 @@ function rowToProject(row: ProjectRegistryRow): NexusProject {
     lastSync: row.lastSync,
     taskCount: row.taskCount,
     labels,
-    brainDbPath: row.brainDbPath ?? null,
-    tasksDbPath: row.tasksDbPath ?? null,
+    // T12324: rows written before the fix still name the pre-E6 relics.
+    brainDbPath: normalizeRegistryStorePath(row.brainDbPath ?? null),
+    tasksDbPath: normalizeRegistryStorePath(row.tasksDbPath ?? null),
     lastIndexed: row.lastIndexed ?? null,
     stats,
   };
@@ -513,8 +521,8 @@ export async function nexusRegister(
           taskCount: meta.taskCount,
           labelsJson: JSON.stringify(meta.labels),
           lastSeen: now,
-          brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
-          tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
+          brainDbPath: registryStorePath(resolvedPath),
+          tasksDbPath: registryStorePath(resolvedPath),
         };
         if (existing)
           tx.update(projectRegistry)
@@ -533,6 +541,13 @@ export async function nexusRegister(
               statsJson: '{}',
             })
             .run();
+        // T12354: record this checkout in the device-local path map.
+        recordProjectCheckout(tx, {
+          projectId: immutableId,
+          projectPath: resolvedPath,
+          projectHash,
+          now,
+        });
         for (const alias of new Set([canonicalIdentity.id, legacyAlias])) {
           if (alias === immutableId) continue;
           const aliasOwner = tx
@@ -617,6 +632,8 @@ export async function nexusUnregister(
   const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
   await db.delete(projectRegistry).where(eq(projectRegistry.projectHash, project.hash));
+  // T12354: an unregistered project keeps no checkouts in the path map.
+  await db.delete(projectPaths).where(eq(projectPaths.projectId, project.projectId));
 
   await writeNexusAudit({
     action: 'unregister',
@@ -1000,6 +1017,12 @@ export async function nexusReconcile(
           .update(projectRegistry)
           .set({ lastSeen: now })
           .where(eq(projectRegistry.projectId, projectId));
+        recordProjectCheckout(db, {
+          projectId,
+          projectPath: projectRoot,
+          projectHash: currentHash,
+          now,
+        });
         await writeNexusAudit({
           action: 'reconcile',
           projectHash: currentHash,
@@ -1018,8 +1041,8 @@ export async function nexusReconcile(
 
       // Scenario 2: path changed — update path, hash, lastSeen, and DB paths
       const oldPath = existing.projectPath;
-      const newBrainDbPath = join(projectRoot, '.cleo', 'brain.db');
-      const newTasksDbPath = join(projectRoot, '.cleo', 'tasks.db');
+      const newBrainDbPath = registryStorePath(projectRoot);
+      const newTasksDbPath = registryStorePath(projectRoot);
       await db
         .update(projectRegistry)
         .set({
@@ -1030,6 +1053,12 @@ export async function nexusReconcile(
           tasksDbPath: newTasksDbPath,
         })
         .where(eq(projectRegistry.projectId, projectId));
+      recordProjectCheckout(db, {
+        projectId,
+        projectPath: projectRoot,
+        projectHash: currentHash,
+        now,
+      });
       await writeNexusAudit({
         action: 'reconcile',
         projectHash: currentHash,
@@ -1115,8 +1144,8 @@ export async function nexusMoveProject(projectId: string, newPath: string): Prom
   const resolvedPath = resolve(newPath);
   const newHash = generateProjectHash(resolvedPath);
   const now = new Date().toISOString();
-  const newBrainDbPath = join(resolvedPath, '.cleo', 'brain.db');
-  const newTasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
+  const newBrainDbPath = registryStorePath(resolvedPath);
+  const newTasksDbPath = registryStorePath(resolvedPath);
   const oldPath = existing.projectPath;
   await db
     .update(projectRegistry)

@@ -18,7 +18,11 @@ import { statSync } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { ExitCode, type NexusTaskSymbolsResult } from '@cleocode/contracts';
+import {
+  ExitCode,
+  type NexusProjectsCleanResult,
+  type NexusTaskSymbolsResult,
+} from '@cleocode/contracts';
 import { getProjectRoot } from '@cleocode/core';
 import { getSymbolImpact } from '@cleocode/core/nexus';
 import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
@@ -1405,11 +1409,12 @@ const projectsCleanCommand = defineCommand({
     },
     'include-temp': {
       type: 'boolean',
-      description: 'Preset: match paths containing a .temp/ segment',
+      description: 'Preset: match paths containing a .temp/ segment or under the OS temp directory',
     },
     'include-tests': {
       type: 'boolean',
-      description: 'Preset: match paths containing tmp/test/fixture/scratch/sandbox segments',
+      description:
+        'Preset: match paths containing tmp/test(s)/__tests__/fixture(s)/scratch/sandbox segments',
     },
     unhealthy: {
       type: 'boolean',
@@ -1430,7 +1435,8 @@ const projectsCleanCommand = defineCommand({
     },
     vacuum: {
       type: 'boolean',
-      description: 'After delete, run sqlite VACUUM on nexus.db to reclaim space (T9117)',
+      description:
+        'After delete, VACUUM the global registry store (<cleoHome>/cleo.db) to reclaim space',
     },
     yes: {
       type: 'boolean',
@@ -1478,13 +1484,19 @@ const projectsCleanCommand = defineCommand({
         process.exitCode = exitCode;
         return;
       }
-      const preview = previewResp.data as { matched: number; totalCount: number; sample: string[] };
-      const { matched: matchCount, totalCount, sample: samplePaths } = preview;
+      const preview = previewResp.data as NexusProjectsCleanResult;
+      const {
+        matched: matchCount,
+        totalCount,
+        sample: samplePaths,
+        classification,
+        matchedByReason,
+      } = preview;
 
       // Show preview in human mode
       if (ctx.format !== 'json') {
         cliOutput(
-          { matched: matchCount, totalCount, sample: samplePaths },
+          { matched: matchCount, totalCount, sample: samplePaths, classification },
           {
             command: 'nexus-projects-clean-preview',
             operation: 'nexus.projects.clean',
@@ -1502,6 +1514,8 @@ const projectsCleanCommand = defineCommand({
             purged: 0,
             remaining: totalCount,
             sample: samplePaths,
+            classification,
+            matchedByReason,
           },
           {
             command: 'nexus-projects-clean',
@@ -1554,15 +1568,7 @@ const projectsCleanCommand = defineCommand({
         process.exitCode = exitCode;
         return;
       }
-      const result = deleteResp.data as {
-        matched: number;
-        purged: number;
-        remaining: number;
-        sample: string[];
-        fsRemoved?: number;
-        fsFailed?: number;
-        vacuumBytesFreed?: number;
-      };
+      const result = deleteResp.data as NexusProjectsCleanResult;
       cliOutput(
         {
           dryRun: false,
@@ -1573,6 +1579,9 @@ const projectsCleanCommand = defineCommand({
           fsRemoved: result.fsRemoved,
           fsFailed: result.fsFailed,
           vacuumBytesFreed: result.vacuumBytesFreed,
+          classification: result.classification,
+          matchedByReason: result.matchedByReason,
+          receipt: result.receipt,
         },
         {
           command: 'nexus-projects-clean',
