@@ -50,11 +50,12 @@ import { resolveDualScopeDbPath } from '../dual-scope-db.js';
 import { withLock } from '../lock.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import { legacyRowProjection } from './column-transforms.js';
-import { orderTablesForCopy, runExodusMigrate } from './migrate.js';
+import { runExodusMigrate } from './migrate.js';
 import { buildExodusPlan } from './plan.js';
 import { rollbackExodusReceipts } from './recovery.js';
 import { buildRuntimeTargetResolver, type TargetResolver } from './runtime-targets.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
+import { orderTablesForCopy } from './table-order.js';
 import type { LegacyDbDescriptor } from './types.js';
 
 const log = getLogger('exodus-reconcile');
