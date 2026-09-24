@@ -197,6 +197,122 @@ function listTables(db: DatabaseSync): string[] {
 }
 
 /**
+ * Order a legacy DB's tables so every referenced (parent) table is copied
+ * before the tables that reference it, using the SOURCE schema's foreign keys.
+ *
+ * `foreign_keys=OFF` defers FK enforcement during the bulk copy, but it does NOT
+ * defer triggers. The consolidated project schema carries `BEFORE INSERT` guards
+ * that look the parent up in `tasks_tasks` — e.g.
+ * `tasks_task_acceptance_child_target_insert` raises
+ * `E_CHILD_TASK_TARGET_CONTAINMENT` unless the criterion's child task already
+ * exists. Alphabetical order copied `task_acceptance_criteria` BEFORE `tasks`,
+ * so every legitimate `child_task` criterion was rejected and the whole
+ * migration aborted, leaving `cleo.db` empty (T12319: 493 valid criteria in
+ * llmtxt, zero actual violations in the source).
+ *
+ * Kahn's algorithm with alphabetical tie-breaking keeps the order deterministic;
+ * self-references and references to tables outside the set are ignored, and a
+ * cycle releases its alphabetically-first member so progress continues.
+ *
+ * @param db - Read-only handle on the legacy source DB.
+ * @returns Table names, parents before children.
+ * @task T12319
+ */
+export function orderTablesForCopy(db: DatabaseSync): string[] {
+  const tables = listTables(db);
+  const present = new Set(tables);
+  const parentsOf = new Map<string, Set<string>>();
+  for (const table of tables) {
+    const refs = db
+      .prepare(`SELECT DISTINCT "table" AS parent FROM pragma_foreign_key_list(?)`)
+      .all(table) as Array<{ parent: string }>;
+    parentsOf.set(
+      table,
+      new Set(refs.map((r) => r.parent).filter((p) => p !== table && present.has(p))),
+    );
+  }
+  const ordered: string[] = [];
+  const remaining = new Set(tables);
+  while (remaining.size > 0) {
+    const ready = [...remaining].filter((t) =>
+      [...(parentsOf.get(t) ?? [])].every((p) => !remaining.has(p)),
+    );
+    const next = ready.length > 0 ? ready : [[...remaining].sort()[0]];
+    for (const table of next.sort()) {
+      ordered.push(table);
+      remaining.delete(table);
+    }
+  }
+  return ordered;
+}
+
+/**
+ * Write-path guard triggers that historical rows are exempt from.
+ *
+ * The T10572 hierarchy guards (widened by T10638) were introduced WITHOUT a
+ * backfill (`drizzle-tasks/20260525000072_t10572-task-hierarchy-invariant-guards`
+ * only creates triggers): the legacy runtime left every pre-existing row in
+ * place, so a legacy tasks.db legitimately holds rows they would reject today
+ * (claude-todo: 143 parent/child type pairings such as task→task, plus
+ * relations that duplicate a parent edge). Replaying history through them
+ * aborts the whole cutover and strands the project on an empty cleo.db.
+ * Exodus copies history verbatim, so these guards are suspended for the copy and
+ * restored inside the same transaction; they keep enforcing every NEW write
+ * exactly as they did in the legacy runtime.
+ *
+ * The cycle guard is deliberately NOT listed — a containment cycle drives the
+ * recursive ancestor walks forever, so it must stay a hard stop. The
+ * status/pipeline invariant is not listed either: T877 DID backfill, and exodus
+ * applies that same backfill as a normalization instead.
+ *
+ * @task T12319
+ */
+const GRANDFATHERED_GUARD_TRIGGERS = [
+  'tasks_tasks_parent_type_matrix_insert',
+  'tasks_task_relations_non_containment_insert',
+  'tasks_task_acceptance_child_target_insert',
+] as const;
+
+/** A guard trigger dropped for the copy, with the DDL that restores it. */
+interface SuspendedGuard {
+  readonly name: string;
+  readonly sql: string;
+}
+
+/**
+ * Drop the {@link GRANDFATHERED_GUARD_TRIGGERS} present on `main` for the
+ * duration of an open copy transaction. DDL is transactional in SQLite, so a
+ * ROLLBACK restores them on its own.
+ */
+function suspendGrandfatheredGuards(db: DatabaseSync): SuspendedGuard[] {
+  const suspended: SuspendedGuard[] = [];
+  for (const name of GRANDFATHERED_GUARD_TRIGGERS) {
+    const row = db
+      .prepare("SELECT sql FROM main.sqlite_master WHERE type='trigger' AND name=?")
+      .get(name) as { sql: string | null } | undefined;
+    if (typeof row?.sql !== 'string') continue;
+    db.exec(`DROP TRIGGER main."${name}"`);
+    suspended.push({ name, sql: row.sql });
+  }
+  if (suspended.length > 0)
+    log.info(
+      { triggers: suspended.map((g) => g.name) },
+      'Exodus: suspended grandfathered write-path guards for the historical copy (T12319)',
+    );
+  return suspended;
+}
+
+/** Re-create any suspended guard that is not currently present. Idempotent. */
+function restoreGrandfatheredGuards(db: DatabaseSync, suspended: readonly SuspendedGuard[]): void {
+  for (const guard of suspended) {
+    const present = db
+      .prepare("SELECT 1 FROM main.sqlite_master WHERE type='trigger' AND name=?")
+      .get(guard.name);
+    if (!present) db.exec(guard.sql);
+  }
+}
+
+/**
  * Write the journal file atomically (write-then-rename pattern).
  */
 function writeJournal(stagingDir: string, journal: ExodusJournal): void {
@@ -475,6 +591,7 @@ function epochUnitForSource(sourceName: string): EpochUnit {
  * @param srcType          - Raw type string from source `PRAGMA table_info`.
  * @param tgtInfo          - Target column metadata from `PRAGMA table_info`.
  * @param isoGlobCols      - Set of columns requiring ISO GLOB in the target.
+ * @param srcColumns       - Every column present in the legacy source table.
  * @returns SQL expression string suitable for use in a SELECT clause.
  */
 function buildSelectExpr(
@@ -485,6 +602,7 @@ function buildSelectExpr(
   srcType: string,
   tgtInfo: { type: string; notnull: number; dflt_value: string | null },
   isoGlobCols: ReadonlySet<string>,
+  srcColumns: ReadonlySet<string>,
 ): string {
   const srcRef = `"${attachAlias}"."${legacyTable}"."${col}"`;
   const srcUpper = srcType.toUpperCase();
@@ -522,7 +640,12 @@ function buildSelectExpr(
 
   // Priority 3: Enum-value normalization (T11547) — maps legacy enum values to
   // canonical members so CHECK constraints accept them.
-  const normExpr = enumNormExpr(targetTableName, col, srcRef);
+  const normExpr = enumNormExpr(
+    targetTableName,
+    col,
+    srcRef,
+    (column) => `"${attachAlias}"."${legacyTable}"."${column}"`,
+  );
   if (normExpr !== null) {
     // Wrap in COALESCE if the target is NOT NULL without a default, so NULL
     // source values get a safe fallback instead of triggering a constraint drop.
@@ -538,6 +661,22 @@ function buildSelectExpr(
   if (isNotNullWithoutDefault) {
     const defLiteral = typeDefaultLiteral(tgtInfo.type);
     return `COALESCE(${srcRef}, ${defLiteral}) AS "${col}"`;
+  }
+
+  // Priority 5: NOT NULL target WITH a schema default, fed an explicit NULL
+  // (T12319). A schema default applies only when the column is OMITTED — an
+  // explicit NULL still violates NOT NULL, and `INSERT OR IGNORE` then drops the
+  // WHOLE ROW. Legacy brain rows predate `valid_at` being required: 1,284 of
+  // 1,696 llmtxt observations and all 24 learnings carried `valid_at IS NULL`
+  // and were silently discarded. `valid_at` falls back to the row's own
+  // `created_at` (the fact was valid since it was recorded) before the default,
+  // so migration time is never stamped onto historical memory.
+  if (tgtInfo.notnull === 1 && tgtInfo.dflt_value !== null) {
+    const rowFallback =
+      col === 'valid_at' && srcColumns.has('created_at')
+        ? `"${attachAlias}"."${legacyTable}"."created_at", `
+        : '';
+    return `COALESCE(${srcRef}, ${rowFallback}${tgtInfo.dflt_value}) AS "${col}"`;
   }
   return srcRef;
 }
@@ -755,7 +894,8 @@ function copyTableFromAttached(
   //   2. Non-finite numeric clamp (Inf/-Inf/NaN → finite in-range) (T11782)
   //   3. Enum-value normalization for legacy values not in the consolidated CHECK (T11547)
   //   4. COALESCE for NOT NULL target columns without schema defaults (T11533)
-  //   5. Plain column reference otherwise
+  //   5. COALESCE(src, default) for NOT NULL target columns WITH a default (T12319)
+  //   6. Plain column reference otherwise
   const selectExprs = sharedColumns.map((col) => {
     const srcType = srcTypeMap.get(col) ?? '';
     const tgtInfo = tgtColMap.get(col)!;
@@ -767,6 +907,7 @@ function copyTableFromAttached(
       srcType,
       tgtInfo,
       isoGlobCols,
+      srcColumns,
     );
   });
 
@@ -908,17 +1049,22 @@ function checkSchemaVersion(journal: ExodusJournal, forceCrossVersion: boolean):
  * @param plan               - Pre-flight plan from `buildExodusPlan()`.
  * @param forceCrossVersion  - Skip the schema-version guard (AC9).
  * @param onProgress         - Optional progress callback called after each table.
+ * @param options            - `projectOnly` opens and writes ONLY the project
+ *   target (the superseded-store reconcile); the global `cleo.db` is not opened.
  *
  * @returns {@link ExodusMigrateResult}
  *
  * @task T11248 (AC4, AC5, AC6, AC7, AC9)
  * @task T11531 (P0 attach-leak fix)
+ * @task T12319 (projectOnly)
  */
 export async function runExodusMigrate(
   plan: ExodusPlan,
   forceCrossVersion = false,
   onProgress?: (msg: string) => void,
+  options?: { readonly projectOnly?: boolean },
 ): Promise<ExodusMigrateResult> {
+  const projectOnly = options?.projectOnly === true;
   const { sources, stagingDir, diskPreflight, projectDbPath, globalDbPath } = plan;
 
   // AC8 (right-sized — T11838): disk pre-flight. The requirement is
@@ -1028,28 +1174,32 @@ export async function runExodusMigrate(
       dedicated: true,
     });
 
-    onProgress?.('Opening DEDICATED global-scope cleo.db connection (running migrations)…');
-    globalHandle = await openDualScopeDbAtPath('global', globalDbPath, undefined, {
-      dedicated: true,
-    });
+    if (!projectOnly) {
+      onProgress?.('Opening DEDICATED global-scope cleo.db connection (running migrations)…');
+      globalHandle = await openDualScopeDbAtPath('global', globalDbPath, undefined, {
+        dedicated: true,
+      });
+    }
 
     const projectNative = getDualScopeNativeDb(projectHandle);
-    const globalNative = getDualScopeNativeDb(globalHandle);
+    const globalNative = globalHandle ? getDualScopeNativeDb(globalHandle) : null;
     if (
       journal.tables.some((entry) => entry.status === 'done') &&
       (!hasExodusRecovery(projectNative, stagingDir) ||
-        !hasExodusRecovery(globalNative, stagingDir))
+        (globalNative !== null && !hasExodusRecovery(globalNative, stagingDir)))
     ) {
       throw new ExodusRecoveryError(
         'Existing Exodus journal lacks inserted-row ownership; inspect legacy recovery before resuming',
       );
     }
     prepareExodusRecovery(projectNative, stagingDir);
-    prepareExodusRecovery(globalNative, stagingDir);
+    if (globalNative !== null) prepareExodusRecovery(globalNative, stagingDir);
 
     // 3. Per-scope sources migration (AC6)
     const projectSources = sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
     const globalSources = sources.filter((s) => s.targetScope === 'global' && existsSync(s.path));
+    if (globalNative === null && globalSources.length > 0)
+      throw new Error('A projectOnly exodus run was given global-scope sources');
 
     await migrateScope(
       'project',
@@ -1065,16 +1215,17 @@ export async function runExodusMigrate(
     // cleo.db. Pass the project DB path so the global pass can attach it and
     // route those tables there. The project pass already committed + the project
     // handle is idle, so the cross-attach write is the sole writer (WAL-safe).
-    await migrateScope(
-      'global',
-      globalSources,
-      globalNative,
-      journal,
-      stagingDir,
-      allTableResults,
-      onProgress,
-      projectDbPath,
-    );
+    if (globalNative !== null)
+      await migrateScope(
+        'global',
+        globalSources,
+        globalNative,
+        journal,
+        stagingDir,
+        allTableResults,
+        onProgress,
+        projectDbPath,
+      );
 
     // Final journal update
     journal.updatedAt = new Date().toISOString();
@@ -1194,13 +1345,14 @@ async function migrateScope(
       const snap = openCleoDbSnapshot(src.path, { readOnly: true });
 
       try {
-        const tables = listTables(snap.db);
+        const tables = orderTablesForCopy(snap.db);
 
         // Step 3: BEGIN the transaction for this source's copy batch (AC6).
         // Per-source transactions mean a failing source does not roll back
         // previously-copied sources.
         targetNativeDb.exec('BEGIN');
         let txOpen = true;
+        const suspendedGuards = suspendGrandfatheredGuards(targetNativeDb);
 
         try {
           for (const tableName of tables) {
@@ -1324,7 +1476,9 @@ async function migrateScope(
             });
           }
 
-          // Step 5: COMMIT all copies for this source.
+          // Step 5: COMMIT all copies for this source (guards restored first,
+          // inside the same transaction, so they are never absent once committed).
+          restoreGrandfatheredGuards(targetNativeDb, suspendedGuards);
           targetNativeDb.exec('COMMIT');
           txOpen = false;
           writeJournal(stagingDir, journal);
@@ -1336,6 +1490,8 @@ async function migrateScope(
               // ignore rollback errors
             }
           }
+          // ROLLBACK already undid the DROP; this only matters if it failed.
+          restoreGrandfatheredGuards(targetNativeDb, suspendedGuards);
           throw err;
         }
       } finally {

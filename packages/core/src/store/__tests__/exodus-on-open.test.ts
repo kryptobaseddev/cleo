@@ -299,6 +299,10 @@ describe('exodus-on-open data-continuity (T11553)', () => {
 
     expect(result.outcome).toBe('skipped');
     expect(result.reason).toMatch(/CLEO_DISABLE_EXODUS_ON_OPEN/);
+    // T12319: the skip strands real legacy rows, so it must say so and name
+    // the remedy — never a bare "set" that hides the data.
+    expect(result.reason).toMatch(/running WITHOUT that data/);
+    expect(result.reason).toMatch(/superseded-store --reconcile/);
     // Target stays empty — no migration ran.
     expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(0);
   });
@@ -529,7 +533,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     }
   });
 
-  it('T11777 (c): completion marker present → SKIP even when a legacy DB is on disk', async () => {
+  it('T11777 (c) + T12319: completion marker never re-arms, but never HIDES stranded rows either', async () => {
     const { fx, projectDb, globalDb } = await armFixture(tmpDir);
     openProjectDb = projectDb;
     openGlobalDb = globalDb;
@@ -562,9 +566,13 @@ describe('exodus-on-open data-continuity (T11553)', () => {
       const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
       const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
 
-      expect(result.outcome).toBe('skipped');
+      // T12319: the marker claims a cutover the EMPTY target contradicts while
+      // the legacy file still holds rows — abort loudly (writes refuse) and
+      // name the explicit remedy, instead of silently running on an empty store.
+      expect(result.outcome).toBe('aborted');
       expect(result.reason).toMatch(/completion marker/i);
-      // No migration ran — consolidated stays empty, legacy untouched.
+      expect(result.reason).toMatch(/superseded-store --reconcile/);
+      // No migration ran — the marker still forbids re-arming; legacy untouched.
       expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(0);
       expect(countRows(fx.tasksDbPath, 'tasks')).toBe(FIXTURE_EXPECTED_ROWS.tasks_tasks);
     } finally {

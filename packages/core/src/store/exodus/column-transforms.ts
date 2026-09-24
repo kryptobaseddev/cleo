@@ -74,9 +74,11 @@ export function typeDefaultLiteral(colType: string): string {
 /**
  * Function shape for an enum-normalization rule: given the `srcRef` SQL
  * expression for a column, return a SQL expression that produces the canonical
- * value.
+ * value. `sibling` resolves another column of the SAME source row, for the rare
+ * rule whose canonical value depends on the row (e.g. `pipeline_stage` on
+ * `status`, T12319); single-column rules ignore it.
  */
-export type NormalizeFn = (srcRef: string) => string;
+export type NormalizeFn = (srcRef: string, sibling: (column: string) => string) => string;
 
 /**
  * Per-(targetTable, column) normalization rules that map legacy enum values to
@@ -190,6 +192,42 @@ export const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
       ` END`,
   ],
 
+  // --- tasks_tasks.archive_reason (T12319) ---------------------------------
+  // A legacy tasks.db that never ran the T1408 migration still carries
+  // pre-enum reasons ('deleted', 'completed', 'recovered', 'orphan-cleanup',
+  // 'synthetic-test-artifact', …) that the 6-value CHECK rejects — so
+  // `INSERT OR IGNORE` silently dropped those tasks (23 of 849 in llmtxt, 4,692
+  // of 5,330 in claude-todo) and the acceptance criteria pointing at them then
+  // aborted the whole migration. Apply exactly the T1408 backfill rule
+  // (`drizzle-tasks/20260424000000_t1408-archive-reason-enum`): every non-NULL
+  // out-of-enum value becomes the migration-only tombstone 'completed-unverified'.
+  [
+    'tasks_tasks.archive_reason',
+    (src: string) =>
+      `CASE` +
+      ` WHEN ${src} IS NULL THEN NULL` +
+      ` WHEN ${src} IN ('verified', 'reconciled', 'superseded', 'shadowed', 'cancelled', 'completed-unverified') THEN ${src}` +
+      ` ELSE 'completed-unverified'` +
+      ` END`,
+  ],
+
+  // --- tasks_tasks.pipeline_stage (T12319) ---------------------------------
+  // The consolidated `trg_tasks_tasks_status_pipeline_insert` guard RAISEs on a
+  // terminal status without a terminal stage, aborting the ENTIRE migration.
+  // A legacy tasks.db that predates T877 still has such rows (87 in
+  // claude-todo). Apply exactly the T877 Part-1 backfill
+  // (`drizzle-tasks/20260417000000_t877-pipeline-stage-invariants`):
+  // done → 'contribution' unless already terminal; cancelled → 'cancelled'.
+  [
+    'tasks_tasks.pipeline_stage',
+    (src: string, sibling: (column: string) => string) =>
+      `CASE` +
+      ` WHEN ${sibling('status')} = 'done' AND (${src} IS NULL OR ${src} NOT IN ('contribution', 'cancelled')) THEN 'contribution'` +
+      ` WHEN ${sibling('status')} = 'cancelled' THEN 'cancelled'` +
+      ` ELSE ${src}` +
+      ` END`,
+  ],
+
   // --- tasks_task_relations.relation_type (T11548) -------------------------
   // 'grouped-by' → 'groups' (enum: related/blocks/duplicates/absorbs/fixes/extends/
   // supersedes/groups). 4 rows.
@@ -249,12 +287,19 @@ export const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
  * @param targetTableName - Physical consolidated target table name.
  * @param col             - Column name.
  * @param srcRef          - SQL expression referencing the source column.
+ * @param sibling         - Resolves another column of the same source row;
+ *   defaults to a bare quoted identifier (the verifier's digest context).
  * @returns A SQL CASE expression string, or `null` if no rule applies.
  */
-export function enumNormExpr(targetTableName: string, col: string, srcRef: string): string | null {
+export function enumNormExpr(
+  targetTableName: string,
+  col: string,
+  srcRef: string,
+  sibling: (column: string) => string = (column) => `"${column}"`,
+): string | null {
   const key = `${targetTableName}.${col}`;
   const fn = ENUM_NORMALIZATIONS.get(key);
-  return fn ? fn(srcRef) : null;
+  return fn ? fn(srcRef, sibling) : null;
 }
 
 // ---------------------------------------------------------------------------

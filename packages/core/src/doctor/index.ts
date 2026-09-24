@@ -68,7 +68,11 @@ export {
 export { auditSagaHierarchy } from './saga-audit.js';
 // T12095 — pre-dual-scope store files still on disk under their old LIVE names.
 export type { SupersededStoreEntry, SupersededStoreScanResult } from './superseded-store.js';
-export { LIVE_STORE_FILENAME, scanSupersededStores } from './superseded-store.js';
+export {
+  LIVE_STORE_FILENAME,
+  SUPERSEDED_STORE_RECONCILE_COMMAND,
+  scanSupersededStores,
+} from './superseded-store.js';
 export type { PruneOptions, ScanOptions } from './worktree-orphans.js';
 export {
   auditWorktreeOrphansComprehensive,

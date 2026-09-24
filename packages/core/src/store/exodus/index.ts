@@ -45,6 +45,11 @@ export {
 export { clearExodusJournal, runExodusMigrate } from './migrate.js';
 export { buildExodusPlan, deriveStagingDirName, sourcesPresent } from './plan.js';
 export {
+  assessSupersededProjectStores,
+  legacySourcesHoldRows,
+  reconcileSupersededStores,
+} from './reconcile.js';
+export {
   type SealResult,
   type SealScopeArg,
   type SealScopeOutcome,
