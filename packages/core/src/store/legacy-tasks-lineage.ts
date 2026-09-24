@@ -59,8 +59,8 @@ import {
   legacyRowProjection,
   typeDefaultLiteral,
 } from './exodus/column-transforms.js';
-import { orderTablesForCopy } from './exodus/migrate.js';
 import { resolveConsolidatedTableName } from './exodus/table-name-map.js';
+import { orderTablesForCopy } from './exodus/table-order.js';
 import { sanitizeMigrationStatements, stripSqlComments } from './migration-manager.js';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
 
