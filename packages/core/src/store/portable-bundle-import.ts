@@ -13,7 +13,10 @@
  *      moves;
  *   5. place files and databases (tmp + rename, stale WAL sidecars removed);
  *   6. re-count every table of every placed database and compare with the
- *      manifest — any mismatch fails the import.
+ *      manifest — any mismatch fails the import;
+ *   7. encrypted bundles: unseal the passphrase-sealed credentials and
+ *      re-encrypt each under the TARGET home's machine-key (the bundle never
+ *      carries the source machine-key), reporting any that must be re-entered.
  *
  * @task T12318
  * @epic T12317
@@ -25,6 +28,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type {
+  CredentialDescriptor,
+  CredentialReentry,
   PortableBundleManifest,
   PortableImportResult,
   PortableImportSectionResult,
@@ -41,6 +46,7 @@ import {
   encryptedBundleVersion,
   STREAM_FORMAT_VERSION,
 } from './backup-crypto.js';
+import { type CredentialTargets, reentryFor, unsealCredentials } from './credential-transfer.js';
 import { allSections, computeManifestHash, PortableBundleError } from './portable-bundle.js';
 import {
   isUnderRoot,
@@ -218,6 +224,21 @@ async function verifyStaged(stagingDir: string): Promise<PortableBundleManifest>
         );
       }
     }
+    const sealed = section.sealedCredentials;
+    if (sealed) {
+      const abs = path.join(stagingDir, sealed.bundlePath);
+      if (
+        !abs.startsWith(`${stagingDir}${path.sep}`) ||
+        !fs.existsSync(abs) ||
+        fs.statSync(abs).size !== sealed.size ||
+        (await sha256File(abs)) !== sealed.sha256
+      ) {
+        throw new PortableBundleError(
+          'E_BUNDLE_INTEGRITY',
+          `Sealed credentials missing or modified: ${sealed.bundlePath}`,
+        );
+      }
+    }
     for (const db of section.databases) {
       const result = integrityCheck(path.join(stagingDir, db.bundlePath));
       if (result !== 'ok') {
@@ -389,6 +410,47 @@ function placeSection(stagingDir: string, plan: Placement): { files: number; dbs
     fs.symlinkSync(link.target, dst);
   }
   return { files: plan.section.files.length, dbs: plan.section.databases.length };
+}
+
+/**
+ * Re-encrypt one section's sealed credentials under the TARGET home's keys.
+ * Runs after every section is placed, so the restored stores (and the
+ * bundled `global-salt`) are what the credentials are written into and keyed by.
+ * A failure is reported per credential, never thrown: the data is already
+ * placed, and a credential that cannot be restored is re-entered.
+ */
+async function restoreSealedCredentials(
+  extractDir: string,
+  plan: Placement,
+  passphrase: string | undefined,
+  cleoHome: string,
+): Promise<{ restored: CredentialDescriptor[]; reentry: CredentialReentry[] }> {
+  const sealed = plan.section.sealedCredentials;
+  if (!sealed) return { restored: [], reentry: [] };
+  const primary = plan.section.databases.find((d) => d.role === 'primary');
+  const primaryPath = primary ? path.join(plan.destDir, primary.relPath) : undefined;
+  const targets: CredentialTargets =
+    plan.kind === 'project'
+      ? {
+          ...(primaryPath !== undefined ? { projectDbPath: primaryPath } : {}),
+          ...(plan.project?.projectId ? { projectId: plan.project.projectId } : {}),
+          cleoHome,
+        }
+      : { ...(primaryPath !== undefined ? { globalDbPath: primaryPath } : {}), cleoHome };
+  try {
+    const result = await unsealCredentials(
+      fs.readFileSync(path.join(extractDir, sealed.bundlePath)),
+      passphrase ?? '',
+      targets,
+    );
+    return { restored: [...result.restored], reentry: [...result.reentry] };
+  } catch (err) {
+    const reason = `sealed credentials could not be restored: ${err instanceof Error ? err.message : String(err)}`;
+    return {
+      restored: [],
+      reentry: [...sealed.reentry, ...sealed.credentials.map((c) => reentryFor(c, reason))],
+    };
+  }
 }
 
 function compareCounts(plan: Placement): {
@@ -631,6 +693,20 @@ export async function importPortableBundle(
       sections.push(result);
     }
 
+    // ----- 7. re-encrypt sealed credentials under the TARGET machine-key ---
+    const credentials: NonNullable<PortableImportResult['credentials']> = {
+      restored: [],
+      reentry: [],
+    };
+    let anySealed = false;
+    for (const plan of plans) {
+      if (!plan.section.sealedCredentials) continue;
+      anySealed = true;
+      const outcome = await restoreSealedCredentials(extractDir, plan, input.passphrase, cleoHome);
+      for (const c of outcome.restored) credentials.restored.push({ ...c, section: plan.destDir });
+      for (const c of outcome.reentry) credentials.reentry.push({ ...c, section: plan.destDir });
+    }
+
     const requiresReentry: PortableImportResult['requiresReentry'] = [];
     for (const plan of plans) {
       for (const item of plan.section.requiresReentry) {
@@ -644,6 +720,7 @@ export async function importPortableBundle(
       lossless: sections.every((s) => s.mismatches.length === 0 && s.hashMismatches.length === 0),
       secretsIncluded: manifest.backup.secretsIncluded,
       requiresReentry,
+      ...(anySealed ? { credentials } : {}),
     };
     if (input.requireLossless === true && !result.lossless) {
       throw new PortableBundleError(

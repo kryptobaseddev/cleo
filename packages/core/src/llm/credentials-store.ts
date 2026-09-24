@@ -349,8 +349,14 @@ function readStoreSync(): CredentialsStoreData {
 
 /**
  * Type-narrow check used during read to drop malformed entries silently.
+ *
+ * Exported so the credential transfer path (T12326) validates unsealed
+ * entries with the SAME rule the store applies on read.
+ *
+ * @param value - Candidate entry.
+ * @returns `true` when `value` is a well-formed {@link StoredCredential}.
  */
-function isStoredCredential(value: unknown): value is StoredCredential {
+export function isStoredCredential(value: unknown): value is StoredCredential {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
   const provider = v['provider'];

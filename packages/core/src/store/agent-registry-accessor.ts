@@ -43,10 +43,7 @@
  * @epic T11249
  */
 
-import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type {
   AgentCredential,
@@ -59,14 +56,12 @@ import type {
   ResolvedAgent,
   TransportConfig,
 } from '@cleocode/contracts';
-import { getCleoHome } from '../paths.js';
+import { openAgentApiKey, sealAgentApiKey } from './agent-api-key.js';
 import {
   ensureGlobalAgentRegistryDb,
   getGlobalAgentRegistryNativeDb,
 } from './agent-registry-store.js';
-import { deriveApiKey } from './api-key-kdf.js';
 import { ensureConduitDb, getConduitDbPath } from './conduit-sqlite.js';
-import { getGlobalSalt } from './global-salt.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 // ---------------------------------------------------------------------------
@@ -78,55 +73,6 @@ type DatabaseSync = _DatabaseSyncType;
 const { DatabaseSync } = _require('node:sqlite') as {
   DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => _DatabaseSyncType;
 };
-
-// ---------------------------------------------------------------------------
-// Machine-key helper (internal — mirrors credentials.ts private getMachineKey)
-// ---------------------------------------------------------------------------
-
-/** Machine-key constants. */
-const MACHINE_KEY_LENGTH = 32;
-
-/**
- * Read or auto-generate the machine key (32 bytes).
- * Machine key lives at `getCleoHome()/machine-key` (same XDG root as the global salt).
- *
- * @returns A 32-byte Buffer.
- * @task T355
- * @epic T310
- */
-function readMachineKey(): Buffer {
-  const keyPath = join(getCleoHome(), 'machine-key');
-
-  if (!existsSync(keyPath)) {
-    const cleoHome = getCleoHome();
-    if (!existsSync(cleoHome)) {
-      mkdirSync(cleoHome, { recursive: true });
-    }
-    const key = randomBytes(MACHINE_KEY_LENGTH);
-    writeFileSync(keyPath, key, { mode: 0o600 });
-    return key;
-  }
-
-  // Validate permissions on POSIX
-  if (process.platform !== 'win32') {
-    const stat = statSync(keyPath);
-    const mode = stat.mode & 0o777;
-    if (mode !== 0o600) {
-      throw new Error(
-        `Machine key at ${keyPath} has wrong permissions: expected 0o600, got 0o${mode.toString(8)}. ` +
-          `Fix with: chmod 600 ${keyPath}`,
-      );
-    }
-  }
-
-  const key = readFileSync(keyPath);
-  if (key.length !== MACHINE_KEY_LENGTH) {
-    throw new Error(
-      `Machine key at ${keyPath} has wrong length: expected ${MACHINE_KEY_LENGTH} bytes, got ${key.length}.`,
-    );
-  }
-  return key;
-}
 
 // ---------------------------------------------------------------------------
 // Raw row shapes
@@ -211,24 +157,26 @@ function rowToProjectRef(row: ProjectAgentRefRow): ProjectAgentRef {
 }
 
 /**
- * Convert a global cleo.db:agent_registry_agents row to an `AgentCredential`.
- * API key is stored as binary (derived via KDF) — returned as hex string.
- * Legacy encrypted values (pre-T310) are left as-is; the reauth flag handles
- * forced re-authentication at the CLI layer.
+ * Convert a global cleo.db:agent_registry_agents row to an `AgentCredential`,
+ * decrypting the stored API key (T12352).
+ *
+ * `api_key_encrypted` holds a `gk1:` global-KDF ciphertext of the real key.
+ * Rows written before T12352 hold a derived HMAC instead (the real key was
+ * discarded); they read back exactly as before and carry `requiresReauth`.
  *
  * @param row - Raw SQLite row from global cleo.db:agent_registry_agents.
- * @returns Typed `AgentCredential` (apiKey is hex-encoded derived bytes or empty).
+ * @returns Typed `AgentCredential`.
  * @task T355
+ * @task T12352
  * @epic T310
  */
-function rowToCredential(row: AgentDbRow): AgentCredential {
+async function rowToCredential(row: AgentDbRow): Promise<AgentCredential> {
+  const key = await openAgentApiKey(row.api_key_encrypted, row.agent_id);
   return {
     agentId: row.agent_id,
     displayName: row.name,
-    // api_key_encrypted stores the KDF-derived key as binary or a legacy ciphertext.
-    // Return as hex-encoded bytes for callers that need the raw key.
-    // The reauth flow in `cleo agent auth` handles re-keying (T358).
-    apiKey: row.api_key_encrypted ? Buffer.from(row.api_key_encrypted).toString('hex') : '',
+    apiKey: key.apiKey,
+    ...(key.requiresReauth ? { requiresReauth: true } : {}),
     apiBaseUrl: row.api_base_url,
     classification: row.classification ?? undefined,
     privacyTier: row.privacy_tier as AgentCredential['privacyTier'],
@@ -337,12 +285,12 @@ export function rowToResolvedAgent(row: AgentDbRow): ResolvedAgent | null {
  * @task T355
  * @epic T310
  */
-function mergeToAgentWithOverride(
+async function mergeToAgentWithOverride(
   agentRow: AgentDbRow,
   refRow: ProjectAgentRefRow | null,
-): AgentWithProjectOverride {
+): Promise<AgentWithProjectOverride> {
   return {
-    ...rowToCredential(agentRow),
+    ...(await rowToCredential(agentRow)),
     projectRef: refRow ? rowToProjectRef(refRow) : null,
   };
 }
@@ -529,12 +477,12 @@ export async function lookupAgent(
     if (!includeGlobal) {
       // INNER JOIN semantics: must have a project ref with enabled=1
       if (!refRow || refRow.enabled === 0) return null;
-      return mergeToAgentWithOverride(agentRow, refRow);
+      return await mergeToAgentWithOverride(agentRow, refRow);
     }
 
     // includeGlobal=true: return global agent; populate projectRef only when enabled=1
     const effectiveRef = refRow && refRow.enabled === 1 ? refRow : null;
-    return mergeToAgentWithOverride(agentRow, effectiveRef);
+    return await mergeToAgentWithOverride(agentRow, effectiveRef);
   } finally {
     // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
     conduitDb.close();
@@ -608,12 +556,12 @@ export async function listAgentsForProject(
       if (includeGlobal) {
         // Return all global agents; populate projectRef only for attached ones
         const effectiveRef = ref && ref.enabled === 1 ? ref : null;
-        result.push(mergeToAgentWithOverride(agentRow, effectiveRef));
+        result.push(await mergeToAgentWithOverride(agentRow, effectiveRef));
       } else {
         // INNER JOIN: only agents with a project ref row
         if (!ref) continue;
         if (!includeDisabled && ref.enabled === 0) continue;
-        result.push(mergeToAgentWithOverride(agentRow, ref));
+        result.push(await mergeToAgentWithOverride(agentRow, ref));
       }
     }
 
@@ -631,7 +579,9 @@ export async function listAgentsForProject(
  * Write order: global first, then project ref. If the project ref write fails,
  * the global row remains (recoverable via `cleo agent attach <id>`).
  *
- * API key derivation: HMAC-SHA256(machineKey || globalSalt, agentId) per ADR-037 §5.
+ * API key storage (T12352): the real `spec.apiKey` is stored encrypted under the
+ * global KDF (ADR-037 §5) — see `agent-api-key.ts`. An empty key on re-register
+ * keeps the stored one.
  *
  * @param projectRoot - Absolute path to the project root directory.
  * @param spec        - Agent creation spec (without createdAt/updatedAt).
@@ -653,16 +603,9 @@ export async function createProjectAgent(
   const nowTs = Math.floor(Date.now() / 1000);
   const nowIso = new Date(nowTs * 1000).toISOString();
 
-  // Derive API key using the T310 KDF
-  const machineKey = readMachineKey();
-  const globalSalt = getGlobalSalt();
-  const derivedKey = deriveApiKey({
-    machineKey,
-    globalSalt,
-    agentId: spec.agentId,
-  });
-  // Store as hex string in the encrypted column
-  const apiKeyEncrypted = derivedKey.toString('hex');
+  // T12352: store the REAL key, encrypted under the global KDF (ADR-037 §5).
+  // null = no key supplied: a re-register keeps the stored key.
+  const apiKeyEncrypted = await sealAgentApiKey(spec.apiKey, spec.agentId);
 
   // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
   const globalDb = await openGlobalDb();
@@ -708,7 +651,9 @@ export async function createProjectAgent(
       globalDb
         .prepare(
           `UPDATE agent_registry_agents SET name = ?, class = ?, privacy_tier = ?, capabilities = ?, skills = ?,
-           transport_type = ?, api_key_encrypted = ?, api_base_url = ?, classification = ?,
+           transport_type = ?, api_key_encrypted = COALESCE(?, api_key_encrypted),
+           requires_reauth = CASE WHEN ? IS NULL THEN requires_reauth ELSE 0 END,
+           api_base_url = ?, classification = ?,
            transport_config = ?, is_active = ?, updated_at = ? WHERE agent_id = ?`,
         )
         .run(
@@ -718,6 +663,7 @@ export async function createProjectAgent(
           JSON.stringify(spec.capabilities),
           JSON.stringify(spec.skills),
           spec.transportType ?? 'http',
+          apiKeyEncrypted,
           apiKeyEncrypted,
           spec.apiBaseUrl,
           spec.classification ?? null,
@@ -983,7 +929,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
         : (globalDb
             .prepare('SELECT * FROM agent_registry_agents ORDER BY name ASC')
             .all() as unknown as AgentDbRow[]);
-    return rows.map(rowToCredential);
+    return Promise.all(rows.map(rowToCredential));
   }
 
   /**
@@ -1050,12 +996,9 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
         params.push(updates.isActive ? 1 : 0);
       }
       if (updates.apiKey !== undefined) {
-        // Re-derive using new T310 KDF
-        const machineKey = readMachineKey();
-        const globalSalt = getGlobalSalt();
-        const derivedKey = deriveApiKey({ machineKey, globalSalt, agentId });
-        sets.push('api_key_encrypted = ?');
-        params.push(derivedKey.toString('hex'));
+        // T12352: store the supplied key itself, encrypted (was: a derived HMAC).
+        sets.push('api_key_encrypted = ?', 'requires_reauth = 0');
+        params.push(await sealAgentApiKey(updates.apiKey, agentId));
       }
 
       params.push(agentId);
@@ -1157,7 +1100,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
   }
 
   /**
-   * Rotate API key via cloud endpoint and re-encrypt with the new T310 KDF
+   * Rotate API key via cloud endpoint and store the NEW key encrypted (T12352)
    * in global cleo.db (Agent Registry).
    *
    * @param agentId - Agent business identifier.
@@ -1186,10 +1129,8 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     const newApiKey = data.data?.apiKey;
     if (!newApiKey) throw new Error('Cloud API did not return a new API key');
 
-    // Re-derive and store using T310 KDF
-    const machineKey = readMachineKey();
-    const globalSalt = getGlobalSalt();
-    const derivedKey = deriveApiKey({ machineKey, globalSalt, agentId });
+    // T12352: keep the key the cloud just issued (it was discarded before).
+    const sealedKey = await sealAgentApiKey(newApiKey, agentId);
     // T11622 cutover: `updated_at` is TEXT ISO-8601 (GLOB CHECK).
     const nowIso = new Date().toISOString();
 
@@ -1199,7 +1140,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
       .prepare(
         'UPDATE agent_registry_agents SET api_key_encrypted = ?, updated_at = ?, requires_reauth = 0 WHERE agent_id = ?',
       )
-      .run(derivedKey.toString('hex'), nowIso, agentId);
+      .run(sealedKey, nowIso, agentId);
     // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
 
     return { agentId, newApiKey: `${newApiKey.substring(0, 8)}...rotated` };
@@ -1230,7 +1171,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
         const agentRow = globalDb
           .prepare('SELECT * FROM agent_registry_agents WHERE agent_id = ? AND is_active = 1')
           .get(ref.agent_id) as AgentDbRow | undefined;
-        if (agentRow) return rowToCredential(agentRow);
+        if (agentRow) return await rowToCredential(agentRow);
       }
 
       // Fall back to global last_used_at if no project-local activity recorded
@@ -1240,7 +1181,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
         )
         .get() as AgentDbRow | undefined;
       if (!row) return null;
-      return rowToCredential(row);
+      return await rowToCredential(row);
     } finally {
       // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
       conduitDb.close();
