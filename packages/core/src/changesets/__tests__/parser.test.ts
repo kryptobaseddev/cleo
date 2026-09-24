@@ -224,6 +224,85 @@ describe('parseChangesetFile', () => {
   });
 });
 
+describe('parseChangesetFile — reserved leading character hint (T12351)', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'cleo-changesets-reserved-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  /** Write an entry whose summary line is exactly `summaryLine`. */
+  const writeWithSummary = (summaryLine: string): string => {
+    const path = join(tmpDir, 'reserved.md');
+    writeFileSync(
+      path,
+      ['---', 'id: reserved', 'tasks: [T12351]', 'kind: fix', summaryLine, '---', ''].join('\n'),
+      'utf8',
+    );
+    return path;
+  };
+
+  /** Parse and return the thrown message. */
+  const failureOf = (path: string): string => {
+    try {
+      parseChangesetFile(path);
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+    throw new Error('expected parseChangesetFile to throw');
+  };
+
+  it.each([
+    ['`', 'summary: `cleo show` returns records'],
+    ['@', 'summary: @cleocode/core gains a reader'],
+    ['%', 'summary: %d placeholders render'],
+    ['|', 'summary: | pipes | in text'],
+    ['>', 'summary: > quoted remark'],
+    ['*', 'summary: *emphasis* in text'],
+    ['&', 'summary: &anchor looking text'],
+    ['!', 'summary: !important note'],
+    ['#', 'summary: #1234 is fixed'],
+  ])('names the double-quote fix for a leading %s', (char, summaryLine) => {
+    const message = failureOf(writeWithSummary(summaryLine));
+    const value = summaryLine.slice('summary: '.length);
+    expect(message).toContain(`YAML-reserved character '${char}'`);
+    expect(message).toContain(`wrap the value in double quotes: summary: "${value}"`);
+  });
+
+  it('escapes inner double quotes in the suggested line', () => {
+    const message = failureOf(writeWithSummary('summary: `x` says "hi"'));
+    expect(message).toContain('summary: "`x` says \\"hi\\""');
+  });
+
+  it('accepts the quoted form the hint suggests — YAML parsing is not relaxed', () => {
+    const entry = parseChangesetFile(writeWithSummary('summary: "`cleo show` returns records"'));
+    expect(entry.summary).toBe('`cleo show` returns records');
+  });
+
+  it('keeps a block-scalar header valid and hint-free', () => {
+    const path = join(tmpDir, 'reserved.md');
+    writeFileSync(
+      path,
+      [
+        '---',
+        'id: reserved',
+        'tasks: [T12351]',
+        'kind: fix',
+        'summary: >-',
+        '  folded text',
+        '---',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    expect(parseChangesetFile(path).summary).toBe('folded text');
+  });
+});
+
 describe('parseChangesetDir', () => {
   let tmpDir: string;
 
