@@ -1,5 +1,34 @@
 # Changelog
 
+## [2026.9.17] (2026-09-24)
+
+### Added
+
+- `cleo doctor project-identity` reports a missing, conflicting or invalid `.cleo/project-id` with the exact remedy; `--resolve` re-keys a conflict to the tracked id through the alias table, losing no rows _(provenance: [T12353](https://github.com/kryptobaseddev/cleo/search?q=T12353&type=commits))_
+- `cleo nexus analyze` is incremental by default and provably equal to a full rebuild — it re-parses only changed files, re-resolves everything, and says why whenever it falls back to `--full` _(provenance: [T12315](https://github.com/kryptobaseddev/cleo/search?q=T12315&type=commits))_
+- every code-graph answer says how current the index is, and a query refreshes a slightly stale index inline (≤25 files, 60 s budget) before answering — disclosing that it did _(provenance: [T12316](https://github.com/kryptobaseddev/cleo/search?q=T12316&type=commits))_
+- Projects get a tracked, write-once identity (`.cleo/project-id`), so a fresh clone, a move or a new device keeps the same projectId (ADR-094, amends ADR-013 §9) _(provenance: [T12325](https://github.com/kryptobaseddev/cleo/search?q=T12325&type=commits))_
+- `cleo doctor split-brain` imports rows that exist only in a diverged copy of a store into another copy, under newly minted task ids with provenance. It is dry-run first and proves that no pre-existing row changed. _(provenance: [T12329](https://github.com/kryptobaseddev/cleo/search?q=T12329&type=commits))_
+
+### Changed
+
+- Stage A exit gate: `scripts/stage-a-exit-gate.mjs` checks a backup by restoring it into a clean root at a new path and comparing counts, hashes, projectId and reconciled legacy data _(provenance: [T12328](https://github.com/kryptobaseddev/cleo/search?q=T12328&type=commits))_
+
+### Fixed
+
+- Agent API keys are stored encrypted and recoverable. Before this fix, `api_key_encrypted` held a derived HMAC and the real key, including a freshly rotated one, was thrown away _(provenance: [T12352](https://github.com/kryptobaseddev/cleo/search?q=T12352&type=commits))_
+- `lint-changesets` names the fix for a value starting with a YAML-reserved character: wrap it in double quotes _(provenance: [T12351](https://github.com/kryptobaseddev/cleo/search?q=T12351&type=commits))_
+- `cleo doctor superseded-store --reconcile` copies stranded legacy tasks.db/brain.db rows into cleo.db; exodus no longer aborts on real legacy data, and no longer skips it silently _(provenance: [T12319](https://github.com/kryptobaseddev/cleo/search?q=T12319&type=commits))_
+- A cleo.db copied from a high-water-era tasks.db no longer fails every command with `Failed query: INSERT INTO architecture_decisions_new`; release_manifests history lands in tasks_releases _(provenance: [T12346](https://github.com/kryptobaseddev/cleo/search?q=T12346&type=commits))_
+- Nexus freshness disclosures reach meta.warnings only, never stderr (JSON stream hygiene) _(provenance: [T12316](https://github.com/kryptobaseddev/cleo/search?q=T12316&type=commits))_
+- The automatic migration on first open now puts rows in the same tables as reconcile does (the ones the runtime reads); new `--reconcile --additive` mode for projects already running on cleo.db _(provenance: [T12355](https://github.com/kryptobaseddev/cleo/search?q=T12355&type=commits))_
+- `cleo backup export` captures the live cleo.db stores, fails loudly on a missing store, and import proves the restore lossless by re-counting every table _(provenance: [T12318](https://github.com/kryptobaseddev/cleo/search?q=T12318&type=commits))_
+- Credentials survive a moved project and a new device: the project KDF is keyed by project identity, and backups seal credentials under a passphrase instead of carrying the machine-key _(provenance: [T12326](https://github.com/kryptobaseddev/cleo/search?q=T12326&type=commits))_
+- Reconcile now copies each legacy row into the table the runtime reads, worked out from the runtime's own table definitions; the lineage rebuild verifies that every prior row is restored _(provenance: [T12355](https://github.com/kryptobaseddev/cleo/search?q=T12355&type=commits), [T12346](https://github.com/kryptobaseddev/cleo/search?q=T12346&type=commits))_
+- Registry hygiene: temp projects no longer auto-register into a persistent registry; `nexus projects clean` classifies every row, removes aliases with their rows, and VACUUMs the global store; rows report `.cleo/cleo.db` _(provenance: [T12324](https://github.com/kryptobaseddev/cleo/search?q=T12324&type=commits))_
+- A moved project's registry path now updates on any command, not just `cleo init` / `cleo nexus reconcile`, and a new device-local path map records every checkout of a project _(provenance: [T12354](https://github.com/kryptobaseddev/cleo/search?q=T12354&type=commits))_
+- Stranded-store reconcile now works on every legacy layout found across 18 projects: old journal format, runtime FTS triggers, cleo.db-only rows, and newer bare copies; the lineage rebuild keeps rows the runtime still reads _(provenance: [T12346](https://github.com/kryptobaseddev/cleo/search?q=T12346&type=commits))_
+
 ## [2026.9.16] (2026-09-24)
 
 ### Added
