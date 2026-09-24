@@ -26,10 +26,17 @@
  * - `service-connection` — `service_connections.credentials_enc` in the global
  *   `cleo.db` (global KDF, id `service:<provider>:<label>`).
  * - `llm-pool` — an entry in `<cleoHome>/llm-credentials.json`.
+ * - `agent-registry` — `agent_registry_agents.api_key_encrypted` in the global
+ *   `cleo.db` (global KDF, id `agent:<agentId>`, `gk1:` prefix — T12352).
  *
  * @task T12326
+ * @task T12352
  */
-export type CredentialStoreKind = 'project-agent' | 'service-connection' | 'llm-pool';
+export type CredentialStoreKind =
+  | 'project-agent'
+  | 'service-connection'
+  | 'llm-pool'
+  | 'agent-registry';
 
 /**
  * A credential identified WITHOUT its value — safe to print, log, or write
@@ -41,7 +48,8 @@ export interface CredentialDescriptor {
   /** Which store holds the credential. */
   readonly store: CredentialStoreKind;
   /**
-   * Stable identity within the store: the agent id (`project-agent`),
+   * Stable identity within the store: the agent id (`project-agent`,
+   * `agent-registry`),
    * `<provider>:<label>` (`service-connection`, `llm-pool`).
    */
   readonly id: string;

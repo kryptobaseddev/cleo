@@ -1309,8 +1309,22 @@ async function credentialKdfMigrationActions(
 ): Promise<UpgradeAction[]> {
   const out: UpgradeAction[] = [];
   try {
-    const { migrateProjectCredentialsAtRoot } = await import('./store/credential-transfer.js');
+    const { auditAgentRegistryKeys, migrateProjectCredentialsAtRoot } = await import(
+      './store/credential-transfer.js'
+    );
     const result = await migrateProjectCredentialsAtRoot(projectRoot, { dryRun });
+    // T12352: agent keys stored as a derived HMAC (real key discarded) are
+    // unrecoverable — flag them requires_reauth and say how to re-register.
+    const agents = await auditAgentRegistryKeys(join(getCleoHome(), 'cleo.db'), { dryRun });
+    for (const r of agents.reentry) {
+      out.push({
+        action: 'agent_key_storage',
+        status: 'skipped',
+        details: `Agent ${r.id} has no recoverable API key stored${dryRun ? '' : ' (flagged requires_reauth)'}`,
+        reason: r.reason,
+        fix: r.reentryCommand,
+      });
+    }
     if (result.migrated.length > 0) {
       out.push({
         action: 'credential_kdf_migration',

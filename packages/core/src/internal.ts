@@ -2020,12 +2020,14 @@ export { decryptBundle, encryptBundle, isEncryptedBundle } from './store/backup-
 // T12326 — portable credentials: seal/unseal under a passphrase, list for re-entry,
 // redact staged snapshots, migrate the project KDF off the project path.
 export type {
+  AgentRegistryKeyAudit,
   CredentialSources,
   CredentialTargets,
   CredentialTransferErrorCode,
   ProjectRootCredentialMigration,
 } from './store/credential-transfer.js';
 export {
+  auditAgentRegistryKeys,
   CredentialTransferError,
   listCredentialsForReentry,
   liveLlmCredentialStorePath,

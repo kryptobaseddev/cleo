@@ -312,6 +312,7 @@ interface StagingState {
 const CREDENTIAL_STORE_BY_TABLE: Readonly<Record<string, CredentialStoreKind>> = {
   tasks_agent_credentials: 'project-agent',
   service_connections: 'service-connection',
+  agent_registry_agents: 'agent-registry',
 };
 
 /** The LLM pool file in the global home. */

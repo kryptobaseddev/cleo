@@ -10,6 +10,13 @@
  * The new scheme binds each key to machine + per-machine salt + agent identity,
  * replacing the project-path scheme that does not generalise to global-tier identity.
  *
+ * NOTE (T12352): despite the ADR-037 variable name, the output is an
+ * ENCRYPTION KEY, not an API key. T355 stored it in `api_key_encrypted` and
+ * discarded the real key; that is fixed in `agent-api-key.ts`, which encrypts
+ * the real key with `encryptGlobal` (the live implementation of this KDF in
+ * `crypto/credentials.ts`). No production code calls these helpers any more;
+ * they remain as the reference derivation the T310 tests pin.
+ *
  * T355 will compose these primitives with `getGlobalSalt()` (T348).
  * This module has NO runtime dependency on global-salt.ts.
  *

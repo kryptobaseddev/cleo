@@ -28,6 +28,7 @@
  * | `project-agent` | project `cleo.db` → `tasks_agent_credentials.api_key_encrypted` | project KDF |
  * | `service-connection` | global `cleo.db` → `service_connections.credentials_enc` | global KDF, id `service:<provider>:<label>` |
  * | `llm-pool` | `<cleoHome>/llm-credentials.json` | none (0600 plaintext file) |
+ * | `agent-registry` | global `cleo.db` → `agent_registry_agents.api_key_encrypted` | global KDF, id `agent:<agentId>` (T12352) |
  *
  * The LLM pool stays a plaintext 0600 file on purpose (T12326 decision).
  * Encrypting it under the machine-key would add little on-device protection,
@@ -69,6 +70,7 @@ import {
   type StoredCredential,
 } from '../llm/credentials-store.js';
 import { getCleoHome } from '../paths.js';
+import { openAgentApiKey, sealAgentApiKey } from './agent-api-key.js';
 import { decryptBundle, encryptBundle } from './backup-crypto.js';
 
 // ---------------------------------------------------------------------------
@@ -223,6 +225,7 @@ export function reentryFor(descriptor: CredentialDescriptor, reason: string): Cr
 function reentryCommandFor(descriptor: CredentialDescriptor): string {
   switch (descriptor.store) {
     case 'project-agent':
+    case 'agent-registry':
       return `cleo agent register --id ${shellArg(descriptor.id)} --name ${shellArg(descriptor.label)} --api-key <API_KEY>`;
     case 'service-connection': {
       const { provider, label } = splitProviderLabel(descriptor.id);
@@ -265,18 +268,36 @@ function withDb<T>(dbPath: string | undefined, fallback: T, fn: (db: DatabaseSyn
   }
 }
 
-/** True when `table` exists in `db`. */
-function hasTable(db: DatabaseSync, table: string): boolean {
-  return (
-    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !==
+/**
+ * True when `table` exists in `db` and has every one of `columns`. Stores in
+ * the wild include older or partial schemas; a table without the columns this
+ * module reads is treated as holding no credentials rather than failing the
+ * caller (a backup must not abort on it).
+ */
+function hasTable(db: DatabaseSync, table: string, columns: readonly string[] = []): boolean {
+  if (
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) ===
     undefined
+  ) {
+    return false;
+  }
+  if (columns.length === 0) return true;
+  const present = new Set(
+    (db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>).map(
+      (c) => c.name,
+    ),
   );
+  return columns.every((c) => present.has(c));
 }
 
 /** Read `tasks_agent_credentials` rows that carry ciphertext. */
 function readProjectAgentRows(dbPath: string | undefined): StoredRow[] {
   return withDb(dbPath, [], (db) => {
-    if (!hasTable(db, 'tasks_agent_credentials')) return [];
+    if (
+      !hasTable(db, 'tasks_agent_credentials', ['agent_id', 'display_name', 'api_key_encrypted'])
+    ) {
+      return [];
+    }
     const rows = db
       .prepare(
         "SELECT agent_id, display_name, api_key_encrypted FROM tasks_agent_credentials WHERE api_key_encrypted <> '' ORDER BY agent_id",
@@ -292,7 +313,7 @@ function readProjectAgentRows(dbPath: string | undefined): StoredRow[] {
 /** Read `service_connections` rows that carry ciphertext. */
 function readServiceConnectionRows(dbPath: string | undefined): StoredRow[] {
   return withDb(dbPath, [], (db) => {
-    if (!hasTable(db, 'service_connections')) return [];
+    if (!hasTable(db, 'service_connections', ['provider', 'label', 'credentials_enc'])) return [];
     const rows = db
       .prepare(
         "SELECT provider, label, credentials_enc FROM service_connections WHERE credentials_enc IS NOT NULL AND credentials_enc <> '' ORDER BY provider, label",
@@ -305,6 +326,24 @@ function readServiceConnectionRows(dbPath: string | undefined): StoredRow[] {
         label: `${r.provider} service connection "${r.label}"`,
       },
       material: r.credentials_enc,
+    }));
+  });
+}
+
+/** Read `agent_registry_agents` rows that carry a stored key (any format). */
+function readAgentRegistryRows(dbPath: string | undefined): StoredRow[] {
+  return withDb(dbPath, [], (db) => {
+    if (!hasTable(db, 'agent_registry_agents', ['agent_id', 'name', 'api_key_encrypted'])) {
+      return [];
+    }
+    const rows = db
+      .prepare(
+        "SELECT agent_id, name, api_key_encrypted FROM agent_registry_agents WHERE api_key_encrypted IS NOT NULL AND api_key_encrypted <> '' ORDER BY agent_id",
+      )
+      .all() as Array<{ agent_id: string; name: string; api_key_encrypted: string }>;
+    return rows.map((r) => ({
+      descriptor: { store: 'agent-registry', id: r.agent_id, label: r.name },
+      material: r.api_key_encrypted,
     }));
   });
 }
@@ -336,6 +375,7 @@ function readAllRows(sources: CredentialSources): StoredRow[] {
   return [
     ...readProjectAgentRows(sources.projectDbPath),
     ...readServiceConnectionRows(sources.globalDbPath),
+    ...readAgentRegistryRows(sources.globalDbPath),
     ...readLlmPoolRows(sources.llmStorePath),
   ];
 }
@@ -413,14 +453,19 @@ export function redactCredentialCiphertexts(sources: CredentialSources): Credent
 
   const listed = listCredentialsForReentry(sources);
   withDb(sources.projectDbPath, undefined, (db) => {
-    if (hasTable(db, 'tasks_agent_credentials')) {
+    if (hasTable(db, 'tasks_agent_credentials', ['api_key_encrypted'])) {
       db.prepare("UPDATE tasks_agent_credentials SET api_key_encrypted = ''").run();
     }
   });
   withDb(sources.globalDbPath, undefined, (db) => {
-    if (hasTable(db, 'service_connections')) {
+    if (hasTable(db, 'service_connections', ['credentials_enc'])) {
       db.prepare(
         'UPDATE service_connections SET credentials_enc = NULL WHERE credentials_enc IS NOT NULL',
+      ).run();
+    }
+    if (hasTable(db, 'agent_registry_agents', ['api_key_encrypted'])) {
+      db.prepare(
+        'UPDATE agent_registry_agents SET api_key_encrypted = NULL WHERE api_key_encrypted IS NOT NULL',
       ).run();
     }
   });
@@ -459,6 +504,13 @@ async function openRow(row: StoredRow, sources: CredentialSources): Promise<stri
       return decryptGlobal(row.material, `service:${row.descriptor.id}`, {
         cleoHome: sources.cleoHome,
       });
+    case 'agent-registry': {
+      const key = await openAgentApiKey(row.material, row.descriptor.id, {
+        cleoHome: sources.cleoHome,
+      });
+      if (key.requiresReauth) throw new Error(key.reason ?? 'the stored key is not recoverable');
+      return key.apiKey;
+    }
     case 'llm-pool':
       return row.material;
   }
@@ -525,7 +577,10 @@ function isDescriptor(value: unknown): value is CredentialDescriptor {
   if (typeof value !== 'object' || value === null) return false;
   const store = 'store' in value ? value.store : undefined;
   return (
-    (store === 'project-agent' || store === 'service-connection' || store === 'llm-pool') &&
+    (store === 'project-agent' ||
+      store === 'service-connection' ||
+      store === 'llm-pool' ||
+      store === 'agent-registry') &&
     'id' in value &&
     typeof value.id === 'string' &&
     'label' in value &&
@@ -586,10 +641,19 @@ function parsePayload(bytes: Buffer): SealedPayload {
   };
 }
 
-/** Update one ciphertext cell in `table`; returns whether a row matched. */
-function updateCell(dbPath: string, table: string, sql: string, params: string[]): boolean {
+/**
+ * Update one ciphertext cell in `table`; returns whether a row matched. A
+ * table missing any of `columns` matches nothing (reported, never thrown).
+ */
+function updateCell(
+  dbPath: string,
+  table: string,
+  columns: readonly string[],
+  sql: string,
+  params: string[],
+): boolean {
   return withDb(dbPath, false, (db) => {
-    if (!hasTable(db, table)) return false;
+    if (!hasTable(db, table, columns)) return false;
     return Number(db.prepare(sql).run(...params).changes) > 0;
   });
 }
@@ -664,6 +728,7 @@ export async function unsealCredentials(
             updateCell(
               projectDbPath,
               'tasks_agent_credentials',
+              ['agent_id', 'api_key_encrypted'],
               'UPDATE tasks_agent_credentials SET api_key_encrypted = ? WHERE agent_id = ?',
               [ciphertext, entry.id],
             ),
@@ -686,8 +751,31 @@ export async function unsealCredentials(
             updateCell(
               globalDbPath,
               'service_connections',
+              ['provider', 'label', 'credentials_enc'],
               'UPDATE service_connections SET credentials_enc = ? WHERE provider = ? AND label = ?',
               [ciphertext, provider, label],
+            ),
+        });
+        break;
+      }
+      case 'agent-registry': {
+        const { globalDbPath } = targets;
+        if (globalDbPath === undefined) {
+          reentry.push(reentryFor(descriptor, 'no global store to restore into'));
+          break;
+        }
+        const stored = await sealAgentApiKey(entry.secret, entry.id, {
+          cleoHome: targets.cleoHome,
+        });
+        writes.push({
+          entry,
+          apply: async () =>
+            updateCell(
+              globalDbPath,
+              'agent_registry_agents',
+              ['agent_id', 'api_key_encrypted', 'requires_reauth'],
+              'UPDATE agent_registry_agents SET api_key_encrypted = ?, requires_reauth = 0 WHERE agent_id = ?',
+              [stored ?? '', entry.id],
             ),
         });
         break;
@@ -807,6 +895,7 @@ export async function migrateProjectCredentials(
     const swapped = updateCell(
       dbPath,
       'tasks_agent_credentials',
+      ['agent_id', 'api_key_encrypted'],
       'UPDATE tasks_agent_credentials SET api_key_encrypted = ? WHERE agent_id = ? AND api_key_encrypted = ?',
       [result.rewrapped, row.descriptor.id, row.material],
     );
@@ -881,6 +970,71 @@ export async function migrateProjectCredentialsAtRoot(
     { dryRun: options.dryRun === true },
   );
   return { ...result, projectDbPath, projectId, dryRun: options.dryRun === true };
+}
+
+/**
+ * Outcome of {@link auditAgentRegistryKeys}.
+ *
+ * @task T12352
+ */
+export interface AgentRegistryKeyAudit {
+  /** Global store examined. */
+  readonly globalDbPath: string;
+  /** Agents whose stored key decrypts to the real key. */
+  readonly current: readonly CredentialDescriptor[];
+  /** Agents whose real key is not recoverable, each with the re-register command. */
+  readonly reentry: readonly CredentialReentry[];
+  /** Rows newly flagged `requires_reauth = 1` (0 on a dry run). */
+  readonly flagged: number;
+  /** Whether this was a dry run. */
+  readonly dryRun: boolean;
+}
+
+/**
+ * Find agents whose stored API key cannot be recovered and, unless `dryRun`,
+ * flag them `requires_reauth = 1` (T12352).
+ *
+ * Before T12352 `api_key_encrypted` held a derived HMAC instead of the key.
+ * The real key was discarded, so those rows cannot be migrated, only flagged
+ * and listed with the command that re-registers the key. Never modifies the
+ * stored value; idempotent.
+ *
+ * @param globalDbPath - Global `cleo.db`.
+ * @param options - `dryRun` to report without flagging; `cleoHome` for the keys.
+ * @returns Recoverable agents, agents to re-register, and how many were flagged.
+ * @task T12352
+ */
+export async function auditAgentRegistryKeys(
+  globalDbPath: string,
+  options: { readonly dryRun?: boolean; readonly cleoHome?: string } = {},
+): Promise<AgentRegistryKeyAudit> {
+  const current: CredentialDescriptor[] = [];
+  const reentry: CredentialReentry[] = [];
+  const unrecoverable: string[] = [];
+  for (const row of readAgentRegistryRows(globalDbPath)) {
+    const key = await openAgentApiKey(row.material, row.descriptor.id, {
+      ...(options.cleoHome !== undefined ? { cleoHome: options.cleoHome } : {}),
+    });
+    if (key.requiresReauth) {
+      reentry.push(reentryFor(row.descriptor, key.reason ?? 'the stored key is not recoverable'));
+      unrecoverable.push(row.descriptor.id);
+    } else {
+      current.push(row.descriptor);
+    }
+  }
+  let flagged = 0;
+  if (options.dryRun !== true && unrecoverable.length > 0) {
+    flagged = withDb(globalDbPath, 0, (db) => {
+      if (!hasTable(db, 'agent_registry_agents', ['agent_id', 'requires_reauth'])) return 0;
+      const stmt = db.prepare(
+        'UPDATE agent_registry_agents SET requires_reauth = 1 WHERE agent_id = ? AND requires_reauth = 0',
+      );
+      let n = 0;
+      for (const id of unrecoverable) n += Number(stmt.run(id).changes);
+      return n;
+    });
+  }
+  return { globalDbPath, current, reentry, flagged, dryRun: options.dryRun === true };
 }
 
 /**

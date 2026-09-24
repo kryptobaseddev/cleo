@@ -9,15 +9,26 @@
  * credentials still use the old path-bound key and, with `--fix`, re-keys them
  * in place. `cleo upgrade` runs the same migration.
  *
+ * It also audits agent registry keys (T12352). Before that fix
+ * `agent_registry_agents.api_key_encrypted` stored a derived HMAC and discarded
+ * the real key, so those rows cannot be migrated. They are listed with the
+ * command that re-registers the key, and `--fix` flags them
+ * `requires_reauth = 1`.
+ *
  * Read-only by default. `--fix` is idempotent and never deletes: a credential no
  * candidate key opens is left untouched and listed with the one command that
  * re-enters it.
  *
  * @task T12326
+ * @task T12352
  */
 
-import { getProjectRoot } from '@cleocode/core/paths.js';
-import { migrateProjectCredentialsAtRoot } from '@cleocode/core/store/credential-transfer.js';
+import { join } from 'node:path';
+import { getCleoHome, getProjectRoot } from '@cleocode/core/paths.js';
+import {
+  auditAgentRegistryKeys,
+  migrateProjectCredentialsAtRoot,
+} from '@cleocode/core/store/credential-transfer.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -33,7 +44,7 @@ export const doctorCredentialsCommand = defineCommand({
   meta: {
     name: 'credentials',
     description:
-      "Report project credentials still encrypted under the legacy path-bound key (moving the project would strand them). --fix re-keys them to the project's identity in place. Idempotent; never deletes. Unrecoverable credentials are listed with their re-entry command.",
+      "Report project credentials still encrypted under the legacy path-bound key (moving the project would strand them) and agent registry keys that are not recoverable. --fix re-keys project credentials to the project's identity in place and flags unrecoverable agent keys requires_reauth. Idempotent; never deletes. Unrecoverable credentials are listed with their re-entry command.",
   },
   args: {
     fix: {
@@ -45,9 +56,9 @@ export const doctorCredentialsCommand = defineCommand({
     quiet: { type: 'boolean', description: 'Suppress non-essential output' },
   },
   async run({ args }) {
-    const result = await migrateProjectCredentialsAtRoot(getProjectRoot(), {
-      dryRun: args.fix !== true,
-    });
+    const dryRun = args.fix !== true;
+    const result = await migrateProjectCredentialsAtRoot(getProjectRoot(), { dryRun });
+    const agents = await auditAgentRegistryKeys(join(getCleoHome(), 'cleo.db'), { dryRun });
 
     cliOutput(
       {
@@ -57,12 +68,19 @@ export const doctorCredentialsCommand = defineCommand({
         [result.dryRun ? 'wouldMigrate' : 'migrated']: result.migrated,
         current: result.current,
         requiresReentry: result.reentry,
+        agentRegistry: {
+          globalDbPath: agents.globalDbPath,
+          current: agents.current,
+          requiresReentry: agents.reentry,
+          flaggedRequiresReauth: agents.flagged,
+        },
       },
       { command: 'doctor', operation: 'doctor.credentials.run' },
     );
 
     const pending = result.dryRun && result.migrated.length > 0;
-    if ((pending || result.reentry.length > 0) && (process.exitCode ?? 0) === 0) {
+    const unrecoverable = result.reentry.length + agents.reentry.length;
+    if ((pending || unrecoverable > 0) && (process.exitCode ?? 0) === 0) {
       process.exitCode = 1;
     }
   },
