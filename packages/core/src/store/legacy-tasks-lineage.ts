@@ -54,7 +54,13 @@ import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { getLogger } from '../logger.js';
+import {
+  LEGACY_FOLDS,
+  legacyRowProjection,
+  typeDefaultLiteral,
+} from './exodus/column-transforms.js';
 import { orderTablesForCopy } from './exodus/migrate.js';
+import { resolveConsolidatedTableName } from './exodus/table-name-map.js';
 import { sanitizeMigrationStatements, stripSqlComments } from './migration-manager.js';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
 
@@ -99,9 +105,9 @@ export interface LegacyTasksLineageRebuild {
   /** Lineage migrations executed afresh. */
   readonly migrationsApplied: number;
   /**
-   * Per dropped table: rows in the snapshot and rows carried back into the
-   * recreated table. A shortfall stays in the snapshot (e.g. a row the new
-   * schema's CHECK or guard trigger rejects).
+   * Per dropped table: rows in the snapshot and rows in the recreated table
+   * after the verified copy-back (never fewer; more only where the fresh
+   * lineage seeded rows the snapshot lacked).
    */
   readonly carriedForward: readonly { table: string; snapshotRows: number; restored: number }[];
 }
@@ -112,10 +118,20 @@ function ident(name: string): string {
 }
 
 /**
- * Copy every snapshot row of each dropped table back into its recreated
- * table, parents first, INSERT OR IGNORE over the columns both shapes share.
- * A table whose copy fails as a whole (a guard trigger's RAISE) is left empty;
- * its rows remain in the snapshot and are counted as not restored.
+ * Copy every snapshot row of each dropped table back into its recreated table
+ * and PROVE it: after the copy, every snapshot row (over the columns both shapes
+ * share) must be present in the recreated table, or this throws and the caller
+ * rolls the whole rebuild back.
+ *
+ * The rows existed in this database before the rebuild, so they are restored
+ * verbatim — guard triggers on the recreated tables are lifted for the copy and
+ * re-created in the same transaction, CHECK constraints are not re-litigated
+ * (the caller sets `ignore_check_constraints`), a NOT NULL column the old shape
+ * lacked gets its type default, and a snapshot row replaces a same-key row the
+ * fresh lineage seeded. Rows the fresh lineage seeded that the snapshot never
+ * had are kept, so a table may end with MORE rows than the snapshot, never fewer.
+ *
+ * @throws When any snapshot row is not present after the copy.
  */
 function carryForward(
   nativeDb: DatabaseSync,
@@ -130,39 +146,126 @@ function carryForward(
   } finally {
     snap.close();
   }
-  const columns = (schema: string, table: string): string[] =>
-    (
-      nativeDb.prepare(`PRAGMA ${ident(schema)}.table_info(${ident(table)})`).all() as Array<{
-        name: string;
-      }>
-    ).map((c) => c.name);
+  const info = (schema: string, table: string) =>
+    nativeDb.prepare(`PRAGMA ${ident(schema)}.table_info(${ident(table)})`).all() as Array<{
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: string | null;
+    }>;
+  const count = (schema: string, table: string): number =>
+    Number(
+      (
+        nativeDb.prepare(`SELECT COUNT(*) AS n FROM ${ident(schema)}.${ident(table)}`).get() as
+          | { n: number }
+          | undefined
+      )?.n ?? 0,
+    );
   const results: { table: string; snapshotRows: number; restored: number }[] = [];
   for (const table of order) {
-    const row = nativeDb
-      .prepare(`SELECT COUNT(*) AS n FROM ${ident(alias)}.${ident(table)}`)
-      .get() as { n: number } | undefined;
-    const snapshotRows = Number(row?.n ?? 0);
+    const snapshotRows = count(alias, table);
     if (snapshotRows === 0) continue;
-    const target = new Set(columns('main', table));
-    const shared = columns(alias, table).filter((c) => target.has(c));
-    let restored = 0;
-    if (target.size > 0 && shared.length > 0) {
-      const cols = shared.map(ident).join(', ');
-      try {
-        restored = Number(
-          nativeDb
-            .prepare(
-              `INSERT OR IGNORE INTO main.${ident(table)} (${cols}) SELECT ${cols} FROM ${ident(alias)}.${ident(table)}`,
-            )
-            .run().changes,
-        );
-      } catch {
-        restored = 0;
-      }
+    const fold = LEGACY_FOLDS.get(table);
+    if (info('main', table).length === 0 && fold !== undefined) {
+      results.push(carryFold(nativeDb, alias, table, fold, snapshotRows));
+      continue;
     }
+    const target = info('main', table);
+    const targetNames = new Set(target.map((c) => c.name));
+    const shared = info(alias, table)
+      .map((c) => c.name)
+      .filter((c) => targetNames.has(c));
+    if (shared.length === 0)
+      throw new Error(`carry-forward: ${table} shares no column with its snapshot`);
+    const fill = target.filter(
+      (c) => !shared.includes(c.name) && c.notnull === 1 && c.dflt_value === null,
+    );
+    const triggers = nativeDb
+      .prepare("SELECT name, sql FROM main.sqlite_master WHERE type='trigger' AND tbl_name=?")
+      .all(table) as Array<{ name: string; sql: string | null }>;
+    for (const t of triggers) nativeDb.exec(`DROP TRIGGER main.${ident(t.name)}`);
+    const cols = [...shared, ...fill.map((c) => c.name)].map(ident).join(', ');
+    const values = [...shared.map(ident), ...fill.map((c) => typeDefaultLiteral(c.type))].join(
+      ', ',
+    );
+    nativeDb.exec(
+      `INSERT OR REPLACE INTO main.${ident(table)} (${cols}) SELECT ${values} FROM ${ident(alias)}.${ident(table)}`,
+    );
+    for (const t of triggers) if (t.sql) nativeDb.exec(t.sql);
+    const sharedList = shared.map(ident).join(', ');
+    const missing = Number(
+      (
+        nativeDb
+          .prepare(
+            `SELECT COUNT(*) AS n FROM (SELECT ${sharedList} FROM ${ident(alias)}.${ident(table)} ` +
+              `EXCEPT SELECT ${sharedList} FROM main.${ident(table)})`,
+          )
+          .get() as { n: number } | undefined
+      )?.n ?? 0,
+    );
+    const restored = count('main', table);
+    if (missing > 0 || restored < snapshotRows)
+      throw new Error(
+        `carry-forward: ${table} restored ${restored} of ${snapshotRows} snapshot rows ` +
+          `(${missing} not present) — rebuild rolled back`,
+      );
     results.push({ table, snapshotRows, restored });
   }
   return results;
+}
+
+/**
+ * Carry a table the fresh lineage FOLDED away (created, then absorbed and
+ * dropped — `release_manifests` into `releases`) into the table that absorbed
+ * it, exactly as that fold did: projected columns, and a row whose natural key
+ * the target already holds is not inserted. Verified: every snapshot row's key
+ * must then be present in the target.
+ */
+function carryFold(
+  nativeDb: DatabaseSync,
+  alias: string,
+  table: string,
+  fold: { readonly into: string; readonly matchOn: readonly string[] },
+  snapshotRows: number,
+): { table: string; snapshotRows: number; restored: number } {
+  const cols = (schema: string, t: string): string[] =>
+    (
+      nativeDb.prepare(`PRAGMA ${ident(schema)}.table_info(${ident(t)})`).all() as Array<{
+        name: string;
+      }>
+    ).map((c) => c.name);
+  const target = new Set(cols('main', fold.into));
+  const consolidated = resolveConsolidatedTableName('tasks', table);
+  const projection = legacyRowProjection(
+    consolidated.kind === 'skip' ? fold.into : consolidated.targetName,
+    table,
+  );
+  const src = (name: string): string => `s.${ident(name)}`;
+  const insertCols = [
+    ...cols(alias, table).filter((c) => target.has(c) && !projection.has(c)),
+    ...[...projection.keys()].filter((c) => target.has(c)),
+  ];
+  const values = insertCols.map((c) => projection.get(c)?.(src) ?? src(c));
+  nativeDb.exec(
+    `INSERT OR IGNORE INTO main.${ident(fold.into)} (${insertCols.map(ident).join(', ')}) ` +
+      `SELECT ${values.join(', ')} FROM ${ident(alias)}.${ident(table)} s`,
+  );
+  const match = fold.matchOn.map((k) => `t.${ident(k)} = s.${ident(k)}`).join(' AND ');
+  const missing = Number(
+    (
+      nativeDb
+        .prepare(
+          `SELECT COUNT(*) AS n FROM ${ident(alias)}.${ident(table)} s WHERE NOT EXISTS ` +
+            `(SELECT 1 FROM main.${ident(fold.into)} t WHERE ${match})`,
+        )
+        .get() as { n: number } | undefined
+    )?.n ?? 0,
+  );
+  if (missing > 0)
+    throw new Error(
+      `carry-forward: ${missing} of ${snapshotRows} ${table} rows absent from ${fold.into} — rebuild rolled back`,
+    );
+  return { table: `${table}→${fold.into}`, snapshotRows, restored: snapshotRows };
 }
 
 /**
@@ -225,6 +328,9 @@ export function rebuildLegacyTasksLineage(
   // A fresh project has exactly this layout, so the pragma is lifted for the
   // rebuild — outside the transaction, the only place it takes effect.
   if (fkWasOn) nativeDb.exec('PRAGMA foreign_keys=OFF');
+  // Restored rows are this database's own prior rows; CHECK constraints added by
+  // the fresh lineage must not reject history (T1408 archive reasons, …).
+  nativeDb.exec('PRAGMA ignore_check_constraints=ON');
   // The bare family is NOT all dead: the runtime still reads and writes bare
   // lifecycle_*, audit_log, token_usage, attachments, releases, … — so every
   // row is carried back into the recreated tables (ATTACH is illegal inside a
@@ -267,21 +373,21 @@ export function rebuildLegacyTasksLineage(
     }
   } finally {
     nativeDb.exec(`DETACH DATABASE ${ident(alias)}`);
+    nativeDb.exec('PRAGMA ignore_check_constraints=OFF');
     if (fkWasOn) nativeDb.exec('PRAGMA foreign_keys=ON');
   }
 
   const dropped = toDrop.map((o) => o.name);
-  const shortfalls = carriedForward.filter((c) => c.restored < c.snapshotRows);
   log.warn(
     {
       snapshotPath,
       dropped: dropped.length,
       migrationsApplied: migrations.length,
-      restoredRows: carriedForward.reduce((n, c) => n + c.restored, 0),
-      notRestored: shortfalls.map((c) => `${c.table}(${c.snapshotRows - c.restored})`),
+      restoredTables: carriedForward.length,
+      restoredRows: carriedForward.reduce((n, c) => n + c.snapshotRows, 0),
     },
     'legacy drizzle-tasks family could not be migrated in place (high-water journal gaps); ' +
-      `rebuilt it fresh and carried its rows forward — the full prior state is in ${snapshotPath} (T12346)`,
+      `rebuilt it fresh and restored every prior row (verified) — full prior state also in ${snapshotPath} (T12346)`,
   );
   return { snapshotPath, dropped, migrationsApplied: migrations.length, carriedForward };
 }

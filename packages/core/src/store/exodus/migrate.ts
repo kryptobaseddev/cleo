@@ -148,6 +148,7 @@ import {
   insertWithExodusReceipts,
   prepareExodusRecovery,
 } from './recovery.js';
+import type { TargetResolver } from './runtime-targets.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import type {
   ExodusJournal,
@@ -746,9 +747,13 @@ function copyTableFromAttached(
   recoveryOperation: string,
   sourcePath: string,
   targetSchema = 'main',
+  resolveTarget: TargetResolver = resolveConsolidatedTableName,
 ): CopyTableResult {
-  // --- Step 1: Resolve the consolidated target table name (ROOT CAUSE 1) ---
-  const resolution = resolveConsolidatedTableName(sourceName, legacyTableName);
+  // --- Step 1: Resolve the target table name (ROOT CAUSE 1) ---
+  // `resolveTarget` picks WHERE rows land (the runtime-read table for a
+  // reconcile, T12346); value transforms stay keyed on the CONSOLIDATED name,
+  // which is where every normalization / projection rule is registered.
+  const resolution = resolveTarget(sourceName, legacyTableName);
 
   if (resolution.kind === 'skip') {
     log.warn(
@@ -759,6 +764,8 @@ function copyTableFromAttached(
   }
 
   const targetTableName = resolution.targetName;
+  const consolidated = resolveConsolidatedTableName(sourceName, legacyTableName);
+  const transformTable = consolidated.kind === 'skip' ? targetTableName : consolidated.targetName;
 
   // --- Step 2: Get source column list (full pragma for type info) ---
   const srcPragma = srcNativeDb.prepare(`PRAGMA table_info("${legacyTableName}")`).all() as Array<{
@@ -863,7 +870,7 @@ function copyTableFromAttached(
   // Log which columns have a normalization rule so the migration journal is
   // traceable and operators can verify the mapping was applied.
   const normalizedCols = sharedColumns.filter((col) =>
-    ENUM_NORMALIZATIONS.has(`${targetTableName}.${col}`),
+    ENUM_NORMALIZATIONS.has(`${transformTable}.${col}`),
   );
   if (normalizedCols.length > 0) {
     log.info(
@@ -877,9 +884,7 @@ function copyTableFromAttached(
   // Log which columns have a numeric clamp rule (Inf/-Inf/NaN → finite) so the
   // recovery of otherwise-dropped rows (e.g. brain_weight_history.delta_weight)
   // is traceable in the migration journal.
-  const clampedCols = sharedColumns.filter((col) =>
-    NUMERIC_CLAMPS.has(`${targetTableName}.${col}`),
-  );
+  const clampedCols = sharedColumns.filter((col) => NUMERIC_CLAMPS.has(`${transformTable}.${col}`));
   if (clampedCols.length > 0) {
     log.info(
       { legacyTableName, targetTableName, sourceName, clampedCols },
@@ -902,7 +907,7 @@ function copyTableFromAttached(
     return buildSelectExpr(
       attachAlias,
       legacyTableName,
-      targetTableName,
+      transformTable,
       col,
       srcType,
       tgtInfo,
@@ -921,7 +926,7 @@ function copyTableFromAttached(
   // A projected column REPLACES the by-name copy (e.g. release_manifests.id →
   // 'legacy:' || version) or supplies a target column the source only carries
   // under another name (commit_sha → merge_commit_sha).
-  const projection = legacyRowProjection(targetTableName, legacyTableName);
+  const projection = legacyRowProjection(transformTable, legacyTableName);
   const srcCol = (name: string): string => `"${attachAlias}"."${legacyTableName}"."${name}"`;
   const projectedSelectExprs = selectExprs.map((expr, i) => {
     const project = projection.get(sharedColumns[i] as string);
@@ -1074,6 +1079,8 @@ function checkSchemaVersion(journal: ExodusJournal, forceCrossVersion: boolean):
  * @param onProgress         - Optional progress callback called after each table.
  * @param options            - `projectOnly` opens and writes ONLY the project
  *   target (the superseded-store reconcile); the global `cleo.db` is not opened.
+ *   `resolveTarget` overrides where project-scope rows land (the reconcile
+ *   passes the runtime-read targets, T12346).
  *
  * @returns {@link ExodusMigrateResult}
  *
@@ -1085,7 +1092,7 @@ export async function runExodusMigrate(
   plan: ExodusPlan,
   forceCrossVersion = false,
   onProgress?: (msg: string) => void,
-  options?: { readonly projectOnly?: boolean },
+  options?: { readonly projectOnly?: boolean; readonly resolveTarget?: TargetResolver },
 ): Promise<ExodusMigrateResult> {
   const projectOnly = options?.projectOnly === true;
   const { sources, stagingDir, diskPreflight, projectDbPath, globalDbPath } = plan;
@@ -1232,6 +1239,8 @@ export async function runExodusMigrate(
       stagingDir,
       allTableResults,
       onProgress,
+      undefined,
+      options?.resolveTarget,
     );
     // Cross-scope routing (ADR-090 · T11539): the four nexus graph tables come
     // from the GLOBAL `nexus.db` source but land in the PROJECT consolidated
@@ -1329,6 +1338,7 @@ async function migrateScope(
   allTableResults: TableCopyResult[],
   onProgress?: (msg: string) => void,
   crossScopeTargetPath?: string,
+  resolveTarget: TargetResolver = resolveConsolidatedTableName,
 ): Promise<void> {
   if (sources.length === 0) return;
 
@@ -1425,6 +1435,7 @@ async function migrateScope(
                 stagingDir,
                 src.path,
                 targetSchema,
+                resolveTarget,
               );
               rowsCopied = copyResult.rowsCopied;
               if (copyResult.skipped) {

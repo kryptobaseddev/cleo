@@ -35,22 +35,27 @@
  * @see ../../doctor/superseded-store.ts — the survey that points here
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   SupersededStoreReconcileResult,
   SupersededStoreTableCount,
 } from '@cleocode/contracts';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { getLogger } from '../../logger.js';
 import { resolveCleoDir } from '../../paths.js';
 import { resolveDualScopeDbPath } from '../dual-scope-db.js';
 import { withLock } from '../lock.js';
+import { sanitizeMigrationStatements } from '../migration-manager.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
+import { resolveCorePackageMigrationsFolder } from '../resolve-migrations-folder.js';
 import { legacyRowProjection } from './column-transforms.js';
 import { orderTablesForCopy, runExodusMigrate } from './migrate.js';
 import { buildExodusPlan } from './plan.js';
 import { rollbackExodusReceipts } from './recovery.js';
+import { buildRuntimeTargetResolver, type TargetResolver } from './runtime-targets.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import type { LegacyDbDescriptor } from './types.js';
 
@@ -93,6 +98,7 @@ function countMissing(
   alias: string,
   sourceTable: string,
   targetTable: string,
+  transformTable: string,
 ): number | null {
   const targetPk = (
     live.prepare(`PRAGMA main.table_info(${ident(targetTable)})`).all() as Array<{
@@ -112,7 +118,7 @@ function countMissing(
   );
   // A projected key (e.g. release_manifests.id → 'legacy:' || version, T12346)
   // is compared in its PROJECTED form — the form migrate writes.
-  const projection = legacyRowProjection(targetTable, sourceTable);
+  const projection = legacyRowProjection(transformTable, sourceTable);
   const sourceKey = (c: string): string | null => {
     const project = projection.get(c);
     if (project) return project((name) => `s.${ident(name)}`);
@@ -137,12 +143,15 @@ function countMissing(
  *
  * @param liveStorePath - Absolute path of the live project `cleo.db`.
  * @param sources - Existing project-scope legacy sources.
+ * @param resolveTarget - Where each legacy table lands; a reconcile passes the
+ *   runtime-read targets ({@link buildRuntimeTargetResolver}).
  * @returns One entry per legacy table holding rows, in copy order.
  * @task T12319
  */
 export function assessSupersededProjectStores(
   liveStorePath: string,
   sources: readonly LegacyDbDescriptor[],
+  resolveTarget: TargetResolver = resolveConsolidatedTableName,
 ): SupersededStoreTableCount[] {
   const counts: SupersededStoreTableCount[] = [];
   const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
@@ -153,10 +162,10 @@ export function assessSupersededProjectStores(
       const snap = openCleoDbSnapshot(src.path, { readOnly: true });
       try {
         for (const sourceTable of orderTablesForCopy(snap.db)) {
-          // The live store read as a source contributes ONLY its dead bare
-          // task-core family (T12346) — every other bare table is still live.
-          if (src.path === liveStorePath && !BARE_TASK_CORE_TABLES.has(sourceTable)) continue;
-          const resolution = resolveConsolidatedTableName(src.name, sourceTable);
+          const resolution = resolveTarget(src.name, sourceTable);
+          const consolidated = resolveConsolidatedTableName(src.name, sourceTable);
+          const transformTable =
+            consolidated.kind === 'skip' ? sourceTable : consolidated.targetName;
           if (resolution.kind === 'skip') continue;
           if (resolveTableTargetScope(src.name, sourceTable, 'project') !== 'project') continue;
           const sourceRows = countRows(live.db, alias, sourceTable);
@@ -170,7 +179,7 @@ export function assessSupersededProjectStores(
             sourceRows,
             liveRows: present ? countRows(live.db, 'main', targetTable) : 0,
             missingInLive: present
-              ? countMissing(live.db, alias, sourceTable, targetTable)
+              ? countMissing(live.db, alias, sourceTable, targetTable, transformTable)
               : sourceRows,
           });
         }
@@ -214,89 +223,136 @@ export function legacySourcesHoldRows(sources: readonly LegacyDbDescriptor[]): b
 }
 
 /**
- * The bare legacy tables the runtime NO LONGER reads: `tasks-schema.ts`
- * re-points exactly this family at its prefixed `tasks_*` twins. Every other
- * bare table in `cleo.db` (lifecycle_*, audit_log, token_usage, attachments, …)
- * is still read and written by the runtime and is never a reconcile source.
+ * Whether a bare legacy table in the live `cleo.db` is one the runtime NO LONGER
+ * reads — i.e. its runtime target is a different (prefixed) table. Derived from
+ * the runtime's own table bindings via `resolveTarget`, never a hand-kept list:
+ * `tasks` → `tasks_tasks` is dead-bare; `audit_log` → `audit_log` is live.
  *
  * @task T12346
  */
-export const BARE_TASK_CORE_TABLES: ReadonlySet<string> = new Set([
-  'tasks',
-  'sessions',
-  'task_acceptance_criteria',
-  'task_acceptance_criteria_history',
-  'acceptance_projection_state',
-  'acceptance_projection_dirty',
-  'task_dependencies',
-  'task_labels',
-  'task_relations',
-  'task_work_history',
-  'external_task_links',
-  'session_handoff_entries',
-  'evidence_ac_bindings',
-]);
+function isRuntimeDeadBare(resolveTarget: TargetResolver, table: string): boolean {
+  const target = resolveTarget('tasks', table);
+  return target.kind !== 'skip' && target.targetName !== table;
+}
 
 /** Logical source name for the live store's bare task-core family. */
 const BARE_SOURCE_NAME = 'tasks (cleo.db bare task-core)';
 
 /**
- * The live store's own bare task-core family as a reconcile source — item 2 of
- * T12319, found real by the T12346 sweep: a stranded `cleo.db` can hold rows in
- * dead bare tables that exist in NO legacy file (llmtxt: 1,972 `task_labels`;
- * versionguard: 20 `task_dependencies`), so the runtime never shows them.
+ * The live store's own dead bare task-core family as a reconcile source — item
+ * 2 of T12319, found real by the T12346 sweep: a stranded `cleo.db` can hold
+ * rows in bare tables the runtime no longer reads that exist in NO legacy file
+ * (llmtxt: 1,972 `task_labels`; versionguard: 20 `task_dependencies`).
  *
  * Offered ONLY while the prefixed `tasks_tasks` is still empty — i.e. the
  * project never ran on the consolidated store. Once it has, a bare row missing
  * from the prefixed family may be one the runtime deliberately removed, and
  * re-copying it would resurrect it.
  *
- * @returns The descriptor, or `null` when the bare family is not a source.
+ * Materialised as a standalone file in `outDir` holding exactly the qualifying
+ * rows, built table by table from the live file's own DDL (a whole-file copy
+ * cannot be pruned: sqlite-vec `vec0` tables cannot be dropped without their
+ * module). Rows the drizzle-tasks lineage SEEDS into every fresh store (e.g. its
+ * 18 backfilled `commits`) are not project data and are excluded — a fresh
+ * project has them bare and not in the prefixed twin, and so must this one.
+ * The table set is fixed when the file is built, so the post-copy verification
+ * judges exactly what was copied.
+ *
+ * @returns The descriptor (path = the materialised file), or `null`.
  */
-function bareTaskCoreSource(liveStorePath: string): LegacyDbDescriptor | null {
+function bareTaskCoreSource(
+  liveStorePath: string,
+  resolveTarget: TargetResolver,
+  outDir: string,
+): LegacyDbDescriptor | null {
   const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
+  let tables: Array<{ name: string; sql: string }>;
   try {
     if (hasTable(live.db, 'main', 'tasks_tasks') && countRows(live.db, 'main', 'tasks_tasks') > 0)
       return null;
-    const holdsRows = [...BARE_TASK_CORE_TABLES].some(
-      (t) => hasTable(live.db, 'main', t) && countRows(live.db, 'main', t) > 0,
+    tables = (
+      live.db
+        .prepare("SELECT name, sql FROM main.sqlite_master WHERE type='table' AND sql IS NOT NULL")
+        .all() as Array<{ name: string; sql: string }>
+    ).filter(
+      (t) => isRuntimeDeadBare(resolveTarget, t.name) && countRows(live.db, 'main', t.name) > 0,
     );
-    return holdsRows
-      ? { name: BARE_SOURCE_NAME, path: liveStorePath, targetScope: 'project' }
-      : null;
   } finally {
     live.close();
   }
-}
+  if (tables.length === 0) return null;
 
-/**
- * Materialise the bare task-core family as a standalone file in the staging
- * dir, so the copy engine reads a snapshot instead of the file it writes.
- *
- * Built table by table from the live file's own DDL rather than by copying the
- * whole database and pruning it: a live `cleo.db` can hold virtual tables
- * (FTS5 shadow tables, sqlite-vec `vec0`) that cannot even be dropped without
- * their module loaded ("no such module: vec0" in proxmox).
- */
-function snapshotBareTaskCore(liveStorePath: string, stagingDir: string): string {
-  const path = join(stagingDir, 'cleo-bare-task-core.db');
+  const seedPath = join(outDir, 'drizzle-tasks-seed.db');
+  buildLineageSeedDb(seedPath);
+  const path = join(outDir, 'cleo-bare-task-core.db');
   const snap = openCleoDbSnapshot(path, { readOnly: false });
+  let kept = 0;
   try {
     snap.db.exec('PRAGMA foreign_keys=OFF');
     snap.db.exec(`ATTACH DATABASE '${liveStorePath.replace(/'/g, "''")}' AS live`);
-    const tables = snap.db
-      .prepare("SELECT name, sql FROM live.sqlite_master WHERE type='table'")
-      .all() as Array<{ name: string; sql: string | null }>;
+    snap.db.exec(`ATTACH DATABASE '${seedPath.replace(/'/g, "''")}' AS seed`);
     for (const t of tables) {
-      if (!BARE_TASK_CORE_TABLES.has(t.name) || t.sql === null) continue;
       snap.db.exec(t.sql);
       snap.db.exec(`INSERT INTO main.${ident(t.name)} SELECT * FROM live.${ident(t.name)}`);
+      if (hasTable(snap.db, 'seed', t.name)) {
+        const seedCols = new Set(
+          (
+            snap.db.prepare(`PRAGMA seed.table_info(${ident(t.name)})`).all() as Array<{
+              name: string;
+            }>
+          ).map((c) => c.name),
+        );
+        const shared = (
+          snap.db.prepare(`PRAGMA main.table_info(${ident(t.name)})`).all() as Array<{
+            name: string;
+          }>
+        )
+          .map((c) => c.name)
+          .filter((c) => seedCols.has(c));
+        if (shared.length > 0) {
+          const same = shared.map((c) => `s.${ident(c)} IS m.${ident(c)}`).join(' AND ');
+          snap.db.exec(
+            `DELETE FROM main.${ident(t.name)} AS m WHERE EXISTS (SELECT 1 FROM seed.${ident(t.name)} s WHERE ${same})`,
+          );
+        }
+      }
+      const n = countRows(snap.db, 'main', t.name);
+      if (n === 0) snap.db.exec(`DROP TABLE main.${ident(t.name)}`);
+      kept += n;
     }
     snap.db.exec('DETACH DATABASE live');
+    snap.db.exec('DETACH DATABASE seed');
   } finally {
     snap.close();
   }
-  return path;
+  return kept > 0 ? { name: BARE_SOURCE_NAME, path, targetScope: 'project' } : null;
+}
+
+/**
+ * Write a database holding only what the drizzle-tasks lineage itself seeds,
+ * by running the lineage on an empty file. Statements that need the rest of a
+ * real store (consolidated tables) are skipped — only their seeds would be
+ * missed, never project data.
+ */
+function buildLineageSeedDb(path: string): void {
+  const migrations = sanitizeMigrationStatements(
+    readMigrationFiles({ migrationsFolder: resolveCorePackageMigrationsFolder('drizzle-tasks') }),
+  );
+  const seed = openCleoDbSnapshot(path, { readOnly: false });
+  try {
+    seed.db.exec('PRAGMA foreign_keys=OFF');
+    for (const migration of migrations) {
+      for (const stmt of migration.sql) {
+        try {
+          seed.db.exec(stmt);
+        } catch {
+          // Needs objects a real store has; contributes no seed rows here.
+        }
+      }
+    }
+  } finally {
+    seed.close();
+  }
 }
 
 /**
@@ -438,9 +494,39 @@ export async function reconcileSupersededStores(
   const dryRun = options.dryRun === true;
   const liveStorePath = resolveDualScopeDbPath('project', projectRoot);
   const plan = buildExodusPlan(projectRoot);
+  // Rows land where the RUNTIME reads them (T12346), derived from its bindings.
+  const resolveTarget = await buildRuntimeTargetResolver();
+  // Scratch space for the materialised bare-family source; outside the project
+  // so a dry-run writes nothing there (an apply copies it into its staging dir).
+  const scratch = mkdtempSync(join(tmpdir(), 'cleo-reconcile-'));
+  try {
+    return await reconcileWithScratch(
+      projectRoot,
+      dryRun,
+      liveStorePath,
+      plan,
+      resolveTarget,
+      scratch,
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/** The body of {@link reconcileSupersededStores}, with a scratch dir it owns. */
+async function reconcileWithScratch(
+  projectRoot: string,
+  dryRun: boolean,
+  liveStorePath: string,
+  plan: ReturnType<typeof buildExodusPlan>,
+  resolveTarget: TargetResolver,
+  scratch: string,
+): Promise<SupersededStoreReconcileResult> {
   const fileSources = plan.sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
+  const bare = existsSync(liveStorePath)
+    ? bareTaskCoreSource(liveStorePath, resolveTarget, scratch)
+    : null;
   // Legacy FILES first so they win any key both hold; the bare family fills gaps.
-  const bare = existsSync(liveStorePath) ? bareTaskCoreSource(liveStorePath) : null;
   const sources = bare ? [...fileSources, bare] : fileSources;
   const base = {
     dryRun,
@@ -466,7 +552,7 @@ export async function reconcileSupersededStores(
     };
   }
 
-  const before = assessSupersededProjectStores(liveStorePath, sources);
+  const before = assessSupersededProjectStores(liveStorePath, sources, resolveTarget);
   if (isComplete(before)) {
     return {
       ...base,
@@ -490,9 +576,13 @@ export async function reconcileSupersededStores(
     .replace(/\..+Z$/, 'Z');
   const stagingDir = join(resolveCleoDir(projectRoot), `${RECONCILE_DIR_PREFIX}${iso}`);
   mkdirSync(stagingDir, { recursive: true });
-  const copySources = sources.map((s) =>
-    s === bare ? { ...s, path: snapshotBareTaskCore(liveStorePath, stagingDir) } : s,
-  );
+  // Keep the materialised bare source with the run's other evidence.
+  const copySources = sources.map((s) => {
+    if (s !== bare) return s;
+    const kept = join(stagingDir, basename(s.path));
+    copyFileSync(s.path, kept);
+    return { ...s, path: kept };
+  });
   const bareCopy = copySources.find((s) => s.name === BARE_SOURCE_NAME);
   const fresherPath = bareCopy
     ? snapshotFresherBareRows(
@@ -509,15 +599,24 @@ export async function reconcileSupersededStores(
     });
   const reconcilePlan = { ...plan, sources: copySources, stagingDir, resumeFromStaging: false };
 
+  // The runtime-read bare tables are created by the tasks domain's own schema
+  // bind; bind it first (outside the lock — it can run exodus-on-open, which
+  // takes the same lock) so every runtime target exists before the copy.
+  const { getDb } = await import('../sqlite.js');
+  await getDb(projectRoot);
+
   // Serialise with exodus-on-open, which takes the same lock on this target.
   const result = await withLock(
     `${liveStorePath}.exodus-on-open.lock`,
     async (): Promise<SupersededStoreReconcileResult> => {
       const migrated = await runExodusMigrate(reconcilePlan, false, (msg) => log.debug(msg), {
         projectOnly: true,
+        resolveTarget,
       });
       const rowsCopied = migrated.tables.reduce((n, t) => n + t.rowsCopied, 0);
-      const after = migrated.ok ? assessSupersededProjectStores(liveStorePath, sources) : [];
+      const after = migrated.ok
+        ? assessSupersededProjectStores(liveStorePath, sources, resolveTarget)
+        : [];
       const lost = shrunk(before, after);
       if (migrated.ok && isComplete(after) && lost.length === 0) {
         return {

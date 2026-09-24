@@ -123,7 +123,9 @@ describe('reconcileSupersededStores (T12319)', () => {
     (await openDualScopeDbAtPath('project', liveDb, undefined, { dedicated: true })).close();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    const { closeDb } = await import('../sqlite.js');
+    closeDb();
     if (savedHome === undefined) delete process.env.CLEO_HOME;
     else process.env.CLEO_HOME = savedHome;
     if (savedDir === undefined) delete process.env.CLEO_DIR;
@@ -280,6 +282,45 @@ describe('reconcileSupersededStores (T12319)', () => {
         "SELECT COUNT(*) FROM brain_observations_fts WHERE brain_observations_fts MATCH 'dated'",
       ),
     ).toBe(1);
+  });
+
+  it('lands history where the RUNTIME reads it — proven through the runtime accessors', async () => {
+    // Legacy lifecycle + audit history. The runtime binds lifecycle_* to the
+    // prefixed tasks_lifecycle_* twins, but still reads audit_log BARE; a
+    // reconcile that followed the consolidated map would hide the audit rows.
+    const legacy = new DatabaseSync(join(cleoDir, 'tasks.db'));
+    legacy.exec(`
+      CREATE TABLE lifecycle_pipelines (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id),
+        status TEXT NOT NULL DEFAULT 'active', started_at TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1);
+      CREATE TABLE lifecycle_stages (id TEXT PRIMARY KEY, pipeline_id TEXT NOT NULL REFERENCES lifecycle_pipelines(id),
+        stage_name TEXT NOT NULL, status TEXT NOT NULL, sequence INTEGER NOT NULL, completed_at TEXT);
+      CREATE TABLE audit_log (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, action TEXT NOT NULL,
+        task_id TEXT NOT NULL, actor TEXT NOT NULL DEFAULT 'system', domain TEXT, operation TEXT,
+        session_id TEXT, success INTEGER);
+      INSERT INTO lifecycle_pipelines VALUES ('pipeline-T1', 'T1', 'active', '2026-01-01T00:00:00Z', 1);
+      INSERT INTO lifecycle_stages VALUES
+        ('stage-T1-research', 'pipeline-T1', 'research', 'completed', 1, '2026-01-02T00:00:00Z');
+      INSERT INTO audit_log VALUES
+        ('A1', '2026-01-03T00:00:00Z', 'task_created', 'T1', 'agent', 'tasks', 'add', 'S-legacy', 1);
+    `);
+    legacy.close();
+
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'));
+    expect(result.outcome).toBe('reconciled');
+    const target = (t: string) => result.before.find((c) => c.sourceTable === t)?.targetTable;
+    expect(target('audit_log')).toBe('audit_log');
+    expect(target('lifecycle_stages')).toBe('tasks_lifecycle_stages');
+
+    // Read back through the real runtime paths, not sqlite counts.
+    const { getLifecycleStatus } = await import('../../lifecycle/index.js');
+    const status = await getLifecycleStatus(join(root, 'project'), { epicId: 'T1' });
+    expect(status.initialized).toBe(true);
+    expect(status.stages.find((s) => s.stage === 'research')?.status).toBe('completed');
+
+    const { queryAudit } = await import('../../audit.js');
+    const audit = await queryAudit({ sessionId: 'S-legacy' });
+    expect(audit.map((a) => a.operation)).toEqual(['add']);
   });
 
   it('never overwrites a row already in cleo.db', async () => {

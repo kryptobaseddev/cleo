@@ -346,6 +346,20 @@ export const LEGACY_ROW_PROJECTIONS: ReadonlyMap<
 ]);
 
 /**
+ * Legacy tables an in-place legacy migration FOLDED into another legacy table
+ * and then dropped. `into` is the legacy table that absorbed the rows; `matchOn`
+ * is the natural key that fold de-duplicated on (an absorbed row whose key was
+ * already present was not inserted). Used wherever such a table's rows must be
+ * re-homed: the reconcile target resolver and the lineage rebuild's copy-back.
+ *
+ * @task T12346
+ */
+export const LEGACY_FOLDS: ReadonlyMap<
+  string,
+  { readonly into: string; readonly matchOn: readonly string[] }
+> = new Map([['release_manifests', { into: 'releases', matchOn: ['version'] }]]);
+
+/**
  * The computed target columns for copying `legacyTable` into `targetTable`, or
  * an empty map when every column copies by name.
  *
