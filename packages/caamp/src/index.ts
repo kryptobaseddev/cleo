@@ -115,6 +115,15 @@ export {
   toNativeBatch,
   translateToAll,
 } from './core/hooks/index.js';
+// Global instruction delivery — the one regenerator + staleness check (T12377 · T12378)
+export type {
+  GlobalInstructionOptions,
+  SyncGlobalInstructionsOptions,
+} from './core/instructions/global-sync.js';
+export {
+  checkGlobalInstructionStaleness,
+  syncGlobalInstructions,
+} from './core/instructions/global-sync.js';
 export type {
   CaampBlock,
   DedupeResult,
@@ -140,6 +149,7 @@ export {
   parseCaampBlocks,
   removeInjection,
   repairInstructionFiles,
+  resolveGlobalInstructionPath,
   writeAgentFileToAllProviders,
 } from './core/instructions/injector.js';
 // Marker engine — parsing, damage repair, canonical reconciliation (T12051)
@@ -151,6 +161,8 @@ export type {
 export {
   blockPattern,
   buildBlock,
+  EmbeddedDeliveryDowngradeError,
+  isEmbeddedDelivery,
   mergeBlockBodies,
   normalizeMarkers,
   parseBlocks,
@@ -245,6 +257,7 @@ export {
   getSpawnCapableProviders,
   providerSupports,
   providerSupportsById,
+  resetRegistry,
   resolveAlias,
 } from './core/registry/providers.js';
 // Spawn adapter

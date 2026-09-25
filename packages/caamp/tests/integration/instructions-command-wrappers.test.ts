@@ -9,6 +9,11 @@ const mocks = vi.hoisted(() => ({
   getInstalledProviders: vi.fn(),
   getAllProviders: vi.fn(),
   getProvider: vi.fn(),
+  syncGlobalInstructions: vi.fn(),
+}));
+
+vi.mock("../../src/core/instructions/global-sync.js", () => ({
+  syncGlobalInstructions: mocks.syncGlobalInstructions,
 }));
 
 vi.mock("../../src/core/instructions/injector.js", () => ({
@@ -215,17 +220,43 @@ describe("integration: instructions command wrappers", () => {
     const program = new Command();
     registerInstructionsUpdate(program);
 
-    await program.parseAsync(["node", "test", "update", "--global", "--human"]);
+    await program.parseAsync(["node", "test", "update", "--human"]);
 
     expect(mocks.injectAll).toHaveBeenCalledWith(
       [providerA],
       process.cwd(),
-      "global",
+      "project",
       "default injection content",
     );
     const lines = logSpy.mock.calls.map((call) => String(call[0] ?? ""));
     expect(lines.some((line) => line.includes("file(s) need updating"))).toBe(true);
     expect(lines.some((line) => line.includes("1 file(s) updated."))).toBe(true);
+  });
+
+  it("update --global delegates to the shared global regenerator, never the stub (T12377)", async () => {
+    mocks.syncGlobalInstructions.mockResolvedValue({
+      status: "synced",
+      files: [
+        { path: "/h/.claude/CLAUDE.md", providers: ["claude-code"], action: "updated" },
+        { path: "/h/.pi/agent/AGENTS.md", providers: ["pi"], action: "intact" },
+      ],
+      findings: [],
+      legacyStripped: [],
+      skippedProviders: [],
+    });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const program = new Command();
+    registerInstructionsUpdate(program);
+
+    await program.parseAsync(["node", "test", "update", "--global", "--yes", "--json"]);
+
+    expect(mocks.syncGlobalInstructions).toHaveBeenCalledTimes(1);
+    expect(mocks.injectAll).not.toHaveBeenCalled();
+    expect(mocks.generateInjectionContent).not.toHaveBeenCalled();
+    const envelope = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+    expect(envelope.result.updated).toEqual(["/h/.claude/CLAUDE.md"]);
+    expect(envelope.result.count).toEqual({ updated: 1, failed: 0 });
   });
 
   it("registers instructions command group with wrappers", () => {

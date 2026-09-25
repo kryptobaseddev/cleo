@@ -36,7 +36,62 @@ import {
   CAAMP_DAMAGED_START_PATTERN_SOURCE,
   CAAMP_MARKER_END,
   CAAMP_MARKER_START,
+  CAAMP_SOURCE_STAMP_PATTERN_SOURCE,
 } from '@cleocode/contracts/caamp-markers';
+
+/**
+ * Thrown when a write would replace an EMBEDDED delivery (a block carrying
+ * `CAAMP:SOURCE` stamps) with reference-only or stub content.
+ *
+ * @remarks
+ * Providers do not reliably expand `@` references, so an embedded block is
+ * the only form proven to deliver the protocol. Replacing it with a generic
+ * "CAAMP Managed Configuration" stub is how `~/.pi/agent/AGENTS.md` lost the
+ * whole protocol in the 2026-09-25 incident (T12377). Callers regenerate an
+ * embedded file through `syncGlobalInstructions` (global) or a resolved
+ * delivery (project) instead.
+ *
+ * @example
+ * ```typescript
+ * try { await inject(path, '@AGENTS.md'); }
+ * catch (err) { if (err instanceof EmbeddedDeliveryDowngradeError) report(err.code); }
+ * ```
+ *
+ * @public
+ */
+export class EmbeddedDeliveryDowngradeError extends Error {
+  /** Stable error code for envelopes and tests. */
+  readonly code = 'E_CAAMP_EMBEDDED_DOWNGRADE';
+
+  /**
+   * @param detail - Which file or block the refused write targeted.
+   */
+  constructor(detail: string) {
+    super(
+      `Refusing to replace an embedded CAAMP delivery with reference-only content (${detail}). ` +
+        'Regenerate it from its sources: cleo install-global (global) or cleo upgrade (project).',
+    );
+    this.name = 'EmbeddedDeliveryDowngradeError';
+  }
+}
+
+/**
+ * Whether a managed block body is an embedded delivery, i.e. carries at least
+ * one `CAAMP:SOURCE` stamp line.
+ *
+ * @param body - Block body (or any text) to inspect.
+ * @returns `true` when a source stamp line is present.
+ *
+ * @example
+ * ```typescript
+ * isEmbeddedDelivery('@AGENTS.md'); // false
+ * ```
+ *
+ * @public
+ */
+export function isEmbeddedDelivery(body: string): boolean {
+  return new RegExp(CAAMP_SOURCE_STAMP_PATTERN_SOURCE, 'm').test(body);
+}
 
 /**
  * A single parsed CAAMP block extracted from a file.
@@ -266,6 +321,8 @@ export interface ReconcileResult {
  * @param insert - Placement when the file has no block yet
  * @returns The reconciled content plus what was found on the way
  * @throws When existing or desired markers have ambiguous ownership.
+ * @throws {@link EmbeddedDeliveryDowngradeError} when an existing block is an
+ *   embedded delivery and `desiredContent` is not (T12377).
  *
  * @example
  * ```typescript
@@ -287,6 +344,11 @@ export function reconcile(
   // form instead of rewriting the file on every call.
   const desiredBlock = buildBlock(desiredContent.trim());
   assertBalancedMarkers(desiredBlock);
+
+  // T12377: never downgrade an embedded delivery to references or a stub.
+  if (!isEmbeddedDelivery(desiredContent) && blocks.some((b) => isEmbeddedDelivery(b.content))) {
+    throw new EmbeddedDeliveryDowngradeError('existing block carries CAAMP:SOURCE stamps');
+  }
 
   if (blocks.length === 0) {
     if (healed.length === 0) return { content: `${desiredBlock}\n`, blocksBefore: 0, repaired };

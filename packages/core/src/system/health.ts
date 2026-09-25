@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DependencyReport } from '@cleocode/contracts';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
-import { checkInjection } from '../injection.js';
+import { checkCaampBinary, checkGlobalInstructionDelivery, checkInjection } from '../injection.js';
 import { getAgentsHome, getCleoHome, isProjectInitialized, resolveOrCwd } from '../paths.js';
 import { getSystemInfo, type SystemInfo } from '../platform.js';
 import {
@@ -959,6 +959,13 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   checks.push(mapCheckResult(checkProjectContext(projectRoot)));
 
   checks.push(mapCheckResult(checkInjection(projectRoot)));
+
+  // T12378: global provider instruction freshness + hand-appended duplicates,
+  // and a dead/missing `caamp` binary — each with the exact remedy command.
+  for (const result of await checkGlobalInstructionDelivery()) {
+    checks.push(mapCheckResult(result));
+  }
+  checks.push(mapCheckResult(checkCaampBinary()));
 
   // Contributor project channel check (ADR-029)
   checks.push(checkContributorChannel(projectRoot));

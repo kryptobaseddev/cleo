@@ -14,6 +14,7 @@
 
 import type { Session, SessionSummaryInput, TaskWorkState } from '@cleocode/contracts';
 import { SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts';
+import type { GlobalInstructionRefreshReport } from '@cleocode/contracts/caamp-markers';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { paginate } from '../pagination.js';
 import { type ContextInjectionData, injectContext } from '../sessions/context-inject.js';
@@ -642,11 +643,15 @@ export async function sessionStart(
     // T4959: Auto-briefing — enrich response with briefing + predecessor debrief
     let briefing: SessionBriefing | null = null;
     let previousDebrief: DebriefData | null = null;
+    // T12378: the global provider-instruction refresh runs beside the briefing
+    // (bounded, non-fatal) and reports in the envelope.
+    const deliveryPromise = refreshGlobalInstructionDelivery();
     try {
       briefing = await computeBriefing(projectRoot, { scope: params.scope });
     } catch {
       // Best-effort — briefing failure should not fail session start
     }
+    const instructionDelivery = await deliveryPromise;
 
     // Load predecessor debrief/handoff and mark consumed
     let previousHandoff: HandoffData | null = null;
@@ -674,6 +679,7 @@ export async function sessionStart(
       ...(briefing && { briefing }),
       ...(previousDebrief && { previousDebrief }),
       ...(previousHandoff && { previousHandoff }),
+      instructionDelivery,
     };
 
     // T1263: Append session_start journal entry (best-effort, fire-and-forget)
@@ -1363,6 +1369,30 @@ export async function sessionComputeHandoff(
 }
 
 /**
+ * Regenerate stale global provider instruction files (T12378).
+ *
+ * Bounded and non-fatal: a failure — including failing to load the module —
+ * becomes a `failed` report in the envelope instead of failing the command.
+ *
+ * @returns The refresh report for the envelope.
+ */
+async function refreshGlobalInstructionDelivery(): Promise<GlobalInstructionRefreshReport> {
+  try {
+    const { refreshStaleGlobalInstructions } = await import('../injection.js');
+    return await refreshStaleGlobalInstructions();
+  } catch (err) {
+    return {
+      status: 'failed',
+      stale: [],
+      duplicates: [],
+      updated: [],
+      reason: err instanceof Error ? err.message : String(err),
+      remedy: 'cleo install-global',
+    };
+  }
+}
+
+/**
  * Compute session briefing — composite view for session start.
  *
  * Aggregates data from handoff, current focus, next tasks, bugs, blockers, and epics.
@@ -1397,11 +1427,14 @@ export async function sessionBriefing(
     // The explicit `sessionId` option takes highest priority (internal callers only).
     const resolvedSessionId = options?.sessionId ?? resolveSessionIdFromEnv() ?? undefined;
 
-    const briefing = await computeBriefing(projectRoot, {
-      ...options,
-      ...(resolvedSessionId ? { activeSessionId: resolvedSessionId } : {}),
-    });
-    return engineSuccess(briefing);
+    const [briefing, instructionDelivery] = await Promise.all([
+      computeBriefing(projectRoot, {
+        ...options,
+        ...(resolvedSessionId ? { activeSessionId: resolvedSessionId } : {}),
+      }),
+      refreshGlobalInstructionDelivery(),
+    ]);
+    return engineSuccess({ ...briefing, instructionDelivery });
   } catch (err: unknown) {
     return toEngineError(err, 'E_INTERNAL', 'Failed to compute briefing');
   }

@@ -13,6 +13,7 @@ import {
   outputSuccess,
   resolveFormat,
 } from '../../core/lafs.js';
+import { getInstalledProviders } from '../../core/registry/detection.js';
 import { getAllProviders, getProvider } from '../../core/registry/providers.js';
 import type { Provider } from '../../types.js';
 
@@ -85,6 +86,11 @@ export function registerInstructionsCheck(parent: Command): void {
           providers = opts.agent
             .map((a) => getProvider(a))
             .filter((p): p is Provider => p !== undefined);
+        } else if (opts.global) {
+          // Global scope covers every installed provider — the same set
+          // `update --global` regenerates, so every file reported stale here
+          // is one that update refreshes (T12377).
+          providers = getInstalledProviders();
         } else {
           providers = resolveDefaultTargetProviders();
         }

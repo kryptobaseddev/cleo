@@ -169,3 +169,141 @@ export interface InstructionDelivery {
   /** Static expansion is not a live provider behavior evaluation. */
   liveEvaluation: 'unverified';
 }
+
+/**
+ * Pattern source for one embedded-source stamp line inside a managed block:
+ * `<!-- CAAMP:SOURCE <url-encoded absolute path> <sha256 hex> -->`.
+ *
+ * A block carrying at least one stamp is an EMBEDDED delivery: it holds the
+ * resolved text of its sources rather than `@` references a provider may never
+ * expand. Compile with the `m` flag to scan a whole file line by line.
+ *
+ * @task T12377
+ */
+export const CAAMP_SOURCE_STAMP_PATTERN_SOURCE = '^<!-- CAAMP:SOURCE (\\S+) ([a-f0-9]{64}) -->$';
+
+/**
+ * The managed reference every global provider instruction file is generated
+ * from. It is resolved into an embedded delivery before it is written.
+ *
+ * @task T12377
+ */
+export const GLOBAL_INSTRUCTION_HUB_REFERENCE = '@~/.agents/AGENTS.md';
+
+/**
+ * Delivery state of one global provider instruction file.
+ *
+ * - `current` — an embedded block whose every stamped source still hashes the same.
+ * - `stale` — at least one stamped source changed or disappeared since delivery.
+ * - `unembedded` — a managed block exists but carries no source stamp (reference-only
+ *   or a generic stub), so the provider may never see the protocol.
+ * - `no-block` — the file exists without a managed block.
+ * - `absent` — the file does not exist.
+ *
+ * @task T12378
+ */
+export type GlobalInstructionFileState = 'current' | 'stale' | 'unembedded' | 'no-block' | 'absent';
+
+/**
+ * Staleness verdict for one global provider instruction file.
+ *
+ * @task T12378
+ */
+export interface GlobalInstructionFileStatus {
+  /** Absolute path of the provider instruction file. */
+  path: string;
+  /** Provider ids that share this file. */
+  providers: string[];
+  /** Delivery state of the file. */
+  state: GlobalInstructionFileState;
+  /** Stamped sources whose content changed or that no longer exist. */
+  staleSources: string[];
+  /**
+   * Lines of managed source content found OUTSIDE the managed block: a hand-appended
+   * copy. Reported only; user content is never removed automatically.
+   */
+  duplicateLines: number;
+}
+
+/**
+ * Result of the cheap staleness scan over every global provider instruction file.
+ *
+ * @task T12378
+ */
+export interface GlobalInstructionStalenessReport {
+  /** One entry per distinct provider instruction file. */
+  files: GlobalInstructionFileStatus[];
+  /** Files whose state is `stale` or `unembedded`: the ones a sync repairs. */
+  needsSync: string[];
+  /** Files holding a hand-appended copy of managed content outside the block. */
+  duplicates: string[];
+}
+
+/**
+ * Outcome of one global instruction regeneration.
+ *
+ * - `synced` — every provider file was written (or was already intact).
+ * - `unresolved` — the hub could not be resolved into a complete delivery; nothing was written.
+ * - `no-providers` — no provider installation was detected.
+ * - `dry-run` — the planned targets were computed without writing.
+ *
+ * @task T12377
+ */
+export type GlobalInstructionSyncStatus = 'synced' | 'unresolved' | 'no-providers' | 'dry-run';
+
+/**
+ * One provider instruction file targeted by a global regeneration.
+ *
+ * @task T12377
+ */
+export interface GlobalInstructionSyncFile {
+  /** Absolute path of the provider instruction file. */
+  path: string;
+  /** Provider ids sharing this file. */
+  providers: string[];
+  /** Action taken, `planned` in a dry run, or `failed` when the write threw. */
+  action: CaampInjectionAction | 'planned' | 'failed';
+  /** Error message when `action` is `failed`. */
+  error?: string;
+}
+
+/**
+ * Result of regenerating the global provider instruction files from their sources.
+ *
+ * @task T12377
+ */
+export interface GlobalInstructionSyncResult {
+  /** Overall outcome. */
+  status: GlobalInstructionSyncStatus;
+  /** One entry per distinct targeted file. */
+  files: GlobalInstructionSyncFile[];
+  /** Delivery defects that blocked the write (non-empty only when `status` is `unresolved`). */
+  findings: InstructionDeliveryFinding[];
+  /** Files from which a legacy `CLEO:START` block was stripped. */
+  legacyStripped: string[];
+  /** Providers skipped because their global instruction path is not absolute. */
+  skippedProviders: string[];
+}
+
+/**
+ * Report of an automatic global-instruction refresh run at session start or briefing.
+ *
+ * @task T12378
+ */
+export interface GlobalInstructionRefreshReport {
+  /**
+   * `current` when nothing needed a refresh, `refreshed` when a sync ran, `skipped`
+   * when the refresh did not run, `failed` when it ran and could not complete.
+   */
+  status: 'current' | 'refreshed' | 'skipped' | 'failed';
+  /** Files that were stale or unembedded before the refresh. */
+  stale: string[];
+  /** Files holding a hand-appended copy of managed content outside the block. */
+  duplicates: string[];
+  /** Files written by the refresh. */
+  updated: string[];
+  /** Why the refresh was skipped or failed, when it was. */
+  reason?: string;
+  /** Exact command that repairs what the refresh could not. */
+  remedy?: string;
+}

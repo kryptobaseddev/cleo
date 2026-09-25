@@ -15,10 +15,11 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, delimiter, join } from 'node:path';
+import type { Provider } from '@cleocode/caamp';
 import { getAgentsHome, getCanonicalTemplatesTildePath, getCleoHome } from './paths.js';
 import { getPackageRoot, stripCLEOBlocks } from './scaffold.js';
 import { resolveBridgeMode } from './system/bridge-mode.js';
@@ -37,6 +38,8 @@ import { resolveBridgeMode } from './system/bridge-mode.js';
 import {
   CAAMP_DAMAGED_END_PATTERN_SOURCE,
   CAAMP_DAMAGED_START_PATTERN_SOURCE,
+  type GlobalInstructionRefreshReport,
+  type GlobalInstructionStalenessReport,
 } from '@cleocode/contracts/caamp-markers';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 
@@ -527,5 +530,284 @@ export function checkInjection(projectRoot: string): InjectionCheckResult {
     message: 'CAAMP injection healthy: markers balanced, references resolve',
     details: { path: agentsMdPath, hasCaampMarker: true, markersBalanced: true },
     fix: null,
+  };
+}
+
+// ── Global provider instruction freshness (T12378) ───────────────────
+
+/** Exact command that regenerates every global provider instruction file. */
+export const GLOBAL_INSTRUCTION_REMEDY = 'cleo install-global';
+
+/** Exact command that restores a missing or dead `caamp` binary. */
+export const CAAMP_BINARY_REMEDY = 'npm install -g @cleocode/caamp';
+
+/** Default wall-clock bound for the automatic refresh. */
+const GLOBAL_REFRESH_TIMEOUT_MS = 2000;
+
+/**
+ * Options for {@link refreshStaleGlobalInstructions}.
+ */
+export interface RefreshStaleGlobalInstructionsOptions {
+  /** Wall-clock bound in milliseconds. @defaultValue 2000 */
+  timeoutMs?: number;
+  /** Providers to scan and refresh. @defaultValue every installed provider */
+  providers?: Provider[];
+  /** Run even under Vitest (tests pass a temp HOME and explicit providers). @defaultValue false */
+  force?: boolean;
+}
+
+/** Remedy text for hand-appended copies of managed content. */
+function duplicateRemedy(files: string[]): string {
+  return `Remove the hand-appended copy of managed content below <!-- CAAMP:END --> in: ${files.join(', ')}`;
+}
+
+/** A failed refresh report carrying the regeneration remedy. */
+function failedRefresh(reason: string): GlobalInstructionRefreshReport {
+  return {
+    status: 'failed',
+    stale: [],
+    duplicates: [],
+    updated: [],
+    reason,
+    remedy: GLOBAL_INSTRUCTION_REMEDY,
+  };
+}
+
+/** Scan, then regenerate only when a file is stale or unembedded. */
+async function runGlobalRefresh(providers?: Provider[]): Promise<GlobalInstructionRefreshReport> {
+  const { checkGlobalInstructionStaleness, syncGlobalInstructions } = await import(
+    '@cleocode/caamp'
+  );
+  const scan = await checkGlobalInstructionStaleness({ providers });
+  const report: GlobalInstructionRefreshReport = {
+    status: 'current',
+    stale: scan.needsSync,
+    duplicates: scan.duplicates,
+    updated: [],
+    ...(scan.duplicates.length > 0 ? { remedy: duplicateRemedy(scan.duplicates) } : {}),
+  };
+  if (scan.needsSync.length === 0) return report;
+
+  const result = await syncGlobalInstructions({ providers });
+  report.updated = result.files
+    .filter((file) => file.action !== 'intact' && file.action !== 'failed')
+    .map((file) => file.path);
+  const failed = result.files.filter((file) => file.action === 'failed');
+  if (result.status === 'synced' && failed.length === 0) {
+    report.status = 'refreshed';
+    return report;
+  }
+  report.status = 'failed';
+  report.reason =
+    result.status === 'unresolved'
+      ? `delivery unresolved: ${result.findings.map((f) => `${f.kind}: ${f.path}`).join('; ')}`
+      : failed.length > 0
+        ? failed.map((file) => `${file.path}: ${file.error ?? 'write failed'}`).join('; ')
+        : `sync status ${result.status}`;
+  report.remedy = GLOBAL_INSTRUCTION_REMEDY;
+  return report;
+}
+
+/**
+ * Regenerate the global provider instruction files when a stamped source has
+ * changed since delivery — the automatic path behind `cleo session start` and
+ * `cleo briefing`.
+ *
+ * @remarks
+ * Before T12378 nothing regenerated those files when `~/.agents/AGENTS.md` or
+ * `CLEO-INJECTION.md` changed: an owner rule added to the hub never reached the
+ * 22 provider files that embed it. This runs the cheap scan
+ * (`checkGlobalInstructionStaleness` — one read per provider file, one hash per
+ * stamped source, no reference expansion) and, only when a file is stale or
+ * unembedded, the single shared regenerator `syncGlobalInstructions`.
+ *
+ * It is bounded (`timeoutMs`), never throws, and writes nothing to stdout: the
+ * outcome is returned for the caller to place in its envelope. Set
+ * `CLEO_INSTRUCTION_AUTOREFRESH=0` to disable it. Under Vitest it is skipped
+ * unless `force` is set, so a test can never rewrite the real provider files.
+ *
+ * @param options - Bound, targets and test override.
+ * @returns What was found and what was refreshed.
+ *
+ * @example
+ * ```typescript
+ * const report = await refreshStaleGlobalInstructions();
+ * if (report.status === 'failed') process.stderr.write(`${report.remedy}\n`);
+ * ```
+ *
+ * @task T12378
+ */
+export async function refreshStaleGlobalInstructions(
+  options: RefreshStaleGlobalInstructionsOptions = {},
+): Promise<GlobalInstructionRefreshReport> {
+  const skipped = (reason: string): GlobalInstructionRefreshReport => ({
+    status: 'skipped',
+    stale: [],
+    duplicates: [],
+    updated: [],
+    reason,
+  });
+  if (process.env['CLEO_INSTRUCTION_AUTOREFRESH'] === '0') {
+    return skipped('disabled by CLEO_INSTRUCTION_AUTOREFRESH=0');
+  }
+  if (process.env['VITEST'] && !options.force) return skipped('test environment');
+
+  const timeoutMs = options.timeoutMs ?? GLOBAL_REFRESH_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<GlobalInstructionRefreshReport>((resolveTimeout) => {
+    timer = setTimeout(
+      () => resolveTimeout(failedRefresh(`timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([
+      runGlobalRefresh(options.providers).catch((err: Error) => failedRefresh(err.message)),
+      timeout,
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Doctor check: are the global provider instruction files current, and does
+ * any carry a hand-appended copy of managed content?
+ *
+ * @remarks
+ * Read-only — it runs the cheap staleness scan and never writes.
+ *
+ * @returns One result for delivery freshness and one for duplicates.
+ *
+ * @task T12378
+ */
+export async function checkGlobalInstructionDelivery(): Promise<InjectionCheckResult[]> {
+  let scan: GlobalInstructionStalenessReport;
+  try {
+    const { checkGlobalInstructionStaleness } = await import('@cleocode/caamp');
+    scan = await checkGlobalInstructionStaleness();
+  } catch (err) {
+    return [
+      {
+        id: 'global_instruction_delivery',
+        category: 'configuration',
+        status: 'warning',
+        message: `Global instruction delivery could not be checked: ${err instanceof Error ? err.message : String(err)}`,
+        details: {},
+        fix: GLOBAL_INSTRUCTION_REMEDY,
+      },
+    ];
+  }
+
+  const delivery: InjectionCheckResult =
+    scan.needsSync.length === 0
+      ? {
+          id: 'global_instruction_delivery',
+          category: 'configuration',
+          status: 'passed',
+          message: `Global provider instructions current (${scan.files.length} file(s) checked)`,
+          details: { files: scan.files.length },
+          fix: null,
+        }
+      : {
+          id: 'global_instruction_delivery',
+          category: 'configuration',
+          status: 'warning',
+          message: `Stale global provider instructions: ${scan.needsSync.join(', ')}`,
+          details: {
+            files: scan.files
+              .filter((file) => scan.needsSync.includes(file.path))
+              .map((file) => ({ path: file.path, state: file.state, sources: file.staleSources })),
+          },
+          fix: GLOBAL_INSTRUCTION_REMEDY,
+        };
+
+  const duplicates: InjectionCheckResult =
+    scan.duplicates.length === 0
+      ? {
+          id: 'global_instruction_duplicates',
+          category: 'configuration',
+          status: 'passed',
+          message: 'No managed content duplicated outside CAAMP blocks',
+          details: {},
+          fix: null,
+        }
+      : {
+          id: 'global_instruction_duplicates',
+          category: 'configuration',
+          status: 'warning',
+          message: `Managed content duplicated outside <!-- CAAMP:END --> (not removed automatically): ${scan.duplicates.join(', ')}`,
+          details: { files: scan.duplicates },
+          fix: duplicateRemedy(scan.duplicates),
+        };
+
+  return [delivery, duplicates];
+}
+
+/**
+ * Doctor check: is a working `caamp` binary on PATH?
+ *
+ * @remarks
+ * A dangling `caamp` symlink (left behind when the package it pointed into was
+ * removed or moved) makes every `caamp …` remedy fail with a confusing
+ * "No such file or directory". Reports the first working binary, else the dead
+ * links found, else that none exists — each with the exact remedy.
+ *
+ * @param pathEnv - PATH to search. @defaultValue `process.env.PATH`
+ * @returns The check result.
+ *
+ * @example
+ * ```typescript
+ * const check = checkCaampBinary();
+ * if (check.fix) process.stderr.write(`${check.fix}\n`);
+ * ```
+ *
+ * @task T12378
+ */
+export function checkCaampBinary(
+  pathEnv: string = process.env['PATH'] ?? '',
+): InjectionCheckResult {
+  const names = process.platform === 'win32' ? ['caamp.cmd', 'caamp.exe', 'caamp'] : ['caamp'];
+  const dead: string[] = [];
+  for (const dir of pathEnv.split(delimiter).filter(Boolean)) {
+    for (const name of names) {
+      const candidate = join(dir, name);
+      let isLink: boolean;
+      try {
+        isLink = lstatSync(candidate).isSymbolicLink();
+      } catch {
+        continue; // nothing at this path
+      }
+      if (existsSync(candidate)) {
+        return {
+          id: 'caamp_binary',
+          category: 'dependencies',
+          status: 'passed',
+          message: `caamp binary: ${candidate}`,
+          details: { path: candidate },
+          fix: null,
+        };
+      }
+      if (isLink) dead.push(candidate);
+    }
+  }
+  if (dead.length > 0) {
+    return {
+      id: 'caamp_binary',
+      category: 'dependencies',
+      status: 'failed',
+      message: `caamp symlink is dead (target missing): ${dead.join(', ')}`,
+      details: { dead },
+      fix: `rm ${dead.join(' ')} && ${CAAMP_BINARY_REMEDY}`,
+    };
+  }
+  return {
+    id: 'caamp_binary',
+    category: 'dependencies',
+    status: 'warning',
+    message: 'caamp binary not found on PATH',
+    details: {},
+    fix: CAAMP_BINARY_REMEDY,
   };
 }
