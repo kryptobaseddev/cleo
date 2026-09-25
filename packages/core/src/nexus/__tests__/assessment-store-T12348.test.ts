@@ -17,7 +17,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { GraphIndexAssessment, GraphIndexReferenceReport } from '@cleocode/contracts';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { assessmentSummary, writeAssessment } from '../assessment-store.js';
+import { assessmentSummary, decodeStoredReferences, writeAssessment } from '../assessment-store.js';
 import { readKnowledgeIndexAssessment, readKnowledgeIndexReferences } from '../knowledge.js';
 
 vi.mock('../../store/nexus-sqlite.js', async () => ({
@@ -121,6 +121,23 @@ describe('assessment summary and reference list (T12348)', () => {
 
     expect(await readKnowledgeIndexAssessment()).toEqual(assessment);
     expect(await readKnowledgeIndexReferences()).toEqual(assessment.references);
+  });
+
+  it('stores the list compressed and still reads a plain-text list', async () => {
+    const assessment = fullAssessment();
+    writeAssessment(drizzle({ client: native }), assessment);
+    const stored = native
+      .prepare("SELECT value FROM _nexus_meta WHERE key = 'graph_assessment_references'")
+      .get()?.value;
+    expect(stored).toBeInstanceOf(Uint8Array);
+    expect(JSON.parse(decodeStoredReferences(stored))).toEqual(assessment.references);
+
+    // A list written before compression is read as stored.
+    native
+      .prepare("UPDATE _nexus_meta SET value = ? WHERE key = 'graph_assessment_references'")
+      .run(JSON.stringify(assessment.references));
+    expect(await readKnowledgeIndexReferences()).toEqual(assessment.references);
+    expect(() => decodeStoredReferences(42)).toThrow('neither text nor a compressed list');
   });
 
   it('refuses a list that disagrees with the recorded count', async () => {

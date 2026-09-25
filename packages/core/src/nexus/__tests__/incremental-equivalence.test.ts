@@ -16,6 +16,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type NexusAnalysisResult, runNexusAnalysis } from '../analyze-orchestrator.js';
+import { decodeStoredReferences } from '../assessment-store.js';
 
 vi.mock('../../store/nexus-sqlite.js', async () => ({
   getNexusDb: vi.fn(async () => drizzle({ client: native })),
@@ -164,7 +165,7 @@ function snapshot(): {
     .get() as Row | undefined;
   const referenceList =
     assessment.references ??
-    (storedReferences ? (JSON.parse(String(storedReferences.value)) as Row[]) : []);
+    (storedReferences ? (JSON.parse(decodeStoredReferences(storedReferences.value)) as Row[]) : []);
   const references = referenceList.map((reference) => normalize(reference, generation)).sort();
   const cache = (native.prepare('SELECT path, content_hash FROM _nexus_parse_cache').all() as Row[])
     .map((row) => `${String(row.path)}@${String(row.content_hash)}`)

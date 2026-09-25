@@ -12,6 +12,7 @@ import { worktreeScope } from '../../paths.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { getNexusDb } from '../../store/nexus-sqlite.js';
 import { publishNexusGraph, runNexusAnalysis } from '../analyze-orchestrator.js';
+import { decodeStoredReferences } from '../assessment-store.js';
 import { assessKnowledgeCoverage, readKnowledgeIndexAssessment } from '../knowledge.js';
 import * as sourceRootsModule from '../source-roots.js';
 import { resolveSourceRoots } from '../source-roots.js';
@@ -177,9 +178,10 @@ describe('publishNexusGraph', () => {
     expect(
       native.prepare("SELECT value FROM _nexus_meta WHERE key='graph_assessment'").get(),
     ).toEqual({ value: JSON.stringify({ ...summary, referenceCount: 1 }) });
-    expect(
-      native.prepare("SELECT value FROM _nexus_meta WHERE key='graph_assessment_references'").get(),
-    ).toEqual({ value: JSON.stringify(references) });
+    const storedReferences = native
+      .prepare("SELECT value FROM _nexus_meta WHERE key='graph_assessment_references'")
+      .get();
+    expect(decodeStoredReferences(storedReferences?.value)).toEqual(JSON.stringify(references));
     expect(native.prepare('SELECT meta_json FROM nexus_nodes').get()).toEqual({
       meta_json: rows.nodes[0]!.metaJson,
     });
@@ -238,6 +240,38 @@ describe('publishNexusGraph', () => {
     stale.nodes[0]!.id = 'stale';
     expect(() => publishNexusGraph(db, stale, null)).toThrow('changed during indexing');
     expect(native.prepare('SELECT id FROM nexus_nodes').all()).toEqual([{ id: 'new' }]);
+  });
+
+  // T12348: the project handle carries the global store ATTACHed; an IMMEDIATE
+  // publication write-locked it too, so a concurrent global writer (e.g.
+  // `cleo nexus projects clean`) timed out for the whole publication.
+  it('write-locks only the project store, never an attached global store', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'nexus-publish-lock-'));
+    const projectPath = join(dir, 'project.db');
+    const globalPath = join(dir, 'global.db');
+    native.exec(`VACUUM INTO '${projectPath}'`);
+    const globalWriter = new DatabaseSync(globalPath);
+    const project = new DatabaseSync(projectPath);
+    try {
+      globalWriter.exec('PRAGMA journal_mode=WAL; CREATE TABLE registry (id TEXT)');
+      project.exec(
+        `PRAGMA journal_mode=WAL; PRAGMA busy_timeout=0; ATTACH DATABASE '${globalPath}' AS nexus_global`,
+      );
+      const cacheBefore = project.prepare('PRAGMA main.cache_size').get();
+      globalWriter.exec('BEGIN IMMEDIATE');
+      try {
+        publishNexusGraph(drizzle({ client: project }), replacement(), null);
+      } finally {
+        globalWriter.exec('ROLLBACK');
+      }
+      expect(project.prepare('SELECT id FROM main.nexus_nodes').all()).toEqual([{ id: 'new' }]);
+      // The enlarged write cache lives only for the transaction.
+      expect(project.prepare('PRAGMA main.cache_size').get()).toEqual(cacheBefore);
+    } finally {
+      project.close();
+      globalWriter.close();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
