@@ -1,0 +1,163 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.9.18",
+  "resolvedVersion": "v2026.9.18",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12191",
+  "releaseKind": "regular",
+  "createdAt": "2026-09-25T14:25:12.581Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.9.13",
+  "previousTag": "v2026.9.13",
+  "previousShippedAt": "2026-09-22T06:19:04.198Z",
+  "tasks": [
+    {
+      "id": "T12358",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "pr: evidence atom refuses any PR with more than 100 changed files — reads only the first page of the GitHub file list",
+      "evidenceAtoms": [
+        "commit:0b12110671bb727fc2dbcf28cd6513c42ca07056",
+        "files:packages/core/src/release/__tests__/evidence-pr-atom.test.ts,packages/core/src/release/pr-evidence.ts,packages/core/src/tasks/__tests__/evidence-pr-context.test.ts,packages/core/src/tasks/evidence.ts",
+        "test-run:/home/keatonhoskins/.temp/ship918/core-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship918/nexus-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12191",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12359",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "release plan reports evidenceComplete:true while every task's implemented gate is false — success over missing evidence",
+      "evidenceAtoms": [
+        "commit:1e22278eea14b99bce93bf1175d00d56a38b8ff8",
+        "files:packages/core/src/internal.ts,packages/core/src/release/__tests__/plan.test.ts,packages/core/src/release/index.ts,packages/core/src/release/plan.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/verification-policy.ts",
+        "test-run:/home/keatonhoskins/.temp/ship918/core-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship918/nexus-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12191",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12348",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "nexus: graph_assessment is 472 MB (646k reference records) — dominates publish time and makes nexus status take 10.5 s",
+      "evidenceAtoms": [
+        "commit:8bd56b4f1782f3c68d02b3482726a480e4e8df95",
+        "files:packages/cleo/bin/cleo.js,packages/core/src/nexus/analyze-orchestrator.ts,packages/core/src/nexus/assessment-store.ts,packages/core/src/nexus/knowledge.ts,packages/nexus/src/pipeline/filesystem-walker.ts,packages/nexus/src/__tests__/freshness-walk-parity.test.ts",
+        "note:PR #1546 measured on VACUUM copies of the real store: status handler 105s to 1.5-2.0s on /mnt, 0.73-0.83s to 0.32-0.38s on /home; full-graph publish 400s to 40s on /mnt (syscalls 766k/848k to 267k/241k, WAL 723MB to 316MB); every publish rewrites the whole graph so a 1-file incremental publish costs the same",
+        "test-run:/home/keatonhoskins/.temp/ship918/core-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship918/nexus-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12191",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [],
+    "fixes": [
+      "T12358",
+      "T12359",
+      "T12348"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-25T14:25:12.581Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-25T14:25:12.581Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-25T14:25:12.581Z",
+      "resolvedCommand": "npx biome check .",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-25T14:25:12.581Z",
+      "resolvedCommand": "npx tsc --noEmit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-25T14:25:12.581Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-25T14:25:12.581Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 361 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.9.18 — 2026-09-25\n\n### Changed\n\n- `cleo nexus status` no longer reads or prints the 472 MB reference list: the graph assessment summary is stored apart from its references, and index stats come from SQL aggregates _(provenance: [T12348](https://github.com/kryptobaseddev/cleo/search?q=T12348&type=commits))_\n- `cleo nexus status` no longer shells out to git for every indexed file, and graph publication writes a third of the pages without locking the global store _(provenance: [T12348](https://github.com/kryptobaseddev/cleo/search?q=T12348&type=commits))_\n\n### Fixed\n\n- `pr:<number>` evidence now reads the complete changed-file list of PRs with more than 100 files _(provenance: [T12358](https://github.com/kryptobaseddev/cleo/search?q=T12358&type=commits))_\n- `cleo release plan` judges verification gate outcomes, not atom presence, and reports per-task gate states _(provenance: [T12359](https://github.com/kryptobaseddev/cleo/search?q=T12359&type=commits))_\n",
+    "changesetEntryCount": 4,
+    "changesetIds": [
+      "graph-assessment-size",
+      "nexus-status-fast-bounded-publish",
+      "pr-atom-files-pagination",
+      "release-plan-gate-states"
+    ],
+    "taskIds": [
+      "T12358",
+      "T12359",
+      "T12348"
+    ]
+  }
+}
