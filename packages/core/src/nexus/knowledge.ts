@@ -25,7 +25,11 @@ import { z } from 'zod';
 import { worktreeScope } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import { getNexusDb, getNexusNativeDb, nexusSchema } from '../store/nexus-sqlite.js';
-import { ASSESSMENT_KEY, ASSESSMENT_REFERENCES_KEY } from './assessment-store.js';
+import {
+  ASSESSMENT_KEY,
+  ASSESSMENT_REFERENCES_KEY,
+  decodeStoredReferences,
+} from './assessment-store.js';
 import { generateProjectHash } from './hash.js';
 import { resolveSourceRoots } from './source-roots.js';
 
@@ -283,8 +287,7 @@ export async function readKnowledgeIndexReferences(
       throw new Error('Graph assessment reports references, but none are stored.');
     return [];
   }
-  if (typeof row.value !== 'string') throw new Error('Graph reference metadata is not text.');
-  const references = z.array(referenceSchema).parse(JSON.parse(row.value));
+  const references = z.array(referenceSchema).parse(JSON.parse(decodeStoredReferences(row.value)));
   if (assessment.referenceCount !== undefined && references.length !== assessment.referenceCount)
     throw new Error('Stored graph references disagree with the assessment reference count.');
   return references;

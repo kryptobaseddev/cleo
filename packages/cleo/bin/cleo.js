@@ -52,6 +52,23 @@ import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/**
+ * libuv thread-pool size for the CLI, unless the operator set one (T12348).
+ *
+ * Node's default is 4 threads, so at most four `fs` calls are ever in flight.
+ * On a local disk that is invisible; on a FUSE mount each `stat` costs ~6 ms,
+ * and `cleo nexus status` must stat every indexed file. Measured on this
+ * repository's fuseblk mount (6,337 files, 1,118 directories): reading the
+ * tree took 2,455 ms with 4 threads and 426 ms with 64; stat'ing the files,
+ * 9,215 ms and 1,421 ms. Idle pool threads cost no CPU and only reserved stack.
+ *
+ * Must be set before anything submits work to the pool — the pool is created
+ * on first use and never resized — so it is set here, before the re-exec and
+ * before the in-process import; the child inherits it through the environment.
+ */
+const DEFAULT_UV_THREADPOOL_SIZE = '64';
+if (!process.env.UV_THREADPOOL_SIZE) process.env.UV_THREADPOOL_SIZE = DEFAULT_UV_THREADPOOL_SIZE;
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPath = resolve(__dirname, '../dist/cli/index.js');
 const args = process.argv.slice(2);

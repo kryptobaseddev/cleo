@@ -13,13 +13,21 @@
  * written in the publishing transaction, so they always describe the same
  * generation. A historical value with inline `references` stays readable.
  *
+ * The list is stored gzip-compressed (a BLOB), because every publication
+ * rewrites it: 453 MB of JSON is 116k pages written to the WAL and 116k more
+ * at checkpoint — measured at 0.6 ms per page write on this repository's FUSE
+ * mount, most of a 49-minute publication. At gzip level 1 it is 28 MB, costs
+ * ~0.6 s to compress and ~0.55 s to inflate. A historical plain-text list is
+ * still read as stored.
+ *
  * Code placed in `packages/core/` per Package-Boundary Check — verified against AGENTS.md.
  *
  * @task T12348
  * @module nexus/assessment-store
  */
 
-import type { GraphIndexAssessment } from '@cleocode/contracts';
+import { gunzipSync, gzipSync } from 'node:zlib';
+import type { GraphIndexAssessment, GraphIndexReferenceReport } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 
@@ -28,6 +36,41 @@ export const ASSESSMENT_KEY = 'graph_assessment';
 
 /** `_nexus_meta` key of the separately stored reference list. */
 export const ASSESSMENT_REFERENCES_KEY = 'graph_assessment_references';
+
+/** gzip level of the stored reference list: level 1 is ~16x smaller at ~1 s per 450 MB. */
+const REFERENCES_GZIP_LEVEL = 1;
+
+/**
+ * Encode a reference list for storage under {@link ASSESSMENT_REFERENCES_KEY}.
+ *
+ * @param references - The generation's retained references.
+ * @returns gzip-compressed JSON, stored as a BLOB.
+ */
+export function encodeStoredReferences(
+  references: readonly GraphIndexReferenceReport[],
+): Uint8Array {
+  return gzipSync(JSON.stringify(references), { level: REFERENCES_GZIP_LEVEL });
+}
+
+/**
+ * Decode a stored reference list back to its JSON text.
+ *
+ * Accepts the compressed BLOB written since T12348 and the plain JSON text
+ * written before it; anything else is malformed metadata.
+ *
+ * @param value - The raw `_nexus_meta.value` of {@link ASSESSMENT_REFERENCES_KEY}.
+ * @returns The list's JSON text.
+ * @throws When the value is neither text nor a compressed list.
+ * @example
+ * ```ts
+ * const references = JSON.parse(decodeStoredReferences(row.value));
+ * ```
+ */
+export function decodeStoredReferences(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value instanceof Uint8Array) return gunzipSync(value).toString('utf8');
+  throw new Error('Graph reference metadata is neither text nor a compressed list.');
+}
 
 /**
  * Return the summary form of an assessment: the reference list removed and
@@ -71,7 +114,7 @@ export function writeAssessment(
   tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${ASSESSMENT_KEY}, ${JSON.stringify(summary)})
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
   if (assessment.references !== undefined) {
-    tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${ASSESSMENT_REFERENCES_KEY}, ${JSON.stringify(assessment.references)})
+    tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${ASSESSMENT_REFERENCES_KEY}, ${encodeStoredReferences(assessment.references)})
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
   } else if (summary.referenceCount === undefined) {
     tx.run(sql`DELETE FROM main._nexus_meta WHERE key = ${ASSESSMENT_REFERENCES_KEY}`);

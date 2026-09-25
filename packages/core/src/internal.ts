@@ -1104,7 +1104,12 @@ export { DEFAULT_OPEN_WORKFLOW, releaseOpen } from './release/open.js';
 // The legacy 4-step pipeline (releaseStart/Verify/Publish/Reconcile) was
 // deleted in T9540 (Phase 6 of T9499); the new 4-verb surface — plan, open,
 // reconcile, rollback — is the canonical replacement (SPEC-T9345 §4).
-export type { ReleasePlanOptions, ReleasePlanResult } from './release/plan.js';
+export type {
+  ReleasePlanOptions,
+  ReleasePlanResult,
+  ReleasePlanTaskGateState,
+  ReleasePlanTaskGateVerdict,
+} from './release/plan.js';
 export { releasePlan } from './release/plan.js';
 // T9526: new release reconcile v2 (provenance-graph aware)
 export { releaseReconcileV2 } from './release/reconcile.js';

@@ -86,6 +86,12 @@ export type PrAtomResolution =
       /** Complete changed-file inventory; count mismatch is reported by contextual validation. */
       changedPaths: string[];
       changedFileCount: number;
+      /**
+       * Why the changed-file inventory could not be completed, when paginating
+       * the PR files API failed (T12358). Present only alongside an incomplete
+       * `changedPaths`; contextual validation refuses such a result.
+       */
+      changedFilesError?: string;
     }
   | {
       ok: false;
@@ -159,6 +165,10 @@ function readCacheEntry(projectRoot: string, prNumber: number): PrCacheEntry | n
     )
       return null;
     if (!Number.isInteger(parsed.changedFileCount)) return null;
+    // T12358: an entry captured before the files API was paginated can hold a
+    // truncated first page (100 of N). Treat it as absent so the next verify
+    // refetches the full inventory instead of refusing forever from cache.
+    if (parsed.changedPaths.length !== parsed.changedFileCount) return null;
     if (typeof parsed.prNumber !== 'number' || parsed.prNumber !== prNumber) return null;
     if (typeof parsed.mergedAt !== 'string' || parsed.mergedAt === '') return null;
     if (typeof parsed.mergeCommitSha !== 'string' || parsed.mergeCommitSha === '') return null;
@@ -298,6 +308,148 @@ export const defaultFetchGhPrPayload: FetchGhPrPayload = async (
     };
   }
 };
+
+// ---------------------------------------------------------------------------
+// Changed-file pagination (T12358)
+// ---------------------------------------------------------------------------
+
+/**
+ * Page size requested from GitHub's PR files API — its documented maximum.
+ *
+ * `gh pr view --json files` returns at most this many entries, which is why a
+ * PR with more changed files needs the REST endpoint paginated (T12358).
+ *
+ * @task T12358
+ */
+export const PR_FILES_PAGE_SIZE = 100;
+
+/**
+ * Upper bound on pages read from the PR files API. GitHub serves at most
+ * 3000 files for one PR (30 pages of {@link PR_FILES_PAGE_SIZE}); a PR beyond
+ * that cannot be fully inventoried and stays refused as incomplete.
+ *
+ * @task T12358
+ */
+export const PR_FILES_MAX_PAGES = 30;
+
+/**
+ * Function signature for fetching ONE page of a PR's changed files.
+ *
+ * `page` is 1-based. A successful page returns the changed paths it holds; a
+ * page shorter than {@link PR_FILES_PAGE_SIZE} is the last one. A failure
+ * carries a human-readable reason and leaves the inventory incomplete.
+ *
+ * @task T12358
+ */
+export type FetchGhPrFilesPage = (
+  prNumber: number,
+  page: number,
+  cwd: string,
+) => Promise<{ ok: true; paths: string[] } | { ok: false; reason: string }>;
+
+/**
+ * Default {@link FetchGhPrFilesPage}: `gh api
+ * repos/{owner}/{repo}/pulls/<num>/files?per_page=100&page=<page>`, run in
+ * `cwd` so `gh` resolves the repository the same way `gh pr view` does.
+ *
+ * @task T12358
+ */
+export const defaultFetchGhPrFilesPage: FetchGhPrFilesPage = async (
+  prNumber: number,
+  page: number,
+  cwd: string,
+) => {
+  if (!isGitWorkTree(cwd) || !isGhCliAvailable()) {
+    return {
+      ok: false,
+      reason: `gh cannot query the PR files API from ${cwd} (no work tree or gh CLI).`,
+    };
+  }
+  let stdout: string;
+  try {
+    stdout = execFileSync(
+      'gh',
+      [
+        'api',
+        `repos/{owner}/{repo}/pulls/${prNumber}/files?per_page=${PR_FILES_PAGE_SIZE}&page=${page}`,
+      ],
+      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd },
+    );
+  } catch (err) {
+    const stderr =
+      err instanceof Error && 'stderr' in err
+        ? String((err as NodeJS.ErrnoException & { stderr?: unknown }).stderr ?? err.message)
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    return { ok: false, reason: `gh api PR files page ${page} failed: ${stderr.slice(0, 300)}` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason: `gh api PR files page ${page} returned non-JSON output: ${msg}` };
+  }
+  if (!Array.isArray(parsed)) {
+    return { ok: false, reason: `gh api PR files page ${page} did not return an array.` };
+  }
+  const paths: string[] = [];
+  for (const entry of parsed) {
+    const filename =
+      typeof entry === 'object' && entry !== null && 'filename' in entry
+        ? entry.filename
+        : undefined;
+    if (typeof filename !== 'string' || filename === '') {
+      return { ok: false, reason: `gh api PR files page ${page} has an entry without filename.` };
+    }
+    paths.push(filename);
+  }
+  return { ok: true, paths };
+};
+
+/**
+ * Read a PR's COMPLETE changed-file inventory by paginating the files API.
+ *
+ * Stops at the first short page, once `expectedCount` paths are collected, or
+ * after {@link PR_FILES_MAX_PAGES}. The result is `ok` only when exactly
+ * `expectedCount` distinct paths were retrieved; a page error or a short total
+ * returns `ok: false` with the paths gathered so far, so the caller keeps the
+ * inventory visibly incomplete instead of treating a partial list as the diff.
+ *
+ * @param prNumber - PR number.
+ * @param expectedCount - GitHub's reported `changedFiles` count.
+ * @param cwd - Working directory for the page fetcher.
+ * @param fetchPage - Page fetcher; defaults to {@link defaultFetchGhPrFilesPage}.
+ * @returns The full path list, or the partial list plus the failure reason.
+ *
+ * @task T12358
+ */
+export async function collectPrChangedFiles(
+  prNumber: number,
+  expectedCount: number,
+  cwd: string,
+  fetchPage: FetchGhPrFilesPage = defaultFetchGhPrFilesPage,
+): Promise<{ ok: true; paths: string[] } | { ok: false; paths: string[]; reason: string }> {
+  const seen = new Set<string>();
+  for (let page = 1; page <= PR_FILES_MAX_PAGES && seen.size < expectedCount; page++) {
+    const result = await fetchPage(prNumber, page, cwd);
+    if (!result.ok) {
+      return { ok: false, paths: [...seen], reason: result.reason };
+    }
+    for (const path of result.paths) seen.add(path);
+    if (result.paths.length < PR_FILES_PAGE_SIZE) break;
+  }
+  const paths = [...seen];
+  if (paths.length !== expectedCount) {
+    return {
+      ok: false,
+      paths,
+      reason: `PR files API returned ${paths.length} of ${expectedCount} changed files.`,
+    };
+  }
+  return { ok: true, paths };
+}
 
 // ---------------------------------------------------------------------------
 // Required-workflow resolution
@@ -897,6 +1049,12 @@ export interface ResolvePrEvidenceAtomOptions {
    * (gh#1192). @task T12104
    */
   readonly fetchGhBranchProtection?: FetchGhBranchProtection;
+  /**
+   * Mock PR files page fetcher for tests; defaults to
+   * {@link defaultFetchGhPrFilesPage}. Consulted only when `gh pr view`
+   * returned fewer files than the PR's `changedFiles` count. @task T12358
+   */
+  readonly fetchGhPrFilesPage?: FetchGhPrFilesPage;
 }
 
 /**
@@ -910,7 +1068,9 @@ export interface ResolvePrEvidenceAtomOptions {
  *   5. Resolve the required-workflow list (env → project context → branch
  *      protection → built-in default; gh#1192).
  *   6. Evaluate the status-check rollup against required workflows.
- *   7. Persist the result to cache and return.
+ *   7. When `gh pr view` truncated the file list (>100 files), paginate the
+ *      PR files API for the complete inventory (T12358).
+ *   8. Persist a complete result to cache and return.
  *
  * @param prNumber - PR number (positive integer).
  * @param projectRoot - Absolute path to the project root (for cache + cwd).
@@ -1074,12 +1234,33 @@ export async function resolvePrEvidenceAtom(
       reason: `PR #${prNumber} has no verified merge commit identity; its head commit cannot substitute.`,
     };
   }
+  const changedFileCount = payload.changedFiles ?? -1;
+  let changedPaths = payload.files?.map((file) => file.path) ?? [];
+  let changedFilesError: string | undefined;
+  // T12358: `gh pr view --json files` stops at the first 100 files. When the
+  // PR reports more, read the full inventory from the paginated REST API; a
+  // failure keeps the larger partial list and its reason so contextual
+  // validation refuses the incomplete coverage instead of guessing.
+  if (changedFileCount > changedPaths.length) {
+    const collected = await collectPrChangedFiles(
+      prNumber,
+      changedFileCount,
+      executionRoot,
+      opts.fetchGhPrFilesPage ?? defaultFetchGhPrFilesPage,
+    );
+    if (collected.ok) {
+      changedPaths = collected.paths;
+    } else {
+      if (collected.paths.length > changedPaths.length) changedPaths = collected.paths;
+      changedFilesError = collected.reason;
+    }
+  }
   const changes = {
     title: payload.title ?? '',
     body: payload.body ?? '',
     headRefName: payload.headRefName ?? '',
-    changedPaths: payload.files?.map((file) => file.path) ?? [],
-    changedFileCount: payload.changedFiles ?? -1,
+    changedPaths,
+    changedFileCount,
   };
   const entry: PrCacheEntry = {
     schemaVersion: 2,
@@ -1094,11 +1275,14 @@ export async function resolvePrEvidenceAtom(
   };
 
   // Best-effort cache write — never fail the resolution because the cache
-  // directory was read-only or full.
-  try {
-    writeCacheEntry(projectRoot, entry);
-  } catch {
-    /* ignore */
+  // directory was read-only or full. An incomplete inventory is never cached
+  // (T12358): a transient page failure must not pin the refusal.
+  if (changedPaths.length === changedFileCount) {
+    try {
+      writeCacheEntry(projectRoot, entry);
+    } catch {
+      /* ignore */
+    }
   }
 
   return {
@@ -1110,5 +1294,6 @@ export async function resolvePrEvidenceAtom(
     totalChecks: rollupResult.totalChecks,
     cacheHit: false,
     ...changes,
+    ...(changedFilesError !== undefined ? { changedFilesError } : {}),
   };
 }
