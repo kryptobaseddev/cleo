@@ -40,6 +40,16 @@ const MAX_FILE_SIZE = 512 * 1024;
 const STAT_CONCURRENCY = 32;
 
 /**
+ * Concurrency for a freshness walk's stat calls (T12348).
+ *
+ * A freshness check reads nothing but metadata for unchanged files, so its
+ * cost is one `stat` per indexed file; on a FUSE mount that is ~6 ms each when
+ * serialised. Keeping more requests in flight than the libuv pool has threads
+ * lets the pool (sized by the CLI shim) stay saturated.
+ */
+const FRESHNESS_STAT_CONCURRENCY = 256;
+
+/**
  * Directory names that are always excluded from repository scans.
  *
  * These match the default ignore list from the GitNexus ignore-service plus
@@ -118,6 +128,14 @@ export interface WalkOptions {
    * instead of being read. Only a freshness check should pass this: an index
    * build must hash what it parses. A metadata-preserving edit can defeat it,
    * which is why the published generation still verifies by content.
+   *
+   * Passing it also selects the freshness walk (T12348): directories are read
+   * in parallel instead of through `fs.glob`, and `git check-ignore` is asked
+   * only about files absent from this map. A known file was judged not ignored
+   * when its generation was built, and in-repository `.gitignore`/`.cleoignore`
+   * rules are still re-evaluated in process for every path; what the walk no
+   * longer re-asks git is whether a change to `.git/info/exclude` or the global
+   * excludes file has since ignored an indexed file.
    */
   knownFiles?: ReadonlyMap<string, KnownFileFingerprint>;
   /** Called for every file whose bytes were actually read and hashed. */
@@ -277,12 +295,175 @@ function runGitCheckIgnore(
 // Core walker
 // ---------------------------------------------------------------------------
 
+/** Decides whether a repository-relative path is excluded by ignore rules. */
+type IgnoreEvaluator = (relPath: string, isDirectory: boolean) => Promise<boolean>;
+
+/** Receiver for exclusion, size and stat outcomes. */
+type FileReportSink = ((report: GraphIndexFileReport) => void) | undefined;
+
+/**
+ * Collect candidate paths with `fs.glob` — the traversal an index build uses.
+ *
+ * Yields files AND directories that survive the default, nested-repository and
+ * ignore-rule exclusions; directories are dropped later, at stat time.
+ */
+async function collectPathsByGlob(
+  repoPath: string,
+  isExcluded: IgnoreEvaluator,
+  includedRepositories: readonly string[],
+  onFileReport: FileReportSink,
+): Promise<string[]> {
+  const relativePaths: string[] = [];
+  for await (const entry of fs.glob('**/*', {
+    cwd: repoPath,
+    withFileTypes: true,
+    exclude: (candidate) => {
+      const absolutePath = path.join(candidate.parentPath, candidate.name);
+      const normalized = path.relative(repoPath, absolutePath).replace(/\\/g, '/');
+      const nestedRepository =
+        (candidate.isDirectory() || candidate.isSymbolicLink()) &&
+        existsSync(path.join(absolutePath, '.git'));
+      const excluded =
+        DEFAULT_EXCLUDED_DIRS.has(candidate.name) ||
+        (nestedRepository && !includedRepositories.includes(normalized));
+      if (excluded)
+        onFileReport?.({
+          path: normalized,
+          status: 'excluded',
+          reason: nestedRepository
+            ? 'Nested repository requires explicit inclusion'
+            : 'Default excluded directory',
+        });
+      return excluded;
+    },
+  })) {
+    // Normalise to forward slashes
+    const relPath = path.relative(repoPath, path.join(entry.parentPath, entry.name));
+    const normalised = relPath.replace(/\\/g, '/');
+    // Native directory entries avoid a serial stat for every source; metadata
+    // and content hashes are still captured by the bounded batches below.
+    const isDirectory = entry.isSymbolicLink()
+      ? (await fs.stat(path.join(repoPath, relPath))).isDirectory()
+      : entry.isDirectory();
+    if (!(await isExcluded(normalised, isDirectory))) {
+      relativePaths.push(normalised);
+    } else {
+      onFileReport?.({ path: normalised, status: 'excluded', reason: 'Ignore rule' });
+    }
+  }
+  return relativePaths;
+}
+
+/**
+ * Collect the FILES {@link collectPathsByGlob} would yield, reading every
+ * directory in parallel (T12348).
+ *
+ * `fs.glob` reads one directory at a time and the nested-repository probe is a
+ * synchronous `existsSync` per directory, so on a FUSE mount the traversal
+ * alone measured 12–21 s for this repository; issuing the reads concurrently
+ * brings it under half a second there. The directory listing also answers the
+ * `.git` and ignore-file questions without further filesystem calls.
+ *
+ * It reproduces `fs.glob('**\/*')` as the index build observes it: dot entries
+ * are never visited, and a symbolic link to a directory contributes its
+ * immediate children but is not descended further. Directories themselves are
+ * not returned — the stat stage discards them — and a subtree whose directory
+ * is ignored is pruned, which is equivalent because {@link IgnoreEvaluator}
+ * excludes every path below an ignored ancestor.
+ *
+ * @param repoPath - Absolute repository root.
+ * @param isExcluded - Ignore-rule evaluator shared with the glob traversal.
+ * @param primeIgnoreFiles - Loads a directory's ignore files from its listing.
+ * @param includedRepositories - Nested repositories explicitly included.
+ * @param onFileReport - Receiver for exclusion outcomes. * @returns Repository-relative file paths, sorted.
+ */
+async function collectFilesInParallel(
+  repoPath: string,
+  isExcluded: IgnoreEvaluator,
+  primeIgnoreFiles: (directory: string, names: ReadonlySet<string>) => Promise<void>,
+  includedRepositories: readonly string[],
+  onFileReport: FileReportSink,
+): Promise<string[]> {
+  const found: string[] = [];
+  const report = (relPath: string, reason: string): void =>
+    onFileReport?.({ path: relPath, status: 'excluded', reason });
+
+  const acceptFile = async (relPath: string): Promise<void> => {
+    if (await isExcluded(relPath, false)) report(relPath, 'Ignore rule');
+    else found.push(relPath);
+  };
+
+  // A link to a directory: glob yields the target's immediate children and
+  // stops there; a link to a file (or a dangling link) is a file candidate.
+  const visitLink = async (relPath: string): Promise<void> => {
+    const absolutePath = path.join(repoPath, relPath);
+    const target = await fs.stat(absolutePath).catch(() => null);
+    if (!target?.isDirectory()) return acceptFile(relPath);
+    if (existsSync(path.join(absolutePath, '.git')) && !includedRepositories.includes(relPath)) {
+      report(relPath, 'Nested repository requires explicit inclusion');
+      return;
+    }
+    if (await isExcluded(relPath, true)) {
+      report(relPath, 'Ignore rule');
+      return;
+    }
+    for (const child of await fs.readdir(absolutePath, { withFileTypes: true })) {
+      if (child.name.startsWith('.')) continue;
+      const childPath = `${relPath}/${child.name}`;
+      const isDirectory = child.isSymbolicLink()
+        ? ((await fs.stat(path.join(absolutePath, child.name)).catch(() => null))?.isDirectory() ??
+          false)
+        : child.isDirectory();
+      if (!isDirectory) await acceptFile(childPath);
+    }
+  };
+
+  const visit = async (relDir: string): Promise<void> => {
+    const entries = await fs.readdir(relDir ? path.join(repoPath, relDir) : repoPath, {
+      withFileTypes: true,
+    });
+    const names = new Set(entries.map((entry) => entry.name));
+    if (relDir && names.has('.git') && !includedRepositories.includes(relDir)) {
+      report(relDir, 'Nested repository requires explicit inclusion');
+      return;
+    }
+    await primeIgnoreFiles(relDir, names);
+    const subdirectories: string[] = [];
+    await Promise.all(
+      entries.map(async (entry) => {
+        if (entry.name.startsWith('.')) return;
+        const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
+        if (DEFAULT_EXCLUDED_DIRS.has(entry.name)) {
+          report(relPath, 'Default excluded directory');
+        } else if (entry.isSymbolicLink()) {
+          await visitLink(relPath);
+        } else if (!entry.isDirectory()) {
+          await acceptFile(relPath);
+        } else if (await isExcluded(relPath, true)) {
+          report(relPath, 'Ignore rule');
+        } else {
+          subdirectories.push(relPath);
+        }
+      }),
+    );
+    await Promise.all(subdirectories.map(visit));
+  };
+
+  await visit('');
+  return found.sort();
+}
+
 /**
  * Walk the repository directory tree and return a list of scanned files.
  *
  * Uses Node 24's native `fs.promises.glob` for efficient directory traversal.
  * Files in excluded directories are skipped before stat is called.
  * Files larger than {@link MAX_FILE_SIZE} are skipped after stat.
+ *
+ * When `options.knownFiles` is given the walk is a freshness check (T12348):
+ * directories are read in parallel, git is asked to classify only files absent
+ * from `knownFiles`, and stats run at higher concurrency — see
+ * {@link WalkOptions.knownFiles}.
  *
  * @param repoPath - Absolute path to the repository root
  * @param onProgress - Optional progress callback invoked for each processed file
@@ -340,51 +521,38 @@ export async function walkRepositoryPaths(
     return false;
   }
 
-  // Collect all relative paths via native glob
-  const relativePaths: string[] = [];
-  for await (const entry of fs.glob('**/*', {
-    cwd: repoPath,
-    withFileTypes: true,
-    exclude: (candidate) => {
-      const absolutePath = path.join(candidate.parentPath, candidate.name);
-      const normalized = path.relative(repoPath, absolutePath).replace(/\\/g, '/');
-      const nestedRepository =
-        (candidate.isDirectory() || candidate.isSymbolicLink()) &&
-        existsSync(path.join(absolutePath, '.git'));
-      const excluded =
-        DEFAULT_EXCLUDED_DIRS.has(candidate.name) ||
-        (nestedRepository && !includedRepositories.includes(normalized));
-      if (excluded)
-        onFileReport?.({
-          path: normalized,
-          status: 'excluded',
-          reason: nestedRepository
-            ? 'Nested repository requires explicit inclusion'
-            : 'Default excluded directory',
-        });
-      return excluded;
-    },
-  })) {
-    // Normalise to forward slashes
-    const relPath = path.relative(repoPath, path.join(entry.parentPath, entry.name));
-    const normalised = relPath.replace(/\\/g, '/');
-    // Native directory entries avoid a serial stat for every source; metadata
-    // and content hashes are still captured by the bounded batches below.
-    const isDirectory = entry.isSymbolicLink()
-      ? (await fs.stat(path.join(repoPath, relPath))).isDirectory()
-      : entry.isDirectory();
-    if (!(await isExcluded(normalised, isDirectory))) {
-      relativePaths.push(normalised);
-    } else {
-      onFileReport?.({ path: normalised, status: 'excluded', reason: 'Ignore rule' });
-    }
+  /** Load a directory's ignore files, skipping the reads its listing rules out. */
+  async function primeIgnoreFiles(directory: string, names: ReadonlySet<string>): Promise<void> {
+    if (!directory || nestedPatterns.has(directory)) return;
+    const [gitignore, cleoignore] = await Promise.all([
+      names.has('.gitignore')
+        ? readIgnorePatterns(path.join(repoPath, directory, '.gitignore'))
+        : [],
+      names.has('.cleoignore')
+        ? readIgnorePatterns(path.join(repoPath, directory, '.cleoignore'))
+        : [],
+    ]);
+    nestedPatterns.set(directory, ignore().add([...gitignore, ...cleoignore]));
   }
+
+  const knownFiles = options.knownFiles;
+  const relativePaths = knownFiles
+    ? await collectFilesInParallel(
+        repoPath,
+        isExcluded,
+        primeIgnoreFiles,
+        includedRepositories,
+        onFileReport,
+      )
+    : await collectPathsByGlob(repoPath, isExcluded, includedRepositories, onFileReport);
 
   // Preserve the parent project binding while evaluating each explicitly included
   // repository with its own Git configuration (including linked-worktree gitdirs).
   const scopes = ['', ...includedRepositories].sort((a, b) => b.length - a.length);
   const scopedPaths = new Map<string, string[]>();
   for (const file of relativePaths) {
+    // A known file was judged not ignored when its generation was built.
+    if (knownFiles?.has(file)) continue;
     const scope = scopes.find((candidate) => !candidate || file.startsWith(`${candidate}/`)) ?? '';
     const local = scope ? file.slice(scope.length + 1) : file;
     const paths = scopedPaths.get(scope) ?? [];
@@ -409,9 +577,10 @@ export async function walkRepositoryPaths(
   const entries: ScannedFile[] = [];
   let processed = 0;
   let skippedLarge = 0;
+  const concurrency = knownFiles ? FRESHNESS_STAT_CONCURRENCY : STAT_CONCURRENCY;
 
-  for (let start = 0; start < eligiblePaths.length; start += STAT_CONCURRENCY) {
-    const batch = eligiblePaths.slice(start, start + STAT_CONCURRENCY);
+  for (let start = 0; start < eligiblePaths.length; start += concurrency) {
+    const batch = eligiblePaths.slice(start, start + concurrency);
     const results = await Promise.allSettled(
       batch.map(async (relPath) => {
         const fullPath = path.join(repoPath, relPath);
@@ -429,7 +598,7 @@ export async function walkRepositoryPaths(
           });
           return null;
         }
-        const known = options.knownFiles?.get(relPath);
+        const known = knownFiles?.get(relPath);
         let contentHash: string;
         if (known && known.size === stat.size && known.mtimeMs === stat.mtimeMs) {
           contentHash = known.contentHash;

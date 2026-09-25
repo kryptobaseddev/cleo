@@ -200,6 +200,55 @@ function graphGeneration(db: NodeSQLiteDatabase): string | null {
 }
 
 /**
+ * Page-cache ceiling for a graph write transaction, in KiB (T12348).
+ *
+ * A one-shot CLI open gets an 8 MB cache (T11829). A publication dirties every
+ * row, index and FTS page of the graph — ~290 MB on this repository — so with
+ * 8 MB SQLite spills pages to the WAL mid-transaction and reads them back,
+ * repeatedly: replacing the rows cost 340k read and 328k write syscalls at
+ * 8 MB, 124k/223k at 256 MB, and 40k/146k (the floor: each page written once)
+ * at 512 MB. On a FUSE mount every syscall costs ~0.5–1.5 ms. This is a
+ * ceiling, not an allocation: SQLite grows the cache only as pages are
+ * touched, and the previous size is restored when the transaction ends.
+ */
+const GRAPH_WRITE_CACHE_KIB = 524_288;
+
+/**
+ * Run a graph write in a transaction that write-locks the PROJECT store only.
+ *
+ * The project handle carries the global `cleo.db` ATTACHed as `nexus_global`
+ * (see `ensureGlobalRegistryAttached`), and `BEGIN IMMEDIATE` takes the write
+ * lock of EVERY attached database. An immediate publication therefore held the
+ * global store's write lock for its whole duration — while it ran, a
+ * concurrent `cleo nexus projects clean` gave up with "database is locked"
+ * after 180 s. A deferred transaction whose first statement writes `main`
+ * acquires main's lock alone, with the same busy handling and a fresh snapshot,
+ * so the generation check that follows still reads under the write lock (T12348).
+ *
+ * @param db - Owning project graph database.
+ * @param write - Transaction body; every statement in it must target `main`.
+ */
+function writeGraphTransaction(
+  db: NodeSQLiteDatabase,
+  write: Parameters<NodeSQLiteDatabase['transaction']>[0],
+): void {
+  const previous = db.values(sql`PRAGMA main.cache_size`)[0]?.[0];
+  db.run(sql.raw(`PRAGMA main.cache_size = -${GRAPH_WRITE_CACHE_KIB}`));
+  try {
+    db.transaction(
+      (tx) => {
+        // A write that matches no row still takes main's RESERVED lock, and only main's.
+        tx.run(sql`DELETE FROM main._nexus_meta WHERE 0`);
+        return write(tx);
+      },
+      { behavior: 'deferred' },
+    );
+  } finally {
+    if (typeof previous === 'number') db.run(sql.raw(`PRAGMA main.cache_size = ${previous}`));
+  }
+}
+
+/**
  * Atomically publish staged rows if the graph has not changed since assessment.
  * Failed inserts, FTS repair, or stale generations roll back the entire replacement.
  * Code placed in `packages/core/` per Package-Boundary Check — verified against AGENTS.md.
@@ -235,63 +284,60 @@ export function publishNexusGraph(
     )
       throw new Error('Staged reference publication generation does not match rows');
   }
-  db.transaction(
-    (tx) => {
-      if (graphGeneration(tx) !== expectedGeneration) {
-        throw new Error(
-          'Nexus graph changed during indexing; discard staged generation and retry.',
-        );
-      }
-      tx.delete(nexusRelations).run();
-      tx.delete(nexusNodes).run();
-      // The optional FTS shadow can contain orphaned rowids; reset it inside
-      // the same transaction so trigger failures restore the previous generation.
-      if (
-        tx.values(sql`SELECT name FROM main.sqlite_master WHERE name = 'nexus_symbols_fts'`)
-          .length > 0
-      ) {
-        tx.run(sql`DELETE FROM main.nexus_symbols_fts`);
-      }
-      for (let offset = 0; offset < rows.nodes.length; offset += 500) {
-        tx.insert(nexusNodes)
-          .values(rows.nodes.slice(offset, offset + 500))
-          .run();
-      }
-      for (let offset = 0; offset < rows.relations.length; offset += 500) {
-        tx.insert(nexusRelations)
-          .values(rows.relations.slice(offset, offset + 500))
-          .run();
-      }
-      if (
-        rows.generation !== undefined &&
-        tx.values(sql`
+  writeGraphTransaction(db, (tx) => {
+    if (graphGeneration(tx) !== expectedGeneration) {
+      throw new Error('Nexus graph changed during indexing; discard staged generation and retry.');
+    }
+    // The optional FTS shadow can contain orphaned rowids; reset it inside
+    // the same transaction so trigger failures restore the previous generation.
+    // Reset it FIRST (T12348): the per-row delete trigger then finds nothing
+    // to remove, instead of re-tokenizing every old node's text to delete it.
+    if (
+      tx.values(sql`SELECT name FROM main.sqlite_master WHERE name = 'nexus_symbols_fts'`).length >
+      0
+    ) {
+      tx.run(sql`DELETE FROM main.nexus_symbols_fts`);
+    }
+    tx.delete(nexusRelations).run();
+    tx.delete(nexusNodes).run();
+    for (let offset = 0; offset < rows.nodes.length; offset += 500) {
+      tx.insert(nexusNodes)
+        .values(rows.nodes.slice(offset, offset + 500))
+        .run();
+    }
+    for (let offset = 0; offset < rows.relations.length; offset += 500) {
+      tx.insert(nexusRelations)
+        .values(rows.relations.slice(offset, offset + 500))
+        .run();
+    }
+    if (
+      rows.generation !== undefined &&
+      tx.values(sql`
         SELECT id FROM main.nexus_nodes
         WHERE json_extract(meta_json, '$.lexicalCapability') = 'typescript-javascript'
           AND json_extract(meta_json, '$.publicationGeneration') IS NOT ${generation}
         LIMIT 1
       `).length > 0
-      ) {
-        throw new Error('Staged lexical declaration publication generation does not match rows');
-      }
-      if (rows.parseCache) applyParseCacheUpdate(tx, rows.parseCache);
-      // The fingerprint names the extractor build that produced these rows; a
-      // publisher without a parse cache leaves the build unproven.
-      if (rows.parseCache?.fingerprint) {
-        tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_extractor_fingerprint', ${rows.parseCache.fingerprint})
+    ) {
+      throw new Error('Staged lexical declaration publication generation does not match rows');
+    }
+    if (rows.parseCache) applyParseCacheUpdate(tx, rows.parseCache);
+    // The fingerprint names the extractor build that produced these rows; a
+    // publisher without a parse cache leaves the build unproven.
+    if (rows.parseCache?.fingerprint) {
+      tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_extractor_fingerprint', ${rows.parseCache.fingerprint})
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
-      } else {
-        tx.run(sql`DELETE FROM main._nexus_meta WHERE key = 'graph_extractor_fingerprint'`);
-      }
-      if (rows.assessment)
-        writeFileManifest(tx, buildFileManifest(rows.assessment, rows.assessment.files));
-      else clearFileManifest(tx);
-      // T12348: summary and reference list are written together, separately.
-      if (rows.assessment) writeAssessment(tx, rows.assessment);
-      tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_generation', ${generation})
+    } else {
+      tx.run(sql`DELETE FROM main._nexus_meta WHERE key = 'graph_extractor_fingerprint'`);
+    }
+    if (rows.assessment)
+      writeFileManifest(tx, buildFileManifest(rows.assessment, rows.assessment.files));
+    else clearFileManifest(tx);
+    // T12348: summary and reference list are written together, separately.
+    if (rows.assessment) writeAssessment(tx, rows.assessment);
+    tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_generation', ${generation})
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
-    },
-    { behavior: 'immediate' },
-  );
+  });
 }
 
 /**
@@ -311,16 +357,13 @@ function recordVerifiedProvenance(
   manifest: GraphFileManifest,
   expectedGeneration: string | null,
 ): GraphIndexAssessment | null {
-  db.transaction(
-    (tx) => {
-      if (graphGeneration(tx) !== expectedGeneration)
-        throw new Error('Nexus graph changed during verification; provenance not updated.');
-      // A re-recorded summary keeps the stored reference list of this generation.
-      if (assessment) writeAssessment(tx, assessment);
-      writeFileManifest(tx, manifest);
-    },
-    { behavior: 'immediate' },
-  );
+  writeGraphTransaction(db, (tx) => {
+    if (graphGeneration(tx) !== expectedGeneration)
+      throw new Error('Nexus graph changed during verification; provenance not updated.');
+    // A re-recorded summary keeps the stored reference list of this generation.
+    if (assessment) writeAssessment(tx, assessment);
+    writeFileManifest(tx, manifest);
+  });
   return assessment;
 }
 
