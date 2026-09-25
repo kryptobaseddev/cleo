@@ -411,6 +411,134 @@ describe('releasePlan — error envelopes', () => {
     expect(result.error.details).toBeDefined();
   });
 
+  it('refuses when a task carries atoms but its implemented gate is false (T12359)', async () => {
+    // Enforce verification the way a real project does (the default outside
+    // VITEST): the plan must judge gate OUTCOMES with the policy
+    // `cleo complete` applies, not the mere presence of evidence atoms.
+    writeFileSync(
+      join(testDir, '.cleo', 'config.json'),
+      JSON.stringify({
+        enforcement: { session: { requiredForMutate: false } },
+        lifecycle: { mode: 'off' },
+        verification: { enabled: true, requiredGates: ['implemented', 'testsPassed'] },
+      }),
+    );
+    const accessor = await createSqliteDataAccessor(testDir);
+    try {
+      await accessor.setMetaValue('schema_version', '2.10.0');
+      await accessor.upsertSingleTask(makeTask({ id: 'T9999', type: 'epic', title: 'Epic' }));
+      // Fully verified sibling — must be reported as verified, not blocking.
+      await accessor.upsertSingleTask(
+        makeTask({
+          id: 'T10001',
+          parentId: 'T9999',
+          status: 'active',
+          verification: {
+            passed: true,
+            round: 1,
+            gates: { implemented: true, testsPassed: true },
+            evidence: {
+              implemented: {
+                atoms: [{ kind: 'commit', sha: 'abc1234567', shortSha: 'abc1234' }],
+                capturedAt: new Date().toISOString(),
+                capturedBy: 'test-agent',
+              },
+            },
+            lastAgent: null,
+            lastUpdated: new Date().toISOString(),
+            failureLog: [],
+          },
+        }),
+      );
+      // The v2026.9.17 shape: a tool atom is present, implemented is false.
+      await accessor.upsertSingleTask(
+        makeTask({
+          id: 'T10002',
+          parentId: 'T9999',
+          status: 'active',
+          verification: {
+            passed: false,
+            round: 1,
+            gates: { implemented: false, testsPassed: true },
+            evidence: {
+              testsPassed: {
+                atoms: [{ kind: 'tool', tool: 'test', exitCode: 0 }],
+                capturedAt: new Date().toISOString(),
+                capturedBy: 'test-agent',
+              },
+            },
+            lastAgent: null,
+            lastUpdated: new Date().toISOString(),
+            failureLog: [],
+          },
+        }),
+      );
+    } finally {
+      await accessor.close();
+    }
+
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe(E_EVIDENCE_INSUFFICIENT);
+    expect(result.error.message).toContain('T10002');
+    expect(result.error.message).toContain('implemented=false');
+    const details = result.error.details as {
+      requiredGates: string[];
+      verificationEnforced: boolean;
+      tasks: Array<{
+        id: string;
+        verdict: string;
+        missingGates: string[];
+        evidenceAtoms: string[];
+      }>;
+      taskGates: Array<{ id: string; verdict: string; gates: Record<string, boolean | null> }>;
+    };
+    expect(details.verificationEnforced).toBe(true);
+    expect(details.requiredGates).toEqual(['implemented', 'testsPassed']);
+    // Only the unverified task blocks, and it names the gate — not just atoms.
+    expect(details.tasks.map((t) => t.id)).toEqual(['T10002']);
+    expect(details.tasks[0]?.verdict).toBe('unverified');
+    expect(details.tasks[0]?.missingGates).toEqual(['implemented']);
+    expect(details.tasks[0]?.evidenceAtoms).toEqual(['tool:test']);
+    // Every task's gate state is reported.
+    expect(details.taskGates.map((g) => [g.id, g.verdict])).toEqual([
+      ['T10001', 'verified'],
+      ['T10002', 'unverified'],
+    ]);
+    expect(details.taskGates[1]?.gates.implemented).toBe(false);
+  });
+
+  it('reports per-task gate states in the success envelope (T12359)', async () => {
+    await seedEpicWithChildren('T9999', 2);
+
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    // This suite disables verification; seeded children are `done`.
+    expect(result.data.verificationEnforced).toBe(false);
+    expect(result.data.taskGates).toHaveLength(2);
+    for (const g of result.data.taskGates) {
+      expect(g.verdict).toBe('grandfathered');
+      expect(g.gates).toEqual({ implemented: true });
+      expect(g.evidenceAtoms.length).toBeGreaterThan(0);
+    }
+  });
+
   it('returns E_DIRTY_TREE when version files are dirty', async () => {
     await seedEpicWithChildren('T9999', 1);
     // Create + stage a package.json then dirty it.

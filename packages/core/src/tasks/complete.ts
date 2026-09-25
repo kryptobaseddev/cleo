@@ -18,7 +18,7 @@ import type {
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode, TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
-import { getRawConfigValue, loadConfig } from '../config.js';
+import { loadConfig } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
@@ -59,6 +59,10 @@ import { revalidateEvidence } from './evidence.js';
 import { validateTaskGateCompletion } from './gate-runner.js';
 import { validateNexusImpactGate } from './nexus-impact-gate.js';
 import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.js';
+import {
+  missingRequiredGates as findMissingRequiredGates,
+  loadVerificationGatePolicy,
+} from './verification-policy.js';
 
 /**
  * IVTR execution stages — tasks in these stages auto-advance to 'release'
@@ -180,27 +184,6 @@ interface CompletionEnforcement {
   lifecycleMode: 'strict' | 'warn' | 'advisory' | 'none' | 'off';
 }
 
-const DEFAULT_VERIFICATION_REQUIRED_GATES: VerificationGate[] = [
-  'implemented',
-  'testsPassed',
-  'qaPassed',
-  'securityPassed',
-  'documented',
-];
-
-const VERIFICATION_GATES = new Set<VerificationGate>([
-  'implemented',
-  'testsPassed',
-  'qaPassed',
-  'cleanupDone',
-  'securityPassed',
-  'documented',
-]);
-
-function isVerificationGate(value: string): value is VerificationGate {
-  return VERIFICATION_GATES.has(value as VerificationGate);
-}
-
 async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforcement> {
   // In VITEST, use permissive defaults when config keys are absent.
   // Tests that need enforcement write their own config, which overrides these defaults.
@@ -212,15 +195,9 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
   const acceptanceMode = acceptance?.mode ?? (isTest ? 'off' : 'block');
   const acceptanceRequiredForPriorities =
     acceptance?.requiredForPriorities ?? (isTest ? [] : ['critical', 'high', 'medium', 'low']);
-  // Use getRawConfigValue to read only the project-level config (no DEFAULTS cascade).
-  // This ensures the isTest fallback activates when verification.enabled is not explicitly set.
-  const rawVerificationEnabled = await getRawConfigValue('verification.enabled', cwd);
-  const verificationEnabled =
-    rawVerificationEnabled !== undefined ? (rawVerificationEnabled as boolean) : !isTest;
-  const verificationRequiredGates =
-    (verificationCfg?.requiredGates ?? []).filter(isVerificationGate).length > 0
-      ? (verificationCfg?.requiredGates ?? []).filter(isVerificationGate)
-      : DEFAULT_VERIFICATION_REQUIRED_GATES;
+  // Shared with `cleo release plan` (T12359) so both agree on what "verified" means.
+  const { enabled: verificationEnabled, requiredGates: verificationRequiredGates } =
+    await loadVerificationGatePolicy(cwd);
   const verificationMaxRounds = verificationCfg?.maxRounds ?? 5;
   const lifecycleMode = config.lifecycle?.mode ?? (isTest ? 'off' : 'strict');
 
@@ -624,8 +601,9 @@ export async function completeTask(
       );
     }
 
-    const missingRequiredGates = enforcement.verificationRequiredGates.filter(
-      (gate) => task.verification?.gates?.[gate] !== true,
+    const missingRequiredGates = findMissingRequiredGates(
+      task.verification.gates,
+      enforcement.verificationRequiredGates,
     );
 
     if (missingRequiredGates.length > 0 || task.verification.passed !== true) {
