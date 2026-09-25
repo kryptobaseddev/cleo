@@ -2263,7 +2263,7 @@ async function validatePrAtom(
     return {
       ok: false,
       codeName: 'E_EVIDENCE_INSUFFICIENT',
-      reason: `PR #${prNumber} changed-file coverage is incomplete or empty (${result.changedPaths.length}/${result.changedFileCount}); inspect the full diff before recording evidence.`,
+      reason: `PR #${prNumber} changed-file coverage is incomplete or empty (${result.changedPaths.length}/${result.changedFileCount})${result.changedFilesError ? ` — ${result.changedFilesError}` : ''}; inspect the full diff before recording evidence.`,
     };
   }
   const declaredFiles = context.task.files ?? [];

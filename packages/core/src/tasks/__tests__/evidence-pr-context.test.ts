@@ -118,6 +118,18 @@ describe('PR context', () => {
       reason: expect.stringContaining('incomplete'),
     });
   });
+  it('refuses incomplete coverage and names the pagination failure (T12358)', async () => {
+    pr.changedPaths = Array.from({ length: 100 }, (_, i) => `src/file-${i}.ts`).concat(
+      'src/fix.ts',
+    );
+    pr.changedFileCount = 152;
+    pr.changedFilesError = 'gh api PR files page 2 failed: HTTP 502';
+    expect(await validate()).toMatchObject({
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: expect.stringMatching(/incomplete or empty \(101\/152\) — gh api PR files page 2/),
+    });
+  });
 });
 
 describe('criterion proof', () => {
