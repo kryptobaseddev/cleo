@@ -17,7 +17,13 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ChangesetEntry, EvidenceAtom, Task } from '@cleocode/contracts';
+import type {
+  ChangesetEntry,
+  EvidenceAtom,
+  Task,
+  TaskStatus,
+  VerificationGate,
+} from '@cleocode/contracts';
 import {
   ChangesetYamlInvalidError,
   E_CHANGESET_YAML_INVALID,
@@ -67,6 +73,11 @@ import {
   releases,
 } from '../store/tasks-schema.js';
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
+import {
+  loadVerificationGatePolicy,
+  missingRequiredGates,
+  type VerificationGatePolicy,
+} from '../tasks/verification-policy.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { runGitWithLockRetry } from './engine-ops.js';
 import { loadReleaseConfig } from './release-config.js';
@@ -167,8 +178,35 @@ export interface ReleasePlanResult {
   planPath: string;
   /** Number of tasks rolled into the plan. */
   taskCount: number;
-  /** True iff every task has at least one evidence atom (R-301). */
+  /**
+   * True iff every in-scope task that is not grandfathered carries at least
+   * one evidence atom (R-301) AND — when verification is enforced — has every
+   * required verification gate set to `true` (T12359). Atom PRESENCE alone
+   * never makes this true: a `tool:test` atom on a task whose `implemented`
+   * gate is `false` is not evidence that the task was implemented.
+   */
   evidenceComplete: boolean;
+  /**
+   * Whether required verification gates were enforced for this plan — the
+   * same `verification.enabled` policy `cleo complete` applies.
+   *
+   * @task T12359
+   */
+  verificationEnforced: boolean;
+  /**
+   * The required verification gates checked for every task (the same list
+   * `cleo complete` enforces, from `verification.requiredGates`).
+   *
+   * @task T12359
+   */
+  requiredGates: VerificationGate[];
+  /**
+   * Per-task verification gate states — the gate OUTCOMES, not just the
+   * atoms present. One entry per planned task, in plan order.
+   *
+   * @task T12359
+   */
+  taskGates: ReleasePlanTaskGateState[];
   /** Non-fatal preflight warnings (e.g. unresolved tools). */
   preflightWarnings: string[];
   /** Per-gate verification status summary. */
@@ -197,6 +235,48 @@ export interface ReleasePlanResult {
    * @task T9838
    */
   changelogPath: string;
+}
+
+/**
+ * How the release plan judged one task's verification state.
+ *
+ * - `verified` — evidence atoms present and every required gate `true`.
+ * - `unverified` — blocks the plan: no evidence atoms, or a required gate is
+ *   not `true` while verification is enforced.
+ * - `grandfathered` — task is already `done`; ADR-051 §11.1 forbids adding
+ *   evidence to completed tasks, so it is reported but never blocks.
+ * - `not-required` — gates are not enforced for this task (verification
+ *   disabled in project config, or a container epic, which `cleo complete`
+ *   also exempts from gate checks); evidence atoms are present.
+ *
+ * @task T12359
+ */
+export type ReleasePlanTaskGateVerdict =
+  | 'verified'
+  | 'unverified'
+  | 'grandfathered'
+  | 'not-required';
+
+/**
+ * Per-task verification gate state reported in the plan envelope.
+ *
+ * @task T12359
+ */
+export interface ReleasePlanTaskGateState {
+  /** Task ID. */
+  id: string;
+  /** Task status at plan time. */
+  status: TaskStatus;
+  /** The task's recorded `verification.gates` map (empty when uninitialised). */
+  gates: Partial<Record<VerificationGate, boolean | null>>;
+  /** Required gates that are not `true` on this task. */
+  missingGates: VerificationGate[];
+  /** Serialized evidence atoms present on the task (same as the plan task). */
+  evidenceAtoms: string[];
+  /** The plan's judgement of this task. */
+  verdict: ReleasePlanTaskGateVerdict;
+  /** Human-readable reasons behind an `unverified` verdict (empty otherwise). */
+  reasons: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -641,6 +721,50 @@ function serializeAtom(atom: EvidenceAtom): string | null {
     default:
       return null;
   }
+}
+
+/**
+ * Judge one task's verification gate state for the release plan (T12359).
+ *
+ * A task blocks the plan (`unverified`) when it is not `done` and either
+ * carries no evidence atoms (R-301) or — while verification is enforced —
+ * has a required gate that is not `true`. Gate requirements follow
+ * {@link loadVerificationGatePolicy}, the policy `cleo complete` enforces.
+ *
+ * @param task - The in-scope task.
+ * @param evidenceAtoms - The task's serialized evidence atoms.
+ * @param policy - Resolved verification-gate policy.
+ * @param gatesApplyToEpics - True in leaf-Epic mode, where the Epic itself is
+ *   the shipped unit; container epics are otherwise exempt from gates, as in
+ *   `cleo complete`.
+ * @internal
+ */
+function assessTaskGateState(
+  task: Task,
+  evidenceAtoms: string[],
+  policy: VerificationGatePolicy,
+  gatesApplyToEpics: boolean,
+): ReleasePlanTaskGateState {
+  const gates = task.verification?.gates ?? {};
+  const missingGates = missingRequiredGates(gates, policy.requiredGates);
+  const base = { id: task.id, status: task.status, gates, missingGates, evidenceAtoms };
+  if (task.status === 'done') {
+    return { ...base, verdict: 'grandfathered', reasons: [] };
+  }
+  const gatesRequired = policy.enabled && (task.type !== 'epic' || gatesApplyToEpics);
+  const reasons: string[] = [];
+  if (evidenceAtoms.length === 0) {
+    reasons.push('no evidence atoms recorded');
+  }
+  if (gatesRequired && missingGates.length > 0) {
+    reasons.push(
+      `required gate(s) not true: ${missingGates
+        .map((g) => `${g}=${String(gates[g] ?? 'unset')}`)
+        .join(', ')}`,
+    );
+  }
+  if (reasons.length > 0) return { ...base, verdict: 'unverified', reasons };
+  return { ...base, verdict: gatesRequired ? 'verified' : 'not-required', reasons };
 }
 
 /**
@@ -1585,31 +1709,36 @@ export async function releasePlan(
     resolvedEpicId = epicId;
   }
 
-  // ── R-301 / R-310: evidence-atom completeness ─────────────────────────
+  // ── R-301 / R-310 / T12359: evidence + verification-gate completeness ──
+  // Atom PRESENCE is not verification: v2026.9.17 planned green over fifteen
+  // tasks whose `implemented` gate was false because each carried a
+  // `tool:`/`test-run:` atom. Gate OUTCOMES are judged with the same policy
+  // `cleo complete` enforces, and every task's gate state is reported.
   const planTasks: ReleasePlanTask[] = tasks.map((t) => taskToPlanTask(t, resolvedEpicId));
-  // Grandfather already-done tasks that were completed before the evidence gate
-  // system existed (ADR-051 §11.1 blocks adding evidence to completed tasks).
-  const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
-  const tasksMissingEvidence = planTasks.filter(
-    (t) => t.evidenceAtoms.length === 0 && !doneIds.has(t.id),
+  const gatePolicy = await loadVerificationGatePolicy(projectRoot);
+  // Already-done tasks are grandfathered (ADR-051 §11.1 blocks adding
+  // evidence to completed tasks) — reported, never blocking.
+  const taskGates: ReleasePlanTaskGateState[] = tasks.map((t, i) =>
+    assessTaskGateState(t, planTasks[i]?.evidenceAtoms ?? [], gatePolicy, leafEpicMode),
   );
-  const evidenceComplete = tasksMissingEvidence.length === 0;
+  const unverifiedTasks = taskGates.filter((g) => g.verdict === 'unverified');
+  const evidenceComplete = unverifiedTasks.length === 0;
   if (!evidenceComplete) {
-    // Leaf-Epic mode already enforced evidence above — only reachable for the
-    // multi-task subtree paths.
     return engineError<ReleasePlanResult>(
       E_EVIDENCE_INSUFFICIENT,
-      `${tasksMissingEvidence.length} task(s) in ${
+      `${unverifiedTasks.length} task(s) in ${
         opts.sagaId ? `saga ${opts.sagaId}` : `epic ${resolvedEpicId}`
-      } are missing required evidence atoms`,
+      } lack required evidence or verification gates: ${unverifiedTasks
+        .map((g) => `${g.id} (${g.reasons.join('; ')})`)
+        .join(', ')}`,
       {
         exitCode: ExitCode.LIFECYCLE_TRANSITION_INVALID, // 83 per SPEC §4.7
-        fix: 'cleo verify <task> --gate implemented --evidence "commit:<sha>;files:<paths>"',
+        fix: 'cleo verify <task> --gate <gate> --evidence "<atoms>" for each missing gate, then re-plan',
         details: {
-          tasks: tasksMissingEvidence.map((t) => ({
-            id: t.id,
-            missingAtoms: ['implemented', 'testsPassed', 'qaPassed'],
-          })),
+          requiredGates: gatePolicy.requiredGates,
+          verificationEnforced: gatePolicy.enabled,
+          tasks: unverifiedTasks,
+          taskGates,
         },
       },
     );
@@ -1820,6 +1949,9 @@ export async function releasePlan(
     planPath,
     taskCount: planTasks.length,
     evidenceComplete,
+    verificationEnforced: gatePolicy.enabled,
+    requiredGates: gatePolicy.requiredGates,
+    taskGates,
     preflightWarnings: preflightSummary.preflightWarnings ?? [],
     gateSummary,
     changesetEntryCount: aggregated.entryCount,
@@ -1840,6 +1972,7 @@ export async function releasePlan(
  * @internal
  */
 export const __test__ = {
+  assessTaskGateState,
   collectEvidenceAtomsForTask,
   enumeratePlatformMatrix,
   inferImpact,
