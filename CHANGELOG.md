@@ -1,5 +1,17 @@
 # Changelog
 
+## [2026.9.18] (2026-09-25)
+
+### Changed
+
+- `cleo nexus status` no longer reads or prints the 472 MB reference list: the graph assessment summary is stored apart from its references, and index stats come from SQL aggregates _(provenance: [T12348](https://github.com/kryptobaseddev/cleo/search?q=T12348&type=commits))_
+- `cleo nexus status` no longer shells out to git for every indexed file, and graph publication writes a third of the pages without locking the global store _(provenance: [T12348](https://github.com/kryptobaseddev/cleo/search?q=T12348&type=commits))_
+
+### Fixed
+
+- `pr:<number>` evidence now reads the complete changed-file list of PRs with more than 100 files _(provenance: [T12358](https://github.com/kryptobaseddev/cleo/search?q=T12358&type=commits))_
+- `cleo release plan` judges verification gate outcomes, not atom presence, and reports per-task gate states _(provenance: [T12359](https://github.com/kryptobaseddev/cleo/search?q=T12359&type=commits))_
+
 ## [2026.9.17] (2026-09-24)
 
 ### Added
