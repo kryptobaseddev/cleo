@@ -25,7 +25,7 @@
  * @epic T9762
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -40,6 +40,7 @@ import {
   branchProtectionCachePath,
   evaluateRollup,
   type FetchGhBranchProtection,
+  type FetchGhPrFilesPage,
   type FetchGhPrPayload,
   prCacheEntryPath,
   resolvePrEvidenceAtom,
@@ -1230,5 +1231,136 @@ describe('validateAtom — pr dispatch', () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.codeName).toBe('E_EVIDENCE_INVALID');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Changed-file pagination (T12358)
+// ---------------------------------------------------------------------------
+
+describe('resolvePrEvidenceAtom — changed-file pagination (T12358)', () => {
+  /** 152 distinct paths: `gh pr view --json files` returns only the first 100. */
+  const allPaths = Array.from({ length: 152 }, (_, i) => `src/file-${i}.ts`);
+  const truncatedPayload = () =>
+    makePrPayload({
+      title: 'fix(T12358): large PR',
+      body: 'Task T12358',
+      headRefName: 'fix/T12358-pr-atom-pagination',
+      files: allPaths.slice(0, 100).map((path) => ({ path })),
+      changedFiles: allPaths.length,
+    });
+  /** Serves `allPaths` 100 per page, like the GitHub PR files REST API. */
+  const pagedFetcher = vi.fn<FetchGhPrFilesPage>(async (_pr, page) => ({
+    ok: true,
+    paths: allPaths.slice((page - 1) * 100, page * 100),
+  }));
+  const roots = () => ({ storeRoot: projectRoot, executionRoot: projectRoot });
+
+  beforeEach(() => {
+    pagedFetcher.mockClear();
+  });
+
+  it('paginates past the first 100 files and caches the complete inventory', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: truncatedPayload() });
+    const r = await resolvePrEvidenceAtom(1541, roots(), {
+      fetchGhPrPayload: mockFetch,
+      fetchGhPrFilesPage: pagedFetcher,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(pagedFetcher.mock.calls.map(([, page]) => page)).toEqual([1, 2]);
+    expect(r.changedFileCount).toBe(152);
+    expect(r.changedPaths).toEqual(allPaths);
+    expect(r.changedFilesError).toBeUndefined();
+    expect(existsSync(prCacheEntryPath(projectRoot, 1541))).toBe(true);
+  });
+
+  it('records the implemented gate for a 152-file PR through validateAtom', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: truncatedPayload() });
+    // Prime the resolver cache with the injected fetchers; validateAtom then
+    // resolves the same PR from that cache without shelling out to gh.
+    await resolvePrEvidenceAtom(1541, roots(), {
+      fetchGhPrPayload: mockFetch,
+      fetchGhPrFilesPage: pagedFetcher,
+    });
+    const r = await validateAtom({ kind: 'pr', prNumber: 1541 }, projectRoot, 'T12358', undefined, {
+      task: { id: 'T12358', kind: 'bug', files: ['src/file-151.ts'] },
+      gates: ['implemented'],
+      criteria: [],
+    });
+    expect(r).toMatchObject({
+      ok: true,
+      atom: { kind: 'pr', prNumber: 1541, taskId: 'T12358' },
+    });
+    if (!r.ok || r.atom.kind !== 'pr') return;
+    expect(r.atom.changedPaths).toHaveLength(152);
+  });
+
+  it('keeps the inventory incomplete and uncached when a page errors', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: truncatedPayload() });
+    const failingPage2 = vi.fn<FetchGhPrFilesPage>(async (_pr, page) =>
+      page === 1
+        ? { ok: true, paths: allPaths.slice(0, 100) }
+        : { ok: false, reason: 'gh api PR files page 2 failed: HTTP 502' },
+    );
+    const r = await resolvePrEvidenceAtom(1541, roots(), {
+      fetchGhPrPayload: mockFetch,
+      fetchGhPrFilesPage: failingPage2,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.changedPaths).toHaveLength(100);
+    expect(r.changedFileCount).toBe(152);
+    expect(r.changedFilesError).toContain('HTTP 502');
+    expect(existsSync(prCacheEntryPath(projectRoot, 1541))).toBe(false);
+  });
+
+  it('reports a short total when the pages hold fewer files than changedFiles', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: truncatedPayload() });
+    const shortPages = vi.fn<FetchGhPrFilesPage>(async (_pr, page) => ({
+      ok: true,
+      paths: allPaths.slice((page - 1) * 100, Math.min(page * 100, 140)),
+    }));
+    const r = await resolvePrEvidenceAtom(1541, roots(), {
+      fetchGhPrPayload: mockFetch,
+      fetchGhPrFilesPage: shortPages,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.changedPaths).toHaveLength(140);
+    expect(r.changedFilesError).toBe('PR files API returned 140 of 152 changed files.');
+    expect(existsSync(prCacheEntryPath(projectRoot, 1541))).toBe(false);
+  });
+
+  it('ignores a cached truncated inventory written before pagination existed', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: truncatedPayload() });
+    await resolvePrEvidenceAtom(1541, roots(), {
+      fetchGhPrPayload: mockFetch,
+      fetchGhPrFilesPage: pagedFetcher,
+    });
+    const cachePath = prCacheEntryPath(projectRoot, 1541);
+    const entry = JSON.parse(readFileSync(cachePath, 'utf-8'));
+    writeFileSync(
+      cachePath,
+      JSON.stringify({ ...entry, changedPaths: allPaths.slice(0, 100) }),
+      'utf-8',
+    );
+    const r = await resolvePrEvidenceAtom(1541, roots(), {
+      fetchGhPrPayload: mockFetch,
+      fetchGhPrFilesPage: pagedFetcher,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.cacheHit).toBe(false);
+    expect(r.changedPaths).toHaveLength(152);
+  });
+
+  it('does not paginate when gh pr view already returned every file', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
+    await resolvePrEvidenceAtom(357, roots(), {
+      fetchGhPrPayload: mockFetch,
+      fetchGhPrFilesPage: pagedFetcher,
+    });
+    expect(pagedFetcher).not.toHaveBeenCalled();
   });
 });
