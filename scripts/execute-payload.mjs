@@ -158,6 +158,40 @@ export async function checkMetadata(pkg, ver, fetchImpl = fetch) {
 }
 
 /**
+ * Read npm's own creation timestamp for a published version (gh#1479).
+ *
+ * `time` lives only on the packument. The per-version document that
+ * `checkMetadata` reads does not carry it, and the abbreviated packument does
+ * not either, so this is one full-packument GET per verified package — traded
+ * for the number the pipeline previously reconstructed from a log ZIP: when
+ * npm created the version, and therefore how long it took to become
+ * installable once the publish call is subtracted.
+ *
+ * Diagnostic only, and deliberately so. Any failure returns `undefined` and
+ * never touches the verdict: a missing timestamp must not turn a good release
+ * red. It is recorded only for packages that reached `ok`, so a package that
+ * never became installable carries no success timestamp.
+ *
+ * @param {string} pkg - Short package name (e.g. "core").
+ * @param {string} ver - Full version string (e.g. "2026.9.8").
+ * @param {typeof fetch} [fetchImpl] - Injected for tests.
+ * @returns {Promise<string | undefined>} ISO-8601 creation time, when present.
+ */
+export async function readCreatedAt(pkg, ver, fetchImpl = fetch) {
+  try {
+    const res = await fetchImpl(`${REGISTRY}/@cleocode/${encodeURIComponent(pkg)}`, {
+      headers: { accept: 'application/json' },
+    });
+    if (!res.ok) return undefined;
+    const body = await res.json();
+    const at = body?.time?.[ver];
+    return typeof at === 'string' ? at : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Ask whether the dist-tag resolves to this version.
  *
  * `npm i -g @cleocode/cleo` — how every consumer installs — resolves through
@@ -289,7 +323,8 @@ export async function checkPackage(pkg, ver, fetchImpl = fetch, distTag) {
  * @param {typeof fetch} [opts.fetchImpl] - Injected for tests.
  * @param {(msg: string) => void} [opts.log] - Progress sink.
  * @param {(ms: number) => Promise<unknown>} [opts.sleepImpl] - Injected for tests.
- * @returns {Promise<Array<{ pkg: string; ok: boolean; reason?: string; elapsedMs: number }>>}
+ * @returns {Promise<Array<{ pkg: string; ok: boolean; reason?: string; elapsedMs: number;
+ *   createdAt?: string }>>}
  */
 export async function verifyAll(packages, ver, opts = {}) {
   const {
@@ -301,7 +336,7 @@ export async function verifyAll(packages, ver, opts = {}) {
     distTag = undefined,
   } = opts;
 
-  /** @type {Map<string, { state: string; detail?: string; elapsedMs: number; rung?: string; fileCount?: number; unpackedSize?: number }>} */
+  /** @type {Map<string, { state: string; detail?: string; elapsedMs: number; rung?: string; fileCount?: number; unpackedSize?: number; createdAt?: string }>} */
   const settled = new Map();
   const started = Date.now();
   let pending = [...packages];
@@ -320,6 +355,10 @@ export async function verifyAll(packages, ver, opts = {}) {
       }
       // ok and mismatch are both terminal — a wrong version never becomes right.
       const elapsedMs = Date.now() - started;
+      // gh#1479: the registry's creation time is only attributable once the
+      // package is installable, so it is read here and nowhere else. A package
+      // that stalls at any rung keeps the record without it.
+      const createdAt = r.state === 'ok' ? await readCreatedAt(r.pkg, ver, fetchImpl) : undefined;
       settled.set(r.pkg, {
         state: r.state,
         detail: r.detail,
@@ -327,6 +366,7 @@ export async function verifyAll(packages, ver, opts = {}) {
         rung: r.rung,
         fileCount: r.fileCount,
         unpackedSize: r.unpackedSize,
+        ...(createdAt ? { createdAt } : {}),
       });
       const secs = Math.round(elapsedMs / 1000);
       log(
@@ -370,6 +410,7 @@ export async function verifyAll(packages, ver, opts = {}) {
       ...(s?.rung ? { rung: s.rung } : {}),
       ...(typeof s?.fileCount === 'number' ? { fileCount: s.fileCount } : {}),
       ...(typeof s?.unpackedSize === 'number' ? { unpackedSize: s.unpackedSize } : {}),
+      ...(s?.createdAt ? { createdAt: s.createdAt } : {}),
       // `mismatch` is a DEFECT (a wrong version never becomes right); `timeout`
       // is PENDING (it may still arrive). The old shape collapsed both into
       // `ok: false` and the caller could not tell them apart.
@@ -500,7 +541,7 @@ export async function main() {
     verifiedBy: 'per-version metadata + resolved dist.tarball HEAD + dist-tag (gh#1377, gh#1474)',
     budgetMs: timeoutMs,
     packages: verifyResults.map(
-      ({ pkg, ok, reason, elapsedMs, rung, fileCount, unpackedSize }) => ({
+      ({ pkg, ok, reason, elapsedMs, rung, fileCount, unpackedSize, createdAt }) => ({
         name: `@cleocode/${pkg}`,
         version,
         verified: ok,
@@ -508,6 +549,7 @@ export async function main() {
         ...(rung ? { rung } : {}),
         ...(typeof fileCount === 'number' ? { fileCount } : {}),
         ...(typeof unpackedSize === 'number' ? { unpackedSize } : {}),
+        ...(createdAt ? { createdAt } : {}),
         ...(reason ? { reason } : {}),
       }),
     ),

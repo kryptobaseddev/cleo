@@ -114,17 +114,36 @@ function readTimeline() {
   return out;
 }
 
+/**
+ * Human-readable gap between the publish call and npm's own creation time
+ * (gh#1479). `1m00s`, `5m24s`, `55m33s` — the shape the issue asked for.
+ *
+ * @param {string} callTs - Publish call, ISO-8601.
+ * @param {string} createdTs - Registry `time[version]`, ISO-8601.
+ * @returns {string} Delay, or an em dash when either end is unreadable.
+ */
+function formatDelay(callTs, createdTs) {
+  const from = Date.parse(callTs);
+  const to = Date.parse(createdTs);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return '—';
+  const secs = Math.max(0, Math.round((to - from) / 1000));
+  const mins = Math.floor(secs / 60);
+  return mins > 0 ? `${mins}m${String(secs % 60).padStart(2, '0')}s` : `${secs}s`;
+}
+
 /** Render the per-package table shared by the summary and the issue body. */
 function renderTable(sum, timeline) {
   const rows = (sum?.packages ?? []).map((p) => {
     const short = p.name.replace('@cleocode/', '');
     const t = timeline.get(short);
     const secs = `${Math.round((p.convergedAfterMs ?? 0) / 1000)}s`;
-    return `| \`${p.name}\` | ${p.verified ? '✅' : '❌'} | ${p.rung ?? '—'} | ${secs} | ${t?.callTs ?? '—'} | ${p.reason ?? ''} |`;
+    const created = p.createdAt ?? '—';
+    const delay = p.createdAt && t?.callTs ? formatDelay(t.callTs, p.createdAt) : '—';
+    return `| \`${p.name}\` | ${p.verified ? '✅' : '❌'} | ${p.rung ?? '—'} | ${secs} | ${t?.callTs ?? '—'} | ${created} | ${delay} | ${p.reason ?? ''} |`;
   });
   return [
-    '| package | installable | reached rung | at | publish call (UTC) | reason |',
-    '|---|:--:|---|---:|---|---|',
+    '| package | installable | reached rung | at | publish call (UTC) | created (UTC) | delay | reason |',
+    '|---|:--:|---|---:|---|---:|---:|---|',
     ...rows,
   ].join('\n');
 }
