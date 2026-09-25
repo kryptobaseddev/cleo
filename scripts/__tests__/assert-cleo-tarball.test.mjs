@@ -45,6 +45,7 @@ import {
   assertPackedTaskResponse,
   assertPackedVersion,
   packedEnvironment,
+  packedInstallFailure,
   runPackedCommand,
   verifyPackedGit,
   verifyPackedProviderProcess,
@@ -312,6 +313,63 @@ describe('packed operational execution', () => {
       'KIMI_HOME',
     ])
       expect(env[key].startsWith(root + '/')).toBe(true);
+  });
+});
+
+describe('gh#1471 packed install failure classification', () => {
+  const captureFailure = (stderr) =>
+    Object.assign(
+      new Error(
+        'Packed command failed: target=1, signal=null, stop=null, error=null, cleanup=scope-terminal',
+      ),
+      { stdout: '', stderr },
+    );
+
+  it('reports the registry timeout as a network fault, not a packaging defect', () => {
+    // Verbatim shape from the v2026.9.6 release run in the issue: a transitive
+    // postinstall could not reach a non-npm host, so nothing was ever resolved
+    // against the published graph.
+    const diagnosed = packedInstallFailure(
+      captureFailure(
+        'npm error command sh -c node ./script/install\n' +
+          'npm error AggregateError [ETIMEDOUT]:\n' +
+          'npm error     Error: connect ETIMEDOUT 150.171.110.151:443\n' +
+          'npm error     Error: connect ENETUNREACH 2603:1061:14:192::1:443\n',
+      ),
+    );
+    expect(diagnosed.message).toContain('network access (ETIMEDOUT)');
+    expect(diagnosed.message).not.toContain('workspace-private');
+    expect(diagnosed.stderr).toContain('ETIMEDOUT');
+  });
+
+  it.each(['EAI_AGAIN', 'ECONNRESET', 'ENETUNREACH'])('treats %s as a network fault', (code) => {
+    expect(packedInstallFailure(captureFailure(`npm error Error: ${code}`)).message).toContain(
+      `network access (${code})`,
+    );
+  });
+
+  it.each([
+    'ERR_MODULE_NOT_FOUND',
+    'ETARGET',
+    'E404',
+  ])('keeps the dependency-declaration diagnosis for %s', (code) => {
+    const message = packedInstallFailure(captureFailure(`npm error code ${code}`)).message;
+    expect(message).toContain(code);
+    expect(message).toContain('not declared in its dependencies');
+  });
+
+  it('says the cause is undetermined instead of defaulting to a packaging defect', () => {
+    const message = packedInstallFailure(
+      captureFailure('npm error code EACCES\nnpm error syscall mkdir'),
+    ).message;
+    expect(message).toContain('undetermined');
+    expect(message).not.toContain('not declared in its dependencies');
+  });
+
+  it('leaves a successful install unchanged', async () => {
+    expect(
+      await runPackedCommand(process.execPath, ['-e', "process.stdout.write('installed')"]),
+    ).toBe('installed');
   });
 });
 
