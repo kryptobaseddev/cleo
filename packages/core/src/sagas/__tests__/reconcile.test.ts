@@ -22,7 +22,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -38,7 +38,12 @@ import { acquireLock } from '../../store/lock.js';
 import { getNativeTasksDb } from '../../store/sqlite.js';
 import { reqAdd } from '../../tasks/req.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
-import { reconcileSaga, SAGA_RECONCILE_AUDIT_FILE } from '../reconcile.js';
+import {
+  reconcileSaga,
+  SAGA_RECONCILE_AUDIT_FILE,
+  SAGA_RECONCILE_CLOSE_REASON,
+  SAGA_RECONCILE_RECEIPT_ACTION,
+} from '../reconcile.js';
 
 let TEST_ROOT: string;
 
@@ -136,7 +141,8 @@ beforeEach(async () => {
   // Explicit cwd must resolve this fixture rather than the shared setup project.
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
-  TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-saga-reconcile-test-'));
+  // Canonical path: typed gates reject inputs under a symlinked parent (macOS /tmp).
+  TEST_ROOT = realpathSync(await mkdtemp(join(tmpdir(), 'cleo-saga-reconcile-test-')));
   // Create project-info.json and register in nexus for all tests.
   const cleoDir = join(TEST_ROOT, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
@@ -309,6 +315,64 @@ describe('reconcileSaga — dry-run mode', () => {
     // Audit log must not exist (dry-run skips the write).
     const lines = readAuditLines(TEST_ROOT);
     expect(lines).toHaveLength(0);
+  });
+});
+
+describe('reconcileSaga — transactional receipt (no typed criteria)', () => {
+  it('closes an untyped saga and writes exactly one saga_reconciled receipt', async () => {
+    const members = await seedSagaWithMembers(TEST_ROOT, 'T9000', ['done', 'cancelled']);
+
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.closed).toBe(1);
+    expect(result.data.errors).toBe(0);
+
+    const accessor = await getTaskAccessor(TEST_ROOT);
+    const saga = (await accessor.loadSingleTask('T9000'))!;
+    expect(saga.status).toBe('done');
+    expect(saga.pipelineStage).toBe('contribution');
+    const receipts = await accessor.queryAuditLog({
+      taskIds: ['T9000'],
+      actions: [SAGA_RECONCILE_RECEIPT_ACTION],
+    });
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]?.actor).toBe('system');
+    const details = JSON.parse(receipts[0]?.detailsJson ?? '{}') as { members: string[] };
+    expect([...details.members].sort()).toEqual([...members].sort());
+    expect(details).toMatchObject({
+      reason: SAGA_RECONCILE_CLOSE_REASON,
+    });
+
+    // Idempotent: a second run is a no-op and writes no second receipt.
+    const again = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
+    expect(again.success && again.data.noOp).toBe(1);
+    expect(
+      await accessor.queryAuditLog({
+        taskIds: ['T9000'],
+        actions: [SAGA_RECONCILE_RECEIPT_ACTION],
+      }),
+    ).toHaveLength(1);
+  });
+
+  it('dry-run opens no write transaction and writes no receipt', async () => {
+    await seedSagaWithMembers(TEST_ROOT, 'T9000', ['done']);
+    const native = getNativeTasksDb(TEST_ROOT)!;
+    const prepare = vi.spyOn(native, 'prepare');
+    try {
+      const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000', dryRun: true });
+      expect(result.success && result.data.entries[0]?.action).toBe('close');
+      expect(prepare.mock.calls.some(([sql]) => /BEGIN IMMEDIATE/i.test(String(sql)))).toBe(false);
+    } finally {
+      prepare.mockRestore();
+    }
+    const accessor = await getTaskAccessor(TEST_ROOT);
+    expect(
+      await accessor.queryAuditLog({
+        taskIds: ['T9000'],
+        actions: [SAGA_RECONCILE_RECEIPT_ACTION],
+      }),
+    ).toHaveLength(0);
   });
 });
 
