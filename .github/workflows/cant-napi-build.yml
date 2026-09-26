@@ -153,6 +153,9 @@ jobs:
         shell: bash
         env:
           CANT_NAPI_SOURCE_REV: ${{ github.sha }}
+          # `cross` builds inside Docker and forwards only listed variables;
+          # without this the arm64-gnu binary is stamped `unversioned`.
+          CROSS_BUILD_ENV_PASSTHROUGH: CANT_NAPI_SOURCE_REV
         run: |
           set -euo pipefail
           case "${{ matrix.mode }}" in

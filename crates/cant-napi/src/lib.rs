@@ -30,13 +30,33 @@ pub fn cant_backend() -> String {
 ///
 /// A single contiguous literal, so the release can find it in the raw bytes
 /// of every packed `.node`/`.wasm` without loading a foreign-platform binary.
-const SOURCE_REV_STAMP: &str = concat!("cant-napi-source-rev:", env!("CANT_NAPI_SOURCE_REV"));
+///
+/// It is a `#[used]` static byte array rather than a `const &str`: a const is
+/// inlined at each use, and on `x86_64` LLVM lowered the copy in
+/// [`cant_build_info`] into immediate stores, so the literal never reached
+/// read-only data (measured on the `darwin-x64` build). A `#[used]` static must
+/// be emitted verbatim.
+#[used]
+static SOURCE_REV_STAMP: [u8; SOURCE_REV_STAMP_STR.len()] = {
+    let src = SOURCE_REV_STAMP_STR.as_bytes();
+    let mut out = [0u8; SOURCE_REV_STAMP_STR.len()];
+    let mut i = 0;
+    while i < src.len() {
+        out[i] = src[i];
+        i += 1;
+    }
+    out
+};
+
+/// The stamp text; see [`SOURCE_REV_STAMP`].
+const SOURCE_REV_STAMP_STR: &str = concat!("cant-napi-source-rev:", env!("CANT_NAPI_SOURCE_REV"));
 
 /// Return the source revision this binary was built from, e.g.
 /// `"cant-napi-source-rev:0a1b2c…"` (`"…:unversioned"` for local builds).
 #[napi]
 pub fn cant_build_info() -> String {
-    SOURCE_REV_STAMP.to_string()
+    // Read through black_box so the emitted static stays the data source.
+    String::from_utf8_lossy(std::hint::black_box(&SOURCE_REV_STAMP)).into_owned()
 }
 
 /// The classification of a directive extracted from a CANT message.
