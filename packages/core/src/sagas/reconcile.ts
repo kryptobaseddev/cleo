@@ -34,13 +34,22 @@
  * @see packages/core/src/sagas/detach.ts (audit-log idiom)
  */
 
+import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import type { TaskStatus } from '@cleocode/contracts';
+import { dirname, join, resolve } from 'node:path';
+import type { AcRow, DataAccessor, Task, TaskStatus } from '@cleocode/contracts';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { getCleoHome } from '@cleocode/paths';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
+import {
+  captureProjectScope,
+  readProjectInfoAtDirectorySync,
+  worktreeScope,
+} from '../project-scope.js';
+import { createOperationExecutionContext } from '../store/background-ops.js';
 import { acquireLock } from '../store/lock.js';
+import { validateTaskGateCompletion } from '../tasks/gate-runner.js';
 import { taskList } from '../tasks/list.js';
 import { taskShow } from '../tasks/show.js';
 import { buildSagaAutoCloseEvidence } from './storage.js';
@@ -233,61 +242,77 @@ async function partitionMembersByStatus(
   return { terminal, pending };
 }
 
-/**
- * Flip a saga row to `status='done'` with full T10116 provenance.
- *
- * Uses `upsertSingleTask` (matching the T10116 `completeTask` auto-close
- * branch in `tasks/complete.ts`) so the saga row carries the same
- * synthesized verification envelope regardless of which mutation path
- * triggered the closure — `completeTask` (root-cause) or `reconcileSaga`
- * (this periodic safety net). Both write:
- *
- *   - `status='done'`
- *   - `completedAt`/`updatedAt` = supplied timestamp
- *   - `pipelineStage='contribution'` (satisfies the T877 SQLite invariant
- *     trigger `trg_tasks_status_pipeline_insert`)
- *   - `verification = buildSagaAutoCloseEvidence(sagaId, memberIds, now)`
- *     (synthesised three-atom envelope per gate; T10116)
- *
- * The reconcile path's evidence atoms carry an extra
- * `note:reconcile-via-saga-reconcile-verb` marker so auditors can tell the
- * synthesis path apart from the `completeTask` branch. The standard
- * `buildSagaAutoCloseEvidence` envelope already names the closing trigger;
- * we wrap the saga ID with a `(reconcile)` suffix in the member CSV when
- * the closure happens here rather than in `completeTask`.
- */
+/** Validate and write one saga under the existing accessor transaction ownership. */
 async function applyAutoClose(
   projectRoot: string,
   sagaId: string,
   memberIds: readonly string[],
   timestamp: string,
+  dryRun: boolean,
+  validateTyped: (
+    task: Task,
+    criteria: readonly AcRow[],
+    accessor: DataAccessor,
+  ) => Promise<OperationExecutionContext | undefined>,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
-    // Lazy import to avoid pulling the data-accessor module graph into
-    // callers that only need the reconcile read paths (typically zero-saga
-    // projects). Mirrors the lazy-import pattern used by `auto-extract.ts`.
+    // Existing lazy accessor boundary keeps read-only discovery lightweight.
     const { getTaskAccessor } = await import('../store/data-accessor.js');
     const accessor = await getTaskAccessor(projectRoot);
-
-    // Load the saga row so we can preserve every existing field on upsert.
-    // `updateTaskFields` would also work but skips the `verification`
-    // round-trip we need for parity with `completeTask`.
-    const sagaTask = await accessor.loadSingleTask(sagaId);
-    if (!sagaTask) {
-      return { ok: false, message: `Saga ${sagaId} disappeared between read and write` };
-    }
-
-    sagaTask.status = 'done';
-    sagaTask.completedAt = timestamp;
-    sagaTask.updatedAt = timestamp;
-    sagaTask.pipelineStage = 'contribution';
-    sagaTask.verification = buildSagaAutoCloseEvidence(sagaId, memberIds, timestamp);
-
-    await accessor.upsertSingleTask(sagaTask);
+    await accessor.transaction(async (tx) => {
+      const sagaTask = await accessor.loadSingleTask(sagaId);
+      if (!sagaTask || sagaTask.type !== 'saga')
+        throw new Error(`Saga ${sagaId} disappeared or changed identity before closure`);
+      if (sagaTask.status === 'done')
+        throw new Error(`Saga ${sagaId} changed status before closure; retry reconciliation`);
+      const currentMembers = await tx.getChildren(sagaId);
+      if (
+        currentMembers.length !== memberIds.length ||
+        currentMembers.some(
+          (member) => !memberIds.includes(member.id) || !TERMINAL_STATUSES.has(member.status),
+        )
+      )
+        throw new Error(`Saga ${sagaId} membership or terminal state changed before closure`);
+      const criteria = await tx.getAcRows(sagaId);
+      const execution = await validateTyped(sagaTask, criteria, accessor);
+      if (dryRun) return;
+      const gateResults = sagaTask.verification?.gateResults;
+      sagaTask.status = 'done';
+      sagaTask.completedAt = timestamp;
+      sagaTask.updatedAt = timestamp;
+      sagaTask.pipelineStage = 'contribution';
+      sagaTask.verification = {
+        ...buildSagaAutoCloseEvidence(sagaId, memberIds, timestamp),
+        ...(gateResults ? { gateResults } : {}),
+      };
+      await validateTyped(sagaTask, criteria, accessor);
+      const commit = async () => {
+        execution?.assertActive();
+        await tx.upsertSingleTask(sagaTask);
+        await tx.appendLog({
+          id: `log-${randomUUID()}`,
+          timestamp,
+          action: 'saga_reconciled',
+          taskId: sagaId,
+          actor: execution?.identity.actor ?? 'system',
+          details: { members: memberIds, reason: SAGA_RECONCILE_CLOSE_REASON },
+        });
+        execution?.assertActive();
+      };
+      if (execution)
+        await worktreeScope.run(
+          captureProjectScope(projectRoot, {
+            ...captureProjectScope(projectRoot, worktreeScope.getStore()),
+            execution,
+          }),
+          commit,
+        );
+      else await commit();
+    });
     return { ok: true };
-  } catch (err: unknown) {
-    const e = err as { message?: string };
-    return { ok: false, message: e?.message ?? 'Failed to apply saga auto-close write' };
+  } catch (error) {
+    worktreeScope.getStore()?.execution?.assertActive();
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -301,6 +326,11 @@ async function reconcileOneSaga(
   projectRoot: string,
   sagaId: string,
   dryRun: boolean,
+  validateTyped: (
+    task: Task,
+    criteria: readonly AcRow[],
+    accessor: DataAccessor,
+  ) => Promise<OperationExecutionContext | undefined>,
 ): Promise<SagaReconcileEntry> {
   const timestamp = new Date().toISOString();
 
@@ -509,11 +539,16 @@ async function reconcileOneSaga(
       return entry;
     }
 
-    // All members terminal + saga not done → close (the drift case). Dry-run
-    // skips the write but still reports `action: 'close'` so operators can
-    // preview the exact closure set.
-    if (!dryRun) {
-      const writeResult = await applyAutoClose(projectRoot, sagaId, terminal, timestamp);
+    // Dry-run uses the same current authority check; it omits only the writes.
+    {
+      const writeResult = await applyAutoClose(
+        projectRoot,
+        sagaId,
+        terminal,
+        timestamp,
+        dryRun,
+        validateTyped,
+      );
       if (!writeResult.ok) {
         const entry: SagaReconcileEntry = {
           sagaId,
@@ -593,7 +628,7 @@ async function reconcileOneSaga(
  * For each saga the function:
  *   1. Acquires a per-saga advisory lock (non-blocking; `action: 'blocked'`
  *      when contended).
- *   2. Resolves members via `task_relations.type='groups'`.
+ *   2. Resolves members via `parent_id` containment.
  *   3. If all members are terminal AND the saga itself is not `done`,
  *      flips `status='done'` (+ `completedAt`/`updatedAt`).
  *   4. Releases the lock.
@@ -612,64 +647,107 @@ export async function reconcileSaga(
   projectRoot: string,
   params: ReconcileSagaParams = {},
 ): Promise<EngineResult<ReconcileResult>> {
-  const dryRun = params.dryRun === true;
-
-  // Resolve the saga set to inspect.
-  let sagaIds: string[];
-  if (params.sagaId && params.sagaId.length > 0) {
-    sagaIds = [params.sagaId];
-  } else {
-    // T10638: after type='saga' migration, only query the canonical shape.
-    const result = await taskList(projectRoot, { type: 'saga' });
-    if (!result.success) {
-      return engineError(
-        'E_GENERAL',
-        result.error?.message ?? 'Failed to list sagas for reconcile',
+  const admittedAt = Date.now();
+  projectRoot = resolve(projectRoot);
+  const inherited = captureProjectScope(projectRoot, worktreeScope.getStore());
+  let execution = inherited.execution;
+  let ownedExecution: OperationExecutionContext | undefined;
+  const validateTyped = async (
+    task: Task,
+    criteria: readonly AcRow[],
+    accessor: DataAccessor,
+  ): Promise<OperationExecutionContext | undefined> => {
+    execution?.assertActive();
+    if (
+      !(task.acceptance ?? []).some((item) => typeof item !== 'string') &&
+      !criteria.some((row) => row.kind === 'evidence_bound')
+    )
+      return execution;
+    if (!execution) {
+      const info = readProjectInfoAtDirectorySync(projectRoot, join(projectRoot, '.cleo'));
+      if (!info.projectId) throw new Error('Typed reconciliation requires stable project identity');
+      ownedExecution = createOperationExecutionContext(
+        {
+          projectId: info.projectId,
+          projectRoot,
+          actor: process.env.CLEO_AGENT_ID ?? 'cleo',
+          operation: 'tasks.saga.reconcile',
+          idempotencyKey: randomUUID(),
+        },
+        { deadlineAt: admittedAt + 2000 },
       );
+      execution = ownedExecution;
     }
-    sagaIds = result.data?.tasks.map((t: { id: string }) => t.id) ?? [];
-    // Stable order so cron output is deterministic across runs.
-    sagaIds = sagaIds.sort((a, b) => a.localeCompare(b));
-  }
+    await validateTaskGateCompletion(task, criteria, { projectRoot, execution }, accessor);
+    execution.assertActive();
+    return execution;
+  };
+  try {
+    return await worktreeScope.run(inherited, async () => {
+      const dryRun = params.dryRun === true;
 
-  const entries: SagaReconcileEntry[] = [];
-  let closed = 0;
-  let noOp = 0;
-  let blocked = 0;
-  let pending = 0;
-  let errors = 0;
-
-  for (const sagaId of sagaIds) {
-    const entry = await reconcileOneSaga(projectRoot, sagaId, dryRun);
-    entries.push(entry);
-    switch (entry.action) {
-      case 'close':
-        closed += 1;
-        break;
-      case 'no-op':
-        if (entry.pendingMembers.length > 0) {
-          pending += 1;
-        } else {
-          noOp += 1;
+      // Resolve the saga set to inspect.
+      let sagaIds: string[];
+      if (params.sagaId && params.sagaId.length > 0) {
+        sagaIds = [params.sagaId];
+      } else {
+        // T10638: after type='saga' migration, only query the canonical shape.
+        const result = await taskList(projectRoot, { type: 'saga' });
+        if (!result.success) {
+          return engineError(
+            'E_GENERAL',
+            result.error?.message ?? 'Failed to list sagas for reconcile',
+          );
         }
-        break;
-      case 'blocked':
-        blocked += 1;
-        break;
-      case 'error':
-        errors += 1;
-        break;
-    }
-  }
+        sagaIds = result.data?.tasks.map((t: { id: string }) => t.id) ?? [];
+        // Stable order so cron output is deterministic across runs.
+        sagaIds = sagaIds.sort((a, b) => a.localeCompare(b));
+      }
 
-  return engineSuccess({
-    total: entries.length,
-    closed,
-    noOp,
-    blocked,
-    pending,
-    errors,
-    dryRun,
-    entries,
-  });
+      const entries: SagaReconcileEntry[] = [];
+      let closed = 0;
+      let noOp = 0;
+      let blocked = 0;
+      let pending = 0;
+      let errors = 0;
+
+      for (const sagaId of sagaIds) {
+        execution?.assertActive();
+        const entry = await reconcileOneSaga(projectRoot, sagaId, dryRun, validateTyped);
+        execution?.assertActive();
+        entries.push(entry);
+        switch (entry.action) {
+          case 'close':
+            closed += 1;
+            break;
+          case 'no-op':
+            if (entry.pendingMembers.length > 0) {
+              pending += 1;
+            } else {
+              noOp += 1;
+            }
+            break;
+          case 'blocked':
+            blocked += 1;
+            break;
+          case 'error':
+            errors += 1;
+            break;
+        }
+      }
+
+      return engineSuccess({
+        total: entries.length,
+        closed,
+        noOp,
+        blocked,
+        pending,
+        errors,
+        dryRun,
+        entries,
+      });
+    });
+  } finally {
+    ownedExecution?.close();
+  }
 }

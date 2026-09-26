@@ -21,6 +21,7 @@
  * @see ADR-073-above-epic-naming.md §1.3
  */
 
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -30,7 +31,13 @@ import { getCleoHome } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
+import { readProjectInfoAtDirectorySync, worktreeScope } from '../../project-scope.js';
+import { createOperationExecutionContext } from '../../store/background-ops.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
 import { acquireLock } from '../../store/lock.js';
+import { getNativeTasksDb } from '../../store/sqlite.js';
+import { reqAdd } from '../../tasks/req.js';
+import { validateGateVerify } from '../../validation/engine-ops.js';
 import { reconcileSaga, SAGA_RECONCILE_AUDIT_FILE } from '../reconcile.js';
 
 let TEST_ROOT: string;
@@ -379,5 +386,152 @@ describe('reconcileSaga — error paths', () => {
     if (!result.success) return;
     expect(result.data.entries[0]?.action).toBe('error');
     expect(result.data.errors).toBe(1);
+  });
+});
+
+describe('typed reconciliation authority', () => {
+  async function typedSaga(): Promise<void> {
+    await seedSagaWithMembers(TEST_ROOT, 'T9000', ['done']);
+    writeFileSync(join(TEST_ROOT, 'proof.txt'), 'actual declared input');
+    await reqAdd(TEST_ROOT, 'T9000', {
+      kind: 'file',
+      path: 'proof.txt',
+      assertions: [{ type: 'exists' }],
+      req: 'SAGA-HARD',
+      description: 'Saga owns its hard requirement',
+    });
+  }
+
+  function persistedSaga(): string {
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import { DatabaseSync } from 'node:sqlite'; const db = new DatabaseSync(process.argv[1], {readOnly:true}); try { process.stdout.write(JSON.stringify(db.prepare("SELECT * FROM tasks_tasks WHERE id='T9000'").all())); } finally { db.close(); }`,
+        join(TEST_ROOT, '.cleo', 'cleo.db'),
+      ],
+      { encoding: 'utf8', timeout: 10000 },
+    );
+    expect(child.status, child.stderr).toBe(0);
+    return child.stdout;
+  }
+
+  it.each([
+    true,
+    false,
+  ])('rejects unmet hard proof before predicting or writing closure (dry=%s)', async (dryRun) => {
+    await typedSaga();
+    const before = persistedSaga();
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000', dryRun });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.closed).toBe(0);
+    expect(result.data.errors).toBe(1);
+    expect(result.data.entries[0]?.reason).toMatch(/verified result/);
+    expect(persistedSaga()).toBe(before);
+  });
+
+  it('rolls back closure and preserves authentic results when the canonical receipt write fails', async () => {
+    await typedSaga();
+    expect(
+      (
+        await validateGateVerify(TEST_ROOT, {
+          taskId: 'T9000',
+          gate: 'cleanupDone',
+          evidence: 'note:typed saga fault setup',
+        })
+      ).success,
+    ).toBe(true);
+    const accessor = await getTaskAccessor(TEST_ROOT);
+    const before = persistedSaga();
+    const receipts = await accessor.queryAuditLog({ taskIds: ['T9000'] });
+    getNativeTasksDb(TEST_ROOT)!.exec(
+      "CREATE TRIGGER reject_saga_receipt BEFORE INSERT ON tasks_audit_log WHEN NEW.action='saga_reconciled' BEGIN SELECT RAISE(ABORT,'saga receipt fault'); END",
+    );
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.closed).toBe(0);
+    expect(result.data.errors).toBe(1);
+    expect(persistedSaga()).toBe(before);
+    expect(await accessor.queryAuditLog({ taskIds: ['T9000'] })).toEqual(receipts);
+  });
+
+  it.each([
+    'cancelled',
+    'expired',
+  ] as const)('never renews a stopped caller lifetime: %s', async (stop) => {
+    await typedSaga();
+    const before = persistedSaga();
+    const info = readProjectInfoAtDirectorySync(TEST_ROOT, join(TEST_ROOT, '.cleo'));
+    const controller = new AbortController();
+    const execution = createOperationExecutionContext(
+      {
+        projectId: info.projectId!,
+        projectRoot: TEST_ROOT,
+        actor: 'saga-test',
+        operation: 'tasks.saga.reconcile',
+        idempotencyKey: stop,
+      },
+      { deadlineAt: Date.now() + 2000, signal: controller.signal },
+    );
+    if (stop === 'cancelled') controller.abort(new Error('original caller cancelled'));
+    else vi.spyOn(Date, 'now').mockReturnValue(execution.deadlineAt + 1);
+    try {
+      await expect(
+        worktreeScope.run(
+          { worktreeRoot: TEST_ROOT, projectHash: info.projectHash!, execution },
+          () => reconcileSaga(TEST_ROOT, { sagaId: 'T9000' }),
+        ),
+      ).rejects.toThrow();
+      expect(persistedSaga()).toBe(before);
+    } finally {
+      vi.restoreAllMocks();
+      execution.close();
+    }
+  });
+
+  it.each([
+    'current',
+    'stale',
+    'receipt',
+  ] as const)('preserves and validates actual stored typed results: %s', async (change) => {
+    await typedSaga();
+    expect(
+      (
+        await validateGateVerify(TEST_ROOT, {
+          taskId: 'T9000',
+          gate: 'cleanupDone',
+          evidence: 'note:explicit typed saga verification',
+        })
+      ).success,
+    ).toBe(true);
+    const accessor = await getTaskAccessor(TEST_ROOT);
+    const proof = (await accessor.loadSingleTask('T9000'))!.verification!.gateResults;
+    expect(proof?.[0]?.result).toBe('pass');
+    if (change === 'stale') writeFileSync(join(TEST_ROOT, 'proof.txt'), 'changed declared input');
+    if (change === 'receipt')
+      getNativeTasksDb(TEST_ROOT)!.exec(
+        "DELETE FROM tasks_audit_log WHERE action='gate.verify.typed'",
+      );
+    const before = persistedSaga();
+    const dry = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000', dryRun: true });
+    expect(dry.success).toBe(true);
+    if (!dry.success) return;
+    expect(dry.data.closed).toBe(change === 'current' ? 1 : 0);
+    expect(persistedSaga()).toBe(before);
+    const actual = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
+    expect(actual.success).toBe(true);
+    if (!actual.success) return;
+    expect(actual.data.closed).toBe(change === 'current' ? 1 : 0);
+    if (change === 'current') {
+      const after = (await accessor.loadSingleTask('T9000'))!;
+      expect(after.status).toBe('done');
+      expect(after.verification?.gateResults).toEqual(proof);
+      expect(
+        await accessor.queryAuditLog({ taskIds: ['T9000'], actions: ['saga_reconciled'] }),
+      ).toHaveLength(1);
+    } else expect(persistedSaga()).toBe(before);
   });
 });
