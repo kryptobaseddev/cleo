@@ -1,0 +1,181 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.9.20",
+  "resolvedVersion": "v2026.9.20",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T11395",
+  "releaseKind": "regular",
+  "createdAt": "2026-09-26T11:08:38.469Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.9.13",
+  "previousTag": "v2026.9.13",
+  "previousShippedAt": "2026-09-22T06:19:04.198Z",
+  "tasks": [
+    {
+      "id": "T12382",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Ship the .cant parser natively on every OS with an automatic WebAssembly fallback (drop the linux-only committed addon)",
+      "evidenceAtoms": [
+        "commit:b7b63b20313a8cfcbace584b0a8d5b4fa1d05e3f",
+        "files:.github/workflows/cant-napi-build.yml,crates/cant-napi/build.rs,crates/cant-napi/src/lib.rs,packages/cant/src/native-loader.ts,packages/cant/package.json,scripts/lint-no-committed-native-binaries.mjs,packages/cant/tests/native-wasi-parity.test.ts,packages/cant/tests/wasi-fallback-consumers.test.ts",
+        "note:CI run 36212276287 built all 8 native triples plus wasm32-wasi; 7 loaded natively on their own OS, darwin-x64 cross-built and stamp-checked only; WASI limits: cantExecutePipeline native-only",
+        "test-run:/home/keatonhoskins/.temp/ship920/cant-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T11395",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12383",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleo tools skill install deletes the skill it is installing (library:<name> passed as a file path)",
+      "evidenceAtoms": [
+        "commit:df6770adb63ba0aa68b3d47ae558442cbcd872b9",
+        "files:packages/caamp/src/core/skills/installer.ts,packages/caamp/src/core/harness/pi.ts,packages/core/src/engine/engine-ops.ts,packages/core/src/skills/install.ts,packages/caamp/tests/unit/skills-install-safety.test.ts,packages/core/src/engine/__tests__/skill-install-safety.test.ts",
+        "test-run:/home/keatonhoskins/.temp/ship920/caamp-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship920/core-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship920/adapters-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T11395",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12384",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Skills security scan and checksum gate never run for cleo installs",
+      "evidenceAtoms": [
+        "commit:df6770adb63ba0aa68b3d47ae558442cbcd872b9",
+        "files:packages/caamp/src/core/skills/install-pipeline.ts,packages/contracts/src/skills/install-gate.ts,packages/caamp/src/commands/skills/install.ts,packages/caamp/src/commands/skills/update.ts,packages/caamp/tests/unit/skills-install-pipeline.test.ts,packages/core/src/init.ts",
+        "test-run:/home/keatonhoskins/.temp/ship920/caamp-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship920/core-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship920/adapters-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T11395",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12385",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "claude-code adapter rewrites ~/.claude/settings.json non-atomically and resets it to {} on a parse error",
+      "evidenceAtoms": [
+        "commit:df6770adb63ba0aa68b3d47ae558442cbcd872b9",
+        "files:packages/caamp/src/core/fs/atomic.ts,packages/caamp/src/core/instructions/injector.ts,packages/adapters/src/providers/claude-code/hooks.ts,packages/adapters/src/providers/claude-code/install.ts,packages/adapters/src/providers/claude-code/paths.ts,packages/adapters/src/providers/cursor/install.ts,packages/adapters/src/providers/claude-code/__tests__/hooks-install.test.ts",
+        "test-run:/home/keatonhoskins/.temp/ship920/caamp-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship920/core-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship920/adapters-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T11395",
+      "ivtrPhaseAtPlan": "implementation"
+    }
+  ],
+  "changelog": {
+    "features": [],
+    "fixes": [
+      "T12382",
+      "T12383",
+      "T12384",
+      "T12385"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T11:08:38.469Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T11:08:38.469Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T11:08:38.469Z",
+      "resolvedCommand": "npx biome check .",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T11:08:38.469Z",
+      "resolvedCommand": "npx tsc --noEmit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T11:08:38.469Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T11:08:38.469Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 367 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.9.20 — 2026-09-26\n\n### Fixed\n\n- `.cant` parsing works on every OS: native binaries for 8 triples plus an automatic WebAssembly fallback, bundled in @cleocode/cant _(provenance: [T12382](https://github.com/kryptobaseddev/cleo/search?q=T12382&type=commits))_\n- skill install never deletes the installed copy, every install goes through one fail-closed security gate, and provider settings writes are atomic and never reset a malformed file _(provenance: [T12383](https://github.com/kryptobaseddev/cleo/search?q=T12383&type=commits), [T12384](https://github.com/kryptobaseddev/cleo/search?q=T12384&type=commits), [T12385](https://github.com/kryptobaseddev/cleo/search?q=T12385&type=commits))_\n",
+    "changesetEntryCount": 2,
+    "changesetIds": [
+      "cant-parser-every-os-wasi-fallback",
+      "skill-install-safety"
+    ],
+    "taskIds": [
+      "T12382",
+      "T12383",
+      "T12384",
+      "T12385"
+    ]
+  }
+}
