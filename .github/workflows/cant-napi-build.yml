@@ -284,8 +284,6 @@ jobs:
           merge-multiple: true
       - name: Packed @cleocode/cant ships all 8 triples + WASI, fresh from this commit
         run: node scripts/lint-no-committed-native-binaries.mjs --packed packages/cant --expect-rev "${GITHUB_SHA}"
-      - name: Probe WASI under NAPI_RS_FORCE_WASI=error
-        run: NAPI_RS_FORCE_WASI=error node packages/cant/tests/fixtures/cant-native-smoke.cjs wasi "${GITHUB_SHA}"
       # worktree-napi is a workspace dependency of the CLI the consumer test
       # launches; build it for the host BEFORE install, exactly as ci.yml does.
       - name: Build worktree-napi (host)
@@ -294,6 +292,10 @@ jobs:
           cp target/release/libworktree_napi.so crates/worktree-napi/worktree-napi.linux-x64-gnu.node
       - uses: ./.github/actions/install-ripgrep
       - run: pnpm install --frozen-lockfile
+      # After install: the WASI glue needs @napi-rs/wasm-runtime and
+      # @emnapi/*, which are runtime dependencies of @cleocode/cant.
+      - name: Probe WASI under NAPI_RS_FORCE_WASI=error
+        run: NAPI_RS_FORCE_WASI=error node packages/cant/tests/fixtures/cant-native-smoke.cjs wasi "${GITHUB_SHA}"
       - name: Build packages
         run: pnpm run build
       - name: Native vs WASI parity + consumers without a native binary
