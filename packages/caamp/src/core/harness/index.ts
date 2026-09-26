@@ -28,6 +28,7 @@ import { getAllProviders, getPrimaryProvider } from '../registry/providers.js';
 import {
   installSkill as genericInstallSkill,
   removeSkill as genericRemoveSkill,
+  type InstallSkillOptions,
   type SkillInstallResult,
 } from '../skills/installer.js';
 import { PiHarness } from './pi.js';
@@ -299,6 +300,11 @@ export function resolveDefaultTargetProviders(
  *   harness project scope falls back to `process.cwd()` and the generic
  *   installer is invoked without a `projectDir` argument so it retains its
  *   legacy default-handling behavior.
+ * @param options - Provenance options forwarded to the generic installer
+ *   (`recordRow`, `sourceUrl`, `sourceType`). This dispatcher is an UNGATED
+ *   primitive: callers that place a skill from user input go through
+ *   `installSkillFromSource` / `installResolvedSkill` (T12384), which run the
+ *   security gate first.
  * @returns Merged install result across the harness and generic paths.
  *
  * @example
@@ -320,6 +326,7 @@ export async function dispatchInstallSkillAcrossProviders(
   providers: Provider[],
   isGlobal: boolean,
   projectDir?: string,
+  options?: InstallSkillOptions,
 ): Promise<SkillInstallResult> {
   const harnessTargets: Array<{ provider: Provider; harness: Harness }> = [];
   const genericTargets: Provider[] = [];
@@ -353,9 +360,18 @@ export async function dispatchInstallSkillAcrossProviders(
     // caller did not supply `projectDir`, so existing tests that assert
     // a 4-argument call shape keep passing.
     const genericResult =
-      projectDir !== undefined
-        ? await genericInstallSkill(sourcePath, skillName, genericTargets, isGlobal, projectDir)
-        : await genericInstallSkill(sourcePath, skillName, genericTargets, isGlobal);
+      options !== undefined
+        ? await genericInstallSkill(
+            sourcePath,
+            skillName,
+            genericTargets,
+            isGlobal,
+            projectDir,
+            options,
+          )
+        : projectDir !== undefined
+          ? await genericInstallSkill(sourcePath, skillName, genericTargets, isGlobal, projectDir)
+          : await genericInstallSkill(sourcePath, skillName, genericTargets, isGlobal);
     canonicalPath = genericResult.canonicalPath;
     for (const id of genericResult.linkedAgents) {
       linkedAgents.push(id);

@@ -45,6 +45,7 @@ import { writeFileAtomic } from '@cleocode/core/tools/fs.js';
 import type { Provider } from '../../types.js';
 import { withFileLock } from '../fs/atomic.js';
 import { normalizeMarkers, parseBlocks, reconcile } from '../instructions/markers.js';
+import { replaceDirectoryFromSource } from '../skills/installer.js';
 import type { HarnessTier } from './scope.js';
 import { resolveAllTiers, resolveTierDir } from './scope.js';
 import type {
@@ -308,10 +309,9 @@ export class PiHarness implements Harness {
    * Install a skill directory into the resolved Pi skills location.
    */
   async installSkill(sourcePath: string, skillName: string, scope: HarnessScope): Promise<void> {
-    const targetDir = join(this.skillsDir(scope), skillName);
-    await rm(targetDir, { recursive: true, force: true });
-    await mkdir(dirname(targetDir), { recursive: true });
-    await cp(sourcePath, targetDir, { recursive: true });
+    // T12383: stage the new copy completely, then swap it in — the installed
+    // copy is never removed before its replacement exists.
+    await replaceDirectoryFromSource(sourcePath, join(this.skillsDir(scope), skillName));
   }
 
   /**

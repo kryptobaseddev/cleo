@@ -6,34 +6,45 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist/",
-    "napi/"
+    "napi/index.cjs",
+    "napi/cant.*.node",
+    "napi/cant.wasi.cjs",
+    "napi/wasi-worker.mjs",
+    "napi/cant.wasm32-wasi.wasm"
   ],
   "scripts": {
     "build": "tsc -b",
-    "build:napi": "cargo build --release -p cant-napi && mkdir -p napi && cp ../../target/release/libcant_napi.so napi/cant.linux-x64-gnu.node",
+    "build:napi": "pnpm --package=@napi-rs/cli@3.10.5 dlx napi build --platform --release --manifest-path ../../crates/cant-napi/Cargo.toml --package-json-path package.json --output-dir napi --js index.cjs --dts index.d.ts",
+    "build:napi:wasi": "pnpm --package=@napi-rs/cli@3.10.5 --package=emnapi@1.11.3 dlx napi build --platform --release --manifest-path ../../crates/cant-napi/Cargo.toml --package-json-path package.json --output-dir napi --js index.cjs --dts index.d.ts --target wasm32-wasip1-threads",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@cleocode/contracts": "workspace:*",
     "@cleocode/core": "workspace:*",
-    "@cleocode/lafs": "workspace:*"
+    "@cleocode/lafs": "workspace:*",
+    "@emnapi/core": "1.11.3",
+    "@emnapi/runtime": "1.11.3",
+    "@napi-rs/wasm-runtime": "1.2.4"
   },
   "devDependencies": {
     "typescript": "^6.0.2",
     "vitest": "^4.1.4"
   },
   "napi": {
-    "name": "cant",
-    "package": {
-      "name": "@cleocode/cant"
-    },
-    "triples": {
-      "defaults": false,
-      "additional": [
-        "x86_64-unknown-linux-gnu"
-      ]
-    }
+    "binaryName": "cant",
+    "packageName": "@cleocode/cant",
+    "targets": [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-musl",
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc",
+      "wasm32-wasip1-threads"
+    ]
   },
   "keywords": [
     "cleo",

@@ -140,15 +140,38 @@ pnpm --filter @cleocode/cant test
 Tests use real `.cant` fixtures from `crates/cant-core/fixtures/` and
 seed agents from `packages/agents/seed-agents/`.
 
-## Rebuilding the napi binary
+## Native binaries and the WebAssembly fallback
+
+The published package bundles the cant-napi addon for every supported
+platform in `napi/` (T12382): native binaries for linux x64/arm64 (glibc and
+musl), darwin x64/arm64 and win32 x64/arm64, plus
+`cant.wasm32-wasi.wasm`, the same crate built for `wasm32-wasip1-threads`.
+The napi-rs generated loader (`napi/index.cjs`) uses the native binary for
+the host and falls back to the WebAssembly build automatically when none
+matches. `NAPI_RS_FORCE_WASI=error` forces the WebAssembly build (tests use
+it to prove the fallback). `cantAddonBackend()` reports which one loaded.
+
+Parsing, validation and profile extraction are identical on both backends
+(`tests/native-wasi-parity.test.ts`). One function differs:
+`cantExecutePipelineNative` needs the native backend, because pipelines spawn
+subprocesses through cant-runtime's multi-thread tokio runtime, which WASI
+cannot provide. Under WASI it resolves to `success: false` with an `error`
+saying so; it does not throw. Node prints a one-time
+`ExperimentalWarning: WASI is an experimental feature` to stderr when the
+WebAssembly build loads.
+
+To build locally (Rust toolchain required; nothing in `napi/` is committed):
 
 ```bash
-pnpm --filter @cleocode/cant build:napi
+pnpm --filter @cleocode/cant build:napi       # host native binary + loader
+# WebAssembly build: needs `rustup target add wasm32-wasip1-threads`, and
+# RUSTC must be a full path so napi-build can find crt1-reactor.o.
+RUSTC="$(rustup which rustc)" pnpm --filter @cleocode/cant build:napi:wasi
 ```
 
-Requires a Rust toolchain. Produces `napi/cant.linux-x64-gnu.node`.
-Other platform triples are added via the workspace release pipeline,
-not locally.
+CI builds all 9 artifacts in `.github/workflows/cant-napi-build.yml`, which
+the release calls; the release fails unless every triple is packed and
+stamped with the released commit.
 
 ## Crate track
 

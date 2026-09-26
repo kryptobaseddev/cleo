@@ -689,6 +689,17 @@ const checkArchCommand = defineCommand({
         description:
           'Every `cleo` invocation CLEO writes into an agent prompt exists and is runnable',
       },
+      {
+        // T12382: the only `.cant` parser users received was a committed
+        // linux-x64 binary; every other OS threw. A committed binary also
+        // goes stale silently (the committed lafs-napi one already rejects
+        // every real envelope). Binaries are built by CI and staged at
+        // release, so none may be tracked.
+        id: 'gate-24',
+        task: 'T12382',
+        script: 'scripts/lint-no-committed-native-binaries.mjs',
+        description: 'No native .node/.wasm binary is committed (built by CI, staged at release)',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

@@ -130,9 +130,9 @@ const DEPENDENCY_SPECS: DependencySpec[] = [
     name: 'cant-napi',
     category: 'feature',
     description:
-      'Native CANT parser (Rust/napi-rs) — accelerates CANT DSL parsing. Falls back to TS implementation when absent.',
+      'CANT parser (Rust/napi-rs) — native binary per OS/CPU with an automatic WebAssembly (WASI) fallback, bundled in @cleocode/cant.',
     documentationUrl: 'https://github.com/kryptobaseddev/cleocode',
-    installCommand: 'cargo build --release -p cant-napi',
+    installCommand: 'pnpm --filter @cleocode/cant build:napi',
   },
   {
     name: 'lafs-napi',
@@ -319,49 +319,39 @@ function checkSimpleTool(
 }
 
 /**
- * Check cant-napi native addon availability.
+ * Check the CANT parser addon (cant-napi) availability.
  *
- * Probes the native binary directly using the same path resolution that
- * `packages/cant/src/native-loader.ts` uses, without importing the cant
- * package (which would create a circular dep: core → cant → core).
- *
- * The resolution order mirrors the cant native-loader:
- *   1. `packages/cant/napi/cant.linux-x64-gnu.node` (installed binary)
- *   2. `crates/cant-napi/index.cjs` (dev build output)
+ * Loads the napi-rs generated loader that `@cleocode/cant` ships as
+ * `napi/index.cjs`, without importing the cant package (which would create a
+ * circular dep: core → cant → core). That loader prefers a native binary for
+ * this OS/CPU and falls back to the bundled WebAssembly (WASI) build, so the
+ * check reports WHICH backend loaded in `version` (T12382), not just a boolean.
  */
 function checkCantNapi(): DependencyCheckResult {
-  let available = false;
+  let backend: string | null = null;
+  let loadError = '';
 
   try {
-    // From packages/core/dist/system/ the relative path to the cant binary:
-    // ../../../cant/napi/cant.linux-x64-gnu.node
-    const binary = _require.resolve('../../../cant/napi/cant.linux-x64-gnu.node', {
-      paths: [_dirname],
-    });
-    _require(binary);
-    available = true;
-  } catch {
-    try {
-      const fallback = _require.resolve('../../../../crates/cant-napi/index.cjs', {
-        paths: [_dirname],
-      });
-      _require(fallback);
-      available = true;
-    } catch {
-      available = false;
-    }
+    // From packages/core/dist/system/ (or node_modules/@cleocode/core/dist/system/)
+    // the cant package's generated loader is ../../../cant/napi/index.cjs.
+    const loaderPath = _require.resolve('../../../cant/napi/index.cjs', { paths: [_dirname] });
+    const binding: { cantBackend?: () => string } = _require(loaderPath);
+    backend = typeof binding.cantBackend === 'function' ? binding.cantBackend() : 'native';
+  } catch (err) {
+    loadError = err instanceof Error ? err.message : String(err);
   }
 
   return {
     name: 'cant-napi',
     category: 'feature',
-    installed: available,
-    healthy: true, // feature: TypeScript fallback is always present
-    ...(available
-      ? {}
+    installed: backend !== null,
+    healthy: true, // feature: a missing addon disables .cant parsing, nothing else
+    ...(backend !== null
+      ? { version: backend }
       : {
-          error: 'cant-napi native addon not loaded — using TypeScript CANT parser (slower)',
-          suggestedFix: 'cargo build --release -p cant-napi',
+          error: `CANT parser addon not loaded (no native binary and no WebAssembly fallback): ${loadError}`,
+          suggestedFix:
+            'Reinstall @cleocode/cant; in a source checkout run: pnpm --filter @cleocode/cant build:napi',
         }),
   };
 }

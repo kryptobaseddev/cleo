@@ -51,7 +51,12 @@ export { readConfig, removeConfig, writeConfig } from './core/formats/index.js';
 export { deepMerge, ensureDir, getNestedValue } from './core/formats/utils.js';
 // Atomic write + cross-process file lock primitives (T12051)
 export type { FileLockOptions } from './core/fs/atomic.js';
-export { assertNotTornRead, withFileLock } from './core/fs/atomic.js';
+export {
+  assertNotTornRead,
+  JsonConfigParseError,
+  updateJsonConfigFile,
+  withFileLock,
+} from './core/fs/atomic.js';
 export type {
   Harness,
   HarnessScope,
@@ -129,6 +134,8 @@ export type {
   DedupeResult,
   EnsureProviderInstructionFileOptions,
   EnsureProviderInstructionFileResult,
+  EnsureProviderRuleFileOptions,
+  EnsureProviderRuleFileResult,
   KnownProviderAgentFolderId,
   RepairResult,
   WriteAgentFileOptions,
@@ -142,6 +149,7 @@ export {
   dedupeFiles,
   ensureAllProviderInstructionFiles,
   ensureProviderInstructionFile,
+  ensureProviderRuleFile,
   getProviderAgentFolder,
   inject,
   injectAll,
@@ -272,6 +280,25 @@ export {
   registerSkillLibraryFromPath,
 } from './core/skills/catalog.js';
 export { discoverSkill, discoverSkills, parseSkillFile } from './core/skills/discovery.js';
+// Gated install pipeline — the one entry point for placing a skill (T12383/T12384)
+export type {
+  GatedSkillInstallOptions,
+  GatedSkillInstallResult,
+  ResolvedSkillSource,
+  SkillGateModules,
+  SkillInstallErrorCode,
+  SkillInstallErrorDetails,
+  SkillInstallGateOptions,
+  SkillInstallGateReport,
+  SkillSourceProgress,
+} from './core/skills/install-pipeline.js';
+export {
+  installResolvedSkill,
+  installSkillFromSource,
+  resolveSkillSource,
+  runSkillInstallGate,
+  SkillInstallError,
+} from './core/skills/install-pipeline.js';
 export type {
   InstallSkillOptions,
   SkillInstallResult,
@@ -284,6 +311,9 @@ export {
   installSkill,
   listCanonicalSkills,
   removeSkill,
+  replaceDirectoryFromSource,
+  stageSkillCopy,
+  swapIntoPlace,
 } from './core/skills/installer.js';
 // Skills integrity
 export type { SkillIntegrityResult, SkillIntegrityStatus } from './core/skills/integrity.js';

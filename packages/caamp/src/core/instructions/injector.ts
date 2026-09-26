@@ -813,6 +813,144 @@ export async function ensureProviderInstructionFile(
 }
 
 /**
+ * Options for {@link ensureProviderRuleFile}.
+ *
+ * @public
+ */
+export interface EnsureProviderRuleFileOptions {
+  /** File path relative to the project directory (e.g. `.cursor/rules/cleo.mdc`). */
+  relativePath: string;
+  /**
+   * Text the file must begin with (e.g. MDC frontmatter). When set, CAAMP owns
+   * the whole file: its content is exactly the preamble followed by one CAAMP
+   * block. When omitted, only the CAAMP block is managed and every byte outside
+   * it is preserved.
+   * @defaultValue `undefined`
+   */
+  preamble?: string;
+  /** Update the file only when it already exists; never create it. @defaultValue `false` */
+  onlyIfExists?: boolean;
+  /**
+   * `@` references to write. Defaults to the provider's registry
+   * `instructionReferences`.
+   * @defaultValue Registry `instructionReferences` for the provider
+   */
+  references?: string[];
+}
+
+/**
+ * Result of {@link ensureProviderRuleFile}.
+ *
+ * @public
+ */
+export interface EnsureProviderRuleFileResult {
+  /** Absolute path of the rule file. */
+  filePath: string;
+  /** Action taken. */
+  action: CaampInjectionAction;
+  /** Provider ID. */
+  providerId: string;
+}
+
+/** Remove whole lines equal to one of `references` (pre-CAAMP bare reference lines). */
+function stripBareReferenceLines(content: string, references: readonly string[]): string {
+  const refs = new Set(references);
+  const kept = content.split('\n').filter((line) => !refs.has(line.trim()));
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+
+/**
+ * Ensure a provider's auxiliary rule file (one that is not its registry
+ * `instructFile`) carries the CAAMP-managed reference block.
+ *
+ * @remarks
+ * ADR-064: every provider instruction write goes through CAAMP. Some providers
+ * read extra rule files beside their primary instruction file — Cursor reads
+ * `.cursor/rules/*.mdc` and the legacy `.cursorrules` — and the adapters used
+ * to write those with raw `writeFileSync` and a local copy of the references
+ * (T12385). This writes them the way {@link inject} writes instruction files:
+ * under the cross-process lock, atomically, with a torn-read guard, and with
+ * references from the registry.
+ *
+ * The block carries references, not embedded sources: these files sit beside
+ * the provider's primary instruction file, which
+ * {@link ensureProviderInstructionFile} already fills with the self-contained
+ * delivery, so embedding here would load the protocol twice.
+ *
+ * A file managed without a preamble that predates CAAMP markers has its bare
+ * reference lines replaced by the block rather than duplicated.
+ *
+ * @param providerId - Provider ID from the registry
+ * @param projectDir - Absolute project directory
+ * @param options - Target path, optional preamble, create policy, references
+ * @returns The result, or `null` when `onlyIfExists` is set and the file is absent
+ * @throws Error if the provider ID is not in the registry, or on a torn read
+ *
+ * @example
+ * ```typescript
+ * await ensureProviderRuleFile("cursor", "/project", {
+ *   relativePath: ".cursor/rules/cleo.mdc",
+ *   preamble: "---\nalwaysApply: true\n---\n",
+ * });
+ * ```
+ *
+ * @public
+ */
+export async function ensureProviderRuleFile(
+  providerId: string,
+  projectDir: string,
+  options: EnsureProviderRuleFileOptions,
+): Promise<EnsureProviderRuleFileResult | null> {
+  const provider = getProvider(providerId);
+  if (!provider) {
+    throw new Error(`Unknown provider: "${providerId}". Check CAAMP provider registry.`);
+  }
+  const filePath = join(projectDir, options.relativePath);
+  if (options.onlyIfExists === true && !existsSync(filePath)) return null;
+
+  const references = options.references ?? getProviderInstructionReferences(providerId);
+  const body = buildInjectionContent({ references }).trim();
+  const block = buildBlock(body);
+  assertBalancedMarkers(block);
+  const owned = options.preamble !== undefined ? `${options.preamble}\n${block}\n` : null;
+
+  return withFileLock<EnsureProviderRuleFileResult | null>(filePath, async () => {
+    const result = (action: CaampInjectionAction): EnsureProviderRuleFileResult => ({
+      filePath,
+      action,
+      providerId: provider.id,
+    });
+
+    if (!existsSync(filePath)) {
+      if (options.onlyIfExists === true) return null;
+      await writeFileAtomic({ path: filePath, content: owned ?? `${block}\n` });
+      return result('created');
+    }
+
+    const existing = await readFile(filePath, 'utf-8');
+    if (existing.length === 0) {
+      assertNotTornRead(filePath, existing, (await stat(filePath)).size);
+    }
+
+    if (owned !== null) {
+      if (existing === owned) return result('intact');
+      await writeFileAtomic({ path: filePath, content: owned });
+      return result('updated');
+    }
+
+    const hasBlock = parseBlocks(normalizeMarkers(existing).content).length > 0;
+    const base = hasBlock ? existing : stripBareReferenceLines(existing, references).trimEnd();
+    const { content: next, blocksBefore, repaired } = reconcile(base, body, 'append');
+    if (next === existing) return result('intact');
+    await writeFileAtomic({ path: filePath, content: next });
+    if (blocksBefore === 0) return result('added');
+    if (repaired > 0) return result('repaired');
+    if (blocksBefore > 1) return result('consolidated');
+    return result('updated');
+  });
+}
+
+/**
  * Ensure instruction files for multiple providers at once.
  *
  * Deduplicates by file path — providers sharing the same instruction file

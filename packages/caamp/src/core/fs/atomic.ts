@@ -24,8 +24,10 @@
  * @task T12051
  */
 
+import { existsSync } from 'node:fs';
 import { mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { writeFileAtomic } from '@cleocode/core/tools/fs.js';
 
 /**
  * A guard file older than this is assumed to belong to a crashed process.
@@ -233,4 +235,113 @@ export function assertNotTornRead(filePath: string, content: string, sizeOnDisk:
         'disk (torn read from a concurrent non-atomic writer).',
     );
   }
+}
+
+/** Whether a parsed JSON value is a plain object (not an array or `null`). */
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * A JSON config file could not be parsed, so it was left untouched.
+ *
+ * @remarks
+ * Thrown by {@link updateJsonConfigFile} instead of treating the file as empty.
+ * The pre-T12385 provider adapters caught the parse error and started from
+ * `{}`, so a torn read of `~/.claude/settings.json` (Claude Code rewriting it
+ * at the same moment) replaced the user's permissions, env, model and hooks
+ * with CLEO's entries alone.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await updateJsonConfigFile(path, (config) => false);
+ * } catch (err) {
+ *   if (err instanceof JsonConfigParseError) console.error(err.filePath);
+ * }
+ * ```
+ *
+ * @public
+ */
+export class JsonConfigParseError extends Error {
+  /** Path of the file that failed to parse. */
+  readonly filePath: string;
+
+  /**
+   * @param filePath - Path of the file that failed to parse
+   * @param reason - Parser message
+   */
+  constructor(filePath: string, reason: string) {
+    super(`Refusing to rewrite ${filePath}: it is not a valid JSON object (${reason}).`);
+    this.name = 'JsonConfigParseError';
+    this.filePath = filePath;
+  }
+}
+
+/**
+ * Read-modify-write a JSON object file under the cross-process lock, writing
+ * atomically, and never replacing an unparseable file.
+ *
+ * @remarks
+ * Composes the two existing primitives — {@link withFileLock} and core's
+ * `writeFileAtomic` — for provider config files such as
+ * `~/.claude/settings.json` that the provider itself also rewrites (T12385):
+ *
+ * - The whole read → mutate → write cycle holds the `<file>.lock` guard, so
+ *   two CLEO writers cannot both read the pre-state and clobber each other.
+ * - The write is tmp-then-rename, so a concurrent reader (including the
+ *   provider) sees the whole old file or the whole new one.
+ * - A missing file starts from `{}`. A file that exists but is empty on read
+ *   while non-empty on disk, is not valid JSON, or is not a JSON object throws
+ *   ({@link assertNotTornRead} / {@link JsonConfigParseError}) and the file is
+ *   left byte-identical.
+ *
+ * @param filePath - JSON file to update
+ * @param mutate - Edits the parsed object in place; returns `true` when it
+ *   changed something that must be written
+ * @returns Whether the file was written
+ * @throws {@link JsonConfigParseError} when the existing file cannot be parsed
+ *   as a JSON object; the file is not modified
+ *
+ * @example
+ * ```typescript
+ * const wrote = await updateJsonConfigFile(settingsPath, (settings) => {
+ *   if (settings.enabled === true) return false;
+ *   settings.enabled = true;
+ *   return true;
+ * });
+ * ```
+ *
+ * @public
+ */
+export async function updateJsonConfigFile(
+  filePath: string,
+  mutate: (config: Record<string, unknown>) => boolean,
+): Promise<boolean> {
+  return withFileLock(filePath, async () => {
+    let config: Record<string, unknown> = {};
+    if (existsSync(filePath)) {
+      const raw = await readFile(filePath, 'utf-8');
+      if (raw.length === 0) assertNotTornRead(filePath, raw, (await stat(filePath)).size);
+      if (raw.trim().length > 0) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch (err) {
+          throw new JsonConfigParseError(
+            filePath,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+        if (!isJsonObject(parsed)) {
+          throw new JsonConfigParseError(filePath, 'top-level value is not an object');
+        }
+        config = parsed;
+      }
+    }
+
+    if (!mutate(config)) return false;
+    await writeFileAtomic({ path: filePath, content: `${JSON.stringify(config, null, 2)}\n` });
+    return true;
+  });
 }

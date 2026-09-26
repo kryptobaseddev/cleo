@@ -16,15 +16,35 @@
  * @task T1013
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureProviderInstructionFile } from '@cleocode/caamp';
+import {
+  type EnsureProviderRuleFileResult,
+  ensureProviderInstructionFile,
+  ensureProviderRuleFile,
+  updateJsonConfigFile,
+} from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 import {
   type InstallHookTemplatesResult,
   installProviderHookTemplates,
 } from '../shared/hook-template-installer.js';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
+
+/** MDC frontmatter for the CLEO-owned `.cursor/rules/cleo.mdc` rule file. */
+const CLEO_MDC_FRONTMATTER = [
+  '---',
+  'description: CLEO task management protocol references',
+  'globs: "**/*"',
+  'alwaysApply: true',
+  '---',
+  '',
+].join('\n');
+
+/** Whether a parsed JSON value is a plain object. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 /**
  * Install provider for Cursor.
@@ -57,7 +77,7 @@ export class CursorInstallProvider implements AdapterInstallProvider {
     // ensureProviderInstructionFile handles the primary AGENTS.md (registry instructFile);
     // updateInstructionFiles also manages cursor-specific MDC + legacy .cursorrules formats.
     const instructionResult = await ensureProviderInstructionFile('cursor', projectDir, {});
-    const cursorFilesUpdated = this.updateInstructionFiles(projectDir);
+    const cursorFilesUpdated = await this.updateInstructionFiles(projectDir);
     instructionFileUpdated = instructionResult.action !== 'intact' || cursorFilesUpdated;
     if (instructionFileUpdated) {
       details.instructionFiles = this.getUpdatedFileList(projectDir);
@@ -65,13 +85,21 @@ export class CursorInstallProvider implements AdapterInstallProvider {
 
     // Step 2 (T1013): Install PreCompact hook templates + wire the handler
     // command into .cursor/hooks.json's `preCompact` event.
-    const hookResult = this.installHookTemplates(projectDir);
-    if (hookResult) {
-      details.hookTemplates = hookResult;
+    // T12385: a malformed hooks.json aborts the write and is reported; it is
+    // never reset to `{}`.
+    let hooksError: string | null = null;
+    try {
+      const hookResult = await this.installHookTemplates(projectDir);
+      if (hookResult) {
+        details.hookTemplates = hookResult;
+      }
+    } catch (err) {
+      hooksError = err instanceof Error ? err.message : String(err);
+      details.hooksError = hooksError;
     }
 
     return {
-      success: true,
+      success: hooksError === null,
       installedAt,
       instructionFileUpdated,
       details,
@@ -127,102 +155,37 @@ export class CursorInstallProvider implements AdapterInstallProvider {
    */
   async ensureInstructionReferences(projectDir: string): Promise<void> {
     await ensureProviderInstructionFile('cursor', projectDir, {});
-    this.updateInstructionFiles(projectDir);
+    await this.updateInstructionFiles(projectDir);
   }
 
   /**
-   * Update instruction files with CLEO @-references.
+   * Update Cursor's auxiliary rule files through the CAAMP writer.
    *
-   * Handles both legacy (.cursorrules) and modern (.cursor/rules/cleo.mdc) formats.
+   * @remarks
+   * ADR-064 / T12385: both files are written by CAAMP's
+   * `ensureProviderRuleFile` — locked, atomic, with references taken from the
+   * provider registry — instead of raw `writeFileSync` with a local copy of
+   * the references.
+   *
+   * - Legacy `.cursorrules` is only updated when it already exists; CLEO's
+   *   references live in a CAAMP block and user text is preserved.
+   * - Modern `.cursor/rules/cleo.mdc` is CLEO-owned: MDC frontmatter followed
+   *   by the CAAMP block.
    *
    * @returns true if any file was created or modified
    */
-  private updateInstructionFiles(projectDir: string): boolean {
-    let updated = false;
-
-    // Update legacy .cursorrules if it exists
-    if (this.updateLegacyRules(projectDir)) {
-      updated = true;
-    }
-
-    // Create/update modern .cursor/rules/cleo.mdc
-    if (this.updateModernRules(projectDir)) {
-      updated = true;
-    }
-
-    return updated;
-  }
-
-  /**
-   * Update legacy .cursorrules file with @-references.
-   *
-   * References are sourced from the CAAMP provider registry (T1919) rather than
-   * a local constant, keeping this adapter in sync with the single source of truth.
-   * Only modifies the file if it already exists (does not create it).
-   *
-   * @returns true if the file was modified
-   */
-  private updateLegacyRules(projectDir: string): boolean {
-    const rulesPath = join(projectDir, '.cursorrules');
-    if (!existsSync(rulesPath)) {
-      return false;
-    }
-
-    let content = readFileSync(rulesPath, 'utf-8');
-    const cursorRefs = [
-      `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`,
-      '@.cleo/memory-bridge.md',
+  private async updateInstructionFiles(projectDir: string): Promise<boolean> {
+    const results: Array<EnsureProviderRuleFileResult | null> = [
+      await ensureProviderRuleFile('cursor', projectDir, {
+        relativePath: '.cursorrules',
+        onlyIfExists: true,
+      }),
+      await ensureProviderRuleFile('cursor', projectDir, {
+        relativePath: join('.cursor', 'rules', 'cleo.mdc'),
+        preamble: CLEO_MDC_FRONTMATTER,
+      }),
     ];
-    const missingRefs = cursorRefs.filter((ref) => !content.includes(ref));
-
-    if (missingRefs.length === 0) {
-      return false;
-    }
-
-    const separator = content.endsWith('\n') ? '' : '\n';
-    content = content + separator + missingRefs.join('\n') + '\n';
-    writeFileSync(rulesPath, content, 'utf-8');
-    return true;
-  }
-
-  /**
-   * Create or update .cursor/rules/cleo.mdc with CLEO references.
-   *
-   * MDC (Markdown Component) format is Cursor's modern rule file format.
-   * Each .mdc file in .cursor/rules/ is loaded as a rule set.
-   * References are sourced from the CAAMP provider registry (T1919).
-   *
-   * @returns true if the file was created or modified
-   */
-  private updateModernRules(projectDir: string): boolean {
-    const rulesDir = join(projectDir, '.cursor', 'rules');
-    const mdcPath = join(rulesDir, 'cleo.mdc');
-
-    const cursorRefs = [
-      `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`,
-      '@.cleo/memory-bridge.md',
-    ];
-    const expectedContent = [
-      '---',
-      'description: CLEO task management protocol references',
-      'globs: "**/*"',
-      'alwaysApply: true',
-      '---',
-      '',
-      ...cursorRefs,
-      '',
-    ].join('\n');
-
-    if (existsSync(mdcPath)) {
-      const existing = readFileSync(mdcPath, 'utf-8');
-      if (existing === expectedContent) {
-        return false;
-      }
-    }
-
-    mkdirSync(rulesDir, { recursive: true });
-    writeFileSync(mdcPath, expectedContent, 'utf-8');
-    return true;
+    return results.some((r) => r !== null && r.action !== 'intact');
   }
 
   /**
@@ -255,10 +218,10 @@ export class CursorInstallProvider implements AdapterInstallProvider {
    *
    * @task T1013
    */
-  private installHookTemplates(projectDir: string): {
+  private async installHookTemplates(projectDir: string): Promise<{
     templates: InstallHookTemplatesResult;
     hooksJsonEntryAdded: boolean;
-  } | null {
+  } | null> {
     const hooksDir = join(projectDir, '.cursor', 'hooks');
 
     // Template copy is best-effort so missing/locked filesystems (CI sandboxes,
@@ -273,7 +236,7 @@ export class CursorInstallProvider implements AdapterInstallProvider {
       return null;
     }
 
-    const hooksJsonEntryAdded = this.registerPreCompactHook(
+    const hooksJsonEntryAdded = await this.registerPreCompactHook(
       projectDir,
       join(hooksDir, 'precompact.sh'),
     );
@@ -298,45 +261,35 @@ export class CursorInstallProvider implements AdapterInstallProvider {
    *
    * @task T1013
    */
-  private registerPreCompactHook(projectDir: string, shimPath: string): boolean {
+  private async registerPreCompactHook(projectDir: string, shimPath: string): Promise<boolean> {
     const hooksJsonPath = join(projectDir, '.cursor', 'hooks.json');
-
-    let config: Record<string, unknown> = {};
-    if (existsSync(hooksJsonPath)) {
-      try {
-        config = JSON.parse(readFileSync(hooksJsonPath, 'utf-8'));
-      } catch {
-        // Start fresh on corrupt config.
+    return updateJsonConfigFile(hooksJsonPath, (config) => {
+      const hooks = config.hooks ?? {};
+      if (!isRecord(hooks)) {
+        throw new Error('.cursor/hooks.json "hooks" is not an object; not modifying it');
       }
-    }
+      const entries = hooks.preCompact ?? [];
+      if (!Array.isArray(entries)) {
+        throw new Error('.cursor/hooks.json "hooks.preCompact" is not an array; not modifying it');
+      }
 
-    const hooks = (config.hooks as Record<string, unknown[]> | undefined) ?? {};
-    const entries = (hooks.preCompact as unknown[] | undefined) ?? [];
+      const alreadyWired = entries.some(
+        (entry) =>
+          isRecord(entry) &&
+          typeof entry.command === 'string' &&
+          entry.command.includes('# cleo-hook') &&
+          entry.command.includes('precompact.sh'),
+      );
+      if (alreadyWired) {
+        return false;
+      }
 
-    const alreadyWired = entries.some(
-      (entry) =>
-        typeof entry === 'object' &&
-        entry !== null &&
-        typeof (entry as Record<string, unknown>).command === 'string' &&
-        ((entry as Record<string, unknown>).command as string).includes('# cleo-hook') &&
-        ((entry as Record<string, unknown>).command as string).includes('precompact.sh'),
-    );
-
-    if (alreadyWired) {
-      return false;
-    }
-
-    entries.push({
-      type: 'command',
-      command: `"${shimPath}" # cleo-hook`,
-      timeout: 30,
+      hooks.preCompact = [
+        ...entries,
+        { type: 'command', command: `"${shimPath}" # cleo-hook`, timeout: 30 },
+      ];
+      config.hooks = hooks;
+      return true;
     });
-
-    hooks.preCompact = entries;
-    config.hooks = hooks;
-
-    mkdirSync(join(projectDir, '.cursor'), { recursive: true });
-    writeFileSync(hooksJsonPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-    return true;
   }
 }

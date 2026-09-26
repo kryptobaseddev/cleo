@@ -45,6 +45,13 @@ vi.mock('@cleocode/caamp', () => ({
     action: 'added',
     providerId: 'cursor',
   }),
+  // T12385: Cursor's rule files and hooks.json go through the CAAMP writers.
+  ensureProviderRuleFile: vi.fn().mockResolvedValue({
+    filePath: '/tmp/test-project/.cursor/rules/cleo.mdc',
+    action: 'created',
+    providerId: 'cursor',
+  }),
+  updateJsonConfigFile: vi.fn().mockResolvedValue(true),
 }));
 
 describe('CursorAdapter', () => {
