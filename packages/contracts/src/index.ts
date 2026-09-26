@@ -2250,6 +2250,22 @@ export type {
   SkillImportHermesResponse,
   SkillImportHermesRow,
 } from './skills/import-hermes.js';
+// === Skill install security gate (T12384 — shared by core and CAAMP) ===
+export type {
+  SkillGateFederationAction,
+  SkillGateFederationInput,
+  SkillGateFederationPeer,
+  SkillGateFederationResult,
+  SkillGateFederationTrust,
+  SkillGateFinding,
+  SkillGateFindingCategory,
+  SkillGateFindingSeverity,
+  SkillGatePolicyAction,
+  SkillGatePolicyDecision,
+  SkillGateScanResult,
+  SkillGateTrustLevel,
+  SkillGateVerdict,
+} from './skills/install-gate.js';
 // === Skills Migrate (T9742 — single cleo skills migrate verb) ===
 export type {
   SkillMigrateAction,

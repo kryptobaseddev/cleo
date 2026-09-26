@@ -30,8 +30,9 @@ import {
   getInstalledProviders,
   getTrackedSkills,
   injectAll,
-  installSkill,
+  installSkillFromSource,
   removeSkill,
+  SkillInstallError,
   type SkillRowData,
 } from '@cleocode/caamp';
 import type {
@@ -907,27 +908,34 @@ export async function toolsSkillInstall(
       targetProviders: providerIds,
       projectRoot: globalFlag ? undefined : projectRoot,
     });
+    const targetProviders = providers.filter((p: { id: string }) =>
+      targets.some((t) => t.providerId === p.id),
+    );
 
-    const results: Array<{ providerId: string; success: boolean; errors: string[] }> = [];
-    const errors: string[] = [];
+    // T12383/T12384: one gated call. The pipeline resolves `library:<name>`,
+    // bare names, local paths and remote sources to a real directory (or
+    // refuses), runs the fail-closed security gate, and stages the canonical
+    // copy before replacing the installed one — once, not once per provider.
+    const installed =
+      targetProviders.length > 0
+        ? await installSkillFromSource(resolvedSource, {
+            providers: targetProviders,
+            isGlobal: globalFlag,
+            projectDir: projectRoot,
+            skillName: name,
+            recordRow: skillsDbRecorder,
+          })
+        : null;
 
-    // Classify provenance ONCE: `library:<name>` is Sphere A canonical;
-    // anything else is heuristically inferred (community/user) in
-    // installSkill via the recordRow contract.
-    const isCanonical = resolvedSource.startsWith('library:');
-    for (const target of targets) {
-      const provider = providers.find((p: { id: string }) => p.id === target.providerId);
-      if (!provider) continue;
-      const result = await installSkill(resolvedSource, name, [provider], globalFlag, projectRoot, {
-        recordRow: skillsDbRecorder,
-        sourceUrl: resolvedSource,
-        sourceType: isCanonical ? 'canonical' : undefined,
-      });
-      results.push({ providerId: target.providerId, ...result });
-      if (!result.success) {
-        errors.push(`${target.providerId}: ${result.errors.join('; ')}`);
-      }
-    }
+    const results: Array<{ providerId: string; success: boolean; errors: string[] }> =
+      targetProviders.map((p: { id: string }) => ({
+        providerId: p.id,
+        success: installed?.linkedAgents.includes(p.id) ?? false,
+        errors: (installed?.errors ?? []).filter((e) => e.startsWith(`${p.id}:`)),
+      }));
+    const errors = results
+      .filter((r) => !r.success)
+      .map((r) => `${r.providerId}: ${r.errors.join('; ') || 'not linked'}`);
 
     const allSuccess = results.length > 0 && results.every((r) => r.success);
     if (!allSuccess) {
@@ -943,8 +951,38 @@ export async function toolsSkillInstall(
 
     return engineSuccess({ results, targets: targets.map((t) => t.providerId) });
   } catch (error) {
+    if (error instanceof SkillInstallError) {
+      return skillInstallRefusal(error);
+    }
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
+}
+
+/**
+ * Map a refused gated install to an engine error, keeping CAAMP's code.
+ *
+ * @remarks
+ * The refusal happened before any write, so the installed copy is intact.
+ * `E_SKILL_NOT_FOUND` keeps the not-found exit semantics; every other refusal
+ * (trust gate, federation gate, gate unavailable, unsupported source) is a
+ * validation-class failure.
+ */
+function skillInstallRefusal<T>(error: SkillInstallError): EngineResult<T> {
+  return engineError(error.code, error.message, {
+    exitCode: error.code === 'E_SKILL_NOT_FOUND' ? 4 : 6,
+    details: {
+      ...(error.details.scan
+        ? {
+            verdict: error.details.scan.verdict,
+            trustLevel: error.details.scan.trustLevel,
+            findings: error.details.scan.findings,
+          }
+        : {}),
+      ...(error.details.federation ? { federation: error.details.federation } : {}),
+      ...(error.details.availableSkills ? { availableSkills: error.details.availableSkills } : {}),
+      ...(error.details.cause ? { cause: error.details.cause } : {}),
+    },
+  });
 }
 
 /**
@@ -1011,18 +1049,16 @@ export async function toolsSkillRefresh(projectRoot: string): Promise<
       if (!entry) continue;
       const src = entry.sourceType === 'library' ? `library:${name}` : entry.source;
       try {
-        const result = await installSkill(
-          src,
-          name,
+        // T12383/T12384: resolve the stored source (clone, catalog lookup or
+        // local path) and gate it, rather than handing the identifier to the
+        // copier as a filesystem path.
+        const result = await installSkillFromSource(src, {
           providers,
-          entry.isGlobal,
-          entry.projectDir ?? projectRoot,
-          {
-            recordRow: skillsDbRecorder,
-            sourceUrl: src,
-            sourceType: entry.sourceType === 'library' ? 'canonical' : undefined,
-          },
-        );
+          isGlobal: entry.isGlobal,
+          projectDir: entry.projectDir ?? projectRoot,
+          skillName: name,
+          recordRow: skillsDbRecorder,
+        });
         if (result.success) {
           updated.push(name);
         } else {

@@ -16,11 +16,18 @@
  * @epic T134
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { updateJsonConfigFile } from '@cleocode/caamp';
 import type { AdapterHookProvider } from '@cleocode/contracts';
+import {
+  appendHookEntry,
+  claudeSettingsPath,
+  hasCleoHook,
+  hookMap,
+  removeCleoHookEntries,
+} from './paths.js';
 
 /** CAAMP provider identifier for Claude Code. */
 const PROVIDER_ID = 'claude-code' as const;
@@ -133,56 +140,23 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
     this.projectDir = projectDir;
     this.registered = true;
 
-    // Write CLEO hook entries to ~/.claude/settings.json (idempotent)
-    try {
-      const home = homedir();
-      const settingsPath = join(home, '.claude', 'settings.json');
-
-      let settings: Record<string, unknown> = {};
-      if (existsSync(settingsPath)) {
-        try {
-          settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-        } catch {
-          // Start fresh if settings.json is corrupt
-        }
-      }
-
-      const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
-
-      // Check if CLEO hooks already registered (look for our marker comment in commands)
-      const alreadyRegistered = Object.values(hooks).some(
-        (entries) =>
-          Array.isArray(entries) &&
-          entries.some(
-            (e) =>
-              typeof e === 'object' &&
-              e !== null &&
-              Array.isArray((e as Record<string, unknown>).hooks) &&
-              ((e as Record<string, unknown>).hooks as Array<Record<string, string>>).some(
-                (h) => typeof h.command === 'string' && h.command.includes('# cleo-hook'),
-              ),
-          ),
-      );
-
-      if (alreadyRegistered) {
-        return; // Already wired — idempotent
+    // Write CLEO hook entries to settings.json (idempotent). T12385: locked,
+    // atomic, and a malformed file is reported and left untouched — never
+    // replaced with an object holding only CLEO's entries.
+    await this.updateSettings((settings) => {
+      const hooks = hookMap(settings);
+      if (Object.values(hooks).some((entries) => hasCleoHook(entries))) {
+        return false; // Already wired — idempotent
       }
 
       // Register Stop hook → triggers cleo session end (LLM extraction, reflector, consolidation)
-      if (!hooks.Stop) hooks.Stop = [];
-      (hooks.Stop as unknown[]).push({
+      appendHookEntry(hooks, 'Stop', {
         matcher: '',
-        hooks: [
-          {
-            type: 'command',
-            command: `cleo session end --quiet # cleo-hook`,
-          },
-        ],
+        hooks: [{ type: 'command', command: `cleo session end --quiet # cleo-hook` }],
       });
 
       // Register PostToolUse hook → brain observation for file writes + NEXUS post-check (T625)
-      if (!hooks.PostToolUse) hooks.PostToolUse = [];
-      (hooks.PostToolUse as unknown[]).push({
+      appendHookEntry(hooks, 'PostToolUse', {
         matcher: 'Write|Edit',
         hooks: [
           {
@@ -197,20 +171,16 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
           },
         ],
       });
-
-      settings.hooks = hooks;
-      mkdirSync(join(home, '.claude'), { recursive: true });
-      writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
-    } catch {
-      // Settings write failure is non-fatal — hooks can be registered manually
-    }
+      return true;
+    });
   }
 
   /**
    * Unregister native hooks.
    *
-   * Removes CLEO hook entries from `~/.claude/settings.json` by filtering out
-   * entries containing the `# cleo-hook` marker.
+   * Removes CLEO hook entries from Claude Code's `settings.json` by filtering
+   * out entries containing the `# cleo-hook` marker. Same locking, atomicity
+   * and parse-error rules as {@link registerNativeHooks}.
    *
    * @task T164 @task T555
    */
@@ -218,42 +188,43 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
     this.registered = false;
     this.projectDir = null;
 
+    if (!existsSync(claudeSettingsPath())) return;
+    await this.updateSettings((settings) => {
+      if (settings.hooks === undefined) return false;
+      return removeCleoHookEntries(hookMap(settings));
+    });
+  }
+
+  /** The last settings.json failure, or `null` when the last update succeeded. */
+  private settingsError: string | null = null;
+
+  /**
+   * Why the last settings.json update did not happen, or `null`.
+   *
+   * @remarks
+   * Hook registration stays non-fatal for adapter initialisation, so a
+   * refused write (malformed settings.json, lock timeout) is surfaced here and
+   * on stderr instead of being swallowed (T12385).
+   *
+   * @returns The failure message, or `null`
+   */
+  getSettingsError(): string | null {
+    return this.settingsError;
+  }
+
+  /** Apply `mutate` to settings.json via CAAMP's locked, atomic JSON writer. */
+  private async updateSettings(
+    mutate: (settings: Record<string, unknown>) => boolean,
+  ): Promise<void> {
+    const settingsPath = claudeSettingsPath();
     try {
-      const home = homedir();
-      const settingsPath = join(home, '.claude', 'settings.json');
-      if (!existsSync(settingsPath)) return;
-
-      const settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
-      const hooks = settings.hooks as Record<string, unknown[]> | undefined;
-      if (!hooks) return;
-
-      // Filter out entries with the cleo-hook marker
-      let changed = false;
-      for (const [event, entries] of Object.entries(hooks)) {
-        if (!Array.isArray(entries)) continue;
-        const filtered = entries.filter(
-          (e) =>
-            !(
-              typeof e === 'object' &&
-              e !== null &&
-              Array.isArray((e as Record<string, unknown>).hooks) &&
-              ((e as Record<string, unknown>).hooks as Array<Record<string, string>>).some(
-                (h) => typeof h.command === 'string' && h.command.includes('# cleo-hook'),
-              )
-            ),
-        );
-        if (filtered.length !== entries.length) {
-          hooks[event] = filtered;
-          changed = true;
-        }
-      }
-
-      if (changed) {
-        settings.hooks = hooks;
-        writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
-      }
-    } catch {
-      // Cleanup failure is non-fatal
+      await updateJsonConfigFile(settingsPath, mutate);
+      this.settingsError = null;
+    } catch (err) {
+      this.settingsError = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[cleo:claude-code] hooks not written to ${settingsPath}: ${this.settingsError}\n`,
+      );
     }
   }
 

@@ -35,13 +35,11 @@ vi.mock("../../src/core/skills/installer.js", () => ({
   installSkill: mocks.installSkill,
 }));
 
-// T9747 + T9751: trust-gate-adapter.ts was deleted (logic inlined into
-// install.ts as evaluateSkillTrustGate / evaluateFederationGate). These
-// inline gates call `resolveCore()` which dynamic-imports `@cleocode/core`
-// and invokes `scanSkill`, `shouldAllowInstall`, and
-// `evaluateFederationInstallGate`. Mock the core module directly so paths
-// that don't exist on disk in tests still get a permissive allow.
-vi.mock("@cleocode/core", () => ({
+// T12384: the install pipeline (core/skills/install-pipeline.ts) loads the
+// security gate from these three core subpaths and fails CLOSED if they are
+// missing. Stub them with a permissive allow so paths that don't exist on
+// disk in tests still install.
+vi.mock("@cleocode/core/skills/skills-guard.js", () => ({
   scanSkill: vi.fn(() => ({
     skillName: "test",
     source: "test",
@@ -52,6 +50,8 @@ vi.mock("@cleocode/core", () => ({
     summary: "test-stub",
   })),
   shouldAllowInstall: vi.fn(() => ({ decision: "allow", reason: "test-stub" })),
+}));
+vi.mock("@cleocode/core/skills/federation-install-gate.js", () => ({
   evaluateFederationInstallGate: vi.fn(() => ({
     decision: "allow",
     reason: "test-stub",
@@ -60,7 +60,9 @@ vi.mock("@cleocode/core", () => ({
     computedChecksum: null,
     expectedChecksum: null,
   })),
-  recordTrustBypass: vi.fn(() => {}),
+}));
+vi.mock("@cleocode/core/skills/skills-guard-audit.js", () => ({
+  recordTrustBypass: vi.fn(() => ({})),
 }));
 
 vi.mock("../../src/core/skills/lock.js", () => ({

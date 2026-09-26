@@ -95,4 +95,40 @@ describe('CursorInstallProvider — PreCompact hook templates', () => {
     };
     expect((config.hooks?.preCompact ?? []).length).toBe(1);
   });
+
+  it('T12385: reports a malformed hooks.json and leaves it byte-identical', async () => {
+    const hooksJsonPath = join(projectDir, '.cursor', 'hooks.json');
+    mkdirSync(join(projectDir, '.cursor'), { recursive: true });
+    const malformed = '{ "hooks": { "preCompact": [ ';
+    writeFileSync(hooksJsonPath, malformed, 'utf-8');
+
+    const result = await new CursorInstallProvider().install({ projectDir });
+
+    expect(readFileSync(hooksJsonPath, 'utf-8')).toBe(malformed);
+    expect(result.success).toBe(false);
+    expect(String(result.details?.hooksError)).toMatch(/not a valid JSON object/);
+  });
+
+  it('T12385: writes rule files through the CAAMP writer (managed block, registry references)', async () => {
+    const legacyPath = join(projectDir, '.cursorrules');
+    // A pre-CAAMP .cursorrules with the old bare reference lines appended.
+    writeFileSync(
+      legacyPath,
+      '# Project Rules\nUse TypeScript.\n@~/.cleo/templates/CLEO-INJECTION.md\n@.cleo/memory-bridge.md\n',
+      'utf-8',
+    );
+
+    await new CursorInstallProvider().install({ projectDir });
+
+    const legacy = readFileSync(legacyPath, 'utf-8');
+    expect(legacy).toContain('# Project Rules\nUse TypeScript.');
+    expect(legacy).toContain('<!-- CAAMP:START -->');
+    expect(legacy.match(/CLEO-INJECTION\.md/g)).toHaveLength(1);
+
+    const mdc = readFileSync(join(projectDir, '.cursor', 'rules', 'cleo.mdc'), 'utf-8');
+    expect(mdc.startsWith('---\n')).toBe(true);
+    expect(mdc).toContain('alwaysApply: true');
+    expect(mdc).toContain('<!-- CAAMP:START -->');
+    expect(mdc).toContain('@.cleo/memory-bridge.md');
+  });
 });

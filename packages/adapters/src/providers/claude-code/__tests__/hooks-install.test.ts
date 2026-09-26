@@ -17,10 +17,11 @@
  * @epic T1000
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClaudeCodeHookProvider } from '../hooks.js';
 import { ClaudeCodeInstallProvider } from '../install.js';
 
 describe('ClaudeCodeInstallProvider — PreCompact hook templates', () => {
@@ -128,5 +129,65 @@ describe('ClaudeCodeInstallProvider — PreCompact hook templates', () => {
       hooks?: { PreCompact?: unknown[] };
     };
     expect((settings.hooks?.PreCompact ?? []).length).toBe(1);
+  });
+
+  // T12385 — a malformed settings.json used to be replaced with an object
+  // holding only CLEO's entries (the parse error was caught and the writer
+  // "started fresh"). It must now be reported and left byte-identical.
+  describe('T12385 — malformed settings.json is never rewritten', () => {
+    const malformed = '{\n  "permissions": { "allow": ["Bash(ls)"] },\n  "model": "opus",\n';
+
+    it('install reports the parse error and leaves the file byte-identical', async () => {
+      const settingsPath = join(fakeHome, '.claude', 'settings.json');
+      mkdirSync(join(fakeHome, '.claude'), { recursive: true });
+      writeFileSync(settingsPath, malformed, 'utf-8');
+
+      const result = await new ClaudeCodeInstallProvider().install({ projectDir });
+
+      expect(readFileSync(settingsPath, 'utf-8')).toBe(malformed);
+      expect(result.success).toBe(false);
+      const errors = (result.details?.settingsErrors ?? []) as string[];
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toMatch(/not a valid JSON object/);
+      expect(existsSync(`${settingsPath}.lock`)).toBe(false);
+    });
+
+    it('hook registration reports the parse error and leaves the file byte-identical', async () => {
+      const settingsPath = join(fakeHome, '.claude', 'settings.json');
+      mkdirSync(join(fakeHome, '.claude'), { recursive: true });
+      writeFileSync(settingsPath, malformed, 'utf-8');
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      const hooks = new ClaudeCodeHookProvider();
+      await hooks.registerNativeHooks(projectDir);
+      await hooks.unregisterNativeHooks();
+
+      stderr.mockRestore();
+      expect(readFileSync(settingsPath, 'utf-8')).toBe(malformed);
+      expect(hooks.getSettingsError()).toMatch(/not a valid JSON object/);
+    });
+
+    it('preserves unrelated user settings when it does write', async () => {
+      const settingsPath = join(fakeHome, '.claude', 'settings.json');
+      mkdirSync(join(fakeHome, '.claude'), { recursive: true });
+      writeFileSync(
+        settingsPath,
+        JSON.stringify({ model: 'opus', hooks: { Stop: [{ matcher: 'x', hooks: [] }] } }),
+        'utf-8',
+      );
+
+      await new ClaudeCodeHookProvider().registerNativeHooks(projectDir);
+      await new ClaudeCodeInstallProvider().install({ projectDir });
+
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as {
+        model?: string;
+        enabledPlugins?: Record<string, boolean>;
+        hooks?: Record<string, unknown[]>;
+      };
+      expect(settings.model).toBe('opus');
+      expect(settings.enabledPlugins?.['cleo@cleocode']).toBe(true);
+      expect(settings.hooks?.Stop).toHaveLength(2);
+      expect(settings.hooks?.PreCompact).toHaveLength(1);
+    });
   });
 });

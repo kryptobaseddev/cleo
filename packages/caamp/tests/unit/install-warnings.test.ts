@@ -1,152 +1,132 @@
 /**
- * Unit tests for T9770 — caamp `skills install` warning routing.
+ * Unit tests for skill-install gate diagnostics routing.
  *
  * @remarks
- * Verifies the `[caamp] WARNING:` stderr pollution reported by the user is
- * eliminated by routing graceful-degradation notices into the active LAFS
- * {@link WarningCollector} instead of `process.stderr.write`.
+ * T9770 moved the install gate's degradation notices off stderr and into the
+ * active LAFS {@link WarningCollector}. T12384 then changed what "degradation"
+ * means: the gate now FAILS CLOSED when `@cleocode/core` cannot be loaded, so
+ * the old `W_CORE_UNAVAILABLE` warn-and-install path is gone — that case is a
+ * refusal (`E_SKILL_GATE_UNAVAILABLE`), not a warning.
  *
- * Two scenarios are covered:
- * 1. `resolveCore()` fails (e.g. `@cleocode/core` unavailable in a standalone
- *    caamp install) — collector MUST capture exactly one
- *    `W_CORE_UNAVAILABLE` warning and stderr MUST stay silent.
- * 2. `recordTrustBypass()` throws (audit log write fails) — collector MUST
- *    capture `W_AUDIT_LOG_FAILED` and stderr MUST stay silent.
+ * What remains a warning is an audit-log write failure after an operator has
+ * already authorised a `--force` bypass: it routes to the collector as
+ * `W_AUDIT_LOG_FAILED`, and stderr stays silent.
  *
  * @task T9770
+ * @task T12384
  * @epic T9763
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WarningCollector, withWarningCollector } from '@cleocode/lafs';
-import { __testing } from '../../src/commands/skills/install.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  __installPipelineTesting,
+  type ResolvedSkillSource,
+  runSkillInstallGate,
+  type SkillGateModules,
+} from '../../src/core/skills/install-pipeline.js';
 
-interface AdapterScanResultFixture {
-  readonly skillName: string;
-  readonly source: string;
-  readonly trustLevel: 'community';
-  readonly verdict: 'safe';
-  readonly findings: readonly never[];
-  readonly scannedAt: string;
-  readonly summary: string;
-}
-
-function makeScanFixture(): AdapterScanResultFixture {
+function gateStub(overrides: Partial<SkillGateModules> = {}): SkillGateModules {
   return {
-    skillName: 'test-skill',
-    source: 'local:/tmp/test-skill',
-    trustLevel: 'community',
-    verdict: 'safe',
-    findings: [],
-    scannedAt: new Date().toISOString(),
-    summary: 'fixture',
+    scanSkill: () => ({
+      skillName: 'test-skill',
+      source: 'local:/tmp/test-skill',
+      trustLevel: 'community',
+      verdict: 'caution',
+      findings: [],
+      scannedAt: new Date().toISOString(),
+      summary: 'fixture',
+    }),
+    shouldAllowInstall: () => ({ decision: 'allow', reason: 'fixture' }),
+    evaluateFederationInstallGate: () => ({
+      decision: 'allow',
+      reason: 'fixture',
+      peer: null,
+      isFederationSource: false,
+      computedChecksum: null,
+      expectedChecksum: null,
+    }),
+    recordTrustBypass: () => ({}),
+    ...overrides,
   };
 }
 
+let dir: string;
+let source: ResolvedSkillSource;
 let stderrSpy: ReturnType<typeof vi.spyOn>;
 
-beforeEach(() => {
-  __testing.resetCoreCache();
-  __testing.setCoreResolver(null);
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), 'caamp-gate-warn-'));
+  await mkdir(join(dir, 'test-skill'), { recursive: true });
+  await writeFile(join(dir, 'test-skill', 'SKILL.md'), '---\nname: test-skill\n---\n');
+  source = {
+    localPath: join(dir, 'test-skill'),
+    skillName: 'test-skill',
+    sourceValue: join(dir, 'test-skill'),
+    sourceType: 'local',
+  };
   // Sentinel: any stderr write during the test counts as pollution.
   stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 });
 
-afterEach(() => {
+afterEach(async () => {
   stderrSpy.mockRestore();
-  __testing.resetCoreCache();
-  __testing.setCoreResolver(null);
+  __installPipelineTesting.setGateLoader(null);
+  await rm(dir, { recursive: true, force: true });
 });
 
-describe('caamp skills install — warning routing (T9770)', () => {
-  it('routes W_CORE_UNAVAILABLE into the active WarningCollector when core resolution fails', async () => {
+describe('skill install gate — diagnostics routing (T9770, T12384)', () => {
+  it('refuses (does not warn-and-install) when core cannot be loaded', async () => {
     const collector = new WarningCollector();
-    // Simulate `@cleocode/core` being absent.
-    __testing.setCoreResolver(() => Promise.reject(new Error('MODULE_NOT_FOUND')));
+    __installPipelineTesting.setGateLoader(() => Promise.reject(new Error('MODULE_NOT_FOUND')));
 
-    const result = await withWarningCollector(collector, async () => __testing.resolveCore());
+    const outcome = await withWarningCollector(collector, async () =>
+      runSkillInstallGate(source).catch((err: Error) => err),
+    );
 
-    expect(result).toBeNull();
-
-    const drained = collector.drain();
-    expect(drained).toBeDefined();
-    expect(drained).toHaveLength(1);
-    const [warning] = drained!;
-    expect(warning.code).toBe('W_CORE_UNAVAILABLE');
-    expect(warning.severity).toBe('warn');
-    expect(warning.message).toMatch(/@cleocode\/core/);
-    expect(warning.context).toMatchObject({ error: 'MODULE_NOT_FOUND' });
-
-    // Stderr stays silent — no `[caamp] WARNING:` line should be emitted.
+    expect(outcome).toMatchObject({
+      code: 'E_SKILL_GATE_UNAVAILABLE',
+      details: { cause: 'MODULE_NOT_FOUND' },
+    });
+    // No W_CORE_UNAVAILABLE: a missing gate is a refusal, not a notice.
+    expect(collector.drain() ?? []).toHaveLength(0);
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
   it('routes W_AUDIT_LOG_FAILED into the active WarningCollector when recordTrustBypass throws', async () => {
     const collector = new WarningCollector();
-    // Provide a stub core whose `recordTrustBypass` always throws.
-    __testing.setCoreResolver(() =>
-      Promise.resolve({
-        scanSkill: () => makeScanFixture(),
-        shouldAllowInstall: () => ({ decision: 'allow' as const, reason: 'fixture' }),
+    __installPipelineTesting.setGateLoader(async () =>
+      gateStub({
         recordTrustBypass: () => {
           throw new Error('disk full');
         },
-        evaluateFederationInstallGate: () => ({
-          decision: 'allow' as const,
-          reason: 'fixture',
-          peer: null,
-          isFederationSource: false,
-          computedChecksum: null,
-          expectedChecksum: null,
-        }),
       }),
     );
 
-    await withWarningCollector(collector, async () =>
-      __testing.recordSkillTrustBypass(makeScanFixture(), 'unit test'),
+    const report = await withWarningCollector(collector, async () =>
+      runSkillInstallGate(source, { force: true }),
     );
 
+    expect(report.bypassed).toBe(true);
     const drained = collector.drain();
-    expect(drained).toBeDefined();
     expect(drained).toHaveLength(1);
     const [warning] = drained!;
     expect(warning.code).toBe('W_AUDIT_LOG_FAILED');
     expect(warning.severity).toBe('warn');
     expect(warning.message).toBe('trust-bypass audit record failed');
     expect(warning.context).toMatchObject({ error: 'disk full' });
-
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
-  it('is silent (no warnings, no stderr) when there is no active collector and core is available', async () => {
-    __testing.setCoreResolver(() =>
-      Promise.resolve({
-        scanSkill: () => makeScanFixture(),
-        shouldAllowInstall: () => ({ decision: 'allow' as const, reason: 'fixture' }),
-        recordTrustBypass: () => undefined,
-        evaluateFederationInstallGate: () => ({
-          decision: 'allow' as const,
-          reason: 'fixture',
-          peer: null,
-          isFederationSource: false,
-          computedChecksum: null,
-          expectedChecksum: null,
-        }),
-      }),
-    );
+  it('is silent when the gate allows and no bypass is needed', async () => {
+    __installPipelineTesting.setGateLoader(async () => gateStub());
 
-    const core = await __testing.resolveCore();
-    expect(core).not.toBeNull();
-    expect(stderrSpy).not.toHaveBeenCalled();
-  });
+    const report = await runSkillInstallGate(source);
 
-  it('pushWarning is a no-op when no collector is active (resolver failure case)', async () => {
-    // Outside any withWarningCollector scope — pushWarning falls through silently.
-    __testing.setCoreResolver(() => Promise.reject(new Error('boom')));
-    const result = await __testing.resolveCore();
-    expect(result).toBeNull();
-    // Critically: stderr stays silent even with NO collector — the warning is
-    // simply dropped rather than being routed back to legacy stderr writes.
+    expect(report.bypassed).toBe(false);
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 });
