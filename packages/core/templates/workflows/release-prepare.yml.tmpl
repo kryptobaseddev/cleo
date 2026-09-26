@@ -240,6 +240,13 @@ jobs:
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
         uses: ./.github/actions/install-ripgrep
 
+      - name: Build cant-napi native addon for CANT tests (T12382)
+        # The committed linux .node was removed in T12382; the CANT test files
+        # need the host-platform addon, exactly as ci.yml builds it.
+        shell: bash
+        run: pnpm --filter @cleocode/cant run build:napi
+        timeout-minutes: 15
+
       - name: Build packages (required for cross-package imports)
         run: {{BUILD_CMD}}
         timeout-minutes: 10
