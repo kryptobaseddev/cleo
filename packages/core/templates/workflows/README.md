@@ -1,11 +1,16 @@
 # CLEO GitHub Actions workflow templates
 
-This directory contains CLEO's templated GitHub Actions workflows for the
-release pipeline defined in
+This directory contains CLEO's supported consumer GitHub Actions workflow
+templates for the release pipeline defined in
 `.cleo/rcasd/T9345/research/SPEC-T9345-release-pipeline-v2.md`. Templates
 are project-agnostic: they ship with `{{PLACEHOLDER}}` markers that are
-resolved at scaffold time by `cleo init --workflows` (T9531) against the
-local `.cleo/project-context.json` and the ADR-061 tool resolver.
+resolved at scaffold/upgrade time against the local project context,
+`.cleo/config.json`, and the ADR-061 tool resolver.
+
+Contract boundary: these four templates are portable CLEO consumer tooling.
+The cleocode repository's own `.github/workflows/*.yml` files are dogfood-only
+owner CI unless a shipped CLEO installer renders them into a consumer project.
+See `docs/release/consumer-workflow-hook-contract.md` for the T10476 taxonomy.
 
 ## Template files
 
@@ -87,21 +92,38 @@ Source precedence (highest first):
 | `release-fanout.yml.tmpl`    | `GITHUB_TOKEN` (auto)   | `DOCKER_HUB_TOKEN` (if `dockerRetag=true`), `SENTINEL_TOKEN` (if `sentinelNotify=true`), `STUDIO_DEPLOY_TOKEN` (if `studioDeploy=true`) |
 | `release-rollback.yml.tmpl`  | `GITHUB_TOKEN` (auto), `NPM_TOKEN` (if `PUBLISHERS` contains `npm`) | `CARGO_TOKEN` (if `PUBLISHERS` contains `cargo`) |
 
-## Scaffolding workflow
+## Scaffolding and upgrade workflow
 
 ```bash
-# Render the templates against the local project, writing to .github/workflows/.
-cleo init --workflows
+# Check rendered workflows for drift (read-only; exits 1 on drift or a
+# missing file). `--dry-run` prints the rendered YAML instead.
+cleo upgrade workflows --check
 
-# Re-render after editing project-context.json or release config.
-cleo init --workflows --force
+# Re-render drifted workflows in place after editing project-context.json or
+# release config (audit-logged to .cleo/audit/upgrade-workflows.jsonl).
+cleo upgrade workflows --force
+
+# First-time install of a rendered workflow that does not exist yet.
+cleo init --workflows            # deprecated alias (T9888) — see note below
 ```
 
-The scaffolder reads each `*.yml.tmpl` file in this directory, performs
-regex substitution against the placeholder vocabulary above, validates the
-result with `actionlint`, and writes the rendered YAML to
-`<project>/.github/workflows/<basename>.yml`. Existing files are NOT
-overwritten without `--force`.
+`cleo upgrade workflows` renders each `*.yml.tmpl` file in this directory with
+regex substitution against the placeholder vocabulary above and compares the
+result with `<project>/.github/workflows/<basename>.yml`. It reports
+`unchanged`, `drift-detected`, `missing` or `override-kept` (a key declared in
+`.workflow-overrides.yml`); with `--force` it overwrites drifted files, but it
+never creates a missing file.
+
+First-time install: the registry SSoT is `cleo templates install <id>` (T9886,
+ids `release-prepare`, `release-publish`, `release-fanout`,
+`release-rollback`; list them with `cleo templates list --kind workflow`).
+Its placeholder substitution is still a pass-through stub, so it copies the
+template with `{{PLACEHOLDER}}` markers unresolved. Until that lands, the
+deprecated `cleo init --workflows` alias remains the only path that writes a
+rendered workflow for a missing file (existing files with different content
+are `skipped` unless `--force` is passed). Note that the init deprecation
+warning names `cleo templates install --kind workflow`, but `templates install`
+takes a positional template id and has no `--kind` flag.
 
 ## Extending without forking
 
