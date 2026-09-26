@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.9.20] (2026-09-26)
+
+### Fixed
+
+- `.cant` parsing works on every OS: native binaries for 8 triples plus an automatic WebAssembly fallback, bundled in @cleocode/cant _(provenance: [T12382](https://github.com/kryptobaseddev/cleo/search?q=T12382&type=commits))_
+- skill install never deletes the installed copy, every install goes through one fail-closed security gate, and provider settings writes are atomic and never reset a malformed file _(provenance: [T12383](https://github.com/kryptobaseddev/cleo/search?q=T12383&type=commits), [T12384](https://github.com/kryptobaseddev/cleo/search?q=T12384&type=commits), [T12385](https://github.com/kryptobaseddev/cleo/search?q=T12385&type=commits))_
+
 ## [2026.9.19] (2026-09-26)
 
 ### Fixed
