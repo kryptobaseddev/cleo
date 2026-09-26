@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.9.19] (2026-09-26)
+
+### Fixed
+
+- biome check no longer fails while Claude Code agent worktrees exist under .claude/worktrees _(provenance: [T12386](https://github.com/kryptobaseddev/cleo/search?q=T12386&type=commits))_
+- one global regenerator for provider instruction files, refreshed automatically at session start and briefing _(provenance: [T12377](https://github.com/kryptobaseddev/cleo/search?q=T12377&type=commits), [T12378](https://github.com/kryptobaseddev/cleo/search?q=T12378&type=commits), [T12379](https://github.com/kryptobaseddev/cleo/search?q=T12379&type=commits), [T12380](https://github.com/kryptobaseddev/cleo/search?q=T12380&type=commits))_
+
 ## [2026.9.18] (2026-09-25)
 
 ### Changed

@@ -1,0 +1,194 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.9.19",
+  "resolvedVersion": "v2026.9.19",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T11396",
+  "releaseKind": "regular",
+  "createdAt": "2026-09-26T02:39:55.883Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.9.13",
+  "previousTag": "v2026.9.13",
+  "previousShippedAt": "2026-09-22T06:19:04.198Z",
+  "tasks": [
+    {
+      "id": "T12377",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "caamp instructions update --global replaces an embedded delivery with a generic stub",
+      "evidenceAtoms": [
+        "commit:13b4bfc83a0be444b8c56c4ef7aee24b2e016a59",
+        "files:packages/caamp/src/commands/instructions/check.ts,packages/caamp/src/commands/instructions/inject.ts,packages/caamp/src/commands/instructions/update.ts,packages/caamp/src/core/instructions/global-sync.ts,packages/caamp/src/core/instructions/injector.ts,packages/caamp/src/core/instructions/markers.ts,packages/caamp/src/index.ts,packages/contracts/src/caamp-markers.ts,packages/core/src/bootstrap.ts,packages/caamp/tests/unit/global-sync.test.ts",
+        "test-run:/home/keatonhoskins/.temp/ship919/caamp-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship919/core-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T11396",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12378",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Regenerate provider instruction files automatically when an embedded source changes",
+      "evidenceAtoms": [
+        "commit:13b4bfc83a0be444b8c56c4ef7aee24b2e016a59",
+        "files:packages/core/src/injection.ts,packages/core/src/session/engine-ops.ts,packages/core/src/sessions/briefing.ts,packages/core/src/system/health.ts,packages/core/src/__tests__/global-instruction-refresh.test.ts,packages/caamp/src/core/instructions/global-sync.ts",
+        "test-run:/home/keatonhoskins/.temp/ship919/caamp-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship919/core-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T11396",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12379",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "devin provider global instruction path is relative and resolves against the current directory",
+      "evidenceAtoms": [
+        "commit:13b4bfc83a0be444b8c56c4ef7aee24b2e016a59",
+        "files:packages/caamp/src/core/instructions/injector.ts,packages/caamp/tests/unit/registry-global-paths.test.ts",
+        "test-run:/home/keatonhoskins/.temp/ship919/caamp-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship919/core-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T11396",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12380",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleo install-global warnings: sigil sync fails creating brain_attention; missing cleo-subagent and seed-agents; wrong template health check",
+      "evidenceAtoms": [
+        "commit:13b4bfc83a0be444b8c56c4ef7aee24b2e016a59",
+        "files:packages/core/src/bootstrap.ts,packages/core/src/nexus/sigil-sync.ts",
+        "test-run:/home/keatonhoskins/.temp/ship919/caamp-tests.json",
+        "test-run:/home/keatonhoskins/.temp/ship919/core-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T11396",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12386",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "biome check fails with 'nested root configuration' while Claude Code agent worktrees exist under .claude/worktrees",
+      "evidenceAtoms": [
+        "commit:17ad010dff469bccad8534d53d66554dd9c3bd0e",
+        "files:biome.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T11396",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [],
+    "fixes": [
+      "T12377",
+      "T12378",
+      "T12379",
+      "T12380",
+      "T12386"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T02:39:55.883Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T02:39:55.883Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T02:39:55.883Z",
+      "resolvedCommand": "npx biome check .",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T02:39:55.883Z",
+      "resolvedCommand": "npx tsc --noEmit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T02:39:55.883Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-26T02:39:55.883Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 365 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.9.19 — 2026-09-26\n\n### Fixed\n\n- biome check no longer fails while Claude Code agent worktrees exist under .claude/worktrees _(provenance: [T12386](https://github.com/kryptobaseddev/cleo/search?q=T12386&type=commits))_\n- one global regenerator for provider instruction files, refreshed automatically at session start and briefing _(provenance: [T12377](https://github.com/kryptobaseddev/cleo/search?q=T12377&type=commits), [T12378](https://github.com/kryptobaseddev/cleo/search?q=T12378&type=commits), [T12379](https://github.com/kryptobaseddev/cleo/search?q=T12379&type=commits), [T12380](https://github.com/kryptobaseddev/cleo/search?q=T12380&type=commits))_\n",
+    "changesetEntryCount": 2,
+    "changesetIds": [
+      "biome-ignore-agent-worktrees",
+      "caamp-global-instruction-sync"
+    ],
+    "taskIds": [
+      "T12377",
+      "T12378",
+      "T12379",
+      "T12380",
+      "T12386"
+    ]
+  }
+}
