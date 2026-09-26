@@ -1,0 +1,325 @@
+name: cant-napi build
+
+# @task T12382
+#
+# Builds the .cant parser addon (crates/cant-napi, which links cant-core and,
+# natively, cant-runtime) for every OS plus a WebAssembly fallback, the
+# Biome/SWC/Rolldown/Oxc pattern:
+#
+#   - 8 native triples, one `cant.<triple>.node` each;
+#   - `wasm32-wasip1-threads`, the SAME crate as `cant.wasm32-wasi.wasm`, which
+#     the napi-rs generated loader (`napi/index.cjs`) uses automatically when
+#     no native binary matches the host (`NAPI_RS_FORCE_WASI=error` forces it).
+#
+# Everything is bundled into the ONE existing package, @cleocode/cant (no new
+# npm packages; arch gate 9). Nothing is committed (arch gate 24): every
+# binary is stamped with `cant-napi-source-rev:<github.sha>` by
+# crates/cant-napi/build.rs so the release can prove it packs fresh binaries.
+#
+# Two callers:
+#   1. release.yml calls this workflow (`workflow_call`); its release job then
+#      downloads the `cant-napi-*` artifacts into packages/cant/napi/ and fails
+#      unless every triple is present and stamped with the released commit.
+#   2. PRs / pushes touching the addon run it directly, so the whole matrix,
+#      the per-platform runtime load and the native-vs-WASI parity are proven
+#      before anything reaches a tag.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/cant-core/**'
+      - 'crates/cant-runtime/**'
+      - 'crates/cant-napi/**'
+      - 'packages/cant/**'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'scripts/lint-no-committed-native-binaries.mjs'
+      - '.github/workflows/cant-napi-build.yml'
+  pull_request:
+    paths:
+      - 'crates/cant-core/**'
+      - 'crates/cant-runtime/**'
+      - 'crates/cant-napi/**'
+      - 'packages/cant/**'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'scripts/lint-no-committed-native-binaries.mjs'
+      - '.github/workflows/cant-napi-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.triple }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            triple: linux-x64-gnu
+            mode: native
+          # Same `cross` path as the worktree-napi prebuild (release.yml).
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            triple: linux-arm64-gnu
+            mode: cross
+          # musl: napi-rs builds through cargo-zigbuild (`-x`) and adds
+          # `-C target-feature=-crt-static` so a cdylib can be produced.
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            triple: linux-x64-musl
+            mode: zig
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-latest
+            triple: linux-arm64-musl
+            mode: zig
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            triple: darwin-arm64
+            mode: native
+          # darwin-x64 is cross-compiled on the Apple Silicon runner. The
+          # macos-13 Intel pool queues indefinitely (T10479), which is why
+          # worktree-napi dropped this triple; Xcode cross-compiles it fine.
+          - target: x86_64-apple-darwin
+            runner: macos-14
+            triple: darwin-x64
+            mode: native
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            triple: win32-x64-msvc
+            mode: native
+          # MSVC on windows-latest ships the ARM64 cross toolset.
+          - target: aarch64-pc-windows-msvc
+            runner: windows-latest
+            triple: win32-arm64-msvc
+            mode: native
+          - target: wasm32-wasip1-threads
+            runner: ubuntu-latest
+            triple: wasm32-wasi
+            mode: wasi
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins the channel; installing the target through
+      # rustup from the repo root puts it into THAT toolchain (a
+      # dtolnay/rust-toolchain@stable install would land in `stable`, which
+      # cargo never uses here).
+      - name: Install pinned Rust toolchain + ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add ${{ matrix.target }}
+
+      - name: Install cross (linux arm64 gnu)
+        if: matrix.mode == 'cross'
+        shell: bash
+        run: cargo install cross --locked
+
+      - name: Install zig + cargo-zigbuild (musl)
+        if: matrix.mode == 'zig'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # cargo-zigbuild runs `python3 -m ziglang` when no `zig` is on PATH.
+          python3 -m pip install --user --break-system-packages ziglang==0.14.1
+          cargo install cargo-zigbuild --locked
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+
+      # The WASI build resolves @emnapi/core + @emnapi/runtime from the
+      # package (napi-rs checks they match emnapi's version).
+      - name: Install @cleocode/cant dependencies (WASI only)
+        if: matrix.mode == 'wasi'
+        shell: bash
+        run: pnpm install --frozen-lockfile --filter @cleocode/cant
+
+      - name: Build cant-napi (${{ matrix.target }})
+        working-directory: packages/cant
+        shell: bash
+        env:
+          CANT_NAPI_SOURCE_REV: ${{ github.sha }}
+          # `cross` builds inside Docker and forwards only listed variables;
+          # without this the arm64-gnu binary is stamped `unversioned`.
+          CROSS_BUILD_ENV_PASSTHROUGH: CANT_NAPI_SOURCE_REV
+        run: |
+          set -euo pipefail
+          case "${{ matrix.mode }}" in
+            wasi)
+              # napi-build locates crt1-reactor.o next to RUSTC; cargo only
+              # passes a bare `rustc` to build scripts, so give it the path.
+              export RUSTC="$(rustup which rustc)"
+              pnpm run build:napi:wasi
+              ;;
+            cross) pnpm run build:napi --target ${{ matrix.target }} --use-cross ;;
+            zig) pnpm run build:napi --target ${{ matrix.target }} -x ;;
+            *) pnpm run build:napi --target ${{ matrix.target }} ;;
+          esac
+          ls -la napi
+
+      - name: Assert the artifact exists and carries this commit's stamp
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.mode }}" = "wasi" ]; then
+            file="packages/cant/napi/cant.wasm32-wasi.wasm"
+          else
+            file="packages/cant/napi/cant.${{ matrix.triple }}.node"
+          fi
+          test -s "$file" || { echo "::error::missing or empty $file"; exit 1; }
+          # LC_ALL=C: macOS grep in a UTF-8 locale skips binary "lines" that are
+          # not valid UTF-8, so the stamp can be missed next to other bytes.
+          if ! LC_ALL=C grep -aq "cant-napi-source-rev:${{ github.sha }}" "$file"; then
+            found="$(LC_ALL=C grep -ao 'cant-napi-source-rev:[A-Za-z0-9]*' "$file" | sort -u | tr '\n' ' ')"
+            echo "::error::$file lacks the source-rev stamp for ${{ github.sha }} (found: ${found:-none})"
+            exit 1
+          fi
+          echo "OK: $file ($(wc -c < "$file") bytes)"
+
+      - name: Upload native binary
+        if: matrix.mode != 'wasi'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cant-napi-${{ matrix.triple }}
+          path: packages/cant/napi/cant.${{ matrix.triple }}.node
+          if-no-files-found: error
+          retention-days: 14
+
+      # The generated loader + WASI glue travel with the wasm artifact. The
+      # loader is target-independent (identical from every build).
+      - name: Upload WASI build + generated loader
+        if: matrix.mode == 'wasi'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cant-napi-wasm32-wasi
+          path: |
+            packages/cant/napi/cant.wasm32-wasi.wasm
+            packages/cant/napi/cant.wasi.cjs
+            packages/cant/napi/wasi-worker.mjs
+            packages/cant/napi/index.cjs
+          if-no-files-found: error
+          retention-days: 14
+
+  # Load each native binary on real hardware for that triple (musl through an
+  # Alpine container) and prove the loader picks it, not the WASI fallback.
+  # darwin-x64 has no reliably schedulable runner (T10479); it is built and
+  # stamp-checked above, and WASI covers it if the binary is ever unusable.
+  runtime:
+    name: load ${{ matrix.triple }}
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { triple: linux-x64-gnu, runner: ubuntu-latest, container: '' }
+          - { triple: linux-arm64-gnu, runner: ubuntu-24.04-arm, container: '' }
+          - { triple: linux-x64-musl, runner: ubuntu-latest, container: 'node:24-alpine' }
+          - { triple: linux-arm64-musl, runner: ubuntu-24.04-arm, container: 'node:24-alpine' }
+          - { triple: darwin-arm64, runner: macos-14, container: '' }
+          - { triple: win32-x64-msvc, runner: windows-latest, container: '' }
+          - { triple: win32-arm64-msvc, runner: windows-11-arm, container: '' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - name: Download ${{ matrix.triple }} binary + generated loader
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/cant/napi
+          pattern: cant-napi-{${{ matrix.triple }},wasm32-wasi}
+          merge-multiple: true
+      - name: Probe the loader (host)
+        if: matrix.container == ''
+        shell: bash
+        run: node packages/cant/tests/fixtures/cant-native-smoke.cjs native "${{ github.sha }}"
+      - name: Probe the loader (${{ matrix.container }})
+        if: matrix.container != ''
+        shell: bash
+        run: >-
+          docker run --rm -v "$PWD:/w" -w /w ${{ matrix.container }}
+          node packages/cant/tests/fixtures/cant-native-smoke.cjs native "${{ github.sha }}"
+
+  # Stage exactly what the release stages, run the release's packed check,
+  # then prove native == WASI over every .cant/.cantbook file and that the
+  # real consumers (cleo cant, the CAAMP Pi harness) work under
+  # NAPI_RS_FORCE_WASI=error.
+  parity:
+    name: stage + native/WASI parity
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - name: Download every cant-napi artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/cant/napi
+          pattern: cant-napi-*
+          merge-multiple: true
+      - name: Packed @cleocode/cant ships all 8 triples + WASI, fresh from this commit
+        run: node scripts/lint-no-committed-native-binaries.mjs --packed packages/cant --expect-rev "${GITHUB_SHA}"
+      # worktree-napi is a workspace dependency of the CLI the consumer test
+      # launches; build it for the host BEFORE install, exactly as ci.yml does.
+      - name: Build worktree-napi (host)
+        run: |
+          cargo build --release -p worktree-napi
+          cp target/release/libworktree_napi.so crates/worktree-napi/worktree-napi.linux-x64-gnu.node
+      - uses: ./.github/actions/install-ripgrep
+      - run: pnpm install --frozen-lockfile
+      # After install: the WASI glue needs @napi-rs/wasm-runtime and
+      # @emnapi/*, which are runtime dependencies of @cleocode/cant.
+      - name: Probe WASI under NAPI_RS_FORCE_WASI=error
+        run: NAPI_RS_FORCE_WASI=error node packages/cant/tests/fixtures/cant-native-smoke.cjs wasi "${GITHUB_SHA}"
+      - name: Build packages
+        run: pnpm run build
+      - name: Native vs WASI parity + consumers without a native binary
+        env:
+          CANT_REQUIRE_WASI_PARITY: '1'
+        run: >-
+          pnpm exec vitest run --project @cleocode/cant
+          packages/cant/tests/native-wasi-parity.test.ts
+          packages/cant/tests/wasi-fallback-consumers.test.ts
+
+  gate:
+    name: gate
+    needs: [build, runtime, parity]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Every triple built, loaded and matched WASI
+        env:
+          RESULTS: ${{ join(needs.*.result, ',') }}
+        run: |
+          echo "Upstream results: ${RESULTS}"
+          if printf '%s' "${RESULTS}" | tr ',' '\n' | grep -qvE '^success$'; then
+            echo "::error::cant-napi build, runtime load or parity failed (see upstream jobs)."
+            exit 1
+          fi
+          echo "cant-napi: 8 native triples + WASI built, loaded and at parity."

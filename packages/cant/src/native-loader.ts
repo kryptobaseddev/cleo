@@ -1,14 +1,24 @@
 /**
- * Native addon loader for cant-core via napi-rs.
+ * Addon loader for cant-core via napi-rs.
  *
  * @remarks
- * Loads the napi-rs native addon synchronously on first use. Tries the
- * package-local binary first (`packages/cant/napi/cant.linux-x64-gnu.node`),
- * then falls back to the workspace `cant-napi` crate's `index.cjs` for
- * dev-mode builds where the package binary may not be present yet.
+ * Loads the cant-napi addon synchronously on first use through the napi-rs
+ * GENERATED loader shipped as `napi/index.cjs` (T12382). That loader tries a
+ * native binary for this OS/CPU first (`napi/cant.<triple>.node`, built for
+ * linux x64/arm64 gnu+musl, darwin x64/arm64 and win32 x64/arm64) and falls
+ * back automatically to the WebAssembly build of the same crate
+ * (`napi/cant.wasm32-wasi.wasm`, target `wasm32-wasip1-threads`) when no
+ * native binary matches. `NAPI_RS_FORCE_WASI=error` forces the WASI path.
  *
- * Replaces the previous WASM loader. Follows the same pattern as
- * `packages/lafs/src/native-loader.ts`.
+ * Both backends compile the same Rust source, so parse/validate/extract
+ * results are identical (proven by `tests/native-wasi-parity.test.ts`). The
+ * one difference is {@link cantExecutePipelineNative}: pipelines spawn
+ * subprocesses through cant-runtime's multi-thread tokio runtime, which WASI
+ * cannot provide, so under WASI it resolves to `success: false` with an
+ * `error` explaining why instead of running.
+ *
+ * In a source checkout, build the addon with
+ * `pnpm --filter @cleocode/cant build:napi` (and `build:napi:wasi`).
  */
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -118,65 +128,66 @@ export interface NativePipelineResult {
   error?: string | null;
 }
 
-/** Shape of the native CANT addon. */
+/**
+ * Which build of the cant-napi addon is serving calls.
+ *
+ * - `native` — a per-OS/CPU `.node` binary.
+ * - `wasi` — the `wasm32-wasip1-threads` WebAssembly fallback.
+ */
+export type CantAddonBackend = 'native' | 'wasi';
+
+/**
+ * Shape of the cant-napi addon, identical for both backends except
+ * `cantExecutePipeline`, which is `async` natively and synchronous (always a
+ * `success: false` result) under WASI.
+ */
 interface CantNativeModule {
+  cantBackend(): string;
+  cantBuildInfo(): string;
   cantParse(content: string): NativeParseResult;
   cantClassifyDirective(verb: string): string;
   cantParseDocument(content: string): NativeParseDocumentResult;
   cantValidateDocument(content: string): NativeValidateResult;
   cantExtractAgentProfiles(content: string): unknown[];
-  cantExecutePipeline(filePath: string, pipelineName: string): Promise<NativePipelineResult>;
+  cantExecutePipeline(
+    filePath: string,
+    pipelineName: string,
+  ): Promise<NativePipelineResult> | NativePipelineResult;
 }
 
 let nativeModule: CantNativeModule | null = null;
 let loadAttempted = false;
+let loadError: string | null = null;
 
 /**
- * Attempt to load the native addon. Called lazily on first use.
- * Native addons load synchronously via require() — no async init needed.
+ * Attempt to load the addon. Called lazily on first use.
+ * The generated loader is synchronous (native `require()`, or a synchronous
+ * WASI instantiation), so no async init is needed.
  */
 function ensureLoaded(): void {
   if (loadAttempted) return;
   loadAttempted = true;
 
-  // The compiled file lives at packages/cant/dist/native-loader.js, so
-  // ../napi resolves to packages/cant/napi/cant.<platform>.node.
-  const packageBinary = join(__dirname, '..', 'napi', `cant.${nativePlatformTriple()}.node`);
-
+  // Both packages/cant/src/ (tests) and packages/cant/dist/ (built, installed)
+  // sit next to packages/cant/napi/, which holds the generated loader.
   try {
-    nativeModule = require(packageBinary) as CantNativeModule;
-    return;
-  } catch {
-    // Fall through to workspace dev fallback.
-  }
-
-  try {
-    // Development fallback: load via the cant-napi crate's index.cjs.
-    // From packages/cant/dist/ -> ../../../crates/cant-napi/index.cjs.
-    nativeModule = require('../../../crates/cant-napi/index.cjs') as CantNativeModule;
-  } catch {
+    const binding: CantNativeModule = require(join(__dirname, '..', 'napi', 'index.cjs'));
+    nativeModule = binding;
+  } catch (err) {
     nativeModule = null;
+    loadError = err instanceof Error ? err.message : String(err);
   }
-}
-
-/** Resolve the package-local napi-rs binary suffix for the current platform. */
-function nativePlatformTriple(): string {
-  if (process.platform === 'darwin') {
-    return process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
-  }
-  if (process.platform === 'linux') {
-    return process.arch === 'arm64' ? 'linux-arm64-gnu' : 'linux-x64-gnu';
-  }
-  if (process.platform === 'win32') {
-    return process.arch === 'arm64' ? 'win32-arm64-msvc' : 'win32-x64-msvc';
-  }
-  return `${process.platform}-${process.arch}`;
 }
 
 /**
- * Check if the native addon is available.
+ * Check if the cant-napi addon (native or WebAssembly) is available.
  *
- * @returns `true` if the native Rust binding loaded successfully.
+ * @remarks
+ * The name predates the WASI fallback and is kept for compatibility: it is
+ * `true` when EITHER backend loaded. Use {@link cantAddonBackend} to tell
+ * which one.
+ *
+ * @returns `true` if the Rust binding loaded successfully.
  */
 export function isNativeAvailable(): boolean {
   ensureLoaded();
@@ -184,16 +195,49 @@ export function isNativeAvailable(): boolean {
 }
 
 /**
- * Get the native module, throwing if it failed to load.
+ * Report which backend of the cant-napi addon loaded.
+ *
+ * @returns `'native'` or `'wasi'`, or `null` when neither could be loaded.
+ *
+ * @example
+ * ```ts
+ * import { cantAddonBackend } from '@cleocode/cant';
+ *
+ * if (cantAddonBackend() === 'wasi') {
+ *   // pipelines cannot run here; parsing and validation still work
+ * }
+ * ```
+ */
+export function cantAddonBackend(): CantAddonBackend | null {
+  ensureLoaded();
+  if (!nativeModule) return null;
+  return nativeModule.cantBackend() === 'wasi' ? 'wasi' : 'native';
+}
+
+/**
+ * Return the source-revision stamp compiled into the loaded addon, e.g.
+ * `"cant-napi-source-rev:<git sha>"` (`"…:unversioned"` for local builds).
+ *
+ * @returns The stamp, or `null` when the addon could not be loaded.
+ */
+export function cantAddonBuildInfo(): string | null {
+  ensureLoaded();
+  return nativeModule ? nativeModule.cantBuildInfo() : null;
+}
+
+/**
+ * Get the addon module, throwing if it failed to load.
  *
  * @internal
- * @throws Error when the native addon could not be loaded.
+ * @throws Error when neither a native binary nor the WebAssembly fallback loaded.
  */
 function requireNative(): CantNativeModule {
   ensureLoaded();
   if (!nativeModule) {
     throw new Error(
-      'cant-napi native addon not available. Build it with: cargo build --release -p cant-napi',
+      `CANT parser addon not available: no native binary for ${process.platform}-${process.arch} ` +
+        `loaded and the WebAssembly fallback did not load either (${loadError ?? 'no load error was recorded'}). ` +
+        'Reinstall @cleocode/cant; in a source checkout run: pnpm --filter @cleocode/cant build:napi',
     );
   }
   return nativeModule;
@@ -368,10 +412,16 @@ export function validateAgentCantPath(cantPath: string, rootDir: string): boolea
 /**
  * Execute a deterministic pipeline from a `.cant` file via the native addon.
  *
+ * @remarks
+ * Native backend only. Under the WebAssembly (WASI) fallback this resolves
+ * to `success: false` with an `error` explaining that pipelines need a native
+ * binary: they spawn subprocesses through cant-runtime's multi-thread tokio
+ * runtime, which WASI cannot provide. It never throws for that case.
+ *
  * @param filePath - Absolute or relative path to a `.cant` file.
  * @param pipelineName - The name of the `pipeline { ... }` block to run.
  */
-export function cantExecutePipelineNative(
+export async function cantExecutePipelineNative(
   filePath: string,
   pipelineName: string,
 ): Promise<NativePipelineResult> {

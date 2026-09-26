@@ -14,15 +14,26 @@ cant-core = { path = "../cant-core" }
 # cant-router removed — E8 T11432: zero live TS consumers; router retired from CANT track.
 # The router crate itself is preserved in the workspace for reference but no longer
 # linked into the published napi binary so it cannot silently ship dead code.
-cant-runtime = { path = "../cant-runtime" }
-napi = { version = "3", features = ["napi4", "serde-json", "async"] }
+napi = { version = "3", features = ["napi4", "serde-json"] }
 napi-derive = "3"
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+# T12382: the same crate is also built to `wasm32-wasip1-threads` as the
+# automatic fallback when no native binary matches the host. cant-runtime
+# (pipeline execution) spawns subprocesses through tokio's multi-thread
+# runtime, which WASI cannot provide, so it (and napi's tokio-backed `async`
+# feature) is linked into NATIVE builds only. Under WASI, `cantExecutePipeline`
+# returns a structured `success: false` result instead (see
+# `cant_execute_pipeline` in src/lib.rs). Every parse/validate/extract export
+# depends only on cant-core (pure Rust) and behaves identically.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+cant-runtime = { path = "../cant-runtime" }
+napi = { version = "3", features = ["async"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [build-dependencies]
-napi-build = "1"
+napi-build = "2"
 
 [lints]
 workspace = true

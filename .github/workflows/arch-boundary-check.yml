@@ -252,6 +252,30 @@ jobs:
       - name: Lint crate publish=false (zero crates.io)
         run: node scripts/lint-no-crate-publish.mjs
 
+  no-committed-native-binaries:
+    # Gate 24 (AGENTS.md SSoT table) · T12382
+    #
+    # No tracked *.node / *.wasm. Until T12382 the only .cant parser users got
+    # was a committed linux-x64 binary (every other OS threw), and nothing tied
+    # a committed binary to its source: the committed lafs-napi one already
+    # rejects every real envelope. Binaries are built by CI
+    # (cant-napi-build.yml, release.yml) and staged at release; the release
+    # also runs this script in --packed mode to prove each packed binary was
+    # built from the released commit. Pre-existing non-cant binaries are
+    # baselined in the script; a cant binary can never be.
+    #
+    # Pure static analysis of the git index — no untrusted user input.
+    name: No Committed Native Binaries (T12382 · gate 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Assert no native binary is tracked in git
+        run: node scripts/lint-no-committed-native-binaries.mjs
+
   injection-command-existence:
     # Gate 14 (AGENTS.md SSoT table) · T12069 · Saga T9831 SG-ARCH-SOLID
     #
@@ -598,6 +622,7 @@ jobs:
       - contracts-purity
       - tools-skills-boundary
       - crate-publish-guard
+      - no-committed-native-binaries
       - injection-command-existence
       - contract-literal-enums
       - llm-chokepoint-guard
