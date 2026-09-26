@@ -22,6 +22,7 @@ import {
   checkPackage,
   checkTarball,
   parseArgs,
+  readCreatedAt,
   readPublishedPackages,
   verifyAll,
 } from '../execute-payload.mjs';
@@ -369,5 +370,102 @@ describe('gh#1474 — pending and defect are different facts', () => {
     });
     expect(results[0].ok).toBe(false);
     expect(results[0].defect).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gh#1479 — npm's own creation time, recorded per package
+// ---------------------------------------------------------------------------
+
+/**
+ * Serve the full PACKUMENT as well. `time[version]` lives only there — the
+ * per-version document, the tarball and the dist-tags document all lack it —
+ * so a stub that never answers the packument URL cannot distinguish code that
+ * reads the timestamp from code that drops it.
+ *
+ * @param {{ createdAt?: string; packumentStatus?: number; metadata?: number;
+ *   tarball?: number; distTags?: Record<string, string> }} [opts]
+ * @returns {typeof fetch}
+ */
+function stubFetchWithPackument({
+  createdAt,
+  packumentStatus = 200,
+  metadata = 200,
+  tarball = 200,
+  distTags = { latest: '2026.9.18' },
+} = {}) {
+  // @ts-expect-error - minimal Response shape, only what the checks read
+  return async (url) => {
+    const u = String(url);
+    // The packument URL ends at the package name; the per-version document
+    // carries another path segment.
+    if (/\/@cleocode\/[^/]+$/.test(u)) {
+      return {
+        ok: packumentStatus >= 200 && packumentStatus < 300,
+        status: packumentStatus,
+        json: async () => ({ time: createdAt ? { '2026.9.18': createdAt } : {} }),
+      };
+    }
+    if (u.includes('/-/package/')) return { ok: true, status: 200, json: async () => distTags };
+    if (u.includes('/-/')) return { ok: tarball >= 200 && tarball < 300, status: tarball };
+    return {
+      ok: metadata >= 200 && metadata < 300,
+      status: metadata,
+      json: async () => ({ version: '2026.9.18' }),
+    };
+  };
+}
+
+describe("gh#1479 — the per-package record carries npm's creation time", () => {
+  const CREATED = '2026-09-18T06:33:40.114Z';
+
+  it('REGRESSION: records time[version] for a package that became installable', async () => {
+    const results = await verifyAll(['cleo'], '2026.9.18', {
+      timeoutMs: 60_000,
+      intervalMs: 1,
+      distTag: 'latest',
+      fetchImpl: stubFetchWithPackument({ createdAt: CREATED }),
+      sleepImpl: async () => {},
+    });
+    expect(results[0].ok).toBe(true);
+    expect(results[0].createdAt).toBe(CREATED);
+  });
+
+  it('a package that never became installable records no creation time', async () => {
+    // The boundary: a publish that did not land must not leave a success
+    // timestamp behind for the delay table to read.
+    const results = await verifyAll(['cleo'], '2026.9.18', {
+      timeoutMs: 0,
+      intervalMs: 1,
+      distTag: 'latest',
+      fetchImpl: stubFetchWithPackument({ createdAt: CREATED, tarball: 404 }),
+      sleepImpl: async () => {},
+    });
+    expect(results[0].ok).toBe(false);
+    expect(Object.hasOwn(results[0], 'createdAt')).toBe(false);
+  });
+
+  it('an unreadable packument still verifies — the timestamp is diagnostic', async () => {
+    const results = await verifyAll(['cleo'], '2026.9.18', {
+      timeoutMs: 60_000,
+      intervalMs: 1,
+      distTag: 'latest',
+      fetchImpl: stubFetchWithPackument({ createdAt: CREATED, packumentStatus: 404 }),
+      sleepImpl: async () => {},
+    });
+    expect(results[0].ok, 'a missing timestamp must not fail a good release').toBe(true);
+    expect(results[0].createdAt).toBeUndefined();
+  });
+
+  it('reads the packument, not the per-version document', async () => {
+    /** @type {string[]} */
+    const hit = [];
+    // @ts-expect-error - minimal Response shape
+    const spy = async (url) => {
+      hit.push(String(url));
+      return { ok: true, status: 200, json: async () => ({ time: { '2026.9.18': CREATED } }) };
+    };
+    expect(await readCreatedAt('cleo-os', '2026.9.18', spy)).toBe(CREATED);
+    expect(hit[0]).toBe('https://registry.npmjs.org/@cleocode/cleo-os');
   });
 });
