@@ -11,8 +11,8 @@
  * @task T5267
  */
 
-import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
-import { copyFile, mkdir, readFile, readlink, rename, symlink, writeFile } from 'node:fs/promises';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { mkdir, readFile, readlink, rename, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, normalize } from 'node:path';
 import {
@@ -20,12 +20,12 @@ import {
   CAAMP_DAMAGED_START_PATTERN_SOURCE,
   CAAMP_MARKER_END,
   CAAMP_MARKER_START,
+  type GlobalInstructionSyncResult,
 } from '@cleocode/contracts/caamp-markers';
 import { resolveLegacyCleoDir } from '@cleocode/paths';
 import {
   getAgentsHome,
   getCanonicalTemplatesTildePath,
-  getCleoGlobalCantAgentsDir,
   getCleoHome,
   getCleoTemplatesTildePath,
   getProjectRoot,
@@ -119,13 +119,12 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
   // Step 4: Install core skills globally
   await installSkillsGlobally(ctx);
 
-  // Step 5: Install agent definition (cleo-subagent symlink)
-  await installAgentDefinitionGlobally(ctx);
-
-  // Step 5b (W2-5): Seed global CANT agents (.cant personas)
-  // Idempotently copies bundled seed-agents into ~/.local/share/cleo/cant/agents/
-  // so spawn/orchestrate can resolve personas on fresh installs.
-  await installSeedAgentsGlobally(ctx);
+  // Steps 5 / 5b (removed, T12380): the global `cleo-subagent` symlink and the
+  // global seed-agent copy read `@cleocode/agents/cleo-subagent/` and
+  // `@cleocode/agents/seed-agents/`, both deleted in T1210 / T1932 (ADR-068:
+  // the universal base is `cleo-subagent.cant`, worker templates install at
+  // PROJECT tier via `cleo init`). Neither step could ever succeed again, so
+  // they only ever emitted a warning on every install.
 
   // Step 5c (T1386): Populate the nexus.db sigils table from the canonical
   // CANT agents we just installed.  Without this step, `fetchIdentity()` and
@@ -347,19 +346,44 @@ function sanitizeCaampFile(content: string): string {
   return `${cleaned.trim()}\n`;
 }
 
+/**
+ * Record a global instruction regeneration in the bootstrap context.
+ *
+ * @param ctx - Bootstrap context receiving created/warning entries.
+ * @param result - Outcome of `syncGlobalInstructions`.
+ */
+function reportGlobalInstructionSync(
+  ctx: BootstrapContext,
+  result: GlobalInstructionSyncResult,
+): void {
+  if (result.status === 'no-providers') {
+    ctx.warnings.push('No AI provider installations detected');
+    return;
+  }
+  if (result.status === 'unresolved') {
+    ctx.warnings.push(
+      `Global instruction delivery unresolved: ${result.findings.map((finding) => `${finding.kind}: ${finding.path}`).join('; ')}`,
+    );
+    return;
+  }
+  for (const file of result.files) {
+    const displayPath = file.path.replace(homedir(), '~');
+    if (file.action === 'failed') {
+      ctx.warnings.push(`${displayPath}: ${file.error ?? 'write failed'}`);
+    } else if (file.action === 'planned') {
+      ctx.created.push(`${displayPath} (would update CAAMP block)`);
+    } else {
+      ctx.created.push(`${displayPath} (${file.action})`);
+    }
+  }
+}
+
 async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
   const globalAgentsDir = getAgentsHome();
   const globalAgentsMd = join(globalAgentsDir, 'AGENTS.md');
 
   try {
-    const {
-      inject,
-      getInstalledProviders,
-      injectAll,
-      buildInjectionContent,
-      resolveInstructionDelivery,
-      withFileLock,
-    } = await import('@cleocode/caamp');
+    const { inject, syncGlobalInstructions, withFileLock } = await import('@cleocode/caamp');
 
     if (!ctx.isDryRun) {
       await mkdir(globalAgentsDir, { recursive: true });
@@ -414,53 +438,12 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
       ctx.created.push('~/.agents/AGENTS.md (would create/update CAAMP block)');
     }
 
-    // Inject @~/.agents/AGENTS.md into detected global provider files
-    const providers = getInstalledProviders();
-
-    if (providers.length === 0) {
-      ctx.warnings.push('No AI provider installations detected');
-    } else {
-      const injectionContent = buildInjectionContent({
-        references: ['@~/.agents/AGENTS.md'],
-      });
-
-      if (!ctx.isDryRun) {
-        // Strip legacy CLEO blocks from global provider files first
-        // (handles bare and versioned markers, e.g. <!-- CLEO:START v0.53.4 -->)
-        for (const provider of providers) {
-          const instructFilePath = join(provider.pathGlobal, provider.instructFile);
-          if (existsSync(instructFilePath)) {
-            const fileContent = await readFile(instructFilePath, 'utf8');
-            const stripped = fileContent.replace(
-              /\n?<!-- CLEO:START[^>]*-->[\s\S]*?<!-- CLEO:END -->\n?/g,
-              '',
-            );
-            if (stripped !== fileContent) {
-              await writeFile(instructFilePath, stripped, 'utf8');
-            }
-          }
-        }
-
-        const delivery = await resolveInstructionDelivery(injectionContent, homedir());
-        const failures = delivery.findings.filter((finding) => finding.kind !== 'duplicate');
-        if (failures.length > 0) {
-          ctx.warnings.push(
-            `Global instruction delivery unresolved: ${failures.map((finding) => `${finding.kind}: ${finding.path}`).join('; ')}`,
-          );
-          return;
-        }
-        const results = await injectAll(providers, homedir(), 'global', delivery.content);
-        for (const [filePath, action] of results) {
-          const displayPath = filePath.replace(homedir(), '~');
-          ctx.created.push(`${displayPath} (${action})`);
-        }
-      } else {
-        for (const p of providers) {
-          const displayPath = join(p.pathGlobal, p.instructFile).replace(homedir(), '~');
-          ctx.created.push(`${displayPath} (would update CAAMP block)`);
-        }
-      }
-    }
+    // Regenerate every detected global provider file from ~/.agents/AGENTS.md
+    // through the ONE shared regenerator — the same implementation
+    // `caamp instructions update --global` and the session-start/briefing
+    // auto-refresh use (T12377).
+    const result = await syncGlobalInstructions({ dryRun: ctx.isDryRun });
+    reportGlobalInstructionSync(ctx, result);
   } catch (err) {
     ctx.warnings.push(`CAAMP injection: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -495,116 +478,13 @@ export async function installSkillsGlobally(ctx: BootstrapContext): Promise<void
   }
 }
 
-// ── Step 5: Agent definition installation ────────────────────────────
-
-/**
- * Install the cleo-subagent agent definition to ~/.agents/agents/.
- * Delegates to initAgentDefinition() in init.ts which handles require.resolve
- * fallback and symlink/copy logic.
- */
-async function installAgentDefinitionGlobally(ctx: BootstrapContext): Promise<void> {
-  try {
-    if (!ctx.isDryRun) {
-      const { initAgentDefinition } = await import('./init.js');
-      await initAgentDefinition(ctx.created, ctx.warnings);
-    } else {
-      ctx.created.push('agent: cleo-subagent (would symlink)');
-    }
-  } catch (err) {
-    ctx.warnings.push(
-      `Agent definition install: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
-
-// ── Step 5b (W2-5): Global seed-agents install ───────────────────────
-
-/**
- * Seed the global CANT agents directory from the bundled seed-agents.
- *
- * Idempotently copies `.cant` persona files from the `@cleocode/agents`
- * package's `seed-agents/` directory into
- * `{cleoHome}/cant/agents/` (typically `~/.local/share/cleo/cant/agents/`).
- *
- * Without this step, a fresh `npm install -g @cleocode/cleo` leaves the
- * global CANT agents directory empty, and `cleo orchestrate spawn` has no
- * personas to resolve against. The post-install hook calls this step so the
- * ship-surface personas (per ADR-055 D032: `cleo-subagent` universal base
- * plus the four generic role templates under `seed-agents/`) are available
- * immediately.
- *
- * Seed-dir resolution is delegated to {@link resolveSeedAgentsDir} in
- * `init.ts` so both the project-scoped `cleo init --install-seed-agents` path
- * and this global path share the same multi-candidate lookup (monorepo,
- * node_modules, bundled CLI dist).
- *
- * Behaviour:
- *   - Existing files in the global target are preserved (never overwritten).
- *   - Missing seed-dir is a warning, not a failure — keeps postinstall
- *     resilient when the agents package isn't yet linked.
- *   - Dry-run mode records the planned action without touching the FS.
- *
- * @param ctx - Bootstrap context for recording created/warnings entries.
- *
- * @task T889 / T897 / W2-5
- */
-export async function installSeedAgentsGlobally(ctx: BootstrapContext): Promise<void> {
-  try {
-    const { resolveSeedAgentsDir } = await import('./init.js');
-    const seedDir = await resolveSeedAgentsDir();
-
-    if (!seedDir) {
-      ctx.warnings.push('seed-agents (global): bundled seed-agents/ directory not found; skipping');
-      return;
-    }
-
-    const targetDir = getCleoGlobalCantAgentsDir();
-
-    if (ctx.isDryRun) {
-      ctx.created.push(`seed-agents (global): would copy .cant files to ${targetDir}`);
-      return;
-    }
-
-    await mkdir(targetDir, { recursive: true });
-
-    const seeds = readdirSync(seedDir).filter((f) => f.endsWith('.cant'));
-    if (seeds.length === 0) {
-      ctx.warnings.push('seed-agents (global): no .cant files in bundled seed-agents/');
-      return;
-    }
-
-    let copied = 0;
-    let skipped = 0;
-    for (const seed of seeds) {
-      const src = join(seedDir, seed);
-      const dst = join(targetDir, seed);
-      if (existsSync(dst)) {
-        skipped++;
-        continue;
-      }
-      await copyFile(src, dst);
-      copied++;
-    }
-
-    if (copied > 0) {
-      ctx.created.push(
-        `seed-agents (global): ${copied} .cant personas installed (${skipped} already present)`,
-      );
-    }
-  } catch (err) {
-    ctx.warnings.push(
-      `seed-agents (global) install failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
-
 // ── Step 5c (T1386): Canonical sigil population ──────────────────────
 
 /**
  * Populate the nexus.db `sigils` table with one row per canonical CANT agent.
  *
- * Runs after seed-agents installation so the `sigils` rows reference the
- * just-installed .cant files.  Idempotent — re-running the bootstrap will
+ * Reads the canonical `.cant` files shipped in `@cleocode/agents`. Idempotent —
+ * re-running the bootstrap will
  * upsert in place.  Failures are reported as warnings rather than aborting
  * the bootstrap, because a missing sigils table is recoverable: callers can
  * always run `cleo nexus sigil sync` later.
@@ -858,9 +738,18 @@ async function verifyBootstrapHealth(ctx: BootstrapContext): Promise<void> {
     // Check 3: AGENTS.md references the correct path
     if (existsSync(agentsMd)) {
       const agentsContent = await readFile(agentsMd, 'utf8');
-      const expectedRef = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
-      if (!agentsContent.includes(expectedRef)) {
-        ctx.warnings.push(`Health: ~/.agents/AGENTS.md does not reference ${expectedRef}`);
+      // The hub deliberately references the canonical symlink path
+      // `@~/.cleo/templates/…` (T9020 / T1929); the XDG path it resolves to is
+      // equally valid. Accept either — warning about the canonical reference
+      // made every healthy install report a broken injection chain (T12380).
+      const acceptedRefs = [
+        `@${getCanonicalTemplatesTildePath()}/CLEO-INJECTION.md`,
+        `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`,
+      ];
+      if (!acceptedRefs.some((ref) => agentsContent.includes(ref))) {
+        ctx.warnings.push(
+          `Health: ~/.agents/AGENTS.md does not reference ${acceptedRefs[0]} — run: cleo install-global`,
+        );
       }
 
       // Check 4: No orphaned .md fragments outside CAAMP blocks

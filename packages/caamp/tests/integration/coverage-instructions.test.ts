@@ -12,6 +12,11 @@ const mocks = vi.hoisted(() => ({
   getInstalledProviders: vi.fn(),
   getAllProviders: vi.fn(),
   getProvider: vi.fn(),
+  syncGlobalInstructions: vi.fn(),
+}));
+
+vi.mock("../../src/core/instructions/global-sync.js", () => ({
+  syncGlobalInstructions: mocks.syncGlobalInstructions,
 }));
 
 vi.mock("../../src/core/instructions/injector.js", () => ({

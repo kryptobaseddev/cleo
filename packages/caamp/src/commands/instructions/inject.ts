@@ -182,12 +182,27 @@ export function registerInstructionsInject(parent: Command): void {
           }
         }
 
-        if (genericProviders.length > 0) {
-          const genericResults = await injectAll(genericProviders, process.cwd(), scope, content);
-          for (const [file, action] of genericResults) {
-            results.set(file, action);
+        // One provider at a time: an embedded delivery refuses stub or
+        // reference-only content (EmbeddedDeliveryDowngradeError, T12377), and
+        // that refusal must not abort the remaining providers.
+        const failed: Array<{ provider: string; error: string }> = [];
+        for (const provider of genericProviders) {
+          try {
+            for (const [file, action] of await injectAll(
+              [provider],
+              process.cwd(),
+              scope,
+              content,
+            )) {
+              results.set(file, action);
+            }
+          } catch (err) {
+            const error = err instanceof Error ? err.message : String(err);
+            failed.push({ provider: provider.id, error });
+            if (format === 'human') console.log(pc.red(`  x ${provider.id}: ${error}`));
           }
         }
+        if (failed.length > 0) process.exitCode = 1;
 
         const injected: string[] = [];
         for (const [file] of results) {
@@ -199,6 +214,7 @@ export function registerInstructionsInject(parent: Command): void {
             injected,
             providers: providers.map((p) => p.id),
             count: results.size,
+            ...(failed.length > 0 ? { failed } : {}),
           });
         } else {
           for (const [file, action] of results) {

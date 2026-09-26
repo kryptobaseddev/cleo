@@ -2762,7 +2762,16 @@ export {
 
 // === WASM SDK (Rust crate bindings) ===
 
-export type { CaampInjectionAction } from './caamp-markers.js';
+export type {
+  CaampInjectionAction,
+  GlobalInstructionFileState,
+  GlobalInstructionFileStatus,
+  GlobalInstructionRefreshReport,
+  GlobalInstructionStalenessReport,
+  GlobalInstructionSyncFile,
+  GlobalInstructionSyncResult,
+  GlobalInstructionSyncStatus,
+} from './caamp-markers.js';
 // === CAAMP instruction-block marker grammar (T12051) ===
 export {
   CAAMP_BLOCK_PATTERN_SOURCE,
@@ -2771,6 +2780,8 @@ export {
   CAAMP_INJECTION_ACTIONS,
   CAAMP_MARKER_END,
   CAAMP_MARKER_START,
+  CAAMP_SOURCE_STAMP_PATTERN_SOURCE,
+  GLOBAL_INSTRUCTION_HUB_REFERENCE,
 } from './caamp-markers.js';
 // T12077: SSoT for the keys under which payloads carry their rows.
 export {

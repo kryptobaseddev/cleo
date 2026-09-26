@@ -36,7 +36,8 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import { getNexusDb, resetNexusDbState } from '../store/nexus-sqlite.js';
+import { openDualScopeDb } from '../store/dual-scope-db.js';
+import { resetNexusDbState } from '../store/nexus-sqlite.js';
 import { upsertSigil } from './sigil.js';
 
 // ---------------------------------------------------------------------------
@@ -409,7 +410,12 @@ export async function syncCanonicalSigils(): Promise<SigilSyncResult> {
     };
   }
 
-  const nexusDb = await getNexusDb();
+  // `nexus_sigils` lives ONLY in the GLOBAL cleo.db. Open the global scope
+  // directly instead of `getNexusDb()`, which also binds (and migrates) the
+  // PROJECT store of whatever directory the caller runs in — so a global
+  // `cleo install-global` failed whenever the cwd's project store could not
+  // be migrated, though the step never touches project data (T12380).
+  const nexusDb = (await openDualScopeDb('global')).db;
   const peerIds: string[] = [];
 
   for (const cantFile of resolved.files) {

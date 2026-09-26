@@ -23,6 +23,7 @@ import type {
   BrainCompactHit,
   BriefingFieldContract,
   ContractViolation,
+  GlobalInstructionRefreshReport,
   KnowledgeCoverage,
   KnowledgeHealth,
   KnowledgeReplacement,
@@ -191,6 +192,12 @@ export interface CurrentTaskInfo {
  * Session briefing result.
  */
 export interface SessionBriefing {
+  /**
+   * Automatic refresh of the global provider instruction files (T12378):
+   * stale embedded deliveries are regenerated before the agent reads them.
+   * Set by `sessionBriefing` / `sessionStart`; absent from `computeBriefing`.
+   */
+  instructionDelivery?: GlobalInstructionRefreshReport;
   /** Graph coverage is independent of task state and memory authority. */
   knowledgeCoverage?: KnowledgeCoverage;
   /** Bounded automatic maintenance and repair matrix for the calling agent. */

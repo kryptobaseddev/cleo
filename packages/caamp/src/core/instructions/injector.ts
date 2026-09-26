@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import type { CaampInjectionAction } from '@cleocode/contracts/caamp-markers';
 import { writeFileAtomic } from '@cleocode/core/tools/fs.js';
 import type { InjectionCheckResult, InjectionStatus, Provider } from '../../types.js';
@@ -246,10 +246,54 @@ export function instructionFileCascade(projectDir: string, providers: Provider[]
   ];
 
   for (const provider of providers) {
-    paths.push(join(provider.pathGlobal, provider.instructFile));
+    const globalPath = resolveGlobalInstructionPath(provider);
+    if (globalPath !== null) paths.push(globalPath);
   }
 
   return [...new Set(paths)];
+}
+
+/**
+ * Resolve a provider's GLOBAL instruction file, or `null` when the provider has
+ * no global scope.
+ *
+ * @remarks
+ * A provider whose resolved `pathGlobal` is empty or relative (the registry
+ * leaves it `""` for providers with no user-level instruction file, e.g.
+ * `devin`) has no global instruction file. Joining an empty `pathGlobal` used
+ * to yield the bare relative `AGENTS.md`, which a global write then created in
+ * whatever directory the command happened to run from (T12379). Every
+ * global-scope write and check goes through this function, so such providers
+ * are excluded from global scope instead.
+ *
+ * @param provider - Provider registry entry.
+ * @returns Absolute path of the global instruction file, or `null`.
+ *
+ * @example
+ * ```typescript
+ * resolveGlobalInstructionPath(getProvider('claude-code')!); // "/home/u/.claude/CLAUDE.md"
+ * resolveGlobalInstructionPath(getProvider('devin')!);       // null
+ * ```
+ *
+ * @public
+ */
+export function resolveGlobalInstructionPath(provider: Provider): string | null {
+  if (!provider.pathGlobal || !isAbsolute(provider.pathGlobal)) return null;
+  return join(provider.pathGlobal, provider.instructFile);
+}
+
+/**
+ * Resolve the instruction file for a provider at a scope, or `null` when the
+ * provider has no file at that scope (see {@link resolveGlobalInstructionPath}).
+ */
+function scopedInstructionPath(
+  provider: Provider,
+  projectDir: string,
+  scope: 'project' | 'global',
+): string | null {
+  return scope === 'global'
+    ? resolveGlobalInstructionPath(provider)
+    : join(projectDir, provider.instructFile);
 }
 
 /**
@@ -548,10 +592,8 @@ export async function checkAllInjections(
   const checked = new Set<string>();
 
   for (const provider of providers) {
-    const filePath =
-      scope === 'global'
-        ? join(provider.pathGlobal, provider.instructFile)
-        : join(projectDir, provider.instructFile);
+    const filePath = scopedInstructionPath(provider, projectDir, scope);
+    if (filePath === null) continue;
 
     // Skip duplicates (multiple providers share same instruction file)
     if (checked.has(filePath)) continue;
@@ -623,10 +665,8 @@ export async function injectAll(
   const injected = new Set<string>();
 
   for (const provider of providers) {
-    const filePath =
-      scope === 'global'
-        ? join(provider.pathGlobal, provider.instructFile)
-        : join(projectDir, provider.instructFile);
+    const filePath = scopedInstructionPath(provider, projectDir, scope);
+    if (filePath === null) continue;
 
     // Skip duplicates
     if (injected.has(filePath)) continue;
@@ -722,10 +762,10 @@ export async function ensureProviderInstructionFile(
   }
 
   const scope = options.scope ?? 'project';
-  const filePath =
-    scope === 'global'
-      ? join(provider.pathGlobal, provider.instructFile)
-      : join(projectDir, provider.instructFile);
+  const filePath = scopedInstructionPath(provider, projectDir, scope);
+  if (filePath === null) {
+    throw new Error(`Provider "${providerId}" has no global instruction file (T12379).`);
+  }
 
   // Fall back to the registry default when the caller omits references.
   let references = options.references ?? getProviderInstructionReferences(providerId);
@@ -814,10 +854,8 @@ export async function ensureAllProviderInstructionFiles(
     }
 
     const scope = options.scope ?? 'project';
-    const filePath =
-      scope === 'global'
-        ? join(provider.pathGlobal, provider.instructFile)
-        : join(projectDir, provider.instructFile);
+    const filePath = scopedInstructionPath(provider, projectDir, scope);
+    if (filePath === null) continue;
 
     // Skip duplicates (multiple providers may share the same instruction file)
     if (processed.has(filePath)) continue;
