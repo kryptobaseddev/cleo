@@ -190,7 +190,7 @@ dependencies = [
  "cant-core",
  "cant-runtime",
  "napi",
- "napi-build 1.2.1",
+ "napi-build 2.3.2",
  "napi-derive",
  "serde",
  "serde_json",

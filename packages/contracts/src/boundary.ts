@@ -264,7 +264,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: [],
     rationale:
-      'napi binding shim for cant-core + cant-runtime. Loaded via packages/cant/src/native-loader.ts and packages/core/src/system/dependencies.ts. Internal-only — shipped via per-platform packages/cant-napi-* npm packages, not crates.io. cant-router bindings removed (E8 T11432).',
+      'napi binding shim for cant-core + cant-runtime. Loaded via packages/cant/src/native-loader.ts and packages/core/src/system/dependencies.ts. Internal-only, not crates.io. T12382: built for 8 native triples plus a wasm32-wasip1-threads fallback by .github/workflows/cant-napi-build.yml and bundled inside @cleocode/cant (napi/); the napi-rs generated loader prefers native and falls back to WASI. cant-runtime (pipelines) is native-only. cant-router bindings removed (E8 T11432).',
   },
   {
     module: 'cant-runtime',

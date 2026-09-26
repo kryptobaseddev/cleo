@@ -76,7 +76,8 @@ export function parseCANTMessage(content: string): ParsedCANTMessage {
   // set CLEO_CANT_ALLOW_JS_FALLBACK=1 explicitly.
   if (process.env.CLEO_CANT_ALLOW_JS_FALLBACK !== '1') {
     throw new Error(
-      'cant-core native addon not available. Build it with: cargo build --release -p cant-napi\n' +
+      'cant-core addon not available (no native binary and no WebAssembly fallback). Reinstall ' +
+        '@cleocode/cant; in a source checkout run: pnpm --filter @cleocode/cant build:napi\n' +
         'Or set CLEO_CANT_ALLOW_JS_FALLBACK=1 to enable the degraded JS fallback parser.',
     );
   }

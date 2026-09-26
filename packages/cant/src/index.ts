@@ -83,6 +83,7 @@ export type {
 export { migrateMarkdown, serializeCantDocument, showDiff, showSummary } from './migrate/index';
 export type {
   AgentProfile,
+  CantAddonBackend,
   NativeDiagnostic,
   NativeParseDocumentResult,
   NativeParseError,
@@ -94,6 +95,8 @@ export type {
 } from './native-loader';
 // Native loader (replaces wasm-loader)
 export {
+  cantAddonBackend,
+  cantAddonBuildInfo,
   cantClassifyDirectiveNative,
   cantExecutePipelineNative,
   cantExtractAgentProfilesNative,

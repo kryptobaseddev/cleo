@@ -92,9 +92,17 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # T12382: the .cant parser addon for every OS + the WASI fallback. The
+  # reusable workflow's gate job fails unless all 8 native triples and the
+  # wasm built, loaded on their own hardware and matched WASI, so `release`
+  # (which needs it) cannot start with a triple missing.
+  cant-napi:
+    name: cant-napi (8 native triples + WASI)
+    uses: ./.github/workflows/cant-napi-build.yml
+
   release:
     name: Build & Publish
-    needs: prebuild
+    needs: [prebuild, cant-napi]
     runs-on: ubuntu-latest
 
     # Published so downstream jobs consume ONE derivation of these values.
@@ -740,6 +748,25 @@ jobs:
           stage_platform_binary linux-arm64-gnu
           stage_platform_binary darwin-arm64
           stage_platform_binary win32-x64-msvc
+
+      # ── cant-napi: 8 native triples + WASI fallback (T12382) ─────────────────
+      # Built in THIS run by the `cant-napi` job (cant-napi-build.yml) and
+      # bundled into @cleocode/cant itself: no per-platform npm packages. The
+      # napi-rs generated loader (napi/index.cjs) prefers the native binary and
+      # falls back to napi/cant.wasm32-wasi.wasm when none matches the host.
+      - name: Download cant-napi binaries (8 native triples + WASI)
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/cant/napi
+          pattern: cant-napi-*
+          merge-multiple: true
+
+      # Fails the release unless `npm pack` of @cleocode/cant ships every
+      # triple, the .wasm and the loader, and each binary carries the stamp
+      # `cant-napi-source-rev:<this commit>`: a missing triple or a stale /
+      # leftover binary cannot be published.
+      - name: Verify packed @cleocode/cant (every triple, built from this commit)
+        run: node scripts/lint-no-committed-native-binaries.mjs --packed packages/cant --expect-rev "${GITHUB_SHA}"
 
       # ── npm Publish (OIDC Trusted Publishing) ─────────────────────────────────
       # Publish in dependency order so downstream packages can resolve workspace:*

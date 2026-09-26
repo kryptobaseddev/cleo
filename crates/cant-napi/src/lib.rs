@@ -6,9 +6,38 @@
 //! and [`cant_core::classify_directive`] with napi-rs `#[napi]` exports for
 //! synchronous, high-performance access from TypeScript/JavaScript.
 
+#[cfg(not(target_family = "wasm"))]
 use cant_runtime::env::StepEnv;
+#[cfg(not(target_family = "wasm"))]
 use cant_runtime::pipeline::{PipelineConfig, execute_pipeline};
 use napi_derive::napi;
+
+/// Report which build of the addon is running: `"native"` for a per-OS
+/// binary, `"wasi"` for the `wasm32-wasip1-threads` fallback.
+///
+/// The napi-rs generated loader picks the backend silently, so this is the
+/// one way for callers (and doctor-style checks) to tell which path loaded.
+#[napi]
+pub fn cant_backend() -> String {
+    if cfg!(target_family = "wasm") {
+        "wasi".to_string()
+    } else {
+        "native".to_string()
+    }
+}
+
+/// Source-revision stamp embedded at build time (see `build.rs`).
+///
+/// A single contiguous literal, so the release can find it in the raw bytes
+/// of every packed `.node`/`.wasm` without loading a foreign-platform binary.
+const SOURCE_REV_STAMP: &str = concat!("cant-napi-source-rev:", env!("CANT_NAPI_SOURCE_REV"));
+
+/// Return the source revision this binary was built from, e.g.
+/// `"cant-napi-source-rev:0a1b2c…"` (`"…:unversioned"` for local builds).
+#[napi]
+pub fn cant_build_info() -> String {
+    SOURCE_REV_STAMP.to_string()
+}
 
 /// The classification of a directive extracted from a CANT message.
 ///
@@ -479,6 +508,7 @@ pub struct JsPipelineResult {
 ///
 /// * `file_path` - Absolute or relative path to a `.cant` file.
 /// * `pipeline_name` - The name of the `pipeline { ... }` block to run.
+#[cfg(not(target_family = "wasm"))]
 #[napi]
 pub async fn cant_execute_pipeline(file_path: String, pipeline_name: String) -> JsPipelineResult {
     use cant_core::dsl::ast::Section;
@@ -559,5 +589,35 @@ pub async fn cant_execute_pipeline(file_path: String, pipeline_name: String) -> 
             steps: vec![],
             error: Some(format!("runtime error: {e}")),
         },
+    }
+}
+
+/// Message returned by [`cant_execute_pipeline`] in the WebAssembly build.
+#[cfg(target_family = "wasm")]
+const WASI_PIPELINE_UNSUPPORTED: &str = "pipeline execution is unavailable in the WebAssembly \
+(WASI) build of the CANT addon: pipelines spawn subprocesses through tokio's multi-thread \
+runtime, which WASI cannot provide. Parsing and validation work normally; run pipelines on a \
+platform with a native @cleocode/cant binary.";
+
+/// WebAssembly (WASI) build of `cantExecutePipeline`.
+///
+/// cant-runtime is not linked into the `wasm32-wasip1-threads` build (it
+/// needs subprocess spawning and a multi-thread tokio runtime), so this
+/// never runs anything. Matching the native contract, it does not throw:
+/// it returns `success: false` with an `error` that says why.
+///
+/// # Arguments
+///
+/// * `_file_path` - Ignored; kept so the export signature matches native.
+/// * `pipeline_name` - Echoed back in the result's `name`.
+#[cfg(target_family = "wasm")]
+#[napi]
+pub fn cant_execute_pipeline(_file_path: String, pipeline_name: String) -> JsPipelineResult {
+    JsPipelineResult {
+        name: pipeline_name,
+        success: false,
+        duration_ms: 0,
+        steps: vec![],
+        error: Some(WASI_PIPELINE_UNSUPPORTED.to_string()),
     }
 }
