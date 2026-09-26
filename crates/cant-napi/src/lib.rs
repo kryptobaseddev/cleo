@@ -32,10 +32,9 @@ pub fn cant_backend() -> String {
 /// of every packed `.node`/`.wasm` without loading a foreign-platform binary.
 ///
 /// It is a `#[used]` static byte array rather than a `const &str`: a const is
-/// inlined at each use, and on `x86_64` LLVM lowered the copy in
-/// [`cant_build_info`] into immediate stores, so the literal never reached
-/// read-only data (measured on the `darwin-x64` build). A `#[used]` static must
-/// be emitted verbatim.
+/// inlined at each use, so the optimizer is free to materialise it without a
+/// contiguous copy in read-only data. A `#[used]` static must be emitted
+/// verbatim, which is what the byte-level release check relies on.
 #[used]
 static SOURCE_REV_STAMP: [u8; SOURCE_REV_STAMP_STR.len()] = {
     let src = SOURCE_REV_STAMP_STR.as_bytes();

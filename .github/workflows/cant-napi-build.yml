@@ -181,8 +181,13 @@ jobs:
             file="packages/cant/napi/cant.${{ matrix.triple }}.node"
           fi
           test -s "$file" || { echo "::error::missing or empty $file"; exit 1; }
-          grep -aq "cant-napi-source-rev:${{ github.sha }}" "$file" \
-            || { echo "::error::$file lacks the source-rev stamp for ${{ github.sha }}"; exit 1; }
+          # LC_ALL=C: macOS grep in a UTF-8 locale skips binary "lines" that are
+          # not valid UTF-8, so the stamp can be missed next to other bytes.
+          if ! LC_ALL=C grep -aq "cant-napi-source-rev:${{ github.sha }}" "$file"; then
+            found="$(LC_ALL=C grep -ao 'cant-napi-source-rev:[A-Za-z0-9]*' "$file" | sort -u | tr '\n' ' ')"
+            echo "::error::$file lacks the source-rev stamp for ${{ github.sha }} (found: ${found:-none})"
+            exit 1
+          fi
           echo "OK: $file ($(wc -c < "$file") bytes)"
 
       - name: Upload native binary
