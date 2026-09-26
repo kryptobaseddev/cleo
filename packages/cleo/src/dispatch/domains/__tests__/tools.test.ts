@@ -20,12 +20,14 @@ const mocks = vi.hoisted(() => ({
   discoverSkill: vi.fn(async () => null),
   discoverSkills: vi.fn(async () => []),
   resolveSkillsRoot: vi.fn(() => '/tmp/skills'),
-  installSkill: vi.fn(async () => ({
+  installSkillFromSource: vi.fn(async () => ({
     name: 'ct-test',
     canonicalPath: '/tmp/skills/ct-test',
     linkedAgents: ['claude-code'],
     errors: [],
     success: true,
+    sourceValue: 'library:ct-test',
+    sourceType: 'library',
   })),
   removeSkill: vi.fn(async () => ({ removed: ['ct-test'], errors: [] })),
   getInstalledProviders: vi.fn(() => [{ id: 'claude-code' }]),
@@ -52,7 +54,8 @@ vi.mock('@cleocode/caamp', () => ({
   catalog: mocks.catalog,
   discoverSkill: mocks.discoverSkill,
   discoverSkills: mocks.discoverSkills,
-  installSkill: mocks.installSkill,
+  installSkillFromSource: mocks.installSkillFromSource,
+  SkillInstallError: class SkillInstallError extends Error {},
   removeSkill: mocks.removeSkill,
   getInstalledProviders: mocks.getInstalledProviders,
   getAllProviders: mocks.getAllProviders,
@@ -96,7 +99,10 @@ describe('ToolsHandler', () => {
     const handler = new ToolsHandler();
     const res = await handler.mutate('skill.install', { name: 'ct-test' });
     expect(res.success).toBe(true);
-    expect(mocks.installSkill).toHaveBeenCalled();
+    expect(mocks.installSkillFromSource).toHaveBeenCalledWith(
+      'library:ct-test',
+      expect.objectContaining({ skillName: 'ct-test', isGlobal: true }),
+    );
   });
 
   it('returns provider list via CAAMP', async () => {

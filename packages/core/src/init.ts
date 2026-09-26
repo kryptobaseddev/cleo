@@ -414,9 +414,8 @@ export async function initMcpServer(
  */
 export async function initCoreSkills(created: string[], warnings: string[]): Promise<void> {
   try {
-    const { getInstalledProviders, installSkill, registerSkillLibraryFromPath } = await import(
-      '@cleocode/caamp'
-    );
+    const { getInstalledProviders, installResolvedSkill, registerSkillLibraryFromPath } =
+      await import('@cleocode/caamp');
 
     const providers = getInstalledProviders();
     if (providers.length === 0) {
@@ -492,7 +491,16 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
       }
 
       try {
-        const result = await installSkill(skillSourceDir, skill.name, providers, true);
+        // T12384: bundled skills pass the same gate as every other install.
+        const result = await installResolvedSkill(
+          {
+            localPath: skillSourceDir,
+            skillName: skill.name,
+            sourceValue: `library:${skill.name}`,
+            sourceType: 'library',
+          },
+          { providers, isGlobal: true },
+        );
         if (result.success) {
           installed.push(skill.name);
         }

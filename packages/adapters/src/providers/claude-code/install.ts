@@ -10,23 +10,23 @@
  * @task T5240
  */
 
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureProviderInstructionFile } from '@cleocode/caamp';
+import { ensureProviderInstructionFile, updateJsonConfigFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 import {
   type InstallHookTemplatesResult,
   installProviderHookTemplates,
 } from '../shared/hook-template-installer.js';
+import {
+  appendHookEntry,
+  claudeSettingsPath,
+  hasCleoHook,
+  hookMap,
+  isPlainObject,
+} from './paths.js';
 
 /** Resolve Claude Code's config directory, honoring the documented CI override. */
 function getClaudeConfigDir(): string {
@@ -80,21 +80,37 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
       details.commands = commandsInstalled;
     }
 
+    // T12385: settings.json writes are locked + atomic, and a malformed file
+    // aborts the write and is reported here — it is never reset to `{}`.
+    const settingsErrors: string[] = [];
+
     // Step 3: Register plugin in ~/.claude/settings.json
-    const pluginResult = this.registerPlugin();
-    if (pluginResult) {
-      details.plugin = pluginResult;
+    try {
+      const pluginResult = await this.registerPlugin();
+      if (pluginResult) {
+        details.plugin = pluginResult;
+      }
+    } catch (err) {
+      settingsErrors.push(err instanceof Error ? err.message : String(err));
     }
 
     // Step 4 (T1013): Install PreCompact hook templates + wire the handler
     // command into ~/.claude/settings.json's `PreCompact` event.
-    const hookResult = this.installHookTemplates();
-    if (hookResult) {
-      details.hookTemplates = hookResult;
+    try {
+      const hookResult = await this.installHookTemplates();
+      if (hookResult) {
+        details.hookTemplates = hookResult;
+      }
+    } catch (err) {
+      settingsErrors.push(err instanceof Error ? err.message : String(err));
+    }
+
+    if (settingsErrors.length > 0) {
+      details.settingsErrors = settingsErrors;
     }
 
     return {
-      success: true,
+      success: settingsErrors.length === 0,
       installedAt,
       instructionFileUpdated,
       details,
@@ -115,7 +131,7 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
    */
   async isInstalled(): Promise<boolean> {
     // Check ~/.claude/settings.json for plugin registration
-    const settingsPath = join(getClaudeConfigDir(), 'settings.json');
+    const settingsPath = claudeSettingsPath();
     if (existsSync(settingsPath)) {
       try {
         const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
@@ -179,38 +195,28 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
    *
    * @returns Description of what was registered, or null if no change needed
    */
-  private registerPlugin(): string | null {
-    const claudeDir = getClaudeConfigDir();
-    const settingsPath = join(claudeDir, 'settings.json');
-
-    let settings: Record<string, unknown> = {};
-    if (existsSync(settingsPath)) {
-      try {
-        settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-      } catch {
-        // Start fresh
-      }
-    }
-
-    const enabledPlugins = (settings.enabledPlugins as Record<string, boolean>) ?? {};
+  private async registerPlugin(): Promise<string | null> {
     const pluginKey = 'cleo@cleocode';
+    const wrote = await updateJsonConfigFile(claudeSettingsPath(), (settings) => {
+      const enabledPlugins = settings.enabledPlugins ?? {};
+      if (!isPlainObject(enabledPlugins)) {
+        throw new Error('settings.json "enabledPlugins" is not an object; not modifying it');
+      }
+      if (enabledPlugins[pluginKey] === true) {
+        return false;
+      }
 
-    if (enabledPlugins[pluginKey] === true) {
-      return null;
-    }
+      // Disable old claude-mem if present
+      if (enabledPlugins['claude-mem@thedotmack'] === true) {
+        enabledPlugins['claude-mem@thedotmack'] = false;
+      }
 
-    // Disable old claude-mem if present
-    if (enabledPlugins['claude-mem@thedotmack'] === true) {
-      enabledPlugins['claude-mem@thedotmack'] = false;
-    }
+      enabledPlugins[pluginKey] = true;
+      settings.enabledPlugins = enabledPlugins;
+      return true;
+    });
 
-    enabledPlugins[pluginKey] = true;
-    settings.enabledPlugins = enabledPlugins;
-
-    mkdirSync(claudeDir, { recursive: true });
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
-
-    return `Enabled ${pluginKey} in ~/.claude/settings.json`;
+    return wrote ? `Enabled ${pluginKey} in ~/.claude/settings.json` : null;
   }
 
   /**
@@ -233,10 +239,10 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
    *
    * @task T1013
    */
-  private installHookTemplates(): {
+  private async installHookTemplates(): Promise<{
     templates: InstallHookTemplatesResult;
     settingsEntryAdded: boolean;
-  } | null {
+  } | null> {
     const claudeDir = getClaudeConfigDir();
     const hooksDir = join(claudeDir, 'hooks');
 
@@ -254,7 +260,7 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
     }
 
     // 2. Wire the PreCompact event in ~/.claude/settings.json.
-    const settingsEntryAdded = this.registerPreCompactHook(
+    const settingsEntryAdded = await this.registerPreCompactHook(
       join(hooksDir, 'precompact-safestop.sh'),
     );
 
@@ -279,55 +285,23 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
    *
    * @task T1013
    */
-  private registerPreCompactHook(shimPath: string): boolean {
-    const claudeDir = getClaudeConfigDir();
-    const settingsPath = join(claudeDir, 'settings.json');
-
-    let settings: Record<string, unknown> = {};
-    if (existsSync(settingsPath)) {
-      try {
-        settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-      } catch {
-        // Start fresh on corrupt settings — safer than aborting install.
+  private async registerPreCompactHook(shimPath: string): Promise<boolean> {
+    return updateJsonConfigFile(claudeSettingsPath(), (settings) => {
+      const hooks = hookMap(settings);
+      if (hasCleoHook(hooks.PreCompact, 'precompact-safestop.sh')) {
+        return false;
       }
-    }
-
-    const hooks = (settings.hooks as Record<string, unknown[]> | undefined) ?? {};
-    const preCompactEntries = (hooks.PreCompact as unknown[] | undefined) ?? [];
-
-    const alreadyWired = preCompactEntries.some(
-      (entry) =>
-        typeof entry === 'object' &&
-        entry !== null &&
-        Array.isArray((entry as Record<string, unknown>).hooks) &&
-        ((entry as Record<string, unknown>).hooks as Array<Record<string, unknown>>).some(
-          (h) =>
-            typeof h.command === 'string' &&
-            (h.command as string).includes('# cleo-hook') &&
-            (h.command as string).includes('precompact-safestop.sh'),
-        ),
-    );
-
-    if (alreadyWired) {
-      return false;
-    }
-
-    preCompactEntries.push({
-      matcher: '',
-      hooks: [
-        {
-          type: 'command',
-          command: `"${shimPath}" # cleo-hook`,
-          timeout: 30,
-        },
-      ],
+      appendHookEntry(hooks, 'PreCompact', {
+        matcher: '',
+        hooks: [
+          {
+            type: 'command',
+            command: `"${shimPath}" # cleo-hook`,
+            timeout: 30,
+          },
+        ],
+      });
+      return true;
     });
-
-    hooks.PreCompact = preCompactEntries;
-    settings.hooks = hooks;
-
-    mkdirSync(claudeDir, { recursive: true });
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
-    return true;
   }
 }

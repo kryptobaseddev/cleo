@@ -15,6 +15,7 @@ import type { ConfigFormat, Provider, ProviderPriority } from '../../types.js';
 import { injectAll } from '../instructions/injector.js';
 import { groupByInstructFile } from '../instructions/templates.js';
 import { getInstalledProviders } from '../registry/detection.js';
+import { runSkillInstallGate } from '../skills/install-pipeline.js';
 import { installSkill, removeSkill } from '../skills/installer.js';
 
 type Scope = 'project' | 'global';
@@ -284,6 +285,18 @@ export async function installBatchWithRollback(
   const skillOps = options.skills ?? [];
   const baseProviders = options.providers ?? getInstalledProviders();
   const providers = selectProvidersByMinimumPriority(baseProviders, minimumPriority);
+
+  // T12384: every skill in the batch passes the fail-closed security gate
+  // before any of them is written, so a refused skill never triggers a
+  // partial apply and rollback.
+  for (const operation of skillOps) {
+    await runSkillInstallGate({
+      localPath: operation.sourcePath,
+      skillName: operation.skillName,
+      sourceValue: operation.sourcePath,
+      sourceType: 'local',
+    });
+  }
 
   const backupRoot = join(
     tmpdir(),

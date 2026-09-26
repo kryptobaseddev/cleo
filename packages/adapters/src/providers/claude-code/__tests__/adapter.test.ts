@@ -62,6 +62,7 @@ vi.mock('@cleocode/caamp', () => ({
     action: 'added',
     providerId: 'claude-code',
   }),
+  updateJsonConfigFile: vi.fn().mockResolvedValue(false),
 }));
 
 describe('ClaudeCodeAdapter', () => {

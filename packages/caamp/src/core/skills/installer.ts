@@ -11,9 +11,10 @@
  * @saga T9560
  */
 
-import { existsSync, lstatSync } from 'node:fs';
-import { cp, mkdir, rm, symlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { existsSync, lstatSync, readlinkSync } from 'node:fs';
+import { cp, mkdir, rename, rm, symlink } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { resolveSkillsRoot } from '@cleocode/core/skills/skill-root.js';
 import type { Provider } from '../../types.js';
 import { resolveProviderSkillsDirs } from '../paths/standard.js';
@@ -143,16 +144,180 @@ async function ensureCanonicalDir(): Promise<void> {
 }
 
 /**
+ * Whether anything — file, directory, or symlink (including a dangling one) —
+ * occupies `path`.
+ *
+ * @remarks
+ * `existsSync` follows symlinks, so a dangling link reports `false` even though
+ * a rename onto that path would still collide with it. `lstat` does not follow.
+ */
+function entryExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Build a hidden sibling path for a staging or set-aside entry.
+ *
+ * @remarks
+ * Siblings share the target's filesystem, which is what makes the final
+ * `rename(2)` atomic. The leading dot keeps them out of listings, and the
+ * random suffix keeps concurrent installs of the same skill apart.
+ */
+function siblingPath(targetPath: string, role: 'staging' | 'previous'): string {
+  const suffix = `${process.pid}-${randomBytes(4).toString('hex')}`;
+  return join(dirname(targetPath), `.${basename(targetPath)}.caamp-${role}-${suffix}`);
+}
+
+/** Rename error codes that mean another writer occupied the target first. */
+const TARGET_OCCUPIED_CODES: ReadonlySet<string> = new Set(['EEXIST', 'ENOTEMPTY', 'EISDIR']);
+
+/** Extract a Node errno code from a thrown value, or `''`. */
+function errnoCode(err: Error | string | object | null | undefined): string {
+  return err instanceof Error && 'code' in err ? String(err.code) : '';
+}
+
+/**
+ * Move a fully staged entry onto `targetPath` without ever deleting the entry
+ * it replaces before the replacement is in place.
+ *
+ * @remarks
+ * T12383. The previous installer ran `rm -rf <target>` and only then copied
+ * the new source; when the copy failed (for instance because the "source" was
+ * the unresolved string `library:<name>`) the installed skill was gone.
+ *
+ * The swap moves the current entry aside to a hidden sibling, renames the
+ * staged entry into place, then deletes the set-aside copy. If the second
+ * rename fails, the set-aside copy is renamed back, so a failure at any step
+ * leaves the original entry where it was. POSIX offers no portable atomic
+ * exchange of two directories, so the path is absent for the span of one
+ * `rename(2)` — but no step discards data that has not already been superseded
+ * on disk.
+ *
+ * When a concurrent installer occupies the path between the two renames, the
+ * swap retries a bounded number of times; the last writer wins, as before.
+ *
+ * @param stagedPath - A complete replacement, on the same filesystem as `targetPath`
+ * @param targetPath - The path to replace (need not exist)
+ * @throws The underlying filesystem error when the swap cannot complete; the
+ *   original entry is restored before the error propagates
+ *
+ * @example
+ * ```typescript
+ * const staged = await stageSkillCopy("/tmp/my-skill", target);
+ * await swapIntoPlace(staged, target);
+ * ```
+ *
+ * @public
+ */
+export async function swapIntoPlace(stagedPath: string, targetPath: string): Promise<void> {
+  const maxAttempts = 3;
+  for (let attempt = 1; ; attempt += 1) {
+    let previousPath: string | null = null;
+    if (entryExists(targetPath)) {
+      previousPath = siblingPath(targetPath, 'previous');
+      await rename(targetPath, previousPath);
+    }
+    try {
+      await rename(stagedPath, targetPath);
+    } catch (err) {
+      if (previousPath !== null) {
+        if (entryExists(targetPath)) {
+          // Another writer landed a complete entry after ours was set aside;
+          // theirs supersedes the copy we moved away.
+          await rm(previousPath, { recursive: true, force: true });
+        } else {
+          await rename(previousPath, targetPath);
+        }
+      }
+      const code = errnoCode(err instanceof Error ? err : null);
+      if (TARGET_OCCUPIED_CODES.has(code) && attempt < maxAttempts) continue;
+      throw err;
+    }
+    if (previousPath !== null) {
+      await rm(previousPath, { recursive: true, force: true });
+    }
+    return;
+  }
+}
+
+/**
+ * Copy `sourcePath` into a hidden staging sibling of `targetPath`.
+ *
+ * @remarks
+ * Nothing at `targetPath` is touched. If the copy fails the partial staging
+ * directory is removed and the error propagates.
+ *
+ * @param sourcePath - Directory to copy
+ * @param targetPath - Path the staged copy will later replace
+ * @returns Absolute path of the complete staged copy
+ * @throws The copy error (e.g. `ENOENT` when `sourcePath` does not exist)
+ *
+ * @example
+ * ```typescript
+ * const staged = await stageSkillCopy("/tmp/my-skill", "/home/u/.cleo/skills/my-skill");
+ * ```
+ *
+ * @public
+ */
+export async function stageSkillCopy(sourcePath: string, targetPath: string): Promise<string> {
+  await mkdir(dirname(targetPath), { recursive: true });
+  const stagedPath = siblingPath(targetPath, 'staging');
+  try {
+    await cp(sourcePath, stagedPath, { recursive: true, errorOnExist: true, force: false });
+  } catch (err) {
+    await rm(stagedPath, { recursive: true, force: true });
+    throw err;
+  }
+  return stagedPath;
+}
+
+/**
+ * Replace the directory at `targetPath` with a copy of `sourcePath`, staging
+ * the copy completely before anything existing is moved.
+ *
+ * @param sourcePath - Directory to copy
+ * @param targetPath - Directory to replace (need not exist)
+ * @throws When the copy or the swap fails; the existing directory is kept
+ *
+ * @example
+ * ```typescript
+ * await replaceDirectoryFromSource("/tmp/my-skill", "/home/u/.pi/agent/skills/my-skill");
+ * ```
+ *
+ * @public
+ */
+export async function replaceDirectoryFromSource(
+  sourcePath: string,
+  targetPath: string,
+): Promise<void> {
+  const stagedPath = await stageSkillCopy(sourcePath, targetPath);
+  try {
+    await swapIntoPlace(stagedPath, targetPath);
+  } catch (err) {
+    await rm(stagedPath, { recursive: true, force: true });
+    throw err;
+  }
+}
+
+/**
  * Copy skill files to the canonical location.
  *
  * @remarks
- * Removes any existing installation at the target directory before copying.
- * Handles race conditions where another concurrent install may create the
- * directory between removal and copy by retrying the operation.
+ * T12383: the new copy is staged in full beside the target and then swapped
+ * in (see {@link swapIntoPlace}). The existing installation is never removed
+ * before its replacement exists, so a failing source — a missing path, an
+ * unresolved `library:<name>` id, a copy error part-way through — leaves the
+ * installed skill exactly as it was.
  *
  * @param sourcePath - Absolute path to the source skill directory to copy
  * @param skillName - Name for the skill (used as the subdirectory name)
  * @returns Absolute path to the canonical installation directory
+ * @throws When the source cannot be copied; the existing copy is preserved
  *
  * @example
  * ```typescript
@@ -166,23 +331,17 @@ export async function installToCanonical(sourcePath: string, skillName: string):
   await ensureCanonicalDir();
 
   const targetDir = join(resolveSkillsRoot(), skillName);
-
-  // Remove existing (force: true ignores ENOENT if it doesn't exist)
-  await rm(targetDir, { recursive: true, force: true });
-
-  try {
-    await cp(sourcePath, targetDir, { recursive: true });
-  } catch (err: unknown) {
-    // Handle race condition: another concurrent install may have created the dir
-    if (err && typeof err === 'object' && 'code' in err && err.code === 'EEXIST') {
-      await rm(targetDir, { recursive: true, force: true });
-      await cp(sourcePath, targetDir, { recursive: true });
-    } else {
-      throw err;
-    }
-  }
-
+  await replaceDirectoryFromSource(sourcePath, targetDir);
   return targetDir;
+}
+
+/** Whether `linkPath` is already a symlink pointing at `canonicalPath`. */
+function isLinkTo(linkPath: string, canonicalPath: string): boolean {
+  try {
+    return lstatSync(linkPath).isSymbolicLink() && readlinkSync(linkPath) === canonicalPath;
+  } catch {
+    return false;
+  }
 }
 
 /** Create symlinks from an agent's skills directories to the canonical location */
@@ -210,24 +369,28 @@ async function linkToAgent(
       await mkdir(targetSkillsDir, { recursive: true });
 
       const linkPath = join(targetSkillsDir, skillName);
-
-      // Remove existing link/directory
-      if (existsSync(linkPath)) {
-        const stat = lstatSync(linkPath);
-        if (stat.isSymbolicLink()) {
-          await rm(linkPath);
-        } else {
-          await rm(linkPath, { recursive: true });
-        }
+      if (isLinkTo(linkPath, canonicalPath)) {
+        anySuccess = true;
+        continue;
       }
 
-      // Create symlink (junction on Windows for compat)
+      // T12383: stage the new link (or copy) beside the existing entry, then
+      // swap it in. The existing link or directory is discarded only once its
+      // replacement is in place. Junction on Windows for compat.
+      const stagedPath = siblingPath(linkPath, 'staging');
       const symlinkType = process.platform === 'win32' ? 'junction' : 'dir';
       try {
-        await symlink(canonicalPath, linkPath, symlinkType);
+        await symlink(canonicalPath, stagedPath, symlinkType);
       } catch {
         // Fallback to copy if symlinks not supported
-        await cp(canonicalPath, linkPath, { recursive: true });
+        await rm(stagedPath, { recursive: true, force: true });
+        await cp(canonicalPath, stagedPath, { recursive: true });
+      }
+      try {
+        await swapIntoPlace(stagedPath, linkPath);
+      } catch (err) {
+        await rm(stagedPath, { recursive: true, force: true });
+        throw err;
       }
 
       anySuccess = true;
@@ -462,5 +625,8 @@ export async function listCanonicalSkills(): Promise<string[]> {
 
   const { readdir } = await import('node:fs/promises');
   const entries = await readdir(resolveSkillsRoot(), { withFileTypes: true });
-  return entries.filter((e) => e.isDirectory() || e.isSymbolicLink()).map((e) => e.name);
+  // Hidden entries are in-flight staging/set-aside copies (T12383), not skills.
+  return entries
+    .filter((e) => (e.isDirectory() || e.isSymbolicLink()) && !e.name.startsWith('.'))
+    .map((e) => e.name);
 }
