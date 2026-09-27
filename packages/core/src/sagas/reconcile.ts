@@ -274,6 +274,52 @@ type SagaTypedValidator = (
 ) => Promise<OperationExecutionContext | undefined>;
 
 /**
+ * Build the typed-completion validator for ONE saga of a reconcile run.
+ *
+ * When the caller supplied an execution lifetime it is used as-is and never
+ * renewed. Otherwise the validator lazily owns a short-lived lifetime (2 s
+ * budget, mirroring `tasks/complete.ts`) that starts when THIS saga's typed
+ * check begins — not when the sweep was admitted — so a long multi-saga
+ * sweep cannot starve later typed sagas of budget or abort the whole run.
+ * `close()` releases the owned lifetime and must run once the saga settles.
+ */
+function createSagaTypedValidator(
+  projectRoot: string,
+  callerExecution: OperationExecutionContext | undefined,
+): { validate: SagaTypedValidator; close: () => void } {
+  let execution = callerExecution;
+  let ownedExecution: OperationExecutionContext | undefined;
+  const validate: SagaTypedValidator = async (task, criteriaSource, receiptSource) => {
+    execution?.assertActive();
+    const criteria = await criteriaSource.getAcRows(task.id);
+    if (
+      !(task.acceptance ?? []).some((item) => typeof item !== 'string') &&
+      !criteria.some((row) => row.kind === 'evidence_bound')
+    )
+      return execution;
+    if (!execution) {
+      const info = readProjectInfoAtDirectorySync(projectRoot, join(projectRoot, '.cleo'));
+      if (!info.projectId) throw new Error('Typed reconciliation requires stable project identity');
+      ownedExecution = createOperationExecutionContext(
+        {
+          projectId: info.projectId,
+          projectRoot,
+          actor: process.env.CLEO_AGENT_ID ?? 'cleo',
+          operation: 'tasks.saga.reconcile',
+          idempotencyKey: `${task.id}:${randomUUID()}`,
+        },
+        { budgetMs: 2000 },
+      );
+      execution = ownedExecution;
+    }
+    await validateTaskGateCompletion(task, criteria, { projectRoot, execution }, receiptSource);
+    execution.assertActive();
+    return execution;
+  };
+  return { validate, close: () => ownedExecution?.close() };
+}
+
+/**
  * Check that the saga and its membership still match what the lock-guarded
  * read path observed, so a closure is never written against drifted state.
  */
@@ -710,8 +756,9 @@ async function reconcileOneSaga(
  *
  * Typed validation runs under the caller's execution lifetime when one is
  * in scope; a cancelled or expired caller lifetime rejects the whole call
- * rather than being renewed. Without one, the verb owns a short-lived
- * lifetime (2 s budget from admission) for the run.
+ * rather than being renewed. Without one, each typed saga gets its own
+ * short-lived lifetime (2 s budget from the start of its typed check); an
+ * expired owned lifetime fails only that saga (`action: 'error'`).
  *
  * @param projectRoot - Absolute path to the project root.
  * @param params - Optional single-saga scope + dry-run flag.
@@ -726,104 +773,79 @@ export async function reconcileSaga(
   projectRoot: string,
   params: ReconcileSagaParams = {},
 ): Promise<EngineResult<ReconcileResult>> {
-  const admittedAt = Date.now();
   projectRoot = resolve(projectRoot);
   const inherited = captureProjectScope(projectRoot, worktreeScope.getStore());
-  let execution = inherited.execution;
-  let ownedExecution: OperationExecutionContext | undefined;
-  const validateTyped: SagaTypedValidator = async (task, criteriaSource, receiptSource) => {
-    execution?.assertActive();
-    const criteria = await criteriaSource.getAcRows(task.id);
-    if (
-      !(task.acceptance ?? []).some((item) => typeof item !== 'string') &&
-      !criteria.some((row) => row.kind === 'evidence_bound')
-    )
-      return execution;
-    if (!execution) {
-      const info = readProjectInfoAtDirectorySync(projectRoot, join(projectRoot, '.cleo'));
-      if (!info.projectId) throw new Error('Typed reconciliation requires stable project identity');
-      ownedExecution = createOperationExecutionContext(
-        {
-          projectId: info.projectId,
-          projectRoot,
-          actor: process.env.CLEO_AGENT_ID ?? 'cleo',
-          operation: 'tasks.saga.reconcile',
-          idempotencyKey: randomUUID(),
-        },
-        { deadlineAt: admittedAt + 2000 },
-      );
-      execution = ownedExecution;
+  const callerExecution = inherited.execution;
+  return worktreeScope.run(inherited, async () => {
+    const dryRun = params.dryRun === true;
+
+    // Resolve the saga set to inspect.
+    let sagaIds: string[];
+    if (params.sagaId && params.sagaId.length > 0) {
+      sagaIds = [params.sagaId];
+    } else {
+      // T10638: after type='saga' migration, only query the canonical shape.
+      const result = await taskList(projectRoot, { type: 'saga' });
+      if (!result.success) {
+        return engineError(
+          'E_GENERAL',
+          result.error?.message ?? 'Failed to list sagas for reconcile',
+        );
+      }
+      sagaIds = result.data?.tasks.map((t: { id: string }) => t.id) ?? [];
+      // Stable order so cron output is deterministic across runs.
+      sagaIds = sagaIds.sort((a, b) => a.localeCompare(b));
     }
-    await validateTaskGateCompletion(task, criteria, { projectRoot, execution }, receiptSource);
-    execution.assertActive();
-    return execution;
-  };
-  try {
-    return await worktreeScope.run(inherited, async () => {
-      const dryRun = params.dryRun === true;
 
-      // Resolve the saga set to inspect.
-      let sagaIds: string[];
-      if (params.sagaId && params.sagaId.length > 0) {
-        sagaIds = [params.sagaId];
-      } else {
-        // T10638: after type='saga' migration, only query the canonical shape.
-        const result = await taskList(projectRoot, { type: 'saga' });
-        if (!result.success) {
-          return engineError(
-            'E_GENERAL',
-            result.error?.message ?? 'Failed to list sagas for reconcile',
-          );
-        }
-        sagaIds = result.data?.tasks.map((t: { id: string }) => t.id) ?? [];
-        // Stable order so cron output is deterministic across runs.
-        sagaIds = sagaIds.sort((a, b) => a.localeCompare(b));
+    const entries: SagaReconcileEntry[] = [];
+    let closed = 0;
+    let noOp = 0;
+    let blocked = 0;
+    let pending = 0;
+    let errors = 0;
+
+    for (const sagaId of sagaIds) {
+      callerExecution?.assertActive();
+      const typed = createSagaTypedValidator(projectRoot, callerExecution);
+      let entry: SagaReconcileEntry;
+      try {
+        entry = await reconcileOneSaga(projectRoot, sagaId, dryRun, typed.validate);
+      } finally {
+        typed.close();
       }
-
-      const entries: SagaReconcileEntry[] = [];
-      let closed = 0;
-      let noOp = 0;
-      let blocked = 0;
-      let pending = 0;
-      let errors = 0;
-
-      for (const sagaId of sagaIds) {
-        execution?.assertActive();
-        const entry = await reconcileOneSaga(projectRoot, sagaId, dryRun, validateTyped);
-        execution?.assertActive();
-        entries.push(entry);
-        switch (entry.action) {
-          case 'close':
-            closed += 1;
-            break;
-          case 'no-op':
-            if (entry.pendingMembers.length > 0) {
-              pending += 1;
-            } else {
-              noOp += 1;
-            }
-            break;
-          case 'blocked':
-            blocked += 1;
-            break;
-          case 'error':
-            errors += 1;
-            break;
-        }
+      // Only the CALLER's lifetime can abort the sweep; a per-saga owned
+      // lifetime that expired has already surfaced as that saga's error.
+      callerExecution?.assertActive();
+      entries.push(entry);
+      switch (entry.action) {
+        case 'close':
+          closed += 1;
+          break;
+        case 'no-op':
+          if (entry.pendingMembers.length > 0) {
+            pending += 1;
+          } else {
+            noOp += 1;
+          }
+          break;
+        case 'blocked':
+          blocked += 1;
+          break;
+        case 'error':
+          errors += 1;
+          break;
       }
+    }
 
-      return engineSuccess({
-        total: entries.length,
-        closed,
-        noOp,
-        blocked,
-        pending,
-        errors,
-        dryRun,
-        entries,
-      });
+    return engineSuccess({
+      total: entries.length,
+      closed,
+      noOp,
+      blocked,
+      pending,
+      errors,
+      dryRun,
+      entries,
     });
-  } finally {
-    ownedExecution?.close();
-  }
+  });
 }

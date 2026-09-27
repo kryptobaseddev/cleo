@@ -522,6 +522,66 @@ describe('typed reconciliation authority', () => {
     expect(await accessor.queryAuditLog({ taskIds: ['T9000'] })).toEqual(receipts);
   });
 
+  it('gives each typed saga in a long sweep its own lifetime instead of aborting the run', async () => {
+    await typedSaga();
+    expect(
+      (
+        await validateGateVerify(TEST_ROOT, {
+          taskId: 'T9000',
+          gate: 'cleanupDone',
+          evidence: 'note:typed saga in a long sweep',
+        })
+      ).success,
+    ).toBe(true);
+    // A second, untyped saga sorted AFTER the typed one.
+    await createTask(
+      {
+        id: 'T9100',
+        title: 'Saga 2',
+        type: 'saga',
+        status: 'active',
+        priority: 'high',
+        createdAt: '2026-05-22T00:00:00Z',
+        updatedAt: null,
+      } as Parameters<typeof createTask>[0],
+      TEST_ROOT,
+    );
+    await createTask(
+      {
+        id: 'T9101',
+        title: 'Done Epic',
+        type: 'epic',
+        parentId: 'T9100',
+        status: 'done',
+        priority: 'medium',
+        createdAt: '2026-05-22T00:00:00Z',
+        updatedAt: null,
+      } as Parameters<typeof createTask>[0],
+      TEST_ROOT,
+    );
+    // Simulate a sweep that reaches its typed saga more than 2 s after the
+    // run was admitted: the first clock read happens "early", every later
+    // read is 3 s on.
+    const realNow = Date.now.bind(Date);
+    let first = true;
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      if (first) {
+        first = false;
+        return realNow();
+      }
+      return realNow() + 3000;
+    });
+    try {
+      const result = await reconcileSaga(TEST_ROOT);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.errors).toBe(0);
+      expect(result.data.closed).toBe(2);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it.each([
     'cancelled',
     'expired',
