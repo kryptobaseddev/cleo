@@ -13,6 +13,7 @@ import { closeDb, getNativeTasksDb } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
 import { buildFreshAcRows } from '../ac-table.js';
+import { previewTaskGates } from '../gate-preview.js';
 import { parseGateJson, reqAdd, reqList, reqMigrate } from '../req.js';
 
 function gate(req = 'PARTNER-121'): AcceptanceGate {
@@ -393,6 +394,69 @@ describe('typed requirement persistence', () => {
       ),
     ).toHaveLength(2);
   });
+  // T12516: agentmbx's `npm test` gate (~25 s) failed every `cleo verify` with
+  // "Shared operation deadline reached" at ~2 s. A ~3 s fake harness and a gate
+  // WITHOUT `timeoutMs` reproduce it: the default must be the ADR-061 tool
+  // deadline, and the 2 s shared budget must only cover the bookkeeping.
+  async function slowGateFixture(): Promise<void> {
+    await verificationFixture('verified.mjs', 'process.exit(0);');
+    await writeFile(
+      join(root, 'slow-suite.mjs'),
+      'await new Promise((resolve) => setTimeout(resolve, 3000)); process.exit(0);',
+    );
+    await reqAdd(
+      root,
+      'T121',
+      {
+        kind: 'test',
+        command: process.execPath,
+        args: ['slow-suite.mjs'],
+        expect: 'exit0',
+        req: 'SLOW-121',
+        description: 'Suite slower than the shared 2 s budget',
+      },
+      accessor,
+    );
+  }
+
+  it('canonical verify runs a typed gate slower than 2 s under the tool deadline (T12516)', async () => {
+    await slowGateFixture();
+    const started = Date.now();
+    const result = await validateGateVerify(root, {
+      taskId: 'T121',
+      gate: 'cleanupDone',
+      value: true,
+      agent: 'implementer',
+      evidence: 'note:explicit synthetic verification',
+    });
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(3000);
+    if (!result.success) throw new Error(result.error.message);
+    expect(result.data.passed).toBe(true);
+    const gateResults = (await accessor.loadSingleTask('T121'))?.verification?.gateResults ?? [];
+    expect(gateResults.map((entry) => [entry.req, entry.result])).toEqual([
+      ['VERIFY-121', 'pass'],
+      ['SLOW-121', 'pass'],
+    ]);
+    expect(
+      JSON.parse(
+        persisted(root, "SELECT id FROM tasks_audit_log WHERE action='gate.verify.typed'"),
+      ),
+    ).toHaveLength(1);
+  }, 30_000);
+
+  it('verify --run previews a typed gate slower than 2 s without persisting (T12516)', async () => {
+    await slowGateFixture();
+    const before = persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks');
+    const preview = await previewTaskGates(root, { taskId: 'T121' });
+    expect(preview.results.map((entry) => [entry.req, entry.result])).toEqual([
+      ['VERIFY-121', 'pass'],
+      ['SLOW-121', 'pass'],
+    ]);
+    expect(preview.passed).toBe(true);
+    expect(persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks')).toBe(before);
+  }, 30_000);
+
   it('canonical verify retains the admitted deadline instead of renewing the long gate timeout', async () => {
     await verificationFixture(
       'slow.mjs',
