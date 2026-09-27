@@ -38,6 +38,7 @@ import {
   VIEWER_DEFAULT_HOST,
   VIEWER_DEFAULT_PORT,
 } from '../docs-viewer-subsystem.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
@@ -106,7 +107,7 @@ const serveCommand = defineCommand({
     const startPort = Number.parseInt(String(args.port), 10);
     const endPort = Number.parseInt(String(args['end-port']), 10);
     const host = String(args.host);
-    const noAutoPort = Boolean(args['no-auto-port']);
+    const noAutoPort = negatedFlag(args, 'auto-port');
 
     if (!Number.isFinite(startPort) || startPort < 1 || startPort > 65535) {
       cliError(`invalid --port: ${args.port}`, ExitCode.VALIDATION_ERROR, { name: 'E_VALIDATION' });
@@ -220,7 +221,7 @@ const openCommand = defineCommand({
       ? `http://${status.host}:${status.port}/docs/${encodeURIComponent(slug)}`
       : `http://${status.host}:${status.port}/`;
 
-    if (!args['no-launch']) {
+    if (!negatedFlag(args, 'launch')) {
       openInBrowser(url);
     }
 

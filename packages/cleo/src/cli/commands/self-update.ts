@@ -34,6 +34,7 @@ import {
   runUpgrade,
 } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { createSelfUpdateProgress } from '../progress.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
@@ -185,7 +186,7 @@ export const selfUpdateCommand = defineCommand({
     const progress = createSelfUpdateProgress(isHuman);
 
     try {
-      const noAutoUpgrade = args['no-auto-upgrade'] === true;
+      const noAutoUpgrade = negatedFlag(args, 'auto-upgrade');
 
       const checkProjects = args['check-projects'] !== false;
 

@@ -29,6 +29,7 @@ import {
   type ProjectHealthStatus,
 } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliOutput, humanLine } from '../renderers/index.js';
 
 /** Options understood by {@link runDoctorProjects}. */
@@ -224,7 +225,7 @@ export const doctorProjectsCommand = defineCommand({
       ignoreUnreachable: args['ignore-unreachable'] === true,
       parallelism:
         typeof parallelism === 'number' && Number.isFinite(parallelism) ? parallelism : undefined,
-      noUpdateRegistry: args['no-update-registry'] === true,
+      noUpdateRegistry: negatedFlag(args, 'update-registry'),
       skipGlobal: args['skip-global'] === true,
     });
   },

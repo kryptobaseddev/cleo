@@ -31,6 +31,7 @@ import type { DbSubstrateAuditResult, DbSubstrateSurveyOptions } from '@cleocode
 import { getProjectRoot, pushWarning } from '@cleocode/core';
 import { surveyDbSubstrate, surveyFleetDbSubstrate } from '@cleocode/core/doctor/db-substrate.js';
 import { defineCommand } from '../lib/define-cli-command.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**
@@ -227,7 +228,7 @@ export const doctorDbSubstrateCommand = defineCommand({
     }
     const options: DbSubstrateSurveyOptions = {
       ...(parsedTimeoutMs !== undefined ? { integrityCheckTimeoutMs: parsedTimeoutMs } : {}),
-      autoQuarantine: args['no-quarantine'] !== true,
+      autoQuarantine: !negatedFlag(args, 'quarantine'),
     };
 
     const result: DbSubstrateAuditResult = isFleet
