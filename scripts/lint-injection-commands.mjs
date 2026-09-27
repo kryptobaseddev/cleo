@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Lint rule: every `cleo …` command named in CLEO-INJECTION.md must exist.
  *
@@ -37,6 +38,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isMain } from './lib/is-main.mjs';
 
 const REPO_ROOT = process.cwd();
 const TEMPLATE = join(REPO_ROOT, 'packages/core/templates/CLEO-INJECTION.md');
@@ -868,8 +870,7 @@ export function findFlagViolations(text, checker, skipComment) {
   return out;
 }
 
-const isMain = import.meta.url === `file://${process.argv[1]}`;
-if (isMain) {
+if (isMain(import.meta.url)) {
   const asJson = process.argv.includes('--json');
   const markdown = readFileSync(TEMPLATE, 'utf-8');
   const neededSubs = new Set(

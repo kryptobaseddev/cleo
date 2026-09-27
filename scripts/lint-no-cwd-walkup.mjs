@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * lint-no-cwd-walkup.mjs — CI gate: ban getCleoDirAbsolute outside the
  * deprecated shim (paths.ts) and reject manual CWD-walk-up patterns that
@@ -54,6 +55,7 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, relative, resolve, sep } from 'node:path';
+import { isMain } from './lib/is-main.mjs';
 
 // ============================================================================
 // CLI args
@@ -305,10 +307,7 @@ function buildCounts() {
 // CLI bootstrap guard
 // ============================================================================
 
-const invokedDirectly =
-  typeof process !== 'undefined' &&
-  process.argv[1] &&
-  import.meta.url === `file://${process.argv[1]}`;
+const invokedDirectly = isMain(import.meta.url);
 
 // Only run mode handlers when invoked directly (not imported by tests).
 if (!invokedDirectly && process.env['VITEST'] === 'true') {
