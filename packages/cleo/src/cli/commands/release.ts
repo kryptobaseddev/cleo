@@ -38,6 +38,7 @@
 import { release } from '@cleocode/core';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { defineCommand, showUsage } from '../lib/define-cli-command.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 import { shipE2eSmokeCommand } from './release/ship-e2e-smoke.js';
 
@@ -410,7 +411,7 @@ const planCommand = defineCommand({
         channel: args.channel as string | undefined,
         hotfix: args.hotfix === true,
         dryRun: args['dry-run'] === true,
-        writeChangelog: args['no-changelog'] !== true,
+        writeChangelog: !negatedFlag(args, 'changelog'),
       },
       { command: 'release' },
     );

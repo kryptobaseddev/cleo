@@ -35,6 +35,7 @@
 import { resolve } from 'node:path';
 import { CleoError, diagnoseUpgrade, runUpgrade, upgradeWorkflows } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { createUpgradeProgress } from '../progress.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 import { getWorkflowTemplatesDir } from './init.js';
@@ -231,7 +232,7 @@ export const upgradeCommand = defineCommand({
 
       const isDryRun = !!args['dry-run'] || !!args.status;
       const includeGlobal = !!args['include-global'];
-      const autoMigrate = args['no-auto-migrate'] !== true;
+      const autoMigrate = !negatedFlag(args, 'auto-migrate');
       const forceDetect = !!args.detect;
       const mapCodebase = !!args['map-codebase'];
       const projectName = args.name as string | undefined;

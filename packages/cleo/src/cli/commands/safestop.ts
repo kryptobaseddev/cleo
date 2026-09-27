@@ -9,6 +9,7 @@
 
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 
 /**
  * cleo safestop — graceful shutdown for agents approaching context limits.
@@ -60,7 +61,7 @@ export const safestopCommand = defineCommand({
         reason: args.reason,
         commit: args.commit,
         handoff: args.handoff as string | undefined,
-        noSessionEnd: args['no-session-end'],
+        noSessionEnd: negatedFlag(args, 'session-end'),
         dryRun: args['dry-run'],
       },
       { command: 'safestop', operation: 'admin.safestop' },

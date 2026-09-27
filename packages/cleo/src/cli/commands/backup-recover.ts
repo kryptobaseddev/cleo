@@ -29,6 +29,7 @@ import { DB_INVENTORY, type DbRole, ExitCode } from '@cleocode/contracts';
 import { getLogger, getProjectRoot } from '@cleocode/core';
 import { BackupRecoverError, runBackupRecover } from '@cleocode/core/store/backup-recover.js';
 import { defineCommand } from '../lib/define-cli-command.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
@@ -62,7 +63,7 @@ function executeRecover(role: DbRole, args: Record<string, unknown>): void {
   const projectRoot = getProjectRoot();
   const dryRun = readBoolFlag(args, 'dry-run');
   const fromSnapshot = readStringFlag(args, 'from-snapshot');
-  const noDelta = readBoolFlag(args, 'no-delta');
+  const noDelta = negatedFlag(args, 'delta');
   const operation = `backup.recover.${role}`;
 
   try {

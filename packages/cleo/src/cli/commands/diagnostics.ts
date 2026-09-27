@@ -13,6 +13,7 @@
 
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 
 /** cleo diagnostics enable — opt in to anonymous command telemetry */
 const enableCommand = defineCommand({
@@ -69,7 +70,7 @@ const analyzeCommand = defineCommand({
       'analyze',
       {
         days: args.days !== undefined ? Number.parseInt(args.days, 10) : 30,
-        noBrain: args['no-brain'],
+        noBrain: negatedFlag(args, 'brain'),
       },
       { command: 'diagnostics' },
     );

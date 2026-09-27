@@ -57,6 +57,7 @@ import {
   markSkillPatchRejected,
 } from '@cleocode/core/store/skills-store.js';
 import { defineCommand } from 'citty';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -397,7 +398,7 @@ const proposeAcceptSub = defineCommand({
     const jsonMode = args.json === true;
     const id = args.id as string;
     const forceExecute = args.execute === true;
-    const skipExecute = args['no-execute'] === true;
+    const skipExecute = negatedFlag(args, 'execute');
 
     try {
       const { getDb } = await import('@cleocode/core/store/sqlite.js');
