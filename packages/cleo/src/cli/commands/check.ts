@@ -700,6 +700,18 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-no-committed-native-binaries.mjs',
         description: 'No native .node/.wasm binary is committed (built by CI, staged at release)',
       },
+      {
+        // T12455 (salvaged from T12138 / gh#1207): SCOPE differs from gate 19
+        // deliberately. Gate 19 ratchets a repo-wide count (may fall, never
+        // rise); this permits ZERO across the modules reachable from the CLI
+        // entrypoint's static import graph, because those are paid on EVERY
+        // invocation including `cleo --version` — one import was 87% of CLI
+        // startup. Neither subsumes the other; the filenames carry the split.
+        id: 'gate-25',
+        task: 'T12455',
+        script: 'scripts/lint-cli-startup-barrel-entrypoint.mjs',
+        description: 'No module reachable from the CLI entrypoint statically imports a core barrel',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

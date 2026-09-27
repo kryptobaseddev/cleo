@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CLI Startup Barrel Guard (T12138 · gh#1207)
+ * CLI Startup Barrel Guard — ENTRYPOINT GRAPH scope (T12138 · gh#1207)
  *
  * `packages/cleo/src/cli/index.ts` runs on EVERY invocation — `cleo --version`
  * and `cleo --help` included. Anything it statically imports, and anything
@@ -25,6 +25,29 @@
  *
  * Per-line opt-out: `// startup-barrel-allowed: <reason>`.
  *
+ * ## Not a duplicate of gate 19 — a different scope
+ *
+ * `scripts/lint-cli-startup-barrel-imports.mjs` (gate 19 · T12076) enforces the
+ * same invariant with a different measurement, and the two are complementary
+ * rather than redundant:
+ *
+ *   - gate 19 counts static core-barrel imports ANYWHERE in the CLI package and
+ *     RATCHETS (currently 106; may fall, never rise). Broad, tolerant, and it
+ *     shrinks over time.
+ *   - this gate walks only the modules REACHABLE from the entrypoint's static
+ *     import graph (18 as of 2026-09-26) and permits ZERO. Narrow and absolute.
+ *
+ * Neither subsumes the other. A barrel import in a lazily-loaded command is a
+ * gate-19 concern and correctly invisible here — it costs nothing until that
+ * command runs. A barrel import reachable from `cli/index.ts` is paid on EVERY
+ * invocation including `cleo --version`, which is why zero is the only
+ * defensible number for this set and a ratchet would be too weak.
+ *
+ * The filenames must keep saying which is which: two gates for one invariant is
+ * only duplication when they measure the same thing, but two scopes with
+ * indistinguishable names is a real defect — hence `-entrypoint` rather than the
+ * original bare `lint-cli-startup-barrel.mjs`.
+ *
  * @task T12138 (gh#1207)
  */
 
@@ -46,8 +69,15 @@ const FORBIDDEN = [
 
 const OPT_OUT = 'startup-barrel-allowed';
 
-/** Static `import ... from '<spec>'` (not `await import(...)`). */
-const STATIC_IMPORT = /^\s*import\s+(?:type\s+)?[^;]*?from\s+['"]([^'"]+)['"]/;
+/**
+ * Static `import ... from '<spec>'`, bare `import '<spec>'`, and
+ * `export ... from '<spec>'` re-exports (not `await import(...)`). Matched over
+ * the WHOLE file, not per line: biome wraps long named-import lists across
+ * lines, and a per-line match never sees the `} from '<spec>'` tail — so a
+ * wrapped barrel import (or a wrapped local edge) would be invisible.
+ */
+const STATIC_IMPORT =
+  /^[ \t]*(?:import|export)\s+(?:type\s+)?(?:[^;'"]*?\sfrom\s+)?['"]([^'"]+)['"]/gm;
 
 function resolveLocal(fromFile, spec) {
   if (!spec.startsWith('.')) return null;
@@ -65,37 +95,40 @@ function walk(file, chain) {
   if (seen.has(file)) return;
   seen.add(file);
   if (!file.startsWith(CLI_ROOT)) return; // only follow CLI-local modules
-  const lines = readFileSync(file, 'utf-8').split('\n');
-  lines.forEach((line, i) => {
-    const m = STATIC_IMPORT.exec(line);
-    if (!m) return;
+  const text = readFileSync(file, 'utf-8');
+  const lines = text.split('\n');
+  for (const m of text.matchAll(STATIC_IMPORT)) {
     const spec = m[1];
     if (FORBIDDEN.includes(spec)) {
-      if (line.includes(OPT_OUT)) return;
+      // Report (and honour the opt-out on) the line carrying the specifier —
+      // the `} from '<spec>'` tail of a wrapped import.
+      const specIndex = m.index + m[0].lastIndexOf(spec);
+      const lineNo = text.slice(0, specIndex).split('\n').length;
+      if (lines[lineNo - 1].includes(OPT_OUT)) continue;
       violations.push({
         file: file.slice(REPO_ROOT.length + 1),
-        line: i + 1,
+        line: lineNo,
         spec,
         chain: [...chain, file.slice(REPO_ROOT.length + 1)],
       });
-      return;
+      continue;
     }
     const local = resolveLocal(file, spec);
     if (local) walk(local, [...chain, file.slice(REPO_ROOT.length + 1)]);
-  });
+  }
 }
 
 walk(ENTRY, []);
 
 if (violations.length === 0) {
   console.log(
-    `lint-cli-startup-barrel: OK — CLI entrypoint graph (${seen.size} modules) imports no CORE barrel.`,
+    `lint-cli-startup-barrel-entrypoint: OK — CLI entrypoint graph (${seen.size} modules) imports no CORE barrel.`,
   );
   process.exit(0);
 }
 
 console.error(
-  `lint-cli-startup-barrel: FAIL — ${violations.length} CORE barrel import(s) in the CLI startup graph:\n`,
+  `lint-cli-startup-barrel-entrypoint: FAIL — ${violations.length} CORE barrel import(s) in the CLI startup graph:\n`,
 );
 for (const v of violations) {
   console.error(`  ${v.file}:${v.line}  imports '${v.spec}'`);
