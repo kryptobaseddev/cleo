@@ -38,6 +38,12 @@ export enum ExitCode {
   CHECKSUM_MISMATCH = 20,
   CONCURRENT_MODIFICATION = 21,
   ID_COLLISION = 22,
+  /**
+   * Optimistic-concurrency version mismatch: the caller's expected task
+   * version (`updatedAt`) no longer matches the stored row. LAFS code
+   * `E_CONFLICT`; the error details carry the current version. @task T12503
+   */
+  VERSION_CONFLICT = 23,
 
   // === SESSION ERRORS (30-39) ===
   SESSION_EXISTS = 30,

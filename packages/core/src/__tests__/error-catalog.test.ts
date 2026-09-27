@@ -48,8 +48,15 @@ describe('error-catalog', () => {
       }
     });
 
-    it('every entry has a LAFS code starting with E_CLEO_', () => {
+    it('every entry has a LAFS code starting with E_CLEO_ (except the named E_CONFLICT)', () => {
+      // T12503: the optimistic-concurrency conflict is the one deliberately
+      // un-namespaced code — its contract (task T12503, epic T12497) names it
+      // `E_CONFLICT`. Any other entry must keep the E_CLEO_ prefix.
       for (const entry of ERROR_CATALOG.values()) {
+        if (entry.code === ExitCode.VERSION_CONFLICT) {
+          expect(entry.lafsCode).toBe('E_CONFLICT');
+          continue;
+        }
         expect(entry.lafsCode).toMatch(/^E_CLEO_/);
       }
     });

@@ -29,6 +29,7 @@ import type {
   TaskAuditLogRow,
   TaskFieldUpdates,
   TaskQueryFilters,
+  TaskWriteGuard,
   TelemetryAccessor,
   TransactionAccessor,
 } from '@cleocode/contracts';
@@ -328,8 +329,12 @@ export class UmbrellaDataAccessor implements DataAccessor {
     return (await this.tasks()).loadTasks(taskIds);
   }
 
-  async updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void> {
-    return (await this.tasks()).updateTaskFields(taskId, fields);
+  async updateTaskFields(
+    taskId: string,
+    fields: TaskFieldUpdates,
+    guard?: TaskWriteGuard,
+  ): Promise<void> {
+    return (await this.tasks()).updateTaskFields(taskId, fields, guard);
   }
 
   async getNextPosition(parentId: string | null): Promise<number> {
