@@ -27,7 +27,6 @@
  * @see ADR-055 — worktree-by-default
  */
 
-import { spawnSync } from 'node:child_process';
 import {
   closeSync,
   existsSync,
@@ -41,6 +40,7 @@ import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
+import { listRegisteredWorktrees } from '@cleocode/worktree';
 
 /** File name of the consolidated project store. */
 const PROJECT_STORE_FILENAME = 'cleo.db';
@@ -169,25 +169,16 @@ function canonicalPath(p: string): string {
 }
 
 /**
- * List linked worktrees of `projectRoot` via `git worktree list --porcelain`.
+ * List linked worktrees of `projectRoot` through the `@cleocode/worktree` registry reader.
  *
  * @param projectRoot - Main repository root.
  * @returns Absolute worktree paths, excluding the main checkout itself.
  */
 function listGitLinkedWorktrees(projectRoot: string): string[] {
-  const result = spawnSync('git', ['-C', projectRoot, 'worktree', 'list', '--porcelain'], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  if (result.status !== 0 || !result.stdout) return [];
   const main = canonicalPath(projectRoot);
-  const paths: string[] = [];
-  for (const line of result.stdout.split('\n')) {
-    if (!line.startsWith('worktree ')) continue;
-    const p = canonicalPath(line.slice('worktree '.length).trim());
-    if (p !== main) paths.push(p);
-  }
-  return paths;
+  return listRegisteredWorktrees(projectRoot)
+    .map((wt) => canonicalPath(wt.path))
+    .filter((p) => p !== main);
 }
 
 /**
