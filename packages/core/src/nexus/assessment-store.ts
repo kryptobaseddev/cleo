@@ -26,10 +26,12 @@
  * @module nexus/assessment-store
  */
 
+import { isAbsolute } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import type { GraphIndexAssessment, GraphIndexReferenceReport } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { encodeStoredAssessment } from './stored-roots.js';
 
 /** `_nexus_meta` key of the assessment summary. */
 export const ASSESSMENT_KEY = 'graph_assessment';
@@ -102,16 +104,20 @@ export function assessmentSummary(assessment: GraphIndexAssessment): GraphIndexA
  *   the stored list of that same generation.
  * - An assessment with neither removes any stale list.
  *
+ * Root paths are stored relative to the recorded project root (T12474); read
+ * them back through `readKnowledgeIndexAssessment`, which resolves them
+ * against the live project root.
+ *
  * @param tx - Graph database handle or open transaction.
- * @param assessment - Assessment to persist.
- * @returns The summary as written.
+ * @param assessment - Assessment to persist, with absolute in-memory paths.
+ * @returns The summary written, in its in-memory (absolute-path) form.
  */
 export function writeAssessment(
   tx: Pick<NodeSQLiteDatabase, 'run'>,
   assessment: GraphIndexAssessment,
 ): GraphIndexAssessment {
   const summary = assessmentSummary(assessment);
-  tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${ASSESSMENT_KEY}, ${JSON.stringify(summary)})
+  tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${ASSESSMENT_KEY}, ${JSON.stringify(encodeStoredAssessment(summary))})
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
   if (assessment.references !== undefined) {
     tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${ASSESSMENT_REFERENCES_KEY}, ${encodeStoredReferences(assessment.references)})
@@ -120,4 +126,19 @@ export function writeAssessment(
     tx.run(sql`DELETE FROM main._nexus_meta WHERE key = ${ASSESSMENT_REFERENCES_KEY}`);
   }
   return summary;
+}
+
+/**
+ * Whether the stored assessment still holds absolute root paths — the form
+ * written before T12474. Extracts only the two root fields.
+ *
+ * @param db - Graph database handle.
+ * @returns `true` when a legacy absolute record should be rewritten portably.
+ */
+export function storedAssessmentHasAbsoluteRoots(db: Pick<NodeSQLiteDatabase, 'values'>): boolean {
+  const row = db.values(
+    sql`SELECT json_extract(value, '$.sourceRoot'), json_extract(value, '$.sourceRoots.projectRoot')
+      FROM main._nexus_meta WHERE key = ${ASSESSMENT_KEY}`,
+  )[0];
+  return (row ?? []).some((path) => typeof path === 'string' && isAbsolute(path));
 }
