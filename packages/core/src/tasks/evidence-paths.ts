@@ -133,8 +133,8 @@ export function rebaseLegacyEvidencePath(
  *
  * Read from the device-local path map (`nexus_project_paths`) by the
  * project's portable id. Best-effort: a project without a valid
- * `.cleo/project-id`, or a registry that cannot be opened, yields `[]` and
- * rebasing falls back to tail matching.
+ * `.cleo/project-id`, or a registry that cannot be opened, yields `[]`, and
+ * no rebase happens (there is no tail-matching fallback).
  *
  * @param storeRoot - The CLEO project root.
  * @returns Absolute checkout roots of this project other than `storeRoot`.

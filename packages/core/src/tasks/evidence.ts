@@ -1305,6 +1305,14 @@ async function gitShowFileContent(
   const norm = relPath.replace(/^\.\//, '');
 
   // Try task/<taskId> first, then main, then master, then HEAD.
+  //
+  // Ref order is unchanged since T11959 and is identical at verify and at
+  // re-validation. This fallback runs only when the file is absent from disk,
+  // so it answers "does the branch the work was verified on still carry these
+  // bytes?". A tamper committed to main while task/<id> stays pristine is NOT
+  // detected here: that is a change to a different ref, and it surfaces on
+  // disk (checked first) wherever main is checked out. API callers passing a
+  // taskId get this order; `cleo complete` passes none.
   const refs = [`task/${taskId}`, 'main', 'master', 'HEAD'];
   for (const ref of refs) {
     const r = await runCommand('git', ['show', `${ref}:${norm}`], projectRoot);
@@ -1465,7 +1473,9 @@ async function validateFiles(
     // T12476: `path` stays exactly as supplied (consumers match it against
     // repo-relative PR paths). When the bytes came from disk, the absolute
     // file that was hashed is recorded too, so re-validation reads THAT file
-    // whatever directory `cleo complete` runs from.
+    // whatever directory `cleo complete` runs from. `resolvedPath` is a
+    // DEVICE-LOCAL hint (an absolute path on this device) and is never
+    // authoritative across devices; re-validation falls back when it is gone.
     files.push(readFromDisk ? { path: p, sha256, resolvedPath: abs } : { path: p, sha256 });
   }
   return { ok: true, atom: { kind: 'files', files } };
@@ -1699,7 +1709,8 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
     atom: {
       kind: 'test-run',
       // T12476: `path` exactly as supplied; `resolvedPath` is the report that
-      // was hashed, which re-validation reads regardless of cwd.
+      // was hashed, which re-validation reads regardless of cwd. DEVICE-LOCAL:
+      // an absolute path on this device, never authoritative cross-device.
       path,
       resolvedPath: abs,
       sha256,
@@ -2693,6 +2704,35 @@ export function isHardAtom(atom: EvidenceAtom): boolean {
 }
 
 /**
+ * The on-disk file re-validation should hash for a `files:` / `test-run:`
+ * entry.
+ *
+ * 1. `resolvedPath`, when it still exists. It pins the file attested at verify
+ *    time, independent of the completing process's cwd.
+ * 2. The first candidate that is gone (`resolvedPath`, else `mainResolution`),
+ *    rebased through a vanished, recorded checkout root of this project.
+ * 3. `mainResolution`: how the atom resolved before T12476. It covers a
+ *    verified worktree that was removed after merge.
+ *
+ * This only chooses bytes; the caller's sha256 comparison is the verdict.
+ *
+ * @internal
+ * @task T12476
+ */
+async function resolveAttestedPath(
+  resolvedPath: string | undefined,
+  mainResolution: string,
+  executionRoot: string,
+  storeRoot: string,
+): Promise<string> {
+  if (resolvedPath !== undefined && existsSync(resolvedPath)) return resolvedPath;
+  const pinned = resolvedPath ?? mainResolution;
+  const rebased = await rebaseForRevalidation(pinned, executionRoot, storeRoot);
+  if (rebased !== null) return rebased;
+  return mainResolution;
+}
+
+/**
  * Rebase a legacy absolute evidence path whose checkout moved onto the live
  * root. Returns the absolute rebased path, or `null` when the path is
  * relative, still exists, or cannot be mapped safely (see
@@ -2864,19 +2904,22 @@ export async function revalidateEvidence(
           siblingCommitSha === undefined ? {} : { commitSha: siblingCommitSha },
         );
         for (const f of atom.files) {
-          // T12476: a legacy absolute path whose checkout moved is rebased onto
-          // the live root. Rebasing only picks which bytes to hash — the sha256
-          // comparison below still decides, so tamper detection is unchanged.
-          // T12476: read the file that was hashed at verify time. `resolvedPath`
-          // pins it regardless of cwd; a legacy atom without one falls back to
-          // main's resolution. An absolute path that is gone is rebased only
-          // through a vanished recorded root of this project — the sha256
-          // comparison below still decides.
-          let abs =
-            f.resolvedPath ?? (isAbsolute(f.path) ? f.path : resolvePath(executionRoot, f.path));
-          if (!existsSync(abs)) {
-            abs = (await rebaseForRevalidation(abs, executionRoot, projectRoot)) ?? abs;
-          }
+          // T12476: read the file hashed at verify time, in this order:
+          //   1. `resolvedPath` — pins the attested file regardless of cwd;
+          //   2. that path rebased through a vanished recorded project root;
+          //   3. main's resolution of `path` (execution root). This covers the
+          //      ADR-055 lifecycle — verify in a worktree, remove it after
+          //      merge, complete from main — where the pinned file is gone but
+          //      the merged copy is present.
+          // Every step only chooses which bytes to hash; the sha256 comparison
+          // below decides, so none of them can pass a modified file.
+          const mainResolution = isAbsolute(f.path) ? f.path : resolvePath(executionRoot, f.path);
+          const abs = await resolveAttestedPath(
+            f.resolvedPath,
+            mainResolution,
+            executionRoot,
+            projectRoot,
+          );
           let content: Buffer | null = null;
 
           if (siblingCommitSha) {
@@ -2922,20 +2965,15 @@ export async function revalidateEvidence(
         // Deliberately NOT cached (T12102): same reasoning as files: — the
         // content hash comparison IS the staleness guarantee.
         const startedAt = Date.now();
-        // T12476: read the report that was hashed (`resolvedPath`, cwd-free);
-        // a legacy atom falls back to main's store-root resolution. A gone
-        // absolute path is rebased only through a vanished recorded root.
-        let abs =
-          atom.resolvedPath ??
-          (isAbsolute(atom.path) ? atom.path : resolvePath(projectRoot, atom.path));
-        if (!existsSync(abs)) {
-          abs =
-            (await rebaseForRevalidation(
-              abs,
-              resolveEvidenceExecutionRoot(projectRoot),
-              projectRoot,
-            )) ?? abs;
-        }
+        // T12476: same order as `files:` — pinned `resolvedPath`, then a
+        // rebase through a vanished recorded root, then main's store-root
+        // resolution of `path`. The sha256 comparison below decides.
+        const abs = await resolveAttestedPath(
+          atom.resolvedPath,
+          isAbsolute(atom.path) ? atom.path : resolvePath(projectRoot, atom.path),
+          resolveEvidenceExecutionRoot(projectRoot),
+          projectRoot,
+        );
         if (!existsSync(abs)) {
           failed.push({ atom, reason: `test-run file removed since verify: ${atom.path}` });
           options?.onProgress?.(`test-run:${atom.path} FAILED ${Date.now() - startedAt}ms`);

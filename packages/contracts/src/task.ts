@@ -220,6 +220,12 @@ export type EvidenceAtom =
          * re-resolved against the completing process's tree and could hash a
          * different copy. Absent when the bytes came from git, and on atoms
          * recorded before T12476.
+         *
+         * DEVICE-LOCAL: an absolute path on the device that ran `cleo verify`.
+         * It MUST NOT be synced or interpreted cross-device; it identifies a
+         * project by path, not by `project_id` (ADR-094). Another device must
+         * treat it as absent: re-validation then rebases it through a
+         * recorded root or falls back to `path`, and the sha256 still decides.
          */
         resolvedPath?: string;
       }>;
@@ -232,6 +238,10 @@ export type EvidenceAtom =
        * Absolute path of the report that was hashed at verify time (T12476).
        * Re-validation reads this file regardless of cwd. Absent on atoms
        * recorded before T12476.
+       *
+       * DEVICE-LOCAL: an absolute path on the verifying device. It MUST NOT
+       * be synced or interpreted cross-device (ADR-094: identity is
+       * `project_id`, not a path).
        */
       resolvedPath?: string;
       passCount: number;

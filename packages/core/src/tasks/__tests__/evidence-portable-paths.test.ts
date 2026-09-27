@@ -297,6 +297,54 @@ describe('verify and complete from different trees keep the attested file', () =
     return (await revalidateEvidence(evidenceOf(r.atom), storeRoot)).stillValid;
   }
 
+  /**
+   * ADR-055 lifecycle: verify in the worktree, remove the worktree after
+   * merge, complete from the store checkout. The pinned `resolvedPath` is gone
+   * and no recorded root explains it, so re-validation falls back to the
+   * pre-T12476 resolution of `path` — and the sha256 decides.
+   */
+  async function removedWorktreeLifecycle(
+    atom: { kind: 'files'; paths: string[] } | { kind: 'test-run'; path: string },
+    tamperStore: string | null,
+  ): Promise<boolean> {
+    process.chdir(worktree);
+    const r = await validateAtom(atom, storeRoot);
+    if (!r.ok) throw new Error(`verify failed: ${r.reason}`);
+    process.chdir(storeRoot);
+    git(storeRoot, ['worktree', 'remove', '--force', worktree]);
+    rmSync(worktree, { recursive: true, force: true });
+    if (tamperStore !== null) writeFileSync(tamperStore, TAMPERED_JSON);
+    return (await revalidateEvidence(evidenceOf(r.atom), storeRoot)).stillValid;
+  }
+
+  it('files: worktree removed after merge, store copy identical: valid', async () => {
+    expect(await removedWorktreeLifecycle({ kind: 'files', paths: ['README.md'] }, null)).toBe(
+      true,
+    );
+  });
+
+  it('files: worktree removed after merge, store copy tampered: fails', async () => {
+    expect(
+      await removedWorktreeLifecycle(
+        { kind: 'files', paths: ['README.md'] },
+        join(storeRoot, 'README.md'),
+      ),
+    ).toBe(false);
+  });
+
+  it('test-run: worktree removed after merge, store report identical: valid', async () => {
+    expect(await removedWorktreeLifecycle({ kind: 'test-run', path: 'out.json' }, null)).toBe(true);
+  });
+
+  it('test-run: worktree removed after merge, store report tampered: fails', async () => {
+    expect(
+      await removedWorktreeLifecycle(
+        { kind: 'test-run', path: 'out.json' },
+        join(storeRoot, 'out.json'),
+      ),
+    ).toBe(false);
+  });
+
   it('files: absolute store path, verify@store complete@worktree, store tampered: fails', async () => {
     const f = join(storeRoot, 'README.md');
     expect(await filesRoundTrip(f, storeRoot, worktree, f)).toBe(false);

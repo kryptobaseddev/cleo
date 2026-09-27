@@ -20,6 +20,14 @@ bytes came from git rather than disk, no `resolvedPath` is recorded and the
 git lookups behave as before. Atoms recorded before this change also
 re-validate as before.
 
+`resolvedPath` is device-local: it is an absolute path on the device that
+ran `cleo verify`, and it must not be synced or interpreted on another
+device. When the pinned file is gone, re-validation rebases it through a
+recorded root. Failing that, it falls back to the pre-change resolution of
+`path`. This keeps the ADR-055 lifecycle working: verify in a worktree,
+remove the worktree after merge, then complete from main. The sha256 always
+decides.
+
 A move is handled only at re-validation, when the absolute path is gone.
 The path is rebased onto the live root only through a recorded checkout
 root of this project (`nexus_project_paths`) that no longer exists and does
