@@ -510,6 +510,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-tool-locks.js')).doctorToolLocksCommand as CommandDef,
   },
   {
+    exportName: 'doctorWorktreeStoresCommand',
+    name: 'worktree-stores',
+    description:
+      'List store files (.cleo/*.db, *.bak) stranded inside the project worktrees and report ',
+    load: async () =>
+      (await import('../commands/doctor-worktree-stores.js'))
+        .doctorWorktreeStoresCommand as CommandDef,
+  },
+  {
     exportName: 'doctorCommand',
     name: 'doctor',
     description: 'Run system diagnostics and health checks',

@@ -41,12 +41,19 @@ import {
   _resolveMainRepoFromGitlink,
   captureProjectScope,
   getProjectRoot,
+  resolveStoreOwnerRoot,
   validateProjectRoot,
   worktreeScope,
 } from './project-scope.js';
 
 export type { WorktreeScope } from './project-scope.js';
-export { getProjectRoot, validateProjectRoot, worktreeScope } from './project-scope.js';
+export {
+  getProjectRoot,
+  isGitLinkedCheckout,
+  resolveStoreOwnerRoot,
+  validateProjectRoot,
+  worktreeScope,
+} from './project-scope.js';
 
 import {
   createOperationExecutionContext,
@@ -700,6 +707,13 @@ export function resolveProjectByCwd(cwd?: string): string {
  *   3. Nearest ancestor containing a `.cleo/` directory — presence of `.cleo/`
  *      identifies the project root (`<root>/.cleo`); no `project-info.json` or
  *      nexus registration required. Bounded by the `$HOME`/`/` guard.
+ *
+ *   Steps 1 and 3 map their root through {@link resolveStoreOwnerRoot}: a CLEO
+ *   worktree (a linked git checkout whose parent is a CLEO project) resolves to
+ *   the PARENT project's `.cleo/`, even when the worktree carries its own
+ *   `.cleo/` (tracked files, or the seeded `project-info.json`). Without this a
+ *   worktree opened an empty local `cleo.db`, auto-recovered a full copy of the
+ *   parent's newest snapshot into it, and every write there was lost (T12460).
  *   4. Cross-project nexus `project_registry` lookup by `cwd` — for callers
  *      whose `cwd` is not under a `.cleo/` tree but is registered.
  *   5. Throw `E_NO_PROJECT` with a remediation hint.
@@ -715,7 +729,7 @@ export function resolveCleoDir(cwd?: string): string {
   // 1. Active worktree scope wins (matches getProjectRoot precedence).
   const scope = worktreeScope.getStore();
   if (scope !== undefined) {
-    return join(scope.worktreeRoot, '.cleo');
+    return join(resolveStoreOwnerRoot(scope.worktreeRoot), '.cleo');
   }
 
   // 2. Absolute CLEO_DIR override.
@@ -725,9 +739,10 @@ export function resolveCleoDir(cwd?: string): string {
   }
 
   // 3. Nearest ancestor with a `.cleo/` directory — presence = project root.
+  //    A worktree's own `.cleo/` never owns the store (T12460).
   const root = _findCleoDirRoot(cwd);
   if (root !== null) {
-    return join(root, '.cleo');
+    return join(resolveStoreOwnerRoot(root), '.cleo');
   }
 
   // 3b. Worktree gitlink: when `cwd` is inside a git worktree (`.git` is a FILE

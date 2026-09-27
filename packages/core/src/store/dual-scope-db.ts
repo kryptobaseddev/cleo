@@ -67,6 +67,7 @@ import {
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { assertStorePathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 import {
   makeWriterLeaseIdentity,
   registerDbIdentity,
@@ -738,6 +739,13 @@ export async function openDualScopeDbAtPath(
       }
       _cache.delete(key);
     }
+  }
+
+  // T12460: every physical project-scope open (cached-miss, dedicated, and the
+  // runtime/port binds that route here) checks the path it is ABOUT TO OPEN.
+  // A `<worktree>/.cleo/cleo.db` is a diverged copy whose writes are lost.
+  if (scope === 'project') {
+    assertStorePathIsNotWorktreeResident('project', normalizedPath);
   }
 
   const log = getLogger('dual-scope-db');
