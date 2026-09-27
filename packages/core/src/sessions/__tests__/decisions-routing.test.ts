@@ -189,8 +189,33 @@ describe('getDecisionLog — BRAIN + ledger routing (T11185)', () => {
       const result = await getDecisionLog(PROJECT_ROOT, {});
 
       expect(result).toHaveLength(2);
-      expect(result[0].id).toBe('D010');
-      expect(result[1].id).toBe('dec-unique');
+      // Chronological: the ledger record (05-26) precedes the BRAIN row (05-27).
+      expect(result[0].id).toBe('dec-unique');
+      expect(result[1].id).toBe('D010');
+      expect(result[1].timestamp).toBe('2026-05-27T10:00:00.000Z');
+    });
+
+    it('returns BRAIN and ledger records in chronological order', async () => {
+      // findDecisions returns newest-first.
+      mockFindDecisions.mockResolvedValue([
+        { id: 'D3', decision: 'c', rationale: 'r', createdAt: '2026-05-03 00:00:00' },
+        { id: 'D1', decision: 'a', rationale: 'r', createdAt: '2026-05-01 00:00:00' },
+      ]);
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(
+        `${JSON.stringify({
+          id: 'dec-2',
+          sessionId: 's',
+          taskId: 'T1',
+          decision: 'b',
+          rationale: 'r',
+          timestamp: '2026-05-02T00:00:00.000Z',
+        })}\n`,
+      );
+
+      const result = await getDecisionLog(PROJECT_ROOT, {});
+
+      expect(result.map((d) => d.id)).toEqual(['D1', 'dec-2', 'D3']);
     });
   });
 
@@ -380,6 +405,38 @@ describe('getDecisionLog — BRAIN + ledger routing (T11185)', () => {
       expect(result).toHaveLength(0);
     });
 
+    it('keeps every session that re-recorded the same BRAIN decision', async () => {
+      // Session A recorded r1; session B re-recorded the same text with r2.
+      // Both ledger lines link to D070, whose current content is B's.
+      mockFindDecisions.mockResolvedValue([{ ...brainRow, rationale: 'r2' }]);
+      mockGetDecision.mockResolvedValue({
+        ...brainRow,
+        rationale: 'r2',
+        invalidAt: null,
+        supersededBy: null,
+        confirmationState: 'proposed',
+      });
+      mockExistsSync.mockReturnValue(true);
+      const line = (id: string, sessionId: string, rationale: string, timestamp: string) =>
+        `${JSON.stringify({ id, sessionId, taskId: 'T1', decision: brainRow.decision, rationale, timestamp })}\n`;
+      mockReadFileSync.mockReturnValue(
+        line('D070:dec-a', 'ses-a', 'r1', '2026-09-20T10:00:00.000Z') +
+          line('D070:dec-b', 'ses-b', 'r2', '2026-09-21T10:00:00.000Z'),
+      );
+
+      const all = await getDecisionLog(PROJECT_ROOT, {});
+      expect(all.map((d) => [d.id, d.sessionId, d.rationale])).toEqual([
+        ['D070:dec-a', 'ses-a', 'r1'],
+        ['D070', 'ses-b', 'r2'],
+      ]);
+
+      const a = await getDecisionLog(PROJECT_ROOT, { sessionId: 'ses-a' });
+      expect(a.map((d) => [d.id, d.rationale])).toEqual([['D070:dec-a', 'r1']]);
+
+      const b = await getDecisionLog(PROJECT_ROOT, { sessionId: 'ses-b' });
+      expect(b.map((d) => [d.id, d.rationale])).toEqual([['D070', 'r2']]);
+    });
+
     it('keeps a linked ledger record when its BRAIN row is still current', async () => {
       mockFindDecisions.mockResolvedValue([]);
       mockGetDecision.mockResolvedValue({
@@ -439,6 +496,25 @@ describe('recordDecision — dual-write BRAIN + ledger (T11185)', () => {
     expect(result.id).toContain('D042:');
     expect(result.decision).toBe('Test dual-write');
     expect(result.alternatives).toEqual(['opt-a', 'opt-b']);
+  });
+
+  it('links to an existing current decision instead of overwriting it', async () => {
+    mockFindDecisions.mockResolvedValue([
+      { id: 'D007', decision: 'Test Dual-Write ', rationale: 'owner rationale' },
+    ]);
+
+    const result = await recordDecision(PROJECT_ROOT, {
+      sessionId: 'ses-test',
+      taskId: 'T11185',
+      decision: 'test dual-write',
+      rationale: 'session rationale',
+    });
+
+    expect(mockFindDecisions).toHaveBeenCalledWith({ type: 'technical' });
+    expect(mockStoreDecision).not.toHaveBeenCalled();
+    expect(result.id).toBe('D007:dec-deadbeef');
+    expect(result.rationale).toBe('session rationale');
+    expect(mockAppendFileSync).toHaveBeenCalledTimes(1);
   });
 
   it('writes to ledger even when BRAIN store fails', async () => {

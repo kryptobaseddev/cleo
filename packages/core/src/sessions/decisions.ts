@@ -26,6 +26,9 @@ import { isCurrentMemoryEntry } from '../memory/eligibility.js';
 import type { BrainDataAccessor } from '../store/memory-accessor.js';
 import type { DecisionRecord } from './types.js';
 
+/** BRAIN decision type assigned to session-recorded decisions. */
+const DECISION_TYPE = 'technical';
+
 /** Maximum BRAIN rows read when no task scope is supplied. */
 const UNSCOPED_BRAIN_DECISION_LIMIT = 50;
 
@@ -46,6 +49,17 @@ function contentKey(decision: string, rationale: string): string {
 function linkedBrainId(ledgerId: string): string | undefined {
   const idx = ledgerId.indexOf(BRAIN_LINK_SEPARATOR);
   return idx > 0 ? ledgerId.slice(0, idx) : undefined;
+}
+
+/**
+ * Normalise a BRAIN `created_at` value (`YYYY-MM-DD HH:MM:SS`, UTC) to ISO-8601
+ * so it orders against ledger timestamps.
+ */
+function brainTimestamp(createdAt: string | null | undefined): string {
+  if (!createdAt) return '';
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(createdAt)
+    ? `${createdAt.replace(' ', 'T')}.000Z`
+    : createdAt;
 }
 
 /** Parse a BRAIN `alternatives_json` column, tolerating malformed values. */
@@ -125,17 +139,36 @@ export async function recordDecision(
   // 1. Canonical BRAIN decision-store (best-effort).
   let brainDecisionId: string | undefined;
   try {
-    const { storeDecision } = await import('../memory/decisions.js');
-    const brainRow = await storeDecision(projectRoot, {
-      type: 'technical',
-      decision: params.decision,
-      rationale: params.rationale,
-      confidence: 'medium',
-      outcome: 'pending',
-      alternatives: params.alternatives,
-      contextTaskId: params.taskId,
-    });
-    brainDecisionId = brainRow.id;
+    // `storeDecision` UPDATES a current decision with the same text in place —
+    // overwriting its rationale, confidence and alternatives. A session
+    // recording must never rewrite an existing (possibly owner-curated) BRAIN
+    // decision, so link to it instead; the ledger line keeps this recording's
+    // own rationale.
+    const { getBrainAccessor } = await import('../store/memory-accessor.js');
+    const accessor = await getBrainAccessor(projectRoot);
+    const existing = await accessor.findDecisions({ type: DECISION_TYPE });
+    const wanted = params.decision.trim().toLowerCase();
+    const duplicate = existing.find((d) => d.decision.trim().toLowerCase() === wanted);
+    if (duplicate) {
+      brainDecisionId = duplicate.id;
+    }
+  } catch {
+    // BRAIN unreadable — the write below fails the same way and is caught there.
+  }
+  try {
+    if (brainDecisionId === undefined) {
+      const { storeDecision } = await import('../memory/decisions.js');
+      const brainRow = await storeDecision(projectRoot, {
+        type: DECISION_TYPE,
+        decision: params.decision,
+        rationale: params.rationale,
+        confidence: 'medium',
+        outcome: 'pending',
+        alternatives: params.alternatives,
+        contextTaskId: params.taskId,
+      });
+      brainDecisionId = brainRow.id;
+    }
   } catch {
     // BRAIN is unavailable or rejected the write — the ledger below is mandatory.
   }
@@ -168,16 +201,17 @@ export async function recordDecision(
  * Read decisions, optionally filtered by sessionId and/or taskId.
  *
  * BRAIN `brain_decisions` rows are read first (current-authority eligibility
- * applies — invalidated and superseded rows are excluded by the accessor) and
- * returned first. The legacy ledger supplements them and is the sole source
- * when BRAIN is unavailable. Records are deduplicated by BRAIN link and by
- * content (decision + rationale).
+ * applies — invalidated and superseded rows are excluded by the accessor). The
+ * legacy ledger supplements them and is the sole source when BRAIN is
+ * unavailable. A BRAIN row replaces the linked ledger record carrying its
+ * content; remaining records are deduplicated by content (decision +
+ * rationale). The result is in chronological order.
  *
  * A ledger record linked to a BRAIN row that has since been invalidated or
  * superseded is omitted, so the ledger cannot resurrect retired decisions.
  *
- * BRAIN rows carry no session column: a row's session comes from the ledger
- * record linked to it. Under a `sessionId` filter, a BRAIN row is returned only
+ * BRAIN rows carry no session column: a row's session comes from the linked
+ * ledger record with the same content (else the most recent linked record). Under a `sessionId` filter, a BRAIN row is returned only
  * when a linked ledger record proves it belongs to that session.
  *
  * Normalized Core signature: (projectRoot, params) → Result.
@@ -190,17 +224,21 @@ export async function getDecisionLog(
   params: SessionDecisionLogParams,
 ): Promise<DecisionRecord[]> {
   const ledger = readLedger(projectRoot);
-  const ledgerByBrainId = new Map<string, DecisionRecord>();
+  // Several ledger records can link to one BRAIN row (a decision re-recorded
+  // with the same text, possibly from another session), so keep them all.
+  const ledgerByBrainId = new Map<string, DecisionRecord[]>();
   for (const entry of ledger) {
     const brainId = typeof entry.id === 'string' ? linkedBrainId(entry.id) : undefined;
-    if (brainId && !ledgerByBrainId.has(brainId)) {
-      ledgerByBrainId.set(brainId, entry);
-    }
+    if (!brainId) continue;
+    const linked = ledgerByBrainId.get(brainId);
+    if (linked) linked.push(entry);
+    else ledgerByBrainId.set(brainId, [entry]);
   }
 
   const decisions: DecisionRecord[] = [];
   const seenContent = new Set<string>();
-  const emittedBrainIds = new Set<string>();
+  // Ledger records whose BRAIN row was emitted in their place.
+  const consumed = new Set<DecisionRecord>();
 
   // 1. Primary: BRAIN decision-store.
   let accessor: BrainDataAccessor | undefined;
@@ -212,23 +250,27 @@ export async function getDecisionLog(
       : await accessor.findDecisions({ limit: UNSCOPED_BRAIN_DECISION_LIMIT });
 
     for (const row of rows) {
-      const linked = ledgerByBrainId.get(row.id);
-      const sessionId = linked?.sessionId ?? '';
+      const key = contentKey(row.decision, row.rationale);
+      const linkedAll = ledgerByBrainId.get(row.id) ?? [];
+      // Attribute the row to the linked record carrying its current content;
+      // otherwise (row edited after recording) to the most recent link.
+      const attributed =
+        linkedAll.find((e) => contentKey(e.decision, e.rationale) === key) ?? linkedAll.at(-1);
+      const sessionId = attributed?.sessionId ?? '';
       if (params.sessionId && sessionId !== params.sessionId) continue;
 
-      const key = contentKey(row.decision, row.rationale);
       if (seenContent.has(key)) continue;
       seenContent.add(key);
-      emittedBrainIds.add(row.id);
+      if (attributed) consumed.add(attributed);
 
       decisions.push({
         id: row.id,
         sessionId,
-        taskId: row.contextTaskId ?? linked?.taskId ?? params.taskId ?? '',
+        taskId: row.contextTaskId ?? attributed?.taskId ?? params.taskId ?? '',
         decision: row.decision,
         rationale: row.rationale,
         alternatives: parseAlternatives(row.alternativesJson),
-        timestamp: linked?.timestamp ?? row.createdAt ?? '',
+        timestamp: attributed?.timestamp ?? brainTimestamp(row.createdAt),
       });
     }
   } catch {
@@ -238,11 +280,11 @@ export async function getDecisionLog(
 
   // 2. Fallback / supplement: legacy ledger.
   for (const entry of ledger) {
+    if (consumed.has(entry)) continue;
     if (params.sessionId && entry.sessionId !== params.sessionId) continue;
     if (params.taskId && entry.taskId !== params.taskId) continue;
 
     const brainId = typeof entry.id === 'string' ? linkedBrainId(entry.id) : undefined;
-    if (brainId && emittedBrainIds.has(brainId)) continue;
     if (brainId && accessor && (await isRetiredInBrain(accessor, brainId))) continue;
 
     const key = contentKey(entry.decision, entry.rationale);
@@ -252,5 +294,14 @@ export async function getDecisionLog(
     decisions.push(entry);
   }
 
-  return decisions;
+  // BRAIN rows arrive newest-first and the ledger oldest-first; callers
+  // (handoff, debrief, snapshot) have always received chronological order.
+  // Unparseable timestamps sort first; Array#sort is stable, so ties keep order.
+  return decisions
+    .map((d) => {
+      const t = Date.parse(d.timestamp);
+      return { d, t: Number.isNaN(t) ? Number.NEGATIVE_INFINITY : t };
+    })
+    .sort((a, b) => (a.t === b.t ? 0 : a.t < b.t ? -1 : 1))
+    .map(({ d }) => d);
 }
