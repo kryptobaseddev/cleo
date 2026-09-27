@@ -43,8 +43,8 @@ not in the worktree's branch.
 (persistent shell state was not reset between tool calls), or
 deliberately followed an absolute path from a prior session's notes.
 
-**Fix.** The spawn prompt's `FIRST ACTION: cd <path>` MUST be the first
-command. All subsequent paths SHOULD be absolute within the worktree.
+**Fix.** The spawn prompt's FIRST ACTION guard, `cd '<path>' || exit 1`
+(single-quoted, so it survives spaces), MUST start every Bash call. All subsequent paths SHOULD be absolute within the worktree.
 If unsure, prefix with `git rev-parse --show-toplevel` first.
 
 ## Cherry-Pick Instead of Merge

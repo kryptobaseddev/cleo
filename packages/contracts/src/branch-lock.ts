@@ -501,6 +501,10 @@ export interface IsolationResult {
    *     against symlink traversal and shell quirks).
    *  3. Exports the isolation env vars so they are visible to child processes.
    *
+   * Every path and value is POSIX single-quoted, so the snippet stays a valid
+   * shell program when the worktree path contains spaces (the macOS default
+   * `~/Library/Application Support/...`), `$`, backticks or quotes (T12520).
+   *
    * The trailing newline is included so callers can concatenate directly.
    */
   preamble: string;
@@ -510,6 +514,24 @@ export interface IsolationResult {
    * The contract is a pure-data snapshot — it carries no runtime state.
    */
   boundaryContract: BoundaryContract;
+}
+
+/**
+ * POSIX single-quote one shell word: wrap it in `'...'` and rewrite each
+ * embedded `'` as `'\''`. The result is one literal word for any input — no
+ * parameter, command or glob expansion — which is what a copy-paste snippet
+ * naming a path under `Application Support` needs (T12520).
+ *
+ * Module-private on purpose: contracts is types-only for its exported surface
+ * (gate 10), and {@link provisionIsolatedShell} is the one place that renders
+ * isolation paths into shell text, so callers consume the quoted preamble
+ * rather than re-quoting.
+ *
+ * @param value - Raw path or value.
+ * @returns The single-quoted shell word.
+ */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 /**
@@ -561,19 +583,22 @@ export function provisionIsolatedShell(options: IsolationOptions): IsolationResu
   // does not emit a clobbering `export KEY=""` that would clear an inherited
   // value. Worktree-binding keys are always non-empty so they always export.
   const exportBlock = ISOLATION_ENV_KEYS.filter((k) => env[k] !== '')
-    .map((k) => `export ${k}="${env[k]}"`)
+    .map((k) => `export ${k}=${shellQuote(env[k])}`)
     .join('\n');
 
+  // T12520 — every path is emitted through `shellQuote`, never interpolated
+  // bare or inside double quotes, so the snippet parses for any worktree path.
+  const quotedPath = shellQuote(worktreePath);
   const preamble = [
     '## Worktree Isolation (REQUIRED — do not skip)',
     '',
     '# Step 1: Enter the worktree (exits immediately if path is missing)',
-    `cd "${worktreePath}" || exit 1`,
+    `cd ${quotedPath} || exit 1`,
     '',
     '# Step 2: Verify working directory (guards against shell/symlink quirks)',
     'case "$PWD" in',
-    `  "${worktreePath}"*) ;;`,
-    '  *) echo "ISOLATION ERROR: pwd=$PWD expected prefix=' + worktreePath + '" >&2; exit 1 ;;',
+    `  ${quotedPath}*) ;;`,
+    `  *) echo "ISOLATION ERROR: pwd=$PWD expected prefix="${quotedPath} >&2; exit 1 ;;`,
     'esac',
     '',
     '# Step 3: Export isolation env vars',

@@ -10,7 +10,8 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '@cleocode/contracts';
@@ -579,10 +580,14 @@ describe('buildSpawnPrompt — worktree setup hardening (T1758)', () => {
       worktreeBranch: BRANCH,
       tier: 0,
     });
-    // The ready-to-use snippet must contain the cd-guard pattern
-    expect(result.prompt).toContain(`WORKTREE=${WORKTREE}`);
-    expect(result.prompt).toContain(`cd "$WORKTREE" || exit 1`);
-    expect(result.prompt).toContain(`pwd | grep -q "$WORKTREE" || exit 1`);
+    // T12520 — ONE cd guard, from the provisionIsolatedShell preamble, with
+    // the path single-quoted. The old unquoted `WORKTREE=<path>` snippet and
+    // the bare `cd <path>` FIRST ACTION were redundant copies that broke on
+    // any path containing a space.
+    const guard = `cd '${WORKTREE}' || exit 1`;
+    expect(result.prompt.split(guard).length - 1).toBe(1);
+    expect(result.prompt).not.toContain('WORKTREE=');
+    expect(result.prompt).not.toContain(`cd ${WORKTREE}`);
   });
 
   it('embeds provisionIsolatedShell preamble with export block (single source of truth)', () => {
@@ -658,11 +663,15 @@ describe('buildSpawnPrompt — export block snapshot and drift detection (T1760)
       agentId: defaultAgentId,
     });
 
-    // Extract the export lines from the preamble (the canonical output). Empty
-    // values (e.g. no sessionId) are skipped by the export block, so only emit
-    // expected lines for non-empty env values.
-    const expectedExportLines = ISOLATION_ENV_KEYS.filter((k) => isolation.env[k] !== '').map(
-      (k) => `export ${k}="${isolation.env[k]}"`,
+    // Extract the export lines from the preamble itself (the canonical
+    // output), so this test pins "verbatim from the utility" and not a copy of
+    // the utility's quoting rule. Empty values (e.g. no sessionId) are skipped
+    // by the export block, so every non-empty key must have exactly one line.
+    const expectedExportLines = isolation.preamble
+      .split('\n')
+      .filter((line) => line.startsWith('export '));
+    expect(expectedExportLines).toHaveLength(
+      ISOLATION_ENV_KEYS.filter((k) => isolation.env[k] !== '').length,
     );
 
     const result = buildSpawnPrompt({
@@ -686,6 +695,11 @@ describe('buildSpawnPrompt — export block snapshot and drift detection (T1760)
     // This test imports ISOLATION_ENV_KEYS dynamically from @cleocode/contracts.
     // If a new key is added to the canonical list without updating the spawn-prompt
     // render path, this assertion will fail — ensuring no silent drift.
+    //
+    // T12520 — the redundant "Injected env vars" name list was removed; the
+    // export block is now the only place keys appear, so supply a session id
+    // (the agent id defaults to `agent-<taskId>`) and require every key to be
+    // EXPORTED, which is the property the list only gestured at.
     const result = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'implementation',
@@ -693,10 +707,133 @@ describe('buildSpawnPrompt — export block snapshot and drift detection (T1760)
       worktreePath: WORKTREE,
       worktreeBranch: BRANCH,
       tier: 0,
+      sessionId: 'ses_drift',
     });
 
     for (const key of ISOLATION_ENV_KEYS) {
-      expect(result.prompt, `prompt must reference canonical env key ${key}`).toContain(key);
+      expect(result.prompt, `prompt must export canonical env key ${key}`).toContain(
+        `export ${key}=`,
+      );
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T12520 — quoted paths, one cd guard, no stale literal, omitted without worktree
+// ---------------------------------------------------------------------------
+
+describe('buildSpawnPrompt — worktree setup quoting and size (T12520)', () => {
+  const SPACED = '/Users/someone/Library/Application Support/cleo/worktrees/857f8997/T9000';
+
+  /** Every ```bash fence in the prompt, in order. */
+  function bashFences(prompt: string): string[] {
+    return [...prompt.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1] ?? '');
+  }
+
+  /** The Worktree Setup section, up to the next top-level heading outside a fence. */
+  function worktreeSection(prompt: string): string {
+    const lines = prompt.slice(prompt.indexOf('## Worktree Setup (REQUIRED)')).split('\n');
+    let inFence = false;
+    let end = 1;
+    for (; end < lines.length; end++) {
+      const line = lines[end] ?? '';
+      if (line.startsWith('```')) inFence = !inFence;
+      if (!inFence && line.startsWith('## ')) break;
+    }
+    return lines.slice(0, end).join('\n');
+  }
+
+  it('a worktree path with a space yields quoted commands that `bash -n` accepts', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: SPACED,
+      worktreeBranch: 'task/T9000',
+      tier: 0,
+      sessionId: 'ses_space',
+    });
+    const section = worktreeSection(result.prompt);
+    const fences = bashFences(section);
+    expect(fences).toHaveLength(1);
+    const script = fences[0] ?? '';
+    expect(script).toContain(`cd '${SPACED}' || exit 1`);
+    expect(script).toContain(`export CLEO_WORKTREE_ROOT='${SPACED}'`);
+
+    const check = spawnSync('bash', ['-n'], { input: script, encoding: 'utf8' });
+    expect(check.status, check.stderr).toBe(0);
+
+    // The path never appears bare (unquoted) anywhere in the section.
+    const unquoted = section.split(SPACED).length - 1;
+    const quoted = section.split(`'${SPACED}'`).length - 1;
+    expect(unquoted).toBe(quoted);
+  });
+
+  it('executes the guard: cd succeeds into a real directory whose name has a space', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'T12520 space '));
+    try {
+      const result = buildSpawnPrompt({
+        task: BASE_TASK,
+        protocol: 'implementation',
+        projectRoot: PROJECT_ROOT,
+        worktreePath: dir,
+        worktreeBranch: 'task/T9000',
+        tier: 0,
+      });
+      const script = bashFences(worktreeSection(result.prompt))[0] ?? '';
+      const run = spawnSync('bash', ['-c', `${script}\nprintf %s "$CLEO_WORKTREE_ROOT"`], {
+        encoding: 'utf8',
+      });
+      expect(run.status, run.stderr).toBe(0);
+      expect(run.stdout).toBe(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('emits exactly one cd guard', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: SPACED,
+      worktreeBranch: 'task/T9000',
+      tier: 0,
+    });
+    const section = worktreeSection(result.prompt);
+    expect(section.match(/^cd /gm) ?? []).toHaveLength(1);
+    expect(section).not.toContain('WORKTREE=');
+    expect(section).not.toContain('pwd | grep');
+  });
+
+  it('contains no /mnt literal', () => {
+    for (const tier of [0, 1, 2] as const) {
+      const result = buildSpawnPrompt({
+        task: BASE_TASK,
+        protocol: 'implementation',
+        projectRoot: PROJECT_ROOT,
+        worktreePath: SPACED,
+        worktreeBranch: 'task/T9000',
+        tier,
+      });
+      expect(worktreeSection(result.prompt)).not.toContain('/mnt');
+    }
+  });
+
+  it('omits the whole block, FIRST ACTION and cd guard when there is no worktree', () => {
+    // Tier 1+ embeds CLEO-INJECTION.md, which DESCRIBES the section in prose,
+    // so match the heading only at line start.
+    for (const tier of [0, 1, 2] as const) {
+      const result = buildSpawnPrompt({
+        task: BASE_TASK,
+        protocol: 'implementation',
+        projectRoot: PROJECT_ROOT,
+        tier,
+      });
+      expect(result.prompt).not.toMatch(/^## Worktree Setup/m);
+      expect(result.prompt).not.toContain('**FIRST ACTION**');
+      expect(result.prompt).not.toContain('## Worktree Isolation');
+      expect(result.prompt).not.toContain('export CLEO_WORKTREE_ROOT=');
     }
   });
 });

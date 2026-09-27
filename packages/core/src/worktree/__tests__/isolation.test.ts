@@ -108,7 +108,8 @@ describe('provisionIsolatedShell', () => {
   describe('preamble', () => {
     it('contains the worktreePath in the cd command', () => {
       const { preamble } = provisionIsolatedShell(SAMPLE_OPTS);
-      expect(preamble).toContain(`cd "${SAMPLE_OPTS.worktreePath}" || exit 1`);
+      // T12520 — single-quoted so a path with spaces stays one shell word.
+      expect(preamble).toContain(`cd '${SAMPLE_OPTS.worktreePath}' || exit 1`);
     });
 
     it('contains export for every NON-EMPTY isolation env key', () => {
@@ -136,8 +137,8 @@ describe('provisionIsolatedShell', () => {
         sessionId: 'ses_xyz',
         agentId: 'agent-xyz',
       });
-      expect(preamble).toContain('export CLEO_SESSION_ID="ses_xyz"');
-      expect(preamble).toContain('export CLEO_AGENT_ID="agent-xyz"');
+      expect(preamble).toContain("export CLEO_SESSION_ID='ses_xyz'");
+      expect(preamble).toContain("export CLEO_AGENT_ID='agent-xyz'");
     });
 
     it('contains the pwd guard case statement', () => {
@@ -149,6 +150,17 @@ describe('provisionIsolatedShell', () => {
     it('contains the section heading', () => {
       const { preamble } = provisionIsolatedShell(SAMPLE_OPTS);
       expect(preamble).toContain('## Worktree Isolation');
+    });
+
+    it('single-quotes paths so spaces, $, backticks and quotes stay literal (T12520)', () => {
+      const hostile = "/Users/a b/Library/Application Support/cleo/wt/$HOME`x`/it's/T1";
+      const { preamble } = provisionIsolatedShell({ ...SAMPLE_OPTS, worktreePath: hostile });
+      const quoted = `'${hostile.replace(/'/g, "'\\''")}'`;
+      expect(preamble).toContain(`cd ${quoted} || exit 1`);
+      expect(preamble).toContain(`  ${quoted}*) ;;`);
+      expect(preamble).toContain(`export CLEO_WORKTREE_ROOT=${quoted}`);
+      // No double-quoted interpolation of the path survives anywhere.
+      expect(preamble).not.toContain(`"${hostile}`);
     });
 
     it('ends with a trailing newline', () => {
