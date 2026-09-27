@@ -11,8 +11,9 @@
 -- dual-scope ambiguity for gate 21). Pure runtime infrastructure, like `schedules`
 -- (T11962) — NOT part of the exodus target shape under `schema/cleo-project/`.
 --
--- `session_id` is a soft reference (no FK): the binding is advisory and resolution
--- re-checks that the named session row exists and is active before honouring it.
+-- `session_id` is an intra-DB foreign key to `tasks_sessions.id` (same project cleo.db),
+-- ON DELETE CASCADE, so deleting a session removes its bindings. Resolution still
+-- re-checks that the bound session is active before honouring a binding.
 --
 -- `IF NOT EXISTS` so a re-open over an already-migrated DB is a no-op. Statements are
 -- separated by the drizzle breakpoint marker line so node:sqlite prepare() does not
@@ -26,7 +27,7 @@ CREATE TABLE IF NOT EXISTS `session_terminal_bindings` (
   `binding_key` TEXT PRIMARY KEY NOT NULL,
   `key_source` TEXT NOT NULL,
   `key_kind` TEXT NOT NULL,
-  `session_id` TEXT NOT NULL,
+  `session_id` TEXT NOT NULL REFERENCES `tasks_sessions`(`id`) ON DELETE CASCADE,
   `bound_at` TEXT NOT NULL DEFAULT (datetime('now'))
 );
 --> statement-breakpoint
