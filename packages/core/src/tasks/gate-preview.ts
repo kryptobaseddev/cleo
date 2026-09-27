@@ -26,22 +26,11 @@
 
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import type {
-  AcceptanceGate,
-  AcceptanceGateResult,
-  Task,
-  ValidateGateParams,
-} from '@cleocode/contracts';
+import type { AcceptanceGateResult, Task, ValidateGateParams } from '@cleocode/contracts';
 import { readProjectInfoAtDirectorySync } from '../project-scope.js';
 import { createOperationExecutionContext } from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { extractTypedGates, runGates } from './gate-runner.js';
-
-/** Default per-gate ceiling, mirroring the gate runner's own default. */
-const DEFAULT_GATE_TIMEOUT_MS = Number(process.env['CLEO_GATE_TIMEOUT_MS'] ?? 60_000);
-
-/** Slack added to the summed per-gate budget for spawn and teardown overhead. */
-const PREVIEW_OVERHEAD_MS = 5_000;
+import { extractTypedGates, runGates, typedGateAdmissionMs } from './gate-runner.js';
 
 /** Outcome of a typed-gate preview run. */
 export interface TaskGatePreview {
@@ -68,24 +57,6 @@ export interface TaskGatePreview {
   persisted: false;
   /** Present when the task carries no typed gates, explaining the empty result. */
   note?: string;
-}
-
-/**
- * Wall-clock budget for the whole preview: every gate's own ceiling, plus slack.
- *
- * The gate runner's default batch deadline is two seconds, which is right for
- * verification admitted inside a mutation but cannot host a real test suite.
- * Deriving the budget from the gates themselves keeps the bound honest without
- * inventing a number.
- *
- * @param gates - Gates that will run.
- */
-function previewBudgetMs(gates: readonly AcceptanceGate[]): number {
-  const total = gates.reduce(
-    (sum, gate) => sum + (gate.timeoutMs ?? DEFAULT_GATE_TIMEOUT_MS),
-    PREVIEW_OVERHEAD_MS,
-  );
-  return Math.min(total, Number.MAX_SAFE_INTEGER);
 }
 
 /**
@@ -144,7 +115,9 @@ export async function previewTaskGates(
       operation: 'check.gate.verify',
       idempotencyKey: `${taskId}:preview:${randomUUID()}`,
     },
-    { budgetMs: previewBudgetMs(gates) },
+    // T12516: the same admission as the attesting path — every gate's ADR-061
+    // tool deadline plus the shared bookkeeping budget, never the bare 2 s.
+    { budgetMs: typedGateAdmissionMs(gates) },
   );
   try {
     const observed = await runGates(gates, { projectRoot: root, execution });
