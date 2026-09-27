@@ -112,10 +112,10 @@ function isDatabaseSync(db: unknown): db is DatabaseSync {
  * After the E6 consolidation the cross-project registry (formerly nexus.db)
  * lives inside the **global** `cleo.db`. Its `nexus_project_registry` table
  * (T11578 · AC3 prefixed shape) records one row per known project with
- * `(project_id PRIMARY KEY, project_path UNIQUE)`. The drift check verifies
- * that a row whose `project_path` matches the caller's project root has the
- * same `project_id` as the caller's `.cleo/project-info.json`. Mismatch →
- * `E_PROJECT_ID_DRIFT`.
+ * keyed by `project_id` alone (`project_path` is not unique since T12469). The
+ * drift check verifies that, when rows name the caller's project root, one of
+ * them carries the same `project_id` as the caller's
+ * `.cleo/project-info.json`. None does → `E_PROJECT_ID_DRIFT`.
  *
  * The project-tier `cleo.db` (tasks, brain, conduit, sessions data) does NOT
  * carry a `project_id` column — it lives under per-project `.cleo/` and
@@ -179,10 +179,15 @@ export function validateProjectIdConsistency(role: CleoDbRole, db: unknown, cwd?
 
   let row: ProjectRegistryRow | undefined;
   try {
+    // T12469: `project_path` is not unique — a path can carry a stale row of a
+    // project that used to live there. Drift means NO row at this path names
+    // the caller's id, so a matching row is preferred over any other.
     const stmt = db.prepare(
-      'SELECT project_id, project_path FROM nexus_project_registry WHERE project_path = ? LIMIT 1',
+      'SELECT project_id, project_path FROM nexus_project_registry WHERE project_path = ? ORDER BY (project_id = ?) DESC LIMIT 1',
     );
-    row = stmt.get(projectInfo.projectRoot) as ProjectRegistryRow | undefined;
+    row = stmt.get(projectInfo.projectRoot, projectInfo.projectId) as
+      | ProjectRegistryRow
+      | undefined;
   } catch {
     // `nexus_project_registry` (T11578 · AC3 prefixed registry) may not exist
     // yet (fresh global cleo.db before the consolidated migration runs).

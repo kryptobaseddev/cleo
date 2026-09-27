@@ -4,6 +4,7 @@
  * @epic T4540
  */
 
+import { realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -202,7 +203,7 @@ describe('nexusRegister', () => {
     expect(project!.taskCount).toBe(0);
   });
 
-  it('rejects changed immutable ownership without rewriting the registered row', async () => {
+  it('registers a changed immutable id at the same path as a separate project (T12469)', async () => {
     vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
     const hash = await nexusRegister(projectDir, 'owner', 'write');
     const before = await nexusGetProject(hash);
@@ -210,13 +211,18 @@ describe('nexusRegister', () => {
       join(projectDir, '.cleo/project-info.json'),
       JSON.stringify({ projectId: 'different-owner' }),
     );
-    await expect(nexusRegister(projectDir, 'overwrite', 'read')).rejects.toThrow(
-      /Conflicting project identity/,
-    );
-    expect(await nexusGetProject(hash)).toEqual(before);
+    // A path is a location, never an identity: the new id registers beside
+    // the old row instead of being refused, and the old row is untouched.
+    expect(await nexusRegister(projectDir, 'overwrite', 'read')).toBe(hash);
+    expect(await nexusGetProject(before!.projectId)).toEqual(before);
+    expect(await nexusGetProject('different-owner')).toMatchObject({
+      path: before!.path,
+      name: 'overwrite',
+    });
+    expect(await nexusList()).toHaveLength(2);
   });
 
-  it('refuses to move another registered path merely because the declared IDs agree', async () => {
+  it('keeps one row for a declared id seen at a second path (T12469)', async () => {
     vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
     await writeFile(
       join(projectDir, '.cleo/project-info.json'),
@@ -230,9 +236,21 @@ describe('nexusRegister', () => {
       join(other, '.cleo/project-info.json'),
       JSON.stringify({ projectId: 'immutable-owner' }),
     );
-    await expect(nexusRegister(other, 'other')).rejects.toThrow(/Conflicting project identity/);
-    expect(await nexusGetProject(hash)).toEqual(before);
+    // Same immutable id at another path: the one row follows the latest
+    // checkout; both checkouts are recorded as live locations.
+    await nexusRegister(other, 'other');
     expect(await nexusList()).toHaveLength(1);
+    expect(await nexusGetProject('immutable-owner')).toMatchObject({
+      registeredAt: before!.registeredAt,
+      path: realpathSync(other),
+      name: 'other',
+    });
+    const { listProjectCheckouts } = await import('../path-map.js');
+    const checkouts = await listProjectCheckouts('immutable-owner');
+    expect(checkouts.map((c) => c.projectPath).sort()).toEqual(
+      [before!.path, realpathSync(other)].sort(),
+    );
+    expect(checkouts.every((c) => c.state === 'live')).toBe(true);
   });
 
   it('preserves a metadata read failure instead of replacing stored counts with zero', async () => {
@@ -282,7 +300,7 @@ describe('nexusRegister', () => {
     }
   });
 
-  it('refuses a canonical alias owned elsewhere and rolls back the new registration', async () => {
+  it('keeps a path-derived canonical alias owned elsewhere and still registers (T12469)', async () => {
     vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
     await writeFile(
       join(projectDir, '.cleo/project-info.json'),
@@ -297,11 +315,12 @@ describe('nexusRegister', () => {
       createdAt: new Date().toISOString(),
     });
     const aliasesBefore = await db.select().from(projectIdAliases);
-    await expect(nexusRegister(projectDir, 'new-name', 'write')).rejects.toThrow(
-      /alias already belongs to another project/,
-    );
-    expect(await nexusList()).toEqual([]);
-    expect(await db.select().from(projectIdAliases)).toEqual(aliasesBefore);
+    await nexusRegister(projectDir, 'new-name', 'write');
+    expect((await nexusList()).map((p) => p.projectId)).toEqual(['declared-owner']);
+    // The alias keeps its existing owner; it is never redirected.
+    expect(
+      await db.select().from(projectIdAliases).where(eq(projectIdAliases.legacyId, alias)),
+    ).toEqual(aliasesBefore.filter((row) => row.legacyId === alias));
   });
 
   it.each([
