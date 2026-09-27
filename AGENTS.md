@@ -168,6 +168,8 @@ Canonical docs (ADR, spec, research, handoff, note, release-note, plan) — crea
 
 CI gate: `cleo check canon docs` (`Canon Drift Check (T9796)`) — walks `git diff --diff-filter=A` PR-base→HEAD, flags new `*.md` bypassing the SSoT (forward-only; legacy files imported by T9791 never flagged).
 
+**LAFS envelope contract:** the human-readable envelope spec (shape, `_meta`, success/result/error invariants, error categories, pagination, `_extensions`, MVI, transport conventions) is `docs/specs/LAFS-ENVELOPE-CONTRACT.md` (SSoT slug `lafs-envelope-contract`, owner T11113).
+
 **New doc kind:** add to `packages/contracts/src/docs-taxonomy.ts` (`BUILTIN_DOC_KINDS`) → add routing entry to `.cleo/canon.yml` → `pnpm --filter @cleocode/cleo run build`.
 
 ## Docs Storage Surfaces (T11052 — implementation details)
