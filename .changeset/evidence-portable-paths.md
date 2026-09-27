@@ -2,30 +2,32 @@
 id: evidence-portable-paths
 tasks: [T12476]
 kind: fix
-summary: evidence atoms store project-relative paths and legacy absolute atoms re-validate after a move; fleet and scan roots come from the registry instead of /mnt/projects
+summary: evidence atoms pin the hashed file (cwd-independent re-validation) and rebase moved paths through recorded project roots; fleet and scan roots come from the registry instead of /mnt/projects
 ---
 
-**Evidence survived nothing that moved.** `files:` and `test-run:` atoms kept
-the path exactly as typed, so an absolute path recorded on one device made
-`cleo complete` report "File removed since verify" on the next, for a file
-that was present and byte-identical under the new root.
+**Evidence named a file by where `cleo complete` happened to run.** A
+relative `files:` or `test-run:` path was re-resolved against the completing
+process's tree, so verifying from one checkout and completing from another
+could hash a different copy of the file. An absolute path recorded on one
+device reported "File removed since verify" after the project moved.
 
-Each atom kind re-validates a relative path against exactly one root:
-`files:` against the execution root, and `test-run:` against the store root.
-New atoms are relativised only against that root. For `files:`, this happens
-only when the execution root is the store root. In a worktree layout, an
-absolute path stays absolute, so re-validation hashes the recorded file and
-never an identical copy in the other tree. A path outside that root stays
-absolute. Relative input is kept verbatim.
+New atoms keep `path` exactly as supplied, byte for byte, because consumers
+match it against repo-relative PR paths. They also record `resolvedPath`,
+which is the absolute file that was hashed. Re-validation reads that file
+whatever directory it runs from, so tampering with the attested copy is
+caught, and an untouched copy elsewhere cannot stand in for it. When the
+bytes came from git rather than disk, no `resolvedPath` is recorded and the
+git lookups behave as before. Atoms recorded before this change also
+re-validate as before.
 
-A legacy absolute atom whose path no longer exists is rebased onto the live
-root only when the project root it was recorded under is itself gone. The
-rebase goes through a vanished recorded checkout root of this project
-(`nexus_project_paths`), or through the longest tail of at least two
-segments. Paths with `.`/`..` segments are refused, and so is a rebased file
-whose realpath escapes the live root. A file deleted from a project that did
-not move is reported removed, never re-pointed. Rebasing only chooses which
-bytes to hash: the sha256 captured at verify time still decides.
+A move is handled only at re-validation, when the absolute path is gone.
+The path is rebased onto the live root only through a recorded checkout
+root of this project (`nexus_project_paths`) that no longer exists and does
+not nest with the live root. There is no tail matching, so a file that moved
+or vanished inside a project that did not move is reported removed. Paths
+with `.`/`..` segments are refused, separators are the platform's own (a
+backslash is a file-name character on POSIX), and the rebased realpath must
+stay inside the live root. The sha256 captured at verify time still decides.
 
 **Defaults named one past device.** `cleo doctor db-substrate --fleet`
 defaulted to `/mnt/projects`, and `cleo nexus projects scan` to

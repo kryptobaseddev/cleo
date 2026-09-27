@@ -207,11 +207,33 @@ export interface VerificationFailure {
  */
 export type EvidenceAtom =
   | { kind: 'commit'; sha: string; shortSha: string }
-  | { kind: 'files'; files: Array<{ path: string; sha256: string }> }
+  | {
+      kind: 'files';
+      files: Array<{
+        /** Path exactly as supplied in the evidence string. */
+        path: string;
+        sha256: string;
+        /**
+         * Absolute path of the on-disk file that was hashed at verify time
+         * (T12476). Re-validation reads THIS file, whatever directory
+         * `cleo complete` runs from — a relative `path` would otherwise be
+         * re-resolved against the completing process's tree and could hash a
+         * different copy. Absent when the bytes came from git, and on atoms
+         * recorded before T12476.
+         */
+        resolvedPath?: string;
+      }>;
+    }
   | {
       kind: 'test-run';
       path: string;
       sha256: string;
+      /**
+       * Absolute path of the report that was hashed at verify time (T12476).
+       * Re-validation reads this file regardless of cwd. Absent on atoms
+       * recorded before T12476.
+       */
+      resolvedPath?: string;
       passCount: number;
       failCount: number;
       skipCount: number;

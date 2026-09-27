@@ -53,11 +53,7 @@ import {
 } from '../git/work-tree.js';
 import { pushWarning } from '../output.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
-import {
-  loadRecordedProjectRoots,
-  rebaseLegacyEvidencePath,
-  toPortableEvidencePath,
-} from './evidence-paths.js';
+import { loadRecordedProjectRoots, rebaseLegacyEvidencePath } from './evidence-paths.js';
 import { DISABLE_ENV, describeMemoryLimit } from './heavy-tool-limit.js';
 import {
   computeCommitRevalidationKey,
@@ -1401,7 +1397,7 @@ async function validateFiles(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
-  const files: Array<{ path: string; sha256: string }> = [];
+  const files: Extract<EvidenceAtom, { kind: 'files' }>['files'] = [];
   for (const p of paths) {
     // gh#1365: the file belongs to the repo under test. Resolving it against
     // the CLEO store root reported "File removed since verify" for a file that
@@ -1410,20 +1406,13 @@ async function validateFiles(
     // an absolute or store-relative path keeps working.
     const fromExecution = isAbsolute(p) ? p : resolvePath(executionRoot, p);
     const abs = existsSync(fromExecution) ? fromExecution : resolvePath(projectRoot, p);
-    // T12476: a relative `files:` path is re-validated against the execution
-    // root and ONLY that root. An absolute path is therefore relativised only
-    // when it is unambiguous — the execution root IS the store root. In a
-    // worktree layout (two roots) it stays absolute: rewriting a store-root
-    // path as relative would re-validate it against the worktree's copy and
-    // miss tampering with the store file. Relative input is kept verbatim.
-    const stored = executionRoot === projectRoot ? toPortableEvidencePath(p, [executionRoot]) : p;
     let content: Buffer | null = null;
 
     // T12107 (gh#1195): the sibling commit is the evidence anchor — check its
     // tree FIRST. A file merged remotely but not yet present locally validates
     // here without waiting for a fast-forward.
     if (commitSha) {
-      content = await gitShowFileContentAtCommit(stored, commitSha, executionRoot);
+      content = await gitShowFileContentAtCommit(p, commitSha, executionRoot);
     }
     if (requireCommitArtifact && content === null) {
       return {
@@ -1433,6 +1422,7 @@ async function validateFiles(
       };
     }
 
+    let readFromDisk = false;
     if (content === null && existsSync(abs)) {
       // Happy path — file exists on disk.
       const st = await stat(abs);
@@ -1444,12 +1434,13 @@ async function validateFiles(
         };
       }
       content = await readFile(abs);
+      readFromDisk = true;
     }
 
     if (content === null && taskId) {
       // T11959: Git-show fallback for branch-only files (worktree context).
       // The file exists on the task branch but not yet at the canonical root.
-      content = await gitShowFileContent(stored, taskId, executionRoot);
+      content = await gitShowFileContent(p, taskId, executionRoot);
     }
 
     if (content === null) {
@@ -1471,7 +1462,11 @@ async function validateFiles(
     }
 
     const sha256 = createHash('sha256').update(content).digest('hex');
-    files.push({ path: stored, sha256 });
+    // T12476: `path` stays exactly as supplied (consumers match it against
+    // repo-relative PR paths). When the bytes came from disk, the absolute
+    // file that was hashed is recorded too, so re-validation reads THAT file
+    // whatever directory `cleo complete` runs from.
+    files.push(readFromDisk ? { path: p, sha256, resolvedPath: abs } : { path: p, sha256 });
   }
   return { ok: true, atom: { kind: 'files', files } };
 }
@@ -1629,18 +1624,11 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
   // store-relative path keeps working. gh#1365: the root arrives as a
   // parameter now; it is NOT re-resolved here.
   let abs: string;
-  // T12476: a relative `test-run:` path is re-validated against the STORE
-  // root and only that root, so an absolute input is relativised against the
-  // store root alone — the stored form then names exactly one file. A report
-  // outside the store root stays absolute; relative input is kept verbatim.
-  let stored: string;
   if (isAbsolute(path)) {
     abs = path;
-    stored = toPortableEvidencePath(path, [projectRoot]);
   } else {
     const fromExecution = resolvePath(executionRoot, path);
     abs = existsSync(fromExecution) ? fromExecution : resolvePath(projectRoot, path);
-    stored = path;
   }
   if (!existsSync(abs)) {
     return {
@@ -1710,7 +1698,10 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
     ok: true,
     atom: {
       kind: 'test-run',
-      path: stored,
+      // T12476: `path` exactly as supplied; `resolvedPath` is the report that
+      // was hashed, which re-validation reads regardless of cwd.
+      path,
+      resolvedPath: abs,
       sha256,
       passCount: passed,
       failCount: failed,
@@ -2876,16 +2867,20 @@ export async function revalidateEvidence(
           // T12476: a legacy absolute path whose checkout moved is rebased onto
           // the live root. Rebasing only picks which bytes to hash — the sha256
           // comparison below still decides, so tamper detection is unchanged.
-          const rebased = await rebaseForRevalidation(f.path, executionRoot, projectRoot);
-          // Git lookups need a path relative to the execution root; a rebased
-          // path outside it keeps its absolute form (and misses git, as before).
-          const lookupPath =
-            rebased === null ? f.path : toPortableEvidencePath(rebased, [executionRoot]);
-          const abs = rebased ?? (isAbsolute(f.path) ? f.path : resolvePath(executionRoot, f.path));
+          // T12476: read the file that was hashed at verify time. `resolvedPath`
+          // pins it regardless of cwd; a legacy atom without one falls back to
+          // main's resolution. An absolute path that is gone is rebased only
+          // through a vanished recorded root of this project — the sha256
+          // comparison below still decides.
+          let abs =
+            f.resolvedPath ?? (isAbsolute(f.path) ? f.path : resolvePath(executionRoot, f.path));
+          if (!existsSync(abs)) {
+            abs = (await rebaseForRevalidation(abs, executionRoot, projectRoot)) ?? abs;
+          }
           let content: Buffer | null = null;
 
           if (siblingCommitSha) {
-            content = await gitShowFileContentAtCommit(lookupPath, siblingCommitSha, executionRoot);
+            content = await gitShowFileContentAtCommit(f.path, siblingCommitSha, executionRoot);
           }
           if (siblingPr && content === null) {
             failed.push({
@@ -2901,7 +2896,7 @@ export async function revalidateEvidence(
             // T11959: git-show fallback — file may have been on task branch at
             // verify time and is now on main after merge, or it may still only
             // exist on the branch. Use the same resolution path as validateFiles.
-            content = await gitShowFileContent(lookupPath, taskId, executionRoot);
+            content = await gitShowFileContent(f.path, taskId, executionRoot);
           }
 
           if (!content) {
@@ -2927,16 +2922,20 @@ export async function revalidateEvidence(
         // Deliberately NOT cached (T12102): same reasoning as files: — the
         // content hash comparison IS the staleness guarantee.
         const startedAt = Date.now();
-        // T12476: a relative path resolves against the store root only (the
-        // root validateTestRun relativised against); a legacy absolute path
-        // whose checkout moved is rebased onto the live root.
-        const rebased = await rebaseForRevalidation(
-          atom.path,
-          resolveEvidenceExecutionRoot(projectRoot),
-          projectRoot,
-        );
-        const abs =
-          rebased ?? (isAbsolute(atom.path) ? atom.path : resolvePath(projectRoot, atom.path));
+        // T12476: read the report that was hashed (`resolvedPath`, cwd-free);
+        // a legacy atom falls back to main's store-root resolution. A gone
+        // absolute path is rebased only through a vanished recorded root.
+        let abs =
+          atom.resolvedPath ??
+          (isAbsolute(atom.path) ? atom.path : resolvePath(projectRoot, atom.path));
+        if (!existsSync(abs)) {
+          abs =
+            (await rebaseForRevalidation(
+              abs,
+              resolveEvidenceExecutionRoot(projectRoot),
+              projectRoot,
+            )) ?? abs;
+        }
         if (!existsSync(abs)) {
           failed.push({ atom, reason: `test-run file removed since verify: ${atom.path}` });
           options?.onProgress?.(`test-run:${atom.path} FAILED ${Date.now() - startedAt}ms`);
