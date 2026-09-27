@@ -8,7 +8,8 @@
  * @task T12476
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EvidenceAtom, GateEvidence } from '@cleocode/contracts';
@@ -61,7 +62,7 @@ describe('rebaseLegacyEvidencePath', () => {
     live = mkdtempSync(join(tmpdir(), 'evidence-rebase-'));
     mkdirSync(join(live, 'src'), { recursive: true });
     writeFileSync(join(live, 'src', 'a.ts'), 'a');
-    writeFileSync(join(live, 'a.ts'), 'decoy');
+    writeFileSync(join(live, 'LICENSE'), 'decoy');
   });
   afterEach(() => rmSync(live, { recursive: true, force: true }));
 
@@ -70,20 +71,65 @@ describe('rebaseLegacyEvidencePath', () => {
     expect(rebaseLegacyEvidencePath(join(live, 'src', 'a.ts'), [live])).toBeNull();
   });
 
-  it('uses a recorded former root exactly, even when the tail is gone', () => {
-    expect(rebaseLegacyEvidencePath(`${OLD_ROOT}/src/a.ts`, [live], [OLD_ROOT])).toBe('src/a.ts');
-    expect(rebaseLegacyEvidencePath(`${OLD_ROOT}/src/gone.ts`, [live], [OLD_ROOT])).toBe(
-      'src/gone.ts',
+  it('rebases through a vanished recorded root', () => {
+    expect(rebaseLegacyEvidencePath(`${OLD_ROOT}/src/a.ts`, [live], [OLD_ROOT])).toBe(
+      join(live, 'src', 'a.ts'),
     );
   });
 
-  it('prefers the longest existing tail under the live root', () => {
-    // `a.ts` exists at the root too; the longer `src/a.ts` must win.
-    expect(rebaseLegacyEvidencePath(`${OLD_ROOT}/src/a.ts`, [live])).toBe('src/a.ts');
+  it('a vanished recorded root may rebase a root-level file', () => {
+    // The recorded root pins the exact position, so a one-segment tail is safe.
+    expect(rebaseLegacyEvidencePath(`${OLD_ROOT}/LICENSE`, [live], [OLD_ROOT])).toBe(
+      join(live, 'LICENSE'),
+    );
+  });
+
+  it('rebases through the longest tail whose former root is gone', () => {
+    expect(rebaseLegacyEvidencePath(`${OLD_ROOT}/src/a.ts`, [live])).toBe(
+      join(live, 'src', 'a.ts'),
+    );
   });
 
   it('returns null when no tail exists under any live root', () => {
     expect(rebaseLegacyEvidencePath(`${OLD_ROOT}/src/missing.ts`, [live])).toBeNull();
+  });
+
+  it('never rebases onto a bare file name', () => {
+    // Only a one-segment tail (`LICENSE`) exists under the live root.
+    expect(rebaseLegacyEvidencePath(`${OLD_ROOT}/LICENSE`, [live])).toBeNull();
+  });
+
+  it('never rebases a file deleted from a project that did not move', () => {
+    // The live root still exists, so a missing file is REMOVED, not moved —
+    // even though `LICENSE` and `src/a.ts`-shaped tails exist elsewhere.
+    const other = mkdtempSync(join(tmpdir(), 'evidence-rebase-other-'));
+    try {
+      mkdirSync(join(other, 'packages', 'a'), { recursive: true });
+      writeFileSync(join(other, 'packages', 'a', 'LICENSE'), 'x');
+      mkdirSync(join(live, 'packages', 'a'), { recursive: true });
+      const deleted = join(live, 'packages', 'a', 'LICENSE');
+      expect(rebaseLegacyEvidencePath(deleted, [other])).toBeNull();
+      expect(rebaseLegacyEvidencePath(deleted, [other], [live])).toBeNull();
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects traversal segments', () => {
+    expect(rebaseLegacyEvidencePath('/gone/root/../../etc/hosts', [live])).toBeNull();
+    expect(rebaseLegacyEvidencePath(`${OLD_ROOT}/./src/a.ts`, [live])).toBeNull();
+  });
+
+  it('rejects a rebased path whose realpath escapes the live root', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'evidence-rebase-outside-'));
+    try {
+      mkdirSync(join(outside, 'secret'), { recursive: true });
+      writeFileSync(join(outside, 'secret', 'key.pem'), 'k');
+      symlinkSync(join(outside, 'secret'), join(live, 'secret'));
+      expect(rebaseLegacyEvidencePath(`${OLD_ROOT}/secret/key.pem`, [live])).toBeNull();
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 });
 
@@ -148,9 +194,10 @@ describe('legacy absolute atoms re-validate by rebasing', () => {
     live = mkdtempSync(join(tmpdir(), 'evidence-legacy-'));
     mkdirSync(join(live, 'src'), { recursive: true });
     writeFileSync(join(live, 'src', 'a.ts'), 'export const a = 1;\n');
-    writeFileSync(join(live, 'out.json'), VITEST_JSON);
+    mkdirSync(join(live, 'reports'), { recursive: true });
+    writeFileSync(join(live, 'reports', 'out.json'), VITEST_JSON);
     const f = await validateAtom({ kind: 'files', paths: ['src/a.ts'] }, live);
-    const t = await validateAtom({ kind: 'test-run', path: 'out.json' }, live);
+    const t = await validateAtom({ kind: 'test-run', path: 'reports/out.json' }, live);
     if (!f.ok || f.atom.kind !== 'files' || !t.ok || t.atom.kind !== 'test-run') {
       throw new Error('fixture validation failed');
     }
@@ -192,7 +239,7 @@ describe('legacy absolute atoms re-validate by rebasing', () => {
   it('test-run: an old absolute path re-validates against the live root', async () => {
     const atom: EvidenceAtom = {
       kind: 'test-run',
-      path: `${OLD_ROOT}/out.json`,
+      path: `${OLD_ROOT}/reports/out.json`,
       sha256: reportSha,
       passCount: 2,
       failCount: 0,
@@ -203,10 +250,10 @@ describe('legacy absolute atoms re-validate by rebasing', () => {
   });
 
   it('test-run: rebasing never bypasses the tamper check', async () => {
-    writeFileSync(join(live, 'out.json'), JSON.stringify({ numTotalTests: 9 }));
+    writeFileSync(join(live, 'reports', 'out.json'), JSON.stringify({ numTotalTests: 9 }));
     const atom: EvidenceAtom = {
       kind: 'test-run',
-      path: `${OLD_ROOT}/out.json`,
+      path: `${OLD_ROOT}/reports/out.json`,
       sha256: reportSha,
       passCount: 2,
       failCount: 0,
@@ -215,5 +262,82 @@ describe('legacy absolute atoms re-validate by rebasing', () => {
     const rv = await revalidateEvidence(evidenceOf(atom), live);
     expect(rv.stillValid).toBe(false);
     expect(rv.failedAtoms[0]?.reason).toMatch(/modified since verify/);
+  });
+});
+
+/**
+ * Regression for the independent review of PR #1570: in a worktree layout
+ * (execution root != store root), an absolute path under the STORE root must
+ * not be re-validated against the worktree's identical copy — tampering with
+ * the store file has to be detected.
+ */
+describe('worktree layout keeps the tamper check on the recorded file', () => {
+  let storeRoot: string;
+  let worktree: string;
+  let originalCwd: string;
+  const git = (dir: string, args: string[]): string =>
+    execFileSync('git', args, { cwd: dir, encoding: 'utf-8' });
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    storeRoot = mkdtempSync(join(tmpdir(), 'evidence-wt-store-'));
+    git(storeRoot, ['init', '-q', '-b', 'main']);
+    git(storeRoot, ['config', 'user.name', 'Test']);
+    git(storeRoot, ['config', 'user.email', 'test@example.com']);
+    writeFileSync(join(storeRoot, 'README.md'), 'base');
+    writeFileSync(join(storeRoot, 'out.json'), VITEST_JSON);
+    git(storeRoot, ['add', 'README.md', 'out.json']);
+    git(storeRoot, ['commit', '-q', '-m', 'base']);
+    worktree = `${storeRoot}-wt`;
+    git(storeRoot, ['worktree', 'add', '-q', '-b', 'feature', worktree]);
+    process.chdir(worktree);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    try {
+      git(storeRoot, ['worktree', 'remove', '--force', worktree]);
+    } catch {
+      // best effort
+    }
+    rmSync(storeRoot, { recursive: true, force: true });
+    rmSync(worktree, { recursive: true, force: true });
+  });
+
+  it('files: an absolute store-root path stays absolute and catches tampering', async () => {
+    const storeFile = join(storeRoot, 'README.md');
+    const r = await validateAtom({ kind: 'files', paths: [storeFile] }, storeRoot);
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.atom.kind !== 'files') return;
+    expect(r.atom.files[0]?.path).toBe(storeFile);
+
+    writeFileSync(storeFile, 'tampered');
+    const rv = await revalidateEvidence(evidenceOf(r.atom), storeRoot);
+    expect(rv.stillValid).toBe(false);
+    expect(rv.failedAtoms[0]?.reason).toMatch(/modified since verify/);
+  });
+
+  it('test-run: an absolute store-root report re-validates against the store copy', async () => {
+    const storeReport = join(storeRoot, 'out.json');
+    const r = await validateAtom({ kind: 'test-run', path: storeReport }, storeRoot);
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.atom.kind !== 'test-run') return;
+
+    writeFileSync(storeReport, JSON.stringify({ numTotalTests: 9 }));
+    const rv = await revalidateEvidence(evidenceOf(r.atom), storeRoot);
+    expect(rv.stillValid).toBe(false);
+    expect(rv.failedAtoms[0]?.reason).toMatch(/modified since verify/);
+  });
+
+  it('test-run: a worktree report stays absolute and catches tampering', async () => {
+    const wtReport = join(worktree, 'out.json');
+    const r = await validateAtom({ kind: 'test-run', path: wtReport }, storeRoot);
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.atom.kind !== 'test-run') return;
+    expect(r.atom.path).toBe(wtReport);
+
+    writeFileSync(wtReport, JSON.stringify({ numTotalTests: 9 }));
+    const rv = await revalidateEvidence(evidenceOf(r.atom), storeRoot);
+    expect(rv.stillValid).toBe(false);
   });
 });

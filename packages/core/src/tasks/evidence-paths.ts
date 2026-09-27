@@ -56,8 +56,8 @@ function relativeInside(root: string, target: string): string | null {
  * Convert an evidence path to the form an atom should persist.
  *
  * A relative path is returned unchanged. An absolute path inside one of
- * `roots` becomes relative to the FIRST such root (callers pass the execution
- * root before the store root, matching resolution order). Symlinked roots are
+ * `roots` becomes relative to the FIRST such root. Callers pass exactly the
+ * root the atom kind re-validates against, so the stored form names one file. Symlinked roots are
  * compared both literally and through `realpath`, so `/tmp/x` and
  * `/private/tmp/x` on macOS agree. An absolute path outside every root is
  * returned unchanged.
@@ -87,20 +87,31 @@ export function toPortableEvidencePath(path: string, roots: readonly string[]): 
   return path;
 }
 
+/** Whether `target` resolves (through symlinks) strictly inside `root`. */
+function staysInside(root: string, target: string): boolean {
+  return relativeInside(realOrSelf(root), realOrSelf(target)) !== null;
+}
+
 /**
  * Map a legacy absolute evidence path onto the live project root.
  *
- * Returns `null` when the path is relative, still exists, or cannot be mapped.
- * Otherwise returns the root-relative tail to resolve against the live root,
- * chosen in this order:
+ * Returns `null` unless ALL of these hold, so a rebase can never widen what a
+ * path could mean:
  *
- * 1. The path lies under a recorded former checkout root of this project —
- *    the tail is exactly its position under that root. Returned whether or
- *    not the tail exists now, so a deleted file is reported as removed
- *    rather than silently re-mapped to something else.
- * 2. Otherwise, the LONGEST suffix of the path's segments that exists under
- *    one of `liveRoots`. Longest-first keeps `src/index.ts` from being
- *    answered by an unrelated `index.ts` higher up.
+ * - the path is absolute, does not exist, and has no `.` / `..` segments;
+ * - the project root the path was recorded under no longer exists (a file
+ *   deleted from a project that did NOT move is reported removed, never
+ *   re-pointed at some other file);
+ * - the rebased file exists and its realpath stays inside the live root.
+ *
+ * Candidates, in order:
+ *
+ * 1. A recorded former checkout root of this project that contains the path
+ *    and is itself gone — the tail is exactly the path's position under it.
+ * 2. Otherwise the LONGEST tail of at least two segments whose implied former
+ *    root (the path minus the tail) is gone and which exists under a live
+ *    root. Two segments minimum keeps a bare file name (`LICENSE`) from
+ *    matching whatever happens to share it.
  *
  * The result is a candidate, not a verdict: the caller must still compare
  * the bytes it reads against the recorded sha256.
@@ -108,12 +119,12 @@ export function toPortableEvidencePath(path: string, roots: readonly string[]): 
  * @param path - Path as stored in the legacy atom.
  * @param liveRoots - Live project roots (execution root first, store root second).
  * @param recordedRoots - Former checkout roots recorded for this project.
- * @returns The rebased root-relative path, or `null`.
+ * @returns The absolute rebased path under a live root, or `null`.
  * @example
  * ```ts
  * // Project moved from /mnt/projects/app to /home/me/app:
  * rebaseLegacyEvidencePath('/mnt/projects/app/src/a.ts', ['/home/me/app'], ['/mnt/projects/app']);
- * // → 'src/a.ts'
+ * // → '/home/me/app/src/a.ts'
  * ```
  * @task T12476
  */
@@ -123,20 +134,32 @@ export function rebaseLegacyEvidencePath(
   recordedRoots: readonly string[] = [],
 ): string | null {
   if (!isAbsolute(path) || existsSync(path)) return null;
+  const segments = path.split(/[\\/]+/).filter((s) => s.length > 0);
+  if (segments.some((s) => s === '.' || s === '..')) return null;
+
+  const firstExistingUnderLive = (tail: string): string | null => {
+    for (const root of liveRoots) {
+      const candidate = join(root, tail);
+      if (existsSync(candidate) && staysInside(root, candidate)) return candidate;
+    }
+    return null;
+  };
 
   for (const oldRoot of recordedRoots) {
-    // A recorded root that is itself live cannot explain a missing path.
-    if (liveRoots.includes(oldRoot)) continue;
+    if (liveRoots.includes(oldRoot) || existsSync(oldRoot)) continue;
     const rel = relativeInside(oldRoot, path);
-    if (rel !== null) return rel;
+    if (rel === null) continue;
+    const hit = firstExistingUnderLive(rel);
+    if (hit !== null) return hit;
   }
 
-  const segments = path.split(/[\\/]+/).filter((s) => s.length > 0);
-  for (let start = 0; start < segments.length; start++) {
-    const tail = segments.slice(start).join('/');
-    for (const root of liveRoots) {
-      if (existsSync(join(root, tail))) return tail;
-    }
+  // start >= 1: the implied former root is never the filesystem root, which
+  // always exists. Tails keep at least two segments.
+  for (let start = 1; start <= segments.length - 2; start++) {
+    const impliedRoot = `/${segments.slice(0, start).join('/')}`;
+    if (existsSync(impliedRoot)) continue;
+    const hit = firstExistingUnderLive(segments.slice(start).join('/'));
+    if (hit !== null) return hit;
   }
   return null;
 }

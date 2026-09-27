@@ -10,17 +10,22 @@ the path exactly as typed, so an absolute path recorded on one device made
 `cleo complete` report "File removed since verify" on the next, for a file
 that was present and byte-identical under the new root.
 
-New atoms persist the path relative to the root it was found under (the
-execution root first, then the store root). A report outside every project
-root, such as one in the system temp directory, stays absolute. For a legacy
-absolute atom whose path no longer exists, re-validation looks up the path
-under the live root. It uses the position under a recorded former checkout
-root of this project (`nexus_project_paths`) when there is one. Otherwise it
-uses the longest tail of the path that exists under the live root. Rebasing
-only chooses which bytes to hash: the sha256 captured at verify time still
-decides, so a rebased file that changed fails exactly as a modified file does.
-Relative `test-run:` atoms now re-validate against the execution root before
-the store root, matching the order validation already used.
+Each atom kind re-validates a relative path against exactly one root:
+`files:` against the execution root, and `test-run:` against the store root.
+New atoms are relativised only against that root. For `files:`, this happens
+only when the execution root is the store root. In a worktree layout, an
+absolute path stays absolute, so re-validation hashes the recorded file and
+never an identical copy in the other tree. A path outside that root stays
+absolute. Relative input is kept verbatim.
+
+A legacy absolute atom whose path no longer exists is rebased onto the live
+root only when the project root it was recorded under is itself gone. The
+rebase goes through a vanished recorded checkout root of this project
+(`nexus_project_paths`), or through the longest tail of at least two
+segments. Paths with `.`/`..` segments are refused, and so is a rebased file
+whose realpath escapes the live root. A file deleted from a project that did
+not move is reported removed, never re-pointed. Rebasing only chooses which
+bytes to hash: the sha256 captured at verify time still decides.
 
 **Defaults named one past device.** `cleo doctor db-substrate --fleet`
 defaulted to `/mnt/projects`, and `cleo nexus projects scan` to
