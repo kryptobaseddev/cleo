@@ -13,6 +13,7 @@
  * @task T566
  */
 
+import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
@@ -151,14 +152,14 @@ export default defineConfig({
         .pathname,
       // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
       // Must be aliased so vitest resolves packages/core/src/paths.ts without a build step.
-      '@cleocode/paths': new URL('../../packages/paths/src/index.ts', import.meta.url).pathname,
+      '@cleocode/paths': fileURLToPath(new URL('../../packages/paths/src/index.ts', import.meta.url)),
       // @cleocode/utils — pure zero-dependency leaf (formatBytes, redact, …).
       // Aliased to source so vitest resolves the leaf without building its
       // dist/ first (T11414 · E5). Mirrors the @cleocode/paths treatment.
-      '@cleocode/utils': new URL('../../packages/utils/src/index.ts', import.meta.url).pathname,
+      '@cleocode/utils': fileURLToPath(new URL('../../packages/utils/src/index.ts', import.meta.url)),
       // caamp and cant — required to resolve @cleocode/core/internal transitive deps
-      '@cleocode/caamp': new URL('../../packages/caamp/src/index.ts', import.meta.url).pathname,
-      '@cleocode/cant': new URL('../../packages/cant/src/index.ts', import.meta.url).pathname,
+      '@cleocode/caamp': fileURLToPath(new URL('../../packages/caamp/src/index.ts', import.meta.url)),
+      '@cleocode/cant': fileURLToPath(new URL('../../packages/cant/src/index.ts', import.meta.url)),
       // T1187-followup / v2026.4.113: CLI imports buildManifestEntryFromShorthand
       // from the core SDK (package-boundary fix — CLI must delegate to core for
       // defaulting logic). Matches existing brain-backfill.js / precompact-flush.js pattern.
@@ -194,7 +195,7 @@ export default defineConfig({
         import.meta.url,
       ).pathname,
       // T946 sentient daemon consumes these subpath exports at runtime.
-      '@cleocode/core/sdk': new URL('../../packages/core/src/cleo.ts', import.meta.url).pathname,
+      '@cleocode/core/sdk': fileURLToPath(new URL('../../packages/core/src/cleo.ts', import.meta.url)),
       '@cleocode/core/tasks': new URL(
         '../../packages/core/src/tasks/index.ts',
         import.meta.url,
@@ -439,7 +440,7 @@ export default defineConfig({
         '../../packages/contracts/src/operations/llm.ts',
         import.meta.url,
       ).pathname,
-      '@cleocode/core': new URL('../../packages/core/src/index.ts', import.meta.url).pathname,
+      '@cleocode/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
       // T12067: `cli/animation-bridge.ts` imports @cleocode/animations, which
       // ships no root `main`/`exports` entry — so without this alias vitest
       // fails to resolve the package and TEN test files fail to LOAD (not to
@@ -450,7 +451,7 @@ export default defineConfig({
         '../../packages/animations/src/index.ts',
         import.meta.url,
       ).pathname,
-      '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
+      '@cleocode/lafs': fileURLToPath(new URL('../../packages/lafs/src/index.ts', import.meta.url)),
       // T9965: js-yaml + @iarna/toml are deps of @cleocode/caamp; in worktrees
       // they resolve through caamp/node_modules rather than root node_modules.
       '@iarna/toml': new URL(
@@ -478,7 +479,7 @@ export default defineConfig({
         '../../packages/nexus/src/code/search.ts',
         import.meta.url,
       ).pathname,
-      '@cleocode/nexus': new URL('../../packages/nexus/src/index.ts', import.meta.url).pathname,
+      '@cleocode/nexus': fileURLToPath(new URL('../../packages/nexus/src/index.ts', import.meta.url)),
       // T9522: @cleocode/worktree — worktree provisioning helpers, transitively
       // imported by @cleocode/core/internal via orchestrate/spawn-ops.ts.
       // Required for integration tests that instantiate TasksHandler.
