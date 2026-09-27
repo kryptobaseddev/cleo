@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * lint-orphan-cleo-dir.mjs — CI gate against the T9550/T9580 orphan-`.cleo/`
  * regression class.
@@ -56,6 +57,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { isMain } from './lib/is-main.mjs';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -261,10 +263,7 @@ export function runLint(opts, cwd) {
 
 // Only run when invoked directly (not when imported by the test suite).
 // Equivalent to `if (require.main === module)` for ESM.
-const invokedDirectly =
-  typeof process !== 'undefined' &&
-  process.argv[1] &&
-  import.meta.url === `file://${process.argv[1]}`;
+const invokedDirectly = isMain(import.meta.url);
 
 if (invokedDirectly) {
   let opts;

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Bump @cleocode/* workspace dependency refs across packages/* package.json files.
  *
@@ -31,6 +32,7 @@
 
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { isMain } from './lib/is-main.mjs';
 
 const CALVER_REGEX = /^\d{4}\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const WORKSPACE_SCOPE_PREFIX = '@cleocode/';
@@ -238,9 +240,7 @@ async function main() {
   }
 }
 
-const invokedDirectly =
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
+const invokedDirectly = isMain(import.meta.url);
 if (invokedDirectly) {
   await main();
 }

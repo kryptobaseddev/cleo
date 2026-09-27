@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Gate 15: every `cleo …` command invoked by a GitHub workflow must exist.
  *
@@ -39,6 +40,7 @@
 
 import { globSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isMain } from './lib/is-main.mjs';
 import {
   extractRootSubCommands,
   findFlagViolations,
@@ -252,8 +254,7 @@ export function extractRunBlockText(yamlText) {
   return out.join('\n');
 }
 
-const isMain = import.meta.url === `file://${process.argv[1]}`;
-if (isMain) {
+if (isMain(import.meta.url)) {
   const asJson = process.argv.includes('--json');
 
   const files = [
