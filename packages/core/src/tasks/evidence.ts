@@ -53,6 +53,11 @@ import {
 } from '../git/work-tree.js';
 import { pushWarning } from '../output.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
+import {
+  loadRecordedProjectRoots,
+  rebaseLegacyEvidencePath,
+  toPortableEvidencePath,
+} from './evidence-paths.js';
 import { DISABLE_ENV, describeMemoryLimit } from './heavy-tool-limit.js';
 import {
   computeCommitRevalidationKey,
@@ -1405,13 +1410,17 @@ async function validateFiles(
     // an absolute or store-relative path keeps working.
     const fromExecution = isAbsolute(p) ? p : resolvePath(executionRoot, p);
     const abs = existsSync(fromExecution) ? fromExecution : resolvePath(projectRoot, p);
+    // T12476: persist the path relative to the root it lives under, so the
+    // atom re-validates after the project moves. Git lookups use the same
+    // form here and at re-validation, keeping both sides on identical bytes.
+    const stored = toPortableEvidencePath(p, [executionRoot, projectRoot]);
     let content: Buffer | null = null;
 
     // T12107 (gh#1195): the sibling commit is the evidence anchor — check its
     // tree FIRST. A file merged remotely but not yet present locally validates
     // here without waiting for a fast-forward.
     if (commitSha) {
-      content = await gitShowFileContentAtCommit(p, commitSha, executionRoot);
+      content = await gitShowFileContentAtCommit(stored, commitSha, executionRoot);
     }
     if (requireCommitArtifact && content === null) {
       return {
@@ -1437,7 +1446,7 @@ async function validateFiles(
     if (content === null && taskId) {
       // T11959: Git-show fallback for branch-only files (worktree context).
       // The file exists on the task branch but not yet at the canonical root.
-      content = await gitShowFileContent(p, taskId, executionRoot);
+      content = await gitShowFileContent(stored, taskId, executionRoot);
     }
 
     if (content === null) {
@@ -1459,7 +1468,7 @@ async function validateFiles(
     }
 
     const sha256 = createHash('sha256').update(content).digest('hex');
-    files.push({ path: p, sha256 });
+    files.push({ path: stored, sha256 });
   }
   return { ok: true, atom: { kind: 'files', files } };
 }
@@ -1617,11 +1626,18 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
   // store-relative path keeps working. gh#1365: the root arrives as a
   // parameter now; it is NOT re-resolved here.
   let abs: string;
+  // T12476: persist the path relative to the root the report was found under
+  // (execution root first, as resolved) so the atom survives a project move.
+  // A report outside every project root stays absolute.
+  let stored: string;
   if (isAbsolute(path)) {
     abs = path;
+    stored = toPortableEvidencePath(path, [executionRoot, projectRoot]);
   } else {
     const fromExecution = resolvePath(executionRoot, path);
-    abs = existsSync(fromExecution) ? fromExecution : resolvePath(projectRoot, path);
+    const inExecution = existsSync(fromExecution);
+    abs = inExecution ? fromExecution : resolvePath(projectRoot, path);
+    stored = toPortableEvidencePath(abs, inExecution ? [executionRoot] : [projectRoot]);
   }
   if (!existsSync(abs)) {
     return {
@@ -1691,7 +1707,7 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
     ok: true,
     atom: {
       kind: 'test-run',
-      path,
+      path: stored,
       sha256,
       passCount: passed,
       failCount: failed,
@@ -2683,6 +2699,43 @@ export function isHardAtom(atom: EvidenceAtom): boolean {
 }
 
 /**
+ * Resolve a stored evidence path to an absolute path: absolute paths as-is,
+ * relative ones under the execution root when present there, otherwise under
+ * the store root — the same order validation used.
+ *
+ * @internal
+ * @task T12476
+ */
+function resolveEvidencePathUnderRoots(
+  path: string,
+  executionRoot: string,
+  storeRoot: string,
+): string {
+  if (isAbsolute(path)) return path;
+  const fromExecution = resolvePath(executionRoot, path);
+  return existsSync(fromExecution) ? fromExecution : resolvePath(storeRoot, path);
+}
+
+/**
+ * The path re-validation should look up for a stored atom path. A legacy
+ * absolute path that no longer exists is rebased onto the live root (through
+ * a recorded former checkout root, or its relative tail); anything else is
+ * returned unchanged.
+ *
+ * @internal
+ * @task T12476
+ */
+async function rebaseForRevalidation(
+  path: string,
+  executionRoot: string,
+  storeRoot: string,
+): Promise<string> {
+  if (!isAbsolute(path) || existsSync(path)) return path;
+  const recordedRoots = await loadRecordedProjectRoots(storeRoot);
+  return rebaseLegacyEvidencePath(path, [executionRoot, storeRoot], recordedRoots) ?? path;
+}
+
+/**
  * Re-validate stored evidence to detect tampering between verify and complete.
  *
  * Hard atoms (commit, files, test-run, tool) are re-executed. Soft atoms
@@ -2835,11 +2888,15 @@ export async function revalidateEvidence(
           siblingCommitSha === undefined ? {} : { commitSha: siblingCommitSha },
         );
         for (const f of atom.files) {
-          const abs = isAbsolute(f.path) ? f.path : resolvePath(executionRoot, f.path);
+          // T12476: a legacy absolute path whose checkout moved is rebased onto
+          // the live root. Rebasing only picks which bytes to hash — the sha256
+          // comparison below still decides, so tamper detection is unchanged.
+          const lookupPath = await rebaseForRevalidation(f.path, executionRoot, projectRoot);
+          const abs = resolveEvidencePathUnderRoots(lookupPath, executionRoot, projectRoot);
           let content: Buffer | null = null;
 
           if (siblingCommitSha) {
-            content = await gitShowFileContentAtCommit(f.path, siblingCommitSha, executionRoot);
+            content = await gitShowFileContentAtCommit(lookupPath, siblingCommitSha, executionRoot);
           }
           if (siblingPr && content === null) {
             failed.push({
@@ -2855,7 +2912,7 @@ export async function revalidateEvidence(
             // T11959: git-show fallback — file may have been on task branch at
             // verify time and is now on main after merge, or it may still only
             // exist on the branch. Use the same resolution path as validateFiles.
-            content = await gitShowFileContent(f.path, taskId, executionRoot);
+            content = await gitShowFileContent(lookupPath, taskId, executionRoot);
           }
 
           if (!content) {
@@ -2881,7 +2938,15 @@ export async function revalidateEvidence(
         // Deliberately NOT cached (T12102): same reasoning as files: — the
         // content hash comparison IS the staleness guarantee.
         const startedAt = Date.now();
-        const abs = isAbsolute(atom.path) ? atom.path : resolvePath(projectRoot, atom.path);
+        // T12476: mirror validateTestRun — execution root first, store root
+        // second — and rebase a legacy absolute path whose checkout moved.
+        const testRunExecutionRoot = resolveEvidenceExecutionRoot(projectRoot);
+        const lookupPath = await rebaseForRevalidation(
+          atom.path,
+          testRunExecutionRoot,
+          projectRoot,
+        );
+        const abs = resolveEvidencePathUnderRoots(lookupPath, testRunExecutionRoot, projectRoot);
         if (!existsSync(abs)) {
           failed.push({ atom, reason: `test-run file removed since verify: ${atom.path}` });
           options?.onProgress?.(`test-run:${atom.path} FAILED ${Date.now() - startedAt}ms`);
