@@ -3,8 +3,9 @@
  * scripts/sweep-manual-doc-writes.mjs
  *
  * Repo-wide audit of manual `*.md` writes under `.cleo/canon.yml`'s
- * `rawMdPaths` directories since the T9791 docs-import cutoff
- * (commit 251814e86, 2026-05-20).
+ * `rawMdPaths` directories since the T9791 docs-import cutoff — the
+ * commit that imported the legacy markdown corpus and committed its
+ * manifests under `.cleo/audit/imports/`.
  *
  * READ-ONLY. Mutates nothing. Walks the git history, computes content
  * SHA-256 per file, queries the docs SSoT, and classifies each entry as:
@@ -55,11 +56,18 @@ import { parse as parseYaml } from 'yaml';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// T9791 docs-import cutoff — the commit that bulk-imported the legacy
-// markdown corpus into the SSoT. Files added BEFORE this commit are
-// considered legacy and are not classified by this sweep; the gate is
-// forward-only, matching `cleo check canon docs`.
-const T9791_CUTOFF = '251814e86';
+// The T9791 docs-import commit is located by the manifests it committed
+// to `.cleo/audit/imports/<ts>/<source>.json`. Files added BEFORE it are
+// legacy and are not classified by this sweep; the gate is forward-only,
+// matching `cleo check canon docs`.
+//
+// It is resolved rather than hardcoded because the SHA it used to carry
+// (251814e86) was the branch-local commit T9791 ran on. The same commit
+// landed on `main` under a different SHA, so `git log 251814e86..HEAD`
+// died with `fatal: bad revision` in any checkout that did not carry the
+// original branch — every code-touching PR. The manifests were committed
+// with the import, so they survive that rebase.
+const T9791_IMPORT_MANIFEST_PATH = '.cleo/audit/imports/';
 
 /**
  * Parse CLI arguments into a flat options object. The script is
@@ -67,13 +75,13 @@ const T9791_CUTOFF = '251814e86';
  * for CI runs.
  *
  * @param {string[]} argv
- * @returns {{json: boolean, allowUnresolved: boolean, cutoff: string, out: string | null, repoRoot: string, cleoBin: string[]}}
+ * @returns {{json: boolean, allowUnresolved: boolean, cutoff: string | null, out: string | null, repoRoot: string, cleoBin: string[]}}
  */
 function parseArgs(argv) {
   const opts = {
     json: false,
     allowUnresolved: false,
-    cutoff: T9791_CUTOFF,
+    cutoff: null,
     out: null,
     repoRoot: resolve(__dirname, '..'),
     /** @type {string[]} argv prefix for invoking cleo; defaults to globally-installed `cleo` */
@@ -120,6 +128,41 @@ function loadRawMdPaths(repoRoot) {
     }
   }
   return Array.from(new Set(paths));
+}
+
+/**
+ * Resolve the T9791 docs-import cutoff in the checkout under audit: the
+ * commit that added the import manifests under
+ * `T9791_IMPORT_MANIFEST_PATH`. `git log` is newest-first, so the last
+ * entry is the oldest — the original import, not a later re-import.
+ *
+ * Throws with the reason rather than letting `git log <sha>..HEAD` fail
+ * downstream, and `--cutoff <sha>` bypasses this entirely.
+ *
+ * @param {string} repoRoot
+ * @returns {string} full commit SHA
+ */
+function resolveCutoff(repoRoot) {
+  const proc = spawnSync(
+    'git',
+    ['log', '--format=%H', '--diff-filter=A', '--', T9791_IMPORT_MANIFEST_PATH],
+    { cwd: repoRoot, encoding: 'utf-8' },
+  );
+  if (proc.status !== 0) {
+    throw new Error(
+      `could not resolve the T9791 docs-import cutoff: git log failed for ${T9791_IMPORT_MANIFEST_PATH}: ${proc.stderr.trim()}`,
+    );
+  }
+  const commits = proc.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (commits.length === 0) {
+    throw new Error(
+      `could not resolve the T9791 docs-import cutoff: no commit in this checkout adds ${T9791_IMPORT_MANIFEST_PATH}. Pass --cutoff <sha>, or fetch full history (the CI job checks out with fetch-depth: 0).`,
+    );
+  }
+  return commits[commits.length - 1];
 }
 
 /**
@@ -305,8 +348,9 @@ function classify(file, fileSha, slugIndex, shaIndex, ssotAvailable) {
  */
 export function runSweep(argv = process.argv.slice(2)) {
   const opts = parseArgs(argv);
+  const cutoff = opts.cutoff ?? resolveCutoff(opts.repoRoot);
   const rawPaths = loadRawMdPaths(opts.repoRoot);
-  const files = listMdFilesAddedSince(opts.cutoff, rawPaths, opts.repoRoot);
+  const files = listMdFilesAddedSince(cutoff, rawPaths, opts.repoRoot);
   const {
     index: slugIndex,
     shaIndex,
@@ -340,7 +384,7 @@ export function runSweep(argv = process.argv.slice(2)) {
     (grouped[it.remediation] ?? grouped.orphan).push(it);
   }
   const summary = {
-    cutoff: opts.cutoff,
+    cutoff,
     totalFiles: items.length,
     orphan: grouped.orphan.length,
     drift: grouped.drift.length,
