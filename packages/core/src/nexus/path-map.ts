@@ -18,6 +18,21 @@
  * same transaction: encounter registration, `nexusRegister`, `nexusReconcile`
  * and `nexusMoveProject`. Only an explicit unregister or clean removes rows.
  *
+ * ## Compatibility with older binaries sharing the global store
+ *
+ * Older binaries still read the registry by path (`WHERE project_path = ?
+ * LIMIT 1`, and an owner filter of path OR hash OR id). Two registry rows at
+ * one path would make them pick a stale row and fail (`E_PROJECT_ID_DRIFT`,
+ * identity conflicts). So when a path changes hands, the previous holder's
+ * registry row is re-homed in the same transaction ({@link rehomeDisplacedRows}):
+ * to its most recent other live location on this device, or, if it has none,
+ * to the non-path sentinel {@link supersededRegistryPath} — which no path
+ * lookup can match. At most one registry row ever names a real path.
+ *
+ * The legacy `nexus_project_paths` map is dual-written (upsert only) for one
+ * release so older binaries keep reading a current map; drop it with a later
+ * migration once those binaries are gone.
+ *
  * @task T12354
  * @task T12469
  */
@@ -27,8 +42,9 @@ import type { NexusProjectCheckout } from '@cleocode/contracts';
 import { and, desc, eq, ne } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getStableDeviceId } from '../llm/stable-device-id.js';
-import { projectLocations } from '../store/schema/nexus-schema.js';
+import { projectLocations, projectPaths, projectRegistry } from '../store/schema/nexus-schema.js';
 import { generateProjectHash } from './hash.js';
+import { registryStorePath } from './registry-hygiene.js';
 
 /** A registry handle or an open transaction on one. */
 export type PathMapWriter = Pick<NodeSQLiteDatabase, 'select' | 'insert' | 'delete' | 'update'>;
@@ -73,6 +89,31 @@ export interface ProjectCheckoutOutcome {
  */
 export function currentDeviceId(): string {
   return getStableDeviceId();
+}
+
+/** Prefix of the registry `project_path` sentinel for a row with no live location. */
+export const SUPERSEDED_PATH_PREFIX = 'superseded:';
+
+/**
+ * Registry `project_path` for a project whose last checkout now holds another
+ * project and which has no other live location. Not an absolute path, so no
+ * path lookup (current or older binary) can match it; unique per id.
+ *
+ * @param projectId - Immutable project id.
+ * @returns `superseded:<projectId>`.
+ */
+export function supersededRegistryPath(projectId: string): string {
+  return `${SUPERSEDED_PATH_PREFIX}${projectId}`;
+}
+
+/**
+ * Whether a registry `project_path` is the {@link supersededRegistryPath} sentinel.
+ *
+ * @param projectPath - Stored registry path.
+ * @returns `true` for the sentinel.
+ */
+export function isSupersededRegistryPath(projectPath: string): boolean {
+  return projectPath.startsWith(SUPERSEDED_PATH_PREFIX);
 }
 
 /** Primary-key predicate for one location row. */
@@ -196,7 +237,91 @@ export function recordProjectCheckout(
       .run();
     markedMissing++;
   }
+  rehomeDisplacedRows(db, record.projectId, record.projectPath, deviceId);
+
+  // Legacy path map, dual-written for older binaries (upsert only; see header).
+  db.insert(projectPaths)
+    .values({
+      projectPath: record.projectPath,
+      projectId: record.projectId,
+      projectHash: record.projectHash ?? generateProjectHash(record.projectPath),
+      firstSeen: record.now,
+      lastSeen: record.now,
+    })
+    .onConflictDoUpdate({
+      target: projectPaths.projectPath,
+      set: {
+        projectId: record.projectId,
+        projectHash: record.projectHash ?? generateProjectHash(record.projectPath),
+        lastSeen: record.now,
+      },
+    })
+    .run();
+
   return { markedMissing, superseded };
+}
+
+/**
+ * Keep at most one registry row per real path: move every OTHER project's
+ * registry row that still names `projectPath` to that project's most recent
+ * other live location on this device, or to its
+ * {@link supersededRegistryPath} sentinel when it has none.
+ *
+ * @param db - Registry handle or transaction.
+ * @param projectId - The project that now holds `projectPath`.
+ * @param projectPath - The path that changed hands.
+ * @param deviceId - This device's stable id.
+ * @returns Number of registry rows re-homed.
+ */
+export function rehomeDisplacedRows(
+  db: PathMapWriter,
+  projectId: string,
+  projectPath: string,
+  deviceId: string,
+): number {
+  const displaced = db
+    .select({ projectId: projectRegistry.projectId })
+    .from(projectRegistry)
+    .where(
+      and(eq(projectRegistry.projectPath, projectPath), ne(projectRegistry.projectId, projectId)),
+    )
+    .all();
+  for (const row of displaced) {
+    const candidates = db
+      .select({ path: projectLocations.path })
+      .from(projectLocations)
+      .where(
+        and(
+          eq(projectLocations.projectId, row.projectId),
+          eq(projectLocations.deviceId, deviceId),
+          eq(projectLocations.state, 'live'),
+          ne(projectLocations.path, projectPath),
+        ),
+      )
+      .orderBy(desc(projectLocations.lastSeen))
+      .all();
+    // A candidate must exist on disk and not already name another registry row.
+    const home = candidates.find(
+      (c) =>
+        existsSync(c.path) &&
+        db
+          .select({ projectId: projectRegistry.projectId })
+          .from(projectRegistry)
+          .where(eq(projectRegistry.projectPath, c.path))
+          .all().length === 0,
+    )?.path;
+    const nextPath = home ?? supersededRegistryPath(row.projectId);
+    db.update(projectRegistry)
+      .set({
+        projectPath: nextPath,
+        projectHash: generateProjectHash(nextPath),
+        brainDbPath: home ? registryStorePath(home) : null,
+        tasksDbPath: home ? registryStorePath(home) : null,
+      })
+      .where(eq(projectRegistry.projectId, row.projectId))
+      .run();
+  }
+  return displaced.length;
 }
 
 /**

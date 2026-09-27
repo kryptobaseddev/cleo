@@ -179,9 +179,11 @@ export function validateProjectIdConsistency(role: CleoDbRole, db: unknown, cwd?
 
   let row: ProjectRegistryRow | undefined;
   try {
-    // T12469: `project_path` is not unique — a path can carry a stale row of a
-    // project that used to live there. Drift means NO row at this path names
-    // the caller's id, so a matching row is preferred over any other.
+    // T12469: `project_path` is no longer UNIQUE, but writers keep at most one
+    // row per real path (a displaced row is re-homed or given a
+    // `superseded:<id>` sentinel — nexus/path-map.ts), so older binaries'
+    // un-ordered `LIMIT 1` form of this query stays correct. The ORDER BY is
+    // defence in depth: drift means NO row at this path names the caller's id.
     const stmt = db.prepare(
       'SELECT project_id, project_path FROM nexus_project_registry WHERE project_path = ? ORDER BY (project_id = ?) DESC LIMIT 1',
     );

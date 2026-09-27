@@ -42,11 +42,12 @@ import {
   nexusAuditLog,
   projectIdAliases,
   projectLocations,
+  projectPaths,
   projectRegistry,
 } from '../store/schema/nexus-schema.js';
 import { generateProjectHash } from './hash.js';
 import { canonicalProjectId, legacyProjectId } from './identity.js';
-import { recordProjectCheckout } from './path-map.js';
+import { isSupersededRegistryPath, recordProjectCheckout } from './path-map.js';
 import { registryStorePath } from './registry-hygiene.js';
 
 // ── Domain types ─────────────────────────────────────────────────────
@@ -155,8 +156,12 @@ function rowToProject(row: ProjectRegistryRow): NexusProject {
     labels,
     // T12469: derived from the path at runtime; the stored columns are a
     // legacy mirror for older binaries and are never read.
-    brainDbPath: registryStorePath(row.projectPath),
-    tasksDbPath: registryStorePath(row.projectPath),
+    brainDbPath: isSupersededRegistryPath(row.projectPath)
+      ? null
+      : registryStorePath(row.projectPath),
+    tasksDbPath: isSupersededRegistryPath(row.projectPath)
+      ? null
+      : registryStorePath(row.projectPath),
     lastIndexed: row.lastIndexed ?? null,
     stats,
   };
@@ -357,27 +362,6 @@ async function readProjectId(projectPath: string): Promise<string> {
   }
 }
 
-/**
- * Return the registry row owning `projectId`, rejecting a row set that names
- * any other id. The registry is keyed by `project_id` alone (ADR-094 ·
- * T12469): a row at the same path under another id is a stale location, not
- * an owner, and a row for this id at another path is this project's previous
- * checkout.
- */
-function validateRegistrationOwner(
-  rows: ProjectRegistryRow[],
-  projectPath: string,
-  projectId: string,
-): ProjectRegistryRow | undefined {
-  if (rows.some((row) => row.projectId !== projectId)) {
-    throw new CleoError(
-      ExitCode.NEXUS_PROJECT_EXISTS,
-      `Conflicting project identity: ${projectPath}`,
-    );
-  }
-  return rows[0];
-}
-
 /** Record alternate project identity tokens as aliases for registry lookup. */
 async function recordProjectIdAliases(
   projectId: string,
@@ -471,12 +455,6 @@ export async function nexusRegister(
     // T12469: ownership is the immutable id alone — never the path or its hash.
     const ownerId = declaredId || canonicalIdentity.id;
     const ownershipFilter = eq(projectRegistry.projectId, ownerId);
-    const before = await getNexusDb();
-    validateRegistrationOwner(
-      before.select().from(projectRegistry).where(ownershipFilter).all(),
-      resolvedPath,
-      ownerId,
-    );
 
     // The accessor may auto-register this path. Never carry an absence observation
     // across this await into the write transaction.
@@ -493,11 +471,8 @@ export async function nexusRegister(
     const skippedAliases: string[] = [];
     const projectId = db.transaction(
       (tx) => {
-        const existing = validateRegistrationOwner(
-          tx.select().from(projectRegistry).where(ownershipFilter).all(),
-          resolvedPath,
-          ownerId,
-        );
+        // Keyed by the primary key, so at most one row: no owner conflict exists.
+        const existing = tx.select().from(projectRegistry).where(ownershipFilter).get();
         const immutableId = ownerId;
         const projectName = name || existing?.name || basename(resolvedPath) || 'unnamed';
         const nameOwner = tx
@@ -629,6 +604,8 @@ export async function nexusUnregister(
   // T12469: an explicitly unregistered project keeps no locations. (A vanished
   // directory is marked `missing` instead; only this owner action deletes.)
   await db.delete(projectLocations).where(eq(projectLocations.projectId, project.projectId));
+  // Legacy path map, still dual-written for older binaries (T12469).
+  await db.delete(projectPaths).where(eq(projectPaths.projectId, project.projectId));
 
   await writeNexusAudit({
     action: 'unregister',
@@ -1111,6 +1088,9 @@ export async function nexusMoveProject(projectId: string, newPath: string): Prom
       tasksDbPath: newTasksDbPath,
     })
     .where(eq(projectRegistry.projectId, projectId));
+  // Record the location (and re-home any row displaced from the new path)
+  // immediately, so two rows never share a path (T12469).
+  recordProjectCheckout(db, { projectId, projectPath: resolvedPath, projectHash: newHash, now });
   await writeNexusAudit({
     action: 'move',
     projectHash: newHash,

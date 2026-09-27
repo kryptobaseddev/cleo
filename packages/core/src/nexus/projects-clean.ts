@@ -178,6 +178,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     projectRegistry: regTable,
     projectIdAliases: aliasTable,
     projectLocations: locationTable,
+    projectPaths: pathTable,
     nexusAuditLog: auditTable,
   } = await import('../store/schema/nexus-schema.js');
   // T12324: the registry lives in the GLOBAL store. Opening it directly (not
@@ -338,6 +339,10 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
       // and none may outlive the registry row they belong to.
       tx.run(
         sql`DELETE FROM ${locationTable} WHERE ${locationTable.projectId} NOT IN (SELECT ${regTable.projectId} FROM ${regTable})`,
+      );
+      // Legacy path map, still dual-written for older binaries (T12469).
+      tx.run(
+        sql`DELETE FROM ${pathTable} WHERE ${pathTable.projectId} NOT IN (SELECT ${regTable.projectId} FROM ${regTable})`,
       );
       const orphans = Number(
         tx.run(

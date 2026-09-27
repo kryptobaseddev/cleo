@@ -211,10 +211,19 @@ describe('nexusRegister', () => {
       join(projectDir, '.cleo/project-info.json'),
       JSON.stringify({ projectId: 'different-owner' }),
     );
-    // A path is a location, never an identity: the new id registers beside
-    // the old row instead of being refused, and the old row is untouched.
+    // A path is a location, never an identity: the new id registers instead of
+    // being refused.
     expect(await nexusRegister(projectDir, 'overwrite', 'read')).toBe(hash);
-    expect(await nexusGetProject(before!.projectId)).toEqual(before);
+    // The old row keeps its metadata but leaves the path: it has no other live
+    // location, so it is parked on the `superseded:<id>` sentinel.
+    const sentinel = `superseded:${before!.projectId}`;
+    expect(await nexusGetProject(before!.projectId)).toEqual({
+      ...before,
+      path: sentinel,
+      hash: generateProjectHash(sentinel),
+      brainDbPath: null,
+      tasksDbPath: null,
+    });
     expect(await nexusGetProject('different-owner')).toMatchObject({
       path: before!.path,
       name: 'overwrite',

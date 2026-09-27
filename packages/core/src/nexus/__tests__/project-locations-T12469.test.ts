@@ -3,8 +3,9 @@
  *
  * - A project seen at two paths on two devices has ONE registry row and TWO
  *   location rows; one device never marks another device's path missing.
- * - A path that now holds a different project registers that project (no
- *   UNIQUE path) and supersedes the old project's location instead of failing.
+ * - A path that now holds a different project registers that project and
+ *   supersedes the old project's location instead of failing; the old registry
+ *   row is moved off the path so older binaries never see two rows at one path.
  * - Rows the migration backfilled under the `local` sentinel are adopted by
  *   this device's stable id.
  *
@@ -13,7 +14,7 @@
  * @task T12469
  */
 
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,12 +22,17 @@ import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getCleoHome, recordProjectEncounter } from '../../paths.js';
 import { awaitBackgroundOps } from '../../store/background-ops.js';
+import { getNexusRegistryDbPath } from '../../store/nexus-sqlite.js';
+import { validateProjectIdConsistency } from '../../store/open-cleo-db.js';
 import { resetDbState } from '../../store/sqlite.js';
+import { getDbSyncConstructor } from '../../store/sqlite-native.js';
+import { generateProjectHash } from '../hash.js';
 import {
   currentDeviceId,
   LOCAL_DEVICE_SENTINEL,
   listProjectCheckouts,
   recordProjectCheckout,
+  supersededRegistryPath,
 } from '../path-map.js';
 
 let testDir: string;
@@ -121,8 +127,55 @@ describe('one project on two devices (T12469)', () => {
   });
 });
 
+/**
+ * What an OLDER binary sharing this global store sees at `path`: its drift
+ * check (`WHERE project_path = ? LIMIT 1`, no ORDER BY), its registration owner
+ * filter (path OR hash OR id), and its path-map fast path.
+ */
+function olderBinaryView(
+  path: string,
+  projectId: string,
+): { driftRow?: string; owners: string[]; mapped?: string } {
+  const Ctor = getDbSyncConstructor();
+  const native = new Ctor(getNexusRegistryDbPath(getCleoHome()));
+  try {
+    const driftRow = native
+      .prepare(
+        'SELECT project_id, project_path FROM nexus_project_registry WHERE project_path = ? LIMIT 1',
+      )
+      .get(path) as { project_id: string } | undefined;
+    const owners = (
+      native
+        .prepare(
+          'SELECT project_id FROM nexus_project_registry WHERE project_path = ? OR project_hash = ? OR project_id = ?',
+        )
+        .all(path, generateProjectHash(path), projectId) as Array<{ project_id: string }>
+    ).map((r) => r.project_id);
+    const mapped = native
+      .prepare('SELECT project_id FROM nexus_project_paths WHERE project_path = ?')
+      .get(path) as { project_id: string } | undefined;
+    return { driftRow: driftRow?.project_id, owners, mapped: mapped?.project_id };
+  } finally {
+    native.close();
+  }
+}
+
+/** Whether the current drift check accepts `dir`. */
+function driftCheckPasses(dir: string): boolean {
+  const Ctor = getDbSyncConstructor();
+  const native = new Ctor(getNexusRegistryDbPath(getCleoHome()));
+  try {
+    validateProjectIdConsistency('global', native, dir);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    native.close();
+  }
+}
+
 describe('a path that now holds another project (T12469)', () => {
-  it('registers the new id at the same path and supersedes the old location', async () => {
+  it('registers the new id and moves the old row off the path to a sentinel', async () => {
     const dir = makeProject(join(testDir, 'reused'), 'old-T12469');
     await recordProjectEncounter(dir);
     writeFileSync(
@@ -132,14 +185,22 @@ describe('a path that now holds another project (T12469)', () => {
     expect(await recordProjectEncounter(dir)).toBe('recorded');
 
     const { db, projectRegistry, projectLocations } = await registryDb();
+    // Never two registry rows at one real path.
     const atPath = db
       .select({ projectId: projectRegistry.projectId })
       .from(projectRegistry)
       .where(eq(projectRegistry.projectPath, dir))
       .all()
-      .map((r) => r.projectId)
-      .sort();
-    expect(atPath).toEqual(['new-T12469', 'old-T12469']);
+      .map((r) => r.projectId);
+    expect(atPath).toEqual(['new-T12469']);
+    // The old project had no other live location: non-path sentinel.
+    const old = db
+      .select()
+      .from(projectRegistry)
+      .where(eq(projectRegistry.projectId, 'old-T12469'))
+      .get();
+    expect(old?.projectPath).toBe(supersededRegistryPath('old-T12469'));
+    expect(old?.projectHash).toBe(generateProjectHash(supersededRegistryPath('old-T12469')));
 
     const stateOf = (projectId: string) =>
       db
@@ -150,17 +211,45 @@ describe('a path that now holds another project (T12469)', () => {
     expect(stateOf('old-T12469')).toBe('superseded');
     expect(stateOf('new-T12469')).toBe('live');
 
-    // The id-drift check prefers the row naming the caller's id.
-    const { validateProjectIdConsistency } = await import('../../store/open-cleo-db.js');
-    const { getDbSyncConstructor } = await import('../../store/sqlite-native.js');
-    const { getNexusRegistryDbPath } = await import('../../store/nexus-sqlite.js');
-    const Ctor = getDbSyncConstructor();
-    const native = new Ctor(getNexusRegistryDbPath(getCleoHome()));
-    try {
-      expect(() => validateProjectIdConsistency('global', native, dir)).not.toThrow();
-    } finally {
-      native.close();
-    }
+    // Older binaries: drift query, owner filter and path map all see only the new id.
+    expect(olderBinaryView(dir, 'new-T12469')).toEqual({
+      driftRow: 'new-T12469',
+      owners: ['new-T12469'],
+      mapped: 'new-T12469',
+    });
+    expect(driftCheckPasses(dir)).toBe(true);
+  });
+
+  it('re-homes the old row to its most recent other live checkout', async () => {
+    const first = makeProject(join(testDir, 'first'), 'moved-T12469');
+    await recordProjectEncounter(first);
+    const second = join(testDir, 'second');
+    cpSync(first, second, { recursive: true });
+    await recordProjectEncounter(second);
+    // `second` now changes hands.
+    writeFileSync(
+      join(second, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'taker-T12469' }),
+    );
+    expect(await recordProjectEncounter(second)).toBe('recorded');
+
+    const { db, projectRegistry } = await registryDb();
+    const moved = db
+      .select()
+      .from(projectRegistry)
+      .where(eq(projectRegistry.projectId, 'moved-T12469'))
+      .get();
+    expect(moved?.projectPath).toBe(first);
+    expect(moved?.projectHash).toBe(generateProjectHash(first));
+
+    expect(olderBinaryView(second, 'taker-T12469')).toEqual({
+      driftRow: 'taker-T12469',
+      owners: ['taker-T12469'],
+      mapped: 'taker-T12469',
+    });
+    expect(olderBinaryView(first, 'moved-T12469').driftRow).toBe('moved-T12469');
+    expect(driftCheckPasses(second)).toBe(true);
+    expect(driftCheckPasses(first)).toBe(true);
   });
 });
 

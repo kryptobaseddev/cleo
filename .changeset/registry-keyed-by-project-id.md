@@ -32,7 +32,27 @@ or `nexus projects clean`.
 
 **Ownership by id only.** `nexusRegister`, the per-command encounter and
 `nexusReconcile` find the owner by `project_id` alone. A path whose project-id
-changed now registers the new project beside the old row instead of failing
-with an identity conflict, and a path-derived alias owned by another project is
-kept with its owner and reported instead of aborting registration.
-`nexus_project_paths` is kept for older binaries but no longer written.
+changed now registers the new project instead of failing with an identity
+conflict, and a path-derived alias owned by another project is kept with its
+owner and reported instead of aborting registration.
+
+**Behaviour change — `nexusReconcile` scenario 4 removed.** Reconcile used to
+throw `Project identity conflict` (`NEXUS_REGISTRY_CORRUPT`, exit 75) when the
+current path's hash was registered to a different project id. A path is now a
+location, not an identity: reconcile looks up the project id only, and a new
+id at a registered path is auto-registered (`status: 'auto_registered'`).
+
+**One registry row per real path (older-binary compatibility).** The column is
+no longer UNIQUE, but writers never leave two registry rows naming the same
+path, because older binaries sharing the global store still look rows up by
+path (`WHERE project_path = ? LIMIT 1` in the id-drift check, and a path OR
+hash OR id owner filter) and would pick the stale row. When a path changes
+hands, the previous holder's row is re-homed in the same transaction: to its
+most recent other live location on this device, or, when it has none, to the
+non-path sentinel `superseded:<project_id>` (with a matching hash and null
+store paths), which no path lookup can match. Its location at the old path is
+marked `superseded`.
+
+**Legacy path map dual-written.** `nexus_project_paths` is still written
+(upsert only) and still cleared by unregister/clean, so older binaries keep
+reading a current map. It is scheduled for removal in a later release.
