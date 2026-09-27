@@ -7,12 +7,21 @@
  * changesets-first release planning and the no-LLM blocking path invariant.
  */
 
+import { existsSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   RELEASE_SHARED_COMMAND_SURFACES,
   RELEASE_SHARED_SURFACE_CONTRACT,
   RELEASE_SHARED_TEMPLATE_SURFACES,
 } from '../release.js';
+
+/** Repository root, resolved from this file (`packages/contracts/src/operations/__tests__`). */
+const REPO_ROOT = fileURLToPath(new URL('../../../../../', import.meta.url));
+/** The shipped workflow-template directory the contract claims to cover. */
+const WORKFLOW_TEMPLATE_DIR = fileURLToPath(
+  new URL('../../../../core/templates/workflows/', import.meta.url),
+);
 
 describe('release shared-surface contract (T10483)', () => {
   it('classifies shipped release surfaces as consumer tooling or shared, never dogfood', () => {
@@ -26,7 +35,7 @@ describe('release shared-surface contract (T10483)', () => {
     expect(audiences).toEqual(new Set(['shipped-consumer-tooling', 'shared-surface']));
   });
 
-  it('pins every command to the dispatch gateway/operation the CLI actually uses', () => {
+  it('pins every command to its registered dispatch gateway/operation', () => {
     const byCommand = new Map(
       RELEASE_SHARED_COMMAND_SURFACES.map((surface) => [
         surface.command,
@@ -44,15 +53,21 @@ describe('release shared-surface contract (T10483)', () => {
     );
   });
 
-  it('covers each shipped release workflow template exactly once', () => {
+  it('covers each shipped release workflow template on disk exactly once', () => {
+    // Compare against the real template directory, not a restated list, so a
+    // template added or removed without updating the contract fails here.
+    const onDisk = readdirSync(WORKFLOW_TEMPLATE_DIR)
+      .filter((name) => name.endsWith('.yml.tmpl'))
+      .map((name) => name.replace(/\.tmpl$/, ''))
+      .sort();
     const rendered = RELEASE_SHARED_TEMPLATE_SURFACES.map((surface) => surface.renderedWorkflow);
 
-    expect([...rendered].sort()).toEqual([
-      'release-fanout.yml',
-      'release-prepare.yml',
-      'release-publish.yml',
-      'release-rollback.yml',
-    ]);
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect([...rendered].sort()).toEqual(onDisk);
+    for (const surface of RELEASE_SHARED_TEMPLATE_SURFACES) {
+      expect(existsSync(`${REPO_ROOT}${surface.template}`), surface.template).toBe(true);
+      expect(surface.template.endsWith(`/${surface.renderedWorkflow}.tmpl`)).toBe(true);
+    }
   });
 
   it('pins deterministic changesets-first planning as local and network-free', () => {
