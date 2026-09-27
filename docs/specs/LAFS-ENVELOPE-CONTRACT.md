@@ -159,9 +159,9 @@ for the CLI shape.
 | `operation` | yes | string | Dot-delimited operation identifier, for example `tasks.list`, `docs.fetch`, or `session.briefing.show`. |
 | `requestId` | yes | string | Unique correlation id for the request/response pair. Consumers should include it in bug reports and logs. |
 | `transport` | yes | `cli` \| `http` \| `grpc` \| `sdk` | Transport used to deliver the envelope. This controls status-code mapping expectations only; the envelope shape stays identical. |
-| `strict` | yes | boolean | When `true`, producers promise strict schema behavior and consumers may reject unknown/extra properties. |
+| `strict` | yes | boolean | When `true`, the schema forbids top-level properties outside `$schema`, `_meta`, `success`, `result`, `error`, `page` and `_extensions`; when `false`, extra top-level properties are tolerated. `_meta` itself never admits unlisted keys. |
 | `mvi` | yes | `minimal` \| `standard` \| `full` \| `custom` | Minimum Viable Information level controlling how much data is disclosed. |
-| `contextVersion` | yes | number | Monotonically increasing context-ledger version known to the producer/consumer. `0` means no prior context identity. |
+| `contextVersion` | yes | integer (≥ 0) | Monotonically increasing context-ledger version known to the producer/consumer. `0` means no prior context identity. |
 | `sessionId` | optional | string | Session processing the request, used for multi-step workflow correlation. |
 | `originSessionId` | optional | string | Root session that initiated a delegated or replayed workflow. |
 | `executionSessionId` | optional | string | Specific execution attempt carrying this envelope. |
@@ -259,7 +259,7 @@ Use cursor pagination for large or changing datasets.
 
 - `nextCursor` is opaque. Consumers MUST pass it back verbatim.
 - `hasMore` states whether another page exists.
-- `limit` and `total` are optional; `total` may be `null` when unknown.
+- `nextCursor` and `hasMore` are required; `limit` and `total` are optional; `total` may be `null` when unknown.
 
 ### `offset`
 
@@ -275,6 +275,7 @@ Use offset pagination for stable, index-addressable datasets.
 }
 ```
 
+- `limit`, `offset` and `hasMore` are required; `total` is optional.
 - `offset` is zero-based.
 - Offset pagination is direct but may drift if records are inserted or deleted
   between reads.
@@ -322,13 +323,15 @@ Example:
 
 MVI means Minimum Viable Information. It lets producers return enough structure
 for agents to act without oversharing large payloads or sensitive context.
+The table below mirrors `projectEnvelope` in
+`packages/lafs/src/mviProjection.ts`.
 
 | Level | Disclosure contract |
 |---|---|
-| `minimal` | Essential routing and action fields only. Keeps `success`, `error.code`, important `error.details` when non-empty, `_meta.requestId`, and `_meta.contextVersion`; strips echo-back metadata and bulky payloads where safe. |
-| `standard` | Default operational view. Includes all required envelope fields and normal result/error/page data, while still avoiding unnecessary debug/bulk fields. |
-| `full` | Diagnostic view. Includes optional metadata, warnings, extensions, and full available payloads suitable for debugging or audit. |
-| `custom` | Caller-defined subset. Requires explicit field selection such as field flags or projection rules. |
+| `minimal` | Agent control flow only. Keeps `success`; `_meta.requestId` and `_meta.contextVersion` (plus `sessionId`/`warnings` when present); `result` on success; on failure only `error.code` plus `agentAction`, `retryAfterMs`, non-empty `details` and `escalationRequired` when set; non-empty `_extensions`. Drops `$schema`, `page` and the echo-back `_meta` fields. |
+| `standard` | Default operational view. Keeps `$schema`, `success`, `result` (`null` on failure), the full `error`, `page`, non-empty `_extensions`, and `_meta.timestamp`/`operation`/`requestId`/`mvi`/`contextVersion` (plus `sessionId`/`warnings` when present). Drops `specVersion`, `schemaVersion`, `transport` and `strict` from `_meta`. |
+| `full` | Diagnostic view. The envelope unprojected. |
+| `custom` | Envelope-level projection is identical to `full`; narrowing is left to caller-driven field selection (field flags / field extraction). |
 
 MVI is not an authorization mechanism. Producers MUST still apply normal access
 control before building the envelope. MVI only controls how much already-
