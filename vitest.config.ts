@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
 import { MEMORY_SAFE_TEST_DEFAULTS } from './vitest.memory-safe.js';
@@ -122,9 +123,9 @@ export default defineConfig({
       // SvelteKit $lib alias for studio package tests (run from root with --shard).
       // The Svelte plugin (above) handles .svelte/.svelte.ts compilation; this
       // alias is still required so vitest resolves $lib/server/* imports correctly.
-      '$lib': new URL('./packages/studio/src/lib', import.meta.url).pathname,
-      '@cleocode/caamp': new URL('./packages/caamp/src/index.ts', import.meta.url).pathname,
-      '@cleocode/cant': new URL('./packages/cant/src/index.ts', import.meta.url).pathname,
+      '$lib': fileURLToPath(new URL('./packages/studio/src/lib', import.meta.url)),
+      '@cleocode/caamp': fileURLToPath(new URL('./packages/caamp/src/index.ts', import.meta.url)),
+      '@cleocode/cant': fileURLToPath(new URL('./packages/cant/src/index.ts', import.meta.url)),
       // T9955: explicit subpath aliases for provenance/jobs/enums modules.
       // These MUST appear BEFORE the bare `@cleocode/contracts` alias so
       // vitest matches the longer prefix first; otherwise the broader alias
@@ -152,15 +153,15 @@ export default defineConfig({
         './packages/contracts/src/tools/composite.ts',
         import.meta.url,
       ).pathname,
-      '@cleocode/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
-      '@cleocode/core/internal': new URL('./packages/core/src/internal.ts', import.meta.url).pathname,
+      '@cleocode/contracts': fileURLToPath(new URL('./packages/contracts/src/index.ts', import.meta.url)),
+      '@cleocode/core/internal': fileURLToPath(new URL('./packages/core/src/internal.ts', import.meta.url)),
       // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
       // Must be aliased so vitest resolves packages/core/src/paths.ts without a build step.
-      '@cleocode/paths': new URL('./packages/paths/src/index.ts', import.meta.url).pathname,
+      '@cleocode/paths': fileURLToPath(new URL('./packages/paths/src/index.ts', import.meta.url)),
       // @cleocode/utils — pure zero-dependency leaf (formatBytes, redact, …).
       // Aliased to source so vitest resolves it without first building the
       // package's dist/ (T11414 · E5). Mirrors the @cleocode/paths treatment.
-      '@cleocode/utils': new URL('./packages/utils/src/index.ts', import.meta.url).pathname,
+      '@cleocode/utils': fileURLToPath(new URL('./packages/utils/src/index.ts', import.meta.url)),
       // T1187-followup / v2026.4.113: specific subpath alias for
       // buildManifestEntryFromShorthand (CLI → core SDK delegation).
       '@cleocode/core/memory/manifest-builder.js': new URL(
@@ -176,7 +177,7 @@ export default defineConfig({
         import.meta.url,
       ).pathname,
       // T946 sentient daemon consumes these core subpath exports at runtime.
-      '@cleocode/core/sdk': new URL('./packages/core/src/cleo.ts', import.meta.url).pathname,
+      '@cleocode/core/sdk': fileURLToPath(new URL('./packages/core/src/cleo.ts', import.meta.url)),
       // T948 Studio refactor: deep subpaths like /lifecycle/rollup, /tasks/add, /tasks/list.
       // Order matters — most specific first, then the directory-index aliases, then root.
       '@cleocode/core/lifecycle/rollup': new URL(
@@ -263,7 +264,7 @@ export default defineConfig({
         './packages/core/src/gc/transcript.ts',
         import.meta.url,
       ).pathname,
-      '@cleocode/core/gc': new URL('./packages/core/src/gc/index.ts', import.meta.url).pathname,
+      '@cleocode/core/gc': fileURLToPath(new URL('./packages/core/src/gc/index.ts', import.meta.url)),
       // T1203: core formatters subpath — pure tree/wave rendering utilities
       '@cleocode/core/formatters': new URL(
         './packages/core/src/formatters/index.ts',
@@ -289,13 +290,13 @@ export default defineConfig({
         './packages/core/src/status/index.ts',
         import.meta.url,
       ).pathname,
-      '@cleocode/core': new URL('./packages/core/src/index.ts', import.meta.url).pathname,
-      '@cleocode/adapters': new URL('./packages/adapters/src/index.ts', import.meta.url).pathname,
-      '@cleocode/lafs': new URL('./packages/lafs/src/index.ts', import.meta.url).pathname,
+      '@cleocode/core': fileURLToPath(new URL('./packages/core/src/index.ts', import.meta.url)),
+      '@cleocode/adapters': fileURLToPath(new URL('./packages/adapters/src/index.ts', import.meta.url)),
+      '@cleocode/lafs': fileURLToPath(new URL('./packages/lafs/src/index.ts', import.meta.url)),
       // T929: @cleocode/nexus was missing from vitest aliases — core imports it
       // from src/code/index.ts and src/internal.ts, which caused orchestrate-engine
       // tests to fail with "Failed to resolve entry for package @cleocode/nexus".
-      '@cleocode/nexus': new URL('./packages/nexus/src/index.ts', import.meta.url).pathname,
+      '@cleocode/nexus': fileURLToPath(new URL('./packages/nexus/src/index.ts', import.meta.url)),
     }),
     server: {
       deps: {
