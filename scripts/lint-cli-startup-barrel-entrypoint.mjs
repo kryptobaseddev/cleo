@@ -69,8 +69,15 @@ const FORBIDDEN = [
 
 const OPT_OUT = 'startup-barrel-allowed';
 
-/** Static `import ... from '<spec>'` (not `await import(...)`). */
-const STATIC_IMPORT = /^\s*import\s+(?:type\s+)?[^;]*?from\s+['"]([^'"]+)['"]/;
+/**
+ * Static `import ... from '<spec>'`, bare `import '<spec>'`, and
+ * `export ... from '<spec>'` re-exports (not `await import(...)`). Matched over
+ * the WHOLE file, not per line: biome wraps long named-import lists across
+ * lines, and a per-line match never sees the `} from '<spec>'` tail — so a
+ * wrapped barrel import (or a wrapped local edge) would be invisible.
+ */
+const STATIC_IMPORT =
+  /^[ \t]*(?:import|export)\s+(?:type\s+)?(?:[^;'"]*?\sfrom\s+)?['"]([^'"]+)['"]/gm;
 
 function resolveLocal(fromFile, spec) {
   if (!spec.startsWith('.')) return null;
@@ -88,24 +95,27 @@ function walk(file, chain) {
   if (seen.has(file)) return;
   seen.add(file);
   if (!file.startsWith(CLI_ROOT)) return; // only follow CLI-local modules
-  const lines = readFileSync(file, 'utf-8').split('\n');
-  lines.forEach((line, i) => {
-    const m = STATIC_IMPORT.exec(line);
-    if (!m) return;
+  const text = readFileSync(file, 'utf-8');
+  const lines = text.split('\n');
+  for (const m of text.matchAll(STATIC_IMPORT)) {
     const spec = m[1];
     if (FORBIDDEN.includes(spec)) {
-      if (line.includes(OPT_OUT)) return;
+      // Report (and honour the opt-out on) the line carrying the specifier —
+      // the `} from '<spec>'` tail of a wrapped import.
+      const specIndex = m.index + m[0].lastIndexOf(spec);
+      const lineNo = text.slice(0, specIndex).split('\n').length;
+      if (lines[lineNo - 1].includes(OPT_OUT)) continue;
       violations.push({
         file: file.slice(REPO_ROOT.length + 1),
-        line: i + 1,
+        line: lineNo,
         spec,
         chain: [...chain, file.slice(REPO_ROOT.length + 1)],
       });
-      return;
+      continue;
     }
     const local = resolveLocal(file, spec);
     if (local) walk(local, [...chain, file.slice(REPO_ROOT.length + 1)]);
-  });
+  }
 }
 
 walk(ENTRY, []);
