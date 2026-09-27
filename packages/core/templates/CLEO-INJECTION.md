@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.20.6 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.20.7 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -45,6 +45,8 @@ An impossible internal mutation budget rejects before execution. If a successful
 | About to call `cleo complete` | First: check gates via `cleo show <id> --full` → run tests → then complete |
 | Writing a canonical doc (spec/adr/research/handoff/note/llm-readme) | Use `cleo docs add --type <kind> --slug <kebab-handle>` — NEVER raw fs write to `.cleo/adrs/`, `.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` |
 | Reading an ADR/spec/research note/handoff | `cleo docs fetch <slug>` — never grep the filesystem for canonical docs |
+| New device, restore or migration; a known repo says "Not inside a CLEO project"; registry paths unreachable; nexus `ENOENT` on an old path | Run `cleo doctor project-identity`, `cleo doctor --all-projects`, `cleo nexus projects clean --orphans --dry-run` (NEVER without `--dry-run`: it deletes moved projects) and `cleo doctor credentials`; report findings. Never delete registry rows for projects that may have moved |
+<!-- TODO(T12471): lead this row with the `doctor projects` sub-command once it ships; gate 14 rejects naming it before then. -->
 <!-- /CLEO-INJECTION:section=triggers -->
 
 <!-- CLEO-INJECTION:section=task-creation -->
@@ -199,7 +201,7 @@ Small legacy DBs beside large snapshots do not prove corruption. `cleo doctor su
 **FIRST CALL IS `cleo nexus status`.** Check `nodeCount`, `lastIndexedAt`, `staleFileCount`/`fileCount`. Queries report `_nexus.freshness` and auto-refresh ≤25 stale files; beyond that they warn `W_NEXUS_INDEX_STALE`. `analyze` is incremental (`--full` rebuilds). For stale coverage, refresh or inspect source with `git grep` and disclose that basis. Impact/context `E_NOT_FOUND` includes index size, median age and a repair command; inspect these first.
 
 **Project resolution**: `--project-id` > `--path` > `cwd`.
-Default ID = `base64url(path).slice(0,32)`.
+A project is identified by its portable `project_id` (`.cleo/project-id`); a path is only a per-device hint.
 
 **Rule**: BEFORE editing any symbol, run `cleo nexus impact <symbol>`.
 HIGH/CRITICAL requires reviewing affected callers before editing. For stale, partial, missing, or failed coverage, inspect source and report the remaining uncertainty. An empty footprint alone never establishes `NONE`.
