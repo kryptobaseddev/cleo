@@ -245,6 +245,19 @@ export const updateCommand = defineCommand({
      * @task T1856
      * @epic T1855
      */
+    /**
+     * Optimistic-concurrency guard: the task `updatedAt` the caller read
+     * (e.g. from `cleo show <id> --field /data/task/updatedAt`). When the
+     * stored version differs, the update fails with E_CONFLICT carrying the
+     * current version instead of overwriting a newer write.
+     *
+     * @task T12503
+     */
+    'expected-updated-at': {
+      type: 'string',
+      description:
+        'Fail with E_CONFLICT unless the task updatedAt still equals this value (optimistic concurrency; T12503)',
+    },
     'depends-waiver': {
       type: 'string',
       description:
@@ -515,6 +528,8 @@ export const updateCommand = defineCommand({
 
     // Core checks the effective dependency set and persists authorization atomically.
     if (args['depends-waiver'] !== undefined) params['dependsWaiver'] = args['depends-waiver'];
+    if (args['expected-updated-at'] !== undefined)
+      params['expectedUpdatedAt'] = args['expected-updated-at'];
 
     await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
   },

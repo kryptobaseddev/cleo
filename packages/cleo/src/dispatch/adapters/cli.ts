@@ -59,6 +59,7 @@ const ERROR_CODE_TO_EXIT: Record<string, number> = {
   E_TASK_COMPLETED: 17, // ExitCode.TASK_COMPLETED — canonical value from @cleocode/contracts
   E_HAS_DEPENDENTS: 19,
   E_CHECKSUM_MISMATCH: 20,
+  E_CONFLICT: 23,
   E_SESSION_EXISTS: 30,
   E_SESSION_NOT_FOUND: 31,
   E_SCOPE_CONFLICT: 32,

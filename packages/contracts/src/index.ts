@@ -365,6 +365,7 @@ export type {
   TaskFieldUpdates,
   TaskPopulation,
   TaskQueryFilters,
+  TaskWriteGuard,
   TransactionAccessor,
 } from './data-accessor.js';
 // === Database Inventory (Saga T10281 / Epic T10282 / Task T10305 — SG-BRAIN-DB-RESILIENCE) ===
