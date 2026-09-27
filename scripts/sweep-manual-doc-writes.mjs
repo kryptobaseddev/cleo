@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * scripts/sweep-manual-doc-writes.mjs
  *
@@ -51,6 +52,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { isMain } from './lib/is-main.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -382,7 +384,7 @@ function todayUtc() {
   return new Date().toISOString().slice(0, 10);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   try {
     const { exitCode } = runSweep();
     process.exit(exitCode);

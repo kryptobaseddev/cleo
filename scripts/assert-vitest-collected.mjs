@@ -38,6 +38,7 @@
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { isMain } from './lib/is-main.mjs';
 
 /**
  * Collect the absolute test-file paths a vitest JSON report says it ran.
@@ -122,9 +123,7 @@ export function main(argv) {
   return 1;
 }
 
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
+const invokedDirectly = isMain(import.meta.url);
 if (invokedDirectly) {
   process.exit(main(process.argv.slice(2)));
 }

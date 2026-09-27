@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Lint rule: every `cleo …` command CLEO writes into an agent's prompt must
  * exist, and every flag on it must be one the command accepts.
@@ -47,6 +48,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isMain } from './lib/is-main.mjs';
 import {
   extractInvocationsWithFlags,
   findFlagViolations,
@@ -220,8 +222,7 @@ function loadRegistry(repoRoot, cache) {
   return registry;
 }
 
-const isMain = import.meta.url === `file://${process.argv[1]}`;
-if (isMain) {
+if (isMain(import.meta.url)) {
   const asJson = process.argv.includes('--json');
   const { results, scanned } = findPromptViolations(REPO_ROOT);
   const total = results.reduce((n, r) => n + r.violations.length, 0);
