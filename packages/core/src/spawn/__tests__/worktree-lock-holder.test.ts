@@ -5,14 +5,18 @@
  * @task T12506
  */
 
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Session } from '@cleocode/contracts';
+import { readWorktreeTaskLock } from '@cleocode/worktree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type ProcessAncestor, resolveOwnerProcess } from '../../sessions/terminal-identity.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { allocateSpawnSession, electSpawnSession } from '../agent-identity.js';
+import { createAgentWorktree, pruneWorktree } from '../branch-lock.js';
 import { resolveSpawnLockHolder } from '../worktree-lock-holder.js';
 
 /** Fake process table: pid → entry. */
@@ -130,5 +134,42 @@ describe('allocateSpawnSession — concurrent allocators converge (T12506)', () 
     );
     expect(active).toHaveLength(1);
     expect(active[0]?.id).toBe([...ids][0]);
+  });
+});
+
+describe('branch-lock pruneWorktree releases the per-task lock (T12506 CI regression)', () => {
+  let root: string;
+  let home: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'cleo-prune-lock-'));
+    home = await mkdtemp(join(tmpdir(), 'cleo-prune-home-'));
+    vi.stubEnv('CLEO_HOME', home);
+    const git = (...args: string[]): void => {
+      execFileSync('git', args, { cwd: root, stdio: 'pipe' });
+    };
+    git('init', '-q', '--initial-branch=main');
+    git('config', 'user.email', 't@example.com');
+    git('config', 'user.name', 'T');
+    await writeFile(join(root, 'README.md'), '# t\n');
+    git('add', 'README.md');
+    git('commit', '-q', '-m', 'init');
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+    await rm(home, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it('a worktree removed by pruneWorktree (the post-merge path) can be re-created by the same process', () => {
+    const first = createAgentWorktree('T12506-prune', root);
+    expect(readWorktreeTaskLock(first.projectHash, 'T12506-prune')).not.toBeNull();
+    const pruned = pruneWorktree('T12506-prune', root);
+    expect(pruned.worktreeRemoved).toBe(true);
+    expect(readWorktreeTaskLock(first.projectHash, 'T12506-prune')).toBeNull();
+    // Before the fix this threw E_WORKTREE_LOCKED: the lock outlived its worktree.
+    const again = createAgentWorktree('T12506-prune', root);
+    expect(existsSync(again.path)).toBe(true);
   });
 });

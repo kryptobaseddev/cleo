@@ -58,6 +58,7 @@ import {
   integrateWorktree,
   napiDestroyWorktree,
   pruneWorktrees,
+  releaseWorktreeTaskLock,
 } from '@cleocode/worktree';
 import { resolveSpawnLockHolder } from './worktree-lock-holder.js';
 
@@ -452,6 +453,11 @@ export function pruneWorktree(
       };
     }
   }
+
+  // T12506: the worktree is gone (e.g. integrated by completeAgentWorktreeViaMerge),
+  // so its per-task lock guards nothing. Leaving it held made the next spawn
+  // of the task fail E_WORKTREE_LOCKED for the rest of the owner's lifetime.
+  releaseWorktreeTaskLock(computeProjectHash(projectRoot), taskId);
 
   // Delete the branch only when it has no commits ahead of current HEAD.
   let branchDeleted = false;
