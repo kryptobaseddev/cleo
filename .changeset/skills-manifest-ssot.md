@@ -8,8 +8,13 @@ summary: SKILL.md frontmatter is now the skills metadata SSoT; the manifest is g
 Every canonical skill now declares `metadata.version`, `metadata.tier`
 (`core` | `on-demand` | `internal`) and `metadata.install` (`harness` |
 `internal`) in its SKILL.md frontmatter, per owner decision D11157. The
-duplicate `metadata:` block in ct-task-executor, the top-level `tier` keys and
-the three-way version disagreements are gone; each skill has one version.
+duplicate `metadata:` block in ct-task-executor and the top-level `tier` keys
+are gone, and SKILL.md and the manifest now agree on every version.
+`packages/skills/skills.json`, which install and CAAMP still read, is not
+generated yet: it still disagrees on version for 5 skills (ct-cleo 2.5.0 vs
+2.21.0, ct-documentor 3.12.0 vs 3.16.1, ct-task-executor 2.1.0 vs 2.7.0,
+ct-dev-workflow 3.0.0 vs 3.1.0, ct-grade 1.0.0 vs 2.1.0) and still lists the
+phantom `loom`. T12653 removes it.
 
 `packages/skills/skills/manifest.json` is generated from the frontmatter by
 `node scripts/skills/generate-manifest.mjs`. It now lists all 29 skill
