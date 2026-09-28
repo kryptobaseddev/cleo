@@ -1,5 +1,24 @@
 # Changelog
 
+## [2026.9.21] (2026-09-28)
+
+### Added
+
+- `cleo done <id> --plan` prints the evidence plan for a task (change set, gates, tool runs, AC mapping, ordered blockers, runnable commands) and writes nothing _(provenance: [T12623](https://github.com/kryptobaseddev/cleo/search?q=T12623&type=commits), [T12624](https://github.com/kryptobaseddev/cleo/search?q=T12624&type=commits))_
+- Split CLEO-INJECTION.md into a 3.4k-token always-loaded core and an on-demand CLEO-REFERENCE.md; make `cleo briefing inject --section` actually run _(provenance: [T12580](https://github.com/kryptobaseddev/cleo/search?q=T12580&type=commits))_
+- System One sites 4-5: observation type chosen by one choice question when no type is given, and a needs-owner-decision noul for the readiness grill gate (300 ms budget each, shadow by default once configured) _(provenance: [T12494](https://github.com/kryptobaseddev/cleo/search?q=T12494&type=commits))_
+
+### Fixed
+
+- Skill installs and the global hub no longer depend on a working ~/.cleo; new `cleo doctor global-delivery [--repair] [--dry-run]` repairs a dangling ~/.cleo, dangling skill links and the hub with a receipt _(provenance: [T12596](https://github.com/kryptobaseddev/cleo/search?q=T12596&type=commits), [T12598](https://github.com/kryptobaseddev/cleo/search?q=T12598&type=commits))_
+- A truncated legacy project alias shared by several projects resolves to none and no longer warns on every command; `cleo focus` no longer fails its memory and ready-wave sources _(provenance: [T12589](https://github.com/kryptobaseddev/cleo/search?q=T12589&type=commits), [T12590](https://github.com/kryptobaseddev/cleo/search?q=T12590&type=commits))_
+- cleo nexus status no longer emits every assessed file; it reports counts and one page _(provenance: [T12560](https://github.com/kryptobaseddev/cleo/search?q=T12560&type=commits))_
+- typed gate passes are cached, `verify --no-run` works, and deadline errors name the phase and the fix _(provenance: [T12621](https://github.com/kryptobaseddev/cleo/search?q=T12621&type=commits))_
+- tool:typecheck runs the project's own script and rejects runs that provably checked nothing (E_EVIDENCE_TOOL_VACUOUS) _(provenance: [T12633](https://github.com/kryptobaseddev/cleo/search?q=T12633&type=commits))_
+- provider CLIs and evidence tools spawn on Windows via their resolved path; npm .cmd shims go through cmd.exe with injection-safe quoting _(provenance: [T12618](https://github.com/kryptobaseddev/cleo/search?q=T12618&type=commits), [T12619](https://github.com/kryptobaseddev/cleo/search?q=T12619&type=commits))_
+- CLEO data, state and worktree dirs resolve through @cleocode/paths on macOS and Windows; OS paths are no longer split on '/' _(provenance: [T12602](https://github.com/kryptobaseddev/cleo/search?q=T12602&type=commits), [T12608](https://github.com/kryptobaseddev/cleo/search?q=T12608&type=commits))_
+- agent spawns, evidence runs, worktree hooks, the git shim and prompt files now work on Windows (no sh/which/rm/tar, ';' PATH, os.tmpdir()) _(provenance: [T12604](https://github.com/kryptobaseddev/cleo/search?q=T12604&type=commits), [T12605](https://github.com/kryptobaseddev/cleo/search?q=T12605&type=commits), [T12606](https://github.com/kryptobaseddev/cleo/search?q=T12606&type=commits))_
+
 ## [2026.9.20] (2026-09-26)
 
 ### Fixed
