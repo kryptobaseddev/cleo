@@ -79,8 +79,30 @@ const TYPE_CRITERIA: Record<ObservationTypeOption, string> = {
 const TYPE_KEYWORDS: ReadonlyArray<{
   readonly keywords: readonly string[];
   readonly type: ObservationTypeOption;
+  /**
+   * Word endings that also match as the tail of a compound (`bugfix`,
+   * `hotfix`, `typeerror`), except the words in `notCompounds`.
+   */
+  readonly compounds?: readonly string[];
+  /** Compounds that only look like one (`prefix`, `terror`). */
+  readonly notCompounds?: ReadonlySet<string>;
 }> = [
-  { keywords: ['bug', 'fix', 'error', 'crash'], type: 'bugfix' },
+  {
+    keywords: ['bug', 'bugfix', 'hotfix', 'debug', 'fix', 'error', 'crash'],
+    type: 'bugfix',
+    compounds: ['fix', 'error'],
+    notCompounds: new Set([
+      'prefix',
+      'suffix',
+      'affix',
+      'infix',
+      'postfix',
+      'circumfix',
+      'crucifix',
+      'transfix',
+      'terror',
+    ]),
+  },
   { keywords: ['refactor', 'rename', 'extract', 'move'], type: 'refactor' },
   { keywords: ['add', 'create', 'implement', 'new'], type: 'feature' },
   { keywords: ['decide', 'chose', 'pick', 'instead'], type: 'decision' },
@@ -90,11 +112,21 @@ const TYPE_KEYWORDS: ReadonlyArray<{
 /** Inflections a keyword may carry and still match (`fix` → `fixes`, `fixed`, `fixing`). */
 const INFLECTIONS = ['', 's', 'es', 'd', 'ed', 'ing', 'er', 'ers', 'ion', 'ions', 'ation'] as const;
 
+/** Inflections after a doubled final consonant (`debug` → `debugging`, `bug` → `bugged`). */
+const DOUBLED_INFLECTIONS = ['ing', 'ed', 'er', 'ers'] as const;
+
 /** Whether `word` is `keyword` or an inflection of it (`rename` → `renaming`). */
 function isInflectionOf(word: string, keyword: string): boolean {
   if (
     word.startsWith(keyword) &&
     (INFLECTIONS as readonly string[]).includes(word.slice(keyword.length))
+  ) {
+    return true;
+  }
+  const doubled = keyword + keyword.slice(-1);
+  if (
+    word.startsWith(doubled) &&
+    (DOUBLED_INFLECTIONS as readonly string[]).includes(word.slice(doubled.length))
   ) {
     return true;
   }
@@ -106,18 +138,43 @@ function isInflectionOf(word: string, keyword: string): boolean {
 }
 
 /**
+ * Whether `word` is a compound ending in `tail`, or an inflection of one
+ * (`hotfixes`, `typeerror`), and not one of `notCompounds` (`prefix`).
+ */
+function isCompoundOf(word: string, tail: string, notCompounds: ReadonlySet<string>): boolean {
+  for (const inflection of INFLECTIONS) {
+    if (inflection !== '' && !word.endsWith(inflection)) continue;
+    const base = word.slice(0, word.length - inflection.length);
+    if (base.length > tail.length && base.endsWith(tail) && !notCompounds.has(base)) return true;
+  }
+  return false;
+}
+
+/**
  * Classify an observation's type from whole-word keywords.
  *
  * A keyword matches a whole word or one of its inflections, never a substring
- * of another word (`add` does not match `address`, `fix` not `prefix`).
+ * of another word (`add` does not match `address`, `fix` not `prefix` or
+ * `fixture`). The bugfix group also matches compounds ending in `fix` or
+ * `error` (`hotfix`, `TypeError`), minus look-alikes such as `prefix`.
  *
  * @param text - Observation text.
  * @returns The first matching group's type, else `discovery`.
  */
 export function classifyObservationTypeByKeywords(text: string): ObservationTypeOption {
   const words = text.toLowerCase().match(/[a-z]+/g) ?? [];
-  for (const { keywords, type } of TYPE_KEYWORDS) {
-    if (keywords.some((kw) => words.some((w) => isInflectionOf(w, kw)))) return type;
+  for (const {
+    keywords,
+    type,
+    compounds = [],
+    notCompounds = new Set<string>(),
+  } of TYPE_KEYWORDS) {
+    const hit = words.some(
+      (w) =>
+        keywords.some((kw) => isInflectionOf(w, kw)) ||
+        compounds.some((tail) => isCompoundOf(w, tail, notCompounds)),
+    );
+    if (hit) return type;
   }
   return 'discovery';
 }
@@ -187,6 +244,7 @@ export async function chooseObservationType(
   title: string | undefined,
   opts: ChooseObservationTypeOptions = {},
 ): Promise<ObservationTypeChoice> {
+  const startedAt = performance.now();
   const keywordType = classifyObservationTypeByKeywords(text);
   const heuristic: ObservationTypeChoice = {
     type: keywordType,
@@ -214,6 +272,7 @@ export async function chooseObservationType(
     const decision = await askSiteDecision({
       siteId: OBSERVATION_TYPE_SITE,
       budgetMs: OBSERVATION_TYPE_BUDGET_MS,
+      startedAt,
       minConfidence: OBSERVATION_TYPE_MIN_CONFIDENCE,
       mode,
       heuristicVerdict: keywordType,

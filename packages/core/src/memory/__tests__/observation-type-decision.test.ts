@@ -153,6 +153,126 @@ describe('keyword heuristic — whole words, not substrings', () => {
   });
 });
 
+/**
+ * The pre-T12494 classifier, verbatim: substring keywords. The reference the
+ * whole-word classifier is compared against.
+ */
+function substringClassifier(text: string): string {
+  const groups: Array<[string[], string]> = [
+    [['bug', 'fix', 'error', 'crash'], 'bugfix'],
+    [['refactor', 'rename', 'extract', 'move'], 'refactor'],
+    [['add', 'create', 'implement', 'new'], 'feature'],
+    [['decide', 'chose', 'pick', 'instead'], 'decision'],
+    [['update', 'change', 'modify', 'upgrade'], 'change'],
+  ];
+  const lower = text.toLowerCase();
+  for (const [keywords, type] of groups) {
+    if (keywords.some((k) => lower.includes(k))) return type;
+  }
+  return 'discovery';
+}
+
+/** Realistic observation phrases whose type must NOT change. */
+const UNCHANGED = [
+  // Compounds of the bugfix group (T12494 review regression — must stay bugfix).
+  'Bugfix for the parser',
+  'Hotfix shipped',
+  'Debugging the writer hang',
+  'TypeError thrown',
+  'ReferenceError in the loader when dist is stale',
+  'Hotfixes landed for both regressions',
+  'Quickfix applied to the lockfile', // `fix` compound that is not a keyword
+  'The bugs in the queue are fixed',
+  'Fixed a crash in the loader',
+  'Error handling in the transport was missing',
+  'Tests crash when the fork pool is unbounded',
+  'Bugged state after the retry',
+  'Renamed the store modules',
+  'Refactoring the audit sink',
+  'Extracted the budget helper into site.ts',
+  'Added a dry-run flag to cleo add',
+  'Implemented the writer queue',
+  'Created a new index on tasks',
+  'Decided to use SQLite instead of Postgres',
+  'Picked vitest over jest',
+  'Picking the right model id matters',
+  'Chose the file bucket over an in-memory one',
+  'Upgraded drizzle to the v1 beta',
+  'Changed the default budget to 300ms',
+  'The index is rebuilt nightly',
+  'WAL mode is enabled by default',
+  'Session summary: nothing notable happened',
+];
+
+/** Phrases whose type changes on purpose, with the reason. */
+const CHANGED: ReadonlyArray<{ text: string; from: string; to: string; why: string }> = [
+  {
+    text: 'Updated the address book importer',
+    from: 'feature',
+    to: 'change',
+    why: '`add` inside `address` is not "add"; `updated` is the real signal',
+  },
+  {
+    text: 'Removed prefix handling from the parser',
+    from: 'bugfix',
+    to: 'discovery',
+    why: '`prefix` is not a fix',
+  },
+  {
+    text: 'Prefixes are stripped before hashing',
+    from: 'bugfix',
+    to: 'discovery',
+    why: '`prefixes` is not a fix',
+  },
+  {
+    text: 'Postfix notation in the evaluator',
+    from: 'bugfix',
+    to: 'discovery',
+    why: '`postfix` is not a fix',
+  },
+  {
+    text: 'The fixture loader reads JSON',
+    from: 'bugfix',
+    to: 'discovery',
+    why: '`fixture` is not a fix',
+  },
+  {
+    text: 'Renewed the API key',
+    from: 'feature',
+    to: 'discovery',
+    why: '`new` inside `renewed` is not new capability',
+  },
+  {
+    text: 'Caddy config now proxies the API',
+    from: 'feature',
+    to: 'discovery',
+    why: '`add` inside `caddy`',
+  },
+  {
+    text: 'Newest entries are listed first',
+    from: 'feature',
+    to: 'discovery',
+    why: '`newest` describes ordering, not new capability',
+  },
+  {
+    text: 'Moving the paths SSoT into packages/paths',
+    from: 'discovery',
+    to: 'refactor',
+    why: '`moving` is an inflection of `move`, which the substring rule missed',
+  },
+];
+
+describe('keyword heuristic — old (substring) vs new (whole word) over realistic phrases', () => {
+  it.each(UNCHANGED)('unchanged: %s', (text) => {
+    expect(classifyObservationTypeByKeywords(text)).toBe(substringClassifier(text));
+  });
+
+  it.each(CHANGED)('changed on purpose: $text ($from → $to: $why)', ({ text, from, to }) => {
+    expect(substringClassifier(text)).toBe(from);
+    expect(classifyObservationTypeByKeywords(text)).toBe(to);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // chooseObservationType
 // ---------------------------------------------------------------------------

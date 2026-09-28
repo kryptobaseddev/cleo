@@ -117,6 +117,7 @@ export async function resolveOwnerDecisionSignal(
   task: Task,
   opts: OwnerDecisionOptions = {},
 ): Promise<OwnerDecisionSignal | null> {
+  const startedAt = performance.now();
   if ((task.blockedBy ?? '').trim() === '') return null;
   if ((task.labels ?? []).some((l) => l.toLowerCase() === OWNER_DECISION_LABEL)) return null;
   try {
@@ -141,6 +142,7 @@ export async function resolveOwnerDecisionSignal(
     const decision = await askSiteDecision({
       siteId: OWNER_DECISION_SITE,
       budgetMs: OWNER_DECISION_BUDGET_MS,
+      startedAt,
       minConfidence: OWNER_DECISION_MIN_CONFIDENCE,
       mode,
       heuristicVerdict: substring ? 'owner-decision' : 'none',

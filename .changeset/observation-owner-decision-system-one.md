@@ -21,7 +21,13 @@ a decision never holds the single brain writer.
 
 - The keyword heuristic now matches whole words and common inflections, not
   substrings. `address` no longer counts as `add` (`feature`), and `prefix`
-  no longer counts as `fix` (`bugfix`). This change applies in every mode.
+  and `fixture` no longer count as `fix` (`bugfix`). The bugfix group adds
+  `bugfix`, `hotfix` and `debug` (`debugging`, `bugged`), and it matches
+  compounds that end in `fix` or `error` (`quickfix`, `TypeError`), except
+  look-alikes such as `prefix`, `postfix` and `terror`. This change applies
+  in every mode, background writers included. A table test compares the old
+  and new classifiers over 36 realistic phrases, and each changed type is
+  justified there.
 - `shadow` (the default once configured) audits the answer next to the
   keyword type and stores the keyword type. `on` stores the decided type when
   its confidence is at least 0.6. A choice outside the six options is rejected
@@ -55,7 +61,9 @@ choice?
 - **Data sent:** the task title (clipped to 160 characters), `blockedBy`
   (clipped to 300) and description (clipped to 440), redacted before clipping.
 
-Each site is bounded at 300 ms from its own start, module load included. On
+Each site is bounded at 300 ms from its own start, and settings resolution
+and module load count against it (`askSiteDecision` takes the site's
+`startedAt`). On
 timeout, provider error, budget denial or an unconfigured provider, the
 heuristic answers. `resolveDecisionSiteSettings` now accepts sites without a
 generative tier (`llmTierKey` is optional).

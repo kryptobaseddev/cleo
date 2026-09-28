@@ -148,8 +148,14 @@ export async function resolveDecisionSiteSettings(
 export interface AskSiteDecisionInput {
   /** Call-site id; keys the audit line. */
   readonly siteId: string;
-  /** End-to-end budget in ms, measured from the call: module load, redaction and the round trip. */
+  /** End-to-end budget in ms: module load, redaction and the round trip. */
   readonly budgetMs: number;
+  /**
+   * `performance.now()` at which the budget started. Pass the site's own
+   * start so its setup (e.g. {@link resolveDecisionSiteSettings}) counts
+   * against the budget. Default: the start of this call.
+   */
+  readonly startedAt?: number;
   /** Minimum confidence EVERY answer needs before `on` mode may act on the decision. */
   readonly minConfidence: number;
   /** Effective mode (`off` never reaches a decision). */
@@ -200,17 +206,21 @@ function allConfident(
  * Ask one budgeted System One decision for a call site, auditing the
  * heuristic's answers beside the decision's in the same `decisions.jsonl` line.
  *
- * Never throws and never waits longer than `budgetMs` from its own start: the
- * abort signal pins the budget to this call, so module load and the client's
- * setup are inside it. Heavy modules load lazily.
+ * Never throws and never waits longer than `budgetMs` from `startedAt` (default:
+ * this call's start): the abort signal pins the budget there, so the site's
+ * setup, module load and the client's setup are inside it. Heavy modules load
+ * lazily.
  *
  * @param input - Site id, budget, mode, request builder, heuristic and wiring.
  * @returns The decision, or `null` when the heuristic answered (fallback) or the answer was invalid.
  */
 export async function askSiteDecision(input: AskSiteDecisionInput): Promise<SiteDecision | null> {
-  const started = performance.now();
-  const deadline = AbortSignal.timeout(input.budgetMs);
+  const started = input.startedAt ?? performance.now();
   try {
+    // `AbortSignal.timeout` takes a non-negative INTEGER delay.
+    const deadline = AbortSignal.timeout(
+      Math.max(0, Math.floor(input.budgetMs - (performance.now() - started))),
+    );
     const { decide } = await import('./client.js');
     const { auditAnswers, createJsonlDecisionAudit } = await import('./audit.js');
     const { redactContent } = await import('../memory/redaction.js');
