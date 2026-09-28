@@ -23,3 +23,11 @@ summary: "`cleo done T1 T2 T3 [--pr N]` closes several tasks shipped by one PR i
   candidates are still ambiguous.
 - **Checkout check.** The tool tree must contain every one of those PRs' merge
   commits.
+- **Atomic multi-PR write.** Every PR's attempt goes into ONE write: the gate
+  evidence for `implemented` is an ordered list, with the primary PR last.
+  `validateGateVerify` validates every attempt and writes one audit line for
+  each. It stores the last attempt, and records either all of them or none.
+- **Invalid ids.** `cleo done` refuses an argument that is not a task id; it no
+  longer silently drops it.
+- **Shared PR.** When a PR is shared by several tasks, each task's `files:` is
+  narrowed to the files that task declared.

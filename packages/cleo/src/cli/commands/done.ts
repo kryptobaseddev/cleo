@@ -114,9 +114,17 @@ export const doneCommand = defineCommand({
     const { getProjectRoot } = await import('@cleocode/core/paths.js');
     const options = { projectRoot: getProjectRoot(), ...parsed.options };
     // T12628: `cleo done T1 T2 T3 [--pr N]` closes several tasks in one call.
-    const taskIds = [...new Set([args.taskId, ...((args._ as string[] | undefined) ?? [])])].filter(
-      (id) => /^T\d+$/.test(id),
-    );
+    // Every id must be a task id — a silently dropped `t2` would report success.
+    const requested = [
+      ...new Set([args.taskId, ...((args._ as string[] | undefined) ?? [])].map(String)),
+    ];
+    const invalid = requested.filter((id) => !/^T\d+$/.test(id));
+    if (invalid.length > 0) {
+      cliError(`Not task ids: ${invalid.join(', ')} (expected T<digits>)`, 'E_INVALID_INPUT');
+      process.exitCode = 2;
+      return;
+    }
+    const taskIds = requested;
     if (taskIds.length > 1) {
       await runBatchDone(taskIds, args, options, args.plan === true);
       return;

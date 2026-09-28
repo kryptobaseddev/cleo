@@ -71,7 +71,7 @@ export type DoneGateWriter = (
   storeRoot: string,
   params: {
     taskId: string;
-    gateEvidence: Partial<Record<VerificationGate, string>>;
+    gateEvidence: Partial<Record<VerificationGate, string | readonly string[]>>;
     noRun: boolean;
     sessionId?: string;
     agent?: string;
@@ -323,7 +323,9 @@ export async function recordTaskDone(
   }
 
   const pending = plan.gates.filter((g) => !g.passed && g.evidence !== null);
-  const gateEvidence = Object.fromEntries(pending.map((g) => [g.gate, g.evidence as string]));
+  const gateEvidence: Partial<Record<VerificationGate, string | string[]>> = Object.fromEntries(
+    pending.map((g) => [g.gate, g.evidence as string]),
+  );
   let verificationPassed = plan.gates.every((g) => g.passed);
   if (pending.length > 0) {
     let sessionId = opts.sessionId;
@@ -332,27 +334,13 @@ export async function recordTaskDone(
       sessionId = (await resolveBoundSessionId(storeRoot).catch(() => null)) ?? undefined;
     }
     const { readAllowCachedGates } = await import('./gate-result-cache.js');
-    // D11151: one implemented attempt per earlier own-branch PR, each through
-    // the same validators, before the primary write.
-    for (const extra of plan.additionalImplemented ?? []) {
-      const attempt = await (steps.write ?? defaultWrite)(storeRoot, {
-        taskId,
-        gateEvidence: { implemented: extra },
-        noRun: typed.gateCount > 0 && readAllowCachedGates(storeRoot),
-        ...(sessionId ? { sessionId } : {}),
-        ...(opts.agent ? { agent: opts.agent } : {}),
-      });
-      if (!attempt.success) {
-        return blocked(plan, {
-          code: 'evidence-refused',
-          message: attempt.error.message,
-          next: {
-            command: `cleo done ${taskId} --plan`,
-            why: 'The validators refused an earlier PR of this task; the plan shows what changed.',
-          },
-          cause: attempt.error.code,
-        });
-      }
+    // D11151: every earlier own-branch PR is an ordered implemented attempt in
+    // the SAME write as the primary, so all are recorded or none (review HIGH).
+    if (plan.additionalImplemented?.length && gateEvidence.implemented) {
+      gateEvidence.implemented = [
+        ...plan.additionalImplemented,
+        gateEvidence.implemented as string,
+      ];
     }
     const written = await (steps.write ?? defaultWrite)(storeRoot, {
       taskId,
@@ -386,6 +374,29 @@ export async function recordTaskDone(
   });
 }
 
+/**
+ * A tool runner shared by a batch: each (tool, execution root) pair runs once
+ * and every later caller gets the same outcome. Keyed on the root as well as
+ * the tool — two tasks whose work lives in different trees must each be
+ * measured in their own tree.
+ *
+ * @param base - The runner that actually executes.
+ * @returns A memoising runner.
+ * @task T12628
+ */
+export function sharedToolRunner(base: DoneToolRunner): DoneToolRunner {
+  const runs = new Map<string, ReturnType<DoneToolRunner>>();
+  return (tool, storeRoot, executionRoot) => {
+    const key = `${tool}\u0000${executionRoot}`;
+    let run = runs.get(key);
+    if (!run) {
+      run = base(tool, storeRoot, executionRoot);
+      runs.set(key, run);
+    }
+    return run;
+  };
+}
+
 /** One task's outcome in a batch close. */
 export interface BatchDoneEntry {
   /** Task the entry is for. */
@@ -415,17 +426,7 @@ export async function recordTasksDone(
   taskIds: readonly string[],
   opts: RecordTaskDoneOptions = {},
 ): Promise<BatchDoneEntry[]> {
-  const base = opts.steps?.runTool ?? defaultRunTool;
-  const runs = new Map<string, ReturnType<DoneToolRunner>>();
-  const runTool: DoneToolRunner = (tool, storeRoot, executionRoot) => {
-    const key = `${tool}\u0000${executionRoot}`;
-    let run = runs.get(key);
-    if (!run) {
-      run = base(tool, storeRoot, executionRoot);
-      runs.set(key, run);
-    }
-    return run;
-  };
+  const runTool = sharedToolRunner(opts.steps?.runTool ?? defaultRunTool);
   const entries: BatchDoneEntry[] = [];
   for (const taskId of taskIds) {
     entries.push({

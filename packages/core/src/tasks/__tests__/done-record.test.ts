@@ -28,7 +28,12 @@ import { validateGateVerify } from '../../validation/engine-ops.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
 import { completeTask } from '../complete.js';
-import { type RecordTaskDoneOptions, recordTaskDone, recordTasksDone } from '../done-record.js';
+import {
+  type RecordTaskDoneOptions,
+  recordTaskDone,
+  recordTasksDone,
+  sharedToolRunner,
+} from '../done-record.js';
 import { parseGateJson, reqAdd } from '../req.js';
 
 function git(dir: string, args: string[]): string {
@@ -928,13 +933,134 @@ describe('batch close: several tasks shipped by one PR (T12628)', () => {
       }),
     );
     expect(r.success, JSON.stringify(r.success ? '' : r.error)).toBe(true);
+    // One write: both PRs as ordered implemented attempts, the primary last.
     expect(writes).toEqual([
-      { implemented: `pr:41;files:src/a.ts;satisfies:${id}#AC1` },
       {
-        implemented: `pr:42;files:src/d.ts;satisfies:${id}#AC1`,
+        implemented: [
+          `pr:41;files:src/a.ts;satisfies:${id}#AC1`,
+          `pr:42;files:src/d.ts;satisfies:${id}#AC1`,
+        ],
         testsPassed: `tool:test;satisfies:${id}#AC1`,
         qaPassed: `tool:lint;tool:typecheck;satisfies:${id}#AC1`,
       },
     ]);
+  });
+
+  it('multi-PR attempts are atomic: a refusal of the primary leaves no implemented recorded (review HIGH)', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: one`]);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}`]);
+    git(root, ['commit', '-q', '-m', `${id}: one (#41)`]);
+    const first = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '-c', `task/${id}-b`]);
+    writeFileSync(join(root, 'src', 'd.ts'), 'export const d = 1;\n');
+    git(root, ['add', 'src/d.ts']);
+    git(root, ['commit', '-q', '-m', `${id}: two`]);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}-b`]);
+    git(root, ['commit', '-q', '-m', `${id}: two (#42)`]);
+    const second = git(root, ['rev-parse', 'HEAD']);
+    // PR 41's provenance is valid; PR 42's is not (a different task in its
+    // title, and it is the primary): the real validator refuses the primary.
+    seedPrCache(41, `${id}: one`, first, ['src/a.ts']);
+    seedPrCache(42, 'T999999: unrelated', second, ['src/d.ts']);
+    const resolution = (n: number, sha: string, paths: string[]) => ({
+      ok: true as const,
+      prNumber: n,
+      mergeCommitSha: sha,
+      mergedAt: '2026-09-28T00:00:00Z',
+      successCount: 1,
+      totalChecks: 1,
+      cacheHit: true,
+      title: id,
+      body: '',
+      headRefName: n === 41 ? `task/${id}` : `task/${id}-b`,
+      changedPaths: paths,
+      changedFileCount: paths.length,
+    });
+    const r = await recordTaskDone(
+      id,
+      opts({
+        deps: {
+          ...deps,
+          listMergedPrs: async () => ({
+            ok: true,
+            prs: [
+              { number: 41, title: `${id}: one`, body: '', headRefName: `task/${id}` },
+              { number: 42, title: `${id}: two`, body: '', headRefName: `task/${id}-b` },
+            ],
+          }),
+          viewPr: async (n) => ({
+            number: n,
+            title: id,
+            headRefName: '',
+            baseRefName: 'main',
+            state: 'MERGED',
+            mergedAt: '2026-09-28T00:00:00Z',
+            headRefOid: null,
+            mergeCommitSha: n === 41 ? first : second,
+          }),
+          findPrByHead: async () => null,
+          resolvePr: async (n) =>
+            n === 41 ? resolution(41, first, ['src/a.ts']) : resolution(42, second, ['src/d.ts']),
+        },
+        steps: {
+          runTool: async () => ({
+            exitCode: 0,
+            cacheHit: false,
+            durationMs: 0,
+            timedOut: false,
+            tail: '',
+          }),
+          write: async (store, params) => {
+            const w = await validateGateVerify(store, params);
+            return w.success ? { success: true, data: { passed: w.data.passed } } : w;
+          },
+        },
+      }),
+    );
+    expect(r.success).toBe(false);
+    const task = await env.accessor.loadSingleTask(id);
+    expect(task?.verification?.gates?.implemented).not.toBe(true);
+    expect(task?.verification?.evidence?.implemented).toBeUndefined();
+    expect(gatesJsonl()).toBe('');
+  });
+
+  it('the shared runner runs each tool once per execution root, never across roots (review LOW)', async () => {
+    const calls: string[] = [];
+    const runner = sharedToolRunner(async (tool, _store, root) => {
+      calls.push(`${tool}@${root}`);
+      return { exitCode: 0, cacheHit: false, durationMs: 0, timedOut: false, tail: '' };
+    });
+    await runner('lint', '/s', '/tree-a');
+    await runner('lint', '/s', '/tree-a');
+    await runner('lint', '/s', '/tree-b');
+    await runner('test', '/s', '/tree-a');
+    expect(calls).toEqual(['lint@/tree-a', 'lint@/tree-b', 'test@/tree-a']);
+  });
+
+  it('ordered implemented attempts in one write: each audited, the last stored', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    const c1 = commitOnTaskBranch(id);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 3;\n');
+    git(root, ['commit', '-q', '-am', `${id}: again`]);
+    const c2 = git(root, ['rev-parse', 'HEAD']);
+    const r = await validateGateVerify(root, {
+      taskId: id,
+      gateEvidence: {
+        implemented: [
+          `commit:${c1};files:src/a.ts;satisfies:${id}#AC1`,
+          `commit:${c2};files:src/a.ts;satisfies:${id}#AC1`,
+        ],
+      },
+    });
+    expect(r.success, JSON.stringify(r.success ? '' : r.error)).toBe(true);
+    const stored = (await env.accessor.loadSingleTask(id))?.verification?.evidence?.implemented;
+    expect(stored?.atoms.find((a) => a.kind === 'commit')).toMatchObject({ sha: c2 });
+    const lines = gatesJsonl().trim().split('\n');
+    expect(lines).toHaveLength(2);
   });
 });
