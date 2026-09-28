@@ -45,7 +45,7 @@ import { getProviderAskTool } from '@cleocode/caamp';
 import type { Task } from '@cleocode/contracts';
 import { normalizeSlug } from '../docs/slug-normalize.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
-import { resolveSkillPath } from '../skills/skill-paths.js';
+import { resolveSkillLocation, resolveSkillPath } from '../skills/skill-paths.js';
 import {
   buildBudgetedPsycheMemoryBlock,
   relevanceContextFromTask,
@@ -538,22 +538,28 @@ function loadCleoReference(): string | null {
  *
  * Excerpts are trimmed to the first N characters so that tier 2 prompts do
  * not balloon. If the skill is not found (CAAMP not installed, filesystem
- * error) returns `null` and the caller omits the excerpt.
+ * error) returns `null` and the caller omits the excerpt. A skill read from
+ * the bundled `@cleocode/skills` copy because it is not installed is prefixed
+ * with a notice saying so (T12646).
  */
 function loadSkillExcerpt(skillName: string, maxChars: number, projectRoot: string): string | null {
-  const skillDir = resolveSkillPath(skillName, projectRoot);
-  if (!skillDir) return null;
-  const skillFile = join(skillDir, 'SKILL.md');
+  const location = resolveSkillLocation(skillName, projectRoot);
+  if (!location) return null;
+  const skillFile = join(location.path, 'SKILL.md');
   if (!existsSync(skillFile)) return null;
+  const notice =
+    location.origin === 'bundled'
+      ? `> [${skillName} is not installed in this environment — excerpt read from the \`@cleocode/skills\` package]\n\n`
+      : '';
   try {
     const content = readFileSync(skillFile, 'utf-8');
-    if (content.length <= maxChars) return content;
+    if (content.length <= maxChars) return `${notice}${content}`;
     // Truncate at a newline boundary for readability.
     const sliced = content.slice(0, maxChars);
     const lastNewline = sliced.lastIndexOf('\n');
     return lastNewline > 0
-      ? `${sliced.slice(0, lastNewline)}\n\n> [excerpt — full skill at ${skillFile}]`
-      : `${sliced}\n\n> [excerpt — full skill at ${skillFile}]`;
+      ? `${notice}${sliced.slice(0, lastNewline)}\n\n> [excerpt — full skill at ${skillFile}]`
+      : `${notice}${sliced}\n\n> [excerpt — full skill at ${skillFile}]`;
   } catch {
     return null;
   }

@@ -1,6 +1,11 @@
 ---
 name: ct-provenance-keeper
 description: "Generates in-toto v1 attestations, SLSA-level provenance records, SBOMs (CycloneDX or SPDX), and sigstore/cosign signatures for published artifacts. Invoked by ct-artifact-publisher as a delegation for signing and attestation. Records the full commit, then build, then artifact, then attestation, then registry chain in .cleo/releases.json and rejects publishes whose digest does not match the attestation. Triggers when artifact-publish reaches the provenance step or when a release needs SLSA L2+ attestation."
+metadata:
+  version: 1.0.0
+  tier: on-demand
+  install: harness
+  stability: stable
 ---
 
 # Provenance Keeper

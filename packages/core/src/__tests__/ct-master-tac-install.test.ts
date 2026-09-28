@@ -42,6 +42,23 @@ function parseFrontmatterKeys(fm: string): Record<string, string> {
   return result;
 }
 
+/**
+ * Read the nested `metadata:` map the way scripts/skills/lib/skill-frontmatter.mjs
+ * does: the indented `key: value` lines directly under a top-level `metadata:`.
+ */
+function parseFrontmatterMetadata(fm: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const lines = fm.split('\n');
+  const start = lines.findIndex((l) => l.trimEnd() === 'metadata:');
+  if (start === -1) return result;
+  for (const line of lines.slice(start + 1)) {
+    const m = /^\s+([A-Za-z][\w-]*):\s*(.*)$/.exec(line.trimEnd());
+    if (!m) break;
+    result[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  }
+  return result;
+}
+
 interface InstallResult {
   copiedFiles: string[];
   skippedFiles: string[];
@@ -90,8 +107,11 @@ describe('ct-master-tac plugin install verification (T431)', () => {
       expect(fm).not.toBeNull();
       const keys = parseFrontmatterKeys(fm!);
       expect(keys['name']).toBe('ct-master-tac');
-      expect(keys['version']).toBeTruthy();
-      expect(keys['tier']).toBeTruthy();
+      // T12648: version and tier live under `metadata:` (skills SSoT, D11157).
+      const metadata = parseFrontmatterMetadata(fm!);
+      expect(metadata['version']).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(['core', 'on-demand', 'internal']).toContain(metadata['tier']);
+      expect(keys['tier']).toBeUndefined();
     });
   });
 

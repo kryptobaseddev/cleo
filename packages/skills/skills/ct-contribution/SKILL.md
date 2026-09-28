@@ -7,7 +7,6 @@ description: >-
   "contribution start", "contribution submit", "detect conflicts",
   "weighted consensus", "decision tracking", "conflict resolution".
 version: 1.0.0
-tier: 3
 core: false
 category: meta
 protocol: contribution
@@ -24,6 +23,11 @@ compatibility:
   - windsurf
   - gemini-cli
 license: MIT
+metadata:
+  version: 1.0.0
+  tier: on-demand
+  install: harness
+  stability: stable
 ---
 
 # Contribution Protocol Skill

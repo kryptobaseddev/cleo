@@ -111,6 +111,30 @@ export interface Skill {
   skillMdPath: string;
   frontmatter: SkillFrontmatter;
   content?: string;
+  /**
+   * `bundled` when the skill is not installed and was read from the
+   * `@cleocode/skills` package (only via `findSkill(..., { includeBundled })`).
+   * Absent for installed skills.
+   *
+   * @task T12646
+   */
+  source?: 'bundled';
+}
+
+/**
+ * Options for `findSkill`.
+ *
+ * @task T12646
+ */
+export interface FindSkillOptions {
+  /**
+   * Fall back to the copy bundled in `@cleocode/skills` when no search path
+   * holds the skill (honoured only in the default `CLEO_SKILL_SOURCE=auto`
+   * mode). Off by default: callers that ROUTE on "is this skill installed?"
+   * — playbook skill nodes, the skill executor — keep their meaning. Prompt
+   * builders that only need the protocol text opt in.
+   */
+  includeBundled?: boolean;
 }
 
 /**
