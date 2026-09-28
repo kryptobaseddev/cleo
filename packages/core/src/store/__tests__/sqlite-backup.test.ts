@@ -529,6 +529,60 @@ describe('sqlite-backup', () => {
   });
 
   /**
+   * T12508 NEW-1: two snapshots of one prefix inside the same wall-clock
+   * second (a routine checkpoint, then a pre-destructive `required` one) must
+   * BOTH land. The filename has second resolution and `VACUUM INTO` refuses an
+   * existing file, so the second one must move to a free name, not fail.
+   */
+  it('a routine and a required snapshot in the same second both produce files (T12508)', async () => {
+    const tempDir = join(tmpdir(), `cleo-t12508-same-second-${Date.now()}`);
+    const backupDir = join(tempDir, 'backups', 'sqlite');
+    mkdirSync(tempDir, { recursive: true });
+    const tasksDb = new DatabaseSync(join(tempDir, 'tasks-live.db'));
+    tasksDb.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    tasksDb.exec('CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1)');
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => null,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      getCleoHome: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
+    const { vacuumIntoBackup } = await import('../sqlite-backup.js');
+
+    // Start just after a second boundary so both calls share one second.
+    await new Promise((r) => setTimeout(r, 1000 - (Date.now() % 1000) + 10));
+    const listTasks = (): string[] =>
+      readdirSync(backupDir).filter((f) => /^tasks-\d{8}-\d{6}\.db$/.test(f));
+    const t0 = Math.floor(Date.now() / 1000);
+    const routine = await vacuumIntoBackup();
+    const afterRoutine = listTasks();
+    const required = await vacuumIntoBackup({ mode: 'required' });
+    const afterRequired = listTasks();
+    const t1 = Math.floor(Date.now() / 1000);
+    tasksDb.close();
+
+    expect(routine?.snapshotted).toEqual(['tasks']);
+    expect(required?.snapshotted).toEqual(['tasks']);
+    expect(required?.failed).toEqual([]);
+    expect(afterRoutine).toHaveLength(1);
+    // The required snapshot wrote a DIFFERENT file (retention may then prune
+    // the older one: both sit in the same quarter-hour bucket).
+    const written = afterRequired.filter((f) => !afterRoutine.includes(f));
+    expect(written).toHaveLength(1);
+    // The free name was found by waiting for the next second (one step).
+    expect(t1 - t0).toBeLessThanOrEqual(2);
+  });
+
+  /**
    * Manifest (derived row, `backupPath === 'rebuildable-from-blob-store'`)
    * MUST be skipped — the snapshot pipeline must NOT emit a VACUUM INTO or
    * even attempt to open the file. Otherwise we double-snapshot blob CAS

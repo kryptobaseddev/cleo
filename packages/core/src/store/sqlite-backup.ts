@@ -68,6 +68,7 @@ import {
   runGatedSnapshot,
   type SnapshotGateMode,
   type SnapshotGateResult,
+  type SnapshotOutcome,
   selectSnapshotsToKeep,
 } from './snapshot-gate.js';
 import { getDb, getNativeDb } from './sqlite.js';
@@ -332,21 +333,17 @@ function buildRawFileVacuumOpener(
     const path = resolveInventoryPath(entry, cwd);
     if (!path) return null;
     if (!existsSync(path)) return null;
-    try {
-      // Dynamic import preserves the T1331 lazy-init contract: importing
-      // sqlite.ts (which statically imports sqlite-backup.ts for
-      // `listSqliteBackups`) MUST NOT pull node:sqlite into module-load
-      // time. Only the raw-file-vacuum-readonly path needs the
-      // constructor, and it is exercised at snapshot-time, not load-time.
-      const { DatabaseSync } = await import('node:sqlite');
-      return new DatabaseSync(path, { readOnly: true });
-    } catch {
-      // The file might be locked by another writer, corrupt, or otherwise
-      // unopenable. Skip silently — snapshot failure must never block
-      // normal operation (and the malformed-DB case is exactly why the
-      // saga exists).
-      return null;
-    }
+    // Dynamic import preserves the T1331 lazy-init contract: importing
+    // sqlite.ts (which statically imports sqlite-backup.ts for
+    // `listSqliteBackups`) MUST NOT pull node:sqlite into module-load
+    // time. Only the raw-file-vacuum-readonly path needs the
+    // constructor, and it is exercised at snapshot-time, not load-time.
+    //
+    // T12508: an existing file that cannot be opened (locked, corrupt) THROWS
+    // here. That is a failure, not an absent database; the gate reports it
+    // and every caller stays non-fatal.
+    const { DatabaseSync } = await import('node:sqlite');
+    return new DatabaseSync(path, { readOnly: true });
   };
 }
 
@@ -605,10 +602,16 @@ export interface VacuumOptions {
    */
   mode?: SnapshotGateMode;
   /**
-   * Epoch ms of the request for `required` mode; a snapshot started at or
-   * after it covers the request. Defaults to the time of the call.
+   * `required` mode: the gate generation the caller observed when it made the
+   * request (see `readSnapshotGeneration`); only a later snapshot covers it.
+   * Defaults to the generation read when this call starts.
    */
-  requestedAt?: number;
+  seenGeneration?: number;
+  /**
+   * `required` mode: lock retries before giving up with `lock-timeout`.
+   * Defaults to `SNAPSHOT_LOCK_WAIT_RETRIES` (about 90 s).
+   */
+  lockWaitRetries?: number;
 }
 
 /**
@@ -657,20 +660,43 @@ async function snapshotProjectTargetsGated(
   );
   if (byPrefix.size === 0) return null;
 
-  const now = new Date();
   return runGatedSnapshot(
     {
       backupDir,
       stateDb: await resolveGateStateDb(cwd),
       prefixes: [...byPrefix.keys()],
       mode: opts.mode ?? 'routine',
-      ...(opts.requestedAt !== undefined && { requestedAt: opts.requestedAt }),
+      ...(opts.seenGeneration !== undefined && { seenGeneration: opts.seenGeneration }),
+      ...(opts.lockWaitRetries !== undefined && { lockWaitRetries: opts.lockWaitRetries }),
     },
     async (prefix) => {
       const target = byPrefix.get(prefix);
-      return target ? snapshotOne(target, backupDir, now, cwd) : false;
+      return target ? snapshotOne(target, backupDir, cwd) : 'absent';
     },
   );
+}
+
+/** Attempts at finding a free snapshot filename before giving up. */
+const SNAPSHOT_NAME_ATTEMPTS = 3;
+
+/**
+ * Choose a snapshot filename `<prefix>-YYYYMMDD-HHmmss.db` that does not yet
+ * exist. `VACUUM INTO` refuses an existing destination, and two snapshots of
+ * one prefix can fall in the same second (a routine checkpoint followed by a
+ * pre-destructive one). On a collision this waits for the next second rather
+ * than adding a suffix, so every reader of the documented filename format
+ * (listing, restore, verify, doctor) keeps working. Called under the gate
+ * lock, so no other gated writer can take the name in between.
+ *
+ * @task T12508
+ */
+async function freeSnapshotName(backupDir: string, prefix: string): Promise<string> {
+  for (let attempt = 0; attempt < SNAPSHOT_NAME_ATTEMPTS; attempt++) {
+    const name = `${prefix}-${formatTimestamp(new Date())}.db`;
+    if (!existsSync(join(backupDir, name))) return name;
+    await new Promise((r) => setTimeout(r, 1000 - (Date.now() % 1000) + 5));
+  }
+  throw new Error(`no free snapshot filename for ${prefix} in ${backupDir}`);
 }
 
 /**
@@ -696,12 +722,15 @@ async function snapshotProjectTargetsGated(
  * {@link vacuumIntoBackupAll}; failures here must never block normal
  * operation.
  *
+ * The filename is stamped HERE, under the gate lock, not when the request
+ * was made — see {@link freeSnapshotName}.
+ *
  * @param target — snapshot target descriptor (role + prefix + native DB getter)
  * @param backupDir — absolute path to the snapshot directory
- * @param now — reference timestamp for the filename
  * @param cwd — optional working directory propagated to `target.openDb`
- * @returns `true` when a snapshot file was written; `false` when the target
- *          is skipped or could not be opened. `VACUUM INTO` errors throw.
+ * @returns `'written'` when a snapshot file was written; `'absent'` when the
+ *          database does not exist in this project (or is a derived row).
+ *          Opener and `VACUUM INTO` errors throw.
  *
  * @task T10316 — eager-open via openCleoDb chokepoint (Saga T10281 / E3)
  * @task T10317 — raw-file-vacuum-readonly strategy for opener-less roles
@@ -710,13 +739,12 @@ async function snapshotProjectTargetsGated(
 async function snapshotOne(
   target: SnapshotTarget,
   backupDir: string,
-  now: Date,
   cwd?: string,
-): Promise<boolean> {
+): Promise<SnapshotOutcome> {
   if (target.strategy === 'skip-derived') {
     // Derived row — file is rebuildable from the blob CAS. Inventory row
     // documents `backupPath === 'rebuildable-from-blob-store'`. Nothing to do.
-    return false;
+    return 'absent';
   }
 
   let db = target.getDb();
@@ -727,18 +755,20 @@ async function snapshotOne(
     // raw-file-vacuum-readonly roles). Either way, the snapshot pipeline
     // never silently skips a registered target just because the in-process
     // handle cache is empty.
-    try {
-      db = await target.openDb(cwd);
-    } catch {
-      // Non-fatal — opener failure (e.g. missing project context, locked
-      // file, malformed orphan) must not block snapshots of other targets.
-      return false;
-    }
-    if (!db) return false;
+    // An opener that THROWS (locked file, malformed orphan) propagates: the
+    // gate reports it as failed. `null` means there is no such database here.
+    db = await target.openDb(cwd);
+    if (!db) return 'absent';
     opened = db;
   }
 
-  const destName = `${target.prefix}-${formatTimestamp(now)}.db`;
+  let destName: string;
+  try {
+    destName = await freeSnapshotName(backupDir, target.prefix);
+  } catch (err) {
+    if (opened && target.closeDb) target.closeDb(opened);
+    throw err;
+  }
   const dest = join(backupDir, destName);
 
   try {
@@ -754,7 +784,7 @@ async function snapshotOne(
     db.exec(`VACUUM INTO '${safeDest}'`);
 
     rotateSnapshots(backupDir, target.prefix, destName);
-    return true;
+    return 'written';
   } finally {
     // Release the ephemeral handle for raw-file-vacuum-readonly targets.
     // Chokepoint-opener handles (`closeDb === null`) remain owned by their

@@ -431,6 +431,13 @@ export async function endSession(projectRoot: string, params: SessionEndParams):
     // best-effort
   }
 
+  // T12508: snapshot LAST — after the session row is persisted as ended and
+  // the memory bridge has written — so the snapshot holds the session's final
+  // state. (It used to be a SessionEnd hook, which ran before both, in
+  // parallel with the other handlers.) Never throws; bounded lock wait.
+  const { snapshotAfterSessionEnd } = await import('./session-end-snapshot.js');
+  await snapshotAfterSessionEnd(projectRoot);
+
   return session;
 }
 

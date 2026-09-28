@@ -25,9 +25,12 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  describeSnapshotMiss,
+  readSnapshotGeneration,
   runGatedSnapshot,
   SNAPSHOT_DEBOUNCE_MS,
   SNAPSHOT_GATE_META_KEY,
+  type SnapshotOutcome,
   selectSnapshotsToKeep,
 } from '../snapshot-gate.js';
 
@@ -46,13 +49,13 @@ afterEach(() => {
 });
 
 /** A snapshot function that records each call and writes successfully. */
-function recorder(): { runs: string[]; snap: (p: string) => Promise<boolean> } {
+function recorder(): { runs: string[]; snap: (p: string) => Promise<SnapshotOutcome> } {
   const runs: string[] = [];
   return {
     runs,
     snap: async (p) => {
       runs.push(p);
-      return true;
+      return 'written';
     },
   };
 }
@@ -83,7 +86,7 @@ describe('runGatedSnapshot — routine mode (T12508)', () => {
           runs += 1;
           await new Promise((r) => setTimeout(r, 50));
           active -= 1;
-          return true;
+          return 'written' as const;
         }),
       ),
     );
@@ -101,7 +104,7 @@ describe('runGatedSnapshot — routine mode (T12508)', () => {
         { backupDir: workDir, stateDb, prefixes: ['tasks'], now: () => t },
         async () => {
           runs.push(t);
-          return true;
+          return 'written' as const;
         },
       );
     }
@@ -114,11 +117,13 @@ describe('runGatedSnapshot — routine mode (T12508)', () => {
     const row = stateDb
       .prepare('SELECT value FROM schema_meta WHERE key = ?')
       .get(SNAPSHOT_GATE_META_KEY) as { value: string } | undefined;
-    const persisted: Record<string, { startedAt: number; completedAt: number }> = JSON.parse(
-      row?.value ?? '{}',
-    );
-    expect(typeof persisted['tasks']?.startedAt).toBe('number');
-    expect(typeof persisted['tasks']?.completedAt).toBe('number');
+    const persisted: {
+      generation: number;
+      prefixes: Record<string, { generation: number; startedAt: number; completedAt: number }>;
+    } = JSON.parse(row?.value ?? '{}');
+    expect(persisted.generation).toBe(1);
+    expect(persisted.prefixes['tasks']?.generation).toBe(1);
+    expect(typeof persisted.prefixes['tasks']?.completedAt).toBe('number');
 
     // A second connection has no in-memory history — only the DB row.
     const other = new DatabaseSync(join(workDir, 'state.db'));
@@ -141,12 +146,13 @@ describe('runGatedSnapshot — routine mode (T12508)', () => {
 
   it('a start time in the future (clock moved back) does not block', async () => {
     const future = Date.now() + 3_600_000;
-    stateDb
-      .prepare('INSERT INTO schema_meta (key, value) VALUES (?, ?)')
-      .run(
-        SNAPSHOT_GATE_META_KEY,
-        JSON.stringify({ tasks: { startedAt: future, completedAt: future } }),
-      );
+    stateDb.prepare('INSERT INTO schema_meta (key, value) VALUES (?, ?)').run(
+      SNAPSHOT_GATE_META_KEY,
+      JSON.stringify({
+        generation: 1,
+        prefixes: { tasks: { generation: 1, startedAt: future, completedAt: future } },
+      }),
+    );
     const { runs, snap } = recorder();
     await runGatedSnapshot({ backupDir: workDir, stateDb, prefixes: ['tasks'] }, snap);
     expect(runs).toEqual(['tasks']);
@@ -192,18 +198,29 @@ describe('runGatedSnapshot — failed attempts never consume the window (T12508)
     expect(runs).toEqual(['tasks']);
   });
 
-  it('a snapshot that had nothing to open is not reported as snapshotted (LOW-6)', async () => {
+  it('an absent database is reported absent — not snapshotted, not failed (LOW-6, NEW-2)', async () => {
     const r = await runGatedSnapshot(
-      { backupDir: workDir, stateDb, prefixes: ['tasks'], now: () => T0 },
-      async () => false,
+      { backupDir: workDir, stateDb, prefixes: ['tasks', 'llmtxt'], now: () => T0 },
+      async (p) => (p === 'llmtxt' ? 'absent' : 'written'),
     );
-    expect(r).toMatchObject({ snapshotted: [], failed: ['tasks'] });
-    const { runs, snap } = recorder();
+    expect(r).toEqual({ snapshotted: ['tasks'], absent: ['llmtxt'], failed: [], skipped: null });
+  });
+
+  it('an absent prefix satisfies admission: later routine calls never take the lock for it (NEW-2)', async () => {
     await runGatedSnapshot(
-      { backupDir: workDir, stateDb, prefixes: ['tasks'], now: () => T0 + 1_000 },
+      { backupDir: workDir, stateDb, prefixes: ['tasks', 'llmtxt'], now: () => T0 },
+      async (p) => (p === 'llmtxt' ? 'absent' : 'written'),
+    );
+    // Hold the lock: a caller that still wanted `llmtxt` would report
+    // in-flight; a satisfied one returns from the lock-free fast path.
+    mkdirSync(join(workDir, '.snapshot-gate.lock'));
+    const { runs, snap } = recorder();
+    const r = await runGatedSnapshot(
+      { backupDir: workDir, stateDb, prefixes: ['tasks', 'llmtxt'], now: () => T0 + 1_000 },
       snap,
     );
-    expect(runs).toEqual(['tasks']);
+    expect(r.skipped).toBe('debounced');
+    expect(runs).toEqual([]);
   });
 });
 
@@ -297,36 +314,70 @@ describe('runGatedSnapshot — required mode (T12508)', () => {
     expect(runs).toEqual(['tasks']);
   });
 
-  it('is covered by a successful snapshot that started after the request', async () => {
+  it('coverage is by generation, not wall clock: a frozen clock cannot fake it (NEW-5)', async () => {
+    const frozen = (): number => T0; // every call in the same millisecond
+    const { runs, snap } = recorder();
+    // Request A is made before any snapshot: it saw generation 0.
+    const seenByA = readSnapshotGeneration(stateDb) ?? 0;
+    expect(seenByA).toBe(0);
+    await runGatedSnapshot(
+      { backupDir: workDir, stateDb, prefixes: ['tasks'], mode: 'required', now: frozen },
+      snap,
+    );
+    // Request B is made after that snapshot (same millisecond): it sees 1.
+    const seenByB = readSnapshotGeneration(stateDb) ?? 0;
+    expect(seenByB).toBe(1);
+
+    const a = await runGatedSnapshot(
+      {
+        backupDir: workDir,
+        stateDb,
+        prefixes: ['tasks'],
+        mode: 'required',
+        seenGeneration: seenByA,
+        now: frozen,
+      },
+      snap,
+    );
+    const b = await runGatedSnapshot(
+      {
+        backupDir: workDir,
+        stateDb,
+        prefixes: ['tasks'],
+        mode: 'required',
+        seenGeneration: seenByB,
+        now: frozen,
+      },
+      snap,
+    );
+    expect(a.skipped).toBe('covered');
+    expect(b.snapshotted).toEqual(['tasks']);
+    expect(runs).toEqual(['tasks', 'tasks']);
+  });
+
+  it('a request made while a snapshot is in flight is not covered by it', async () => {
+    let seenMidFlight = -1;
     const { runs, snap } = recorder();
     await runGatedSnapshot(
-      { backupDir: workDir, stateDb, prefixes: ['tasks'], mode: 'required', now: () => T0 },
-      snap,
+      { backupDir: workDir, stateDb, prefixes: ['tasks'], mode: 'required' },
+      async (p) => {
+        // The run claimed its generation before snapshotting.
+        seenMidFlight = readSnapshotGeneration(stateDb) ?? -1;
+        return snap(p);
+      },
     );
-    const covered = await runGatedSnapshot(
+    expect(seenMidFlight).toBe(1);
+    const r = await runGatedSnapshot(
       {
         backupDir: workDir,
         stateDb,
         prefixes: ['tasks'],
         mode: 'required',
-        requestedAt: T0 - 1,
-        now: () => T0 + 5,
+        seenGeneration: seenMidFlight,
       },
       snap,
     );
-    const later = await runGatedSnapshot(
-      {
-        backupDir: workDir,
-        stateDb,
-        prefixes: ['tasks'],
-        mode: 'required',
-        requestedAt: T0 + 1,
-        now: () => T0 + 5,
-      },
-      snap,
-    );
-    expect(covered.skipped).toBe('covered');
-    expect(later.snapshotted).toEqual(['tasks']);
+    expect(r.snapshotted).toEqual(['tasks']);
     expect(runs).toEqual(['tasks', 'tasks']);
   });
 
@@ -334,18 +385,18 @@ describe('runGatedSnapshot — required mode (T12508)', () => {
     let runs = 0;
     let active = 0;
     let maxActive = 0;
-    const requestedAt = Date.now() - 1;
+    const seenGeneration = readSnapshotGeneration(stateDb) ?? 0;
     const results = await Promise.all(
       Array.from({ length: 6 }, () =>
         runGatedSnapshot(
-          { backupDir: workDir, stateDb, prefixes: ['tasks'], mode: 'required', requestedAt },
+          { backupDir: workDir, stateDb, prefixes: ['tasks'], mode: 'required', seenGeneration },
           async () => {
             active += 1;
             maxActive = Math.max(maxActive, active);
             runs += 1;
             await new Promise((r) => setTimeout(r, 50));
             active -= 1;
-            return true;
+            return 'written' as const;
           },
         ),
       ),
@@ -353,6 +404,36 @@ describe('runGatedSnapshot — required mode (T12508)', () => {
     expect(runs).toBe(1);
     expect(maxActive).toBe(1);
     expect(results.filter((r) => r.skipped === 'covered')).toHaveLength(5);
+  });
+});
+
+describe('describeSnapshotMiss (T12508)', () => {
+  it('is null for written, covered and all-absent outcomes', () => {
+    expect(
+      describeSnapshotMiss({ snapshotted: ['tasks'], absent: [], failed: [], skipped: null }),
+    ).toBeNull();
+    expect(
+      describeSnapshotMiss({ snapshotted: [], absent: [], failed: [], skipped: 'covered' }),
+    ).toBeNull();
+    expect(
+      describeSnapshotMiss({ snapshotted: [], absent: ['llmtxt'], failed: [], skipped: null }),
+    ).toBeNull();
+  });
+
+  it('explains a lock timeout, a failure, and an unresolved backup dir', () => {
+    expect(
+      describeSnapshotMiss({
+        snapshotted: [],
+        absent: [],
+        failed: [],
+        skipped: 'lock-timeout',
+        error: 'lock held',
+      }),
+    ).toBe('lock held');
+    expect(
+      describeSnapshotMiss({ snapshotted: [], absent: [], failed: ['tasks'], skipped: null }),
+    ).toContain('tasks');
+    expect(describeSnapshotMiss(null)).toContain('backup directory');
   });
 });
 

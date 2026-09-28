@@ -11,20 +11,27 @@
  *
  *   1. **Lock** — a cross-process lock ({@link acquireLock}, proper-lockfile)
  *      on `<backupDir>/.snapshot-gate`. At most one snapshot runs per project.
- *   2. **Admission** — the start time of the last SUCCESSFUL snapshot of each
- *      prefix is persisted in the project `cleo.db` (`schema_meta`, key
- *      {@link SNAPSHOT_GATE_META_KEY}) and re-read under the lock. Two modes
+ *   2. **Admission** — gate state lives in the project `cleo.db`
+ *      (`schema_meta`, key {@link SNAPSHOT_GATE_META_KEY}) and is re-read
+ *      under the lock. It holds a monotonic snapshot GENERATION counter,
+ *      claimed under the lock when a snapshot starts, and per prefix the
+ *      generation and start time of its last satisfied snapshot. Two modes
  *      ({@link SnapshotGateMode}) use it:
  *        - `routine` (per-write checkpoints): debounced for
  *          {@link SNAPSHOT_DEBOUNCE_MS}, and the lock is tried once — a caller
  *          that finds a snapshot in flight skips.
  *        - `required` (session end, pre-destructive checkpoints): not
- *          debounced. The caller WAITS for the lock (bounded) and is satisfied
- *          only by a successful snapshot that started at or after its request,
- *          because only such a snapshot contains every write made before the
- *          request. N requests queued behind one snapshot are all covered by
- *          it, so a burst produces one snapshot. Works without a state store.
- *      There is no mode that bypasses the lock.
+ *          debounced. The caller records the generation it saw when it made
+ *          the request, WAITS for the lock (bounded), and is satisfied only
+ *          by a snapshot of a LATER generation — one that started after the
+ *          request, so it contains every write made before it. Requests queued
+ *          behind one snapshot are all covered by it, so a burst produces one
+ *          snapshot. Works without a state store. No wall clock is involved,
+ *          so a stepped clock cannot fake coverage.
+ *      A prefix whose database does not exist in this project (e.g. no
+ *      `llmtxt.db`) is `absent`: it satisfies admission like a written
+ *      snapshot and is never reported as failed. There is no mode that
+ *      bypasses the lock.
  *   3. **Retention** — {@link selectSnapshotsToKeep} keeps time-spread slots
  *      (latest, quarter-hourly, hourly, daily) instead of the newest N, so a
  *      burst cannot evict older recovery points. The file just written is
@@ -48,10 +55,19 @@ export const SNAPSHOT_DEBOUNCE_MS = 5 * 60_000;
 export const SNAPSHOT_LOCK_STALE_MS = 10 * 60_000;
 
 /**
- * Lock retries for a `required` request. proper-lockfile backs off from
- * 100 ms to 1 s per attempt, so 90 retries bound the wait to about 90 s.
+ * Default lock retries for a `required` request (pre-destructive
+ * checkpoints). proper-lockfile backs off from 100 ms to 1 s per attempt, so
+ * 90 retries bound the wait to about 90 s.
  */
 export const SNAPSHOT_LOCK_WAIT_RETRIES = 90;
+
+/**
+ * Lock retries for the session-end snapshot: about 6.5 s (100 + 200 + 400 +
+ * 800 ms, then 1 s each). Session end runs inside host shutdown hooks that
+ * may be killed, so it must not wait long; the session is already persisted
+ * when it runs.
+ */
+export const SESSION_END_LOCK_WAIT_RETRIES = 9;
 
 /** `schema_meta` key holding the persisted snapshot gate state. */
 export const SNAPSHOT_GATE_META_KEY = 'sqlite_snapshot_gate';
@@ -59,16 +75,23 @@ export const SNAPSHOT_GATE_META_KEY = 'sqlite_snapshot_gate';
 /** Basename of the lock target inside the backup directory. */
 const GATE_LOCK_BASENAME = '.snapshot-gate';
 
-/** Persisted state for one snapshot prefix: its last successful snapshot. */
+/** Persisted state for one prefix: its last satisfied (written or absent) snapshot. */
 interface SnapshotPrefixState {
-  /** Epoch ms when the last successful snapshot of this prefix started. */
+  /** Generation of the snapshot run that satisfied this prefix. */
+  generation: number;
+  /** Epoch ms when that run started (used only by the `routine` debounce). */
   startedAt: number;
-  /** Epoch ms when that snapshot finished. */
+  /** Epoch ms when that prefix finished. */
   completedAt: number;
 }
 
-/** Persisted gate state, keyed by snapshot prefix. */
-type SnapshotGateState = Record<string, SnapshotPrefixState>;
+/** Persisted gate state. */
+interface SnapshotGateState {
+  /** Highest generation claimed by any snapshot run (0 = none yet). */
+  generation: number;
+  /** Per-prefix record of the last satisfied snapshot. */
+  prefixes: Record<string, SnapshotPrefixState>;
+}
 
 /**
  * How a snapshot request is admitted.
@@ -76,11 +99,15 @@ type SnapshotGateState = Record<string, SnapshotPrefixState>;
  * - `routine` — debounced; skips when a snapshot is in flight; needs the state
  *   store (without it nothing is admitted, so a broken store cannot storm).
  * - `required` — not debounced; waits for the lock; skipped only when a
- *   successful snapshot started at or after the request.
+ *   snapshot of a later generation than the one seen at request time
+ *   satisfied the prefix.
  */
 export type SnapshotGateMode = 'routine' | 'required';
 
-/** Why a gated snapshot request did not snapshot a prefix. */
+/** What a snapshot function did for one prefix. */
+export type SnapshotOutcome = 'written' | 'absent';
+
+/** Why a gated snapshot request did not snapshot anything. */
 export type SnapshotGateSkipReason =
   | 'debounced'
   | 'in-flight'
@@ -92,7 +119,9 @@ export type SnapshotGateSkipReason =
 export interface SnapshotGateResult {
   /** Prefixes whose snapshot was written by this call. */
   readonly snapshotted: readonly string[];
-  /** Prefixes whose snapshot was attempted but not written (error or nothing to open). */
+  /** Prefixes whose database does not exist in this project (nothing to snapshot). */
+  readonly absent: readonly string[];
+  /** Prefixes whose snapshot was attempted and threw. */
   readonly failed: readonly string[];
   /** Set when no snapshot was attempted; `null` when at least one prefix was admitted. */
   readonly skipped: SnapshotGateSkipReason | null;
@@ -115,38 +144,53 @@ export interface SnapshotGateOptions {
   /** Admission mode. Defaults to `routine`. */
   readonly mode?: SnapshotGateMode;
   /**
-   * Epoch ms of the request (`required` mode). A snapshot that started at or
-   * after this instant covers the request. Defaults to the time of the call.
+   * `required` mode: the gate generation observed when the request was made
+   * (after the caller's last write). Only a later generation covers it.
+   * Defaults to the generation read at the start of this call.
    */
-  readonly requestedAt?: number;
+  readonly seenGeneration?: number;
   /** Lock retries for `required` mode. Defaults to {@link SNAPSHOT_LOCK_WAIT_RETRIES}. */
   readonly lockWaitRetries?: number;
-  /** Clock override for tests. Defaults to `Date.now`. */
+  /** Clock override for tests (debounce and timestamps only). Defaults to `Date.now`. */
   readonly now?: () => number;
 }
 
 /**
  * Read the persisted gate state. Throws when the store cannot be read, so the
- * caller can distinguish "no state yet" (empty object) from "no state store".
+ * caller can distinguish "no state yet" (empty state) from "no state store".
  */
 function readGateState(db: DatabaseSync): SnapshotGateState {
   const row = db
     .prepare('SELECT value FROM schema_meta WHERE key = ?')
     .get(SNAPSHOT_GATE_META_KEY) as { value: string } | undefined;
-  if (!row) return {};
-  const state: SnapshotGateState = {};
+  const state: SnapshotGateState = { generation: 0, prefixes: {} };
+  if (!row) return state;
   try {
-    const parsed: Record<string, Partial<SnapshotPrefixState> | null> = JSON.parse(row.value);
+    const parsed: {
+      generation?: number;
+      prefixes?: Record<string, Partial<SnapshotPrefixState> | null>;
+    } | null = JSON.parse(row.value);
     if (parsed === null || typeof parsed !== 'object') return state;
-    for (const [prefix, entry] of Object.entries(parsed)) {
-      // Only completed snapshots count; entries without `completedAt` were
-      // written by an earlier build that recorded the start before running.
-      if (entry && typeof entry.startedAt === 'number' && typeof entry.completedAt === 'number') {
-        state[prefix] = { startedAt: entry.startedAt, completedAt: entry.completedAt };
+    if (typeof parsed.generation === 'number' && Number.isSafeInteger(parsed.generation)) {
+      state.generation = parsed.generation;
+    }
+    for (const [prefix, e] of Object.entries(parsed.prefixes ?? {})) {
+      if (
+        e &&
+        typeof e.generation === 'number' &&
+        typeof e.startedAt === 'number' &&
+        typeof e.completedAt === 'number'
+      ) {
+        state.prefixes[prefix] = {
+          generation: e.generation,
+          startedAt: e.startedAt,
+          completedAt: e.completedAt,
+        };
       }
     }
   } catch {
-    // A corrupt value is treated as "no history"; the next write replaces it.
+    // A corrupt value (or the pre-generation layout) is treated as "no
+    // history"; the next write replaces it.
   }
   return state;
 }
@@ -170,20 +214,34 @@ function tryReadGateState(db: DatabaseSync | null): SnapshotGateState | null {
 }
 
 /**
+ * Read the current snapshot generation — what a `required` request should
+ * pass as `seenGeneration` when it is made. Returns `null` without a usable
+ * state store (the request is then never considered covered).
+ *
+ * @param db - Handle on the project `cleo.db`, or `null`.
+ * @returns The highest claimed generation, or `null`.
+ * @task T12508
+ */
+export function readSnapshotGeneration(db: DatabaseSync | null): number | null {
+  return tryReadGateState(db)?.generation ?? null;
+}
+
+/**
  * Whether a prefix needs a snapshot.
  *
- * `routine`: the last successful start is outside the debounce window. A start
+ * `routine`: the last satisfied start is outside the debounce window. A start
  * in the future (the clock moved backwards) does not block.
- * `required`: no successful snapshot started at or after the request.
+ * `required`: no snapshot of a generation later than `seenGeneration`
+ * satisfied it (`seenGeneration === null` means never covered).
  */
 function needsSnapshot(
   entry: SnapshotPrefixState | undefined,
   mode: SnapshotGateMode,
   nowMs: number,
-  requestedAt: number,
+  seenGeneration: number | null,
 ): boolean {
   if (!entry) return true;
-  if (mode === 'required') return entry.startedAt < requestedAt;
+  if (mode === 'required') return seenGeneration === null || entry.generation <= seenGeneration;
   const elapsed = nowMs - entry.startedAt;
   return elapsed < 0 || elapsed >= SNAPSHOT_DEBOUNCE_MS;
 }
@@ -192,39 +250,43 @@ function needsSnapshot(
  * Run `snapshot` for every requested prefix that needs one, while holding the
  * project-wide snapshot lock. See the module comment for the two modes.
  *
- * `snapshot` resolves `true` when it wrote a snapshot and `false` when there
- * was nothing to snapshot; a rejection counts as a failure. Only a written
- * snapshot is recorded, so a failed attempt never uses up the debounce window
+ * `snapshot` resolves `'written'` when it wrote a snapshot file and
+ * `'absent'` when the database does not exist; a rejection counts as a
+ * failure. Written and absent prefixes are recorded (they satisfy admission);
+ * a failed one is not, so a failed attempt never uses up the debounce window
  * or covers a later request.
  *
  * Never throws; every failure is reported in the result.
  *
  * @param opts - Backup directory, state store, prefixes, and mode.
- * @param snapshot - Performs one prefix's snapshot.
- * @returns Which prefixes were written or failed, or why none were attempted.
+ * @param snapshot - Performs one prefix's snapshot. Runs under the lock.
+ * @returns Which prefixes were written, absent or failed, or why none ran.
  * @task T12508
  */
 export async function runGatedSnapshot(
   opts: SnapshotGateOptions,
-  snapshot: (prefix: string) => Promise<boolean>,
+  snapshot: (prefix: string) => Promise<SnapshotOutcome>,
 ): Promise<SnapshotGateResult> {
   const now = opts.now ?? Date.now;
   const mode = opts.mode ?? 'routine';
-  const requestedAt = opts.requestedAt ?? now();
   const db = opts.stateDb;
   const none = (skipped: SnapshotGateSkipReason, error?: string): SnapshotGateResult => ({
     snapshotted: [],
+    absent: [],
     failed: [],
     skipped,
     ...(error !== undefined && { error }),
   });
 
-  // Lock-free fast path: most per-write checkpoints end here.
+  // Read once without the lock: the routine fast path, and the generation a
+  // `required` request was made at (when the caller did not record it).
+  const entryState = tryReadGateState(db);
+  const seenGeneration =
+    mode === 'required' ? (opts.seenGeneration ?? entryState?.generation ?? null) : null;
   if (mode === 'routine') {
-    const state = tryReadGateState(db);
-    if (!state) return none('state-unavailable');
+    if (!entryState) return none('state-unavailable');
     const nowMs = now();
-    if (!opts.prefixes.some((p) => needsSnapshot(state[p], mode, nowMs, requestedAt))) {
+    if (!opts.prefixes.some((p) => needsSnapshot(entryState.prefixes[p], mode, nowMs, null))) {
       return none('debounced');
     }
   }
@@ -255,37 +317,71 @@ export async function runGatedSnapshot(
     if (!state && mode === 'routine') return none('state-unavailable');
     const startMs = now();
     const admitted = opts.prefixes.filter((p) =>
-      needsSnapshot(state?.[p], mode, startMs, requestedAt),
+      needsSnapshot(state?.prefixes[p], mode, startMs, seenGeneration),
     );
     if (admitted.length === 0) return none(mode === 'routine' ? 'debounced' : 'covered');
 
-    const snapshotted: string[] = [];
-    const failed: string[] = [];
-    for (const prefix of admitted) {
-      let written = false;
+    // Claim the next generation BEFORE snapshotting, so a request made while
+    // this run is in flight sees it and is not covered by it.
+    const generation = (state?.generation ?? 0) + 1;
+    if (db && state) {
       try {
-        written = await snapshot(prefix);
+        writeGateState(db, { ...state, generation });
       } catch {
-        written = false;
+        // Without the claim, later requests simply are not covered by this run.
       }
-      if (written) snapshotted.push(prefix);
-      else failed.push(prefix);
     }
 
-    if (db && snapshotted.length > 0) {
+    const snapshotted: string[] = [];
+    const absent: string[] = [];
+    const failed: string[] = [];
+    for (const prefix of admitted) {
+      try {
+        const outcome = await snapshot(prefix);
+        if (outcome === 'written') snapshotted.push(prefix);
+        else absent.push(prefix);
+      } catch {
+        failed.push(prefix);
+      }
+    }
+
+    const satisfied = [...snapshotted, ...absent];
+    if (db && satisfied.length > 0) {
       try {
         const latest = readGateState(db);
         const completedAt = now();
-        for (const p of snapshotted) latest[p] = { startedAt: startMs, completedAt };
+        latest.generation = Math.max(latest.generation, generation);
+        for (const p of satisfied) {
+          latest.prefixes[p] = { generation, startedAt: startMs, completedAt };
+        }
         writeGateState(db, latest);
       } catch {
         // The snapshot exists; losing its record only makes the next request run.
       }
     }
-    return { snapshotted, failed, skipped: null };
+    return { snapshotted, absent, failed, skipped: null };
   } finally {
     await release().catch(() => {});
   }
+}
+
+/**
+ * Explain why a `required` snapshot request left no fresh snapshot behind, or
+ * return `null` when it succeeded (written, covered by a later snapshot, or
+ * every prefix absent). Used by callers that must tell the user.
+ *
+ * @param result - Gate outcome; `null` means nothing could be attempted.
+ * @returns A one-line reason, or `null` on success.
+ * @task T12508
+ */
+export function describeSnapshotMiss(result: SnapshotGateResult | null): string | null {
+  if (!result) return 'the backup directory could not be resolved';
+  if (result.skipped === 'lock-timeout') return result.error ?? 'the snapshot lock stayed held';
+  if (result.skipped !== null && result.skipped !== 'covered') {
+    return `the snapshot was skipped (${result.skipped})`;
+  }
+  if (result.failed.length > 0) return `the snapshot failed for: ${result.failed.join(', ')}`;
+  return null;
 }
 
 // ---------------------------------------------------------------------------

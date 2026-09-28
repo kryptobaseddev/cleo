@@ -61,6 +61,7 @@ const BARRIER = `
 /** Gate outcome as serialised by a child (`SnapshotGateResult`). */
 interface GateResult {
   readonly snapshotted: string[];
+  readonly absent: string[];
   readonly failed: string[];
   readonly skipped: string | null;
 }
@@ -118,7 +119,20 @@ async function runRacingChildren(
   return Promise.all(outcomes);
 }
 
-describe('snapshot gate — real multi-process (T12508)', () => {
+/**
+ * These tests exercise the COMPILED modules. Without a build there is nothing
+ * to spawn, so they are skipped with this reason rather than failing on a
+ * missing file. CI builds before testing.
+ */
+const DIST_MISSING = ![GATE_DIST, BACKUP_DIST, SQLITE_DIST].every((p) => existsSync(p));
+if (DIST_MISSING) {
+  process.stderr.write(
+    'snapshot-gate-multiprocess: SKIPPED — packages/core/dist is not built ' +
+      '(run `pnpm --filter @cleocode/core run build`).\n',
+  );
+}
+
+describe.skipIf(DIST_MISSING)('snapshot gate — real multi-process (T12508)', () => {
   let workDir: string;
 
   beforeEach(() => {
@@ -166,7 +180,7 @@ describe('snapshot gate — real multi-process (T12508)', () => {
             const start = Date.now();
             await new Promise((res) => setTimeout(res, 1000));
             fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ start, end: Date.now() }) + '\\n');
-            return true;
+            return 'written';
           },
         );
         db.close();
@@ -252,8 +266,9 @@ describe('snapshot gate — real multi-process (T12508)', () => {
     if (init.status !== 0) throw new Error(`init failed (${init.status}): ${init.stderr}`);
 
     // Every session in the burst ended (its last write happened) before any
-    // snapshot started, so one snapshot covers all of them.
-    const requestedAt = Date.now();
+    // snapshot started: each request saw generation 0 (a fresh store), so the
+    // first snapshot (generation 1) covers all of them.
+    const seenGeneration = 0;
     const script = `
       (async () => {
         const mod = await import(${JSON.stringify(pathToFileURL(BACKUP_DIST).href)});
@@ -263,7 +278,7 @@ describe('snapshot gate — real multi-process (T12508)', () => {
           cwd: ${JSON.stringify(projectRoot)},
           force: true,
           mode: ${JSON.stringify(mode)},
-          requestedAt: ${requestedAt},
+          seenGeneration: ${seenGeneration},
         };
         const r = await mod.vacuumIntoBackupAll(opts);
         process.stdout.write(JSON.stringify(r));
@@ -293,8 +308,12 @@ describe('snapshot gate — real multi-process (T12508)', () => {
     expect(admitted).toHaveLength(1);
     for (const r of results) {
       if (!r?.snapshotted.includes('tasks')) {
+        // Deterministic since NEW-2: absent databases (llmtxt,
+        // signaldock-project) are recorded as satisfied, so a late caller is
+        // debounced instead of taking the lock for them.
         expect(['in-flight', 'debounced']).toContain(r?.skipped);
       }
+      expect(r?.failed).toEqual([]);
     }
     expect(tasksSnapshots).toHaveLength(1);
   }, 180_000);
@@ -307,8 +326,7 @@ describe('snapshot gate — real multi-process (T12508)', () => {
     // the snapshot that started after its request — neither re-run nor lost.
     for (const r of results) {
       if (r?.snapshotted.includes('tasks')) continue;
-      expect(r?.failed).not.toContain('tasks');
-      expect(r?.skipped === 'covered' || r?.skipped === null).toBe(true);
+      expect(r?.skipped).toBe('covered');
     }
     expect(tasksSnapshots).toHaveLength(1);
   }, 180_000);

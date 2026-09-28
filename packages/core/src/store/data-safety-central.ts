@@ -23,6 +23,7 @@ import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-s
 import { checkSequence, repairSequence } from '../sequence/index.js';
 import type { ArchiveFile, DataAccessor } from './data-accessor.js';
 import { gitCheckpoint } from './git-checkpoint.js';
+import { describeSnapshotMiss, type SnapshotGateResult } from './snapshot-gate.js';
 import { getDb } from './sqlite.js';
 import { vacuumIntoBackup } from './sqlite-backup.js';
 import * as schema from './tasks-schema.js';
@@ -373,30 +374,31 @@ export async function runDataIntegrityCheck(
  *
  * @task T12508
  */
-async function snapshotBeforeDestructive(context: string, cwd?: string): Promise<void> {
+async function snapshotBeforeDestructive(
+  context: string,
+  cwd?: string,
+): Promise<SnapshotGateResult | null> {
   const result = await vacuumIntoBackup({ cwd, mode: 'required' });
-  if (!result) {
-    log.error(
-      { context },
-      'Pre-destructive SQLite snapshot not taken: backup directory unavailable',
-    );
-  } else if (result.skipped === 'lock-timeout') {
-    log.error({ context, cause: result.error }, 'Pre-destructive SQLite snapshot not taken');
-  } else if (result.failed.length > 0) {
-    log.error({ context, failed: result.failed }, 'Pre-destructive SQLite snapshot failed');
-  }
+  const miss = describeSnapshotMiss(result);
+  if (miss) log.error({ context, cause: miss }, 'Pre-destructive SQLite snapshot not taken');
+  return result;
 }
 
 /**
  * Force immediate checkpoint.
  * Use before destructive operations. Resolves only after the SQLite snapshot
  * has been written (or has failed and been logged).
+ *
+ * @returns The snapshot gate outcome; see `describeSnapshotMiss`.
  */
-export async function forceSafetyCheckpoint(context: string, cwd?: string): Promise<void> {
+export async function forceSafetyCheckpoint(
+  context: string,
+  cwd?: string,
+): Promise<SnapshotGateResult | null> {
   return inSafetyScope(cwd, async (cwd) => {
     log.info({ context }, 'Forcing checkpoint');
     await gitCheckpoint('manual', context, cwd);
-    await snapshotBeforeDestructive(context, cwd);
+    return snapshotBeforeDestructive(context, cwd);
   });
 }
 
@@ -788,11 +790,14 @@ export async function safeCreateSession(
  * Use this before migrations, bulk updates, etc. Resolves only after the
  * SQLite snapshot has been written (or has failed and been logged), so the
  * snapshot never interleaves with the operation that follows.
+ *
+ * @returns The snapshot gate outcome, so the caller can tell the user when no
+ *          snapshot was taken (see `describeSnapshotMiss`).
  */
 export async function forceCheckpointBeforeOperation(
   operation: string,
   cwd?: string,
-): Promise<void> {
+): Promise<SnapshotGateResult | null> {
   return inSafetyScope(cwd, async (cwd) => {
     log.info({ operation }, 'Forcing checkpoint before operation');
 
@@ -803,7 +808,7 @@ export async function forceCheckpointBeforeOperation(
       // Don't throw - checkpoint failures shouldn't block operations
     }
 
-    await snapshotBeforeDestructive(`pre-${operation}`, cwd);
+    return snapshotBeforeDestructive(`pre-${operation}`, cwd);
   });
 }
 
