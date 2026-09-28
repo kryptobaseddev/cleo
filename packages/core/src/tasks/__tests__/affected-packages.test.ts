@@ -25,15 +25,17 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   affectedTestTargets,
   buildAffectedTestCommand,
+  changedPathsSinceDefault,
   deriveAffectedPackages,
   listVitestProjects,
   listWorkspacePackages,
+  toPosixPath,
 } from '../affected-packages.js';
 import { validateAtom } from '../evidence.js';
 
@@ -47,7 +49,7 @@ function pkg(dir: string, name: string, deps: Record<string, string> = {}): void
   mkdirSync(join(root, dir, 'src'), { recursive: true });
   writeFileSync(
     join(root, dir, 'package.json'),
-    JSON.stringify({ name, version: '1.0.0', dependencies: deps }),
+    JSON.stringify({ name, version: '1.0.0', scripts: { test: 'vitest run' }, dependencies: deps }),
   );
   writeFileSync(join(root, dir, 'src', 'index.ts'), `export const n = '${name}';\n`);
 }
@@ -126,6 +128,14 @@ describe('deriveAffectedPackages', () => {
     expect(r.scope === 'full' && r.reason).toContain(path);
   });
 
+  it('T12657: Windows-style paths map to their packages', () => {
+    const changed = win32.join('packages', 'a', 'src', 'index.ts');
+    expect(changed).toContain('\\');
+    const scope = deriveAffectedPackages(root, [changed]);
+    expect(scope.scope === 'affected' && scope.direct).toEqual(['@x/a']);
+    expect(toPosixPath(win32.relative('C:\\repo', 'C:\\repo\\packages\\a'))).toBe('packages/a');
+  });
+
   it('a documentation-only diff affects nothing', () => {
     expect(deriveAffectedPackages(root, ['README.md'])).toEqual({
       scope: 'affected',
@@ -136,26 +146,26 @@ describe('deriveAffectedPackages', () => {
 });
 
 describe('affectedTestTargets: project names come from vitest itself (T12635 re-review)', () => {
-  it('an UNNAMED project is selected by the package.json name vitest gives it, not its directory', () => {
+  it('an UNNAMED project is selected by the package.json name vitest gives it, not its directory', async () => {
     linkVitest();
     rootConfig("{ projects: ['packages/a/vitest.config.mjs', 'scripts/vitest.config.mjs'] }");
     projectConfig('packages/a');
     projectConfig('scripts', "{ name: 'scripts' }");
-    const t = affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a']);
     expect(t).toEqual({ ok: true, projects: ['@x/a', 'scripts'], untested: [] });
   });
 
-  it('a GLOB entry resolves every matched project, custom names included', () => {
+  it('a GLOB entry resolves every matched project, custom names included', async () => {
     linkVitest();
     rootConfig("{ projects: ['packages/*/vitest.config.mjs'] }");
     projectConfig('packages/a');
     projectConfig('packages/b', "{ name: '@x/b-tests' }");
     projectConfig('packages/dependent-of-b');
-    const t = affectedTestTargets(root, ['@x/a', '@x/b', '@x/d'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a', '@x/b', '@x/d'], ['@x/a']);
     expect(t).toEqual({ ok: true, projects: ['@x/a', '@x/b-tests', '@x/d'], untested: [] });
   });
 
-  it('an INLINE project object, and a `]` inside the list, neither truncate nor drop entries', () => {
+  it('an INLINE project object, and a `]` inside the list, neither truncate nor drop entries', async () => {
     linkVitest();
     rootConfig(
       [
@@ -169,46 +179,46 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
     );
     projectConfig('packages/a');
     projectConfig('scripts', "{ name: 'scripts' }");
-    const t = affectedTestTargets(root, ['@x/tool', '@x/a'], ['@x/tool', '@x/a']);
+    const t = await affectedTestTargets(root, ['@x/tool', '@x/a'], ['@x/tool', '@x/a']);
     expect(t).toEqual({ ok: true, projects: ['tools-inline', '@x/a', 'scripts'], untested: [] });
   });
 
-  it('a vitest.workspace file vitest 4 ignores yields no package project: the scope fails CLOSED', () => {
+  it('a vitest.workspace file vitest 4 ignores yields no package project: the scope fails CLOSED', async () => {
     linkVitest();
     writeFileSync(
       join(root, 'vitest.workspace.mjs'),
       "export default ['packages/a/vitest.config.mjs'];\n",
     );
     projectConfig('packages/a');
-    const t = affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a']);
     expect(t.ok).toBe(false);
     expect(!t.ok && t.reason).toMatch(/@x\/a/);
   });
 
-  it('a DIRECTLY changed package with no project refuses; an untested dependent is recorded', () => {
+  it('a DIRECTLY changed package with no project refuses; an untested dependent is recorded', async () => {
     linkVitest();
     rootConfig("{ projects: ['packages/b/vitest.config.mjs'] }");
     projectConfig('packages/b');
-    const refused = affectedTestTargets(root, ['@x/a', '@x/b'], ['@x/a']);
+    const refused = await affectedTestTargets(root, ['@x/a', '@x/b'], ['@x/a']);
     expect(refused.ok).toBe(false);
     expect(!refused.ok && refused.reason).toMatch(/changed package\(s\) @x\/a/);
-    const recorded = affectedTestTargets(root, ['@x/b', '@x/d'], ['@x/b']);
+    const recorded = await affectedTestTargets(root, ['@x/b', '@x/d'], ['@x/b']);
     expect(recorded).toEqual({ ok: true, projects: ['@x/b'], untested: ['@x/d'] });
   });
 
-  it('without a resolvable vitest the scope fails CLOSED, never a narrower run', () => {
+  it('without a resolvable vitest the scope fails CLOSED, never a narrower run', async () => {
     rootConfig("{ projects: ['packages/a/vitest.config.mjs'] }");
     projectConfig('packages/a');
-    const t = affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a']);
     expect(t.ok).toBe(false);
     expect(!t.ok && t.reason).toMatch(/vitest could not resolve/);
   });
 
-  it('REAL repo: every workspace package with a vitest config resolves to the name vitest assigns', () => {
+  it('REAL repo: every workspace package with a vitest config resolves to the name vitest assigns', async () => {
     const repo = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../../..');
-    const resolved = listVitestProjects(repo);
+    const resolved = await listVitestProjects(repo);
     expect(resolved.ok, JSON.stringify(resolved)).toBe(true);
-    const once = (): typeof resolved => resolved;
+    const once = async (): Promise<typeof resolved> => resolved;
     const withConfig = listWorkspacePackages(repo).filter((p) =>
       ['ts', 'mts', 'js', 'mjs'].some((ext) =>
         existsSync(join(repo, p.dir, `vitest.config.${ext}`)),
@@ -216,7 +226,7 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
     );
     expect(withConfig.map((p) => p.name)).toContain('@cleocode/utils');
     for (const p of withConfig) {
-      const t = affectedTestTargets(repo, [p.name], [p.name], once);
+      const t = await affectedTestTargets(repo, [p.name], [p.name], once);
       // Its own project, then only the non-package projects (`scripts`) — never
       // another package's project, e.g. @cleocode/cleo whose root is the repo.
       expect(t.ok && t.projects, p.name).toEqual([p.name, 'scripts']);
@@ -287,10 +297,11 @@ describe('tool:test-affected evidence', () => {
 
   it('a {projects} run whose changed package has no vitest project is refused before running', async () => {
     // The command would pass; the refusal must come from the missing project.
-    initRepo('node -e 0 -- {projects}');
+    // Configs are committed on main; only the package change is on the branch.
     linkVitest();
     rootConfig("{ projects: ['packages/b/vitest.config.mjs'] }");
     projectConfig('packages/b');
+    initRepo('node -e 0 -- {projects}');
     writeFileSync(join(root, 'packages/a/src/index.ts'), "export const n = 'changed';\n");
     git(root, ['commit', '-q', '-am', 'T1: change a']);
     const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
@@ -313,6 +324,62 @@ describe('tool:test-affected evidence', () => {
     git(root, ['commit', '-q', '-m', 'T1: lock']);
     const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
     expect(!r.ok && r.reason).toMatch(/pnpm-lock\.yaml.*tool:test/s);
+  });
+
+  it('T12657: a git failure is no answer, never an empty diff', async () => {
+    initRepo('node -e 0 -- {packages}');
+    writeFileSync(join(root, 'packages/a/src/index.ts'), "export const n = 'changed';\n");
+    git(root, ['commit', '-q', '-am', 'T1: change a']);
+    // Merge-base still resolves (commit objects), but HEAD's tree is unreadable.
+    const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
+    rmSync(join(root, '.git', 'objects', tree.slice(0, 2), tree.slice(2)));
+    expect(changedPathsSinceDefault(root)).toBeNull();
+    const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+    expect(!r.ok && r.reason).toMatch(/git failed/);
+  });
+
+  it('T12657: an untracked new file in a package selects that package', async () => {
+    initRepo("node -e process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3) {packages}");
+    writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    expect(changedPathsSinceDefault(root)).toEqual(['packages/c/src/new.ts']);
+    const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ affectedPackages: ['@x/c'] });
+  });
+
+  it('T12657: a {packages} run whose changed package has no test script is refused', async () => {
+    writeFileSync(join(root, 'packages/c/package.json'), JSON.stringify({ name: '@x/c' }));
+    initRepo('node -e 0 -- {packages}');
+    writeFileSync(join(root, 'packages/c/src/index.ts'), "export const n = 'changed';\n");
+    git(root, ['commit', '-q', '-am', 'T1: change c']);
+    const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INSUFFICIENT');
+    expect(!r.ok && r.reason).toMatch(/no test script in changed package\(s\) @x\/c/);
+  });
+
+  it('T12657: vitest resolution runs under the heavy-tool slot, once per tree state', async () => {
+    initRepo();
+    linkVitest();
+    rootConfig("{ projects: ['packages/a/vitest.config.mjs'] }");
+    projectConfig('packages/a');
+    const acquired: string[] = [];
+    let released = 0;
+    const acquireSlot = async (canonical: 'test') => {
+      acquired.push(canonical);
+      return async () => {
+        released++;
+      };
+    };
+    const first = await listVitestProjects(root, { acquireSlot });
+    const again = await listVitestProjects(root, { acquireSlot });
+    expect(first.ok, JSON.stringify(first)).toBe(true);
+    expect(again).toBe(first);
+    expect(acquired).toEqual(['test']);
+    expect(released).toBe(1);
+    // A changed tree resolves afresh.
+    projectConfig('packages/b');
+    const changed = await listVitestProjects(root, { acquireSlot });
+    expect(changed).not.toBe(first);
+    expect(acquired).toEqual(['test', 'test']);
   });
 
   it('refuses when testing.affectedCommand is not configured', async () => {

@@ -22,11 +22,26 @@
  * @task T12635
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { promisify } from 'node:util';
 import { isCiDocumentPath } from '../release/ci-evidence.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
+import { acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
+
+/**
+ * A path with `/` separators. `path.relative` and Windows callers produce `\`,
+ * while package directories and git paths are compared with `/` (T12657).
+ *
+ * @param path - A relative path in either separator style.
+ * @returns The same path with forward slashes.
+ * @task T12657
+ */
+export function toPosixPath(path: string): string {
+  return path.replace(/\\/g, '/');
+}
 
 /** One workspace package. */
 export interface WorkspacePackage {
@@ -36,6 +51,8 @@ export interface WorkspacePackage {
   dir: string;
   /** Names of OTHER workspace packages it depends on. */
   deps: string[];
+  /** Declares a `scripts.test`, so `{filters}`/`{packages}` runs test it. */
+  hasTestScript: boolean;
 }
 
 /** The affected set, or the reason only a full run will do. */
@@ -98,7 +115,7 @@ function expandPattern(root: string, pattern: string): string[] {
  * @task T12635
  */
 export function listWorkspacePackages(root: string): WorkspacePackage[] {
-  const found: Array<{ name: string; dir: string; all: string[] }> = [];
+  const found: Array<{ name: string; dir: string; all: string[]; hasTestScript: boolean }> = [];
   for (const dir of workspacePatterns(root).flatMap((p) => expandPattern(root, p))) {
     try {
       const pkg = JSON.parse(readFileSync(join(root, dir, 'package.json'), 'utf-8')) as Record<
@@ -112,16 +129,23 @@ export function listWorkspacePackages(root: string): WorkspacePackage[] {
         'peerDependencies',
         'optionalDependencies',
       ].flatMap((field) => Object.keys((pkg[field] as Record<string, unknown>) ?? {}));
-      found.push({ name: pkg.name, dir: relative(root, join(root, dir)), all });
+      const scripts = (pkg.scripts ?? {}) as Record<string, unknown>;
+      found.push({
+        name: pkg.name,
+        dir: toPosixPath(relative(root, join(root, dir))),
+        all,
+        hasTestScript: typeof scripts['test'] === 'string' && scripts['test'].trim() !== '',
+      });
     } catch {
       // not a package
     }
   }
   const names = new Set(found.map((p) => p.name));
-  return found.map(({ name, dir, all }) => ({
+  return found.map(({ name, dir, all, hasTestScript }) => ({
     name,
     dir,
     deps: [...new Set(all.filter((d) => names.has(d) && d !== name))],
+    hasTestScript,
   }));
 }
 
@@ -141,7 +165,7 @@ export function deriveAffectedPackages(
   const packages = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
   const direct = new Set<string>();
   const workspaceWide: string[] = [];
-  for (const path of changedPaths) {
+  for (const path of changedPaths.map(toPosixPath)) {
     const owner = packages.find((p) => path === p.dir || path.startsWith(`${p.dir}/`));
     if (owner) direct.add(owner.name);
     else if (!isCiDocumentPath(path)) workspaceWide.push(path);
@@ -177,6 +201,30 @@ export interface VitestProject {
 /** Marker that separates the resolver's JSON line from vite's own stdout noise. */
 const VITEST_PROJECTS_MARK = '__CLEO_VITEST_PROJECTS__';
 
+/** Vitest's resolved projects, or why they could not be resolved. */
+export type VitestProjectsResult =
+  | { ok: true; projects: VitestProject[] }
+  | { ok: false; reason: string };
+
+/** Options for {@link listVitestProjects}. */
+export interface ListVitestProjectsOptions {
+  /** Heavy-tool slot acquisition (tests inject; defaults to the global `test` semaphore). */
+  acquireSlot?: (canonical: 'test') => Promise<ReleaseSlotFn>;
+}
+
+/** Resolutions keyed by tree state, so plan + record in one `cleo done` resolve once. */
+const vitestProjectsMemo = new Map<string, Promise<VitestProjectsResult>>();
+
+/** Key for the tree's current state (HEAD plus working-tree changes), or null outside git. */
+function treeStateKey(root: string): string | null {
+  const head = git(root, ['rev-parse', 'HEAD']);
+  const status = git(root, ['status', '--porcelain', '--untracked-files=all']);
+  const diff = git(root, ['diff', 'HEAD']);
+  if (head === null || status === null || diff === null) return null;
+  const digest = createHash('sha256').update(status).update('\0').update(diff).digest('hex');
+  return `${root}\0${head}\0${digest}`;
+}
+
 /**
  * Ask vitest which projects the workspace config resolves to (T12635 review).
  *
@@ -185,13 +233,32 @@ const VITEST_PROJECTS_MARK = '__CLEO_VITEST_PROJECTS__';
  * unnamed projects and every future config shape are named exactly as
  * `--project` will match them. No config parsing happens here.
  *
+ * The child runs asynchronously under the heavy-tool `test` semaphore (loading
+ * a workspace's configs is test tooling), and results are memoized per tree
+ * state, so `cleo done` planning and recording resolve once (T12657).
+ *
  * @param root - Workspace root.
+ * @param opts - Slot acquisition override.
  * @returns The projects, or the reason they could not be resolved.
  * @task T12635
+ * @task T12657
  */
 export function listVitestProjects(
   root: string,
-): { ok: true; projects: VitestProject[] } | { ok: false; reason: string } {
+  opts: ListVitestProjectsOptions = {},
+): Promise<VitestProjectsResult> {
+  const key = treeStateKey(root);
+  const hit = key === null ? undefined : vitestProjectsMemo.get(key);
+  if (hit) return hit;
+  const pending = resolveVitestProjects(root, opts.acquireSlot ?? acquireGlobalSlot);
+  if (key !== null) vitestProjectsMemo.set(key, pending);
+  return pending;
+}
+
+async function resolveVitestProjects(
+  root: string,
+  acquireSlot: (canonical: 'test') => Promise<ReleaseSlotFn>,
+): Promise<VitestProjectsResult> {
   const script = [
     "const { createVitest } = await import('vitest/node');",
     "const v = await createVitest('test', { watch: false }, {}, {});",
@@ -201,19 +268,21 @@ export function listVitestProjects(
     'process.exit(0);',
   ].join('\n');
   let stdout: string;
+  const release = await acquireSlot('test');
   try {
-    stdout = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
-      cwd: root,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 120_000,
-    });
+    ({ stdout } = await promisify(execFile)(
+      process.execPath,
+      ['--input-type=module', '-e', script],
+      { cwd: root, encoding: 'utf-8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 },
+    ));
   } catch (err) {
     const stderr = (err as { stderr?: string }).stderr ?? '';
     return {
       ok: false,
       reason: `vitest could not resolve its projects in ${root}: ${stderr.trim().slice(-300) || String(err)}`,
     };
+  } finally {
+    await release();
   }
   const line = stdout.split('\n').find((l) => l.startsWith(VITEST_PROJECTS_MARK));
   try {
@@ -223,7 +292,7 @@ export function listVitestProjects(
     }>;
     const projects = parsed.map((p) => {
       if (typeof p.name !== 'string' || typeof p.root !== 'string') throw new Error('bad entry');
-      return { name: p.name, dir: relative(root, p.root) };
+      return { name: p.name, dir: toPosixPath(relative(root, p.root)) };
     });
     return { ok: true, projects };
   } catch {
@@ -258,13 +327,13 @@ export type AffectedTestTargets =
  * @returns Project names to run and the dependents that have none, or a refusal.
  * @task T12635
  */
-export function affectedTestTargets(
+export async function affectedTestTargets(
   root: string,
   packages: readonly string[],
   direct: readonly string[],
-  resolve: (root: string) => ReturnType<typeof listVitestProjects> = listVitestProjects,
-): AffectedTestTargets {
-  const resolved = resolve(root);
+  resolve: (root: string) => Promise<VitestProjectsResult> = listVitestProjects,
+): Promise<AffectedTestTargets> {
+  const resolved = await resolve(root);
   if (!resolved.ok) return resolved;
   const workspace = listWorkspacePackages(root);
   const covers = (project: VitestProject, pkg: WorkspacePackage): boolean =>
@@ -293,6 +362,36 @@ export function affectedTestTargets(
       selected.push(project.name);
   }
   return { ok: true, projects: selected, untested };
+}
+
+/**
+ * The packages a `{filters}`/`{packages}` run tests (T12657): a package with no
+ * `scripts.test` runs nothing. A DIRECTLY changed one refuses the affected
+ * scope; an affected dependent with none is reported in `untested`.
+ *
+ * @param root - Workspace root.
+ * @param packages - Affected package names (direct plus dependents).
+ * @param direct - The directly changed packages.
+ * @returns The packages to pass and the dependents with no test script, or a refusal.
+ * @task T12657
+ */
+export function scriptTestTargets(
+  root: string,
+  packages: readonly string[],
+  direct: readonly string[],
+): AffectedTestTargets {
+  const workspace = listWorkspacePackages(root);
+  const untested = packages.filter(
+    (name) => workspace.find((p) => p.name === name)?.hasTestScript !== true,
+  );
+  const uncovered = direct.filter((name) => untested.includes(name));
+  if (uncovered.length > 0) {
+    return {
+      ok: false,
+      reason: `no test script in changed package(s) ${uncovered.join(', ')}`,
+    };
+  }
+  return { ok: true, projects: [...packages], untested };
 }
 
 /**
@@ -335,11 +434,12 @@ function git(cwd: string, args: readonly string[]): string | null {
 
 /**
  * Paths the tree under test changed relative to origin's default branch:
- * committed (`merge-base(origin/<default>, HEAD)..HEAD`) plus uncommitted
- * tracked edits — the tests run on the working tree, so both matter.
+ * committed (`merge-base(origin/<default>, HEAD)..HEAD`), uncommitted tracked
+ * edits and untracked files — the tests run on the working tree, so all matter.
  *
  * @param root - Execution root.
- * @returns The paths, or null when no origin default branch exists.
+ * @returns The paths (committed, uncommitted and untracked), or null when no
+ *   origin default branch exists or git fails.
  * @task T12635
  */
 export function changedPathsSinceDefault(root: string): string[] | null {
@@ -352,9 +452,14 @@ export function changedPathsSinceDefault(root: string): string[] | null {
   if (!base) return null;
   const mergeBase = git(root, ['merge-base', base, 'HEAD']);
   if (!mergeBase) return null;
-  const committed = git(root, ['diff', '--name-only', '--no-renames', mergeBase, 'HEAD']) ?? '';
-  const uncommitted = git(root, ['diff', '--name-only', '--no-renames', 'HEAD']) ?? '';
-  return [...new Set(`${committed}\n${uncommitted}`.split('\n').filter(Boolean))].sort();
+  // A git failure is not an empty diff (T12657): no answer, so no scoped run.
+  const committed = git(root, ['diff', '--name-only', '--no-renames', mergeBase, 'HEAD']);
+  const uncommitted = git(root, ['diff', '--name-only', '--no-renames', 'HEAD']);
+  const untracked = git(root, ['ls-files', '--others', '--exclude-standard']);
+  if (committed === null || uncommitted === null || untracked === null) return null;
+  return [
+    ...new Set(`${committed}\n${uncommitted}\n${untracked}`.split('\n').filter(Boolean)),
+  ].sort();
 }
 
 /** A planned affected-scope run, or why only the full suite will do. */
@@ -411,7 +516,7 @@ export async function planAffectedTestRun(
     return {
       ok: false,
       codeName: 'E_EVIDENCE_INSUFFICIENT',
-      reason: `tool:test-affected cannot find origin's default branch in ${root} to diff against; use tool:test.`,
+      reason: `tool:test-affected cannot diff ${root} against origin's default branch (none found, or git failed); use tool:test.`,
     };
   }
   const scope = deriveAffectedPackages(root, changed);
@@ -430,19 +535,17 @@ export async function planAffectedTestRun(
         'The change touches no workspace package, so there is nothing to test by scope; use tool:test.',
     };
   }
-  let projects = scope.packages;
-  let untested: string[] = [];
-  if (template.split(/\s+/).includes('{projects}')) {
-    const targets = affectedTestTargets(root, scope.packages, scope.direct);
-    if (!targets.ok)
-      return {
-        ok: false,
-        codeName: 'E_EVIDENCE_INSUFFICIENT',
-        reason: `${targets.reason}; use tool:test.`,
-      };
-    projects = targets.projects;
-    untested = targets.untested;
+  const targets = template.split(/\s+/).includes('{projects}')
+    ? await affectedTestTargets(root, scope.packages, scope.direct)
+    : scriptTestTargets(root, scope.packages, scope.direct);
+  if (!targets.ok) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `${targets.reason}; use tool:test.`,
+    };
   }
+  const { projects, untested } = targets;
   const { cmd, args } = buildAffectedTestCommand(template, scope.packages, projects);
   return {
     ok: true,
