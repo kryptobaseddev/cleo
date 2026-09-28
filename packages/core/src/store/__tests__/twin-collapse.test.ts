@@ -687,6 +687,11 @@ describe('(d) Gate B: bare rows are a subset of the post-merge twin', () => {
     collapseTwinTables(db, dbPath());
     db.exec(`VACUUM INTO '${post}'`);
 
+    // Row hashes are HMACs under a comparison key (kept outside the output
+    // directory): the first fingerprint creates it, the others reuse it.
+    const keyDir = join(root, 'gate-b-key');
+    mkdirSync(keyDir, { recursive: true });
+    const key = join(keyDir, 'compare.key');
     const fingerprint = (file: string, label: string): string => {
       const out = join(work, `${label}.json`);
       execFileSync(
@@ -695,6 +700,7 @@ describe('(d) Gate B: bare rows are a subset of the post-merge twin', () => {
           join(REPO_ROOT, 'scripts/fingerprint-store.mjs'),
           '--db',
           file,
+          ...(existsSync(key) ? ['--key-file', key] : ['--key-out', key]),
           '--label',
           label,
           '--out',
@@ -713,6 +719,8 @@ describe('(d) Gate B: bare rows are a subset of the post-merge twin', () => {
           source,
           '--replica',
           replica,
+          '--key-file',
+          key,
           '--mode',
           'merge',
           ...(allowDeleted ? ['--allow-deleted', allowDeleted] : []),
