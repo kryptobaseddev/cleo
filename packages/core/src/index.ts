@@ -850,12 +850,15 @@ export type {
   ClassifyOptions,
   ClassifyResult,
   GrillTrigger,
+  OwnerDecisionOptions,
+  OwnerDecisionSignal,
   ReadinessResult,
   ReadinessSignals,
   ReadinessVerdict,
 } from './orchestration/index.js';
 export {
   classifyReadiness,
+  classifyReadinessWithDecision,
   classifyTask,
 } from './orchestration/index.js';
 // T11918 (M5 / E-API-STANDARD-FOUNDATION T11769) — zod→OpenAPI 3.1 bridge:

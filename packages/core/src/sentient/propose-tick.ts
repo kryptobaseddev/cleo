@@ -32,7 +32,7 @@
 
 import type { ProposalCandidate, Task } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/lafs';
-import { classifyReadiness } from '../orchestration/classify-readiness.js';
+import { classifyReadinessWithDecision } from '../orchestration/owner-decision-readiness.js';
 import { runBrainIngester } from './ingesters/brain-ingester.js';
 import { runNexusIngester } from './ingesters/nexus-ingester.js';
 import { runTestIngester } from './ingesters/test-ingester.js';
@@ -769,7 +769,9 @@ export async function runProposalAutoPromoteScan(
     const task: Task = buildTaskFromRow(row);
 
     // Grill gate: classifyReadiness determines if the task can proceed autonomously.
-    const readiness = classifyReadiness(task);
+    // T12494: System One may flag an owner decision in blockedBy; a flagged
+    // task grills and stays proposed for the owner.
+    const readiness = await classifyReadinessWithDecision(task, {}, { projectRoot });
     if (readiness.verdict === 'grill') {
       grilled++;
       continue;

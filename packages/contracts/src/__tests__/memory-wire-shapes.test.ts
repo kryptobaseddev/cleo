@@ -205,6 +205,7 @@ type _ObserveBrainParamsShape = {
   attachmentRefs?: string[];
   origin?: string | null;
   provenanceChain?: string[] | null;
+  askTypeDecision?: boolean;
   _skipGate?: boolean;
   _skipQueue?: boolean;
 };
@@ -219,6 +220,8 @@ type _ObserveBrainResultShape = {
   id: string;
   type: string;
   createdAt: string;
+  typeSource?: 'caller' | 'keyword' | 'system-one';
+  typeConfidence?: number;
 };
 
 type _AssertObserveResultPinned = AssertEquals1<
