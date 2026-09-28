@@ -252,6 +252,7 @@ export {
   getInstructionFiles,
   getPrimaryProvider,
   getProvider,
+  getProviderAskTool,
   getProviderCapabilities,
   getProviderCount,
   getProviderInstructionReferences,
@@ -263,6 +264,8 @@ export {
   getProvidersByStatus,
   getRegistryVersion,
   getSpawnCapableProviders,
+  HITL_REQUEST_FALLBACK,
+  PROVIDER_ASK_TOOLS,
   providerSupports,
   providerSupportsById,
   resetRegistry,
@@ -270,6 +273,12 @@ export {
 } from './core/registry/providers.js';
 // Spawn adapter
 export type { SpawnAdapter, SpawnOptions, SpawnResult } from './core/registry/spawn-adapter.js';
+export type {
+  AskToolStatus,
+  HitlRequestFallback,
+  ProviderAskTool,
+  ResolvedProviderAskTool,
+} from './core/registry/types.js';
 export { scanDirectory, scanFile, toSarif } from './core/skills/audit/scanner.js';
 // Skills catalog (pluggable library)
 export * as catalog from './core/skills/catalog.js';

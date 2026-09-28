@@ -41,6 +41,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getProviderAskTool } from '@cleocode/caamp';
 import type { Task } from '@cleocode/contracts';
 import { normalizeSlug } from '../docs/slug-normalize.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
@@ -274,6 +275,17 @@ export interface BuildSpawnPromptInput {
    * @task T889 / T893 / W3-2
    */
   harnessHint?: 'claude-code' | 'generic' | 'bare';
+  /**
+   * CAAMP provider id (or alias) of the harness that owns the conversation
+   * with the human — the orchestrator's harness, not the subagent's. Selects
+   * the ask tool named in the HITL line of the Return Format Contract via
+   * `getProviderAskTool`. Defaults to `'claude-code'` when
+   * {@link BuildSpawnPromptInput.harnessHint} is `'claude-code'`; otherwise
+   * the line names the `hitl.request` envelope fallback.
+   *
+   * @task T12482
+   */
+  askProviderId?: string;
   /**
    * When `true`, the tier-1 / tier-2 CLEO-INJECTION.md embed is replaced
    * with a one-line pointer back to the canonical template path. Keeps the
@@ -1064,8 +1076,26 @@ function buildQualityGateBlock(): string {
   ].join('\n');
 }
 
+/**
+ * Build the one-line HITL rule for a SUBAGENT (T12482).
+ *
+ * Spawned agents never ask the human: harness ask tools are unavailable to
+ * subagents (Claude Code's `AskUserQuestion` included), and the owner
+ * directive routes every decision through the orchestrator. The subagent
+ * returns `blocked` with the question + options in the manifest; the line
+ * names the tool the ORCHESTRATOR asks with, or the `hitl.request` fallback.
+ *
+ * @param type - Return-contract type word (e.g. `Implementation`).
+ * @param askProviderId - Orchestrator's CAAMP provider id, if known.
+ */
+function buildHitlLine(type: string, askProviderId: string | undefined): string {
+  const tool = askProviderId ? getProviderAskTool(askProviderId).toolName : null;
+  const how = tool ? `asks via \`${tool}\`` : 'emits one `hitl.request` LAFS envelope';
+  return `HITL: never ask the human. Return \`${type} blocked.\` with {question, options[{label,description}], recommended} in the manifest; the orchestrator ${how}.`;
+}
+
 /** Build the return-format contract — exact strings the subagent may return. */
-function buildReturnFormatBlock(protocol: string): string {
+function buildReturnFormatBlock(protocol: string, askProviderId?: string): string {
   const type =
     protocol === 'research'
       ? 'Research'
@@ -1102,6 +1132,8 @@ function buildReturnFormatBlock(protocol: string): string {
     '1. The `pipeline_manifest` table via `cleo manifest append` (see **Manifest Protocol** below)',
     '2. The task record itself (gates, status, notes)',
     '3. Files committed to your branch',
+    '',
+    buildHitlLine(type, askProviderId),
   ].join('\n');
 }
 
@@ -1193,7 +1225,8 @@ function buildManifestProtocolBlock(taskId: string, protocol: SpawnProtocolPhase
  * The legacy flat-file manifest row was removed when `pipeline_manifest`
  * (SQLite) became the canonical manifest store (ADR-027 §6.2, T1096). Subagents append
  * manifest entries via `cleo manifest append` — see the Manifest Protocol block
- * rendered alongside this one.
+ * rendered alongside this one. T12482 dropped this block's restatement of that
+ * rule (the Manifest Protocol block already says it) to fund the HITL line.
  */
 function buildFilePathsBlock(
   taskId: string,
@@ -1209,10 +1242,6 @@ function buildFilePathsBlock(
     `| Agent output directory | \`${outputDir}\` |`,
     `| RCASD workspace (${taskId}) | \`${rcasdDir}\` |`,
     `| Test-run captures | \`${testRunsDir}\` |`,
-    '',
-    '> Manifest entries are stored in `pipeline_manifest` (tasks.db) and MUST be',
-    '> written via `cleo manifest append` (see **Manifest Protocol**). Never',
-    '> create a flat `.jsonl` manifest file — the legacy sink was retired (ADR-027).',
   ].join('\n');
 }
 
@@ -1700,7 +1729,9 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // 9. Quality Gates       — biome / build / test
   authoredSections.push(buildHeader(input.task, protocol, tier));
   authoredSections.push(buildTaskIdentity(input.task));
-  authoredSections.push(buildReturnFormatBlock(protocol));
+  const askProviderId =
+    input.askProviderId ?? (input.harnessHint === 'claude-code' ? 'claude-code' : undefined);
+  authoredSections.push(buildReturnFormatBlock(protocol, askProviderId));
   authoredSections.push(buildManifestProtocolBlock(taskId, protocol));
   authoredSections.push(buildSessionBlock(input.sessionId));
   // Worktree Setup (T1140) — only emitted when the engine provisioned one.
