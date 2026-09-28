@@ -10,9 +10,12 @@
  *   2. Sources the command from `.cleo/project-context.json` when the user
  *      has captured a project-specific override (`testing.command`,
  *      `build.command`, …).
- *   3. Falls back to per-`primaryType` defaults (node, python, rust, go, …)
- *      when project-context.json is missing or does not specify the tool.
- *   4. Honours legacy aliases (`pnpm-test`, `tsc`, `biome`, …) for backwards
+ *   3. For JavaScript projects, runs the project's own `package.json` script
+ *      of the canonical name through its package manager (T12633), so the
+ *      project's definition — and its `pre`/`post` hooks — is what gets run.
+ *   4. Falls back to per-`primaryType` defaults (node, python, rust, go, …)
+ *      when neither of the above specifies the tool.
+ *   5. Honours legacy aliases (`pnpm-test`, `tsc`, `biome`, …) for backwards
  *      compatibility with already-stored evidence atoms.
  *
  * The resolved command always includes its `source` so audit and cache layers
@@ -24,10 +27,11 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
 import { loadProjectContext } from '../agents/variable-substitution.js';
 import type { ProjectType } from '../store/project-detect.js';
+import { isReferencesOnlyTsconfig } from './tool-vacuity.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -78,6 +82,7 @@ export type CanonicalTool = (typeof CANONICAL_TOOLS)[number];
  */
 export type ResolutionSource =
   | 'project-context' // `.cleo/project-context.json` testing.command / build.command
+  | 'package-script' // `package.json` script of the canonical name (T12633)
   | 'language-default' // Per-`primaryType` fallback table
   | 'legacy-alias'; // Pre-T1534 hardcoded alias preserved for evidence compatibility
 
@@ -402,12 +407,137 @@ function isToolApplicable(
   return false;
 }
 
+/**
+ * Canonical tools a project's own `package.json` script may define (T12633).
+ *
+ * The script name is the canonical name itself: `tool:typecheck` runs the
+ * `typecheck` script. Audit/security/nexus tools are not project scripts by
+ * convention and keep their language defaults.
+ */
+const PACKAGE_SCRIPT_TOOLS: ReadonlySet<CanonicalTool> = new Set([
+  'test',
+  'build',
+  'lint',
+  'typecheck',
+]);
+
+/** Project types whose `package.json` scripts are the project's own commands. */
+const PACKAGE_SCRIPT_TYPES: ReadonlySet<ProjectType> = new Set(['node', 'bun']);
+
+/** Package managers CLEO knows how to invoke a script through. */
+type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun';
+
+/**
+ * Detect the package manager a JavaScript project uses: the `packageManager`
+ * field first (Corepack's declaration), then the lockfile, then `bun` for a
+ * bun project, else `npm`.
+ *
+ * @internal
+ */
+function detectPackageManager(
+  projectRoot: string,
+  declared: string | undefined,
+  primaryType: ProjectType,
+): PackageManager {
+  const detected = ((): PackageManager => {
+    const name = declared?.split('@')[0];
+    if (name === 'pnpm' || name === 'yarn' || name === 'bun' || name === 'npm') return name;
+    const has = (f: string): boolean => existsSync(join(projectRoot, f));
+    if (has('pnpm-lock.yaml')) return 'pnpm';
+    if (has('yarn.lock')) return 'yarn';
+    if (has('bun.lock') || has('bun.lockb')) return 'bun';
+    if (has('package-lock.json')) return 'npm';
+    return primaryType === 'bun' ? 'bun' : 'npm';
+  })();
+  // A declared manager that is not installed would fail with ENOENT and read
+  // as a missing tool. `npm run` executes the same script, hooks included.
+  return detected === 'npm' || isOnPath(detected) ? detected : 'npm';
+}
+
+/**
+ * Is `bin` an executable on `PATH`? A plain directory scan — no subprocess.
+ *
+ * @internal
+ */
+function isOnPath(bin: string): boolean {
+  const exts = process.platform === 'win32' ? ['.cmd', '.exe', ''] : [''];
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    if (exts.some((ext) => existsSync(join(dir, `${bin}${ext}`)))) return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve a canonical tool to the project's own `package.json` script of that
+ * name, run through its package manager (T12633).
+ *
+ * Running the script — rather than CLEO's guess at the underlying binary —
+ * means the project's definition is what gets checked. In this repository the
+ * guess was `npx tsc --noEmit` against a references-only root tsconfig, which
+ * checks nothing, while the `typecheck` script is `tsc -b` behind a
+ * `pretypecheck` step. Going through the package manager runs those hooks.
+ *
+ * @internal
+ */
+function resolvePackageScript(
+  canonical: CanonicalTool,
+  projectRoot: string,
+  primaryType: ProjectType,
+): CommandShape | null {
+  if (!PACKAGE_SCRIPT_TOOLS.has(canonical) || !PACKAGE_SCRIPT_TYPES.has(primaryType)) return null;
+  let pkg: { scripts?: Record<string, unknown>; packageManager?: unknown };
+  try {
+    pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as typeof pkg;
+  } catch {
+    return null;
+  }
+  const script = pkg.scripts?.[canonical];
+  if (typeof script !== 'string' || script.trim() === '') return null;
+  const declared = typeof pkg.packageManager === 'string' ? pkg.packageManager : undefined;
+  return {
+    cmd: detectPackageManager(projectRoot, declared, primaryType),
+    args: ['run', canonical],
+  };
+}
+
+/**
+ * Adapt the node `typecheck` default to the project's tsconfig (T12633).
+ *
+ * A references-only root config (`"files": []` plus `references`) selects no
+ * files outside build mode, so `tsc --noEmit` there is a no-op that exits 0.
+ * Build mode checks every referenced project.
+ *
+ * Plain `tsc -b`, which EMITS, and never `tsc -b --noEmit`: with a chain of
+ * composite projects (b references a) the latter fails TS6310 "Referenced
+ * project may not disable emit" on correct code (reproduced on TypeScript
+ * 5.9.3 and 6.0.2) — a red that no source change can clear. The emitted
+ * `dist/` and `.tsbuildinfo` files do not move the evidence cache key unless
+ * they are tracked: the dirty-tree fingerprint is `git diff HEAD`, which
+ * ignores untracked files.
+ *
+ * @internal
+ */
+function adaptTypecheckDefault(def: CommandShape, tsconfigRoot: string): CommandShape {
+  if (!isReferencesOnlyTsconfig(join(tsconfigRoot, 'tsconfig.json'))) return def;
+  return { cmd: def.cmd, args: ['tsc', '-b'] };
+}
+
 interface ResolveOptions {
   /**
    * Override for `primaryType` lookup — set in tests where no real
    * `project-context.json` is present.
    */
   primaryTypeOverride?: ProjectType;
+  /**
+   * The tree the resolved command will RUN in, when it differs from the
+   * store root that holds `.cleo/project-context.json` (a worktree). The
+   * project's `package.json` scripts and `tsconfig.json` are read from here,
+   * because they describe the code under test. Defaults to `projectRoot`.
+   *
+   * @task T12633
+   */
+  executionRoot?: string;
 }
 
 /**
@@ -424,8 +554,13 @@ interface ResolveOptions {
  *      - `audit` → `audit.command`
  *      - `security-scan` → `security-scan.command`
  *   3. Read `primaryType` from `project-context.json` (or detect from cwd).
- *   4. Look up the canonical name in `LANGUAGE_DEFAULTS[primaryType]`.
- *   5. Verify the resolved binary exists on `PATH` (best-effort, non-fatal —
+ *   4. For node/bun projects, a `package.json` script of the canonical name
+ *      (`test`, `build`, `lint`, `typecheck`) runs as `<pm> run <name>`
+ *      (T12633).
+ *   5. Look up the canonical name in `LANGUAGE_DEFAULTS[primaryType]`. The
+ *      node `typecheck` default switches to build mode (`tsc -b`) for a
+ *      references-only root tsconfig (T12633).
+ *   6. Verify the resolved binary exists on `PATH` (best-effort, non-fatal —
  *      missing binaries are reported but do not block resolution; the
  *      validator will surface the spawn error if the binary is truly absent).
  *
@@ -496,9 +631,30 @@ export function resolveToolCommand(
     (readNestedString(ctx, ['primaryType']) as ProjectType | undefined) ??
     detectPrimaryTypeFromCwd(projectRoot);
 
-  // Step 4 — language default
+  // Step 4 — the project's own package.json script (T12633)
+  const codeRoot = opts.executionRoot ?? projectRoot;
+  const script = resolvePackageScript(canonical, codeRoot, primaryType);
+  if (script) {
+    return {
+      ok: true,
+      command: {
+        canonical,
+        displayName: toolName,
+        cmd: script.cmd,
+        args: script.args,
+        source: isAlias ? 'legacy-alias' : 'package-script',
+        primaryType,
+      },
+    };
+  }
+
+  // Step 5 — language default
   const defaults = LANGUAGE_DEFAULTS[primaryType] ?? {};
-  const def = defaults[canonical];
+  const baseDef = defaults[canonical];
+  const def =
+    baseDef && primaryType === 'node' && canonical === 'typecheck'
+      ? adaptTypecheckDefault(baseDef, codeRoot)
+      : baseDef;
 
   if (!def) {
     return {

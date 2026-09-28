@@ -187,7 +187,12 @@ describe('Release plan constant tuples', () => {
   });
 
   it('exports resolved-source attribution per ADR-061', () => {
-    expect(RESOLVED_SOURCE).toEqual(['project-context', 'language-default', 'legacy-alias']);
+    expect(RESOLVED_SOURCE).toEqual([
+      'project-context',
+      'package-script',
+      'language-default',
+      'legacy-alias',
+    ]);
   });
 
   it('exposes a stable schema version + URL', () => {

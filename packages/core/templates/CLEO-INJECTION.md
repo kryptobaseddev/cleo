@@ -106,6 +106,7 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | 83 | `E_IVTR_INCOMPLETE` | IVTR loop not released — run `cleo orchestrate ivtr <id> --next` |
 | — | `E_EVIDENCE_MISSING` / `E_EVIDENCE_INSUFFICIENT` | `cleo verify … --evidence <atoms>` with every atom kind the gate needs (e.g. `commit:<sha>` + `files:<list>` for `implemented`) |
 | — | `E_EVIDENCE_TESTS_FAILED` / `E_EVIDENCE_TOOL_FAILED` | Fix the source or failing tests, then re-verify |
+| — | `E_EVIDENCE_TOOL_VACUOUS` | Tool exited 0 but provably checked nothing (e.g. `tsc` without `-b` on a references-only tsconfig); run it in a covering mode |
 | — | `E_EVIDENCE_STALE` | Files/commits changed since `verify`; re-verify with updated evidence |
 | — | `E_EVIDENCE_GIT_ROOT` | The CLEO root is not a git checkout — a layout fact; declare `"evidence": { "gitRoot": "<subdir>" }` in `.cleo/project-context.json` or set `CLEO_EVIDENCE_GIT_ROOT=<repo>` |
 | — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` |
