@@ -264,10 +264,19 @@ export const initialTrustState = (): TrustState => ({ keyVersion: 0, pins: {}, r
  * - **Any valid record revokes its target.** A record whose signature verifies under a key certified at the
  *   current version, live, pinned or pending, makes its target non-live for good (TrustState.revoked),
  *   whatever the server claims. Records by old-version-only keys are ignored: such a key can never be live.
- * - **Pins come only from live signers.** A record sets pins only if its signer is live (a server claim at
- *   the current version) and not itself revoked. Several such records: the narrowest pins. None served now:
- *   the last pins the client saw (TrustState.pins), so withholding a record never un-pins a key. A revoked key
- *   with no pins, now or ever, is pending (untrusted; `includePending` returns it for the revocation flow).
+ * - **Pins come only from live signers, and only ever narrow.** A record sets pins only if its signer is live
+ *   (a server claim at the current version) and not itself revoked. Several such records: the narrowest pins.
+ *   The result is always narrowed with the pins this client has seen (TrustState.pins), so neither a withheld
+ *   record nor a wider record served later can widen or drop a pin. A revoked key with no pins, now or ever,
+ *   is pending (untrusted; `includePending` returns it for the revocation flow).
+ * - **The current version** is the highest of: the versions the client has seen, the account version the
+ *   server declares, and the master keys held. When it is above every held master key, nothing is live and
+ *   `keyRotated` is true: tell the user "the account key was rotated: unlock with your passphrase to fetch
+ *   the new master key".
+ *
+ * **The caller MUST persist the returned `state`** in the same local transaction as the pull cursor, and pass
+ * it back next time. Nothing in core does this yet (the `cleo cloud` commands will); without it the monotonic
+ * guarantees above do not hold.
  * - A live key: certified at the current version, called live by the server, never revoked.
  */
 export function certifiedSigners(
@@ -275,9 +284,16 @@ export function certifiedSigners(
   userId: string,
   trust: DeviceTrust,
   state: TrustState,
+  /**
+   * The account's key version as the server declares it (`keyVersion` of GET /v1/account/keys), or null
+   * when the account has no keys yet. It can only raise the current version: a server that lies downward
+   * gains nothing over withholding (limit 3), and one that lies upward only stops live trust.
+   */
+  accountKeyVersion: number | null,
   opts: { includePending?: boolean } = {},
-): { signers: Map<string, SignerKey[]>; state: TrustState } {
-  const current = Math.max(state.keyVersion, ...masterKeys.keys());
+): { signers: Map<string, SignerKey[]>; state: TrustState; keyRotated: boolean } {
+  const held = Math.max(0, ...masterKeys.keys());
+  const current = Math.max(state.keyVersion, accountKeyVersion ?? 0, held);
   const certified = new Map<
     string,
     { deviceId: string; publicKey: Buffer; live: boolean; atCurrent: boolean }
@@ -337,7 +353,12 @@ export function certifiedSigners(
     const prev = pins.get(x.revokedId);
     pins.set(x.revokedId, prev ? narrowerPins(prev, x.pins) : x.pins);
   }
-  for (const [id, p] of Object.entries(state.pins)) if (!pins.has(id)) pins.set(id, p);
+  // Pins only ever narrow: a record served now, even a genuine one by another live signer, can never
+  // widen a pin this client has seen, and a withheld record leaves the seen pin in force.
+  for (const [id, p] of Object.entries(state.pins)) {
+    const now = pins.get(id);
+    pins.set(id, now ? narrowerPins(now, p) : p);
+  }
   const signers = new Map<string, SignerKey[]>();
   for (const [id, k] of certified) {
     const pin = pins.get(id);
@@ -356,7 +377,9 @@ export function certifiedSigners(
     pins: Object.fromEntries([...pins].sort(([a], [b]) => (a < b ? -1 : 1))),
     revoked: [...revoked].sort(),
   };
-  return { signers, state: next };
+  // The account moved to a key version this client has no master key for: nothing is live until it
+  // unlocks with the passphrase (or the recovery key) and fetches the new master key.
+  return { signers, state: next, keyRotated: current > held };
 }
 
 const revocationMessage = (

@@ -337,7 +337,9 @@ export class Journal {
    *   (`replica-replay`) or skips one (`replica-gap`);
    * - is signed by a revoked key past its revocation pin (`revoked-signer`);
    * - has bytes that do not match its hash (`hash-mismatch`, `blob-hash`, `blob-size`) or fail to decrypt.
-   * Returns the next cursor; persist it with the applied ops.
+   * Returns the next cursor; persist it with the applied ops, together with the TrustState returned by the
+   * certifiedSigners call that built `trustedSigners`, in the same local transaction. Nothing in core does
+   * this yet; the caller must.
    */
   async pull(cursor: PullCursor, trustedSigners: TrustedSigners, limit = 200) {
     if (!Number.isSafeInteger(cursor.after) || cursor.after < 0)

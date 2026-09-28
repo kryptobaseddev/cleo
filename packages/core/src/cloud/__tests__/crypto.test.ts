@@ -38,7 +38,7 @@ const signersOf = (
   userId: string,
   trust: Parameters<typeof certifiedSigners>[2],
   opts: { includePending?: boolean } = {},
-) => certifiedSigners(masterKeys, userId, trust, initialTrustState(), opts).signers;
+) => certifiedSigners(masterKeys, userId, trust, initialTrustState(), null, opts).signers;
 
 const msg = Buffer.from('tasks_tasks T123 status=done');
 
@@ -446,6 +446,7 @@ describe('device trust: signed, certified master key grants', () => {
       userId,
       { certificates: [certRow(a, mk, false), certRow(c, mk)], revocations: [revoke(c, a, P)] },
       initialTrustState(),
+      null,
     );
     expect(seen.signers.get(a.deviceId)).toEqual([{ publicKey: a.signing.publicKey, pin: P }]);
     // The server flips the claims: L live, N not. The record still revokes L, and the persisted pin holds.
@@ -453,9 +454,9 @@ describe('device trust: signed, certified master key grants', () => {
       certificates: [certRow(a, mk, true), certRow(c, mk, false)],
       revocations: [revoke(c, a, P)],
     };
-    expect(certifiedSigners(k1, userId, flipped, seen.state).signers.get(a.deviceId)).toEqual([
-      { publicKey: a.signing.publicKey, pin: P },
-    ]);
+    expect(certifiedSigners(k1, userId, flipped, seen.state, null).signers.get(a.deviceId)).toEqual(
+      [{ publicKey: a.signing.publicKey, pin: P }],
+    );
     // A client that never saw the pin still never trusts L as live: it is pending (untrusted).
     expect(signersOf(k1, userId, flipped).has(a.deviceId)).toBe(false);
     // The server withholds the record and calls L live: the client that saw the pin keeps it.
@@ -463,7 +464,7 @@ describe('device trust: signed, certified master key grants', () => {
       certificates: [certRow(a, mk, true), certRow(c, mk, true)],
       revocations: [],
     };
-    const after = certifiedSigners(k1, userId, withheld, seen.state);
+    const after = certifiedSigners(k1, userId, withheld, seen.state, null);
     expect(after.signers.get(a.deviceId)).toEqual([{ publicKey: a.signing.publicKey, pin: P }]);
     expect(after.state.revoked).toContain(`${a.deviceId}/${a.signing.publicKey.toString('hex')}`);
     // A key seen revoked without a pin (a mutual revocation) stays untrusted when the records are withheld.
@@ -475,13 +476,14 @@ describe('device trust: signed, certified master key grants', () => {
         revocations: [revoke(a, c, P), revoke(c, a, P)],
       },
       initialTrustState(),
+      null,
     );
     expect(mutual.signers.size).toBe(0);
     const bothLive = {
       certificates: [certRow(a, mk, true), certRow(c, mk, true)],
       revocations: [],
     };
-    expect(certifiedSigners(k1, userId, bothLive, mutual.state).signers.size).toBe(0);
+    expect(certifiedSigners(k1, userId, bothLive, mutual.state, null).signers.size).toBe(0);
   });
 
   it('grants live trust only at the current key version: a pre-rotation key cannot certify a live signer (round 5)', () => {
@@ -501,7 +503,7 @@ describe('device trust: signed, certified master key grants', () => {
       certificates: [atV2(b), certRow(thief, mk, true)],
       revocations: [revoke(thief, b, { replicas: {}, checkpoints: {} })],
     };
-    const r = certifiedSigners(keys, userId, trust, initialTrustState());
+    const r = certifiedSigners(keys, userId, trust, initialTrustState(), null);
     // Not live, and its record neither pins nor revokes b.
     expect(r.signers.has(thief.deviceId)).toBe(false);
     expect(r.signers.get(b.deviceId)).toEqual([{ publicKey: b.signing.publicKey, pin: null }]);
@@ -519,9 +521,72 @@ describe('device trust: signed, certified master key grants', () => {
     ).toThrow(/untrusted device/);
     // The version never goes back: a later call with only the v1 key still treats v2 as current.
     expect(r.state.keyVersion).toBe(2);
-    const later = certifiedSigners(new Map([[1, mk]]), userId, trust, r.state);
+    const later = certifiedSigners(new Map([[1, mk]]), userId, trust, r.state, null);
     expect(later.signers.has(thief.deviceId)).toBe(false);
     expect(later.state.keyVersion).toBe(2);
+  });
+
+  it('never widens a pin it has seen, even for a genuine record from another live signer (round 6)', () => {
+    const k1 = new Map([[1, mk]]);
+    const seen = certifiedSigners(
+      k1,
+      userId,
+      {
+        certificates: [certRow(a, mk, false), certRow(b, mk)],
+        revocations: [revoke(b, a, { replicas: { [R]: 2 }, checkpoints: { S1: 1 } })],
+      },
+      initialTrustState(),
+      null,
+    );
+    // The server serves only c's record, which is wider (r:99), and withholds b's.
+    const wider = revoke(c, a, { replicas: { [R]: 99 }, checkpoints: { S1: 50 } });
+    const r = certifiedSigners(
+      k1,
+      userId,
+      {
+        certificates: [certRow(a, mk, false), certRow(b, mk), certRow(c, mk)],
+        revocations: [wider],
+      },
+      seen.state,
+      null,
+    );
+    expect(r.signers.get(a.deviceId)).toEqual([
+      { publicKey: a.signing.publicKey, pin: { replicas: { [R]: 2 }, checkpoints: { S1: 1 } } },
+    ]);
+    // A narrower record served later still narrows.
+    const narrower = revoke(c, a, { replicas: { [R]: 1 }, checkpoints: {} });
+    const n = certifiedSigners(
+      k1,
+      userId,
+      { certificates: [certRow(a, mk, false), certRow(c, mk)], revocations: [narrower] },
+      r.state,
+      null,
+    );
+    expect(n.signers.get(a.deviceId)).toEqual([
+      { publicKey: a.signing.publicKey, pin: { replicas: { [R]: 1 }, checkpoints: {} } },
+    ]);
+  });
+
+  it('raises the current key version from the account: a stale device trusts no old-version key (round 6)', () => {
+    // This device holds only MKv1; the account was rotated to v2, and a thief minted a v1 key with a live claim.
+    const thief = dev('0192f1c2-7d3e-4abc-8def-0000000000ef');
+    const trust = {
+      certificates: [certRow(b, mk, true), certRow(thief, mk, true)],
+      revocations: [],
+    };
+    const k1 = new Map([[1, mk]]);
+    // Without the account version, the v1 thief would look live (the stale-device case).
+    expect(
+      certifiedSigners(k1, userId, trust, initialTrustState(), null).signers.has(thief.deviceId),
+    ).toBe(true);
+    const r = certifiedSigners(k1, userId, trust, initialTrustState(), 2);
+    expect(r.signers.size).toBe(0);
+    expect(r.keyRotated).toBe(true);
+    expect(r.state.keyVersion).toBe(2);
+    // The persisted version holds even if the server later declares v1 again.
+    const again = certifiedSigners(k1, userId, trust, r.state, 1);
+    expect(again.signers.size).toBe(0);
+    expect(again.keyRotated).toBe(true);
   });
 
   it('refuses a grant from a revoked (pinned) signer', () => {
