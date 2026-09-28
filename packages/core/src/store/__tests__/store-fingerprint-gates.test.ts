@@ -47,12 +47,25 @@
  *   - a new key is written only with `--key-out`, never into the directory
  *     of `--out`/`--rows`, and never over an existing file.
  *
+ * T12641, each also paired with a red mutation:
+ *
+ *   - `--key-out` is refused anywhere in the directory TREE of `--out` or
+ *     `--rows`, by realpath, so a subdirectory or a symlink does not get
+ *     around it;
+ *   - each fingerprint carries a store identity (project id + per-run nonce,
+ *     under the MAC): the source fingerprint copied in as the replica FAILS,
+ *     a replica of another project FAILS, and a replica of the same project
+ *     compares normally.
+ *
  * The scripts run as real child processes, exactly as an operator runs them.
- * All fingerprints of one comparison share the key in `keyFile`.
+ * All fingerprints of one comparison share the key in `keyFile`. New keys go
+ * to `keyRoot`, a sibling of `testRoot`, because a key inside the tree of the
+ * fingerprints is refused.
  *
  * @task T12332
  * @task T12613
  * @task T12636
+ * @task T12641
  * @epic T12322
  */
 
@@ -67,6 +80,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { open } from 'node:fs/promises';
@@ -110,6 +124,7 @@ const MUTATIONS = {
 type StoreName = 'source' | keyof typeof MUTATIONS;
 
 let testRoot: string;
+let keyRoot: string;
 let keyFile: string;
 const db = {} as Record<StoreName, string>;
 
@@ -123,6 +138,7 @@ interface TableFp {
 }
 interface Fingerprint {
   mac?: string;
+  identity?: { projectId: string | null; nonce: string };
   store: string;
   vecLoaded: boolean;
   keyId: string;
@@ -190,6 +206,8 @@ beforeAll(async () => {
   mkdirSync(join(projectDir, '.cleo'), { recursive: true });
   mkdirSync(join(testRoot, 'cleo'), { recursive: true });
   vi.stubEnv('CLEO_HOME', join(testRoot, 'cleo'));
+  keyRoot = `${testRoot}-keys`;
+  mkdirSync(keyRoot, { recursive: true });
   keyFile = join(testRoot, 'comparison.key');
   writeFileSync(keyFile, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600 });
 
@@ -242,6 +260,7 @@ afterAll(() => {
   _resetDualScopeDbCache();
   vi.unstubAllEnvs();
   rmSync(testRoot, { recursive: true, force: true });
+  rmSync(keyRoot, { recursive: true, force: true });
 });
 
 describe('fingerprint-store', () => {
@@ -684,9 +703,7 @@ describe('T12613: row hashes are keyed per comparison', () => {
   });
 
   it('a fresh --key-out key is written 0600; fingerprints under different keys FAIL', () => {
-    const keyDir = join(testRoot, 'keys');
-    mkdirSync(keyDir, { recursive: true });
-    const ownKey = join(keyDir, 'own.key');
+    const ownKey = join(keyRoot, 'own.key');
     const own = fingerprintFile(db.copy, 'ownKey', ['--key-out', ownKey]);
     expect(statSync(ownKey).mode & 0o777).toBe(0o600);
     expect(statSync(`${own.file}.rows`).mode & 0o777).toBe(0o600);
@@ -957,28 +974,28 @@ describe('T12636: a new key never lands beside the fingerprints', () => {
   it('refuses --key-out in the directory of --out or --rows', () => {
     const out = join(testRoot, 'beside.fp.json');
     expect(refusedFingerprint(['--out', out, '--key-out', join(testRoot, 'beside.key')])).toContain(
-      'refusing --key-out in the directory of --out or --rows',
+      'refusing --key-out inside the directory tree of --out or --rows',
     );
     const rowsDir = join(testRoot, 'rowsdir');
     mkdirSync(rowsDir, { recursive: true });
+    // --out lives outside testRoot here, so only the --rows tree can refuse.
+    mkdirSync(join(keyRoot, 'outs'), { recursive: true });
     expect(
       refusedFingerprint([
         '--out',
-        join(testRoot, 'keys-elsewhere.fp.json'),
+        join(keyRoot, 'outs', 'keys-elsewhere.fp.json'),
         '--rows',
         join(rowsDir, 'x.rows'),
         '--key-out',
         join(rowsDir, 'x.key'),
       ]),
-    ).toContain('refusing --key-out in the directory of --out or --rows');
+    ).toContain('refusing --key-out inside the directory tree of --out or --rows');
     expect(existsSync(join(testRoot, 'beside.key'))).toBe(false);
     expect(existsSync(join(rowsDir, 'x.key'))).toBe(false);
   });
 
   it('never overwrites an existing key', () => {
-    const keyDir = join(testRoot, 'keys');
-    mkdirSync(keyDir, { recursive: true });
-    const existing = join(keyDir, 'existing.key');
+    const existing = join(keyRoot, 'existing.key');
     writeFileSync(existing, 'k'.repeat(64));
     const stderr = refusedFingerprint([
       '--out',
@@ -988,5 +1005,116 @@ describe('T12636: a new key never lands beside the fingerprints', () => {
     ]);
     expect(stderr).toContain('EEXIST');
     expect(readFileSync(existing, 'utf8')).toBe('k'.repeat(64));
+  });
+});
+
+describe('T12641: --key-out is refused anywhere inside the --out/--rows tree', () => {
+  it('refuses a key in a subdirectory of the --out directory', () => {
+    const sub = join(testRoot, 'sub', 'deeper');
+    mkdirSync(sub, { recursive: true });
+    const stderr = refusedFingerprint([
+      '--out',
+      join(testRoot, 'subcase.fp.json'),
+      '--key-out',
+      join(sub, 'y.key'),
+    ]);
+    expect(stderr).toContain('refusing --key-out inside the directory tree of --out or --rows');
+    expect(existsSync(join(sub, 'y.key'))).toBe(false);
+  });
+
+  it('refuses a key that reaches the tree through a symlink, either way round', () => {
+    // The key path goes through a link that points into the --out directory.
+    const intoOut = join(keyRoot, 'link-into-out');
+    symlinkSync(testRoot, intoOut);
+    expect(
+      refusedFingerprint([
+        '--out',
+        join(testRoot, 'linkcase.fp.json'),
+        '--key-out',
+        join(intoOut, 'z.key'),
+      ]),
+    ).toContain('refusing --key-out inside the directory tree of --out or --rows');
+    expect(existsSync(join(testRoot, 'z.key'))).toBe(false);
+
+    // The --out path goes through a link whose target contains the key directory.
+    const outsReal = join(testRoot, 'outs-real');
+    mkdirSync(join(outsReal, 'keys'), { recursive: true });
+    const outLink = join(keyRoot, 'outs-link');
+    symlinkSync(outsReal, outLink);
+    expect(
+      refusedFingerprint([
+        '--out',
+        join(outLink, 'o.fp.json'),
+        '--key-out',
+        join(outsReal, 'keys', 'k.key'),
+      ]),
+    ).toContain('refusing --key-out inside the directory tree of --out or --rows');
+    expect(existsSync(join(outsReal, 'keys', 'k.key'))).toBe(false);
+  });
+});
+
+describe('T12641: each fingerprint is bound to a store identity', () => {
+  /** A copy of the source at `<name>/.cleo/cleo.db`, with `.cleo/project-id` when an id is given. */
+  function projectStore(name: string, projectId?: string) {
+    const cleoDir = join(testRoot, name, '.cleo');
+    mkdirSync(cleoDir, { recursive: true });
+    const file = join(cleoDir, 'cleo.db');
+    if (!existsSync(file)) copyFileSync(db.source, file);
+    if (projectId) writeFileSync(join(cleoDir, 'project-id'), `# test identity\n${projectId}\n`);
+    return file;
+  }
+
+  it('the genuine, signed source fingerprint copied in as the replica FAILS', () => {
+    const src = fingerprint('source');
+    expect(src.fp.identity?.nonce).toMatch(/^[0-9a-f]{32}$/);
+    const dup = join(testRoot, 'source-dup.fp.json');
+    copyFileSync(src.file, dup); // its rowsFile still names the source sidecar beside it
+    for (const mode of ['replay', 'merge'] as const) {
+      const r = compare(src.file, dup, mode);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain(
+        "GATE B FAIL *: the replica carries the source's nonce: it is the source fingerprint, or a copy of it",
+      );
+      expect(r.out).not.toContain('MAC does not verify');
+    }
+  });
+
+  it('a replica of the same project compares normally; another project FAILS', () => {
+    const a = fingerprintFile(projectStore('projA', 'a1b2c3d4e5f6'), 'projA');
+    const a2 = fingerprintFile(projectStore('projA2', 'a1b2c3d4e5f6'), 'projA2');
+    expect(a.fp.identity?.projectId).toBe('a1b2c3d4e5f6');
+    expect(a2.fp.identity?.nonce).not.toBe(a.fp.identity?.nonce);
+    const same = compare(a.file, a2.file, 'replay');
+    expect(same.out).toContain('PASS (replay)');
+    expect(same.code).toBe(0);
+
+    const b = fingerprintFile(projectStore('projB', 'f6e5d4c3b2a1'), 'projB');
+    const other = compare(a.file, b.file, 'replay');
+    expect(other.code).toBe(1);
+    expect(other.out).toContain(
+      'GATE B FAIL *: the replica belongs to another project (a1b2c3d4e5f6 vs f6e5d4c3b2a1)',
+    );
+  });
+
+  it('an operator-supplied nonce reused for the replica FAILS, and a bad project-id is refused', () => {
+    const nonce = ['--nonce', 'operator-run-0001'];
+    const a = fingerprintFile(db.source, 'nonceA', ['--key-file', keyFile, ...nonce]);
+    const b = fingerprintFile(db.copy, 'nonceB', ['--key-file', keyFile, ...nonce]);
+    const r = compare(a.file, b.file, 'replay');
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("the replica carries the source's nonce");
+
+    const bad = join(testRoot, 'bad-project-id');
+    writeFileSync(bad, '../etc\n');
+    expect(
+      refusedFingerprint([
+        '--out',
+        join(testRoot, 'badid.fp.json'),
+        '--key-file',
+        keyFile,
+        '--project-id-file',
+        bad,
+      ]),
+    ).toContain('unusable project-id file');
   });
 });

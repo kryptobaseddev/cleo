@@ -58,6 +58,19 @@
  * fingerprint-store.mjs). Fingerprints made with different keys cannot be
  * compared and FAIL.
  *
+ * ## The replica must be another store's fingerprint
+ *
+ * A genuine, correctly signed fingerprint of the SOURCE passed in as the
+ * replica would reproduce the source perfectly. Each fingerprint records a
+ * store identity (`identity.projectId`, `identity.nonce`, under the MAC), and
+ * the comparison FAILS when:
+ *   - either fingerprint has no nonce;
+ *   - the nonces are equal: the replica is the source fingerprint or a copy;
+ *   - both carry a project id and the ids differ: the replica belongs to
+ *     another project.
+ * A replica of the same project (same id, its own nonce) compares normally.
+ * A project id known on one side only is reported as a note.
+ *
  * ## Each fingerprint JSON is signed
  *
  * `--key-file` (the comparison key) is required: every fingerprint carries a
@@ -102,6 +115,7 @@
  * @task T12332
  * @task T12613
  * @task T12636
+ * @task T12641
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -258,6 +272,27 @@ function compare(source, replica, mode, rows, key) {
         });
     }
   }
+  const sid = source.identity ?? {};
+  const rid = replica.identity ?? {};
+  if (!sid.nonce || !rid.nonce)
+    failures.push({ gate: 'B', table: '*', reason: 'a fingerprint has no store identity nonce' });
+  else if (sid.nonce === rid.nonce)
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason:
+        "the replica carries the source's nonce: it is the source fingerprint, or a copy of it",
+    });
+  if (sid.projectId && rid.projectId && sid.projectId !== rid.projectId)
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason: `the replica belongs to another project (${sid.projectId} vs ${rid.projectId})`,
+    });
+  else if (Boolean(sid.projectId) !== Boolean(rid.projectId))
+    notes.push(
+      `project id known on one side only (source ${sid.projectId ?? 'none'}, replica ${rid.projectId ?? 'none'})`,
+    );
   if (!source.keyId || source.keyId !== replica.keyId)
     failures.push({
       gate: 'B',
