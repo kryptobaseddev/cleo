@@ -265,21 +265,20 @@ describe('T11030 — project move integration (cross-drive)', () => {
   });
 
   // -----------------------------------------------------------------------
-  // AC11: Cross-drive — copy-based move succeeds
+  // AC11 (T12556): same-device move is a RENAME — a cross-device target is
+  // refused with E_CROSS_DEVICE (project-relocation-faults-T12558.test.ts)
   // -----------------------------------------------------------------------
-  it('AC11: cross-drive copy-based move succeeds', () => {
-    // Destination should have the project
+  it('AC11: same-device move renames the project; nothing is left at the source', () => {
     expect(existsSync(join(destDir, '.cleo', 'project-info.json'))).toBe(true);
-    // Source project still exists (copy+validate, not destructive rename)
-    expect(existsSync(join(sourceDir, '.cleo', 'project-info.json'))).toBe(true);
+    expect(existsSync(join(sourceDir, '.cleo', 'project-info.json'))).toBe(false);
   });
 
   // -----------------------------------------------------------------------
   // AC12: Cleanup
   // -----------------------------------------------------------------------
   it('AC12: cleanup removes test directories', () => {
-    // Cleanup is handled by afterAll — verify dirs still exist before cleanup
-    expect(existsSync(sourceDir)).toBe(true);
+    // Cleanup is handled by afterAll — the source was renamed away (T12556)
+    expect(existsSync(sourceDir)).toBe(false);
     expect(existsSync(destDir)).toBe(true);
   });
 

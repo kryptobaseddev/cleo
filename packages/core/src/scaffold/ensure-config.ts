@@ -9,6 +9,7 @@ import { writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
+import { generateProjectHash } from '../nexus/hash.js';
 import { getConfigPath, resolveCleoDir } from '../paths.js';
 import { computeStableProjectHash } from '../project-scope.js';
 import { saveJson } from '../store/json.js';
@@ -507,10 +508,16 @@ export async function ensureProjectInfo(
     if (existing?.[field] !== undefined) carried[field] = existing[field];
 
   // T12557: write-once — a force-regenerate keeps the stored identity key.
+  // T12558: an id minted on explicit request (`--new-identity`) is a NEW
+  // project, possibly at a path another project's hash was derived from (a
+  // reroot's old root). Its hash is derived from the new id, never the path,
+  // so the two projects' release ids cannot collide once federated.
   const projectHash =
     typeof existing?.['projectHash'] === 'string' && existing['projectHash'].length > 0
       ? existing['projectHash']
-      : computeStableProjectHash(projectRoot);
+      : opts?.mintNewIdentity && identity.source === 'minted'
+        ? generateProjectHash(`project-id:${identity.projectId}`)
+        : computeStableProjectHash(projectRoot);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
 

@@ -160,6 +160,19 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
         'Check configuration file: .cleo/config.json',
       ),
     ],
+    [
+      ExitCode.PROJECT_MOVED,
+      def(
+        ExitCode.PROJECT_MOVED,
+        'PROJECT_MOVED',
+        'NOT_FOUND',
+        'Project was relocated',
+        410,
+        false,
+        'E_PROJECT_MOVED',
+        'Run the command in the new project root named by details.movedTo',
+      ),
+    ],
 
     // === HIERARCHY ERRORS (10-19) ===
     [
