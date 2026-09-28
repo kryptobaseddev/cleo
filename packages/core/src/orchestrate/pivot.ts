@@ -21,6 +21,7 @@
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { memoryObserve } from '../memory/engine-compat.js';
@@ -29,6 +30,7 @@ import { readFocusState } from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveBoundSession } from '../store/session-store.js';
 import { startTask, stopTask } from '../task-work/index.js';
 import { logOperation } from '../tasks/add.js';
 import { updateTask } from '../tasks/update.js';
@@ -286,9 +288,12 @@ export async function pivotTask(
   // exactly like the memory-observation lookup below — this best-effort identity
   // resolution degrades to `null` on failure rather than propagating.
   // ---------------------------------------------------------------------------
-  let session: Awaited<ReturnType<DataAccessor['resolveCurrentSession']>> = null;
+  // T12500: attribution uses the caller's BOUND session only — an unbound
+  // caller's pivot is recorded without a session rather than under another
+  // agent's newest one.
+  let session: Session | null = null;
   try {
-    session = await acc.resolveCurrentSession();
+    session = (await resolveBoundSession(root))?.session ?? null;
   } catch {
     // best-effort identity lookup — never block the pivot on a session-resolve
     // failure; the audit row's sessionId is informational only.

@@ -333,6 +333,19 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
         'E_CONFLICT',
       ),
     ],
+    [
+      ExitCode.SESSION_UNBOUND,
+      def(
+        ExitCode.SESSION_UNBOUND,
+        'SESSION_UNBOUND',
+        'CONTRACT',
+        'No session is bound to this caller',
+        428,
+        true,
+        'E_SESSION_UNBOUND',
+        "Bind a session: run 'cleo session start --scope <scope> --name <name>', 'cleo session resume <id>', or set CLEO_SESSION_ID=<id>.",
+      ),
+    ],
 
     // === SESSION ERRORS (30-39) ===
     [

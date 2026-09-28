@@ -179,7 +179,12 @@ describe('E_SESSION_CONFLICT routes to bulk recovery when several leak (T12308)'
     const { sessionStart } = await import('../../session/engine-ops.js');
     const res = await sessionStart('/tmp/p', { scope: 'global', name: 'x' });
     expect(res.success).toBe(false);
-    expect(res.error?.message).toContain("End it first with 'cleo session end'");
+    // T12500: lead with starting your own session or adopting it if it is
+    // yours — never with ending (possibly another agent's) session.
+    expect(res.error?.message).toContain("'--agent <handle>'");
+    expect(res.error?.message).toContain("'cleo session resume ses-only'");
+    expect(res.error?.message).not.toContain('session end');
+    expect(res.error?.fix).not.toContain('session end');
     expect(res.error?.message).not.toContain('session gc');
   });
 });

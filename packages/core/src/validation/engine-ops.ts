@@ -529,8 +529,10 @@ export async function validateGateVerify(
       } else {
         // Attempt to resolve the active session from the DB as a better key.
         try {
-          const activeSession = await accessor.getActiveSession();
-          capSessionId = activeSession?.id ?? 'global';
+          // T12500: the caller's BOUND session only — never charge an
+          // override to whichever agent's session is newest.
+          const { resolveBoundSessionId } = await import('../store/session-store.js');
+          capSessionId = (await resolveBoundSessionId(projectRoot)) ?? 'global';
         } catch {
           capSessionId = 'global';
         }

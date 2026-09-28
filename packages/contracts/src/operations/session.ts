@@ -613,12 +613,14 @@ export interface SessionEndParams {
   /**
    * Explicit session id to end (T11346 · Epic T11284).
    *
-   * When omitted, session-end targets the CALLER's session resolved env-first
-   * (`CLEO_SESSION_ID` → … → most-recent active). When provided, this id
-   * overrides env/active resolution. Either way, one agent can no longer end a
-   * different concurrently-active agent's session implicitly.
+   * When omitted, session-end targets the CALLER's bound session (connection
+   * handle → `CLEO_SESSION_ID` → terminal binding). An unbound caller gets
+   * `E_SESSION_UNBOUND` while any session is active — the newest active row is
+   * never the implicit target (T12500). When provided, this id overrides
+   * resolution (CLI: `cleo session end --session <id>`).
    *
    * @task T11346
+   * @task T12500
    */
   sessionId?: string;
 }

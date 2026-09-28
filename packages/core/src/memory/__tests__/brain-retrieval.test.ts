@@ -46,6 +46,7 @@ describe('Brain Retrieval', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await awaitBackgroundOps();
     try {
       const { shutdownBrainWriter, _resetBrainWriterForTests } = await import(
@@ -97,6 +98,23 @@ describe('Brain Retrieval', () => {
       const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const { getDb, closeAllDatabases } = await import('../../store/sqlite.js');
       const { sessions } = await import('../../store/tasks-schema.js');
+      const { bindTerminalToSession } = await import('../../store/session-store.js');
+      const { SESSION_ENV_KEY_PRECEDENCE } = await import('../../sessions/session-id.js');
+      const { TERMINAL_KEY_SOURCES } = await import('../../sessions/terminal-identity.js');
+      // T12500: retrieval telemetry is attributed to the caller's BOUND session
+      // only (never the newest active row), so this test binds its terminal to
+      // each project's session — as `cleo session start` would — instead of
+      // relying on the removed newest-active fallback.
+      for (const name of [
+        ...SESSION_ENV_KEY_PRECEDENCE,
+        ...TERMINAL_KEY_SOURCES.flatMap((k) =>
+          k.qualifierEnvVar ? [k.envVar, k.qualifierEnvVar] : [k.envVar],
+        ),
+      ]) {
+        vi.stubEnv(name, undefined);
+      }
+      vi.stubEnv('TERM_SESSION_ID', 'brain-retrieval-owner-tab');
+      await bindTerminalToSession('S-123', tempDir);
       const retrieval = await import('../retrieval/log-retrieval.js');
       const original = retrieval.logRetrieval;
       const entered = Promise.withResolvers<void>();
@@ -122,6 +140,7 @@ describe('Brain Retrieval', () => {
             .insert(sessions)
             .values({ id: 'S-B', name: 'second', status: 'active' })
             .run();
+          await bindTerminalToSession('S-B', second);
         });
         for (const root of [tempDir, second]) {
           await worktreeScope.run({ worktreeRoot: root, projectHash: 'seed' }, async () => {
