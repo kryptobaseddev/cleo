@@ -10,11 +10,14 @@ holds the deadline, audit and shadow-record wiring that site 2 wrote inline.
 Neither site sends anything unless a provider is configured with
 `cleo decide config`.
 
-**Observation type (`decide.sites.observationType`).** When `observeBrain`
-(including `cleo memory observe`) gets no `type`, it asks ONE `choice`
-question over `bugfix | refactor | feature | decision | change | discovery`.
-It asks before the writer queue, so a decision never holds the single brain
-writer.
+**Observation type (`decide.sites.observationType`).** When
+`cleo memory observe` gets no `type`, it asks ONE `choice` question over
+`bugfix | refactor | feature | decision | change | discovery`. Only callers
+that opt in with `askTypeDecision` ask; the interactive `memory.observe`
+operation is the only one that does. Background writers (hooks, dialectic
+insights, extraction-gate writes) never send their content to the provider
+and keep the keyword type. The question is asked before the writer queue, so
+a decision never holds the single brain writer.
 
 - The keyword heuristic now matches whole words and common inflections, not
   substrings. `address` no longer counts as `add` (`feature`), and `prefix`
@@ -37,14 +40,18 @@ task with a non-blank `blockedBy` and no `owner-decision` label, it asks ONE
 choice?
 
 - `classifyReadiness` stays pure. It accepts the answer as
-  `signals.ownerDecision` and uses it in place of the `owner`/`decision`
-  substring rule only when the confidence is at least 0.6. The label always
-  wins.
+  `signals.ownerDecision`. The check is **escalate-only**: a yes with
+  confidence of at least 0.6 ADDS the flag that the `owner`/`decision`
+  substring rule missed. No answer can clear a flag that the rule or the
+  `owner-decision` label raised, because silently removing one would route
+  around the owner. In `on` mode, nothing is asked when the rule already
+  flags.
 - It only flags. A flagged task grills with `OWNER_DECISION_REQUIRED`, and
   the reason says to route the question to the owner through the ask tool.
   System One never answers for the owner.
-- `shadow` (the default once configured) audits the answer next to the
-  substring rule and leaves the verdict unchanged. `on` acts on the answer.
+- `shadow` (the default once configured) asks even when the rule flags,
+  audits the answer next to the substring rule and leaves the verdict
+  unchanged. `on` acts on a yes.
 - **Data sent:** the task title (clipped to 160 characters), `blockedBy`
   (clipped to 300) and description (clipped to 440), redacted before clipping.
 

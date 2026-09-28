@@ -12,9 +12,9 @@
  * ## Grill triggers (AC2)
  * 1. Missing acceptance criteria — task has no `acceptance` entries.
  * 2. Owner-decision required — task carries an `owner-decision` label OR
- *    its `blockedBy` needs an owner decision: a confident System One `noul`
- *    answer when the caller supplies one ({@link ReadinessSignals.ownerDecision},
- *    T12494), else `blockedBy` contains "owner" / "decision" text.
+ *    `blockedBy` contains "owner" / "decision" text OR a confident System One
+ *    `noul` answer says it needs one ({@link ReadinessSignals.ownerDecision},
+ *    T12494). System One can only ADD the flag, never clear it.
  * 3. IVTR max-retries exhausted — any phase in `ivtrLoopBackCount` has
  *    reached {@link MAX_LOOP_BACKS_PER_PHASE} (requires HITL escalation).
  * 4. Release/publish gate active — task `pipelineStage` is `'release'` and
@@ -140,11 +140,12 @@ export interface ReadinessSignals {
    * System One's answer to "does this task's `blockedBy` need an owner
    * decision?" (T12494), resolved by `resolveOwnerDecisionSignal`.
    *
-   * Used in place of the `blockedBy` substring rule when its confidence is at
-   * least {@link OWNER_DECISION_MIN_CONFIDENCE}; otherwise, or when absent,
-   * the substring rule decides. The `owner-decision` label always wins. It
-   * only FLAGS readiness: a flagged task is routed to the owner through the
-   * orchestrator's ask tool, never decided here.
+   * Escalate-only: a `required` answer with confidence of at least
+   * {@link OWNER_DECISION_MIN_CONFIDENCE} ADDS the flag when the label and
+   * the `blockedBy` substring rule did not raise it. It can never clear a
+   * flag they raised — silently removing one would route around the owner,
+   * which the HITL rule forbids. A flagged task is routed to the owner
+   * through the orchestrator's ask tool, never decided here.
    */
   ownerDecision?: OwnerDecisionSignal | null;
 }
@@ -269,11 +270,12 @@ function isConfidentSignal(
 /**
  * Return `true` when the task requires an owner decision before work can start.
  *
- * Checked in order:
+ * Any of these flags it (System One can only add a flag, never clear one):
  *  1. `task.labels` contains `'owner-decision'` (exact, case-insensitive).
- *  2. A System One signal with confidence ≥ {@link OWNER_DECISION_MIN_CONFIDENCE}.
- *  3. Otherwise `task.blockedBy` mentions "owner" OR "decision"
+ *  2. `task.blockedBy` mentions "owner" OR "decision"
  *     (case-insensitive substring match).
+ *  3. A System One signal that an owner decision is required, with
+ *     confidence ≥ {@link OWNER_DECISION_MIN_CONFIDENCE}.
  *
  * @param task - Task record to inspect.
  * @param signal - Optional System One answer.
@@ -283,8 +285,8 @@ function requiresOwnerDecision(
   signal: OwnerDecisionSignal | null | undefined,
 ): boolean {
   if (hasOwnerDecisionLabel(task)) return true;
-  if (isConfidentSignal(signal)) return signal.required;
-  return blockedByMentionsOwnerDecision(task);
+  if (blockedByMentionsOwnerDecision(task)) return true;
+  return isConfidentSignal(signal) && signal.required;
 }
 
 /**
@@ -521,7 +523,7 @@ function buildGrillReason(
           parts.push(
             `  • OWNER_DECISION_REQUIRED — label '${OWNER_DECISION_LABEL}' indicates an open owner decision.`,
           );
-        } else if (isConfidentSignal(ownerDecision)) {
+        } else if (!blockedByMentionsOwnerDecision(task) && isConfidentSignal(ownerDecision)) {
           parts.push(
             `  • OWNER_DECISION_REQUIRED — System One judged blockedBy '${task.blockedBy}' to need an owner decision (p=${ownerDecision.probability.toFixed(2)}, confidence ${ownerDecision.confidence.toFixed(2)}); route it to the owner through the ask tool.`,
           );

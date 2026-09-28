@@ -1207,13 +1207,13 @@
               "type": "string",
               "enum": ["off", "shadow", "on"],
               "default": "shadow",
-              "description": "Observation type when `observeBrain` / `cleo memory observe` gets no `type` (T12494). One choice question over bugfix | refactor | feature | decision | change | discovery, 300 ms budget. shadow = ask, audit next to the whole-word keyword type, store the keyword type. on = store the decided type when its confidence is >= 0.6. off = never ask. Always off when no provider is configured."
+              "description": "Observation type when `cleo memory observe` gets no `type` (T12494). Only callers that opt in (`askTypeDecision`) ask; background writers never send content to the provider. One choice question over bugfix | refactor | feature | decision | change | discovery, 300 ms budget. shadow = ask, audit next to the whole-word keyword type, store the keyword type. on = store the decided type when its confidence is >= 0.6. off = never ask. Always off when no provider is configured."
             },
             "ownerDecision": {
               "type": "string",
               "enum": ["off", "shadow", "on"],
               "default": "shadow",
-              "description": "Readiness grill gate (`cleo classify`, sentient auto-promote) for a task with a `blockedBy` reason and no `owner-decision` label (T12494). One noul question: does the block need a human owner's decision? 300 ms budget. shadow = ask, audit next to the `owner`/`decision` substring rule, act on the rule. on = use the answer when its confidence is >= 0.6. It only flags: a flagged task grills and goes to the owner through the ask tool. off = never ask. Always off when no provider is configured."
+              "description": "Readiness grill gate (`cleo classify`, sentient auto-promote) for a task with a `blockedBy` reason and no `owner-decision` label (T12494). One noul question: does the block need a human owner's decision? 300 ms budget. shadow = ask, audit next to the `owner`/`decision` substring rule, act on the rule. on = a confident (>= 0.6) yes ADDS the flag the substring rule missed; escalate-only, it never clears a flag the rule or the label raised. It only flags: a flagged task grills and goes to the owner through the ask tool. off = never ask. Always off when no provider is configured."
             }
           }
         },

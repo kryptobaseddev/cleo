@@ -1496,6 +1496,8 @@ export class MemoryHandler implements DomainHandler {
               agent: paramString(params, 'agent'),
               // T799: optional attachment refs
               attachmentRefs,
+              // T12494: interactive observe opts in to the System One type choice.
+              askTypeDecision: true,
             },
             projectRoot,
           );

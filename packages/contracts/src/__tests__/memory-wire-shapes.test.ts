@@ -205,6 +205,7 @@ type _ObserveBrainParamsShape = {
   attachmentRefs?: string[];
   origin?: string | null;
   provenanceChain?: string[] | null;
+  askTypeDecision?: boolean;
   _skipGate?: boolean;
   _skipQueue?: boolean;
 };

@@ -116,6 +116,13 @@ export interface ObserveBrainParams {
    */
   provenanceChain?: string[] | null;
   /**
+   * T12494: opt in to a System One type choice when `type` is absent.
+   * Set ONLY by the interactive `memory.observe` operation (`cleo memory
+   * observe`). Background writers leave it unset, so they never send their
+   * content to a provider; their type comes from the keyword heuristic.
+   */
+  askTypeDecision?: boolean;
+  /**
    * T992: Internal flag — when true, bypasses the verifyAndStore gate.
    * Set by storeVerifiedCandidate in extraction-gate.ts to avoid recursion,
    * or by the prepared docs projection executor after authentic canonical

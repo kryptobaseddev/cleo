@@ -144,6 +144,7 @@ export async function observeBrain(
     text,
     title: titleParam,
     type: typeParam,
+    askTypeDecision,
     project,
     sourceSessionId,
     sourceType,
@@ -189,12 +190,14 @@ export async function observeBrain(
       }
       if (sessionExists === false) validatedSourceSessionId = undefined;
     }
-    // T12494: no caller type → keywords, or System One in `on` mode. Asked
-    // here, before the writer queue, so a decision never holds the single
-    // writer. Only a System One answer changes the params: `off` and `shadow`
-    // leave the type to the writer's keyword pass, exactly as before.
+    // T12494: no caller type → keywords, or System One in `on` mode — but
+    // only for a caller that opted in (`cleo memory observe`); background
+    // writers never send content to a provider. Asked here, before the writer
+    // queue, so a decision never holds the single writer. Only a System One
+    // answer changes the params: `off` and `shadow` leave the type to the
+    // writer's keyword pass, exactly as before.
     let choice: ObservationTypeChoice | null = null;
-    if (typeParam === undefined) {
+    if (typeParam === undefined && askTypeDecision === true) {
       const { chooseObservationType } = await import('../observation-type-decision.js');
       choice = await chooseObservationType(text, titleParam, { projectRoot });
     }
@@ -205,6 +208,7 @@ export async function observeBrain(
       params: {
         ...params,
         ...(choice?.source === 'system-one' ? { type: choice.type } : {}),
+        askTypeDecision: undefined,
         sourceSessionId: validatedSourceSessionId,
       },
     });

@@ -293,7 +293,7 @@ describe('observeBrain — type chosen before the writer queue', () => {
 
   it('on: the decided type is written and reported with its source', async () => {
     configure('on');
-    const result = await observeBrain(projectDir, { text: TEXT });
+    const result = await observeBrain(projectDir, { text: TEXT, askTypeDecision: true });
     expect(received).toHaveLength(1);
     expect(enqueued[0]?.type).toBe('decision');
     expect(result).toMatchObject({
@@ -306,7 +306,10 @@ describe('observeBrain — type chosen before the writer queue', () => {
   it('shadow: the writer gets NO type (keyword pass as before); source reported as keyword', async () => {
     configure('shadow');
     // Distinct text: the `on` case above filled the process decision cache.
-    const result = await observeBrain(projectDir, { text: `${TEXT} in batches` });
+    const result = await observeBrain(projectDir, {
+      text: `${TEXT} in batches`,
+      askTypeDecision: true,
+    });
     expect(received).toHaveLength(1);
     expect(enqueued[0]?.type).toBeUndefined();
     expect(result).toMatchObject({ type: 'change', typeSource: 'keyword', typeConfidence: 0.5 });
@@ -314,9 +317,47 @@ describe('observeBrain — type chosen before the writer queue', () => {
 
   it('explicit type: never asks', async () => {
     configure('on');
-    const result = await observeBrain(projectDir, { text: TEXT, type: 'feature' });
+    const result = await observeBrain(projectDir, {
+      text: TEXT,
+      type: 'feature',
+      askTypeDecision: true,
+    });
     expect(received).toHaveLength(0);
     expect(enqueued[0]?.type).toBe('feature');
     expect(result.typeSource).toBe('caller');
+  });
+
+  it('background writes (no opt-in) NEVER ask, even in `on` mode', async () => {
+    configure('on');
+    // Shapes of the dialectic peer-insight and extraction-gate episodic writes.
+    await observeBrain(projectDir, {
+      text: `[preference] ${TEXT} for the dialectic peer`,
+      title: 'preference',
+      sourceType: 'agent',
+      agent: 'peer-1',
+    });
+    const gated = await observeBrain(projectDir, {
+      text: `${TEXT} from the extraction gate`,
+      sourceType: 'agent',
+      _skipGate: true,
+    });
+    expect(received).toHaveLength(0);
+    expect(enqueued.map((p) => p.type)).toEqual([undefined, undefined]);
+    expect(gated.typeSource).toBeUndefined();
+    expect(existsSync(join(projectDir, '.cleo', 'audit', 'decisions.jsonl'))).toBe(false);
+  });
+
+  it('the interactive memory.observe operation opts in', async () => {
+    configure('on');
+    const { memoryObserve } = await import('../engine-compat.js');
+    const res = await memoryObserve(
+      { text: `${TEXT} via the CLI`, askTypeDecision: true },
+      projectDir,
+    );
+    expect(res.success).toBe(true);
+    expect(received).toHaveLength(1);
+    expect(enqueued[0]?.type).toBe('decision');
+    // The opt-in flag is not carried across the writer boundary.
+    expect(enqueued[0]?.askTypeDecision).toBeUndefined();
   });
 });

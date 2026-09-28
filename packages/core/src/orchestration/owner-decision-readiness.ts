@@ -4,16 +4,20 @@
  * `classifyReadiness` flags `OWNER_DECISION_REQUIRED` when `blockedBy`
  * contains "owner" or "decision" as a substring, so "blocked on T12 (decision
  * store refactor)" grills and "waiting on legal to choose a vendor" does not.
- * This module asks ONE `noul` question instead — "does this block need a
- * human owner's decision, approval or choice?" — and hands the answer to the
- * pure predicate as {@link ReadinessSignals.ownerDecision}.
+ * This module asks ONE `noul` question — "does this block need a human
+ * owner's decision, approval or choice?" — and hands the answer to the pure
+ * predicate as {@link ReadinessSignals.ownerDecision}.
  *
- * It only FLAGS readiness. A flagged task grills, and the grill is routed to
- * the owner through the orchestrator's ask tool (the HITL rule); System One
- * never answers the owner's question itself.
+ * Escalate-only: the answer can ADD the flag the substring rule missed, never
+ * clear one the rule or the label raised (a false positive stays a grill).
+ * Silently removing a flag would route around the owner. A flagged task
+ * grills, and the grill is routed to the owner through the orchestrator's ask
+ * tool (the HITL rule); System One never answers the owner's question itself.
  *
  * - Asked only when the task has a non-blank `blockedBy` and no
- *   `owner-decision` label (the label is authoritative).
+ *   `owner-decision` label (the label is authoritative). In `on` mode it is
+ *   also skipped when the substring rule already flags: an answer could not
+ *   change the verdict. `shadow` still asks, so the audit measures agreement.
  * - Title, `blockedBy` and description are redacted, then clipped, before they
  *   leave the machine.
  * - Bounded by {@link OWNER_DECISION_BUDGET_MS}, module load included.
@@ -21,8 +25,8 @@
  * Mode comes from `decide.sites.ownerDecision` (`off | shadow | on`): `shadow`
  * (the default once a provider is configured) audits the answer next to the
  * substring rule and returns no signal, so the verdict is unchanged; `on`
- * returns the signal, which the predicate uses when its confidence is at least
- * {@link OWNER_DECISION_MIN_CONFIDENCE}. No provider configured → `off`, no
+ * returns the signal, which the predicate uses to add a flag when its
+ * confidence is at least {@link OWNER_DECISION_MIN_CONFIDENCE}. No provider configured → `off`, no
  * network call.
  *
  * @task T12494
@@ -126,6 +130,8 @@ export async function resolveOwnerDecisionSignal(
     if (mode === 'off') return null;
 
     const substring = blockedByMentionsOwnerDecision(task);
+    // Escalate-only: once the rule flags, no answer can change the verdict.
+    if (mode === 'on' && substring) return null;
     const heuristicAnswer: DecisionAnswer = {
       type: 'noul',
       value: substring,
