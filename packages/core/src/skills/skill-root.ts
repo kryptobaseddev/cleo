@@ -6,7 +6,7 @@
  * daemon, and `cleo skills` CLI all depend on:
  *
  * 1. {@link resolveSkillsRoot} — resolves the canonical user-machine skills
- *    root. Always returns `~/.cleo/skills/` (post-T9746). Operators with a
+ *    root: `<cleoHome>/skills` in the platform data dir (T12598; was `~/.cleo/skills/`). Operators with a
  *    pre-v3 install at `~/.local/share/agents/skills/` MUST run
  *    `cleo skills migrate` (see `migration.ts`) to relocate before further
  *    skill operations succeed.
@@ -27,6 +27,7 @@ import { realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import { join } from 'node:path';
+import { getCleoHome } from '@cleocode/paths';
 
 /**
  * Source-type discriminator stored in `skills.db` rows.
@@ -111,30 +112,33 @@ export const CLAUDE_SKILLS_AGENTS_SHARED_PATH: string = join(
  * Resolve the canonical user-machine skills root directory.
  *
  * @remarks
- * Always returns `~/.cleo/skills/` (post-T9746). The legacy fallback to
- * `~/.local/share/agents/skills/` and the env-paths XDG fallback to
- * `~/.local/share/cleo/skills/` have been removed — operators on those
- * paths must run `cleo skills migrate` (see `migration.ts`) before further
- * skill operations resolve correctly.
+ * Returns `<cleoHome>/skills` — the platform data directory from
+ * `@cleocode/paths` (`~/.local/share/cleo/skills` on Linux,
+ * `~/Library/Application Support/cleo/skills` on macOS,
+ * `%LOCALAPPDATA%\cleo\Data\skills` on Windows; `CLEO_HOME` overrides).
+ *
+ * T12598: this used to return `~/.cleo/skills`, relying on `~/.cleo` being a
+ * link to the data directory. Every harness skill link was then written
+ * THROUGH that link, so one dangling `~/.cleo` (a Linux target carried to
+ * macOS by dotfiles) broke every installed skill in every harness at once.
+ * Installs now target the physical directory; `~/.cleo` is only a
+ * convenience alias.
  *
  * The returned path is always absolute and is NOT guaranteed to exist on
  * disk — callers are responsible for `mkdirSync` if they need to write into
  * it.
  *
- * @returns Absolute path to `~/.cleo/skills/`.
- *
+ * @returns Absolute path to `<cleoHome>/skills`.
  * @example
  * ```typescript
  * import { resolveSkillsRoot } from '@cleocode/core';
- *
  * const root = resolveSkillsRoot();
- * // "/home/user/.cleo/skills"
+ * // "/home/user/.local/share/cleo/skills" (Linux)
  * ```
- *
  * @public
  */
 export function resolveSkillsRoot(): string {
-  return join(homedir(), '.cleo', 'skills'); // path-drift-allowed: ~/.cleo symlink is the canonical bootstrap target — see bootstrapGlobalCleo()
+  return join(getCleoHome(), 'skills');
 }
 
 /**

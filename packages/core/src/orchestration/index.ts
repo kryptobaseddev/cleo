@@ -41,11 +41,16 @@ export {
 } from './classify.js';
 export type {
   GrillTrigger,
+  OwnerDecisionSignal,
   ReadinessResult,
   ReadinessSignals,
   ReadinessVerdict,
 } from './classify-readiness.js';
-export { classifyReadiness } from './classify-readiness.js';
+export {
+  blockedByMentionsOwnerDecision,
+  classifyReadiness,
+  OWNER_DECISION_MIN_CONFIDENCE,
+} from './classify-readiness.js';
 export type { ContextEstimation } from './context.js';
 export { countManifestEntries, estimateContext } from './context.js';
 export type { DashboardRateMetric, OrchestrateDashboardMetrics } from './dashboard.js';
@@ -62,6 +67,15 @@ export {
   persistHarnessProfile,
   resolveHarnessHint,
 } from './harness-hint.js';
+export {
+  buildOwnerDecisionRequest,
+  classifyReadinessWithDecision,
+  OWNER_DECISION_BUDGET_MS,
+  OWNER_DECISION_MODE_KEY,
+  OWNER_DECISION_SITE,
+  type OwnerDecisionOptions,
+  resolveOwnerDecisionSignal,
+} from './owner-decision-readiness.js';
 
 export type {
   ComposeSpawnPayloadOptions,

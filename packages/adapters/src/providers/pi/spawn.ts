@@ -7,18 +7,17 @@
  * subagent processes with prompts written to temporary files. Processes
  * run detached and are tracked by PID for listing and termination.
  *
- * Pi detection: `PI_CLI_PATH` env var or `which pi`.
+ * Pi detection: `PI_CLI_PATH` env var or a PATH search for `pi`.
  *
  * @task T553
  */
 
-import { exec, spawn as nodeSpawn } from 'node:child_process';
-import { unlink, writeFile } from 'node:fs/promises';
-import { promisify } from 'node:util';
+import type { SpawnOptions } from 'node:child_process';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
-
-const execAsync = promisify(exec);
+import { findOnPath } from '@cleocode/paths';
+import { spawnCli } from '../shared/cli-spawn.js';
+import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
@@ -45,7 +44,7 @@ function getPiCliPath(): string {
  * prompt file as the primary argument as a detached, unref'd child process.
  *
  * @remarks
- * Prompts are written to temporary files under `/tmp/` and cleaned up
+ * Prompts are written to temporary files under a private temp directory (`os.tmpdir()`) and cleaned up
  * after the child process exits. Processes are tracked by instance ID in
  * an in-memory map and verified via `kill(pid, 0)` liveness checks.
  * All failures are best-effort and non-blocking.
@@ -57,23 +56,15 @@ export class PiSpawnProvider implements AdapterSpawnProvider {
   /**
    * Check if the Pi CLI is available.
    *
-   * Checks `PI_CLI_PATH` env var first, then tries `which pi`.
+   * Checks `PI_CLI_PATH` env var first, then searches PATH for `pi`.
    *
    * @returns true if the Pi CLI is accessible
    */
   async canSpawn(): Promise<boolean> {
     const cliPath = getPiCliPath();
-    try {
-      if (cliPath !== 'pi') {
-        // Custom path — check if it exists
-        const { stdout } = await execAsync(`test -x "${cliPath}" && echo ok`);
-        return stdout.trim() === 'ok';
-      }
-      await execAsync('which pi');
-      return true;
-    } catch {
-      return false;
-    }
+    // A custom path is checked directly, a bare name searched on PATH/PATHEXT
+    // — no `test -x`/`which` shell-out, neither exists on Windows (T12604).
+    return findOnPath(cliPath) !== null;
   }
 
   /**
@@ -91,12 +82,11 @@ export class PiSpawnProvider implements AdapterSpawnProvider {
     let tmpFile: string | undefined;
 
     try {
-      tmpFile = `/tmp/pi-spawn-${instanceId}.txt`;
-      await writeFile(tmpFile, context.prompt, 'utf-8');
+      tmpFile = await writeSpawnPromptFile('pi-spawn', context.prompt);
 
       const cliPath = getPiCliPath();
       const args = [tmpFile];
-      const spawnOpts: Parameters<typeof nodeSpawn>[2] = {
+      const spawnOpts: SpawnOptions = {
         detached: true,
         stdio: 'ignore',
       };
@@ -105,7 +95,7 @@ export class PiSpawnProvider implements AdapterSpawnProvider {
         spawnOpts.cwd = context.workingDirectory;
       }
 
-      const child = nodeSpawn(cliPath, args, spawnOpts);
+      const child = spawnCli(cliPath, args, spawnOpts);
       child.unref();
 
       if (child.pid) {
@@ -119,11 +109,7 @@ export class PiSpawnProvider implements AdapterSpawnProvider {
       const capturedTmpFile = tmpFile;
       child.on('exit', async () => {
         this.processMap.delete(instanceId);
-        try {
-          await unlink(capturedTmpFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        await removeSpawnPromptFile(capturedTmpFile);
       });
 
       return {
@@ -137,11 +123,7 @@ export class PiSpawnProvider implements AdapterSpawnProvider {
       console.error(`[PiSpawnProvider] Failed to spawn: ${getErrorMessage(error)}`);
 
       if (tmpFile) {
-        try {
-          await unlink(tmpFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        await removeSpawnPromptFile(tmpFile);
       }
 
       return {

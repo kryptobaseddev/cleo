@@ -53,6 +53,7 @@ import {
 } from '../project-scope.js';
 import { createOperationExecutionContext } from '../store/background-ops.js';
 import { acquireLock } from '../store/lock.js';
+import { readAllowCachedGates } from '../tasks/gate-result-cache.js';
 import { validateTaskGateCompletion } from '../tasks/gate-runner.js';
 import { taskList } from '../tasks/list.js';
 import { isTerminalPipelineStage } from '../tasks/pipeline-stage.js';
@@ -312,7 +313,9 @@ function createSagaTypedValidator(
       );
       execution = ownedExecution;
     }
-    await validateTaskGateCompletion(task, criteria, { projectRoot, execution }, receiptSource);
+    await validateTaskGateCompletion(task, criteria, { projectRoot, execution }, receiptSource, {
+      allowCachedGates: readAllowCachedGates(projectRoot),
+    });
     execution.assertActive();
     return execution;
   };

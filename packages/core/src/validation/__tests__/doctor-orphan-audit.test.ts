@@ -11,11 +11,15 @@
  * @task T9043
  */
 
-import { mkdirSync, mkdtempSync, rmSync, utimesSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { auditOrphanTempDirs, auditOrphanWorktrees } from '../doctor/checks.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  auditOrphanTempDirs,
+  auditOrphanWorktrees,
+  checkLegacyCantDirs,
+} from '../doctor/checks.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,6 +79,93 @@ describe('auditOrphanWorktrees', () => {
   it('uses category worktree', () => {
     const result = auditOrphanWorktrees(tempBase);
     expect(result.category).toBe('worktree');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// auditOrphanWorktrees — default root is the platform CLEO data dir (T12602)
+// ---------------------------------------------------------------------------
+
+describe('auditOrphanWorktrees default root (T12602)', () => {
+  let cleoHome: string;
+  let xdgData: string;
+
+  beforeEach(() => {
+    // getCleoHome() is the platform data dir (`~/Library/Application Support/cleo`
+    // on macOS); CLEO_HOME stands in for it here so the test never touches the
+    // real one. XDG_DATA_HOME points at an EMPTY dir: the old resolver read it
+    // (or ~/.local/share) on every OS and so saw no worktrees off Linux.
+    cleoHome = mkdtempSync(join(tmpdir(), 'cleo-doc-home-'));
+    xdgData = mkdtempSync(join(tmpdir(), 'cleo-doc-xdg-'));
+    vi.stubEnv('CLEO_HOME', cleoHome);
+    vi.stubEnv('XDG_DATA_HOME', xdgData);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(cleoHome, { recursive: true, force: true });
+    rmSync(xdgData, { recursive: true, force: true });
+  });
+
+  it('finds an orphan worktree provisioned under getCleoWorktreesRoot()', () => {
+    const orphan = join(cleoHome, 'worktrees', 'projhash01', 'T9002');
+    mkdirSync(orphan, { recursive: true });
+    mkdirSync(join(cleoHome, 'worktrees', 'projhash01', 'T9001'), { recursive: true });
+
+    const result = auditOrphanWorktrees(undefined, new Set(['T9001']));
+
+    expect(result.status).toBe('warning');
+    expect(result.details?.['root']).toBe(join(cleoHome, 'worktrees'));
+    const orphans = result.details?.['orphans'] as Array<{ path: string }>;
+    expect(orphans.map((o) => o.path)).toEqual([orphan]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkLegacyCantDirs — CANT files stranded by the T12602 move
+// ---------------------------------------------------------------------------
+
+describe('checkLegacyCantDirs (T12602)', () => {
+  let home: string;
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'cleo-doc-cant-'));
+    vi.stubEnv('CLEO_HOME', join(home, 'Library', 'Application Support', 'cleo'));
+    vi.stubEnv('CLEO_CONFIG_HOME', join(home, 'Library', 'Preferences', 'cleo'));
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('warns about .cant files left in ~/.local/share/cleo/cant and ~/.config/cleo/cant', () => {
+    const oldGlobal = join(home, '.local', 'share', 'cleo', 'cant', 'agents');
+    const oldUser = join(home, '.config', 'cleo', 'cant');
+    mkdirSync(oldGlobal, { recursive: true });
+    mkdirSync(oldUser, { recursive: true });
+    writeFileSync(join(oldGlobal, 'a.cant'), 'agent a:\n');
+    writeFileSync(join(oldUser, 'b.cant'), 'agent b:\n');
+
+    const result = checkLegacyCantDirs(home);
+
+    expect(result.status).toBe('warning');
+    expect(result.fix).toContain(join(home, 'Library', 'Application Support', 'cleo', 'cant'));
+    expect(result.fix).toContain(join(home, 'Library', 'Preferences', 'cleo', 'cant'));
+    const stranded = result.details?.['stranded'] as Array<{ files: number }>;
+    expect(stranded.map((s) => s.files)).toEqual([1, 1]);
+  });
+
+  it('passes when the old dirs are absent', () => {
+    expect(checkLegacyCantDirs(home).status).toBe('passed');
+  });
+
+  it('passes when the old dir IS the new dir (Linux)', () => {
+    vi.stubEnv('CLEO_HOME', join(home, '.local', 'share', 'cleo'));
+    vi.stubEnv('CLEO_CONFIG_HOME', join(home, '.config', 'cleo'));
+    mkdirSync(join(home, '.local', 'share', 'cleo', 'cant'), { recursive: true });
+    writeFileSync(join(home, '.local', 'share', 'cleo', 'cant', 'a.cant'), 'agent a:\n');
+    expect(checkLegacyCantDirs(home).status).toBe('passed');
   });
 });
 

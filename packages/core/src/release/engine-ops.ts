@@ -17,7 +17,14 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getIvtrState } from '../lifecycle/ivtr-loop.js';
@@ -100,8 +107,8 @@ export function runGitWithLockRetry(
   const removeStaleLock = (): void => {
     try {
       if (cwdStr) {
-        const lockPath = `${cwdStr.replace(/\/+$/, '')}/.git/index.lock`;
-        spawnSync('rm', ['-f', lockPath], { stdio: 'pipe' });
+        // fs, not `rm -f`: there is no rm on Windows (T12604).
+        rmSync(join(cwdStr, '.git', 'index.lock'), { force: true });
       }
     } catch {
       // ignore — surfacing the primary error is more important

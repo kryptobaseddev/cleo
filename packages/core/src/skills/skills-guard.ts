@@ -30,7 +30,7 @@
 
 import { createHash } from 'node:crypto';
 import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 
 import {
   type FindingCategory,
@@ -206,12 +206,12 @@ export function resolveTrustLevel(source: string): SkillTrustLevel {
  * @task T9730
  */
 export function scanFile(filePath: string, relPath?: string): Finding[] {
-  const displayPath = relPath ?? filePath.split('/').pop() ?? filePath;
+  const fileName = basename(filePath);
+  const displayPath = relPath ?? fileName;
 
   const extMatch = /\.[a-z0-9]+$/i.exec(filePath);
   const ext = (extMatch ? extMatch[0] : '').toLowerCase();
-  const basename = filePath.split('/').pop() ?? '';
-  if (!SCANNABLE_EXTENSIONS.has(ext) && basename !== 'SKILL.md') {
+  if (!SCANNABLE_EXTENSIONS.has(ext) && fileName !== 'SKILL.md') {
     return [];
   }
 
@@ -466,7 +466,7 @@ function buildSummary(name: string, verdict: ScanVerdict, findings: readonly Fin
  * @task T9730
  */
 export function scanSkill(skillPath: string, source: string = 'community'): ScanResult {
-  const skillName = skillPath.split('/').filter(Boolean).pop() ?? skillPath;
+  const skillName = basename(skillPath) || skillPath;
   const trustLevel = resolveTrustLevel(source);
 
   let stat: ReturnType<typeof statSync> | undefined;

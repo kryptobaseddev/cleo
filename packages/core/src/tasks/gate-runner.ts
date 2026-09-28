@@ -16,6 +16,8 @@
  *     with {@link typedGateAdmissionMs}: the ADR-061 tool deadline of every executing gate
  *     plus {@link TYPED_GATE_BOOKKEEPING_MS} for the surrounding bookkeeping (T12516).
  *   - Per-gate timeouts can only tighten the captured deadline, never renew it.
+ *   - Passing process gates can be served from the ADR-061 evidence cache
+ *     (`options.cache`, see `gate-result-cache.ts`); failures are never cached (T12621).
  *   - Structured test-count evidence and HTTP service startup require separate capabilities.
  *   - Results are observations; this module does not persist completion authority.
  *
@@ -23,8 +25,8 @@
  * @task T781
  */
 
-import { createHash, randomUUID } from 'node:crypto';
-import { constants, type Stats } from 'node:fs';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { constants, mkdirSync, readFileSync, renameSync, type Stats, writeFileSync } from 'node:fs';
 import { lstat, open, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -66,6 +68,15 @@ import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
+import {
+  buildGateCacheEntryBody,
+  captureGateCacheState,
+  evidenceCacheKeyPath,
+  type GateCacheState,
+  gateCacheEntryPath,
+  readGateCacheEntry,
+  sealGateCacheEntry,
+} from './gate-result-cache.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
 import { resolveSpawnTimeoutMs } from './tool-cache.js';
 
@@ -172,6 +183,130 @@ export function typedGateAdmissionMs(
 }
 
 /**
+ * Actionable refusal for `cache: 'only'` (`cleo verify --no-run`) when a gate
+ * would have to execute. Names the gate and the command that fills the cache.
+ */
+function gateNotCachedMessage(
+  gate: AcceptanceGate,
+  cacheable: boolean,
+  keyAvailable: boolean,
+): string {
+  const name = gate.req ?? gate.description;
+  if (gate.kind === 'http')
+    return `${GATE_NOT_CACHED_PREFIX} http gate "${name}" observes a live service and is never cached; drop --no-run to execute it`;
+  if (!cacheable)
+    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached result because the project root is not a git checkout (results are keyed by HEAD + dirty-tree fingerprint); drop --no-run to execute it`;
+  if (!keyAvailable)
+    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" cannot use the cache because the machine key ${evidenceCacheKeyPath()} is unreadable; drop --no-run to execute it`;
+  return (
+    `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached pass for the current HEAD, working tree and inputs. ` +
+    'Run `cleo verify <taskId> --run` first (it caches passing results), or drop --no-run to execute it now'
+  );
+}
+
+/**
+ * Prefix of the `errorMessage` a gate carries when `cache: 'only'` refused to
+ * execute it. The verifier matches it to refuse the whole write with
+ * `E_GATE_NOT_CACHED` instead of recording an `error` result.
+ * @task T12621
+ */
+export const GATE_NOT_CACHED_PREFIX = '--no-run:';
+
+/**
+ * Prefix of the `errorMessage` a gate carries when `cache: 'only'` found an
+ * entry that failed authentication. The verifier refuses the write with
+ * `E_GATE_CACHE_INVALID`: a forged or tampered pass is never recorded.
+ * @task T12621
+ */
+export const GATE_CACHE_INVALID_PREFIX = '--no-run [invalid cache entry]:';
+
+/**
+ * Load (creating on first use, mode 0600) the per-machine key that seals
+ * evidence cache entries. Deliberately NOT exported: a caller that could load
+ * the key through core could seal any result it liked, which is the forgery
+ * this key exists to stop. Returns `null` when the key cannot be established;
+ * the cache is then simply not used.
+ */
+function loadEvidenceCacheKey(): Buffer | null {
+  const path = evidenceCacheKeyPath();
+  try {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    try {
+      writeFileSync(path, randomBytes(32).toString('hex'), { flag: 'wx', mode: 0o600 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    const hex = readFileSync(path, 'utf-8').trim();
+    return /^[0-9a-f]{64}$/.test(hex) ? Buffer.from(hex, 'hex') : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Seal and store a pass this runner EXECUTED itself. Module-private for the same
+ * reason as {@link loadEvidenceCacheKey}: only an observed execution is cached.
+ */
+function writeExecutedGatePass(
+  projectRoot: string,
+  gate: AcceptanceGate,
+  state: GateCacheState,
+  inputsHash: string,
+  observed: AcceptanceGateResult,
+  key: Buffer,
+): void {
+  const body = buildGateCacheEntryBody(gate, state, inputsHash, observed);
+  if (!body) return;
+  try {
+    const path = gateCacheEntryPath(projectRoot, gate, state, inputsHash);
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(sealGateCacheEntry(body, key), null, 2), 'utf-8');
+    renameSync(tmp, path);
+  } catch {
+    // A cache is an optimisation: failing to persist one never fails the gate.
+  }
+}
+
+/**
+ * Digest of a gate's captured invocation and input artifacts: the part of its
+ * cache key that the git fingerprint cannot see (untracked harness scripts,
+ * task files, the environment hash).
+ */
+function gateInputsHash(
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ invocation: invocation ?? null, artifacts }))
+    .digest('hex');
+}
+
+/**
+ * Compute a gate's cache inputs digest the same way the attesting verifier does.
+ * @param task - Task that owns the gate; its `files` are verifier inputs.
+ * @param gate - Gate whose invocation and inputs are captured.
+ * @param execution - Admitted lifetime whose project root scopes the capture.
+ * @param env - Environment the gate will launch with.
+ * @returns Digest to pass as `cacheInputsHash` to {@link runGates}.
+ * @example
+ * ```typescript
+ * const cacheInputsHash = await captureGateInputsHash(task, gate, execution);
+ * ```
+ * @task T12621
+ */
+export async function captureGateInputsHash(
+  task: Task,
+  gate: AcceptanceGate,
+  execution: OperationExecutionContext,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const root = resolve(execution.identity.projectRoot);
+  const invocation = executableInvocation(gate, root, { ...env });
+  return gateInputsHash(invocation, await snapshotGateInputs(task, gate, invocation, execution));
+}
+
+/**
  * Admission for a batch run without a caller-owned lifetime.
  * An invalid deadline override is not swallowed: {@link runOneGate} resolves it
  * again and reports it as that gate's `error` result, as it always has.
@@ -245,6 +380,16 @@ export async function runGates(
     systemdControl: options.systemdControl,
   };
   const checkedBy = execution?.identity.actor ?? batch.env['CLEO_AGENT_ID'] ?? CHECKED_BY;
+  const cacheMode = options.cache ?? 'off';
+  const cacheInputsHash = options.cacheInputsHash;
+  if (cacheMode !== 'off' && (snapshot.length !== 1 || !cacheInputsHash))
+    throw new Error('Typed gate caching requires one gate per batch and its inputs digest');
+  // T12621: the repo state is captured only when the policy reads or writes.
+  const cacheState =
+    cacheMode !== 'off' && TOOL_GATE_KINDS.has(snapshot[0]!.kind)
+      ? await captureGateCacheState(projectRoot)
+      : null;
+  const cacheKey = cacheState ? loadEvidenceCacheKey() : null;
   const results: AcceptanceGateResult[] = [];
   try {
     return await worktreeScope.run(scope, async () => {
@@ -261,7 +406,49 @@ export async function runGates(
           const parsed = acceptanceGateSchema.parse(gate);
           if (!isDeepStrictEqual(parsed, gate))
             throw new Error('Gate includes unsupported or noncanonical fields');
-          results.push(await runOneGate(parsed, i, projectRoot, options.skipManual ?? true, batch));
+          if (cacheState && cacheKey && (cacheMode === 'use' || cacheMode === 'only')) {
+            const lookup = readGateCacheEntry(
+              projectRoot,
+              parsed,
+              cacheState,
+              cacheInputsHash!,
+              cacheKey,
+            );
+            if (lookup.status === 'hit') {
+              // Re-dated to now (the reuse is this run's check; a bound result
+              // may not precede its input capture) and marked, never disguised.
+              results.push({
+                ...lookup.observation,
+                index: i,
+                checkedAt: new Date().toISOString(),
+                source: 'cache',
+                cachedAt: lookup.createdAt,
+              });
+              continue;
+            }
+            // `use` treats an unauthenticated entry as a miss and overwrites it.
+            if (lookup.status === 'invalid' && cacheMode === 'only')
+              throw new Error(
+                `${GATE_CACHE_INVALID_PREFIX} gate "${parsed.req ?? parsed.description}": ${lookup.reason}. ` +
+                  'It was not used. Drop --no-run to execute the gate (a pass replaces the entry)',
+              );
+          }
+          if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind))
+            throw new Error(gateNotCachedMessage(parsed, cacheState !== null, cacheKey !== null));
+          const observed: AcceptanceGateResult = {
+            ...(await runOneGate(parsed, i, projectRoot, options.skipManual ?? true, batch)),
+            source: 'executed',
+          };
+          if (cacheState && cacheKey && cacheMode !== 'only')
+            writeExecutedGatePass(
+              projectRoot,
+              parsed,
+              cacheState,
+              cacheInputsHash!,
+              observed,
+              cacheKey,
+            );
+          results.push(observed);
         } catch (error) {
           results.push(
             makeResult(
@@ -338,7 +525,15 @@ export async function runTaskGates(
         artifacts,
       };
       const observed = (
-        await runGates([gate], { ...options, projectRoot: root, env, execution })
+        await runGates([gate], {
+          ...options,
+          projectRoot: root,
+          env,
+          execution,
+          ...(options.cache && options.cache !== 'off'
+            ? { cacheInputsHash: gateInputsHash(invocation, artifacts) }
+            : {}),
+        })
       )[0]!;
       let result: AcceptanceGateResult = { ...observed, index, binding };
       try {
@@ -396,11 +591,16 @@ export function createTaskGateReceipt(
     indexes.add(result.index);
     criteria.add(binding.criterionId);
   }
+  const cached = results
+    .filter((result) => result.source === 'cache')
+    .map((result) => ({ index: result.index, cachedAt: result.cachedAt! }));
   return {
     verificationId: first.verificationId,
     resultHash: createHash('sha256').update(JSON.stringify(results)).digest('hex'),
     operation: 'check.gate.verify',
     passed,
+    // T12621: omitted when nothing was reused, so earlier receipts still match.
+    ...(cached.length > 0 ? { cached } : {}),
   };
 }
 
@@ -482,6 +682,7 @@ export async function revalidateTaskGateResults(
  * @param criteria - Normalized criteria from that same transaction.
  * @param options - Captured original execution lifetime and project scope.
  * @param accessor - Canonical receipt reader bound to the same project store.
+ * @param policy - Project evidence policy; `allowCachedGates: false` refuses cached passes (T12621).
  * @returns Resolves only when every hard typed requirement has current authentic proof.
  * @throws When typed representations, results, inputs or canonical receipts disagree.
  * @remarks Callers retain transaction ownership and must check their execution context before
@@ -497,8 +698,22 @@ export async function validateTaskGateCompletion(
   criteria: readonly AcRow[],
   options: RunGatesOptions,
   accessor: Pick<DataAccessor, 'queryAuditLog'>,
+  policy: { allowCachedGates?: boolean } = {},
 ): Promise<void> {
   const results = task.verification?.gateResults ?? [];
+  // T12621: `evidence.allowCachedGates: false` — a hard typed requirement must
+  // have been executed, not reused from the evidence cache.
+  if (policy.allowCachedGates === false) {
+    for (const [index, gate] of (task.acceptance ?? []).entries()) {
+      if (typeof gate === 'string' || gate.advisory) continue;
+      const reused = results.find((result) => result.index === index && result.source === 'cache');
+      if (reused)
+        throw new Error(
+          `Typed requirement ${gate.req ?? index} passed from the evidence cache (cached ${reused.cachedAt}) ` +
+            'and this project sets evidence.allowCachedGates to false; re-verify so the gate executes',
+        );
+    }
+  }
   await revalidateTaskGateResults(task, criteria, results, options);
   if (!(task.acceptance ?? []).some((item) => typeof item !== 'string' && !item.advisory)) return;
   const passingDetails = JSON.stringify(createTaskGateReceipt(results, true));

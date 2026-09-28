@@ -65,7 +65,9 @@ beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'cleo-skill-install-safety-'));
   vi.stubEnv('HOME', sandbox);
   vi.stubEnv('CAAMP_SKILL_LIBRARY', '');
-  skillsRoot = join(sandbox, '.cleo', 'skills');
+  // T12598: installs target <cleoHome>/skills (platform data dir), not ~/.cleo/skills.
+  vi.stubEnv('CLEO_HOME', join(sandbox, 'cleo-home'));
+  skillsRoot = join(sandbox, 'cleo-home', 'skills');
   providerSkills = join(sandbox, 'provider-skills');
 
   const base = getProvider('claude-code');

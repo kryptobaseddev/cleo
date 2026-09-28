@@ -47,7 +47,7 @@ interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
 }
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
-import { getCleoWorktreesRoot } from '@cleocode/paths';
+import { getCleoWorktreesRoot, pathEnvKey, prependPathEntry } from '@cleocode/paths';
 import { countUnmergedCommits, getGitRoot, gitSilent, gitSync, resolveHeadRef } from './git.js';
 import {
   computeProjectHash,
@@ -608,7 +608,7 @@ async function provisionUnderLock(
     : await runWorktreeHooks(hooks, 'post-start', worktreePath);
 
   // Build env vars for agent spawn.
-  const currentPath = process.env['PATH'] ?? '';
+  const pathKey = pathEnvKey();
   const shimDir = join(projectRoot, '.cleo', 'bin', 'git-shim');
   const envVars: Record<string, string> = {
     CLEO_AGENT_ROLE: 'worker',
@@ -618,7 +618,9 @@ async function provisionUnderLock(
     CLEO_PROJECT_HASH: projectHash,
     CLEO_BRANCH_PROTECTION: 'strict',
     CLEO_SHIM_MARKER: '.cleo/bin/git-shim',
-    PATH: `${shimDir}:${currentPath}`,
+    // Platform delimiter: ':' would fuse the shim dir with the first real
+    // Windows PATH entry and lose both (T12605).
+    [pathKey]: prependPathEntry(shimDir, process.env[pathKey]),
   };
 
   // Build the preamble text for agent context isolation (per acceptance criterion).

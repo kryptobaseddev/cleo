@@ -183,7 +183,10 @@ describe('doctor projects: move 3, restore 1 with a re-minted id (T12471)', () =
     expect(result.counts.split).toBe(1);
     const receipt = result.receipt;
     expect(receipt).toBeDefined();
-    expect(receipt?.actions.map((a) => [a.action, a.projectId, a.to, a.outcome]).sort()).toEqual([
+    // Sibling fixtures share a truncated legacy key, so the receipt also drops
+    // that ambiguous alias row (T12589); this case is about the rebinds.
+    const rebinds = receipt?.actions.filter((a) => a.action !== 'drop-ambiguous-alias');
+    expect(rebinds?.map((a) => [a.action, a.projectId, a.to, a.outcome]).sort()).toEqual([
       ['rebind', 'alpha-T12471', join(newRoot, 'alpha'), 'applied'],
       ['rebind', 'beta-T12471', join(newRoot, 'beta'), 'applied'],
     ]);
@@ -235,7 +238,8 @@ describe('doctor projects: move 3, restore 1 with a re-minted id (T12471)', () =
     const result = await applyProjectRegistryRepair({ roots: [ws] });
 
     // delta moves out first, so omega's rebind displaces nothing.
-    expect(result.receipt?.actions.map((a) => [a.projectId, a.to, a.outcome])).toEqual([
+    const rebinds = result.receipt?.actions.filter((a) => a.action !== 'drop-ambiguous-alias');
+    expect(rebinds?.map((a) => [a.projectId, a.to, a.outcome])).toEqual([
       ['delta-T12471', copy, 'applied'],
       ['omega-T12471', shared, 'applied'],
     ]);

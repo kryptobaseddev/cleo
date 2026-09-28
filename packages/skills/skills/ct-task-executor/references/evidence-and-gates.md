@@ -140,6 +140,7 @@ cleo memory observe "..." --title "..."
 | — | `E_EVIDENCE_INSUFFICIENT` | Gate atom kind doesn't match required | See gate-atom table above |
 | — | `E_EVIDENCE_TESTS_FAILED` | `tool:test` exit non-zero | Fix failing tests first |
 | — | `E_EVIDENCE_TOOL_FAILED` | Lint/typecheck/etc exit non-zero | Fix source and re-run |
+| — | `E_EVIDENCE_TOOL_VACUOUS` | Tool exited 0 but provably checked nothing (`tsc` without `-b` on a references-only tsconfig) | Add a covering `typecheck` script (e.g. `tsc -b`) or set `typecheck.command` in `.cleo/project-context.json` |
 | — | `E_EVIDENCE_STALE` | Files or commit changed after verify | Re-verify before complete |
 | — | `E_EVIDENCE_INVALID_DECISION` | Decision ID not found in BRAIN | Use `cleo memory decision-find` |
 | — | `E_FLAG_REMOVED` | Tried `cleo complete --force` | `--force` removed per ADR-051 |

@@ -84,6 +84,7 @@ import type {
   ProcessLaunchExecution,
   SystemdControlContext,
 } from '@cleocode/contracts/resource-governor';
+import { resolveSpawnInvocation } from '@cleocode/paths';
 import { z } from 'zod';
 import { registerTeardownAbort } from '../teardown-signal.js';
 
@@ -202,6 +203,11 @@ export interface SpawnArgsBuildResult {
    * `undefined` when `mode = 'pgid'`.
    */
   unitName?: string;
+  /**
+   * `true` only when win32 launches a `.cmd`/`.bat` through cmd.exe; the
+   * pre-quoted line must reach cmd unmodified (T12618).
+   */
+  windowsVerbatimArguments?: boolean;
 }
 
 /**
@@ -436,7 +442,9 @@ let _scopeCounter = 0;
  * `ulimit -c 0` (POSIX sh, works in both systemd and pgid-fallback paths).
  *
  * When `systemd-run` is NOT available, the result is `[command, ...args]`
- * (or the sh/ulimit-wrapped form when noCoreFile=true) and `mode` is `'pgid'`.
+ * (or the sh/ulimit-wrapped form when noCoreFile=true on POSIX; Windows has
+ * neither `sh` nor core files, so it always spawns directly) and `mode` is
+ * `'pgid'`.
  *
  * @param command - The executable to run (e.g. `'node'`).
  * @param args - Arguments to pass to the executable.
@@ -456,20 +464,35 @@ export function buildSpawnArgs(
   const { scopeClass = 'agent', scopeId, resources = {}, noCoreFile = true } = opts;
 
   if (!hasSystemdRun(opts.systemdControl, opts.execution)) {
-    if (!_pgidDemotionLogged) {
+    // T12621: pgid is the expected mode off Linux, so only a Linux debug run hears about it.
+    if (!_pgidDemotionLogged && process.platform === 'linux' && process.env['CLEO_DEBUG']) {
       _pgidDemotionLogged = true;
       process.stderr.write(
         '[cleo:spawn-wrapper] systemd-run unavailable — falling back to plain pgid spawn ' +
           '(no cgroup containment; set NODE_OPTIONS=--max-old-space-size=<mb> externally)\n',
       );
     }
-    if (noCoreFile) {
+    // Core suppression is a POSIX process limit. Windows has no `sh` and no
+    // `ulimit`, and does not write core files, so there the command is
+    // spawned directly — wrapping it would fail every spawn with ENOENT (T12604).
+    if (noCoreFile && process.platform !== 'win32') {
       // Apply ulimit -c 0 in the pgid path as well so core suppression is
       // consistent regardless of whether systemd is available.
       return {
         command: 'sh',
         args: ['-c', 'ulimit -c 0; exec "$@"', 'sh', command, ...args],
         mode: 'pgid',
+      };
+    }
+    if (process.platform === 'win32') {
+      // Resolve to the absolute path; a `.cmd` shim (pnpm, npx, …) goes
+      // through cmd.exe with injection-safe quoting (T12618).
+      const inv = resolveSpawnInvocation(command, args);
+      return {
+        command: inv.file,
+        args: inv.args,
+        mode: 'pgid',
+        ...(inv.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       };
     }
     return { command, args: [...args], mode: 'pgid' };
@@ -610,10 +633,13 @@ export function spawnWrapped(
     options,
   );
   launchRemaining(execution);
+  const launchOpts = built.windowsVerbatimArguments
+    ? { ...spawnOpts, windowsVerbatimArguments: true }
+    : spawnOpts;
   const child = spawn(
     built.command,
     built.args,
-    controlled ? { ...spawnOpts, env: managerEnvironment(control, childEnvironment) } : spawnOpts,
+    controlled ? { ...launchOpts, env: managerEnvironment(control, childEnvironment) } : launchOpts,
   );
   return {
     child,

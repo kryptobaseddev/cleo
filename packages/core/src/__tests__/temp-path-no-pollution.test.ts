@@ -97,6 +97,11 @@ function caampBlock(content: string): string {
   return `<!-- CAAMP:START -->\n${content}\n<!-- CAAMP:END -->`;
 }
 
+/** Content of the first CAAMP block, trimmed. */
+function hubBlock(text: string): string | undefined {
+  return text.match(/<!-- CAAMP:START -->([\s\S]*?)<!-- CAAMP:END -->/)?.[1]?.trim();
+}
+
 function countCaampBlocks(text: string): number {
   return (text.match(/<!-- CAAMP:START -->/g) ?? []).length;
 }
@@ -157,6 +162,7 @@ describe('ensureInjection() — hub write uses canonical path, not CLEO_HOME (T9
   let fakeAgentsDir: string;
   let origCleoHome: string | undefined;
   let origAgentsHome: string | undefined;
+  let origHome: string | undefined;
 
   beforeEach(async () => {
     testDir = await mkdtemp(join(tmpdir(), 'cleo-t9020-'));
@@ -165,6 +171,16 @@ describe('ensureInjection() — hub write uses canonical path, not CLEO_HOME (T9
 
     origCleoHome = process.env['CLEO_HOME'];
     origAgentsHome = process.env['AGENTS_HOME'];
+    origHome = process.env['HOME'];
+
+    // T12596: the hub writes the reference only when ~/.cleo/templates
+    // resolves (otherwise it embeds the protocol). Give the sandbox HOME a
+    // resolving ~/.cleo so these tests exercise REFERENCE mode on every
+    // machine, instead of depending on the developer's real ~/.cleo.
+    const fakeHome = join(testDir, 'home');
+    await mkdir(join(fakeHome, '.cleo', 'templates'), { recursive: true });
+    await writeFile(join(fakeHome, '.cleo', 'templates', 'CLEO-INJECTION.md'), '# CLEO Protocol\n');
+    process.env['HOME'] = fakeHome;
 
     // Isolate the AGENTS.md write to our temp dir
     process.env['AGENTS_HOME'] = fakeAgentsDir;
@@ -181,6 +197,11 @@ describe('ensureInjection() — hub write uses canonical path, not CLEO_HOME (T9
     } else {
       process.env['AGENTS_HOME'] = origAgentsHome;
     }
+    if (origHome === undefined) {
+      delete process.env['HOME'];
+    } else {
+      process.env['HOME'] = origHome;
+    }
     await rm(testDir, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
@@ -189,6 +210,10 @@ describe('ensureInjection() — hub write uses canonical path, not CLEO_HOME (T9
     // Simulate a test environment with CLEO_HOME pointing to a temp dir
     const tempCleoHome = join(testDir, '.temp', 'cleo-injection-chain-ABC123', '.cleo-home');
     process.env['CLEO_HOME'] = tempCleoHome;
+    // An installed template makes embed mode POSSIBLE, so the reference-mode
+    // assertion below is not vacuous (T12596).
+    await mkdir(join(tempCleoHome, 'templates'), { recursive: true });
+    await writeFile(join(tempCleoHome, 'templates', 'CLEO-INJECTION.md'), '# CLEO Protocol\n');
 
     const { ensureInjection } = await import('../injection.js');
     await ensureInjection(testDir);
@@ -197,8 +222,9 @@ describe('ensureInjection() — hub write uses canonical path, not CLEO_HOME (T9
     expect(existsSync(agentsMd)).toBe(true);
 
     const content = await readFile(agentsMd, 'utf-8');
-    // Must contain the canonical reference
-    expect(content).toContain('@~/.cleo/templates/CLEO-INJECTION.md');
+    // Must contain the canonical reference — and be REFERENCE mode: the block
+    // is exactly the one-line reference, not an embedded protocol (T12596).
+    expect(hubBlock(content)).toBe('@~/.cleo/templates/CLEO-INJECTION.md');
     // Must NOT contain any temp-path reference
     expect(content).not.toMatch(/cleo-injection-chain-/);
     expect(content).not.toMatch(/\.temp\//);
@@ -227,8 +253,8 @@ describe('ensureInjection() — hub write uses canonical path, not CLEO_HOME (T9
     // Must have exactly 1 CAAMP block (idempotent)
     expect(countCaampBlocks(content)).toBe(1);
 
-    // Must contain the canonical reference
-    expect(content).toContain('@~/.cleo/templates/CLEO-INJECTION.md');
+    // Must contain the canonical reference, in reference mode (T12596)
+    expect(hubBlock(content)).toBe('@~/.cleo/templates/CLEO-INJECTION.md');
 
     // Must NOT contain any of the 5 temp-path references
     for (const tempPath of tempPaths) {
@@ -254,8 +280,8 @@ describe('ensureInjection() — hub write uses canonical path, not CLEO_HOME (T9
 
     const content = await readFile(agentsMd, 'utf-8');
 
-    // The canonical block must now be present
-    expect(content).toContain('@~/.cleo/templates/CLEO-INJECTION.md');
+    // The canonical block must now be present, in reference mode (T12596)
+    expect(hubBlock(content)).toBe('@~/.cleo/templates/CLEO-INJECTION.md');
 
     // The stale temp-path block content must be gone (replaced, not appended)
     // There should be exactly 1 CAAMP block now

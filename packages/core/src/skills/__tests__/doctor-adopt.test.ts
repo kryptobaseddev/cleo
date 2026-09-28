@@ -87,7 +87,8 @@ function makeSandbox(): Sandbox {
   const root = mkdtempSync(join(tmpdir(), 'doctor-adopt-'));
   const fakeHome = join(root, 'home');
   const cleoHome = join(fakeHome, '.local', 'share', 'cleo');
-  const cleoSkills = join(fakeHome, '.cleo', 'skills');
+  // T12598: the canonical skills root is <cleoHome>/skills, not ~/.cleo/skills.
+  const cleoSkills = join(cleoHome, 'skills');
   const legacySkills = join(fakeHome, '.local', 'share', 'agents', 'skills');
   const homeAgentsSkills = join(fakeHome, '.agents', 'skills');
 

@@ -13,7 +13,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -162,7 +162,7 @@ function loadImportHashes(stateFile: string): Set<string> {
 
 /** Persist the updated set of imported hashes to the dedup state file. */
 function saveImportHashes(stateFile: string, hashes: Set<string>): void {
-  const dir = stateFile.slice(0, stateFile.lastIndexOf('/'));
+  const dir = dirname(stateFile);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(stateFile, JSON.stringify({ hashes: [...hashes] }, null, 2), 'utf-8');
 }
@@ -212,7 +212,7 @@ export async function importMemoryFiles(
   const errorEntries: ErrorEntry[] = [];
 
   for (const filePath of files) {
-    const fileName = filePath.split('/').pop() ?? filePath;
+    const fileName = basename(filePath);
     try {
       const raw = readFileSync(filePath, 'utf-8');
       if (!raw.trim()) {

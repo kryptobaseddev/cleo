@@ -22,10 +22,10 @@ import {
   findPointerViolations,
   loadFieldPointerContracts,
   operationForVerbSource,
+  readInjectionTemplates,
 } from '../lint-injection-commands.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const TEMPLATE = join(REPO_ROOT, 'packages/core/templates/CLEO-INJECTION.md');
 const CONTRACTS = join(REPO_ROOT, 'packages/contracts/src/operations/output-contracts-data.ts');
 
 const sourceForVerb = (verb) => {
@@ -38,7 +38,7 @@ const sourceForVerb = (verb) => {
 
 describe('documented --field pointers — live repo', () => {
   it('every pointer CLEO-INJECTION.md documents resolves against its operation contract', () => {
-    const markdown = readFileSync(TEMPLATE, 'utf-8');
+    const markdown = readInjectionTemplates(REPO_ROOT);
     const contracts = loadFieldPointerContracts(readFileSync(CONTRACTS, 'utf-8'));
     expect(findPointerViolations(markdown, contracts, sourceForVerb)).toEqual([]);
   });
@@ -48,7 +48,7 @@ describe('documented --field pointers — live repo', () => {
     // `cleo add … --field /data/created/0`, a FLAT mutation envelope. With no
     // read example to generalise from, `/data/<field>` is the natural guess
     // and it is wrong.
-    const pointers = extractDocumentedPointers(readFileSync(TEMPLATE, 'utf-8'));
+    const pointers = extractDocumentedPointers(readInjectionTemplates(REPO_ROOT));
     expect(pointers.some((p) => p.verb === 'show')).toBe(true);
     expect(pointers.some((p) => p.pointer.startsWith('/data/task/'))).toBe(true);
   });
@@ -56,7 +56,7 @@ describe('documented --field pointers — live repo', () => {
   it('finds pointers at all (guards against a regex that silently matches nothing)', () => {
     // A parser that stopped matching would make the assertion above pass
     // vacuously — the same "absence reads as success" shape the gate prevents.
-    expect(extractDocumentedPointers(readFileSync(TEMPLATE, 'utf-8')).length).toBeGreaterThan(0);
+    expect(extractDocumentedPointers(readInjectionTemplates(REPO_ROOT)).length).toBeGreaterThan(0);
   });
 
   it('the tasks.show contract declares the pointers that resolve transparently', () => {

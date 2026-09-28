@@ -55,9 +55,9 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readInjectionTemplates } from './lint-injection-commands.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const TEMPLATE = join(REPO_ROOT, 'packages/core/templates/CLEO-INJECTION.md');
 
 /**
  * Flags documented in workflow `run:` blocks, keyed by verb.
@@ -119,7 +119,7 @@ export function extractDocumentedFlags(markdown) {
 }
 
 async function main() {
-  const markdown = readFileSync(TEMPLATE, 'utf-8');
+  const markdown = readInjectionTemplates(REPO_ROOT);
   const documented = extractDocumentedFlags(markdown);
 
   // Vacuous-pass guard (the lesson from gate 20). A parser that silently
@@ -128,14 +128,14 @@ async function main() {
   const flagCount = [...documented.values()].reduce((n, fs) => n + fs.length, 0);
   if (flagCount === 0) {
     console.error(
-      'lint-injection-flags: extracted ZERO documented flags from CLEO-INJECTION.md.\n' +
+      'lint-injection-flags: extracted ZERO documented flags from CLEO-INJECTION.md + CLEO-REFERENCE.md.\n' +
         'That is a broken parser, not a clean template — refusing to report a pass.',
     );
     process.exit(1);
   }
 
   console.log(
-    `lint-injection-flags: ${flagCount} documented flag(s) across ${documented.size} command(s) in CLEO-INJECTION.md.`,
+    `lint-injection-flags: ${flagCount} documented flag(s) across ${documented.size} command(s) in CLEO-INJECTION.md + CLEO-REFERENCE.md.`,
   );
   const wf = await extractWorkflowFlags();
   const wfCount = [...wf.values()].reduce((n, fs) => n + fs.length, 0);

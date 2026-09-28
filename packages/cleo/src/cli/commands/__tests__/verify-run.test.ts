@@ -86,7 +86,9 @@ describe('verifyCommand exposes --run (T12308)', () => {
   it('says in its own description that it records nothing', () => {
     // The distinction this flag exists to draw has to survive `--help`, which
     // is the only place most callers will ever read it.
-    expect(verifyCommand.args?.run?.description).toMatch(/read-only|nothing is recorded/i);
+    expect(verifyCommand.args?.run?.description).toMatch(
+      /read-only|nothing is recorded|records no verification/i,
+    );
   });
 });
 

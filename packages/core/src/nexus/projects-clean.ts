@@ -33,7 +33,7 @@ import type {
   NexusProjectsCleanResult,
   NexusRegistryClassification,
 } from '@cleocode/contracts';
-import { readDeclaredProjectIdentity } from '@cleocode/paths';
+import { getCleoStateDir, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
@@ -93,7 +93,7 @@ export interface CleanProjectsOptions {
   vacuum?: boolean;
   /**
    * When matchPolluted is set and dryRun is false, write an audit JSONL to
-   * ~/.local/state/cleo/nexus-cleanup-<ts>.jsonl before deletion (T9149).
+   * <getCleoStateDir()>/nexus-cleanup-<ts>.jsonl before deletion (T9149).
    */
   auditLog?: boolean;
 }
@@ -397,9 +397,8 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   if (opts.matchPolluted && opts.auditLog && removals.length > 0) {
     try {
       const { appendFile: appendFn, mkdir: mkdirFn } = await import('node:fs/promises');
-      const { homedir } = await import('node:os');
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
-      const auditDir = path.join(homedir(), '.local', 'state', 'cleo');
+      const auditDir = getCleoStateDir();
       await mkdirFn(auditDir, { recursive: true });
       const auditPath = path.join(auditDir, `nexus-cleanup-${ts}.jsonl`);
       const records = removals

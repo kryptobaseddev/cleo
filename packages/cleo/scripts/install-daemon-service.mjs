@@ -35,161 +35,26 @@ import { execFileSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createRequire } from 'node:module';
+import { getCleoPlatformPaths } from '@cleocode/paths';
 
 // ---------------------------------------------------------------------------
-// Platform paths — mirrors packages/core/src/system/platform-paths.ts
-// Using env-paths directly (same dep, no compiled core needed at postinstall).
+// Platform paths — resolved through the @cleocode/paths SSoT (T12602)
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve OS-appropriate paths — mirrors getPlatformPaths() from
- * packages/core/src/system/platform-paths.ts.
+ * Resolve CLEO's OS-appropriate directories.
  *
- * Strategy: attempt to import env-paths (pure-ESM, v4+) dynamically.
- * If env-paths is not available (e.g. direct invocation in a minimal
- * environment), fall back to XDG / macOS / Windows platform conventions
- * computed inline so the installer remains self-contained.
+ * Delegates to `getCleoPlatformPaths()` from `@cleocode/paths`, a runtime
+ * dependency of `@cleocode/cleo` and so installed before this script runs.
+ * This script used to carry a hand-copied env-paths fallback; that copy had
+ * already drifted (its `temp` dirs never matched env-paths).
  *
- * The CLEO_HOME env var overrides the data path for backward compatibility.
- *
- * @returns {{ data: string; config: string; cache: string; log: string; temp: string }}
- */
-let _cachedPlatformPaths = null;
-
-async function getPlatformPathsAsync() {
-  if (_cachedPlatformPaths) return _cachedPlatformPaths;
-
-  const home = homedir();
-  const platform = process.platform;
-
-  // Attempt dynamic import of env-paths first.
-  try {
-    // env-paths may be available via the workspace node_modules tree.
-    // Use createRequire to resolve it relative to THIS file.
-    const require = createRequire(import.meta.url);
-    // env-paths v4 exports an ES module; under some Node versions createRequire
-    // can still load it from the pnpm virtual store.
-    const ep = require('env-paths')('cleo', { suffix: '' });
-    _cachedPlatformPaths = {
-      data: process.env['CLEO_HOME'] ?? ep.data,
-      config: ep.config,
-      cache: ep.cache,
-      log: ep.log,
-      temp: ep.temp,
-    };
-    return _cachedPlatformPaths;
-  } catch {
-    // env-paths unavailable (pure-ESM in some Node versions / isolated run).
-    // Fall through to manual computation below.
-  }
-
-  // Try dynamic ESM import of env-paths (the canonical path for pure-ESM v4).
-  try {
-    const mod = await import('env-paths');
-    const fn = typeof mod.default === 'function' ? mod.default : mod;
-    const ep = fn('cleo', { suffix: '' });
-    _cachedPlatformPaths = {
-      data: process.env['CLEO_HOME'] ?? ep.data,
-      config: ep.config,
-      cache: ep.cache,
-      log: ep.log,
-      temp: ep.temp,
-    };
-    return _cachedPlatformPaths;
-  } catch {
-    // Dynamic import also failed — fall through to manual XDG/platform logic.
-  }
-
-  // Manual fallback: compute XDG / platform paths inline.
-  // This mirrors the env-paths v4 logic exactly so results are identical.
-  let data, config, cache, log, temp;
-  if (platform === 'win32') {
-    const appData = process.env['APPDATA'] ?? join(home, 'AppData', 'Roaming');
-    const localAppData = process.env['LOCALAPPDATA'] ?? join(home, 'AppData', 'Local');
-    data = join(localAppData, 'cleo', 'Data');
-    config = join(appData, 'cleo', 'Config');
-    cache = join(localAppData, 'cleo', 'Cache');
-    log = join(localAppData, 'cleo', 'Log');
-    temp = join(localAppData, 'cleo', 'Temp');
-  } else if (platform === 'darwin') {
-    const library = join(home, 'Library');
-    data = join(library, 'Application Support', 'cleo');
-    config = join(library, 'Preferences', 'cleo');
-    cache = join(library, 'Caches', 'cleo');
-    log = join(library, 'Logs', 'cleo');
-    temp = join(library, 'Application Support', 'cleo', 'Temp');
-  } else {
-    // Linux / BSD / XDG
-    const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
-    const xdgConfig = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
-    const xdgCache = process.env['XDG_CACHE_HOME'] ?? join(home, '.cache');
-    const xdgState = process.env['XDG_STATE_HOME'] ?? join(home, '.local', 'state');
-    data = join(xdgData, 'cleo');
-    config = join(xdgConfig, 'cleo');
-    cache = join(xdgCache, 'cleo');
-    log = join(xdgState, 'cleo');
-    temp = join(xdgData, 'cleo', 'Temp');
-  }
-
-  _cachedPlatformPaths = {
-    data: process.env['CLEO_HOME'] ?? data,
-    config,
-    cache,
-    log,
-    temp,
-  };
-  return _cachedPlatformPaths;
-}
-
-/**
- * Synchronous wrapper — only used for non-critical path resolution.
- * Falls back to XDG/platform defaults if env-paths is not available.
+ * The `CLEO_HOME` env var overrides the data path.
  *
  * @returns {{ data: string; config: string; cache: string; log: string; temp: string }}
  */
 function getPlatformPaths() {
-  if (_cachedPlatformPaths) return _cachedPlatformPaths;
-
-  // Compute synchronously using the XDG/platform logic from getPlatformPathsAsync.
-  const home = homedir();
-  const platform = process.platform;
-  let data, config, cache, log, temp;
-  if (platform === 'win32') {
-    const appData = process.env['APPDATA'] ?? join(home, 'AppData', 'Roaming');
-    const localAppData = process.env['LOCALAPPDATA'] ?? join(home, 'AppData', 'Local');
-    data = join(localAppData, 'cleo', 'Data');
-    config = join(appData, 'cleo', 'Config');
-    cache = join(localAppData, 'cleo', 'Cache');
-    log = join(localAppData, 'cleo', 'Log');
-    temp = join(localAppData, 'cleo', 'Temp');
-  } else if (platform === 'darwin') {
-    const library = join(home, 'Library');
-    data = join(library, 'Application Support', 'cleo');
-    config = join(library, 'Preferences', 'cleo');
-    cache = join(library, 'Caches', 'cleo');
-    log = join(library, 'Logs', 'cleo');
-    temp = join(library, 'Application Support', 'cleo', 'Temp');
-  } else {
-    // Linux / BSD / XDG
-    const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
-    const xdgConfig = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
-    const xdgCache = process.env['XDG_CACHE_HOME'] ?? join(home, '.cache');
-    const xdgState = process.env['XDG_STATE_HOME'] ?? join(home, '.local', 'state');
-    data = join(xdgData, 'cleo');
-    config = join(xdgConfig, 'cleo');
-    cache = join(xdgCache, 'cleo');
-    log = join(xdgState, 'cleo');
-    temp = join(xdgData, 'cleo', 'Temp');
-  }
-
-  return {
-    data: process.env['CLEO_HOME'] ?? data,
-    config,
-    cache,
-    log,
-    temp,
-  };
+  return getCleoPlatformPaths();
 }
 
 // ---------------------------------------------------------------------------
@@ -516,7 +381,7 @@ function buildSliceUnit() {
 # Re-running 'cleo doctor' rewrites it only when content changes.
 #
 # All cleo child processes (gateway, studio, agents, tests) are placed
-# under this slice via `systemd-run --user --slice=cleo.slice`.
+# under this slice via \`systemd-run --user --slice=cleo.slice\`.
 #
 # IMPORTANT: Delegate= is forbidden on slices (only valid on services/scopes).
 #
@@ -786,12 +651,10 @@ const LAUNCHD_PLIST_LABEL = 'io.cleocode.daemon';
  * @returns {string} Absolute path to the .plist file.
  */
 function getLaunchdPlistFile() {
-  // On macOS, env-paths data = ~/Library/Application Support/cleo
-  // LaunchAgents is a sibling of Application Support: ~/Library/LaunchAgents/
-  const paths = getPlatformPaths();
-  // data → ~/Library/Application Support/cleo → up two levels → ~/Library
-  const libraryDir = join(paths.data, '..', '..');
-  return join(libraryDir, 'LaunchAgents', `${LAUNCHD_PLIST_LABEL}.plist`);
+  // Anchored on homedir(), not on the data dir: deriving ~/Library as
+  // `<data>/../..` put the plist outside ~/Library whenever CLEO_HOME
+  // relocated the data dir, where launchd never loads it (T12602).
+  return join(homedir(), 'Library', 'LaunchAgents', `${LAUNCHD_PLIST_LABEL}.plist`);
 }
 
 /**

@@ -46,7 +46,7 @@ import {
   type DbSubstrateWarning,
   type PragmaDriftItem,
 } from '@cleocode/contracts';
-import { getCleoHome } from '@cleocode/paths';
+import { getCleoHome, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import { resolveCorePackageMigrationsFolder } from '../store/resolve-migrations-folder.js';
@@ -1009,10 +1009,11 @@ export function checkInvariantI2(
  * skipped, not flagged).
  *
  * @remarks
- * `.cleo/project-context.json` does NOT carry a `projectId` field; the
- * canonical identifier is derived from `base64url(path).slice(0, 32)`.
- * The invariant therefore asserts that the nexus registry's recorded
- * `project_path` MATCHES the live project root for the computed ID.
+ * The registry key is the project's declared identity (`.cleo/project-id`,
+ * then `project-info.json`). Only a project that declares none falls back to
+ * the legacy `base64url(path).slice(0, 32)`, which several projects under one
+ * path prefix share (T12589). The invariant asserts that the nexus registry's
+ * recorded `project_path` MATCHES the live project root for that id.
  *
  * Detected drift: a single nexus row whose `project_path` no longer
  * matches `projectRoot` (e.g. project was moved on disk; the
@@ -1042,7 +1043,11 @@ export function checkInvariantI3(
     );
   }
 
-  const expectedProjectId = computeSubstrateProjectId(projectRoot);
+  // T12589: registry rows are keyed by the DECLARED id. The legacy
+  // base64url(path) key encodes only 24 path bytes, so every project under a
+  // shared prefix derives it — look it up only when nothing is declared.
+  const expectedProjectId =
+    readDeclaredProjectIdentity(projectRoot)?.projectId ?? computeSubstrateProjectId(projectRoot);
 
   type RegistryRow = { project_id: string; project_path: string };
   let row: RegistryRow | undefined;

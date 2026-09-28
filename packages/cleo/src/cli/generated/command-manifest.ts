@@ -418,6 +418,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-fk-check.js')).doctorFkCheckCommand as CommandDef,
   },
   {
+    exportName: 'doctorGlobalDeliveryCommand',
+    name: 'global-delivery',
+    description:
+      'Check that ~/.cleo, the global hub reference and every harness CLEO skill install ',
+    load: async () =>
+      (await import('../commands/doctor-global-delivery.js'))
+        .doctorGlobalDeliveryCommand as CommandDef,
+  },
+  {
     exportName: 'doctorLegacyBackupsCommand',
     name: 'legacy-backups',
     description:

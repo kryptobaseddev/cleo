@@ -1364,6 +1364,27 @@ describe('doctor db-substrate (T10307)', () => {
     expect(i3?.orphanCount).toBe(0);
   });
 
+  it('T12589: I3 checks the declared id, not a legacy key a sibling project shares', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('i3-declared');
+    writeFileSync(
+      join(projectRoot, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'declared-T12589' }),
+    );
+    // A sibling owns the shared legacy key at another path; this project's own
+    // row, under its declared id, matches.
+    seedNexusDbForCrossDb(join(cleoHomeOverride, 'nexus.db'), [
+      { projectId: computeSubstrateProjectId(projectRoot), projectPath: `${projectRoot}-sibling` },
+      { projectId: 'declared-T12589', projectPath: projectRoot },
+    ]);
+
+    const i3 = walkCrossDbInvariants(projectRoot).find((r) => r.invariant === 'I3');
+    expect(i3?.skipped).toBe(false);
+    expect(i3?.orphanCount).toBe(0);
+  });
+
   it('T10323: I4 stays skipped when the llmtxt schema has no session_id column', () => {
     const projectRoot = join(fleetRoot, 'i4-no-column');
     const cleoDir = join(projectRoot, '.cleo');

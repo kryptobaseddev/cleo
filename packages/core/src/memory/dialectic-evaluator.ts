@@ -42,9 +42,9 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { DialecticInsights, DialecticTurn } from '@cleocode/contracts';
+import { getCleoStateDir } from '@cleocode/paths';
 import { generateObject } from 'ai';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { z } from 'zod';
@@ -475,12 +475,13 @@ export async function evaluateDialectic(
 }
 
 /**
- * State file location for the dialectic-failure fingerprint cache.
- * Follows XDG conventions: $XDG_STATE_HOME or ~/.local/state.
+ * State file location for the dialectic-failure fingerprint cache:
+ * `<getCleoStateDir()>/dialectic-failures.json`.
+ *
+ * @internal Exported for tests.
  */
-function getDialecticFailureStatePath(): string {
-  const xdgState = process.env['XDG_STATE_HOME'] || join(homedir(), '.local', 'state');
-  return join(xdgState, 'cleo', 'dialectic-failures.json');
+export function getDialecticFailureStatePath(): string {
+  return join(getCleoStateDir(), 'dialectic-failures.json');
 }
 
 /**
@@ -496,7 +497,7 @@ const DIALECTIC_FAILURE_TTL_MS = 24 * 60 * 60 * 1000;
  * — caller should log at WARN. Returns `false` for repeat occurrences within
  * TTL — caller should log at DEBUG to avoid spam.
  *
- * Persists to `~/.local/state/cleo/dialectic-failures.json` so the warn-once
+ * Persists to `<getCleoStateDir()>/dialectic-failures.json` so the warn-once
  * semantics survive across short-lived CLI invocations. Best-effort: any I/O
  * error degrades to in-memory behavior without disrupting the caller.
  */
