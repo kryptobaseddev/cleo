@@ -79,7 +79,7 @@ const GIT_AMBIENT_REPO_VARS = [
  * @returns Environment safe for directory-discovery probes.
  * @task T12308
  */
-function discoveryEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function discoveryEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const copy = { ...env };
   for (const key of GIT_AMBIENT_REPO_VARS) delete copy[key];
   return copy;

@@ -106,6 +106,20 @@ export {
 } from './flows.js';
 // GEXF export - graph serialization (T1473)
 export { escapeXml, generateGexf, hexToRgb } from './gexf-export.js';
+// Git state probe per project location (T12511)
+export {
+  GIT_STATE_DEFAULTS,
+  type GitProbeTarget,
+  type GitStateProbeOptions,
+  isRemoteStale,
+  listGitStates,
+  listLocalProbeTargets,
+  parsePorcelainV2Status,
+  probeGitState,
+  probeGitStates,
+  recordGitStates,
+  runProjectsGitStatus,
+} from './git-state.js';
 // Hash - canonical project identity hash
 export { generateProjectHash } from './hash.js';
 // Identity - path fingerprints, alias keys only (T9149, demoted by T12470)
@@ -214,6 +228,7 @@ export {
   nexusProjectsList,
   nexusProjectsRegister,
   nexusProjectsRemove,
+  nexusProjectsStatus,
   nexusReconcile,
   nexusReconcileProject,
   nexusRegister,

@@ -67,6 +67,7 @@ import {
   nexusProjectsRegister,
   nexusProjectsRemove,
   nexusProjectsScan,
+  nexusProjectsStatus,
   nexusQueryCte,
   nexusReconcileProject,
   nexusRefreshBridge,
@@ -448,6 +449,17 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
       'projects.clean',
     ),
 
+  'projects.status': async (params) =>
+    wrapCoreResult(
+      await nexusProjectsStatus({
+        fetch: params.fetch === true,
+        concurrency: typeof params.concurrency === 'number' ? params.concurrency : undefined,
+        timeoutMs: typeof params.timeoutMs === 'number' ? params.timeoutMs : undefined,
+        staleAfterMs: typeof params.staleAfterMs === 'number' ? params.staleAfterMs : undefined,
+      }),
+      'projects.status',
+    ),
+
   'refresh-bridge': async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = (params.repoPath as string | undefined) ?? projectRoot;
@@ -711,6 +723,7 @@ const MUTATE_OPS = new Set<string>([
   'projects.remove',
   'projects.scan',
   'projects.clean',
+  'projects.status',
   'refresh-bridge',
 ]);
 

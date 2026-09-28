@@ -21,7 +21,11 @@
  * @task T10132
  */
 
-import type { NexusProjectsCleanReceipt, NexusRegistryClassification } from '@cleocode/contracts';
+import type {
+  NexusProjectGitState,
+  NexusProjectsCleanReceipt,
+  NexusRegistryClassification,
+} from '@cleocode/contracts';
 import { num, str } from '../_format.js';
 
 // ---------------------------------------------------------------------------
@@ -294,6 +298,53 @@ export function renderNexusProjectsList(data: Record<string, unknown>, quiet: bo
         ` ${marker}${str(d['hostname']).padEnd(28)}  ${str(d['os'])}/${str(d['arch'])}  cleo=${str(d['cleoVersion'])}  heartbeat=${str(d['lastHeartbeatAt'])}  id=${str(d['deviceId'])}`,
       );
     }
+  }
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// nexus projects status (T12511)
+// ---------------------------------------------------------------------------
+
+/** One git state row as a table line. */
+function gitStateLine(r: NexusProjectGitState): string {
+  const name = (r.projectName ?? r.projectId).slice(0, 24).padEnd(24);
+  if (r.probeErrorCode !== null && r.headSha === null) {
+    return `  ${name}  ${r.probeErrorCode.padEnd(40)}  ${r.path}`;
+  }
+  const ref = r.detached ? `(detached ${str(r.headSha).slice(0, 8)})` : str(r.branch);
+  const dirty = `~${r.dirtyCount ?? '?'} +${r.untrackedCount ?? '?'}`;
+  const ab = r.upstream === null ? 'no-upstream' : `↑${r.ahead ?? '?'} ↓${r.behind ?? '?'}`;
+  const fetched = r.remoteFetchedAt === null ? 'never' : r.remoteFetchedAt.slice(0, 16);
+  const flags = [
+    r.remoteStale ? 'stale' : '',
+    r.shallow ? 'shallow' : '',
+    r.probeErrorCode ?? '',
+  ].filter((f) => f.length > 0);
+  return `  ${name}  ${ref.slice(0, 22).padEnd(22)}  ${dirty.padEnd(8)}  ${ab.padEnd(12)}  fetched=${fetched}${flags.length > 0 ? `  [${flags.join(',')}]` : ''}  ${r.path}`;
+}
+
+/**
+ * Render `cleo nexus projects status` human output: one line per location.
+ */
+export function renderNexusProjectsStatus(data: Record<string, unknown>, quiet: boolean): string {
+  if (quiet) return '';
+  const rows = (data['rows'] as NexusProjectGitState[] | undefined) ?? [];
+  const others = (data['otherDevices'] as NexusProjectGitState[] | undefined) ?? [];
+  const summary = (data['summary'] as Record<string, unknown> | undefined) ?? {};
+  const lines: string[] = [
+    `[nexus] Git state of ${rows.length} location(s) on this device in ${str(data['durationMs'])}ms ` +
+      `(concurrency ${str(data['concurrency'])}, timeout ${str(data['timeoutMs'])}ms, ` +
+      `${data['fetched'] === true ? 'fetched' : 'no fetch'}): ` +
+      `ok=${str(summary['ok'])} errored=${str(summary['errored'])} dirty=${str(summary['dirty'])} ` +
+      `stale-remote=${str(summary['remoteStale'])}`,
+  ];
+  for (const r of rows) lines.push(gitStateLine(r));
+  const byDevice = new Map<string, NexusProjectGitState[]>();
+  for (const r of others) byDevice.set(r.deviceId, [...(byDevice.get(r.deviceId) ?? []), r]);
+  for (const [deviceId, list] of byDevice) {
+    lines.push('', `[nexus] Last recorded on device ${deviceId} (${list.length}):`);
+    for (const r of list) lines.push(`${gitStateLine(r)}  probed=${r.probedAt.slice(0, 16)}`);
   }
   return lines.join('\n');
 }

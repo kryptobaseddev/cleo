@@ -21,6 +21,8 @@ import {
   type NexusListParams,
   type NexusPermissionSetParams,
   type NexusProjectCandidate,
+  type NexusProjectsStatusParams,
+  type NexusProjectsStatusResult,
   type NexusReconcileParams,
   type NexusRegisterParams,
   type NexusShowParams,
@@ -1515,6 +1517,29 @@ export async function nexusProjectsList(): Promise<EngineResult<unknown>> {
     return engineSuccess({ projects: list, count: list.length, devices });
   } catch (error) {
     return caughtToEngineError(error, 'Failed to list nexus projects');
+  }
+}
+
+/**
+ * Probe and record the git state of every project location on this device
+ * (`nexus.projects.status`, T12511). Bounded concurrency, a per-location
+ * timeout, no network unless `fetch` — see `nexus/git-state.ts`.
+ *
+ * @param params - Fetch, concurrency, timeout and staleness.
+ * @returns Fresh rows for this device plus recorded rows of other devices.
+ * @task T12511
+ */
+export async function nexusProjectsStatus(
+  params: NexusProjectsStatusParams = {},
+): Promise<EngineResult<NexusProjectsStatusResult>> {
+  try {
+    const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+    const { runProjectsGitStatus } = await import('./git-state.js');
+    return engineSuccess(
+      await runProjectsGitStatus(await getNexusRegistryDb(getCleoHome()), params),
+    );
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to probe project git state');
   }
 }
 
