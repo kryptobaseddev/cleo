@@ -150,6 +150,18 @@ export interface TaskChangeSet {
   decisions: string[];
   /** Every merged PR that cited the task, before disambiguation. */
   candidates: ChangeSetPrCandidate[];
+  /**
+   * D11151: the task's OTHER own-branch PRs when it shipped across several,
+   * oldest first. Each is recorded as its own `implemented` attempt before the
+   * primary (latest) PR, which is what the stored gate evidence ends up citing.
+   */
+  additionalPrs?: Array<{
+    prNumber: number;
+    mergeCommitSha?: string;
+    files: string[];
+    deletedFiles: string[];
+    implementedEvidence: string | null;
+  }>;
   /** Planned `implemented` atoms (without `satisfies:`), or null when none derive. */
   implementedEvidence: string | null;
   /** Blockers found while deriving the change set. */
@@ -273,6 +285,12 @@ export interface DonePlan {
   needsSatisfies: string[];
   /** Blockers, ordered: the first is the one to clear first. */
   blockers: DonePlanBlocker[];
+  /**
+   * D11151: `implemented` evidence (with its criterion links) for each of the
+   * task's earlier own-branch PRs, recorded as separate attempts before the
+   * primary gate write.
+   */
+  additionalImplemented?: string[];
   /** Runnable commands, in order, that record the gates and complete the task. */
   commands: string[];
   /** True when no blocker remains and `commands` would succeed as planned. */

@@ -561,12 +561,25 @@ export async function deriveTaskEvidence(
   ]);
 
   const cd = changeSet.rootSource === 'task-worktree' ? `cd ${shellQuote(root)} && ` : '';
-  const commands = gates
-    .filter((g) => !g.passed && g.evidence !== null)
-    .map(
-      (g) =>
-        `${cd}cleo verify ${taskId} --gate ${g.gate} --evidence ${shellQuote(g.evidence ?? '')}`,
-    );
+  // D11151: each earlier own-branch PR is its own implemented attempt, recorded
+  // first so the stored implemented evidence ends on the primary (latest) PR.
+  const additionalImplemented = passed('implemented')
+    ? []
+    : (changeSet.additionalPrs ?? []).flatMap((extra) => {
+        const ev = withSatisfies(taskId, 'implemented', extra.implementedEvidence, acMapping);
+        return ev === null ? [] : [ev];
+      });
+  const commands = additionalImplemented.map(
+    (ev) => `${cd}cleo verify ${taskId} --gate implemented --evidence ${shellQuote(ev)}`,
+  );
+  commands.push(
+    ...gates
+      .filter((g) => !g.passed && g.evidence !== null)
+      .map(
+        (g) =>
+          `${cd}cleo verify ${taskId} --gate ${g.gate} --evidence ${shellQuote(g.evidence ?? '')}`,
+      ),
+  );
   if (task.status === 'done') {
     changeSet.warnings.push(`${taskId} is already done; nothing is left to record.`);
   } else if (changeSet.implementedEvidence !== null || passed('implemented')) {
@@ -581,6 +594,7 @@ export async function deriveTaskEvidence(
     runFrom: root,
     changeSet,
     gates,
+    ...(additionalImplemented.length > 0 ? { additionalImplemented } : {}),
     toolRuns,
     typedGates,
     acMapping,

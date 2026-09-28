@@ -538,7 +538,9 @@ async function narrowCandidates(
         out.includes(c.prNumber) &&
         (c.headRefName === `task/${task.id}` || c.headRefName.startsWith(`task/${task.id}-`)),
     );
-    if (own.length === 1) out = [own[0]!.prNumber];
+    // D11151: several own-branch PRs are all the task's; the integration PRs
+    // that merely list the id drop out either way.
+    if (own.length >= 1) out = own.map((c) => c.prNumber).sort((a, b) => a - b);
   }
   return out;
 }
@@ -577,6 +579,23 @@ async function derivePrChangeSet(
 
   const resolved = new Map<number, PrAtomResolution>();
   numbers = await narrowCandidates(numbers, cs, task, roots, deps.resolvePr, resolved);
+  const ownBranch = (n: number): boolean => {
+    const head = cs.candidates.find((c) => c.prNumber === n)?.headRefName ?? '';
+    return head === `task/${task.id}` || head.startsWith(`task/${task.id}-`);
+  };
+  // D11151: a task shipped across several of its OWN PRs (every candidate
+  // merged from task/<id> or task/<id>-…) records one implemented attempt per
+  // PR. Candidates that merely mention the id stay ambiguous.
+  if (numbers.length > 1 && input.prNumber === undefined && numbers.every(ownBranch)) {
+    return deriveMultiPrChangeSet(
+      cs,
+      numbers,
+      { originals, reverts, resolved },
+      input,
+      roots,
+      deps,
+    );
+  }
   if (numbers.length > 1) {
     const list = numbers.map((n) => `#${n}`).join(', ');
     cs.blockers.push(
@@ -590,7 +609,70 @@ async function derivePrChangeSet(
     return true;
   }
 
-  const prNumber = numbers[0] as number;
+  return deriveOnePr(
+    cs,
+    numbers[0] as number,
+    { originals, reverts, resolved },
+    input,
+    roots,
+    deps,
+  );
+}
+
+/** Discovery facts one PR's derivation needs. */
+interface PrDiscovery {
+  originals: MergedPrSummary[];
+  reverts: MergedPrSummary[];
+  resolved: Map<number, PrAtomResolution>;
+}
+
+/**
+ * D11151: derive every own-branch PR of the task in merge order. The latest is
+ * the primary change set; the others become {@link TaskChangeSet.additionalPrs},
+ * each recorded as its own `implemented` attempt. Any PR's blocker blocks.
+ */
+async function deriveMultiPrChangeSet(
+  cs: TaskChangeSet,
+  numbers: number[],
+  discovery: PrDiscovery,
+  input: DeriveChangeSetInput,
+  roots: EvidenceRoots,
+  deps: Required<Pick<ChangeSetDeps, 'listMergedPrs' | 'resolvePr' | 'viewPr' | 'findPrByHead'>>,
+): Promise<boolean> {
+  const ordered = [...numbers].sort((a, b) => a - b);
+  const parts: TaskChangeSet[] = [];
+  for (const n of ordered) {
+    const part = emptyChangeSet(cs.executionRoot, cs.rootSource);
+    part.candidates = cs.candidates;
+    await deriveOnePr(part, n, discovery, input, roots, deps);
+    parts.push(part);
+  }
+  const primary = parts[parts.length - 1]!;
+  Object.assign(cs, { ...primary, candidates: cs.candidates });
+  cs.blockers = parts.flatMap((p) => p.blockers);
+  cs.warnings = [...cs.warnings, ...parts.flatMap((p) => p.warnings)];
+  cs.additionalPrs = parts.slice(0, -1).map((p) => ({
+    prNumber: p.prNumber as number,
+    ...(p.mergeCommitSha ? { mergeCommitSha: p.mergeCommitSha } : {}),
+    files: p.files,
+    deletedFiles: p.deletedFiles,
+    implementedEvidence: p.implementedEvidence,
+  }));
+  return true;
+}
+
+/** Derive the change set of one chosen PR (revert, stacked, provenance, merge files). */
+async function deriveOnePr(
+  cs: TaskChangeSet,
+  prNumber: number,
+  discovery: PrDiscovery,
+  input: DeriveChangeSetInput,
+  roots: EvidenceRoots,
+  deps: Required<Pick<ChangeSetDeps, 'listMergedPrs' | 'resolvePr' | 'viewPr' | 'findPrByHead'>>,
+): Promise<boolean> {
+  const { task } = input;
+  const root = roots.executionRoot;
+  const { originals, reverts, resolved } = discovery;
   cs.prNumber = prNumber;
   const original = originals.find((pr) => pr.number === prNumber);
   const revert = reverts.find(
@@ -656,6 +738,13 @@ async function derivePrChangeSet(
   const { files, deleted } = mergeCommitChanges(root, pr.mergeCommitSha);
   const prPaths = new Set(pr.changedPaths);
   cs.files = prPaths.size > 0 ? files.filter((p) => prPaths.has(p)) : files;
+  // A PR shared by several tasks (batch `--pr`): each task's files: evidence
+  // names only the files it declared, when any of them is in the PR.
+  const declared = task.files ?? [];
+  if (declared.length > 0) {
+    const own = cs.files.filter((f) => diffIntersectsAc([f], declared));
+    if (own.length > 0) cs.files = own;
+  }
   cs.deletedFiles = deleted;
   if (cs.files.length === 0) {
     cs.blockers.push(

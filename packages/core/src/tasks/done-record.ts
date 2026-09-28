@@ -71,7 +71,7 @@ export type DoneGateWriter = (
   storeRoot: string,
   params: {
     taskId: string;
-    gateEvidence: Partial<Record<VerificationGate, string>>;
+    gateEvidence: Partial<Record<VerificationGate, string | readonly string[]>>;
     noRun: boolean;
     sessionId?: string;
     agent?: string;
@@ -188,13 +188,21 @@ function checkoutBlocker(plan: DonePlan): DonePlanBlocker | null {
     };
   }
   if (cs.source === 'pr' && cs.mergeCommitSha) {
-    const contained =
-      head !== null &&
-      gitRead(root, ['merge-base', '--is-ancestor', cs.mergeCommitSha, 'HEAD']) !== null;
-    if (contained) return null;
+    // D11151: every PR the task shipped in must be in the tested tree.
+    const merges = [
+      ...(cs.additionalPrs ?? []).flatMap((p) =>
+        p.mergeCommitSha ? [{ pr: p.prNumber, sha: p.mergeCommitSha }] : [],
+      ),
+      { pr: cs.prNumber, sha: cs.mergeCommitSha },
+    ];
+    const missing = merges.find(
+      (m) =>
+        head === null || gitRead(root, ['merge-base', '--is-ancestor', m.sha, 'HEAD']) === null,
+    );
+    if (!missing) return null;
     return {
       code: 'checkout-required',
-      message: `${root} has ${short(head)} checked out, which does not contain PR #${cs.prNumber}'s merge commit ${short(cs.mergeCommitSha)}.`,
+      message: `${root} has ${short(head)} checked out, which does not contain PR #${missing.pr}'s merge commit ${short(missing.sha)}.`,
       next: {
         command: `git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cleo done ${plan.taskId}`,
         why: 'Tests, lint, typecheck and typed gates must run on a tree containing the merged change.',
@@ -315,7 +323,9 @@ export async function recordTaskDone(
   }
 
   const pending = plan.gates.filter((g) => !g.passed && g.evidence !== null);
-  const gateEvidence = Object.fromEntries(pending.map((g) => [g.gate, g.evidence as string]));
+  const gateEvidence: Partial<Record<VerificationGate, string | string[]>> = Object.fromEntries(
+    pending.map((g) => [g.gate, g.evidence as string]),
+  );
   let verificationPassed = plan.gates.every((g) => g.passed);
   if (pending.length > 0) {
     let sessionId = opts.sessionId;
@@ -324,6 +334,14 @@ export async function recordTaskDone(
       sessionId = (await resolveBoundSessionId(storeRoot).catch(() => null)) ?? undefined;
     }
     const { readAllowCachedGates } = await import('./gate-result-cache.js');
+    // D11151: every earlier own-branch PR is an ordered implemented attempt in
+    // the SAME write as the primary, so all are recorded or none (review HIGH).
+    if (plan.additionalImplemented?.length && gateEvidence.implemented) {
+      gateEvidence.implemented = [
+        ...plan.additionalImplemented,
+        gateEvidence.implemented as string,
+      ];
+    }
     const written = await (steps.write ?? defaultWrite)(storeRoot, {
       taskId,
       gateEvidence,
@@ -354,4 +372,67 @@ export async function recordTaskDone(
     verificationPassed,
     plan,
   });
+}
+
+/**
+ * A tool runner shared by a batch: each (tool, execution root) pair runs once
+ * and every later caller gets the same outcome. Keyed on the root as well as
+ * the tool — two tasks whose work lives in different trees must each be
+ * measured in their own tree.
+ *
+ * @param base - The runner that actually executes.
+ * @returns A memoising runner.
+ * @task T12628
+ */
+export function sharedToolRunner(base: DoneToolRunner): DoneToolRunner {
+  const runs = new Map<string, ReturnType<DoneToolRunner>>();
+  return (tool, storeRoot, executionRoot) => {
+    const key = `${tool}\u0000${executionRoot}`;
+    let run = runs.get(key);
+    if (!run) {
+      run = base(tool, storeRoot, executionRoot);
+      runs.set(key, run);
+    }
+    return run;
+  };
+}
+
+/** One task's outcome in a batch close. */
+export interface BatchDoneEntry {
+  /** Task the entry is for. */
+  taskId: string;
+  /** Its record result, or its `E_DONE_BLOCKED`. */
+  result: EngineResult<DoneRecordResult>;
+}
+
+/**
+ * Close several tasks shipped by one PR (T12628): each task is planned and
+ * recorded on its own, and one task's blocker never stops the others. The
+ * tools run once per execution root for the whole batch — every task shares
+ * one memoised runner — and each task still gets its own validated write.
+ * Shared evidence is NOT pre-acknowledged: the ADR-059 warning fires as for
+ * any other reuse.
+ *
+ * @param taskIds - Tasks to record, in order.
+ * @param opts - Shared options (`prNumber`, `satisfies`, roots, author, steps).
+ * @returns One entry per task, in the given order.
+ * @example
+ * ```ts
+ * const entries = await recordTasksDone(['T1', 'T2', 'T3'], { prNumber: 42 });
+ * ```
+ * @task T12628
+ */
+export async function recordTasksDone(
+  taskIds: readonly string[],
+  opts: RecordTaskDoneOptions = {},
+): Promise<BatchDoneEntry[]> {
+  const runTool = sharedToolRunner(opts.steps?.runTool ?? defaultRunTool);
+  const entries: BatchDoneEntry[] = [];
+  for (const taskId of taskIds) {
+    entries.push({
+      taskId,
+      result: await recordTaskDone(taskId, { ...opts, steps: { ...opts.steps, runTool } }),
+    });
+  }
+  return entries;
 }
