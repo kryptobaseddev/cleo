@@ -17,12 +17,15 @@
  * @epic T11284
  */
 
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { getErrorDefinition } from '../error-catalog.js';
 import { CleoError } from '../errors.js';
 import { generateSessionId } from '../sessions/session-id.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { withLock } from '../store/lock.js';
 
 /**
  * Resolved per-agent spawn identity returned by {@link allocateSpawnSession}.
@@ -89,35 +92,62 @@ export async function allocateSpawnSession(
   const agentHandle = deriveAgentHandle(taskId);
   const accessor = await getTaskAccessor(projectRoot);
 
-  // (1) Reuse an existing active session for this exact handle.
-  const sessions = await accessor.loadSessions();
-  const existing = sessions.find(
-    (s: Session) => s.status === 'active' && s.agentHandle === agentHandle,
+  // T12506 — steps (1)+(2) are check-then-insert. Two concurrent spawns of one
+  // task both missed in (1) and both inserted, yielding two "own" sessions for
+  // one agent handle. Serialise them with a cross-process file lock keyed by
+  // the handle so exactly one inserts and every other allocator reuses it.
+  const cleoDir = join(projectRoot, '.cleo');
+  mkdirSync(cleoDir, { recursive: true });
+  return withLock(
+    join(cleoDir, `spawn-session.${agentHandle}`),
+    async () => {
+      // (1) Reuse an existing active session for this exact handle.
+      const sessions = await accessor.loadSessions();
+      const existing = electSpawnSession(
+        sessions.filter((s: Session) => s.status === 'active' && s.agentHandle === agentHandle),
+      );
+      if (existing) {
+        return { sessionId: existing.id, agentId: agentHandle, agentHandle, reused: true };
+      }
+
+      // (2) Create a fresh per-agent session row bound to the handle.
+      const now = new Date().toISOString();
+      const sessionId = generateSessionId();
+      const session: Session = {
+        id: sessionId,
+        name: `spawn-${agentHandle}`,
+        status: 'active',
+        scope: { type: opts.scope === 'global' || !opts.scope ? 'global' : opts.scope },
+        taskWork: { taskId, setAt: now },
+        startedAt: now,
+        lastActivity: now,
+        agentHandle,
+        agentIdentifier: agentHandle,
+        scopeKind: 'global',
+        scopeId: null,
+        resumeCount: 0,
+      };
+      await accessor.upsertSingleSession(session);
+      return { sessionId, agentId: agentHandle, agentHandle, reused: false };
+    },
+    { retries: 30 },
   );
-  if (existing) {
-    return { sessionId: existing.id, agentId: agentHandle, agentHandle, reused: true };
-  }
+}
 
-  // (2) Create a fresh per-agent session row bound to the handle.
-  const now = new Date().toISOString();
-  const sessionId = generateSessionId();
-  const session: Session = {
-    id: sessionId,
-    name: `spawn-${agentHandle}`,
-    status: 'active',
-    scope: { type: opts.scope === 'global' || !opts.scope ? 'global' : opts.scope },
-    taskWork: { taskId, setAt: now },
-    startedAt: now,
-    lastActivity: now,
-    agentHandle,
-    agentIdentifier: agentHandle,
-    scopeKind: 'global',
-    scopeId: null,
-    resumeCount: 0,
-  };
-  await accessor.upsertSingleSession(session);
-
-  return { sessionId, agentId: agentHandle, agentHandle, reused: false };
+/**
+ * Deterministically pick the canonical per-agent session among concurrent
+ * candidates: earliest `startedAt`, ties broken by the smallest id, so
+ * duplicate rows left by allocations made before T12506 resolve to one
+ * session deterministically.
+ *
+ * @param candidates - Active sessions bound to one agent handle.
+ * @returns The elected session, or `undefined` when there are none.
+ * @task T12506
+ */
+export function electSpawnSession(candidates: readonly Session[]): Session | undefined {
+  return [...candidates].sort((a, b) =>
+    a.startedAt === b.startedAt ? a.id.localeCompare(b.id) : a.startedAt.localeCompare(b.startedAt),
+  )[0];
 }
 
 /** Outcome of {@link requireSpawnSession}: an explicit per-agent session, or a refusal. */

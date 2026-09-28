@@ -40,6 +40,7 @@ export {
   resolveCanonicalCleoDir,
   resolveLegacyCleoDir,
   resolveProjectByCwd,
+  resolveStableDeviceIdPath,
 } from './cleo-paths.js';
 export {
   type EnforceOptions,
@@ -74,4 +75,5 @@ export {
   resolveTaskWorktreePath,
   resolveWorktreeIndexPath,
   resolveWorktreeRootForHash,
+  resolveWorktreeTaskLockPath,
 } from './worktree-paths.js';

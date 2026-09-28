@@ -346,6 +346,19 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
         "Bind a session: run 'cleo session start --scope <scope> --name <name>', 'cleo session resume <id>', or set CLEO_SESSION_ID=<id>.",
       ),
     ],
+    [
+      ExitCode.WORKTREE_LOCKED,
+      def(
+        ExitCode.WORKTREE_LOCKED,
+        'WORKTREE_LOCKED',
+        'CONFLICT',
+        'Task worktree is locked by a live holder',
+        409,
+        true,
+        'E_WORKTREE_LOCKED',
+        "Another spawn holds this task's worktree. Attach with 'cleo orchestrate spawn <id> --resume', or wait until the holder exits or its heartbeat goes stale.",
+      ),
+    ],
 
     // === SESSION ERRORS (30-39) ===
     [

@@ -320,6 +320,13 @@ export const BRANCH_LOCK_ERROR_CODES = {
    * reset the branch automatically.
    */
   E_DIRTY_BRANCH: 'E_DIRTY_BRANCH',
+  /**
+   * T12506: the per-task worktree lock is held by a live holder (pid alive with
+   * the recorded start time, heartbeat within the TTL). A second spawn would
+   * otherwise force-remove the holder's live worktree. Error details name the
+   * holder. Exit code `ExitCode.WORKTREE_LOCKED` (25).
+   */
+  E_WORKTREE_LOCKED: 'E_WORKTREE_LOCKED',
 } as const;
 
 /** Union of all branch-lock error code strings. */

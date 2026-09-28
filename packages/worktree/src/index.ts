@@ -40,6 +40,7 @@ export { copyPathsWithReflock } from './copy-on-write.js';
 export {
   type AddTransientWorktreeOptions,
   addTransientWorktree,
+  countUnmergedCommits,
   DEFAULT_GIT_TIMEOUT_MS,
   getGitRoot,
   gitSilent,
@@ -77,6 +78,26 @@ export {
   resolveWorktreeRoot,
 } from './worktree-list.js';
 export * from './worktree-locate.js';
+export {
+  type AcquireWorktreeTaskLockOptions,
+  acquireWorktreeTaskLock,
+  assessWorktreeLockHolder,
+  DEFAULT_WORKTREE_LOCK_TTL_MS,
+  heartbeatWorktreeTaskLock,
+  isSameLockCaller,
+  isWorktreeLockedError,
+  type ProcessLiveness,
+  type ProcessProbe,
+  probeProcess,
+  readProcessStartTime,
+  readStableDeviceId,
+  readWorktreeTaskLock,
+  releaseWorktreeTaskLock,
+  resolveWorktreeLockTtlMs,
+  WORKTREE_LOCK_TTL_ENV,
+  type WorktreeLockAssessment,
+  type WorktreeLockedError,
+} from './worktree-lock.js';
 export type { MigrateWorktreeResult } from './worktree-migrate.js';
 export {
   discoverParentProjectRoot,

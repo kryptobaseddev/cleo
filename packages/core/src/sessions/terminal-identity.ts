@@ -39,6 +39,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { PS_STABLE_ENV } from '@cleocode/contracts';
 
 /** Where a terminal key comes from. */
 export type TerminalKeyKind = 'provider' | 'multiplexer' | 'terminal' | 'ppid';
@@ -127,13 +128,10 @@ export const PPID_CHAIN_LAUNCHERS: ReadonlySet<string> = new Set([
 /**
  * Environment overrides for the `ps` probe (T12500): UTC and the C locale make
  * the `lstart` start time — part of every ppid-chain key — independent of the
- * caller's `TZ` / `LANG`.
+ * caller's `TZ` / `LANG`. Defined in `@cleocode/contracts` so the worktree
+ * lock (T12506) renders start times identically.
  */
-export const PS_STABLE_ENV: Readonly<Record<'TZ' | 'LC_ALL' | 'LANG', string>> = {
-  TZ: 'UTC',
-  LC_ALL: 'C',
-  LANG: 'C',
-};
+export { PS_STABLE_ENV };
 
 /** Maximum number of ancestors the ppid-chain walk inspects. */
 export const PPID_CHAIN_MAX_DEPTH = 4 as const;
@@ -240,6 +238,54 @@ function resolvePpidKey(ppid: number, lookupProcess: ProcessLookup): TerminalKey
     pid = entry.ppid;
   }
   return null;
+}
+
+/** Interactive / script shells skipped by {@link resolveOwnerProcess}, beyond the launchers. */
+export const OWNER_PROCESS_SHELLS: ReadonlySet<string> = new Set([
+  'sh',
+  'bash',
+  'zsh',
+  'dash',
+  'fish',
+  'ksh',
+  'tcsh',
+  'csh',
+]);
+
+/** Maximum number of ancestors {@link resolveOwnerProcess} inspects. */
+export const OWNER_PROCESS_MAX_DEPTH = 8 as const;
+
+/**
+ * Resolve the long-lived process that OWNS the calling `cleo` invocation
+ * (T12506): the nearest ancestor that is neither a launcher
+ * ({@link PPID_CHAIN_LAUNCHERS}) nor a shell ({@link OWNER_PROCESS_SHELLS}).
+ *
+ * Agent harnesses run each tool call in a fresh `sh -c`, so the parent shell
+ * dies the moment `cleo orchestrate spawn` returns; the harness above it
+ * (e.g. `claude`, `codex`) lives as long as the agents it spawned. The worktree
+ * lock records this process so its liveness keeps the lock held. When every
+ * inspected ancestor is skippable, the last one read is returned.
+ *
+ * @param ppid - Parent pid to start from (defaults to `process.ppid`).
+ * @param lookupProcess - Process-table reader (defaults to {@link readProcessEntry}).
+ * @returns The owner process, or `null` when the chain cannot be read.
+ */
+export function resolveOwnerProcess(
+  ppid: number = process.ppid,
+  lookupProcess: ProcessLookup = readProcessEntry,
+): ProcessAncestor | null {
+  let pid = ppid;
+  let last: ProcessAncestor | null = null;
+  for (let depth = 0; depth < OWNER_PROCESS_MAX_DEPTH && pid > 1; depth++) {
+    const entry = lookupProcess(pid);
+    if (!entry) break;
+    last = entry;
+    if (!PPID_CHAIN_LAUNCHERS.has(entry.command) && !OWNER_PROCESS_SHELLS.has(entry.command)) {
+      return entry;
+    }
+    pid = entry.ppid;
+  }
+  return last;
 }
 
 /**

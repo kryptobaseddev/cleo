@@ -36,6 +36,7 @@ import {
 } from './napi-binding.js';
 import { computeProjectHash, resolveWorktreeRootForHash } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
+import { releaseWorktreeTaskLock } from './worktree-lock.js';
 
 /**
  * Prune orphaned agent worktrees for a project.
@@ -476,6 +477,8 @@ function pruneSingleEntry(
       success: true,
     });
     removeWorktreeFromSentinelIndex(gitRoot, taskId);
+    // T12506: a pruned worktree's per-task lock guards nothing — free it.
+    releaseWorktreeTaskLock(computeProjectHash(projectRoot), taskId);
     return;
   }
   const finalError = errorMessage ?? 'napi removeDir failed';

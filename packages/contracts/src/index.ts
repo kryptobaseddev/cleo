@@ -1939,6 +1939,10 @@ export type {
   WorktreeLifecycleAction,
   WorktreeLifecycleAuditEntry,
   WorktreeListEntry,
+  WorktreeLockAcquisition,
+  WorktreeLockAcquisitionStatus,
+  WorktreeLockHolder,
+  WorktreeLockRecord,
   WorktreeSource,
   WorktreeStatusCategory,
 } from './operations/worktree.js';
@@ -2018,6 +2022,8 @@ export type {
   SyncResult,
   SyncStatus,
 } from './postgres-data-accessor.js';
+// === Process-table probe constants (T12500 · T12506) ===
+export { PS_STABLE_ENV } from './process-probe.js';
 // === Project Context (ecosystem detection types) ===
 export type {
   EcosystemHint,
