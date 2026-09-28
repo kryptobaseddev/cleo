@@ -577,12 +577,26 @@ function captureTreeBinding(
   const headSha = gitOut(tree, ['rev-parse', 'HEAD']);
   if (headSha === null || !/^[0-9a-f]{40}$/.test(headSha)) return undefined;
   const dirty = gitOut(tree, ['status', '--porcelain', '--untracked-files=no']);
+  const base = originDefault(tree);
+  const baseSha = base ? gitOut(tree, ['merge-base', base, headSha]) : null;
   return {
     headSha,
     clean: dirty === '',
     cwd: invocation ? relative(tree, invocation.cwd) || '.' : '.',
     inputsHash: treeInputsHash(tree, invocation, artifacts),
+    ...(baseSha && /^[0-9a-f]{40}$/.test(baseSha) ? { baseSha } : {}),
   };
+}
+
+/** `origin/<default>` from `origin/HEAD`, else origin/main or origin/master. */
+function originDefault(tree: string): string | null {
+  const symbolic = gitOut(tree, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
+  if (symbolic) return symbolic.replace(/^refs\/remotes\//, '');
+  for (const ref of ['origin/main', 'origin/master']) {
+    if (gitOut(tree, ['rev-parse', '--verify', '--quiet', `refs/remotes/${ref}`]) !== null)
+      return ref;
+  }
+  return null;
 }
 
 /**
@@ -666,6 +680,31 @@ function assertTreeEquivalent(
       `Typed requirement ${gateLabel} inputs changed since verification (${tree})`,
       fix,
     );
+  // Round 3: the merge being an ancestor proves the change ARRIVED, not that it
+  // is still there — a later revert leaves the ancestry and the declared gate
+  // inputs intact. Every path the verified change touched must still hold the
+  // verified bytes here. Without a recorded fork point the change set is
+  // unknown, so the result is not carried across trees at all.
+  if (!bound.baseSha)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} has no recorded fork point, so the verified change cannot be compared in ${tree}`,
+      fix,
+    );
+  const changed = gitOut(tree, ['diff', '--name-only', bound.baseSha, bound.headSha]);
+  if (changed === null)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel}: cannot read the verified change ${bound.baseSha.slice(0, 12)}..${bound.headSha.slice(0, 12)} in ${tree}`,
+      fix,
+    );
+  const paths = changed.split('\n').filter(Boolean);
+  if (paths.length > 0) {
+    const drift = gitOut(tree, ['diff', '--name-only', bound.headSha, 'HEAD', '--', ...paths]);
+    if (drift === null || drift !== '')
+      throw new TypedRevalidationError(
+        `Typed requirement ${gateLabel}: the verified change was changed on ${tree} since verification: ${(drift ?? 'unreadable').split('\n').join(', ')}`,
+        fix,
+      );
+  }
 }
 
 /**

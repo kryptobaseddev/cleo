@@ -46,3 +46,9 @@ D11148–D11151), on top of the `cleo done --plan` planner.
 - Otherwise `complete` refuses and gives the exact `cleo verify … --gate testsPassed`
   command in `fix`. The recorded worktree is never re-entered.
 - Results recorded before this change keep exact path-bound revalidation.
+- A result carried to another tree must also match on the change it verified. The
+  tree binding records the fork point from origin's default branch (`baseSha`).
+  Every path in `baseSha..headSha` must be unchanged between the verified HEAD and
+  the completing HEAD, so a revert after the merge is refused.
+- A result with no recorded fork point, or verified on a dirty tree, is never
+  carried to another tree. `complete` refuses and gives the re-verify command.

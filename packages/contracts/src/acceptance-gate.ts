@@ -479,6 +479,12 @@ export interface AcceptanceGateTreeBinding {
   cwd: string;
   /** SHA-256 over command, args, relative cwd, environment hash and repo-relative input bytes. */
   inputsHash: string;
+  /**
+   * Fork point of the verified commit from origin's default branch at
+   * verification time. `baseSha..headSha` is the change the result attests;
+   * every path it touched must be unchanged in the completing tree.
+   */
+  baseSha?: string;
 }
 
 /**
