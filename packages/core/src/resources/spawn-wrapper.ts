@@ -1120,7 +1120,11 @@ export function createParserExecutionPort(): ParserExecutionPort {
             if (process.platform === 'win32') child.kill('SIGKILL');
             else process.kill(-child.pid, 'SIGKILL');
           } catch (error) {
-            if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH')
+            // Darwin's kill(2) reports EPERM, not ESRCH, for a group whose only
+            // remaining members are unreaped zombies: the worker has exited and
+            // `close` is about to fire.
+            const code = error instanceof Error && 'code' in error ? error.code : undefined;
+            if (code !== 'ESRCH' && !(code === 'EPERM' && process.platform === 'darwin'))
               throw error;
           }
         }

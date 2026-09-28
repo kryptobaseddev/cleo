@@ -103,39 +103,46 @@ describe('exact read-only observation snapshot inspection', () => {
     expect(sourceIdentity()).toEqual(before);
   });
 
-  it('reports access-only changes from another reader without rejecting authentic payload', async () => {
-    fixture(
-      `CREATE TABLE observations(id TEXT PRIMARY KEY, narrative TEXT); INSERT INTO observations VALUES ('${ID}', 'authentic payload');`,
-    );
-    fs.utimesSync(source, new Date('2001-01-01'), new Date('2002-01-01'));
-    const before = sourceIdentity();
-    const open = fs.promises.open;
-    let externalRead = false;
-    vi.spyOn(fs.promises, 'open').mockImplementation(async (...args) => {
-      if (args[1] === 'wx') {
-        fs.readFileSync(source);
-        externalRead = true;
-      }
-      return open(...args);
-    });
-    const result = await inspectBackupObservation({ snapshotPath: source, recordId: ID });
-    const after = sourceIdentity();
-    expect(externalRead).toBe(true);
-    expect(after.atime).not.toBe(before.atime);
-    expect({ ...after, atime: before.atime }).toEqual(before);
-    expect(result.status).toBe('found');
-    expect(result.record?.payload.narrative).toEqual({
-      type: 'text',
-      bytesBase64: Buffer.from('authentic payload').toString('base64'),
-    });
-    expect(result.source).toMatchObject({
-      sha256: before.sha256,
-      atimeNs: before.atime.toString(),
-      atimeAfterNs: after.atime.toString(),
-      atimeChanged: true,
-    });
-    expect(result.limitations.join(' ')).toContain('does not establish which reader');
-  });
+  // Linux-only: isolating ANOTHER reader's access-time change needs this
+  // fixture's own identity read to leave atime untouched, which only O_NOATIME
+  // provides. Without it (macOS) that read advances atime first, so the
+  // external read has nothing left to change.
+  it.skipIf(process.platform !== 'linux')(
+    'reports access-only changes from another reader without rejecting authentic payload',
+    async () => {
+      fixture(
+        `CREATE TABLE observations(id TEXT PRIMARY KEY, narrative TEXT); INSERT INTO observations VALUES ('${ID}', 'authentic payload');`,
+      );
+      fs.utimesSync(source, new Date('2001-01-01'), new Date('2002-01-01'));
+      const before = sourceIdentity();
+      const open = fs.promises.open;
+      let externalRead = false;
+      vi.spyOn(fs.promises, 'open').mockImplementation(async (...args) => {
+        if (args[1] === 'wx') {
+          fs.readFileSync(source);
+          externalRead = true;
+        }
+        return open(...args);
+      });
+      const result = await inspectBackupObservation({ snapshotPath: source, recordId: ID });
+      const after = sourceIdentity();
+      expect(externalRead).toBe(true);
+      expect(after.atime).not.toBe(before.atime);
+      expect({ ...after, atime: before.atime }).toEqual(before);
+      expect(result.status).toBe('found');
+      expect(result.record?.payload.narrative).toEqual({
+        type: 'text',
+        bytesBase64: Buffer.from('authentic payload').toString('base64'),
+      });
+      expect(result.source).toMatchObject({
+        sha256: before.sha256,
+        atimeNs: before.atime.toString(),
+        atimeAfterNs: after.atime.toString(),
+        atimeChanged: true,
+      });
+      expect(result.limitations.join(' ')).toContain('does not establish which reader');
+    },
+  );
 
   it('reads a legacy table exactly and scopes genuine absence to the inspected snapshot', async () => {
     fixture(
