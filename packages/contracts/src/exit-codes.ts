@@ -44,6 +44,15 @@ export enum ExitCode {
    * `E_CONFLICT`; the error details carry the current version. @task T12503
    */
   VERSION_CONFLICT = 23,
+  /**
+   * A session MUTATION (end, decision, suspend-on-switch) was asked to act on
+   * "the caller's session" but the caller has no bound identity: no connection
+   * handle, no `CLEO_SESSION_ID` naming a real row, and no terminal binding
+   * from `cleo session start` / `cleo session resume`. Guessing the newest
+   * active row would act on ANOTHER agent's session, so the operation refuses.
+   * LAFS code `E_SESSION_UNBOUND`. @task T12500
+   */
+  SESSION_UNBOUND = 24,
 
   // === SESSION ERRORS (30-39) ===
   SESSION_EXISTS = 30,

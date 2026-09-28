@@ -24,6 +24,7 @@ import {
 import type { GatewayHandler } from '@cleocode/runtime/gateway';
 import { createDispatchSpinner } from '../../cli/animation-bridge.js';
 import { isDescribeMode } from '../../cli/describe-context.js';
+import { getFormatContext } from '../../cli/format-context.js';
 import { getIdempotencyKeyContext } from '../../cli/idempotency-context.js';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
 import { Dispatcher } from '../dispatcher.js';
@@ -60,6 +61,7 @@ const ERROR_CODE_TO_EXIT: Record<string, number> = {
   E_HAS_DEPENDENTS: 19,
   E_CHECKSUM_MISMATCH: 20,
   E_CONFLICT: 23,
+  E_SESSION_UNBOUND: 24,
   E_SESSION_EXISTS: 30,
   E_SESSION_NOT_FOUND: 31,
   E_SCOPE_CONFLICT: 32,
@@ -167,31 +169,58 @@ export function createCliGatewayHandler(): GatewayHandler {
 }
 
 /**
- * Best-effort lookup of the current session ID for CLI commands.
+ * Best-effort lookup of the CALLER's bound session ID for CLI commands.
  *
- * Delegates to core's canonical `resolveCurrentSessionId`, so the CLI shares
- * ONE precedence with every other identity consumer:
+ * The id is stamped onto every request and attributes its audit row, so it
+ * delegates to core's `resolveBoundSessionId` (T12500):
  *
  * 1. the env-named session (`CLEO_SESSION_ID` & co., T11344) — honoured only
  *    when its session row exists (T12499). An env id with no row is rejected
  *    instead of being stamped onto the request as a phantom identity;
- * 2. the session bound to this terminal / harness by `session start`
- *    (T12499 — `CLAUDE_CODE_SESSION_ID`, `TMUX_PANE`, `TERM_SESSION_ID`, …);
- * 3. the most-recent active row (legacy fallback; removal tracked by T12500).
+ * 2. the session bound to this terminal / harness by `session start` /
+ *    `session resume` (T12499 — `CLAUDE_CODE_SESSION_ID`, `TMUX_PANE`, …).
+ *
+ * There is no newest-active-row tier: from an unbound terminal it names
+ * another agent's session, so an unbound request carries NO session id.
  *
  * Returns null on any failure (many CLI commands don't need a session).
  *
  * @epic T4959
  * @task T11344
  * @task T12499
+ * @task T12500
  */
 export async function lookupCliSession(): Promise<string | null> {
   try {
-    const { resolveCurrentSessionId } = await import('@cleocode/core/internal');
-    return await resolveCurrentSessionId();
+    const { resolveBoundSessionId } = await import('@cleocode/core/internal');
+    return await resolveBoundSessionId();
   } catch {
     return null;
   }
+}
+
+/**
+ * Warn on stderr when a CLI mutation runs with no bound session (T12500).
+ *
+ * Without a binding the mutation is attributed to NO session (audit row,
+ * completion stamp, memory links) and the lifecycle epic-scope guard has no
+ * session to check. That used to be silent. One line on stderr — never stdout,
+ * which carries the single LAFS envelope (ADR-086) — and only when some
+ * session IS active, i.e. when the old newest-row fallback would have
+ * attributed the call to it. Suppressed by `--quiet`.
+ *
+ * @param req - The unattributed mutation request.
+ * @task T12500
+ */
+export async function warnUnboundMutation(req: DispatchRequest): Promise<void> {
+  if (getFormatContext().quiet) return;
+  const { hasActiveSession } = await import('@cleocode/core/internal');
+  if (!(await hasActiveSession())) return;
+  process.stderr.write(
+    `[cleo] warning: no session is bound to this terminal; ${req.domain}.${req.operation} ` +
+      "is not attributed to any session (bind: 'cleo session start' | " +
+      "'cleo session resume <id>' | CLEO_SESSION_ID=<id>)\n",
+  );
 }
 
 /**
@@ -208,7 +237,7 @@ export function createCliDispatcher(): Dispatcher {
   return new Dispatcher({
     handlers,
     middlewares: [
-      createSessionResolver(lookupCliSession), // T4959: session identity first
+      createSessionResolver(lookupCliSession, warnUnboundMutation), // T4959: session identity first; T12500: warn when unbound
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),
       // T9922 (Saga T9855 / E8.3): MVI record projection default for read ops.

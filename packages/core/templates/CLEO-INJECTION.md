@@ -95,7 +95,7 @@ Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for st
 <!-- CLEO-INJECTION:section=task-discovery -->
 ### Overlap reconciliation across a saga
 
-`cleo add` checks duplicates only at INSERT time — flat, reject-or-insert — so partial overlap is invisible and post-filing drift is never re-examined. Sweep for it:
+`cleo add` checks duplicates only at insert, so partial overlap and later drift go unseen. Sweep for it:
 
 | Goal | Command |
 |------|---------|
@@ -103,9 +103,7 @@ Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for st
 | Narrow to strongest signals | `cleo reconcile scope <id> --threshold 0.75` |
 | Write the proposed `relates` edges | `cleo reconcile scope <id> --apply` |
 
-Actions: **merge** (same tier+parent, ≥90%) · **absorb** (≥90% across containers) ·
-**split** (shared scope apart — use `cleo decompose`) · **link** (siblings, usually
-intended sequencing). `--apply` writes ONLY `relates` edges — nothing is merged, retitled, reparented or deleted — and the earlier task always survives, so runs are reproducible. Read `link` sceptically: shared naming conventions inflate title similarity. Act on `merge`/`absorb`, which also require a tier+parent match.
+Actions: **merge** (same tier+parent, ≥90%) · **absorb** (≥90% across containers) · **split** (shared scope apart — use `cleo decompose`) · **link** (siblings, usually intended sequencing). `--apply` writes ONLY `relates` edges (nothing merged, retitled, reparented or deleted; the earlier task survives). Shared naming inflates `link` similarity; act on `merge`/`absorb`.
 
 ## Task Discovery
 
@@ -148,6 +146,8 @@ Keep these three relationship systems distinct:
 | Resume context | `cleo briefing` |
 | Start session | `cleo session start --scope global --name "<what you are doing>"` (both flags are REQUIRED) |
 | End session | `cleo session end --note "..."` |
+
+Sessions are terminal-bound. `E_SESSION_UNBOUND` → bind via `cleo session start`, `cleo session resume <id>` or `CLEO_SESSION_ID=<id>`, or pass `--session <id>`; CI and multi-step scripts must export `CLEO_SESSION_ID`. Claude Code adopts a session a human started in its tab; Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID`, so they act in the parent's session.
 <!-- /CLEO-INJECTION:section=session-commands -->
 
 <!-- CLEO-INJECTION:section=memory -->
@@ -230,7 +230,7 @@ HIGH/CRITICAL requires reviewing affected callers before editing. For stale, par
 
 ## Playbook Domain
 
-`.cantbook` YAML encodes staged agent flows. Runtime: deterministic state machine, HMAC-signed HITL resume tokens. Design: ADR-053.
+`.cantbook` YAML encodes staged agent flows (deterministic state machine, HMAC-signed HITL resume tokens; ADR-053).
 
 | Goal | Command |
 |------|---------|
@@ -238,7 +238,7 @@ HIGH/CRITICAL requires reviewing affected callers before editing. For stale, par
 | Inspect run state | `cleo playbook status <runId>` |
 | Resume after HITL approval | `cleo playbook resume <runId>` |
 
-Starters (`@cleocode/playbooks`): `rcasd`, `ivtr`, `release` `.cantbook`.
+Starters (`@cleocode/playbooks`): `rcasd`, `ivtr`, `release`.
 <!-- /CLEO-INJECTION:section=playbooks -->
 
 <!-- CLEO-INJECTION:section=documents -->
@@ -255,7 +255,7 @@ Use current repo-relative paths, never arbitrary external absolute paths (`/tmp`
 <!-- /CLEO-INJECTION:section=documents -->
 <!-- CLEO-INJECTION:section=human-render -->
 ## Human Render Contract (ADR-077)
-Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` ∈ `tree | table | list | grouped-list | section | single | generic` — agents route on `kind`. Code: `packages/core/src/render/`, primitives `packages/animations/render/`, icons `@cleocode/contracts/render/icon.ts`. Register with `registerRenderer(command, kind, fn)`. Commands: `cleo show T<id>` (typed), `cleo show T<id> --human` (force), `cleo tree T<id>` (generic walk of parent + `groups` edges).
+Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` ∈ `tree | table | list | grouped-list | section | single | generic` — agents route on `kind`. Register with `registerRenderer(command, kind, fn)` (`packages/core/src/render/`). Commands: `cleo show T<id>` (typed), `cleo show T<id> --human` (force), `cleo tree T<id>` (generic walk of parent + `groups` edges).
 <!-- /CLEO-INJECTION:section=human-render -->
 
 <!-- CLEO-INJECTION:section=output-contract -->

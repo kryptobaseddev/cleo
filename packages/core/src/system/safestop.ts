@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { ExitCode, type Task } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveBoundSession } from '../store/session-store.js';
 
 export interface SafestopResult {
   stopped: boolean;
@@ -45,8 +46,10 @@ export async function safestop(
   if (!dryRun && !opts?.noSessionEnd) {
     try {
       const accessor = await getTaskAccessor(projectRoot);
-      const activeSession = await accessor.getActiveSession();
-      if (activeSession && activeSession.id !== 'default') {
+      // T12500: end the CALLER's bound session only. Ending the newest active
+      // row stopped another agent's session whenever this caller was unbound.
+      const activeSession = (await resolveBoundSession(projectRoot))?.session ?? null;
+      if (activeSession && activeSession.status === 'active' && activeSession.id !== 'default') {
         activeSession.status = 'ended';
         activeSession.endedAt = new Date().toISOString();
         await accessor.upsertSingleSession(activeSession);

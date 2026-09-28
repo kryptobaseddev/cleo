@@ -120,7 +120,7 @@ When the task system is CLEO, these additional commands are available:
 |---------|---------|
 | `cleo current` | Show current task |
 | `cleo session start` | Begin work session |
-| `cleo session end` | End work session |
+| `cleo session end` | End THIS terminal's session (elsewhere: `--session <id>`; unbound → `E_SESSION_UNBOUND`) |
 | `cleo analyze` | Task triage with scoring |
 | `cleo deps show {{TASK_ID}}` | Check task dependencies |
 | `cleo tree {{EPIC_ID}}` | Visualize hierarchy rooted at epic |

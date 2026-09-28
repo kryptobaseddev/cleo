@@ -95,11 +95,31 @@ Use `cleo backup inspect <snapshot> --record-id <id>` for read-only historical e
 
 Code-graph answers (`cleo nexus impact`, `context`, `full-context`, `why`, `search-code`, `task-symbols`, `clusters`, `flows`) carry `meta._nexus.freshness`: stale file count and sample, whether the queried symbol's own file is stale, and the refresh command with an estimated cost. A query refreshes up to 25 stale files inline within a 60 s budget (`nexus.autoRefresh.maxFiles`/`budgetMs`/`enabled`) and discloses it in `freshness.autoRefresh`; beyond that it answers from the stale index with `W_NEXUS_INDEX_STALE`. `unknown` freshness is never fresh. `cleo nexus analyze` re-parses only changed files, re-resolves every file, and reports `mode`, `reason` and per-phase cost; it falls back to a full parse (and says why) when there is no parse cache, the extractor build changed, or over 30% of files changed. `--full` forces a rebuild.
 
+## Sessions are terminal-bound (T12500)
+
+`cleo session start` binds the calling agent process (`CLAUDE_CODE_SESSION_ID`,
+`CODEX_THREAD_ID`, …), pane (`TMUX_PANE`, …) or tab (`TERM_SESSION_ID`, …). Session
+mutations from an unbound caller fail with `E_SESSION_UNBOUND` instead of
+guessing the newest session; bind with `cleo session start`, `cleo session resume
+<id>` or `CLEO_SESSION_ID=<id>`, or name the target with `--session <id>`. CI and
+multi-step scripts must export `CLEO_SESSION_ID`. Unattributed mutations warn on
+stderr; `session status` / `briefing` label a guessed session `unbound: true`.
+
+- A session a human started in a tab is adopted by Claude Code in that tab
+  (also after a Claude restart). An adopter works in it but cannot end it without
+  `--session <id>`, and starting its own session never takes over the tab. A
+  session Claude started can be ended from the tab.
+- Two Claude instances that each start a session stay isolated; a sibling tmux
+  pane never sees another pane's session.
+- Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID` and act in
+  the parent's session; `cleo orchestrate spawn` gives workers their own.
+
 ## Quick Reference
 
 | Need | Command |
 |------|---------|
 | Start session | `cleo session status` → `cleo briefing` |
+| End session (from another terminal) | `cleo session end --session <id>` |
 | Find work | `cleo next` → `cleo focus <id>` |
 | Search tasks | `cleo find "query"` |
 | Complete task | `cleo verify T### --gate ... --evidence "..."` → `cleo complete T###` |

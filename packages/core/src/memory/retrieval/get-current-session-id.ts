@@ -9,14 +9,19 @@
  * scope-leakage fix: a spawned agent's memory retrievals are now grouped under
  * ITS `CLEO_SESSION_ID`, not under whichever session last touched the DB.
  *
+ * T12500 — attribution resolves the caller's BOUND session only. An unbound
+ * caller's retrievals are left ungrouped rather than filed under the newest
+ * active session, which belongs to whichever agent wrote the DB last.
+ *
  * @param projectRoot - Project root directory
  * @returns Current session ID or undefined if unavailable
  * @task T11344
+ * @task T12500
  */
 export async function getCurrentSessionId(projectRoot: string): Promise<string | undefined> {
   try {
-    const { resolveCurrentSessionId } = await import('../../store/session-store.js');
-    const id = await resolveCurrentSessionId(projectRoot);
+    const { resolveBoundSessionId } = await import('../../store/session-store.js');
+    const id = await resolveBoundSessionId(projectRoot);
     return id ?? undefined;
   } catch {
     return undefined;

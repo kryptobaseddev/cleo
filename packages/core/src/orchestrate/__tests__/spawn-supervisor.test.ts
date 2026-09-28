@@ -300,6 +300,10 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
   const stubAccessor = (): unknown => ({
     loadSingleTask: vi.fn(async () => ({ id: 'T9999', parentId: null })),
     appendLog: vi.fn(async () => undefined),
+    // T12500: spawn allocates the child's OWN session (no orchestrator
+    // fallback), so the stub must support the allocation round-trip.
+    loadSessions: vi.fn(async () => []),
+    upsertSingleSession: vi.fn(async () => undefined),
   });
 
   it('completes under the spawn budget and returns a success envelope (happy path)', async () => {

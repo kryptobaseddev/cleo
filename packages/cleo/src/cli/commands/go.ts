@@ -60,17 +60,17 @@ export const goCommand = defineCommand({
   async run({ args }) {
     const projectRoot = getProjectRoot();
 
-    // Resolve the active session id for IVTR run provenance
+    // Resolve the session id for IVTR run provenance
     // (`playbook_runs.session_id`). Best-effort: env first (the spawned-agent
-    // path), then the persisted active session.
-    const { getCurrentSessionId, getActiveSession } = await import('@cleocode/core/internal');
+    // path), then the session bound to this terminal (T12500 — never the
+    // newest active row, which is another agent's when this caller is unbound).
+    const { getCurrentSessionId, resolveBoundSessionId } = await import('@cleocode/core/internal');
     let sessionId = getCurrentSessionId(projectRoot) ?? undefined;
     if (sessionId === undefined) {
       try {
-        const active = await getActiveSession(projectRoot);
-        if (active) sessionId = active.id;
+        sessionId = (await resolveBoundSessionId(projectRoot)) ?? undefined;
       } catch {
-        // No active session — session_id stays undefined.
+        // No bound session — session_id stays undefined.
       }
     }
 

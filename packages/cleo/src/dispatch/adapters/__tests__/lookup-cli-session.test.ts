@@ -90,4 +90,21 @@ describe('lookupCliSession (T12499)', () => {
     vi.stubEnv('CLEO_SESSION_ID', id);
     expect(await lookupCliSession()).toBe(id);
   });
+
+  it('attributes an unbound terminal to NO session, not the newest active one (T12500)', async () => {
+    await createSession(
+      {
+        id: 'ses_20260927000001_bbbbbb',
+        name: 'another-agent',
+        status: 'active',
+        scope: { type: 'global' },
+        taskWork: { taskId: null, setAt: null },
+        startedAt: new Date().toISOString(),
+      },
+      tempDir,
+    );
+    // A terminal key that was never bound by `session start`.
+    vi.stubEnv('TERM_SESSION_ID', 'unbound-terminal');
+    expect(await lookupCliSession()).toBeNull();
+  });
 });

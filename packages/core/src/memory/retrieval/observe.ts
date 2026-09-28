@@ -63,7 +63,9 @@ let observeSeq = 0;
 /**
  * Auto-link a newly created observation to the currently focused task.
  *
- * Queries the active session via sessionStatus() and reads taskWork.taskId.
+ * Reads taskWork.taskId from the CALLER's BOUND session (T12500) — never the
+ * newest active row, which from an unbound terminal is another agent's
+ * session and would link this observation to that agent's focused task.
  * If a task is focused, inserts a brain_memory_links row linking the
  * observation to that task with linkType 'produced_by'.
  *
@@ -78,8 +80,8 @@ async function autoLinkObservationToTask(
   observationId: string,
   accessor: Awaited<ReturnType<typeof getBrainAccessor>>,
 ): Promise<void> {
-  const { sessionStatus } = await import('../../sessions/index.js');
-  const session = await sessionStatus(projectRoot, {});
+  const { resolveBoundSession } = await import('../../store/session-store.js');
+  const session = (await resolveBoundSession(projectRoot))?.session ?? null;
 
   if (!session) return;
 

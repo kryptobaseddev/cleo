@@ -38,8 +38,13 @@ ct start T006                  # Start next task
 ```bash
 ct complete <id>               # Complete current
 ct archive                     # Clean up done tasks
-ct session end --note "Progress"
+ct session end --note "Progress"   # this terminal's session; elsewhere: --session <id>
 ```
+
+Sessions are terminal-bound: from a terminal that did not start/resume the
+session, `session end` fails with `E_SESSION_UNBOUND` rather than ending the
+newest session. Bind (`cleo session resume <id>`, `CLEO_SESSION_ID=<id>`) or pass
+`--session <id>`. Scripts and CI must export `CLEO_SESSION_ID`.
 
 ## Research & Manifest Operations
 

@@ -223,6 +223,8 @@ const endCommand = defineCommand({
       const response = await dispatchRaw('mutate', 'session', 'end', {
         note: args.note as string | undefined,
         nextAction: args['next-action'] as string | undefined,
+        // T12500: an unbound terminal names its target explicitly.
+        ...(args.session ? { sessionId: args.session as string } : {}),
       });
 
       if (!response.success) {
@@ -261,6 +263,8 @@ const endCommand = defineCommand({
       {
         note: args.note as string | undefined,
         nextAction: args['next-action'] as string | undefined,
+        // T12500: an unbound terminal names its target explicitly.
+        ...(args.session ? { sessionId: args.session as string } : {}),
       },
       { command: 'session', operation: 'session.end' },
     );

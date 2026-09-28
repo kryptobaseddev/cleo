@@ -218,6 +218,14 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
     retryable: true,
     httpStatus: 409,
   },
+  {
+    exitCode: ExitCode.SESSION_UNBOUND,
+    lafsCode: 'E_SESSION_UNBOUND',
+    category: 'CONTRACT',
+    description: 'No session is bound to this caller',
+    retryable: true,
+    httpStatus: 428,
+  },
 
   // Session errors (30-39)
   {
