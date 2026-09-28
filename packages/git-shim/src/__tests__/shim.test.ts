@@ -132,6 +132,46 @@ describe('installed executable identity', () => {
     ]);
   });
 
+  it('skips a pnpm .bin/git shell wrapper that runs the shim (T12652)', async () => {
+    // pnpm layout: node_modules/@cleocode/git-shim is a link to the package,
+    // and node_modules/.bin/git is a regular-file sh wrapper (own inode) that
+    // execs node on "$basedir/../@cleocode/git-shim/dist/shim.js".
+    const dir = fixture();
+    const modules = join(dir, 'node_modules');
+    const bin = join(modules, '.bin');
+    const pkgDist = join(modules, '@cleocode', 'git-shim', 'dist');
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(pkgDist, { recursive: true });
+    symlinkSync(shim, join(pkgDist, 'shim.js'));
+    const wrapper = join(bin, 'git');
+    writeFileSync(
+      wrapper,
+      '#!/bin/sh\n' +
+        // pnpm computes this with dirname/sed; the test PATH has neither.
+        'basedir=${0%/*}\n' +
+        'if [ -x "$basedir/node" ]; then\n' +
+        '  exec "$basedir/node"  "$basedir/../@cleocode/git-shim/dist/shim.js" "$@"\n' +
+        'else\n' +
+        '  exec node  "$basedir/../@cleocode/git-shim/dist/shim.js" "$@"\n' +
+        'fi\n',
+    );
+    chmodSync(wrapper, 0o755);
+    realGit(dir);
+    // The wrapper is FIRST on PATH, exactly as under `pnpm exec`.
+    expect(await invoke(dir, wrapper, [bin, dir])).toEqual([0, 'REAL_GIT:--version\n', '']);
+  });
+
+  it('still delegates to a non-shim script launcher on PATH', async () => {
+    const dir = fixture();
+    const other = join(dir, 'other');
+    mkdirSync(other);
+    writeFileSync(join(other, 'tool.js'), "process.stdout.write('OTHER_LAUNCHER\\n');\n");
+    const launcher = join(other, 'git');
+    writeFileSync(launcher, '#!/bin/sh\nbasedir=${0%/*}\nexec node "$basedir/tool.js" "$@"\n');
+    chmodSync(launcher, 0o755);
+    expect(await invoke(dir, shim, [other])).toEqual([0, 'OTHER_LAUNCHER\n', '']);
+  });
+
   it('skips a hardlink of the executing shim', async () => {
     const dir = fixture();
     linkSync(shim, join(dir, 'bin', 'git'));
