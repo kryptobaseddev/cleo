@@ -236,29 +236,52 @@ function narrowerPins(a: RevocationPins, b: RevocationPins): RevocationPins {
 export type MasterKeys = ReadonlyMap<number, Uint8Array>;
 
 /**
- * The trusted signer set, built from `GET /v1/devices/trust` and the master keys the client holds. Build
- * the set for pulls, checkpoints and grants from this, never from the server's device list alone.
- * - A key counts only if a certificate for it (an HMAC under the master key of the certificate's own key
- *   version) verifies: the server cannot add one, and key rotation does not orphan older history as long
- *   as the client keeps the older master keys.
- * - A revocation record counts only when its signer is certified and **live**, and the signer key is not
- *   itself revoked by such a record. A record by a revoked, pinned or pending key is ignored, so a thief
- *   holding a stolen device can pre-empt nothing once the owner revokes that device: its records stop
- *   counting, and the owner's records (from any live device, including one just unlocked by passphrase)
- *   take over. While several records count for one key, the narrowest pins apply.
- * - A certified key with a counting record is trusted up to its pins, whatever the server says about live.
- * - A certified key the server calls live, with no counting record and not revoked by one, is trusted
- *   without a pin.
- * - Any other certified key is pending: left out, unless `includePending` (the revocation flow uses that to
- *   pull, verify and pin its history before signing a record). A revoked key never gains trust from the server.
+ * What a client has learned about signer trust, persisted with the pull cursor (same local transaction)
+ * and passed back to every certifiedSigners call. Trust only ever tightens through it: the server can
+ * withhold a record or flip its `live` claims, but it cannot make the client forget what it has seen.
+ * Key ids are `${deviceId}/${hex of the Ed25519 public key}`.
+ */
+export interface TrustState {
+  /** The highest master key version seen. Live trust needs a certificate at this version. */
+  keyVersion: number;
+  /** The last pins seen per revoked key. A key seen pinned is never live again. */
+  pins: Record<string, RevocationPins>;
+  /** Every key seen as the target of a valid revocation record. Never live again. Sorted. */
+  revoked: string[];
+}
+
+export const initialTrustState = (): TrustState => ({ keyVersion: 0, pins: {}, revoked: [] });
+
+/**
+ * The trusted signer set, built from `GET /v1/devices/trust`, the master keys the client holds and its
+ * persisted TrustState. Build the set for pulls, checkpoints and grants from this, never from the server's
+ * device list alone. Persist the returned state. The rules (docs/security/e2e-keys.md, "Revocation"):
+ * - A key is certified if a certificate for it verifies under the master key of the certificate's own
+ *   version (old history stays verifiable after rotation while the client keeps the old master keys).
+ * - **Current version only for liveness.** The current version is the highest the client holds or has
+ *   seen. Only a certificate at that version can make a key live, so a thief with a pre-rotation master key
+ *   cannot certify a fresh key into live trust. Older certificates carry pinned history only.
+ * - **Any valid record revokes its target.** A record whose signature verifies under a key certified at the
+ *   current version, live, pinned or pending, makes its target non-live for good (TrustState.revoked),
+ *   whatever the server claims. Records by old-version-only keys are ignored: such a key can never be live.
+ * - **Pins come only from live signers.** A record sets pins only if its signer is live (a server claim at
+ *   the current version) and not itself revoked. Several such records: the narrowest pins. None served now:
+ *   the last pins the client saw (TrustState.pins), so withholding a record never un-pins a key. A revoked key
+ *   with no pins, now or ever, is pending (untrusted; `includePending` returns it for the revocation flow).
+ * - A live key: certified at the current version, called live by the server, never revoked.
  */
 export function certifiedSigners(
   masterKeys: MasterKeys,
   userId: string,
   trust: DeviceTrust,
+  state: TrustState,
   opts: { includePending?: boolean } = {},
-): Map<string, SignerKey[]> {
-  const certified = new Map<string, { deviceId: string; publicKey: Buffer; live: boolean }>();
+): { signers: Map<string, SignerKey[]>; state: TrustState } {
+  const current = Math.max(state.keyVersion, ...masterKeys.keys());
+  const certified = new Map<
+    string,
+    { deviceId: string; publicKey: Buffer; live: boolean; atCurrent: boolean }
+  >();
   for (const c of trust.certificates) {
     const mk = masterKeys.get(c.keyVersion);
     if (!mk) continue;
@@ -272,11 +295,19 @@ export function certifiedSigners(
     )
       continue;
     const id = `${c.deviceId}/${hex(keys.signingPublicKey)}`;
-    const live = (certified.get(id)?.live ?? false) || c.live;
-    certified.set(id, { deviceId: c.deviceId, publicKey: keys.signingPublicKey, live });
+    const prev = certified.get(id);
+    const atCurrent = c.keyVersion === current;
+    certified.set(id, {
+      deviceId: c.deviceId,
+      publicKey: keys.signingPublicKey,
+      live: (prev?.live ?? false) || (c.live && atCurrent),
+      atCurrent: (prev?.atCurrent ?? false) || atCurrent,
+    });
   }
-  // Records with a valid signature by a certified, live key: the signer key id and the revoked key id.
-  const liveSigned: { signerId: string; revokedId: string; pins: RevocationPins }[] = [];
+  // Every record whose signature verifies under a key of its signer that is certified at the current
+  // version, whatever that key's status (live, pinned or pending). An old-version-only key can never be
+  // live, and its records touch nothing: a thief with a pre-rotation master key cannot revoke live devices.
+  const valid: { signerId: string; revokedId: string; pins: RevocationPins }[] = [];
   for (const r of trust.revocations) {
     const revokedKey = Buffer.from(r.signingPublicKey, 'base64');
     const revokedId = `${r.deviceId}/${hex(revokedKey)}`;
@@ -284,22 +315,30 @@ export function certifiedSigners(
     const msg = revocationMessage(userId, r.deviceId, revokedKey, r.pins, r.signerDeviceId);
     const signature = Buffer.from(r.signature, 'base64');
     for (const [signerId, k] of certified) {
-      if (k.deviceId === r.signerDeviceId && k.live && verifyEd25519(k.publicKey, msg, signature)) {
-        liveSigned.push({ signerId, revokedId, pins: r.pins });
+      if (
+        k.deviceId === r.signerDeviceId &&
+        k.atCurrent &&
+        verifyEd25519(k.publicKey, msg, signature)
+      ) {
+        valid.push({ signerId, revokedId, pins: r.pins });
         break;
       }
     }
   }
-  // A signer revoked by any live-signed record loses its authority; mutual revocations cancel both
-  // signers' records, which leaves both keys pending (never trusted), the conservative outcome.
-  const revoked = new Set(liveSigned.map((x) => x.revokedId));
+  const revoked = new Set([
+    ...state.revoked,
+    ...Object.keys(state.pins),
+    ...valid.map((x) => x.revokedId),
+  ]);
   const pins = new Map<string, RevocationPins>();
-  for (const x of liveSigned) {
-    if (revoked.has(x.signerId)) continue;
+  for (const x of valid) {
+    const signer = certified.get(x.signerId);
+    if (!signer?.live || revoked.has(x.signerId)) continue;
     const prev = pins.get(x.revokedId);
     pins.set(x.revokedId, prev ? narrowerPins(prev, x.pins) : x.pins);
   }
-  const out = new Map<string, SignerKey[]>();
+  for (const [id, p] of Object.entries(state.pins)) if (!pins.has(id)) pins.set(id, p);
+  const signers = new Map<string, SignerKey[]>();
   for (const [id, k] of certified) {
     const pin = pins.get(id);
     const key: SignerKey | null = pin
@@ -310,9 +349,14 @@ export function certifiedSigners(
           ? { publicKey: k.publicKey, pin: null, pending: true }
           : null;
     if (!key) continue;
-    out.set(k.deviceId, [...(out.get(k.deviceId) ?? []), key]);
+    signers.set(k.deviceId, [...(signers.get(k.deviceId) ?? []), key]);
   }
-  return out;
+  const next: TrustState = {
+    keyVersion: current,
+    pins: Object.fromEntries([...pins].sort(([a], [b]) => (a < b ? -1 : 1))),
+    revoked: [...revoked].sort(),
+  };
+  return { signers, state: next };
 }
 
 const revocationMessage = (
