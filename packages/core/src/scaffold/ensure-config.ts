@@ -10,6 +10,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import { getConfigPath, resolveCleoDir } from '../paths.js';
+import { computeStableProjectHash } from '../project-scope.js';
 import { saveJson } from '../store/json.js';
 import { decideProjectIdentity, ensurePortableProjectId } from './project-identity.js';
 
@@ -488,6 +489,11 @@ export async function ensureProjectInfo(
   const existingCheckoutNonce =
     typeof existing?.['checkoutNonce'] === 'string' ? existing['checkoutNonce'] : undefined;
 
+  // T12557: write-once — a force-regenerate keeps the stored identity key.
+  const projectHash =
+    typeof existing?.['projectHash'] === 'string' && existing['projectHash'].length > 0
+      ? existing['projectHash']
+      : computeStableProjectHash(projectRoot);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
 
@@ -510,8 +516,7 @@ export async function ensureProjectInfo(
     $schema: './schemas/project-info.schema.json',
     schemaVersion: '1.0.0',
     projectId: identity.projectId,
-    // T12557: projectRoot/projectHash are derived from the real root at
-    // runtime. Persisting them only records a value that goes stale on a move.
+    projectHash,
     name: basename(resolve(projectRoot)),
     ...(remoteUrl && { remoteUrl }),
     cleoVersion,

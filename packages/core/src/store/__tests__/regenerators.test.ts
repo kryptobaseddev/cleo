@@ -100,17 +100,42 @@ describe('T352 regenerators (dry-run init JSON generators)', () => {
     it('content includes required machine-local fields', () => {
       const result = regenerateProjectInfoJson(tmpRoot);
       const content = result.content as Record<string, unknown>;
+      expect(content).toHaveProperty('projectHash');
       expect(content).toHaveProperty('projectId');
       expect(content).toHaveProperty('cleoVersion');
       expect(content).toHaveProperty('lastUpdated');
       expect(content).toHaveProperty('schemas');
     });
 
-    it('does not persist path-derived projectHash/projectRoot (T12557)', () => {
+    it('projectHash reflects the resolved projectRoot path', () => {
       const result = regenerateProjectInfoJson(tmpRoot);
       const content = result.content as Record<string, unknown>;
-      expect(content).not.toHaveProperty('projectHash');
-      expect(content).not.toHaveProperty('projectRoot');
+      // projectHash must be a non-empty string (SHA-256 prefix)
+      expect(typeof content['projectHash']).toBe('string');
+      expect((content['projectHash'] as string).length).toBeGreaterThan(0);
+    });
+
+    it('preserves an existing write-once projectHash, never recomputes it (T12557)', () => {
+      fs.mkdirSync(path.join(tmpRoot, '.cleo'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpRoot, '.cleo', 'project-info.json'),
+        JSON.stringify({ projectId: 'x', projectHash: 'abcdefabcdef' }),
+      );
+      const content = regenerateProjectInfoJson(tmpRoot).content as Record<string, unknown>;
+      expect(content['projectHash']).toBe('abcdefabcdef');
+    });
+
+    it('produces different projectHash for different projectRoots', () => {
+      const root2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-t352-other-'));
+      try {
+        const a = regenerateProjectInfoJson(tmpRoot);
+        const b = regenerateProjectInfoJson(root2);
+        expect((a.content as Record<string, unknown>)['projectHash']).not.toBe(
+          (b.content as Record<string, unknown>)['projectHash'],
+        );
+      } finally {
+        fs.rmSync(root2, { recursive: true, force: true });
+      }
     });
 
     it('schemas block contains config, sqlite, and projectContext keys', () => {
@@ -196,7 +221,7 @@ describe('T352 regenerators (dry-run init JSON generators)', () => {
       try {
         const a = regenerateProjectInfoJson(tmpRoot);
         const b = regenerateProjectInfoJson(root2);
-        // Without a tracked id each root mints its own projectId
+        // At minimum the projectHash must differ (different paths)
         expect(JSON.stringify(a.content)).not.toBe(JSON.stringify(b.content));
       } finally {
         fs.rmSync(root2, { recursive: true, force: true });

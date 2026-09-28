@@ -29,6 +29,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { readPortableProjectId } from '@cleocode/paths';
+import { computeStableProjectHash } from '../project-scope.js';
 import { createDefaultConfig, getCleoVersion } from '../scaffold.js';
 import { getSchemaVersion } from '../schema-management.js';
 import { detectProjectType, type ProjectContext } from './project-detect.js';
@@ -124,11 +125,27 @@ export function regenerateConfigJson(projectRoot: string): RegeneratedFile {
   return { filename: 'config.json', content };
 }
 
+/** The persisted write-once `projectHash`, or null when absent or unreadable (T12557). */
+function readExistingProjectHash(projectRoot: string): string | null {
+  const infoPath = join(projectRoot, '.cleo', 'project-info.json');
+  if (!existsSync(infoPath)) return null;
+  try {
+    const hash = (JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>)[
+      'projectHash'
+    ];
+    return typeof hash === 'string' && hash.length > 0 ? hash : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Returns the `project-info.json` content that `cleo init` would write for
  * `projectRoot` on the current machine.
  *
  * Captures machine-local fields:
+ *   - `projectHash` — write-once identity key: an existing value is kept,
+ *                     else {@link computeStableProjectHash} (T12557)
  *   - `projectId`   — the tracked write-once `.cleo/project-id` when present
  *                     (T12325 — a restore must not re-key a portable project);
  *                     otherwise a fresh UUID (volatile; each call differs)
@@ -149,6 +166,8 @@ export function regenerateConfigJson(projectRoot: string): RegeneratedFile {
  */
 export function regenerateProjectInfoJson(projectRoot: string): RegeneratedFile {
   const resolvedRoot = resolve(projectRoot);
+  const projectHash =
+    readExistingProjectHash(resolvedRoot) ?? computeStableProjectHash(resolvedRoot);
   const trackedId = readPortableProjectId(resolvedRoot);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
@@ -162,6 +181,7 @@ export function regenerateProjectInfoJson(projectRoot: string): RegeneratedFile 
     $schema: './schemas/project-info.schema.json',
     schemaVersion: '1.0.0',
     projectId: trackedId.status === 'valid' ? trackedId.projectId : randomUUID(),
+    projectHash,
     cleoVersion,
     lastUpdated: now,
     schemas: {

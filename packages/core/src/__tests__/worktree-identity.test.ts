@@ -16,7 +16,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalizePath } from '@cleocode/paths';
@@ -641,9 +649,9 @@ describe('worktree identity edge cases', () => {
     writeFileSync(emptyFix.projectInfoPath, '{}');
 
     try {
-      // T12557: projectHash is derived from the root when it is not persisted.
+      // T12557: a missing projectHash is backfilled once from the real root.
       await expect(getProjectInfo(emptyFix.projectRoot)).resolves.toMatchObject({
-        projectHash: generateProjectHash(emptyFix.projectRoot),
+        projectHash: generateProjectHash(realpathSync(emptyFix.projectRoot)),
         projectId: '',
       });
 

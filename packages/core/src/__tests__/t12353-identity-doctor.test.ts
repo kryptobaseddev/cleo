@@ -215,14 +215,19 @@ describe('AC2: --resolve re-keys a conflict to the tracked id without losing row
   });
 });
 
-describe('T12557: persisted path-derived fields are stripped by --resolve', () => {
-  it('reports a legacy /mnt projectRoot/projectHash as a finding; dry-run plans, apply strips', async () => {
+describe('T12557: persisted projectRoot is stripped by --resolve; projectHash is never touched', () => {
+  it('reports a legacy /mnt projectRoot; dry-run plans, apply strips with a receipt, hash byte-identical', async () => {
     const root = project('legacy', 'same-id', 'same-id');
     await ensureGitignore(root);
-    git(root, 'add', '.cleo');
-    git(root, 'commit', '-q', '--no-verify', '-m', 'track id');
     const infoPath = join(root, '.cleo', 'project-info.json');
     const contextPath = join(root, '.cleo', 'project-context.json');
+    writeFileSync(
+      contextPath,
+      JSON.stringify({ schemaVersion: '1.0.0', projectRoot: '/mnt/projects/legacy' }),
+    );
+    git(root, 'add', '.cleo');
+    git(root, 'add', '-f', '.cleo/project-context.json');
+    git(root, 'commit', '-q', '--no-verify', '-m', 'track id');
     writeFileSync(
       infoPath,
       JSON.stringify({
@@ -232,16 +237,14 @@ describe('T12557: persisted path-derived fields are stripped by --resolve', () =
         projectHash: 'a1b2c3d4e5f6',
       }),
     );
-    writeFileSync(
-      contextPath,
-      JSON.stringify({ schemaVersion: '1.0.0', projectRoot: '/mnt/projects/legacy' }),
-    );
+    const hashBytes = (): string =>
+      /"projectHash":\s*("[^"]*")/.exec(readFileSync(infoPath, 'utf-8'))?.[1] ?? '';
+    expect(hashBytes()).toBe('"a1b2c3d4e5f6"');
 
     const report = inspectProjectIdentity(root);
     expect(report.state).toBe('ok');
     expect(report.derivedFields).toEqual([
       { file: 'project-info.json', field: 'projectRoot', value: '/mnt/projects/legacy' },
-      { file: 'project-info.json', field: 'projectHash', value: 'a1b2c3d4e5f6' },
       { file: 'project-context.json', field: 'projectRoot', value: '/mnt/projects/legacy' },
     ]);
 
@@ -250,18 +253,33 @@ describe('T12557: persisted path-derived fields are stripped by --resolve', () =
     expect(plan.refused).toBeNull();
     expect(plan.steps.map((s) => s.action)).toEqual(['strip-derived-fields']);
     expect(plan.steps[0]?.detail).toContain('project-info.json:projectRoot="/mnt/projects/legacy"');
+    expect(plan.steps[0]?.detail).toContain('project-context.json is git-tracked');
+    expect(plan.steps[0]?.detail).not.toContain('projectHash');
     expect(readFileSync(infoPath, 'utf-8')).toBe(infoBefore);
 
     const applied = await resolveProjectIdentity(root);
     expect(applied.refused).toBeNull();
     expect(applied.steps.map((s) => s.action)).toEqual(['strip-derived-fields']);
-    expect(JSON.parse(readFileSync(infoPath, 'utf-8'))).toEqual({
-      projectId: 'same-id',
-      name: 'legacy',
-    });
+    const info = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
+    expect(info).not.toHaveProperty('projectRoot');
+    expect(hashBytes()).toBe('"a1b2c3d4e5f6"');
+    expect(info).toMatchObject({ projectId: 'same-id', name: 'legacy' });
+    expect(info['strippedFields']).toEqual([
+      expect.objectContaining({
+        file: 'project-info.json',
+        field: 'projectRoot',
+        value: '/mnt/projects/legacy',
+      }),
+      expect.objectContaining({
+        file: 'project-context.json',
+        field: 'projectRoot',
+        value: '/mnt/projects/legacy',
+      }),
+    ]);
     expect(JSON.parse(readFileSync(contextPath, 'utf-8'))).toEqual({ schemaVersion: '1.0.0' });
     expect(inspectProjectIdentity(root)).toMatchObject({ state: 'ok', derivedFields: [] });
     expect((await resolveProjectIdentity(root)).refused).toBe('Nothing to resolve.');
+    expect(hashBytes()).toBe('"a1b2c3d4e5f6"');
   });
 
   it('a non-git CLEO root gets a remedy with no git commands', () => {

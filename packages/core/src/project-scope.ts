@@ -6,7 +6,14 @@
  * @packageDocumentation
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -547,7 +554,7 @@ let _legacyFallbackWarned = false;
 
 /** Fields consumed by logging, audit, and correlation subsystems. */
 export interface ProjectInfo {
-  /** 12-char SHA-256 hex of the project path: a legacy persisted value, else derived from `projectRoot` (T12557). */
+  /** Write-once 12-char hex identity key persisted at init (T12557: never re-derived once stored). */
   projectHash: string;
   /** Portable project-local UUID stored with `.cleo/project-info.json`. */
   projectId: string;
@@ -558,21 +565,57 @@ export interface ProjectInfo {
 }
 
 /**
+ * Compute the write-once `projectHash` for a project root.
+ *
+ * `projectHash` is an identity key (audit correlation, idempotency, release
+ * ids), not a path fact. It is computed once, at init, and persisted. This
+ * computes it from the real path of the MAIN checkout: a linked worktree maps
+ * to its parent project, and symlinked spellings (`/tmp` vs `/private/tmp`)
+ * collapse to one path, so every spelling of one project gets one hash.
+ *
+ * @param projectRoot - Project root or a linked worktree of it.
+ * @returns 12-char hex hash of the canonical main-checkout path.
+ * @example
+ * ```ts
+ * const hash = computeStableProjectHash('/tmp/project'); // same as '/private/tmp/project'
+ * ```
+ * @task T12557
+ */
+export function computeStableProjectHash(projectRoot: string): string {
+  const real = (path: string): string => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return resolve(path);
+    }
+  };
+  return generateProjectHash(real(resolveStoreOwnerRoot(real(projectRoot))));
+}
+
+/**
  * Decode the existing project metadata contract at a caller-owned root.
  *
- * T12557: `projectRoot` always comes from the caller, never the file. A
- * `projectHash` is no longer written; a legacy persisted value is still
- * honoured so existing correlation keys stay stable, and it is derived from
- * the caller's root when absent.
+ * T12557: `projectRoot` always comes from the caller, never the file. The
+ * persisted `projectHash` is authoritative. A legacy file without one gets
+ * {@link computeStableProjectHash}, persisted once (best effort) so the value
+ * never changes afterwards.
  */
-function decodeProjectInfo(raw: string, projectRoot: string): ProjectInfo {
+function decodeProjectInfo(raw: string, projectRoot: string, infoPath: string): ProjectInfo {
   const data = JSON.parse(raw) as Record<string, unknown>;
+  let projectHash = data.projectHash;
+  if (typeof projectHash !== 'string' || projectHash.length === 0) {
+    projectHash = computeStableProjectHash(projectRoot);
+    try {
+      const tmp = `${infoPath}.tmp-${process.pid}`;
+      writeFileSync(tmp, `${JSON.stringify({ ...data, projectHash }, null, 2)}\n`);
+      renameSync(tmp, infoPath);
+    } catch {
+      // Read-only store: the derived value is still stable for this root.
+    }
+  }
   const segments = projectRoot.replace(/[\\/]+$/, '').split(/[\\/]/);
   return {
-    projectHash:
-      typeof data.projectHash === 'string' && data.projectHash.length > 0
-        ? data.projectHash
-        : generateProjectHash(projectRoot),
+    projectHash: projectHash as string,
     projectId: typeof data.projectId === 'string' ? data.projectId : '',
     projectRoot,
     projectName: segments[segments.length - 1] ?? 'unknown',
@@ -585,7 +628,8 @@ function decodeProjectInfo(raw: string, projectRoot: string): ProjectInfo {
  * @param cleoDir - Explicit data directory owned by that root.
  * @returns Validated project information, retaining the legacy empty portable ID.
  * @throws When reading or JSON decoding fails.
- * @remarks This leaf does not resolve paths or consult ambient environment pins.
+ * @remarks This leaf does not consult ambient environment pins. A legacy file
+ * without `projectHash` is backfilled once (see {@link computeStableProjectHash}).
  * @example
  * ```ts
  * const info = await readProjectInfoAtDirectory(root, join(root, '.cleo'));
@@ -595,10 +639,8 @@ export async function readProjectInfoAtDirectory(
   projectRoot: string,
   cleoDir: string,
 ): Promise<ProjectInfo> {
-  return decodeProjectInfo(
-    await readFile(join(cleoDir, 'project-info.json'), 'utf-8'),
-    projectRoot,
-  );
+  const infoPath = join(cleoDir, 'project-info.json');
+  return decodeProjectInfo(await readFile(infoPath, 'utf-8'), projectRoot, infoPath);
 }
 
 /**
@@ -614,5 +656,6 @@ export async function readProjectInfoAtDirectory(
  * ```
  */
 export function readProjectInfoAtDirectorySync(projectRoot: string, cleoDir: string): ProjectInfo {
-  return decodeProjectInfo(readFileSync(join(cleoDir, 'project-info.json'), 'utf-8'), projectRoot);
+  const infoPath = join(cleoDir, 'project-info.json');
+  return decodeProjectInfo(readFileSync(infoPath, 'utf-8'), projectRoot, infoPath);
 }

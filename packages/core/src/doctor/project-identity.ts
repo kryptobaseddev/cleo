@@ -19,10 +19,13 @@
  * The tracked file is never modified here. It is write-once, and a malformed
  * one is restored from version control, never regenerated.
  *
- * T12557: `projectRoot` and `projectHash` are derived from the real root at
- * runtime. A persisted copy in `project-info.json` or `project-context.json`
- * goes stale on every move, so the inspection lists it under `derivedFields`
- * and `--resolve` strips it, recording each removed value in its steps.
+ * T12557: `projectRoot` is a path fact, derived from the real root at runtime.
+ * A persisted copy in `project-info.json` or `project-context.json` goes stale
+ * on every move, so the inspection lists it under `derivedFields` and
+ * `--resolve` strips it. Each removed value is kept in `project-info.json`
+ * under `strippedFields`, the same in-file receipt pattern as
+ * `previousProjectIds`. `projectHash` is NOT a path fact: it is a write-once
+ * identity key, and nothing here ever touches it.
  *
  * @task T12353
  * @task T12557
@@ -69,12 +72,12 @@ export type ProjectIdentityState =
   | 'untracked'
   | 'ignored';
 
-/** A path-derived field persisted in a metadata file (T12557). */
+/** A persisted path fact in a metadata file (T12557). */
 export interface DerivedFieldFinding {
   /** File under `.cleo/` that carries the field. */
   readonly file: 'project-info.json' | 'project-context.json';
   /** The field name. */
-  readonly field: 'projectRoot' | 'projectHash';
+  readonly field: 'projectRoot';
   /** The persisted value, kept so a strip receipt can restore it. */
   readonly value: unknown;
 }
@@ -85,8 +88,14 @@ const DERIVED_FIELD_FILES: readonly DerivedFieldFinding['file'][] = [
   'project-context.json',
 ];
 
-/** Fields derived from the real root at runtime and never authoritative on disk. */
-const DERIVED_FIELDS: readonly DerivedFieldFinding['field'][] = ['projectRoot', 'projectHash'];
+/**
+ * Path facts derived from the real root at runtime, never authoritative on
+ * disk. `projectHash` is deliberately absent: it is a write-once identity key.
+ */
+const DERIVED_FIELDS: readonly DerivedFieldFinding['field'][] = ['projectRoot'];
+
+/** Bound every git probe: briefing runs this inspection on each call. */
+const GIT_PROBE_TIMEOUT_MS = 5000;
 
 /** Read-only report produced by {@link inspectProjectIdentity}. */
 export interface ProjectIdentityInspection {
@@ -188,7 +197,7 @@ function gitFileState(projectRoot: string): 'tracked' | 'untracked' | 'ignored' 
   const rel = `.cleo/${PORTABLE_PROJECT_ID_FILE}`;
   const run = (args: string[]): boolean => {
     try {
-      execFileSync('git', args, { cwd: projectRoot, stdio: 'pipe' });
+      execFileSync('git', args, { cwd: projectRoot, stdio: 'pipe', timeout: GIT_PROBE_TIMEOUT_MS });
       return true;
     } catch {
       return false;
@@ -312,14 +321,49 @@ function writeJsonAtomic(path: string, data: Record<string, unknown>): void {
   renameSync(tmp, path);
 }
 
-/** Remove persisted path-derived fields, rewriting each affected file atomically. */
-function stripDerivedFields(projectRoot: string, findings: readonly DerivedFieldFinding[]): void {
-  for (const file of new Set(findings.map((finding) => finding.file))) {
-    const data = readCleoJson(projectRoot, file);
-    if (!data) continue;
-    for (const field of DERIVED_FIELDS) delete data[field];
-    writeJsonAtomic(join(projectRoot, '.cleo', file), data);
+/** Whether git tracks `.cleo/<file>`, so rewriting it dirties the work tree. */
+function isGitTracked(projectRoot: string, file: string): boolean {
+  try {
+    execFileSync('git', ['ls-files', '--error-unmatch', `.cleo/${file}`], {
+      cwd: projectRoot,
+      stdio: 'pipe',
+      timeout: GIT_PROBE_TIMEOUT_MS,
+    });
+    return true;
+  } catch {
+    return false;
   }
+}
+
+/**
+ * Remove persisted path facts. The receipt is written first, into
+ * `project-info.json` `strippedFields`, so a value is never removed without a
+ * durable record of it; without a readable `project-info.json` nothing is
+ * stripped.
+ */
+function stripDerivedFields(
+  projectRoot: string,
+  findings: readonly DerivedFieldFinding[],
+  now: string,
+): boolean {
+  const info = readCleoJson(projectRoot, 'project-info.json');
+  if (!info) return false;
+  const prior = Array.isArray(info['strippedFields']) ? info['strippedFields'] : [];
+  info['strippedFields'] = [
+    ...prior,
+    ...findings.map((finding) => ({ ...finding, strippedAt: now })),
+  ];
+  if (findings.some((finding) => finding.file === 'project-info.json'))
+    for (const field of DERIVED_FIELDS) delete info[field];
+  writeJsonAtomic(join(projectRoot, '.cleo', 'project-info.json'), info);
+  if (findings.some((finding) => finding.file === 'project-context.json')) {
+    const context = readCleoJson(projectRoot, 'project-context.json');
+    if (context) {
+      for (const field of DERIVED_FIELDS) delete context[field];
+      writeJsonAtomic(join(projectRoot, '.cleo', 'project-context.json'), context);
+    }
+  }
+  return true;
 }
 
 /** An unconfirmed checkout of a registered project (T12470). */
@@ -404,8 +448,9 @@ export interface ResolveProjectIdentityOptions {
  *   renames the row's primary key, re-points aliases and records the old id as
  *   an alias. Then `project-info.json` is rewritten, keeping the old id under
  *   `previousProjectIds`.
- * - In every state, persisted `projectRoot`/`projectHash` fields are stripped
- *   first (T12557); the step detail records each removed value.
+ * - In every state, persisted `projectRoot` fields are stripped first
+ *   (T12557). The removed values are kept in `project-info.json`
+ *   `strippedFields`. `projectHash` is never touched.
  *
  * Every other state is refused with its remedy. The operation is idempotent:
  * re-running after a partial apply completes the remaining steps.
@@ -449,11 +494,21 @@ export async function resolveProjectIdentity(
     const removed = before.derivedFields
       .map((finding) => `${finding.file}:${finding.field}=${JSON.stringify(finding.value)}`)
       .join(', ');
+    const trackedNote = before.derivedFields.some(
+      (finding) => finding.file === 'project-context.json',
+    )
+      ? isGitTracked(projectRoot, 'project-context.json')
+        ? '; .cleo/project-context.json is git-tracked, so this dirties the work tree (commit the change)'
+        : '; .cleo/project-context.json is not git-tracked'
+      : '';
     steps.push({
       action: 'strip-derived-fields',
-      detail: `remove ${removed} (derived from the real root at runtime; a persisted copy goes stale on a move)`,
+      detail: `remove ${removed} (a path fact derived at runtime; a persisted copy goes stale on a move). Receipt: project-info.json strippedFields${trackedNote}`,
     });
-    if (!dryRun) stripDerivedFields(projectRoot, before.derivedFields);
+    if (!dryRun && !stripDerivedFields(projectRoot, before.derivedFields, new Date().toISOString()))
+      return result(
+        'Cannot record a strip receipt: .cleo/project-info.json is missing or unreadable.',
+      );
   }
 
   if (before.state === 'missing' && before.localId) {
