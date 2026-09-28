@@ -6,7 +6,18 @@
  * @task T12491
  */
 
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
@@ -16,10 +27,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryTokenBucket } from '../budget.js';
 import { _resetDecideDefaultsForTest, decide } from '../client.js';
 import {
+  _resetDecideHomeWarningForTest,
   clearDecideCredentials,
   DecideCredentialsError,
   decideCredentialsPath,
   describeDecideCredentials,
+  isAllowedDecideBaseUrl,
   loadDecideConnection,
   maskApiKey,
   saveDecideCredentials,
@@ -193,5 +206,99 @@ describe('decide client default loader', () => {
     });
     expect(explicitNull.source).toBe('fallback');
     expect(fetchStub).not.toHaveBeenCalled();
+  });
+});
+
+describe('decide credential hardening', () => {
+  it.each([
+    ['https://provider.example', true],
+    ['https://provider.example:8443/api', true],
+    ['http://localhost:8080', true],
+    ['http://127.0.0.1:47811', true],
+    ['http://[::1]:9000', true],
+    ['http://provider.example', false],
+    ['http://10.0.0.5', false],
+    ['http://localhost.evil.example', false],
+    ['ftp://provider.example', false],
+    ['file:///etc/passwd', false],
+  ] as const)('baseUrl %s allowed=%s', (url, allowed) => {
+    expect(isAllowedDecideBaseUrl(url)).toBe(allowed);
+  });
+
+  it('refuses to store a remote plain-http URL, and the loader ignores one on disk', async () => {
+    await expect(
+      saveDecideCredentials({ baseUrl: 'http://provider.example', apiKey: KEY }),
+    ).rejects.toThrow(/https/);
+    writeFileSync(
+      decideCredentialsPath(),
+      JSON.stringify({ version: 1, baseUrl: 'http://provider.example', apiKey: KEY }),
+      { mode: 0o600 },
+    );
+    expect(loadDecideConnection()).toBeNull();
+  });
+
+  it('rejects model names with escape or control characters, and drops them on load', async () => {
+    const hostile = 'laya\u001b[31mred\u0007';
+    await expect(
+      saveDecideCredentials({ baseUrl: URL, apiKey: KEY, model: hostile }),
+    ).rejects.toThrow(/model name/);
+    writeFileSync(
+      decideCredentialsPath(),
+      JSON.stringify({ version: 1, baseUrl: URL, apiKey: KEY, model: hostile }),
+      { mode: 0o600 },
+    );
+    expect(loadDecideConnection()?.model).toBeUndefined();
+    await saveDecideCredentials({ baseUrl: URL, apiKey: KEY, model: 'org/model-v1.2:ft@x' });
+    expect(loadDecideConnection()?.model).toBe('org/model-v1.2:ft@x');
+  });
+
+  it('refuses to write through a symlinked store file', async () => {
+    const target = join(home, 'elsewhere.json');
+    writeFileSync(target, '{}');
+    symlinkSync(target, decideCredentialsPath());
+    await expect(saveDecideCredentials({ baseUrl: URL, apiKey: KEY })).rejects.toThrow(/symlink/);
+    expect(readFileSync(target, 'utf-8')).toBe('{}');
+  });
+
+  it('refuses to write when .backups or a backup file is a symlink', async () => {
+    await saveDecideCredentials({ baseUrl: URL, apiKey: KEY });
+    const outside = mkdtempSync(join(tmpdir(), 'cleo-decide-outside-'));
+    try {
+      rmSync(join(home, '.backups'), { recursive: true, force: true });
+      symlinkSync(outside, join(home, '.backups'));
+      await expect(saveDecideCredentials({ baseUrl: URL, apiKey: KEY })).rejects.toThrow(/symlink/);
+      await expect(clearDecideCredentials()).rejects.toThrow(/symlink/);
+      expect(readdirSync(outside)).toEqual([]);
+
+      rmSync(join(home, '.backups'));
+      mkdirSync(join(home, '.backups'), { mode: 0o700 });
+      const leak = join(outside, 'leak');
+      writeFileSync(leak, '');
+      symlinkSync(leak, join(home, '.backups', 'decide-credentials.json.1'));
+      await expect(saveDecideCredentials({ baseUrl: URL, apiKey: KEY })).rejects.toThrow(/symlink/);
+      expect(readFileSync(leak, 'utf-8')).toBe('');
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('warns on stderr (once, without the key) when the CLEO home is group/world-writable', async () => {
+    _resetDecideHomeWarningForTest();
+    chmodSync(home, 0o777);
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      await saveDecideCredentials({ baseUrl: URL, apiKey: KEY });
+      await saveDecideCredentials({ baseUrl: URL, apiKey: KEY });
+    } finally {
+      spy.mockRestore();
+      chmodSync(home, 0o700);
+    }
+    const warnings = writes.filter((w) => w.includes('group- or world-writable'));
+    expect(warnings).toHaveLength(1);
+    expect(warnings.join('')).not.toContain(KEY);
   });
 });

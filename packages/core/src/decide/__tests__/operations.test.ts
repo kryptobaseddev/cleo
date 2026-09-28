@@ -207,3 +207,84 @@ describe('askDecideDebug', () => {
     expect(result).toMatchObject({ source: 'fallback', fallbackReason: 'unconfigured' });
   });
 });
+
+describe('hardening', () => {
+  it('a host change without a fresh key is refused and never sends the stored key', async () => {
+    await configureDecide({ baseUrl: URL, apiKey: KEY, model: 'm' });
+    const fetchStub = vi.fn(async () => Response.json(modelsBody));
+    await expect(
+      configureDecide({ baseUrl: 'https://other-host.example', fetch: fetchStub }),
+    ).rejects.toThrow(/fresh key/);
+    expect(fetchStub).not.toHaveBeenCalled();
+    expect(loadDecideConnection()?.baseUrl).toBe(URL);
+
+    // Same host, new path: the stored key may be kept.
+    const samePath = await configureDecide({ baseUrl: `${URL}/api`, fetch: fetchStub });
+    expect(samePath.keyPreview).toBe('…4321');
+
+    // New host with a fresh key is fine.
+    const moved = await configureDecide({
+      baseUrl: 'https://other-host.example',
+      apiKey: 'sk-new-host-key-0000',
+      fetch: fetchStub,
+    });
+    expect(moved).toMatchObject({ baseUrl: 'https://other-host.example', keyPreview: '…0000' });
+    const [, init] = (fetchStub.mock.calls.at(-1) ?? []) as unknown as [string, RequestInit];
+    expect(JSON.stringify(init.headers)).not.toContain(KEY);
+  });
+
+  it('refuses a remote plain-http URL but accepts loopback http', async () => {
+    await expect(
+      configureDecide({ baseUrl: 'http://provider.example', apiKey: KEY, model: 'm' }),
+    ).rejects.toThrow(/https/);
+    const local = await configureDecide({
+      baseUrl: 'http://127.0.0.1:47811',
+      apiKey: KEY,
+      model: 'm',
+    });
+    expect(local.configured).toBe(true);
+  });
+
+  it('skips listed model names carrying escape sequences; never stores or prints them', async () => {
+    const hostile = 'evil\u001b[2J\u001b]0;pwned\u0007';
+    const fetchStub = vi.fn(async () =>
+      Response.json({ models: [{ name: hostile }, { name: 42 }, { name: 'safe-model' }] }),
+    );
+    const result = await configureDecide({ baseUrl: URL, apiKey: KEY, fetch: fetchStub });
+    expect(result).toMatchObject({ model: 'safe-model', modelSource: 'provider-listing' });
+    const probe = await probeDecideProvider({ fetch: fetchStub });
+    expect(probe.models).toEqual(['safe-model']);
+    expect(JSON.stringify([result, probe])).not.toContain('\u001b');
+  });
+
+  it('only escape-sequence names → nothing stored, warning shown', async () => {
+    const fetchStub = vi.fn(async () => Response.json({ models: [{ name: 'x\u001b[31m' }] }));
+    const result = await configureDecide({ baseUrl: URL, apiKey: KEY, fetch: fetchStub });
+    expect(result.modelSource).toBe('none');
+    expect(result.model).toBeUndefined();
+  });
+
+  it('caps the listing length and fails soft on an oversized body', async () => {
+    await saveDecideCredentials({ baseUrl: URL, apiKey: KEY, model: 'm' });
+    const many = { models: Array.from({ length: 2_000 }, (_, i) => ({ name: `m${i}` })) };
+    const long = await probeDecideProvider({ fetch: vi.fn(async () => Response.json(many)) });
+    expect(long.state).toBe('reachable');
+    expect(long.models).toHaveLength(500);
+
+    const huge = JSON.stringify({ models: [{ name: 'a', description: 'x'.repeat(300 * 1024) }] });
+    const oversized = await probeDecideProvider({
+      fetch: vi.fn(
+        async () => new Response(huge, { headers: { 'content-type': 'application/json' } }),
+      ),
+    });
+    expect(oversized).toMatchObject({ state: 'reachable', modelsEndpoint: 'failed' });
+    expect(oversized.detail).toMatch(/size limit/);
+
+    const declared = await probeDecideProvider({
+      fetch: vi.fn(
+        async () => new Response('{}', { headers: { 'content-length': String(10 * 1024 * 1024) } }),
+      ),
+    });
+    expect(declared.modelsEndpoint).toBe('failed');
+  });
+});

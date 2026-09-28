@@ -354,19 +354,74 @@ export function createJevProvider(
   };
 }
 
-/** Loose schema for the `GET /v1/models` response. */
+/**
+ * Allowed shape of a model name: word characters plus `. : / @ -`, 1-128
+ * characters. Anything else (ANSI escapes, control characters, spaces) is
+ * never stored, sent or printed.
+ */
+export const DECISION_MODEL_NAME_PATTERN = /^[\w.:/@-]{1,128}$/;
+
+/** Byte cap on a `GET /v1/models` response body. */
+export const MAX_MODELS_RESPONSE_BYTES = 256 * 1024;
+
+/** Cap on the number of model names kept from a listing. */
+export const MAX_MODELS_LISTED = 500;
+
+/**
+ * Whether `name` is a safe model identifier (see {@link DECISION_MODEL_NAME_PATTERN}).
+ *
+ * @param name - Candidate model name.
+ * @returns True when it may be stored, sent and printed.
+ */
+export function isValidDecisionModelName(name: string): boolean {
+  return DECISION_MODEL_NAME_PATTERN.test(name);
+}
+
+/** Loose schema for the `GET /v1/models` response; names are filtered after parsing. */
 const jevModelsSchema = z.looseObject({
-  models: z.array(z.looseObject({ name: z.string() })),
+  models: z.array(z.looseObject({ name: z.unknown() })),
 });
+
+/**
+ * Read a response body as text, failing once it exceeds `maxBytes`.
+ *
+ * @throws {DecisionProviderError} `invalid_response` when the body is too large.
+ */
+async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw invalid('model listing exceeds the size limit');
+  }
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw invalid('model listing exceeds the size limit');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf-8');
+}
 
 /**
  * List the models the key may use (`GET {base}/v1/models`).
  *
+ * The body is capped at {@link MAX_MODELS_RESPONSE_BYTES}; names failing
+ * {@link DECISION_MODEL_NAME_PATTERN} are skipped and at most
+ * {@link MAX_MODELS_LISTED} names are returned.
+ *
  * @param connection - Base URL + API key (only ever placed in the `Authorization` header).
  * @param signal - Aborts the request.
  * @param opts - Injectable `fetch`.
- * @returns Model names in the order the provider lists them.
- * @throws {DecisionProviderError} On any HTTP, network, abort or shape failure.
+ * @returns Safe model names in the order the provider lists them.
+ * @throws {DecisionProviderError} On any HTTP, network, abort, size or shape failure.
  */
 export async function listJevModels(
   connection: Pick<DecisionProviderConnection, 'baseUrl' | 'apiKey'>,
@@ -392,11 +447,18 @@ export async function listJevModels(
   }
   let body: unknown;
   try {
-    body = await response.json();
-  } catch {
+    body = JSON.parse(await readBoundedText(response, MAX_MODELS_RESPONSE_BYTES));
+  } catch (err) {
+    if (err instanceof DecisionProviderError) throw err;
+    if (signal.aborted) throw new DecisionProviderError('aborted', 'model listing aborted');
     throw invalid('model listing is not JSON');
   }
   const parsed = jevModelsSchema.safeParse(body);
   if (!parsed.success) throw invalid('model listing does not match the models shape');
-  return parsed.data.models.map((m) => m.name);
+  const names: string[] = [];
+  for (const m of parsed.data.models) {
+    if (typeof m.name === 'string' && isValidDecisionModelName(m.name)) names.push(m.name);
+    if (names.length >= MAX_MODELS_LISTED) break;
+  }
+  return names;
 }

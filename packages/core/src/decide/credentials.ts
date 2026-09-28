@@ -28,9 +28,11 @@
 
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -40,6 +42,7 @@ import { decisionProviderConfigSchema } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
 import { z } from 'zod';
 import { withLock } from '../store/file-utils.js';
+import { isValidDecisionModelName } from './jev-wire.js';
 import type { DecisionProviderConnection } from './provider.js';
 
 /** File name of the store, directly under the CLEO home. */
@@ -179,8 +182,43 @@ function readStoreSync(path: string = decideCredentialsPath()): DecideCredential
   }
 }
 
-function isValidBaseUrl(baseUrl: string): boolean {
-  return decisionProviderConfigSchema.safeParse({ baseUrl }).success && /^https?:/i.test(baseUrl);
+/** Hostnames for which plain `http://` is allowed (the loopback interface only). */
+const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * Whether `baseUrl` is an acceptable provider URL: absolute `https://`, or
+ * plain `http://` to a loopback host (`localhost`, `127.0.0.1`, `::1`). A
+ * remote plain-http URL is rejected so the bearer key never crosses the
+ * network in clear text.
+ *
+ * @param baseUrl - Candidate base URL.
+ * @returns True when the URL may be stored and used.
+ */
+export function isAllowedDecideBaseUrl(baseUrl: string): boolean {
+  if (!decisionProviderConfigSchema.safeParse({ baseUrl }).success) return false;
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return false;
+  }
+  if (url.protocol === 'https:') return true;
+  return url.protocol === 'http:' && LOOPBACK_HOSTNAMES.has(url.hostname.toLowerCase());
+}
+
+/**
+ * Whether two base URLs address the same host (hostname + port).
+ *
+ * @param a - First URL.
+ * @param b - Second URL.
+ * @returns True when both parse and share `host`; false otherwise.
+ */
+export function sameDecideHost(a: string, b: string): boolean {
+  try {
+    return new URL(a).host.toLowerCase() === new URL(b).host.toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -194,8 +232,13 @@ export function loadDecideConnection(): SealedDecideConnection | null {
   const store = readStoreSync();
   const baseUrl = store.baseUrl?.trim();
   const apiKey = store.apiKey?.trim();
-  if (!baseUrl || !apiKey || !isValidBaseUrl(baseUrl)) return null;
-  return new SealedDecideConnection(baseUrl, apiKey, store.model?.trim() || undefined);
+  if (!baseUrl || !apiKey || !isAllowedDecideBaseUrl(baseUrl)) return null;
+  const model = store.model?.trim();
+  return new SealedDecideConnection(
+    baseUrl,
+    apiKey,
+    model && isValidDecisionModelName(model) ? model : undefined,
+  );
 }
 
 /**
@@ -226,6 +269,74 @@ export class DecideCredentialsError extends Error {
   }
 }
 
+/** Backup directory `withLock` rotates into (see `store/file-utils.ts`). */
+function backupDirFor(path: string): string {
+  return join(dirname(path), '.backups');
+}
+
+/**
+ * Refuse to write through a symlink: the store file, the `.backups`
+ * directory and every rotated backup of the store must be real files or
+ * absent. `writeFileSync` (used for the backup copy) follows symlinks, so a
+ * planted link could otherwise redirect the key elsewhere.
+ *
+ * @throws {DecideCredentialsError} When any of those paths is a symlink.
+ */
+function assertNoSymlinks(path: string): void {
+  const backupDir = backupDirFor(path);
+  const candidates = [path, backupDir];
+  try {
+    for (const entry of readdirSync(backupDir)) {
+      if (entry.startsWith(`${DECIDE_CREDENTIALS_FILE}.`)) candidates.push(join(backupDir, entry));
+    }
+  } catch {
+    /* no backup dir yet */
+  }
+  for (const candidate of candidates) {
+    let isLink = false;
+    try {
+      isLink = lstatSync(candidate).isSymbolicLink();
+    } catch {
+      continue;
+    }
+    if (isLink) {
+      throw new DecideCredentialsError(
+        `refusing to write decision credentials through a symlink: ${candidate}`,
+      );
+    }
+  }
+}
+
+let warnedLooseHome = false;
+
+/** Warn once on stderr when the CLEO home is group- or world-writable. */
+function warnIfHomeWritableByOthers(path: string): void {
+  if (warnedLooseHome) return;
+  try {
+    const dirMode = statSync(dirname(path)).mode & 0o777;
+    if ((dirMode & 0o022) !== 0) {
+      warnedLooseHome = true;
+      process.stderr.write(
+        `warning: ${dirname(path)} is group- or world-writable (mode ${dirMode.toString(8)}); ` +
+          'other users could tamper with the decision credentials. Run: chmod go-w <dir>\n',
+      );
+    }
+  } catch {
+    /* home missing — created owner-only below */
+  }
+}
+
+/** Reset the once-only loose-home warning. Tests only. @internal */
+export function _resetDecideHomeWarningForTest(): void {
+  warnedLooseHome = false;
+}
+
+/** Pre-write checks shared by save and clear. */
+function guardWrite(path: string): void {
+  warnIfHomeWritableByOthers(path);
+  assertNoSymlinks(path);
+}
+
 /**
  * Seed the store file (0600, owner-only directory) so `withLock`'s JSON read
  * never meets an empty placeholder.
@@ -241,7 +352,8 @@ function ensureStoreFile(path: string): void {
  *
  * @param input - Settings to store; replaces any previous settings.
  * @returns Secret-free summary of what is now stored.
- * @throws {DecideCredentialsError} When the URL is not an absolute http(s) URL or the key is blank.
+ * @throws {DecideCredentialsError} When the URL is not https (or loopback http), the key is
+ *   blank, the model name is invalid, or the store or its backups are symlinks.
  */
 export async function saveDecideCredentials(
   input: DecideCredentialsInput,
@@ -249,13 +361,21 @@ export async function saveDecideCredentials(
   const baseUrl = input.baseUrl.trim();
   const apiKey = input.apiKey.trim();
   const model = input.model?.trim();
-  if (!isValidBaseUrl(baseUrl)) {
-    throw new DecideCredentialsError('base URL must be an absolute http(s) URL');
+  if (!isAllowedDecideBaseUrl(baseUrl)) {
+    throw new DecideCredentialsError(
+      'base URL must be an absolute https:// URL (plain http:// is allowed only for localhost, 127.0.0.1 and ::1)',
+    );
+  }
+  if (model && !isValidDecisionModelName(model)) {
+    throw new DecideCredentialsError(
+      'model name may contain only letters, digits and . _ : / @ - (1-128 characters)',
+    );
   }
   if (!apiKey) throw new DecideCredentialsError('API key must not be empty');
   if (/\s/.test(apiKey)) throw new DecideCredentialsError('API key must not contain whitespace');
 
   const path = decideCredentialsPath();
+  guardWrite(path);
   ensureStoreFile(path);
   await withLock<DecideCredentialsStore>(
     path,
@@ -281,6 +401,7 @@ export async function clearDecideCredentials(): Promise<boolean> {
   const path = decideCredentialsPath();
   const before = readStoreSync(path);
   const hadSettings = Boolean(before.baseUrl || before.apiKey || before.model);
+  guardWrite(path);
   if (existsSync(path)) {
     ensureStoreFile(path);
     await withLock<DecideCredentialsStore>(path, () => EMPTY_STORE, { mode: 0o600 });
@@ -291,7 +412,7 @@ export async function clearDecideCredentials(): Promise<boolean> {
 
 /** Delete `<dir>/.backups/<name>.N` copies of the store. */
 function purgeBackups(path: string): void {
-  const backupDir = join(dirname(path), '.backups');
+  const backupDir = backupDirFor(path);
   let entries: string[];
   try {
     entries = readdirSync(backupDir);

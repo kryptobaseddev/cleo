@@ -19,10 +19,12 @@ import {
 import { decide } from './client.js';
 import {
   clearDecideCredentials,
+  DecideCredentialsError,
   type DecideCredentialsSummary,
   describeDecideCredentials,
   loadDecideConnection,
   type SealedDecideConnection,
+  sameDecideHost,
   saveDecideCredentials,
 } from './credentials.js';
 import { listJevModels } from './jev-wire.js';
@@ -176,12 +178,22 @@ export interface DecideConfigureResult extends DecideCredentialsSummary {
  *
  * @param input - URL, key, optional model.
  * @returns Secret-free summary plus the model's provenance.
- * @throws {import('./credentials.js').DecideCredentialsError} On an invalid URL or blank key.
+ * A URL whose host differs from the stored one must come with a fresh key:
+ * the stored key is never re-used (or sent in the model probe) for a new host.
+ *
+ * @throws {DecideCredentialsError} On an invalid URL, blank key, invalid model
+ *   name, or a host change without a fresh key.
  */
 export async function configureDecide(input: DecideConfigureInput): Promise<DecideConfigureResult> {
   const stored = loadDecideConnection();
   const baseUrl = input.baseUrl?.trim() || stored?.baseUrl || '';
-  const apiKey = input.apiKey?.trim() || stored?.connection().apiKey || '';
+  const freshKey = input.apiKey?.trim();
+  if (!freshKey && stored && !sameDecideHost(stored.baseUrl, baseUrl)) {
+    throw new DecideCredentialsError(
+      'changing the provider host requires a fresh key; pass --key-stdin (the stored key is never sent to a new host)',
+    );
+  }
+  const apiKey = freshKey || stored?.connection().apiKey || '';
   const explicit = input.model?.trim();
   if (explicit) {
     return {

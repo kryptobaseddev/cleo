@@ -56,7 +56,11 @@ const decideConfigCommand = defineCommand({
   },
   args: {
     url: { type: 'string', description: 'Provider API base URL, e.g. https://layahost.com' },
-    key: { type: 'string', description: 'API key (lands in shell history; prefer --key-stdin)' },
+    key: {
+      type: 'string',
+      description:
+        'API key. Visible in the process list (ps) and shell history; prefer --key-stdin',
+    },
     'key-stdin': { type: 'boolean', description: 'Read the API key from stdin (recommended)' },
     model: { type: 'string', description: 'Optional default model; omitted → provider listing' },
     clear: { type: 'boolean', description: 'Remove the stored URL, key and model' },
