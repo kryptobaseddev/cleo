@@ -495,7 +495,11 @@ const spawnCommand = defineCommand({
         taskId: args.taskId,
         protocolType: args.protocol,
         tier,
-        noWorktree: args['no-worktree'] === true,
+        // T12520 — citty parses `--no-worktree` as the NEGATION of `worktree`
+        // (`{ worktree: false }`), never as `{ 'no-worktree': true }`, so reading
+        // only `args['no-worktree']` made the opt-out a silent no-op: a worktree
+        // was provisioned and the Worktree Setup block emitted anyway.
+        noWorktree: args.worktree === false || args['no-worktree'] === true,
         ...(args.scope ? { spawnScope: args.scope } : {}),
         ...(atomicityScope ? { atomicityScope } : {}),
         resume: args.resume === true,
