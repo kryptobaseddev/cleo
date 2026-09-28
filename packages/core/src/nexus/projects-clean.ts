@@ -9,21 +9,31 @@
  * `nexus_project_id_aliases` rows and a `nexus_audit_log` receipt in ONE
  * transaction on the GLOBAL registry store — the store `--vacuum` compacts.
  *
+ * T12471: a matched row whose path is gone but whose id is found at another
+ * path on this device is a MOVED project, not an orphan. It is never removed
+ * (whatever criterion matched it); it is reported under `relocated` with the
+ * `cleo doctor projects` remedy that rebinds it by id. A path is gone only
+ * when the tri-state probe answers `no`; an unreadable one (EACCES, EPERM,
+ * timeout) is never removed and is reported under `unreadable`.
+ *
  * @task T1473
  * @task T12324
+ * @task T12471
  */
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { lstat, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   NexusProjectsCleanReason,
   NexusProjectsCleanReceipt,
+  NexusProjectsCleanRelocated,
   NexusProjectsCleanRemoval,
   NexusProjectsCleanResult,
   NexusRegistryClassification,
 } from '@cleocode/contracts';
+import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
@@ -91,6 +101,12 @@ export interface CleanProjectsOptions {
 /** Result envelope for {@link cleanProjects} (contract: `NexusProjectsCleanResult`). */
 export type CleanProjectsResult = NexusProjectsCleanResult;
 
+/** Registry paths probed at once (T12471). */
+const PROBE_CONCURRENCY = 16;
+
+/** Budget per path probe; a slower path is `unknown` and kept (T12471). */
+const PROBE_TIMEOUT_MS = 2000;
+
 const TEMP_RE = /(^|\/)\.temp(\/|$)/;
 // T12324: `__tests__` and plural `tests`/`fixtures` are fixture homes too.
 const TESTS_RE = /(^|\/)(tmp|tests?|__tests__|fixtures?|scratch|sandbox)(\/|$)/;
@@ -109,6 +125,43 @@ interface RegistryRow {
   projectPath: string;
   healthStatus: string;
   lastIndexed: string | null;
+}
+
+/**
+ * Whether a registered path is gone, within {@link PROBE_TIMEOUT_MS}
+ * (T12471): `gone` ONLY when the path is absent (ENOENT/ENOTDIR); `unknown`
+ * when it cannot be read (EACCES, EPERM, timeout) — never proof of absence;
+ * `{ declares }` when it exists but declares another id — `.cleo/project-id`
+ * is tracked, so a branch checkout, rebase or conflict flips it transiently,
+ * and the row (with its permissions) must survive that window; `present`
+ * otherwise.
+ */
+async function probeRowPath(
+  projectPath: string,
+  projectId: string,
+): Promise<'gone' | 'present' | 'unknown' | { declares: string }> {
+  const { probeProjectHolding } = await import('./path-map.js');
+  const { withinBudget } = await import('./projects-scan.js');
+  const holding = await probeProjectHolding(projectPath, projectId, PROBE_TIMEOUT_MS);
+  if (holding === 'unknown') return 'unknown';
+  if (holding === 'yes') return 'present';
+  const stat = await withinBudget(
+    lstat(projectPath).then(
+      () => 'exists' as const,
+      (error: NodeJS.ErrnoException) =>
+        error.code === 'ENOENT' || error.code === 'ENOTDIR'
+          ? ('absent' as const)
+          : ('error' as const),
+    ),
+    PROBE_TIMEOUT_MS,
+  );
+  if (stat === 'absent') return 'gone';
+  if (stat !== 'exists') return 'unknown';
+  // The directory answered: it holds a different project, or no `.cleo/` at all.
+  const declared = readDeclaredProjectIdentity(projectPath);
+  return declared !== null && declared.projectId !== projectId
+    ? { declares: declared.projectId }
+    : 'present';
 }
 
 /** Report whether a registry path is temp-like (`.temp/` segment or OS temp root). */
@@ -177,6 +230,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   const {
     projectRegistry: regTable,
     projectIdAliases: aliasTable,
+    projectLocations: locationTable,
     projectPaths: pathTable,
     nexusAuditLog: auditTable,
   } = await import('../store/schema/nexus-schema.js');
@@ -199,9 +253,10 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
 
   const pollutedIds: Set<string> = new Set();
   if (opts.matchPolluted) {
-    // Group rows by canonicalProjectId. The canonical ID uses git-root+realpath
-    // so bind-mount variants of the same repo collapse to the same key.
-    const { canonicalProjectId: computeId } = await import('./identity.js');
+    // Group rows by path fingerprint (git-root realpath + name + remote) so
+    // bind-mount variants of the same checkout collapse to one key. A grouping
+    // key only — never an identity (T12470).
+    const { projectPathFingerprint: computeId } = await import('./identity.js');
     const canonicalGroups = new Map<string, RegistryRow[]>();
     await Promise.all(
       allRows.map(async (row) => {
@@ -250,9 +305,23 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   };
 
   const matchedByReason: Partial<Record<NexusProjectsCleanReason, number>> = {};
-  const removals: NexusProjectsCleanRemoval[] = [];
-  for (const row of allRows) {
-    const missing = !existsSync(row.projectPath);
+  const matchedRows: NexusProjectsCleanRemoval[] = [];
+  const missingIds = new Set<string>();
+  const unreadableIds = new Set<string>();
+  const mismatchOf = new Map<string, string>();
+  // T12471: tri-state, bounded probe. Only `no` (ENOENT/ENOTDIR, or a
+  // different id declared there) proves a project gone; `unknown` (EACCES,
+  // EPERM, timeout) is a live project this process cannot see.
+  const { runWithConcurrency } = await import('../lib/concurrency.js');
+  const holdings = await runWithConcurrency(allRows, PROBE_CONCURRENCY, (row) =>
+    probeRowPath(row.projectPath, row.projectId),
+  );
+  for (const [index, row] of allRows.entries()) {
+    const missing = holdings[index] === 'gone';
+    if (missing) missingIds.add(row.projectId);
+    const holding = holdings[index];
+    if (holding === 'unknown') unreadableIds.add(row.projectId);
+    if (typeof holding === 'object') mismatchOf.set(row.projectId, holding.declares);
     const temp = isTempPath(row.projectPath);
     const test = isTestPath(row.projectPath);
     if (missing) classification.missingPath++;
@@ -271,14 +340,44 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     if (opts.matchOrphaned && missing) reasons.push('missing-path');
     if (pollutedIds.has(row.projectId)) reasons.push('path-divergent-duplicate');
     if (reasons.length === 0) continue;
-    for (const reason of reasons) matchedByReason[reason] = (matchedByReason[reason] ?? 0) + 1;
-    removals.push({ projectId: row.projectId, projectPath: row.projectPath, reasons });
+    matchedRows.push({ projectId: row.projectId, projectPath: row.projectPath, reasons });
   }
   classification.retained = classification.total - classification.stale;
+
+  // T12471: a gone path whose id lives on elsewhere is a move, never an orphan.
+  const relocated = await findRelocated(matchedRows.filter((r) => missingIds.has(r.projectId)));
+  const relocatedIds = new Set(relocated.map((r) => r.projectId));
+  const unreadable = matchedRows
+    .filter((r) => unreadableIds.has(r.projectId))
+    .map((r) => ({ projectId: r.projectId, projectPath: r.projectPath }));
+  // Reported under --orphans (where it used to be deleted) and whenever
+  // another criterion matched it; never removed.
+  const matchedIds = new Set(matchedRows.map((r) => r.projectId));
+  const idMismatch = allRows.flatMap((r) => {
+    const declares = mismatchOf.get(r.projectId);
+    return declares && (opts.matchOrphaned || matchedIds.has(r.projectId))
+      ? [{ projectId: r.projectId, projectPath: r.projectPath, declares }]
+      : [];
+  });
+  const removals = matchedRows.filter(
+    (r) =>
+      !relocatedIds.has(r.projectId) &&
+      !unreadableIds.has(r.projectId) &&
+      !mismatchOf.has(r.projectId),
+  );
+  for (const removal of removals)
+    for (const reason of removal.reasons)
+      matchedByReason[reason] = (matchedByReason[reason] ?? 0) + 1;
 
   const totalCount = allRows.length;
   const matched = removals.length;
   const sample = removals.slice(0, 10).map((r) => path.resolve(r.projectPath));
+
+  const relocatedField = {
+    ...(relocated.length > 0 ? { relocated } : {}),
+    ...(unreadable.length > 0 ? { unreadable } : {}),
+    ...(idMismatch.length > 0 ? { idMismatch } : {}),
+  };
 
   if (opts.dryRun || matched === 0) {
     return {
@@ -290,6 +389,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
       totalCount,
       classification,
       matchedByReason,
+      ...relocatedField,
     };
   }
 
@@ -334,7 +434,12 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
           tx.delete(aliasTable).where(inArray(aliasTable.canonicalId, slice)).run().changes,
         );
       }
-      // T12354: path-map rows go with their project, and none may outlive it.
+      // T12354 · T12469: an explicitly purged project's locations go with it,
+      // and none may outlive the registry row they belong to.
+      tx.run(
+        sql`DELETE FROM ${locationTable} WHERE ${locationTable.projectId} NOT IN (SELECT ${regTable.projectId} FROM ${regTable})`,
+      );
+      // Legacy path map, still dual-written for older binaries (T12469).
       tx.run(
         sql`DELETE FROM ${pathTable} WHERE ${pathTable.projectId} NOT IN (SELECT ${regTable.projectId} FROM ${regTable})`,
       );
@@ -444,10 +549,38 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     classification,
     matchedByReason,
     receipt,
+    ...relocatedField,
     ...(fsRemoved !== undefined ? { fsRemoved } : {}),
     ...(fsFailed !== undefined ? { fsFailed } : {}),
     ...(vacuumBytesFreed !== undefined ? { vacuumBytesFreed } : {}),
   };
+}
+
+/**
+ * Of the matched rows whose path is gone, those whose id is found at another
+ * path on this device, with the remedy that rebinds them (T12471).
+ */
+async function findRelocated(
+  gone: readonly NexusProjectsCleanRemoval[],
+): Promise<NexusProjectsCleanRelocated[]> {
+  if (gone.length === 0) return [];
+  const { locateProjectsElsewhere } = await import('../doctor/projects.js');
+  const found = await locateProjectsElsewhere(gone);
+  return gone.flatMap((row) => {
+    const foundAt = found.get(row.projectId);
+    if (!foundAt || foundAt.length === 0) return [];
+    return [
+      {
+        projectId: row.projectId,
+        projectPath: row.projectPath,
+        foundAt,
+        remedy:
+          foundAt.length === 1
+            ? `cleo doctor projects --dry-run   then   cleo doctor projects --apply   (rebinds ${row.projectId} to ${foundAt[0]} instead of deleting it)`
+            : `cleo doctor projects --dry-run   (several paths declare ${row.projectId}: cd into the one to keep and run \`cleo doctor project-identity --resolve\`)`,
+      },
+    ];
+  });
 }
 
 // SSoT-EXEMPT:engine-migration-T1569

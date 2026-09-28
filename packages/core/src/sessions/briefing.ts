@@ -193,6 +193,12 @@ export interface CurrentTaskInfo {
  */
 export interface SessionBriefing {
   /**
+   * `true` when the caller is NOT bound to a session and the session context
+   * shown is only the newest active row — possibly another agent's (T12500).
+   * Set by `sessionBriefing`; omitted when the caller is bound.
+   */
+  unbound?: true;
+  /**
    * Automatic refresh of the global provider instruction files (T12378):
    * stale embedded deliveries are regenerated before the agent reads them.
    * Set by `sessionBriefing` / `sessionStart`; absent from `computeBriefing`.
@@ -471,7 +477,7 @@ export async function computeBriefing(
     // ended/missing, revert to the most-recent ACTIVE row so the briefing still
     // surfaces *a* live session rather than an ended one.
     if (!activeSessionObj || activeSessionObj.status !== 'active') {
-      activeSessionObj = await accessor.getActiveSession();
+      activeSessionObj = await accessor.getActiveSession(); // get-active-session-allowed: read-only display fallback; sessionBriefing labels it `unbound` (T12500)
     }
     const activeSessionId = activeSessionObj?.id ?? '';
     const activePeerId =
@@ -532,6 +538,20 @@ export async function computeBriefing(
 
   // Compute warnings
   const warnings: string[] = [...knowledgeWarnings];
+  // T12559: a missing or conflicting `.cleo/project-id` is otherwise invisible
+  // until a clone mints its own id. One line, only when the state is not ok.
+  try {
+    const { inspectProjectIdentity } = await import('../doctor/project-identity.js');
+    const identity = inspectProjectIdentity(projectRoot);
+    if (identity.state !== 'ok' && identity.remedy)
+      warnings.push(
+        `Project identity ${identity.state}: ${identity.message} Remedy: ${identity.remedy}`,
+      );
+  } catch (error) {
+    warnings.push(
+      `Project identity unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   if (currentTaskInfo?.blockedBy?.length) {
     warnings.push(
       `Focused task ${currentTaskInfo.id} is blocked by: ${currentTaskInfo.blockedBy.join(', ')}`,

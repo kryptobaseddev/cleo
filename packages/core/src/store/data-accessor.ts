@@ -21,6 +21,7 @@ export type {
   TaskAuditLogRow,
   TaskFieldUpdates,
   TaskQueryFilters,
+  TaskWriteGuard,
   TransactionAccessor,
 } from '@cleocode/contracts';
 

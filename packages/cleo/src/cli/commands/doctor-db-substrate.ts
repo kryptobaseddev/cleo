@@ -4,8 +4,9 @@
  * Walks every entry in `DB_INVENTORY` for the current project plus the
  * global tier, runs `PRAGMA integrity_check` on each existing DB, and
  * surfaces the result as a LAFS envelope. With `--fleet`, walks every
- * immediate-child `.cleo/`-bearing project under a fleet root
- * (`/mnt/projects/` by default; override via `--fleet-root`).
+ * immediate-child `.cleo/`-bearing project under the fleet roots — by
+ * default the parent directories of live registered projects (T12476);
+ * override via `--fleet-root`.
  *
  * Additionally detects two structural anomalies and surfaces them as
  * warnings:
@@ -27,18 +28,27 @@
  * @see ADR-068 — CLEO Database Charter
  */
 
+import { dirname } from 'node:path';
 import type { DbSubstrateAuditResult, DbSubstrateSurveyOptions } from '@cleocode/contracts';
 import { getProjectRoot, pushWarning } from '@cleocode/core';
 import { surveyDbSubstrate, surveyFleetDbSubstrate } from '@cleocode/core/doctor/db-substrate.js';
+import { listRegistryParentRoots } from '@cleocode/core/nexus/registry-roots.js';
 import { defineCommand } from '../lib/define-cli-command.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**
- * Default fleet root scanned when `--fleet` is passed without
- * `--fleet-root`. Matches the convention documented in the saga audit:
- * `/mnt/projects/<project>/.cleo/`.
+ * Fleet roots scanned when `--fleet` is passed without `--fleet-root`
+ * (T12476): the parent directories of live registered projects, so the
+ * default follows this device's layout instead of naming one past device's.
+ * When the registry yields none, the current project's parent is used.
+ *
+ * @returns Absolute fleet roots, at least one.
  */
-const DEFAULT_FLEET_ROOT = '/mnt/projects';
+async function defaultFleetRoots(): Promise<string[]> {
+  const roots = await listRegistryParentRoots();
+  return roots.length > 0 ? roots : [dirname(getProjectRoot())];
+}
 
 /**
  * Emit `meta.warnings` entries for every structural anomaly detected
@@ -185,7 +195,7 @@ export const doctorDbSubstrateCommand = defineCommand({
     name: 'db-substrate',
     description:
       'Walk every DB in the inventory + report integrity, row counts, orphan dirs. ' +
-      'Use --fleet for a multi-project survey under --fleet-root (default /mnt/projects).',
+      'Use --fleet for a multi-project survey under --fleet-root (default: parent dirs of registered projects).',
   },
   args: {
     fleet: {
@@ -194,7 +204,8 @@ export const doctorDbSubstrateCommand = defineCommand({
     },
     'fleet-root': {
       type: 'string',
-      description: 'Fleet root path (default: /mnt/projects). Only used with --fleet.',
+      description:
+        'Fleet root path (default: parent directories of registered projects). Only used with --fleet.',
     },
     'integrity-timeout-ms': {
       type: 'string',
@@ -227,14 +238,14 @@ export const doctorDbSubstrateCommand = defineCommand({
     }
     const options: DbSubstrateSurveyOptions = {
       ...(parsedTimeoutMs !== undefined ? { integrityCheckTimeoutMs: parsedTimeoutMs } : {}),
-      autoQuarantine: args['no-quarantine'] !== true,
+      autoQuarantine: !negatedFlag(args, 'quarantine'),
     };
 
     const result: DbSubstrateAuditResult = isFleet
       ? surveyFleetDbSubstrate(
           typeof args['fleet-root'] === 'string' && args['fleet-root'].length > 0
             ? args['fleet-root']
-            : DEFAULT_FLEET_ROOT,
+            : await defaultFleetRoots(),
           options,
         )
       : surveyDbSubstrate(getProjectRoot(), options);

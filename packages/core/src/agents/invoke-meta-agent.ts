@@ -155,10 +155,14 @@ function readProjectContext(projectRoot: string): string | null {
  * called and the result is serialized as `USER_PROFILE` in the token payload.
  */
 // biome-ignore lint/suspicious/noExplicitAny: nexusDb is a Drizzle database handle; typed as any to avoid circular imports
-async function readUserProfile(nexusDb: any): Promise<string | null> {
+async function readUserProfile(nexusDb: any, projectRoot: string): Promise<string | null> {
   try {
-    const { listUserProfile } = await import('../nexus/user-profile.js');
-    const rows = await listUserProfile(nexusDb, { minConfidence: 0.5 });
+    const { listUserProfile, resolveTraitProjectId } = await import('../nexus/user-profile.js');
+    // T12543: only user-global traits + traits derived in this project.
+    const rows = await listUserProfile(nexusDb, {
+      minConfidence: 0.5,
+      visibleInProject: resolveTraitProjectId(projectRoot),
+    });
     if (!rows || rows.length === 0) return null;
     return JSON.stringify(rows);
   } catch {
@@ -241,7 +245,7 @@ export async function invokeMetaAgent(options: InvokeMetaAgentOptions): Promise<
 
   // Thread user_profile when nexusDb provided and not already set
   if (nexusDb && !enrichedTokens.USER_PROFILE) {
-    const profileJson = await readUserProfile(nexusDb);
+    const profileJson = await readUserProfile(nexusDb, projectRoot);
     if (profileJson) {
       enrichedTokens.USER_PROFILE = profileJson;
     }

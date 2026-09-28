@@ -232,14 +232,14 @@ describe('T11030 — project move integration (cross-drive)', () => {
   });
 
   // AC11
-  it('AC11: cross-drive copy-based move succeeds', () => {
+  it('AC11 (T12556): same-device move renames the project; nothing is left at the source', () => {
     expect(existsSync(join(destDir, '.cleo', 'project-info.json'))).toBe(true);
-    expect(existsSync(join(sourceDir, '.cleo', 'project-info.json'))).toBe(true);
+    expect(existsSync(join(sourceDir, '.cleo', 'project-info.json'))).toBe(false);
   });
 
   // AC12
   it('AC12: cleanup removes test directories', () => {
-    expect(existsSync(sourceDir)).toBe(true);
+    expect(existsSync(sourceDir)).toBe(false);
     expect(existsSync(destDir)).toBe(true);
   });
 

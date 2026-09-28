@@ -12,6 +12,7 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { nexusCommand } from '../nexus.js';
 
@@ -53,7 +54,7 @@ describe('nexus context --content integration', () => {
       // Resolve: test file is at packages/cleo/src/cli/commands/__tests__/
       // packages/nexus/package.json is at ../../../../../../nexus/package.json from the test file
       const pkgPath = resolve(
-        new URL(import.meta.url).pathname,
+        fileURLToPath(import.meta.url),
         '../../../../../../nexus/package.json',
       );
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as {
@@ -65,7 +66,7 @@ describe('nexus context --content integration', () => {
 
     it('should declare ./code/search in @cleocode/nexus package.json exports', () => {
       const pkgPath = resolve(
-        new URL(import.meta.url).pathname,
+        fileURLToPath(import.meta.url),
         '../../../../../../nexus/package.json',
       );
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as {
@@ -77,7 +78,7 @@ describe('nexus context --content integration', () => {
 
     it('./code/unfold export should point to dist/src/code/unfold.js', () => {
       const pkgPath = resolve(
-        new URL(import.meta.url).pathname,
+        fileURLToPath(import.meta.url),
         '../../../../../../nexus/package.json',
       );
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as {
@@ -91,7 +92,7 @@ describe('nexus context --content integration', () => {
 
     it('./code/search export should point to dist/src/code/search.js', () => {
       const pkgPath = resolve(
-        new URL(import.meta.url).pathname,
+        fileURLToPath(import.meta.url),
         '../../../../../../nexus/package.json',
       );
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as {
@@ -107,7 +108,7 @@ describe('nexus context --content integration', () => {
       // The compiled nexus context command imports '@cleocode/nexus/dist/src/code/unfold.js'
       // directly (legacy pattern). This entry allows that import to succeed.
       const pkgPath = resolve(
-        new URL(import.meta.url).pathname,
+        fileURLToPath(import.meta.url),
         '../../../../../../nexus/package.json',
       );
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as {
@@ -119,7 +120,7 @@ describe('nexus context --content integration', () => {
 
     it('should also declare ./dist/src/code/search.js for CLI direct-path imports', () => {
       const pkgPath = resolve(
-        new URL(import.meta.url).pathname,
+        fileURLToPath(import.meta.url),
         '../../../../../../nexus/package.json',
       );
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as {
@@ -175,7 +176,7 @@ describe('nexus context --content integration', () => {
       const { smartUnfold } = nexusModule;
 
       // Use this test file itself to extract a symbol
-      const __filename = new URL(import.meta.url).pathname;
+      const __filename = fileURLToPath(import.meta.url);
       const result = smartUnfold(__filename, 'describe');
 
       // Should either find it or return errors, but never both empty source and no errors
@@ -192,7 +193,7 @@ describe('nexus context --content integration', () => {
       const nexusModule = await import('@cleocode/nexus');
       const { smartUnfold } = nexusModule;
 
-      const __filename = new URL(import.meta.url).pathname;
+      const __filename = fileURLToPath(import.meta.url);
       const result = smartUnfold(__filename, 'describe');
 
       if (result.found) {
@@ -213,7 +214,7 @@ describe('nexus context --content integration', () => {
       const nexusModule = await import('@cleocode/nexus');
       const { smartUnfold } = nexusModule;
 
-      const __filename = new URL(import.meta.url).pathname;
+      const __filename = fileURLToPath(import.meta.url);
       const result = smartUnfold(__filename, 'describe');
 
       if (result.found) {
@@ -243,7 +244,7 @@ describe('nexus context --content integration', () => {
       const nexusModule = await import('@cleocode/nexus');
       const { smartUnfold } = nexusModule;
 
-      const __filename = new URL(import.meta.url).pathname;
+      const __filename = fileURLToPath(import.meta.url);
       const result = smartUnfold(__filename, 'DEFINITELY_DOES_NOT_EXIST_SYMBOL_NAME_XYZ123');
 
       // Symbol not found case

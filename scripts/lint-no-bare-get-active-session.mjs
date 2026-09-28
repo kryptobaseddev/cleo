@@ -24,6 +24,13 @@
  * silently regress. It does NOT rewrite existing callsites — those migrate out
  * incrementally; lower the baseline with `--update-baseline` as they do.
  *
+ * T12500 migrated every bare identity-meaning callsite (11 → 0) to the
+ * caller's BOUND session (`resolveBoundSession` / `requireBoundSession`, which
+ * refuse with `E_SESSION_UNBOUND` instead of guessing), and added a second
+ * rule for INLINE newest-active selection. The baseline is now 4: read-only
+ * displays (SessionView.findActive ×2, the bootstrap brain summary, injection
+ * generation) that pick an active row inline.
+ *
  * What counts as a "bare callsite"
  * --------------------------------
  *   - A CALL `getActiveSession(` (with the trailing `(`), NOT the definition,
@@ -210,6 +217,45 @@ function scanFile(absPath) {
       violations.push({ file: relPath, line: i + 1, snippet: line.trim() });
     }
   }
+
+  scanInlineNewestActive(relPath, src, lines);
+}
+
+/**
+ * Inline newest-active selection (T12500). The same identity bug without the
+ * symbol: `sessions.filter(s => s.status === 'active').sort(…startedAt…)[0]`
+ * or `sessions.find(s => s.status === 'active')` picks "whoever wrote last"
+ * exactly as `getActiveSession()` does, and the call-name rule cannot see it —
+ * `cleo.sessions.end()` ended the newest session this way after every named
+ * callsite had been migrated. Multi-line, so it runs on the whole source.
+ */
+const PATTERN_INLINE_NEWEST = [
+  /\.filter\(\s*\(?\s*(\w+)[^=]*=>\s*\1\.status\s*===\s*'active'\s*\)\s*\.sort\([\s\S]{0,300}?startedAt[\s\S]{0,300}?\)\s*\[0\]/g,
+  /[sS]essions\w*\s*\.find\(\s*\(?\s*(\w+)[^=]*=>\s*\1\.status\s*===\s*'active'\s*\)/g,
+];
+
+/**
+ * @param {string} relPath
+ * @param {string} src
+ * @param {string[]} lines
+ */
+function scanInlineNewestActive(relPath, src, lines) {
+  for (const pattern of PATTERN_INLINE_NEWEST) {
+    pattern.lastIndex = 0;
+    for (let m = pattern.exec(src); m !== null; m = pattern.exec(src)) {
+      const startLine = src.slice(0, m.index).split('\n').length;
+      const endLine = startLine + m[0].split('\n').length - 1;
+      // Opt-out marker anywhere on the matched lines or the two lines above
+      // (the statement head of a chained `const x = rows\n.filter(…)`).
+      const window = lines.slice(Math.max(0, startLine - 3), endLine).join('\n');
+      if (window.includes(ALLOW_INLINE)) continue;
+      violations.push({
+        file: relPath,
+        line: startLine,
+        snippet: `${lines[startLine - 1].trim()} [inline newest-active selection]`,
+      });
+    }
+  }
 }
 
 /** @param {string} dir */
@@ -260,8 +306,9 @@ if (STRICT) {
     console.error(`    ${v.snippet}`);
   }
   console.error(
-    '\nFix: use resolveCurrentSession()/resolveCurrentSessionId() for identity,\n' +
-      '     or annotate a justified SCAN-meaning callsite with\n' +
+    '\nFix: use resolveBoundSession()/requireBoundSession() for mutations and attribution\n' +
+      '     (T12500 — never the newest active row), resolveSessionForRead() for read-only\n' +
+      '     display (labels `unbound`), or annotate a justified SCAN-meaning callsite with\n' +
       '     `// get-active-session-allowed: <reason>`.\n',
   );
   process.exit(1);

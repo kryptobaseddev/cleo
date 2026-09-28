@@ -917,8 +917,8 @@ describe('resolveProjectByCwd', () => {
     try {
       seedProjectInfo(tmpDir, 'proj-cwd');
       const result = resolveProjectByCwd(tmpDir);
-      // T11023: projectId is now canonical 12-hex hash, not the raw UUID
-      expect(result).toMatch(/^[0-9a-f]{12}$/);
+      // T12470: projectId is the declared id, never a path hash
+      expect(result).toBe('proj-cwd');
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -932,8 +932,8 @@ describe('resolveProjectByCwd', () => {
     try {
       seedProjectInfo(tmpDir, 'proj-ancestor');
       const result = resolveProjectByCwd(subDir);
-      // T11023: projectId is canonical 12-hex hash
-      expect(result).toMatch(/^[0-9a-f]{12}$/);
+      // T12470: projectId is the declared id, never a path hash
+      expect(result).toBe('proj-ancestor');
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -947,9 +947,9 @@ describe('resolveProjectByCwd', () => {
     try {
       seedProjectInfo(tmpDir, 'parent-proj');
       seedProjectInfo(childDir, 'child-proj');
-      // T11023: Returns canonical 12-hex hash — just verify it's non-null
+      // T12470: the nearest declared id wins
       const result = resolveProjectByCwd(childDir);
-      expect(result).toMatch(/^[0-9a-f]{12}$/);
+      expect(result).toBe('child-proj');
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -989,8 +989,8 @@ describe('resolveProjectByCwd', () => {
       seedProjectInfo(tmpDir, 'canonical-id-123');
       const result = resolveProjectByCwd(tmpDir);
       expect(typeof result).toBe('string');
-      // T11023: projectId is now canonical 12-hex hash
-      expect(result).toMatch(/^[0-9a-f]{12}$/);
+      // T12470: projectId is the declared id, never a path hash
+      expect(result).toBe('canonical-id-123');
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -1091,8 +1091,8 @@ describe('ID-Aware Path Resolver — resolveProjectByCwd + resolveCanonicalCleoD
     seedProjectInfo(projDir, 'ac2-project-id');
 
     const result = resolveProjectByCwd(projDir);
-    // T11023: projectId is canonical 12-hex hash
-    expect(result).toMatch(/^[0-9a-f]{12}$/);
+    // T12470: projectId is the declared id, never a path hash
+    expect(result).toBe('ac2-project-id');
   });
 
   // ── AC3: CWD in subdir → parent project projectId ─────────────────────────
@@ -1106,8 +1106,8 @@ describe('ID-Aware Path Resolver — resolveProjectByCwd + resolveCanonicalCleoD
     seedProjectInfo(projDir, 'ac3-parent-id');
 
     const result = resolveProjectByCwd(subDir);
-    // T11023: projectId is canonical 12-hex hash
-    expect(result).toMatch(/^[0-9a-f]{12}$/);
+    // T12470: projectId is the declared id, never a path hash
+    expect(result).toBe('ac3-parent-id');
   });
 
   // Deeply nested subdirectory still resolves to parent
@@ -1118,8 +1118,8 @@ describe('ID-Aware Path Resolver — resolveProjectByCwd + resolveCanonicalCleoD
     mkdirSync(join(projDir, '.git'), { recursive: true });
     seedProjectInfo(projDir, 'ac3-deep-id');
 
-    // T11023: projectId is canonical 12-hex hash
-    expect(resolveProjectByCwd(deepDir)).toMatch(/^[0-9a-f]{12}$/);
+    // T12470: projectId is the declared id, never a path hash
+    expect(resolveProjectByCwd(deepDir)).toBe('ac3-deep-id');
   });
 
   // ── AC4: Worktree gitlink → main repo projectId ──────────────────────────
@@ -1221,10 +1221,10 @@ describe('ID-Aware Path Resolver — resolveProjectByCwd + resolveCanonicalCleoD
     seedProjectInfo(projDir, 'full-chain-id');
 
     const projectId = resolveProjectByCwd(projDir);
-    // T11023: projectId is canonical 12-hex hash — use it for nexus lookup
-    expect(projectId).toMatch(/^[0-9a-f]{12}$/);
+    // T12470: projectId is the DECLARED id — the registry key
+    expect(projectId).toBe('full-chain-id');
 
-    // Register the canonical hash in the consolidated cleo.db (not the raw UUID)
+    // Register the declared id in the consolidated cleo.db
     seedNexusDb([{ project_id: projectId, project_path: projDir }]);
 
     const cleoDir = resolveCanonicalCleoDir(projectId);

@@ -67,8 +67,9 @@
  * @see cleo docs fetch adr-090-nexus-graph-residency-split
  */
 
+import { USER_PROFILE_SCOPES } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
-import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { makeSchemaMetaTable } from '../schema-utils.js';
 
 // ---------------------------------------------------------------------------
@@ -116,10 +117,19 @@ export const nexusProjectRegistry = sqliteTable(
   {
     /** Canonical 12-hex-char project identifier (T9149 W5). Primary key. */
     projectId: text('project_id').primaryKey(),
-    /** Stable project hash (unique). */
-    projectHash: text('project_hash').notNull().unique(),
-    /** Absolute filesystem path that owns this project_id (unique). */
-    projectPath: text('project_path').notNull().unique(),
+    /**
+     * Path fingerprint of the most recently encountered checkout. NOT unique:
+     * the registry is keyed by `project_id` alone (ADR-094 · T12469).
+     * It is NOT the write-once identity `projectHash` from project-info.json
+     * (T12557): never join it to `audit_log.project_hash` or release ids.
+     */
+    projectHash: text('project_hash').notNull(),
+    /**
+     * Most recently encountered checkout root. NOT unique: a path names a
+     * location, never an identity. Every checkout on every device lives in
+     * `nexus_project_locations` (ADR-094 · T12469).
+     */
+    projectPath: text('project_path').notNull(),
     /** Human-readable project name. */
     name: text('name').notNull(),
     /** ISO-8601 UTC registration instant (canonical TEXT, §4). */
@@ -138,9 +148,13 @@ export const nexusProjectRegistry = sqliteTable(
     taskCount: integer('task_count').notNull().default(0),
     /** JSON array of project labels (serialized TEXT per JSON-Column Audit). */
     labelsJson: text('labels_json').notNull().default('[]'),
-    /** Absolute path to the project's project-scope `cleo.db` brain partition. */
+    /**
+     * Legacy mirror of the project store path. Written for older binaries that
+     * share this global store; never read — the path is derived from
+     * `project_path` at runtime (T12469).
+     */
     brainDbPath: text('brain_db_path'),
-    /** Absolute path to the project's project-scope `cleo.db` tasks partition. */
+    /** Legacy mirror of the project store path; never read (see `brainDbPath`, T12469). */
     tasksDbPath: text('tasks_db_path'),
     /** ISO-8601 UTC last successful code-intelligence index run; NULL until indexed. */
     lastIndexed: text('last_indexed'),
@@ -149,6 +163,7 @@ export const nexusProjectRegistry = sqliteTable(
   },
   (table) => [
     index('idx_nexus_project_registry_hash').on(table.projectHash),
+    index('idx_nexus_project_registry_path').on(table.projectPath),
     index('idx_nexus_project_registry_health').on(table.healthStatus),
     index('idx_nexus_project_registry_name').on(table.name),
     index('idx_nexus_project_registry_last_indexed').on(table.lastIndexed),
@@ -179,6 +194,9 @@ export const nexusProjectIdAliases = sqliteTable(
  * seen on this device, keyed by path (T12354). The registry row holds one path
  * per `project_id`; this table lets two checkouts of one project coexist.
  *
+ * @deprecated Superseded by {@link nexusProjectLocations} (T12469). Kept so
+ *   older binaries that share this global store keep working; current code
+ *   neither reads nor writes it.
  * @task T12354
  */
 export const nexusProjectPaths = sqliteTable(
@@ -196,6 +214,156 @@ export const nexusProjectPaths = sqliteTable(
     lastSeen: text('last_seen').notNull().default(sql`(datetime('now'))`),
   },
   (table) => [index('idx_nexus_project_paths_project_id').on(table.projectId)],
+);
+
+/** Lifecycle states of one project location (T12469). */
+export const PROJECT_LOCATION_STATES = ['live', 'missing', 'superseded', 'candidate'] as const;
+
+/**
+ * `nexus_project_locations` — every place a project has been seen, on every
+ * device (ADR-094 · T12469). One row per `(project_id, device_id, path)`; rows
+ * are never deleted when a directory vanishes — they move to `missing`, and a
+ * path now claimed by another project moves to `superseded`, so location
+ * history survives for consumers such as legacy credential derivation.
+ *
+ * @task T12469
+ */
+export const nexusProjectLocations = sqliteTable(
+  'nexus_project_locations',
+  {
+    /** Immutable project id (soft FK → nexus_project_registry). */
+    projectId: text('project_id').notNull(),
+    /** Stable device id (`<cleoHome>/device-id`) of the device the path is on. */
+    deviceId: text('device_id').notNull(),
+    /** Absolute checkout root on that device. */
+    path: text('path').notNull(),
+    /** ISO-8601 UTC first-recorded instant (canonical TEXT, §4). */
+    firstSeen: text('first_seen').notNull().default(sql`(datetime('now'))`),
+    /** ISO-8601 UTC last-encountered instant (canonical TEXT, §4). */
+    lastSeen: text('last_seen').notNull().default(sql`(datetime('now'))`),
+    /**
+     * `live` · `missing` (directory gone) · `superseded` (path now holds another
+     * project) · `candidate` (declares the id but is not confirmed, T12470).
+     */
+    state: text('state', { enum: PROJECT_LOCATION_STATES }).notNull().default('live'),
+    /**
+     * Random per-checkout nonce held in the checkout's untracked
+     * `project-info.json` (T12470) — the only evidence that proves a move.
+     */
+    checkoutNonce: text('checkout_nonce'),
+    /** First (parentless) commit — displayed evidence only, never proof (T12470). */
+    gitRootCommit: text('git_root_commit'),
+    /** Normalised `origin` URL — displayed evidence only, never proof (T12470). */
+    gitRemote: text('git_remote'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.deviceId, table.path] }),
+    index('idx_nexus_project_locations_device_path').on(table.deviceId, table.path),
+  ],
+);
+
+/**
+ * `nexus_devices` — one row per machine that runs CLEO against this global
+ * store (T12510). `device_id` is the persisted `<cleoHome>/device-id` UUID
+ * (T9321), the same id {@link nexusProjectLocations} rows carry, so a location
+ * resolves to a hostname / OS / arch / CLEO version and a last heartbeat. The
+ * CLI upserts this device's row at most once per minute.
+ *
+ * @task T12510
+ */
+export const nexusDevices = sqliteTable(
+  'nexus_devices',
+  {
+    /** Stable device id (`<cleoHome>/device-id`). Primary key. */
+    deviceId: text('device_id').primaryKey(),
+    /** `os.hostname()` at the last heartbeat. */
+    hostname: text('hostname').notNull(),
+    /** `process.platform` (e.g. `darwin`, `linux`, `win32`). */
+    os: text('os').notNull(),
+    /** `process.arch` (e.g. `arm64`, `x64`). */
+    arch: text('arch').notNull(),
+    /** CLEO version that sent the last heartbeat. */
+    cleoVersion: text('cleo_version').notNull(),
+    /** ISO-8601 UTC first-heartbeat instant (canonical TEXT, §4). */
+    firstSeen: text('first_seen').notNull().default(sql`(datetime('now'))`),
+    /** ISO-8601 UTC last-heartbeat instant (canonical TEXT, §4). */
+    lastHeartbeatAt: text('last_heartbeat_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [index('idx_nexus_devices_last_heartbeat').on(table.lastHeartbeatAt)],
+);
+
+/** Probe error codes a `nexus_project_git_state` row may carry (T12511). */
+export const GIT_PROBE_ERROR_CODES = [
+  'E_PATH_MISSING',
+  'E_PATH_ACCESS',
+  'E_NOT_GIT_REPO',
+  'E_GIT_TIMEOUT',
+  'E_GIT_FAILED',
+  'E_FETCH_FAILED',
+] as const;
+
+/**
+ * `nexus_project_git_state` — the last git state probe of one project location
+ * (T12511). Keyed exactly like {@link nexusProjectLocations}: `(project_id, device_id,
+ * path)`, one row per checkout per device, so another device reading this
+ * store sees where each project lives and what state it was last seen in.
+ *
+ * Remote columns describe the remote as of `remote_fetched_at` (FETCH_HEAD's
+ * mtime), never "now": the probe does not fetch unless asked. A failed probe
+ * still writes its row, with `probe_error_code` set — errors are never dropped.
+ *
+ * @task T12511
+ */
+export const nexusProjectGitState = sqliteTable(
+  'nexus_project_git_state',
+  {
+    /** Immutable project id (soft FK → nexus_project_locations.project_id). */
+    projectId: text('project_id').notNull(),
+    /** Stable device id of the device the location is on. */
+    deviceId: text('device_id').notNull(),
+    /** Location path (soft FK → nexus_project_locations.path). */
+    path: text('path').notNull(),
+    /** Directory git ran in: `path`, or its declared `evidence.gitRoot`. */
+    gitRoot: text('git_root'),
+    /** Checked-out branch; NULL when detached or unknown. */
+    branch: text('branch'),
+    /** HEAD commit; NULL for an unborn branch or a failed probe. */
+    headSha: text('head_sha'),
+    /** 1 when HEAD is detached. */
+    detached: integer('detached', { mode: 'boolean' }).notNull().default(false),
+    /** 1 for a shallow clone. */
+    shallow: integer('shallow', { mode: 'boolean' }).notNull().default(false),
+    /** Tracked entries with staged or unstaged changes. */
+    dirtyCount: integer('dirty_count'),
+    /** Untracked, not-ignored entries. */
+    untrackedCount: integer('untracked_count'),
+    /** Upstream ref (e.g. `origin/main`). */
+    upstream: text('upstream'),
+    /** Commits on HEAD not on the upstream, as of the last fetch. */
+    ahead: integer('ahead'),
+    /** Commits on the upstream not on HEAD, as of the last fetch. */
+    behind: integer('behind'),
+    /** Remote the upstream belongs to (else `origin`, else the first remote). */
+    remoteName: text('remote_name'),
+    /** That remote's configured URL. */
+    remoteUrl: text('remote_url'),
+    /** Upstream tracking-ref commit, as of the last fetch. */
+    remoteHeadSha: text('remote_head_sha'),
+    /** ISO-8601 UTC instant of the last fetch (FETCH_HEAD mtime); NULL if never. */
+    remoteFetchedAt: text('remote_fetched_at'),
+    /** ISO-8601 UTC instant of this probe (canonical TEXT, §4). */
+    probedAt: text('probed_at').notNull(),
+    /** Probe wall time, milliseconds. */
+    durationMs: integer('duration_ms').notNull().default(0),
+    /** Why the probe could not describe (all of) the location. */
+    probeErrorCode: text('probe_error_code', { enum: GIT_PROBE_ERROR_CODES }),
+    /** Detail for `probe_error_code`. */
+    probeError: text('probe_error'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.deviceId, table.path] }),
+    index('idx_nexus_project_git_state_device').on(table.deviceId),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -307,12 +475,31 @@ export const nexusUserProfile = sqliteTable(
     reinforcementCount: integer('reinforcement_count').notNull().default(1),
     /** traitKey of the trait that supersedes this one (T1139 supersession graph). */
     supersededBy: text('superseded_by'),
+
+    /**
+     * Portable project id (`.cleo/project-id`, ADR-094) of the project this
+     * trait was derived in. `NULL` = unknown origin (rows written before
+     * T12543): excluded from spawn prompts, still queryable.
+     *
+     * @task T12543
+     */
+    projectId: text('project_id'),
+
+    /**
+     * Visibility scope (`project` | `user`). `project` rows are injected only
+     * into prompts for the project in `project_id`; `user` rows are explicitly
+     * user-global. Defaults to `project`.
+     *
+     * @task T12543
+     */
+    scope: text('scope', { enum: USER_PROFILE_SCOPES }).notNull().default('project'),
   },
   (table) => [
     index('idx_nexus_user_profile_confidence').on(table.confidence),
     index('idx_nexus_user_profile_source').on(table.source),
     index('idx_nexus_user_profile_last_reinforced').on(table.lastReinforcedAt),
     index('idx_nexus_user_profile_superseded').on(table.supersededBy),
+    index('idx_nexus_user_profile_project').on(table.projectId, table.scope),
   ],
 );
 
@@ -368,6 +555,10 @@ export type NewNexusProjectIdAliasRow = typeof nexusProjectIdAliases.$inferInser
 export type NexusProjectPathRow = typeof nexusProjectPaths.$inferSelect;
 /** Row type for `nexus_project_paths` INSERT (T12354). */
 export type NewNexusProjectPathRow = typeof nexusProjectPaths.$inferInsert;
+/** Row type for `nexus_project_locations` SELECT (T12469). */
+export type NexusProjectLocationRow = typeof nexusProjectLocations.$inferSelect;
+/** Row type for `nexus_project_locations` INSERT (T12469). */
+export type NewNexusProjectLocationRow = typeof nexusProjectLocations.$inferInsert;
 /** Row type for `nexus_audit_log` SELECT (target shape). */
 export type NexusAuditLogRow = typeof nexusAuditLog.$inferSelect;
 /** Row type for `nexus_audit_log` INSERT (target shape). */

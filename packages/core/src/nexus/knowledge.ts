@@ -22,7 +22,7 @@ import type {
 import { legacyProjectId } from '@cleocode/paths';
 import { min } from 'drizzle-orm';
 import { z } from 'zod';
-import { worktreeScope } from '../paths.js';
+import { getProjectRoot, worktreeScope } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import { getNexusDb, getNexusNativeDb, nexusSchema } from '../store/nexus-sqlite.js';
 import {
@@ -32,6 +32,7 @@ import {
 } from './assessment-store.js';
 import { generateProjectHash } from './hash.js';
 import { resolveSourceRoots } from './source-roots.js';
+import { decodeStoredAssessment } from './stored-roots.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -194,6 +195,26 @@ const referenceSchema = z.object({
     .optional(),
 });
 
+/**
+ * Path fields of a stored assessment, read before the strict schema so the
+ * project-relative form (T12474) can be resolved against the live project root.
+ */
+const storedAssessmentRootsSchema = z
+  .object({
+    sourceRoot: z.string(),
+    sourceRoots: z
+      .object({
+        projectRoot: z.string(),
+        sourceRoot: z.string(),
+        roots: z.array(
+          z.object({ requestedPath: z.string(), canonicalPath: z.string().nullable() }).loose(),
+        ),
+      })
+      .loose()
+      .optional(),
+  })
+  .loose();
+
 const assessmentSchema = z.object({
   generation: z.uuid().optional(),
   sourceRoots: sourceRootsSchema.optional(),
@@ -223,6 +244,11 @@ const assessmentSchema = z.object({
  * separately and reported as `referenceCount`; read it with
  * {@link readKnowledgeIndexReferences}. A historical value with inline
  * `references` is returned as stored.
+ *
+ * T12474: root paths are stored relative to the project and resolved here
+ * against the live project root, so a moved project reads its own paths. A
+ * legacy absolute record is rebased when all its paths lie inside the project
+ * root it recorded; an inconsistent one is returned as stored.
  * @param projectRoot - Explicit project root, or the ambient canonical project when omitted.
  * @returns The published assessment, or null for a legacy generation.
  * @remarks Reads only through the canonical project store. Malformed metadata throws.
@@ -242,7 +268,10 @@ export async function readKnowledgeIndexAssessment(
     .get(ASSESSMENT_KEY);
   if (!row) return null;
   if (typeof row.value !== 'string') throw new Error('Graph assessment metadata is not text.');
-  const assessment = assessmentSchema.parse(JSON.parse(row.value));
+  const stored = storedAssessmentRootsSchema.parse(JSON.parse(row.value));
+  const assessment = assessmentSchema.parse(
+    decodeStoredAssessment(stored, projectRoot ?? getProjectRoot()),
+  );
   if (assessment.sourceRoots) {
     const prefixes = assessment.sourceRoots.roots
       .filter((root) => root.explicitlyIncluded)

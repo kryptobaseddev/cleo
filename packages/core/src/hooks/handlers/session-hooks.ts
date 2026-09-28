@@ -7,14 +7,15 @@
  * T138: Triggers memory bridge refresh on session start and end.
  * T139: Regenerates bridge with session scope on start.
  * T144: Extracts transcript observations on session end.
- * T5158: Auto-snapshots SQLite databases (tasks.db + brain.db) via
- *        VACUUM INTO on SessionEnd to preserve a recovery point now that
- *        the databases are no longer tracked in project git (ADR-013).
+ * T5158: The session-end SQLite snapshot used to live here. T12508 moved it
+ *        to `sessions/session-end-snapshot.ts`, called by `endSession` after
+ *        the session is persisted (hook handlers run concurrently, before
+ *        the session row is written).
  * T527: Removed duplicate session observeBrain writes — session data already
  *       lives in the sessions table; writing it again to brain_observations
  *       was pure noise.
  * T549 Wave 3-E: Fire-and-forget sleep-time consolidation on session end.
- *       Runs after backup (priority 5) so brain.db snapshot is captured first.
+ *       Priority 5.
  * T554: Fire-and-forget LLM reflector on session end. Runs at priority 4
  *       (after consolidation at priority 5) to synthesize final session knowledge.
  * T732: Write `transcript_pending_extraction` tombstone on session end (priority 3).
@@ -97,46 +98,18 @@ export async function handleSessionEnd(
 }
 
 /**
- * Handle SessionEnd - snapshot SQLite databases to `.cleo/backups/sqlite/`.
- *
- * ADR-013 / T5158: `.cleo/tasks.db` and `.cleo/brain.db` are NOT tracked in
- * project git, so we need an out-of-band recovery mechanism. This handler
- * calls `vacuumIntoBackupAll` with `force: true` at every session end to
- * guarantee a fresh point-in-time snapshot of both databases.
- *
- * Rotation (MAX_SNAPSHOTS = 10 per database) is handled inside
- * `sqlite-backup.ts`. Failures here are non-fatal: a backup error must
- * never block session end.
- *
- * The `vacuumIntoBackupAll` import is deferred to call time so tests that
- * auto-load session-hooks (e.g. via `handlers/index.ts`) do not have to
- * mock every transitive dependency of `sqlite-backup.ts` at hoisted
- * `vi.mock` time.
- */
-export async function handleSessionEndBackup(
-  projectRoot: string,
-  _payload: SessionEndPayload,
-): Promise<void> {
-  try {
-    const { vacuumIntoBackupAll } = await import('../../store/sqlite-backup.js');
-    await vacuumIntoBackupAll({ cwd: projectRoot, force: true });
-  } catch {
-    // Backup failures are best-effort — never block session end on them.
-  }
-}
-
-/**
  * Handle SessionEnd — fire-and-forget sleep-time memory consolidation.
  *
  * T549 Wave 3-E: Runs the full consolidation pipeline (dedup, quality recompute,
  * tier promotion, contradiction detection, soft eviction, graph strengthening,
- * summary generation) in the background after the session backup has completed.
+ * summary generation) in the background.
  *
  * Uses setImmediate to yield control so the session end flow completes before
  * consolidation begins. Consolidation errors are caught and logged to console.warn
  * — they MUST NOT block session end or throw to callers.
  *
- * Priority 5 ensures this runs last (after backup at priority 10).
+ * Registered at priority 5. Priorities order the handler list only; dispatch
+ * runs all SessionEnd handlers concurrently (see the NOTE at registration).
  */
 export async function handleSessionEndConsolidation(
   projectRoot: string,
@@ -264,8 +237,9 @@ export async function handleSessionEndTranscriptSchedule(
  * before process.exit. Using `setImmediate` here would silently drop the write.
  *
  * Runs at priority 2 — the last synchronous hook in the session-end pipeline,
- * ensuring all prior work (backup, consolidation, observer, reflector, transcript)
- * has been scheduled before the journal entry is written.
+ * alongside consolidation, observer, reflector and transcript scheduling
+ * (dispatch runs SessionEnd handlers concurrently, so none is guaranteed to
+ * have finished first).
  */
 export async function handleSessionEndJournal(
   projectRoot: string,
@@ -332,18 +306,11 @@ hooks.register({
   priority: 100,
 });
 
-// Lower priority (10) runs AFTER the brain/memory-bridge handlers so the
-// snapshot captures the most up-to-date brain.db state including the
-// SessionEnd observation just written by handleSessionEnd above.
-hooks.register({
-  id: 'backup-session-end',
-  event: 'SessionEnd',
-  handler: handleSessionEndBackup,
-  priority: 10,
-});
-
-// Priority 5 runs AFTER backup (priority 10) — consolidation is purely
-// additive and should not delay the backup point-in-time snapshot.
+// NOTE (T12508): `hooks.dispatch` runs every handler for an event
+// CONCURRENTLY (`Promise.allSettled`). `priority` orders the handler list,
+// not execution — a handler can never rely on another having finished. The
+// session-end SQLite snapshot is therefore NOT a hook: `endSession` calls
+// `snapshotAfterSessionEnd` itself, after the session is persisted.
 hooks.register({
   id: 'consolidation-session-end',
   event: 'SessionEnd',
@@ -373,8 +340,8 @@ hooks.register({
 });
 
 // Priority 3 — T732: queue transcript for warm-tier extraction. Runs last so
-// the tombstone captures the completed session state (after backup + consolidation
-// + reflector have all run).
+// the tombstone captures the completed session state (handlers run concurrently;
+// see the NOTE above).
 hooks.register({
   id: 'transcript-schedule-session-end',
   event: 'SessionEnd',

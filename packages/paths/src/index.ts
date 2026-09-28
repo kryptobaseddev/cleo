@@ -27,6 +27,8 @@ export {
   _resetCleoPlatformPathsCache,
   canonicalizePath,
   computeCanonicalProjectId,
+  computePathFingerprintId,
+  type DeclaredProjectIdentity,
   getCanonicalTemplatesTildePath,
   getCleoHome,
   getCleoPlatformPaths,
@@ -34,9 +36,11 @@ export {
   getCleoTemplatesTildePath,
   legacyProjectId,
   type ResolvedProject,
+  readDeclaredProjectIdentity,
   resolveCanonicalCleoDir,
   resolveLegacyCleoDir,
   resolveProjectByCwd,
+  resolveStableDeviceIdPath,
 } from './cleo-paths.js';
 export {
   type EnforceOptions,
@@ -71,4 +75,5 @@ export {
   resolveTaskWorktreePath,
   resolveWorktreeIndexPath,
   resolveWorktreeRootForHash,
+  resolveWorktreeTaskLockPath,
 } from './worktree-paths.js';

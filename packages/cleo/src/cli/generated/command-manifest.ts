@@ -298,6 +298,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/dash.js')).dashCommand as CommandDef,
   },
   {
+    exportName: 'decideCommand',
+    name: 'decide',
+    description:
+      'Typed-decision (System One) provider: decide config (API URL + key), decide status (reachability probe), decide ask (one debug question). Unconfigured means heuristics answer.',
+    load: async () => (await import('../commands/decide.js')).decideCommand as CommandDef,
+  },
+  {
     exportName: 'decomposeCommand',
     name: 'decompose',
     description: "Move a task's text acceptance criteria onto a new child so it can hold subtasks",
@@ -462,6 +469,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorProjectIdentityCommand as CommandDef,
   },
   {
+    exportName: 'doctorRegistryCommand',
+    name: 'projects',
+    description:
+      'Machine-wide registry integrity: rebind moved projects by id, flag split identities, ',
+    load: async () =>
+      (await import('../commands/doctor-projects-registry.js')).doctorRegistryCommand as CommandDef,
+  },
+  {
     exportName: 'doctorProjectsCommand',
     name: 'doctor-projects',
     description: 'Probe every registered project (nexus.db) for DB + config health',
@@ -508,6 +523,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       'Inspect the machine-wide evidence-tool semaphore: which slots are held, by which pid, ',
     load: async () =>
       (await import('../commands/doctor-tool-locks.js')).doctorToolLocksCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorWorktreeStoresCommand',
+    name: 'worktree-stores',
+    description:
+      'List store files (.cleo/*.db, *.bak) stranded inside the project worktrees and report ',
+    load: async () =>
+      (await import('../commands/doctor-worktree-stores.js'))
+        .doctorWorktreeStoresCommand as CommandDef,
   },
   {
     exportName: 'doctorCommand',
@@ -830,7 +854,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'projectCommand',
     name: 'project',
-    description: 'Project lifecycle management (move, rename, re-register).',
+    description: 'Project lifecycle management (move, reroot, rename, re-register).',
     load: async () => (await import('../commands/project.js')).projectCommand as CommandDef,
   },
   {

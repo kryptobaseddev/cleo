@@ -75,7 +75,9 @@ describe('isMain (T12488)', () => {
       const src = readFileSync(join(SCRIPTS_DIR, name), 'utf8');
       if (
         /import\.meta\.url\s*===\s*`file:\/\/\$\{/.test(src) ||
-        /new URL\(import\.meta\.url\)\.pathname/.test(src)
+        /new URL\(import\.meta\.url\)\.pathname/.test(src) ||
+        // The split form: `const url = new URL(import.meta.url); … url.pathname`.
+        /new URL\(import\.meta\.url\);[\s\S]{0,80}?\.pathname/.test(src)
       ) {
         offenders.push(name);
       }

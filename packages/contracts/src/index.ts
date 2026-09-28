@@ -365,6 +365,7 @@ export type {
   TaskFieldUpdates,
   TaskPopulation,
   TaskQueryFilters,
+  TaskWriteGuard,
   TransactionAccessor,
 } from './data-accessor.js';
 // === Database Inventory (Saga T10281 / Epic T10282 / Task T10305 — SG-BRAIN-DB-RESILIENCE) ===
@@ -1274,6 +1275,7 @@ export type {
   ApplyInsightsResult,
   DialecticInsights,
   DialecticTurn,
+  DialecticTurnOrigin,
   EvaluateDialecticParams,
   EvaluateDialecticResult,
 } from './operations/dialectic.js';
@@ -1457,6 +1459,7 @@ export type {
   NexusDepsEntry,
   NexusDepsParams,
   NexusDepsResult,
+  NexusDeviceRecord,
   NexusDiffHealth,
   NexusDiffParams,
   NexusDiffResult,
@@ -1468,6 +1471,7 @@ export type {
   NexusFlowsResult,
   NexusFullContextParams,
   NexusFullContextResult,
+  NexusGitProbeErrorCode,
   NexusGraphEdge,
   NexusGraphNode,
   NexusGraphParams,
@@ -1497,14 +1501,20 @@ export type {
   NexusPermissionLevel,
   NexusPermissionSetParams,
   NexusPermissionSetResult,
+  NexusProjectCandidate,
   NexusProjectCheckout,
+  NexusProjectGitState,
+  NexusProjectLocationState,
   NexusProjectRecord,
   NexusProjectStats,
+  NexusProjectsCleanIdMismatch,
   NexusProjectsCleanParams,
   NexusProjectsCleanReason,
   NexusProjectsCleanReceipt,
+  NexusProjectsCleanRelocated,
   NexusProjectsCleanRemoval,
   NexusProjectsCleanResult,
+  NexusProjectsCleanUnreadable,
   NexusProjectsListParams,
   NexusProjectsListResult,
   NexusProjectsRegisterParams,
@@ -1513,6 +1523,8 @@ export type {
   NexusProjectsRemoveResult,
   NexusProjectsScanParams,
   NexusProjectsScanResult,
+  NexusProjectsStatusParams,
+  NexusProjectsStatusResult,
   NexusQueryCteParams,
   NexusQueryCteResult,
   NexusReconcileParams,
@@ -1522,6 +1534,13 @@ export type {
   NexusRegisterParams,
   NexusRegisterResult,
   NexusRegistryClassification,
+  NexusRegistryFinding,
+  NexusRegistryFindingKind,
+  NexusRegistryIntegrityReport,
+  NexusRegistryRepairAction,
+  NexusRegistryRepairReceipt,
+  NexusRegistryRollbackResult,
+  NexusRegistrySplitPeer,
   NexusResolveParams,
   NexusResolveResult,
   NexusRouteMapParams,
@@ -1610,8 +1629,10 @@ export type {
   NexusProfileUpsertResult,
   NexusProfileViewParams,
   NexusProfileViewResult,
+  UserProfileScope,
   UserProfileTrait,
 } from './operations/nexus-user-profile.js';
+export { USER_PROFILE_SCOPES } from './operations/nexus-user-profile.js';
 // Commonly used ops types re-exported at top level for convenience
 export type {
   BrainState,
@@ -1932,6 +1953,10 @@ export type {
   WorktreeLifecycleAction,
   WorktreeLifecycleAuditEntry,
   WorktreeListEntry,
+  WorktreeLockAcquisition,
+  WorktreeLockAcquisitionStatus,
+  WorktreeLockHolder,
+  WorktreeLockRecord,
   WorktreeSource,
   WorktreeStatusCategory,
 } from './operations/worktree.js';
@@ -2011,6 +2036,8 @@ export type {
   SyncResult,
   SyncStatus,
 } from './postgres-data-accessor.js';
+// === Process-table probe constants (T12500 · T12506) ===
+export { PS_STABLE_ENV } from './process-probe.js';
 // === Project Context (ecosystem detection types) ===
 export type {
   EcosystemHint,
@@ -2020,6 +2047,16 @@ export type {
   ProjectType,
   TestFramework,
 } from './project-context.js';
+// === Project relocation (move / reroot — T12552 · T12558) ===
+export type {
+  MoveProjectResult,
+  ProjectMovedTombstone,
+  ProjectRelocationExclusion,
+  ProjectRelocationKind,
+  ProjectRelocationPlan,
+  ProjectRelocationRegistryAction,
+  RerootProjectResult,
+} from './project-lifecycle.js';
 // === ProjectTools Contracts (scaffold-project, doctor-project, scaffold-global — T10069 / T9835b) ===
 export type {
   DoctorProjectOptions,
@@ -2400,6 +2437,20 @@ export {
   SupervisorIpcResponseEnvelopeSchema,
   SupervisorIpcResponseSchema,
 } from './supervisor-ipc/index.js';
+// === Table Classification Types (T12332 — Gate A replication classes) ===
+export type {
+  ColumnClass,
+  ColumnOverride,
+  PendingTableClassification,
+  RowRouting,
+  TableClass,
+  TableClassification,
+  TableClassificationStatus,
+  TablePatternRule,
+  TableRegistryEntry,
+  TableScope,
+  TableScopeRegistry,
+} from './table-classification.js';
 // === Task Types ===
 export type {
   AcceptanceItem,
@@ -2806,5 +2857,45 @@ export {
   type CollectionKey,
   DEFAULT_IDENTITY_FIELD,
 } from './collection-keys.js';
+
+// === Typed-decision contracts (T12489 · epic T12486) ===
+export type {
+  ChoiceDecisionAnswer,
+  ChoiceDecisionQuestion,
+  DecisionAnswer,
+  DecisionInstructions,
+  DecisionJsonValue,
+  DecisionOutcome,
+  DecisionOutcomeSource,
+  DecisionProviderConfig,
+  DecisionQuestion,
+  DecisionQuestionType,
+  DecisionRequest,
+  DecisionState,
+  NoulDecisionAnswer,
+  NoulDecisionQuestion,
+  ScoreDecisionAnswer,
+  ScoreDecisionQuestion,
+} from './decide.js';
+export {
+  choiceDecisionAnswerSchema,
+  choiceDecisionQuestionSchema,
+  DECISION_OUTCOME_SOURCES,
+  DECISION_QUESTION_TYPES,
+  DECISION_REQUEST_LIMITS,
+  decisionAnswerSchema,
+  decisionInstructionsSchema,
+  decisionOutcomeSchema,
+  decisionOutcomeSourceSchema,
+  decisionProviderConfigSchema,
+  decisionQuestionSchema,
+  decisionQuestionTypeSchema,
+  decisionRequestSchema,
+  decisionStateSchema,
+  noulDecisionAnswerSchema,
+  noulDecisionQuestionSchema,
+  scoreDecisionAnswerSchema,
+  scoreDecisionQuestionSchema,
+} from './decide.js';
 
 export { isStorableTaskId, isTaskId, TASK_ID_REGEX, type TaskId } from './task-id.js';

@@ -210,6 +210,38 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
     retryable: true,
     httpStatus: 409,
   },
+  {
+    exitCode: ExitCode.VERSION_CONFLICT,
+    lafsCode: 'E_CONFLICT',
+    category: 'CONFLICT',
+    description: 'Task version conflict (optimistic concurrency)',
+    retryable: true,
+    httpStatus: 409,
+  },
+  {
+    exitCode: ExitCode.SESSION_UNBOUND,
+    lafsCode: 'E_SESSION_UNBOUND',
+    category: 'CONTRACT',
+    description: 'No session is bound to this caller',
+    retryable: true,
+    httpStatus: 428,
+  },
+  {
+    exitCode: ExitCode.PROJECT_MOVED,
+    lafsCode: 'E_PROJECT_MOVED',
+    category: 'NOT_FOUND',
+    description: 'Project was relocated by cleo project reroot',
+    retryable: false,
+    httpStatus: 410,
+  },
+  {
+    exitCode: ExitCode.WORKTREE_LOCKED,
+    lafsCode: 'E_WORKTREE_LOCKED',
+    category: 'CONFLICT',
+    description: 'Task worktree is locked by a live holder',
+    retryable: true,
+    httpStatus: 409,
+  },
 
   // Session errors (30-39)
   {

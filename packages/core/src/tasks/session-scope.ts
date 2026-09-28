@@ -24,7 +24,7 @@ import type { TaskRecord, TasksAddParams } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { getActiveSession } from '../store/session-store.js';
+import { hasActiveSession, resolveBoundSession } from '../store/session-store.js';
 import { addTask, toTaskAddOptions } from './add.js';
 import { taskToRecord } from './engine-converters.js';
 import { findTasks } from './find.js';
@@ -77,7 +77,9 @@ const NON_INFERABLE_PARENT_STATUSES: ReadonlySet<string> = new Set([
  * Resolve the parent task ID through 3 mechanisms in priority order (T090):
  * 1. Explicit --parent flag (already resolved by caller)
  * 2. --parent-search fuzzy title match
- * 3. Session-scoped epic inheritance (when session scope is epic:T###)
+ * 3. Session-scoped epic inheritance (when session scope is epic:T###). Only
+ *    the caller's BOUND session counts (T12500); an unbound caller inherits
+ *    nothing and gets an `inferenceNote` saying why.
  *
  * @param projectRoot - Absolute path to the project root
  * @param params - Resolution parameters
@@ -139,7 +141,21 @@ export async function resolveParentFromSession(
   // exactly the state the issues describe.
   if (params.type !== 'epic') {
     try {
-      const session = await getActiveSession(projectRoot);
+      // T12500: inherit only from the CALLER's bound session. The newest
+      // active row is another agent's scope whenever this caller is unbound.
+      const session = (await resolveBoundSession(projectRoot))?.session ?? null;
+      if (!session && (await hasActiveSession(projectRoot))) {
+        // Say so rather than dropping the inheritance silently: before T12500
+        // this caller would have inherited the newest session's epic.
+        return {
+          resolvedParent: null,
+          parentSource: 'explicit',
+          inferenceNote:
+            'no session is bound to this terminal, so no parent was inherited from a ' +
+            "session's epic scope; pass --parent <id>, or bind with 'cleo session start' / " +
+            "'cleo session resume <id>' / CLEO_SESSION_ID",
+        };
+      }
       if (session?.scope?.type === 'epic' && session.scope.epicId) {
         const epicId = session.scope.epicId;
         // Do not inherit from an epic that is already finished — a session

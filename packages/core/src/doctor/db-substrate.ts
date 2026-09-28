@@ -1661,38 +1661,45 @@ export function surveyDbSubstrate(
 /**
  * Multi-project (fleet) substrate survey.
  *
- * Walks every immediate subdirectory of `fleetRoot` that contains a
+ * Walks every immediate subdirectory of each fleet root that contains a
  * `.cleo/` directory, and surveys each as a project root. The global
  * tier is collapsed into the FIRST project's entries — running global
  * DB integrity checks once per fleet is enough; running them per
  * project would just multiply the same `integrity_check` calls.
  *
- * @param fleetRoot - Absolute path whose immediate children are
- *   candidate project roots (e.g. `/mnt/projects/`).
+ * T12476: several roots are accepted because the default fleet is derived
+ * from the parent directories of registered projects, which need not share
+ * one parent. A project reachable from two roots is surveyed once.
+ *
+ * @param fleetRoot - Absolute path (or paths) whose immediate children are
+ *   candidate project roots (e.g. `~/code`).
  * @param options - Tuning knobs forwarded to {@link inspectDbFile}.
  * @returns A {@link DbSubstrateAuditResult} with `scope='fleet'`.
  */
 export function surveyFleetDbSubstrate(
-  fleetRoot: string,
+  fleetRoot: string | readonly string[],
   options: DbSubstrateSurveyOptions = {},
 ): DbSubstrateAuditResult {
-  const projectRoots: string[] = [];
-  try {
-    const entries = readdirSync(fleetRoot, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const candidate = join(fleetRoot, entry.name);
-      if (existsSync(join(candidate, '.cleo'))) {
-        projectRoots.push(candidate);
+  const fleetRoots: readonly string[] = typeof fleetRoot === 'string' ? [fleetRoot] : fleetRoot;
+  const found = new Set<string>();
+  for (const root of fleetRoots) {
+    try {
+      const entries = readdirSync(root, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const candidate = join(root, entry.name);
+        if (existsSync(join(candidate, '.cleo'))) {
+          found.add(candidate);
+        }
       }
+    } catch {
+      // readdir failed — fleet root unreadable; fall through so the
+      // caller still gets a well-formed envelope.
     }
-  } catch {
-    // readdir failed — fleet root unreadable; fall through with an
-    // empty list so the caller still gets a well-formed envelope.
   }
 
   // Stable sort so the envelope is deterministic across runs.
-  projectRoots.sort();
+  const projectRoots = [...found].sort();
 
   // For the FIRST project we include the freshly-surveyed global-tier
   // entries; for every subsequent project we reuse the same global-tier
@@ -1741,9 +1748,11 @@ export function surveyFleetDbSubstrate(
   // (subject to the same legitimacy heuristic as the single-project case
   // — T10308 AC2), plus nested-nexus.
   const warnings: DbSubstrateWarning[] = [];
-  const fleetRootCleoPath = join(fleetRoot, '.cleo');
-  if (existsSync(fleetRootCleoPath) && !isLegitimateCleoProjectRoot(fleetRootCleoPath)) {
-    warnings.push(buildOrphanWarning(fleetRootCleoPath));
+  for (const root of fleetRoots) {
+    const fleetRootCleoPath = join(root, '.cleo');
+    if (existsSync(fleetRootCleoPath) && !isLegitimateCleoProjectRoot(fleetRootCleoPath)) {
+      warnings.push(buildOrphanWarning(fleetRootCleoPath));
+    }
   }
   warnings.push(...detectNestedNexusDuplicates());
 

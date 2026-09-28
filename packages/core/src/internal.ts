@@ -344,6 +344,7 @@ export {
 // Docs publish-pr foundation + new-doc flow (T9716 + T9718 — T9644 / Epic T9630 / Saga T9625)
 export type {
   ProvisionResult,
+  PublishOwnerRef,
   PublishPrError,
   PublishPrOptions,
   PublishPrResult,
@@ -352,6 +353,8 @@ export type {
 } from './docs/publish-pr.js';
 export {
   branchForSlug,
+  buildPublishCommitMessage,
+  buildPublishCommitSubject,
   buildPublishFrontmatter,
   defaultPublishPrBody,
   defaultRun,
@@ -364,6 +367,7 @@ export {
   publishDirForType,
   publishDocsAsPr,
   publishPrError,
+  resolvePublishTaskId,
   stripExistingFrontmatter,
   teardownPublishPrWorktree,
   tempWorktreeDirForSlug,
@@ -811,6 +815,8 @@ export {
   nexusOrphans,
   orphanDetection,
 } from './nexus/deps.js';
+// Device heartbeat on CLI start (T12510)
+export { heartbeatThisDevice } from './nexus/devices.js';
 export {
   // EngineResult wrappers (T1569 Wave 2)
   nexusDiscover,
@@ -875,6 +881,7 @@ export {
   nexusProjectsList,
   nexusProjectsRegister,
   nexusProjectsRemove,
+  nexusProjectsStatus,
   nexusReconcile,
   nexusReconcileProject,
   nexusRegister,
@@ -1488,12 +1495,33 @@ export {
 // opener which is the SSoT for every write-path consumer.
 export type { CleoDbHandle, CleoDbRole } from './store/open-cleo-db.js';
 export { openCleoDb } from './store/open-cleo-db.js';
+export type {
+  BoundSessionResolution,
+  ReadSessionResolution,
+  SessionBindingSource,
+} from './store/session-store.js';
 export {
   createSession,
   getActiveSession,
+  hasActiveSession,
+  requireBoundSession,
+  requireOwnedSessionForEnd,
+  resolveBoundSession,
+  resolveBoundSessionId,
   resolveCurrentSession,
   resolveCurrentSessionId,
+  resolveSessionForRead,
+  SESSION_UNBOUND_ALTERNATIVES,
+  SESSION_UNBOUND_FIX,
+  sessionAdoptedEndMessage,
+  sessionUnboundMessage,
 } from './store/session-store.js';
+export type {
+  SnapshotGateMode,
+  SnapshotGateResult,
+  SnapshotGateSkipReason,
+  SnapshotOutcome,
+} from './store/snapshot-gate.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
 export type {
   BackupScope,
@@ -2569,9 +2597,22 @@ export {
   nexusProfileUpsert,
   nexusProfileView,
   reinforceTrait,
+  resolveTraitProjectId,
+  setUserProfileTraitScope,
   supersedeTrait,
   upsertUserProfileTrait,
 } from './nexus/user-profile.js';
+// Nexus — user-profile hygiene: receipt classifier + reversible repair (T12543)
+export {
+  classifyReceiptTrait,
+  OPERATION_ENVELOPE_RULE,
+  pruneReceiptTraits,
+  restorePrunedTraits,
+  type TraitPruneCandidate,
+  type TraitPruneOptions,
+  type TraitPruneResult,
+  type TraitRestoreResult,
+} from './nexus/user-profile-hygiene.js';
 export { nexusWiki } from './nexus/wiki-index.js';
 // Worktree completion SDK (T9548)
 export type {

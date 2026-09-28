@@ -31,25 +31,50 @@
  * @epic T4663
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { copyFile, lstat, mkdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
+import {
+  copyFileSync,
+  existsSync,
+  constants as fsConstants,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
+import {
+  appendFile,
+  copyFile,
+  lstat,
+  mkdir,
+  readFile,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { platform } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
+import { isAbsolutePath } from '@cleocode/paths';
 import { classifyProject, type ProjectClassification } from './discovery.js';
 import { CleoError } from './errors.js';
-import { ensureGitHooks } from './hooks.js';
+import { resolveGitDir, resolveHooksDir } from './git/hooks-install.js';
+import { ensureGitHooks, MANAGED_HOOKS } from './hooks.js';
 import { ensureInjection } from './injection.js';
 import { writeMemoryBridge } from './memory/memory-bridge.js';
 import { migrateAgentOutputs } from './migration/agent-outputs.js';
 import { pushWarning } from './output.js';
 import {
   getAgentsHome,
+  getCleoDir,
   getCleoDirAbsolute,
   getCleoHome,
   getProjectRoot,
+  isGitLinkedCheckout,
+  linkedWorktreeMainRoot,
+  recordProjectEncounter,
   resolveCleoDir,
+  worktreeScope,
 } from './paths.js';
+import { captureProjectScope } from './project-scope.js';
 // Shared utility imports
 import {
   ensureBrainDb,
@@ -95,7 +120,108 @@ export interface InitOptions {
    * an identity — neither is ever rewritten.
    */
   newIdentity?: boolean;
+  /**
+   * Point the registry row at this checkout even though its previous location
+   * still exists on this device (T12470). Without it such a checkout is only a
+   * `candidate`.
+   */
+  forceRebind?: boolean;
+  /**
+   * Initialize the current working directory itself, even when it sits inside
+   * an ancestor CLEO project (T12562). A directory that is its own git root is
+   * targeted without this flag.
+   *
+   * T12558: at a root a project was rerooted AWAY from, `here` alone is
+   * refused (it would adopt the relocated project's id and create a second
+   * store for it); `here` + {@link InitOptions.newIdentity} starts a genuinely
+   * different project there, audited in `.cleo/audit/relocation-override.jsonl`.
+   */
+  here?: boolean;
 }
+
+/**
+ * How {@link resolveInitTarget} chose the directory `cleo init` acts on.
+ *
+ * - `here` — `--here` asked for the current directory.
+ * - `pinned` — a worktree scope, absolute `CLEO_DIR` or `CLEO_ROOT` pinned it.
+ * - `git-root` — the current directory is its own git repository root (`.git`
+ *   is a directory). A submodule / separate-git-dir gitlink is NOT: the
+ *   resolver cannot use a store there yet (T12562).
+ * - `resolved` — the ancestor walk; the current directory or an ancestor project.
+ *
+ * @task T12562
+ */
+export type InitTargetSource = 'here' | 'pinned' | 'git-root' | 'resolved';
+
+/**
+ * The nearest git checkout boundary at or above the working directory.
+ *
+ * - `repo` — `.git` is a directory.
+ * - `submodule` — `.git` is a gitlink to a separate repository (a submodule
+ *   or `--separate-git-dir`). It is its own repository, but project-root
+ *   resolution still walks past it, so init must not give it a store (T12562).
+ * - `worktree` — `.git` is a gitlink into `<common>/worktrees/<name>`: a
+ *   linked worktree that shares its main checkout's CLEO project (D009).
+ *
+ * @task T12562
+ */
+export interface InitGitBoundary {
+  /** Absolute directory that holds the `.git` entry. */
+  root: string;
+  /** Kind of checkout. */
+  kind: 'repo' | 'submodule' | 'worktree';
+  /** For `worktree`: the main checkout the worktree belongs to. */
+  mainRoot?: string;
+}
+
+/**
+ * The directory `cleo init` will act on, and whether it is the current directory.
+ *
+ * @task T12562
+ */
+export interface InitTarget {
+  /** Absolute path of the target's `.cleo/` directory. */
+  cleoDir: string;
+  /** Absolute path of the target project root (parent of `cleoDir`). */
+  projectRoot: string;
+  /** Absolute path of the working directory init was invoked from. */
+  cwd: string;
+  /** Rule that selected the target. */
+  source: InitTargetSource;
+  /** `true` when `projectRoot` is the working directory (compared by realpath). */
+  isCwd: boolean;
+  /** `true` when an absolute `CLEO_DIR` or `CLEO_ROOT` explicitly pinned the target. */
+  envPinned: boolean;
+  /** Nearest git checkout boundary at or above `cwd`, or `null` outside git. */
+  gitBoundary: InitGitBoundary | null;
+  /**
+   * For a `submodule` boundary: the initialized CLEO project that commands run
+   * from it resolve to (the superproject), when there is one.
+   */
+  enclosingProjectRoot?: string;
+}
+
+/**
+ * Stable machine-readable codes for `cleo init` refusals (T12562). Carried in
+ * `CleoError.details.codeName` so the CLI and the dispatch engine can surface
+ * them instead of a generic `E_INTERNAL` / "use force=true".
+ *
+ * @task T12562
+ */
+export const INIT_ERROR_CODES = {
+  /** cwd is the initialized project root; `--force` re-initializes it. */
+  alreadyInitialized: 'E_ALREADY_INITIALIZED',
+  /** cwd is inside an ancestor project; init changed nothing. */
+  ancestorProject: 'E_INIT_ANCESTOR_PROJECT',
+  /** `--force` resolved to a root other than cwd. */
+  forceNotCwd: 'E_INIT_FORCE_NOT_CWD',
+  /** cwd is inside a linked git worktree; its project is the main checkout. */
+  inWorktree: 'E_INIT_IN_WORKTREE',
+  /** cwd is a submodule / separate-git-dir checkout under a CLEO project. */
+  gitlinkUnsupported: 'E_INIT_GITLINK_UNSUPPORTED',
+  /** The pre-`--force` snapshot could not be taken; nothing was changed. */
+  snapshotFailed: 'E_INIT_SNAPSHOT_FAILED',
+} as const;
 
 /** Result of the init operation. */
 export interface InitResult {
@@ -517,6 +643,17 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
   }
 }
 
+/** Options for {@link initNexusRegistration} (T12470). */
+export interface InitNexusRegistrationOptions {
+  /**
+   * Maintenance caller (`cleo upgrade` / `self-update`): record an encounter
+   * only — never mint an identity and never repoint an existing row.
+   */
+  maintenance?: boolean;
+  /** Explicit rebind even though the previous location still exists. */
+  forceRebind?: boolean;
+}
+
 /**
  * Register/reconcile project with NEXUS.
  * Uses nexusReconcile for idempotent handshake — auto-registers if new,
@@ -528,6 +665,7 @@ export async function initNexusRegistration(
   projectRoot: string,
   created: string[],
   warnings: string[],
+  opts: InitNexusRegistrationOptions = {},
 ): Promise<void> {
   try {
     const { shouldAutoRegisterProject } = await import('./nexus/registry-hygiene.js');
@@ -538,8 +676,27 @@ export async function initNexusRegistration(
       );
       return;
     }
+    if (opts.maintenance) {
+      // T12470: a maintenance command (`cleo upgrade` / `self-update`) is not
+      // an explicit registration. It goes through the encounter, which never
+      // mints an identity and never moves an existing row to this checkout.
+      const outcome = await recordProjectEncounter(projectRoot);
+      if (outcome === 'recorded') created.push('NEXUS registration (encounter recorded)');
+      return;
+    }
     const { nexusReconcile } = await import('./nexus/registry.js');
-    const result = await nexusReconcile(projectRoot);
+    const result = await nexusReconcile(projectRoot, {
+      ...(opts.forceRebind ? { forceRebind: true } : {}),
+    });
+    if (result.status === 'candidate') {
+      warnings.push(
+        `NEXUS registration: this project is registered at ${result.oldPath}, which still exists; ` +
+          'this checkout was recorded as a candidate and the registry was NOT repointed. ' +
+          'If this checkout should own the registration, run `cleo doctor project-identity --resolve` ' +
+          'or re-run with `--force-rebind`.',
+      );
+      return;
+    }
     if (result.status === 'auto_registered') {
       created.push('NEXUS registration (auto-registered new project)');
     } else if (result.status === 'path_updated') {
@@ -726,6 +883,409 @@ export async function installHandoffRedirectStubs(
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
+ * Canonicalize a path for identity comparison, tolerating a missing path.
+ *
+ * @param path - Absolute path.
+ * @returns The realpath, or the resolved path when it cannot be read.
+ */
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * Report whether `child` lies strictly below `parent` (by canonical path).
+ *
+ * @param child - Candidate descendant.
+ * @param parent - Candidate ancestor.
+ * @returns `true` when `child` is inside `parent` and not equal to it.
+ */
+function isStrictlyInside(child: string, parent: string): boolean {
+  const rel = relative(canonicalPath(parent), canonicalPath(child));
+  return rel !== '' && !rel.startsWith('..') && !isAbsolutePath(rel);
+}
+
+/**
+ * The CLEO project that encloses a gitlink checkout (submodule or
+ * separate-git-dir), or `undefined` when none does (T12562 · T12558 round 5).
+ *
+ * The walk starts at the gitlink's PARENT directory, never at the checkout
+ * itself: a `.cleo/` inside the checkout — tracked files, or the tombstone a
+ * reroot leaves — must not make it look self-contained, because project-root
+ * resolution walks past a gitlink root and would still use the enclosing
+ * store. A relocation refusal met on the way up is not an enclosing project.
+ *
+ * @param gitlinkRoot - Root of the gitlink checkout (its `.git` is a file).
+ * @returns The enclosing project root, or `undefined`.
+ */
+function enclosingProjectOfGitlink(gitlinkRoot: string): string | undefined {
+  const parent = dirname(gitlinkRoot);
+  if (parent === gitlinkRoot) return undefined;
+  try {
+    const root = getProjectRoot(parent);
+    return existsSync(join(root, '.cleo')) && isStrictlyInside(gitlinkRoot, root)
+      ? root
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Find the nearest git checkout boundary at or above `start`.
+ *
+ * @param start - Absolute directory to start from.
+ * @returns The nearest boundary, or `null` when no `.git` entry exists above.
+ */
+function findGitBoundary(start: string): InitGitBoundary | null {
+  let current = start;
+  while (true) {
+    const gitPath = join(current, '.git');
+    try {
+      const st = statSync(gitPath);
+      if (st.isDirectory()) return { root: current, kind: 'repo' };
+      if (st.isFile()) {
+        // A linked worktree shares its main checkout's project; a submodule or
+        // separate-git-dir gitlink is its own repository.
+        if (!isGitLinkedCheckout(current)) return { root: current, kind: 'submodule' };
+        const mainRoot = linkedWorktreeMainRoot(current);
+        return { root: current, kind: 'worktree', ...(mainRoot ? { mainRoot } : {}) };
+      }
+    } catch {
+      // No `.git` here — keep walking.
+    }
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+/**
+ * Choose the directory `cleo init` acts on (T12562).
+ *
+ * Every other command walks up from a subdirectory to the enclosing project,
+ * and keeps doing so. `init` is different because it CREATES a project, so the
+ * walk must not silently redirect it: from a child git repository nested under
+ * an initialized CLEO root the walk found the parent, and the guard then
+ * advised `--force` against the parent's store.
+ *
+ * Resolution order:
+ * 1. `--here` targets the working directory ({@link initProject} still refuses
+ *    it inside a linked worktree).
+ * 2. An active worktree scope, an absolute `CLEO_DIR` or `CLEO_ROOT` /
+ *    `CLEO_PROJECT_ROOT` pins the target explicitly (unchanged behaviour).
+ * 3. A working directory that is its own git root (`.git` is a directory)
+ *    targets itself: a nested repository is a separate project. A gitlink
+ *    checkout (linked worktree, submodule, separate-git-dir) does not, because
+ *    project-root resolution cannot use a store there.
+ * 4. Otherwise the existing resolution applies. A plain (non-git)
+ *    subdirectory of a CLEO project therefore still resolves to that ancestor;
+ *    {@link initProject} reports it by absolute path and never wipes it.
+ *
+ * @param opts - `here` forces the working directory; `cwd` overrides `process.cwd()`.
+ * @returns The chosen target.
+ *
+ * @example
+ * ```ts
+ * resolveInitTarget(); // { projectRoot: '/repo/child', source: 'git-root', isCwd: true, ... }
+ * ```
+ *
+ * @task T12562
+ */
+export function resolveInitTarget(opts: { here?: boolean; cwd?: string } = {}): InitTarget {
+  const cwd = resolve(opts.cwd ?? process.cwd()); // CWD-OK: init creates the project at cwd (T12562)
+  const cleoDirEnv = getCleoDir();
+  const relativeCleoDir = isAbsolutePath(cleoDirEnv) ? '.cleo' : cleoDirEnv;
+  const envPinned =
+    isAbsolutePath(cleoDirEnv) ||
+    Boolean(process.env['CLEO_ROOT'] ?? process.env['CLEO_PROJECT_ROOT']);
+  const pinned = envPinned || worktreeScope.getStore() !== undefined;
+  const gitBoundary = findGitBoundary(cwd);
+
+  let cleoDir: string;
+  let source: InitTargetSource;
+  if (opts.here) {
+    cleoDir = resolve(cwd, relativeCleoDir);
+    source = 'here';
+  } else if (pinned) {
+    // T9803/D009: `bootstrap` is the only sanctioned cwd-relative fallback.
+    cleoDir = getCleoDirAbsolute(opts.cwd, { bootstrap: true });
+    source = 'pinned';
+  } else if (gitBoundary?.kind === 'repo' && gitBoundary.root === cwd) {
+    cleoDir = resolve(cwd, relativeCleoDir);
+    source = 'git-root';
+  } else {
+    cleoDir = getCleoDirAbsolute(opts.cwd, { bootstrap: true });
+    source = 'resolved';
+  }
+  // `cleoDir` is `<root>/.cleo` by default, so its parent is the project root.
+  // This also respects an absolute `CLEO_DIR` used by the init-e2e suite.
+  const projectRoot = dirname(cleoDir);
+
+  let enclosingProjectRoot: string | undefined;
+  if (gitBoundary?.kind === 'submodule') {
+    enclosingProjectRoot = enclosingProjectOfGitlink(gitBoundary.root);
+  }
+  return {
+    cleoDir,
+    projectRoot,
+    cwd,
+    source,
+    isCwd: canonicalPath(projectRoot) === canonicalPath(cwd),
+    envPinned,
+    gitBoundary,
+    ...(enclosingProjectRoot ? { enclosingProjectRoot } : {}),
+  };
+}
+
+/**
+ * Return the stable init refusal code carried by `err`, if any (T12562).
+ *
+ * @param err - Error thrown by core `initProject`.
+ * @returns One of {@link INIT_ERROR_CODES}, or `undefined`.
+ *
+ * @example
+ * ```ts
+ * initErrorCodeName(err); // 'E_INIT_ANCESTOR_PROJECT'
+ * ```
+ *
+ * @task T12562
+ */
+export function initErrorCodeName(err: unknown): string | undefined {
+  if (!(err instanceof CleoError)) return undefined;
+  const codeName = err.details?.['codeName'];
+  const known: readonly string[] = Object.values(INIT_ERROR_CODES);
+  return typeof codeName === 'string' && known.includes(codeName) ? codeName : undefined;
+}
+
+/**
+ * Build a `cleo init` refusal carrying its stable code in `details.codeName`.
+ *
+ * @param codeName - One of {@link INIT_ERROR_CODES}.
+ * @param message - Self-contained message; the CLI prints only this line.
+ * @param fix - Copy-paste remedy.
+ * @param details - Extra structured context.
+ * @returns The error to throw.
+ */
+function initRefusal(
+  codeName: (typeof INIT_ERROR_CODES)[keyof typeof INIT_ERROR_CODES],
+  message: string,
+  fix: string,
+  details: Record<string, unknown>,
+): CleoError {
+  return new CleoError(ExitCode.GENERAL_ERROR, message, {
+    fix,
+    details: { field: 'cwd', codeName, ...details },
+  });
+}
+
+/** What `--force` resets, stated once for every message that mentions it. */
+const FORCE_RESETS =
+  '--force resets .cleo/config.json and .cleo/project-info.json to defaults and rewrites ' +
+  '.cleo/.gitignore and the managed git hooks (commit-msg, pre-commit, pre-push); it deletes ' +
+  'no task, brain or conduit data. It first snapshots the databases (VACUUM INTO) and those ' +
+  'files into .cleo/backups/sqlite/ and refuses if the snapshot fails.';
+
+/**
+ * Refuse any init that could touch a project other than the one the operator
+ * is standing in (T12562). Every refusal changes nothing.
+ *
+ * @param target - The resolved target.
+ * @param opts - The caller's init options.
+ * @param alreadyInitialized - Whether the target already holds a project.
+ * @throws {CleoError} With `details.codeName` from {@link INIT_ERROR_CODES}.
+ */
+function assertInitTargetAllowed(
+  target: InitTarget,
+  opts: InitOptions,
+  alreadyInitialized: boolean,
+): void {
+  const { cwd, projectRoot: root, gitBoundary: git } = target;
+  const additiveMapOnly = opts.mapCodebase === true && !opts.force;
+
+  // A linked worktree shares its main checkout's project (D009 / T9803): a
+  // `.cleo/` inside it is an orphan store. Only an explicit env pin, or the
+  // additive map of the already-initialized main project, may proceed.
+  if (git?.kind === 'worktree' && !target.envPinned) {
+    const main = git.mainRoot;
+    const mapsMain =
+      main !== undefined &&
+      additiveMapOnly &&
+      alreadyInitialized &&
+      canonicalPath(root) === canonicalPath(main);
+    if (!mapsMain) {
+      const whose = main ? ` of ${main}` : '';
+      throw initRefusal(
+        INIT_ERROR_CODES.inWorktree,
+        `${cwd} is inside a linked git worktree${whose}. A worktree shares its main ` +
+          `checkout's CLEO project, so there is nothing to init here, and a .cleo/ inside a ` +
+          'worktree would be an orphan store. Nothing was changed.' +
+          (main ? ` If ${main} is not a CLEO project yet, run \`cleo init\` there.` : ''),
+        main
+          ? `cd ${JSON.stringify(main)} && cleo init`
+          : 'Run `cleo init` in the main checkout (`git worktree list` names it).',
+        { resolvedRoot: root, worktreeRoot: git.root, ...(main ? { mainRoot: main } : {}) },
+      );
+    }
+  }
+
+  // A submodule / separate-git-dir checkout under a CLEO project: project-root
+  // resolution walks past a gitlink root, so a store created here would be
+  // ignored and every later command would use the superproject's store.
+  const enclosing = target.enclosingProjectRoot;
+  if (
+    git?.kind === 'submodule' &&
+    enclosing !== undefined &&
+    !target.envPinned &&
+    !(additiveMapOnly && !opts.here)
+  ) {
+    throw initRefusal(
+      INIT_ERROR_CODES.gitlinkUnsupported,
+      `${git.root} is a submodule / separate-git-dir checkout inside the CLEO project at ` +
+        `${enclosing}. CLEO resolves this checkout to ${enclosing}, so every command run here ` +
+        `already uses that project's store; a separate store for a gitlink checkout is not ` +
+        'supported yet (tracked separately). Nothing was changed.',
+      `Use the project at ${enclosing} (run cleo from anywhere inside it).`,
+      { resolvedRoot: root, repositoryRoot: git.root, enclosingProjectRoot: enclosing },
+    );
+  }
+
+  // An uninitialized repository between cwd and the ancestor project is the
+  // project the operator most likely meant: point there, not at cwd.
+  const nestedRepo =
+    git?.kind === 'repo' && isStrictlyInside(git.root, root) ? git.root : undefined;
+  // Never advise --force against a root other than cwd (T12562 AC2).
+  const separateProjectFix = nestedRepo
+    ? `cd ${JSON.stringify(nestedRepo)} && cleo init`
+    : `cd ${JSON.stringify(cwd)} && cleo init --here`;
+
+  if (opts.force && !target.isCwd) {
+    throw initRefusal(
+      INIT_ERROR_CODES.forceNotCwd,
+      `Refusing --force: it would re-initialize ${root}, which is not the current directory ` +
+        `(${cwd}). --force only ever acts on the current directory's own project. ` +
+        'Nothing was changed.',
+      separateProjectFix,
+      { field: 'force', resolvedRoot: root },
+    );
+  }
+
+  if (!alreadyInitialized || opts.force || additiveMapOnly) return;
+
+  if (target.isCwd) {
+    throw initRefusal(
+      INIT_ERROR_CODES.alreadyInitialized,
+      `Project already initialized at ${root}. DANGER ZONE: ${FORCE_RESETS}`,
+      'cleo init --force',
+      { resolvedRoot: root },
+    );
+  }
+
+  if (nestedRepo) {
+    throw initRefusal(
+      INIT_ERROR_CODES.ancestorProject,
+      `${cwd} is inside the git repository ${nestedRepo}, which is not a CLEO project yet; ` +
+        `the nearest CLEO project is ${root}. Nothing was changed. To make that repository ` +
+        `its own project, run \`cleo init\` in ${nestedRepo}.`,
+      separateProjectFix,
+      { resolvedRoot: root, repositoryRoot: nestedRepo },
+    );
+  }
+
+  throw initRefusal(
+    INIT_ERROR_CODES.ancestorProject,
+    `${cwd} is inside the CLEO project already initialized at ${root}. Nothing was ` +
+      `changed. To create a separate project in ${cwd}, run \`cleo init --here\` there.`,
+    separateProjectFix,
+    { resolvedRoot: root, source: target.source },
+  );
+}
+
+/**
+ * Every managed git hook a forced re-init could overwrite, as snapshot sources.
+ *
+ * `ensureGitHooks({ force })` writes `<root>/.git/hooks`. The hooks git
+ * actually runs may live elsewhere (a gitlink checkout's git dir, or a custom
+ * `core.hooksPath`), so that directory is resolved too and snapshotted when it
+ * differs (T12562).
+ *
+ * @param projRoot - Absolute project root.
+ * @returns `[label, sourcePath]` pairs for the snapshot.
+ */
+function managedHookSnapshotSources(projRoot: string): Array<[string, string]> {
+  const literal = join(projRoot, '.git', 'hooks');
+  const gitDir = resolveGitDir(projRoot);
+  const effective = gitDir ? resolveHooksDir(projRoot, gitDir) : literal;
+  const dirs: Array<[prefix: string, dir: string]> = [['git-hook', literal]];
+  if (canonicalPath(effective) !== canonicalPath(literal)) dirs.push(['hooks-path', effective]);
+  return dirs.flatMap(([prefix, dir]) =>
+    MANAGED_HOOKS.map((h): [string, string] => [`${prefix}-${h}`, join(dir, h)]),
+  );
+}
+
+/**
+ * Snapshot everything a forced re-init overwrites, and refuse to continue
+ * without a complete snapshot (T12562).
+ *
+ * Uses the `cleo backup add` path ({@link createBackup}): `VACUUM INTO` for the
+ * databases and atomic copies of `config.json` / `project-info.json`, with a
+ * restorable `<backupId>.meta.json` sidecar (`cleo restore backup`). The other
+ * files `--force` rewrites (`.cleo/.gitignore`, `.cleo/project-context.json`,
+ * the managed git hooks) are copied beside it as `<name>.<backupId>`.
+ *
+ * @param projRoot - Absolute project root being re-initialized.
+ * @param cleoDir - Absolute `.cleo/` directory of that root.
+ * @returns The backup id written by THIS run.
+ * @throws {CleoError} `E_INIT_SNAPSHOT_FAILED` when any required file is missing
+ *   from this run's snapshot.
+ */
+async function snapshotBeforeForcedReinit(projRoot: string, cleoDir: string): Promise<string> {
+  const { createBackup } = await import('./system/backup.js');
+  const result = await createBackup(projRoot, {
+    type: 'pre-force-init',
+    note: 'taken by `cleo init --force` before it resets project files (T12562)',
+  });
+  const required = ['config.json', 'project-info.json'].filter((f) => existsSync(join(cleoDir, f)));
+  // `tasks.db` is createBackup's label for the live project store (cleo.db).
+  if (existsSync(join(cleoDir, 'cleo.db')) || existsSync(join(cleoDir, 'tasks.db'))) {
+    required.push('tasks.db');
+  }
+  const missing = required.filter((f) => !result.files.includes(f));
+
+  const extras: Array<[label: string, src: string]> = [
+    ['.gitignore', join(cleoDir, '.gitignore')],
+    ['project-context.json', join(cleoDir, 'project-context.json')],
+    ...managedHookSnapshotSources(projRoot),
+  ];
+  for (const [label, src] of extras) {
+    if (!existsSync(src)) continue;
+    try {
+      copyFileSync(
+        src,
+        join(result.path, `${label}.${result.backupId}`),
+        fsConstants.COPYFILE_EXCL,
+      );
+    } catch {
+      missing.push(label);
+    }
+  }
+
+  if (missing.length > 0) {
+    throw initRefusal(
+      INIT_ERROR_CODES.snapshotFailed,
+      `Refusing --force: the pre-reset snapshot of ${projRoot} is incomplete (missing: ` +
+        `${missing.join(', ')}). Nothing was changed. Run \`cleo backup add\`, then retry.`,
+      'cleo backup add',
+      { field: 'force', resolvedRoot: projRoot, missing, backupId: result.backupId },
+    );
+  }
+  return result.backupId;
+}
+
+/**
  * Run update-docs only: refresh all injections without reinitializing.
  * Re-injects CLEO-INJECTION.md into all detected agent instruction files.
  *
@@ -758,6 +1318,32 @@ export async function updateDocs(): Promise<InitResult> {
 }
 
 /**
+ * Remove the identity files a relocated project left (or `git checkout`
+ * restored) at `root`, so `cleo init --here --new-identity` mints a new id
+ * instead of adopting the old one: `.cleo/project-id` and
+ * `.cleo/project-info.json` only when they declare `projectId`, and the reroot
+ * tombstone. Nothing else is touched.
+ */
+async function retireRelocatedIdentity(root: string, projectId: string): Promise<void> {
+  const { readPortableProjectId } = await import('@cleocode/paths');
+  const tracked = readPortableProjectId(root);
+  if (tracked.status === 'valid' && tracked.projectId === projectId) {
+    await unlink(join(root, '.cleo', 'project-id'));
+  }
+  const infoPath = join(root, '.cleo', 'project-info.json');
+  if (existsSync(infoPath)) {
+    try {
+      const info = JSON.parse(await readFile(infoPath, 'utf-8')) as { projectId?: unknown };
+      if (info.projectId === projectId) await unlink(infoPath);
+    } catch {
+      // Unparseable: ensureProjectInfo regenerates it.
+    }
+  }
+  const { PROJECT_TOMBSTONE_FILE } = await import('./project-tombstone.js');
+  await unlink(join(root, PROJECT_TOMBSTONE_FILE)).catch(() => undefined);
+}
+
+/**
  * Run full project initialization.
  *
  * Creates the .cleo/ directory structure, installs schemas, templates,
@@ -774,52 +1360,141 @@ export async function updateDocs(): Promise<InitResult> {
  * @task T4707
  */
 export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
-  // T9803/D009: `cleo init` is the ONLY caller permitted to bootstrap a
-  // missing project root. Passing `{ bootstrap: true }` opts into the
-  // cwd-relative fallback; every other caller must resolve through an
-  // existing root or throw to prevent orphan-`.cleo/` synthesis inside
-  // worktrees.
-  const cleoDir = getCleoDirAbsolute(undefined, { bootstrap: true });
-  // `cleo init` CREATES the project root, so we cannot call getProjectRoot()
-  // here — that walks up looking for an existing `.cleo/` sentinel and throws
-  // `E_NOT_FOUND` when none is present (the whole point of `init` is that
-  // none is present yet). `cleoDir` is `<cwd>/.cleo` by default, so its
-  // parent directory is the project root. This also respects an absolute
-  // `CLEO_DIR` env var used by the init-e2e test suite to pin the target
-  // directory.
-  const projRoot = dirname(cleoDir);
+  // T12562: choose the target explicitly instead of trusting the ancestor
+  // walk. From a child git repo under an initialized CLEO root the walk
+  // resolved the PARENT, the guard below then advised `--force`, and following
+  // that advice re-initialized the parent store.
+  const target = resolveInitTarget({ here: opts.here });
+  const { cleoDir, projectRoot: projRoot } = target;
 
-  // Guard: fail if project already initialized (unless --force)
+  // T12558: relocation state, detected WITHOUT writing or throwing yet.
+  // Resolving from the target reports E_PROJECT_MOVED at a valid reroot
+  // tombstone (at the target or an ancestor it would resolve to); the store
+  // guard's registry arm is checked up front for the same reason.
+  let movedOnResolve: CleoError | undefined;
+  if (!opts.here) {
+    try {
+      getProjectRoot(projRoot);
+    } catch (err) {
+      if (err instanceof CleoError && err.code === ExitCode.PROJECT_MOVED) movedOnResolve = err;
+    }
+  }
+  const { detectRelocatedRoot, allowStoreAtRelocatedRoot } = await import(
+    './store/relocated-store-guard.js'
+  );
+  const { resolveDualScopeDbPath } = await import('./store/dual-scope-db.js');
+  const relocated = existsSync(join(cleoDir, 'cleo.db'))
+    ? null
+    : detectRelocatedRoot(projRoot, resolveDualScopeDbPath('global'));
+
+  // T12562: legacy `tasks.db` counts too, so a forced re-init snapshots it.
+  // T12558: at a relocated root (no store) restored tracked files never count,
+  // so #1605's guard never answers "already initialized — use --force" there.
   const alreadyInitialized =
+    !relocated &&
     existsSync(cleoDir) &&
-    (existsSync(join(cleoDir, 'tasks.db')) || existsSync(join(cleoDir, 'config.json')));
+    (existsSync(join(cleoDir, 'cleo.db')) ||
+      existsSync(join(cleoDir, 'tasks.db')) ||
+      existsSync(join(cleoDir, 'config.json')));
 
-  // T12077: `--map-codebase` is ADDITIVE — it analyses the tree and writes
-  // findings to BRAIN; it scaffolds nothing and wipes nothing. Blocking it
-  // behind this guard made the onboarding path self-contradictory: a fresh
-  // `cleo init` on a brownfield repo returns
-  //
-  //   nextSteps: [{ action: 'Anchor the existing codebase in BRAIN as baseline
-  //                 context', command: 'cleo init --map-codebase' }]
-  //
-  // and running that exact command then failed with "Project already
-  // initialized. DANGER ZONE: use --force to wipe and re-init." The only way
-  // to follow CLEO's own advice was to destroy the project it had just set up.
-  //
-  // Measured on a greenfield sandbox: `cleo init` succeeded, and the very
-  // first recommended follow-up was impossible.
-  const additiveMapOnly = opts.mapCodebase === true;
-  if (alreadyInitialized && !opts.force && !additiveMapOnly) {
+  // #1605's target refusals (worktree, gitlink, force-not-cwd, ancestor) run
+  // FIRST: a relocation opt-out can never reopen a target CLEO cannot use.
+  assertInitTargetAllowed(target, opts, alreadyInitialized);
+
+  // T12558: relocation refusals, still before any write.
+  if (movedOnResolve) throw movedOnResolve;
+  if (relocated && !opts.here) {
+    const { projectMovedError } = await import('./project-tombstone.js');
+    throw projectMovedError(projRoot, relocated, undefined, relocated.via);
+  }
+  // `--here` alone would ADOPT the relocated project's id and create a SECOND
+  // store for it — two diverging copies of one project. Only a genuinely
+  // separate project (a new id) may start here.
+  if (relocated && !opts.newIdentity) {
     throw new CleoError(
-      ExitCode.GENERAL_ERROR,
-      'Project already initialized. DANGER ZONE: use --force to wipe and re-init.',
-      { fix: 'cleo init --force' },
+      ExitCode.PROJECT_MOVED,
+      `E_PROJECT_MOVED: ${projRoot} is where project ${relocated.projectId} was rerooted from; \`--here\` alone would create a second store for that same project`,
+      {
+        fix: `cd "${relocated.movedTo}" (the live project). To start a DIFFERENT project here, run \`cleo init --here --new-identity\` (mints a new id; commit the new .cleo/project-id).`,
+        details: {
+          field: 'projectRoot',
+          projectId: relocated.projectId,
+          movedFrom: projRoot,
+          movedTo: relocated.movedTo,
+          evidence: relocated.via,
+        },
+      },
+    );
+  }
+
+  // T12558: `--here --new-identity` at a relocated root — every refusal has
+  // passed. The restored `.cleo/project-id` (and a stale tombstone) belong to
+  // the relocated project; retire them so a new id is minted, not adopted.
+  let retiredProjectId: string | undefined;
+  if (relocated) {
+    allowStoreAtRelocatedRoot(projRoot);
+    retiredProjectId = relocated.projectId;
+    await retireRelocatedIdentity(projRoot, relocated.projectId);
+    const auditPath = join(cleoDir, 'audit', 'relocation-override.jsonl');
+    await mkdir(dirname(auditPath), { recursive: true });
+    await appendFile(
+      auditPath,
+      `${JSON.stringify({
+        timestamp: new Date().toISOString(),
+        action: 'init --here --new-identity',
+        projectRoot: projRoot,
+        projectId: relocated.projectId,
+        movedTo: relocated.movedTo,
+        evidence: relocated.via,
+        newIdentity: true,
+      })}\n`,
     );
   }
 
   const force = !!opts.force;
+  const scope = captureProjectScope(projRoot, worktreeScope.getStore());
 
+  let preForceBackupId: string | undefined;
+  if (force && alreadyInitialized) {
+    preForceBackupId = await worktreeScope.run(scope, () =>
+      snapshotBeforeForcedReinit(projRoot, cleoDir),
+    );
+  }
+
+  // Pin every ambient `getProjectRoot()` / `getCleoDirAbsolute()` inside the
+  // scaffolding steps to the chosen target, so none of them walks back up to
+  // an ancestor project while the target's `.cleo/` is still being created.
+  return worktreeScope.run(scope, () =>
+    scaffoldInitTarget(opts, { cleoDir, projRoot, force, preForceBackupId, retiredProjectId }),
+  );
+}
+
+/**
+ * Run the scaffolding half of {@link initProject} against an already-chosen,
+ * already-guarded target.
+ *
+ * @param opts - The caller's init options.
+ * @param target - Resolved `.cleo/` directory, project root, force flag and pre-force backup id.
+ * @returns The init result.
+ */
+async function scaffoldInitTarget(
+  opts: InitOptions,
+  target: {
+    cleoDir: string;
+    projRoot: string;
+    force: boolean;
+    preForceBackupId?: string;
+    /** Id retired by `--here --new-identity` at a relocated root (T12558). */
+    retiredProjectId?: string;
+  },
+): Promise<InitResult> {
+  const { cleoDir, projRoot, force, retiredProjectId } = target;
   const created: string[] = [];
+  if (target.preForceBackupId) {
+    created.push(
+      `pre-force snapshot: .cleo/backups/sqlite/*.${target.preForceBackupId} (cleo restore backup)`,
+    );
+  }
   const skipped: string[] = [];
   const warnings: string[] = [];
 
@@ -854,6 +1529,8 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     await getDb(join(cleoDir, '..'));
     created.push('tasks.db');
   } catch (err) {
+    // A relocated root is a refusal, never a store "deferred" behind success.
+    if (err instanceof CleoError && err.code === ExitCode.PROJECT_MOVED) throw err;
     // SQLite init failure is not fatal — will be created on first access
     created.push(`tasks.db (deferred: ${err instanceof Error ? err.message : String(err)})`);
   }
@@ -1031,6 +1708,16 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   ) {
     warnings.push(`Project identity: ${projectInfoResult.details}`);
   }
+  if (retiredProjectId) {
+    warnings.push(
+      `.cleo/project-id changed: this is a NEW project, not ${retiredProjectId} (which lives on elsewhere). Commit the new .cleo/project-id.`,
+    );
+    // Both projects are registered under this directory's name; say so rather
+    // than rename either one behind the operator's back.
+    warnings.push(
+      `Project name "${basename(projRoot)}" is now ambiguous: ${retiredProjectId} was registered under the same name. Rename this one with \`cleo project rename <new-name>\`.`,
+    );
+  }
 
   // Project context detection (always run during init)
   try {
@@ -1098,7 +1785,9 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // Skills are NOT installed during project-level init — they are installed once globally.
 
   // T4684: NEXUS registration (reconcile-based handshake, T5368)
-  await initNexusRegistration(projRoot, created, warnings);
+  await initNexusRegistration(projRoot, created, warnings, {
+    ...(opts.forceRebind ? { forceRebind: true } : {}),
+  });
 
   // T5240: Adapter discovery, activation, and install
   try {

@@ -1120,8 +1120,23 @@ export function createParserExecutionPort(): ParserExecutionPort {
             if (process.platform === 'win32') child.kill('SIGKILL');
             else process.kill(-child.pid, 'SIGKILL');
           } catch (error) {
-            if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH')
-              throw error;
+            const code = error instanceof Error && 'code' in error ? error.code : undefined;
+            if (code === 'EPERM' && process.platform === 'darwin') {
+              // Darwin's kill(2) reports EPERM, not ESRCH, for a group whose
+              // only remaining members are unreaped zombies. Signal the worker
+              // PID itself: that is a no-op on a zombie, and still kills a live
+              // worker if something (a sandbox) denied only the group signal.
+              try {
+                process.kill(child.pid, 'SIGKILL');
+              } catch (fallback) {
+                if (
+                  !(fallback instanceof Error) ||
+                  !('code' in fallback) ||
+                  fallback.code !== 'ESRCH'
+                )
+                  throw fallback;
+              }
+            } else if (code !== 'ESRCH') throw error;
           }
         }
         await closed;

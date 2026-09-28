@@ -10,7 +10,7 @@
  *    project's `.cleo/`).
  * 2. Does NOT call `cleo memory observe` or any code path that would lazily
  *    open brain.db. The brain native-handle singleton starts as `null`.
- * 3. Invokes `vacuumIntoBackupAll({ cwd: tempDir, force: true })`.
+ * 3. Invokes `vacuumIntoBackupAll({ cwd: tempDir })`.
  * 4. Exits cleanly.
  *
  * The parent process then asserts that a `brain-YYYYMMDD-HHmmss.db` file
@@ -79,7 +79,7 @@ describe('sqlite-backup real-process (T10316)', () => {
       const path = ${JSON.stringify(SQLITE_BACKUP_DIST)};
       (async () => {
         const mod = await import(path);
-        await mod.vacuumIntoBackupAll({ cwd: ${JSON.stringify(projectRoot)}, force: true });
+        await mod.vacuumIntoBackupAll({ cwd: ${JSON.stringify(projectRoot)} });
       })().catch((err) => {
         process.stderr.write(String((err && err.stack) || err));
         process.exit(2);

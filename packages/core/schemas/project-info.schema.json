@@ -23,10 +23,37 @@
       "minLength": 1,
       "description": "Portable project-local identity (UUIDv4). Survives .cleo/ moves between filesystems. Used as the stable brain key for cross-system project sharing."
     },
+    "checkoutNonce": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "Random per-checkout secret (T12470). Lives only in this untracked file; the global registry records it on each confirmed location, so a moved or restored checkout is recognised while a clone (which cannot have it) stays an unconfirmed candidate. Never copy it between checkouts."
+    },
     "projectHash": {
       "type": "string",
       "pattern": "^[a-f0-9]{12}$",
-      "description": "Path-derived 12-character hex hash (SHA-256 prefix of absolute project path). Links to global nexus registry entry. Re-computed on project move."
+      "description": "Write-once 12-character hex identity key (SHA-256 prefix of the real main-checkout path at init). Keys release ids, audit rows and idempotency. Never re-computed: not on project move, relocation, restore or `cleo upgrade` (T12557)."
+    },
+    "previousProjectIds": {
+      "type": "array",
+      "maxItems": 50,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Local ids this project was re-keyed away from by `cleo doctor project-identity --resolve` (T12353). Receipt only; they stay resolvable through the registry alias table."
+    },
+    "strippedFields": {
+      "type": "array",
+      "maxItems": 50,
+      "description": "Receipt of persisted path facts removed by `cleo doctor project-identity --resolve` (T12557), newest last.",
+      "items": {
+        "type": "object",
+        "required": ["file", "field", "value", "strippedAt"],
+        "additionalProperties": false,
+        "properties": {
+          "file": { "type": "string", "enum": ["project-info.json", "project-context.json"] },
+          "field": { "type": "string", "enum": ["projectRoot"] },
+          "value": { "description": "The removed value, verbatim." },
+          "strippedAt": { "type": "string", "format": "date-time" }
+        }
+      }
     },
     "name": {
       "type": "string",

@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import type { Task, TaskRef, TaskRefPriority, TaskWorkState } from '@cleocode/contracts';
 import { getCleoDirAbsolute } from '../../paths.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
+import { resolveBoundSessionId } from '../../store/session-store.js';
 import type {
   DependencyAnalysis,
   DependencyWave,
@@ -462,8 +463,9 @@ export async function generateHitlSummary(
   // Session info from SQLite (ADR-006/ADR-020)
   let sessionId: string | null = null;
   try {
-    const activeSession = await acc.getActiveSession();
-    sessionId = activeSession?.id ?? null;
+    // T12500: the handoff belongs to the CALLER's bound session, not the
+    // newest active row (another agent's, when this caller is unbound).
+    sessionId = await resolveBoundSessionId(cwd);
   } catch {
     // DB unavailable
   }

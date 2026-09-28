@@ -189,8 +189,10 @@ describe('portable bundle v2 (T12318)', () => {
     const proj = imported.sections[0];
     expect(proj?.mismatches).toEqual([]);
     expect(proj?.hashMismatches).toEqual([]);
-    expect(proj?.hashesCompared).toBe(2); // agent-outputs/note.md + tasks.db
-    expect(proj?.hashSkipped.sort()).toEqual(['cleo.db', 'config.json', 'project-info.json']);
+    // T12557: project-info.json is no longer rewritten on relocation (its
+    // projectHash is a write-once identity key), so its bytes are verified too.
+    expect(proj?.hashesCompared).toBe(3); // agent-outputs/note.md + tasks.db + project-info.json
+    expect(proj?.hashSkipped.sort()).toEqual(['cleo.db', 'config.json']);
     expect(proj?.keyCounts.find((k) => k.table === 'tasks_tasks')).toEqual({
       table: 'tasks_tasks',
       expected: 25,
@@ -230,7 +232,8 @@ describe('portable bundle v2 (T12318)', () => {
       fs.readFileSync(path.join(target, '.cleo', 'project-info.json'), 'utf-8'),
     ) as { projectId: string; projectHash: string };
     expect(info.projectId).toBe(PROJECT_ID);
-    expect(info.projectHash).toBe(generateProjectHash(target));
+    // T12557: projectHash is a write-once identity key; relocation keeps it.
+    expect(info.projectHash).toBe(generateProjectHash(projectRoot));
     const config = JSON.parse(
       fs.readFileSync(path.join(target, '.cleo', 'config.json'), 'utf-8'),
     ) as { worktreeRoot: string };

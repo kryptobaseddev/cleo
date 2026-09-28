@@ -22,8 +22,9 @@
  * @task T11521 - E6-L1: route getDb through openDualScopeDb (SG-DB-SUBSTRATE-V2)
  */
 
-import { copyFileSync, existsSync, renameSync, unlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, realpathSync, renameSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { basename, dirname, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 // T11280: `drizzle` is loaded LAZILY (see _getDrizzle) rather than via a
 // top-level value import. drizzle-orm/node-sqlite/driver.js statically imports
@@ -33,6 +34,7 @@ import { eq } from 'drizzle-orm';
 // module-load time", T1331). The type import is erased at runtime and is safe.
 import type { drizzle as drizzleFn, NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
+import { isGitLinkedCheckout } from '../project-scope.js';
 // T11521: dual-scope chokepoint — all tasks.db opens now flow through here.
 // openDualScopeDb manages the DatabaseSync lifecycle, pragmas, and migrations
 // for the consolidated cleo.db. We extract the native handle and re-wrap it
@@ -267,6 +269,23 @@ function countBackupTasks(backupDb: DatabaseSync): number {
 }
 
 /**
+ * Compare two directory paths by identity, following symlinks when both exist.
+ *
+ * @param a - First directory path.
+ * @param b - Second directory path.
+ * @returns `true` when both name the same directory.
+ * @task T12460
+ */
+function isSameDirectory(a: string, b: string): boolean {
+  if (resolve(a) === resolve(b)) return true;
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * See the doc block above {@link countBackupTasks} for the full T5188/T11662
  * rationale. Exported (rather than module-private) ONLY so the T11662 concurrency
  * regression test can drive ≥4 racing invocations against a single `cleo.db` and
@@ -317,6 +336,19 @@ export async function autoRecoverFromBackup(
 
     if (taskCount > 0) return false; // Database has data, no recovery needed
 
+    // T12460: never restore INTO a worktree. A `<worktree>/.cleo/cleo.db` is a
+    // diverged copy; filling it with the parent's newest snapshot (~1.25 GB)
+    // made every later write there land in a store nothing merges back.
+    const storeCleoDir = dirname(dbPath);
+    if (basename(storeCleoDir) === '.cleo' && isGitLinkedCheckout(dirname(storeCleoDir))) {
+      log.warn(
+        { dbPath },
+        'Auto-recovery refused: the empty store lives inside a git worktree (T12460). ' +
+          'Worktrees must resolve the parent project store.',
+      );
+      return false;
+    }
+
     // Database is empty — check for backups
     const backups = listSqliteBackups(cwd);
     if (backups.length === 0) {
@@ -326,6 +358,18 @@ export async function autoRecoverFromBackup(
 
     // Check the newest backup for task count
     const newestBackup = backups[0]!;
+
+    // T12460: a snapshot restores only the store it was taken of. The backup
+    // listing resolves its directory from `cwd` independently of `dbPath`;
+    // when the two disagree, restoring would copy ANOTHER store's data in.
+    const backupCleoDir = dirname(dirname(dirname(newestBackup.path)));
+    if (!isSameDirectory(backupCleoDir, storeCleoDir)) {
+      log.warn(
+        { dbPath, backupPath: newestBackup.path },
+        'Auto-recovery refused: the newest backup belongs to a different store (T12460).',
+      );
+      return false;
+    }
 
     // Open backup read-only to verify it has data.
     // Use openNativeDatabase (from sqlite-native.ts) — safe at runtime (no TDZ risk).

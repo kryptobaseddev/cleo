@@ -253,9 +253,8 @@ describe('T11031 AC3 — cross-mount projectId dedup integration', () => {
   });
 
   it('two paths with same project-info.json projectId share legacyUUID (AC3)', async () => {
-    // T11023: resolveProjectByCwd now returns canonical 12-hex projectId
-    // (computed from git root via T9149 algorithm) and preserves the
-    // original project-info.json ID as legacyUUID.
+    // T12470: resolveProjectByCwd returns the declared projectId (never a
+    // git-root/path hash) and preserves the project-info.json ID as legacyUUID.
     const sharedProjectId = `cross-mount-${Date.now()}`;
     const pathA = join(tmpdir(), `cleo-t11031-ac3-a-${Date.now()}`);
     const pathB = join(tmpdir(), `cleo-t11031-ac3-b-${Date.now()}`);
@@ -279,12 +278,10 @@ describe('T11031 AC3 — cross-mount projectId dedup integration', () => {
       expect(rawA!.legacyUUID).toBe(sharedProjectId);
       expect(rawB!.legacyUUID).toBe(sharedProjectId);
 
-      // Canonical IDs are 12-hex strings (T11023 / T9149)
-      expect(rawA!.projectId).toMatch(/^[0-9a-f]{12}$/);
-      expect(rawB!.projectId).toMatch(/^[0-9a-f]{12}$/);
-
-      // Different .git roots produce different canonical IDs (expected)
-      // — canonical ID is git-root-based
+      // T12470: the id is the DECLARED one, so two checkouts of the same
+      // project resolve to the same id regardless of their git roots.
+      expect(rawA!.projectId).toBe(sharedProjectId);
+      expect(rawB!.projectId).toBe(sharedProjectId);
     } finally {
       rmSync(pathA, { recursive: true, force: true });
       rmSync(pathB, { recursive: true, force: true });
@@ -315,7 +312,7 @@ describe('T11031 AC3 — cross-mount projectId dedup integration', () => {
 
       // Same real path → same canonical ID
       expect(resultReal!.projectId).toBe(resultSym!.projectId);
-      expect(resultReal!.projectId).toMatch(/^[0-9a-f]{12}$/);
+      expect(resultReal!.projectId).toBe(sharedProjectId);
       expect(resultReal!.legacyUUID).toBe(sharedProjectId);
     } finally {
       rmSync(realPath, { recursive: true, force: true });

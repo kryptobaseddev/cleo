@@ -38,6 +38,7 @@
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { isMain } from './lib/is-main.mjs';
 
 // ============================================================================
 // Configuration
@@ -614,25 +615,7 @@ function emitReport(result, opts) {
 // Entry point
 // ============================================================================
 
-/**
- * Whether the current module is executing as the main script (vs imported).
- *
- * @returns {boolean}
- */
-function isMain() {
-  // Node ESM: import.meta.url === pathToFileURL(process.argv[1]).href
-  const invoked = process.argv[1];
-  if (!invoked) return false;
-  try {
-    const url = new URL(import.meta.url);
-    const path = url.pathname;
-    return resolve(path) === resolve(invoked);
-  } catch {
-    return false;
-  }
-}
-
-if (isMain()) {
+if (isMain(import.meta.url)) {
   let config;
   try {
     config = parseArgs(process.argv.slice(2));

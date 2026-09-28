@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CleoError } from '../../errors.js';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 import { getNexusDb } from '../../store/nexus-sqlite.js';
 import { projectRegistry } from '../../store/schema/nexus-schema.js';
@@ -123,7 +122,15 @@ describe('nexusReconcile', () => {
     const newProjectDir = join(testDir, 'moved-project');
     await createTestProject(newProjectDir, projectId);
 
-    const result = await nexusReconcile(newProjectDir);
+    // T12470: the original path still exists, so this is a second checkout
+    // (or a clone), not a move — recorded as a candidate, row untouched.
+    expect(await nexusReconcile(newProjectDir)).toMatchObject({
+      status: 'candidate',
+      oldPath: projectDir,
+    });
+    expect((await nexusGetProject('test-proj'))!.path).toBe(projectDir);
+
+    const result = await nexusReconcile(newProjectDir, { forceRebind: true });
 
     expect(result.status).toBe('path_updated');
     expect(result.oldPath).toBe(projectDir);
@@ -151,7 +158,7 @@ describe('nexusReconcile', () => {
     expect(project!.path).toBe(projectDir);
   });
 
-  it('scenario 4: hash conflict with different projectId throws CleoError', async () => {
+  it('a new projectId at a registered path registers separately (T12469, was scenario 4)', async () => {
     const projectId1 = randomUUID();
     await createTestProject(projectDir, projectId1);
 
@@ -166,14 +173,12 @@ describe('nexusReconcile', () => {
       JSON.stringify({ projectId: projectId2, createdAt: new Date().toISOString() }),
     );
 
-    await expect(nexusReconcile(projectDir)).rejects.toThrow(CleoError);
-    try {
-      await nexusReconcile(projectDir);
-    } catch (err) {
-      expect(err).toBeInstanceOf(CleoError);
-      expect((err as CleoError).code).toBe(75); // NEXUS_REGISTRY_CORRUPT
-      expect((err as CleoError).message).toContain('Project identity conflict');
-    }
+    // The registry is keyed by project_id alone: a path is a location, so the
+    // new id is not an identity conflict. It registers beside the old row.
+    const result = await nexusReconcile(projectDir);
+    expect(result.status).toBe('auto_registered');
+    expect(await nexusGetProject(projectId1)).not.toBeNull();
+    expect(await nexusGetProject(projectId2)).not.toBeNull();
   });
 
   it('throws on empty project root', async () => {

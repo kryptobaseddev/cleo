@@ -24,8 +24,7 @@
  * @epic T9752
  */
 
-import { execSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -149,7 +148,7 @@ function applyT9756Migration(nativeDb: import('node:sqlite').DatabaseSync): void
     '20260520163500_t9756-uniform-releases-pk',
     'migration.sql',
   );
-  const sql = execSync(`cat ${sqlPath}`, { encoding: 'utf-8' });
+  const sql = readFileSync(sqlPath, 'utf-8');
   const statements = sql.split('--> statement-breakpoint');
   for (const stmt of statements) {
     const trimmed = stmt.trim();
@@ -165,7 +164,7 @@ function applyT9756Migration(nativeDb: import('node:sqlite').DatabaseSync): void
  */
 function applyT9756Revert(nativeDb: import('node:sqlite').DatabaseSync): void {
   const sqlPath = join(migrationsDir(), '20260520163500_t9756-uniform-releases-pk', 'revert.sql');
-  const sql = execSync(`cat ${sqlPath}`, { encoding: 'utf-8' });
+  const sql = readFileSync(sqlPath, 'utf-8');
   const statements = sql.split('--> statement-breakpoint');
   for (const stmt of statements) {
     const trimmed = stmt.trim();

@@ -62,11 +62,13 @@ import { worktreeScope } from '../project-scope.js';
 import { observeOperation } from './background-ops.js';
 import { type ExodusAbortDetail, getRecordedExodusAbort } from './exodus/abort-events.js';
 import { migrateWithRetry, reconcileJournal } from './migration-manager.js';
+import { assertStoreNotRelocated } from './relocated-store-guard.js';
 import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { assertStorePathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 import {
   makeWriterLeaseIdentity,
   registerDbIdentity,
@@ -738,6 +740,15 @@ export async function openDualScopeDbAtPath(
       }
       _cache.delete(key);
     }
+  }
+
+  // T12460: every physical project-scope open (cached-miss, dedicated, and the
+  // runtime/port binds that route here) checks the path it is ABOUT TO OPEN.
+  // A `<worktree>/.cleo/cleo.db` is a diverged copy whose writes are lost.
+  if (scope === 'project') {
+    assertStorePathIsNotWorktreeResident('project', normalizedPath);
+    // T12558: never CREATE an empty store where a project used to live.
+    assertStoreNotRelocated(normalizedPath, resolveDualScopeDbPath('global'));
   }
 
   const log = getLogger('dual-scope-db');

@@ -274,6 +274,22 @@ export interface TaskAuditLogRow {
 }
 
 /**
+ * Optimistic-concurrency guard for a single-task write (T12503).
+ *
+ * A task's version is its `updatedAt` timestamp (falling back to `createdAt`
+ * for a row that was never updated). Writers keep it strictly increasing, so a
+ * caller that read version `v` and passes `expectedUpdatedAt: v` either writes
+ * against exactly the row it read or fails with `E_CONFLICT`
+ * (`ExitCode.VERSION_CONFLICT`) carrying the current version. The comparison
+ * runs inside the write transaction, after `BEGIN IMMEDIATE` holds the lock.
+ * Omitting the guard keeps last-writer-wins semantics.
+ */
+export interface TaskWriteGuard {
+  /** Version the caller read; the write fails with `E_CONFLICT` if the row moved on. */
+  expectedUpdatedAt?: string;
+}
+
+/**
  * Subset of DataAccessor methods available inside a transaction callback.
  * Write-only — reads use the outer accessor (snapshot isolation).
  */
@@ -282,7 +298,7 @@ export interface TransactionAccessor {
   archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void>;
   removeSingleTask(taskId: string): Promise<void>;
   setMetaValue(key: string, value: unknown): Promise<void>;
-  updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void>;
+  updateTaskFields(taskId: string, fields: TaskFieldUpdates, guard?: TaskWriteGuard): Promise<void>;
   /** Get direct non-archived children inside the caller-owned transaction. @task T10590 */
   getChildren(parentId: string): Promise<Task[]>;
   appendLog(entry: Record<string, unknown>): Promise<void>;
@@ -499,8 +515,13 @@ export interface DataAccessor {
 
   // ---- Targeted write methods (Phase 2 modernization) ----
 
-  /** Update specific fields on a task without full load/save cycle. */
-  updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void>;
+  /**
+   * Update specific fields on a task without full load/save cycle.
+   *
+   * With `guard.expectedUpdatedAt`, the stored version is compared inside the
+   * write transaction and a mismatch throws `E_CONFLICT` (T12503).
+   */
+  updateTaskFields(taskId: string, fields: TaskFieldUpdates, guard?: TaskWriteGuard): Promise<void>;
 
   /** Get next available position for a task within a parent scope (SQL-level, race-safe). */
   getNextPosition(parentId: string | null): Promise<number>;

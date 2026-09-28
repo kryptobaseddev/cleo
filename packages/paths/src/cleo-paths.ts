@@ -27,6 +27,7 @@ import {
   type PlatformPaths,
   type SystemInfo,
 } from './platform-paths.js';
+import { readPortableProjectId } from './portable-project-id.js';
 
 const TEMPLATES_SUBDIR = 'templates';
 
@@ -74,6 +75,22 @@ export function getCleoPlatformPaths(): PlatformPaths {
  */
 export function getCleoHome(): string {
   return cleoResolver.getPlatformPaths().data;
+}
+
+/**
+ * Path of the persisted stable device id — `<cleoHome>/device-id`.
+ *
+ * Core's `getStableDeviceId()` creates it; `@cleocode/worktree` reads it to
+ * decide whether a worktree lock holder's pid can be probed on this device
+ * (T12506). One path, two readers.
+ *
+ * @returns Absolute path of the device-id file.
+ *
+ * @public
+ * @task T12506
+ */
+export function resolveStableDeviceIdPath(): string {
+  return join(getCleoHome(), 'device-id');
 }
 
 /**
@@ -195,16 +212,96 @@ export function resolveLegacyCleoDir(override?: string): string {
  * @public
  */
 export interface ResolvedProject {
-  /** Canonical runtime project ID (12-hex-char SHA-256 of git-root|name|remote). */
+  /**
+   * The project's portable identity (ADR-094, T12470): the tracked
+   * `.cleo/project-id` when valid, otherwise the `projectId` recorded in
+   * `.cleo/project-info.json`. Never derived from the path. Treat it as an
+   * opaque string — ids of every historical shape (UUID, 12-hex, legacy) occur.
+   */
   projectId: string;
   /** Absolute realpath to the project root directory. */
   projectRoot: string;
-  /** The legacy UUID from project-info.json, if present. */
+  /** The `projectId` recorded in `project-info.json`, if present. */
   legacyUUID?: string;
+  /**
+   * Which declaration supplied {@link ResolvedProject.projectId}. Optional so
+   * callers that construct a `ResolvedProject` themselves keep compiling;
+   * {@link resolveProjectByCwd} always sets it.
+   */
+  source?: DeclaredProjectIdentity['source'];
+}
+
+/**
+ * A project identity declared by files inside `<root>/.cleo/` — the only
+ * sources that may name a project (ADR-094, T12470).
+ *
+ * @public
+ */
+export interface DeclaredProjectIdentity {
+  /** The opaque project id. */
+  readonly projectId: string;
+  /** `tracked` = `.cleo/project-id`; `project-info` = `.cleo/project-info.json`. */
+  readonly source: 'tracked' | 'project-info';
+  /** The `projectId` recorded in `project-info.json`, when that file has one. */
+  readonly infoProjectId?: string;
+}
+
+/**
+ * Read the `projectId` field from `<root>/.cleo/project-info.json`.
+ * Returns `undefined` when the file is absent, unparseable or has no id.
+ */
+function _readProjectInfoId(projectRoot: string): string | undefined {
+  try {
+    const raw = readFileSync(join(projectRoot, '.cleo', 'project-info.json'), 'utf-8');
+    const data = JSON.parse(raw) as Record<string, unknown>;
+    return typeof data.projectId === 'string' && data.projectId.length > 0
+      ? data.projectId
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Read the identity a project root DECLARES, in precedence order (T12470):
+ *
+ *   1. the tracked, write-once `.cleo/project-id` (ADR-094);
+ *   2. the `projectId` in `.cleo/project-info.json`.
+ *
+ * A malformed tracked file is skipped here (it is reported by
+ * `cleo doctor project-identity`) and never replaced by a derived value.
+ * Nothing about the path — its spelling, realpath, git root or remote — takes
+ * part: moving or re-cloning a project keeps its id.
+ *
+ * @param projectRoot - Directory containing `.cleo/`.
+ * @returns The declared identity, or `null` when the root declares none.
+ *
+ * @example
+ * ```ts
+ * readDeclaredProjectIdentity('/repo'); // { projectId: 'c78d09c3a8ee', source: 'tracked' }
+ * ```
+ *
+ * @public
+ * @task T12470
+ */
+export function readDeclaredProjectIdentity(projectRoot: string): DeclaredProjectIdentity | null {
+  const infoProjectId = _readProjectInfoId(projectRoot);
+  const tracked = readPortableProjectId(projectRoot);
+  if (tracked.status === 'valid') {
+    return {
+      projectId: tracked.projectId,
+      source: 'tracked',
+      ...(infoProjectId !== undefined && { infoProjectId }),
+    };
+  }
+  if (infoProjectId !== undefined) {
+    return { projectId: infoProjectId, source: 'project-info', infoProjectId };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
-// Canonical project ID computation (T11023 — cross-mount divergence)
+// Path fingerprint (alias key only — never an identity, T12470)
 // ---------------------------------------------------------------------------
 
 /**
@@ -290,25 +387,22 @@ export function canonicalizePath(p: string): string {
 }
 
 /**
- * Compute the canonical project ID for a given repository path (T9149/T11023).
+ * Compute the path-derived fingerprint `sha256(gitRoot|name|remote)[0:12]`.
  *
- * Algorithm:
- *   1. Resolve `repoPath` to its `realpath` (resolves symlinks, normalises mounts).
- *   2. Detect the git root via `git rev-parse --show-toplevel` (falls back to realpath).
- *   3. Read `.cleo/project-info.json` name (optional).
- *   4. Read `git remote get-url origin` (optional).
- *   5. SHA-256 of `<gitRoot>|<projectName>|<remoteUrl>`, first 12 hex chars.
- *
- * This ensures `/mnt/projects/X` and `/workspace/X` (same git root,
- * same remote) produce the same ID.
+ * **Not an identity (T12470, supersedes the T9149/T11023 design).** A project
+ * is identified only by its declared id ({@link readDeclaredProjectIdentity}).
+ * This fingerprint survives solely as a LOOKUP KEY into
+ * `nexus_project_id_aliases`, so ids that older CLEO versions derived from a
+ * path keep resolving to the project that now owns them. Never return it as a
+ * project id and never mint a registry row from it.
  *
  * @param repoPath - Absolute path to the project root.
- * @returns The 12-hex-char canonical project ID.
+ * @returns The 12-hex-char path fingerprint.
  *
- * @task T11023
- * @task T9149
+ * @public
+ * @task T12470
  */
-export function computeCanonicalProjectId(repoPath: string): string {
+export function computePathFingerprintId(repoPath: string): string {
   const realRepoPath = canonicalizePath(repoPath);
 
   const gitRoot = _findGitRootSync(realRepoPath);
@@ -322,6 +416,15 @@ export function computeCanonicalProjectId(repoPath: string): string {
 }
 
 /**
+ * Former name of {@link computePathFingerprintId}.
+ *
+ * @deprecated T12470 — the value is a path fingerprint (alias key), not a
+ * project id. Use {@link readDeclaredProjectIdentity} for identity and
+ * {@link computePathFingerprintId} for alias lookups.
+ */
+export const computeCanonicalProjectId: (repoPath: string) => string = computePathFingerprintId;
+
+/**
  * Compute the legacy base64url(path) ID for a given path.
  *
  * **Canonical source** for this function. `@cleocode/core` re-exports
@@ -333,28 +436,27 @@ export function legacyProjectId(repoPath: string): string {
 }
 
 /**
- * Walk up from `cwd` (or `process.cwd()`) looking for `.cleo/project-info.json`
- * and return the project identity if found.
+ * Walk up from `cwd` (or `process.cwd()`) to the nearest directory whose
+ * `.cleo/` DECLARES a project identity, and return that identity.
  *
- * The project-info file acts as the local sentinel and supplies `legacyUUID`.
- * The returned `projectId` is the derived canonical runtime ID, not the raw
- * project-local UUID stored in the file.
+ * Resolution order at each level (T12470 · ADR-094): the tracked
+ * `.cleo/project-id`, then `project-info.json`'s `projectId`. The returned
+ * `projectId` is that declared id — never a hash of the path — so the same
+ * project resolves to the same id from any absolute location, mount or device.
+ * `projectRoot` is realpath-canonicalized (bind-mounts, macOS `/private/var`).
  *
- * **Cross-mount divergence (T11023):** Uses `realpathSync` to normalize
- * bind-mounts and symlinks so the same repo at `/mnt/projects/X` and
- * `/workspace/X` resolves to the same `projectRoot`. The `projectId` is
- * the T9149 canonical 12-hex-char SHA-256 fingerprint of git-root + name
- * + remote URL, which is also mount-invariant.
+ * A `.cleo/` that holds only the tracked id (no `project-info.json`) counts as
+ * a project root only when the directory is a git toplevel (has `.git`), so a
+ * monorepo subdirectory carrying a committed id does not shadow its parent.
  *
  * @param cwd - Optional working directory to start the ancestor walk from.
  *   Defaults to `process.cwd()`.
- * @returns The resolved project identity, or `null` if no CLEO project is
- *   found anywhere in the ancestor chain.
+ * @returns The resolved project identity, or `null` if no ancestor declares one.
  *
  * @example
  * ```typescript
  * const project = resolveProjectByCwd('/repo/packages/core');
- * // { projectId: 'a1b2c3d4e5f6', projectRoot: '/repo' }
+ * // { projectId: 'c78d09c3a8ee', projectRoot: '/repo', source: 'tracked' }
  *
  * const notFound = resolveProjectByCwd('/tmp/empty');
  * // null
@@ -362,42 +464,30 @@ export function legacyProjectId(repoPath: string): string {
  *
  * @public
  * @task T11008
- * @task T11023
+ * @task T12470
  */
 export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
   const start = resolve(cwd ?? process.cwd());
   let current = start;
 
   while (true) {
-    const infoPath = join(current, '.cleo', 'project-info.json');
-
-    if (existsSync(infoPath)) {
-      try {
-        const raw = readFileSync(infoPath, 'utf-8');
-        const data = JSON.parse(raw) as Record<string, unknown>;
-
-        if (typeof data.projectId === 'string' && data.projectId.length > 0) {
-          // T11023: Normalize projectRoot via the canonicalizePath SSoT to
-          // handle cross-mount + cross-OS divergence — same repo at
-          // /mnt/projects/X and /workspace/X (and macOS /var vs /private/var)
-          // resolves to the same real path (AC2, AC3). Falls back to the
-          // lexical path when `current` no longer exists on disk.
-          const realRoot = canonicalizePath(current);
-
-          // T11023: Compute canonical projectId using T9149 algorithm
-          // (git-root + realpath fingerprint) for mount-invariant identity (AC1).
-          const canonicalId = computeCanonicalProjectId(realRoot);
-
-          return {
-            projectId: canonicalId,
-            projectRoot: realRoot,
-            legacyUUID: data.projectId,
-          };
-        }
-      } catch {
-        // Corrupt or unparseable project-info.json — keep walking up.
-        // A higher ancestor may have a valid one.
+    if (existsSync(join(current, '.cleo'))) {
+      const declared = readDeclaredProjectIdentity(current);
+      // A `.cleo/` holding ONLY a committed project-id (no project-info.json)
+      // is a project root only at a git toplevel. Otherwise a monorepo
+      // subdirectory that carries a committed id would shadow its parent.
+      const trackedOnly = declared?.source === 'tracked' && declared.infoProjectId === undefined;
+      if (declared !== null && (!trackedOnly || existsSync(join(current, '.git')))) {
+        return {
+          projectId: declared.projectId,
+          projectRoot: canonicalizePath(current),
+          ...(declared.infoProjectId !== undefined && { legacyUUID: declared.infoProjectId }),
+          source: declared.source,
+        };
       }
+      // A `.cleo/` that declares nothing (corrupt / id-less project-info.json),
+      // or only a tracked id below a git toplevel, keeps walking — a higher
+      // ancestor may declare one.
     }
 
     const parent = dirname(current);

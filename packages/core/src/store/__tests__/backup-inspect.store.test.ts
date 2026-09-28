@@ -20,6 +20,10 @@ function fixture(sql: string): void {
   }
 }
 
+/**
+ * Content and metadata identity of the fixture source. Linux reads it with
+ * O_NOATIME; elsewhere this read itself may advance atime.
+ */
 function sourceIdentity() {
   const fd = fs.openSync(source, fs.constants.O_RDONLY | fs.constants.O_NOATIME);
   let bytes: Buffer;
@@ -73,9 +77,19 @@ describe('exact read-only observation snapshot inspection', () => {
       label: 'tasks legacy backup',
       sha256: before.sha256,
       atimeNs: before.atime.toString(),
-      atimeAfterNs: before.atime.toString(),
-      atimeChanged: false,
     });
+    if (process.platform === 'linux') {
+      // O_NOATIME: neither this fixture's reads nor the inspection advance atime.
+      expect(result.source).toMatchObject({
+        atimeAfterNs: before.atime.toString(),
+        atimeChanged: false,
+        atimeIsolation: 'noatime',
+      });
+    } else {
+      // Without O_NOATIME the inspection cannot vouch for atime, so it must not
+      // report a boolean. The darwin test below checks the disclosure itself.
+      expect(result.source).toMatchObject({ atimeChanged: null, atimeIsolation: 'unavailable' });
+    }
     expect(result.projectIdentity).toEqual({
       expected: 'expected-project',
       recorded: null,
@@ -100,42 +114,88 @@ describe('exact read-only observation snapshot inspection', () => {
     expect(result.record?.payloadSha256).toBe(
       createHash('sha256').update(JSON.stringify(entries)).digest('hex'),
     );
-    expect(sourceIdentity()).toEqual(before);
+    const after = sourceIdentity();
+    // Off Linux this fixture's own identity read already advanced atime, so only
+    // the content and modification metadata are a claim about the inspection.
+    expect(process.platform === 'linux' ? after : { ...after, atime: before.atime }).toEqual(
+      before,
+    );
   });
 
-  it('reports access-only changes from another reader without rejecting authentic payload', async () => {
-    fixture(
-      `CREATE TABLE observations(id TEXT PRIMARY KEY, narrative TEXT); INSERT INTO observations VALUES ('${ID}', 'authentic payload');`,
-    );
-    fs.utimesSync(source, new Date('2001-01-01'), new Date('2002-01-01'));
-    const before = sourceIdentity();
-    const open = fs.promises.open;
-    let externalRead = false;
-    vi.spyOn(fs.promises, 'open').mockImplementation(async (...args) => {
-      if (args[1] === 'wx') {
-        fs.readFileSync(source);
-        externalRead = true;
-      }
-      return open(...args);
-    });
-    const result = await inspectBackupObservation({ snapshotPath: source, recordId: ID });
-    const after = sourceIdentity();
-    expect(externalRead).toBe(true);
-    expect(after.atime).not.toBe(before.atime);
-    expect({ ...after, atime: before.atime }).toEqual(before);
-    expect(result.status).toBe('found');
-    expect(result.record?.payload.narrative).toEqual({
-      type: 'text',
-      bytesBase64: Buffer.from('authentic payload').toString('base64'),
-    });
-    expect(result.source).toMatchObject({
-      sha256: before.sha256,
-      atimeNs: before.atime.toString(),
-      atimeAfterNs: after.atime.toString(),
-      atimeChanged: true,
-    });
-    expect(result.limitations.join(' ')).toContain('does not establish which reader');
-  });
+  it.skipIf(process.platform !== 'darwin')(
+    'discloses that access time may reflect the inspection itself when O_NOATIME is unavailable',
+    async () => {
+      fixture(
+        `CREATE TABLE observations(id TEXT PRIMARY KEY, narrative TEXT); INSERT INTO observations VALUES ('${ID}', 'authentic payload');`,
+      );
+      const sha256 = createHash('sha256').update(fs.readFileSync(source)).digest('hex');
+      // Set atime AFTER the hash read, so the inspection is the only reader left.
+      fs.utimesSync(source, new Date('2001-01-01'), new Date('2002-01-01'));
+      const before = fs.statSync(source, { bigint: true });
+      const result = await inspectBackupObservation({ snapshotPath: source, recordId: ID });
+      const after = fs.statSync(source, { bigint: true });
+      expect(result.status).toBe('found');
+      // The inspection's own copy read advanced atime; content metadata is untouched.
+      expect(after.atimeNs).not.toBe(before.atimeNs);
+      expect([after.mtimeNs, after.ctimeNs, after.size]).toEqual([
+        before.mtimeNs,
+        before.ctimeNs,
+        before.size,
+      ]);
+      expect(result.source).toMatchObject({
+        sha256,
+        atimeNs: before.atimeNs.toString(),
+        atimeAfterNs: after.atimeNs.toString(),
+        atimeChanged: null,
+        atimeIsolation: 'unavailable',
+      });
+      expect(result.limitations).toContain(
+        'O_NOATIME is unavailable on this platform: access time may reflect this inspection itself, so atimeChanged is null.',
+      );
+    },
+  );
+
+  // Linux-only: isolating ANOTHER reader's access-time change needs this
+  // fixture's own identity read to leave atime untouched, which only O_NOATIME
+  // provides. Without it (macOS) that read advances atime first, so the
+  // external read has nothing left to change.
+  it.skipIf(process.platform !== 'linux')(
+    'reports access-only changes from another reader without rejecting authentic payload',
+    async () => {
+      fixture(
+        `CREATE TABLE observations(id TEXT PRIMARY KEY, narrative TEXT); INSERT INTO observations VALUES ('${ID}', 'authentic payload');`,
+      );
+      fs.utimesSync(source, new Date('2001-01-01'), new Date('2002-01-01'));
+      const before = sourceIdentity();
+      const open = fs.promises.open;
+      let externalRead = false;
+      vi.spyOn(fs.promises, 'open').mockImplementation(async (...args) => {
+        if (args[1] === 'wx') {
+          fs.readFileSync(source);
+          externalRead = true;
+        }
+        return open(...args);
+      });
+      const result = await inspectBackupObservation({ snapshotPath: source, recordId: ID });
+      const after = sourceIdentity();
+      expect(externalRead).toBe(true);
+      expect(after.atime).not.toBe(before.atime);
+      expect({ ...after, atime: before.atime }).toEqual(before);
+      expect(result.status).toBe('found');
+      expect(result.record?.payload.narrative).toEqual({
+        type: 'text',
+        bytesBase64: Buffer.from('authentic payload').toString('base64'),
+      });
+      expect(result.source).toMatchObject({
+        sha256: before.sha256,
+        atimeNs: before.atime.toString(),
+        atimeAfterNs: after.atime.toString(),
+        atimeChanged: true,
+        atimeIsolation: 'noatime',
+      });
+      expect(result.limitations.join(' ')).toContain('does not establish which reader');
+    },
+  );
 
   it('reads a legacy table exactly and scopes genuine absence to the inspected snapshot', async () => {
     fixture(

@@ -1,0 +1,273 @@
+{
+  "note": "Raw SQL writes on classified cleo.db tables outside the sanctioned accessor (T12332). Counts may only DECREASE, and a decrease must be recorded here. Regenerate with: node scripts/lint-no-raw-table-writes.mjs --update-baseline",
+  "totalFindings": 227,
+  "files": 73,
+  "counts": {
+    "crates/cleo-supervisor/src/lease_handler.rs": {
+      "_writer_leases": 2
+    },
+    "packages/cleo/src/cli/commands/doctor.ts": {
+      "tasks": 1
+    },
+    "packages/core/src/agents/seed-install.ts": {
+      "agent_registry_agents": 1
+    },
+    "packages/core/src/conduit/local-transport.ts": {
+      "conduit_conversations": 1,
+      "conduit_messages": 3,
+      "conduit_topic_messages": 1,
+      "conduit_topic_subscriptions": 2,
+      "conduit_topics": 2
+    },
+    "packages/core/src/deriver/deriver.ts": {
+      "brain_observations": 1
+    },
+    "packages/core/src/deriver/enqueue.ts": {
+      "deriver_queue": 1
+    },
+    "packages/core/src/deriver/queue-manager.ts": {
+      "deriver_queue": 5
+    },
+    "packages/core/src/docs/display-alias.ts": {
+      "attachments": 1
+    },
+    "packages/core/src/docs/supersede.ts": {
+      "attachments": 2
+    },
+    "packages/core/src/doctor/knowledge.ts": {
+      "_nexus_meta": 2,
+      "brain_decisions": 4
+    },
+    "packages/core/src/doctor/malformed-task-ids.ts": {
+      "tasks_tasks": 1
+    },
+    "packages/core/src/lifecycle/index.ts": {
+      "tasks_tasks": 1
+    },
+    "packages/core/src/llm/catalog-seeder.ts": {
+      "__catalog_meta": 1
+    },
+    "packages/core/src/memory/brain-backfill.ts": {
+      "brain_backfill_runs": 3,
+      "brain_page_nodes": 2
+    },
+    "packages/core/src/memory/brain-consolidator.ts": {
+      "brain_page_edges": 2,
+      "brain_patterns": 2
+    },
+    "packages/core/src/memory/brain-lifecycle.ts": {
+      "brain_consolidation_events": 1,
+      "brain_learnings": 2,
+      "brain_observations": 4,
+      "brain_page_edges": 2,
+      "brain_promotion_log": 4
+    },
+    "packages/core/src/memory/brain-page-nodes.ts": {
+      "brain_page_edges": 1,
+      "brain_page_nodes": 1
+    },
+    "packages/core/src/memory/brain-search.ts": {
+      "brain_decisions_fts": 5,
+      "brain_learnings_fts": 5,
+      "brain_observations_fts": 5,
+      "brain_patterns_fts": 5
+    },
+    "packages/core/src/memory/brain-stdp.ts": {
+      "brain_modulators": 1,
+      "brain_page_edges": 5,
+      "brain_plasticity_events": 3,
+      "brain_retrieval_log": 1,
+      "brain_weight_history": 4
+    },
+    "packages/core/src/memory/brain-stub-prune.ts": {
+      "brain_observations": 2
+    },
+    "packages/core/src/memory/brain-sweep-executor.ts": {
+      "brain_backfill_runs": 1,
+      "brain_observations_staging": 1
+    },
+    "packages/core/src/memory/brain-writer-handlers.ts": {
+      "brain_plasticity_events": 1,
+      "brain_weight_history": 1
+    },
+    "packages/core/src/memory/claude-mem-migration.ts": {
+      "brain_decisions": 1,
+      "brain_learnings": 1,
+      "brain_observations": 1
+    },
+    "packages/core/src/memory/decision-cross-link.ts": {
+      "_nexus_meta": 1,
+      "brain_page_edges": 1,
+      "brain_page_nodes": 1
+    },
+    "packages/core/src/memory/engine-compat.ts": {
+      "brain_decisions": 1
+    },
+    "packages/core/src/memory/graph-memory-bridge.ts": {
+      "brain_page_edges": 5,
+      "brain_page_nodes": 2
+    },
+    "packages/core/src/memory/llm-extraction.ts": {
+      "brain_decisions": 1
+    },
+    "packages/core/src/memory/nexus-plasticity.ts": {
+      "nexus_relation_weights": 2
+    },
+    "packages/core/src/memory/observer-reflector.ts": {
+      "brain_observations": 1
+    },
+    "packages/core/src/memory/quality-feedback.ts": {
+      "brain_usage_log": 1
+    },
+    "packages/core/src/memory/retrieval/log-retrieval.ts": {
+      "brain_retrieval_log": 1
+    },
+    "packages/core/src/memory/retrieval/observe.ts": {
+      "brain_embeddings": 2
+    },
+    "packages/core/src/memory/session-narrative.ts": {
+      "session_narrative": 1
+    },
+    "packages/core/src/memory/sleep-consolidation.ts": {
+      "brain_observations": 5
+    },
+    "packages/core/src/memory/specialists.ts": {
+      "brain_decisions": 1,
+      "brain_learnings": 1,
+      "brain_observations": 2,
+      "brain_patterns": 2
+    },
+    "packages/core/src/memory/surprisal-tree.ts": {
+      "brain_memory_trees": 2,
+      "brain_observations": 1
+    },
+    "packages/core/src/memory/temporal-supersession.ts": {
+      "brain_page_edges": 1
+    },
+    "packages/core/src/memory/transcript-ingestor.ts": {
+      "brain_transcript_events": 1
+    },
+    "packages/core/src/nexus/analyze-orchestrator.ts": {
+      "_nexus_meta": 4,
+      "_nexus_parse_cache": 3,
+      "nexus_symbols_fts": 1
+    },
+    "packages/core/src/nexus/assessment-store.ts": {
+      "_nexus_meta": 3
+    },
+    "packages/core/src/nexus/graph-manifest.ts": {
+      "_nexus_meta": 3
+    },
+    "packages/core/src/nexus/tasks-bridge.ts": {
+      "_nexus_meta": 1,
+      "brain_page_edges": 1
+    },
+    "packages/core/src/release/backfill.ts": {
+      "audit_log": 1
+    },
+    "packages/core/src/release/release-manifest.ts": {
+      "tasks_task_commits": 1
+    },
+    "packages/core/src/sentient/ingesters/nexus-ingester.ts": {
+      "nexus_audit_log": 1,
+      "nexus_schema_meta": 2
+    },
+    "packages/core/src/sentient/propose-tick.ts": {
+      "tasks_task_labels": 1,
+      "tasks_tasks": 2
+    },
+    "packages/core/src/sentient/stage-drift-tick.ts": {
+      "tasks_task_labels": 1,
+      "tasks_tasks": 1
+    },
+    "packages/core/src/sequence/index.ts": {
+      "schema_meta": 1
+    },
+    "packages/core/src/sessions/session-memory-bridge.ts": {
+      "brain_task_observations": 1
+    },
+    "packages/core/src/store/agent-doctor.ts": {
+      "agent_registry_agent_skills": 1,
+      "agent_registry_agents": 2
+    },
+    "packages/core/src/store/agent-install.ts": {
+      "agent_registry_agent_skills": 2,
+      "agent_registry_agents": 2
+    },
+    "packages/core/src/store/agent-registry-store.ts": {
+      "_agent_registry_meta": 1
+    },
+    "packages/core/src/store/background-jobs.ts": {
+      "background_jobs": 2
+    },
+    "packages/core/src/store/conduit-sqlite.ts": {
+      "_conduit_meta": 1,
+      "conduit_project_agent_refs": 3
+    },
+    "packages/core/src/store/credential-transfer.ts": {
+      "agent_registry_agents": 3,
+      "service_connections": 2,
+      "tasks_agent_credentials": 3
+    },
+    "packages/core/src/store/db-helpers.ts": {
+      "tasks_sessions": 1
+    },
+    "packages/core/src/store/exodus/migrate.ts": {
+      "schema_meta": 1
+    },
+    "packages/core/src/store/exodus/recovery.ts": {
+      "_exodus_database_identity": 1,
+      "tasks_sessions": 1
+    },
+    "packages/core/src/store/legacy-tasks-lineage.ts": {
+      "__drizzle_migrations": 2
+    },
+    "packages/core/src/store/memory-sqlite.ts": {
+      "brain_schema_meta": 1
+    },
+    "packages/core/src/store/migrate-signaldock-to-conduit.ts": {
+      "conduit_messages_fts": 1,
+      "conduit_project_agent_refs": 1
+    },
+    "packages/core/src/store/migration-manager.ts": {
+      "__drizzle_migrations": 5
+    },
+    "packages/core/src/store/nexus-sqlite.ts": {
+      "nexus_relation_weights": 1,
+      "nexus_schema_meta": 1,
+      "nexus_symbols_fts": 5
+    },
+    "packages/core/src/store/portable-bundle-import.ts": {
+      "nexus_project_registry": 1
+    },
+    "packages/core/src/store/snapshot-gate.ts": {
+      "schema_meta": 1
+    },
+    "packages/core/src/store/sqlite.ts": {
+      "schema_meta": 2
+    },
+    "packages/core/src/tasks/backfill-child-projections.ts": {
+      "task_acceptance_criteria": 2,
+      "tasks": 1
+    },
+    "packages/core/src/telemetry/sqlite.ts": {
+      "telemetry_schema_meta": 1
+    },
+    "packages/playbooks/src/approval.ts": {
+      "playbook_approvals": 2
+    },
+    "packages/playbooks/src/state.ts": {
+      "playbook_approvals": 2,
+      "playbook_runs": 3
+    },
+    "packages/studio/src/routes/api/memory/decision-store/+server.ts": {
+      "brain_decisions": 2
+    },
+    "packages/studio/src/routes/api/memory/learning-store/+server.ts": {
+      "brain_learnings": 2
+    },
+    "packages/studio/src/routes/api/memory/pattern-store/+server.ts": {
+      "brain_patterns": 2
+    }
+  }
+}

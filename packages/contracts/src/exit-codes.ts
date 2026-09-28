@@ -21,6 +21,13 @@ export enum ExitCode {
   VALIDATION_ERROR = 6,
   LOCK_TIMEOUT = 7,
   CONFIG_ERROR = 8,
+  /**
+   * The project this directory resolves to was relocated by
+   * `cleo project reroot`; a valid `.cleo-moved.json` tombstone names its new
+   * root. Refused instead of silently creating an empty store at the old root.
+   * LAFS code `E_PROJECT_MOVED`; details carry `movedTo`. @task T12558
+   */
+  PROJECT_MOVED = 9,
 
   // === HIERARCHY ERRORS (10-19) ===
   PARENT_NOT_FOUND = 10,
@@ -38,6 +45,29 @@ export enum ExitCode {
   CHECKSUM_MISMATCH = 20,
   CONCURRENT_MODIFICATION = 21,
   ID_COLLISION = 22,
+  /**
+   * Optimistic-concurrency version mismatch: the caller's expected task
+   * version (`updatedAt`) no longer matches the stored row. LAFS code
+   * `E_CONFLICT`; the error details carry the current version. @task T12503
+   */
+  VERSION_CONFLICT = 23,
+  /**
+   * A session MUTATION (end, decision, suspend-on-switch) was asked to act on
+   * "the caller's session" but the caller has no bound identity: no connection
+   * handle, no `CLEO_SESSION_ID` naming a real row, and no terminal binding
+   * from `cleo session start` / `cleo session resume`. Guessing the newest
+   * active row would act on ANOTHER agent's session, so the operation refuses.
+   * LAFS code `E_SESSION_UNBOUND`. @task T12500
+   */
+  SESSION_UNBOUND = 24,
+  /**
+   * A second spawn asked for a task worktree whose per-task lock is held by a
+   * live holder (session, agent, pid + process start, device, heartbeat).
+   * Re-provisioning would force-remove the holder's live worktree, so the
+   * spawn refuses. LAFS code `E_WORKTREE_LOCKED`; the error details name the
+   * holder. @task T12506
+   */
+  WORKTREE_LOCKED = 25,
 
   // === SESSION ERRORS (30-39) ===
   SESSION_EXISTS = 30,
