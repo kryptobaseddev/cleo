@@ -30,6 +30,9 @@ project-info root differs from the captured project root".
   `strippedFields` and `description`. Before, they erased these receipts. The
   schema now declares `previousProjectIds` and `strippedFields`, each with
   `maxItems` 50, so a resolved project stays schema-valid.
+- `renameProject` keeps the stored `projectHash`; before, it re-derived it from
+  the path. It no longer writes `projectRoot` back: a legacy value is recorded
+  in `strippedFields` and removed.
 - The hashless backfill is a compare-and-swap. It writes only if the file still
   has no hash and still has the same `projectId`, so a concurrent re-key is
   never overwritten.

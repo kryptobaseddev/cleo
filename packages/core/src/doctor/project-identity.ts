@@ -339,6 +339,38 @@ function isGitTracked(projectRoot: string, file: string): boolean {
 }
 
 /**
+ * Return `info` with `findings` appended to its `strippedFields` receipt
+ * (capped at the schema's `maxItems`) and, when `stripInfo`, its own path
+ * facts removed. Pure; the caller writes the result.
+ *
+ * @param info - Parsed `project-info.json`.
+ * @param findings - Path facts being removed, with their values.
+ * @param now - ISO timestamp recorded on each receipt entry.
+ * @param stripInfo - Remove `DERIVED_FIELDS` from `info` itself.
+ * @returns A new object; `info` is not mutated.
+ * @example
+ * ```ts
+ * const next = withStrippedFieldsReceipt(info, findings, new Date().toISOString(), true);
+ * ```
+ * @task T12557
+ */
+export function withStrippedFieldsReceipt(
+  info: Readonly<Record<string, unknown>>,
+  findings: readonly DerivedFieldFinding[],
+  now: string,
+  stripInfo: boolean,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...info };
+  const prior = Array.isArray(info['strippedFields']) ? info['strippedFields'] : [];
+  next['strippedFields'] = [
+    ...prior,
+    ...findings.map((finding) => ({ ...finding, strippedAt: now })),
+  ].slice(-RECEIPT_MAX_ITEMS);
+  if (stripInfo) for (const field of DERIVED_FIELDS) delete next[field];
+  return next;
+}
+
+/**
  * Remove persisted path facts. The receipt is written first, into
  * `project-info.json` `strippedFields`, so a value is never removed without a
  * durable record of it; without a readable `project-info.json` nothing is
@@ -351,14 +383,11 @@ function stripDerivedFields(
 ): boolean {
   const info = readCleoJson(projectRoot, 'project-info.json');
   if (!info) return false;
-  const prior = Array.isArray(info['strippedFields']) ? info['strippedFields'] : [];
-  info['strippedFields'] = [
-    ...prior,
-    ...findings.map((finding) => ({ ...finding, strippedAt: now })),
-  ].slice(-RECEIPT_MAX_ITEMS);
-  if (findings.some((finding) => finding.file === 'project-info.json'))
-    for (const field of DERIVED_FIELDS) delete info[field];
-  writeJsonAtomic(join(projectRoot, '.cleo', 'project-info.json'), info);
+  const stripInfo = findings.some((finding) => finding.file === 'project-info.json');
+  writeJsonAtomic(
+    join(projectRoot, '.cleo', 'project-info.json'),
+    withStrippedFieldsReceipt(info, findings, now, stripInfo),
+  );
   if (findings.some((finding) => finding.file === 'project-context.json')) {
     const context = readCleoJson(projectRoot, 'project-context.json');
     if (context) {
