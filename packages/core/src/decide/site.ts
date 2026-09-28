@@ -148,14 +148,13 @@ export async function resolveDecisionSiteSettings(
 export interface AskSiteDecisionInput {
   /** Call-site id; keys the audit line. */
   readonly siteId: string;
-  /** End-to-end budget in ms: module load, redaction and the round trip. */
-  readonly budgetMs: number;
   /**
-   * `performance.now()` at which the budget started. Pass the site's own
-   * start so its setup (e.g. {@link resolveDecisionSiteSettings}) counts
-   * against the budget. Default: the start of this call.
+   * Budget in ms for WAITING on the decision: request building, redaction, the
+   * shared request budget and the provider round trip. It starts once the
+   * decision modules are loaded — module loading is a cold-start cost, not
+   * provider wait, and charging it would starve every fresh CLI process.
    */
-  readonly startedAt?: number;
+  readonly budgetMs: number;
   /** Minimum confidence EVERY answer needs before `on` mode may act on the decision. */
   readonly minConfidence: number;
   /** Effective mode (`off` never reaches a decision). */
@@ -206,24 +205,27 @@ function allConfident(
  * Ask one budgeted System One decision for a call site, auditing the
  * heuristic's answers beside the decision's in the same `decisions.jsonl` line.
  *
- * Never throws and never waits longer than `budgetMs` from `startedAt` (default:
- * this call's start): the abort signal pins the budget there, so the site's
- * setup, module load and the client's setup are inside it. Heavy modules load
- * lazily.
+ * Never throws. Heavy modules load lazily FIRST; then the deadline starts, and
+ * the provider is never waited on longer than `budgetMs` (request building,
+ * redaction, the audit sink and the client's own setup are inside it). Module
+ * load is excluded on purpose: in a cold process it alone can exceed the
+ * budget, and a budget that includes it means a fast provider never answers.
  *
  * @param input - Site id, budget, mode, request builder, heuristic and wiring.
  * @returns The decision, or `null` when the heuristic answered (fallback) or the answer was invalid.
  */
 export async function askSiteDecision(input: AskSiteDecisionInput): Promise<SiteDecision | null> {
-  const started = input.startedAt ?? performance.now();
   try {
-    // `AbortSignal.timeout` takes a non-negative INTEGER delay.
-    const deadline = AbortSignal.timeout(
-      Math.max(0, Math.floor(input.budgetMs - (performance.now() - started))),
-    );
-    const { decide } = await import('./client.js');
-    const { auditAnswers, createJsonlDecisionAudit } = await import('./audit.js');
-    const { redactContent } = await import('../memory/redaction.js');
+    const [{ decide }, { auditAnswers, createJsonlDecisionAudit }, { redactContent }, paths] =
+      await Promise.all([
+        import('./client.js'),
+        import('./audit.js'),
+        import('../memory/redaction.js'),
+        import('../paths.js'),
+      ]);
+    // The wait budget starts now, with every module loaded.
+    const started = performance.now();
+    const deadline = AbortSignal.timeout(input.budgetMs);
 
     const req = input.buildRequest((text) => redactContent(text).content);
     const heuristicAudit = auditAnswers({
@@ -237,9 +239,8 @@ export async function askSiteDecision(input: AskSiteDecisionInput): Promise<Site
     let sink = wiring.audit;
     if (sink === undefined) {
       try {
-        const { getProjectRoot } = await import('../paths.js');
         sink = createJsonlDecisionAudit(
-          wiring.projectRoot ?? input.projectRoot ?? getProjectRoot(),
+          wiring.projectRoot ?? input.projectRoot ?? paths.getProjectRoot(),
         );
       } catch {
         sink = null;
