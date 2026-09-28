@@ -274,8 +274,9 @@ describe('zero writes (T12623 AC2)', () => {
 });
 
 describe('merged-PR CI replaces local tool runs when the project opts in (T12634)', () => {
-  async function mergedPrPlan(optIn: boolean) {
+  async function mergedPrPlan(optIn: boolean, prepare?: (id: string) => Promise<void>) {
     const id = await seedTask(['Change src/a.ts to return 2']);
+    if (prepare) await prepare(id);
     commitOnTaskBranch(id);
     git(root, ['switch', '-q', 'main']);
     git(root, ['merge', '-q', '--squash', `task/${id}`]);
@@ -345,10 +346,108 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     expect(ev['qaPassed']).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
   });
 
+  it('after merge, an affected-scope testsPassed is superseded: re-planned from merged CI (T12635)', async () => {
+    const plan = await mergedPrPlan(true, async (id) => {
+      const verification = {
+        passed: false,
+        round: 1,
+        gates: { testsPassed: true },
+        failureLog: [],
+        lastAgent: null,
+        lastUpdated: null,
+        evidence: {
+          testsPassed: {
+            atoms: [
+              {
+                kind: 'tool',
+                tool: 'test-affected',
+                exitCode: 0,
+                scope: 'affected',
+                affectedPackages: ['@x/a'],
+              },
+            ],
+            capturedAt: '2026-09-28T00:00:00Z',
+            capturedBy: 'test',
+          },
+        },
+      };
+      await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+    });
+    const tests = plan.gates.find((g) => g.gate === 'testsPassed');
+    expect(tests?.passed).toBe(false);
+    expect(tests?.evidence).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
+    expect(plan.changeSet.warnings.join(' ')).toMatch(/affected-scope run/);
+  });
+
   it('without the opt-in, the same PR still plans local tool runs', async () => {
     const plan = await mergedPrPlan(false);
     expect(plan.toolRuns.map((r) => r.tool)).toEqual(['test', 'lint', 'typecheck']);
     expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test;/);
+  });
+});
+
+describe('affected-scope test runs (T12635, D11150)', () => {
+  function workspaceWithPackages(): void {
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');
+    for (const [dir, name, deps] of [
+      ['pkgs/a', '@w/a', {}],
+      ['pkgs/b', '@w/b', { '@w/a': 'workspace:*' }],
+      ['pkgs/c', '@w/c', {}],
+    ] as const) {
+      mkdirSync(join(root, dir), { recursive: true });
+      writeFileSync(join(root, dir, 'package.json'), JSON.stringify({ name, dependencies: deps }));
+      writeFileSync(join(root, dir, 'i.ts'), 'export const x = 1;\n');
+    }
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as { testing: Record<string, unknown> };
+    writeFileSync(
+      ctxPath,
+      JSON.stringify({
+        ...ctx,
+        testing: { ...ctx.testing, affectedCommand: 'pnpm exec vitest run {projects}' },
+      }),
+    );
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'workspace']);
+    git(root, ['push', '-q', 'origin', 'main']);
+  }
+
+  it('before merge, testsPassed plans tool:test-affected over the changed package and its dependents', async () => {
+    workspaceWithPackages();
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    const run = plan.toolRuns.find((r) => r.gate === 'testsPassed');
+    expect(run).toMatchObject({
+      tool: 'test-affected',
+      command: 'pnpm exec vitest run --project @w/a --project @w/b',
+    });
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
+      `tool:test-affected;satisfies:${id}#AC1`,
+    );
+  });
+
+  it('a workspace-wide change falls back to the full tool:test', async () => {
+    workspaceWithPackages();
+    const id = await seedTask(['Change the lockfile']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+    git(root, ['add', 'pnpm-lock.yaml']);
+    git(root, ['commit', '-q', '-m', `${id}: lock`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
   });
 });
 

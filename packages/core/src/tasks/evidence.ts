@@ -1530,6 +1530,81 @@ export interface EvidenceExecutionRootHints {
 }
 
 /**
+ * `tool:test-affected` (D11150, T12635): run `testing.affectedCommand` over the
+ * packages the branch diff touches plus their dependents, through the same
+ * ADR-061 cache and heavy-tool caps as `tool:test` (canonical `test`, so the
+ * memory and timeout limits apply). The atom records `scope: 'affected'` and
+ * the packages, so a receipt never passes for a full run.
+ */
+async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidation> {
+  const { storeRoot, executionRoot } = roots;
+  const { readRawProjectContext } = await import('./tool-resolver.js');
+  const testing = (
+    readRawProjectContext(storeRoot) as { testing?: { affectedCommand?: unknown } } | null
+  )?.testing;
+  const template = typeof testing?.affectedCommand === 'string' ? testing.affectedCommand : '';
+  if (template.trim() === '') {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE',
+      reason:
+        'tool:test-affected needs testing.affectedCommand in .cleo/project-context.json, e.g. ' +
+        '"pnpm exec vitest run {projects}" ({projects}/{filters}/{packages} expand per package).',
+    };
+  }
+  const { buildAffectedTestCommand, changedPathsSinceDefault, deriveAffectedPackages } =
+    await import('./affected-packages.js');
+  const changed = changedPathsSinceDefault(executionRoot);
+  if (changed === null) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `tool:test-affected cannot find origin's default branch in ${executionRoot} to diff against; use tool:test.`,
+    };
+  }
+  const scope = deriveAffectedPackages(executionRoot, changed);
+  if (scope.scope === 'full') {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `The change touches paths ${scope.reason}. Run the full suite: tool:test.`,
+    };
+  }
+  if (scope.packages.length === 0) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason:
+        'The change touches no workspace package, so there is nothing to test by scope; use tool:test.',
+    };
+  }
+  const { cmd, args } = buildAffectedTestCommand(template, scope.packages);
+  const result = await runToolCached(
+    { canonical: 'test', displayName: 'test-affected', cmd, args, source: 'project-context' },
+    storeRoot,
+    { executionRoot },
+  );
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      codeName: result.timedOut ? 'E_EVIDENCE_TOOL_TIMEOUT' : 'E_EVIDENCE_TOOL_FAILED',
+      reason: `tool:test-affected (${[cmd, ...args].join(' ')}) exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}`,
+    };
+  }
+  return {
+    ok: true,
+    atom: {
+      kind: 'tool',
+      tool: 'test-affected',
+      exitCode: 0,
+      stdoutTail: result.stdoutTail,
+      scope: 'affected',
+      affectedPackages: scope.packages,
+    },
+  };
+}
+
+/**
  * Resolve the tree that evidence tools should RUN in, given the CLEO store
  * root.
  *
@@ -1747,6 +1822,7 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
 }
 
 async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomValidation> {
+  if (tool === 'test-affected') return validateAffectedTests(roots);
   const { storeRoot: projectRoot, executionRoot } = roots;
   const resolution = resolveToolCommand(tool, projectRoot);
 

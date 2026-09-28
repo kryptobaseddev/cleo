@@ -264,6 +264,14 @@ export type EvidenceAtom =
       notApplicable?: boolean;
       /** Why the tool was judged inapplicable. Present iff `notApplicable`. */
       reason?: string;
+      /**
+       * `affected`: the run covered only the packages the branch diff touches
+       * plus their dependents (D11150, T12635). It satisfies testsPassed before
+       * merge; merged CI (`ci:`) or a full `tool:test` supersedes it.
+       */
+      scope?: 'affected';
+      /** The packages the affected run covered (with `scope: 'affected'`). */
+      affectedPackages?: string[];
     }
   | { kind: 'url'; url: string }
   | { kind: 'note'; note: string }
