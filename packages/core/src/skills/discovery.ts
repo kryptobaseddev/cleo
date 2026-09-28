@@ -24,8 +24,13 @@ import {
   getProjectAgentsDir,
 } from '@cleocode/caamp';
 import { getCleoHome, getProjectRoot } from '../paths.js';
-import { resolveBundledSkillDir, resolveSkillsRoot } from './skill-root.js';
+import {
+  bundledSkillFallbackEnabled,
+  resolveBundledSkillDir,
+  resolveSkillsRoot,
+} from './skill-root.js';
 import type {
+  FindSkillOptions,
   Skill,
   SkillFrontmatter,
   SkillManifest,
@@ -306,12 +311,20 @@ export function discoverAllSkills(cwd?: string): Skill[] {
 }
 
 /**
- * Find a specific skill by name across all search paths, falling back to
- * the copy bundled in `@cleocode/skills` when none holds it.
+ * Find a specific skill by name across all search paths.
+ *
+ * With `options.includeBundled` (and `CLEO_SKILL_SOURCE=auto`, the default),
+ * falls back to the copy bundled in `@cleocode/skills` and marks it
+ * `source: 'bundled'`. Without it, only installed skills are found.
+ *
  * @task T4516
  * @task T12646
  */
-export function findSkill(name: string, cwd?: string): Skill | null {
+export function findSkill(
+  name: string,
+  cwd?: string,
+  options: FindSkillOptions = {},
+): Skill | null {
   const { canonical } = mapSkillName(name);
   const searchPaths = getSkillSearchPaths(cwd);
 
@@ -331,10 +344,12 @@ export function findSkill(name: string, cwd?: string): Skill | null {
     }
   }
 
-  // T12646: not installed anywhere — read the copy bundled in @cleocode/skills
-  // so stage guidance and spawn prompts never lose a protocol they name.
-  const bundled = resolveBundledSkillDir(canonical);
-  return bundled === null ? null : discoverSkill(bundled);
+  // T12646: not installed anywhere — a prompt builder may still read the copy
+  // bundled in @cleocode/skills, marked so it can say so.
+  if (options.includeBundled !== true || !bundledSkillFallbackEnabled()) return null;
+  const bundledDir = resolveBundledSkillDir(canonical);
+  const bundled = bundledDir === null ? null : discoverSkill(bundledDir);
+  return bundled === null ? null : { ...bundled, source: 'bundled' };
 }
 
 /**

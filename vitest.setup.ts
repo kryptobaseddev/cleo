@@ -27,11 +27,10 @@
  */
 
 import { createRequire, syncBuiltinESMExports } from 'node:module';
-import { constants as fsConstants, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { existsSync, constants as fsConstants, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join, resolve, sep } from 'node:path';
-import { afterEach } from 'vitest';
-import { createPlatformPathsResolver } from './packages/paths/src/platform-paths.js';
+import { afterAll, afterEach, expect } from 'vitest';
 
 // We must patch the CommonJS `child_process` module object so every importer
 // (ESM and CJS) sees the wrapped functions. The ESM namespace object is
@@ -49,15 +48,38 @@ const child_process: Record<string, unknown> = cjsRequire('node:child_process');
 // sandbox.
 // ---------------------------------------------------------------------------
 const PROTECTED_ROOTS_ENV = 'CLEO_TEST_PROTECTED_DATA_ROOTS';
+
+/**
+ * The platform data dir for `cleo`, from the RAW platform rules that
+ * `env-paths` applies (`@cleocode/paths` delegates to it).
+ *
+ * Deliberately NOT `@cleocode/paths` / `env-paths`: env-paths@4 reads
+ * `os.homedir()` and `os.tmpdir()` once, at import, and Node caches the
+ * module for the life of the fork. Importing it here, before HOME is
+ * sandboxed, pinned the REAL home into every later config/cache/log/temp path
+ * in the fork (CI: `/home/runner/Library/...` in adapters and cleo-os tests).
+ */
+function platformCleoDataDir(home: string): string {
+  if (process.platform === 'darwin') return join(home, 'Library', 'Application Support', 'cleo');
+  if (process.platform === 'win32') {
+    return join(process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'cleo', 'Data');
+  }
+  return join(process.env.XDG_DATA_HOME || join(home, '.local', 'share'), 'cleo');
+}
+
 if (!process.env[PROTECTED_ROOTS_ENV]) {
+  const home = homedir();
+  const inheritedCleoHome = process.env.CLEO_HOME?.trim();
   const roots = new Set<string>([
-    // The data dir as the parent shell resolves it (honours CLEO_HOME)...
-    createPlatformPathsResolver('cleo', 'CLEO_HOME').getPlatformPaths().data,
-    // ...the platform default even when the shell overrides CLEO_HOME...
-    createPlatformPathsResolver('cleo', 'CLEO_TEST_UNSET_HOME_OVERRIDE').getPlatformPaths().data,
-    // ...and the `~/.cleo` convenience alias that links to it.
-    join(homedir(), '.cleo'),
+    // The platform default data dir...
+    platformCleoDataDir(home),
+    // ...the `~/.cleo` convenience alias that links to it...
+    join(home, '.cleo'),
   ]);
+  // ...and a data dir the parent shell selected with CLEO_HOME.
+  if (inheritedCleoHome) {
+    roots.add(inheritedCleoHome.startsWith('~') ? join(home, inheritedCleoHome.slice(1)) : inheritedCleoHome);
+  }
   process.env[PROTECTED_ROOTS_ENV] = [...roots].map((r) => resolve(r)).join(delimiter);
 }
 
@@ -318,11 +340,25 @@ wrap('execFileSync', 1, 2);
 // Real-data-dir write guard (T12645). Every fs mutation whose target lies
 // under a root captured in PROTECTED_ROOTS_ENV is refused with
 // E_TEST_REAL_DATA_WRITE and recorded; the afterEach below fails the test
-// even when the code under test swallowed the error. `<root>/worktrees` is
-// exempt: agent worktrees (and the tests run inside them) live there.
+// even when the code under test swallowed the error; a hit in a beforeAll /
+// afterAll hook is reported by the afterAll below, attributed to the file.
+//
+// Exempt: the git checkout the run was started in (the nearest ancestor of
+// process.cwd() holding `.git`). Agent worktrees live under
+// `<dataDir>/worktrees`, so a run inside one writes its own fixtures there —
+// but only its OWN checkout is exempt, never a sibling agent's worktree.
 //
 // A root that contains the sandbox or the system temp dir is dropped, so an
 // inherited `CLEO_HOME=/tmp` can never turn every sandbox write into a hit.
+//
+// Known limits — this is a tripwire for the common leak, not a sandbox:
+// - Paths are compared as TEXT after `path.resolve`. A write through a symlink
+//   other than `~/.cleo` (e.g. a harness skill link pointing into the data
+//   dir) is not resolved and not caught.
+// - Only this process's `node:fs` / `node:fs/promises` exports are guarded.
+//   Child processes, native addons and SQLite (which has its own path guard in
+//   `openNativeDatabase`) write unseen, as do writes to an fd or stream opened
+//   before setup ran.
 // ---------------------------------------------------------------------------
 
 /** Shared across setup re-runs in one process (see the double-run note above). */
@@ -338,6 +374,19 @@ const realDataWrites = guardGlobal[REAL_DATA_WRITES];
 
 const isWithin = (target: string, root: string): boolean =>
   target === root || target.startsWith(`${root}${sep}`);
+
+/** Nearest ancestor of `start` holding `.git` (dir or worktree file), or null. */
+function gitToplevel(start: string): string | null {
+  let dir = resolve(start);
+  for (;;) {
+    if (existsSync(join(dir, '.git'))) return dir;
+    const parent = resolve(dir, '..');
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+const ownCheckout = gitToplevel(process.cwd());
 
 const protectedRoots = (process.env[PROTECTED_ROOTS_ENV] ?? '')
   .split(delimiter)
@@ -358,7 +407,7 @@ function protectedRootOf(value: unknown): string | null {
   const target = resolve(raw);
   for (const root of protectedRoots) {
     if (!isWithin(target, root)) continue;
-    if (isWithin(target, join(root, 'worktrees'))) return null;
+    if (ownCheckout !== null && isWithin(target, ownCheckout)) return null;
     return root;
   }
   return null;
@@ -405,6 +454,9 @@ function realDataWriteError(fn: string, target: unknown, root: string): Error {
     `  target: ${toPathString(target)}`,
     `  root:   ${root}`,
     `  sandbox CLEO_HOME: ${process.env.CLEO_HOME}`,
+    `  test:   ${expect.getState().testPath ?? '(unknown file)'} > ${
+      expect.getState().currentTestName ?? '(beforeAll/afterAll hook)'
+    }`,
     '',
     'Tests must resolve cleoHome inside the per-fork sandbox that vitest.setup.ts',
     "creates (a package vitest.config.ts that runs directly must list it in",
@@ -460,8 +512,13 @@ if (!guardGlobal[FS_GUARD_INSTALLED] && protectedRoots.length > 0) {
   syncBuiltinESMExports();
 }
 
-afterEach(() => {
+function failOnRealDataWrites(): void {
   if (realDataWrites.length === 0) return;
   const writes = realDataWrites.splice(0);
   throw new Error(`${writes.length} write(s) targeted the real CLEO data dir:\n\n${writes.join('\n\n')}`);
-});
+}
+
+afterEach(failOnRealDataWrites);
+// Registered first, so it runs after the file's own afterAll hooks: catches
+// hits from beforeAll/afterAll that no afterEach saw.
+afterAll(failOnRealDataWrites);

@@ -14,20 +14,31 @@ returned `homedir()/.cleo/skills` and `vitest.setup.ts` did not pin `HOME`.
 The writes went through the `~/.cleo` alias into the real data dir.
 
 - `vitest.setup.ts` records the real data dir (and `~/.cleo`) before it
-  sandboxes the environment. It then refuses every fs write under that dir
-  with `E_TEST_REAL_DATA_WRITE`, and fails the test in `afterEach` even when
-  the code under test swallowed the error. `<dataDir>/worktrees` is exempt.
-- New `cleo doctor skill-fixtures [--repair] [--dry-run]`. An entry counts as
-  a fixture only when its name is `<slug>-<uuid>` or one of the three fixture
-  names and its content is exactly what those tests write. Any other entry
-  with a matching name is reported as `unclassified` and left alone. Manifest
-  skills, bundled names and hidden entries are never candidates. `--repair`
-  moves fixtures into `<cleoHome>/audit/skill-fixture-quarantine/<receiptId>/`
-  and deletes nothing. Intent and completed receipts, with the sha256 of every
-  file, go to `<cleoHome>/audit/skill-fixtures.jsonl`.
-- `resolveSkillPath` and `findSkill` fall back to the skill bundled in
-  `@cleocode/skills` when no search path holds it. `ct-lead` and several
-  LOOM-stage skills are never installed, so tier-1 lead spawns printed
-  "Skills not installed" and every stage's guidance fell back to a stub.
-  `CLEO_SKILL_SOURCE=embedded` still disables the fallback. The set of skills
-  installed to harnesses is unchanged.
+  sandboxes the environment. It computes that dir from the raw platform rules
+  rather than loading `env-paths`, which caches `os.homedir()` when imported.
+  It then refuses every fs write under the dir with `E_TEST_REAL_DATA_WRITE`
+  and fails the test in `afterEach`/`afterAll`, even when the code under test
+  swallowed the error. Only the git checkout the run started in is exempt.
+  Other agents' worktrees are not. The known limits are documented in the
+  file: paths are compared as text, and child processes and native writes
+  are not seen.
+- New `cleo doctor skill-fixtures [--repair | --restore <receiptId>] [--dry-run]`.
+  An entry counts as a fixture only when its name is `<slug>-<uuid>` or one of
+  the three fixture names and its content is exactly what those tests write.
+  Any other entry with a matching name is reported as `unclassified` and left
+  alone. Manifest skills, bundled names and hidden entries are never
+  candidates. `--repair` moves fixtures into
+  `<cleoHome>/audit/skill-fixture-quarantine/<receiptId>/` and deletes
+  nothing. Across filesystems it copies instead, checks the copy against the
+  recorded hashes, and only then removes the source. Intent and completed
+  receipts go to `<cleoHome>/audit/skill-fixtures.jsonl`, and `--restore`
+  moves a run back without overwriting anything.
+- `ct-lead` and several LOOM-stage skills are never installed, so tier-1 lead
+  spawns printed "Skills not installed" and every stage's guidance fell back
+  to a stub. When `CLEO_SKILL_SOURCE` is `auto` (the default),
+  `resolveSkillPath`/`resolveSkillLocation` and stage guidance now read those
+  skills from `@cleocode/skills`. They record it as `origin: 'bundled'` or
+  `bundledSkills` and say so in the prompt. `caamp` and `embedded` never fall
+  back. `findSkill` returns bundled skills only with `{ includeBundled: true }`,
+  so playbook skill-node routing and the skill executor still see installed
+  skills only. The set of skills installed to harnesses is unchanged.

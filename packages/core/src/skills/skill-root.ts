@@ -143,6 +143,23 @@ export function resolveSkillsRoot(): string {
   return join(getCleoHome(), 'skills');
 }
 
+/**
+ * Whether name-based resolvers may fall back to the bundled skill copy.
+ *
+ * @remarks
+ * Only in the default `CLEO_SKILL_SOURCE` mode (`auto`, or unset).
+ * `caamp` means installed skills only and `embedded` means project skills
+ * only, so neither may be satisfied from the package (T12646).
+ *
+ * @returns `true` when the bundled fallback is allowed.
+ * @task T12646
+ * @public
+ */
+export function bundledSkillFallbackEnabled(): boolean {
+  const mode = process.env['CLEO_SKILL_SOURCE'];
+  return mode === undefined || mode === '' || mode === 'auto';
+}
+
 /** Memoised {@link resolveBundledSkillsDir} result (`undefined` = not probed yet). */
 let bundledSkillsDir: string | null | undefined;
 

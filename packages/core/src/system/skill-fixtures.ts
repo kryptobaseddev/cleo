@@ -21,7 +21,9 @@
  * `<cleoHome>/audit/skill-fixture-quarantine/<receiptId>/<name>` — nothing
  * is deleted — and appends intent/completed receipts to
  * `<cleoHome>/audit/skill-fixtures.jsonl`, each naming both paths and the
- * sha256 of every file moved.
+ * sha256 of every file moved. Across filesystems (EXDEV) the move is a copy,
+ * re-hashed against that inventory before the source is removed.
+ * {@link restoreSkillFixtures} moves a run's entries back.
  *
  * @task T12645
  */
@@ -29,14 +31,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   appendFileSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
 } from 'node:fs';
-import { join, relative } from 'node:path';
+import { basename, join, relative } from 'node:path';
 import { getCleoHome } from '../paths.js';
 import { listCanonicalSkillNames, parseFrontmatter } from '../skills/discovery.js';
 import { resolveBundledSkillsDir, resolveSkillsRoot } from '../skills/skill-root.js';
@@ -116,8 +120,8 @@ export interface SkillFixtureReceipt {
   quarantineDir: string;
   /** Every fixture the run moves, with its destination and file hashes. */
   planned: Array<{ from: string; to: string; files: SkillFixtureFile[] }>;
-  /** Entries actually moved. */
-  moved: string[];
+  /** Entries actually moved: `rename`, or `copy` (verified, then source removed) across devices. */
+  moved: SkillFixtureMove[];
   /** Entries left in place, with the reason. */
   skipped: Array<{ path: string; reason: string }>;
   /** Error that stopped the run, when `phase === 'failed'`. */
@@ -125,6 +129,37 @@ export interface SkillFixtureReceipt {
   /** JSONL receipt log, or null on a dry run. */
   receiptLog: string | null;
 }
+
+/** One entry moved by a repair or a restore. */
+export interface SkillFixtureMove {
+  /** Path before the move. */
+  from: string;
+  /** Path after the move. */
+  to: string;
+  /** `rename`, or `copy` when rename failed with EXDEV (hashes verified before the source is removed). */
+  method: 'rename' | 'copy';
+}
+
+/** Receipt for one {@link restoreSkillFixtures} run. */
+export interface SkillFixtureRestoreReceipt {
+  /** The repair receipt being undone. */
+  receiptId: string;
+  /** ISO timestamp. */
+  at: string;
+  /** Dry run: nothing moved, nothing written. */
+  dryRun: boolean;
+  /** `restore-planned` (dry run, returned only) · `restored`. */
+  phase: 'restore-planned' | 'restored';
+  /** Entries moved back to their original path. */
+  restored: SkillFixtureMove[];
+  /** Entries left in quarantine, with the reason. */
+  skipped: Array<{ path: string; reason: string }>;
+  /** JSONL receipt log, or null on a dry run. */
+  receiptLog: string | null;
+}
+
+/** Move primitive; injectable so tests can force the cross-device path. */
+export type RenameFn = (from: string, to: string) => void;
 
 /** Injection points (tests). */
 export interface SkillFixtureOptions {
@@ -134,6 +169,43 @@ export interface SkillFixtureOptions {
   auditDir?: string;
   /** Names that are never candidates. Defaults to manifest + bundled names. */
   protectedNames?: readonly string[];
+  /** Rename primitive. Defaults to `renameSync`. */
+  rename?: RenameFn;
+}
+
+/** Stable comparison key for a file inventory. */
+function inventoryKey(files: readonly SkillFixtureFile[]): string {
+  return JSON.stringify([...files].sort((a, b) => a.path.localeCompare(b.path)));
+}
+
+/**
+ * Move `from` to `to`. A plain rename when possible; when rename fails with
+ * EXDEV (quarantine on another filesystem), copy, re-hash the copy against
+ * `expected`, and only then remove the source. A copy that does not verify is
+ * removed and the source stays in place.
+ */
+function moveVerified(
+  from: string,
+  to: string,
+  expected: readonly SkillFixtureFile[],
+  rename: RenameFn,
+): SkillFixtureMove {
+  try {
+    rename(from, to);
+    return { from, to, method: 'rename' };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+  }
+  cpSync(from, to, { recursive: true, errorOnExist: true, force: false });
+  const copied = classifySkillFixture(basename(to), to).files;
+  if (inventoryKey(copied) !== inventoryKey(expected)) {
+    rmSync(to, { recursive: true, force: true });
+    throw new Error(
+      `copy of ${from} to ${to} did not match the recorded sha256 inventory; source left in place`,
+    );
+  }
+  rmSync(from, { recursive: true });
+  return { from, to, method: 'copy' };
 }
 
 /** Manifest skill names plus every skill directory bundled in `@cleocode/skills`. */
@@ -283,12 +355,18 @@ export function repairSkillFixtures(opts: SkillFixtureOptions & { dryRun?: boole
   try {
     for (const entry of fixtures) {
       const now = classifySkillFixture(entry.name, entry.path);
-      if (now.state !== 'fixture' || JSON.stringify(now.files) !== JSON.stringify(entry.files)) {
+      if (now.state !== 'fixture' || inventoryKey(now.files) !== inventoryKey(entry.files)) {
         receipt.skipped.push({ path: entry.path, reason: 'changed since audit; left in place' });
         continue;
       }
-      renameSync(entry.path, join(quarantineDir, entry.name));
-      receipt.moved.push(entry.path);
+      receipt.moved.push(
+        moveVerified(
+          entry.path,
+          join(quarantineDir, entry.name),
+          entry.files,
+          opts.rename ?? renameSync,
+        ),
+      );
     }
   } catch (err) {
     receipt.error = err instanceof Error ? err.message : String(err);
@@ -297,4 +375,79 @@ export function repairSkillFixtures(opts: SkillFixtureOptions & { dryRun?: boole
   }
   log('completed');
   return { audit: auditSkillFixtures(opts), receipt };
+}
+
+/**
+ * Undo one {@link repairSkillFixtures} run: move every entry its receipt
+ * records as moved back from quarantine to its original path. An entry whose
+ * original path is occupied, whose quarantine copy is gone, or whose files no
+ * longer match the recorded sha256 inventory is skipped and reported. Appends
+ * a `restored` line to the same JSONL log.
+ *
+ * @param receiptId - The repair receipt id (also the quarantine dir name).
+ * @param opts - `dryRun` plans without moving; `auditDir` / `rename` injection.
+ * @returns The restore receipt.
+ * @throws When the log has no finished run with that id, or it was already restored.
+ * @task T12645
+ */
+export function restoreSkillFixtures(
+  receiptId: string,
+  opts: Pick<SkillFixtureOptions, 'auditDir' | 'rename'> & { dryRun?: boolean } = {},
+): SkillFixtureRestoreReceipt {
+  const auditDir = opts.auditDir ?? join(getCleoHome(), 'audit');
+  const receiptLog = join(auditDir, 'skill-fixtures.jsonl');
+  const lines = existsSync(receiptLog)
+    ? readFileSync(receiptLog, 'utf8')
+        .split('\n')
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as SkillFixtureReceipt | SkillFixtureRestoreReceipt)
+        .filter((line) => line.receiptId === receiptId)
+    : [];
+  if (lines.some((line) => line.phase === 'restored')) {
+    throw new Error(`skill-fixture receipt ${receiptId} was already restored`);
+  }
+  const run = [...lines]
+    .reverse()
+    .find(
+      (line): line is SkillFixtureReceipt => line.phase === 'completed' || line.phase === 'failed',
+    );
+  if (run === undefined) {
+    throw new Error(`no completed or failed skill-fixture repair ${receiptId} in ${receiptLog}`);
+  }
+
+  const dryRun = opts.dryRun === true;
+  const receipt: SkillFixtureRestoreReceipt = {
+    receiptId,
+    at: new Date().toISOString(),
+    dryRun,
+    phase: 'restore-planned',
+    restored: [],
+    skipped: [],
+    receiptLog: null,
+  };
+  for (const move of run.moved) {
+    const files = run.planned.find((p) => p.from === move.from)?.files ?? [];
+    if (!existsSync(move.to)) {
+      receipt.skipped.push({ path: move.to, reason: 'quarantine copy is missing' });
+    } else if (existsSync(move.from)) {
+      receipt.skipped.push({ path: move.from, reason: 'original path is occupied' });
+    } else if (
+      inventoryKey(classifySkillFixture(basename(move.to), move.to).files) !== inventoryKey(files)
+    ) {
+      receipt.skipped.push({
+        path: move.to,
+        reason: 'quarantined files no longer match the receipt',
+      });
+    } else if (dryRun) {
+      receipt.restored.push({ from: move.to, to: move.from, method: 'rename' });
+    } else {
+      receipt.restored.push(moveVerified(move.to, move.from, files, opts.rename ?? renameSync));
+    }
+  }
+  if (!dryRun) {
+    receipt.phase = 'restored';
+    receipt.receiptLog = receiptLog;
+    appendFileSync(receiptLog, `${JSON.stringify(receipt)}\n`, 'utf8');
+  }
+  return receipt;
 }

@@ -12,13 +12,18 @@
  * Read-only by default. `--repair` moves every fixture into
  * `<cleoHome>/audit/skill-fixture-quarantine/<receiptId>/` (nothing is
  * deleted) and appends intent/completed receipts to
- * `<cleoHome>/audit/skill-fixtures.jsonl`. `--dry-run` shows the receipt
- * without touching disk.
+ * `<cleoHome>/audit/skill-fixtures.jsonl`. `--restore <receiptId>` moves
+ * that run's entries back. `--dry-run` shows the receipt without touching
+ * disk.
  *
  * @task T12645
  */
 
-import { auditSkillFixtures, repairSkillFixtures } from '@cleocode/core/system/skill-fixtures.js';
+import {
+  auditSkillFixtures,
+  repairSkillFixtures,
+  restoreSkillFixtures,
+} from '@cleocode/core/system/skill-fixtures.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -42,9 +47,15 @@ export const doctorSkillFixturesCommand = defineCommand({
         'Move every fixture into <cleoHome>/audit/skill-fixture-quarantine/<receiptId>/ and ' +
         'append a receipt. Unclassified entries are reported, never moved.',
     },
+    restore: {
+      type: 'string',
+      description:
+        'Move the entries quarantined by this repair receipt id back to their original paths ' +
+        '(never over an occupied path). Appends a restored receipt.',
+    },
     'dry-run': {
       type: 'boolean',
-      description: 'With --repair: report the receipt without touching disk',
+      description: 'With --repair or --restore: report the receipt without touching disk',
     },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },
@@ -52,6 +63,31 @@ export const doctorSkillFixturesCommand = defineCommand({
   },
   async run({ args }) {
     const dryRun = args['dry-run'] === true;
+    if (typeof args.restore === 'string' && args.restore.length > 0) {
+      try {
+        const receipt = restoreSkillFixtures(args.restore, { dryRun });
+        cliOutput(
+          { restore: receipt, audit: auditSkillFixtures() },
+          { command: 'doctor', operation: 'doctor.skill-fixtures.run' },
+        );
+        if (receipt.skipped.length > 0 && !dryRun) process.exitCode = 1;
+      } catch (err) {
+        cliError(
+          err instanceof Error ? err.message : String(err),
+          1,
+          {
+            name: 'E_SKILL_FIXTURE_RESTORE_FAILED',
+            fix:
+              'Pass a receipt id from <cleoHome>/audit/skill-fixtures.jsonl whose repair ' +
+              'finished and has not been restored. Entries restored before a failure are listed ' +
+              'in that file; the rest stay in quarantine.',
+          },
+          { operation: 'doctor.skill-fixtures.run' },
+        );
+        process.exitCode = 1;
+      }
+      return;
+    }
     let result: ReturnType<typeof repairSkillFixtures> | null = null;
     if (args.repair === true) {
       try {

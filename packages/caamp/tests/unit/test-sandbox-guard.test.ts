@@ -19,7 +19,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { delimiter, join, resolve, sep } from 'node:path';
 import { resolveSkillsRoot } from '@cleocode/core/skills/skill-root.js';
@@ -77,5 +77,24 @@ describe('caamp test sandbox (T12645)', () => {
 
     expect(syncError).toMatchObject({ code: 'E_TEST_REAL_DATA_WRITE' });
     expect(takeRecordedWrites()).toHaveLength(2);
+  });
+
+  it("refuses a sibling agent's worktree under the data dir", () => {
+    const dataRoot = protectedRoots()[0] as string;
+    const sibling = join(dataRoot, 'worktrees', 'not-this-run', `T0-${randomUUID()}`, 'x.txt');
+    expect(() => writeFileSync(sibling, 'x')).toThrow(/E_TEST_REAL_DATA_WRITE/);
+    expect(takeRecordedWrites()).toHaveLength(1);
+  });
+
+  it('exempts only the checkout this run started in', () => {
+    let dir = resolve(process.cwd());
+    while (!existsSync(join(dir, '.git'))) dir = resolve(dir, '..');
+    const own = join(dir, 'node_modules', `.vitest-guard-own-${randomUUID()}`);
+    try {
+      writeFileSync(own, 'x');
+    } finally {
+      rmSync(own, { force: true });
+    }
+    expect(takeRecordedWrites()).toEqual([]);
   });
 });

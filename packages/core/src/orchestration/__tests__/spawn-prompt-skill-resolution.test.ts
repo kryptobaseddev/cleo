@@ -26,7 +26,7 @@ import {
 } from '../../lifecycle/stage-guidance.js';
 import type { Stage } from '../../lifecycle/stages.js';
 import { findSkill } from '../../skills/discovery.js';
-import { resolveSkillPath } from '../../skills/skill-paths.js';
+import { resolveSkillLocation, resolveSkillPath } from '../../skills/skill-paths.js';
 import { resolveBundledSkillsDir } from '../../skills/skill-root.js';
 import { buildTierSkillExcerpts } from '../spawn-prompt.js';
 
@@ -83,7 +83,9 @@ describe('spawn-prompt / stage-guidance skill resolution (T12646)', () => {
 
   it('every stage-guidance skill resolves with nothing installed', () => {
     const names = [...new Set([...Object.values(STAGE_SKILL_MAP), ...TIER_0_SKILLS])];
-    const unresolved = names.filter((name) => findSkill(name, emptyProject) === null);
+    const unresolved = names.filter(
+      (name) => findSkill(name, emptyProject, { includeBundled: true }) === null,
+    );
     expect(unresolved).toEqual([]);
   });
 
@@ -105,10 +107,29 @@ describe('spawn-prompt / stage-guidance skill resolution (T12646)', () => {
     expect(orchestrator).toContain('### ct-orchestrator');
   });
 
-  it('CLEO_SKILL_SOURCE=embedded still disables the bundled fallback', () => {
-    process.env['CLEO_SKILL_SOURCE'] = 'embedded';
+  it('says when it used the bundled copy', () => {
+    expect(resolveSkillLocation('ct-lead', emptyProject)?.origin).toBe('bundled');
+    expect(findSkill('ct-lead', emptyProject, { includeBundled: true })?.source).toBe('bundled');
+
+    const guidance = buildStageGuidance('implementation', emptyProject);
+    expect(guidance.bundledSkills).toEqual(['ct-task-executor', 'ct-cleo', 'ct-orchestrator']);
+    expect(guidance.prompt).toContain('Not installed in this environment');
+
+    expect(buildTierSkillExcerpts(1, 'lead', emptyProject)).toContain(
+      'ct-lead is not installed in this environment',
+    );
+  });
+
+  it('findSkill without includeBundled still finds installed skills only (playbook routing)', () => {
+    expect(findSkill('ct-lead', emptyProject)).toBeNull();
+  });
+
+  it.each(['caamp', 'embedded'])('CLEO_SKILL_SOURCE=%s disables the bundled fallback', (mode) => {
+    process.env['CLEO_SKILL_SOURCE'] = mode;
     try {
       expect(resolveSkillPath('ct-lead', emptyProject)).toBeNull();
+      expect(findSkill('ct-lead', emptyProject, { includeBundled: true })).toBeNull();
+      expect(buildStageGuidance('implementation', emptyProject).source).toBe('fallback');
     } finally {
       delete process.env['CLEO_SKILL_SOURCE'];
     }

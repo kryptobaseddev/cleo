@@ -16,7 +16,11 @@
 import { existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { resolveOrCwd } from '../paths.js';
-import { resolveBundledSkillDir, resolveSkillsRoot } from './skill-root.js';
+import {
+  bundledSkillFallbackEnabled,
+  resolveBundledSkillDir,
+  resolveSkillsRoot,
+} from './skill-root.js';
 
 /** Source type classification for a skill directory. */
 export type SkillSourceType = 'embedded' | 'caamp' | 'project-link' | 'global-link';
@@ -28,6 +32,19 @@ export type SkillSourceMode = 'auto' | 'caamp' | 'embedded';
 export interface SkillSearchPath {
   path: string;
   origin: 'override' | 'caamp' | 'embedded';
+}
+
+/**
+ * A resolved skill directory and where it came from. `bundled` means the
+ * skill is not installed anywhere and was read from `@cleocode/skills`.
+ *
+ * @task T12646
+ */
+export interface ResolvedSkillLocation {
+  /** Real path of the skill directory. */
+  path: string;
+  /** Search-path origin, or `bundled` for the package fallback. */
+  origin: SkillSearchPath['origin'] | 'bundled';
 }
 
 /**
@@ -133,31 +150,44 @@ export function getSkillSearchPaths(projectRoot?: string): SkillSearchPath[] {
 }
 
 /**
- * Resolve a skill directory containing SKILL.md.
- * Searches all paths from getSkillSearchPaths() in priority order.
- * First match wins.
+ * Resolve a skill directory containing SKILL.md, with its origin.
+ * Searches all paths from getSkillSearchPaths() in priority order; first
+ * match wins.
  *
- * When no search path holds the skill, falls back to the copy bundled in
- * `@cleocode/skills` (except under `CLEO_SKILL_SOURCE=embedded`), so a spawn
- * prompt can always read a protocol it names even when install selection
- * left it out of the data dir (T12646).
+ * When no search path holds the skill and `CLEO_SKILL_SOURCE` is `auto` (the
+ * default), falls back to the copy bundled in `@cleocode/skills` with origin
+ * `bundled`, so a spawn prompt can read a protocol it names even when install
+ * selection left it out of the data dir. `caamp` and `embedded` never fall
+ * back (T12646).
+ *
+ * @task T4552
+ * @task T12646
+ */
+export function resolveSkillLocation(
+  skillName: string,
+  projectRoot?: string,
+): ResolvedSkillLocation | null {
+  for (const { path: searchPath, origin } of getSkillSearchPaths(projectRoot)) {
+    const candidate = join(searchPath, skillName);
+    if (existsSync(join(candidate, 'SKILL.md'))) {
+      return { path: safeRealpath(candidate), origin };
+    }
+  }
+
+  if (!bundledSkillFallbackEnabled()) return null;
+  const bundled = resolveBundledSkillDir(skillName);
+  return bundled === null ? null : { path: safeRealpath(bundled), origin: 'bundled' };
+}
+
+/**
+ * Resolve a skill directory containing SKILL.md — the path of
+ * {@link resolveSkillLocation}, including its bundled fallback.
  *
  * @task T4552
  * @task T12646
  */
 export function resolveSkillPath(skillName: string, projectRoot?: string): string | null {
-  const searchPaths = getSkillSearchPaths(projectRoot);
-
-  for (const { path: searchPath } of searchPaths) {
-    const candidate = join(searchPath, skillName);
-    if (existsSync(join(candidate, 'SKILL.md'))) {
-      return safeRealpath(candidate);
-    }
-  }
-
-  if (process.env['CLEO_SKILL_SOURCE'] === 'embedded') return null;
-  const bundled = resolveBundledSkillDir(skillName);
-  return bundled === null ? null : safeRealpath(bundled);
+  return resolveSkillLocation(skillName, projectRoot)?.path ?? null;
 }
 
 /**

@@ -18,7 +18,11 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { auditSkillFixtures, repairSkillFixtures } from '../skill-fixtures.js';
+import {
+  auditSkillFixtures,
+  repairSkillFixtures,
+  restoreSkillFixtures,
+} from '../skill-fixtures.js';
 
 const UUID = '3f5741af-bfcd-40af-9808-1de587e3100c';
 
@@ -127,5 +131,53 @@ describe('repairSkillFixtures', () => {
     const { receipt } = repairSkillFixtures(opts());
     expect(receipt.moved).toEqual([]);
     expect(receipt.receiptLog).toBeNull();
+  });
+
+  it('falls back to a hash-verified copy when rename crosses devices (EXDEV)', () => {
+    const exdev = (): void => {
+      throw Object.assign(new Error('EXDEV: cross-device link not permitted'), { code: 'EXDEV' });
+    };
+    const { receipt } = repairSkillFixtures({ ...opts(), rename: exdev });
+    expect(receipt.moved.map((m) => m.method)).toEqual(['copy', 'copy', 'copy']);
+    expect(existsSync(join(skillsRoot, 'real-skill'))).toBe(false);
+    expect(readFileSync(join(receipt.quarantineDir, `deep-${UUID}`, 'file1.txt'), 'utf8')).toBe(
+      'content1',
+    );
+  });
+});
+
+describe('restoreSkillFixtures', () => {
+  it('moves a run back, once, and records it', () => {
+    const before = readFileSync(join(skillsRoot, `deep-${UUID}`, 'subdir', 'file2.txt'), 'utf8');
+    const { receipt } = repairSkillFixtures(opts());
+
+    const planned = restoreSkillFixtures(receipt.receiptId, { auditDir, dryRun: true });
+    expect(planned.restored).toHaveLength(3);
+    expect(existsSync(join(skillsRoot, 'real-skill'))).toBe(false);
+
+    const restored = restoreSkillFixtures(receipt.receiptId, { auditDir });
+    expect(restored.phase).toBe('restored');
+    expect(restored.restored).toHaveLength(3);
+    expect(readFileSync(join(skillsRoot, `deep-${UUID}`, 'subdir', 'file2.txt'), 'utf8')).toBe(
+      before,
+    );
+    expect(() => restoreSkillFixtures(receipt.receiptId, { auditDir })).toThrow(/already restored/);
+  });
+
+  it('never overwrites an occupied original path', () => {
+    const { receipt } = repairSkillFixtures(opts());
+    skill('real-skill', fixtureBody('someone-else'));
+    const restored = restoreSkillFixtures(receipt.receiptId, { auditDir });
+    expect(restored.restored).toHaveLength(2);
+    expect(restored.skipped).toEqual([
+      { path: join(skillsRoot, 'real-skill'), reason: 'original path is occupied' },
+    ]);
+    expect(readFileSync(join(skillsRoot, 'real-skill', 'SKILL.md'), 'utf8')).toContain(
+      'someone-else',
+    );
+  });
+
+  it('rejects an unknown receipt', () => {
+    expect(() => restoreSkillFixtures('nope', { auditDir })).toThrow(/no completed or failed/);
   });
 });
