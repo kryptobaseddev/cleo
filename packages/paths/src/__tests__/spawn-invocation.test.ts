@@ -119,6 +119,25 @@ describe('quoteCmdArg (T12618)', () => {
     expect(quoteCmdArg('%PATH%')).toBe('^^^"^^^%PATH^^^%^^^"');
   });
 
+  it('is linear on long backslash runs (no ReDoS, cf. CVE-2024-21538)', () => {
+    // A quadratic backslash regex took >1 s on 40k backslashes + 'x'; the
+    // prompt that reaches this is untrusted and would block the event loop.
+    const time = (n: number): number => {
+      const input = `${'\\'.repeat(n)}x`;
+      const start = performance.now();
+      quoteCmdArg(input);
+      return performance.now() - start;
+    };
+    time(1_000); // warm up
+    expect(time(100_000)).toBeLessThan(100);
+  });
+
+  it('round-trips long backslash runs before a quote and at the end', () => {
+    for (const arg of [`${'\\'.repeat(7)}"x`, `a${'\\'.repeat(5)}`, `${'\\'.repeat(3)}x\\y`]) {
+      expect(roundTrip([arg])).toEqual([arg]);
+    }
+  });
+
   it('refuses line breaks, which cmd.exe cannot carry', () => {
     expect(() => quoteCmdArg('line1\nline2')).toThrow(/E_UNSAFE_BATCH_ARG/);
     expect(() => quoteCmdArg('a\rb')).toThrow(/E_UNSAFE_BATCH_ARG/);

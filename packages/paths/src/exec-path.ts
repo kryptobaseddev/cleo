@@ -226,8 +226,33 @@ const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
 export function quoteCmdArg(arg: string): string {
   if (/[\r\n]/.test(arg))
     throw new Error('E_UNSAFE_BATCH_ARG: a .cmd/.bat argument cannot contain a line break');
-  const msvcrt = `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1')}"`;
+  const msvcrt = `"${escapeMsvcrt(arg)}"`;
   return msvcrt.replace(CMD_META, '^$1').replace(CMD_META, '^$1');
+}
+
+/**
+ * MSVCRT-escape an argument's body in ONE linear pass: a run of backslashes
+ * is doubled when it precedes a quote (the quote itself is then escaped) or
+ * the end of the argument, and kept as-is otherwise. The regex form
+ * `/(\\*)"/g` is quadratic on long backslash runs — the ReDoS class of
+ * cross-spawn's CVE-2024-21538 — and this input is untrusted prompt text.
+ */
+function escapeMsvcrt(arg: string): string {
+  let out = '';
+  let slashes = 0;
+  for (const ch of arg) {
+    if (ch === '\\') {
+      slashes++;
+      continue;
+    }
+    if (ch === '"') {
+      out += `${'\\'.repeat(slashes * 2)}\\"`;
+    } else {
+      out += `${'\\'.repeat(slashes)}${ch}`;
+    }
+    slashes = 0;
+  }
+  return out + '\\'.repeat(slashes * 2);
 }
 
 /** An executable plus argv, resolved for `child_process.spawn` on a platform. */

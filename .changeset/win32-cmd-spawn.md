@@ -1,6 +1,6 @@
 ---
 id: win32-cmd-spawn
-tasks: [T12618]
+tasks: [T12618, T12619]
 kind: fix
 summary: provider CLIs and evidence tools spawn on Windows via their resolved path; npm .cmd shims go through cmd.exe with injection-safe quoting
 ---
@@ -26,3 +26,15 @@ The resolver is used in these places:
 - the win32 pgid branch of core `buildSpawnArgs`/`spawnWrapped` (evidence tools)
 
 POSIX is unchanged.
+
+**ReDoS.** `quoteCmdArg` now escapes backslash runs in a single linear pass.
+The earlier `/(\\*)"/g` regex was quadratic, the class of cross-spawn's
+CVE-2024-21538: 100k backslashes took 7.5 s and blocked the event loop on
+untrusted prompt text. On 200k random inputs the output is byte-identical to
+the regex form.
+
+**opencode prompt (T12619).** The prompt is now written to a private temp file
+and attached with `--file` on every platform. The file is removed when the
+child exits. argv carries only a fixed pointer message and never the prompt.
+Before this, every multi-line prompt failed on Windows with `E_UNSAFE_BATCH_ARG`,
+and long prompts ran into cmd's 8191-character line limit.
