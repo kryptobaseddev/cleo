@@ -56,6 +56,7 @@ import { acItemToText } from './ac-table.js';
 import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { revalidateEvidence } from './evidence.js';
+import { readAllowCachedGates } from './gate-result-cache.js';
 import { validateTaskGateCompletion } from './gate-runner.js';
 import { validateNexusImpactGate } from './nexus-impact-gate.js';
 import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.js';
@@ -859,6 +860,7 @@ export async function completeTask(
           execution: typedExecution,
         },
         acc,
+        { allowCachedGates: readAllowCachedGates(completionRoot) },
       );
       typedExecution.assertActive();
     } catch (error) {
