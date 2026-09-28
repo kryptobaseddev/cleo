@@ -1,4 +1,4 @@
-// --- Skill Entry (from skills.json) ---
+// --- Skill Entry (derived from skills/manifest.json, T12653) ---
 
 export interface SkillEntry {
   name: string;
@@ -87,7 +87,7 @@ export interface ValidationResult {
 
 // --- Existing exports (preserved) ---
 
-/** All skill entries from skills.json */
+/** All skill entries, derived from skills/manifest.json */
 export declare const skills: SkillEntry[];
 
 /** Parsed manifest.json dispatch registry */
@@ -99,7 +99,7 @@ export declare const shared: Record<string, unknown>;
 /** List all skill names */
 export declare function listSkills(): string[];
 
-/** Get skill metadata from skills.json by name */
+/** Get skill metadata by name */
 export declare function getSkill(name: string): SkillEntry | undefined;
 
 /** Resolve absolute path to a skill's SKILL.md file */

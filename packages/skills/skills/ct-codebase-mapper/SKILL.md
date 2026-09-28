@@ -2,7 +2,6 @@
 name: ct-codebase-mapper
 version: 1.0.0
 description: Codebase analysis and mapping for autonomous agent understanding. Builds structured maps of project stack, architecture, conventions, testing, integrations, and concerns.
-category: recommended
 protocol: null
 dependencies: []
 compatibility:

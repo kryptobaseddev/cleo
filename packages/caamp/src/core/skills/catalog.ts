@@ -52,7 +52,7 @@ export function registerSkillLibrary(library: SkillLibrary): void {
  * @remarks
  * Tries two strategies in order: first attempts module-based loading if
  * the directory contains an `index.js`, then falls back to file-based
- * loading from raw files like `skills.json`. Replaces any previously
+ * loading from `skills.json` or `skills/manifest.json`. Replaces any previously
  * registered library on success.
  *
  * @param root - Absolute path to the skill library root directory
@@ -74,7 +74,7 @@ export function registerSkillLibraryFromPath(root: string): void {
     return;
   }
 
-  // Fall back to file-based loading (has skills.json)
+  // Fall back to file-based loading (skills.json or skills/manifest.json)
   _library = buildLibraryFromFiles(root);
 }
 
@@ -114,7 +114,10 @@ function discoverLibrary(): SkillLibrary | null {
       if (existsSync(indexPath)) {
         return loadLibraryFromModule(envPath);
       }
-      if (existsSync(join(envPath, 'skills.json'))) {
+      if (
+        existsSync(join(envPath, 'skills.json')) ||
+        existsSync(join(envPath, 'skills', 'manifest.json'))
+      ) {
         return buildLibraryFromFiles(envPath);
       }
     } catch {

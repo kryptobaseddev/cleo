@@ -18,12 +18,17 @@
  * `name`, `version` (metadata.version), `description`, `path`, `tier`
  * (numeric, derived from metadata.tier for existing numeric readers),
  * `deliveryTier` (metadata.tier), `install` (metadata.install), `status`
- * (`deprecated` when metadata.stability is deprecated, else `active`) and
- * `loomStage` (when the frontmatter declares one).
+ * (`deprecated` when metadata.stability is deprecated, else `active`),
+ * `core` and `category` (both derived from metadata.tier) and `loomStage`
+ * (when the frontmatter declares one).
  *
- * Curated routing data that has no frontmatter home yet (`capabilities`,
- * `constraints`, `references`, `token_budget`, `tags`, `adrRefs`, `protocol`
- * and the top-level `dispatch_matrix`) is carried over unchanged. Entries for
+ * Curated data that has no frontmatter home yet (`capabilities`,
+ * `constraints`, `references`, `token_budget`, `tags`, `adrRefs`, `protocol`,
+ * `dependencies`, `sharedResources`, `compatibility`, `license` and the
+ * top-level `dispatch_matrix`) is carried over unchanged; the catalogue
+ * fields default when absent, so every entry is a complete CAAMP
+ * `SkillLibraryEntry`. The manifest is the only skills index: `skills.json`
+ * was removed in T12653. Entries for
  * directories that no longer exist are dropped, and every directory without
  * an entry gains one, so the entry set always equals the directory set.
  *
@@ -36,12 +41,14 @@
  * skill is reported and nothing is written.
  *
  * @task T12648
+ * @task T12653
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isMain } from '../lib/is-main.mjs';
 import {
+  CATEGORY_FOR_TIER,
   listSkillDirs,
   MANIFEST_PATH,
   readSkillFrontmatter,
@@ -49,6 +56,27 @@ import {
   TIER_NUMBER,
   validateFrontmatter,
 } from './lib/skill-frontmatter.mjs';
+
+/** Retired skills indexes that must not come back (T12653). */
+export const LEGACY_INDEXES = ['packages/skills/skills.json'];
+
+/**
+ * Catalogue fields every entry carries so the manifest alone satisfies
+ * CAAMP's `SkillLibraryEntry` (T12653). Curated values already in the
+ * manifest win over these defaults.
+ *
+ * @returns {{ references: string[], protocol: null, dependencies: string[], sharedResources: string[], compatibility: string[], license: string }}
+ */
+function catalogDefaults() {
+  return {
+    references: [],
+    protocol: null,
+    dependencies: [],
+    sharedResources: [],
+    compatibility: [],
+    license: 'MIT',
+  };
+}
 
 /**
  * Build the manifest object the frontmatter implies.
@@ -78,6 +106,8 @@ export function buildManifest(root) {
       install: _i,
       status: _s,
       loomStage: _l,
+      core: _c,
+      category: _cat,
       ...curated
     } = prior;
     const entry = {
@@ -89,10 +119,12 @@ export function buildManifest(root) {
       deliveryTier: md.tier,
       install: md.install,
       status: md.stability === 'deprecated' ? 'deprecated' : 'active',
+      core: md.tier === 'core',
+      category: CATEGORY_FOR_TIER[md.tier],
     };
     const loomStage = fm.fields.loomStage ?? _l;
     if (loomStage) entry.loomStage = loomStage;
-    skills.push({ ...entry, ...curated });
+    skills.push({ ...entry, ...catalogDefaults(), ...curated });
   }
 
   if (problems.length > 0) return { manifest: null, problems };
@@ -134,13 +166,21 @@ export function serialiseManifest(manifest) {
 export function checkManifest(root) {
   const { manifest, problems } = buildManifest(root);
   if (!manifest) return { problems, drift: [] };
+  const drift = [];
+  // T12653: the manifest is the only skills index. A second, hand-edited
+  // catalogue is how versions drifted before, so its return fails.
+  for (const legacy of LEGACY_INDEXES) {
+    if (existsSync(join(root, legacy))) {
+      drift.push(`${legacy}: a second skills index exists; the manifest is the only one (T12653)`);
+    }
+  }
   const committedText = readFileSync(join(root, MANIFEST_PATH), 'utf-8');
   const expectedText = serialiseManifest(manifest);
-  if (committedText === expectedText) return { problems, drift: [] };
+  if (committedText === expectedText) return { problems, drift };
 
+  const before = drift.length;
   const committed = JSON.parse(committedText);
   const byName = new Map((committed.skills ?? []).map((s) => [s.name, s]));
-  const drift = [];
   for (const s of manifest.skills) {
     const c = byName.get(s.name);
     if (!c)
@@ -151,7 +191,7 @@ export function checkManifest(root) {
   }
   for (const name of byName.keys())
     drift.push(`${name}: listed but no ${SKILLS_DIR}/${name}/SKILL.md`);
-  if (drift.length === 0) drift.push('<manifest>: formatting, ordering or _meta differs');
+  if (drift.length === before) drift.push('<manifest>: formatting, ordering or _meta differs');
   return { problems, drift };
 }
 

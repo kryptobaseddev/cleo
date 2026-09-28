@@ -1,50 +1,56 @@
 #!/usr/bin/env node
 /**
- * Gate: every skill CLEO code names is installable, and the frontmatter
- * `metadata.install` field matches what install actually does (T12648 · spec
+ * Gate: every skill CLEO code names is installable (T12648, T12653 · spec
  * `skills-curation-and-automation` §3.2.3 · owner decision D11157).
  *
  * ## What this prevents
  *
- * Spawn prompts and stage guidance name skills by string. Measured
- * 2026-09-28: `ct-lead` (loaded for every tier-1 lead spawn) and six LOOM
- * stage skills were named by code but never installed, because install reads
- * a separate catalogue (`packages/skills/skills.json`, tier <= 2) that did not
- * list them. The lead prompt silently degraded to "Skills not installed" and
- * nothing failed. A skill name in code and a skill on disk are only useful
- * together; this gate checks the join.
+ * Spawn prompts, stage guidance, the skill dispatcher and the protocol files
+ * name skills by string. Measured 2026-09-28: `ct-lead` (loaded for every
+ * tier-1 lead spawn) and six LOOM stage skills were named by code but never
+ * installed, because install read a separate catalogue (`skills.json`,
+ * tier <= 2) that did not list them, and `SKILL_NAME_MAP` resolved aliases to
+ * three skills that had never existed (`ct-test-writer-bats`,
+ * `ct-library-implementer-bash`, `ct-skill-lookup`). Nothing failed. A skill
+ * name in code and a skill on disk are only useful together; this gate checks
+ * the join.
  *
  * ## What it checks
  *
  * Emitted names are read from source, never `dist/`:
  *   - `STAGE_SKILL_MAP` values and `TIER_0_SKILLS` in
  *     `packages/core/src/lifecycle/stage-guidance.ts`;
- *   - `loadSkillExcerpt('<name>'` / `resolveSkillPath('<name>'` literals in
+ *   - `loadSkillExcerpt(...)` / `resolveSkillPath(...)` literals in
  *     `packages/core/src/orchestration/spawn-prompt.ts`;
+ *   - `SKILL_NAME_MAP` values in `packages/core/src/skills/types.ts`;
+ *   - `skill:` values in `packages/core/src/skills/dispatch.ts`;
  *   - `skillRef:` in `packages/core/src/validation/protocols/cant/*.cant`.
+ *
+ * String literals are matched in single, double or backtick quotes. Object
+ * and array blocks are read only up to their own closing brace or bracket,
+ * so a trailing `as const` or `satisfies` cannot pull in the next statement.
  *
  * For each emitted name: the skill directory exists, the manifest lists it
  * with `install: harness`, and install really installs it.
  *
- * For every skill: frontmatter `install: harness` holds exactly when install
- * really installs it. Otherwise the field is declarable but unenforced.
- *
  * "Install really installs it" mirrors `initCoreSkills`
- * (`packages/core/src/init.ts`): a `skills.json` entry with `tier <= 2` whose
- * directory exists. The mirror is only as good as its match with the code, so
- * the gate also fails if `init.ts` stops reading `skills.json` with that
- * filter: whoever changes install must change this gate with it.
+ * (`packages/core/src/init.ts`): a `packages/skills/skills/manifest.json`
+ * entry with `install: harness` whose `skills/<name>/` directory exists. The
+ * mirror is only as good as its match with the code, so the gate also fails
+ * if `init.ts` stops making that selection: whoever changes install must
+ * change this gate with it.
  *
  * ## Baseline
  *
  * Known violations live in `scripts/.lint-emitted-skills-baseline.json`, each
- * with the task that removes it. A new violation fails. So does a baseline
- * entry that no longer occurs; delete it in the change that fixed it.
- * `--strict` ignores the baseline.
+ * with the task that removes it (empty since T12653). A new violation fails.
+ * So does a baseline entry that no longer occurs. `--strict` ignores the
+ * baseline.
  *
  * Usage: node scripts/lint-emitted-skills.mjs [--check|--strict] [--json]
  *
  * @task T12648
+ * @task T12653
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -57,15 +63,40 @@ export const BASELINE_PATH = 'scripts/.lint-emitted-skills-baseline.json';
 
 const STAGE_GUIDANCE = 'packages/core/src/lifecycle/stage-guidance.ts';
 const SPAWN_PROMPT = 'packages/core/src/orchestration/spawn-prompt.ts';
+const SKILL_TYPES = 'packages/core/src/skills/types.ts';
+const SKILL_DISPATCH = 'packages/core/src/skills/dispatch.ts';
 const CANT_DIR = 'packages/core/src/validation/protocols/cant';
 const INIT_TS = 'packages/core/src/init.ts';
-const SKILLS_JSON = 'packages/skills/skills.json';
 
 /**
- * Markers that must be present in `init.ts` for the install mirror below to
- * describe what install does.
+ * Markers that must be present in `init.ts` for {@link installedSkillNames}
+ * to describe what install does.
  */
-export const INSTALL_TRIPWIRES = ["join(ctSkillsRoot, 'skills.json')", 's.tier <= 2'];
+export const INSTALL_TRIPWIRES = [
+  "join(ctSkillsRoot, 'skills', 'manifest.json')",
+  "s.install === 'harness'",
+  "join(ctSkillsRoot, 'skills', skill.name)",
+];
+
+/** A quoted skill-name literal in any JS quote style; group 2 is the name. */
+const QUOTED_NAME = /(['"`])([a-z][\w-]*)\1/g;
+
+/**
+ * The body of `<name> ... = {` up to its own closing brace (or `[` ... `]`).
+ *
+ * @param {string} source - Module source.
+ * @param {string} name - Declared constant name.
+ * @param {'{' | '['} open - Opening delimiter of the literal.
+ * @returns {string} The literal's body, or '' when absent.
+ */
+function literalBody(source, name, open) {
+  const close = open === '{' ? '}' : ']';
+  const start = new RegExp(`\\b${name}\\b[^=]*=\\s*\\${open}`).exec(source);
+  if (!start) return '';
+  const from = start.index + start[0].length;
+  const end = source.indexOf(close, from);
+  return end === -1 ? '' : source.slice(from, end);
+}
 
 /**
  * Collect every skill name code emits, with where it came from.
@@ -75,21 +106,36 @@ export const INSTALL_TRIPWIRES = ["join(ctSkillsRoot, 'skills.json')", 's.tier <
  */
 export function collectEmittedSkills(root) {
   const out = [];
-  const guidance = readFileSync(join(root, STAGE_GUIDANCE), 'utf-8');
-  const block = (re) => re.exec(guidance)?.[1] ?? '';
-  const stageMap = block(/STAGE_SKILL_MAP[^=]*=\s*\{([\s\S]*?)\};/);
-  const tier0 = block(/TIER_0_SKILLS[^=]*=\s*\[([\s\S]*?)\];/);
-  for (const m of `${stageMap}\n${tier0}`.matchAll(/'([a-z][\w-]*)'/g)) {
-    out.push({ name: m[1], source: STAGE_GUIDANCE });
+  const read = (rel) => readFileSync(join(root, rel), 'utf-8');
+  const push = (text, source) => {
+    for (const m of text.matchAll(QUOTED_NAME)) out.push({ name: m[2], source });
+  };
+
+  const guidance = read(STAGE_GUIDANCE);
+  push(literalBody(guidance, 'STAGE_SKILL_MAP', '{'), STAGE_GUIDANCE);
+  push(literalBody(guidance, 'TIER_0_SKILLS', '['), STAGE_GUIDANCE);
+
+  const spawn = read(SPAWN_PROMPT);
+  for (const m of spawn.matchAll(
+    /(?:loadSkillExcerpt|resolveSkillPath)\(\s*(['"`])([a-z][\w-]*)\1/g,
+  )) {
+    out.push({ name: m[2], source: SPAWN_PROMPT });
   }
-  const spawn = readFileSync(join(root, SPAWN_PROMPT), 'utf-8');
-  for (const m of spawn.matchAll(/(?:loadSkillExcerpt|resolveSkillPath)\(\s*'([a-z][\w-]*)'/g)) {
-    out.push({ name: m[1], source: SPAWN_PROMPT });
+
+  // Values only: keys are user-facing aliases, not skill names.
+  const nameMap = literalBody(read(SKILL_TYPES), 'SKILL_NAME_MAP', '{');
+  for (const m of nameMap.matchAll(/:\s*(['"`])([a-z][\w-]*)\1/g)) {
+    out.push({ name: m[2], source: SKILL_TYPES });
   }
+
+  for (const m of read(SKILL_DISPATCH).matchAll(/\bskill:\s*(['"`])([a-z][\w-]*)\1/g)) {
+    out.push({ name: m[2], source: SKILL_DISPATCH });
+  }
+
   for (const file of readdirSync(join(root, CANT_DIR))
     .filter((f) => f.endsWith('.cant'))
     .sort()) {
-    const text = readFileSync(join(root, CANT_DIR, file), 'utf-8');
+    const text = read(`${CANT_DIR}/${file}`);
     for (const m of text.matchAll(/^skillRef:\s*([a-z][\w-]*)\s*$/gm)) {
       out.push({ name: m[1], source: `${CANT_DIR}/${file}` });
     }
@@ -98,18 +144,19 @@ export function collectEmittedSkills(root) {
 }
 
 /**
- * The skills `initCoreSkills` installs: `skills.json` entries with
- * `tier <= 2` whose directory exists.
+ * The skills `initCoreSkills` installs: manifest entries with
+ * `install: harness` whose `skills/<name>/` directory exists. An entry
+ * without a name, or whose directory is missing, is not installed.
  *
  * @param {string} root - Repository root.
  * @returns {Set<string>}
  */
 export function installedSkillNames(root) {
-  const catalog = JSON.parse(readFileSync(join(root, SKILLS_JSON), 'utf-8'));
+  const manifest = JSON.parse(readFileSync(join(root, MANIFEST_PATH), 'utf-8'));
   const names = new Set();
-  for (const s of catalog.skills ?? []) {
-    const dir = join(root, 'packages/skills', s.path ?? '', '..');
-    if (typeof s.tier === 'number' && s.tier <= 2 && existsSync(dir)) names.add(s.name);
+  for (const s of manifest.skills ?? []) {
+    if (typeof s.name !== 'string' || s.install !== 'harness') continue;
+    if (existsSync(join(root, SKILLS_DIR, s.name))) names.add(s.name);
   }
   return names;
 }
@@ -155,22 +202,7 @@ export function findViolations(root) {
     if (!installed.has(name)) {
       violations.push({
         key: `emitted-not-installed:${name}`,
-        message: `${source} names '${name}', but install does not install it (${SKILLS_JSON} tier <= 2)`,
-      });
-    }
-  }
-
-  for (const [name, entry] of entries) {
-    const declared = entry.install === 'harness';
-    if (declared && !installed.has(name)) {
-      violations.push({
-        key: `install-mismatch:${name}`,
-        message: `'${name}' declares metadata.install: harness, but install does not install it`,
-      });
-    } else if (!declared && installed.has(name)) {
-      violations.push({
-        key: `install-mismatch:${name}`,
-        message: `'${name}' declares metadata.install: ${entry.install}, but install installs it to every harness`,
+        message: `${source} names '${name}', but install does not install it`,
       });
     }
   }
@@ -212,7 +244,7 @@ export function runGate(root, opts = {}) {
   }
   if (fresh.length + stale.length === 0) {
     process.stdout.write(
-      `Every emitted skill is installable and metadata.install matches install (${violations.length} baselined) (T12648).\n`,
+      `Every emitted skill exists, is metadata.install: harness and is installed (${violations.length} baselined) (T12653).\n`,
     );
     return 0;
   }

@@ -16,8 +16,6 @@ description: >-
 version: 2.1.0
 argument-hint: "[mode=scenario|ab|blind] [scenario=s1-s5|all] [runs=N] [session-id=<id>]"
 allowed-tools: ["Bash(python *)", "Bash(cleo-dev *)", "Bash(cleo *)", "Bash(kill *)", "Bash(lsof *)", "Agent", "Read", "Write", "Glob"]
-core: false
-category: quality
 protocol: null
 dependencies: []
 sharedResources: []

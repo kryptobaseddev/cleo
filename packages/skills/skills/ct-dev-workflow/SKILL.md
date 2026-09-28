@@ -2,8 +2,6 @@
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
 version: 3.1.0
-core: false
-category: specialist
 protocol: contribution
 dependencies: []
 sharedResources:

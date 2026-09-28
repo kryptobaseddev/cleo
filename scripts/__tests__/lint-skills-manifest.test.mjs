@@ -111,6 +111,28 @@ describe('lint-skills-manifest goes red on planted defects', () => {
     expect(checkManifest(root).drift[0]).toMatch(/ct-gamma: missing from manifest/);
   });
 
+  it('fails when a retired skills.json index comes back (T12653)', () => {
+    writeFileSync(join(root, 'packages/skills/skills.json'), '{"skills":[]}');
+    expect(checkManifest(root).drift).toEqual([
+      'packages/skills/skills.json: a second skills index exists; the manifest is the only one (T12653)',
+    ]);
+    expect(runGate(root)).toBe(1);
+  });
+
+  it('derives core and category from metadata.tier and fills catalog defaults (T12653)', () => {
+    const { manifest } = buildManifest(root);
+    expect(manifest.skills[0]).toMatchObject({
+      core: false,
+      category: 'recommended',
+      references: [],
+      protocol: null,
+      dependencies: [],
+      sharedResources: [],
+      compatibility: [],
+      license: 'MIT',
+    });
+  });
+
   it('fails when the manifest lists a skill with no directory', () => {
     const m = JSON.parse(readFileSync(join(root, MANIFEST), 'utf8'));
     m.skills.push({ name: 'loom' });
@@ -123,6 +145,12 @@ describe('lint-skills-manifest goes red on planted defects', () => {
   it.each([
     ['name differs from directory', skillMd('ct-other'), /does not equal its directory/],
     ['top-level tier', skillMd('ct-beta', 'tier: 1'), /top-level tier is not allowed/],
+    ['top-level core', skillMd('ct-beta', 'core: true'), /top-level core is not allowed/],
+    [
+      'top-level category',
+      skillMd('ct-beta', 'category: meta'),
+      /top-level category is not allowed/,
+    ],
     [
       'disagreeing top-level version',
       skillMd('ct-beta', 'version: 2.0.0'),

@@ -7,8 +7,6 @@ description: >-
   "contribution start", "contribution submit", "detect conflicts",
   "weighted consensus", "decision tracking", "conflict resolution".
 version: 1.0.0
-core: false
-category: meta
 protocol: contribution
 loomStage: contribution
 adrRefs:

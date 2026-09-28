@@ -55,6 +55,22 @@ export const SKILL_STABILITIES = /** @type {const} */ (['experimental', 'stable'
  */
 export const TIER_NUMBER = /** @type {const} */ ({ core: 0, 'on-demand': 1, internal: 3 });
 
+/**
+ * CAAMP catalogue `category` written into manifest entries, derived from the
+ * class so the two cannot disagree (T12653).
+ */
+export const CATEGORY_FOR_TIER = /** @type {const} */ ({
+  core: 'core',
+  'on-demand': 'recommended',
+  internal: 'meta',
+});
+
+/**
+ * Top-level keys a SKILL.md may not declare, because the manifest derives
+ * them from `metadata.tier` (T12648, T12653).
+ */
+export const DERIVED_TOP_LEVEL_KEYS = /** @type {const} */ (['tier', 'core', 'category']);
+
 /** Maximum `description` length accepted by harness skill loaders. */
 export const MAX_DESCRIPTION_LENGTH = 1024;
 
@@ -190,10 +206,12 @@ export function validateFrontmatter(fm) {
   if (description.length > MAX_DESCRIPTION_LENGTH) {
     problems.push(`description is ${description.length} chars (max ${MAX_DESCRIPTION_LENGTH})`);
   }
-  if ('tier' in fm.fields) {
-    problems.push(
-      'top-level tier is not allowed — declare metadata.tier (core|on-demand|internal)',
-    );
+  for (const key of DERIVED_TOP_LEVEL_KEYS) {
+    if (key in fm.fields) {
+      problems.push(
+        `top-level ${key} is not allowed — it is derived from metadata.tier (core|on-demand|internal)`,
+      );
+    }
   }
   const md = fm.metadata;
   if (!md.version) problems.push('metadata.version is missing');
