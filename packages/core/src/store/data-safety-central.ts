@@ -363,14 +363,40 @@ export async function runDataIntegrityCheck(
 }
 
 /**
+ * Take a tasks.db snapshot before a destructive step and wait for it.
+ *
+ * Uses the gate's `required` mode: not debounced by per-write checkpoints,
+ * waits (bounded) for any snapshot in flight, and works without the gate's
+ * state row. It is awaited, so `wal_checkpoint` + `VACUUM INTO` finish before
+ * the caller's destructive step starts. Non-fatal: a failure is logged at
+ * error level with its cause, never thrown.
+ *
+ * @task T12508
+ */
+async function snapshotBeforeDestructive(context: string, cwd?: string): Promise<void> {
+  const result = await vacuumIntoBackup({ cwd, mode: 'required' });
+  if (!result) {
+    log.error(
+      { context },
+      'Pre-destructive SQLite snapshot not taken: backup directory unavailable',
+    );
+  } else if (result.skipped === 'lock-timeout') {
+    log.error({ context, cause: result.error }, 'Pre-destructive SQLite snapshot not taken');
+  } else if (result.failed.length > 0) {
+    log.error({ context, failed: result.failed }, 'Pre-destructive SQLite snapshot failed');
+  }
+}
+
+/**
  * Force immediate checkpoint.
- * Use before destructive operations.
+ * Use before destructive operations. Resolves only after the SQLite snapshot
+ * has been written (or has failed and been logged).
  */
 export async function forceSafetyCheckpoint(context: string, cwd?: string): Promise<void> {
   return inSafetyScope(cwd, async (cwd) => {
     log.info({ context }, 'Forcing checkpoint');
     await gitCheckpoint('manual', context, cwd);
-    vacuumIntoBackup({ cwd }).catch(() => {}); // non-fatal, gated SQLite snapshot (T12508)
+    await snapshotBeforeDestructive(context, cwd);
   });
 }
 
@@ -759,7 +785,9 @@ export async function safeCreateSession(
 
 /**
  * Force a checkpoint before destructive operations.
- * Use this before migrations, bulk updates, etc.
+ * Use this before migrations, bulk updates, etc. Resolves only after the
+ * SQLite snapshot has been written (or has failed and been logged), so the
+ * snapshot never interleaves with the operation that follows.
  */
 export async function forceCheckpointBeforeOperation(
   operation: string,
@@ -775,7 +803,7 @@ export async function forceCheckpointBeforeOperation(
       // Don't throw - checkpoint failures shouldn't block operations
     }
 
-    vacuumIntoBackup({ cwd }).catch(() => {}); // non-fatal, gated SQLite snapshot (T12508)
+    await snapshotBeforeDestructive(`pre-${operation}`, cwd);
   });
 }
 

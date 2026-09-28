@@ -7,12 +7,14 @@
  * (a file the parent creates once all children report ready) so the requests
  * genuinely race.
  *
- * 1. Lock: children request DIFFERENT prefixes, so the per-prefix debounce
- *    never applies and only the lock can serialise them. Each child that runs
- *    a snapshot logs start/end times; no two intervals may overlap, and the
- *    children that lose the race report `in-flight`.
- * 2. Debounce: children run the real `vacuumIntoBackupAll` against one real
- *    project `cleo.db`. The burst must produce exactly one `tasks-*.db`.
+ * 1. Lock: children request DIFFERENT prefixes, so neither the debounce nor
+ *    coverage applies and only the lock can serialise them. Each child that
+ *    runs a snapshot logs start/end times; no two intervals may overlap.
+ *    `routine` losers report `in-flight`; `required` children all wait and run.
+ * 2. Burst: children run the real `vacuumIntoBackupAll` against one real
+ *    project `cleo.db` — once as per-write (`routine`) checkpoints and once as
+ *    session ends (`required`). Each burst must admit exactly one `tasks`
+ *    snapshot.
  *
  * @task T12508
  */
@@ -55,6 +57,13 @@ const BARRIER = `
     tick();
   });
 `;
+
+/** Gate outcome as serialised by a child (`SnapshotGateResult`). */
+interface GateResult {
+  readonly snapshotted: string[];
+  readonly failed: string[];
+  readonly skipped: string | null;
+}
 
 /** Result of one child process. */
 interface ChildOutcome {
@@ -120,7 +129,14 @@ describe('snapshot gate — real multi-process (T12508)', () => {
     rmSync(workDir, { recursive: true, force: true });
   });
 
-  it('at most one snapshot is in flight per project across processes', async () => {
+  /**
+   * Race N children on DIFFERENT prefixes (no debounce or coverage applies)
+   * and return their results plus the recorded snapshot intervals.
+   */
+  async function raceDistinctPrefixes(mode: 'routine' | 'required'): Promise<{
+    results: Array<{ snapshotted: string[]; skipped: string | null }>;
+    intervals: Array<{ start: number; end: number }>;
+  }> {
     expect(existsSync(GATE_DIST)).toBe(true);
     const backupDir = join(workDir, 'backups');
     mkdirSync(backupDir, { recursive: true });
@@ -140,11 +156,17 @@ describe('snapshot gate — real multi-process (T12508)', () => {
         db.exec('PRAGMA busy_timeout = 10000');
         await waitForGo();
         const r = await runGatedSnapshot(
-          { backupDir: ${JSON.stringify(backupDir)}, stateDb: db, prefixes: ['p${i}'] },
+          {
+            backupDir: ${JSON.stringify(backupDir)},
+            stateDb: db,
+            prefixes: ['p${i}'],
+            mode: ${JSON.stringify(mode)},
+          },
           async () => {
             const start = Date.now();
-            await new Promise((res) => setTimeout(res, 1500));
+            await new Promise((res) => setTimeout(res, 1000));
             fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ start, end: Date.now() }) + '\\n');
+            return true;
           },
         );
         db.close();
@@ -157,32 +179,50 @@ describe('snapshot gate — real multi-process (T12508)', () => {
     for (const o of outcomes) {
       if (o.code !== 0) throw new Error(`child failed (${o.code}): ${o.stderr}`);
     }
-
-    const results: Array<{ snapshotted: string[]; skipped: string | null }> = outcomes.map((o) =>
-      JSON.parse(o.stdout),
-    );
-    const ran = results.filter((r) => r.snapshotted.length > 0);
-    const inFlight = results.filter((r) => r.skipped === 'in-flight');
-    expect(ran.length).toBeGreaterThanOrEqual(1);
-    // Every child was released at once and each snapshot takes 1.5 s, so the
-    // losers of the race must have found the lock held.
-    expect(inFlight.length).toBeGreaterThanOrEqual(1);
-    expect(ran.length + inFlight.length).toBe(N);
-
     const intervals: Array<{ start: number; end: number }> = readFileSync(logPath, 'utf-8')
       .trim()
       .split('\n')
       .map((l) => JSON.parse(l))
       .sort((a: { start: number }, b: { start: number }) => a.start - b.start);
-    expect(intervals).toHaveLength(ran.length);
+    return { results: outcomes.map((o) => JSON.parse(o.stdout)), intervals };
+  }
+
+  /** Assert no two snapshot intervals overlap. */
+  function expectNoOverlap(intervals: Array<{ start: number; end: number }>): void {
     for (let i = 1; i < intervals.length; i++) {
       const prev = intervals[i - 1];
       const cur = intervals[i];
       if (prev && cur) expect(cur.start).toBeGreaterThanOrEqual(prev.end);
     }
+  }
+
+  it('routine: at most one snapshot in flight across processes; losers skip as in-flight', async () => {
+    const { results, intervals } = await raceDistinctPrefixes('routine');
+    const ran = results.filter((r) => r.snapshotted.length > 0);
+    const inFlight = results.filter((r) => r.skipped === 'in-flight');
+    expect(ran.length).toBeGreaterThanOrEqual(1);
+    // Every child was released at once and each snapshot takes 1 s, so the
+    // losers of the race must have found the lock held.
+    expect(inFlight.length).toBeGreaterThanOrEqual(1);
+    expect(ran.length + inFlight.length).toBe(N);
+    expect(intervals).toHaveLength(ran.length);
+    expectNoOverlap(intervals);
   }, 120_000);
 
-  it('a burst of session-end snapshots across processes produces one snapshot', async () => {
+  it('required: every process waits for the lock and runs, one at a time', async () => {
+    const { results, intervals } = await raceDistinctPrefixes('required');
+    expect(results.every((r) => r.snapshotted.length === 1)).toBe(true);
+    expect(intervals).toHaveLength(N);
+    expectNoOverlap(intervals);
+  }, 120_000);
+
+  /**
+   * Race N children calling the real `vacuumIntoBackupAll` on one real
+   * project store. Returns each child's gate result and the tasks snapshots.
+   */
+  async function burstVacuumIntoBackupAll(
+    mode: 'routine' | 'required',
+  ): Promise<{ results: Array<GateResult | null>; tasksSnapshots: string[] }> {
     expect(existsSync(BACKUP_DIST)).toBe(true);
     const projectRoot = join(workDir, 'project');
     const cleoDir = join(projectRoot, '.cleo');
@@ -211,12 +251,20 @@ describe('snapshot gate — real multi-process (T12508)', () => {
     );
     if (init.status !== 0) throw new Error(`init failed (${init.status}): ${init.stderr}`);
 
+    // Every session in the burst ended (its last write happened) before any
+    // snapshot started, so one snapshot covers all of them.
+    const requestedAt = Date.now();
     const script = `
       (async () => {
         const mod = await import(${JSON.stringify(pathToFileURL(BACKUP_DIST).href)});
         await waitForGo();
         // A caller-supplied force flag must be ignored (T12508: no bypass).
-        const opts = { cwd: ${JSON.stringify(projectRoot)}, force: true };
+        const opts = {
+          cwd: ${JSON.stringify(projectRoot)},
+          force: true,
+          mode: ${JSON.stringify(mode)},
+          requestedAt: ${requestedAt},
+        };
         const r = await mod.vacuumIntoBackupAll(opts);
         process.stdout.write(JSON.stringify(r));
         process.exit(0);
@@ -230,12 +278,17 @@ describe('snapshot gate — real multi-process (T12508)', () => {
     for (const o of outcomes) {
       if (o.code !== 0) throw new Error(`child failed (${o.code}): ${o.stderr}`);
     }
-
-    // Count admissions, not files: snapshots taken in the same second share a
-    // filename, so a file count alone cannot tell one snapshot from four.
-    const results: Array<{ snapshotted: string[]; skipped: string | null } | null> = outcomes.map(
-      (o) => JSON.parse(o.stdout),
+    const tasksSnapshots = readdirSync(join(cleoDir, 'backups', 'sqlite')).filter((f) =>
+      /^tasks-\d{8}-\d{6}\.db$/.test(f),
     );
+    return { results: outcomes.map((o) => JSON.parse(o.stdout)), tasksSnapshots };
+  }
+
+  // Count admissions, not files: snapshots taken in the same second share a
+  // filename, so a file count alone cannot tell one snapshot from four.
+
+  it('a burst of per-write (routine) checkpoints across processes produces one snapshot', async () => {
+    const { results, tasksSnapshots } = await burstVacuumIntoBackupAll('routine');
     const admitted = results.filter((r) => r?.snapshotted.includes('tasks'));
     expect(admitted).toHaveLength(1);
     for (const r of results) {
@@ -243,10 +296,20 @@ describe('snapshot gate — real multi-process (T12508)', () => {
         expect(['in-flight', 'debounced']).toContain(r?.skipped);
       }
     }
+    expect(tasksSnapshots).toHaveLength(1);
+  }, 180_000);
 
-    const tasksSnapshots = readdirSync(join(cleoDir, 'backups', 'sqlite')).filter((f) =>
-      /^tasks-\d{8}-\d{6}\.db$/.test(f),
-    );
+  it('a burst of session ends (required) across processes produces one snapshot', async () => {
+    const { results, tasksSnapshots } = await burstVacuumIntoBackupAll('required');
+    const admitted = results.filter((r) => r?.snapshotted.includes('tasks'));
+    expect(admitted).toHaveLength(1);
+    // Every other session end waited for the lock and found tasks covered by
+    // the snapshot that started after its request — neither re-run nor lost.
+    for (const r of results) {
+      if (r?.snapshotted.includes('tasks')) continue;
+      expect(r?.failed).not.toContain('tasks');
+      expect(r?.skipped === 'covered' || r?.skipped === null).toBe(true);
+    }
     expect(tasksSnapshots).toHaveLength(1);
   }, 180_000);
 });

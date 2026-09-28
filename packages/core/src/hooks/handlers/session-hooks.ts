@@ -104,9 +104,11 @@ export async function handleSessionEnd(
  * requests a point-in-time snapshot at every session end.
  *
  * T12508: the request passes through the project-wide snapshot gate
- * (`store/snapshot-gate.ts`) with no bypass. Only one snapshot runs per
- * project at a time across processes, and a debounce persisted in `cleo.db`
- * collapses a burst of session ends into one snapshot. Time-spread retention
+ * (`store/snapshot-gate.ts`) in `required` mode. Only one snapshot runs per
+ * project at a time across processes. The request is not debounced by
+ * earlier per-write checkpoints, so the session's final writes are captured;
+ * it is satisfied by any successful snapshot that started after it, so a
+ * burst of session ends queued behind one snapshot produces one more. Time-spread retention
  * (latest, hourly, daily slots) keeps older recovery points from being
  * evicted by a burst. Failures here are non-fatal: a backup error must
  * never block session end.
@@ -122,7 +124,9 @@ export async function handleSessionEndBackup(
 ): Promise<void> {
   try {
     const { vacuumIntoBackupAll } = await import('../../store/sqlite-backup.js');
-    await vacuumIntoBackupAll({ cwd: projectRoot });
+    // `required`: not debounced by earlier per-write checkpoints, so the
+    // session's final writes are captured; still serialised by the lock.
+    await vacuumIntoBackupAll({ cwd: projectRoot, mode: 'required' });
   } catch {
     // Backup failures are best-effort — never block session end on them.
   }
