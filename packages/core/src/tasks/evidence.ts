@@ -2334,8 +2334,19 @@ function isDocumentArtifact(path: string): boolean {
   );
 }
 
-function classifyEvidenceTask(
-  context: EvidenceValidationContext,
+/**
+ * Classify a task for evidence purposes: `research` (research/spike kind),
+ * `documentation` (docs-only declared files or a docs label) or `code`.
+ *
+ * Exported so the read-only `cleo done --plan` planner chooses the same
+ * documentary path the validators accept — one classification, not two.
+ *
+ * @param context - Task context; only `task` is read.
+ * @returns The evidence classification.
+ * @task T12624
+ */
+export function classifyEvidenceTask(
+  context: Pick<EvidenceValidationContext, 'task'>,
 ): 'code' | 'documentation' | 'research' {
   if (context.task.kind === 'research' || context.task.kind === 'spike') return 'research';
   if (context.task.files?.length && context.task.files.every(isDocumentArtifact))

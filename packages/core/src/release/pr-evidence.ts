@@ -773,6 +773,8 @@ export async function resolveRequiredWorkflowsDetailed(
     readonly fetchGhBranchProtection?: FetchGhBranchProtection;
     /** When `true`, skip the branch-protection cache read (writes still happen). */
     readonly bypassProtectionCache?: boolean;
+    /** When `true`, never write the branch-protection cache (T12623 read-only planner). */
+    readonly readOnly?: boolean;
   } = {},
 ): Promise<RequiredWorkflowsResolution> {
   // gh#1365 (T12238): caches under the store, `gh` in the repo — same split as
@@ -797,13 +799,14 @@ export async function resolveRequiredWorkflowsDetailed(
     // Best-effort cache write — never fail the resolution because the cache
     // directory was read-only or full.
     try {
-      writeBranchProtectionCache(projectRoot, {
-        schemaVersion: 1,
-        repo: fetched.repo,
-        branch: fetched.branch,
-        contexts: fetched.contexts,
-        capturedAt: new Date().toISOString(),
-      });
+      if (!opts.readOnly)
+        writeBranchProtectionCache(projectRoot, {
+          schemaVersion: 1,
+          repo: fetched.repo,
+          branch: fetched.branch,
+          contexts: fetched.contexts,
+          capturedAt: new Date().toISOString(),
+        });
     } catch {
       /* ignore */
     }
@@ -1055,6 +1058,13 @@ export interface ResolvePrEvidenceAtomOptions {
    * returned fewer files than the PR's `changedFiles` count. @task T12358
    */
   readonly fetchGhPrFilesPage?: FetchGhPrFilesPage;
+  /**
+   * When `true`, persist nothing: neither the PR-result cache nor the
+   * branch-protection cache is written. Reads still happen. Used by the
+   * read-only `cleo done --plan` planner, which must leave `.cleo/` untouched.
+   * @task T12623
+   */
+  readonly readOnly?: boolean;
 }
 
 /**
@@ -1182,6 +1192,7 @@ export async function resolvePrEvidenceAtom(
     projectContext: opts.projectContext,
     fetchGhBranchProtection: opts.fetchGhBranchProtection,
     bypassProtectionCache: opts.bypassCache,
+    readOnly: opts.readOnly,
   });
   // gh#1323 — an UNDETERMINED required set is not a failing one. Refuse here,
   // before the rollup is evaluated, because evaluating an empty required list
@@ -1277,7 +1288,7 @@ export async function resolvePrEvidenceAtom(
   // Best-effort cache write — never fail the resolution because the cache
   // directory was read-only or full. An incomplete inventory is never cached
   // (T12358): a transient page failure must not pin the refusal.
-  if (changedPaths.length === changedFileCount) {
+  if (changedPaths.length === changedFileCount && !opts.readOnly) {
     try {
       writeCacheEntry(projectRoot, entry);
     } catch {

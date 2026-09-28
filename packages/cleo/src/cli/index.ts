@@ -118,7 +118,6 @@ function alias(aliasName: string, primaryExport: string): void {
   }
   subCommands[aliasName] = wrapper;
 }
-alias('done', 'completeCommand');
 alias('rm', 'deleteCommand');
 alias('ls', 'listCommand');
 alias('tags', 'labelsCommand');
