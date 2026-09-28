@@ -1435,15 +1435,21 @@ export async function addTask(
     );
 
     if (dupCheck.shouldReject && !options.forceDuplicate) {
-      throw new CleoError(ExitCode.DUPLICATE_TASK_LIKELY, buildRejectMessage(dupCheck.candidates), {
-        fix: 'cleo add ... --force-duplicate',
-        details: {
-          field: 'title',
-          candidates: dupCheck.candidates,
-          maxScore: dupCheck.maxScore,
-          threshold: 0.92,
+      throw new CleoError(
+        ExitCode.DUPLICATE_TASK_LIKELY,
+        buildRejectMessage(dupCheck.candidates, dupCheck.tier),
+        {
+          fix: 'cleo add ... --force-duplicate',
+          details: {
+            field: 'title',
+            candidates: dupCheck.candidates,
+            maxScore: dupCheck.maxScore,
+            // A System One rejection is a probability >= 0.5, not a 0.92 similarity.
+            threshold: dupCheck.tier === 'decision' ? 0.5 : 0.92,
+            tier: dupCheck.tier,
+          },
         },
-      });
+      );
     }
 
     if (dupCheck.shouldReject && options.forceDuplicate) {

@@ -164,7 +164,8 @@ export interface TablePatternRule {
 /**
  * A table the registry knows exists but deliberately does NOT classify: the
  * owner must rule on it. Pending tables are never portable; a snapshot writer
- * must skip them.
+ * must skip them. Gate A allows zero pending tables, so this is a working
+ * state that cannot reach CI.
  *
  * @task T12332
  */

@@ -353,6 +353,41 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     expect(await countRows(projectRoot, 'tasks_release_artifacts')).toBe(1);
   });
 
+  // T12557: projectHash is a write-once identity key. A moved project keeps its
+  // persisted hash, which differs from generateProjectHash(<new root>). plan.ts
+  // keys the release row by the persisted hash, so reconcile and the manifest
+  // writer must too, or release ids split and release_commits dangle.
+  it('uses the persisted projectHash (not the path hash) for every release id (T12557)', async () => {
+    const persisted = 'aaaaaaaaaaaa';
+    writeFileSync(
+      join(projectRoot, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'moved-project', projectHash: persisted }),
+    );
+    writePlan(projectRoot, VERSION, TASK_IDS);
+    gitCommit(projectRoot, 'a.txt', '1', `feat(${TASK_IDS[0]}): ship a`);
+    gitTag(projectRoot, VERSION);
+
+    const result = await releaseReconcileV2(VERSION, { projectRoot });
+    expect(result.success).toBe(true);
+
+    const { getDb } = await import('../../store/sqlite.js');
+    const { sql } = await import('drizzle-orm');
+    const db = await getDb(projectRoot);
+    const releaseIds = await db.all<{ id: string }>(sql.raw('SELECT id FROM tasks_releases'));
+    expect(releaseIds.map((r) => r.id)).toEqual([`${persisted}:${VERSION}`]);
+    const linked = await db.all<{ release_id: string }>(
+      sql.raw('SELECT DISTINCT release_id FROM tasks_release_commits'),
+    );
+    expect(linked.map((r) => r.release_id)).toEqual([`${persisted}:${VERSION}`]);
+
+    const { prepareRelease } = await import('../release-manifest.js');
+    await prepareRelease('v2026.7.0', ['T8001'], undefined, async () => [], projectRoot);
+    const prepared = await db.all<{ id: string }>(
+      sql.raw("SELECT id FROM tasks_releases WHERE version = 'v2026.7.0'"),
+    );
+    expect(prepared.map((r) => r.id)).toEqual([`${persisted}:v2026.7.0`]);
+  });
+
   it('archives only plan-scoped shipped changeset files after successful reconcile', async () => {
     writePlan(projectRoot, VERSION, TASK_IDS, { changesetIds: ['ship-me'] });
     const changesetDir = join(projectRoot, '.changeset');

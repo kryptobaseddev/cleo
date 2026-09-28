@@ -38,6 +38,13 @@ import {
   saveDecideCredentials,
 } from '../credentials.js';
 
+// T12492: the default Jev transport is `decideFetch` (node:http, releases every
+// handle on abort), not the global `fetch`. These tests drive the default
+// provider through a stubbed global `fetch`, so route the transport through it.
+vi.mock('../transport.js', () => ({
+  decideFetch: (url: string, init: RequestInit) => globalThis.fetch(url, init),
+}));
+
 const KEY = 'sk-test-SECRETVALUE-7890';
 const URL = 'https://decide.test';
 
@@ -221,6 +228,9 @@ describe('decide credential hardening', () => {
     ['http://localhost.evil.example', false],
     ['ftp://provider.example', false],
     ['file:///etc/passwd', false],
+    ['https://user:hunter2@provider.example', false],
+    ['https://user@provider.example', false],
+    ['https://:hunter2@provider.example', false],
   ] as const)('baseUrl %s allowed=%s', (url, allowed) => {
     expect(isAllowedDecideBaseUrl(url)).toBe(allowed);
   });
@@ -235,6 +245,27 @@ describe('decide credential hardening', () => {
       { mode: 0o600 },
     );
     expect(loadDecideConnection()).toBeNull();
+  });
+
+  it('refuses a URL with userinfo and never echoes the password', async () => {
+    const attempt = saveDecideCredentials({
+      baseUrl: 'https://user:hunter2@provider.example',
+      apiKey: KEY,
+    });
+    await expect(attempt).rejects.toThrow(/username or password/);
+    const err = await attempt.catch((e: Error) => e);
+    expect(String(err)).not.toContain('hunter2');
+    expect(JSON.stringify(describeDecideCredentials())).not.toContain('hunter2');
+  });
+
+  it('never echoes userinfo from a store written before the check', () => {
+    writeFileSync(
+      decideCredentialsPath(),
+      JSON.stringify({ version: 1, baseUrl: 'https://user:hunter2@provider.example', apiKey: KEY }),
+      { mode: 0o600 },
+    );
+    expect(loadDecideConnection()).toBeNull();
+    expect(JSON.stringify(describeDecideCredentials())).not.toContain('hunter2');
   });
 
   it('rejects model names with escape or control characters, and drops them on load', async () => {

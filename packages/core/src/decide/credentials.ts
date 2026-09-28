@@ -182,6 +182,19 @@ function readStoreSync(path: string = decideCredentialsPath()): DecideCredential
   }
 }
 
+/** `scheme://user:pass@` prefix of a URL — matched textually so an unparseable URL is covered too. */
+const USERINFO_RE = /^([a-z][a-z0-9+.-]*:\/\/)[^/?#@]*@/i;
+
+/** Whether `baseUrl` carries userinfo (`user:pass@`). */
+function hasUserinfo(baseUrl: string): boolean {
+  return USERINFO_RE.test(baseUrl.trim());
+}
+
+/** `baseUrl` with any userinfo removed, for display. */
+function withoutUserinfo(baseUrl: string): string {
+  return baseUrl.replace(USERINFO_RE, '$1');
+}
+
 /** Hostnames for which plain `http://` is allowed (the loopback interface only). */
 const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -202,6 +215,9 @@ export function isAllowedDecideBaseUrl(baseUrl: string): boolean {
   } catch {
     return false;
   }
+  // Userinfo (`user:pass@host`) would be stored, echoed and sent as a second
+  // credential beside the key; the key is the only credential accepted.
+  if (url.username || url.password) return false;
   if (url.protocol === 'https:') return true;
   return url.protocol === 'http:' && LOOPBACK_HOSTNAMES.has(url.hostname.toLowerCase());
 }
@@ -253,7 +269,7 @@ export function describeDecideCredentials(): DecideCredentialsSummary {
   return {
     configured: sealed !== null,
     path,
-    ...(store.baseUrl ? { baseUrl: store.baseUrl } : {}),
+    ...(store.baseUrl ? { baseUrl: withoutUserinfo(store.baseUrl) } : {}),
     ...(store.model ? { model: store.model } : {}),
     ...(store.apiKey ? { keyPreview: maskApiKey(store.apiKey) } : {}),
     ...(store.updatedAt ? { updatedAt: store.updatedAt } : {}),
@@ -361,6 +377,11 @@ export async function saveDecideCredentials(
   const baseUrl = input.baseUrl.trim();
   const apiKey = input.apiKey.trim();
   const model = input.model?.trim();
+  if (hasUserinfo(baseUrl)) {
+    throw new DecideCredentialsError(
+      'base URL must not contain a username or password (user:pass@host); supply only the URL and the API key',
+    );
+  }
   if (!isAllowedDecideBaseUrl(baseUrl)) {
     throw new DecideCredentialsError(
       'base URL must be an absolute https:// URL (plain http:// is allowed only for localhost, 127.0.0.1 and ::1)',

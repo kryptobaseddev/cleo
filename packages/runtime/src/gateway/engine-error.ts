@@ -63,6 +63,7 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_RETRYABLE: 7,
   E_LOCK_TIMEOUT: 7,
   E_CONFIG_ERROR: 8,
+  E_PROJECT_MOVED: 9,
 
   // Hierarchy Errors (10-19)
   E_PARENT_NOT_FOUND: 10,

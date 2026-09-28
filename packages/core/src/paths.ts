@@ -50,6 +50,7 @@ export type { WorktreeScope } from './project-scope.js';
 export {
   getProjectRoot,
   isGitLinkedCheckout,
+  linkedWorktreeMainRoot,
   resolveStoreOwnerRoot,
   validateProjectRoot,
   worktreeScope,

@@ -111,6 +111,33 @@ export async function runPackedCommand(command, args, options = {}) {
 }
 
 /**
+ * Name the class of a failed packed `npm install` instead of asserting one cause
+ * for every non-zero exit.
+ *
+ * The gate exists to catch a published `@cleocode/*` package that imports a
+ * workspace-private package, so its evidence is a resolution error. A runner
+ * network fault leaves the same non-zero exit and says nothing about the
+ * artifact, and an unrecognised failure stays unrecognised rather than
+ * defaulting to the interesting diagnosis (gh#1471).
+ * @param {{message: string, stdout?: string, stderr?: string}} error - Failure raised by {@link runPackedCommand}.
+ * @returns {Error} Replacement that names the observed class and retains the captured output.
+ */
+export function packedInstallFailure(error) {
+  const output = `${error.stdout ?? ''}\n${error.stderr ?? ''}`;
+  const resolution = /\b(ERR_MODULE_NOT_FOUND|ETARGET|E404)\b/.exec(output);
+  const network = /\b(ETIMEDOUT|ENETUNREACH|ECONNRESET|EAI_AGAIN)\b/.exec(output);
+  const diagnosis = resolution
+    ? `npm install failed with ${resolution[1]}: a published @cleocode/* package likely imports a workspace-private package that is not declared in its dependencies.`
+    : network
+      ? `npm install failed on network access (${network[1]}): a runner or registry fault, not evidence about the published packages.`
+      : 'npm install failed without a dependency-resolution or network error code, so the cause is undetermined from this output; inspect the retained install log before treating it as a packaging defect.';
+  return Object.assign(new Error(`${diagnosis} Capture: ${error.message}`, { cause: error }), {
+    stdout: error.stdout,
+    stderr: error.stderr,
+  });
+}
+
+/**
  * Exercise the actual installed Git entry, including independent initialized-file readback.
  * @param {string} app - Fresh retained npm installation.
  * @param {string} root - Owned evidence directory; the Git fixture must not already exist.
@@ -1390,11 +1417,16 @@ async function main() {
       overrides,
     };
     writeFileSync(join(app, 'package.json'), JSON.stringify(appManifest, null, 2) + '\n');
-    const installed = await runPackedCommand(
-      'npm',
-      ['install', '--no-audit', '--no-fund', '--loglevel=warn'],
-      { cwd: app, env, systemdControl, timeout: 300_000 },
-    );
+    let installed;
+    try {
+      installed = await runPackedCommand(
+        'npm',
+        ['install', '--no-audit', '--no-fund', '--loglevel=warn'],
+        { cwd: app, env, systemdControl, timeout: 300_000 },
+      );
+    } catch (error) {
+      throw packedInstallFailure(error);
+    }
     writeFileSync(join(root, 'install.log'), installed);
     for (const pkg of manifest.packages) {
       const installedRoot = join(app, 'node_modules', pkg.name);

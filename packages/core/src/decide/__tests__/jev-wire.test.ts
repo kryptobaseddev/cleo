@@ -176,6 +176,16 @@ describe('parseRetryAfterMs', () => {
     expect(parseRetryAfterMs(null)).toBeUndefined();
     expect(parseRetryAfterMs('soon')).toBeUndefined();
   });
+
+  it('caps a huge value at 60 s and ignores negative or past values', () => {
+    expect(parseRetryAfterMs('999999999')).toBe(60_000);
+    expect(parseRetryAfterMs('1e12')).toBe(60_000);
+    expect(parseRetryAfterMs(new Date(10_000_000_000_000).toUTCString(), 0)).toBe(60_000);
+    expect(parseRetryAfterMs('-5')).toBeUndefined();
+    expect(parseRetryAfterMs('-1')).toBeUndefined();
+    expect(parseRetryAfterMs('Infinity')).toBeUndefined();
+    expect(parseRetryAfterMs(new Date(1_000).toUTCString(), 5_000)).toBeUndefined();
+  });
 });
 
 describe('createJevProvider', () => {

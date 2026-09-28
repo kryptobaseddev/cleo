@@ -39,6 +39,12 @@ export const DEFAULT_BUDGET_CAPACITY = 60;
 export const DEFAULT_BUDGET_REFILL_PER_MINUTE = 540;
 /** Cool-down applied after a 429 that carried no usable `retry-after`. */
 export const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 10_000;
+/**
+ * Longest cool-down any 429 may impose. The bucket is machine-wide, so an
+ * uncapped `retry-after: 999999999` would stop every decision on the machine
+ * for decades.
+ */
+export const MAX_RATE_LIMIT_COOLDOWN_MS = 60_000;
 
 /** Result of {@link DecisionBudget.tryAcquire}. */
 export type BudgetGrant =
@@ -90,6 +96,9 @@ function resolve(opts: TokenBucketOptions): ResolvedBucket {
 /** Apply refill + one acquisition to `state` (mutates) and report the outcome. */
 function take(state: BucketState, bucket: ResolvedBucket): BudgetGrant {
   const now = bucket.now();
+  // A cool-down beyond the cap can only come from a state file written before
+  // the cap existed; honour at most the cap from when it was imposed.
+  state.blockedUntil = Math.min(state.blockedUntil, state.updatedAt + MAX_RATE_LIMIT_COOLDOWN_MS);
   if (now < state.blockedUntil) return { granted: false, reason: 'cooling_down' };
   const elapsed = Math.max(0, now - state.updatedAt);
   state.tokens = Math.min(bucket.capacity, state.tokens + elapsed * bucket.refillPerMs);
@@ -101,8 +110,10 @@ function take(state: BucketState, bucket: ResolvedBucket): BudgetGrant {
 
 function penalizeState(state: BucketState, bucket: ResolvedBucket, retryAfterMs?: number): void {
   const now = bucket.now();
-  const wait =
-    retryAfterMs !== undefined && retryAfterMs >= 0 ? retryAfterMs : DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+  const wait = Math.min(
+    MAX_RATE_LIMIT_COOLDOWN_MS,
+    retryAfterMs !== undefined && retryAfterMs >= 0 ? retryAfterMs : DEFAULT_RATE_LIMIT_COOLDOWN_MS,
+  );
   state.tokens = 0;
   state.updatedAt = now;
   state.blockedUntil = Math.max(state.blockedUntil, now + wait);

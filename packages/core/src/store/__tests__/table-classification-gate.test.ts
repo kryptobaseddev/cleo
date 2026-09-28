@@ -22,15 +22,26 @@
  *    opened.
  *
  * Tables awaiting an owner ruling sit on the registry's `pending` list: they
- * carry no class, are printed on every run, and never count as portable.
+ * carry no class and never count as portable. The allowed count is ZERO, so
+ * a pending table fails CI until the owner rules on it.
+ *
+ * Columns are gated too. A committed per-table column snapshot
+ * (`fixtures/table-classification-columns.json`, from `PRAGMA table_info` of
+ * the fresh stores) fails on any added or removed column until the snapshot
+ * acknowledges it, and a credential-shaped column name in a syncing table
+ * fails outright unless the registry gives that column its own class.
+ * Regenerate the snapshot, after reviewing the diff, with:
+ *
+ *     CLEO_UPDATE_COLUMN_SNAPSHOT=1 pnpm vitest run \
+ *       src/store/__tests__/table-classification-gate.test.ts
  *
  * @task T12332
  * @epic T12322
  */
 
-import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableClassification, TableScope } from '@cleocode/contracts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -39,6 +50,7 @@ import { bindConduitDomain } from '../conduit-sqlite.js';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../dual-scope-db.js';
 import { getBrainDb } from '../memory-sqlite.js';
 import { getNexusDb } from '../nexus-sqlite.js';
+import { CREDENTIAL_COLUMNS } from '../portable-bundle-scan.js';
 import { openSkillsDb } from '../skills-db.js';
 import { getDb } from '../sqlite.js';
 import {
@@ -62,6 +74,126 @@ const columns: Record<TableScope, Map<string, Set<string>>> = {
   global: new Map(),
 };
 let liveProject: Set<string>;
+
+/**
+ * The registry's column snapshot: scope → table → sorted column names, taken
+ * from `PRAGMA table_info` of the fresh stores.
+ */
+const COLUMN_SNAPSHOT = join(import.meta.dirname, 'fixtures', 'table-classification-columns.json');
+type ColumnSnapshot = Record<TableScope, Record<string, string[]>>;
+
+function snapshotOf(): ColumnSnapshot {
+  const out = { project: {}, global: {} } as ColumnSnapshot;
+  for (const scope of ['project', 'global'] as const) {
+    for (const t of [...columns[scope].keys()].sort()) {
+      out[scope][t] = [...(columns[scope].get(t) ?? [])].sort();
+    }
+  }
+  return out;
+}
+
+/**
+ * A column name that looks like a credential. In a syncing (non-secret) table
+ * such a column must carry its own class in the registry: `portable-secret`
+ * when it is a credential, `strip` or `local-only` when that is the correct
+ * treatment (the override's `reason` says why).
+ */
+const CREDENTIAL_NAME = /key|token|secret|passw|credential|oauth|_enc$/i;
+const SYNC_CLASSES_NEEDING_REVIEW = new Set(['portable-project', 'portable-personal']);
+
+/**
+ * Reviewed column names that match {@link CREDENTIAL_NAME} but are not
+ * credentials, keyed `table.column` (either scope). Pinned HERE so each new
+ * match takes an explicit, reviewed edit to the gate. None of them may take a
+ * `strip` or `local-only` class instead: every one must sync for its table to
+ * mean anything on another device.
+ */
+const NOT_A_CREDENTIAL: Readonly<Record<string, string>> = Object.fromEntries(
+  (
+    [
+      [
+        'search keywords (free text written by agents)',
+        [
+          'architecture_decisions.keywords',
+          'attachments.keywords',
+          'docs_attachments.keywords',
+          'tasks_architecture_decisions.keywords',
+        ],
+      ],
+      [
+        'caller-chosen idempotency key: a dedup id, not a secret, and it must sync or a retry on another device double-writes',
+        [
+          'audit_log.idempotency_key',
+          'brain_observations.idempotency_key',
+          'conduit_messages.idempotency_key',
+          'conduit_topic_messages.idempotency_key',
+          'tasks_audit_log.idempotency_key',
+          'tasks_goal.idempotency_key',
+          'tasks_tasks.idempotency_key',
+        ],
+      ],
+      [
+        'LLM token COUNTS (integers), not auth tokens',
+        [
+          'brain_observations.discovery_tokens',
+          'brain_retrieval_log.tokens_used',
+          'brain_transcript_events.tokens',
+          'conduit_attachment_contributors.total_tokens_added',
+          'conduit_attachment_contributors.total_tokens_removed',
+          'conduit_attachment_versions.tokens',
+          'conduit_attachment_versions.tokens_added',
+          'conduit_attachment_versions.tokens_removed',
+          'conduit_attachments.tokens',
+          'tasks_token_usage.input_tokens',
+          'tasks_token_usage.output_tokens',
+          'tasks_token_usage.total_tokens',
+          'token_usage.input_tokens',
+          'token_usage.output_tokens',
+          'token_usage.total_tokens',
+        ],
+      ],
+      [
+        'content-addressed blob key (a hash of the attachment bytes)',
+        ['conduit_attachment_versions.storage_key', 'conduit_attachments.storage_key'],
+      ],
+      [
+        'row key naming a projection, criterion source or profile trait',
+        [
+          'tasks_acceptance_projection_dirty.projection_key',
+          'tasks_acceptance_projection_state.projection_key',
+          'tasks_task_acceptance_criteria.source_key',
+          'nexus_user_profile.trait_key',
+        ],
+      ],
+    ] as const
+  ).flatMap(([reason, keys]) => keys.map((k) => [k, reason])),
+);
+
+/**
+ * `optional-transient` is an escape hatch from the stale-entry check, so like
+ * `derived` it is pinned HERE: adding one takes an explicit edit to the gate.
+ * Each names its class and the source file whose runtime DDL creates it; the
+ * gate checks that DDL still exists, so the exemption cannot outlive its
+ * table.
+ */
+const OPTIONAL_TRANSIENT: Record<TableScope, Record<string, { class: string; ddl: string }>> = {
+  project: {
+    _exodus_database_identity: {
+      class: 'local-only',
+      ddl: 'packages/core/src/store/exodus/recovery.ts',
+    },
+    _fts5_check: { class: 'local-only', ddl: 'packages/core/src/memory/brain-search.ts' },
+  },
+  global: {
+    __catalog_meta: { class: 'local-only', ddl: 'packages/core/src/llm/catalog-seeder.ts' },
+    // No global binder creates it yet; pinned so a future one is never derived.
+    brain_embeddings: {
+      class: 'portable-personal',
+      ddl: 'packages/core/src/store/memory-sqlite.ts',
+    },
+  },
+};
+const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
 function tablesOf(db: DatabaseSync): Set<string> {
   const rows = db
@@ -153,6 +285,11 @@ beforeAll(async () => {
 
   liveProject = readDump(LIVE_PROJECT_DUMP);
 
+  if (process.env.CLEO_UPDATE_COLUMN_SNAPSHOT === '1') {
+    writeFileSync(COLUMN_SNAPSHOT, `${JSON.stringify(snapshotOf(), null, 2)}\n`);
+    console.log(`[gate-a] column snapshot written: ${COLUMN_SNAPSHOT}`);
+  }
+
   report('fresh project', 'project', fresh.project);
   report('fresh global', 'global', fresh.global);
   report('live project shape', 'project', liveProject);
@@ -203,6 +340,38 @@ describe('Gate A: the registry describes real tables', () => {
   it.each([
     'project',
     'global',
+  ] as const)('%s: nothing is pending an owner ruling (allowed count is zero)', (scope) => {
+    const pending = getTableRegistry(scope).pending.map((p) => `${p.table}: ${p.question}`);
+    expect(
+      pending,
+      `${scope}: tables on the pending list have no class. Get the ruling and classify them; ` +
+        'a pending table must not reach CI.',
+    ).toEqual([]);
+  });
+
+  it.each([
+    'project',
+    'global',
+  ] as const)('%s: optional-transient is only the pinned runtime-DDL tables', (scope) => {
+    const pinned = OPTIONAL_TRANSIENT[scope];
+    const used = Object.entries(getTableRegistry(scope).tables)
+      .filter(([, e]) => e.status === 'optional-transient')
+      .map(([t]) => t)
+      .sort();
+    expect(used, `${scope}: optional-transient entries outside the pinned set`).toEqual(
+      Object.keys(pinned).sort(),
+    );
+    for (const [table, { class: cls, ddl: file }] of Object.entries(pinned)) {
+      expect(classifyTable(scope, table)).toMatchObject({ kind: 'entry', class: cls });
+      const src = readFileSync(join(REPO_ROOT, file), 'utf8');
+      const ddl = new RegExp(`CREATE (VIRTUAL )?TABLE IF NOT EXISTS (main\\.)?${table}\\b`);
+      expect(ddl.test(src), `${scope}.${table}: no runtime DDL left in ${file}`).toBe(true);
+    }
+  });
+
+  it.each([
+    'project',
+    'global',
   ] as const)('%s: every pending table exists and has no class', (scope) => {
     const registry = getTableRegistry(scope);
     const known = scope === 'project' ? new Set([...fresh.project, ...liveProject]) : fresh.global;
@@ -245,6 +414,92 @@ describe('Gate A: the registry describes real tables', () => {
   });
 });
 
+describe('Gate A: columns', () => {
+  it('the committed column snapshot matches the fresh stores', () => {
+    const want = JSON.parse(readFileSync(COLUMN_SNAPSHOT, 'utf8')) as ColumnSnapshot;
+    const got = snapshotOf();
+    const diffs: string[] = [];
+    for (const scope of ['project', 'global'] as const) {
+      // sqlite-vec is an optional native extension: where it does not load, the
+      // vec0 table and its shadows are absent. Their shape is fixed by vec0.
+      const vecMissing = !got[scope].brain_embeddings && Boolean(want[scope].brain_embeddings);
+      if (vecMissing) console.warn(`[gate-a] ${scope}: sqlite-vec not loaded; vec0 tables skipped`);
+      const tables = new Set([...Object.keys(want[scope]), ...Object.keys(got[scope])]);
+      for (const t of [...tables].sort()) {
+        if (vecMissing && /^brain_embeddings(_|$)/.test(t)) continue;
+        const w = new Set(want[scope][t] ?? []);
+        const g = new Set(got[scope][t] ?? []);
+        if (!want[scope][t]) diffs.push(`${scope}.${t}: new table not in the snapshot`);
+        if (!got[scope][t]) diffs.push(`${scope}.${t}: in the snapshot, gone from the store`);
+        for (const c of g) if (!w.has(c)) diffs.push(`${scope}.${t}.${c}: new column`);
+        for (const c of w) if (!g.has(c)) diffs.push(`${scope}.${t}.${c}: removed column`);
+      }
+    }
+    expect(
+      diffs,
+      'Columns changed since the registry snapshot. Check each new column against the ' +
+        'registry (does it need a column class?), then regenerate the snapshot with ' +
+        'CLEO_UPDATE_COLUMN_SNAPSHOT=1 (see the file header).',
+    ).toEqual([]);
+  });
+
+  it.each([
+    'project',
+    'global',
+  ] as const)('%s: a credential-shaped column in a syncing table has its own class', (scope) => {
+    const bad: string[] = [];
+    for (const [table, cols] of columns[scope]) {
+      const r = classifyTable(scope, table);
+      if (r.kind !== 'entry' && r.kind !== 'pattern') continue; // gated above
+      if (!SYNC_CLASSES_NEEDING_REVIEW.has(r.class)) continue;
+      const overridden = new Set(
+        (r.kind === 'entry' ? r.entry.columns : undefined)?.map((o) => o.column),
+      );
+      for (const c of cols) {
+        if (!CREDENTIAL_NAME.test(c) || overridden.has(c)) continue;
+        if (Object.hasOwn(NOT_A_CREDENTIAL, `${table}.${c}`)) continue;
+        bad.push(`${table}.${c} (${r.class})`);
+      }
+    }
+    expect(
+      bad.sort(),
+      `${scope}: these columns look like credentials and would sync in the clear. Give each a ` +
+        "column override: 'portable-secret' for a credential, or 'strip' / 'local-only' with a " +
+        'reason when that is the correct treatment. Only a reviewed non-credential goes on the ' +
+        'NOT_A_CREDENTIAL list in this file.',
+    ).toEqual([]);
+  });
+
+  it('every NOT_A_CREDENTIAL entry names a real column (no stale exemption)', () => {
+    const real = new Set<string>();
+    for (const scope of ['project', 'global'] as const) {
+      for (const [t, cols] of columns[scope]) for (const c of cols) real.add(`${t}.${c}`);
+    }
+    expect(Object.keys(NOT_A_CREDENTIAL).filter((k) => !real.has(k))).toEqual([]);
+  });
+
+  it('portable-secret column overrides agree with CREDENTIAL_COLUMNS', () => {
+    const registry = new Set<string>();
+    for (const scope of ['project', 'global'] as const) {
+      for (const [table, entry] of Object.entries(getTableRegistry(scope).tables)) {
+        for (const o of entry.columns ?? []) {
+          if (o.class === 'portable-secret') registry.add(`${table}.${o.column}`);
+        }
+      }
+    }
+    const bundle = new Set(
+      Object.entries(CREDENTIAL_COLUMNS).flatMap(([t, cs]) => cs.map((c) => `${t}.${c}`)),
+    );
+    expect(
+      [...registry].filter((k) => !bundle.has(k)).sort(),
+      'missing from CREDENTIAL_COLUMNS',
+    ).toEqual([]);
+    expect([...bundle].filter((k) => !registry.has(k)).sort(), 'missing from the registry').toEqual(
+      [],
+    );
+  });
+});
+
 describe('classifyTable', () => {
   it('resolves entries, patterns, pending and unknown names', () => {
     expect(classifyTable('project', 'tasks_tasks')).toMatchObject({
@@ -268,6 +523,13 @@ describe('classifyTable', () => {
       class: 'portable-secret',
     });
     expect(classifyTable('project', 'no_such_table').kind).toBe('unclassified');
+    // No classification by prefix or suffix alone: an unknown `_fts` table or
+    // `brain_embeddings_*` table is unclassified until someone rules on it.
+    expect(classifyTable('project', 'foo_fts').kind).toBe('unclassified');
+    expect(classifyTable('project', 'foo_fts_data').kind).toBe('unclassified');
+    expect(classifyTable('global', 'foo_fts').kind).toBe('unclassified');
+    expect(classifyTable('project', 'brain_embeddings_backup').kind).toBe('unclassified');
+    expect(classifyTable('global', 'brain_embeddings_v2').kind).toBe('unclassified');
     // Scope matters: the exodus scratch pattern is project-only.
     expect(classifyTable('global', '_exodus_recovery_tasks').kind).toBe('unclassified');
   });
@@ -305,7 +567,7 @@ describe('Gate A: two-tier policy', () => {
     'nexus_code_index',
   ]);
   const FTS_SHADOW = /^[a-z_]+_fts(_(config|data|docsize|idx|content))?$/;
-  const VEC_SHADOW = /^brain_embeddings_.+$/;
+  const VEC_SHADOW = /^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2})$/;
   const derivedAllowed = (t: string) =>
     NEXUS_CODE_GRAPH.has(t) || FTS_SHADOW.test(t) || VEC_SHADOW.test(t);
 
@@ -325,15 +587,18 @@ describe('Gate A: two-tier policy', () => {
     expect(wide, `${scope}: tables classed derived outside the narrow set`).toEqual([]);
   });
 
-  it('embeddings and LLM/sleep output are not derived', () => {
+  it.each([
+    'project',
+    'global',
+  ] as const)('%s: embeddings and LLM/sleep output are not derived', (scope) => {
     for (const t of [
       'brain_embeddings',
       'brain_patterns',
       'brain_page_edges',
       'brain_memory_trees',
     ]) {
-      const r = classifyTable('project', t);
-      expect(r.kind === 'entry' && r.class !== 'derived', t).toBe(true);
+      const r = classifyTable(scope, t);
+      expect(r.kind === 'entry' && r.class !== 'derived', `${scope}.${t}`).toBe(true);
     }
   });
 });

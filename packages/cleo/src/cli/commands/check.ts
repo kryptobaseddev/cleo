@@ -725,13 +725,25 @@ const checkArchCommand = defineCommand({
         description: "No raw args['no-<flag>'] read in the CLI (citty never sets it)",
       },
       {
+        // T12483: the owner rule that every human decision goes through the
+        // harness ask tool with options (never prose; subagents relay to the
+        // orchestrator) must reach every surface an agent reads: the injected
+        // template, the ct-cleo / ct-orchestrator skills, and the spawn-prompt
+        // return contract emitted at every tier.
+        id: 'gate-27',
+        task: 'T12483',
+        script: 'scripts/lint-hitl-rule-delivery.mjs',
+        description: 'HITL ask-tool rule present on every agent delivery surface',
+      },
+      {
         // T12332 (Gate A): every cleo.db table now carries a replication
-        // class, and replication captures writes at the openDualScopeDb
-        // chokepoint. A raw INSERT/UPDATE/DELETE/REPLACE elsewhere is a write
-        // nobody can enumerate. A ratchet: today's offenders are baselined per
+        // class, and replication captures writes at the chokepoint
+        // (openDualScopeDb and the canonical accessors, which are exempt). A
+        // raw INSERT/UPDATE/DELETE/REPLACE elsewhere is a write nobody can
+        // enumerate. A ratchet: today's offenders are baselined per
         // (file, table), a new one fails, and a removed one must leave the
         // baseline in the same change.
-        id: 'gate-27',
+        id: 'gate-28',
         task: 'T12332',
         script: 'scripts/lint-no-raw-table-writes.mjs',
         description: 'No new raw SQL write on a classified cleo.db table (ratchet)',

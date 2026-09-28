@@ -2197,4 +2197,21 @@ describe('durable sourced knowledge repair preparation', () => {
     );
     expect(persisted().jobs).toEqual([]);
   });
+  // T12557: a persisted projectRoot is a legacy path-derived value that goes
+  // stale on every move; identity is the projectId alone.
+  it('prepares work when only a legacy persisted projectRoot is stale (T12557)', async () => {
+    writeFileSync(
+      join(root, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'repair-A', projectRoot: '/mnt/projects/legacy' }),
+    );
+    const staleRoot = await createKnowledgeRepairInvocation(
+      root,
+      'preparation-test',
+      `${proposal.id}-stale`,
+      Date.now() + 10000,
+    );
+    staleRoot.close();
+    const result = await prepareKnowledgeRepair(context, proposal);
+    expect(result.jobStatus).toBe('pending');
+  });
 });

@@ -30,12 +30,13 @@ export type ReleaseFn = () => Promise<void>;
  */
 export async function acquireLock(
   filePath: string,
-  options?: { stale?: number; retries?: number },
+  options?: { stale?: number; retries?: number; onCompromised?: (err: Error) => void },
 ): Promise<ReleaseFn> {
   try {
     const release = await lockfile.lock(filePath, {
       ...DEFAULT_LOCK_OPTIONS,
       ...(options?.stale !== undefined && { stale: options.stale }),
+      ...(options?.onCompromised !== undefined && { onCompromised: options.onCompromised }),
       ...(options?.retries !== undefined && {
         retries: {
           ...DEFAULT_LOCK_OPTIONS.retries,

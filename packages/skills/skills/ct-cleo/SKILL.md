@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.20.8
+  version: 2.20.9
   lastReviewed: 2026-09-28
   stability: stable
 ---
@@ -48,14 +48,16 @@ restored checkout keeps its identity. After a new device, restore or migration,
 or when a known repo reports "Not inside a CLEO project", registry paths are
 unreachable, or nexus hits `ENOENT` on an old path, run and report:
 
-1. `cleo doctor project-identity` — missing, conflicting or uncommitted id.
-2. `cleo doctor --all-projects` — unreachable registered projects.
-3. `cleo nexus projects clean --orphans --dry-run` — NEVER without `--dry-run`;
+1. `cleo doctor projects` — machine-wide: moved, missing, split and temp rows with
+   remedies. Dry-run by default; `--apply` rebinds only on nonce proof and writes a
+   receipt; `--rollback <id>` restores.
+2. `cleo doctor project-identity` — missing, conflicting or uncommitted id.
+3. `cleo doctor --all-projects` — unreachable registered projects.
+4. `cleo nexus projects clean --orphans --dry-run` — NEVER without `--dry-run`;
    it deletes rows for projects that merely moved.
-4. `cleo doctor credentials` — credentials still keyed by an old path.
+5. `cleo doctor credentials` — credentials still keyed by an old path.
 
 Never delete registry rows for projects that may have moved.
-<!-- TODO(T12471): lead with the `doctor projects` sub-command once it ships. -->
 
 ## Guarded knowledge repair
 

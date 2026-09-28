@@ -17,6 +17,13 @@ import { createDecisionCache } from '../cache.js';
 import { _resetDecideDefaultsForTest, type DecideOptions, decide } from '../client.js';
 import { type DecisionProvider, DecisionProviderError } from '../provider.js';
 
+// T12492: the default Jev transport is `decideFetch` (node:http, releases every
+// handle on abort), not the global `fetch`. These tests drive the default
+// provider through a stubbed global `fetch`, so route the transport through it.
+vi.mock('../transport.js', () => ({
+  decideFetch: (url: string, init: RequestInit) => globalThis.fetch(url, init),
+}));
+
 const REQUEST: DecisionRequest = {
   state: 'deploy failed',
   questions: { retry: { type: 'noul', criteria: 'Retrying will help' } },

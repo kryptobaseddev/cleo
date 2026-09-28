@@ -1,7 +1,9 @@
+import { realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { generateProjectHash } from '../nexus/hash.js';
 import { worktreeScope } from '../paths.js';
 import { getProjectInfo, getProjectInfoSync } from '../project-info.js';
 
@@ -65,11 +67,15 @@ describe('getProjectInfo', () => {
     await expect(getProjectInfo(join(tempDir, 'nonexistent'))).rejects.toThrow();
   });
 
-  it('throws when projectHash is missing', async () => {
+  it('backfills a missing projectHash once from the real root (T12557)', async () => {
     const data = { cleoVersion: '2026.3.11' };
     await writeFile(infoPath, JSON.stringify(data));
 
-    await expect(getProjectInfo(tempDir)).rejects.toThrow('projectHash');
+    const info = await getProjectInfo(tempDir);
+    expect(info.projectHash).toBe(generateProjectHash(realpathSync(tempDir)));
+    expect(info.projectRoot).toBe(tempDir);
+    const stored = JSON.parse(await readFile(infoPath, 'utf-8')) as Record<string, unknown>;
+    expect(stored).toEqual({ cleoVersion: '2026.3.11', projectHash: info.projectHash });
   });
 
   it('throws on invalid JSON', async () => {
@@ -128,10 +134,10 @@ describe('getProjectInfoSync', () => {
     expect(info).toBeNull();
   });
 
-  it('returns null when projectHash is missing', async () => {
+  it('backfills a missing projectHash from the real root (T12557)', async () => {
     await writeFile(infoPath, JSON.stringify({ cleoVersion: '1.0.0' }));
     const info = getProjectInfoSync(tempDir);
-    expect(info).toBeNull();
+    expect(info?.projectHash).toBe(generateProjectHash(realpathSync(tempDir)));
   });
 
   it('returns null on invalid JSON', async () => {

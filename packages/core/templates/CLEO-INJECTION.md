@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.20.8 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.20.9 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -46,8 +46,7 @@ An impossible internal mutation budget rejects before execution. If a successful
 | About to call `cleo complete` | First: check gates via `cleo show <id> --full` → run tests → then complete |
 | Writing a canonical doc (spec/adr/research/handoff/note/llm-readme) | Use `cleo docs add --type <kind> --slug <kebab-handle>` — NEVER raw fs write to `.cleo/adrs/`, `.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` |
 | Reading an ADR/spec/research note/handoff | `cleo docs fetch <slug>` — never grep the filesystem for canonical docs |
-| New device, restore or migration; known repo "Not inside a CLEO project"; unreachable registry path; nexus `ENOENT` | `cleo doctor project-identity`, `cleo doctor --all-projects`, `cleo nexus projects clean --orphans --dry-run` (`--dry-run` mandatory: it deletes moved projects), `cleo doctor credentials`; report. Never delete rows of projects that may have moved |
-<!-- TODO(T12471): add doctor projects -->
+| New device, restore or migration; known repo "Not inside a CLEO project"; unreachable registry path; nexus `ENOENT` | `cleo doctor projects` (dry run; `--apply`/`--rollback <id>`), `cleo doctor project-identity`, `cleo doctor --all-projects`, `cleo nexus projects clean --orphans --dry-run` (`--dry-run` mandatory: it deletes moved projects), `cleo doctor credentials`; report. Never delete rows of projects that may have moved |
 <!-- /CLEO-INJECTION:section=triggers -->
 
 <!-- CLEO-INJECTION:section=task-creation -->
