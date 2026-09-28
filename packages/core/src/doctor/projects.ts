@@ -47,6 +47,7 @@ import type {
 import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { eq, inArray, or } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { runWithConcurrency } from '../lib/concurrency.js';
 import { readCheckoutNonce } from '../nexus/checkout-nonce.js';
 import { type CheckoutEvidence, collectCheckoutEvidence } from '../nexus/identity.js';
 import {
@@ -69,7 +70,6 @@ import type {
   ProjectPathRow,
   ProjectRegistryRow,
 } from '../store/schema/nexus-schema.js';
-import { runWithConcurrency } from '../lib/concurrency.js';
 
 /** Command that reports registry integrity; the prefix of the remedies below. */
 const DOCTOR_COMMAND = 'cleo doctor projects';
