@@ -2,8 +2,8 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 2.8.0
-  lastReviewed: 2026-09-19
+  version: 2.9.0
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -229,6 +229,23 @@ On an idle host every ready task is `admitted` and behaviour is unchanged.
 ### 4. Report to Human
 
 After each wave or on request: what completed, blockers needing HITL, next actions.
+Report only when work is done or a decision is needed; no routine status chatter.
+
+## Asking the Owner (HITL ask tool)
+
+Whenever the owner must answer, decide, approve or choose ANYTHING, ask through
+the ask tool (`AskUserQuestion` in Claude Code, or the provider equivalent from
+CAAMP's `PROVIDER_ASK_TOOLS`) with concrete, detailed, selectable options. Never
+ask inside a response, and never bury a question or decision in prose. Each option
+states what happens and its trade-offs, with the recommended option first.
+
+- **Subagent relay.** Subagents never ask the human (most harnesses deny them the
+  ask tool). A subagent that needs a decision returns `blocked` with
+  `{question, options[{label, description}], recommended}` in its manifest entry;
+  you, the orchestrator, put that question to the owner via your ask tool, then
+  re-spawn or continue with the answer.
+- **Fallback.** When your harness has no ask tool, emit one LAFS `hitl.request`
+  envelope `{question, options[{label, description}], recommended}` and stop.
 
 ## Handoff Chain Protocol
 
