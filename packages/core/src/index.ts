@@ -464,6 +464,7 @@ export type { ProjectInfo } from './project-info.js';
 export { getProjectInfo, getProjectInfoSync, updateProjectName } from './project-info.js';
 export type {
   MoveProjectResult,
+  RelocateProjectOptions,
   RenameProjectResult,
   ReregisterProjectResult,
 } from './project-lifecycle.js';
@@ -473,7 +474,14 @@ export {
   moveProject,
   renameProject,
   reregisterProject,
+  rerootProject,
 } from './project-lifecycle.js';
+// Relocation tombstone (T12558)
+export {
+  PROJECT_TOMBSTONE_FILE,
+  readValidProjectTombstone,
+  setProjectMovedRefusal,
+} from './project-tombstone.js';
 // Scaffold
 export {
   ensureCleoOsHub,

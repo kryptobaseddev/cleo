@@ -62,6 +62,7 @@ import { worktreeScope } from '../project-scope.js';
 import { observeOperation } from './background-ops.js';
 import { type ExodusAbortDetail, getRecordedExodusAbort } from './exodus/abort-events.js';
 import { migrateWithRetry, reconcileJournal } from './migration-manager.js';
+import { assertStoreNotRelocated } from './relocated-store-guard.js';
 import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
@@ -746,6 +747,8 @@ export async function openDualScopeDbAtPath(
   // A `<worktree>/.cleo/cleo.db` is a diverged copy whose writes are lost.
   if (scope === 'project') {
     assertStorePathIsNotWorktreeResident('project', normalizedPath);
+    // T12558: never CREATE an empty store where a project used to live.
+    assertStoreNotRelocated(normalizedPath, resolveDualScopeDbPath('global'));
   }
 
   const log = getLogger('dual-scope-db');

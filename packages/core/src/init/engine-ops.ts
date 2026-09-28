@@ -14,6 +14,7 @@
  * @epic T1566
  */
 
+import { ExitCode } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import {
@@ -85,6 +86,15 @@ export async function initProject(
     const codeName = initErrorCodeName(err);
     if (err instanceof CleoError && codeName !== undefined) {
       return engineError(codeName, err.message, {
+        exitCode: err.code,
+        ...(err.fix !== undefined ? { fix: err.fix } : {}),
+        ...(err.details !== undefined ? { details: err.details } : {}),
+      });
+    }
+    // T12558: a relocated root keeps its own exit class, code, fix and
+    // `details.movedTo` — distinct from every INIT_ERROR_CODES refusal.
+    if (err instanceof CleoError && err.code === ExitCode.PROJECT_MOVED) {
+      return engineError('E_PROJECT_MOVED', err.message, {
         exitCode: err.code,
         ...(err.fix !== undefined ? { fix: err.fix } : {}),
         ...(err.details !== undefined ? { details: err.details } : {}),

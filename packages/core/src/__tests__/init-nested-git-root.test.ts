@@ -334,6 +334,35 @@ describe('cleo init under an initialized ancestor (T12562)', () => {
     expect(existsSync(join(lib, '.cleo'))).toBe(false);
   });
 
+  it('refuses a submodule even when it carries reroot relocation state (T12558)', async () => {
+    // The state a reroot leaves when the old root is a submodule: a tracked
+    // .cleo/project-id plus a VALID tombstone pointing into the submodule.
+    const lib = addSubmodule();
+    const id = 'vendored-T12558';
+    await mkdir(join(lib, '.cleo'), { recursive: true });
+    writeFileSync(join(lib, '.cleo', 'project-id'), `${id}\n`);
+    await mkdir(join(lib, 's', '.cleo'), { recursive: true });
+    writeFileSync(join(lib, 's', '.cleo', 'project-id'), `${id}\n`);
+    writeFileSync(
+      join(lib, '.cleo-moved.json'),
+      JSON.stringify({ projectId: id, movedTo: join(lib, 's'), at: 'x' }),
+    );
+    const before = parentHashes();
+    process.chdir(lib);
+
+    for (const opts of [{}, { here: true }, { here: true, newIdentity: true }, { force: true }]) {
+      const err = await refusal({ name: 'lib', ...opts });
+      expect(err.details?.['codeName']).toBe(INIT_ERROR_CODES.gitlinkUnsupported);
+      expect(err.message).toContain(`CLEO resolves this checkout to ${root}`);
+    }
+    await closeStores();
+    expect(readFileSync(join(lib, '.cleo', 'project-id'), 'utf-8').trim()).toBe(id);
+    expect(existsSync(join(lib, '.cleo', 'cleo.db'))).toBe(false);
+    expect(existsSync(join(lib, '.cleo', 'project-info.json'))).toBe(false);
+    expect(existsSync(join(lib, '.cleo', 'audit'))).toBe(false);
+    expect(parentHashes()).toEqual(before);
+  });
+
   it('refuses init in a separate-git-dir checkout under the project', async () => {
     const sep = join(root, 'vendored');
     await mkdir(join(testDir, 'sepgit'), { recursive: true });
