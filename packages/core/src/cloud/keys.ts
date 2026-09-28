@@ -232,60 +232,79 @@ function narrowerPins(a: RevocationPins, b: RevocationPins): RevocationPins {
   };
 }
 
+/** Master keys by key version. Certificates made under older versions verify under their own key. */
+export type MasterKeys = ReadonlyMap<number, Uint8Array>;
+
 /**
- * The trusted signer set, built from `GET /v1/devices/trust` and the master key the client holds. Build
+ * The trusted signer set, built from `GET /v1/devices/trust` and the master keys the client holds. Build
  * the set for pulls, checkpoints and grants from this, never from the server's device list alone.
- * - A key counts only if its certificate (an HMAC under the master key) verifies: the server cannot add one.
- * - A certified key with a revocation record signed by a certified key is trusted up to the record's pins.
- *   So a revoked device's history stays readable, and nothing it signs later is.
- * - A certified key the server calls live, with no record, is trusted without a pin.
- * - A certified key that is no longer live (revoked, or replaced by a re-registration) with no record is
- *   left out, unless `includePending`: the revocation flow uses that to pull, verify and pin its history
- *   before signing the record. A key that has been revoked therefore never gains trust from the server.
+ * - A key counts only if a certificate for it (an HMAC under the master key of the certificate's own key
+ *   version) verifies: the server cannot add one, and key rotation does not orphan older history as long
+ *   as the client keeps the older master keys.
+ * - A revocation record counts only when its signer is certified and **live**, and the signer key is not
+ *   itself revoked by such a record. A record by a revoked, pinned or pending key is ignored, so a thief
+ *   holding a stolen device can pre-empt nothing once the owner revokes that device: its records stop
+ *   counting, and the owner's records (from any live device, including one just unlocked by passphrase)
+ *   take over. While several records count for one key, the narrowest pins apply.
+ * - A certified key with a counting record is trusted up to its pins, whatever the server says about live.
+ * - A certified key the server calls live, with no counting record and not revoked by one, is trusted
+ *   without a pin.
+ * - Any other certified key is pending: left out, unless `includePending` (the revocation flow uses that to
+ *   pull, verify and pin its history before signing a record). A revoked key never gains trust from the server.
  */
 export function certifiedSigners(
-  mk: Uint8Array,
+  masterKeys: MasterKeys,
   userId: string,
-  keyVersion: number,
   trust: DeviceTrust,
   opts: { includePending?: boolean } = {},
 ): Map<string, SignerKey[]> {
   const certified = new Map<string, { deviceId: string; publicKey: Buffer; live: boolean }>();
   for (const c of trust.certificates) {
-    if (c.keyVersion !== keyVersion) continue;
+    const mk = masterKeys.get(c.keyVersion);
+    if (!mk) continue;
     const keys = {
       deviceId: c.deviceId,
       encryptionPublicKey: Buffer.from(c.encryptionPublicKey, 'base64'),
       signingPublicKey: Buffer.from(c.signingPublicKey, 'base64'),
     };
     if (
-      !verifyDeviceCertificate(mk, userId, keys, keyVersion, Buffer.from(c.certificate, 'base64'))
+      !verifyDeviceCertificate(mk, userId, keys, c.keyVersion, Buffer.from(c.certificate, 'base64'))
     )
       continue;
     const id = `${c.deviceId}/${hex(keys.signingPublicKey)}`;
     const live = (certified.get(id)?.live ?? false) || c.live;
     certified.set(id, { deviceId: c.deviceId, publicKey: keys.signingPublicKey, live });
   }
-  const pins = new Map<string, RevocationPins>();
+  // Records with a valid signature by a certified, live key: the signer key id and the revoked key id.
+  const liveSigned: { signerId: string; revokedId: string; pins: RevocationPins }[] = [];
   for (const r of trust.revocations) {
     const revokedKey = Buffer.from(r.signingPublicKey, 'base64');
-    const id = `${r.deviceId}/${hex(revokedKey)}`;
-    if (!certified.has(id)) continue;
+    const revokedId = `${r.deviceId}/${hex(revokedKey)}`;
+    if (!certified.has(revokedId)) continue;
     const msg = revocationMessage(userId, r.deviceId, revokedKey, r.pins, r.signerDeviceId);
     const signature = Buffer.from(r.signature, 'base64');
-    const signed = [...certified.values()].some(
-      (k) => k.deviceId === r.signerDeviceId && verifyEd25519(k.publicKey, msg, signature),
-    );
-    if (!signed) continue;
-    const prev = pins.get(id);
-    pins.set(id, prev ? narrowerPins(prev, r.pins) : r.pins);
+    for (const [signerId, k] of certified) {
+      if (k.deviceId === r.signerDeviceId && k.live && verifyEd25519(k.publicKey, msg, signature)) {
+        liveSigned.push({ signerId, revokedId, pins: r.pins });
+        break;
+      }
+    }
+  }
+  // A signer revoked by any live-signed record loses its authority; mutual revocations cancel both
+  // signers' records, which leaves both keys pending (never trusted), the conservative outcome.
+  const revoked = new Set(liveSigned.map((x) => x.revokedId));
+  const pins = new Map<string, RevocationPins>();
+  for (const x of liveSigned) {
+    if (revoked.has(x.signerId)) continue;
+    const prev = pins.get(x.revokedId);
+    pins.set(x.revokedId, prev ? narrowerPins(prev, x.pins) : x.pins);
   }
   const out = new Map<string, SignerKey[]>();
   for (const [id, k] of certified) {
     const pin = pins.get(id);
     const key: SignerKey | null = pin
       ? { publicKey: k.publicKey, pin }
-      : k.live
+      : k.live && !revoked.has(id)
         ? { publicKey: k.publicKey, pin: null }
         : opts.includePending
           ? { publicKey: k.publicKey, pin: null, pending: true }

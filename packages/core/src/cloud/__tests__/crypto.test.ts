@@ -302,16 +302,18 @@ describe('device trust: signed, certified master key grants', () => {
 
   it('certifies only devices the master key vouches for', () => {
     const trust = { certificates: [certRow(a, mk), certRow(evil, randomKey())], revocations: [] };
-    expect([...certifiedSigners(mk, userId, 1, trust).keys()]).toEqual([a.deviceId]);
-    expect(certifiedSigners(mk, userId, 2, trust).size).toBe(0);
+    expect([...certifiedSigners(new Map([[1, mk]]), userId, trust).keys()]).toEqual([a.deviceId]);
+    expect(certifiedSigners(new Map([[2, mk]]), userId, trust).size).toBe(0);
   });
 
   it('keeps a revoked key trusted up to its pins, and never trusts one with no record (round 3)', () => {
     // b is revoked (not live). With no record it is pending: left out, unless the revocation flow asks.
     const noRecord = { certificates: [certRow(a, mk), certRow(b, mk, false)], revocations: [] };
-    expect(certifiedSigners(mk, userId, 1, noRecord).has(b.deviceId)).toBe(false);
+    expect(certifiedSigners(new Map([[1, mk]]), userId, noRecord).has(b.deviceId)).toBe(false);
     expect(
-      certifiedSigners(mk, userId, 1, noRecord, { includePending: true }).get(b.deviceId),
+      certifiedSigners(new Map([[1, mk]]), userId, noRecord, { includePending: true }).get(
+        b.deviceId,
+      ),
     ).toEqual([{ publicKey: b.signing.publicKey, pin: null, pending: true }]);
     // a signs a revocation record for b: b is trusted with the pin, whatever the server says about live.
     for (const live of [false, true]) {
@@ -319,7 +321,7 @@ describe('device trust: signed, certified master key grants', () => {
         certificates: [certRow(a, mk), certRow(b, mk, live)],
         revocations: [revoke(a, b)],
       };
-      expect(certifiedSigners(mk, userId, 1, t).get(b.deviceId)).toEqual([
+      expect(certifiedSigners(new Map([[1, mk]]), userId, t).get(b.deviceId)).toEqual([
         { publicKey: b.signing.publicKey, pin: pins },
       ]);
     }
@@ -328,13 +330,13 @@ describe('device trust: signed, certified master key grants', () => {
       certificates: [certRow(a, mk), certRow(b, mk, false), certRow(evil, randomKey())],
       revocations: [revoke(evil, b)],
     };
-    expect(certifiedSigners(mk, userId, 1, byEvil).has(b.deviceId)).toBe(false);
+    expect(certifiedSigners(new Map([[1, mk]]), userId, byEvil).has(b.deviceId)).toBe(false);
     const edited = {
       ...revoke(a, b),
       pins: { replicas: { '0192f1c2-7d3e-7abc-8def-0000000000a1': 99 }, checkpoints: {} },
     };
     expect(
-      certifiedSigners(mk, userId, 1, {
+      certifiedSigners(new Map([[1, mk]]), userId, {
         certificates: [certRow(a, mk), certRow(b, mk, false)],
         revocations: [edited],
       }).has(b.deviceId),
@@ -344,13 +346,91 @@ describe('device trust: signed, certified master key grants', () => {
       certificates: [certRow(a, mk, false), certRow(b, mk)],
       revocations: [revoke(b, a)],
     };
-    expect(certifiedSigners(mk, userId, 1, selfRescue).get(a.deviceId)).toEqual([
+    expect(certifiedSigners(new Map([[1, mk]]), userId, selfRescue).get(a.deviceId)).toEqual([
       { publicKey: a.signing.publicKey, pin: pins },
     ]);
   });
 
+  const c = dev('0192f1c2-7d3e-4abc-8def-00000000000c');
+  const R = '0192f1c2-7d3e-7abc-8def-0000000000a1';
+  const v1 = (t: Parameters<typeof certifiedSigners>[2]) =>
+    certifiedSigners(new Map([[1, mk]]), userId, t);
+
+  it('ignores records by a revoked signer: a thief cannot pre-empt the owner (round 4)', () => {
+    const empty = { replicas: {}, checkpoints: {} };
+    // The thief holds a (still live) and signs {} for its own key and for the owner's other device b.
+    const thiefSelf = revoke(a, a, empty);
+    const thiefOnB = revoke(a, b, empty);
+    // While a is live its records count: b is pinned to nothing (denial of service, not trust).
+    const before = v1({
+      certificates: [certRow(a, mk), certRow(b, mk, false)],
+      revocations: [thiefOnB],
+    });
+    expect(before.get(b.deviceId)).toEqual([{ publicKey: b.signing.publicKey, pin: empty }]);
+    // The owner revokes a from the web: a is no longer live, so its records stop counting at once, even
+    // before any record revokes a. b becomes pending (untrusted), not pinned to nothing.
+    const webRevoked = v1({
+      certificates: [certRow(a, mk, false), certRow(b, mk, false)],
+      revocations: [thiefOnB],
+    });
+    expect(webRevoked.size).toBe(0);
+    // Then c (unlocked by passphrase) signs the owner's records.
+    const owner = [revoke(c, a), revoke(c, b)];
+    const after = v1({
+      certificates: [certRow(a, mk, false), certRow(b, mk, false), certRow(c, mk)],
+      revocations: [thiefSelf, thiefOnB, ...owner],
+    });
+    expect(after.get(a.deviceId)).toEqual([{ publicKey: a.signing.publicKey, pin: pins }]);
+    expect(after.get(b.deviceId)).toEqual([{ publicKey: b.signing.publicKey, pin: pins }]);
+    // Even if a server still called a live, a's records stop counting once a live record revokes a.
+    const lying = v1({
+      certificates: [certRow(a, mk), certRow(b, mk, false), certRow(c, mk)],
+      revocations: [thiefOnB, ...owner],
+    });
+    expect(lying.get(b.deviceId)).toEqual([{ publicKey: b.signing.publicKey, pin: pins }]);
+    // Mutual revocation between two live keys cancels both: neither is trusted (pending).
+    const mutual = v1({
+      certificates: [certRow(a, mk), certRow(c, mk)],
+      revocations: [revoke(a, c, pins), revoke(c, a, pins)],
+    });
+    expect(mutual.size).toBe(0);
+  });
+
+  it('applies the narrowest pins when several live devices revoke one key', () => {
+    const wide = { replicas: { [R]: 9 }, checkpoints: {} };
+    const narrow = { replicas: { [R]: 2 }, checkpoints: {} };
+    const t = v1({
+      certificates: [certRow(a, mk, false), certRow(b, mk), certRow(c, mk)],
+      revocations: [revoke(b, a, wide), revoke(c, a, narrow)],
+    });
+    expect(t.get(a.deviceId)).toEqual([{ publicKey: a.signing.publicKey, pin: narrow }]);
+  });
+
+  it('verifies each certificate under the master key of its own version (rotation keeps history)', () => {
+    const mk2 = randomKey();
+    const atV2 = (d: ReturnType<typeof dev>) => ({
+      ...certRow(d, mk),
+      keyVersion: 2,
+      certificate: deviceCertificate(mk2, userId, d.pub, 2).toString('base64'),
+    });
+    // a was certified at v1 and revoked; b is live at v2 and signs a's record.
+    const trust = { certificates: [certRow(a, mk, false), atV2(b)], revocations: [revoke(b, a)] };
+    const both = certifiedSigners(
+      new Map([
+        [1, mk],
+        [2, mk2],
+      ]),
+      userId,
+      trust,
+    );
+    expect(both.get(a.deviceId)).toEqual([{ publicKey: a.signing.publicKey, pin: pins }]);
+    expect(both.has(b.deviceId)).toBe(true);
+    // Without the v1 key, a's history is not verifiable (the documented requirement: keep old master keys).
+    expect(certifiedSigners(new Map([[2, mk2]]), userId, trust).has(a.deviceId)).toBe(false);
+  });
+
   it('refuses a grant from a revoked (pinned) signer', () => {
-    const t = certifiedSigners(mk, userId, 1, {
+    const t = certifiedSigners(new Map([[1, mk]]), userId, {
       certificates: [certRow(a, mk, false), certRow(b, mk)],
       revocations: [revoke(b, a)],
     });
