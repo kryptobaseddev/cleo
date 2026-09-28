@@ -21,7 +21,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
-  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -30,11 +29,11 @@ import {
   readlinkSync,
   rmSync,
   symlinkSync,
-  unlinkSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import { join, resolve } from 'node:path';
+import { linkOrCopy } from '@cleocode/paths';
 import { getAgentsHome, getCleoHome } from '../paths.js';
 import { resolveSkillsRoot } from '../skills/skill-root.js';
 import {
@@ -325,17 +324,12 @@ function relinkEntry(
   canonicalPath: string,
   previousTarget: string | null,
 ): 'symlink' | 'copy' {
-  unlinkSync(entryPath);
   try {
-    symlinkSync(canonicalPath, entryPath, process.platform === 'win32' ? 'junction' : 'dir');
-    if (existsSync(join(entryPath, 'SKILL.md')) || existsSync(entryPath)) return 'symlink';
-    unlinkSync(entryPath);
-  } catch {
-    rmSync(entryPath, { recursive: true, force: true });
-  }
-  try {
-    cpSync(canonicalPath, entryPath, { recursive: true });
-    return 'copy';
+    // T12607: the shared helper — junction on Windows, verified, copy fallback.
+    // The existing entry is a link (dangling or ~/.cleo-routed), so linkOrCopy
+    // replaces it without `overwrite`.
+    const placed = linkOrCopy(canonicalPath, entryPath, 'dir');
+    return placed.mode === 'copy' ? 'copy' : 'symlink';
   } catch (err) {
     // Neither a link nor a copy could be made: restore the previous link.
     rmSync(entryPath, { recursive: true, force: true });

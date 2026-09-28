@@ -9,9 +9,10 @@
  * @task T1161
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { _setSymlinkImplForTests } from '@cleocode/paths';
 import { describe, expect, it } from 'vitest';
 import { applyIncludePatterns, loadWorktreeIncludePatterns } from '../worktree-include.js';
 
@@ -133,6 +134,34 @@ describe('applyIncludePatterns', () => {
 
     rmSync(projectRoot, { recursive: true });
     rmSync(worktreePath, { recursive: true });
+  });
+
+  it('places the entry where symlinks fail (T12607: linkOrCopy copy fallback)', () => {
+    const projectRoot = makeTmpDir('project-nolinks');
+    const worktreePath = makeTmpDir('worktree-nolinks');
+    mkdirSync(join(projectRoot, 'fixtures'), { recursive: true });
+    writeFileSync(join(projectRoot, 'fixtures', 'a.txt'), 'A');
+    writeFileSync(join(projectRoot, '.env.local'), 'X=1');
+    _setSymlinkImplForTests(() => {
+      throw Object.assign(new Error('EPERM: operation not permitted, symlink'), { code: 'EPERM' });
+    });
+    try {
+      const applied = applyIncludePatterns(
+        [
+          { pattern: 'fixtures', negated: false },
+          { pattern: '.env.local', negated: false },
+        ],
+        projectRoot,
+        worktreePath,
+      );
+      expect(applied.map((a) => a.pattern).sort()).toEqual(['.env.local', 'fixtures']);
+      expect(readFileSync(join(worktreePath, 'fixtures', 'a.txt'), 'utf-8')).toBe('A');
+      expect(readFileSync(join(worktreePath, '.env.local'), 'utf-8')).toBe('X=1');
+    } finally {
+      _setSymlinkImplForTests();
+      rmSync(projectRoot, { recursive: true });
+      rmSync(worktreePath, { recursive: true });
+    }
   });
 
   it('creates parent directory when the pattern is a nested path (T9807 bug fix)', () => {

@@ -20,9 +20,10 @@
  * @packageDocumentation
  */
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync, } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, unlinkSync, writeFileSync, } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { linkOrCopy } from '@cleocode/paths';
 import envPaths from 'env-paths';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -194,8 +195,11 @@ function linkExtensionNodeModules(pkgRoot, extensionsDir) {
         // Cleanup failed — try creating anyway
     }
     try {
-        symlinkSync(target, link, 'dir');
-        process.stdout.write(`CleoOS: linked extensions/node_modules → ${target}\n`);
+        // T12607: a junction on Windows (no Developer Mode needed), verified to
+        // resolve. No copy fallback: node_modules is too large to copy, and the
+        // extension already has a createRequire fallback.
+        const placed = linkOrCopy(target, link, 'dir', { fallback: 'none' });
+        process.stdout.write(`CleoOS: linked extensions/node_modules → ${target} (${placed.mode})\n`);
     }
     catch (err) {
         // Best-effort: log and continue. The extension has a createRequire fallback.
