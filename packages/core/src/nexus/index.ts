@@ -220,6 +220,8 @@ export {
   readRegistryRequired,
   resetNexusDbState,
 } from './registry.js';
+// Registry-derived default search roots (T12476)
+export { listRegistryParentRoots, parentRootsOf } from './registry-roots.js';
 // Sharing - multi-contributor .cleo/ state management
 export {
   // Operations
