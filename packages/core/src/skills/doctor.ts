@@ -286,7 +286,11 @@ function resolvePaths(homeOverride?: string): ResolvedPaths {
   const home = homeOverride ?? homedir();
   return {
     home,
-    canonicalSsot: join(home, '.cleo', 'skills'),
+    // T12598: the live canonical root is `resolveSkillsRoot()` (<cleoHome>/skills).
+    // Comparing it with a literal ~/.cleo/skills made every real install
+    // report `isPreferredSsot: false` (unhealthy). A `homeOverride` sandbox
+    // keeps the home-relative layout its fixtures build.
+    canonicalSsot: homeOverride ? join(home, '.cleo', 'skills') : resolveSkillsRoot(),
     legacyXdg: join(home, '.local', 'share', 'agents', 'skills'),
     agentsSkills: join(home, '.agents', 'skills'),
     claudeSkills: join(home, '.claude', 'skills'),
