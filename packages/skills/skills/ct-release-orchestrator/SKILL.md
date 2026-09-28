@@ -9,6 +9,8 @@ adrRefs:
   - ADR-065
 metadata:
   version: 3.0.0
+  tier: on-demand
+  install: harness
   lastReviewed: 2026-05-22
   stability: stable
 ---

@@ -8,6 +8,11 @@ triggers:
   - recall
   - remember
   - anti-hallucination
+metadata:
+  version: 1.0.0
+  tier: internal
+  install: internal
+  stability: deprecated
 ---
 
 # ct-memory -- Brain Memory Protocol
