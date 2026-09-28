@@ -277,6 +277,44 @@ describe('package.json scripts are preferred over language defaults', () => {
   });
 });
 
+describe('a worktree whose script the store root lacks', () => {
+  let worktree: string;
+  let originalCwd: string;
+  beforeEach(() => {
+    originalCwd = process.cwd();
+  });
+  afterEach(() => {
+    process.chdir(originalCwd);
+    rmSync(worktree, { recursive: true, force: true });
+  });
+
+  it('runs the script found in the tree under test, not the store', async () => {
+    // Store: a TypeScript project with NO typecheck script, so resolving from
+    // the store falls through to the `npx tsc --noEmit` language default.
+    write('.cleo/project-context.json', { primaryType: 'node' });
+    write('package.json', { name: 'fixture', private: true });
+    write('tsconfig.json', {});
+    initRepo();
+    const git = (cwd: string, args: string[]): void => {
+      execFileSync('git', args, { cwd, encoding: 'utf-8' });
+    };
+    worktree = `${root}-wt`;
+    git(root, ['worktree', 'add', '-q', '-b', 'feature', worktree]);
+    writeFileSync(
+      join(worktree, 'package.json'),
+      JSON.stringify({ name: 'fixture', scripts: { typecheck: 'echo T12633-WORKTREE-SCRIPT' } }),
+    );
+    git(worktree, ['commit', '-qam', 'worktree-only typecheck script']);
+
+    process.chdir(worktree);
+    const r = await validateAtom({ kind: 'tool', tool: 'typecheck' }, root);
+
+    if (!r.ok) throw new Error(`expected the worktree script to run, got: ${r.reason}`);
+    expect(r.atom).toMatchObject({ kind: 'tool', exitCode: 0 });
+    expect(r.atom.kind === 'tool' && r.atom.stdoutTail).toContain('T12633-WORKTREE-SCRIPT');
+  }, 60_000);
+});
+
 describe('vacuity guard (E_EVIDENCE_TOOL_VACUOUS)', () => {
   it('fires for a declared non-build tsc against a references-only config', async () => {
     referencesOnlyMonorepo();
