@@ -433,8 +433,20 @@ export interface PublishPrOptions {
    * fetch`: slug → attachment id → sha256.
    */
   readonly slugOrId: string;
-  /** Optional PR title override. Default: `"docs(<type>): publish <slug>"`. */
+  /**
+   * Optional PR title override. Default: the commit subject —
+   * `"docs(T####): publish <slug>"` when an owning task resolves, else
+   * `"docs(<type>): publish <slug>"`.
+   */
   readonly title?: string;
+  /**
+   * Owning task id (`T####`) stamped into the commit subject and `Task:`
+   * trailer. When omitted it is derived from the attachment's `task` owner
+   * refs: exactly one task owner is used; several require this override.
+   *
+   * @task T12549
+   */
+  readonly taskId?: string;
   /** Optional PR body override. Default: a short auto-generated body. */
   readonly body?: string;
   /** Base branch for the PR. Default: `"main"`. */
@@ -475,6 +487,8 @@ export interface PublishPrSuccess {
   readonly type: string;
   /** Lowercase hex sha256 of the stored blob bytes (pre-frontmatter). */
   readonly blobSha: string;
+  /** Owning task id stamped into the commit, or `null` when none resolved. */
+  readonly taskId: string | null;
 }
 
 /** Result envelope returned by {@link publishDocsAsPr}. */
@@ -552,6 +566,109 @@ export function parseGhPrUrl(stdout: string): string {
   throw new Error(`could not parse PR url from gh output: ${stdout}`);
 }
 
+// ─── T12549 — owning task id for the publish commit ──────────────────────────
+
+/** Canonical task-id shape accepted in a publish commit subject. */
+const TASK_ID_PATTERN = /^T\d+$/;
+
+/** One owner ref of the attachment being published. */
+export interface PublishOwnerRef {
+  readonly ownerType: string;
+  readonly ownerId: string;
+}
+
+/**
+ * Resolve the task id stamped into the publish commit.
+ *
+ * - An explicit `taskId` wins; it must match `T####` or `E_INVALID_TASK_ID`.
+ * - Otherwise the attachment's owner refs are consulted: refs with
+ *   `ownerType === 'task'` and a `T####` id qualify. Exactly one distinct
+ *   qualifying id is used; none yields `null` (publish proceeds untagged);
+ *   several yield `E_PUBLISH_TASK_AMBIGUOUS` listing the candidates.
+ *
+ * @param opts.taskId - Caller-supplied override (`--task`).
+ * @param opts.owners - Owner refs of the published attachment.
+ * @returns The resolved id (or `null`), or a structured error.
+ * @task T12549
+ */
+export function resolvePublishTaskId(opts: {
+  taskId?: string;
+  owners: readonly PublishOwnerRef[];
+}): { ok: true; taskId: string | null } | { ok: false; error: PublishPrError } {
+  if (opts.taskId !== undefined) {
+    const explicit = opts.taskId.trim();
+    if (!TASK_ID_PATTERN.test(explicit)) {
+      return {
+        ok: false,
+        error: publishPrError(
+          'E_INVALID_TASK_ID',
+          `--task must be a task id like T1234 — got '${opts.taskId}'`,
+          'Pass --task T#### naming the task that owns this doc.',
+        ),
+      };
+    }
+    return { ok: true, taskId: explicit };
+  }
+  const candidates = [
+    ...new Set(
+      opts.owners
+        .filter((ref) => ref.ownerType === 'task' && TASK_ID_PATTERN.test(ref.ownerId))
+        .map((ref) => ref.ownerId),
+    ),
+  ];
+  if (candidates.length === 0) return { ok: true, taskId: null };
+  if (candidates.length === 1) return { ok: true, taskId: candidates[0] ?? null };
+  return {
+    ok: false,
+    error: publishPrError(
+      'E_PUBLISH_TASK_AMBIGUOUS',
+      `doc is owned by ${candidates.length} tasks (${candidates.join(', ')}); cannot pick one for the commit subject`,
+      'Pass --task T#### to choose the owning task.',
+      candidates.map((id) => `--task ${id}`),
+      { candidates },
+    ),
+  };
+}
+
+/**
+ * Build the publish commit subject.
+ *
+ * `docs(T####): publish <slug>` when a task id resolved, otherwise the
+ * legacy `docs(<type>): publish <slug>`.
+ *
+ * @task T12549
+ */
+export function buildPublishCommitSubject(opts: {
+  slug: string;
+  type: string;
+  taskId: string | null;
+}): string {
+  return `docs(${opts.taskId ?? opts.type}): publish ${opts.slug}`;
+}
+
+/**
+ * Build the full publish commit message: subject, the `slug`/`type`/`blobSha`
+ * body lines, and a `Task: T####` trailer when a task id resolved.
+ *
+ * @task T12549
+ */
+export function buildPublishCommitMessage(opts: {
+  slug: string;
+  type: string;
+  blobSha: string;
+  taskId: string | null;
+}): string {
+  const lines = [
+    buildPublishCommitSubject(opts),
+    '',
+    `slug: ${opts.slug}`,
+    `type: ${opts.type}`,
+    `blobSha: ${opts.blobSha}`,
+  ];
+  if (opts.taskId) lines.push('', `Task: ${opts.taskId}`);
+  return lines.join('\n');
+}
+
 /**
  * Resolve `slugOrId` to attachment bytes + metadata.
  *
@@ -569,17 +686,27 @@ async function resolveDocBytes(
   bytes: Buffer;
   slug: string | null;
   type: string | null;
+  owners: PublishOwnerRef[];
 } | null> {
   // Lazy import to keep the foundation tree-shake friendly.
   const { createAttachmentStore } = await import('../store/attachment-store.js');
   const store = createAttachmentStore();
+  // T12549 — owner refs feed the commit's task id; a read failure degrades
+  // to "no owners" so publishing never hinges on the ref table.
+  const readOwners = async (attachmentId: string): Promise<PublishOwnerRef[]> =>
+    store.listRefs(attachmentId, projectRoot).catch(() => []);
 
   if (SLUG_PATTERN.test(slugOrId) && !/^[0-9a-f]+$/i.test(slugOrId)) {
     const bySlug = await store.findBySlug(slugOrId, projectRoot).catch(() => null);
     if (bySlug) {
       const fetched = await store.get(bySlug.metadata.sha256, projectRoot);
       if (fetched) {
-        return { bytes: fetched.bytes, slug: bySlug.slug, type: bySlug.type };
+        return {
+          bytes: fetched.bytes,
+          slug: bySlug.slug,
+          type: bySlug.type,
+          owners: await readOwners(bySlug.metadata.id),
+        };
       }
     }
   }
@@ -594,6 +721,7 @@ async function resolveDocBytes(
           bytes: fetched.bytes,
           slug: extras?.slug ?? null,
           type: extras?.type ?? null,
+          owners: await readOwners(meta.id),
         };
       }
     }
@@ -607,6 +735,7 @@ async function resolveDocBytes(
         bytes: fetched.bytes,
         slug: extras?.slug ?? null,
         type: extras?.type ?? null,
+        owners: await readOwners(fetched.metadata.id),
       };
     }
   }
@@ -670,6 +799,15 @@ export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPr
     };
   }
   const slug = slugCheck.slug;
+
+  // 2b. T12549 — resolve the owning task id for the commit subject/trailer
+  //     before any side effects, so an ambiguous owner set fails cleanly.
+  const taskResolution = resolvePublishTaskId({
+    ...(opts.taskId !== undefined ? { taskId: opts.taskId } : {}),
+    owners: resolved.owners,
+  });
+  if (!taskResolution.ok) return { success: false, error: taskResolution.error };
+  const taskId = taskResolution.taskId;
 
   // 3. Resolve the publish type/dir.
   // T9788 — use the project-aware known-types set so project extensions
@@ -770,15 +908,30 @@ export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPr
       treeDirty = true;
     }
 
-    const commitMessage =
-      `docs(${type}): publish ${slug}\n\n` +
-      `slug: ${slug}\n` +
-      `type: ${type}\n` +
-      `blobSha: ${blobSha}`;
-    if (treeDirty) {
-      await runGit(['commit', '-m', commitMessage], worktreeDir);
-    } else {
-      await runGit(['commit', '--allow-empty', '-m', commitMessage], worktreeDir);
+    // T12549 — the subject carries the owning task id (and a `Task:`
+    // trailer) so repos whose commit-msg hook demands a T-ID accept it.
+    // Hooks are NEVER bypassed; a rejection maps to a typed error below.
+    const commitMessage = buildPublishCommitMessage({ slug, type, blobSha, taskId });
+    try {
+      if (treeDirty) {
+        await runGit(['commit', '-m', commitMessage], worktreeDir);
+      } else {
+        await runGit(['commit', '--allow-empty', '-m', commitMessage], worktreeDir);
+      }
+    } catch (e) {
+      const stderr = execMsg(e);
+      return {
+        success: false,
+        error: publishPrError(
+          'E_PUBLISH_COMMIT_REJECTED',
+          `git commit was rejected (likely a commit-msg hook): ${stderr}`,
+          taskId
+            ? 'Fix the problem git reported above and retry the publish.'
+            : 'Pass --task T#### so the commit subject carries the owning task id.',
+          taskId ? undefined : ['--task T####'],
+          { stderr, subject: buildPublishCommitSubject({ slug, type, taskId }), taskId },
+        ),
+      };
     }
 
     const commitSha = (await runGit(['rev-parse', 'HEAD'], worktreeDir)).stdout.trim();
@@ -808,7 +961,7 @@ export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPr
 
     // 8. Open OR update the PR.
     const finalBody = opts.body ?? defaultPublishPrBody({ slug, type, blobSha });
-    const finalTitle = opts.title ?? `docs(${type}): publish ${slug}`;
+    const finalTitle = opts.title ?? buildPublishCommitSubject({ slug, type, taskId });
 
     let prUrl: string;
     let action: 'new' | 'updated';
@@ -876,6 +1029,7 @@ export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPr
         slug,
         type,
         blobSha,
+        taskId,
       },
     };
   } finally {
