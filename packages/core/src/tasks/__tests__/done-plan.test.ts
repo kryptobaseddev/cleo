@@ -18,8 +18,17 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import type { EvidenceAtom, VerificationGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
@@ -387,8 +396,19 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
 });
 
 describe('affected-scope test runs (T12635, D11150)', () => {
-  function workspaceWithPackages(): void {
+  function workspaceWithPackages(withVitest = true): void {
     writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');
+    if (withVitest) {
+      // The workspace's own vitest names the projects (a directory glob here).
+      const vitestDir = dirname(createRequire(import.meta.url).resolve('vitest/package.json'));
+      mkdirSync(join(root, 'node_modules'), { recursive: true });
+      symlinkSync(vitestDir, join(root, 'node_modules', 'vitest'), 'dir');
+      writeFileSync(join(root, '.gitignore'), '.cleo/\n.cleo-home/\nnode_modules/\n');
+      writeFileSync(
+        join(root, 'vitest.config.mjs'),
+        "export default { test: { projects: ['pkgs/*'] } };\n",
+      );
+    }
     for (const [dir, name, deps] of [
       ['pkgs/a', '@w/a', {}],
       ['pkgs/b', '@w/b', { '@w/a': 'workspace:*' }],
@@ -432,6 +452,21 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
       `tool:test-affected;satisfies:${id}#AC1`,
     );
+  });
+
+  it('when vitest cannot name the projects, testsPassed falls back to the full tool:test', async () => {
+    workspaceWithPackages(false);
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
   });
 
   it('a workspace-wide change falls back to the full tool:test', async () => {

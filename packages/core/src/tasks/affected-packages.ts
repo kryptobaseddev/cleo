@@ -15,6 +15,10 @@
  *  - the dependents closure follows `dependencies`, `devDependencies`,
  *    `peerDependencies` and `optionalDependencies` between workspace packages.
  *
+ * With `{projects}`, vitest itself names the projects to select; anything it
+ * cannot resolve, or a changed package no project tests, refuses the scope
+ * (fail closed: a full run, never a narrower one).
+ *
  * @task T12635
  */
 
@@ -162,85 +166,133 @@ export function deriveAffectedPackages(
   return { scope: 'affected', direct: [...direct].sort(), packages: [...affected].sort() };
 }
 
-/** A vitest project listed in the root config: its name and directory. */
-interface VitestProject {
+/** A vitest project as vitest itself resolves it: its name and root directory. */
+export interface VitestProject {
+  /** The name `--project` matches (vitest's own: `test.name`, else package.json name, else basename). */
   name: string;
+  /** Project root relative to the workspace root (`''` for the root itself). */
   dir: string;
 }
 
+/** Marker that separates the resolver's JSON line from vite's own stdout noise. */
+const VITEST_PROJECTS_MARK = '__CLEO_VITEST_PROJECTS__';
+
 /**
- * Projects listed in the root vitest config's `projects: [...]` (string
- * entries naming a `vitest.config.*` file), each with the `name` its own config
- * declares (else its directory). Null when the root config has no such list.
+ * Ask vitest which projects the workspace config resolves to (T12635 review).
+ *
+ * Runs the workspace's OWN vitest (resolved from `root`) in a child process and
+ * reads `createVitest(...).projects`, so globs, inline project objects,
+ * unnamed projects and every future config shape are named exactly as
+ * `--project` will match them. No config parsing happens here.
+ *
+ * @param root - Workspace root.
+ * @returns The projects, or the reason they could not be resolved.
+ * @task T12635
  */
-function listVitestProjects(root: string): VitestProject[] | null {
-  const configFile = [
-    'vitest.config.ts',
-    'vitest.config.mts',
-    'vitest.config.js',
-    'vitest.config.mjs',
-  ]
-    .map((f) => join(root, f))
-    .find((f) => existsSync(f));
-  if (!configFile) return null;
-  const text = readFileSync(configFile, 'utf-8');
-  const block = text.match(/projects\s*:\s*\[([\s\S]*?)\]/);
-  if (!block?.[1]) return null;
-  const entries = [...block[1].matchAll(/['"]([^'"]+vitest\.config\.[cm]?[jt]s)['"]/g)].map(
-    (m) => m[1] as string,
-  );
-  if (entries.length === 0) return null;
-  return entries.map((entry) => {
-    const dir = entry.replace(/\/?vitest\.config\.[cm]?[jt]s$/, '') || '.';
-    let name = dir;
-    try {
-      const own = readFileSync(join(root, entry), 'utf-8').match(/\bname\s*:\s*['"]([^'"]+)['"]/);
-      if (own?.[1]) name = own[1];
-    } catch {
-      // unreadable project config: keep the directory as its name
-    }
-    return { name, dir };
-  });
+export function listVitestProjects(
+  root: string,
+): { ok: true; projects: VitestProject[] } | { ok: false; reason: string } {
+  const script = [
+    "const { createVitest } = await import('vitest/node');",
+    "const v = await createVitest('test', { watch: false }, {}, {});",
+    'const out = v.projects.map((p) => ({ name: p.name, root: p.config.root }));',
+    'await v.close();',
+    `process.stdout.write('\\n${VITEST_PROJECTS_MARK}' + JSON.stringify(out) + '\\n');`,
+    'process.exit(0);',
+  ].join('\n');
+  let stdout: string;
+  try {
+    stdout = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: root,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 120_000,
+    });
+  } catch (err) {
+    const stderr = (err as { stderr?: string }).stderr ?? '';
+    return {
+      ok: false,
+      reason: `vitest could not resolve its projects in ${root}: ${stderr.trim().slice(-300) || String(err)}`,
+    };
+  }
+  const line = stdout.split('\n').find((l) => l.startsWith(VITEST_PROJECTS_MARK));
+  try {
+    const parsed = JSON.parse(line?.slice(VITEST_PROJECTS_MARK.length) ?? '') as Array<{
+      name: unknown;
+      root: unknown;
+    }>;
+    const projects = parsed.map((p) => {
+      if (typeof p.name !== 'string' || typeof p.root !== 'string') throw new Error('bad entry');
+      return { name: p.name, dir: relative(root, p.root) };
+    });
+    return { ok: true, projects };
+  } catch {
+    return { ok: false, reason: `vitest returned no readable project list in ${root}` };
+  }
 }
+
+/** Test targets for an affected run, or why only a full run is safe. */
+export type AffectedTestTargets =
+  | { ok: true; projects: string[]; untested: string[] }
+  | { ok: false; reason: string };
 
 /**
  * The vitest projects an affected run must select (T12635 review).
  *
- * - An affected package with a project in the root config contributes that
- *   project's NAME (which need not equal the package name).
- * - Every project that is NOT a workspace package (e.g. the root `scripts`
+ * Fails CLOSED: anything that cannot be resolved yields `ok: false`, so the
+ * caller runs the full suite, never a narrower one.
+ *
+ * - Projects come from vitest itself ({@link listVitestProjects}); a project
+ *   covers a package when vitest names it after the package, or its root is
+ *   the package directory.
+ * - Every project that covers NO workspace package (e.g. the root `scripts`
  *   project, whose tests read live package files such as templates and skills)
  *   is always appended, since no package dependency edge reaches it.
- * - An affected package with no project is reported in `untested`, so the
- *   receipt never claims a run it did not make.
- * - Without a root `projects` list, the package names are the projects.
+ * - A DIRECTLY changed package with no project refuses the affected scope;
+ *   an affected dependent with none is reported in `untested`.
  *
  * @param root - Workspace root.
- * @param packages - Affected package names.
- * @returns Project names to run and the affected packages that have none.
+ * @param packages - Affected package names (direct plus dependents).
+ * @param direct - The directly changed packages.
+ * @param resolve - Project resolver (vitest by default).
+ * @returns Project names to run and the dependents that have none, or a refusal.
  * @task T12635
  */
 export function affectedTestTargets(
   root: string,
   packages: readonly string[],
-): { projects: string[]; untested: string[] } {
-  const projects = listVitestProjects(root);
-  if (projects === null) return { projects: [...packages], untested: [] };
+  direct: readonly string[],
+  resolve: (root: string) => ReturnType<typeof listVitestProjects> = listVitestProjects,
+): AffectedTestTargets {
+  const resolved = resolve(root);
+  if (!resolved.ok) return resolved;
   const workspace = listWorkspacePackages(root);
-  const packageDirs = new Set(workspace.map((p) => p.dir));
+  const covers = (project: VitestProject, pkg: WorkspacePackage): boolean =>
+    project.name === pkg.name || project.dir === pkg.dir;
   const selected: string[] = [];
   const untested: string[] = [];
   for (const name of packages) {
-    const dir = workspace.find((p) => p.name === name)?.dir;
-    const project = dir ? projects.find((p) => p.dir === dir) : undefined;
-    if (project) selected.push(project.name);
-    else untested.push(name);
+    const pkg = workspace.find((p) => p.name === name);
+    const project = pkg
+      ? (resolved.projects.find((p) => p.name === pkg.name) ??
+        resolved.projects.find((p) => covers(p, pkg)))
+      : undefined;
+    if (project) {
+      if (!selected.includes(project.name)) selected.push(project.name);
+    } else untested.push(name);
   }
-  for (const project of projects) {
-    if (!packageDirs.has(project.dir) && !selected.includes(project.name))
+  const uncovered = direct.filter((name) => untested.includes(name));
+  if (uncovered.length > 0) {
+    return {
+      ok: false,
+      reason: `no vitest project runs the tests of changed package(s) ${uncovered.join(', ')}`,
+    };
+  }
+  for (const project of resolved.projects) {
+    if (!workspace.some((pkg) => covers(project, pkg)) && !selected.includes(project.name))
       selected.push(project.name);
   }
-  return { projects: selected, untested };
+  return { ok: true, projects: selected, untested };
 }
 
 /**
@@ -305,33 +357,95 @@ export function changedPathsSinceDefault(root: string): string[] | null {
   return [...new Set(`${committed}\n${uncommitted}`.split('\n').filter(Boolean))].sort();
 }
 
+/** A planned affected-scope run, or why only the full suite will do. */
+export type AffectedTestRun =
+  | {
+      ok: true;
+      /** Canonical `test`, so it shares `tool:test`'s caps and cache discipline. */
+      command: ResolvedToolCommand;
+      /** Affected packages (direct plus dependents). */
+      packages: string[];
+      /** Test projects the run selects (with `{projects}`; else the packages). */
+      projects: string[];
+      /** Affected dependents with no test project. */
+      untested: string[];
+    }
+  | {
+      ok: false;
+      /** `E_EVIDENCE_TOOL_UNAVAILABLE` when unconfigured, else `E_EVIDENCE_INSUFFICIENT`. */
+      codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE' | 'E_EVIDENCE_INSUFFICIENT';
+      reason: string;
+    };
+
 /**
- * The affected-scope test command for the tree at `root`, when the project
- * declares `testing.affectedCommand` and the diff has a non-empty affected set.
- * Canonical `test`, so it shares `tool:test`'s caps and cache discipline.
+ * Plan the affected-scope test run for the tree at `root` — the one path both
+ * `tool:test-affected` validation and `cleo done` planning use. Fails closed:
+ * no template, no origin default branch, a workspace-wide change, an empty
+ * set, or unresolvable test projects each refuse the scope.
  *
  * @param storeRoot - CLEO store root (project context).
  * @param root - Execution root whose diff defines the set.
- * @returns The command and the packages, or null when a scoped run does not apply.
+ * @returns The command and its receipt fields, or the refusal reason.
  * @task T12635
  */
-export async function resolveAffectedTestCommand(
+export async function planAffectedTestRun(
   storeRoot: string,
   root: string,
-): Promise<{ command: ResolvedToolCommand; packages: string[] } | null> {
+): Promise<AffectedTestRun> {
   const { readRawProjectContext } = await import('./tool-resolver.js');
   const testing = (
     readRawProjectContext(storeRoot) as { testing?: { affectedCommand?: unknown } } | null
   )?.testing;
   const template = typeof testing?.affectedCommand === 'string' ? testing.affectedCommand : '';
-  if (template.trim() === '') return null;
+  if (template.trim() === '') {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE',
+      reason:
+        'tool:test-affected needs testing.affectedCommand in .cleo/project-context.json, e.g. ' +
+        '"pnpm exec vitest run {projects}" ({projects}/{filters}/{packages} expand per package).',
+    };
+  }
   const changed = changedPathsSinceDefault(root);
-  if (changed === null) return null;
+  if (changed === null) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `tool:test-affected cannot find origin's default branch in ${root} to diff against; use tool:test.`,
+    };
+  }
   const scope = deriveAffectedPackages(root, changed);
-  if (scope.scope === 'full' || scope.packages.length === 0) return null;
-  const targets = affectedTestTargets(root, scope.packages);
-  const { cmd, args } = buildAffectedTestCommand(template, scope.packages, targets.projects);
+  if (scope.scope === 'full') {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `The change touches paths ${scope.reason}. Run the full suite: tool:test.`,
+    };
+  }
+  if (scope.packages.length === 0) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason:
+        'The change touches no workspace package, so there is nothing to test by scope; use tool:test.',
+    };
+  }
+  let projects = scope.packages;
+  let untested: string[] = [];
+  if (template.split(/\s+/).includes('{projects}')) {
+    const targets = affectedTestTargets(root, scope.packages, scope.direct);
+    if (!targets.ok)
+      return {
+        ok: false,
+        codeName: 'E_EVIDENCE_INSUFFICIENT',
+        reason: `${targets.reason}; use tool:test.`,
+      };
+    projects = targets.projects;
+    untested = targets.untested;
+  }
+  const { cmd, args } = buildAffectedTestCommand(template, scope.packages, projects);
   return {
+    ok: true,
     command: {
       canonical: 'test',
       displayName: 'test-affected',
@@ -340,5 +454,7 @@ export async function resolveAffectedTestCommand(
       source: 'project-context',
     },
     packages: scope.packages,
+    projects,
+    untested,
   };
 }

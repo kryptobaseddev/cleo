@@ -50,7 +50,7 @@ import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-e
 import { readRequiredCheckPins } from '../release/pr-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveAffectedTestCommand } from './affected-packages.js';
+import { planAffectedTestRun } from './affected-packages.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
   checkGateEvidenceMinimumDetailed,
@@ -555,10 +555,10 @@ export async function deriveTaskEvidence(
         // T12635: before merge, test only the affected packages when declared.
         const affected =
           tool === 'test' && changeSet.source === 'branch'
-            ? await resolveAffectedTestCommand(storeRoot, root)
+            ? await planAffectedTestRun(storeRoot, root)
             : null;
         toolRuns.push(
-          affected
+          affected?.ok
             ? await planToolRun('test-affected', gate, storeRoot, root, affected.command)
             : await planToolRun(tool, gate, storeRoot, root),
         );

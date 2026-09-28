@@ -21,9 +21,17 @@ summary: "`tool:test-affected` runs tests for the packages a branch diff touches
   testsPassed whose only result is an affected run counts as not passed and is
   planned again from `ci:<pr>` or `tool:test`.
 - cleocode sets `testing.affectedCommand: "pnpm exec vitest run {projects}"`.
-  Vitest ignores `--project` names that have no project.
-- An affected run selects each affected package's own vitest project by the name
-  its config declares. It always appends every project in the root vitest config
-  that is not a workspace package, such as the root `scripts` project, whose
-  tests read live templates and skills. The atom records `affectedProjects`, and
-  `untestedPackages` for affected packages that have no project.
+- With `{projects}`, vitest itself names the projects. The workspace's own
+  vitest runs `createVitest(...).projects` in a child process, so no config is
+  parsed. Globs, inline project objects and unnamed projects (named after their
+  `package.json`) resolve exactly as `--project` matches them. Vitest silently
+  ignores a `--project` name that matches nothing, so the run fails closed:
+  - if vitest cannot resolve the projects, the scope is refused;
+  - if a directly changed package has no project, the scope is refused;
+  - in both cases the run falls back to the full `tool:test`, never a narrower
+    run.
+- An affected run selects each affected package's own project. It always
+  appends every project that covers no workspace package, such as the root
+  `scripts` project, whose tests read live templates and skills. The atom
+  records `affectedProjects`, and `untestedPackages` for affected dependents
+  that have no project.

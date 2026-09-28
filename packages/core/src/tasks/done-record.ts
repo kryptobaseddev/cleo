@@ -91,15 +91,15 @@ export interface RecordTaskDoneOptions extends DeriveTaskEvidenceOptions {
 /** Default tool runner: resolve through ADR-061 and run through its cache. */
 const defaultRunTool: DoneToolRunner = async (tool, storeRoot, executionRoot) => {
   if (tool === 'test-affected') {
-    const { resolveAffectedTestCommand } = await import('./affected-packages.js');
-    const affected = await resolveAffectedTestCommand(storeRoot, executionRoot);
-    if (!affected) {
+    const { planAffectedTestRun } = await import('./affected-packages.js');
+    const affected = await planAffectedTestRun(storeRoot, executionRoot);
+    if (!affected.ok) {
       return {
         exitCode: null,
         cacheHit: false,
         durationMs: 0,
         timedOut: false,
-        tail: 'no affected-scope command',
+        tail: affected.reason,
       };
     }
     const { runToolCached } = await import('./tool-cache.js');

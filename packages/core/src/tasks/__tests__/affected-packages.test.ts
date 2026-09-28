@@ -14,14 +14,25 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   affectedTestTargets,
   buildAffectedTestCommand,
   deriveAffectedPackages,
+  listVitestProjects,
   listWorkspacePackages,
 } from '../affected-packages.js';
 import { validateAtom } from '../evidence.js';
@@ -60,6 +71,22 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
+
+/** Give the fixture the workspace's own vitest, as an installed project has. */
+function linkVitest(): void {
+  const vitestDir = dirname(createRequire(import.meta.url).resolve('vitest/package.json'));
+  mkdirSync(join(root, 'node_modules'), { recursive: true });
+  symlinkSync(vitestDir, join(root, 'node_modules', 'vitest'), 'dir');
+}
+
+function rootConfig(body: string): void {
+  writeFileSync(join(root, 'vitest.config.mjs'), `export default { test: ${body} };\n`);
+}
+
+function projectConfig(dir: string, body = '{}'): void {
+  mkdirSync(join(root, dir), { recursive: true });
+  writeFileSync(join(root, dir, 'vitest.config.mjs'), `export default { test: ${body} };\n`);
+}
 
 describe('workspace discovery', () => {
   it('reads packages/* globs and exact entries from pnpm-workspace.yaml', () => {
@@ -108,53 +135,92 @@ describe('deriveAffectedPackages', () => {
   });
 });
 
-describe('affectedTestTargets (review MEDIUM/LOW)', () => {
-  function vitestProjects(): void {
-    // Root config lists package projects plus a non-package `scripts` project;
-    // packages/c has no vitest project at all.
-    writeFileSync(
-      join(root, 'vitest.config.ts'),
+describe('affectedTestTargets: project names come from vitest itself (T12635 re-review)', () => {
+  it('an UNNAMED project is selected by the package.json name vitest gives it, not its directory', () => {
+    linkVitest();
+    rootConfig("{ projects: ['packages/a/vitest.config.mjs', 'scripts/vitest.config.mjs'] }");
+    projectConfig('packages/a');
+    projectConfig('scripts', "{ name: 'scripts' }");
+    const t = affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    expect(t).toEqual({ ok: true, projects: ['@x/a', 'scripts'], untested: [] });
+  });
+
+  it('a GLOB entry resolves every matched project, custom names included', () => {
+    linkVitest();
+    rootConfig("{ projects: ['packages/*/vitest.config.mjs'] }");
+    projectConfig('packages/a');
+    projectConfig('packages/b', "{ name: '@x/b-tests' }");
+    projectConfig('packages/dependent-of-b');
+    const t = affectedTestTargets(root, ['@x/a', '@x/b', '@x/d'], ['@x/a']);
+    expect(t).toEqual({ ok: true, projects: ['@x/a', '@x/b-tests', '@x/d'], untested: [] });
+  });
+
+  it('an INLINE project object, and a `]` inside the list, neither truncate nor drop entries', () => {
+    linkVitest();
+    rootConfig(
       [
-        'export default { test: { projects: [',
-        "  'packages/a/vitest.config.ts',",
-        "  'packages/b/vitest.config.ts',",
-        "  'packages/dependent-of-b/vitest.config.ts',",
-        "  'scripts/vitest.config.ts',",
-        '] } };',
+        '{ projects: [',
+        '  // see [docs] — a bracket in a comment',
+        "  { test: { name: 'tools-inline', root: './tools/one', include: ['src/**'] } },",
+        "  'packages/a/vitest.config.mjs',",
+        "  'scripts/vitest.config.mjs',",
+        '] }',
       ].join('\n'),
     );
-    for (const [dir, name] of [
-      ['packages/a', '@x/a'],
-      ['packages/b', '@x/b-tests'],
-      ['packages/dependent-of-b', '@x/d'],
-      ['scripts', 'scripts'],
-    ]) {
-      mkdirSync(join(root, dir), { recursive: true });
-      writeFileSync(
-        join(root, dir, 'vitest.config.ts'),
-        `export default { test: { name: '${name}' } };`,
-      );
+    projectConfig('packages/a');
+    projectConfig('scripts', "{ name: 'scripts' }");
+    const t = affectedTestTargets(root, ['@x/tool', '@x/a'], ['@x/tool', '@x/a']);
+    expect(t).toEqual({ ok: true, projects: ['tools-inline', '@x/a', 'scripts'], untested: [] });
+  });
+
+  it('a vitest.workspace file vitest 4 ignores yields no package project: the scope fails CLOSED', () => {
+    linkVitest();
+    writeFileSync(
+      join(root, 'vitest.workspace.mjs'),
+      "export default ['packages/a/vitest.config.mjs'];\n",
+    );
+    projectConfig('packages/a');
+    const t = affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    expect(t.ok).toBe(false);
+    expect(!t.ok && t.reason).toMatch(/@x\/a/);
+  });
+
+  it('a DIRECTLY changed package with no project refuses; an untested dependent is recorded', () => {
+    linkVitest();
+    rootConfig("{ projects: ['packages/b/vitest.config.mjs'] }");
+    projectConfig('packages/b');
+    const refused = affectedTestTargets(root, ['@x/a', '@x/b'], ['@x/a']);
+    expect(refused.ok).toBe(false);
+    expect(!refused.ok && refused.reason).toMatch(/changed package\(s\) @x\/a/);
+    const recorded = affectedTestTargets(root, ['@x/b', '@x/d'], ['@x/b']);
+    expect(recorded).toEqual({ ok: true, projects: ['@x/b'], untested: ['@x/d'] });
+  });
+
+  it('without a resolvable vitest the scope fails CLOSED, never a narrower run', () => {
+    rootConfig("{ projects: ['packages/a/vitest.config.mjs'] }");
+    projectConfig('packages/a');
+    const t = affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    expect(t.ok).toBe(false);
+    expect(!t.ok && t.reason).toMatch(/vitest could not resolve/);
+  });
+
+  it('REAL repo: every workspace package with a vitest config resolves to the name vitest assigns', () => {
+    const repo = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../../..');
+    const resolved = listVitestProjects(repo);
+    expect(resolved.ok, JSON.stringify(resolved)).toBe(true);
+    const once = (): typeof resolved => resolved;
+    const withConfig = listWorkspacePackages(repo).filter((p) =>
+      ['ts', 'mts', 'js', 'mjs'].some((ext) =>
+        existsSync(join(repo, p.dir, `vitest.config.${ext}`)),
+      ),
+    );
+    expect(withConfig.map((p) => p.name)).toContain('@cleocode/utils');
+    for (const p of withConfig) {
+      const t = affectedTestTargets(repo, [p.name], [p.name], once);
+      // Its own project, then only the non-package projects (`scripts`) — never
+      // another package's project, e.g. @cleocode/cleo whose root is the repo.
+      expect(t.ok && t.projects, p.name).toEqual([p.name, 'scripts']);
     }
-  }
-
-  it('always appends non-package projects: a template-only change still runs `scripts`', () => {
-    vitestProjects();
-    // A Markdown template under packages/a is code (it ships to agents).
-    const scope = deriveAffectedPackages(root, ['packages/a/templates/INJECTION.md']);
-    expect(scope.scope === 'affected' && scope.packages).toEqual(['@x/a', '@x/b', '@x/d']);
-    const targets = affectedTestTargets(root, scope.scope === 'affected' ? scope.packages : []);
-    expect(targets.projects).toContain('scripts');
-  });
-
-  it("uses each package's vitest project NAME, and records packages that have no project", () => {
-    vitestProjects();
-    const targets = affectedTestTargets(root, ['@x/a', '@x/b', '@x/c']);
-    expect(targets.projects).toEqual(['@x/a', '@x/b-tests', 'scripts']);
-    expect(targets.untested).toEqual(['@x/c']);
-  });
-
-  it('without a root projects list, the package names are the projects', () => {
-    expect(affectedTestTargets(root, ['@x/a']).projects).toEqual(['@x/a']);
   });
 });
 
@@ -182,7 +248,7 @@ describe('tool:test-affected evidence', () => {
     git(root, ['config', 'user.name', 'T']);
     git(root, ['config', 'user.email', 't@e.x']);
     mkdirSync(join(root, '.cleo'), { recursive: true });
-    writeFileSync(join(root, '.gitignore'), '.cleo/\n');
+    writeFileSync(join(root, '.gitignore'), '.cleo/\nnode_modules/\n');
     writeFileSync(
       join(root, '.cleo', 'project-context.json'),
       JSON.stringify({
@@ -217,6 +283,19 @@ describe('tool:test-affected evidence', () => {
       scope: 'affected',
       affectedPackages: ['@x/a', '@x/b', '@x/d'],
     });
+  });
+
+  it('a {projects} run whose changed package has no vitest project is refused before running', async () => {
+    // The command would pass; the refusal must come from the missing project.
+    initRepo('node -e 0 -- {projects}');
+    linkVitest();
+    rootConfig("{ projects: ['packages/b/vitest.config.mjs'] }");
+    projectConfig('packages/b');
+    writeFileSync(join(root, 'packages/a/src/index.ts'), "export const n = 'changed';\n");
+    git(root, ['commit', '-q', '-am', 'T1: change a']);
+    const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INSUFFICIENT');
+    expect(!r.ok && r.reason).toMatch(/@x\/a.*tool:test/s);
   });
 
   it('a failing affected run is E_EVIDENCE_TOOL_FAILED', async () => {

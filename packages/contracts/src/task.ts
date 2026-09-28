@@ -274,7 +274,7 @@ export type EvidenceAtom =
       affectedPackages?: string[];
       /** The test projects the affected run actually selected (incl. non-package projects). */
       affectedProjects?: string[];
-      /** Affected packages that have no test project, so nothing ran for them. */
+      /** Affected DEPENDENT packages with no test project (a changed one refuses the scope). */
       untestedPackages?: string[];
     }
   | { kind: 'url'; url: string }

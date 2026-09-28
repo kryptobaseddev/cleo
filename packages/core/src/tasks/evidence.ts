@@ -1538,62 +1538,15 @@ export interface EvidenceExecutionRootHints {
  */
 async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidation> {
   const { storeRoot, executionRoot } = roots;
-  const { readRawProjectContext } = await import('./tool-resolver.js');
-  const testing = (
-    readRawProjectContext(storeRoot) as { testing?: { affectedCommand?: unknown } } | null
-  )?.testing;
-  const template = typeof testing?.affectedCommand === 'string' ? testing.affectedCommand : '';
-  if (template.trim() === '') {
-    return {
-      ok: false,
-      codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE',
-      reason:
-        'tool:test-affected needs testing.affectedCommand in .cleo/project-context.json, e.g. ' +
-        '"pnpm exec vitest run {projects}" ({projects}/{filters}/{packages} expand per package).',
-    };
-  }
-  const {
-    affectedTestTargets,
-    buildAffectedTestCommand,
-    changedPathsSinceDefault,
-    deriveAffectedPackages,
-  } = await import('./affected-packages.js');
-  const changed = changedPathsSinceDefault(executionRoot);
-  if (changed === null) {
-    return {
-      ok: false,
-      codeName: 'E_EVIDENCE_INSUFFICIENT',
-      reason: `tool:test-affected cannot find origin's default branch in ${executionRoot} to diff against; use tool:test.`,
-    };
-  }
-  const scope = deriveAffectedPackages(executionRoot, changed);
-  if (scope.scope === 'full') {
-    return {
-      ok: false,
-      codeName: 'E_EVIDENCE_INSUFFICIENT',
-      reason: `The change touches paths ${scope.reason}. Run the full suite: tool:test.`,
-    };
-  }
-  if (scope.packages.length === 0) {
-    return {
-      ok: false,
-      codeName: 'E_EVIDENCE_INSUFFICIENT',
-      reason:
-        'The change touches no workspace package, so there is nothing to test by scope; use tool:test.',
-    };
-  }
-  const targets = affectedTestTargets(executionRoot, scope.packages);
-  const { cmd, args } = buildAffectedTestCommand(template, scope.packages, targets.projects);
-  const result = await runToolCached(
-    { canonical: 'test', displayName: 'test-affected', cmd, args, source: 'project-context' },
-    storeRoot,
-    { executionRoot },
-  );
+  const { planAffectedTestRun } = await import('./affected-packages.js');
+  const run = await planAffectedTestRun(storeRoot, executionRoot);
+  if (!run.ok) return { ok: false, codeName: run.codeName, reason: run.reason };
+  const result = await runToolCached(run.command, storeRoot, { executionRoot });
   if (result.exitCode !== 0) {
     return {
       ok: false,
       codeName: result.timedOut ? 'E_EVIDENCE_TOOL_TIMEOUT' : 'E_EVIDENCE_TOOL_FAILED',
-      reason: `tool:test-affected (${[cmd, ...args].join(' ')}) exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}`,
+      reason: `tool:test-affected (${[run.command.cmd, ...run.command.args].join(' ')}) exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}`,
     };
   }
   return {
@@ -1604,9 +1557,9 @@ async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidati
       exitCode: 0,
       stdoutTail: result.stdoutTail,
       scope: 'affected',
-      affectedPackages: scope.packages,
-      affectedProjects: targets.projects,
-      ...(targets.untested.length > 0 ? { untestedPackages: targets.untested } : {}),
+      affectedPackages: run.packages,
+      affectedProjects: run.projects,
+      ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
     },
   };
 }
