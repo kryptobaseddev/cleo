@@ -1335,6 +1335,135 @@ export interface NexusProjectCandidate {
   lastSeen: string;
 }
 
+/**
+ * Why a git state probe could not describe (all of) a location (T12511).
+ *
+ * - `E_PATH_MISSING` — the location's directory does not exist.
+ * - `E_PATH_ACCESS` — the directory exists but cannot be read (EACCES/EPERM).
+ * - `E_NOT_GIT_REPO` — neither the directory nor its declared
+ *   `evidence.gitRoot` is inside a git work tree.
+ * - `E_GIT_TIMEOUT` — git did not finish inside the per-row budget (a lock,
+ *   a credential prompt, a slow filesystem); its process group was killed.
+ * - `E_GIT_FAILED` — git exited non-zero for another reason.
+ * - `E_FETCH_FAILED` — `--fetch` was requested and the fetch failed; the local
+ *   fields are still filled and remote fields describe the PREVIOUS fetch.
+ */
+export type NexusGitProbeErrorCode =
+  | 'E_PATH_MISSING'
+  | 'E_PATH_ACCESS'
+  | 'E_NOT_GIT_REPO'
+  | 'E_GIT_TIMEOUT'
+  | 'E_GIT_FAILED'
+  | 'E_FETCH_FAILED';
+
+/**
+ * Git state of one project location on one device (`nexus_project_git_state`,
+ * T12511). Keyed like its location: `(projectId, deviceId, path)`.
+ *
+ * Remote fields (`ahead`, `behind`, `remoteHeadSha`) describe the remote as of
+ * the LAST FETCH, never now: the probe does not touch the network unless asked.
+ * `remoteFetchedAt` is that fetch's instant and `remoteStale` says whether it
+ * is older than the staleness window (or unknown), so a `behind: 0` is never
+ * read as "up to date" on the strength of a fetch from last month.
+ */
+export interface NexusProjectGitState {
+  /** Immutable project id. */
+  projectId: string;
+  /** Registered project name, when the registry row is present. */
+  projectName: string | null;
+  /** Stable id of the device the location is on. */
+  deviceId: string;
+  /** `true` when `deviceId` is the device running this command. */
+  current: boolean;
+  /** Location path (the checkout root CLEO recorded). */
+  path: string;
+  /** Directory git actually ran in: `path`, or its declared `evidence.gitRoot`. */
+  gitRoot: string | null;
+  /** Checked-out branch; `null` when detached or unknown. */
+  branch: string | null;
+  /** HEAD commit; `null` for an unborn branch or when the probe failed. */
+  headSha: string | null;
+  /** `true` when HEAD is detached. */
+  detached: boolean;
+  /** `true` for a shallow clone (ahead/behind may be truncated by the graft). */
+  shallow: boolean;
+  /** Tracked entries with staged or unstaged changes (incl. conflicts). */
+  dirtyCount: number | null;
+  /** Untracked, not-ignored entries. */
+  untrackedCount: number | null;
+  /** Upstream ref (e.g. `origin/main`); `null` when none is configured. */
+  upstream: string | null;
+  /** Commits on HEAD not on the upstream, as of the last fetch. */
+  ahead: number | null;
+  /** Commits on the upstream not on HEAD, as of the last fetch. */
+  behind: number | null;
+  /** Remote the upstream belongs to, else `origin`, else the first remote. */
+  remoteName: string | null;
+  /** That remote's configured URL. */
+  remoteUrl: string | null;
+  /** Upstream tracking-ref commit, as of the last fetch. */
+  remoteHeadSha: string | null;
+  /** ISO 8601 instant of the last fetch (FETCH_HEAD mtime); `null` if never. */
+  remoteFetchedAt: string | null;
+  /** `true` when `remoteFetchedAt` is unknown or older than the staleness window. */
+  remoteStale: boolean;
+  /** ISO 8601 instant this probe ran. */
+  probedAt: string;
+  /** Wall time of the probe, milliseconds. */
+  durationMs: number;
+  /** Why the probe could not describe (all of) the location; `null` on success. */
+  probeErrorCode: NexusGitProbeErrorCode | null;
+  /** Human-readable detail for `probeErrorCode` (git's stderr, the errno, …). */
+  probeError: string | null;
+}
+
+/** Parameters for `nexus.projects.status` (T12511). */
+export interface NexusProjectsStatusParams {
+  /** Run `git fetch` per location first (network). Default `false`. */
+  fetch?: boolean;
+  /** Locations probed at once. Default 8, clamped to 1..64. */
+  concurrency?: number;
+  /** Per-location budget for every git call it makes, ms. Default 10000 (30000 with fetch). */
+  timeoutMs?: number;
+  /** A fetch older than this is `remoteStale`, ms. Default 24h. */
+  staleAfterMs?: number;
+}
+
+/** Result of `nexus.projects.status` (T12511). */
+export interface NexusProjectsStatusResult {
+  /** Fresh probes of this device's live and missing locations. */
+  rows: NexusProjectGitState[];
+  /** Last recorded state of locations on OTHER devices (not re-probed). */
+  otherDevices: NexusProjectGitState[];
+  /** Number of fresh rows. */
+  count: number;
+  /** Device the probe ran on. */
+  deviceId: string;
+  /** Whether a fetch was attempted. */
+  fetched: boolean;
+  /** Effective concurrency. */
+  concurrency: number;
+  /** Effective per-location timeout, ms. */
+  timeoutMs: number;
+  /** Effective staleness window, ms. */
+  staleAfterMs: number;
+  /** Wall time of the whole probe, ms. */
+  durationMs: number;
+  /** Aggregate counts over `rows`. */
+  summary: {
+    /** Rows with no probe error. */
+    ok: number;
+    /** Rows with a probe error. */
+    errored: number;
+    /** Rows that timed out. */
+    timedOut: number;
+    /** Rows with at least one dirty or untracked entry. */
+    dirty: number;
+    /** Rows whose remote state is stale. */
+    remoteStale: number;
+  };
+}
+
 /** Parameters for `nexus.projects.register`. */
 export interface NexusProjectsRegisterParams {
   /** Path to the project directory (required). */
@@ -1956,6 +2085,7 @@ export type NexusOps = {
   readonly 'projects.remove': readonly [NexusProjectsRemoveParams, NexusProjectsRemoveResult];
   readonly 'projects.scan': readonly [NexusProjectsScanParams, NexusProjectsScanResult];
   readonly 'projects.clean': readonly [NexusProjectsCleanParams, NexusProjectsCleanResult];
+  readonly 'projects.status': readonly [NexusProjectsStatusParams, NexusProjectsStatusResult];
   readonly 'refresh-bridge': readonly [NexusRefreshBridgeParams, NexusRefreshBridgeResult];
   readonly diff: readonly [NexusDiffParams, NexusDiffResult];
   readonly 'query-cte': readonly [NexusQueryCteParams, NexusQueryCteResult];

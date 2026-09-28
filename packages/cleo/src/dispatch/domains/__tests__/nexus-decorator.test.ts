@@ -81,6 +81,7 @@ vi.mock('@cleocode/core/internal', async () => ({
   nexusProjectsRemove: vi.fn(),
   nexusProjectsScan: vi.fn(),
   nexusProjectsClean: vi.fn(),
+  nexusProjectsStatus: vi.fn(),
   nexusRefreshBridge: vi.fn(),
   nexusDiff: vi.fn(),
   nexusQueryCte: vi.fn(),

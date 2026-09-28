@@ -21,6 +21,8 @@ import {
   type NexusListParams,
   type NexusPermissionSetParams,
   type NexusProjectCandidate,
+  type NexusProjectsStatusParams,
+  type NexusProjectsStatusResult,
   type NexusReconcileParams,
   type NexusRegisterParams,
   type NexusShowParams,
@@ -42,6 +44,7 @@ import { resetNexusDbState } from '../store/nexus-sqlite.js';
 import type { ProjectRegistryRow } from '../store/schema/nexus-schema.js';
 import {
   nexusAuditLog,
+  projectGitState,
   projectIdAliases,
   projectLocations,
   projectPaths,
@@ -648,6 +651,8 @@ export async function nexusUnregister(
   // T12469: an explicitly unregistered project keeps no locations. (A vanished
   // directory is marked `missing` instead; only this owner action deletes.)
   await db.delete(projectLocations).where(eq(projectLocations.projectId, project.projectId));
+  // T12511: its probed git state goes with it.
+  await db.delete(projectGitState).where(eq(projectGitState.projectId, project.projectId));
   // Legacy path map, still dual-written for older binaries (T12469).
   await db.delete(projectPaths).where(eq(projectPaths.projectId, project.projectId));
 
@@ -1515,6 +1520,32 @@ export async function nexusProjectsList(): Promise<EngineResult<unknown>> {
     return engineSuccess({ projects: list, count: list.length, devices });
   } catch (error) {
     return caughtToEngineError(error, 'Failed to list nexus projects');
+  }
+}
+
+/**
+ * Probe and record the git state of every project location on this device
+ * (`nexus.projects.status`, T12511). Bounded concurrency, a per-location
+ * timeout, no network unless `fetch` — see `nexus/git-state.ts`.
+ *
+ * @param _projectRoot - Unused: the probe covers every location on this device
+ *   (uniform ADR-057 signature).
+ * @param params - Fetch, concurrency, timeout and staleness.
+ * @returns Fresh rows for this device plus recorded rows of other devices.
+ * @task T12511
+ */
+export async function nexusProjectsStatus(
+  _projectRoot: string,
+  params: NexusProjectsStatusParams,
+): Promise<EngineResult<NexusProjectsStatusResult>> {
+  try {
+    const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+    const { runProjectsGitStatus } = await import('./git-state.js');
+    return engineSuccess(
+      await runProjectsGitStatus(await getNexusRegistryDb(getCleoHome()), params),
+    );
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to probe project git state');
   }
 }
 

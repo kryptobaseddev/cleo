@@ -69,7 +69,7 @@ import type {
   ProjectPathRow,
   ProjectRegistryRow,
 } from '../store/schema/nexus-schema.js';
-import { runWithConcurrency } from '../system/project-health.js';
+import { runWithConcurrency } from '../lib/concurrency.js';
 
 /** Command that reports registry integrity; the prefix of the remedies below. */
 const DOCTOR_COMMAND = 'cleo doctor projects';

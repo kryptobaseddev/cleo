@@ -881,6 +881,7 @@ export {
   nexusProjectsList,
   nexusProjectsRegister,
   nexusProjectsRemove,
+  nexusProjectsStatus,
   nexusReconcile,
   nexusReconcileProject,
   nexusRegister,

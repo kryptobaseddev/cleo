@@ -312,7 +312,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   // T12471: tri-state, bounded probe. Only `no` (ENOENT/ENOTDIR, or a
   // different id declared there) proves a project gone; `unknown` (EACCES,
   // EPERM, timeout) is a live project this process cannot see.
-  const { runWithConcurrency } = await import('../system/project-health.js');
+  const { runWithConcurrency } = await import('../lib/concurrency.js');
   const holdings = await runWithConcurrency(allRows, PROBE_CONCURRENCY, (row) =>
     probeRowPath(row.projectPath, row.projectId),
   );

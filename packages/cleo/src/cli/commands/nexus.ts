@@ -1686,6 +1686,81 @@ const projectsCleanCommand = defineCommand({
   },
 });
 
+/** Parse an optional positive-integer flag; `null` marks an invalid value. */
+function positiveIntFlag(value: unknown): number | undefined | null {
+  if (value === undefined || value === '') return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** cleo nexus projects status — probe and record git state of every location on this device */
+const projectsStatusCommand = defineCommand({
+  meta: {
+    name: 'status',
+    description:
+      'Git state (branch, head, dirty/untracked, upstream, ahead/behind, last fetch) of every project location on this device; bounded and parallel, no network unless --fetch',
+  },
+  args: {
+    fetch: {
+      type: 'boolean',
+      description: 'Run git fetch per location first (network). Off by default',
+    },
+    concurrency: { type: 'string', description: 'Locations probed at once (default 8, max 64)' },
+    'timeout-ms': {
+      type: 'string',
+      description: 'Per-location git budget in ms (default 10000; 30000 with --fetch)',
+    },
+    'stale-after-ms': {
+      type: 'string',
+      description: 'A last fetch older than this marks remote state stale (default 86400000)',
+    },
+    json: { type: 'boolean', description: 'Output as JSON (LAFS envelope format)' },
+  },
+  async run({ args }) {
+    applyJsonFlag(args.json as boolean | undefined);
+    const startTime = Date.now();
+    const concurrency = positiveIntFlag(args.concurrency);
+    const timeoutMs = positiveIntFlag(args['timeout-ms']);
+    const staleAfterMs = positiveIntFlag(args['stale-after-ms']);
+    if (concurrency === null || timeoutMs === null || staleAfterMs === null) {
+      cliError(
+        '--concurrency, --timeout-ms and --stale-after-ms take positive integers',
+        6,
+        { name: 'E_VALIDATION' },
+        { operation: 'nexus.projects.status', duration_ms: 0 },
+      );
+      process.exitCode = 6;
+      return;
+    }
+    const response = await dispatchRaw('mutate', 'nexus', 'projects.status', {
+      fetch: args.fetch === true,
+      concurrency,
+      timeoutMs,
+      staleAfterMs,
+    });
+    const durationMs = Date.now() - startTime;
+    if (!response.success) {
+      cliError(
+        response.error?.message ?? 'Unknown error',
+        1,
+        {
+          name: response.error?.code ?? 'E_PROJECTS_STATUS_FAILED',
+          details: response.error?.details,
+        },
+        { operation: 'nexus.projects.status', duration_ms: durationMs },
+      );
+      process.exitCode = 1;
+      return;
+    }
+    cliOutput(response.data as Record<string, unknown>, {
+      command: 'nexus-projects-status',
+      operation: 'nexus.projects.status',
+      extensions: { duration_ms: durationMs },
+      responseMeta: response.meta,
+    });
+  },
+});
+
 /** cleo nexus projects — multi-project registry management */
 const projectsCommand = defineCommand({
   meta: { name: 'projects', description: 'Multi-project registry management' },
@@ -1695,6 +1770,7 @@ const projectsCommand = defineCommand({
     remove: projectsRemoveCommand,
     scan: projectsScanCommand,
     clean: projectsCleanCommand,
+    status: projectsStatusCommand,
   },
 });
 
