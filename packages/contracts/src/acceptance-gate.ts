@@ -28,8 +28,8 @@ import type {
 
 /**
  * Captured options for evaluating acceptance gates without renewing operation authority.
- * @remarks An absent execution context receives a two-second shared foreground budget.
- * Per-gate timeouts can tighten it; long work requires explicit runtime admission.
+ * @remarks An absent execution context is admitted for every gate's tool deadline plus
+ * the two-second bookkeeping budget (T12516); per-gate timeouts bound each gate.
  * @example
  * ```typescript
  * const options: AcceptanceGateRunOptions = { projectRoot: '/project', execution };
@@ -49,6 +49,23 @@ export interface AcceptanceGateRunOptions
   maxOutputBytes?: number;
   /** Existing manager context, separate from the child environment. */
   systemdControl?: SystemdControlContext;
+  /**
+   * Typed-gate result cache policy (T12621). Keyed by gate definition hash, git
+   * HEAD, dirty-tree fingerprint and cwd; only passes are stored.
+   * - `off`: never read or write the cache.
+   * - `refresh`: always execute, then store a pass (`cleo verify --run`).
+   * - `use`: serve a fresh cached pass, otherwise execute and store a pass.
+   * - `only`: serve a fresh cached pass; a cacheable gate without one is an
+   *   `error` result and is never executed (`cleo verify --no-run`).
+   *
+   * @defaultValue 'off'
+   */
+  cache?: 'off' | 'refresh' | 'use' | 'only';
+  /**
+   * Digest of the single gate's captured invocation and input artifacts; part of
+   * its cache key. Required, with a one-gate batch, whenever `cache` is not `off`.
+   */
+  cacheInputsHash?: string;
 }
 
 // ─── Base ────────────────────────────────────────────────────────────────────
@@ -80,7 +97,10 @@ export interface GateBase {
   /**
    * Gate timeout in milliseconds.
    *
-   * @defaultValue 60_000 (further bounded by the shared operation deadline)
+   * @defaultValue The ADR-061 tool deadline for the gate kind: `CLEO_GATE_TIMEOUT_MS`,
+   * else `CLEO_TOOL_TIMEOUT_<KIND>`, else 1_800_000 for `test` and 300_000 otherwise
+   * (T12516). It bounds the gate's own execution; the two-second shared budget
+   * covers only the surrounding bookkeeping, never a gate (T12621).
    */
   timeoutMs?: number;
 }
@@ -434,6 +454,37 @@ export interface AcceptanceGateBinding {
   invocation?: AcceptanceGateInvocation;
   /** Explicit bounded input inventory, including untracked harness/task files. */
   artifacts: AcceptanceGateArtifact[];
+  /**
+   * Content binding of the tree the gate ran in (T12625). Lets a result
+   * verified in a worker's worktree be revalidated from another checkout of
+   * the same project — the orchestrator completing from main after merge —
+   * without re-entering the (often auto-cleaned) worktree. Absent on results
+   * recorded before T12625, which keep exact path-bound revalidation.
+   */
+  tree?: AcceptanceGateTreeBinding;
+}
+
+/**
+ * Tree-independent binding of a typed gate's inputs (T12625).
+ * @remarks Revalidation from another tree of the same project accepts only when
+ * the verified tree was clean, `headSha` is an ancestor of the completing HEAD,
+ * and `inputsHash` recomputes identically there.
+ */
+export interface AcceptanceGateTreeBinding {
+  /** HEAD commit of the tree the gate ran in. */
+  headSha: string;
+  /** True when that tree had no uncommitted tracked changes. */
+  clean: boolean;
+  /** Gate working directory, relative to the tree root (`.` for the root). */
+  cwd: string;
+  /** SHA-256 over command, args, relative cwd, environment hash and repo-relative input bytes. */
+  inputsHash: string;
+  /**
+   * Fork point of the verified commit from origin's default branch at
+   * verification time. `baseSha..headSha` is the change the result attests;
+   * every path it touched must be unchanged in the completing tree.
+   */
+  baseSha?: string;
 }
 
 /**
@@ -504,6 +555,14 @@ export interface AcceptanceGateResult {
   checkedAt: string;
   /** Agent identifier or `"human"` that ran or attested the gate. */
   checkedBy: string;
+  /**
+   * Where the verdict came from (T12621): `executed` in this run, or `cache` —
+   * an authenticated pass reused from the ADR-061 evidence cache. Absent on
+   * results recorded before T12621.
+   */
+  source?: 'executed' | 'cache';
+  /** When the reused cache entry was created (the original execution); set iff `source` is `cache`. */
+  cachedAt?: string;
 }
 
 /** Canonical typed-verification audit details stored with results in the task transaction. */
@@ -516,4 +575,10 @@ export interface AcceptanceGateVerificationReceipt {
   operation: 'check.gate.verify';
   /** Overall generic-plus-typed verification outcome at this observation. */
   passed: boolean;
+  /**
+   * Results reused from the evidence cache instead of executed (T12621), by
+   * acceptance index, with each cache entry's creation time. Omitted when every
+   * result was executed, so receipts recorded before T12621 stay byte-identical.
+   */
+  cached?: Array<{ index: number; cachedAt: string }>;
 }

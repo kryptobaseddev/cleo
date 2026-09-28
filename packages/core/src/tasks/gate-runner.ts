@@ -16,6 +16,8 @@
  *     with {@link typedGateAdmissionMs}: the ADR-061 tool deadline of every executing gate
  *     plus {@link TYPED_GATE_BOOKKEEPING_MS} for the surrounding bookkeeping (T12516).
  *   - Per-gate timeouts can only tighten the captured deadline, never renew it.
+ *   - Passing process gates can be served from the ADR-061 evidence cache
+ *     (`options.cache`, see `gate-result-cache.ts`); failures are never cached (T12621).
  *   - Structured test-count evidence and HTTP service startup require separate capabilities.
  *   - Results are observations; this module does not persist completion authority.
  *
@@ -23,8 +25,17 @@
  * @task T781
  */
 
-import { createHash, randomUUID } from 'node:crypto';
-import { constants, type Stats } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import {
+  constants,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  type Stats,
+  writeFileSync,
+} from 'node:fs';
 import { lstat, open, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -52,6 +63,7 @@ import type {
   AcceptanceGateBinding,
   AcceptanceGateInvocation,
   AcceptanceGateRunOptions,
+  AcceptanceGateTreeBinding,
   AcceptanceGateVerificationReceipt,
 } from '@cleocode/contracts/acceptance-gate';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
@@ -59,6 +71,7 @@ import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
+import { gitToplevel } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { truncateString } from '../render/helpers.js';
@@ -66,6 +79,16 @@ import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
+import { resolveCanonicalProjectRoot } from './evidence.js';
+import {
+  buildGateCacheEntryBody,
+  captureGateCacheState,
+  evidenceCacheKeyPath,
+  type GateCacheState,
+  gateCacheEntryPath,
+  readGateCacheEntry,
+  sealGateCacheEntry,
+} from './gate-result-cache.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
 import { resolveSpawnTimeoutMs } from './tool-cache.js';
 
@@ -172,6 +195,175 @@ export function typedGateAdmissionMs(
 }
 
 /**
+ * Actionable refusal for `cache: 'only'` (`cleo verify --no-run`) when a gate
+ * would have to execute. Names the gate and the command that fills the cache.
+ */
+function gateNotCachedMessage(
+  gate: AcceptanceGate,
+  cacheable: boolean,
+  keyAvailable: boolean,
+): string {
+  const name = gate.req ?? gate.description;
+  if (gate.kind === 'http')
+    return `${GATE_NOT_CACHED_PREFIX} http gate "${name}" observes a live service and is never cached; drop --no-run to execute it`;
+  if (!cacheable)
+    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached result because the project root is not a git checkout (results are keyed by HEAD + dirty-tree fingerprint); drop --no-run to execute it`;
+  if (!keyAvailable)
+    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" cannot use the cache because the machine key ${evidenceCacheKeyPath()} is unreadable; drop --no-run to execute it`;
+  return (
+    `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached pass for the current HEAD, working tree and inputs. ` +
+    'Run `cleo verify <taskId> --run` first (it caches passing results), or drop --no-run to execute it now'
+  );
+}
+
+/**
+ * Prefix of the `errorMessage` a gate carries when `cache: 'only'` refused to
+ * execute it. The verifier matches it to refuse the whole write with
+ * `E_GATE_NOT_CACHED` instead of recording an `error` result.
+ * @task T12621
+ */
+export const GATE_NOT_CACHED_PREFIX = '--no-run:';
+
+/**
+ * Prefix of the `errorMessage` a gate carries when `cache: 'only'` found an
+ * entry that failed authentication. The verifier refuses the write with
+ * `E_GATE_CACHE_INVALID`: a forged or tampered pass is never recorded.
+ * @task T12621
+ */
+export const GATE_CACHE_INVALID_PREFIX = '--no-run [invalid cache entry]:';
+
+/**
+ * Load (creating on first use, mode 0600) the per-machine key that seals
+ * evidence cache entries. Deliberately NOT exported: a caller that could load
+ * the key through core could seal any result it liked, which is the forgery
+ * this key exists to stop. Returns `null` when the key cannot be established;
+ * the cache is then simply not used.
+ */
+function loadEvidenceCacheKey(): Buffer | null {
+  const path = evidenceCacheKeyPath();
+  try {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    try {
+      writeFileSync(path, randomBytes(32).toString('hex'), { flag: 'wx', mode: 0o600 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    const hex = readFileSync(path, 'utf-8').trim();
+    return /^[0-9a-f]{64}$/.test(hex) ? Buffer.from(hex, 'hex') : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Seal and store a pass this runner EXECUTED itself. Module-private for the same
+ * reason as {@link loadEvidenceCacheKey}: only an observed execution is cached.
+ */
+function writeExecutedGatePass(
+  projectRoot: string,
+  gate: AcceptanceGate,
+  state: GateCacheState,
+  inputsHash: string,
+  observed: AcceptanceGateResult,
+  key: Buffer,
+): void {
+  const body = buildGateCacheEntryBody(gate, state, inputsHash, observed);
+  if (!body) return;
+  try {
+    const path = gateCacheEntryPath(projectRoot, gate, state, inputsHash);
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(sealGateCacheEntry(body, key), null, 2), 'utf-8');
+    renameSync(tmp, path);
+  } catch {
+    // A cache is an optimisation: failing to persist one never fails the gate.
+  }
+}
+
+/**
+ * Digest of a gate's captured invocation and input artifacts: the part of its
+ * cache key that the git fingerprint cannot see (untracked harness scripts,
+ * task files, the environment hash).
+ */
+function gateInputsHash(
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ invocation: invocation ?? null, artifacts }))
+    .digest('hex');
+}
+
+/**
+ * Compute a gate's cache inputs digest the same way the attesting verifier does.
+ * @param task - Task that owns the gate; its `files` are verifier inputs.
+ * @param gate - Gate whose invocation and inputs are captured.
+ * @param execution - Admitted lifetime whose project root scopes the capture.
+ * @param env - Environment the gate will launch with.
+ * @returns Digest to pass as `cacheInputsHash` to {@link runGates}.
+ * @example
+ * ```typescript
+ * const cacheInputsHash = await captureGateInputsHash(task, gate, execution);
+ * ```
+ * @task T12621
+ */
+export async function captureGateInputsHash(
+  task: Task,
+  gate: AcceptanceGate,
+  execution: OperationExecutionContext,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const tree = resolveTypedGateRoot(resolve(execution.identity.projectRoot));
+  const invocation = executableInvocation(gate, tree, { ...env });
+  return gateInputsHash(
+    invocation,
+    await snapshotGateInputs(task, gate, invocation, execution, tree),
+  );
+}
+
+/**
+ * The tree a typed gate runs in and is fingerprinted against.
+ *
+ * `projectRoot` is the CLEO store root, which for a git worktree is the MAIN
+ * checkout (all worktrees share one `.cleo/`). Evidence tools already run in the
+ * caller's own worktree (gh#1220); typed gates ran in the store root, so from a
+ * worktree `cleo done` measured the task's code with its tools and the main
+ * checkout with its typed gates (T12625 review). The caller's git toplevel is
+ * used only when it is a linked worktree OF THIS project — any other cwd
+ * (an unrelated repo, a test harness, a declared child repo in a multi-repo
+ * root) keeps `projectRoot`, so typed-gate paths written against the CLEO root
+ * keep resolving exactly as before.
+ *
+ * Known limit (documented, accepted): "linked worktree of this project" is read
+ * from the `.git` gitlink, so a plain directory carrying a forged gitlink that
+ * points into this project's `.git/worktrees/` is treated as a worktree. That
+ * grants nothing a copy of the checkout would not: its typed results are only
+ * carried to another tree by content (tracked inputs must hash identically and
+ * the recorded HEAD must be merged there).
+ *
+ * @param projectRoot - CLEO store root (the typed gate's authority).
+ * @param cwd - Invocation directory. Defaults to `process.cwd()`.
+ * @returns The realpath of the tree typed gates execute in.
+ * @task T12625
+ */
+export function resolveTypedGateRoot(
+  projectRoot: string,
+  cwd: string = process.cwd(), // CWD-OK: the invocation tree is the subject (gh#1220)
+): string {
+  const real = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return resolve(p);
+    }
+  };
+  const root = real(projectRoot);
+  const top = gitToplevel(cwd);
+  if (top === null || real(top) === root) return projectRoot;
+  return real(resolveCanonicalProjectRoot(top)) === root ? real(top) : projectRoot;
+}
+
+/**
  * Admission for a batch run without a caller-owned lifetime.
  * An invalid deadline override is not swallowed: {@link runOneGate} resolves it
  * again and reports it as that gate's `error` result, as it always has.
@@ -227,11 +419,13 @@ export async function runGates(
   const maxOutputBytes = options.maxOutputBytes ?? 1_048_576;
   if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1)
     throw new RangeError('Gate capture byte limit must be a positive safe integer');
+  // T12625: execute and fingerprint in the caller's worktree of this project.
+  const treeRoot = resolveTypedGateRoot(projectRoot);
   const snapshot = structuredClone(gates);
   const controller = new AbortController();
   const deregister = registerTeardownAbort(controller);
   const batch: ProcessCaptureOptions = {
-    cwd: projectRoot,
+    cwd: treeRoot,
     env: { ...(options.env ?? process.env) },
     execution: {
       deadlineAt: execution?.deadlineAt ?? Date.now() + unownedAdmissionMs(snapshot, options.env),
@@ -245,6 +439,16 @@ export async function runGates(
     systemdControl: options.systemdControl,
   };
   const checkedBy = execution?.identity.actor ?? batch.env['CLEO_AGENT_ID'] ?? CHECKED_BY;
+  const cacheMode = options.cache ?? 'off';
+  const cacheInputsHash = options.cacheInputsHash;
+  if (cacheMode !== 'off' && (snapshot.length !== 1 || !cacheInputsHash))
+    throw new Error('Typed gate caching requires one gate per batch and its inputs digest');
+  // T12621: the repo state is captured only when the policy reads or writes.
+  const cacheState =
+    cacheMode !== 'off' && TOOL_GATE_KINDS.has(snapshot[0]!.kind)
+      ? await captureGateCacheState(treeRoot)
+      : null;
+  const cacheKey = cacheState ? loadEvidenceCacheKey() : null;
   const results: AcceptanceGateResult[] = [];
   try {
     return await worktreeScope.run(scope, async () => {
@@ -261,7 +465,56 @@ export async function runGates(
           const parsed = acceptanceGateSchema.parse(gate);
           if (!isDeepStrictEqual(parsed, gate))
             throw new Error('Gate includes unsupported or noncanonical fields');
-          results.push(await runOneGate(parsed, i, projectRoot, options.skipManual ?? true, batch));
+          if (cacheState && cacheKey && (cacheMode === 'use' || cacheMode === 'only')) {
+            const lookup = readGateCacheEntry(
+              projectRoot,
+              parsed,
+              cacheState,
+              cacheInputsHash!,
+              cacheKey,
+            );
+            if (lookup.status === 'hit') {
+              // Re-dated to now (the reuse is this run's check; a bound result
+              // may not precede its input capture) and marked, never disguised.
+              results.push({
+                ...lookup.observation,
+                index: i,
+                checkedAt: new Date().toISOString(),
+                source: 'cache',
+                cachedAt: lookup.createdAt,
+              });
+              continue;
+            }
+            // `use` treats an unauthenticated entry as a miss and overwrites it.
+            if (lookup.status === 'invalid' && cacheMode === 'only')
+              throw new Error(
+                `${GATE_CACHE_INVALID_PREFIX} gate "${parsed.req ?? parsed.description}": ${lookup.reason}. ` +
+                  'It was not used. Drop --no-run to execute the gate (a pass replaces the entry)',
+              );
+          }
+          if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind))
+            throw new Error(gateNotCachedMessage(parsed, cacheState !== null, cacheKey !== null));
+          const observed: AcceptanceGateResult = {
+            ...(await runOneGate(
+              parsed,
+              i,
+              treeRoot,
+              options.skipManual ?? true,
+              batch,
+              projectRoot,
+            )),
+            source: 'executed',
+          };
+          if (cacheState && cacheKey && cacheMode !== 'only')
+            writeExecutedGatePass(
+              projectRoot,
+              parsed,
+              cacheState,
+              cacheInputsHash!,
+              observed,
+              cacheKey,
+            );
+          results.push(observed);
         } catch (error) {
           results.push(
             makeResult(
@@ -279,6 +532,194 @@ export async function runGates(
     });
   } finally {
     deregister();
+  }
+}
+
+/** `git` read in `cwd`; `null` on a non-zero exit or when git is unavailable. */
+function gitOut(cwd: string, args: readonly string[]): string | null {
+  try {
+    return execFileSync('git', args, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/** Digest of a gate's inputs with every path made relative to `tree` (T12625). */
+function treeInputsHash(
+  tree: string,
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): string {
+  const rel = (path: string): string => relative(tree, path) || '.';
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        invocation: invocation ? { ...invocation, cwd: rel(invocation.cwd) } : null,
+        artifacts: artifacts.map((a) => ({ ...a, path: rel(a.path) })),
+      }),
+    )
+    .digest('hex');
+}
+
+/**
+ * Content binding for a result verified in `tree`, or `undefined` when the tree
+ * is not a git checkout (the result then keeps exact path-bound revalidation).
+ */
+function captureTreeBinding(
+  tree: string,
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): AcceptanceGateTreeBinding | undefined {
+  const headSha = gitOut(tree, ['rev-parse', 'HEAD']);
+  if (headSha === null || !/^[0-9a-f]{40}$/.test(headSha)) return undefined;
+  const dirty = gitOut(tree, ['status', '--porcelain', '--untracked-files=no']);
+  const base = originDefault(tree);
+  const baseSha = base ? gitOut(tree, ['merge-base', base, headSha]) : null;
+  return {
+    headSha,
+    clean: dirty === '',
+    cwd: invocation ? relative(tree, invocation.cwd) || '.' : '.',
+    inputsHash: treeInputsHash(tree, invocation, artifacts),
+    ...(baseSha && /^[0-9a-f]{40}$/.test(baseSha) ? { baseSha } : {}),
+  };
+}
+
+/** `origin/<default>` from `origin/HEAD`, else origin/main or origin/master. */
+function originDefault(tree: string): string | null {
+  const symbolic = gitOut(tree, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
+  if (symbolic) return symbolic.replace(/^refs\/remotes\//, '');
+  for (const ref of ['origin/main', 'origin/master']) {
+    if (gitOut(tree, ['rev-parse', '--verify', '--quiet', `refs/remotes/${ref}`]) !== null)
+      return ref;
+  }
+  return null;
+}
+
+/**
+ * A typed result was verified in another tree of this project and cannot be
+ * accepted from the completing tree. Carries the exact re-verify command.
+ *
+ * @task T12625
+ */
+export class TypedRevalidationError extends Error {
+  /** The command that re-verifies the task's typed gates in the completing tree. */
+  readonly fix: string;
+
+  constructor(message: string, fix: string) {
+    super(message);
+    this.name = 'TypedRevalidationError';
+    this.fix = fix;
+  }
+}
+
+/** Exact command that re-records testsPassed (re-running typed gates) in `tree`. */
+function reverifyCommand(task: Task, tree: string): string {
+  const atoms = (task.verification?.evidence?.testsPassed?.atoms ?? []).flatMap((atom) => {
+    switch (atom.kind) {
+      case 'tool':
+        return [`tool:${atom.tool}`];
+      case 'test-run':
+        return [`test-run:${atom.path}`];
+      case 'satisfies':
+        return [
+          `satisfies:${atom.targetTaskId}#${atom.targetAcAlias ?? atom.resolvedAcUuid ?? ''}`,
+        ];
+      default:
+        return [];
+    }
+  });
+  const evidence = atoms.length > 0 ? atoms.join(';') : 'tool:test';
+  return `cd '${tree.replace(/'/g, `'\\''`)}' && cleo verify ${task.id} --gate testsPassed --evidence '${evidence}'`;
+}
+
+/**
+ * Accept a result bound in ANOTHER tree of this project (T12625): the verified
+ * tree was clean, its HEAD is an ancestor of the completing HEAD (the verified
+ * commit has been merged here), and the inputs recompute to the same
+ * tree-relative digest. The recorded tree itself is never entered — worktrees
+ * are auto-cleaned after merge.
+ */
+function assertTreeEquivalent(
+  task: Task,
+  gateLabel: string,
+  bound: AcceptanceGateTreeBinding,
+  tree: string,
+  projectRoot: string,
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): void {
+  const fix = reverifyCommand(task, tree);
+  const real = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return resolve(p);
+    }
+  };
+  if (real(resolveCanonicalProjectRoot(tree)) !== real(projectRoot))
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel}: ${tree} is not a checkout of this project`,
+      fix,
+    );
+  if (!bound.clean)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} was verified on a dirty tree at ${bound.headSha.slice(0, 12)}; its result cannot be carried to ${tree}`,
+      fix,
+    );
+  if (gitOut(tree, ['merge-base', '--is-ancestor', bound.headSha, 'HEAD']) === null)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} was verified at ${bound.headSha.slice(0, 12)}, which is not in ${tree}'s HEAD — merge the verified commit first, or re-verify here`,
+      fix,
+    );
+  if (treeInputsHash(tree, invocation, artifacts) !== bound.inputsHash)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} inputs changed since verification (${tree})`,
+      fix,
+    );
+  // Round 3: the merge being an ancestor proves the change ARRIVED, not that it
+  // is still there — a later revert leaves the ancestry and the declared gate
+  // inputs intact. Every path the verified change touched must still hold the
+  // verified bytes here. Without a recorded fork point the change set is
+  // unknown, so the result is not carried across trees at all.
+  if (!bound.baseSha)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} has no recorded fork point, so the verified change cannot be compared in ${tree}`,
+      fix,
+    );
+  // --no-renames: a rename is listed as the old path's deletion AND the new
+  // path's addition, so a renamed-away path later re-added here is caught.
+  const changed = gitOut(tree, [
+    'diff',
+    '--name-only',
+    '--no-renames',
+    bound.baseSha,
+    bound.headSha,
+  ]);
+  if (changed === null)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel}: cannot read the verified change ${bound.baseSha.slice(0, 12)}..${bound.headSha.slice(0, 12)} in ${tree}`,
+      fix,
+    );
+  const paths = changed.split('\n').filter(Boolean);
+  if (paths.length > 0) {
+    const drift = gitOut(tree, [
+      'diff',
+      '--name-only',
+      '--no-renames',
+      bound.headSha,
+      'HEAD',
+      '--',
+      ...paths,
+    ]);
+    if (drift === null || drift !== '')
+      throw new TypedRevalidationError(
+        `Typed requirement ${gateLabel}: the verified change was changed on ${tree} since verification: ${(drift ?? 'unreadable').split('\n').join(', ')}`,
+        fix,
+      );
   }
 }
 
@@ -316,14 +757,15 @@ export async function runTaskGates(
   assertCriterionProjection(snapshot, rows);
   const env = { ...(options.env ?? process.env) };
   const verificationId = randomUUID();
+  const tree = resolveTypedGateRoot(root);
   return worktreeScope.run(scope, async () => {
     const results: AcceptanceGateResult[] = [];
     for (const [index, gate] of (snapshot.acceptance ?? []).entries()) {
       if (typeof gate === 'string') continue;
       execution.assertActive();
       const capturedAt = new Date().toISOString();
-      const invocation = executableInvocation(gate, root, env);
-      const artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution);
+      const invocation = executableInvocation(gate, tree, env);
+      const artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
       const binding: AcceptanceGateBinding = {
         version: 1,
         verificationId,
@@ -337,12 +779,22 @@ export async function runTaskGates(
         ...(invocation ? { invocation } : {}),
         artifacts,
       };
+      const treeBinding = captureTreeBinding(tree, invocation, artifacts);
+      if (treeBinding) binding.tree = treeBinding;
       const observed = (
-        await runGates([gate], { ...options, projectRoot: root, env, execution })
+        await runGates([gate], {
+          ...options,
+          projectRoot: root,
+          env,
+          execution,
+          ...(options.cache && options.cache !== 'off'
+            ? { cacheInputsHash: gateInputsHash(invocation, artifacts) }
+            : {}),
+        })
       )[0]!;
       let result: AcceptanceGateResult = { ...observed, index, binding };
       try {
-        const after = await snapshotGateInputs(snapshot, gate, invocation, execution);
+        const after = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
         if (!isDeepStrictEqual(after, artifacts))
           throw new Error('Verification inputs changed during execution');
       } catch (error) {
@@ -396,11 +848,16 @@ export function createTaskGateReceipt(
     indexes.add(result.index);
     criteria.add(binding.criterionId);
   }
+  const cached = results
+    .filter((result) => result.source === 'cache')
+    .map((result) => ({ index: result.index, cachedAt: result.cachedAt! }));
   return {
     verificationId: first.verificationId,
     resultHash: createHash('sha256').update(JSON.stringify(results)).digest('hex'),
     operation: 'check.gate.verify',
     passed,
+    // T12621: omitted when nothing was reused, so earlier receipts still match.
+    ...(cached.length > 0 ? { cached } : {}),
   };
 }
 
@@ -437,6 +894,7 @@ export async function revalidateTaskGateResults(
   const rows = [...criteria].sort((a, b) => a.ordinal - b.ordinal);
   assertCriterionProjection(task, rows);
   const env = { ...(options.env ?? process.env) };
+  const tree = resolveTypedGateRoot(root);
   await worktreeScope.run(scope, async () => {
     for (const [index, gate] of (task.acceptance ?? []).entries()) {
       if (typeof gate === 'string' || (requirePassing && gate.advisory)) continue;
@@ -464,14 +922,32 @@ export async function revalidateTaskGateResults(
         throw new Error(
           `Typed requirement ${gate.req ?? index} binding is stale or belongs to another owner`,
         );
-      const invocation = executableInvocation(gate, root, env);
+      const invocation = executableInvocation(gate, tree, env);
+      const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
+      const exact =
+        isDeepStrictEqual(binding.invocation, invocation) &&
+        isDeepStrictEqual(binding.artifacts, artifacts);
+      if (exact) continue;
+      // T12625: a result bound in another tree of this project (a worker's
+      // worktree) is accepted by CONTENT, not by path. Pre-T12625 receipts carry
+      // no tree binding and keep the exact path-bound refusals below.
+      if (binding.tree) {
+        assertTreeEquivalent(
+          task,
+          gate.req ?? String(index),
+          binding.tree,
+          tree,
+          root,
+          invocation,
+          artifacts,
+        );
+        continue;
+      }
       if (!isDeepStrictEqual(binding.invocation, invocation))
         throw new Error(`Typed requirement ${gate.req ?? index} invocation or environment changed`);
-      const artifacts = await snapshotGateInputs(task, gate, invocation, execution);
-      if (!isDeepStrictEqual(binding.artifacts, artifacts))
-        throw new Error(
-          `Typed requirement ${gate.req ?? index} input bytes changed after verification`,
-        );
+      throw new Error(
+        `Typed requirement ${gate.req ?? index} input bytes changed after verification`,
+      );
     }
   });
 }
@@ -482,6 +958,7 @@ export async function revalidateTaskGateResults(
  * @param criteria - Normalized criteria from that same transaction.
  * @param options - Captured original execution lifetime and project scope.
  * @param accessor - Canonical receipt reader bound to the same project store.
+ * @param policy - Project evidence policy; `allowCachedGates: false` refuses cached passes (T12621).
  * @returns Resolves only when every hard typed requirement has current authentic proof.
  * @throws When typed representations, results, inputs or canonical receipts disagree.
  * @remarks Callers retain transaction ownership and must check their execution context before
@@ -497,8 +974,22 @@ export async function validateTaskGateCompletion(
   criteria: readonly AcRow[],
   options: RunGatesOptions,
   accessor: Pick<DataAccessor, 'queryAuditLog'>,
+  policy: { allowCachedGates?: boolean } = {},
 ): Promise<void> {
   const results = task.verification?.gateResults ?? [];
+  // T12621: `evidence.allowCachedGates: false` — a hard typed requirement must
+  // have been executed, not reused from the evidence cache.
+  if (policy.allowCachedGates === false) {
+    for (const [index, gate] of (task.acceptance ?? []).entries()) {
+      if (typeof gate === 'string' || gate.advisory) continue;
+      const reused = results.find((result) => result.index === index && result.source === 'cache');
+      if (reused)
+        throw new Error(
+          `Typed requirement ${gate.req ?? index} passed from the evidence cache (cached ${reused.cachedAt}) ` +
+            'and this project sets evidence.allowCachedGates to false; re-verify so the gate executes',
+        );
+    }
+  }
   await revalidateTaskGateResults(task, criteria, results, options);
   if (!(task.acceptance ?? []).some((item) => typeof item !== 'string' && !item.advisory)) return;
   const passingDetails = JSON.stringify(createTaskGateReceipt(results, true));
@@ -592,8 +1083,10 @@ async function snapshotGateInputs(
   gate: AcceptanceGate,
   invocation: AcceptanceGateInvocation | undefined,
   execution: OperationExecutionContext,
+  /** T12625: the tree the gate runs in ({@link resolveTypedGateRoot}). */
+  treeRoot: string = resolve(execution.identity.projectRoot),
 ): Promise<AcceptanceGateArtifact[]> {
-  const root = resolve(execution.identity.projectRoot);
+  const root = resolve(treeRoot);
   if (invocation) {
     const cwdRelative = relative(root, invocation.cwd);
     if (cwdRelative === '..' || cwdRelative.startsWith('../') || isAbsolute(cwdRelative))
@@ -712,6 +1205,8 @@ async function runOneGate(
   projectRoot: string,
   skipManual: boolean,
   context: ProcessCaptureOptions,
+  /** CLEO store root for attachment lookups; defaults to `projectRoot`. */
+  storeRoot: string = projectRoot,
 ): Promise<AcceptanceGateResult> {
   const timeout = resolveGateTimeoutMs(gate, context.env ?? process.env);
 
@@ -719,7 +1214,7 @@ async function runOneGate(
     case 'test':
       return runTestGate(gate, index, projectRoot, timeout, context);
     case 'file':
-      return runFileGate(gate, index, projectRoot, context);
+      return runFileGate(gate, index, projectRoot, context, storeRoot);
     case 'command':
       return runCommandGate(gate, index, projectRoot, timeout, context);
     case 'lint':
@@ -960,6 +1455,7 @@ async function runFileGate(
   index: number,
   projectRoot: string,
   context: ProcessCaptureOptions,
+  storeRoot: string = projectRoot,
 ): Promise<AcceptanceGateResult> {
   const startMs = Date.now();
 
@@ -967,7 +1463,7 @@ async function runFileGate(
   let filePath: string;
   if (gate.attachmentSha256) {
     const store = createAttachmentStore();
-    const metadata = await store.getMetadata(gate.attachmentSha256, projectRoot);
+    const metadata = await store.getMetadata(gate.attachmentSha256, storeRoot);
     assertGateActive(context);
     if (!metadata)
       return makeResult(
@@ -983,7 +1479,7 @@ async function runFileGate(
       throw new Error('Attachment gate requires declared byte size for bounded retrieval');
     if (attachment.size > (context.maxOutputBytes ?? 1_048_576))
       throw new Error('Attachment gate exceeds declared byte limit');
-    const result = await store.get(gate.attachmentSha256, projectRoot);
+    const result = await store.get(gate.attachmentSha256, storeRoot);
     assertGateActive(context);
     if (!result)
       throw new Error('Attachment metadata exists but authenticated bytes are unavailable');

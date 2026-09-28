@@ -223,6 +223,11 @@ export interface ValidateGateParams {
    * `CLEO_STRICT_EVIDENCE=1`).
    */
   sharedEvidence?: boolean;
+  /**
+   * `--no-run` (T12621): serve typed gates from the result cache and execute
+   * none; a gate without a fresh cached pass refuses with `E_GATE_NOT_CACHED`.
+   */
+  noRun?: boolean;
 }
 export interface ValidateGateResult {
   taskId: string;

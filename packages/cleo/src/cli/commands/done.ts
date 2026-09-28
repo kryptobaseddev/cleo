@@ -1,89 +1,110 @@
 /**
- * CLI done command — `cleo done <id> --plan`, the read-only evidence planner.
+ * CLI done command — record every required gate from derived evidence, then
+ * complete (`cleo done <id>`), or print the read-only plan (`--plan`).
  *
- * `cleo done <id>` without `--plan` is unchanged: it runs `cleo complete`
- * with the same arguments (the historical `done` alias). `--plan` prints what
- * the streamlined verification flow would record — the change set and its
- * source, the required gates, the tool runs and their cache state, the AC
- * mapping, the ordered blockers and the exact commands — and writes nothing.
- * The logic lives in core (`deriveTaskEvidence`); this handler only renders.
+ * `cleo done <id>` derives the change set, runs the tools and typed gates
+ * once, records every required gate the task lacks in ONE write through the
+ * existing validators (`recordTaskDone`), then completes through the same
+ * `tasks.complete` operation `cleo complete` dispatches. Any stop is one
+ * `E_DONE_BLOCKED` envelope carrying one next step (`fix` /
+ * `details.next.command`) and the original code in `details.cause`.
+ * There is no override flag. The logic lives in core; this handler renders.
  *
  * @task T12623
+ * @task T12625
  * @see packages/core/src/tasks/done-plan.ts
+ * @see packages/core/src/tasks/done-record.ts
  */
 
+import type { DoneBlockedDetails } from '@cleocode/contracts';
+import { dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
-import { completeCommand, completeCommandArgs } from './complete.js';
+import { completeCommandArgs, completeDispatchParams } from './complete.js';
 
 /**
- * `cleo done <id> [--plan [--satisfies AC1,AC3|all] [--pr <n>]]`.
- *
- * Without `--plan` it delegates to {@link completeCommand} unchanged, so the
- * `done` spelling of `complete` stays byte-compatible.
+ * `cleo done <id> [--plan] [--satisfies AC1,AC3|all] [--pr <n>] [complete flags]`.
  */
 export const doneCommand = defineCommand({
   meta: {
     name: 'done',
     description:
-      'Complete a task (alias of complete). With --plan: read-only evidence plan — change set, gates, tool runs, AC mapping, blockers and the exact commands; writes nothing',
+      'Record every required gate from derived evidence (change set, tools, typed gates, AC links) in one write, then complete. --plan: read-only plan; writes nothing',
   },
   args: {
     ...completeCommandArgs,
     plan: {
       type: 'boolean',
       description:
-        'Print the evidence plan instead of completing: derived change set, required gates, tool runs (cache state), AC mapping, ordered blockers and runnable commands. Records and executes nothing.',
+        'Print the evidence plan instead: derived change set, required gates, tool runs (cache state), AC mapping, ordered blockers and runnable commands. Records and executes nothing.',
     },
     satisfies: {
       type: 'string',
       description:
-        'With --plan: criteria this work satisfies, e.g. "AC1,AC3" or "all"; linked to every gate whose evidence covers them',
+        'Criteria this work satisfies, e.g. "AC1,AC3" or "all"; linked to every gate whose evidence covers them',
     },
     pr: {
       type: 'string',
-      description: 'With --plan: the merged PR that implements the task (skips PR discovery)',
+      description: 'The merged PR that implements the task (skips PR selection)',
     },
   },
-  async run(context) {
-    const { args } = context;
-    if (args.plan !== true) {
-      // Until `cleo done` records gates itself, these only shape a plan. Refuse
-      // them rather than complete the task as if they had been applied.
-      const planOnly = ['satisfies', 'pr'].filter((flag) => args[flag] !== undefined);
-      if (planOnly.length > 0) {
-        cliError(
-          `--${planOnly.join(' and --')} ${planOnly.length > 1 ? 'apply' : 'applies'} only with --plan; cleo done does not record evidence yet`,
-          'E_INVALID_INPUT',
-          {
-            fix: `cleo done ${args.taskId} --plan --${planOnly[0]} ${String(args[planOnly[0] as 'pr'])}`,
-          },
-        );
-        process.exitCode = 2;
-        return;
-      }
-      await completeCommand.run?.({ rawArgs: context.rawArgs, args, cmd: completeCommand });
-      return;
-    }
-    const { planTaskDone } = await import('@cleocode/core/tasks/done-plan.js');
-    const { getProjectRoot } = await import('@cleocode/core/paths.js');
-    const raw = typeof args.satisfies === 'string' ? args.satisfies.trim() : '';
-    const prNumber = typeof args.pr === 'string' ? Number(args.pr) : undefined;
-    if (prNumber !== undefined && !(Number.isInteger(prNumber) && prNumber > 0)) {
-      cliError(`--pr must be a positive PR number, got "${args.pr}"`, 'E_INVALID_INPUT');
+  async run({ args }) {
+    const { parseDoneOptions, planTaskDone } = await import('@cleocode/core/tasks/done-plan.js');
+    const parsed = parseDoneOptions(args.satisfies, args.pr);
+    if (!parsed.ok) {
+      cliError(parsed.message, 'E_INVALID_INPUT');
       process.exitCode = 2;
       return;
     }
-    const result = await planTaskDone(args.taskId, {
-      projectRoot: getProjectRoot(),
-      ...(raw === '' ? {} : { satisfies: raw.toLowerCase() === 'all' ? 'all' : raw.split(',') }),
-      ...(prNumber !== undefined ? { prNumber } : {}),
-    });
-    if (!result.success) {
-      cliError(result.error.message, result.error.code, { fix: result.error.fix });
-      process.exitCode = result.error.exitCode ?? 1;
+    const { getProjectRoot } = await import('@cleocode/core/paths.js');
+    const options = { projectRoot: getProjectRoot(), ...parsed.options };
+    if (args.plan === true) {
+      const plan = await planTaskDone(args.taskId, options);
+      if (!plan.success) {
+        cliError(plan.error.message, plan.error.code, { fix: plan.error.fix });
+        process.exitCode = plan.error.exitCode ?? 1;
+        return;
+      }
+      cliOutput(plan.data, { command: 'done', operation: 'tasks.done.plan' });
       return;
     }
-    cliOutput(result.data, { command: 'done', operation: 'tasks.done.plan' });
+    const { recordTaskDone } = await import('@cleocode/core/tasks/done-record.js');
+    const recorded = await recordTaskDone(args.taskId, options);
+    if (!recorded.success) {
+      cliError(recorded.error.message, recorded.error.code, {
+        fix: recorded.error.fix,
+        details: recorded.error.details,
+      });
+      process.exitCode = recorded.error.exitCode ?? 1;
+      return;
+    }
+    const completed = await dispatchRaw(
+      'mutate',
+      'tasks',
+      'complete',
+      completeDispatchParams(args),
+    );
+    if (!completed.success) {
+      const details: Omit<DoneBlockedDetails, 'plan'> = {
+        blocker: 'completion-refused',
+        cause: completed.error?.code,
+        next: {
+          command: completed.error?.fix ?? `cleo complete ${args.taskId}`,
+          why: 'Every gate is recorded; completion itself was refused.',
+        },
+        recordedGates: recorded.data.recordedGates,
+      };
+      cliError(completed.error?.message ?? 'completion refused', 'E_DONE_BLOCKED', {
+        fix: details.next.command,
+        details,
+      });
+      process.exitCode = completed.error?.exitCode ?? 1;
+      return;
+    }
+    const { plan: _plan, ...summary } = recorded.data;
+    cliOutput(
+      { ...summary, completed: true, complete: completed.data },
+      { command: 'done', operation: 'tasks.done' },
+    );
   },
 });

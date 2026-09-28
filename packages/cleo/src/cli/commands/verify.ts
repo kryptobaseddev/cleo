@@ -40,7 +40,8 @@
 import { ExitCode } from '@cleocode/contracts';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { cliError } from '../renderers/index.js';
+import { negatedFlag } from '../lib/negated-flag.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * cleo verify <task-id> — view or modify verification gates.
@@ -95,7 +96,20 @@ export const verifyCommand = defineCommand({
     run: {
       type: 'boolean',
       description:
-        "Execute the task's typed acceptance gates and report the results. Read-only: nothing is recorded, so use `--evidence` to attest (T12308).",
+        "Execute the task's typed acceptance gates and report the results. Records no verification, so use `--evidence` to attest (T12308); passing results are cached so the attesting write reuses them instead of re-running (T12621). With a write, `--no-run` executes no typed gate and uses only cached passes, refusing with E_GATE_NOT_CACHED when one is missing.",
+    },
+    auto: {
+      type: 'boolean',
+      description:
+        'Derive the evidence and record every required gate in one write, exactly as `cleo done` does, without completing the task (T12625). Takes --satisfies and --pr.',
+    },
+    satisfies: {
+      type: 'string',
+      description: 'With --auto: criteria this work satisfies, e.g. "AC1,AC3" or "all"',
+    },
+    pr: {
+      type: 'string',
+      description: 'With --auto: the merged PR that implements the task',
     },
     'shared-evidence': {
       type: 'boolean',
@@ -110,6 +124,45 @@ export const verifyCommand = defineCommand({
     }
 
     const isWrite = !!(args.gate || args.all || args.reset);
+
+    // T12625: `--auto` is `cleo done` without the completion step.
+    if (args.auto === true) {
+      if (isWrite || args.evidence || args.run === true) {
+        cliError(
+          '--auto derives its own evidence; drop --gate/--all/--reset/--evidence/--run',
+          'E_INVALID_INPUT',
+        );
+        process.exitCode = ExitCode.VALIDATION_ERROR;
+        return;
+      }
+      const { parseDoneOptions } = await import('@cleocode/core/tasks/done-plan.js');
+      const parsed = parseDoneOptions(args.satisfies, args.pr);
+      if (!parsed.ok) {
+        cliError(parsed.message, 'E_INVALID_INPUT');
+        process.exitCode = ExitCode.VALIDATION_ERROR;
+        return;
+      }
+      const { recordTaskDone } = await import('@cleocode/core/tasks/done-record.js');
+      const { getProjectRoot } = await import('@cleocode/core/paths.js');
+      const r = await recordTaskDone(args.taskId, {
+        projectRoot: getProjectRoot(),
+        ...parsed.options,
+        ...(args.agent ? { agent: args.agent as string } : {}),
+      });
+      if (!r.success) {
+        cliError(r.error.message, r.error.code, { fix: r.error.fix, details: r.error.details });
+        process.exitCode = r.error.exitCode ?? 1;
+        return;
+      }
+      const { plan: _plan, ...summary } = r.data;
+      cliOutput(summary, { command: 'verify', operation: 'check.gate.auto' });
+      return;
+    }
+    if (args.satisfies !== undefined || args.pr !== undefined) {
+      cliError('--satisfies and --pr apply only with --auto (or cleo done)', 'E_INVALID_INPUT');
+      process.exitCode = ExitCode.VALIDATION_ERROR;
+      return;
+    }
 
     // T12308: `--run` executes typed gates and records nothing. Combining it
     // with a write would blur exactly the line it exists to draw — the gates
@@ -159,6 +212,8 @@ export const verifyCommand = defineCommand({
         reset: args.reset as boolean | undefined,
         evidence: args.evidence as string | undefined,
         sharedEvidence: (args['shared-evidence'] as boolean | undefined) ?? false,
+        // T12621: citty turns `--no-run` into `run: false`; read it through the helper.
+        ...(isWrite && negatedFlag(args, 'run') ? { noRun: true } : {}),
       },
       { command: 'verify' },
     );
