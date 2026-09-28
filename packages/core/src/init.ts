@@ -47,6 +47,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { isAbsolutePath } from '@cleocode/paths';
 import { classifyProject, type ProjectClassification } from './discovery.js';
 import { CleoError } from './errors.js';
+import { resolveGitDir, resolveHooksDir } from './git/hooks-install.js';
 import { ensureGitHooks, MANAGED_HOOKS } from './hooks.js';
 import { ensureInjection } from './injection.js';
 import { writeMemoryBridge } from './memory/memory-bridge.js';
@@ -129,8 +130,9 @@ export interface InitOptions {
  *
  * - `here` — `--here` asked for the current directory.
  * - `pinned` — a worktree scope, absolute `CLEO_DIR` or `CLEO_ROOT` pinned it.
- * - `git-root` — the current directory is its own git repository root
- *   (a `.git` directory, or a submodule / separate-git-dir gitlink).
+ * - `git-root` — the current directory is its own git repository root (`.git`
+ *   is a directory). A submodule / separate-git-dir gitlink is NOT: the
+ *   resolver cannot use a store there yet (T12562).
  * - `resolved` — the ancestor walk; the current directory or an ancestor project.
  *
  * @task T12562
@@ -142,7 +144,8 @@ export type InitTargetSource = 'here' | 'pinned' | 'git-root' | 'resolved';
  *
  * - `repo` — `.git` is a directory.
  * - `submodule` — `.git` is a gitlink to a separate repository (a submodule
- *   or `--separate-git-dir`); it is its own project, like `repo`.
+ *   or `--separate-git-dir`). It is its own repository, but project-root
+ *   resolution still walks past it, so init must not give it a store (T12562).
  * - `worktree` — `.git` is a gitlink into `<common>/worktrees/<name>`: a
  *   linked worktree that shares its main checkout's CLEO project (D009).
  *
@@ -177,6 +180,11 @@ export interface InitTarget {
   envPinned: boolean;
   /** Nearest git checkout boundary at or above `cwd`, or `null` outside git. */
   gitBoundary: InitGitBoundary | null;
+  /**
+   * For a `submodule` boundary: the initialized CLEO project that commands run
+   * from it resolve to (the superproject), when there is one.
+   */
+  enclosingProjectRoot?: string;
 }
 
 /**
@@ -195,6 +203,8 @@ export const INIT_ERROR_CODES = {
   forceNotCwd: 'E_INIT_FORCE_NOT_CWD',
   /** cwd is inside a linked git worktree; its project is the main checkout. */
   inWorktree: 'E_INIT_IN_WORKTREE',
+  /** cwd is a submodule / separate-git-dir checkout under a CLEO project. */
+  gitlinkUnsupported: 'E_INIT_GITLINK_UNSUPPORTED',
   /** The pre-`--force` snapshot could not be taken; nothing was changed. */
   snapshotFailed: 'E_INIT_SNAPSHOT_FAILED',
 } as const;
@@ -927,9 +937,10 @@ function findGitBoundary(start: string): InitGitBoundary | null {
  *    it inside a linked worktree).
  * 2. An active worktree scope, an absolute `CLEO_DIR` or `CLEO_ROOT` /
  *    `CLEO_PROJECT_ROOT` pins the target explicitly (unchanged behaviour).
- * 3. A working directory that is its own git root — a `.git` directory, or a
- *    submodule / separate-git-dir gitlink — targets itself: a nested
- *    repository is a separate project. A linked-worktree gitlink does not.
+ * 3. A working directory that is its own git root (`.git` is a directory)
+ *    targets itself: a nested repository is a separate project. A gitlink
+ *    checkout (linked worktree, submodule, separate-git-dir) does not, because
+ *    project-root resolution cannot use a store there.
  * 4. Otherwise the existing resolution applies. A plain (non-git)
  *    subdirectory of a CLEO project therefore still resolves to that ancestor;
  *    {@link initProject} reports it by absolute path and never wipes it.
@@ -963,7 +974,7 @@ export function resolveInitTarget(opts: { here?: boolean; cwd?: string } = {}): 
     // T9803/D009: `bootstrap` is the only sanctioned cwd-relative fallback.
     cleoDir = getCleoDirAbsolute(opts.cwd, { bootstrap: true });
     source = 'pinned';
-  } else if (gitBoundary && gitBoundary.kind !== 'worktree' && gitBoundary.root === cwd) {
+  } else if (gitBoundary?.kind === 'repo' && gitBoundary.root === cwd) {
     cleoDir = resolve(cwd, relativeCleoDir);
     source = 'git-root';
   } else {
@@ -973,6 +984,15 @@ export function resolveInitTarget(opts: { here?: boolean; cwd?: string } = {}): 
   // `cleoDir` is `<root>/.cleo` by default, so its parent is the project root.
   // This also respects an absolute `CLEO_DIR` used by the init-e2e suite.
   const projectRoot = dirname(cleoDir);
+
+  let enclosingProjectRoot: string | undefined;
+  if (gitBoundary?.kind === 'submodule') {
+    const resolved =
+      source === 'here' ? dirname(getCleoDirAbsolute(opts.cwd, { bootstrap: true })) : projectRoot;
+    if (isStrictlyInside(gitBoundary.root, resolved) && existsSync(join(resolved, '.cleo'))) {
+      enclosingProjectRoot = resolved;
+    }
+  }
   return {
     cleoDir,
     projectRoot,
@@ -981,6 +1001,7 @@ export function resolveInitTarget(opts: { here?: boolean; cwd?: string } = {}): 
     isCwd: canonicalPath(projectRoot) === canonicalPath(cwd),
     envPinned,
     gitBoundary,
+    ...(enclosingProjectRoot ? { enclosingProjectRoot } : {}),
   };
 }
 
@@ -1053,26 +1074,53 @@ function assertInitTargetAllowed(
   // `.cleo/` inside it is an orphan store. Only an explicit env pin, or the
   // additive map of the already-initialized main project, may proceed.
   if (git?.kind === 'worktree' && !target.envPinned) {
-    const main = git.mainRoot ?? root;
+    const main = git.mainRoot;
     const mapsMain =
-      additiveMapOnly && alreadyInitialized && canonicalPath(root) === canonicalPath(main);
+      main !== undefined &&
+      additiveMapOnly &&
+      alreadyInitialized &&
+      canonicalPath(root) === canonicalPath(main);
     if (!mapsMain) {
+      const whose = main ? ` of ${main}` : '';
       throw initRefusal(
         INIT_ERROR_CODES.inWorktree,
-        `${cwd} is inside a linked git worktree of ${main}. A worktree shares its main ` +
+        `${cwd} is inside a linked git worktree${whose}. A worktree shares its main ` +
           `checkout's CLEO project, so there is nothing to init here, and a .cleo/ inside a ` +
-          `worktree would be an orphan store. Nothing was changed. If ${main} is not a CLEO ` +
-          'project yet, run `cleo init` there.',
-        `cd ${JSON.stringify(main)} && cleo init`,
-        { resolvedRoot: root, worktreeRoot: git.root, mainRoot: main },
+          'worktree would be an orphan store. Nothing was changed.' +
+          (main ? ` If ${main} is not a CLEO project yet, run \`cleo init\` there.` : ''),
+        main
+          ? `cd ${JSON.stringify(main)} && cleo init`
+          : 'Run `cleo init` in the main checkout (`git worktree list` names it).',
+        { resolvedRoot: root, worktreeRoot: git.root, ...(main ? { mainRoot: main } : {}) },
       );
     }
+  }
+
+  // A submodule / separate-git-dir checkout under a CLEO project: project-root
+  // resolution walks past a gitlink root, so a store created here would be
+  // ignored and every later command would use the superproject's store.
+  const enclosing = target.enclosingProjectRoot;
+  if (
+    git?.kind === 'submodule' &&
+    enclosing !== undefined &&
+    !target.envPinned &&
+    !(additiveMapOnly && !opts.here)
+  ) {
+    throw initRefusal(
+      INIT_ERROR_CODES.gitlinkUnsupported,
+      `${git.root} is a submodule / separate-git-dir checkout inside the CLEO project at ` +
+        `${enclosing}. CLEO resolves this checkout to ${enclosing}, so every command run here ` +
+        `already uses that project's store; a separate store for a gitlink checkout is not ` +
+        'supported yet (tracked separately). Nothing was changed.',
+      `Use the project at ${enclosing} (run cleo from anywhere inside it).`,
+      { resolvedRoot: root, repositoryRoot: git.root, enclosingProjectRoot: enclosing },
+    );
   }
 
   // An uninitialized repository between cwd and the ancestor project is the
   // project the operator most likely meant: point there, not at cwd.
   const nestedRepo =
-    git && git.kind !== 'worktree' && isStrictlyInside(git.root, root) ? git.root : undefined;
+    git?.kind === 'repo' && isStrictlyInside(git.root, root) ? git.root : undefined;
   // Never advise --force against a root other than cwd (T12562 AC2).
   const separateProjectFix = nestedRepo
     ? `cd ${JSON.stringify(nestedRepo)} && cleo init`
@@ -1121,6 +1169,28 @@ function assertInitTargetAllowed(
 }
 
 /**
+ * Every managed git hook a forced re-init could overwrite, as snapshot sources.
+ *
+ * `ensureGitHooks({ force })` writes `<root>/.git/hooks`. The hooks git
+ * actually runs may live elsewhere (a gitlink checkout's git dir, or a custom
+ * `core.hooksPath`), so that directory is resolved too and snapshotted when it
+ * differs (T12562).
+ *
+ * @param projRoot - Absolute project root.
+ * @returns `[label, sourcePath]` pairs for the snapshot.
+ */
+function managedHookSnapshotSources(projRoot: string): Array<[string, string]> {
+  const literal = join(projRoot, '.git', 'hooks');
+  const gitDir = resolveGitDir(projRoot);
+  const effective = gitDir ? resolveHooksDir(projRoot, gitDir) : literal;
+  const dirs: Array<[prefix: string, dir: string]> = [['git-hook', literal]];
+  if (canonicalPath(effective) !== canonicalPath(literal)) dirs.push(['hooks-path', effective]);
+  return dirs.flatMap(([prefix, dir]) =>
+    MANAGED_HOOKS.map((h): [string, string] => [`${prefix}-${h}`, join(dir, h)]),
+  );
+}
+
+/**
  * Snapshot everything a forced re-init overwrites, and refuse to continue
  * without a complete snapshot (T12562).
  *
@@ -1152,10 +1222,7 @@ async function snapshotBeforeForcedReinit(projRoot: string, cleoDir: string): Pr
   const extras: Array<[label: string, src: string]> = [
     ['.gitignore', join(cleoDir, '.gitignore')],
     ['project-context.json', join(cleoDir, 'project-context.json')],
-    ...MANAGED_HOOKS.map((h): [string, string] => [
-      `git-hook-${h}`,
-      join(projRoot, '.git', 'hooks', h),
-    ]),
+    ...managedHookSnapshotSources(projRoot),
   ];
   for (const [label, src] of extras) {
     if (!existsSync(src)) continue;

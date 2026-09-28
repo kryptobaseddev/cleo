@@ -4,7 +4,8 @@
  * From a child git repository, init used to resolve the ANCESTOR project,
  * fail with "Project already initialized. DANGER ZONE: use --force", and
  * with `--force` re-initialize the ancestor's store. These tests pin the
- * target selection and prove the parent store is byte-identical afterwards.
+ * target selection, prove the parent store is byte-identical afterwards, and
+ * check which store a WRITE made after each init scenario actually reaches.
  *
  * @task T12562
  */
@@ -22,6 +23,7 @@ import {
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CleoError } from '../errors.js';
 import { initProject as engineInitProject } from '../init/engine-ops.js';
@@ -53,6 +55,36 @@ async function refusal(opts: Parameters<typeof initProject>[0]): Promise<CleoErr
   );
   expect(err).toBeInstanceOf(CleoError);
   return err as CleoError;
+}
+
+/**
+ * Add a task from the CURRENT directory, resolving the project exactly as a
+ * command run there would, so a test can see which store the write reached.
+ */
+async function probeWrite(title: string): Promise<void> {
+  const { addTask } = await import('../tasks/add.js');
+  await addTask({
+    title,
+    type: 'saga',
+    description: `write probe ${title}`,
+    acceptance: ['a1', 'a2', 'a3', 'a4', 'a5'],
+  });
+  await closeStores();
+}
+
+/** Whether `<dir>/.cleo/cleo.db` holds a task titled `title`. */
+function storeHas(dir: string, title: string): boolean {
+  const path = join(dir, '.cleo', 'cleo.db');
+  if (!existsSync(path)) return false;
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    const row = db.prepare('SELECT COUNT(*) AS n FROM tasks_tasks WHERE title = ?').get(title) as
+      | { n: number }
+      | undefined;
+    return (row?.n ?? 0) > 0;
+  } finally {
+    db.close();
+  }
 }
 
 async function closeStores(): Promise<void> {
@@ -124,6 +156,11 @@ describe('cleo init under an initialized ancestor (T12562)', () => {
     expect(existsSync(join(child, '.cleo', 'config.json'))).toBe(true);
     expect(existsSync(join(child, '.cleo', 'project-info.json'))).toBe(true);
     expect(parentHashes()).toEqual(before);
+
+    await probeWrite('probe nested repo write');
+    expect(storeHas(child, 'probe nested repo write')).toBe(true);
+    expect(storeHas(root, 'probe nested repo write')).toBe(false);
+    expect(parentHashes()).toEqual(before);
   });
 
   it('names the ancestor root absolutely and never suggests --force from a plain subdirectory', async () => {
@@ -142,6 +179,10 @@ describe('cleo init under an initialized ancestor (T12562)', () => {
     expect(err.message).toContain('--here');
     expect(existsSync(join(sub, '.cleo'))).toBe(false);
     expect(parentHashes()).toEqual(before);
+
+    await probeWrite('probe plain subdir write');
+    expect(storeHas(root, 'probe plain subdir write')).toBe(true);
+    expect(existsSync(join(sub, '.cleo'))).toBe(false);
   });
 
   it('dispatch engine keeps the ancestor refusal code and fix instead of "use force=true"', async () => {
@@ -186,6 +227,10 @@ describe('cleo init under an initialized ancestor (T12562)', () => {
 
     expect(result.directory).toBe(join(sub, '.cleo'));
     expect(parentHashes()).toEqual(before);
+
+    await probeWrite('probe here write');
+    expect(storeHas(sub, 'probe here write')).toBe(true);
+    expect(storeHas(root, 'probe here write')).toBe(false);
   });
 
   it('names the resolved root when re-initializing cwd without --force', async () => {
@@ -252,25 +297,86 @@ describe('cleo init under an initialized ancestor (T12562)', () => {
 
     expect(existsSync(join(wt, '.cleo'))).toBe(false);
     expect(parentHashes()).toEqual(before);
+
+    await probeWrite('probe worktree write');
+    expect(storeHas(root, 'probe worktree write')).toBe(true);
+    expect(existsSync(join(wt, '.cleo'))).toBe(false);
   });
 
-  it('initializes a submodule-style gitlink checkout in place', async () => {
-    const before = parentHashes();
-    const sub = join(root, 'vendored');
-    await mkdir(join(root, '.git', 'modules'), { recursive: true });
-    execFileSync(
-      'git',
-      ['init', '-q', '--separate-git-dir', join(root, '.git', 'modules', 'vendored'), sub],
-      { stdio: 'ignore' },
-    );
-    expect(readFileSync(join(sub, '.git'), 'utf-8')).toContain('modules');
-    process.chdir(sub);
+  /** A real submodule at `root/vendor/lib`, cloned from a committed repo. */
+  function addSubmodule(): string {
+    const src = join(testDir, 'libsrc');
+    gitInit(src);
+    git(src, 'commit', '-q', '--allow-empty', '-m', 'lib');
+    git(root, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', src, 'vendor/lib');
+    const lib = join(root, 'vendor', 'lib');
+    expect(readFileSync(join(lib, '.git'), 'utf-8')).toContain('modules');
+    return lib;
+  }
 
-    const result = await initProject({ name: 'vendored' });
+  it('refuses init and --here in a submodule, and a later write lands in the superproject', async () => {
+    const lib = addSubmodule();
+    const before = parentHashes();
+    process.chdir(lib);
+
+    for (const opts of [{}, { here: true }, { force: true }]) {
+      const err = await refusal({ name: 'lib', ...opts });
+      expect(err.details?.['codeName']).toBe(INIT_ERROR_CODES.gitlinkUnsupported);
+      expect(err.message).toContain(`CLEO resolves this checkout to ${root}`);
+      expect(err.fix).not.toContain('--force');
+    }
+    await closeStores();
+    expect(existsSync(join(lib, '.cleo'))).toBe(false);
+    expect(parentHashes()).toEqual(before);
+
+    await probeWrite('probe submodule write');
+    expect(storeHas(root, 'probe submodule write')).toBe(true);
+    expect(existsSync(join(lib, '.cleo'))).toBe(false);
+  });
+
+  it('refuses init in a separate-git-dir checkout under the project', async () => {
+    const sep = join(root, 'vendored');
+    await mkdir(join(testDir, 'sepgit'), { recursive: true });
+    execFileSync('git', ['init', '-q', '--separate-git-dir', join(testDir, 'sepgit', 'v'), sep], {
+      stdio: 'ignore',
+    });
+    process.chdir(sep);
+
+    const err = await refusal({ name: 'vendored' });
     await closeStores();
 
-    expect(result.directory).toBe(join(sub, '.cleo'));
-    expect(parentHashes()).toEqual(before);
+    expect(err.details?.['codeName']).toBe(INIT_ERROR_CODES.gitlinkUnsupported);
+    expect(existsSync(join(sep, '.cleo'))).toBe(false);
+  });
+
+  it('names the submodule checkout, not its git dir, for a worktree of a submodule', async () => {
+    const lib = addSubmodule();
+    const libWt = join(testDir, 'libwt');
+    git(lib, 'worktree', 'add', '-q', libWt);
+    process.chdir(libWt);
+
+    const err = await refusal({ name: 'libwt' });
+    await closeStores();
+
+    expect(err.details?.['codeName']).toBe(INIT_ERROR_CODES.inWorktree);
+    expect(err.message).toContain(`linked git worktree of ${lib}.`);
+    expect(err.message).not.toContain(join('.git', 'modules'));
+    expect(err.fix).not.toContain(join('.git', 'modules'));
+  });
+
+  it('snapshots hooks from a custom core.hooksPath before --force', async () => {
+    const husky = join(root, '.husky');
+    await mkdir(husky);
+    writeFileSync(join(husky, 'pre-commit'), '#!/bin/sh\necho custom-hook\n');
+    git(root, 'config', 'core.hooksPath', '.husky');
+
+    await initProject({ name: 'parent', force: true });
+    await closeStores();
+
+    const backupDir = join(root, '.cleo', 'backups', 'sqlite');
+    const copy = readdirSync(backupDir).find((f) => f.startsWith('hooks-path-pre-commit.'));
+    expect(copy).toBeDefined();
+    expect(readFileSync(join(backupDir, copy as string), 'utf-8')).toContain('custom-hook');
   });
 
   it('points at the uninitialized repo between cwd and the ancestor project', async () => {

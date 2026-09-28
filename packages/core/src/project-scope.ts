@@ -148,7 +148,8 @@ function readGitlinkTarget(dir: string): string | null {
  * Return the main checkout root of the linked git worktree at `dir`.
  *
  * A linked worktree's gitlink points at `<common>/worktrees/<name>`; the main
- * checkout is the parent of `<common>` when that is a `.git` directory. A
+ * checkout is the parent of `<common>` when that is a `.git` directory, or the
+ * `core.worktree` of `<common>` for a worktree of a submodule. A
  * submodule or `--separate-git-dir` gitlink points elsewhere (for example
  * `<super>/.git/modules/<name>`) and is its own repository, so it returns
  * `null` (T12562).
@@ -166,7 +167,28 @@ export function linkedWorktreeMainRoot(dir: string): string | null {
   const gitdir = readGitlinkTarget(dir);
   if (!gitdir || basename(dirname(gitdir)) !== 'worktrees') return null;
   const commonDir = dirname(dirname(gitdir));
-  return basename(commonDir) === '.git' ? dirname(commonDir) : commonDir;
+  if (basename(commonDir) === '.git') return dirname(commonDir);
+  // A worktree of a submodule: the common dir is `<super>/.git/modules/<name>`,
+  // a git-internal path. The checkout is its `core.worktree`; without one,
+  // the main checkout is unknown.
+  return readCoreWorktree(commonDir);
+}
+
+/**
+ * Read `core.worktree` from a git directory's `config`, resolved against it.
+ *
+ * @param gitDir - Absolute git directory.
+ * @returns The absolute work tree, or `null` when unset or unreadable.
+ */
+function readCoreWorktree(gitDir: string): string | null {
+  try {
+    const config = readFileSync(join(gitDir, 'config'), 'utf-8');
+    const core = /^\[core\][^[]*/m.exec(config)?.[0] ?? '';
+    const value = /^\s*worktree\s*=\s*(.+?)\s*$/m.exec(core)?.[1];
+    return value ? resolve(gitDir, value) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
