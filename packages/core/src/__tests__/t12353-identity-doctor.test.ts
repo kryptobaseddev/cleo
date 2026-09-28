@@ -10,12 +10,24 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { formatPortableProjectId, readPortableProjectId } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { inspectProjectIdentity, resolveProjectIdentity } from '../doctor/project-identity.js';
+import { checkSchema } from '../json-schema-validator.js';
 import { registerProjectOnEncounter } from '../paths.js';
-import { ensureGitignore } from '../scaffold/ensure-config.js';
+import { ensureGitignore, ensureProjectInfo } from '../scaffold/ensure-config.js';
 import { checkProjectIdentity } from '../validation/doctor/checks.js';
+
+/** The shipped `project-info.json` schema, as `checkSchemaIntegrity` loads it. */
+function projectInfoSchema(): Record<string, unknown> {
+  return JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL('../../schemas/project-info.schema.json', import.meta.url)),
+      'utf-8',
+    ),
+  ) as Record<string, unknown>;
+}
 
 const GIT_ENV = {
   ...process.env,
@@ -280,6 +292,41 @@ describe('T12557: persisted projectRoot is stripped by --resolve; projectHash is
     expect(inspectProjectIdentity(root)).toMatchObject({ state: 'ok', derivedFields: [] });
     expect((await resolveProjectIdentity(root)).refused).toBe('Nothing to resolve.');
     expect(hashBytes()).toBe('"a1b2c3d4e5f6"');
+  });
+
+  it('receipts survive the force-regenerate `cleo upgrade` runs, and the file stays schema-valid', async () => {
+    const root = project('upgrade', null, 'same-id');
+    await ensureGitignore(root);
+    git(root, 'add', '.cleo');
+    git(root, 'commit', '-q', '--no-verify', '-m', 'track id');
+    await ensureProjectInfo(root);
+    const infoPath = join(root, '.cleo', 'project-info.json');
+    const read = (): Record<string, unknown> =>
+      JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
+    const hash = read()['projectHash'];
+    expect(typeof hash).toBe('string');
+    writeFileSync(
+      infoPath,
+      JSON.stringify({
+        ...read(),
+        projectRoot: '/mnt/projects/upgrade',
+        previousProjectIds: ['old-id'],
+      }),
+    );
+
+    expect((await resolveProjectIdentity(root)).refused).toBeNull();
+    expect(checkSchema(read(), projectInfoSchema())).toEqual([]);
+
+    // upgrade.ts, system/health.ts and resolve's info-invalid branch all call this.
+    await ensureProjectInfo(root, { force: true });
+    const after = read();
+    expect(after['previousProjectIds']).toEqual(['old-id']);
+    expect(after['strippedFields']).toEqual([
+      expect.objectContaining({ field: 'projectRoot', value: '/mnt/projects/upgrade' }),
+    ]);
+    expect(after['projectHash']).toBe(hash);
+    expect(after).not.toHaveProperty('projectRoot');
+    expect(checkSchema(after, projectInfoSchema())).toEqual([]);
   });
 
   it('a non-git CLEO root gets a remedy with no git commands', () => {

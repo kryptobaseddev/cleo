@@ -21,6 +21,18 @@ project-info root differs from the captured project root".
   from the real path of the main checkout and saved once. A task worktree and
   a symlinked spelling such as `/tmp` vs `/private/tmp` therefore get the same
   hash as the main checkout.
+- Release ids use that same persisted hash everywhere. Before this, `plan`
+  used the persisted value while `reconcile` and the release-manifest writers
+  hashed the current path. A moved project got split release ids, and its
+  `release_commits` pointed at a missing `releases` row. Portable-bundle
+  relocation no longer recomputes the hash.
+- `cleo upgrade` and other `init --force` callers keep `previousProjectIds`,
+  `strippedFields` and `description`. Before, they erased these receipts. The
+  schema now declares `previousProjectIds` and `strippedFields`, each with
+  `maxItems` 50, so a resolved project stays schema-valid.
+- The hashless backfill is a compare-and-swap. It writes only if the file still
+  has no hash and still has the same `projectId`, so a concurrent re-key is
+  never overwritten.
 - `cleo doctor project-identity` lists a persisted `projectRoot` in
   `project-info.json` or `project-context.json` under `derivedFields`.
   `--resolve` strips it (`--dry-run` shows the plan) and keeps each removed

@@ -593,6 +593,27 @@ export function computeStableProjectHash(projectRoot: string): string {
 }
 
 /**
+ * Persist a derived `projectHash` into a legacy file, compare-and-swap style.
+ *
+ * The file is re-read just before the rename and written only when it still
+ * has no hash and still carries `expectedProjectId`, so a concurrent re-key
+ * (`doctor project-identity --resolve`) or backfill is never clobbered. Every
+ * failure leaves the file untouched; the caller keeps the derived value.
+ */
+function backfillProjectHash(infoPath: string, expectedProjectId: unknown, hash: string): void {
+  try {
+    const current = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
+    if (current.projectId !== expectedProjectId) return;
+    if (typeof current.projectHash === 'string' && current.projectHash.length > 0) return;
+    const tmp = `${infoPath}.tmp-${process.pid}`;
+    writeFileSync(tmp, `${JSON.stringify({ ...current, projectHash: hash }, null, 2)}\n`);
+    renameSync(tmp, infoPath);
+  } catch {
+    // Read-only or vanished store: the derived value is still stable for this root.
+  }
+}
+
+/**
  * Decode the existing project metadata contract at a caller-owned root.
  *
  * T12557: `projectRoot` always comes from the caller, never the file. The
@@ -602,20 +623,16 @@ export function computeStableProjectHash(projectRoot: string): string {
  */
 function decodeProjectInfo(raw: string, projectRoot: string, infoPath: string): ProjectInfo {
   const data = JSON.parse(raw) as Record<string, unknown>;
-  let projectHash = data.projectHash;
-  if (typeof projectHash !== 'string' || projectHash.length === 0) {
+  let projectHash: string;
+  if (typeof data.projectHash === 'string' && data.projectHash.length > 0) {
+    projectHash = data.projectHash;
+  } else {
     projectHash = computeStableProjectHash(projectRoot);
-    try {
-      const tmp = `${infoPath}.tmp-${process.pid}`;
-      writeFileSync(tmp, `${JSON.stringify({ ...data, projectHash }, null, 2)}\n`);
-      renameSync(tmp, infoPath);
-    } catch {
-      // Read-only store: the derived value is still stable for this root.
-    }
+    backfillProjectHash(infoPath, data.projectId, projectHash);
   }
   const segments = projectRoot.replace(/[\\/]+$/, '').split(/[\\/]/);
   return {
-    projectHash: projectHash as string,
+    projectHash,
     projectId: typeof data.projectId === 'string' ? data.projectId : '',
     projectRoot,
     projectName: segments[segments.length - 1] ?? 'unknown',

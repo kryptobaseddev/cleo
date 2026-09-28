@@ -402,6 +402,17 @@ export async function ensureConfig(
 }
 
 /**
+ * Schema-valid `project-info.json` fields a force-regenerate carries over
+ * verbatim, because nothing can regenerate them: identity-repair receipts
+ * (`previousProjectIds`, `strippedFields`) and the operator's `description`.
+ */
+const CARRIED_PROJECT_INFO_FIELDS = [
+  'description',
+  'previousProjectIds',
+  'strippedFields',
+] as const;
+
+/**
  * Create or refresh project-info.json, and adopt its id into the tracked,
  * write-once `.cleo/project-id` (T12325).
  * Idempotent: skips if file exists (unless force).
@@ -489,6 +500,12 @@ export async function ensureProjectInfo(
   const existingCheckoutNonce =
     typeof existing?.['checkoutNonce'] === 'string' ? existing['checkoutNonce'] : undefined;
 
+  // T12557: receipts and operator-authored fields are not derived either — a
+  // force-regenerate (`cleo upgrade`, doctor fixes, identity repair) keeps them.
+  const carried: Record<string, unknown> = {};
+  for (const field of CARRIED_PROJECT_INFO_FIELDS)
+    if (existing?.[field] !== undefined) carried[field] = existing[field];
+
   // T12557: write-once — a force-regenerate keeps the stored identity key.
   const projectHash =
     typeof existing?.['projectHash'] === 'string' && existing['projectHash'].length > 0
@@ -522,6 +539,7 @@ export async function ensureProjectInfo(
     cleoVersion,
     createdAt: existingCreatedAt ?? now,
     ...(existingCheckoutNonce && { checkoutNonce: existingCheckoutNonce }),
+    ...carried,
     lastUpdated: now,
     schemas: {
       config: configSchemaVersion,

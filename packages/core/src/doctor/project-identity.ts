@@ -94,6 +94,9 @@ const DERIVED_FIELD_FILES: readonly DerivedFieldFinding['file'][] = [
  */
 const DERIVED_FIELDS: readonly DerivedFieldFinding['field'][] = ['projectRoot'];
 
+/** Schema `maxItems` for the `previousProjectIds` / `strippedFields` receipts; oldest drop first. */
+const RECEIPT_MAX_ITEMS = 50;
+
 /** Bound every git probe: briefing runs this inspection on each call. */
 const GIT_PROBE_TIMEOUT_MS = 5000;
 
@@ -352,7 +355,7 @@ function stripDerivedFields(
   info['strippedFields'] = [
     ...prior,
     ...findings.map((finding) => ({ ...finding, strippedAt: now })),
-  ];
+  ].slice(-RECEIPT_MAX_ITEMS);
   if (findings.some((finding) => finding.file === 'project-info.json'))
     for (const field of DERIVED_FIELDS) delete info[field];
   writeJsonAtomic(join(projectRoot, '.cleo', 'project-info.json'), info);
@@ -639,7 +642,7 @@ export async function resolveProjectIdentity(
     writeJsonAtomic(join(projectRoot, '.cleo', 'project-info.json'), {
       ...info.data,
       projectId: newId,
-      previousProjectIds: [...new Set([...previous, oldId])],
+      previousProjectIds: [...new Set([...previous, oldId])].slice(-RECEIPT_MAX_ITEMS),
       lastUpdated: now,
     });
   }

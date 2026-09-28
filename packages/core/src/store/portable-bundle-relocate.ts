@@ -22,7 +22,6 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { PortablePathFinding, PortableRelocationReport } from '@cleocode/contracts';
-import { generateProjectHash } from '../nexus/hash.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -279,8 +278,9 @@ function rewriteAllStrings(
  * Relocate the staged `.cleo/` files of one project and report text files that
  * still mention the old root.
  *
- * - `project-info.json`: `projectHash` is recomputed for the new root (it is a
- *   path fingerprint; `projectId` is the stable identity and is kept).
+ * - `project-info.json`: left as is. `projectId` and the write-once
+ *   `projectHash` are identity keys (release ids, audit rows), never path
+ *   facts, so a relocation keeps both (T12557).
  * - `config.json`, `project-context.json`, `worktrees.json`: string values that
  *   are absolute paths under the old root are rewritten. Paths embedded inside
  *   prose strings are left and reported.
@@ -299,22 +299,6 @@ export function relocateProjectFiles(
   to: string,
   report: PortableRelocationReport,
 ): void {
-  const infoPath = path.join(stagedCleoDir, 'project-info.json');
-  if (fs.existsSync(infoPath)) {
-    const info = JSON.parse(fs.readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
-    if (typeof info['projectHash'] === 'string') {
-      const next = generateProjectHash(to);
-      if (info['projectHash'] !== next) {
-        report.rewritten.push({
-          location: 'project-info.json:projectHash',
-          count: 1,
-          example: `${String(info['projectHash'])} -> ${next}`,
-        });
-        info['projectHash'] = next;
-        fs.writeFileSync(infoPath, `${JSON.stringify(info, null, 2)}\n`);
-      }
-    }
-  }
   for (const rel of relPaths) {
     const abs = path.join(stagedCleoDir, rel);
     let text: string;
