@@ -27,7 +27,7 @@
  * @saga T11492 SG-AUTOPILOT
  */
 
-import { classifyReadiness, classifyTask, getProjectRoot } from '@cleocode/core';
+import { classifyReadinessWithDecision, classifyTask, getProjectRoot } from '@cleocode/core';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -114,8 +114,9 @@ export const classifyCommand = defineCommand({
       createdAt: row.createdAt,
     };
 
-    // Run both predicates (pure — no I/O).
-    const readiness = classifyReadiness(task);
+    // Readiness asks System One about blockedBy when configured (T12494);
+    // routing is pure.
+    const readiness = await classifyReadinessWithDecision(task, {}, { projectRoot });
     const routing = classifyTask(task);
 
     cliOutput(
