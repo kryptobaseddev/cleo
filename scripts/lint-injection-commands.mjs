@@ -41,7 +41,28 @@ import { join } from 'node:path';
 import { isMain } from './lib/is-main.mjs';
 
 const REPO_ROOT = process.cwd();
-const TEMPLATE = join(REPO_ROOT, 'packages/core/templates/CLEO-INJECTION.md');
+
+/**
+ * Protocol templates every agent is told to follow: the always-loaded core
+ * and the on-demand reference printed by `cleo briefing inject --section`
+ * (T12580). A section moved out of the core is still an instruction, so the
+ * gates judge both files — moving text must never move it out of scope.
+ */
+export const INJECTION_TEMPLATES = [
+  'packages/core/templates/CLEO-INJECTION.md',
+  'packages/core/templates/CLEO-REFERENCE.md',
+];
+
+/**
+ * Read every {@link INJECTION_TEMPLATES} file under `root`, joined by a blank
+ * line (every extractor here is line- or paragraph-local).
+ *
+ * @param {string} root - Repository root.
+ * @returns {string}
+ */
+export function readInjectionTemplates(root) {
+  return INJECTION_TEMPLATES.map((p) => readFileSync(join(root, p), 'utf-8')).join('\n\n');
+}
 
 /**
  * Verbs that are documented as prose placeholders rather than real commands
@@ -872,7 +893,7 @@ export function findFlagViolations(text, checker, skipComment) {
 
 if (isMain(import.meta.url)) {
   const asJson = process.argv.includes('--json');
-  const markdown = readFileSync(TEMPLATE, 'utf-8');
+  const markdown = readInjectionTemplates(REPO_ROOT);
   const neededSubs = new Set(
     extractCleoCommands(markdown)
       .filter((c) => c.sub !== null)
@@ -927,7 +948,7 @@ if (isMain(import.meta.url)) {
     process.stdout.write(`${JSON.stringify({ violations }, null, 2)}\n`);
   } else if (violations.length > 0) {
     process.stderr.write(
-      `CLEO-INJECTION.md has ${violations.length} unresolvable reference(s) ` +
+      `CLEO-INJECTION.md / CLEO-REFERENCE.md have ${violations.length} unresolvable reference(s) ` +
         '(a command that does not exist, an invocation that cannot run, a ' +
         '`--field` pointer the operation does not declare, or a flag the ' +
         'command does not accept).\n' +
@@ -941,7 +962,7 @@ if (isMain(import.meta.url)) {
     );
   } else {
     process.stdout.write(
-      `CLEO-INJECTION.md: all ${extractCleoCommands(markdown).length} referenced commands exist, ` +
+      `CLEO-INJECTION.md + CLEO-REFERENCE.md: all ${extractCleoCommands(markdown).length} referenced commands exist, ` +
         `all ${extractDocumentedPointers(markdown).filter((d) => d.verb !== null).length} documented --field pointer(s) resolve ` +
         `(${extractDocumentedPointers(markdown).filter((d) => d.verb === null).length} unattributable, counted not judged), ` +
         `and every flag on the ${extractInvocationsWithFlags(markdown).filter((i) => i.flags.length > 0).length} flagged invocation(s) is declared.\n`,

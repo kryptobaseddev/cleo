@@ -7,8 +7,11 @@
  * 3. Uses `cleo` prefix exclusively (no `ct` prefix, no MCP syntax)
  * 4. Contains escalation section with skill pointers
  * 5. Stays within the token-efficient size envelope
+ * 6. Splits into an always-loaded core (CLEO-INJECTION.md) and an on-demand
+ *    reference (CLEO-REFERENCE.md) whose sections every core pointer resolves
  *
  * @task T5096
+ * @task T12580 (core/on-demand split; retention clauses judged over core + reference)
  * @task T882 (v2.6.0 bumped cap to 250 lines to accommodate the "Spawn Prompt Contents" section)
  */
 
@@ -20,11 +23,24 @@ import { describe, expect, it } from 'vitest';
 const thisFile = fileURLToPath(import.meta.url);
 const corePackageRoot = resolve(dirname(thisFile), '..', '..');
 const injectionPath = join(corePackageRoot, 'templates', 'CLEO-INJECTION.md');
+const referencePath = join(corePackageRoot, 'templates', 'CLEO-REFERENCE.md');
 
 const templateExists = existsSync(injectionPath);
 
+/** Section anchor names declared in a template, in order. */
+function sectionNames(text: string): string[] {
+  return [...text.matchAll(/<!-- CLEO-INJECTION:section=([a-z0-9-]+) -->/g)].map(
+    (m) => m[1] as string,
+  );
+}
+
 describe('CLEO-INJECTION CLI-only template', () => {
+  /** Always-loaded core: every session and every tier-1 spawn prompt pays for it. */
   const content = templateExists ? readFileSync(injectionPath, 'utf-8') : '';
+  /** On-demand reference: `cleo briefing inject --section <name>`, tier-2 embed. */
+  const reference = existsSync(referencePath) ? readFileSync(referencePath, 'utf-8') : '';
+  /** Everything an agent can reach: facts may move to the reference, never vanish. */
+  const reachable = `${content}\n${reference}`;
 
   it('template file exists at templates/CLEO-INJECTION.md', () => {
     expect(templateExists).toBe(true);
@@ -41,6 +57,7 @@ describe('CLEO-INJECTION CLI-only template', () => {
         'utf-8',
       );
       expect(/^ {2}version: (.+)$/m.exec(skill)?.[1]).toBe(version);
+      expect(/^Version: (\S+) \|/m.exec(reference)?.[1]).toBe(version);
     });
 
     it('declares CLI-only dispatch', () => {
@@ -64,10 +81,10 @@ describe('CLEO-INJECTION CLI-only template', () => {
       expect(content).toContain('cleo complete');
     });
 
-    it('includes Task Discovery', () => {
-      expect(content).toContain('## Task Discovery');
+    it('includes Task Discovery (quick form in core, detail on demand)', () => {
       expect(content).toContain('cleo find');
       expect(content).toContain('cleo list');
+      expect(reference).toContain('## Task Discovery');
     });
 
     it('includes Session Commands', () => {
@@ -76,10 +93,10 @@ describe('CLEO-INJECTION CLI-only template', () => {
     });
 
     it('includes Memory (BRAIN)', () => {
-      expect(content).toContain('## Memory (BRAIN)');
-      expect(content).toContain('cleo memory find');
-      expect(content).toContain('cleo memory timeline');
-      expect(content).toContain('cleo memory fetch');
+      expect(reference).toContain('## Memory (BRAIN)');
+      expect(reference).toContain('cleo memory find');
+      expect(reference).toContain('cleo memory timeline');
+      expect(reference).toContain('cleo memory fetch');
       // v2.4.1: corrected from bare `cleo observe` to actual CLI command
       expect(content).toContain('cleo memory observe');
     });
@@ -202,22 +219,72 @@ describe('CLEO-INJECTION CLI-only template', () => {
         ],
       },
     ])('retains $rule', ({ clauses }) => {
-      const text = content.replace(/\s+/g, ' ');
+      const text = reachable.replace(/\s+/g, ' ');
       for (const clause of clauses) expect(text).toMatch(clause);
+    });
+
+    // Rules an agent needs on EVERY turn must not be one command away.
+    it.each([
+      /\*\*Ask the owner\.\*\*/,
+      /Never ask in prose or bury a question in a response/,
+      /Recency or similarity alone does not establish authority/,
+      /Automatic repairs must be bounded and reversible/,
+      /Never retry a killed mutation blindly/,
+      /Deletion is a soft archive/,
+      /Record `testsPassed` and `qaPassed` separately/,
+      /--limit 0` means EVERY match/,
+    ])('keeps %s in the always-loaded core', (clause) => {
+      expect(content.replace(/\s+/g, ' ')).toMatch(clause);
+    });
+  });
+
+  describe('Core / on-demand split (T12580)', () => {
+    it('ships the on-demand reference beside the core', () => {
+      expect(reference.length).toBeGreaterThan(0);
+    });
+
+    it('every section the core points at resolves in the reference', () => {
+      const table = content.slice(content.indexOf('## On-demand reference'));
+      // First column of each table row names the sections; later columns are prose.
+      const pointed = table
+        .slice(0, table.indexOf('\n## ', 5))
+        .split('\n')
+        .filter((line) => line.startsWith('| `'))
+        .flatMap((line) =>
+          [...(line.split('|')[1] ?? '').matchAll(/`([a-z][a-z0-9-]+)`/g)].map(
+            (m) => m[1] as string,
+          ),
+        );
+      expect(pointed.length).toBeGreaterThanOrEqual(10);
+      const referenceSections = new Set(sectionNames(reference));
+      for (const name of pointed) expect(referenceSections, name).toContain(name);
+    });
+
+    it('no section name is declared in both files', () => {
+      const core = new Set(sectionNames(content));
+      for (const name of sectionNames(reference)) expect(core, name).not.toContain(name);
+    });
+
+    it('the pointer command is the one documented in the core', () => {
+      expect(content).toContain('cleo briefing inject --section <name>');
+    });
+
+    it('the reference is never @-referenced, so no harness auto-loads it', () => {
+      expect(reachable).not.toMatch(/^@.*CLEO-REFERENCE\.md/m);
     });
   });
 
   describe('Template size', () => {
-    it('is under 470 lines (raised from 450 for the killed-write section — T12162)', () => {
-      const lines = content.split('\n').length;
+    it('core stays under 14,000 characters (~3,600 cl100k tokens — T12580)', () => {
       expect(
-        lines,
-        `CLEO-INJECTION.md is ${lines} lines against a cap of 470. This file is embedded ` +
-          'verbatim into every tier-1 spawn prompt, so every line costs tokens on every agent ' +
-          'CLEO spawns. Prefer compressing in place — reshaping fenced blocks and bullet lists ' +
-          'into tables or prose recovered 23 lines in PR #1350 without dropping a single fact — ' +
-          'over raising the cap. If you do raise it, say so explicitly in the commit message.',
-      ).toBeLessThanOrEqual(470);
+        content.length,
+        `CLEO-INJECTION.md is ${content.length} characters against a cap of 14,000. It is ` +
+          'loaded into EVERY session and embedded into every tier-1 spawn prompt; T12580 cut it ' +
+          'from 9,045 to ~3,360 cl100k tokens by moving reference material to ' +
+          'CLEO-REFERENCE.md. New reference material belongs there, behind a section in the ' +
+          "core's On-demand reference table — not here. If you raise the cap, say so " +
+          'explicitly in the commit message.',
+      ).toBeLessThanOrEqual(14000);
     });
 
     it('is at least 50 lines (not accidentally empty)', () => {
@@ -228,20 +295,20 @@ describe('CLEO-INJECTION CLI-only template', () => {
 
   describe('Spawn Prompt Contents (T882 / v2.6.0)', () => {
     it('documents the spawn prompt tier system', () => {
-      expect(content).toContain('Spawn Prompt Contents');
-      expect(content).toContain('tier 0');
-      expect(content).toContain('tier 1');
-      expect(content).toContain('tier 2');
+      expect(reference).toContain('Spawn Prompt Contents');
+      expect(reference).toContain('tier 0');
+      expect(reference).toContain('tier 1');
+      expect(reference).toContain('tier 2');
     });
 
     it('lists the required sections every spawn prompt contains', () => {
-      expect(content).toContain('## Task Identity');
-      expect(content).toContain('## File Paths');
-      expect(content).toContain('## Session Linkage');
-      expect(content).toContain('## Stage-Specific Guidance');
-      expect(content).toContain('## Evidence-Based Gate Ritual');
-      expect(content).toContain('## Quality Gates');
-      expect(content).toContain('## Return Format Contract');
+      expect(reference).toContain('## Task Identity');
+      expect(reference).toContain('## File Paths');
+      expect(reference).toContain('## Session Linkage');
+      expect(reference).toContain('## Stage-Specific Guidance');
+      expect(reference).toContain('## Evidence-Based Gate Ritual');
+      expect(reference).toContain('## Quality Gates');
+      expect(reference).toContain('## Return Format Contract');
     });
   });
 });
