@@ -313,6 +313,7 @@ export async function decide(
       ...(reason ? { fallbackReason: reason } : {}),
       latencyMs: outcome.latencyMs,
       ...(outcome.costUsd !== undefined ? { costUsd: outcome.costUsd } : {}),
+      ...(sent.model !== undefined ? { model: sent.model } : {}),
     });
     return outcome;
   };

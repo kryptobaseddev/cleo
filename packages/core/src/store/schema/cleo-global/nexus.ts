@@ -292,6 +292,80 @@ export const nexusDevices = sqliteTable(
   (table) => [index('idx_nexus_devices_last_heartbeat').on(table.lastHeartbeatAt)],
 );
 
+/** Probe error codes a `nexus_project_git_state` row may carry (T12511). */
+export const GIT_PROBE_ERROR_CODES = [
+  'E_PATH_MISSING',
+  'E_PATH_ACCESS',
+  'E_NOT_GIT_REPO',
+  'E_GIT_TIMEOUT',
+  'E_GIT_FAILED',
+  'E_FETCH_FAILED',
+] as const;
+
+/**
+ * `nexus_project_git_state` — the last git state probe of one project location
+ * (T12511). Keyed exactly like {@link nexusProjectLocations}: `(project_id, device_id,
+ * path)`, one row per checkout per device, so another device reading this
+ * store sees where each project lives and what state it was last seen in.
+ *
+ * Remote columns describe the remote as of `remote_fetched_at` (FETCH_HEAD's
+ * mtime), never "now": the probe does not fetch unless asked. A failed probe
+ * still writes its row, with `probe_error_code` set — errors are never dropped.
+ *
+ * @task T12511
+ */
+export const nexusProjectGitState = sqliteTable(
+  'nexus_project_git_state',
+  {
+    /** Immutable project id (soft FK → nexus_project_locations.project_id). */
+    projectId: text('project_id').notNull(),
+    /** Stable device id of the device the location is on. */
+    deviceId: text('device_id').notNull(),
+    /** Location path (soft FK → nexus_project_locations.path). */
+    path: text('path').notNull(),
+    /** Directory git ran in: `path`, or its declared `evidence.gitRoot`. */
+    gitRoot: text('git_root'),
+    /** Checked-out branch; NULL when detached or unknown. */
+    branch: text('branch'),
+    /** HEAD commit; NULL for an unborn branch or a failed probe. */
+    headSha: text('head_sha'),
+    /** 1 when HEAD is detached. */
+    detached: integer('detached', { mode: 'boolean' }).notNull().default(false),
+    /** 1 for a shallow clone. */
+    shallow: integer('shallow', { mode: 'boolean' }).notNull().default(false),
+    /** Tracked entries with staged or unstaged changes. */
+    dirtyCount: integer('dirty_count'),
+    /** Untracked, not-ignored entries. */
+    untrackedCount: integer('untracked_count'),
+    /** Upstream ref (e.g. `origin/main`). */
+    upstream: text('upstream'),
+    /** Commits on HEAD not on the upstream, as of the last fetch. */
+    ahead: integer('ahead'),
+    /** Commits on the upstream not on HEAD, as of the last fetch. */
+    behind: integer('behind'),
+    /** Remote the upstream belongs to (else `origin`, else the first remote). */
+    remoteName: text('remote_name'),
+    /** That remote's configured URL. */
+    remoteUrl: text('remote_url'),
+    /** Upstream tracking-ref commit, as of the last fetch. */
+    remoteHeadSha: text('remote_head_sha'),
+    /** ISO-8601 UTC instant of the last fetch (FETCH_HEAD mtime); NULL if never. */
+    remoteFetchedAt: text('remote_fetched_at'),
+    /** ISO-8601 UTC instant of this probe (canonical TEXT, §4). */
+    probedAt: text('probed_at').notNull(),
+    /** Probe wall time, milliseconds. */
+    durationMs: integer('duration_ms').notNull().default(0),
+    /** Why the probe could not describe (all of) the location. */
+    probeErrorCode: text('probe_error_code', { enum: GIT_PROBE_ERROR_CODES }),
+    /** Detail for `probe_error_code`. */
+    probeError: text('probe_error'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.deviceId, table.path] }),
+    index('idx_nexus_project_git_state_device').on(table.deviceId),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // Audit + schema meta
 // ---------------------------------------------------------------------------

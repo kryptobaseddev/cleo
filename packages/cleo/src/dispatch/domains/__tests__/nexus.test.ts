@@ -68,6 +68,7 @@ vi.mock('@cleocode/core/internal', () => ({
   nexusProjectsRemove: vi.fn(),
   nexusProjectsScan: vi.fn(),
   nexusProjectsClean: vi.fn(),
+  nexusProjectsStatus: vi.fn(),
   nexusRefreshBridge: vi.fn(),
   nexusDiff: vi.fn(),
   nexusQueryCte: vi.fn(),
@@ -1091,6 +1092,7 @@ describe('NexusHandler', () => {
         'projects.remove',
         'projects.scan',
         'projects.clean',
+        'projects.status',
         'refresh-bridge',
       ]);
     });

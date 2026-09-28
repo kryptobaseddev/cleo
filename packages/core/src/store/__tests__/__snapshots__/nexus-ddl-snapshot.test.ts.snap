@@ -28,6 +28,11 @@ exports[`T11578 AC3 — nexus DDL snapshot (post-cutover prefixed shape + FTS5) 
     "type": "table",
   },
   {
+    "name": "nexus_project_git_state",
+    "sql": "CREATE TABLE \`nexus_project_git_state\` ( \`project_id\` text NOT NULL, \`device_id\` text NOT NULL, \`path\` text NOT NULL, \`git_root\` text, \`branch\` text, \`head_sha\` text, \`detached\` integer DEFAULT false NOT NULL, \`shallow\` integer DEFAULT false NOT NULL, \`dirty_count\` integer, \`untracked_count\` integer, \`upstream\` text, \`ahead\` integer, \`behind\` integer, \`remote_name\` text, \`remote_url\` text, \`remote_head_sha\` text, \`remote_fetched_at\` text, \`probed_at\` text NOT NULL, \`duration_ms\` integer DEFAULT 0 NOT NULL, \`probe_error_code\` text, \`probe_error\` text, PRIMARY KEY (\`project_id\`, \`device_id\`, \`path\`), CHECK ("detached" IN (0, 1)), CHECK ("shallow" IN (0, 1)), CHECK ("probe_error_code" IN ('E_PATH_MISSING', 'E_PATH_ACCESS', 'E_NOT_GIT_REPO', 'E_GIT_TIMEOUT', 'E_GIT_FAILED', 'E_FETCH_FAILED')), CHECK ("remote_fetched_at" IS NULL OR "remote_fetched_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("probed_at" IS NULL OR "probed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
     "name": "nexus_project_id_aliases",
     "sql": "CREATE TABLE \`nexus_project_id_aliases\` ( \`legacy_id\` text PRIMARY KEY, \`canonical_id\` text NOT NULL, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
     "type": "table",

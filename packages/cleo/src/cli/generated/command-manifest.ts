@@ -469,6 +469,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorProjectIdentityCommand as CommandDef,
   },
   {
+    exportName: 'doctorRegistryCommand',
+    name: 'projects',
+    description:
+      'Machine-wide registry integrity: rebind moved projects by id, flag split identities, ',
+    load: async () =>
+      (await import('../commands/doctor-projects-registry.js')).doctorRegistryCommand as CommandDef,
+  },
+  {
     exportName: 'doctorProjectsCommand',
     name: 'doctor-projects',
     description: 'Probe every registered project (nexus.db) for DB + config health',
