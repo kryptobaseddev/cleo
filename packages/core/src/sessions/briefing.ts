@@ -538,6 +538,20 @@ export async function computeBriefing(
 
   // Compute warnings
   const warnings: string[] = [...knowledgeWarnings];
+  // T12559: a missing or conflicting `.cleo/project-id` is otherwise invisible
+  // until a clone mints its own id. One line, only when the state is not ok.
+  try {
+    const { inspectProjectIdentity } = await import('../doctor/project-identity.js');
+    const identity = inspectProjectIdentity(projectRoot);
+    if (identity.state !== 'ok' && identity.remedy)
+      warnings.push(
+        `Project identity ${identity.state}: ${identity.message} Remedy: ${identity.remedy}`,
+      );
+  } catch (error) {
+    warnings.push(
+      `Project identity unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   if (currentTaskInfo?.blockedBy?.length) {
     warnings.push(
       `Focused task ${currentTaskInfo.id} is blocked by: ${currentTaskInfo.blockedBy.join(', ')}`,
