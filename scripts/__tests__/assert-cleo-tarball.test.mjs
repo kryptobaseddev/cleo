@@ -1,4 +1,5 @@
 /** Independent npm-produced fixtures exercise both operational packaging wrappers. */
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   existsSync,
@@ -231,9 +232,28 @@ describe('packed operational execution', () => {
   it('observes exact owned descendant termination within a bounded cleanup interval', async () => {
     const marker = join(root, 'child.pid');
     const childCode = 'setInterval(()=>{},1000)';
-    const code = `const cp=require('node:child_process');const fs=require('node:fs');const child=cp.spawn(process.execPath,['-e',${JSON.stringify(childCode)},'cleo-packed-owned-child'],{stdio:'ignore'});const stat=fs.readFileSync('/proc/'+child.pid+'/stat','utf8');fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:child.pid,start:stat.slice(stat.lastIndexOf(')')+2).split(' ')[19]}));child.unref();`;
+    // Process identity is PID + start time. Linux reads field 22 of
+    // /proc/<pid>/stat; platforms without /proc (macOS) ask ps for the start
+    // time, state and command of the same PID.
+    const startOf = `(pid)=>{if(process.platform==='linux'){const stat=fs.readFileSync('/proc/'+pid+'/stat','utf8');return stat.slice(stat.lastIndexOf(')')+2).split(' ')[19];}return cp.execFileSync('ps',['-o','lstart=','-p',String(pid)],{encoding:'utf8'}).trim();}`;
+    const code = `const cp=require('node:child_process');const fs=require('node:fs');const startOf=${startOf};const child=cp.spawn(process.execPath,['-e',${JSON.stringify(childCode)},'cleo-packed-owned-child'],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:child.pid,start:startOf(child.pid)}));child.unref();`;
     let identity;
+    const psField = (field) => {
+      try {
+        return execFileSync('ps', ['-o', `${field}=`, '-p', String(identity.pid)], {
+          encoding: 'utf8',
+        }).trim();
+      } catch (error) {
+        // ps exits 1 when no process has this PID.
+        if (error.status === 1) return null;
+        throw error;
+      }
+    };
     const ownedRunning = () => {
+      if (process.platform !== 'linux') {
+        const state = psField('stat');
+        return state !== null && !state.startsWith('Z') && psField('lstart') === identity.start;
+      }
       try {
         const stat = readFileSync(`/proc/${identity.pid}/stat`, 'utf8');
         const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
@@ -243,6 +263,10 @@ describe('packed operational execution', () => {
         throw error;
       }
     };
+    const ownedCommand = () =>
+      process.platform === 'linux'
+        ? readFileSync(`/proc/${identity.pid}/cmdline`, 'utf8')
+        : (psField('command') ?? '');
     try {
       await runPackedCommand(process.execPath, ['-e', code], {
         cwd: root,
@@ -260,12 +284,7 @@ describe('packed operational execution', () => {
       if (!identity && existsSync(marker)) identity = JSON.parse(readFileSync(marker, 'utf8'));
       if (identity) {
         try {
-          if (
-            ownedRunning() &&
-            readFileSync(`/proc/${identity.pid}/cmdline`, 'utf8').includes(
-              'cleo-packed-owned-child',
-            )
-          )
+          if (ownedRunning() && ownedCommand().includes('cleo-packed-owned-child'))
             process.kill(identity.pid, 'SIGKILL');
         } catch (error) {
           expect(['ENOENT', 'ESRCH']).toContain(error.code);

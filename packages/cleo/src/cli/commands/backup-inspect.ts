@@ -296,6 +296,27 @@ async function inspectTarball(
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve a user-supplied snapshot path with its DIRECTORY canonicalised.
+ *
+ * The core rejects any path whose realpath differs from itself, so on macOS
+ * every snapshot under /tmp, /var or $TMPDIR (symlinks into /private) was
+ * refused as a "symlink". Only the parent is resolved: a symlinked snapshot
+ * file itself still reaches the core unchanged and is still rejected.
+ *
+ * @param input - Path as typed by the user.
+ * @returns Absolute path with a canonical parent directory.
+ */
+function resolveSnapshotPath(input: string): string {
+  const absolute = path.resolve(input);
+  try {
+    return path.join(fs.realpathSync(path.dirname(absolute)), path.basename(absolute));
+  } catch {
+    // Missing parent: let the core report the source failure itself.
+    return absolute;
+  }
+}
+
+/**
  * `cleo backup inspect <bundle>` subcommand definition for citty.
  *
  * Stream-reads `manifest.json` from a `.cleobundle.tar.gz` (or encrypted
@@ -368,7 +389,7 @@ export const backupInspectSubCommand = defineCommand({
     }
     try {
       const result = await inspectBackupObservation({
-        snapshotPath: path.resolve(args.bundle),
+        snapshotPath: resolveSnapshotPath(args.bundle),
         recordId,
         expectedProjectId: args['expected-project-id'],
         label: args.label,

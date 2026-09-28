@@ -36,6 +36,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { isMain } from './lib/is-main.mjs';
 
 // ============================================================================
 // Constants
@@ -639,24 +640,7 @@ function emitReport(result, opts) {
 // Entry point
 // ============================================================================
 
-/**
- * Return true when this module is the direct entry point (not imported).
- *
- * @returns {boolean}
- */
-function isMain() {
-  const invoked = process.argv[1];
-  if (!invoked) return false;
-  try {
-    const url = new URL(import.meta.url);
-    const path = url.pathname;
-    return resolve(path) === resolve(invoked);
-  } catch {
-    return false;
-  }
-}
-
-if (isMain()) {
+if (isMain(import.meta.url)) {
   let config;
   try {
     config = parseArgs(process.argv.slice(2));

@@ -1,6 +1,6 @@
 /**
  * Forbid `new URL(..., import.meta.url).pathname` as a filesystem path in
- * vitest/vite configs (T12517).
+ * vitest/vite configs (T12517) and test files (T12550).
  *
  * `.pathname` keeps percent-encoding, so a checkout under a path with a space
  * (every macOS CLEO worktree: `~/Library/Application Support/...`) resolved
@@ -24,6 +24,23 @@ describe('config path idiom (T12517)', () => {
     })
       .split('\n')
       .filter(Boolean);
+    expect(files.length).toBeGreaterThan(0);
+    const offenders = files.filter((f) =>
+      /import\.meta\.url,?\s*\)\s*\.pathname/.test(readFileSync(join(REPO_ROOT, f), 'utf8')),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  // T12550: the same idiom in test files made tests fail only in a macOS
+  // worktree (ENOENT on `.../Application%20Support/...`), never on Linux CI.
+  it('no test file derives a filesystem path from URL.pathname', () => {
+    const self = 'scripts/__tests__/no-url-pathname-paths.test.mjs';
+    const files = execFileSync('git', ['ls-files', '*.test.ts', '*.test.mjs'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter((f) => f && f !== self);
     expect(files.length).toBeGreaterThan(0);
     const offenders = files.filter((f) =>
       /import\.meta\.url,?\s*\)\s*\.pathname/.test(readFileSync(join(REPO_ROOT, f), 'utf8')),
