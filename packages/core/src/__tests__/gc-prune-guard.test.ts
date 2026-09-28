@@ -27,7 +27,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { pruneOrphanWorktrees } from '../gc/cleanup.js';
 
 // ---------------------------------------------------------------------------
@@ -170,6 +170,45 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
       });
       expect(tarList).toContain('dirty.txt');
       expect(tarList).toContain('nested/loop');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('an archive that overruns the 120s bound fails closed with no partial archive (T12604)', () => {
+    const { worktreesRoot, projectDir, cleanup } = makeLayout('abcdef');
+    try {
+      const wt = join(projectDir, 'T9057');
+      initGitRepo(wt);
+      writeFileSync(join(wt, 'dirty.txt'), 'uncommitted\n');
+
+      // Every clock read advances 61s, so the walk crosses the deadline on
+      // its second entry — the path a huge or hung filesystem would take.
+      let now = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockImplementation(() => {
+        now += 61_000;
+        return now;
+      });
+      let result: ReturnType<typeof pruneOrphanWorktrees>;
+      try {
+        result = pruneOrphanWorktrees({
+          worktreesRoot,
+          projectHash: 'abcdef',
+          activeTaskIds: new Set(['PRESERVED']),
+        });
+      } finally {
+        clock.mockRestore();
+      }
+
+      expect(result.errors.map((e) => e.reason)).toEqual([
+        'quarantine tar failed — worktree preserved (T11996)',
+      ]);
+      expect(existsSync(wt)).toBe(true);
+      const quarantineDir = join(worktreesRoot, '..', 'quarantine', 'worktrees');
+      const leftovers = existsSync(quarantineDir)
+        ? readdirSync(quarantineDir).filter((f) => f.endsWith('.tar.gz'))
+        : [];
+      expect(leftovers).toEqual([]);
     } finally {
       cleanup();
     }

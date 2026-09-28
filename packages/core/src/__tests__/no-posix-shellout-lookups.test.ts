@@ -15,9 +15,13 @@ import { describe, expect, it } from 'vitest';
 const PACKAGES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const IN_SCOPE = ['adapters', 'caamp', 'cleo', 'core', 'git-shim', 'paths', 'worktree'];
 
-/** A `which`/`where`-less lookup or `test -x` executed through a shell or execFile. */
-const SHELLOUT =
-  /(?:exec(?:Sync|Async)?|execFile(?:Sync|Async)?|spawn(?:Sync)?|tryExec|runBin)\(\s*(?:['"`]which['"`]|['"`](?:which|test -x)\s)/;
+/**
+ * Any call — whatever the callee is named (`exec`, `execP`, `run`, …) — whose
+ * first argument is a string or template literal that is a `which`,
+ * `test -x` or `command -v` shell line, or the bare `'which'` executable.
+ * Callee-agnostic on purpose: a name list missed `execP('which claude')`.
+ */
+const SHELLOUT = /[\w$\])]\s*\(\s*(?:(['"`])(?:which|test\s+-x|command\s+-v)\s|(['"`])which\2\s*,)/;
 
 function* sourceFiles(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -37,6 +41,8 @@ describe('no POSIX-only executable lookups (T12604)', () => {
         readFileSync(file, 'utf-8')
           .split('\n')
           .forEach((line, i) => {
+            // Comment/TSDoc prose is not a call.
+            if (/^\s*(\*|\/\/|\/\*)/.test(line)) return;
             if (SHELLOUT.test(line)) offenders.push(`${relative(PACKAGES_DIR, file)}:${i + 1}`);
           });
       }
@@ -44,14 +50,25 @@ describe('no POSIX-only executable lookups (T12604)', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('the pattern catches the forms it guards against', () => {
+  it('the pattern catches the forms it guards against, whatever the callee', () => {
     for (const line of [
       "await execAsync('which claude');",
+      "await withTimeout(execP('which claude'), 3_000);",
+      // A template literal with a placeholder (built so it is not itself one).
+      `await run(\`which $${'{'}bin}\`);`,
       'await execAsync(`test -x "/opt/pi" && echo ok`);',
+      "sh('command -v git')",
       "execFileSync('which', ['cleo']);",
       "runBin('which', ['cleo'])",
+      "const probe = promisify(exec) ( 'which gh' );",
     ])
-      expect(SHELLOUT.test(line)).toBe(true);
-    expect(SHELLOUT.test("findOnPath('claude')")).toBe(false);
+      expect(SHELLOUT.test(line), line).toBe(true);
+    for (const line of [
+      "findOnPath('claude')",
+      ' * `which claude` used to be spawned here',
+      "const label = 'which one';",
+      "log('whichever')",
+    ])
+      expect(SHELLOUT.test(line), line).toBe(false);
   });
 });
