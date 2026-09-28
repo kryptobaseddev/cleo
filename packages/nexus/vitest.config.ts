@@ -7,6 +7,7 @@
  * @task T532
  */
 
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
 
@@ -29,8 +30,7 @@ export default defineConfig({
     ],
     exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**', '**/*.integration.test.ts', '**/*-integration.test.ts'],
     alias: {
-      '@cleocode/contracts': new URL('../../packages/contracts/src/index.ts', import.meta.url)
-        .pathname,
+      '@cleocode/contracts': fileURLToPath(new URL('../../packages/contracts/src/index.ts', import.meta.url)),
     },
   },
 });
