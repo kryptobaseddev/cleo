@@ -64,18 +64,19 @@ import { getGlobalSaltPath } from './global-salt.js';
 import { getBrainDb, getBrainNativeDb } from './memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from './nexus-sqlite.js';
 import { getSkillsNativeDb, openSkillsDb } from './skills-db.js';
+import {
+  runGatedSnapshot,
+  type SnapshotGateResult,
+  selectSnapshotsToKeep,
+} from './snapshot-gate.js';
 import { getDb, getNativeDb } from './sqlite.js';
 
-/** Maximum number of snapshots retained per database (oldest rotated out). */
-const MAX_SNAPSHOTS = 10;
-/** Debounce window (ms) during which duplicate snapshot requests are suppressed. */
-const DEBOUNCE_MS = 30_000; // 30 seconds
-
 /**
- * Per-database snapshot book-keeping: last snapshot timestamp (epoch ms)
- * keyed by the canonical snapshot prefix (e.g. `"tasks"` / `"brain"`).
+ * Maximum number of snapshots retained per global-tier database and for the
+ * global-salt backups (oldest rotated out). Project-tier snapshots use the
+ * time-spread policy in `snapshot-gate.ts` instead (T12508).
  */
-const _lastBackupEpoch: Record<string, number> = {};
+const MAX_SNAPSHOTS = 10;
 
 /**
  * Minimal shape of the handle used by the snapshot pipeline — only `exec()`
@@ -555,25 +556,25 @@ function snapshotPattern(prefix: string): RegExp {
 }
 
 /**
- * Rotate snapshots for a single prefix: delete the oldest files until fewer
- * than {@link MAX_SNAPSHOTS} remain. Non-fatal on any filesystem error.
+ * Apply time-spread retention to a single prefix: delete every snapshot not
+ * selected by {@link selectSnapshotsToKeep} (latest, hourly and daily slots).
+ * Runs AFTER the new snapshot is written, so a failed `VACUUM INTO` never
+ * costs an existing recovery point. Non-fatal on any filesystem error.
+ *
+ * @task T12508 — replaces the newest-10 rotation that a burst could flush
  */
 function rotateSnapshots(backupDir: string, prefix: string): void {
   try {
     const pattern = snapshotPattern(prefix);
-    const files = readdirSync(backupDir)
-      .filter((f) => pattern.test(f))
-      .map((f) => ({
-        name: f,
-        path: join(backupDir, f),
-        mtimeMs: statSync(join(backupDir, f)).mtimeMs,
-      }))
-      .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
-
-    while (files.length >= MAX_SNAPSHOTS) {
-      const oldest = files.shift();
-      if (!oldest) break;
-      unlinkSync(oldest.path);
+    const names = readdirSync(backupDir).filter((f) => pattern.test(f));
+    const keep = selectSnapshotsToKeep(names);
+    for (const name of names) {
+      if (keep.has(name)) continue;
+      try {
+        unlinkSync(join(backupDir, name));
+      } catch {
+        // non-fatal — try the rest
+      }
     }
   } catch {
     // non-fatal
@@ -587,8 +588,61 @@ export interface VacuumOptions {
    * directory. Defaults to `process.cwd()` (delegated to {@link getCleoDir}).
    */
   cwd?: string;
-  /** When true, bypass the {@link DEBOUNCE_MS} debounce window. */
-  force?: boolean;
+}
+
+/**
+ * Resolve the project `cleo.db` handle that stores the snapshot gate state
+ * (see `snapshot-gate.ts`). Returns `null` when it cannot be opened, in which
+ * case the gate admits no snapshot.
+ *
+ * @task T12508
+ */
+async function resolveGateStateDb(cwd?: string): Promise<DatabaseSync | null> {
+  try {
+    const bound = getNativeDb(cwd);
+    if (bound) return bound;
+    await getDb(cwd);
+    return getNativeDb(cwd);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Snapshot the given project-tier targets through the project-wide gate:
+ * one snapshot in flight per project across processes, and a per-prefix
+ * debounce persisted in `cleo.db`. Non-fatal.
+ *
+ * @returns The gate outcome, or `null` when the backup directory cannot be
+ *          resolved or no target is snapshottable.
+ * @task T12508
+ */
+async function snapshotProjectTargetsGated(
+  targets: readonly SnapshotTarget[],
+  cwd?: string,
+): Promise<SnapshotGateResult | null> {
+  let backupDir: string;
+  try {
+    const cleoDir = getCleoDir(cwd);
+    backupDir = join(cleoDir, 'backups', 'sqlite');
+    mkdirSync(backupDir, { recursive: true });
+  } catch {
+    return null; // cannot resolve backup dir — abort silently
+  }
+
+  const byPrefix = new Map(
+    targets.filter((t) => t.strategy !== 'skip-derived').map((t) => [t.prefix, t] as const),
+  );
+  if (byPrefix.size === 0) return null;
+
+  const now = new Date();
+  return runGatedSnapshot(
+    { backupDir, stateDb: await resolveGateStateDb(cwd), prefixes: [...byPrefix.keys()] },
+    async (prefix) => {
+      const target = byPrefix.get(prefix);
+      if (target) await snapshotOne(target, backupDir, now, cwd);
+    },
+  );
 }
 
 /**
@@ -663,11 +717,11 @@ async function snapshotOne(
     // in that case so we keep the call uniform.
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
 
-    rotateSnapshots(backupDir, target.prefix);
-
     // Escape single quotes in path (path is programmatic, but be safe).
     const safeDest = dest.replace(/'/g, "''");
     db.exec(`VACUUM INTO '${safeDest}'`);
+
+    rotateSnapshots(backupDir, target.prefix);
   } finally {
     // Release the ephemeral handle for raw-file-vacuum-readonly targets.
     // Chokepoint-opener handles (`closeDb === null`) remain owned by their
@@ -681,44 +735,37 @@ async function snapshotOne(
 /**
  * Create a VACUUM INTO snapshot of the primary SQLite database (tasks.db).
  *
- * Debounced by default (30s). Pass `force: true` to bypass debounce. This
- * function is retained for backward compatibility with existing call sites
- * in `data-safety-central.ts` that only snapshot tasks.db.
- *
- * Prefer {@link vacuumIntoBackupAll} for new code — it snapshots every
- * inventory-registered database and shares the same debounce + rotation
- * guarantees.
+ * Retained for backward compatibility with call sites in
+ * `data-safety-central.ts` that only snapshot tasks.db. It passes through the
+ * same project-wide gate as {@link vacuumIntoBackupAll}: at most one snapshot
+ * in flight per project, and a persisted per-prefix debounce with no bypass.
  *
  * Non-fatal: all errors are swallowed — backup failure must never
  * interrupt normal operation.
+ *
+ * @returns The gate outcome (which prefixes were snapshotted, or why none
+ *          were), or `null` when nothing could be attempted.
+ * @task T12508 — gated; the `force` bypass was removed
  */
-export async function vacuumIntoBackup(opts: VacuumOptions = {}): Promise<void> {
-  const now = Date.now();
-  const prefix = 'tasks';
-  const last = _lastBackupEpoch[prefix] ?? 0;
-  if (!opts.force && now - last < DEBOUNCE_MS) {
-    return; // debounced
-  }
-
+export async function vacuumIntoBackup(
+  opts: VacuumOptions = {},
+): Promise<SnapshotGateResult | null> {
   try {
-    const cleoDir = getCleoDir(opts.cwd);
-    const backupDir = join(cleoDir, 'backups', 'sqlite');
-    mkdirSync(backupDir, { recursive: true });
-
-    const target = SNAPSHOT_TARGETS.find((t) => t.prefix === prefix);
-    if (!target) return;
-
-    await snapshotOne(target, backupDir, new Date(), opts.cwd);
-    _lastBackupEpoch[prefix] = Date.now();
+    const target = SNAPSHOT_TARGETS.find((t) => t.prefix === 'tasks');
+    if (!target) return null;
+    return await snapshotProjectTargetsGated([target], opts.cwd);
   } catch {
     // non-fatal — backup failure must never interrupt normal operation
+    return null;
   }
 }
 
 /**
  * Create VACUUM INTO snapshots of every project-tier (and opt-in `derived`)
- * SQLite database registered in `DB_INVENTORY`. Each database is debounced
- * independently.
+ * SQLite database registered in `DB_INVENTORY`. Each prefix is debounced
+ * independently; the debounce is persisted in `cleo.db` and re-checked under a
+ * project-wide cross-process lock, so a burst of session ends from many
+ * processes produces one snapshot per prefix (see `snapshot-gate.ts`).
  *
  * This is the preferred entry point for session-lifecycle hooks and
  * pre-destructive-operation snapshots — it guarantees that BRAIN memory is
@@ -733,32 +780,18 @@ export async function vacuumIntoBackup(opts: VacuumOptions = {}): Promise<void> 
  *
  * @task T5158
  * @task T10317 — extended to every `DB_INVENTORY` project + derived row
+ * @returns The gate outcome (which prefixes were snapshotted, or why none
+ *          were), or `null` when nothing could be attempted.
+ * @task T12508 — cross-process gate + persisted debounce; `force` removed
  */
-export async function vacuumIntoBackupAll(opts: VacuumOptions = {}): Promise<void> {
-  const nowMs = Date.now();
-  const now = new Date();
-
-  let backupDir: string;
+export async function vacuumIntoBackupAll(
+  opts: VacuumOptions = {},
+): Promise<SnapshotGateResult | null> {
   try {
-    const cleoDir = getCleoDir(opts.cwd);
-    backupDir = join(cleoDir, 'backups', 'sqlite');
-    mkdirSync(backupDir, { recursive: true });
+    return await snapshotProjectTargetsGated(SNAPSHOT_TARGETS, opts.cwd);
   } catch {
-    return; // cannot resolve backup dir — abort silently
-  }
-
-  for (const target of SNAPSHOT_TARGETS) {
-    if (target.strategy === 'skip-derived') continue;
-    const last = _lastBackupEpoch[target.prefix] ?? 0;
-    if (!opts.force && nowMs - last < DEBOUNCE_MS) {
-      continue; // debounced — skip this target only
-    }
-    try {
-      await snapshotOne(target, backupDir, now, opts.cwd);
-      _lastBackupEpoch[target.prefix] = Date.now();
-    } catch {
-      // non-fatal — continue with remaining targets
-    }
+    // non-fatal — backup failure must never interrupt normal operation
+    return null;
   }
 }
 

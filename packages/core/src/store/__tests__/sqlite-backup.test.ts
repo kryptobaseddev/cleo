@@ -22,7 +22,25 @@
 import { mkdirSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * In-memory stand-in for the project `cleo.db` `schema_meta` table, where the
+ * T12508 snapshot gate persists its debounce state. Recreated per test.
+ */
+let gateStateDb: DatabaseSync;
+
+/**
+ * Build a mocked tasks native handle: `exec` is the test's spy (so VACUUM INTO
+ * never touches disk) and `prepare` reaches the in-memory gate state.
+ */
+function withGateState(exec: (sql: string) => void): {
+  exec: (sql: string) => void;
+  prepare: DatabaseSync['prepare'];
+} {
+  return { exec, prepare: (sql: string) => gateStateDb.prepare(sql) };
+}
 
 /**
  * Stub the chokepoint openers we don't care about for a given test case.
@@ -57,6 +75,8 @@ describe('sqlite-backup', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    gateStateDb = new DatabaseSync(':memory:');
+    gateStateDb.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
   });
 
   it('is non-fatal when getNativeDb() returns null', async () => {
@@ -80,7 +100,7 @@ describe('sqlite-backup', () => {
     }));
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
-    await expect(vacuumIntoBackup({ force: true })).resolves.not.toThrow();
+    await expect(vacuumIntoBackup()).resolves.not.toThrow();
   });
 
   it('is non-fatal when getBrainNativeDb() returns null', async () => {
@@ -101,13 +121,13 @@ describe('sqlite-backup', () => {
     }));
 
     const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
-    await expect(vacuumIntoBackupAll({ force: true })).resolves.not.toThrow();
+    await expect(vacuumIntoBackupAll()).resolves.not.toThrow();
   });
 
   it('calls PRAGMA wal_checkpoint(TRUNCATE) before VACUUM INTO for tasks.db', async () => {
     const execMock = vi.fn();
     vi.doMock('../sqlite.js', () => ({
-      getNativeDb: () => ({ exec: execMock }),
+      getNativeDb: () => withGateState(execMock),
       getDb: async () => null,
     }));
     vi.doMock('../memory-sqlite.js', () => ({
@@ -127,7 +147,7 @@ describe('sqlite-backup', () => {
     }));
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
-    await vacuumIntoBackup({ force: true });
+    await vacuumIntoBackup();
 
     expect(execMock).toHaveBeenCalledWith('PRAGMA wal_checkpoint(TRUNCATE)');
     const calls = execMock.mock.calls.map((c: string[][]) => c[0] as unknown as string);
@@ -139,7 +159,7 @@ describe('sqlite-backup', () => {
   it('enforces maximum 10 tasks.db snapshots via rotation', async () => {
     const execMock = vi.fn();
     vi.doMock('../sqlite.js', () => ({
-      getNativeDb: () => ({ exec: execMock }),
+      getNativeDb: () => withGateState(execMock),
       getDb: async () => null,
     }));
     vi.doMock('../memory-sqlite.js', () => ({
@@ -167,7 +187,7 @@ describe('sqlite-backup', () => {
     }
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
-    await vacuumIntoBackup({ force: true });
+    await vacuumIntoBackup();
 
     const remaining = readdirSync(backupDir).filter(
       (f) => f.startsWith('tasks-') && f.endsWith('.db'),
@@ -179,7 +199,7 @@ describe('sqlite-backup', () => {
     const tasksExec = vi.fn();
     const brainExec = vi.fn();
     vi.doMock('../sqlite.js', () => ({
-      getNativeDb: () => ({ exec: tasksExec }),
+      getNativeDb: () => withGateState(tasksExec),
       getDb: async () => null,
     }));
     vi.doMock('../memory-sqlite.js', () => ({
@@ -208,7 +228,7 @@ describe('sqlite-backup', () => {
     }
 
     const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
-    await vacuumIntoBackupAll({ force: true });
+    await vacuumIntoBackupAll();
 
     const files = readdirSync(backupDir);
     const tasksFiles = files.filter((f) => f.startsWith('tasks-') && f.endsWith('.db'));
@@ -221,7 +241,7 @@ describe('sqlite-backup', () => {
     const tasksExec = vi.fn();
     const brainExec = vi.fn();
     vi.doMock('../sqlite.js', () => ({
-      getNativeDb: () => ({ exec: tasksExec }),
+      getNativeDb: () => withGateState(tasksExec),
       getDb: async () => null,
     }));
     vi.doMock('../memory-sqlite.js', () => ({
@@ -241,7 +261,7 @@ describe('sqlite-backup', () => {
     }));
 
     const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
-    await vacuumIntoBackupAll({ force: true });
+    await vacuumIntoBackupAll();
 
     // Each DB should have received a wal_checkpoint and a VACUUM INTO call.
     const assertExec = (mock: ReturnType<typeof vi.fn>) => {
@@ -256,7 +276,7 @@ describe('sqlite-backup', () => {
   it('debounce skips second call within debounce window (tasks prefix)', async () => {
     const execMock = vi.fn();
     vi.doMock('../sqlite.js', () => ({
-      getNativeDb: () => ({ exec: execMock }),
+      getNativeDb: () => withGateState(execMock),
       getDb: async () => null,
     }));
     vi.doMock('../memory-sqlite.js', () => ({
@@ -276,12 +296,13 @@ describe('sqlite-backup', () => {
     }));
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
-    // First call with force sets _lastBackupEpoch
-    await vacuumIntoBackup({ force: true });
+    // First call snapshots and persists the start time in schema_meta.
+    await vacuumIntoBackup();
     const callCountAfterFirst = execMock.mock.calls.length;
+    expect(callCountAfterFirst).toBeGreaterThan(0);
 
-    // Second call without force — should be debounced
-    await vacuumIntoBackup({ force: false });
+    // Second call — debounced by the persisted state (T12508: no force path).
+    await vacuumIntoBackup();
     expect(execMock.mock.calls.length).toBe(callCountAfterFirst);
   });
 
@@ -295,7 +316,7 @@ describe('sqlite-backup', () => {
     const brainExec = vi.fn();
     const getBrainDbMock = vi.fn(async () => null); // resolves; native handle below
     vi.doMock('../sqlite.js', () => ({
-      getNativeDb: () => ({ exec: tasksExec }),
+      getNativeDb: () => withGateState(tasksExec),
       getDb: async () => null,
     }));
     // First call to getBrainNativeDb returns null (fast path miss). The
@@ -322,7 +343,7 @@ describe('sqlite-backup', () => {
     }));
 
     const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
-    await vacuumIntoBackupAll({ force: true });
+    await vacuumIntoBackupAll();
 
     expect(getBrainDbMock).toHaveBeenCalledTimes(1);
     // After eager-open, the brain VACUUM INTO must have executed.
@@ -476,7 +497,7 @@ describe('sqlite-backup', () => {
     const brainExec = vi.fn();
     const conduitExec = vi.fn();
     vi.doMock('../sqlite.js', () => ({
-      getNativeDb: () => ({ exec: tasksExec }),
+      getNativeDb: () => withGateState(tasksExec),
       getDb: async () => null,
     }));
     vi.doMock('../memory-sqlite.js', () => ({
@@ -496,7 +517,7 @@ describe('sqlite-backup', () => {
     }));
 
     const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
-    await vacuumIntoBackupAll({ force: true });
+    await vacuumIntoBackupAll();
 
     // Every project chokepoint role with a live handle MUST have received
     // both a wal_checkpoint and a VACUUM INTO call.

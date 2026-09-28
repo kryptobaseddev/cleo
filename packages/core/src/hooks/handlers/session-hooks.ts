@@ -101,11 +101,14 @@ export async function handleSessionEnd(
  *
  * ADR-013 / T5158: `.cleo/tasks.db` and `.cleo/brain.db` are NOT tracked in
  * project git, so we need an out-of-band recovery mechanism. This handler
- * calls `vacuumIntoBackupAll` with `force: true` at every session end to
- * guarantee a fresh point-in-time snapshot of both databases.
+ * requests a point-in-time snapshot at every session end.
  *
- * Rotation (MAX_SNAPSHOTS = 10 per database) is handled inside
- * `sqlite-backup.ts`. Failures here are non-fatal: a backup error must
+ * T12508: the request passes through the project-wide snapshot gate
+ * (`store/snapshot-gate.ts`) with no bypass. Only one snapshot runs per
+ * project at a time across processes, and a debounce persisted in `cleo.db`
+ * collapses a burst of session ends into one snapshot. Time-spread retention
+ * (latest, hourly, daily slots) keeps older recovery points from being
+ * evicted by a burst. Failures here are non-fatal: a backup error must
  * never block session end.
  *
  * The `vacuumIntoBackupAll` import is deferred to call time so tests that
@@ -119,7 +122,7 @@ export async function handleSessionEndBackup(
 ): Promise<void> {
   try {
     const { vacuumIntoBackupAll } = await import('../../store/sqlite-backup.js');
-    await vacuumIntoBackupAll({ cwd: projectRoot, force: true });
+    await vacuumIntoBackupAll({ cwd: projectRoot });
   } catch {
     // Backup failures are best-effort — never block session end on them.
   }

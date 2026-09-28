@@ -370,7 +370,7 @@ export async function forceSafetyCheckpoint(context: string, cwd?: string): Prom
   return inSafetyScope(cwd, async (cwd) => {
     log.info({ context }, 'Forcing checkpoint');
     await gitCheckpoint('manual', context, cwd);
-    vacuumIntoBackup({ cwd, force: true }).catch(() => {}); // non-fatal SQLite snapshot
+    vacuumIntoBackup({ cwd }).catch(() => {}); // non-fatal, gated SQLite snapshot (T12508)
   });
 }
 
@@ -775,7 +775,7 @@ export async function forceCheckpointBeforeOperation(
       // Don't throw - checkpoint failures shouldn't block operations
     }
 
-    vacuumIntoBackup({ cwd, force: true }).catch(() => {}); // non-fatal SQLite snapshot
+    vacuumIntoBackup({ cwd }).catch(() => {}); // non-fatal, gated SQLite snapshot (T12508)
   });
 }
 

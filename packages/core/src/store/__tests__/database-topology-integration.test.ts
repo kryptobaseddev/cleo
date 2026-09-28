@@ -261,6 +261,10 @@ describe('T308: CleoOS Database Topology Integration', () => {
     const tasksDb = new DatabaseSync(tasksPath);
     const brainDb = new DatabaseSync(brainPath);
     const nexusDb = new DatabaseSync(nexusPath);
+    // T12508: the snapshot gate persists its debounce in `schema_meta`.
+    tasksDb.exec(
+      'CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+    );
 
     // Mock the native DB getters so vacuumIntoBackupAll finds live handles.
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb }));
@@ -270,7 +274,7 @@ describe('T308: CleoOS Database Topology Integration', () => {
     const { vacuumIntoBackupAll, vacuumIntoGlobalBackup } = await import('../sqlite-backup.js');
 
     // Project-tier backup.
-    await vacuumIntoBackupAll({ cwd: tmpRoot, force: true });
+    await vacuumIntoBackupAll({ cwd: tmpRoot });
 
     tasksDb.close();
     brainDb.close();
@@ -326,11 +330,15 @@ describe('T308: CleoOS Database Topology Integration', () => {
 
     // Open a live handle and snapshot it.
     const tasksDb = new DatabaseSync(tasksPath);
+    // T12508: the snapshot gate persists its debounce in `schema_meta`.
+    tasksDb.exec(
+      'CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+    );
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb }));
     vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
 
     const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
-    await vacuumIntoBackupAll({ cwd: tmpRoot, force: true });
+    await vacuumIntoBackupAll({ cwd: tmpRoot });
     tasksDb.close();
 
     // Locate the snapshot.
