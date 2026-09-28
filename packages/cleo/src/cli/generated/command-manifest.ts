@@ -552,7 +552,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'doneCommand',
     name: 'done',
     description:
-      'Complete a task (alias of complete). With --plan: read-only evidence plan — change set, gates, tool runs, AC mapping, blockers and the exact commands; writes nothing',
+      'Record every required gate from derived evidence (change set, tools, typed gates, AC links) in one write, then complete. --plan: read-only plan; writes nothing',
     load: async () => (await import('../commands/done.js')).doneCommand as CommandDef,
   },
   {
