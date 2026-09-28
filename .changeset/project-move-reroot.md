@@ -2,39 +2,59 @@
 id: project-move-reroot
 tasks: [T12552, T12553, T12555, T12556, T12558]
 kind: fix
-summary: "`cleo project move --dry-run` is now a pure plan; move failures are real `success:false` envelopes; nested `.git`/`node_modules` survive a move; a moved copy gets a fresh checkout nonce; new `cleo project reroot <childDir>`"
+summary: "`cleo project move` now RENAMES the project root on one device (no copy, no torn DB, no stale copy); dry runs are pure, structured plans; failures are real `success:false` envelopes; new resumable `cleo project reroot <childDir>` with an E_PROJECT_MOVED tombstone"
 ---
-**`cleo project move` did not do what it said, and it could hand the registry to a stale copy.**
+**`cleo project move` copied a live project and could leave two diverging copies.**
+The copy dropped `.git`. It also snapshotted `cleo.db` while a WAL writer was
+active, so moved databases came out malformed or missing rows. In testing, a
+copy made under a concurrent writer held 723 of 29,796 committed rows. The
+source stayed live, so the registry could later bind to the stale copy.
 
-- **Dry run (T12552).** `project.ts` read `--dry-run` and then dropped it, and
-  `moveProject` had no dry-run parameter. A "dry run" copied the tree, rewrote
-  `project-info.json` and changed the registry. `moveProject(newPath, root,
-  { dryRun: true })` now returns a `ProjectRelocationPlan` (source, target,
-  entries copied and excluded, files written, registry action). It writes
-  nothing and opens no database.
+- **Move is a rename (T12555, T12556).** `moveProject` now renames the whole
+  root on the same device. `.git`, the database, its WAL sidecars and the
+  checkout nonce move atomically, and nothing is left at the old path.
+  - It refuses a target on another device (by `st_dev`, or EXDEV from the
+    rename) with `E_CROSS_DEVICE`. The fix points to a plain `mv` followed by
+    `cleo nexus reconcile`. There is no copy mode.
+  - It refuses while a session, CLEO worktree or git worktree is bound
+    (`E_MOVE_BLOCKED`, exit 21).
+  - It takes the `cleo backup add` checkpoint and copies it to
+    `<cleoHome>/backups/<projectId>/`, outside the tree it protects.
+  - The registry rebind runs with the project scope pinned to the new root.
+    The old path becomes `missing`.
+  - `project-info.json` is not rewritten, so `projectHash` stays byte-identical
+    and no `projectRoot` is written.
+- **Dry run (T12552).** `--dry-run` was dropped by the CLI, so a "dry run"
+  copied and rebound. It now returns a typed `ProjectRelocationPlan` under
+  `/data`: source, target, entries, writes, registry action, checkpoint
+  location, blockers (including `E_CROSS_DEVICE`) and deferred checks. It
+  writes nothing and opens no database.
 - **Error envelopes (T12553).** `project move`, `rename` and `re-register`
-  rendered engine failures as a SUCCESS section and then called
-  `process.exit(1)`. They now emit `cliError` with the engine's code, message
-  and fix, and exit with the engine's exit code. For example, `E_MOVE_FAILED`
-  exits 3 and `E_INVALID_TARGET` exits 2.
-- **Copy filter (T12555).** The `cp` filter tested the basename at every depth,
-  so a nested repository's `.git` and every workspace `node_modules` were
-  dropped. Only the ROOT-level `.git` and `node_modules` are skipped now, and
-  the result lists them in `excluded`. Symlinks are copied verbatim
-  (`verbatimSymlinks`), so a relative link does not point back into the source.
-- **Nonce (T12556).** The copy kept the source's `checkoutNonce`. If the real
-  project was later moved by hand, running any command in the stale copy
-  promoted the copy to live and demoted the real project to a candidate. The
-  copy now gets a fresh nonce. `move` rebinds the registry to the copy
-  explicitly, and the old tree becomes a `candidate` location.
-- **Reroot and target checks (T12558).** `move` refuses a target inside the
-  project or containing it (`E_INVALID_TARGET`) before any IO, and the fix
-  hint points to `cleo project reroot`. That new command makes a subdirectory
-  the project root. It refuses while a session or CLEO worktree is active,
-  takes a required checkpoint (`cleo backup add`), and closes every handle.
-  It then RENAMES `.cleo/` and `.worktreeinclude` into the child. It confirms
-  or writes `.cleo/project-id` with the same id and writes no absolute
-  `projectRoot`. Finally it promotes the child to `live` and demotes the old
-  root to `missing`. `--dry-run` is pure. The registry rebind runs with the
-  project scope pinned to the new root, so no empty `cleo.db` is recreated at
-  the old one.
+  printed failures as SUCCESS sections and then exited 1. Every failure now
+  goes through `cliError` with the engine's code, fix and exit class.
+  `scripts/lint-envelope-compliance.mjs` encoded the old rule; it now requires
+  the new one, and a test covers it.
+- **Reroot (T12558).** New `cleo project reroot <childDir>`.
+  - It renames CLEO's own top-level entries into the child: `.cleo/`,
+    `.worktreeinclude`, and `.github/` only when it holds nothing but CLEO's
+    init templates. Everything else stays in place.
+  - It is refused while bound (`E_REROOT_BLOCKED`, exit 21). The fix gives
+    `CLEO_SESSION_ID=<id> cleo session end` for each session.
+  - It takes the same outside checkpoint. It confirms or writes
+    `.cleo/project-id` with the same id, rebinds the registry, and demotes the
+    old root to `missing`.
+  - An identity-write failure after the rename rolls the rename back. A crash
+    between the rename and the rebind is finished by running
+    `cleo project reroot .` from the child, which leaves exactly one live row.
+- **Old-root refusal (T12558).** Reroot leaves `<oldRoot>/.cleo-moved.json`.
+  Project resolution at the old root, and a first-time store open there, now
+  refuse with `E_PROJECT_MOVED` and name the new root. Before, they silently
+  created an empty `cleo.db` that answered every read with nothing. The
+  refusal also applies after `git checkout -- .` restores the tracked
+  `.cleo/project-id`, and when the tombstone is gone but the registry marks
+  that location `missing`.
+- `move` refuses a target inside the project or containing it
+  (`E_INVALID_TARGET`) before any IO. For a directory target the fix hint
+  points to `reroot`. Both verbs resolve the project root the way other
+  commands do, so `move` works from a subdirectory and `reroot .` works from
+  the child.
