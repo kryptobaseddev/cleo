@@ -8159,6 +8159,12 @@ export const OPERATIONS: OperationDef[] = [
       { name: 'title', type: 'string' as const, required: false, description: 'Override PR title' },
       { name: 'body', type: 'string' as const, required: false, description: 'Override PR body' },
       { name: 'base', type: 'string' as const, required: false, description: 'PR base branch' },
+      {
+        name: 'taskId',
+        type: 'string' as const,
+        required: false,
+        description: 'Owning task id (T####) for the PR commit subject',
+      },
     ],
   },
   {
@@ -8192,6 +8198,12 @@ export const OPERATIONS: OperationDef[] = [
       { name: 'title', type: 'string' as const, required: false, description: 'Override PR title' },
       { name: 'body', type: 'string' as const, required: false, description: 'Override PR body' },
       { name: 'base', type: 'string' as const, required: false, description: 'PR base branch' },
+      {
+        name: 'taskId',
+        type: 'string' as const,
+        required: false,
+        description: 'Owning task id (T####) for the PR commit subject',
+      },
     ],
   },
   {

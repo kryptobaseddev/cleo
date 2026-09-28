@@ -207,6 +207,7 @@ export type { ListProjectDocsOpts, ResolvedDoc } from './docs-read-model.js';
 export { createDocsReadModel, DocsReadModel } from './docs-read-model.js';
 export type {
   ProvisionResult,
+  PublishOwnerRef,
   PublishPrError,
   PublishPrOptions,
   PublishPrResult,
@@ -215,6 +216,8 @@ export type {
 } from './publish-pr.js';
 export {
   branchForSlug,
+  buildPublishCommitMessage,
+  buildPublishCommitSubject,
   buildPublishFrontmatter,
   defaultPublishPrBody,
   defaultRun,
@@ -227,6 +230,7 @@ export {
   publishDirForType,
   publishDocsAsPr,
   publishPrError,
+  resolvePublishTaskId,
   stripExistingFrontmatter,
   teardownPublishPrWorktree,
   tempWorktreeDirForSlug,

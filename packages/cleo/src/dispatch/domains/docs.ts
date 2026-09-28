@@ -2103,6 +2103,7 @@ async function dispatchDocsLegacyMutate(
         ...(typeof params['title'] === 'string' ? { title: params['title'] } : {}),
         ...(typeof params['body'] === 'string' ? { body: params['body'] } : {}),
         ...(typeof params['base'] === 'string' ? { base: params['base'] } : {}),
+        ...(typeof params['taskId'] === 'string' ? { taskId: params['taskId'] } : {}),
       });
       // T11139 — audit trail
       if (prResult.success) {
