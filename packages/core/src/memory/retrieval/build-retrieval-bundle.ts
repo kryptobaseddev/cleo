@@ -32,6 +32,25 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+/**
+ * Map the optional `quality_score` / `citation_count` columns onto the
+ * contract's ranking fields, omitting them when the row does not carry them
+ * (legacy schemas, NULL values). Consumed by the spawn-prompt PSYCHE-MEMORY
+ * budget to rank entries (T12519).
+ *
+ * @param row - Raw BRAIN row that may carry the ranking columns.
+ * @returns The subset of `{ qualityScore, citationCount }` present on the row.
+ */
+function rankingFields(row: { quality_score?: number | null; citation_count?: number | null }): {
+  qualityScore?: number;
+  citationCount?: number;
+} {
+  return {
+    ...(typeof row.quality_score === 'number' ? { qualityScore: row.quality_score } : {}),
+    ...(typeof row.citation_count === 'number' ? { citationCount: row.citation_count } : {}),
+  };
+}
+
 // ============================================================================
 // Cold pass — fetchIdentity
 // ============================================================================
@@ -120,15 +139,17 @@ export async function fetchPeerMemory(
     insight: string;
     created_at: string;
     provenance_class: string | null;
+    quality_score?: number | null;
+    citation_count?: number | null;
   }
 
   // Both query-on and query-off currently use the same recent-10 fallback.
   // The `query` branch is kept for future FTS-scoped narrowing (T1090 followup).
   // T1260 PSYCHE E3: SELECT provenance_class AS provenance_class for M6 refusal gate.
-  const learningSqlWithPeer = `SELECT id, insight, created_at, provenance_class FROM brain_learnings
+  const learningSqlWithPeer = `SELECT id, insight, created_at, provenance_class, quality_score, citation_count FROM brain_learnings
              WHERE (peer_id = ? OR peer_id = 'global')
              ${memoryEligibilityClause('learnings')} ORDER BY created_at DESC LIMIT 10`;
-  const learningSqlGlobal = `SELECT id, insight, created_at, provenance_class FROM brain_learnings
+  const learningSqlGlobal = `SELECT id, insight, created_at, provenance_class, quality_score, citation_count FROM brain_learnings
              WHERE peer_id = 'global'
              ${memoryEligibilityClause('learnings')} ORDER BY created_at DESC LIMIT 10`;
   const learningSqlLegacy = `SELECT id, insight, created_at FROM main.brain_learnings WHERE 1=1${memoryEligibilityClause('learnings')} ORDER BY created_at DESC LIMIT 10`;
@@ -155,13 +176,15 @@ export async function fetchPeerMemory(
     pattern: string;
     extracted_at: string;
     provenance_class: string | null;
+    quality_score?: number | null;
+    citation_count?: number | null;
   }
 
   // T1260 PSYCHE E3: SELECT provenance_class for M6 refusal gate.
-  const patternSqlWithPeer = `SELECT id, pattern, extracted_at, provenance_class FROM brain_patterns
+  const patternSqlWithPeer = `SELECT id, pattern, extracted_at, provenance_class, quality_score, citation_count FROM brain_patterns
            WHERE (peer_id = ? OR peer_id = 'global')
            ${memoryEligibilityClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
-  const patternSqlGlobal = `SELECT id, pattern, extracted_at, provenance_class FROM brain_patterns
+  const patternSqlGlobal = `SELECT id, pattern, extracted_at, provenance_class, quality_score, citation_count FROM brain_patterns
            WHERE peer_id = 'global'
            ${memoryEligibilityClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
   const patternSqlLegacy = `SELECT id, pattern, extracted_at FROM main.brain_patterns WHERE 1=1${memoryEligibilityClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
@@ -185,13 +208,19 @@ export async function fetchPeerMemory(
     decision: string;
     created_at: string;
     provenance_class: string | null;
+    quality_score?: number | null;
+    citation_count?: number | null;
+    context_task_id?: string | null;
+    context_epic_id?: string | null;
   }
 
   // T1260 PSYCHE E3: SELECT provenance_class for M6 refusal gate.
-  const decisionSqlWithPeer = `SELECT id, decision, created_at, provenance_class FROM brain_decisions
+  const decisionSqlWithPeer = `SELECT id, decision, created_at, provenance_class, quality_score, citation_count,
+                  context_task_id, context_epic_id FROM brain_decisions
            WHERE (peer_id = ? OR peer_id = 'global')
            ${memoryEligibilityClause('decisions')} ORDER BY created_at DESC LIMIT 10`;
-  const decisionSqlGlobal = `SELECT id, decision, created_at, provenance_class FROM brain_decisions
+  const decisionSqlGlobal = `SELECT id, decision, created_at, provenance_class, quality_score, citation_count,
+                  context_task_id, context_epic_id FROM brain_decisions
            WHERE peer_id = 'global'
            ${memoryEligibilityClause('decisions')} ORDER BY created_at DESC LIMIT 10`;
   const decisionSqlLegacy = `SELECT id, decision, created_at FROM main.brain_decisions WHERE 1=1${memoryEligibilityClause('decisions')} ORDER BY created_at DESC LIMIT 10`;
@@ -215,18 +244,23 @@ export async function fetchPeerMemory(
       insight: r.insight,
       createdAt: r.created_at,
       provenanceClass: r.provenance_class ?? 'unswept-pre-T1151',
+      ...rankingFields(r),
     })),
     peerPatterns: patternRows.map((r) => ({
       id: r.id,
       pattern: r.pattern,
       extractedAt: r.extracted_at,
       provenanceClass: r.provenance_class ?? 'unswept-pre-T1151',
+      ...rankingFields(r),
     })),
     decisions: decisionRows.map((r) => ({
       id: r.id,
       decision: r.decision,
       createdAt: r.created_at,
       provenanceClass: r.provenance_class ?? 'unswept-pre-T1151',
+      ...rankingFields(r),
+      ...(r.context_task_id ? { contextTaskId: r.context_task_id } : {}),
+      ...(r.context_epic_id ? { contextEpicId: r.context_epic_id } : {}),
     })),
   };
 }
@@ -277,6 +311,8 @@ export async function fetchSessionState(
     narrative: string | null;
     created_at: string;
     provenance_class: string | null;
+    quality_score?: number | null;
+    citation_count?: number | null;
   }
 
   let recentObservations: import('@cleocode/contracts').RetrievalObservation[] = [];
@@ -284,7 +320,7 @@ export async function fetchSessionState(
     try {
       const obsRows = nativeDb
         .prepare(
-          `SELECT id, title, narrative, created_at, provenance_class
+          `SELECT id, title, narrative, created_at, provenance_class, quality_score, citation_count
            FROM brain_observations
            WHERE source_session_id = ?${memoryEligibilityClause('observations')}
            ORDER BY created_at DESC, id DESC LIMIT 10`,
@@ -296,6 +332,7 @@ export async function fetchSessionState(
         narrative: r.narrative ?? '',
         createdAt: r.created_at,
         provenanceClass: r.provenance_class ?? 'unswept-pre-T1151',
+        ...rankingFields(r),
       }));
     } catch {
       recentObservations = [];
