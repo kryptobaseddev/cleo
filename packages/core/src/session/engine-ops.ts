@@ -55,6 +55,7 @@ import {
   resolveSessionForRead,
   SESSION_UNBOUND_ALTERNATIVES,
   SESSION_UNBOUND_FIX,
+  sessionAdoptedEndMessage,
   sessionUnboundMessage,
   unbindSessionTerminals,
 } from '../store/session-store.js';
@@ -798,6 +799,14 @@ export async function sessionEnd(
       // T12500 — the caller's BOUND session only. The newest active row is
       // another agent's session whenever this terminal never bound one.
       const bound = await resolveBoundSession(projectRoot);
+      if (bound?.adopted) {
+        // An agent working in a session a human started in its tab may not
+        // end it (and strip every other adopter's binding) implicitly.
+        return engineError('E_SESSION_UNBOUND', sessionAdoptedEndMessage(bound.session.id), {
+          fix: `Run 'cleo session end --session ${bound.session.id}' only if ending the shared session is intended.`,
+          details: { sessionId: bound.session.id, adopted: true },
+        });
+      }
       activeSession = bound?.session ?? null;
       if (!activeSession && (await hasActiveSession(projectRoot))) {
         return engineError('E_SESSION_UNBOUND', sessionUnboundMessage('end the session'), {

@@ -1498,6 +1498,7 @@ export {
   getActiveSession,
   hasActiveSession,
   requireBoundSession,
+  requireOwnedSessionForEnd,
   resolveBoundSession,
   resolveBoundSessionId,
   resolveCurrentSession,
@@ -1505,6 +1506,7 @@ export {
   resolveSessionForRead,
   SESSION_UNBOUND_ALTERNATIVES,
   SESSION_UNBOUND_FIX,
+  sessionAdoptedEndMessage,
   sessionUnboundMessage,
 } from './store/session-store.js';
 export { getDb, getNativeDb } from './store/sqlite.js';

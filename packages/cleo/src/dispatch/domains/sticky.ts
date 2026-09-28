@@ -246,10 +246,22 @@ const _stickyTypedHandler = defineTypedHandler<StickyDispatchOps>('sticky', {
   'convert.session_note': async (params) => {
     if (!params.stickyId)
       return lafsError('E_INVALID_INPUT', 'stickyId is required', 'convert.session_note');
-    const data = await stickyCoreOps['convert.session_note'](params);
-    return data.sessionId
-      ? lafsSuccess(data, 'convert.session_note')
-      : lafsError('E_CONVERT_FAILED', 'convert to session note failed', 'convert.session_note');
+    // T12500: call the engine directly so a refusal keeps its real code
+    // (e.g. E_SESSION_UNBOUND with binding instructions) instead of collapsing
+    // into E_CONVERT_FAILED. `stickyConvertSessionNoteOp` stays the typed op.
+    const result = await stickyConvertToSessionNote(
+      getProjectRoot(),
+      params.stickyId,
+      params.sessionId,
+    );
+    if (!result.success) {
+      return lafsError(
+        result.error?.code ?? 'E_CONVERT_FAILED',
+        result.error?.message ?? 'convert to session note failed',
+        'convert.session_note',
+      );
+    }
+    return lafsSuccess({ sessionId: result.data.sessionId }, 'convert.session_note');
   },
 
   'convert.task_note': async (params) => {

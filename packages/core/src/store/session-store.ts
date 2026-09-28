@@ -404,6 +404,35 @@ function splitTerminalKeys(keys: readonly TerminalKey[]): TerminalKeyTiers {
   };
 }
 
+/** One stored binding row, as read for resolution (T12500). */
+interface BindingRow {
+  readonly sessionId: string;
+  readonly boundByProvider: boolean;
+}
+
+/**
+ * Read one binding row by key (T12500).
+ *
+ * @param db - Project DB handle.
+ * @param key - Identity key.
+ * @returns The row, or `undefined` when the key is unbound.
+ */
+async function readBinding(
+  db: Awaited<ReturnType<typeof getDb>>,
+  key: TerminalKey,
+): Promise<BindingRow | undefined> {
+  const rows = await db
+    .select({
+      sessionId: sessionTerminalBindings.sessionId,
+      boundByProvider: sessionTerminalBindings.boundByProvider,
+    })
+    .from(sessionTerminalBindings)
+    .where(eq(sessionTerminalBindings.bindingKey, key.key))
+    .limit(1)
+    .all();
+  return rows[0];
+}
+
 /**
  * Upsert one binding row (T12499 · T12500).
  *
@@ -466,17 +495,32 @@ export async function bindTerminalToSession(
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
 ): Promise<TerminalKey[]> {
   const { provider, pane, tab } = splitTerminalKeys(keys);
-  const toBind = [provider, pane, pane ? undefined : tab].filter(
+  const candidates = [provider, pane, pane ? undefined : tab].filter(
     (k): k is TerminalKey => k !== undefined,
   );
-  if (toBind.length === 0) return [];
+  if (candidates.length === 0) return [];
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     const session = await getSession(sessionId, scope.worktreeRoot);
     if (!session) return [];
     const db = await getDb(scope.worktreeRoot);
-    for (const key of toBind) upsertBinding(db, key, sessionId, provider !== undefined);
-    return toBind;
+    const bound: TerminalKey[] = [];
+    for (const key of candidates) {
+      // T12500 (round 3): an agent must never take over the HUMAN's pane/tab.
+      // When a provider key is present, a coarse row that a human wrote
+      // (`bound_by_provider = 0`) and that still names a live session stays
+      // put — only the agent's own provider key moves to the new session.
+      if (provider && key !== provider) {
+        const existing = await readBinding(db, key);
+        if (existing && !existing.boundByProvider && existing.sessionId !== sessionId) {
+          const held = await getSession(existing.sessionId, scope.worktreeRoot);
+          if (held?.status === 'active') continue;
+        }
+      }
+      upsertBinding(db, key, sessionId, provider !== undefined);
+      bound.push(key);
+    }
+    return bound;
   });
 }
 
@@ -510,10 +554,24 @@ export async function bindCallingTerminal(sessionId: string, cwd?: string): Prom
   }
 }
 
+/** A terminal-bound session and whether this caller only ADOPTED it (T12500). */
+export interface TerminalBinding {
+  /** The bound active session. */
+  readonly session: Session;
+  /**
+   * `true` when an agent (provider-keyed caller) reached a session a HUMAN
+   * started in its pane/tab, instead of one it started or resumed itself. An
+   * adopter may act in the session (attribution, focus) but may not END it
+   * without naming it explicitly (`--session <id>`).
+   */
+  readonly adopted: boolean;
+}
+
 /**
- * Resolve the session bound to the calling terminal (T12499 · T12500).
+ * Resolve the session bound to the calling terminal, with ownership (T12499 · T12500).
  *
- * 1. **Provider key bound** → that session (the agent's own).
+ * 1. **Provider key bound** → that session (the agent's own; `adopted` when
+ *    the row itself was written by an adoption, `bound_by_provider = 0`).
  * 2. Else the **pane** key, when present. A pane never falls through to its
  *    tab: a sibling pane sharing the tab id resolves nothing.
  * 3. Else the **tab** key (or ppid fallback).
@@ -524,39 +582,25 @@ export async function bindCallingTerminal(sessionId: string, cwd?: string): Prom
  * a provider key (a human-started session, `bound_by_provider = 0`) AND no
  * other provider key owns an explicit binding to that session. On adoption the
  * provider key is bound too (`bound_by_provider = 0`: adopted, not owned) so
- * later calls resolve directly. Two agents that each started their own session
- * stay isolated because their tab binding is `bound_by_provider = 1`.
+ * later calls resolve directly.
  *
  * Only `active` sessions are returned; a binding to an ended session is ignored.
  *
  * @param cwd - Working directory for DB resolution.
  * @param keys - Identity keys, most specific first (defaults to the live terminal's).
- * @returns The bound active session, or `null`.
+ * @returns The bound active session and its ownership, or `null`.
  * @task T12499
  * @task T12500
  */
-export async function resolveTerminalBoundSession(
+export async function resolveTerminalBinding(
   cwd?: string,
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
-): Promise<Session | null> {
+): Promise<TerminalBinding | null> {
   const { provider, pane, tab } = splitTerminalKeys(keys);
   if (!provider && !pane && !tab) return null;
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     const db = await getDb(scope.worktreeRoot);
-    type BindingRow = { sessionId: string; boundByProvider: boolean };
-    const lookup = async (key: TerminalKey): Promise<BindingRow | undefined> => {
-      const rows = await db
-        .select({
-          sessionId: sessionTerminalBindings.sessionId,
-          boundByProvider: sessionTerminalBindings.boundByProvider,
-        })
-        .from(sessionTerminalBindings)
-        .where(eq(sessionTerminalBindings.bindingKey, key.key))
-        .limit(1)
-        .all();
-      return rows[0];
-    };
     const activeSession = async (id: string): Promise<Session | null> => {
       const session = await getSession(id, scope.worktreeRoot);
       return session && session.status === 'active' ? session : null;
@@ -579,35 +623,54 @@ export async function resolveTerminalBoundSession(
 
     try {
       if (provider) {
-        const own = await lookup(provider);
+        const own = await readBinding(db, provider);
         if (own) {
           const session = await activeSession(own.sessionId);
-          if (session) return session;
+          if (session) return { session, adopted: !own.boundByProvider };
         }
       }
       const coarse = pane ?? tab;
       if (!coarse) return null;
-      const row = await lookup(coarse);
+      const row = await readBinding(db, coarse);
       if (!row) return null;
       if (provider) {
         if (row.boundByProvider) return null;
         if (await ownedByOtherProvider(row.sessionId, provider)) return null;
       }
       const session = await activeSession(row.sessionId);
-      if (session && provider) {
+      if (!session) return null;
+      if (provider) {
         try {
           upsertBinding(db, provider, session.id, false);
         } catch {
           // Adoption is an optimisation; resolution already succeeded.
         }
       }
-      return session;
+      return { session, adopted: provider !== undefined };
     } catch {
       // A store opened before the T12499/T12500 migrations lacks the table or
       // column: the binding tier is advisory, so resolution continues.
       return null;
     }
   });
+}
+
+/**
+ * Resolve the session bound to the calling terminal (T12499 · T12500).
+ *
+ * Session-only form of {@link resolveTerminalBinding}.
+ *
+ * @param cwd - Working directory for DB resolution.
+ * @param keys - Identity keys, most specific first (defaults to the live terminal's).
+ * @returns The bound active session, or `null`.
+ * @task T12499
+ * @task T12500
+ */
+export async function resolveTerminalBoundSession(
+  cwd?: string,
+  keys: readonly TerminalKey[] = resolveTerminalKeys(),
+): Promise<Session | null> {
+  return (await resolveTerminalBinding(cwd, keys))?.session ?? null;
 }
 
 /**
@@ -701,6 +764,12 @@ export interface BoundSessionResolution {
   readonly session: Session;
   /** The identity tier that named it. */
   readonly via: SessionBindingSource;
+  /**
+   * `true` when the caller only ADOPTED a session a human started in its
+   * pane/tab (see {@link TerminalBinding.adopted}). It may act in it but not
+   * end it implicitly.
+   */
+  readonly adopted?: boolean;
 }
 
 /**
@@ -737,8 +806,14 @@ export async function resolveBoundSession(cwd?: string): Promise<BoundSessionRes
       // env id named a session that does not exist — fall through to the binding.
     }
     // T12499: the session this terminal started / resumed.
-    const byTerminal = await resolveTerminalBoundSession(scope.worktreeRoot);
-    if (byTerminal) return { session: byTerminal, via: 'terminal' as const };
+    const byTerminal = await resolveTerminalBinding(scope.worktreeRoot);
+    if (byTerminal) {
+      return {
+        session: byTerminal.session,
+        via: 'terminal' as const,
+        ...(byTerminal.adopted ? { adopted: true } : {}),
+      };
+    }
     return null;
   });
 }
@@ -839,7 +914,7 @@ export async function hasActiveSession(cwd?: string, nowMs: number = Date.now())
 export const SESSION_UNBOUND_FIX =
   "Bind this terminal to a session: run 'cleo session start --scope <scope> --name <name>' " +
   "(or 'cleo session resume <id>' for an existing one), or set CLEO_SESSION_ID=<id>. " +
-  "To act on a specific session without binding, pass it explicitly (e.g. 'cleo session end --session <id>').";
+  "Read-only commands can name one explicitly (e.g. 'cleo session show <id>').";
 
 /** Copy-paste remedies attached to every E_SESSION_UNBOUND (T12500). */
 export const SESSION_UNBOUND_ALTERNATIVES: ReadonlyArray<{ action: string; command: string }> = [
@@ -896,5 +971,48 @@ export async function requireBoundSession(
       fix: SESSION_UNBOUND_FIX,
       alternatives: [...SESSION_UNBOUND_ALTERNATIVES],
     });
+  });
+}
+
+/**
+ * Message for refusing to END a session the caller only adopted (T12500).
+ *
+ * @param sessionId - The adopted session.
+ * @returns Human-readable refusal naming the explicit form.
+ * @task T12500
+ */
+export function sessionAdoptedEndMessage(sessionId: string): string {
+  return (
+    `Session ${sessionId} was started in this terminal's tab/pane by someone else and only ` +
+    'adopted by this agent, which may work in it but not end it implicitly. To end it anyway, ' +
+    `name it: 'cleo session end --session ${sessionId}'; to work in your own session, run ` +
+    "'cleo session start --agent <handle>'."
+  );
+}
+
+/**
+ * Resolve the caller's session for ENDING it (T12500).
+ *
+ * {@link requireBoundSession}, plus: a session this caller only ADOPTED (a
+ * human started it in the agent's tab/pane) is refused with
+ * `E_SESSION_UNBOUND`, so one of several agents working in a human's session
+ * cannot end it — and strip the others' bindings — without naming it.
+ *
+ * @param cwd - Working directory for DB resolution.
+ * @returns The caller's own session, or `null` when no session is active at all.
+ * @throws CleoError with `ExitCode.SESSION_UNBOUND` when unbound or adopted.
+ * @task T12500
+ */
+export async function requireOwnedSessionForEnd(cwd?: string): Promise<Session | null> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const bound = await resolveBoundSession(scope.worktreeRoot);
+    if (bound?.adopted) {
+      throw new CleoError(ExitCode.SESSION_UNBOUND, sessionAdoptedEndMessage(bound.session.id), {
+        fix: `Run 'cleo session end --session ${bound.session.id}' only if ending the shared session is intended.`,
+      });
+    }
+    if (bound) return bound.session;
+    return requireBoundSession('end the session', scope.worktreeRoot);
   });
 }

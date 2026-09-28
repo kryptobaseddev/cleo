@@ -40,6 +40,16 @@ print a one-line stderr warning. The `E_SESSION_CONFLICT` advice now leads
 with `--agent <handle>` / `session resume <id>` and never suggests ending
 another agent's session. Sticky-to-session-note conversion and the drift
 watchdog use the bound session.
+
+An agent that starts its own session never overwrites a human's live tab or
+pane binding (only its own provider key moves), and an agent that merely
+adopted a human's tab session may work in it but cannot end it without
+`--session <id>` (`E_SESSION_UNBOUND`, `details.adopted: true`).
+
+Upgrade note: rows written before this migration by the unreleased T12499
+binder default to `bound_by_provider = 0` (human), even when an agent wrote
+them. T12499 was never tagged, so only development databases carry such rows;
+ending the session they name clears them.
 The SDK `cleo.sessions.end()` / `endSession` and session snapshots resolve the
 bound session too; `sessions.start()` / `resume()` bind. Observations auto-link
 only to the bound session's task. A harness exporting a non-CLEO

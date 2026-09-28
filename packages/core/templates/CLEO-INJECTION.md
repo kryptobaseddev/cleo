@@ -95,7 +95,7 @@ Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for st
 <!-- CLEO-INJECTION:section=task-discovery -->
 ### Overlap reconciliation across a saga
 
-`cleo add` checks duplicates only at INSERT time — flat, reject-or-insert — so partial overlap is invisible and post-filing drift is never re-examined. Sweep for it:
+`cleo add` checks duplicates only at insert, so partial overlap and later drift go unseen. Sweep for it:
 
 | Goal | Command |
 |------|---------|

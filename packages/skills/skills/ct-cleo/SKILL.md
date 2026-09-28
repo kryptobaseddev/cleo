@@ -106,7 +106,9 @@ multi-step scripts must export `CLEO_SESSION_ID`. Unattributed mutations warn on
 stderr; `session status` / `briefing` label a guessed session `unbound: true`.
 
 - A session a human started in a tab is adopted by Claude Code in that tab
-  (also after a Claude restart); a session Claude started can be ended from the tab.
+  (also after a Claude restart). An adopter works in it but cannot end it without
+  `--session <id>`, and starting its own session never takes over the tab. A
+  session Claude started can be ended from the tab.
 - Two Claude instances that each start a session stay isolated; a sibling tmux
   pane never sees another pane's session.
 - Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID` and act in

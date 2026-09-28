@@ -23,7 +23,7 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   bindCallingTerminal,
-  requireBoundSession,
+  requireOwnedSessionForEnd,
   resolveBoundSession,
 } from '../store/session-store.js';
 import type { AgentSessionHandle } from './agent-session-adapter.js';
@@ -300,7 +300,8 @@ export async function endSession(projectRoot: string, params: SessionEndParams):
   if (params.sessionId) {
     session = sessions.find((s: Session) => s.id === params.sessionId);
   } else {
-    const bound = await requireBoundSession('end the session', projectRoot);
+    // Adopters (an agent in a human's tab session) may not end it implicitly.
+    const bound = await requireOwnedSessionForEnd(projectRoot);
     session = bound ? sessions.find((s: Session) => s.id === bound.id) : undefined;
   }
 
