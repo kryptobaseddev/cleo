@@ -63,7 +63,7 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 // === PROJECT_REGISTRY TABLE ===
 
@@ -80,15 +80,21 @@ export const projectRegistry = sqliteTable(
      * `cleo doctor db-substrate` (T10323); no DB-level FK.
      */
     projectId: text('project_id').primaryKey(),
-    projectHash: text('project_hash').notNull().unique(),
     /**
-     * Absolute filesystem path that owns this project_id.
+     * Path fingerprint of the most recently encountered checkout. NOT unique —
+     * the registry is keyed by `project_id` alone (ADR-094 · T12469).
+     */
+    projectHash: text('project_hash').notNull(),
+    /**
+     * Most recently encountered checkout root. NOT unique: a path names a
+     * location, never an identity. Every checkout on every device is recorded
+     * in {@link projectLocations} (ADR-094 · T12469).
      *
      * @cross-db filesystem:<projectPath>/.cleo/project-context.json — nexus→filesystem
-     * invariant. The directory at this path MUST contain a
+     * invariant. The directory at this path SHOULD contain a
      * `.cleo/project-context.json` file referencing the SAME projectId.
      */
-    projectPath: text('project_path').notNull().unique(),
+    projectPath: text('project_path').notNull(),
     name: text('name').notNull(),
     registeredAt: text('registered_at').notNull().default(sql`(datetime('now'))`),
     lastSeen: text('last_seen').notNull().default(sql`(datetime('now'))`),
@@ -99,20 +105,12 @@ export const projectRegistry = sqliteTable(
     taskCount: integer('task_count').notNull().default(0),
     labelsJson: text('labels_json').notNull().default('[]'),
     /**
-     * Absolute path to the project's brain.db file.
-     *
-     * @cross-db filesystem:brain.db — nexus→filesystem path pointer. The file at
-     * this path is the project-tier consolidated `cleo.db` opened via
-     * `openCleoDb('project', cwd)`.
+     * Legacy mirror of the project store path. Written for older binaries that
+     * share this global store; never read — the store path is derived from
+     * `project_path` at runtime (`registryStorePath`, T12469).
      */
     brainDbPath: text('brain_db_path'),
-    /**
-     * Absolute path to the project's tasks.db file.
-     *
-     * @cross-db filesystem:tasks.db — nexus→filesystem path pointer. The file at
-     * this path is the project-tier consolidated `cleo.db` opened via
-     * `openCleoDb('project', cwd)`.
-     */
+    /** Legacy mirror of the project store path; never read (see `brainDbPath`, T12469). */
     tasksDbPath: text('tasks_db_path'),
     /** ISO 8601 timestamp of the last successful code intelligence index run. */
     lastIndexed: text('last_indexed'),
@@ -121,6 +119,7 @@ export const projectRegistry = sqliteTable(
   },
   (table) => [
     index('idx_nexus_project_registry_hash').on(table.projectHash),
+    index('idx_nexus_project_registry_path').on(table.projectPath),
     index('idx_nexus_project_registry_health').on(table.healthStatus),
     index('idx_nexus_project_registry_name').on(table.name),
     index('idx_nexus_project_registry_last_indexed').on(table.lastIndexed),
@@ -161,9 +160,11 @@ export type NewProjectIdAliasRow = typeof projectIdAliases.$inferInsert;
  * `nexus_project_registry` holds ONE row per immutable `project_id`, so its
  * `project_path` can name only one checkout. Two checkouts of the same project
  * on one device each get a row here, keyed by path; a path belongs to exactly
- * one project. Rows whose directory no longer exists are pruned when their
- * project is next encountered.
+ * one project.
  *
+ * @deprecated Superseded by {@link projectLocations} (T12469). Kept so older
+ *   binaries that share the global store keep working; current code neither
+ *   reads nor writes it.
  * @task T12354
  */
 export const projectPaths = sqliteTable(
@@ -187,6 +188,48 @@ export const projectPaths = sqliteTable(
 export type ProjectPathRow = typeof projectPaths.$inferSelect;
 /** Insert type for `nexus_project_paths` (T12354). */
 export type NewProjectPathRow = typeof projectPaths.$inferInsert;
+
+// === PROJECT_LOCATIONS TABLE (T12469) ===
+
+/** Lifecycle states of one project location (T12469). */
+export const PROJECT_LOCATION_STATES = ['live', 'missing', 'superseded'] as const;
+
+/**
+ * Every place a project has been seen, on every device (ADR-094 · T12469).
+ *
+ * One row per `(project_id, device_id, path)`. A row is never deleted because
+ * its directory vanished: it moves to `missing`. A path that now holds a
+ * different project moves to `superseded`. Location history therefore
+ * survives for consumers such as legacy credential derivation.
+ *
+ * @task T12469
+ */
+export const projectLocations = sqliteTable(
+  'nexus_project_locations',
+  {
+    /** Immutable project id (soft FK → nexus_project_registry.project_id). */
+    projectId: text('project_id').notNull(),
+    /** Stable device id (`<cleoHome>/device-id`) of the device the path is on. */
+    deviceId: text('device_id').notNull(),
+    /** Absolute checkout root on that device. */
+    path: text('path').notNull(),
+    /** ISO 8601 timestamp this location was first recorded. */
+    firstSeen: text('first_seen').notNull().default(sql`(datetime('now'))`),
+    /** ISO 8601 timestamp this location was last encountered. */
+    lastSeen: text('last_seen').notNull().default(sql`(datetime('now'))`),
+    /** `live` · `missing` (directory gone) · `superseded` (path now holds another project). */
+    state: text('state', { enum: PROJECT_LOCATION_STATES }).notNull().default('live'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.deviceId, table.path] }),
+    index('idx_nexus_project_locations_device_path').on(table.deviceId, table.path),
+  ],
+);
+
+/** Row type for `nexus_project_locations` (T12469). */
+export type ProjectLocationRow = typeof projectLocations.$inferSelect;
+/** Insert type for `nexus_project_locations` (T12469). */
+export type NewProjectLocationRow = typeof projectLocations.$inferInsert;
 
 // === NEXUS_AUDIT_LOG TABLE ===
 

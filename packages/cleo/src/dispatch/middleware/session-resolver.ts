@@ -92,7 +92,11 @@ export function createSessionResolver(cliSessionLookup?: () => Promise<string | 
       req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);
       return next();
     }
-    const envId = resolveSessionIdFromEnv();
+    // T12499: a CLI request already consulted the env id in Tier 3, which
+    // rejects an id with no session row. Re-reading the raw env here would
+    // stamp that rejected id straight back onto the request.
+    const cliResolved = cliSessionLookup !== undefined && req.source === 'cli';
+    const envId = cliResolved ? null : resolveSessionIdFromEnv();
     if (envId) {
       req.sessionId = envId;
       req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);

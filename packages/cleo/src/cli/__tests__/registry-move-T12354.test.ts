@@ -13,7 +13,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, realpathSync, renameSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -29,7 +29,8 @@ let sandbox: string;
 let cleoHome: string;
 
 beforeEach(async () => {
-  sandbox = await mkdtemp(join(tmpdir(), 'cleo-T12354-move-'));
+  // Canonical form: the CLI records resolved paths (macOS /tmp → /private/tmp).
+  sandbox = realpathSync(await mkdtemp(join(tmpdir(), 'cleo-T12354-move-')));
   cleoHome = join(sandbox, 'cleo-home');
 });
 
@@ -51,15 +52,16 @@ function runCli(args: readonly string[], cwd: string): number | null {
     .status;
 }
 
-/** Registry row path and path-map paths, read-only. */
-function registryState(): { rows: string[]; paths: string[] } {
+/** Registry row path and live / missing location paths (T12469), read-only. */
+function registryState(): { rows: string[]; paths: string[]; missing: string[] } {
   const db = new DatabaseSync(join(cleoHome, 'cleo.db'), { readOnly: true });
   try {
     const col = (query: string) =>
       (db.prepare(query).all() as Array<{ p: string }>).map((r) => r.p).sort();
     return {
       rows: col('SELECT project_path AS p FROM nexus_project_registry'),
-      paths: col('SELECT project_path AS p FROM nexus_project_paths'),
+      paths: col("SELECT path AS p FROM nexus_project_locations WHERE state = 'live'"),
+      missing: col("SELECT path AS p FROM nexus_project_locations WHERE state = 'missing'"),
     };
   } finally {
     db.close();
@@ -72,17 +74,22 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('registry follows a move on an ordinary com
     mkdirSync(before, { recursive: true });
     spawnSync('git', ['init', '-q'], { cwd: before });
     expect(runCli(['init'], before)).toBe(0);
-    expect(registryState()).toEqual({ rows: [before], paths: [before] });
+    expect(registryState()).toEqual({ rows: [before], paths: [before], missing: [] });
 
     const after = join(sandbox, 'after');
     renameSync(before, after);
     // Empty project: `list` exits NO_DATA (100) through process.exit.
     expect(runCli(['list'], after)).toBe(100);
-    expect(registryState()).toEqual({ rows: [after], paths: [after] });
+    // T12469: the vanished checkout is kept as `missing`, never deleted.
+    expect(registryState()).toEqual({ rows: [after], paths: [after], missing: [before] });
 
     const copy = join(sandbox, 'copy');
     cpSync(after, copy, { recursive: true });
     runCli(['list'], copy);
-    expect(registryState()).toEqual({ rows: [copy], paths: [after, copy].sort() });
+    expect(registryState()).toEqual({
+      rows: [copy],
+      paths: [after, copy].sort(),
+      missing: [before],
+    });
   });
 });

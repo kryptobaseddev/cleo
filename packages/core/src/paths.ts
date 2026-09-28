@@ -41,12 +41,19 @@ import {
   _resolveMainRepoFromGitlink,
   captureProjectScope,
   getProjectRoot,
+  resolveStoreOwnerRoot,
   validateProjectRoot,
   worktreeScope,
 } from './project-scope.js';
 
 export type { WorktreeScope } from './project-scope.js';
-export { getProjectRoot, validateProjectRoot, worktreeScope } from './project-scope.js';
+export {
+  getProjectRoot,
+  isGitLinkedCheckout,
+  resolveStoreOwnerRoot,
+  validateProjectRoot,
+  worktreeScope,
+} from './project-scope.js';
 
 import {
   createOperationExecutionContext,
@@ -700,6 +707,13 @@ export function resolveProjectByCwd(cwd?: string): string {
  *   3. Nearest ancestor containing a `.cleo/` directory — presence of `.cleo/`
  *      identifies the project root (`<root>/.cleo`); no `project-info.json` or
  *      nexus registration required. Bounded by the `$HOME`/`/` guard.
+ *
+ *   Steps 1 and 3 map their root through {@link resolveStoreOwnerRoot}: a CLEO
+ *   worktree (a linked git checkout whose parent is a CLEO project) resolves to
+ *   the PARENT project's `.cleo/`, even when the worktree carries its own
+ *   `.cleo/` (tracked files, or the seeded `project-info.json`). Without this a
+ *   worktree opened an empty local `cleo.db`, auto-recovered a full copy of the
+ *   parent's newest snapshot into it, and every write there was lost (T12460).
  *   4. Cross-project nexus `project_registry` lookup by `cwd` — for callers
  *      whose `cwd` is not under a `.cleo/` tree but is registered.
  *   5. Throw `E_NO_PROJECT` with a remediation hint.
@@ -715,7 +729,7 @@ export function resolveCleoDir(cwd?: string): string {
   // 1. Active worktree scope wins (matches getProjectRoot precedence).
   const scope = worktreeScope.getStore();
   if (scope !== undefined) {
-    return join(scope.worktreeRoot, '.cleo');
+    return join(resolveStoreOwnerRoot(scope.worktreeRoot), '.cleo');
   }
 
   // 2. Absolute CLEO_DIR override.
@@ -725,9 +739,10 @@ export function resolveCleoDir(cwd?: string): string {
   }
 
   // 3. Nearest ancestor with a `.cleo/` directory — presence = project root.
+  //    A worktree's own `.cleo/` never owns the store (T12460).
   const root = _findCleoDirRoot(cwd);
   if (root !== null) {
-    return join(root, '.cleo');
+    return join(resolveStoreOwnerRoot(root), '.cleo');
   }
 
   // 3b. Worktree gitlink: when `cwd` is inside a git worktree (`.git` is a FILE
@@ -2023,20 +2038,29 @@ export async function recordProjectEncounter(cwd?: string): Promise<ProjectEncou
 
   const { getNexusRegistryDb, getNexusRegistryDbPath } = await import('./store/nexus-sqlite.js');
   if (existsSync(getNexusRegistryDbPath(cleoHome))) {
-    const { eq } = await import('drizzle-orm');
-    const { projectPaths, projectRegistry } = await import('./store/schema/nexus-schema.js');
+    const { and, eq } = await import('drizzle-orm');
+    const { projectLocations, projectRegistry } = await import('./store/schema/nexus-schema.js');
+    const { currentDeviceId } = await import('./nexus/path-map.js');
     const db = await getNexusRegistryDb(cleoHome);
     const row = db
       .select({ projectPath: projectRegistry.projectPath })
       .from(projectRegistry)
       .where(eq(projectRegistry.projectId, infoProjectId))
       .get();
-    const mapped = db
-      .select({ projectId: projectPaths.projectId })
-      .from(projectPaths)
-      .where(eq(projectPaths.projectPath, checkout))
+    // T12469: current only when this checkout is a LIVE location of this id
+    // on this device; the unique holder of a path is never assumed.
+    const located = db
+      .select({ state: projectLocations.state })
+      .from(projectLocations)
+      .where(
+        and(
+          eq(projectLocations.projectId, infoProjectId),
+          eq(projectLocations.deviceId, currentDeviceId()),
+          eq(projectLocations.path, checkout),
+        ),
+      )
       .get();
-    if (row?.projectPath === checkout && mapped?.projectId === infoProjectId) return 'current';
+    if (row?.projectPath === checkout && located?.state === 'live') return 'current';
   }
 
   const key = `${cleoHome}\u0000${infoProjectId}\u0000${project.projectRoot}`;
@@ -2087,7 +2111,7 @@ export async function registerProjectOnEncounter(
           const canonical = await canonicalProjectId(resolvedPath, execution);
           execution.assertActive();
           const { getNexusRegistryDb } = await import('./store/nexus-sqlite.js');
-          const { eq, or } = await import('drizzle-orm');
+          const { eq } = await import('drizzle-orm');
           const { projectRegistry, projectIdAliases } = await import(
             './store/schema/nexus-schema.js'
           );
@@ -2102,23 +2126,14 @@ export async function registerProjectOnEncounter(
           db.transaction(
             (tx) => {
               execution.assertActive();
-              const owners = tx
+              // T12469: ownership is the immutable id alone. A row at this path
+              // under another id is a stale location, superseded below.
+              const existing = tx
                 .select()
                 .from(projectRegistry)
-                .where(
-                  or(
-                    eq(projectRegistry.projectId, infoProjectId),
-                    eq(projectRegistry.projectPath, resolvedPath),
-                    eq(projectRegistry.projectHash, projectHash),
-                  ),
-                )
-                .all();
-              if (owners.some((owner) => owner.projectId !== infoProjectId))
-                throw new Error(
-                  'Project encounter path or hash belongs to another immutable identity',
-                );
+                .where(eq(projectRegistry.projectId, infoProjectId))
+                .get();
               const now = new Date().toISOString();
-              const existing = owners.find((owner) => owner.projectId === infoProjectId);
               if (existing) {
                 tx.update(projectRegistry)
                   .set({
@@ -2151,7 +2166,7 @@ export async function registerProjectOnEncounter(
                   })
                   .run();
               }
-              // T12354: every checkout is recorded; the row above names the latest.
+              // T12354 · T12469: every checkout is a location; the row names the latest.
               recordProjectCheckout(tx, {
                 projectId: infoProjectId,
                 projectPath: resolvedPath,
@@ -2173,13 +2188,12 @@ export async function registerProjectOnEncounter(
                   (owner && owner.canonicalId !== infoProjectId) ||
                   (directOwner && directOwner.projectId !== infoProjectId)
                 ) {
-                  // Match explicit registration: this old truncated token is lossy.
-                  // Preserve its existing owner; the immutable identity still registers.
-                  if (alias === legacyAlias) {
-                    skippedAliases.push(alias);
-                    continue;
-                  }
-                  throw new Error('Project encounter alias belongs to another immutable identity');
+                  // Every alias here is derived from the PATH (base64url path,
+                  // git-root hash), so another project owning it means the path
+                  // changed hands — not a conflict of identity (T12469). Keep the
+                  // existing owner; the immutable identity still registers.
+                  skippedAliases.push(alias);
+                  continue;
                 }
                 if (!owner)
                   tx.insert(projectIdAliases)

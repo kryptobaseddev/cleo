@@ -15,7 +15,9 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { resolveTerminalKeys, type TerminalKey } from '../sessions/terminal-identity.js';
 import { rowToSession } from './converters.js';
+import { sessionTerminalBindings } from './session-binding-schema.js';
 import { getDb } from './sqlite.js';
 import * as schema from './tasks-schema.js';
 
@@ -374,6 +376,125 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
   });
 }
 
+// === TERMINAL BINDINGS (T12499) ===
+
+/**
+ * Bind the calling terminal to a session (T12499 · epic T12497).
+ *
+ * Upserts one `session_terminal_bindings` row per identity key of the calling
+ * terminal ({@link resolveTerminalKeys}: provider harness id, multiplexer pane,
+ * terminal tab, or the ppid-chain fallback), each pointing at `sessionId`. A
+ * later short-lived `cleo` call from the same terminal resolves this session
+ * through {@link resolveTerminalBoundSession} before any newest-active fallback.
+ *
+ * Refuses to bind a session id that has no row, so a binding can never name a
+ * session this project does not hold. Re-binding a key moves it to the newer
+ * session (the terminal started another session).
+ *
+ * @param sessionId - The session the terminal just started or resumed.
+ * @param cwd - Working directory for DB resolution.
+ * @param keys - Identity keys to bind (defaults to the live terminal's keys).
+ * @returns The keys that were bound; empty when there were none or the session
+ *   row does not exist.
+ * @task T12499
+ */
+export async function bindTerminalToSession(
+  sessionId: string,
+  cwd?: string,
+  keys: readonly TerminalKey[] = resolveTerminalKeys(),
+): Promise<TerminalKey[]> {
+  if (keys.length === 0) return [];
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const session = await getSession(sessionId, scope.worktreeRoot);
+    if (!session) return [];
+    const db = await getDb(scope.worktreeRoot);
+    const boundAt = new Date().toISOString();
+    for (const key of keys) {
+      db.insert(sessionTerminalBindings)
+        .values({
+          bindingKey: key.key,
+          keySource: key.source,
+          keyKind: key.kind,
+          sessionId,
+          boundAt,
+        })
+        .onConflictDoUpdate({
+          target: sessionTerminalBindings.bindingKey,
+          set: { keySource: key.source, keyKind: key.kind, sessionId, boundAt },
+        })
+        .run();
+    }
+    return [...keys];
+  });
+}
+
+/**
+ * Resolve the session bound to the calling terminal (T12499).
+ *
+ * Walks the terminal's identity keys in precedence order and returns the first
+ * bound session whose row still exists and is `active`. A binding to an ended
+ * or deleted session is ignored (the terminal has no live session), so the
+ * caller falls through to its next tier.
+ *
+ * @param cwd - Working directory for DB resolution.
+ * @param keys - Identity keys to look up (defaults to the live terminal's keys).
+ * @returns The bound active session, or `null`.
+ * @task T12499
+ */
+export async function resolveTerminalBoundSession(
+  cwd?: string,
+  keys: readonly TerminalKey[] = resolveTerminalKeys(),
+): Promise<Session | null> {
+  if (keys.length === 0) return null;
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    for (const key of keys) {
+      let boundId: string | undefined;
+      try {
+        const rows = await db
+          .select({ sessionId: sessionTerminalBindings.sessionId })
+          .from(sessionTerminalBindings)
+          .where(eq(sessionTerminalBindings.bindingKey, key.key))
+          .limit(1)
+          .all();
+        boundId = rows[0]?.sessionId;
+      } catch {
+        // A store opened before the T12499 migration has no binding table: the
+        // binding tier is advisory, so resolution continues to the next tier.
+        return null;
+      }
+      if (!boundId) continue;
+      const session = await getSession(boundId, scope.worktreeRoot);
+      if (session && session.status === 'active') return session;
+    }
+    return null;
+  });
+}
+
+/**
+ * Remove every terminal binding that points at `sessionId` (T12499).
+ *
+ * Called when a session ends so a terminal stops resolving it.
+ *
+ * @param sessionId - The session whose bindings to drop.
+ * @param cwd - Working directory for DB resolution.
+ * @returns Number of bindings removed.
+ * @task T12499
+ */
+export async function unbindSessionTerminals(sessionId: string, cwd?: string): Promise<number> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    const result = db
+      .delete(sessionTerminalBindings)
+      .where(eq(sessionTerminalBindings.sessionId, sessionId))
+      .run();
+    return Number(result.changes);
+  });
+}
+
 /**
  * Resolve the CALLER's current session (T11344/T11640 · Epics T11284, T11638).
  *
@@ -390,8 +511,11 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
  *    per-connection identity (T11640).
  * 2. **Env-named session** — `resolveSessionIdFromEnv()` (`CLEO_SESSION_ID`
  *    injected by spawn isolation, T11343); the spawned agent's OWN session.
- * 3. **Most-recent active row** — {@link getActiveSession}, the legacy
- *    single-process fallback.
+ *    An env id with no row is rejected and resolution continues.
+ * 3. **Terminal binding** — {@link resolveTerminalBoundSession}: the active
+ *    session that this terminal / harness started (T12499).
+ * 4. **Most-recent active row** — {@link getActiveSession}, the legacy
+ *    single-process fallback (removal tracked by T12500).
  *
  * Making most-recent-active the FALLBACK rather than the default identity is
  * what dissolves multi-agent session-bleed AND memory scope-leakage: a
@@ -420,8 +544,11 @@ export async function resolveCurrentSession(cwd?: string): Promise<Session | nul
     if (envId) {
       const byEnv = await getSession(envId, scope.worktreeRoot);
       if (byEnv) return byEnv;
-      // env id named a session that does not exist — fall through to active.
+      // env id named a session that does not exist — fall through to the binding.
     }
+    // T12499: the session this terminal started wins over the newest active row.
+    const byTerminal = await resolveTerminalBoundSession(scope.worktreeRoot);
+    if (byTerminal) return byTerminal;
     return getActiveSession(scope.worktreeRoot);
   });
 }
@@ -430,7 +557,7 @@ export async function resolveCurrentSession(cwd?: string): Promise<Session | nul
  * Resolve the CALLER's current session id (T11344/T11640).
  *
  * Thin id-only convenience over {@link resolveCurrentSession} sharing its
- * connection-handle → env → most-recent-active precedence. Prefer this over
+ * connection-handle → env → terminal-binding → most-recent-active precedence. Prefer this over
  * `(await getActiveSession())?.id` in identity-resolution hot paths.
  *
  * @param cwd - Working directory for DB resolution.
@@ -451,6 +578,9 @@ export async function resolveCurrentSessionId(cwd?: string): Promise<string | nu
       const byEnv = await getSession(envId, scope.worktreeRoot);
       if (byEnv) return byEnv.id;
     }
+    // T12499: the session this terminal started wins over the newest active row.
+    const byTerminal = await resolveTerminalBoundSession(scope.worktreeRoot);
+    if (byTerminal) return byTerminal.id;
     const active = await getActiveSession(scope.worktreeRoot);
     return active?.id ?? null;
   });

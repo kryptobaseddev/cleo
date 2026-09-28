@@ -1499,6 +1499,7 @@ export type {
   NexusPermissionSetParams,
   NexusPermissionSetResult,
   NexusProjectCheckout,
+  NexusProjectLocationState,
   NexusProjectRecord,
   NexusProjectStats,
   NexusProjectsCleanParams,

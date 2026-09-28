@@ -1,82 +1,102 @@
 /**
- * Worktree-isolation guard for CLEO DB opens (T9806 / T9961 / council verdict D009).
+ * Worktree-isolation guard for CLEO DB opens (T9806 / T9961 / T12460 · council verdict D009).
  *
- * Extracted into a standalone leaf module so it can be imported by both
- * `open-cleo-db.ts` (which owns the `CleoDbRole` union and the main chokepoint)
- * AND `sqlite.ts` (where `getDb()` lives) — without creating a circular import
- * cycle.
+ * Extracted into a standalone leaf module so it can be imported by
+ * `open-cleo-db.ts`, `sqlite.ts` (where `getDb()` lives) and `dual-scope-db.ts`
+ * (the physical open chokepoint) without creating a circular import cycle.
  *
- * Before this extraction, `assertDbPathIsNotWorktreeResident` lived in
- * `open-cleo-db.ts`, which imports `getDb` from `sqlite.ts`. If `sqlite.ts`
- * had tried to import the guard from `open-cleo-db.ts`, the import cycle would
- * have caused a TDZ failure at module-init time.
+ * T12460 moved the check onto the path actually being opened. The original
+ * guard re-derived a `.cleo/` directory through `getCleoDirAbsolute`, which
+ * follows the gitlink to the parent project, while the store open resolved the
+ * worktree's own `.cleo/`. The guard therefore approved a path nobody opened
+ * and the worktree silently received its own diverged `cleo.db`.
  *
- * @task T9961 (extraction), T9806 (original guard)
+ * @task T9961 (extraction), T9806 (original guard), T12460 (actual-path check)
  * @saga T9800
  * @decision D009
  */
 
-import { existsSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getCleoDirAbsolute } from '../paths.js';
+import { resolveCleoDir } from '../paths.js';
+import { isGitLinkedCheckout } from '../project-scope.js';
+
+/** File name of the consolidated project store under `<root>/.cleo/`. */
+const PROJECT_STORE_FILENAME = 'cleo.db';
 
 /**
- * Worktree-isolation guard for the DB chokepoint (T9806 / council verdict D009).
+ * Refuse to open a project-scope store file that lives inside a git worktree.
  *
- * Defense-in-depth on top of T9803's `getCleoDirAbsolute` THROWS-on-orphan
- * fix. After path resolution, this verifies the resolved `.cleo/`'s parent
- * directory is the **canonical project root** (i.e. `.git` is a real
- * directory) rather than a **git worktree** (i.e. `.git` is a gitlink file).
+ * A project store is `<root>/.cleo/<file>`. When `<root>` is a linked git
+ * checkout (`.git` is a gitlink FILE), the file is a worktree-resident copy
+ * diverged from the parent project's store: writes there never reach the
+ * parent and are lost when the worktree is pruned (T12460). Path resolution
+ * ({@link resolveCleoDir}) maps CLEO worktrees to their parent, so reaching
+ * this guard means the parent could not be resolved or the caller passed an
+ * explicit worktree path.
  *
- * Refusing worktree-resident opens prevents the residual orphan path where a
- * leaked `.cleo/` already exists inside a worktree from a pre-T9803 install:
- * T9803 stops NEW creation, T9806 stops re-use of an OLD leak.
+ * Paths whose parent directory is not named `.cleo` (explicit test fixtures,
+ * snapshot inspection) are outside the project layout and are not checked.
  *
  * Kill-switch: `CLEO_ALLOW_WORKTREE_DB_CREATE=1` bypasses the guard. The
- * override is recorded to stderr (caller may pipe to audit log).
+ * override is recorded on stderr.
  *
- * @param role - The DB role label (used in the error message only).
- * @param cwd  - Optional working directory; defaults to `process.cwd()`.
- *
- * @throws `CleoError('E_WT_DB_ISOLATION_VIOLATION')` when:
- *   - The resolved `.cleo/`'s parent directory contains `.git` as a FILE
- *     (gitlink — worktree marker), AND
- *   - `CLEO_ALLOW_WORKTREE_DB_CREATE` is not set to `'1'`.
+ * @param role - DB role label, used in the error message only.
+ * @param dbPath - Absolute path of the store file about to be opened.
+ * @throws `CleoError('E_WT_DB_ISOLATION_VIOLATION')` when the store's project
+ *   root is a linked git checkout and the kill-switch is not set.
+ * @example
+ * ```ts
+ * assertStorePathIsNotWorktreeResident('project', '/wt/T1/.cleo/cleo.db'); // throws
+ * ```
+ * @task T12460
  */
-export function assertDbPathIsNotWorktreeResident(role: string, cwd?: string): void {
-  let cleoDir: string;
-  try {
-    cleoDir = getCleoDirAbsolute(cwd);
-  } catch {
-    // T9803 already throws on unresolvable project root. Re-raising here
-    // would lose context; let the underlying opener surface the original
-    // error.
-    return;
-  }
+export function assertStorePathIsNotWorktreeResident(role: string, dbPath: string): void {
+  const cleoDir = dirname(dbPath);
+  if (basename(cleoDir) !== '.cleo') return;
   const projectRoot = dirname(cleoDir);
-  const projectGit = join(projectRoot, '.git');
-  let isWorktreeGitlink = false;
-  try {
-    isWorktreeGitlink = existsSync(projectGit) && statSync(projectGit).isFile();
-  } catch {
-    /* If `.git` itself is missing, this isn't our concern — T9803 will fire. */
-  }
-  if (!isWorktreeGitlink) {
-    return;
-  }
+  if (!isGitLinkedCheckout(projectRoot)) return;
   if (process.env['CLEO_ALLOW_WORKTREE_DB_CREATE'] === '1') {
     process.stderr.write(
-      `[T9806 WT-DB-OVERRIDE] role=${role} path=${cleoDir} reason=CLEO_ALLOW_WORKTREE_DB_CREATE=1\n`,
+      `[T9806 WT-DB-OVERRIDE] role=${role} path=${dbPath} reason=CLEO_ALLOW_WORKTREE_DB_CREATE=1\n`,
     );
     return;
   }
   throw new CleoError(
     ExitCode.CONFIG_ERROR,
-    `E_WT_DB_ISOLATION_VIOLATION: refusing to open '${role}' DB at ${cleoDir} — parent ${projectRoot} is a git worktree (gitlink). DBs must open against the canonical project root.`,
+    `E_WT_DB_ISOLATION_VIOLATION: refusing to open '${role}' DB at ${dbPath} — parent ${projectRoot} is a git worktree (gitlink). DBs must open against the canonical project root.`,
     {
-      fix: `Run from the canonical project root, OR delete the leaked .cleo/ inside the worktree, OR set CLEO_ALLOW_WORKTREE_DB_CREATE=1 (emergency override, audited).`,
+      fix: `Run from the canonical project root, or make sure the worktree's main repository is an initialised CLEO project so it resolves there. Inspect stranded worktree stores with \`cleo doctor worktree-stores\`. Emergency override (audited): CLEO_ALLOW_WORKTREE_DB_CREATE=1.`,
     },
   );
+}
+
+/**
+ * Worktree-isolation guard for callers that know only a working directory.
+ *
+ * Resolves the project store path exactly as the open does
+ * (`resolveCleoDir(cwd)` + `cleo.db`, the same derivation as
+ * `resolveDualScopeDbPath('project', cwd)`) and applies
+ * {@link assertStorePathIsNotWorktreeResident} to it.
+ *
+ * @param role - The DB role label (used in the error message only).
+ * @param cwd  - Optional working directory; defaults to `process.cwd()`.
+ * @throws `CleoError('E_WT_DB_ISOLATION_VIOLATION')` when the resolved store
+ *   lives inside a git worktree and the kill-switch is not set.
+ * @example
+ * ```ts
+ * assertDbPathIsNotWorktreeResident('tasks', process.cwd());
+ * ```
+ */
+export function assertDbPathIsNotWorktreeResident(role: string, cwd?: string): void {
+  let cleoDir: string;
+  try {
+    cleoDir = resolveCleoDir(cwd);
+  } catch {
+    // Unresolvable project root: let the underlying opener surface the
+    // original error with its own context.
+    return;
+  }
+  assertStorePathIsNotWorktreeResident(role, join(cleoDir, PROJECT_STORE_FILENAME));
 }

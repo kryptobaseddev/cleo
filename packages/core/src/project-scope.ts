@@ -122,6 +122,58 @@ export function captureProjectScope(
 }
 
 /**
+ * Report whether `dir` is the root of a linked git checkout: its `.git` is a
+ * gitlink FILE (`gitdir: …`) rather than a real repository directory.
+ *
+ * @param dir - Directory to inspect.
+ * @returns `true` when `<dir>/.git` exists and is a regular file.
+ * @remarks Pure `stat` probe that never throws. A missing or unreadable `.git`
+ * returns `false`.
+ * @example
+ * ```ts
+ * isGitLinkedCheckout('/home/u/.local/share/cleo/worktrees/abc/T1'); // true
+ * isGitLinkedCheckout('/home/u/project'); // false: .git is a directory
+ * ```
+ * @task T12460
+ */
+export function isGitLinkedCheckout(dir: string): boolean {
+  try {
+    const gitMarker = join(dir, '.git');
+    return existsSync(gitMarker) && statSync(gitMarker).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Map a candidate project root to the root that OWNS the project store.
+ *
+ * A CLEO worktree (ADR-055) is a linked git checkout whose `.cleo/` can exist
+ * on disk: the project's own tracked `.cleo/` files, or the
+ * `project-info.json` seeded for identity inheritance (T11033). Neither makes
+ * the worktree a project. Its store is the PARENT project's `.cleo/cleo.db`.
+ * When `root` is a linked checkout whose main repository is a valid CLEO
+ * project, this returns that main repository; otherwise `root` unchanged.
+ *
+ * @param root - Candidate project root (worktree root, scope root, or walk hit).
+ * @returns The parent project root for a CLEO worktree, else `root`.
+ * @remarks Only `root` itself is inspected, never its ancestors, so a nested
+ * fixture `.cleo/` inside a checkout keeps resolving to itself. A worktree
+ * whose parent is not a CLEO project is returned unchanged; the store-open
+ * guard then refuses it instead of creating a local store.
+ * @example
+ * ```ts
+ * resolveStoreOwnerRoot('/data/cleo/worktrees/abc/T1'); // '/home/u/project'
+ * resolveStoreOwnerRoot('/home/u/project');             // '/home/u/project'
+ * ```
+ * @task T12460
+ */
+export function resolveStoreOwnerRoot(root: string): string {
+  if (!isGitLinkedCheckout(root)) return root;
+  return _resolveMainRepoFromGitlink(root) ?? root;
+}
+
+/**
  * Attempt to resolve the main git repo root from a gitlink (.git as FILE).
  * Returns the main repo path if the gitlink is valid and the main repo is a
  * CLEO project; otherwise returns `null`.
@@ -140,7 +192,8 @@ export function _resolveMainRepoFromGitlink(gitlinkDir: string): string | null {
     const gitLinkContent = readFileSync(gitLinkPath, 'utf-8').trim();
     const match = gitLinkContent.match(/^gitdir:\s*(.+)$/m);
     if (!match) return null;
-    const gitdir = match[1].trim();
+    // A relative gitdir (`worktree.useRelativePaths`) is relative to the checkout.
+    const gitdir = resolve(gitlinkDir, match[1].trim());
     // gitdir is `<main>/.git/worktrees/<name>` → strip last 3 segments.
     const mainRepo = dirname(dirname(dirname(gitdir)));
     if (existsSync(join(mainRepo, '.cleo')) && validateProjectRoot(mainRepo)) {
