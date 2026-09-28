@@ -25,7 +25,9 @@ import {
   resolveRegistryTemplatePath,
 } from '../paths/standard.js';
 import type {
+  HitlRequestFallback,
   HookEvent,
+  ProviderAskTool,
   ProviderPriority,
   ProviderRegistry,
   ProviderStatus,
@@ -35,6 +37,7 @@ import type {
   RegistryMcpIntegration,
   RegistryProvider,
   RegistrySpawnCapability,
+  ResolvedProviderAskTool,
   SkillsPrecedence,
 } from './types.js';
 
@@ -844,4 +847,179 @@ export function providerSupportsById(idOrAlias: string, capabilityPath: string):
   const provider = getProvider(idOrAlias);
   if (!provider) return false;
   return providerSupports(provider, capabilityPath);
+}
+
+// ── Human-in-the-loop ask tools (T12482) ─────────────────────────────
+
+/**
+ * The fallback every agent uses when its provider has no known ask tool: emit
+ * ONE LAFS envelope `hitl.request` with `{question, options[{label,
+ * description}], recommended}` in `data`, then stop.
+ *
+ * @public
+ */
+export const HITL_REQUEST_FALLBACK: HitlRequestFallback = {
+  operation: 'hitl.request',
+  fields: ['question', 'options', 'recommended'],
+  optionFields: ['label', 'description'],
+};
+
+const UNKNOWN_ASK_TOOL: ProviderAskTool = {
+  status: 'unknown',
+  toolName: null,
+  caveat: null,
+  source: 'not verified (T12482): no doc or source located',
+};
+
+/**
+ * Structured-question ("ask the human") tool per provider id.
+ *
+ * @remarks
+ * DATA, keyed by the canonical id in `providers/registry.json`; every registry
+ * provider has an entry (a test enforces it). Only verified names are
+ * recorded — anything not found in docs or source is `unknown`, never
+ * invented. Researched 2026-09-27 for T12482.
+ *
+ * @public
+ */
+export const PROVIDER_ASK_TOOLS: Readonly<Record<string, ProviderAskTool>> = {
+  'claude-code': {
+    status: 'native',
+    toolName: 'AskUserQuestion',
+    caveat: 'Main session only; subagents cannot call it',
+    source: 'https://code.claude.com/docs/en/settings#tools-available-to-claude',
+  },
+  codex: {
+    status: 'native',
+    toolName: 'request_user_input',
+    caveat:
+      'Plan mode by default; default mode needs [features] default_mode_request_user_input = true; unsupported in `codex exec`',
+    source:
+      'codex-cli 0.157.1 binary (core/src/tools/handlers/request_user_input.rs); openai/codex#10384, #15293',
+  },
+  'gemini-cli': {
+    status: 'native',
+    toolName: 'ask_user',
+    caveat: null,
+    source: 'https://geminicli.com/docs/tools/ask-user',
+  },
+  'copilot-cli': {
+    status: 'native',
+    toolName: 'ask_user',
+    caveat: 'Disabled by --no-ask-user',
+    source:
+      'https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference',
+  },
+  opencode: {
+    status: 'native',
+    toolName: 'question',
+    caveat: 'Gated by permission.question',
+    source: 'https://opencode.ai/docs/tools; opencode v2.0.15 binary (QuestionTool)',
+  },
+  kimi: {
+    status: 'native',
+    toolName: 'AskUserQuestion',
+    caveat: null,
+    source: 'kimi 2.1.1 binary (~/.kimi-code/bin/kimi: name: "AskUserQuestion")',
+  },
+  cursor: {
+    status: 'native',
+    toolName: 'AskQuestion',
+    caveat: 'Plan mode only; not offered under `agent acp`',
+    source:
+      'https://forum.cursor.com/t/allow-askquestion-tool-calls-in-agent-mode-or-any-mode/152517',
+  },
+  cline: {
+    status: 'native',
+    toolName: 'ask_followup_question',
+    caveat: null,
+    source: 'Cline system prompt (ask_followup_question with options[])',
+  },
+  roo: {
+    status: 'native',
+    toolName: 'ask_followup_question',
+    caveat: null,
+    source: 'https://docs.roocode.com/advanced-usage/available-tools/ask-followup-question',
+  },
+  'kilo-code': {
+    status: 'native',
+    toolName: 'ask_followup_question',
+    caveat: 'Verified for the legacy IDE extension only',
+    source: 'Kilo-Org/kilocode-legacy docs/legacy-ides/automate/tools/ask-followup-question.md',
+  },
+  pi: {
+    status: 'none',
+    toolName: null,
+    caveat: 'Optional `question` tool only via examples/extensions/question.ts',
+    source:
+      '@mariozechner/pi-coding-agent 0.66.0 dist/core/tools (bash/edit/find/grep/ls/read/write)',
+  },
+  'openai-sdk': {
+    status: 'none',
+    toolName: null,
+    caveat: 'Library, not a harness: the host application defines every tool',
+    source: 'providers/registry.json (spawnMechanism: sdk)',
+  },
+  windsurf: UNKNOWN_ASK_TOOL,
+  'github-copilot': UNKNOWN_ASK_TOOL,
+  vscode: UNKNOWN_ASK_TOOL,
+  zed: UNKNOWN_ASK_TOOL,
+  'claude-desktop': UNKNOWN_ASK_TOOL,
+  continue: UNKNOWN_ASK_TOOL,
+  goose: UNKNOWN_ASK_TOOL,
+  antigravity: UNKNOWN_ASK_TOOL,
+  'kiro-cli': UNKNOWN_ASK_TOOL,
+  amp: UNKNOWN_ASK_TOOL,
+  trae: UNKNOWN_ASK_TOOL,
+  aide: UNKNOWN_ASK_TOOL,
+  'pear-ai': UNKNOWN_ASK_TOOL,
+  'void-ai': UNKNOWN_ASK_TOOL,
+  cody: UNKNOWN_ASK_TOOL,
+  'qwen-code': UNKNOWN_ASK_TOOL,
+  openhands: UNKNOWN_ASK_TOOL,
+  codebuddy: UNKNOWN_ASK_TOOL,
+  codestory: UNKNOWN_ASK_TOOL,
+  aider: UNKNOWN_ASK_TOOL,
+  'amazon-q': UNKNOWN_ASK_TOOL,
+  tabnine: UNKNOWN_ASK_TOOL,
+  augment: UNKNOWN_ASK_TOOL,
+  devin: UNKNOWN_ASK_TOOL,
+  mentat: UNKNOWN_ASK_TOOL,
+  'blackbox-ai': UNKNOWN_ASK_TOOL,
+  sourcery: UNKNOWN_ASK_TOOL,
+  'replit-agent': UNKNOWN_ASK_TOOL,
+  'jetbrains-ai': UNKNOWN_ASK_TOOL,
+  codegen: UNKNOWN_ASK_TOOL,
+  double: UNKNOWN_ASK_TOOL,
+  'swe-agent': UNKNOWN_ASK_TOOL,
+  forge: UNKNOWN_ASK_TOOL,
+  'gemini-code-assist': UNKNOWN_ASK_TOOL,
+};
+
+/**
+ * Resolve the structured-question tool for a provider, with the
+ * `hitl.request` fallback attached.
+ *
+ * @remarks
+ * Canonical ids are looked up directly (no registry load); anything else is
+ * alias-resolved through the registry. An id with no entry resolves to
+ * `unknown` so callers always get an answer and a fallback.
+ *
+ * @param idOrAlias - Provider ID or alias (e.g. `"claude"`)
+ * @returns The ask-tool record, its canonical provider id and the fallback
+ *
+ * @example
+ * ```typescript
+ * getProviderAskTool('claude').toolName; // "AskUserQuestion"
+ * getProviderAskTool('aider').toolName;  // null -> use fallback (hitl.request)
+ * ```
+ *
+ * @public
+ */
+export function getProviderAskTool(idOrAlias: string): ResolvedProviderAskTool {
+  const providerId = Object.hasOwn(PROVIDER_ASK_TOOLS, idOrAlias)
+    ? idOrAlias
+    : resolveAlias(idOrAlias);
+  const entry = PROVIDER_ASK_TOOLS[providerId] ?? UNKNOWN_ASK_TOOL;
+  return { ...entry, providerId, fallback: HITL_REQUEST_FALLBACK };
 }

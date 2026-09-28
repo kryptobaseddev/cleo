@@ -26,7 +26,7 @@ describe('config path idiom (T12517)', () => {
       .filter(Boolean);
     expect(files.length).toBeGreaterThan(0);
     const offenders = files.filter((f) =>
-      /import\.meta\.url\)\.pathname/.test(readFileSync(join(REPO_ROOT, f), 'utf8')),
+      /import\.meta\.url,?\s*\)\s*\.pathname/.test(readFileSync(join(REPO_ROOT, f), 'utf8')),
     );
     expect(offenders).toEqual([]);
   });
