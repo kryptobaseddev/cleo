@@ -35,3 +35,7 @@ and tables. This change restructures the file instead.
 - **Gates.** Gates 14 and 21, the pointer test and the flag-existence test now
   judge core and reference together. A section that moves out of the core keeps
   its checks.
+- **Output format.** `cleo briefing inject` returns one LAFS envelope through
+  the render SSoT, as ADR-086 requires. The envelope is
+  `{section, source, content}`. `--field /data/content` prints the section
+  markdown raw, and `--human` renders it.

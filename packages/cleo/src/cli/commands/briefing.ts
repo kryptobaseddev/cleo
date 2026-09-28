@@ -20,7 +20,7 @@ import { pushWarning } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
-import { cliError } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /** Adapter-specific rendering formats for `--format adapter:<name>`. */
 const ADAPTER_FORMATS = ['claude', 'codex', 'gemini', 'compact-json'] as const;
@@ -69,8 +69,9 @@ function failInject(message: string, fix: string): void {
  *
  * `CLEO-INJECTION.md` is the always-loaded core; reference sections live in
  * the package's `CLEO-REFERENCE.md` and are fetched with this command. Output
- * is the raw section markdown (or the `--format adapter:<name>` rendering),
- * not an envelope — it is context for the agent to read.
+ * is one LAFS envelope (ADR-086) whose `data.content` is the section markdown
+ * (or its `--format adapter:<name>` rendering); `--field /data/content`
+ * prints it raw.
  *
  * @task T9148
  * @task T12580
@@ -123,7 +124,12 @@ const briefingInjectCommand = defineCommand({
       }
       output = renderForAdapter(sectionName, lookup.content, adapterName as AdapterFormat);
     }
-    process.stdout.write(`${output}\n`);
+    // ADR-086: one LAFS envelope on stdout, through the render SSoT. The
+    // section text is `data.content`; `--field /data/content` extracts it raw.
+    cliOutput(
+      { section: sectionName, source: lookup.source, content: output },
+      { command: 'briefing-inject', operation: 'briefing.inject' },
+    );
   },
 });
 
