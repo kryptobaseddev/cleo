@@ -283,7 +283,13 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     const merge = git(root, ['rev-parse', 'HEAD']);
     const ctxPath = join(root, '.cleo', 'project-context.json');
     const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as Record<string, unknown>;
-    writeFileSync(ctxPath, JSON.stringify({ ...ctx, evidence: { ciSatisfies: optIn } }));
+    writeFileSync(
+      ctxPath,
+      JSON.stringify({
+        ...ctx,
+        evidence: { ciSatisfies: optIn, ciChecks: { tests: ['CI'], qa: ['CI'] } },
+      }),
+    );
     return deriveTaskEvidence(id, {
       projectRoot: root,
       cwd: root,

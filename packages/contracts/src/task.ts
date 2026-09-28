@@ -383,9 +383,23 @@ export type EvidenceAtom =
        * on: the merge commit itself, or (T12634) the final PR head when its
        * tree is identical to the merge commit's.
        */
-      checks: Array<{ name: string; conclusion: string; sha: string }>;
+      checks: Array<{
+        name: string;
+        conclusion: string;
+        sha: string;
+        /** GitHub App that posted the judged run (slug, else id). */
+        app?: string;
+        /** Workflow file of the judged run, when known. */
+        workflow?: string;
+        /** Event of the judged run (`push`, `pull_request`, …), when known. */
+        event?: string;
+      }>;
       /** Tree of the merge commit — the content every recorded check tested. */
       testedTree?: string;
+      /** Task the PR was verified to be linked to (T12634). */
+      taskId?: string;
+      /** Which configured checks attest each gate (`evidence.ciChecks`). */
+      gateChecks?: { testsPassed?: string[]; qaPassed?: string[] };
       /** Where the required-check list came from (env, project context, branch protection). */
       requiredSource: string;
     }

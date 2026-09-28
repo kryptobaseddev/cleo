@@ -487,10 +487,54 @@ function extractProjectContextRequiredWorkflows(
   if (!Array.isArray(declared)) return null;
   // Present-but-empty is intentional: return [] (not null) so an explicit
   // "no required workflows" declaration accepts any MERGED PR.
+  // T12634: an entry may be `{ name, app?, workflow? }`; its name is required
+  // exactly like a bare string (the pin is read by readRequiredCheckPins).
   return declared
-    .filter((s): s is string => typeof s === 'string')
+    .map((s) =>
+      typeof s === 'string'
+        ? s
+        : typeof s === 'object' && s !== null && typeof (s as { name?: unknown }).name === 'string'
+          ? (s as { name: string }).name
+          : '',
+    )
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/** The app (slug or id) and workflow file a required check must come from. */
+export interface RequiredCheckPinSpec {
+  /** GitHub App slug or numeric id. */
+  readonly app?: string | number;
+  /** Workflow file path, for workflow-run checks. */
+  readonly workflow?: string;
+}
+
+/**
+ * Pins declared by object entries of `release.prRequiredWorkflows`
+ * (`{ name, app?, workflow? }`), keyed by check name (T12634).
+ *
+ * @param projectContext - Parsed `.cleo/project-context.json`, or null.
+ * @returns Name → pin, for entries that declare an app or workflow.
+ * @task T12634
+ */
+export function readRequiredCheckPins(
+  projectContext?: Record<string, unknown> | null,
+): Record<string, RequiredCheckPinSpec> {
+  const release = (projectContext as { release?: { prRequiredWorkflows?: unknown } } | null)
+    ?.release;
+  const declared = release?.prRequiredWorkflows;
+  const pins: Record<string, RequiredCheckPinSpec> = {};
+  if (!Array.isArray(declared)) return pins;
+  for (const entry of declared) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { name, app, workflow } = entry as { name?: unknown; app?: unknown; workflow?: unknown };
+    if (typeof name !== 'string' || name.trim() === '') continue;
+    const pin: { app?: string | number; workflow?: string } = {};
+    if (typeof app === 'string' || typeof app === 'number') pin.app = app;
+    if (typeof workflow === 'string' && workflow !== '') pin.workflow = workflow;
+    if (pin.app !== undefined || pin.workflow !== undefined) pins[name.trim()] = pin;
+  }
+  return pins;
 }
 
 /**
@@ -550,6 +594,11 @@ export type RequiredWorkflowsSource =
 export interface RequiredWorkflowsResolution {
   readonly workflows: string[];
   readonly source: RequiredWorkflowsSource;
+  /**
+   * App pins from branch protection's `checks[].app_id` (T12634), keyed by
+   * check name. Present only for the branch-protection tier.
+   */
+  readonly pins?: Record<string, RequiredCheckPinSpec>;
 }
 
 /**
@@ -605,6 +654,11 @@ function resolveSyncTier(
 // Branch-protection tier (gh#1192)
 // ---------------------------------------------------------------------------
 
+/** Branch-protection `app_id`s as check pins (T12634). */
+function appIdPins(appIds: Record<string, number>): Record<string, RequiredCheckPinSpec> {
+  return Object.fromEntries(Object.entries(appIds).map(([name, app]) => [name, { app }]));
+}
+
 /**
  * Function signature for querying the TARGET repo's branch-protection
  * required status checks via the `gh` CLI. Injectable for tests, mirroring
@@ -617,10 +671,16 @@ function resolveSyncTier(
  *
  * @task T12104 (gh#1192)
  */
-export type FetchGhBranchProtection = (
-  cwd: string,
-) => Promise<
-  { ok: true; contexts: string[]; repo: string; branch: string } | { ok: false; reason: string }
+export type FetchGhBranchProtection = (cwd: string) => Promise<
+  | {
+      ok: true;
+      contexts: string[];
+      repo: string;
+      branch: string;
+      /** `checks[].app_id` per context, when branch protection names the app (T12634). */
+      appIds?: Record<string, number>;
+    }
+  | { ok: false; reason: string }
 >;
 
 /**
@@ -672,11 +732,16 @@ export const defaultFetchGhBranchProtection: FetchGhBranchProtection = async (cw
         if (typeof c === 'string' && c.trim().length > 0) contexts.add(c.trim());
       }
     }
+    const appIds: Record<string, number> = {};
     if (Array.isArray(parsed.checks)) {
       for (const c of parsed.checks) {
         if (typeof c !== 'object' || c === null) continue;
         const ctx = (c as Record<string, unknown>).context;
-        if (typeof ctx === 'string' && ctx.trim().length > 0) contexts.add(ctx.trim());
+        if (typeof ctx === 'string' && ctx.trim().length > 0) {
+          contexts.add(ctx.trim());
+          const appId = (c as Record<string, unknown>).app_id;
+          if (typeof appId === 'number' && appId > 0) appIds[ctx.trim()] = appId;
+        }
       }
     }
     if (contexts.size === 0) {
@@ -685,7 +750,7 @@ export const defaultFetchGhBranchProtection: FetchGhBranchProtection = async (cw
         reason: `branch protection for ${repo}@${branch} declares no required status checks`,
       };
     }
-    return { ok: true, contexts: [...contexts], repo, branch };
+    return { ok: true, contexts: [...contexts], repo, branch, appIds };
   } catch (err) {
     const stderr =
       err instanceof Error && 'stderr' in err
@@ -723,6 +788,8 @@ interface BranchProtectionCacheEntry {
   readonly repo: string;
   readonly branch: string;
   readonly contexts: string[];
+  /** T12634: `checks[].app_id` per context; absent on entries written before it. */
+  readonly appIds?: Record<string, number>;
   readonly capturedAt: string;
 }
 
@@ -796,6 +863,7 @@ export async function resolveRequiredWorkflowsDetailed(
       return {
         workflows: [...cached.contexts],
         source: { tier: 'branch-protection', repo: cached.repo, branch: cached.branch },
+        ...(cached.appIds ? { pins: appIdPins(cached.appIds) } : {}),
       };
     }
   }
@@ -812,6 +880,7 @@ export async function resolveRequiredWorkflowsDetailed(
           repo: fetched.repo,
           branch: fetched.branch,
           contexts: fetched.contexts,
+          ...(fetched.appIds ? { appIds: fetched.appIds } : {}),
           capturedAt: new Date().toISOString(),
         });
     } catch {
@@ -820,6 +889,7 @@ export async function resolveRequiredWorkflowsDetailed(
     return {
       workflows: fetched.contexts,
       source: { tier: 'branch-protection', repo: fetched.repo, branch: fetched.branch },
+      ...(fetched.appIds ? { pins: appIdPins(fetched.appIds) } : {}),
     };
   }
 

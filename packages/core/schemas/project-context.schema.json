@@ -221,11 +221,32 @@
         "prRequiredWorkflows": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "app": {
+                    "oneOf": [
+                      { "type": "string", "minLength": 1 },
+                      { "type": "integer", "minimum": 1 }
+                    ],
+                    "description": "GitHub App slug or id that must post this check."
+                  },
+                  "workflow": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Workflow file path that must produce this check."
+                  }
+                }
+              }
+            ]
           },
           "uniqueItems": true,
-          "description": "Required successful checks for PR evidence atoms."
+          "description": "Required successful checks for PR and CI evidence atoms. An object entry pins the check to the GitHub App (and workflow file) that must post it (T12634)."
         }
       }
     },
@@ -238,6 +259,19 @@
           "type": "string",
           "minLength": 1,
           "description": "Checkout that git/gh evidence tools run in, relative to the CLEO store root (absolute is also accepted). Needed only when the store root is not itself a git work tree and parents more than one repository."
+        },
+        "ciSatisfies": {
+          "type": "boolean",
+          "description": "Accept required CI green on a merged PR's merge commit as testsPassed/qaPassed evidence (ci:<pr>, D11149)."
+        },
+        "ciChecks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tests": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+            "qa": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+          },
+          "description": "Required checks that attest testsPassed (tests) and qaPassed (qa) for ci:<pr>; each must be a subset of the required list."
         }
       }
     }

@@ -441,6 +441,7 @@ export async function validateAtom(
       const ctx = loadProjectContext(roots.storeRoot);
       const result = await resolveCiEvidenceAtom(parsed.prNumber, roots, {
         projectContext: ctx.loaded ? ctx.context : null,
+        ...(context ? { context } : {}),
       });
       return result.ok
         ? { ok: true, atom: result.atom }
@@ -2257,6 +2258,52 @@ async function validateDecision(decisionId: string, roots: EvidenceRoots): Promi
 // ---------------------------------------------------------------------------
 
 /**
+ * The task linkage `pr:` provenance requires, shared with `ci:<pr>` (T12634):
+ * the PR's changed-file inventory is complete, and the PR either cites the
+ * task in its title, body or head branch, or its diff intersects the task's
+ * declared files — and when files are declared, the diff MUST intersect them.
+ *
+ * @param prNumber - The PR being linked.
+ * @param pr - The verified PR (title, body, head branch, changed files).
+ * @param context - The task the evidence is being recorded for.
+ * @returns The refusal, or null when the PR is linked to the task.
+ * @task T12634
+ */
+export function checkPrTaskLinkage(
+  prNumber: number,
+  pr: {
+    title: string;
+    body: string;
+    headRefName: string;
+    changedPaths: string[];
+    changedFileCount: number;
+    changedFilesError?: string;
+  },
+  context: EvidenceValidationContext,
+): { ok: false; reason: string; codeName: string } | null {
+  if (pr.changedFileCount !== pr.changedPaths.length || pr.changedPaths.length === 0) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `PR #${prNumber} changed-file coverage is incomplete or empty (${pr.changedPaths.length}/${pr.changedFileCount})${pr.changedFilesError ? ` — ${pr.changedFilesError}` : ''}; inspect the full diff before recording evidence.`,
+    };
+  }
+  const declaredFiles = context.task.files ?? [];
+  const taskMention = new RegExp(`(^|[^A-Za-z0-9])${context.task.id}([^A-Za-z0-9]|$)`);
+  const explicitlyLinked = taskMention.test(`${pr.title}\n${pr.body}\n${pr.headRefName}`);
+  const scopeIntersects =
+    declaredFiles.length > 0 && diffIntersectsAc(pr.changedPaths, declaredFiles);
+  if ((!explicitlyLinked && !scopeIntersects) || (declaredFiles.length > 0 && !scopeIntersects)) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
+      reason: `PR #${prNumber} does not establish a relationship to task ${context.task.id}. Changed artifacts: ${pr.changedPaths.join(', ')}. Declare task files or cite the exact task in the PR; declared scope must intersect the diff.`,
+    };
+  }
+  return null;
+}
+
+/**
  * Validate a `pr:<number>` atom by resolving the PR via the `gh` CLI.
  *
  * Delegates to {@link resolvePrEvidenceAtom} so the network round-trip,
@@ -2304,27 +2351,8 @@ async function validatePrAtom(
   if (!result.ok) {
     return { ok: false, reason: result.reason, codeName: result.codeName };
   }
-  if (result.changedFileCount !== result.changedPaths.length || result.changedPaths.length === 0) {
-    return {
-      ok: false,
-      codeName: 'E_EVIDENCE_INSUFFICIENT',
-      reason: `PR #${prNumber} changed-file coverage is incomplete or empty (${result.changedPaths.length}/${result.changedFileCount})${result.changedFilesError ? ` — ${result.changedFilesError}` : ''}; inspect the full diff before recording evidence.`,
-    };
-  }
-  const declaredFiles = context.task.files ?? [];
-  const taskMention = new RegExp(`(^|[^A-Za-z0-9])${context.task.id}([^A-Za-z0-9]|$)`);
-  const explicitlyLinked = taskMention.test(
-    `${result.title}\n${result.body}\n${result.headRefName}`,
-  );
-  const scopeIntersects =
-    declaredFiles.length > 0 && diffIntersectsAc(result.changedPaths, declaredFiles);
-  if ((!explicitlyLinked && !scopeIntersects) || (declaredFiles.length > 0 && !scopeIntersects)) {
-    return {
-      ok: false,
-      codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
-      reason: `PR #${prNumber} does not establish a relationship to task ${context.task.id}. Changed artifacts: ${result.changedPaths.join(', ')}. Declare task files or cite the exact task in the PR; declared scope must intersect the diff.`,
-    };
-  }
+  const unlinked = checkPrTaskLinkage(prNumber, result, context);
+  if (unlinked) return unlinked;
   if (
     context.gates.includes('implemented') &&
     classifyEvidenceTask(context) === 'code' &&
@@ -2401,6 +2429,9 @@ export function checkTaskEvidenceContext(
   const filePaths = atoms.flatMap((atom) =>
     atom.kind === 'files' ? atom.files.map((file) => file.path) : [],
   );
+  // T12634: a `ci:` result is bound to the task it was validated for, like `pr:`.
+  if (atoms.some((atom) => atom.kind === 'ci' && atom.taskId !== context.task.id))
+    return 'CI evidence lacks verified task linkage; re-verify with current task context.';
   const prAtoms = atoms.filter((atom) => atom.kind === 'pr');
   if (prAtoms.length > 1)
     return 'Record one PR and its merge-pinned artifacts per verification attempt; multiple merge identities are ambiguous.';

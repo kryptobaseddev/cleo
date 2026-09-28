@@ -1,15 +1,18 @@
 /**
- * `ci:<pr>` — required CI green on a merged PR's MERGE COMMIT satisfies
- * testsPassed and qaPassed (owner decision D11149, T12634).
+ * `ci:<pr>` — required CI on a merged PR satisfies testsPassed and qaPassed
+ * (owner decision D11149, T12634).
  *
  * Pinned:
- *  1. every required check must be `completed`/`success` on the merge commit;
- *     pending, failed, skipped and missing checks are each refused with a
- *     reason naming the check and its state;
- *  2. a check that ran only on another SHA (the PR head) never counts;
- *  3. the atom is refused unless the project opts in (`evidence.ciSatisfies`);
- *  4. the gate minimum and task-context rules accept a validated `ci:` atom
- *     for testsPassed and qaPassed — and nothing else.
+ *  1. every required check's latest run (per source and event) must be
+ *     `completed`/`success` on the merge commit; pending, failed, cancelled,
+ *     skipped and missing are each refused by name;
+ *  2. a PR head's `pull_request` runs count only when its tree equals the
+ *     merge tree AND the merge's first parent is an ancestor of the head;
+ *  3. the atom is task-linked like `pr:` (title/body/branch or file scope);
+ *  4. a pinned check only counts from its pinned app/workflow;
+ *  5. each gate is attested by its declared `evidence.ciChecks` list, which
+ *     must be configured and a subset of the required checks;
+ *  6. opt-in only (`evidence.ciSatisfies`).
  *
  * @task T12634
  */
@@ -28,6 +31,7 @@ import { checkTaskEvidenceContext, parseEvidence } from '../../tasks/evidence.js
 import {
   type CommitCheck,
   evaluateMergeCommitChecks,
+  type ResolveCiEvidenceOptions,
   readCiSatisfies,
   resolveCiEvidenceAtom,
 } from '../ci-evidence.js';
@@ -35,6 +39,8 @@ import type { PrAtomResolution } from '../pr-evidence.js';
 
 const MERGE = 'a'.repeat(40);
 const HEAD = 'b'.repeat(40);
+const PARENT = 'e'.repeat(40);
+const TREE = 'c'.repeat(40);
 const REQUIRED = ['CI', 'Lockfile Check', 'Contracts Dep Lint'];
 
 function check(name: string, extra: Partial<CommitCheck> = {}): CommitCheck {
@@ -45,17 +51,34 @@ function check(name: string, extra: Partial<CommitCheck> = {}): CommitCheck {
     conclusion: 'success',
     headSha: MERGE,
     id: 1,
+    appSlug: 'github-actions',
+    event: 'push',
     ...extra,
   };
 }
 
 const allGreen: CommitCheck[] = [
-  check('CI', { source: 'workflow-run' }),
-  check('CI', { id: 2 }),
-  check('Lockfile Check', { source: 'workflow-run' }),
-  check('Contracts Dep Lint'),
+  check('CI', { source: 'workflow-run', workflowPath: '.github/workflows/ci.yml' }),
+  check('CI', { id: 2, workflowPath: '.github/workflows/ci.yml' }),
+  check('Lockfile Check', {
+    source: 'workflow-run',
+    workflowPath: '.github/workflows/lockfile-check.yml',
+  }),
+  check('Contracts Dep Lint', { workflowPath: '.github/workflows/ci.yml' }),
   check('Type Check'),
 ];
+const onHead = allGreen.map((c) => ({ ...c, headSha: HEAD, event: 'pull_request' }));
+
+function context(
+  taskId = 'T1',
+  gates: EvidenceValidationContext['gates'] = ['testsPassed'],
+): EvidenceValidationContext {
+  return {
+    task: { id: taskId, kind: 'work', labels: [], files: [], acceptance: [] },
+    gates,
+    criteria: [],
+  };
+}
 
 describe('evaluateMergeCommitChecks', () => {
   it('accepts when every required check succeeded on the merge commit', () => {
@@ -85,12 +108,13 @@ describe('evaluateMergeCommitChecks', () => {
     expect(!r.ok && r.reasons.join('\n')).toMatch(/Contracts Dep Lint.*not found on merge commit/);
   });
 
-  it('never counts a check that ran on another SHA (the PR head)', () => {
-    const onHead = allGreen.map((c) => ({ ...c, headSha: HEAD }));
+  it('never counts a check that ran on another SHA unless it is the tree-equivalent head', () => {
     const r = evaluateMergeCommitChecks(REQUIRED, onHead, MERGE);
-    expect(r.ok).toBe(false);
     expect(!r.ok && r.reasons.join('\n')).toMatch(
       new RegExp(`CI.*ran on ${HEAD.slice(0, 12)}, not the merge commit ${MERGE.slice(0, 12)}`),
+    );
+    expect(evaluateMergeCommitChecks(REQUIRED, onHead, MERGE, { treeEquivalentSha: HEAD }).ok).toBe(
+      true,
     );
   });
 
@@ -109,6 +133,52 @@ describe('evaluateMergeCommitChecks', () => {
     expect(evaluateMergeCommitChecks(REQUIRED, regressed, MERGE).ok).toBe(false);
   });
 
+  it('ranks per event: a later push run never hides a failed pull_request run on the head (fix 5)', () => {
+    const head = [
+      ...onHead.filter((c) => c.name !== 'CI'),
+      check('CI', { headSha: HEAD, event: 'pull_request', id: 5, conclusion: 'failure' }),
+      check('CI', { headSha: HEAD, event: 'push', id: 9 }),
+    ];
+    const r = evaluateMergeCommitChecks(REQUIRED, head, MERGE, { treeEquivalentSha: HEAD });
+    expect(r.ok).toBe(false);
+  });
+
+  it('ranks per event on the merge commit: a later run of another event never hides a failure (fix 5)', () => {
+    const merge = [
+      ...allGreen.filter((c) => c.name !== 'Contracts Dep Lint'),
+      check('Contracts Dep Lint', { event: 'push', id: 5, conclusion: 'failure' }),
+      check('Contracts Dep Lint', { event: 'workflow_dispatch', id: 9 }),
+    ];
+    const r = evaluateMergeCommitChecks(REQUIRED, merge, MERGE);
+    expect(!r.ok && r.reasons.join('\n')).toMatch(/Contracts Dep Lint: failure/);
+  });
+
+  it('the head substitution uses pull_request runs only, never push runs (fix 5)', () => {
+    const pushOnly = onHead.map((c) => ({ ...c, event: 'push' }));
+    expect(
+      evaluateMergeCommitChecks(REQUIRED, pushOnly, MERGE, { treeEquivalentSha: HEAD }).ok,
+    ).toBe(false);
+  });
+
+  it('a pinned check never counts from a different app (fix 3)', () => {
+    const pins = { CI: { app: 'github-actions', workflow: '.github/workflows/ci.yml' } };
+    const forged = [
+      ...allGreen.filter((c) => c.name !== 'CI'),
+      check('CI', { appSlug: 'evil-bot', workflowPath: undefined }),
+    ];
+    const r = evaluateMergeCommitChecks(REQUIRED, forged, MERGE, { pins });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reasons.join('\n')).toMatch(/CI: posted by evil-bot, not the pinned app/);
+    // The genuine run alongside the impostor still counts.
+    expect(evaluateMergeCommitChecks(REQUIRED, [...allGreen, ...forged], MERGE, { pins }).ok).toBe(
+      true,
+    );
+    // A numeric app-id pin (branch protection) refuses a slug-only impostor too.
+    expect(
+      evaluateMergeCommitChecks(REQUIRED, forged, MERGE, { pins: { CI: { app: 12345 } } }).ok,
+    ).toBe(false);
+  });
+
   it('refuses an empty required set rather than accepting vacuously', () => {
     expect(evaluateMergeCommitChecks([], allGreen, MERGE).ok).toBe(false);
   });
@@ -124,18 +194,39 @@ describe('resolveCiEvidenceAtom', () => {
     successCount: 3,
     totalChecks: 3,
     cacheHit: false,
-    title: 'T1',
+    title: 'fix(T1): the change',
     body: '',
     headRefName: 'task/T1',
+    headRefOid: HEAD,
     changedPaths: ['a.ts'],
     changedFileCount: 1,
   };
 
-  function enable(value: unknown): void {
+  function writeContext(evidence: Record<string, unknown>): void {
     mkdirSync(join(root, '.cleo'), { recursive: true });
-    writeFileSync(
-      join(root, '.cleo', 'project-context.json'),
-      JSON.stringify({ evidence: { ciSatisfies: value } }),
+    writeFileSync(join(root, '.cleo', 'project-context.json'), JSON.stringify({ evidence }));
+  }
+  const optedIn = {
+    ciSatisfies: true,
+    ciChecks: { tests: ['CI'], qa: ['CI', 'Lockfile Check', 'Contracts Dep Lint'] },
+  };
+
+  function resolve(extra: Partial<ResolveCiEvidenceOptions> = {}) {
+    return resolveCiEvidenceAtom(
+      42,
+      { storeRoot: root, executionRoot: root },
+      {
+        context: context(),
+        resolvePr: async () => merged,
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks: sha === MERGE ? allGreen : sha === HEAD ? onHead : [],
+        }),
+        treeOf: () => null,
+        firstParentOf: () => PARENT,
+        isAncestor: () => false,
+        ...extra,
+      },
     );
   }
 
@@ -150,176 +241,204 @@ describe('resolveCiEvidenceAtom', () => {
 
   it('is disabled by default and names the opt-in', async () => {
     expect(readCiSatisfies(root)).toBe(false);
-    const r = await resolveCiEvidenceAtom(
-      42,
-      { storeRoot: root, executionRoot: root },
-      {
-        resolvePr: async () => merged,
-        fetchChecks: async () => ({ ok: true, checks: allGreen }),
-      },
-    );
-    expect(r.ok).toBe(false);
+    const r = await resolve();
     expect(!r.ok && r.reason).toMatch(/evidence\.ciSatisfies/);
   });
 
   it('only `true` enables it', () => {
-    enable('yes');
+    writeContext({ ciSatisfies: 'yes' });
     expect(readCiSatisfies(root)).toBe(false);
-    enable(true);
+    writeContext({ ciSatisfies: true });
     expect(readCiSatisfies(root)).toBe(true);
   });
 
-  it('accepts green merge-commit CI and records the checks and the merge commit', async () => {
-    enable(true);
+  it('accepts green merge-commit CI, recording task, gate checks, checks and merge commit', async () => {
+    writeContext(optedIn);
     let queried = '';
-    const r = await resolveCiEvidenceAtom(
-      42,
-      { storeRoot: root, executionRoot: root },
-      {
-        resolvePr: async () => merged,
-        fetchChecks: async (sha) => {
-          queried = sha;
-          return { ok: true, checks: allGreen };
-        },
+    const r = await resolve({
+      context: context('T1', ['testsPassed', 'qaPassed']),
+      fetchChecks: async (sha) => {
+        queried = sha;
+        return { ok: true, checks: allGreen };
       },
-    );
+    });
     expect(queried).toBe(MERGE);
-    expect(r.ok).toBe(true);
+    expect(r.ok, JSON.stringify(r)).toBe(true);
     const atom = r.ok ? r.atom : null;
-    expect(atom).toMatchObject({ kind: 'ci', prNumber: 42, mergeCommitSha: MERGE });
-    expect(atom?.kind === 'ci' && atom.checks.length).toBe(3);
+    expect(atom).toMatchObject({
+      kind: 'ci',
+      prNumber: 42,
+      mergeCommitSha: MERGE,
+      taskId: 'T1',
+      gateChecks: {
+        testsPassed: ['CI'],
+        qaPassed: ['CI', 'Lockfile Check', 'Contracts Dep Lint'],
+      },
+    });
+    expect(atom?.kind === 'ci' && atom.checks.find((c) => c.name === 'CI')).toMatchObject({
+      sha: MERGE,
+      app: 'github-actions',
+      workflow: '.github/workflows/ci.yml',
+    });
   });
 
   it('refuses an unmerged PR through the pr: provenance result', async () => {
-    enable(true);
-    const r = await resolveCiEvidenceAtom(
-      42,
-      { storeRoot: root, executionRoot: root },
-      {
-        resolvePr: async () => ({
-          ok: false,
-          reason: 'PR #42 is in state OPEN',
-          codeName: 'E_EVIDENCE_INSUFFICIENT',
-        }),
-        fetchChecks: async () => ({ ok: true, checks: allGreen }),
-      },
-    );
+    writeContext(optedIn);
+    const r = await resolve({
+      resolvePr: async () => ({
+        ok: false,
+        reason: 'PR #42 is in state OPEN',
+        codeName: 'E_EVIDENCE_INSUFFICIENT',
+      }),
+    });
     expect(!r.ok && r.reason).toMatch(/OPEN/);
   });
 
-  it('refuses failing merge-commit CI with E_EVIDENCE_TESTS_FAILED', async () => {
-    enable(true);
-    const r = await resolveCiEvidenceAtom(
-      42,
-      { storeRoot: root, executionRoot: root },
-      {
-        resolvePr: async () => merged,
-        fetchChecks: async () => ({
-          ok: true,
-          checks: allGreen.map((c) => (c.name === 'CI' ? { ...c, conclusion: 'failure' } : c)),
-        }),
-      },
-    );
+  it('refuses a PR that neither cites nor touches an unrelated task (fix 1)', async () => {
+    writeContext(optedIn);
+    const r = await resolve({ context: context('T999') });
     expect(r.ok).toBe(false);
+    expect(!r.ok && r.codeName).toBe('E_EVIDENCE_CONTENT_MISMATCH');
+    expect(!r.ok && r.reason).toMatch(/does not establish a relationship to task T999/);
+  });
+
+  it('refuses without task context', async () => {
+    writeContext(optedIn);
+    const r = await resolve({ context: undefined });
+    expect(!r.ok && r.reason).toMatch(/requires current task/);
+  });
+
+  it('refuses a gate whose ciChecks list is not configured (fix 4)', async () => {
+    writeContext({ ciSatisfies: true, ciChecks: { tests: ['CI'] } });
+    const r = await resolve({ context: context('T1', ['qaPassed']) });
+    expect(!r.ok && r.reason).toMatch(/evidence\.ciChecks\.qa/);
+    writeContext({ ciSatisfies: true });
+    expect(!(await resolve()).ok).toBe(true);
+  });
+
+  it('refuses a ciChecks list that names a check outside the required set (fix 4)', async () => {
+    writeContext({ ciSatisfies: true, ciChecks: { tests: ['Unit Tests'] } });
+    const r = await resolve();
+    expect(!r.ok && r.reason).toMatch(/not required \(tests:Unit Tests\)/);
+  });
+
+  it('refuses when the only CI run was posted by an app other than the pinned one (fix 3)', async () => {
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
+    writeContext(optedIn);
+    const forged = [
+      ...allGreen.filter((c) => c.name !== 'CI'),
+      check('CI', { appSlug: 'evil-bot', workflowPath: undefined }),
+    ];
+    const r = await resolve({
+      projectContext: {
+        release: {
+          prRequiredWorkflows: [
+            { name: 'CI', app: 'github-actions', workflow: '.github/workflows/ci.yml' },
+            'Lockfile Check',
+            'Contracts Dep Lint',
+          ],
+        },
+      },
+      fetchChecks: async () => ({ ok: true, checks: forged }),
+    });
+    expect(!r.ok && r.reason).toMatch(/CI: posted by evil-bot/);
+  });
+
+  describe('PR-head substitution', () => {
+    beforeEach(() => writeContext(optedIn));
+    const cancelledOnMerge = allGreen.map((c) =>
+      c.name === 'CI' ? { ...c, conclusion: 'cancelled' } : c,
+    );
+    const trees =
+      (map: Record<string, string>) =>
+      (sha: string): string | null =>
+        map[sha] ?? null;
+
+    it('tree-equal head with the merge parent as its ancestor: accepted, head sha recorded', async () => {
+      const r = await resolve({
+        fetchChecks: async (sha) => ({ ok: true, checks: sha === HEAD ? onHead : [] }),
+        treeOf: trees({ [MERGE]: TREE, [HEAD]: TREE }),
+        isAncestor: (a, d) => a === PARENT && d === HEAD,
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.testedTree).toBe(TREE);
+      expect(r.ok && r.atom.checks.every((c) => c.sha === HEAD && c.event === 'pull_request')).toBe(
+        true,
+      );
+    });
+
+    it('cancelled main push run + tree-equal PR run: accepted', async () => {
+      const r = await resolve({
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks: sha === MERGE ? cancelledOnMerge : sha === HEAD ? onHead : [],
+        }),
+        treeOf: trees({ [MERGE]: TREE, [HEAD]: TREE }),
+        isAncestor: () => true,
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const bySha = Object.fromEntries((r.ok ? r.atom.checks : []).map((c) => [c.name, c.sha]));
+      expect(bySha).toEqual({ CI: HEAD, 'Lockfile Check': MERGE, 'Contracts Dep Lint': MERGE });
+    });
+
+    it('tree-different head: refused, falling back to merge-commit checks', async () => {
+      const r = await resolve({
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks: sha === MERGE ? cancelledOnMerge : sha === HEAD ? onHead : [],
+        }),
+        treeOf: trees({ [MERGE]: TREE, [HEAD]: 'd'.repeat(40) }),
+        isAncestor: () => true,
+      });
+      expect(!r.ok && r.reason).toMatch(/CI: cancelled on merge commit/);
+    });
+
+    it('COUNTEREXAMPLE: equal trees but the merge parent is not an ancestor of the head: refused (fix 2)', async () => {
+      // Base gained X, CI tested head+X, base reverted X: the merge tree equals
+      // the head tree, yet the head WITHOUT X was never tested.
+      const r = await resolve({
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks: sha === MERGE ? cancelledOnMerge : sha === HEAD ? onHead : [],
+        }),
+        treeOf: trees({ [MERGE]: TREE, [HEAD]: TREE }),
+        isAncestor: () => false,
+      });
+      expect(!r.ok && r.reason).toMatch(/CI: cancelled on merge commit/);
+    });
+
+    it('unknown trees never count as equal', async () => {
+      const r = await resolve({
+        fetchChecks: async (sha) => ({ ok: true, checks: sha === HEAD ? onHead : [] }),
+        treeOf: () => null,
+        isAncestor: () => true,
+      });
+      expect(r.ok).toBe(false);
+    });
+  });
+
+  it('refuses failing merge-commit CI with E_EVIDENCE_TESTS_FAILED', async () => {
+    writeContext(optedIn);
+    const r = await resolve({
+      fetchChecks: async () => ({
+        ok: true,
+        checks: allGreen.map((c) => (c.name === 'CI' ? { ...c, conclusion: 'failure' } : c)),
+      }),
+    });
     expect(!r.ok && r.codeName).toBe('E_EVIDENCE_TESTS_FAILED');
   });
 });
 
-describe('tree-equal PR runs (merge commit and PR head carry the same tree)', () => {
-  const TREE = 'c'.repeat(40);
-  let root: string;
-  const merged: PrAtomResolution = {
-    ok: true,
+describe('gate rules accept a validated ci: atom for testsPassed and qaPassed only', () => {
+  const ci = (taskId: string): EvidenceAtom => ({
+    kind: 'ci',
     prNumber: 42,
     mergeCommitSha: MERGE,
-    mergedAt: '2026-09-28T00:00:00Z',
-    successCount: 3,
-    totalChecks: 3,
-    cacheHit: false,
-    title: 'T1',
-    body: '',
-    headRefName: 'task/T1',
-    headRefOid: HEAD,
-    changedPaths: ['a.ts'],
-    changedFileCount: 1,
-  };
-  const onHead = allGreen.map((c) => ({ ...c, headSha: HEAD }));
-  const cancelledOnMerge = allGreen.map((c) =>
-    c.name === 'CI' ? { ...c, conclusion: 'cancelled' } : c,
-  );
-
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'ci-tree-'));
-    mkdirSync(join(root, '.cleo'), { recursive: true });
-    writeFileSync(
-      join(root, '.cleo', 'project-context.json'),
-      JSON.stringify({ evidence: { ciSatisfies: true } }),
-    );
-    process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR] = REQUIRED.join(',');
-  });
-  afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
-    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
+    checks: [{ name: 'CI', conclusion: 'success', sha: MERGE }],
+    requiredSource: 'env',
+    taskId,
   });
 
-  function resolveWith(checksBySha: Record<string, CommitCheck[]>, trees: Record<string, string>) {
-    return resolveCiEvidenceAtom(
-      42,
-      { storeRoot: root, executionRoot: root },
-      {
-        resolvePr: async () => merged,
-        fetchChecks: async (sha) => ({ ok: true, checks: checksBySha[sha] ?? [] }),
-        treeOf: (sha) => trees[sha] ?? null,
-      },
-    );
-  }
-
-  it('accepts required checks that succeeded on the PR head when its tree equals the merge tree', async () => {
-    const r = await resolveWith({ [MERGE]: [], [HEAD]: onHead }, { [MERGE]: TREE, [HEAD]: TREE });
-    expect(r.ok, JSON.stringify(r)).toBe(true);
-    if (!r.ok) return;
-    expect(r.atom.testedTree).toBe(TREE);
-    expect(r.atom.checks.every((c) => c.sha === HEAD)).toBe(true);
-  });
-
-  it('refuses PR-head checks when the trees differ, falling back to merge-commit checks', async () => {
-    const r = await resolveWith(
-      { [MERGE]: [], [HEAD]: onHead },
-      { [MERGE]: TREE, [HEAD]: 'd'.repeat(40) },
-    );
-    expect(r.ok).toBe(false);
-    expect(!r.ok && r.reason).toMatch(/not found on merge commit/);
-  });
-
-  it('a cancelled main push run is covered by a tree-equal PR run', async () => {
-    const r = await resolveWith(
-      { [MERGE]: cancelledOnMerge, [HEAD]: onHead },
-      { [MERGE]: TREE, [HEAD]: TREE },
-    );
-    expect(r.ok, JSON.stringify(r)).toBe(true);
-    if (!r.ok) return;
-    const bySha = Object.fromEntries(r.atom.checks.map((c) => [c.name, c.sha]));
-    expect(bySha).toEqual({ CI: HEAD, 'Lockfile Check': MERGE, 'Contracts Dep Lint': MERGE });
-  });
-
-  it('the same cancelled run with a tree-different PR head stays refused', async () => {
-    const r = await resolveWith(
-      { [MERGE]: cancelledOnMerge, [HEAD]: onHead },
-      { [MERGE]: TREE, [HEAD]: 'd'.repeat(40) },
-    );
-    expect(!r.ok && r.reason).toMatch(/CI: cancelled on merge commit/);
-  });
-
-  it('an unknown tree (object not local) never counts as equal', async () => {
-    const r = await resolveWith({ [MERGE]: [], [HEAD]: onHead }, { [MERGE]: TREE });
-    expect(r.ok).toBe(false);
-    // Neither object local: two unknowns are not two equal trees.
-    const neither = await resolveWith({ [MERGE]: [], [HEAD]: onHead }, {});
-    expect(neither.ok).toBe(false);
-  });
-});
-
-describe('gate rules accept a validated ci: atom for testsPassed and qaPassed only', () => {
   it('parses ci:<pr>', () => {
     expect(parseEvidence('ci:42').atoms).toEqual([{ kind: 'ci', prNumber: 42 }]);
     expect(() => parseEvidence('ci:abc')).toThrow();
@@ -331,21 +450,12 @@ describe('gate rules accept a validated ci: atom for testsPassed and qaPassed on
     expect(validateEvidenceForGate('implemented', [{ kind: 'ci' }]).ok).toBe(false);
   });
 
-  it('counts as an actual verification result for a code task', () => {
-    const context: EvidenceValidationContext = {
-      task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
-      gates: ['testsPassed'],
-      criteria: [],
-    };
-    const ci: EvidenceAtom = {
-      kind: 'ci',
-      prNumber: 42,
-      mergeCommitSha: MERGE,
-      checks: [{ name: 'CI', conclusion: 'success', sha: MERGE }],
-      requiredSource: 'env',
-    };
-    expect(checkTaskEvidenceContext(context, 'testsPassed', [ci])).toBeNull();
-    expect(checkTaskEvidenceContext(context, 'qaPassed', [ci])).toBeNull();
-    expect(checkTaskEvidenceContext(context, 'testsPassed', [])).not.toBeNull();
+  it('counts as a verification result for its own task only (fix 1)', () => {
+    expect(checkTaskEvidenceContext(context('T1'), 'testsPassed', [ci('T1')])).toBeNull();
+    expect(checkTaskEvidenceContext(context('T1'), 'qaPassed', [ci('T1')])).toBeNull();
+    expect(checkTaskEvidenceContext(context('T2'), 'testsPassed', [ci('T1')])).toMatch(
+      /lacks verified task linkage/,
+    );
+    expect(checkTaskEvidenceContext(context('T1'), 'testsPassed', [])).not.toBeNull();
   });
 });

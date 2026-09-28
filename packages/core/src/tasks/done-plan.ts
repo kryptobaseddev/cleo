@@ -43,7 +43,14 @@ import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getProjectRoot } from '../paths.js';
-import { readCiSatisfies } from '../release/ci-evidence.js';
+import { readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
+
+/** Both gate lists of `evidence.ciChecks` are declared, so `ci:` can attest both gates. */
+function ciChecksConfigured(storeRoot: string): boolean {
+  const lists = readCiChecks(storeRoot);
+  return Boolean(lists.tests?.length && lists.qa?.length);
+}
+
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
@@ -493,7 +500,8 @@ export async function deriveTaskEvidence(
     changeSet.source === 'pr' &&
     changeSet.prNumber !== undefined &&
     changeSet.stackedOn === undefined &&
-    readCiSatisfies(storeRoot)
+    readCiSatisfies(storeRoot) &&
+    ciChecksConfigured(storeRoot)
       ? changeSet.prNumber
       : null;
   const toolRuns: DonePlanToolRun[] = [];

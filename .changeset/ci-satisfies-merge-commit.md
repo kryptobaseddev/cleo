@@ -23,11 +23,25 @@ Owner decision D11149.
   local tool run. This removes the post-merge full-suite rerun.
 - A `ci:` atom counts as an actual verification result for code tasks. At complete
   time it is trusted as captured, like `pr:`.
-- Tree-equal PR runs: when the final PR head's tree is identical to the merge
-  commit's tree (`git rev-parse <sha>^{tree}`), a required check that succeeded
-  on the PR head counts, so a push run on `main` that was cancelled or never
-  started does not block. GitHub deletes `refs/pull/<n>/merge` once a PR merges,
-  so the PR head stands in for the final test-merge commit. When the trees
-  differ, or either tree is unknown locally, only merge-commit checks count.
-  The atom records the SHA each check was judged on (`checks[].sha`) and the
-  tested tree (`testedTree`).
+- A PR-head `pull_request` run counts for a check that failed, or is missing, on
+  the merge commit only when both of these hold:
+  - the head's tree is identical to the merge commit's tree;
+  - the merge commit's first parent is an ancestor of the head. The base only
+    advances, so the tested merge was exactly the head.
+
+  GitHub deletes `refs/pull/<n>/merge` after merge, so the head stands in for the
+  test merge. Push runs on the head never count.
+- `ci:` is linked to its task the way `pr:` is: the PR's title, body or branch
+  cites the task, or its diff intersects the task's declared files. The atom
+  records `taskId`, and `checkTaskEvidenceContext` refuses it for any other task.
+- Check identity: runs are grouped by source and event, and only the latest attempt
+  in each group counts. A required check can be pinned to its GitHub App and
+  workflow file. Pins come from branch protection's `checks[].app_id`, or from an
+  object entry `{ name, app, workflow }` in `release.prRequiredWorkflows`. A pinned
+  name never counts from another app. The atom records each check's commit, app,
+  workflow and event.
+- `evidence.ciChecks: { tests, qa }` declares which required checks attest
+  testsPassed and which attest qaPassed. Each list must be a subset of the required
+  checks. A gate without a list refuses `ci:`. For cleocode: tests=["CI"],
+  qa=["CI","Lockfile Check","Contracts Dep Lint"], with all three pinned to
+  `github-actions` and their workflow files.
