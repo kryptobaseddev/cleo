@@ -403,7 +403,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('round 3: escapes and false refusals (T1255
     expect(existsSync(join(a, '.cleo', 'cleo.db'))).toBe(true);
   }, 300_000);
 
-  it('at a registry-refused root: typed reconcile, doctor points at the opt-out, init refuses cleanly, `init --here` adopts with an audit line', () => {
+  it('at a registry-refused root: typed reconcile, doctor and init point at --new-identity, `--here` alone refuses, `--here --new-identity` is a different project', () => {
     const root = join(sandbox, 'r3-mono');
     initProject(root);
     mkdirSync(join(root, 'app'));
@@ -418,7 +418,8 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('round 3: escapes and false refusals (T1255
     expect(reconcile.status).toBe(ExitCode.PROJECT_MOVED);
 
     const doctor = field(root, '/data/remedy', 'doctor', 'project-identity');
-    expect(doctor).toContain('cleo init --here');
+    expect(doctor).toContain(`cd "${join(root, 'app')}"`);
+    expect(doctor).toContain('cleo init --here --new-identity');
     expect(doctor).not.toContain('adopts the tracked id');
 
     const listing = (): string =>
@@ -430,15 +431,30 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('round 3: escapes and false refusals (T1255
     const refused = cleo(root, ['init']);
     const env = parseSoleEnvelope(refused.stdout) as MovedError;
     expect(env.error?.codeName).toBe('E_PROJECT_MOVED');
-    expect(env.error?.fix).toContain('cleo init --here');
+    expect(env.error?.fix).toContain('cleo init --here --new-identity');
     expect(env.error?.fix).not.toContain('.cleo-moved.json');
     expect(listing()).toBe(before);
 
+    // Round 4: `--here` alone would adopt the live project's id → refused.
     const here = cleo(root, ['init', '--here']);
-    expect(parseSoleEnvelope(here.stdout).success).toBe(true);
+    expect((parseSoleEnvelope(here.stdout) as MovedError).error?.codeName).toBe('E_PROJECT_MOVED');
+    expect(here.status).toBe(ExitCode.PROJECT_MOVED);
+    expect(listing()).toBe(before);
+
+    // `--here --new-identity` starts a genuinely different project.
+    const liveId = field(join(root, 'app'), '/data/trackedId', 'doctor', 'project-identity');
+    expect(liveId).toMatch(/^[0-9a-f-]{8,}$/);
+    const separate = cleo(root, ['init', '--here', '--new-identity']);
+    expect(parseSoleEnvelope(separate.stdout).success).toBe(true);
+    const newId = readFileSync(join(root, '.cleo', 'project-id'), 'utf-8').trim();
+    expect(newId).not.toBe(liveId);
+    expect(separate.stdout).toContain('Commit the new .cleo/project-id');
     expect(
       readFileSync(join(root, '.cleo', 'audit', 'relocation-override.jsonl'), 'utf-8'),
-    ).toContain('"action":"init --here"');
-    expect(parseSoleEnvelope(cleo(root, ['find', 'x']).stdout).success).toBe(true);
+    ).toContain('"newIdentity":true');
+    // No shared T### lineage: the new project starts empty; the live one keeps its tasks.
+    const t = seedTask(join(root, 'app'), 'live-only task');
+    expect(cleo(root, ['show', t]).stdout).not.toContain('live-only task');
+    expect(field(join(root, 'app'), '/data/task/title', 'show', t)).toBe('live-only task');
   }, 300_000);
 });

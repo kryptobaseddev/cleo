@@ -82,8 +82,19 @@ source stayed live, so the registry could later bind to the stale copy.
   - Each ignored tombstone warns once.
   - `cleo doctor *` is never blocked by the tombstone. At a refused root,
     `doctor project-identity` points to the live root or to `init --here`.
-  - `cleo init --here` is the audited opt-out. It creates a store at a
-    relocated root anyway and logs `.cleo/audit/relocation-override.jsonl`.
+  - At a relocated root, `cleo init --here` alone is refused. It would adopt
+    the live project's id and create a second store for one project.
+    `cleo init --here --new-identity` starts a genuinely DIFFERENT project
+    there instead: it mints a new id, retires the restored
+    `.cleo/project-id`, warns that the new id needs committing, and logs to
+    `.cleo/audit/relocation-override.jsonl`. Every refusal text and the
+    doctor remedy name `cd "<movedTo>"` first.
+  - An unreadable checkout (EACCES, EPERM) is not treated as vanished; only
+    ENOENT on `.cleo/` is. So a same-nonce backup copy cannot take the row
+    from a `chmod 000` original.
+  - An original checkout that returns is never stuck at `missing`. It becomes
+    a `candidate`, and it re-takes the row when the holder's recorded nonce
+    differs from its own.
   - A refused `init` scaffolds nothing. `cleo nexus reconcile` at a refused
     root returns `E_PROJECT_MOVED` (exit 9), not `E_INTERNAL`.
   - `init` refuses before writing anything, so it never reports success with

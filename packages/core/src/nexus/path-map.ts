@@ -37,10 +37,10 @@
  * @task T12469
  */
 
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import type { NexusProjectCheckout } from '@cleocode/contracts';
-import { readDeclaredProjectIdentity } from '@cleocode/paths';
+import { canonicalizePath, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getStableDeviceId } from '../llm/stable-device-id.js';
@@ -131,14 +131,33 @@ export function isSupersededRegistryPath(projectPath: string): boolean {
 }
 
 /**
- * Whether `path` still holds `projectId`: the directory exists, has `.cleo/`,
- * and does not declare a DIFFERENT id. A directory the project was moved or
- * rerooted out of (or whose `.cleo/` was moved back out by hand) does not.
+ * Whether `path` still holds `projectId`:
+ *
+ * - `no` — PROVABLY not: `.cleo/` is absent (ENOENT / ENOTDIR), or it
+ *   declares a different id. A directory the project was moved or rerooted
+ *   out of (or whose `.cleo/` was moved back out by hand).
+ * - `unknown` — cannot tell (EACCES, EPERM, EIO, …). A checkout made
+ *   unreadable by `chmod 000` is NOT gone; treating it as vanished would let a
+ *   same-nonce backup copy take its registry row (T12558 round 4).
+ * - `yes` — `.cleo/` is there and declares this id (or nothing).
  */
-function holdsProject(path: string, projectId: string): boolean {
-  if (!existsSync(join(path, '.cleo'))) return false;
+function projectHolding(path: string, projectId: string): 'yes' | 'no' | 'unknown' {
+  const cleoDir = join(path, '.cleo');
+  try {
+    lstatSync(cleoDir);
+    readdirSync(cleoDir);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'no' : 'unknown';
+  }
   const declared = readDeclaredProjectIdentity(path);
-  return declared === null || declared.projectId === projectId;
+  return declared === null || declared.projectId === projectId ? 'yes' : 'no';
+}
+
+/** `true` when `inner` is strictly inside `outer`, compared through symlinks. */
+function isStrictlyInside(outer: string, inner: string): boolean {
+  const rel = relative(canonicalizePath(outer), canonicalizePath(inner));
+  return rel.length > 0 && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
 /** Primary-key predicate for one location row. */
@@ -257,7 +276,9 @@ export function recordProjectCheckout(
     .all();
   let markedMissing = 0;
   for (const sibling of siblings) {
-    if (holdsProject(sibling.path, record.projectId)) continue;
+    // Only a PROVABLY vanished location is marked missing; an unreadable one
+    // (`unknown`) keeps its state.
+    if (projectHolding(sibling.path, record.projectId) !== 'no') continue;
     db.update(projectLocations)
       .set({ state: 'missing' })
       .where(locationKey(record.projectId, deviceId, sibling.path))
@@ -354,7 +375,7 @@ export function decideEncounterBinding(
   if (!row || row.projectPath === record.projectPath) return 'bind';
 
   const here = db
-    .select({ state: projectLocations.state })
+    .select({ state: projectLocations.state, checkoutNonce: projectLocations.checkoutNonce })
     .from(projectLocations)
     .where(
       and(
@@ -367,31 +388,45 @@ export function decideEncounterBinding(
   if (here.some((location) => location.state === 'live')) return 'refresh';
 
   const oldPath = row.projectPath;
-  // The old path still HOLDING the project (not merely existing — a reroot
-  // undone by hand leaves the child directory behind, empty of `.cleo/`)
-  // means this is a second checkout, not a move.
-  if (isSupersededRegistryPath(oldPath) || holdsProject(oldPath, record.projectId)) {
-    return 'candidate';
-  }
+  if (isSupersededRegistryPath(oldPath)) return 'candidate';
   // Proof of a move is the checkout's NONCE alone (T12470): local, untracked
   // state that a real `mv` or a restore of `.cleo/` carries and a clone
   // cannot have. Root commit and remote are forgeable (a clone shares them, a
   // bare `git init` can add any remote, `refs/replace` fakes a root commit),
   // so they are displayed evidence only and never promote.
   const nonce = record.checkoutNonce ?? null;
+  const previous = () =>
+    db
+      .select({ checkoutNonce: projectLocations.checkoutNonce })
+      .from(projectLocations)
+      .where(
+        and(
+          eq(projectLocations.projectId, record.projectId),
+          inArray(projectLocations.deviceId, [deviceId, LOCAL_DEVICE_SENTINEL]),
+          eq(projectLocations.path, oldPath),
+        ),
+      )
+      .all();
+  // The old path still holding the project (not merely existing — a reroot
+  // undone by hand leaves the child directory behind, empty of `.cleo/`), or
+  // being unreadable, means this is a second checkout, not a move.
+  if (projectHolding(oldPath, record.projectId) !== 'no') {
+    // T12558 round 4: the ORIGINAL checkout coming back. It was once
+    // confirmed here (only a confirmed location records a nonce — candidates
+    // never do), it still carries that nonce, and the current holder's nonce
+    // differs — so the holder is not a copy of it. Hand the row back rather
+    // than leave the original stuck behind a stranger.
+    if (
+      nonce !== null &&
+      here.some((location) => location.checkoutNonce === nonce) &&
+      !previous().some((location) => location.checkoutNonce === nonce)
+    ) {
+      return 'promote';
+    }
+    return 'candidate';
+  }
   if (nonce === null) return 'candidate';
-  const previous = db
-    .select({ checkoutNonce: projectLocations.checkoutNonce })
-    .from(projectLocations)
-    .where(
-      and(
-        eq(projectLocations.projectId, record.projectId),
-        inArray(projectLocations.deviceId, [deviceId, LOCAL_DEVICE_SENTINEL]),
-        eq(projectLocations.path, oldPath),
-      ),
-    )
-    .all();
-  return previous.some((location) => location.checkoutNonce === nonce) ? 'promote' : 'candidate';
+  return previous().some((location) => location.checkoutNonce === nonce) ? 'promote' : 'candidate';
 }
 
 /**
@@ -439,7 +474,14 @@ export function recordCandidateLocation(db: PathMapWriter, record: ProjectChecko
   // root restores the tracked id and makes every command an encounter here;
   // flipping the row to `candidate` would disarm the store guard that refuses
   // to create an empty store at a relocated root.
-  const keepMissing = existing.state === 'missing' && hasOtherLiveLocation(db, record, deviceId);
+  // Round 4: only in REROOT geometry (the live location is strictly inside
+  // this path) and only for a nonce-less encounter (restored tracked files —
+  // a real checkout carries its untracked nonce). Anywhere else a path that
+  // holds the project is a `candidate`, never stuck at `missing`.
+  const keepMissing =
+    existing.state === 'missing' &&
+    (record.checkoutNonce ?? null) === null &&
+    hasOtherLiveLocation(db, record, deviceId);
   db.update(projectLocations)
     .set({
       lastSeen: record.now,
@@ -452,9 +494,9 @@ export function recordCandidateLocation(db: PathMapWriter, record: ProjectChecko
 }
 
 /**
- * Whether `record.projectId` has a `live` location on this device, other than
- * this path, that still PROVES it holds the project — the directory declares
- * the same id. Mere existence is not enough: after a reroot is undone by hand
+ * Whether `record.projectId` has a `live` location on this device STRICTLY
+ * INSIDE this path (the project was rerooted into it) that still PROVES it
+ * holds the project — the directory declares the same id. Mere existence is not enough: after a reroot is undone by hand
  * the child directory still exists but no longer holds `.cleo/`, and the old
  * root must then be able to become a location again (T12558 round 3).
  */
@@ -477,6 +519,7 @@ function hasOtherLiveLocation(
     .all()
     .some(
       (location) =>
+        isStrictlyInside(record.projectPath, location.path) &&
         existsSync(location.path) &&
         readDeclaredProjectIdentity(location.path)?.projectId === record.projectId,
     );

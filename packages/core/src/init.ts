@@ -813,6 +813,32 @@ export async function updateDocs(): Promise<InitResult> {
 }
 
 /**
+ * Remove the identity files a relocated project left (or `git checkout`
+ * restored) at `root`, so `cleo init --here --new-identity` mints a new id
+ * instead of adopting the old one: `.cleo/project-id` and
+ * `.cleo/project-info.json` only when they declare `projectId`, and the reroot
+ * tombstone. Nothing else is touched.
+ */
+async function retireRelocatedIdentity(root: string, projectId: string): Promise<void> {
+  const { readPortableProjectId } = await import('@cleocode/paths');
+  const tracked = readPortableProjectId(root);
+  if (tracked.status === 'valid' && tracked.projectId === projectId) {
+    await unlink(join(root, '.cleo', 'project-id'));
+  }
+  const infoPath = join(root, '.cleo', 'project-info.json');
+  if (existsSync(infoPath)) {
+    try {
+      const info = JSON.parse(await readFile(infoPath, 'utf-8')) as { projectId?: unknown };
+      if (info.projectId === projectId) await unlink(infoPath);
+    } catch {
+      // Unparseable: ensureProjectInfo regenerates it.
+    }
+  }
+  const { PROJECT_TOMBSTONE_FILE } = await import('./project-tombstone.js');
+  await unlink(join(root, PROJECT_TOMBSTONE_FILE)).catch(() => undefined);
+}
+
+/**
  * Run full project initialization.
  *
  * Creates the .cleo/ directory structure, installs schemas, templates,
@@ -868,8 +894,32 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     const { projectMovedError } = await import('./project-tombstone.js');
     throw projectMovedError(projRoot, relocated, undefined, relocated.via);
   }
+  // T12558 round 4: `--here` alone would ADOPT the relocated project's id and
+  // create a SECOND store for it — two diverging copies of one project. Only a
+  // genuinely separate project (a new id) may start here.
+  if (relocated && opts.adopt && !opts.newIdentity) {
+    throw new CleoError(
+      ExitCode.PROJECT_MOVED,
+      `E_PROJECT_MOVED: ${projRoot} is where project ${relocated.projectId} was rerooted from; \`--here\` alone would create a second store for that same project`,
+      {
+        fix: `cd "${relocated.movedTo}" (the live project). To start a DIFFERENT project here, run \`cleo init --here --new-identity\` (mints a new id; commit the new .cleo/project-id).`,
+        details: {
+          field: 'projectRoot',
+          projectId: relocated.projectId,
+          movedFrom: projRoot,
+          movedTo: relocated.movedTo,
+          evidence: relocated.via,
+        },
+      },
+    );
+  }
+  let retiredProjectId: string | null = null;
   if (relocated && opts.adopt) {
     allowStoreAtRelocatedRoot(projRoot);
+    // The restored `.cleo/project-id` (and a stale tombstone) belong to the
+    // relocated project; retire them so the new identity is minted, not adopted.
+    retiredProjectId = relocated.projectId;
+    await retireRelocatedIdentity(projRoot, relocated.projectId);
     const auditPath = join(cleoDir, 'audit', 'relocation-override.jsonl');
     await mkdir(dirname(auditPath), { recursive: true });
     await appendFile(
@@ -881,6 +931,7 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
         projectId: relocated.projectId,
         movedTo: relocated.movedTo,
         evidence: relocated.via,
+        newIdentity: true,
       })}\n`,
     );
   }
@@ -1131,6 +1182,11 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     /re-linked|conflict|invalid|coverage missing/.test(projectInfoResult.details)
   ) {
     warnings.push(`Project identity: ${projectInfoResult.details}`);
+  }
+  if (retiredProjectId) {
+    warnings.push(
+      `.cleo/project-id changed: this is a NEW project, not ${retiredProjectId} (which lives on elsewhere). Commit the new .cleo/project-id.`,
+    );
   }
 
   // Project context detection (always run during init)

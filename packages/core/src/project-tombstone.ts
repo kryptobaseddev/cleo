@@ -213,12 +213,13 @@ export function projectMovedError(
   via: ProjectMovedEvidence = 'tombstone',
 ): CleoError {
   const below = from && from !== root ? from : null;
-  const work = `cd "${moved.movedTo}" to work on project ${moved.projectId}.`;
+  // The remedy is always the live root. The only way to start anything else
+  // at the OLD root is a genuinely separate project (a new id): adopting the
+  // relocated id there would create a second store for one project.
+  const work = `cd "${moved.movedTo}" (the live project ${moved.projectId}).`;
   const fix = below
     ? `${work} To start a NEW project in ${below}, run \`cleo init --here\` there.`
-    : via === 'tombstone'
-      ? `${work} To start a NEW project at ${root}, delete ${join(root, PROJECT_TOMBSTONE_FILE)} and run \`cleo init\`.`
-      : `${work} The registry records that it was rerooted out of ${root}. To keep a separate store for this checkout anyway, run \`cleo init --here\` in ${root} (audited in .cleo/audit/relocation-override.jsonl).`;
+    : `${work} To start a DIFFERENT project at ${root} instead, run \`cleo init --here --new-identity\` there (mints a new id; commit the new .cleo/project-id).${via === 'registry' ? ' The registry records that the project was rerooted out of here.' : ''}`;
   return new CleoError(
     ExitCode.PROJECT_MOVED,
     `E_PROJECT_MOVED: project ${moved.projectId} moved from ${root} to ${moved.movedTo}; refusing to create an empty store at the old root`,

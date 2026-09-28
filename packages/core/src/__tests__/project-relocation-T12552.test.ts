@@ -22,7 +22,9 @@
 
 import { execFileSync, spawn } from 'node:child_process';
 import {
+  chmodSync,
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -882,5 +884,110 @@ describe('T12558 round 3 — no false refusals, no redirect across checkouts', (
 
     expect(await registryPath('undo-T12558')).toBe(root);
     expect(await liveLocations('undo-T12558')).toEqual([root]);
+  });
+});
+
+describe('T12558 round 4 — one store per project id; unreadable is not vanished', () => {
+  it('`init --here` at a relocated root refuses without --new-identity, and writes nothing', async () => {
+    const root = await makeProject(join(testDir, 'here'), 'here-T12558');
+    mkdirSync(join(root, 'app'));
+    expect((await rerootProject(join(root, 'app'), root)).success).toBe(true);
+    git(root, 'checkout', '--', '.');
+    vi.stubEnv('CLEO_ROOT', root);
+    process.chdir(root);
+    const before = treeSnapshot(root);
+
+    const { initProject } = await import('../init.js');
+    let caught: CleoError | undefined;
+    try {
+      await initProject({ adopt: true });
+    } catch (err) {
+      caught = err as CleoError;
+    }
+
+    expect(caught?.code).toBe(ExitCode.PROJECT_MOVED);
+    expect(caught?.fix).toContain('cleo init --here --new-identity');
+    expect(treeSnapshot(root)).toBe(before);
+  });
+
+  it('the E_PROJECT_MOVED fix never suggests a plain init that would adopt the relocated id', async () => {
+    const root = await makeProject(join(testDir, 'texts'), 'texts-T12558');
+    mkdirSync(join(root, 'app'));
+    expect((await rerootProject(join(root, 'app'), root)).success).toBe(true);
+    vi.stubEnv('CLEO_ROOT', undefined);
+    let fix = '';
+    try {
+      getProjectRoot(root);
+    } catch (err) {
+      fix = (err as CleoError).fix ?? '';
+    }
+    expect(fix).toContain(`cd "${join(root, 'app')}"`);
+    expect(fix).toContain('--new-identity');
+    expect(fix).not.toMatch(/and run `cleo init`/);
+  });
+
+  it('an unreadable (chmod 000) checkout is not vanished: a same-nonce backup copy is not promoted', async () => {
+    const real = await makeProject(join(testDir, 'real'), 'chmod-T12558');
+    const backup = join(testDir, 'backup');
+    cpSync(real, backup, { recursive: true });
+    expect(readCheckoutNonce(backup)).toBe(readCheckoutNonce(real));
+    chmodSync(real, 0o000);
+    try {
+      await recordProjectEncounter(backup);
+    } finally {
+      chmodSync(real, 0o755);
+    }
+
+    expect(await registryPath('chmod-T12558')).toBe(real);
+    expect(await locationState('chmod-T12558', real)).toBe('live');
+    expect(await locationState('chmod-T12558', backup)).toBe('candidate');
+  });
+
+  it('the original checkout coming back is never stuck at `missing`, and re-takes the row from a different-nonce holder', async () => {
+    const real = await makeProject(join(testDir, 'orig'), 'return-T12558');
+    const copy = join(testDir, 'copy');
+    cpSync(real, copy, { recursive: true });
+    // `.cleo/` briefly moved away: the same-nonce copy proves "a move".
+    renameSync(join(real, '.cleo'), join(real, '.cleo-away'));
+    await recordProjectEncounter(copy);
+    expect(await registryPath('return-T12558')).toBe(copy);
+    expect(await locationState('return-T12558', real)).toBe('missing');
+
+    // The original returns: it holds the project, so it is a candidate — not
+    // stuck behind the copy at `missing`.
+    renameSync(join(real, '.cleo-away'), join(real, '.cleo'));
+    await recordProjectEncounter(real);
+    expect(await locationState('return-T12558', real)).toBe('candidate');
+
+    // Once the holder's recorded nonce differs (it is not a copy of the
+    // original — e.g. it was confirmed by an explicit rebind with its own
+    // nonce), the original, which carries the nonce recorded on its own row,
+    // re-takes the row.
+    const { db, projectLocations } = await registry();
+    db.update(projectLocations)
+      .set({ checkoutNonce: 'f'.repeat(32) })
+      .where(and(eq(projectLocations.projectId, 'return-T12558'), eq(projectLocations.path, copy)))
+      .run();
+    await recordProjectEncounter(real);
+    expect(await registryPath('return-T12558')).toBe(real);
+    expect(await locationState('return-T12558', real)).toBe('live');
+  });
+
+  it('a clone at an old MOVE path that holds the project becomes a candidate, not `missing`', async () => {
+    const a = await makeProject(join(testDir, 'mvA'), 'low3-T12558');
+    const m = join(testDir, 'mvM');
+    expect((await moveProject(m, a)).success).toBe(true);
+    execFileSync('git', ['clone', '-q', m, a]);
+    vi.stubEnv('CLEO_ROOT', undefined);
+    // A clone gets a project-info.json (and nonce) of its own on first use.
+    writeFileSync(
+      join(a, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'low3-T12558', checkoutNonce: 'a'.repeat(32) }),
+    );
+
+    await recordProjectEncounter(a);
+
+    expect(await locationState('low3-T12558', a)).toBe('candidate');
+    expect(await registryPath('low3-T12558')).toBe(m);
   });
 });

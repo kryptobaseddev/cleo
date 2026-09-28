@@ -182,7 +182,7 @@ export function inspectProjectIdentity(projectRoot: string): ProjectIdentityInsp
         ...base,
         state: 'not-adopted',
         message: `.cleo/project-id declares ${relocated.projectId}, which was rerooted from here to ${relocated.movedTo} (${relocated.via}).`,
-        remedy: `cd "${relocated.movedTo}"   (the live project) — or \`cleo init --here\` to keep a separate, audited store here`,
+        remedy: `cd "${relocated.movedTo}"   (the live project). A DIFFERENT project here needs a new id: \`cleo init --here --new-identity\``,
       };
     }
     return trackedId
