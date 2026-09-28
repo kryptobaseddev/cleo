@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  affectedTestTargets,
   buildAffectedTestCommand,
   deriveAffectedPackages,
   listWorkspacePackages,
@@ -104,6 +105,56 @@ describe('deriveAffectedPackages', () => {
       direct: [],
       packages: [],
     });
+  });
+});
+
+describe('affectedTestTargets (review MEDIUM/LOW)', () => {
+  function vitestProjects(): void {
+    // Root config lists package projects plus a non-package `scripts` project;
+    // packages/c has no vitest project at all.
+    writeFileSync(
+      join(root, 'vitest.config.ts'),
+      [
+        'export default { test: { projects: [',
+        "  'packages/a/vitest.config.ts',",
+        "  'packages/b/vitest.config.ts',",
+        "  'packages/dependent-of-b/vitest.config.ts',",
+        "  'scripts/vitest.config.ts',",
+        '] } };',
+      ].join('\n'),
+    );
+    for (const [dir, name] of [
+      ['packages/a', '@x/a'],
+      ['packages/b', '@x/b-tests'],
+      ['packages/dependent-of-b', '@x/d'],
+      ['scripts', 'scripts'],
+    ]) {
+      mkdirSync(join(root, dir), { recursive: true });
+      writeFileSync(
+        join(root, dir, 'vitest.config.ts'),
+        `export default { test: { name: '${name}' } };`,
+      );
+    }
+  }
+
+  it('always appends non-package projects: a template-only change still runs `scripts`', () => {
+    vitestProjects();
+    // A Markdown template under packages/a is code (it ships to agents).
+    const scope = deriveAffectedPackages(root, ['packages/a/templates/INJECTION.md']);
+    expect(scope.scope === 'affected' && scope.packages).toEqual(['@x/a', '@x/b', '@x/d']);
+    const targets = affectedTestTargets(root, scope.scope === 'affected' ? scope.packages : []);
+    expect(targets.projects).toContain('scripts');
+  });
+
+  it("uses each package's vitest project NAME, and records packages that have no project", () => {
+    vitestProjects();
+    const targets = affectedTestTargets(root, ['@x/a', '@x/b', '@x/c']);
+    expect(targets.projects).toEqual(['@x/a', '@x/b-tests', 'scripts']);
+    expect(targets.untested).toEqual(['@x/c']);
+  });
+
+  it('without a root projects list, the package names are the projects', () => {
+    expect(affectedTestTargets(root, ['@x/a']).projects).toEqual(['@x/a']);
   });
 });
 

@@ -22,3 +22,8 @@ summary: "`tool:test-affected` runs tests for the packages a branch diff touches
   planned again from `ci:<pr>` or `tool:test`.
 - cleocode sets `testing.affectedCommand: "pnpm exec vitest run {projects}"`.
   Vitest ignores `--project` names that have no project.
+- An affected run selects each affected package's own vitest project by the name
+  its config declares. It always appends every project in the root vitest config
+  that is not a workspace package, such as the root `scripts` project, whose
+  tests read live templates and skills. The atom records `affectedProjects`, and
+  `untestedPackages` for affected packages that have no project.

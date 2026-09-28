@@ -162,6 +162,87 @@ export function deriveAffectedPackages(
   return { scope: 'affected', direct: [...direct].sort(), packages: [...affected].sort() };
 }
 
+/** A vitest project listed in the root config: its name and directory. */
+interface VitestProject {
+  name: string;
+  dir: string;
+}
+
+/**
+ * Projects listed in the root vitest config's `projects: [...]` (string
+ * entries naming a `vitest.config.*` file), each with the `name` its own config
+ * declares (else its directory). Null when the root config has no such list.
+ */
+function listVitestProjects(root: string): VitestProject[] | null {
+  const configFile = [
+    'vitest.config.ts',
+    'vitest.config.mts',
+    'vitest.config.js',
+    'vitest.config.mjs',
+  ]
+    .map((f) => join(root, f))
+    .find((f) => existsSync(f));
+  if (!configFile) return null;
+  const text = readFileSync(configFile, 'utf-8');
+  const block = text.match(/projects\s*:\s*\[([\s\S]*?)\]/);
+  if (!block?.[1]) return null;
+  const entries = [...block[1].matchAll(/['"]([^'"]+vitest\.config\.[cm]?[jt]s)['"]/g)].map(
+    (m) => m[1] as string,
+  );
+  if (entries.length === 0) return null;
+  return entries.map((entry) => {
+    const dir = entry.replace(/\/?vitest\.config\.[cm]?[jt]s$/, '') || '.';
+    let name = dir;
+    try {
+      const own = readFileSync(join(root, entry), 'utf-8').match(/\bname\s*:\s*['"]([^'"]+)['"]/);
+      if (own?.[1]) name = own[1];
+    } catch {
+      // unreadable project config: keep the directory as its name
+    }
+    return { name, dir };
+  });
+}
+
+/**
+ * The vitest projects an affected run must select (T12635 review).
+ *
+ * - An affected package with a project in the root config contributes that
+ *   project's NAME (which need not equal the package name).
+ * - Every project that is NOT a workspace package (e.g. the root `scripts`
+ *   project, whose tests read live package files such as templates and skills)
+ *   is always appended, since no package dependency edge reaches it.
+ * - An affected package with no project is reported in `untested`, so the
+ *   receipt never claims a run it did not make.
+ * - Without a root `projects` list, the package names are the projects.
+ *
+ * @param root - Workspace root.
+ * @param packages - Affected package names.
+ * @returns Project names to run and the affected packages that have none.
+ * @task T12635
+ */
+export function affectedTestTargets(
+  root: string,
+  packages: readonly string[],
+): { projects: string[]; untested: string[] } {
+  const projects = listVitestProjects(root);
+  if (projects === null) return { projects: [...packages], untested: [] };
+  const workspace = listWorkspacePackages(root);
+  const packageDirs = new Set(workspace.map((p) => p.dir));
+  const selected: string[] = [];
+  const untested: string[] = [];
+  for (const name of packages) {
+    const dir = workspace.find((p) => p.name === name)?.dir;
+    const project = dir ? projects.find((p) => p.dir === dir) : undefined;
+    if (project) selected.push(project.name);
+    else untested.push(name);
+  }
+  for (const project of projects) {
+    if (!packageDirs.has(project.dir) && !selected.includes(project.name))
+      selected.push(project.name);
+  }
+  return { projects: selected, untested };
+}
+
 /**
  * Expand a `testing.affectedCommand` template into a spawnable command.
  * `{projects}` → `--project <name>` per package, `{filters}` → `--filter
@@ -176,10 +257,11 @@ export function deriveAffectedPackages(
 export function buildAffectedTestCommand(
   template: string,
   packages: readonly string[],
+  projects: readonly string[] = packages,
 ): { cmd: string; args: string[] } {
   const words = template.trim().split(/\s+/).filter(Boolean);
   const expanded = words.flatMap((word) => {
-    if (word === '{projects}') return packages.flatMap((p) => ['--project', p]);
+    if (word === '{projects}') return projects.flatMap((p) => ['--project', p]);
     if (word === '{filters}') return packages.flatMap((p) => ['--filter', p]);
     if (word === '{packages}') return [...packages];
     return [word];
@@ -247,7 +329,8 @@ export async function resolveAffectedTestCommand(
   if (changed === null) return null;
   const scope = deriveAffectedPackages(root, changed);
   if (scope.scope === 'full' || scope.packages.length === 0) return null;
-  const { cmd, args } = buildAffectedTestCommand(template, scope.packages);
+  const targets = affectedTestTargets(root, scope.packages);
+  const { cmd, args } = buildAffectedTestCommand(template, scope.packages, targets.projects);
   return {
     command: {
       canonical: 'test',

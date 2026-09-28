@@ -1552,8 +1552,12 @@ async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidati
         '"pnpm exec vitest run {projects}" ({projects}/{filters}/{packages} expand per package).',
     };
   }
-  const { buildAffectedTestCommand, changedPathsSinceDefault, deriveAffectedPackages } =
-    await import('./affected-packages.js');
+  const {
+    affectedTestTargets,
+    buildAffectedTestCommand,
+    changedPathsSinceDefault,
+    deriveAffectedPackages,
+  } = await import('./affected-packages.js');
   const changed = changedPathsSinceDefault(executionRoot);
   if (changed === null) {
     return {
@@ -1578,7 +1582,8 @@ async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidati
         'The change touches no workspace package, so there is nothing to test by scope; use tool:test.',
     };
   }
-  const { cmd, args } = buildAffectedTestCommand(template, scope.packages);
+  const targets = affectedTestTargets(executionRoot, scope.packages);
+  const { cmd, args } = buildAffectedTestCommand(template, scope.packages, targets.projects);
   const result = await runToolCached(
     { canonical: 'test', displayName: 'test-affected', cmd, args, source: 'project-context' },
     storeRoot,
@@ -1600,6 +1605,8 @@ async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidati
       stdoutTail: result.stdoutTail,
       scope: 'affected',
       affectedPackages: scope.packages,
+      affectedProjects: targets.projects,
+      ...(targets.untested.length > 0 ? { untestedPackages: targets.untested } : {}),
     },
   };
 }
