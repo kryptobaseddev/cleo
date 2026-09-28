@@ -236,6 +236,36 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     }
   });
 
+  it('T12535: a legacy task-id counter lands in tasks_schema_meta, replacing the fresh seed', async () => {
+    const { fx, projectDb, globalDb } = await armFixture(tmpDir);
+    openProjectDb = projectDb;
+    openGlobalDb = globalDb;
+    const legacyCounter = '{"counter":42,"lastId":"T042","checksum":"legacy"}';
+    const legacy = new DatabaseSync(fx.tasksDbPath);
+    try {
+      legacy.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+      legacy
+        .prepare("INSERT INTO schema_meta (key, value) VALUES ('task_id_sequence', ?)")
+        .run(legacyCounter);
+    } finally {
+      legacy.close();
+    }
+
+    const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
+    const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
+    expect(result.outcome, `unexpected outcome: ${result.reason}`).toBe('migrated');
+
+    const sequenceIn = (table: string): string | undefined =>
+      (
+        projectDb.prepare(`SELECT value FROM ${table} WHERE key = 'task_id_sequence'`).get() as
+          | { value: string }
+          | undefined
+      )?.value;
+    // The runtime reads the prefixed twin; the bare one receives nothing.
+    expect(sequenceIn('tasks_schema_meta')).toBe(legacyCounter);
+    expect(sequenceIn('schema_meta')).toBeUndefined();
+  });
+
   it('AC1: second open is a no-op (idempotent) — does not re-migrate', async () => {
     const { fx, projectDb, globalDb } = await armFixture(tmpDir);
     openProjectDb = projectDb;

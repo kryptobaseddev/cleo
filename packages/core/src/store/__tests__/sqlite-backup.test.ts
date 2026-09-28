@@ -26,7 +26,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * In-memory stand-in for the project `cleo.db` `schema_meta` table, where the
+ * In-memory stand-in for the project `cleo.db` `tasks_schema_meta` table, where the
  * T12508 snapshot gate persists its debounce state. Recreated per test.
  */
 let gateStateDb: DatabaseSync;
@@ -92,7 +92,7 @@ describe('sqlite-backup', () => {
     vi.resetModules();
     vi.clearAllMocks();
     gateStateDb = new DatabaseSync(':memory:');
-    gateStateDb.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    gateStateDb.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
   });
 
   it('is non-fatal when getNativeDb() returns null', async () => {
@@ -312,7 +312,7 @@ describe('sqlite-backup', () => {
     }));
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
-    // First call snapshots and persists the start time in schema_meta.
+    // First call snapshots and persists the start time in tasks_schema_meta.
     await vacuumIntoBackup();
     const callCountAfterFirst = execMock.mock.calls.length;
     expect(callCountAfterFirst).toBeGreaterThan(0);
@@ -555,7 +555,7 @@ describe('sqlite-backup', () => {
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(tempDir, { recursive: true });
     const tasksDb = new DatabaseSync(join(tempDir, 'tasks-live.db'));
-    tasksDb.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    tasksDb.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     tasksDb.exec('CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1)');
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb, getDb: async () => null }));
     vi.doMock('../memory-sqlite.js', () => ({
@@ -608,7 +608,7 @@ describe('sqlite-backup', () => {
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(tempDir, { recursive: true });
     const shared = new DatabaseSync(join(tempDir, 'cleo.db'));
-    shared.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    shared.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     const realExec = shared.exec.bind(shared);
     let vacuums = 0;
     shared.exec = (sql: string): void => {
@@ -654,7 +654,7 @@ describe('sqlite-backup', () => {
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(tempDir, { recursive: true });
     const shared = new DatabaseSync(join(tempDir, 'cleo.db'));
-    shared.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    shared.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     const realExec = shared.exec.bind(shared);
     let vacuums = 0;
     shared.exec = (sql: string): void => {
@@ -761,7 +761,7 @@ describe('sqlite-backup', () => {
       [dbA, 'A'],
       [dbB, 'B'],
     ] as const) {
-      db.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+      db.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
       db.exec(`CREATE TABLE marker (who TEXT); INSERT INTO marker VALUES ('${who}')`);
     }
     const projectOf = (cwd?: string): 'a' | 'b' => (cwd === join(root, 'b') ? 'b' : 'a');
@@ -807,7 +807,7 @@ describe('sqlite-backup', () => {
     mkdirSync(cleoB, { recursive: true });
     mkdirSync(join(root, 'a', '.cleo'), { recursive: true });
     const foreign = new DatabaseSync(join(root, 'a', '.cleo', 'cleo.db'));
-    foreign.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    foreign.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => foreign, getDb: async () => null }));
     vi.doMock('../memory-sqlite.js', () => ({
       getBrainNativeDb: () => null,
@@ -845,7 +845,7 @@ describe('sqlite-backup', () => {
     seed.exec('CREATE TABLE t (x INTEGER)');
     seed.close();
     const tasksDb = new DatabaseSync(join(cleoDir, 'cleo.db'));
-    tasksDb.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    tasksDb.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb, getDb: async () => null }));
     vi.doMock('../memory-sqlite.js', () => ({
       getBrainNativeDb: () => null,

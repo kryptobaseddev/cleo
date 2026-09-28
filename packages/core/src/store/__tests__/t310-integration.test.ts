@@ -1045,9 +1045,9 @@ describe('T310: conduit + signaldock integration', () => {
     const tasksDb = new DatabaseSync(tasksPath);
     const brainDb = new DatabaseSync(brainPath);
     const sdDb = new DatabaseSync(sdPath);
-    // T12508: the snapshot gate persists its debounce in `schema_meta`.
+    // T12508: the snapshot gate persists its debounce in `tasks_schema_meta`.
     tasksDb.exec(
-      'CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
     );
 
     // Mock the native DB getters and path helpers

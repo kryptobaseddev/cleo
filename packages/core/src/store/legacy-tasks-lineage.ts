@@ -49,8 +49,6 @@
  * @task T12346
  */
 
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { getLogger } from '../logger.js';
@@ -63,6 +61,7 @@ import { resolveConsolidatedTableName } from './exodus/table-name-map.js';
 import { orderTablesForCopy } from './exodus/table-order.js';
 import { sanitizeMigrationStatements, stripSqlComments } from './migration-manager.js';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
+import { writePreRepairSnapshot } from './pre-repair-snapshot.js';
 
 const log = getLogger('legacy-tasks-lineage');
 
@@ -310,11 +309,7 @@ export function rebuildLegacyTasksLineage(
       lineage.get(o.name) === o.type && !shared.has(o.name) && o.name !== '__drizzle_migrations',
   );
 
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupDir = join(dirname(dbPath), 'backups');
-  mkdirSync(backupDir, { recursive: true });
-  const snapshotPath = join(backupDir, `cleo-pre-t12346-lineage-rebuild-${stamp}.db`);
-  nativeDb.exec(`VACUUM INTO '${snapshotPath.replace(/'/g, "''")}'`);
+  const snapshotPath = writePreRepairSnapshot(nativeDb, dbPath, 't12346-lineage-rebuild');
 
   const lineageHashes = migrations.map((m) => m.hash);
   const order: readonly SchemaObjectKind[] = ['trigger', 'view', 'index', 'table'];

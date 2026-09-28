@@ -400,10 +400,10 @@ function runImport(
         .get() as { m: number }
     ).m,
   );
-  const counterRow = hasTable(target, 'schema_meta')
+  const counterRow = hasTable(target, 'tasks_schema_meta')
     ? (target
         .prepare(
-          `SELECT json_extract(value, '$.counter') AS c FROM schema_meta WHERE key = 'task_id_sequence'`,
+          `SELECT json_extract(value, '$.counter') AS c FROM tasks_schema_meta WHERE key = 'task_id_sequence'`,
         )
         .get() as { c: number | null } | undefined)
     : undefined;

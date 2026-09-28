@@ -88,6 +88,11 @@ export const SANCTIONED = new Set([
   'packages/core/src/store/service-connections-accessor.ts',
   'packages/core/src/store/sqlite-data-accessor.ts',
   'packages/core/src/store/umbrella-data-accessor.ts',
+  // T12535: the atomic twin collapses. They run on the chokepoint handle
+  // inside the tasks/brain domain bind (before any accessor exists for that
+  // bind), and the accessors import the modules that call them, so the merge
+  // SQL cannot live in an accessor without an import cycle.
+  'packages/core/src/store/twin-collapse.ts',
 ]);
 
 /** Files whose SQL words are prose only, never executed. File → reason. */
