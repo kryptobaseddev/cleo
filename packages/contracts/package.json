@@ -22,6 +22,10 @@
       "types": "./dist/config/index.d.ts",
       "import": "./dist/config/index.js"
     },
+    "./cloud": {
+      "types": "./dist/cloud/index.d.ts",
+      "import": "./dist/cloud/index.js"
+    },
     "./config.js": {
       "types": "./dist/config/index.d.ts",
       "import": "./dist/config/index.js"
